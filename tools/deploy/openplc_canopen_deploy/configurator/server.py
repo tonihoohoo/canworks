@@ -29,12 +29,12 @@ import urllib.parse
 import webbrowser
 import zipfile
 
-from .. import __version__, contract, dbcexport, dcfexport, diag, editorproject, edslint, project as project_mod
+from .. import __version__, axis, contract, dbcexport, dcfexport, diag, editorproject, edslint, project as project_mod
 from .. import eds as eds_mod
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES
-from . import declare, layout, online, params, scan, tracing
+from . import cia402map, declare, layout, online, params, scan, tracing
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 TOKEN_HEADER = "X-CANopen-Token"
@@ -538,6 +538,9 @@ class Session:
             decls = declare.declarations(
                 cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), declared)
             block = declare.st_block(decls)
+            axes = axis.text_block(cfg, decls)
+            if axes:
+                block = (block + "\n" if block else "") + axes
         except (KeyError, TypeError, ValueError, AttributeError):
             pass  # the contract errors already say what is wrong with the entries
         errors = sum(1 for i in items if i["level"] == "error")
@@ -664,6 +667,25 @@ class Session:
         pdos = n.get("tx_pdos" if direction == "input" else "rx_pdos") or []
         pdo, reason = layout.pack(pdos, type_name, count)
         return {"location": layout.suggest(area, size, used, start), "pdo": pdo, "reason": reason}
+
+    # -- CiA 402 axis -------------------------------------------------------
+    def map_cia402(self, cfg, node, start=None, network=0):
+        """Node `node` of network `network` (an index) of the draft with the
+        standard CiA 402 objects its EDS has put into PDOs (cia402map), and
+        its status bit when it has none: {node, mapped, missing}. Suggested
+        locations skip those of every network. Nothing is saved."""
+        if not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        try:
+            n = contract.networks(cfg)[int(network or 0)]["nodes"][int(node)]
+        except (KeyError, IndexError, TypeError, ValueError):
+            raise ApiError(400, "no node %r in the config" % node)
+        info = self.eds_info([n.get("eds")]).get(n.get("eds"), {}) if n.get("eds") else {}
+        if not info or info.get("error"):
+            raise ApiError(400, info.get("error") or "the node has no EDS file")
+        start = layout.DEFAULT_START if start in (None, "") else int(start)
+        new, mapped, missing = cia402map.map_objects(n, info, layout.taken(cfg, self.uses), start)
+        return {"node": new, "mapped": mapped, "missing": missing}
 
     # -- save ---------------------------------------------------------------
     def save(self, cfg, allow_overlap=False, overwrite=False):
@@ -936,6 +958,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._need_open(s)
                     out = s.place(body.get("config"), body.get("node"), body.get("direction"), body.get("type"),
                                   body.get("start"), body.get("network", 0))
+                elif route == ("POST", "/api/map_cia402"):
+                    self._need_open(s)
+                    out = s.map_cia402(body.get("config"), body.get("node"), body.get("start"),
+                                       body.get("network", 0))
                 elif route == ("POST", "/api/save"):
                     self._need_open(s)
                     out = s.save(body.get("config"), bool(body.get("allow_overlap")), bool(body.get("overwrite")))

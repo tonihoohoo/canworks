@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openplc-canopen-deploy"
-version = "0.25.0"
+version = "0.26.0"
 description = "Configures CANopen for OpenPLC (openplc-canopen-config), deploys it to an OpenPLC Runtime v4 (openplc-canopen-deploy) and reads the live network (openplc-canopen-diag)"
 readme = "README.md"
 requires-python = ">=3.8"

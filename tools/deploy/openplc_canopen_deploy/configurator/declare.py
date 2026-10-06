@@ -157,13 +157,17 @@ def program_order(decls):
 
 
 def editor_block(decls, indent="  "):
-    """A VAR block in the editor's own form (`name : TYPE AT loc; (* text *)`),
-    indented as the editor writes a program's variables."""
+    """A VAR block in the editor's own form (`name : TYPE AT loc; (* text *)`,
+    `name : TYPE;` for a declaration without a location), indented as the
+    editor writes a program's variables."""
     lines = [indent + "VAR"]
     if decls:
         width = max(len(d["name"]) for d in decls)
         for d in decls:
-            line = "%s  %s : %s AT %s;" % (indent, d["name"].ljust(width), d["type"], d["location"])
+            if d.get("location"):
+                line = "%s  %s : %s AT %s;" % (indent, d["name"].ljust(width), d["type"], d["location"])
+            else:  # a plain variable (a CiA 402 axis and its bridge)
+                line = "%s  %s : %s;" % (indent, d["name"].ljust(width), d["type"])
             text = comment_text(d.get("description"))
             if text:
                 line += " (* %s *)" % text

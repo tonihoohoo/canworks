@@ -41,8 +41,12 @@
 #include "fake_runtime.hpp"
 #include "log.h"
 #include "network.h"
+#include "cia402_slave.hpp"
 #include "pingpong_slave.hpp"
 #include "sensor_slave.hpp"
+#ifdef CIA402_PROGRAM
+#include "program_host.h"
+#endif
 #include "process_image.h"
 
 // From <lely/co/lss.h>, which does not mix with the C++ headers.
@@ -565,6 +569,15 @@ class Sim {
     slaves_[id].reset(new SlaveBox(ctrl_, [=, &made](io::TimerBase& t, io::CanChannelBase& c) {
       return made = new VendorDriveSlave(t, c, eds, id, mem, has_position);
     }));
+    return made;
+  }
+
+  // A CiA 402 drive (test/drive/cia402_slave.hpp), moving on its own thread.
+  Cia402Slave* StartCia402Drive(uint8_t id, const std::string& eds) {
+    Cia402Slave* made = nullptr;
+    slaves_[id].reset(new SlaveBox(
+        ctrl_, [=, &made](io::TimerBase& t, io::CanChannelBase& c) { return made = new Cia402Slave(t, c, eds, id); },
+        [](canopen::BasicSlave& s) { static_cast<Cia402Slave&>(s).Start(); }));
     return made;
   }
 
@@ -3079,6 +3092,72 @@ TEST(sim_lss_diag_read_only) {
   sim->RunFor(milliseconds(200));
   CHECK(sim->lss_total() == 0);
   delete sim;
+}
+
+// ---------------------------------------------------------------------------
+// CiA 402 axis: the example's demo program (config/cia402-drive/drive_demo.st),
+// compiled by STruC++ with the editor's PLCopen motion blocks, runs as the PLC
+// program against a simulated CiA 402 drive through the real master: power
+// on, homing, a move to 1000, 2 s at 200 units/s, halt; then a drive fault
+// and a lost drive, each followed by the fault reset and a new run.
+
+TEST(sim_cia402_demo) {
+#ifndef CIA402_PROGRAM
+  const char* need = std::getenv("CANOPEN_REQUIRE_STRUCPP");
+  std::printf("    not built: configure with -DSTRUCPP=$(scripts/fetch-strucpp.sh) to run the CiA 402 demo program\n");
+  CHECK_MSG(!(need && std::string(need) == "1"), "CANOPEN_REQUIRE_STRUCPP=1 but the CiA 402 program was not built");
+#else
+  clear_logs();
+  std::string dir = make_dir(read(std::string(CIA402_DIR) + "/canopen_config.json"),
+                             {{"servo402.eds", read(std::string(CIA402_DIR) + "/servo402.eds")}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  if (!sim->ok()) {
+    CHECK(sim->ok());
+    return;
+  }
+  program_host::Reset();
+  CHECK(program_host::LocatedCount() == 10);
+  auto t0 = steady_clock::now();
+  sim->SetProgram([t0](fake_runtime::Image& plc) {
+    program_host::Image img{plc.bool_in, plc.bool_out, plc.byte_in, plc.byte_out, plc.int_in,
+                            plc.int_out, plc.dint_in, plc.dint_out, fake_runtime::kSize};
+    program_host::Scan(img, std::chrono::duration_cast<std::chrono::nanoseconds>(steady_clock::now() - t0).count());
+  });
+  Cia402Slave* drive = sim->StartCia402Drive(4, dir + "/servo402.eds");
+  sim->net().Start();
+  auto step = [] { return program_host::Step(); };
+  auto where = [&] {
+    return "step " + std::to_string(step()) + ", drive state " + std::to_string(drive->state.load()) + ", position " +
+           std::to_string(drive->position.load()) + ", velocity " + std::to_string(drive->velocity.load()) +
+           ", %IW100 " + std::to_string(sim->uw(100));
+  };
+
+  // Power on, home, move to 1000.
+  CHECK_MSG(sim->RunUntil([&] { return step() == 30; }, seconds(20)), where());
+  CHECK_MSG(drive->position == 1000, where());
+  CHECK(sim->status());
+  // 200 units/s in profile velocity, then halt after 2 s.
+  CHECK_MSG(sim->RunUntil([&] { return drive->velocity == 200; }, seconds(3)), where());
+  CHECK_MSG(sim->RunUntil([&] { return step() == 50; }, seconds(5)), where());
+  CHECK_MSG(drive->velocity == 0 && drive->state == 4, where());
+  CHECK(drive->position > 1300);
+  std::printf("    demo done: %s\n", where().c_str());
+
+  // A drive fault: the program resets it and runs the sequence again.
+  drive->fault = true;
+  CHECK_MSG(sim->RunUntil([&] { return step() == 90; }, seconds(2)), where());
+  sim->RunFor(milliseconds(300));
+  drive->fault = false;
+  CHECK_MSG(sim->RunUntil([&] { return step() == 30; }, seconds(20)), where());
+  CHECK(drive->fault_resets >= 1);
+
+  // The drive goes away: the status bit drops and the axis is in error stop.
+  sim->KillSlave(4);
+  CHECK_MSG(sim->RunUntil([&] { return !sim->status() && step() == 90; }, seconds(3)), where());
+  CHECK(!logged("boot failed"));
+  delete sim;
+#endif
 }
 
 int main(int argc, char** argv) {

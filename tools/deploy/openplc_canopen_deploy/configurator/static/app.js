@@ -940,6 +940,7 @@ function renderNode(view, i) {
           "Optional. Error code of the node's latest emergency message, 0 when no error is active (after its error reset or a restart). Every EMCY is also logged. Empty: not mapped."),
         nodeInput("Error register", "errreg", "error_register_location", "%IB…",
           "Optional. Error register (object 0x1001 bits) from the latest emergency message, 0 after a restart. Empty: not mapped."))),
+    axisFields(i, eds),
     nodeAdvanced(i, eds));
   if (eds && eds.error) view.append(el("p", { class: "field-msg" }, eds.error));
   for (const [key, dir, title] of [["tx_pdos", "input", "Inputs (TPDOs, slave to PLC)"],
@@ -947,6 +948,60 @@ function renderNode(view, i) {
     view.append(renderPdos(i, key, dir, title, eds));
   }
   view.append(renderObjects(i, eds), renderSdos(i, eds), renderSdoVars(i, eds));
+}
+
+// The node as a CiA 402 axis for the editor's PLCopen motion blocks: the
+// `axis` object (left out when off) with its scaling, and "Map CiA 402
+// objects" (/api/map_cia402), which puts the standard objects into PDOs.
+function axisFields(i, eds) {
+  const base = `nodes[${i}]`;
+  const n = S.config.nodes[i];
+  const on = !!n.axis && typeof n.axis === "object";
+  const box = el("input", { type: "checkbox", dataset: { path: base + ".axis" } });
+  box.checked = on;
+  box.addEventListener("change", () => { setPath(base + ".axis", box.checked ? {} : undefined); render(); });
+  const fs = el("fieldset", { dataset: { axis: base } }, el("legend", null, "CiA 402 axis"),
+    el("div", { class: "check-field" },
+      el("label", { class: "check" }, box, " Use as a CiA 402 axis"),
+      hint("The generated program declares an axis (AXIS_REF_SM3) for this node and calls the editor's CiA 402 drive bridge first in every scan, so MC_Power, MC_MoveAbsolute, MC_MoveVelocity and the other motion blocks drive it. Default: off."),
+      el("span", { class: "field-msg", dataset: { for: base + ".axis" } })));
+  if (!on) return fs;
+  const dt = objectInfo(eds, "0x1000", 0);
+  const value = dt ? num(dt.default) : NaN;
+  if (eds && !eds.error && !(Number.isFinite(value) && (value & 0xFFFF) === 402))
+    fs.append(el("p", { class: "field-msg warning", dataset: { axisProfile: "" } },
+      "The EDS device type (0x1000) does not say device profile 402. Check that this device is a CiA 402 drive."));
+  if (!n.status_location)
+    fs.append(el("p", { class: "field-msg", dataset: { axisStatus: "" } },
+      "An axis needs the status bit (under Supervision): the axis goes into error stop when the drive is lost."));
+  fs.append(el("div", { class: "grid" },
+    field("Scale numerator", base + ".axis.scale_numerator", "int", { placeholder: "1",
+      hint: "Drive increments for 'denominator' units of the program (10: a move of 25 units is 250 increments). Empty: 1." }),
+    field("Scale denominator", base + ".axis.scale_denominator", "intstr", { placeholder: "1",
+      hint: "Program units the numerator's increments stand for. Empty: 1." }),
+    field("Scale factor", base + ".axis.scale_factor", "text", { placeholder: "1.0",
+      parse: (t) => (/^-?[0-9]*\.?[0-9]+(e-?[0-9]+)?$/i.test(t) ? Number(t) : t), hint: "The motion library's extra scale factor on that ratio. Empty: 1.0." })));
+  const result = el("div", { dataset: { axisResult: "" } });
+  fs.append(el("div", { class: "toolbar" },
+    el("button", { type: "button", dataset: { mapCia402: base }, disabled: !eds || !!eds.error, onclick: async () => {
+      const r = await api("POST", "/api/map_cia402", { config: fileConfig(), network: S.net, node: i });
+      S.config.nodes[i] = r.node;
+      S.axisResult = { node: i, mapped: r.mapped, missing: r.missing };
+      changed(true);
+    } }, "Map CiA 402 objects"),
+    hint("Puts the drive's controlword, statusword, modes, positions, velocities and torques that are not mapped yet into its PDOs, with suggested locations, as the drive's own default mapping has them where it can.")),
+    result);
+  const last = S.axisResult && S.axisResult.node === i ? S.axisResult : null;
+  if (last) {
+    const lines = [];
+    lines.push(el("p", { class: "muted" }, last.mapped.length
+      ? "Mapped: " + last.mapped.map((m) => m.index ? `${m.index} ${m.name} (${m.pdo}, ${m.location})` : `${m.name} ${m.location}`).join("; ") + "."
+      : "Nothing new to map."));
+    if (last.missing.length)
+      lines.push(el("ul", { class: "field-msg warning" }, ...last.missing.map((m) => el("li", null, `${m.index} ${m.name}: ${m.reason}`))));
+    result.append(...lines);
+  }
+  return fs;
 }
 
 function nodeAdvanced(i, eds) {

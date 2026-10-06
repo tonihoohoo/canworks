@@ -658,6 +658,31 @@
             }
           }
         },
+        "axis": {
+          "description": "The node is a CiA 402 drive used by the PLC program as one PLCopen axis (AXIS_REF_SM3 of the editor's built-in PLCopen SoftMotion library), named after the node. Its standard objects (0x6040, 0x6041, ...) are found in the node's PDO mapping; needs status_location. The plugin does nothing different on the bus. See docs/cia402.md.",
+          "type": "object",
+          "properties": {
+            "scale_numerator": {
+              "description": "Axis iRatioTechUnitsNum (DINT): increments per technical unit together with scale_denominator and scale_factor. Default 1.",
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "scale_denominator": {
+              "description": "Axis dwRatioTechUnitsDenom (DWORD). Default 1.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            },
+            "scale_factor": {
+              "description": "Axis fScalefactor (LREAL), not 0. Default 1.0.",
+              "type": "number",
+              "not": {
+                "const": 0
+              }
+            }
+          }
+        },
         "software_file": {
           "description": "Program file the master downloads to the node (0x1F50) when its software version (0x1F56) differs from software_version. Relative to the config folder.",
           "type": "string",

@@ -9,7 +9,7 @@ import shutil
 import tempfile
 import unittest
 
-from openplc_canopen_deploy import bundle, clash, contract, dbcexport, dcfexport, editorproject
+from openplc_canopen_deploy import axis, bundle, clash, contract, dbcexport, dcfexport, editorproject
 from openplc_canopen_deploy.configurator import declare
 
 from .test_contract import FIXTURES, REPO, load_cases
@@ -165,6 +165,18 @@ class Declarations(unittest.TestCase):
         self.assertEqual(by_name["drives_pingpong_serial"]["path"],
                          "networks[1].nodes[0].sdo_variables[0].iec_location")
         self.assertIn("drives_pingpong_serial_status", by_name)
+
+    def test_cia402_axis_on_the_second_network(self):
+        cfg = two()
+        drive = cfg["networks"][1]["nodes"][0]
+        drive["name"] = "x"
+        drive["axis"] = {}
+        decls = declare.declarations(cfg, lambda i, index, sub: None, {})
+        axes, body = axis.glue(cfg, decls)
+        self.assertEqual([(d["name"], d["path"], d["node"]) for d in axes],
+                         [("drives_x", "networks[1].nodes[0].axis", 1),
+                          ("drives_x_bridge", "networks[1].nodes[0].axis.bridge", 1)])
+        self.assertIn("bOnline := drives_x_ok", body[-1])
 
     def test_one_network_unchanged(self):
         cfg = load_cases()["base"]
