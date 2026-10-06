@@ -12,7 +12,7 @@ It is off unless the config has `master.diagnostics` ([config.md](config.md#onli
 
 ## `openplc-canopen-diag`
 
-Installed with the deploy tool ([install-pc.md](install-pc.md)). The token comes from `--token`, the `OPENPLC_CANOPEN_TOKEN` environment variable, or a prompt. `--json` prints the plugin's answer as it came. A refused or failed request exits with status 1 and the reason.
+Installed with the deploy tool ([install-pc.md](install-pc.md)). The token comes from `--token`, `--token-file FILE`, the `OPENPLC_CANOPEN_TOKEN` environment variable, or a prompt. `--json` prints the plugin's answer as it came. A refused or failed request exits with status 1 and the reason.
 
 ```sh
 export OPENPLC_CANOPEN_TOKEN=...                 # Copy token in the configurator
@@ -37,9 +37,52 @@ openplc-canopen-diag hash-token                                                 
 
 `--runtime` takes `HOST` or `HOST:PORT` (default port 7531). Types are the CiA 301 names (`UNSIGNED16`, `INTEGER32`, `REAL32`, `VISIBLE_STRING`, `OCTET_STRING`, ...); `sdo-read` without `--type` prints hex bytes, and `sdo-write` takes hex bytes for `OCTET_STRING` and `DOMAIN`.
 
+### Simulated devices: `sim`
+
+`openplc-canopen-diag sim ...` controls [simulated devices](simulator.md): the plugin's, with `--runtime HOST` (token as above; everything but `status`, `get` and `scenario list` needs `allow_changes`), or a standalone `openplc-canopen-sim`, with `--sim HOST[:PORT]` (default port 7532; token only when the simulator has one, from `--token` or `--token-file`). Without either it talks to the standalone simulator on `127.0.0.1:7532`. These options may also follow the subcommand.
+
+```sh
+openplc-canopen-diag --runtime plc.local sim status
+openplc-canopen-diag --runtime plc.local sim get 5 0x7130:1 0x7130:2           # or: get 5 --pdo
+openplc-canopen-diag --runtime plc.local sim set 5 0x7130:1 450                # once; a value source moves it again
+openplc-canopen-diag --runtime plc.local sim override 5 0x7130:1 1500          # held until released
+openplc-canopen-diag --runtime plc.local sim release 5 [0x7130:1 ...]          # without objects: all of node 5
+openplc-canopen-diag --runtime plc.local sim source 5 0x7130:2 '{"sine": {"min": 200, "max": 260, "period_s": 10}}'
+openplc-canopen-diag --runtime plc.local sim source 5 0x7130:2 none
+openplc-canopen-diag sim fault 5 emcy 0x5000 --register 1 --runtime plc.local
+openplc-canopen-diag --runtime plc.local sim clear 5 emcy                      # or: clear 5 all
+openplc-canopen-diag --sim 127.0.0.1 sim scenario list                         # start NAME | stop NAME
+openplc-canopen-diag --sim 127.0.0.1 sim test --scenario sensor-break --junit results.xml
+```
+
+`NODE` is a node ID or the name of an extra device. Objects are written `0xIIII:S` (`0xIIII` is subindex 0). Values are numbers (decimal, `0x` hex or with a decimal point; `true` and `false` are 1 and 0); anything else is sent as a string, for VISIBLE_STRING objects. A source is the JSON of the simulation file's value sources, or `none` to remove it.
+
+`fault NODE KIND ...` takes these kinds, each sending the fault of the same name in [Faults](simulator.md#faults):
+
+| Kind | Arguments |
+|---|---|
+| `emcy` | `CODE [--register N] [--msef HEX] [--period-ms N]` (`--msef`: 5 bytes as 10 hex digits) |
+| `heartbeat-stop` | |
+| `power` | `off`, `on` or `cycle [--off-ms N]` |
+| `reset` | `node` or `comm` |
+| `nmt` | `stopped`, `preop` or `operational` |
+| `sdo-abort` | `OBJ CODE [--on read\|write\|both] [--count N]` |
+| `sdo-delay` | `MS [--object OBJ]` |
+| `refuse-write-operational` | |
+| `tpdo-stop` | `N` |
+| `identity` | `[--vendor-id N] [--product-code N] [--revision-number N] [--serial-number N]`, at least one |
+| `device-type` | `VALUE` |
+| `forget-node-id` | |
+| `drive-input` | `--blocked`, `--positive-limit`, `--negative-limit`, `--home-switch` set an input, `--no-blocked` ... clear it; inputs not named stay as they are |
+| `json` | the fault's JSON, e.g. `'{"heartbeat": "stop"}'` |
+
+`clear NODE KIND` takes the same names (`emcy`, `heartbeat`, `power`, `sdo-abort`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `identity`, `device-type`, `drive-input`) or `all`; `--object OBJ` clears only that object's `sdo-abort` rule and `--tpdo N` only that TPDO's `tpdo-stop`.
+
+`sim test` runs scenarios as tests of a PLC program: each `--scenario NAME` (repeatable), or every scenario with `--all`, one after another (`--parallel`: together). It starts each with `sim_scenario_start`, polls `sim_scenario_list` until it passed, failed or was stopped, and stops a scenario that still runs after `--timeout` seconds in all (default 300). It prints one line per scenario (`PASS`, `FAIL`, `TIMEOUT` or `NOT RUN`, the time, and the scenario's message) and a summary, writes a JUnit XML report with `--junit FILE` (one test case per scenario; failed, stopped and timed-out ones have a `failure`), and exits 0 when every scenario passed, 1 when one did not, and 2 on a usage error, an unknown scenario or when it cannot connect or start a scenario.
+
 ## What it offers
 
-- **Status**: plugin version, time since the CANopen session started, the SHA-256 of the loaded `canopen.json`, the master's node ID and NMT state, the bus state and error counters (whether or not their PLC locations are configured), and per configured node its NMT state, status bit, whether it booted, the boot error letter with Lely's text, whether a boot retry is pending, the hold in force and who set it, its last EMCY and how many it sent, and each SDO variable's raw value, status and abort code. Between CANopen sessions (interface missing or down) the answer has `"session": false`, bus state 0 and every node 0.
+- **Status**: plugin version, time since the CANopen session started, the SHA-256 of the loaded `canopen.json`, the master's node ID and NMT state, the bus state and error counters (whether or not their PLC locations are configured), `simulated_network` (true when `adapter.simulate` is on), and per configured node whether it is `simulated`, its NMT state, status bit, whether it booted, the boot error letter with Lely's text, whether a boot retry is pending, the hold in force and who set it, its last EMCY and how many it sent, and each SDO variable's raw value, status and abort code. Between CANopen sessions (interface missing or down) the answer has `"session": false`, bus state 0 and every node 0.
 - **EMCY history**: the last 16 emergency messages of a configured node, newest first, with UTC time, code, error register and manufacturer bytes. Recorded before the log's rate limit, so a burst is complete here even when the log summarizes it.
 - **SDO read and write**: any node ID except the master's, configured or not, any object, up to 4096 bytes, timeout 10-10000 ms (default 1000). Requests to a configured node wait for its boot configuration and for the program's triggered SDO variables, and go before its periodic SDO variable reads. Writes are logged with the client's address. A write to an object an SDO variable or the boot configuration also writes lasts until that next write: the program and the config win.
 - **NMT** (configured nodes only): `stop` and `preop` hold the node there, also across a reboot, like the program's NMT command byte; `start` releases the hold. Whichever comes last wins: the program changing its byte replaces an operator's hold, and the other way round. `reset` and `reset-comm` reboot the node and the master configures it again. Each is logged with the client's address.
@@ -98,8 +141,9 @@ A wrong token closes the connection without an answer. The answer carries `proto
 | `trace_start` | `filters` (optional list of `{"id", "mask"}`, at most 16), `error_frames` (default false) | `next` (the sequence number to fetch after), `buffer_frames` (65536), `record_size` (24), `interface`, `bitrate` |
 | `trace_fetch` | `after` (the last sequence number received), `max` (1-4000, default 2000) | `count`, `next`, `more` (more frames are waiting), `lost` (frames the ring overwrote before this client fetched them), `kernel_drops` (frames the kernel dropped since tracing started), `session`, `frames` |
 | `trace_stop` | | ends this client's trace |
+| `sim_status`, `sim_get`, `sim_set`, `sim_override`, `sim_release`, `sim_source`, `sim_fault`, `sim_clear`, `sim_scenario_list`, `sim_scenario_start`, `sim_scenario_stop`, `sim_check_expr` | see [simulator.md](simulator.md#control-protocol) | the plugin's simulated devices; `nothing simulated` when the config simulates nothing, `node N is not simulated` for a node it does not simulate |
 
-Numbers may also be given as strings (`"0x1018"`). `sdo_write`, `nmt` and the `lss_` ops except `lss_find_status` answer `changes not allowed` unless the config has `allow_changes: true`. Requests other than `status` answer `no bus` while there is no CANopen session.
+Numbers may also be given as strings (`"0x1018"`). `sdo_write`, `nmt`, the `lss_` ops except `lss_find_status`, and the `sim_` ops except `sim_status`, `sim_get`, `sim_scenario_list` and `sim_check_expr` answer `changes not allowed` unless the config has `allow_changes: true`. Requests other than `status` answer `no bus` while there is no CANopen session.
 
 ### Trace records
 

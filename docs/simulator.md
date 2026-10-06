@@ -292,7 +292,7 @@ Objects are `"0xIIII:S"`; `node` is a node ID or the name of an extra device. Va
 
 | `op` | Fields | Result |
 |---|---|---|
-| `sim_status` | | `simulated_network`, `interface`, `devices` (each: `node`, `name`, `eds`, `profile`, `power` on/off, `nmt` (bootup, stopped, operational, preop), `conflict`, `faults`, `sources`, `overrides`), `scenarios` (each: `name`, `state` idle/running/passed/failed/stopped, `step`, `message`) |
+| `sim_status` | | `simulated_network`, `interface`, `devices` (each: `node`, `name`, `eds`, `profile`, `power` on/off, `nmt` (bootup, stopped, operational, preop), `conflict`, `faults` (the fault objects in force), `sources` (object → source), `overrides` (object → value)), `scenarios` (each: `name`, `state` idle/running/passed/failed/stopped, `step`, `message`) |
 | `sim_get` | `items`: list of `{"node", "object"}`, or `node` with `pdo: true` (every object in the device's active PDOs) | `values`: list of `{"node", "object", "value", "type"}` or `{"node", "object", "error"}` |
 | `sim_set` | `node`, `values`: object → value | |
 | `sim_override` | `node`, `values` | |

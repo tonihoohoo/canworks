@@ -30,7 +30,7 @@ Instead of `--bundle`, `--project <project>` runs `openplc-cli compile <project>
 The tool:
 
 1. reads the config and checks it the way the plugin does at PLC start: the JSON Schema for its `schema_version`, the checks the schema cannot express, and the EDS checks (object exists, PDO-mappable, `DataType`, `AccessType`, startup SDO value range). A problem stops the deploy, naming the file and JSON path, with the plugin's own wording for EDS problems;
-2. copies the bundle, adds `conf/canopen.json` and each EDS file as `conf/canopen/eds/<file>`, and rewrites each node's `eds` to `canopen/eds/<file>`. Every other file, including other plugins' configs such as `conf/ethercat.json`, stays byte for byte as the editor wrote it;
+2. copies the bundle, adds `conf/canopen.json` and each EDS file as `conf/canopen/eds/<file>`, and rewrites each node's `eds` to `canopen/eds/<file>`, plus the simulation file and its files when there is one ([Simulated devices](#simulated-devices)). Every other file, including other plugins' configs such as `conf/ethercat.json`, stays byte for byte as the editor wrote it;
 3. checks IEC addresses across every plugin config in `conf/*.json` (below);
 4. logs in (`POST /api/login`), uploads (`POST /api/upload-file`), follows `/api/compilation-status` and prints the runtime's build log;
 5. starts the PLC (`/api/start-plc`), which the runtime leaves stopped after an upload, and waits until `/api/status` reports it running. `--no-start` leaves it stopped.
@@ -38,6 +38,22 @@ The tool:
 It exits 0 only when the runtime reports a successful build, its log shows the `canopen` plugin enabled and the PLC runs (or `--no-start` was given). When the device's run/stop switch is at STOP the start is refused and the tool says so.
 
 Nothing is uploaded when a check fails.
+
+## Simulated devices
+
+A config can simulate the network or some of its nodes (`adapter.simulate` and node `simulate`, see [simulator.md](simulator.md)), and a simulation file sets how the simulated devices behave.
+
+**The simulation file.** `simulation.json` next to the config is used when it exists; `--sim FILE` names another. Every mode except the DCF and DBC exports checks it after the config: the [simulation file schema](../schema/canopen-sim.v1.schema.json) and its `schema_version` (a newer one is refused, naming both versions), node keys that are neither configured nodes nor extra devices, objects that are not in the device's EDS (in sources, faults, scenario steps and conditions), value sources on objects the master writes (naming the RPDO, "startup SDO" or the SDO variable), extra devices (the EDS or DCF file exists, node 0 has a name, names are unique, node IDs are free), CSV files that do not exist, and every expression with the grammar of [Expressions](simulator.md#expressions), including reference cycles. A problem stops the deploy like a config problem, naming the file, the JSON path and, for an expression, the position in its text. The bundle gets:
+
+| File | In the bundle | Path in `simulation.json` |
+|---|---|---|
+| the simulation file | `conf/canopen/simulation.json` | |
+| an extra device's EDS or DCF | `conf/canopen/eds/<file>`, next to the node EDS files (converted to UTF-8 like them) | `eds/<file>` |
+| a CSV file of a value source | `conf/canopen/sim/<file>` | `sim/<file>` |
+
+Paths in the simulation file are relative to it, so the rewritten paths point into `conf/canopen/`. Two different files with the same name are refused; rename one. `--into-project` and `--new-project` write the simulation file as `canopen/simulation.json` and its EDS, DCF and CSV files next to it in the project's `canopen/` folder, each path in the file rewritten to the bare file name, as for node EDS files.
+
+**The question before uploading.** When the config simulates the network or any node, the tool says what is simulated before it uploads ("the network is simulated; no CAN interface is used", or "nodes 5, 7 are simulated devices on the real network can0") and asks whether to upload it. `--simulated` (or `--yes`) uploads without asking. Without a terminal to ask on and without either option, the tool stops before building the bundle and names the option that uploads it anyway. `--check-only`, `--into-project` and `--new-project` print the same as a warning. Outputs to a simulated device go nowhere, so never leave a machine's config simulated.
 
 ## Into an editor project
 
@@ -143,4 +159,4 @@ The password is read from `$OPENPLC_PASSWORD` or an interactive prompt, never fr
 
 ## Exit status
 
-0: deployed, the runtime built the program and enabled CANopen. 1: a check failed (nothing uploaded), the runtime rejected the login or the upload, its build failed (the log is printed), or it did not enable the `canopen` plugin (it is not installed, see [install-stock.md](install-stock.md)). 2: usage error.
+0: deployed, the runtime built the program and enabled CANopen. 1: a check failed (nothing uploaded), an upload with simulated devices was not confirmed, the runtime rejected the login or the upload, its build failed (the log is printed), or it did not enable the `canopen` plugin (it is not installed, see [install-stock.md](install-stock.md)). 2: usage error.
