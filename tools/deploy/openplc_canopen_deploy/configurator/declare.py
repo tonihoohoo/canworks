@@ -69,7 +69,7 @@ def declarations(cfg, object_name, declared):
         names.add(name.lower())
         return name
 
-    def network(master, nodes, at, net, desc, base):
+    def network(master, nodes, at, net, desc, first):
         for key, _, name, iec_type in MASTER_LOCATIONS:
             if parse_location(master.get(key)):
                 path = at + "master." + key
@@ -77,13 +77,13 @@ def declarations(cfg, object_name, declared):
                             "path": path, "declared_as": declared.get(path), "node": None, "kind": "diag",
                             "description": desc + MASTER_TEXT[key]})
 
-        for i, n in enumerate(nodes, base):
+        for i, n in enumerate(nodes, first):
             prefix = net + identifier(n.get("name") or "node%s" % n.get("node_id"))
             who = desc + ("node %s (%s)" % (n.get("name"), n.get("node_id")) if n.get("name")
                           else "node %s" % n.get("node_id"))
             for key, _, suffix, iec_type in NODE_LOCATIONS:
                 if parse_location(n.get(key)):
-                    path = at + "nodes[%d].%s" % (i - base, key)
+                    path = at + "nodes[%d].%s" % (i - first, key)
                     out.append({"name": unique("%s_%s" % (prefix, suffix)), "location": n[key].strip(),
                                 "type": iec_type, "path": path, "declared_as": declared.get(path), "node": i,
                                 "kind": "nmt" if key == "nmt_command_location" else "diag",
@@ -98,7 +98,7 @@ def declarations(cfg, object_name, declared):
                         sub = sub if isinstance(sub, int) else int(str(sub), 0)
                         eds_name = object_name(i, index, sub)
                         label = eds_name or "x%04X_%d" % (index, sub)
-                        path = at + "nodes[%d].%s[%d].entries[%d].iec_location" % (i - base, key, j, k)
+                        path = at + "nodes[%d].%s[%d].entries[%d].iec_location" % (i - first, key, j, k)
                         pdo = "%s%s" % ("TPDO" if key == "tx_pdos" else "RPDO", p.get("number") or j + 1)
                         text = "%s %s 0x%04X:%d %s" % (who, pdo, index, sub, eds_name or "")
                         out.append({"name": unique("%s_%s" % (prefix, identifier(label))),
@@ -120,7 +120,7 @@ def declarations(cfg, object_name, declared):
                         continue
                     label = object_name(i, index, sub) or "x%04X_%d" % (index, sub)
                 base = unique("%s_%s" % (prefix, identifier(label)))
-                vp = at + "nodes[%d].sdo_variables[%d]" % (i - base, j)
+                vp = at + "nodes[%d].sdo_variables[%d]" % (i - first, j)
                 what = "%s SDO %s" % (who, v.get("direction") or "variable")
                 if index is not None:
                     what += " 0x%04X:%d %s" % (index, sub, object_name(i, index, sub) or "")

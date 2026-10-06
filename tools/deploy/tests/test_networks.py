@@ -155,6 +155,17 @@ class Declarations(unittest.TestCase):
         self.assertEqual(names[3:], ["drives_pingpong_ok", "drives_pingpong_UNSIGNED32_sent_from_slave",
                                       "drives_pingpong_UNSIGNED32_received_by_slave"])
 
+    def test_sdo_variables_per_network(self):
+        cfg = two()
+        cfg["networks"][1]["nodes"][0]["sdo_variables"] = [
+            {"index": "0x1018", "subindex": 4, "type": "UNSIGNED32", "direction": "read", "name": "serial",
+             "iec_location": "%ID200", "status_location": "%IB201"}]
+        decls = declare.declarations(cfg, lambda i, index, sub: None, {})
+        by_name = {d["name"]: d for d in decls}
+        self.assertEqual(by_name["drives_pingpong_serial"]["path"],
+                         "networks[1].nodes[0].sdo_variables[0].iec_location")
+        self.assertIn("drives_pingpong_serial_status", by_name)
+
     def test_one_network_unchanged(self):
         cfg = load_cases()["base"]
         decls = declare.declarations(cfg, lambda i, index, sub: None, {})
