@@ -243,7 +243,7 @@ Faults are given in the simulation file (`faults`, in force from the start), by 
 
 | Fault | Fields | Effect | `clear` |
 |---|---|---|---|
-| `emcy` | `code`, `register` (0), `msef` (5 bytes as hex, `"0000000000"`), `period_ms` (once) | Sends the EMCY, again every `period_ms` when given. | `emcy`: stops a periodic EMCY and sends the error reset (code 0x0000). |
+| `emcy` | `code`, `register` (0), `msef` (5 bytes as hex, `"0000000000"`), `period_ms` (once) | Sends the EMCY, again every `period_ms` when given. Refused for a device whose EDS has no 0x1014 (COB-ID EMCY): it has no EMCY producer. | `emcy`: stops a periodic EMCY and sends the error reset (code 0x0000). |
 | `heartbeat` | `"stop"` | The device stops its heartbeat but goes on working (a firmware hang the master notices). | `heartbeat` |
 | `power` | `"off"`, `"on"` or `"cycle"` (with `off_ms`, default 1000) | Off: the device sends and answers nothing. On: it boots again with the values from its file and its stored values. | `power` (powers on) |
 | `reset` | `"node"` or `"comm"` | The device resets itself and sends its boot-up. | - |
