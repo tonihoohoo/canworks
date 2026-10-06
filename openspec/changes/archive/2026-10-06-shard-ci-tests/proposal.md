@@ -38,5 +38,5 @@ The repository is public, so GitHub-hosted minutes are free and more parallel jo
 
 - `.github/workflows/ci.yml`, new `.github/workflows/integration.yml`, `.github/workflows/pc-tools.yml`, `.github/actions/build-plugin/action.yml`, README.
 - New `.github/scripts/test_shard.py` with tests in `test/ci/test_shard.py`.
-- Check names change: `plugin` stays, `vcan (1/2)`, `vcan (2/2)`, `tools (1/2)`, `tools (2/2)`, `configurator-page (1/3)` … are new. A ruleset should require only `ci-ok`.
+- Check names change: `plugin` stays, `vcan (1/2)`, `vcan (2/2)`, `tools (1/3)` … `tools (3/3)`, `configurator-page (1/3)` … are new, and `stock` and `docker` leave CI. A ruleset should require only `ci-ok`.
 - No change to the plugin, the tools or their tests.

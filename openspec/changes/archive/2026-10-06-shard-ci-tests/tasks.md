@@ -17,4 +17,5 @@
 
 ## 3. Measure
 
-- [ ] 3.1 Record the wall time and the per-job times of this PR's run in the PR description. Verify: about 3 minutes with the Lely cache warm.
+- [x] 3.1 Record the wall time and the per-job times of this PR's run in the PR description. Verify: about 3 minutes with the Lely cache warm.
+  Result: run on 4122692 took 3 min 0 s (was 4 min 50 s): plugin 1 min 40 s, vcan 2 min 31 s and 2 min 41 s, tools 1 min 46 s to 2 min 7 s, configurator-page 1 min 11 s to 1 min 46 s, then ci-ok. The integration workflow (stock, Docker) passed on e2ecfe7, which touches the build action.
