@@ -192,6 +192,9 @@ struct NodeConfig {
   std::vector<PdoConfig> rx_pdos;  // master -> slave, fed from %Q*
   std::vector<StartupSdo> sdos;    // startup SDOs, in list order
   std::vector<SdoVariable> sdo_variables;
+  // A simulated device runs this node (docs/simulator.md); defaults to
+  // adapter.simulate.
+  bool simulate = false;
 
   // COB-ID a PDO uses on the bus (explicit or the CiA 301 default).
   uint32_t tpdo_cob_id(const PdoConfig& pdo) const;
@@ -272,6 +275,10 @@ struct AdapterConfig {
   // type "slcan": the serial device the plugin creates `interface` from.
   std::string device;
   unsigned serial_baudrate = 0;  // 0 = leave the UART speed as it is
+  // The network is simulated: the master runs on an in-process virtual bus
+  // and nothing above is opened (docs/simulator.md). The fields are still
+  // checked, so switching back needs only this one.
+  bool simulate = false;
 };
 
 // Highest config schema_version this plugin reads.

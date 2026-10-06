@@ -33,6 +33,7 @@ add_library(canopen_core STATIC
     src/bus.cpp
     src/bus_monitor.cpp
     src/runtime_version.cpp
+    src/sim_config.cpp
     sim/sim_expr.cpp
     sim/sim_od.cpp
     sim/sim_source.cpp
