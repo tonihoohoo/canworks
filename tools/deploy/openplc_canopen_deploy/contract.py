@@ -14,6 +14,7 @@ import re
 import jsonschema
 from jsonschema.exceptions import best_match
 
+from . import axis as axis_mod
 from . import eds as eds_mod
 from . import edslint
 from .eds import sync_needed_message, transmission_needs_sync
@@ -598,6 +599,9 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
     for (i, key, j), cob in auto_cob_ids(nodes).items():
         nodes[i][key][j]["cob_id"] = cob
 
+    # CiA 402 axes: the standard objects the motion blocks' drive bridge needs.
+    axis_mod.check(cfg, err, warn)
+
     if r.errors:
         return r
 
@@ -628,6 +632,9 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
             continue
         messages, where, warnings = [], [], []
         eds_mod.check_node(node, eds, messages, where, warnings)
+        profile = axis_mod.device_type_warning(cfg["nodes"][i], eds)
+        if profile:
+            warnings.append((profile, ".axis"))
         if "lss" in node:
             info = eds_mod.device_info(file) or {}
             node["lss"].update(vendor_id=info.get("vendor_id") or 0, product_code=info.get("product_code") or 0)
