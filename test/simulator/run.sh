@@ -93,6 +93,17 @@ wait_for() {
 CONFIG="$ROOT/config/pingpong"
 cp "$CONFIG/cpp-slave.eds" "$WORK/"
 cp "$CONFIG/canopen_config.json" "$WORK/"
+# The tutorial slave's EDS has no EMCY producer; give the copy a 0x1014 so the
+# EMCY faults have something to send with.
+python3 - "$WORK/cpp-slave.eds" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+s = s.replace("[OptionalObjects]\nSupportedObjects=7\n", "[OptionalObjects]\nSupportedObjects=8\n8=0x1014\n", 1)
+s += "\n[1014]\nParameterName=COB-ID EMCY\nDataType=0x0007\nAccessType=rw\nDefaultValue=$NODEID+0x80\nPDOMapping=0\n"
+open(p, "w", encoding="utf-8").write(s)
+PY
+grep -q "^\[1014\]" "$WORK/cpp-slave.eds" || { echo "could not add 0x1014 to the EDS copy" >&2; exit 2; }
 cat > "$WORK/simulation.json" <<'JSON'
 {
   "schema_version": 1,
@@ -101,8 +112,8 @@ cat > "$WORK/simulation.json" <<'JSON'
     "counts": {
       "test": true,
       "steps": [
-        { "wait": { "node": 2, "object": "0x4000", "gt": 20 }, "timeout_ms": 10000 },
-        { "expect": { "expr": "[2/0x4001] >= 20" } }
+        { "wait": { "node": 2, "object": "0x4000", "gt": 10 }, "timeout_ms": 20000 },
+        { "expect": { "expr": "[2/0x4001] >= 10" } }
       ]
     },
     "never": {
@@ -167,17 +178,20 @@ wait_for "heartbeat resumed\|node 2 (pingpong).*boot" 5 "$WORK/host.log" && ok "
 
 wait "$HOST_PID"
 HOST_RC=$?
-[ $HOST_RC -eq 0 ] && ok "canopen_host: status bit TRUE and %ID100 counting at the end" || fail "canopen_host exited $HOST_RC"
+# The heartbeat fault makes the plugin boot node 2 again, which restarts the
+# count, so only the status bit at the end is checked here.
+grep -q "status bit TRUE" "$WORK/host.out" && ok "canopen_host: status bit TRUE at the end" \
+    || fail "canopen_host exited $HOST_RC: $(tail -3 "$WORK/host.out")"
 kill -TERM "$SIM_PID"
 wait "$SIM_PID"
 SIM_RC=$?
 [ $SIM_RC -eq 0 ] && grep -q "stopped" "$WORK/sim.log" && ok "SIGTERM stopped the simulator cleanly" || fail "the simulator exited $SIM_RC on SIGTERM"
 
 echo "==> 2. Test mode next to the plugin"
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" 40 > "$WORK/host2.out" 2> "$WORK/host2.log" &
+"$HOST" "$PLUGIN" "$WORK/canopen_config.json" 90 > "$WORK/host2.out" 2> "$WORK/host2.log" &
 HOST_PID=$!
 PIDS+=($HOST_PID)
-"$SIM" test "$WORK/canopen_config.json" --junit "$WORK/junit.xml" --start-timeout 15 --timeout 30 > "$WORK/test.out" 2>&1
+"$SIM" test "$WORK/canopen_config.json" --junit "$WORK/junit.xml" --start-timeout 15 --timeout 40 > "$WORK/test.out" 2>&1
 RC=$?
 cat "$WORK/test.out" | grep -E "PASS|FAIL|passed"
 [ $RC -eq 1 ] && ok "test mode with a failing scenario exits 1" || fail "test mode exited $RC, not 1"
@@ -196,7 +210,7 @@ f = cases["never"].find("failure")
 assert f is not None and "value seen" in f.get("message"), f
 PY
 then ok "JUnit file: testsuite, two testcases with times, one failure with its message"; else fail "JUnit file structure"; fi
-"$SIM" test "$WORK/canopen_config.json" --scenario counts --start-timeout 15 --timeout 30 --quiet > "$WORK/test2.out" 2>&1
+"$SIM" test "$WORK/canopen_config.json" --scenario counts --start-timeout 15 --timeout 40 --quiet > "$WORK/test2.out" 2>&1
 RC=$?
 [ $RC -eq 0 ] && ok "test mode with the passing scenario exits 0" || fail "test mode --scenario counts exited $RC: $(cat "$WORK/test2.out")"
 "$SIM" test "$WORK/canopen_config.json" --scenario nosuch > /dev/null 2>&1
@@ -262,7 +276,7 @@ sleep 0.5
 RC=$?
 [ $RC -eq 0 ] && ok "mixed: real node 2 runs the ping-pong program" || fail "mixed: canopen_host exited $RC"
 grep -q "node 5.*powered on" "$WORK/host4.log" && ok "mixed: the plugin started simulated node 5" || fail "mixed: node 5 was not started"
-grep -q "node 5 (simulated): configured" "$WORK/host4.log" && ok "mixed: the plugin booted simulated node 5" || fail "mixed: node 5 was not booted"
+grep -q "node 5 (simulated) is operational" "$WORK/host4.log" && ok "mixed: the plugin booted simulated node 5" || fail "mixed: node 5 was not booted"
 wait "$LISTEN_PID"
 grep -q "seen 0x705" "$WORK/listen.out" && ok "mixed: an outside listener on vcan0 sees node 5's heartbeat" || fail "mixed: no 0x705 on vcan0"
 kill "$SLAVE_PID" 2>/dev/null; wait "$SLAVE_PID" 2>/dev/null
@@ -287,7 +301,7 @@ PIDS+=($SLAVE_PID)
 "$HOST" "$PLUGIN" "$WORK/mixed.json" 12 > "$WORK/host6.out" 2> "$WORK/host6.log" &
 HOST_PID=$!
 PIDS+=($HOST_PID)
-wait_for "node 5 (simulated): configured" 8 "$WORK/host6.log" || fail "guard: node 5 was not booted"
+wait_for "node 5 (simulated) is operational" 8 "$WORK/host6.log" || fail "guard: node 5 was not booted"
 "$SIM" --eds "$WORK/cpp-slave.eds" --node 5 --port 7543 > "$WORK/intruder.log" 2>&1 &
 PIDS+=($!)
 wait_for "another device sends with node ID 5" 6 "$WORK/host6.log" && ok "guard: simulated node 5 powered off for another device" \

@@ -3216,6 +3216,12 @@ TEST(sim_simulated_faults) {
   cJSON_Delete(r);
   CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
 
+  // The ping-pong EDS has no 0x1014, so the device has no EMCY producer.
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"emcy":{"code":"0x5000"}}})");
+  CHECK(!ok(r));
+  CHECK_MSG(str(r, "error").find("cannot send EMCY") != std::string::npos, str(r, "error"));
+  cJSON_Delete(r);
+
   r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"cycle","off_ms":500}})");
   CHECK(ok(r));
   cJSON_Delete(r);

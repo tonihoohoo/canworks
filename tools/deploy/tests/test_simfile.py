@@ -232,6 +232,9 @@ class Checks(unittest.TestCase):
             set={"0x7130:9": 1})), "steps[0].set", "0x7130:9")
         self.assertError(self.changed(lambda s: s["nodes"]["5"]["faults"].append({"tpdo_stop": 9})),
                          "TPDO 9 does not exist in rtd8.eds")
+        # No EMCY producer without 0x1014: the device could not send it.
+        self.assertError(self.changed(lambda s: s["nodes"]["40"].update(faults=[{"emcy": {"code": "0x5000"}}])),
+                         "nodes.40.faults[0].emcy", "cannot send EMCY", "no object 0x1014")
         self.assertError(self.changed(lambda s: s["scenarios"]["sensor-break"]["steps"].append(
             {"node": 9, "log": "x"})), "steps[6].node", "unknown device 9")
 

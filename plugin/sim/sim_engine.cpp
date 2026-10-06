@@ -897,6 +897,11 @@ bool Simulator::ApplyFault(Dev& d, const Fault& f, std::string& err) {
     }
     return true;
   }
+  if (k == "emcy" && !d.objects.empty() && !d.objects.count(ObjKey{0x1014, 0})) {
+    // Without the EMCY COB-ID the device has no EMCY producer: nothing would be sent.
+    err = d.label + " cannot send EMCY: its EDS has no object 0x1014 (COB-ID EMCY)";
+    return false;
+  }
   if ((k == "sdo_abort" || k == "sdo_delay") && f.has_object && !d.objects.empty() && !d.objects.count(f.object)) {
     err = d.label + " has no object " + f.object.str();
     return false;

@@ -969,6 +969,8 @@ def _check_fault(f, dev, at, err):
             _, _, problem = _object_problem(dev, obj)
             if problem:
                 err(w + "." + kind + ".object", problem)
+    if "emcy" in f and dev.eds is not None and not dev.eds.has(0x1014):
+        err(w + ".emcy", "%s cannot send EMCY: %s has no object 0x1014 (COB-ID EMCY)" % (dev.label, dev.eds_name))
     if "tpdo_stop" in f and dev.eds is not None:
         n = f["tpdo_stop"]
         if not dev.eds.has(0x1800 + n - 1):
