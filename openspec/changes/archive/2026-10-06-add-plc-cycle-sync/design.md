@@ -42,7 +42,7 @@ Alternative considered: keep Lely's timer and re-phase it every frame. Rejected:
 
 ### 4. Bus thread priority
 
-A normal-priority bus thread can be delayed by anything else on the CPU, which turns into SYNC jitter. In `"plc_cycle"` mode the plugin sets the `canopen_bus` thread to SCHED_FIFO at the priority of the runtime's highest task level, below the dispatcher. If `pthread_setschedparam` fails (no CAP_SYS_NICE, container limits) it logs one warning and continues. In `"timer"` mode nothing changes. Task 6.2 measures SYNC jitter on real hardware with and without this (the environment variable `CANOPEN_BUS_NO_FIFO=1` skips it, for that comparison only); if FIFO makes no measurable difference, a follow-up drops it.
+A normal-priority bus thread can be delayed by anything else on the CPU, which turns into SYNC jitter. In `"plc_cycle"` mode the plugin sets the `canopen_bus` thread to SCHED_FIFO at the priority of the runtime's highest task level, below the dispatcher. If `pthread_setschedparam` fails (no CAP_SYS_NICE, container limits) it logs one warning and continues. In `"timer"` mode nothing changes. Task 6.2 measures SYNC jitter on real hardware with and without this (the environment variable `CANOPEN_BUS_NO_FIFO=1` skips it, for that comparison only); if FIFO makes no measurable difference, a follow-up drops it. Result: under CPU load without FIFO SYNCs came up to about 6 ms late, with FIFO the interval stayed within 10 ms ± 70 us, so FIFO stays.
 
 ### 5. Configuration rules
 
