@@ -250,8 +250,9 @@ def transmission_needs_sync(t):
 
 
 def sync_needed_message(transmission, from_eds):
-    return ("transmission type %d%s needs SYNC, but master.sync_period_us is not set; set sync_period_us or "
-            "\"transmission\": 254 or 255" % (transmission, " (from the EDS)" if from_eds else ""))
+    return ("transmission type %d%s needs SYNC, but the master produces none; set master.sync_period_us, "
+            "\"sync_source\": \"plc_cycle\" or \"transmission\": 254 or 255"
+            % (transmission, " (from the EDS)" if from_eds else ""))
 
 
 def data_type_name(code):

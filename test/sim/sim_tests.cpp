@@ -212,6 +212,31 @@ class VendorDriveSlave : public StoringSlave {
 
 // The log is written from every thread that runs a Lely device (the slaves'
 // diagnostics go through the same sink), so all access takes this lock.
+// A device for PLC-cycle SYNC timing: its TPDO 1 (0x4001, type 1) carries a
+// counter it increments after every SYNC, and it keeps the output values
+// that arrive in 0x4000 (RPDO 1, type 1) in the order it applies them.
+class SyncCounterSlave : public lely::canopen::BasicSlave {
+ public:
+  using BasicSlave::BasicSlave;
+  std::atomic<uint32_t> syncs{0};
+  std::mutex mutex;
+  std::vector<uint32_t> applied;  // 0x4000 at each SYNC
+
+  // Stops (or resumes) TPDO 1, as a device that misses its SYNC would.
+  void Mute(bool mute) {
+    co_unsigned32_t cob = mute ? 0x80000182u : 0x182u;
+    co_sub_t* sub = co_dev_find_sub(reinterpret_cast<co_dev_t*>(dev()), 0x1800, 1);
+    co_sub_dn_ind_val(sub, CO_DEFTYPE_UNSIGNED32, &cob);  // through the PDO service
+  }
+
+ protected:
+  void OnSync(uint8_t, const time_point&) noexcept override {
+    (*this)[0x4001][0] = static_cast<uint32_t>(++syncs);
+    std::lock_guard<std::mutex> lock(mutex);
+    applied.push_back((*this)[0x4000][0]);
+  }
+};
+
 std::mutex& log_mutex() {
   static std::mutex m;
   return m;
@@ -383,6 +408,7 @@ class Sim {
     fake_runtime::attach(fake_, rt_);
     chan_.open(ctrl_);
     net_.reset(new Network(exec_, timer_, sup_timer_, chan_, cfg_, gen_, image_, nullptr, &req_timer_, &out_timer_));
+    sync_wake_.reset(new SyncWake(poll_, image_.sync_fd(), *net_));
     sniff_.open(ctrl_);
     Sniff();
     scan_timer_.settime(milliseconds(10), milliseconds(10));
@@ -395,6 +421,7 @@ class Sim {
     if (hub_) hub_->detach();
     slaves_.clear();
     if (net_) net_->Stop();
+    sync_wake_.reset();
     ctx_.shutdown();
     loop_.restart();
     // As the plugin's session end (bus.cpp): the shutdown normally drains the
@@ -410,6 +437,7 @@ class Sim {
 
   bool ok() const { return ok_; }
   Network& net() { return *net_; }
+  std::string gen_master_dcf() const { return gen_.master_dcf; }
   const Config& cfg() const { return cfg_; }
 
   // Serves the diagnostics channel through a hub (call before Start()).
@@ -549,6 +577,25 @@ class Sim {
     }));
   }
 
+  SyncCounterSlave* StartSyncCounterSlave(uint8_t id, const std::string& eds) {
+    SyncCounterSlave* made = nullptr;
+    slaves_[id].reset(new SlaveBox(ctrl_, [=, &made](io::TimerBase& t, io::CanChannelBase& c) {
+      return made = new SyncCounterSlave(t, c, eds, "", id);
+    }));
+    return made;
+  }
+
+  // Extra SYNC requests as if the bus thread had missed frames.
+  void RequestSync(int n) {
+    for (int i = 0; i < n; ++i) image_.request_sync();
+  }
+  // SYNC frames seen: arrival time and counter byte (-1 without one).
+  struct SyncFrame {
+    steady_clock::time_point at;
+    int cnt;
+  };
+  std::vector<SyncFrame> sync_frames() const { return sync_frames_; }
+
   FixedIoSlave* StartFixedIoSlave(uint8_t id, const std::string& eds) {
     FixedIoSlave* made = nullptr;
     slaves_[id].reset(new SlaveBox(ctrl_, [=, &made](io::TimerBase& t, io::CanChannelBase& c) {
@@ -646,6 +693,7 @@ class Sim {
         if (idx >= 0x1400 && idx < 0x1C00) ++pdo_downloads_[static_cast<uint8_t>(m.id - 0x600)];
       }
       if (result == 1) ++frames_[m.id];
+      if (result == 1 && m.id == 0x080) sync_frames_.push_back({steady_clock::now(), m.len ? m.data[0] : -1});
       if (result == 1 && m.id == 0x7E5 && m.len >= 1) ++lss_cs_[m.data[0]];
       if (result == 1 && m.id > 0x700 && m.id < 0x780 && m.len == 1 && m.data[0] == 0)
         ++bootups_[static_cast<uint8_t>(m.id - 0x700)];
@@ -656,8 +704,9 @@ class Sim {
   }
 
   void Scan() {
-    // cycle_start, program, cycle_end
+    // cycle_start (with its PLC-cycle SYNC request), program, cycle_end
     image_.copy_to_plc(rt_);
+    image_.request_sync();
     if (program_)
       program_(fake_);
     else
@@ -690,6 +739,7 @@ class Sim {
   std::map<uint8_t, int> bootups_;
   std::map<int, int> nmt_;
   std::vector<Stamped> time_frames_;
+  std::vector<SyncFrame> sync_frames_;
   std::map<uint8_t, std::unique_ptr<SlaveBox>> slaves_;
   Config cfg_;
   GeneratedConfig gen_;
@@ -697,6 +747,7 @@ class Sim {
   fake_runtime::Image fake_;
   plugin_runtime_args_t rt_;
   std::unique_ptr<Network> net_;
+  std::unique_ptr<SyncWake> sync_wake_;
   std::unique_ptr<DiagHub> hub_;
   std::function<void(fake_runtime::Image&)> program_;
   bool ok_ = false;
@@ -1188,6 +1239,182 @@ TEST(sim_no_sync_event_driven) {
   sim->RunFor(milliseconds(1000));
   CHECK_MSG(sim->frames(0x202) == before, std::to_string(sim->frames(0x202) - before) + " RPDOs for unchanged outputs");
   CHECK(sim->frames(0x080) == 0);
+  delete sim;
+}
+
+// PLC-cycle SYNC (canopen-master-bringup "SYNC from the PLC cycle", canopen-pdo-io
+// "PDO timing with PLC-cycle SYNC"): Sim's scan requests a SYNC in its
+// cycle_start step, every 10 ms.
+std::string plc_cycle_json(const std::string& extra = "") {
+  std::string json = pingpong_json();
+  json.replace(json.find("\"sync_period_us\": 20000"), 23, "\"sync_source\": \"plc_cycle\"" + extra);
+  return json;
+}
+
+// Every step of a run of values is +1.
+int steps_off(const std::vector<uint32_t>& v, size_t from) {
+  int bad = 0;
+  for (size_t i = from + 1; i < v.size(); ++i)
+    if (v[i] != v[i - 1] + 1) ++bad;
+  return bad;
+}
+
+TEST(sim_plc_cycle_sync) {
+  clear_logs();
+  std::string dir = make_dir(plc_cycle_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->cfg().master.sync_plc_cycle && sim->cfg().master.sync_period_us == 0);
+  // dcfgen gets no period, so Lely runs no SYNC timer; 0x1005 keeps the producer bit.
+  std::string dcf = read(sim->gen_master_dcf());
+  size_t at = dcf.find("[1006]");
+  CHECK(at != std::string::npos && dcf.find("DefaultValue=0\n", at) < dcf.find("[1007]"));
+  at = dcf.find("[1005]");
+  CHECK(at != std::string::npos && dcf.find("DefaultValue=0x40000080", at) < dcf.find("[1006]"));
+  SyncCounterSlave* slave = sim->StartSyncCounterSlave(2, dir + "/cpp-slave.eds");
+  static std::vector<uint32_t> seen;
+  static uint32_t scan_no;
+  seen.clear();
+  scan_no = 0;
+  sim->SetProgram([](fake_runtime::Image& plc) {
+    seen.push_back(plc.dint_in[100]);
+    plc.dint_out[100] = ++scan_no;
+  });
+  sim->EnableDiag();
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(300));
+  long scans0 = sim->scans();
+  int syncs0 = sim->frames(0x080);
+  size_t seen0 = seen.size();
+  size_t applied0;
+  {
+    std::lock_guard<std::mutex> lock(slave->mutex);
+    applied0 = slave->applied.size();
+  }
+  sim->RunFor(milliseconds(2000));
+  long scans = sim->scans() - scans0;
+  int syncs = sim->frames(0x080) - syncs0;
+  std::printf("    %ld scans, %d SYNCs\n", scans, syncs);
+  CHECK_MSG(std::abs(syncs - static_cast<int>(scans)) <= 1, std::to_string(syncs) + " SYNCs for " +
+                                                                 std::to_string(scans) + " scans");
+  // Inputs: the device counts SYNCs, and every scan sees the next count.
+  CHECK_MSG(steps_off(seen, seen0) == 0, std::to_string(steps_off(seen, seen0)) + " scans saw no new input");
+  // Outputs: each SYNC carries the newest scan's value, applied at the next.
+  std::vector<uint32_t> applied;
+  {
+    std::lock_guard<std::mutex> lock(slave->mutex);
+    applied = slave->applied;
+  }
+  CHECK(applied.size() > applied0 + 100);
+  CHECK_MSG(steps_off(applied, applied0) == 0,
+            std::to_string(steps_off(applied, applied0)) + " outputs repeated or lost");
+  const Network::SyncStats& st = sim->net().sync_stats();
+  std::printf("    SYNC interval last %llu, min %llu, max %llu us\n", (unsigned long long)st.last_us,
+              (unsigned long long)st.min_us, (unsigned long long)st.max_us);
+  CHECK(st.count >= static_cast<uint64_t>(syncs));
+  CHECK(st.skipped == 0);
+  CHECK(st.late == 0);
+  CHECK(st.min_us > 2000 && st.max_us < 40000);
+  // The status answer names the source and carries the statistics.
+  DiagRequest r;
+  r.op = "status";
+  r.peer = "127.0.0.1";
+  cJSON* res = sim->Ask(r);
+  CHECK(res != nullptr);
+  if (res) {
+    const cJSON* sync = cJSON_GetObjectItem(cJSON_GetObjectItem(res, "result"), "sync");
+    CHECK(sync && std::string(cJSON_GetStringValue(cJSON_GetObjectItem(sync, "source"))) == "plc_cycle");
+    CHECK(sync && cJSON_GetObjectItem(sync, "cycles")->valuedouble == 1);
+    CHECK(sync && cJSON_GetObjectItem(sync, "count")->valuedouble > 100);
+    cJSON_Delete(res);
+  }
+  delete sim;
+}
+
+TEST(sim_plc_cycle_sync_cycles_counter_skips) {
+  clear_logs();
+  std::string dir = make_dir(plc_cycle_json(", \"sync_cycles\": 2, \"sync_counter_overflow\": 10"),
+                             {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSyncCounterSlave(2, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  long scans0 = sim->scans();
+  int syncs0 = sim->frames(0x080);
+  sim->RunFor(milliseconds(2000));
+  long scans = sim->scans() - scans0;
+  int syncs = sim->frames(0x080) - syncs0;
+  CHECK_MSG(std::abs(2 * syncs - static_cast<int>(scans)) <= 2,
+            std::to_string(syncs) + " SYNCs for " + std::to_string(scans) + " scans");
+  auto frames = sim->sync_frames();
+  int bad = 0;
+  for (size_t i = 1; i < frames.size(); ++i)
+    if (frames[i].cnt != frames[i - 1].cnt % 10 + 1) ++bad;
+  CHECK_MSG(frames.size() > 50 && bad == 0, std::to_string(bad) + " SYNC counter steps off");
+  CHECK(frames.empty() || (frames[0].cnt >= 1 && frames[0].cnt <= 10));
+  // Two requests before the bus thread gets to them: one SYNC, one skip.
+  CHECK(sim->net().sync_stats().skipped == 0);
+  sim->RequestSync(4);
+  sim->RunFor(milliseconds(100));
+  CHECK_MSG(sim->net().sync_stats().skipped >= 1, std::to_string(sim->net().sync_stats().skipped) + " skipped");
+  CHECK(logged("fell behind the PLC cycle"));
+  delete sim;
+}
+
+TEST(sim_plc_cycle_late_pdo) {
+  clear_logs();
+  std::string dir = make_dir(plc_cycle_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSyncCounterSlave(2, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(200));
+  CHECK(sim->net().sync_stats().late == 0);
+  sim->OnSlave(2, [](canopen::BasicSlave& s) { static_cast<SyncCounterSlave&>(s).Mute(true); });
+  sim->RunFor(milliseconds(150));
+  sim->OnSlave(2, [](canopen::BasicSlave& s) { static_cast<SyncCounterSlave&>(s).Mute(false); });
+  sim->RunFor(milliseconds(200));
+  uint64_t late = sim->net().sync_stats().late;
+  std::printf("    %llu late PDOs\n", (unsigned long long)late);
+  CHECK(late >= 5 && late <= 20);
+  int lines = 0;
+  for (const auto& l : logs())
+    if (l.find("node 2 (pingpong) TPDO 1 (transmission type 1) did not arrive before the next SYNC") !=
+        std::string::npos)
+      ++lines;
+  CHECK_MSG(lines == 1, std::to_string(lines) + " late PDO warnings");
+  // Back in time: no more late PDOs.
+  sim->RunFor(milliseconds(300));
+  CHECK(sim->net().sync_stats().late == late);
+  delete sim;
+}
+
+TEST(sim_timer_sync_stats) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSlave(2, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(1000));
+  const Network::SyncStats& st = sim->net().sync_stats();
+  std::printf("    timer SYNC: %llu sent, interval min %llu max %llu us\n", (unsigned long long)st.count,
+              (unsigned long long)st.min_us, (unsigned long long)st.max_us);
+  CHECK(st.count >= 40);
+  CHECK(st.min_us > 10000 && st.max_us < 40000);
+  CHECK(st.skipped == 0 && st.late == 0);
   delete sim;
 }
 

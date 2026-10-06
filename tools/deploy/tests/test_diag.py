@@ -83,10 +83,19 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("bus vcan0: error active", out)
         self.assertIn("master node 1: OPERATIONAL", out)
+        self.assertIn("SYNC: PLC cycle, every 2 cycles, 500 sent, interval 10012 us (min 9870, max 10240), "
+                      "skipped 0, late PDOs 3", out)
         self.assertRegex(out, r"2\s+pingpong\s+OPERATIONAL\s+yes\s+booted\s+none\s+0x4210 temperature")
         self.assertIn("error J: the configuration download failed", out)
         self.assertIn("(retrying)", out)
         self.assertIn("node 2 SDO variable 0x2001:0 (uptime), UNSIGNED32 read: raw 42", out)
+
+    def test_format_sync(self):
+        from openplc_canopen_deploy.diag import format_sync
+        self.assertIsNone(format_sync(None))
+        self.assertEqual(format_sync({"source": "none", "count": 0}), "SYNC: off")
+        self.assertEqual(format_sync({"source": "timer", "period_us": 20000, "count": 1, "skipped": 0,
+                                      "late_pdos": 0}), "SYNC: timer 20000 us, 1 sent, skipped 0, late PDOs 0")
 
     def test_status_json(self):
         with FakePlugin() as fp:

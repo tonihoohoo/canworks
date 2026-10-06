@@ -19,6 +19,7 @@
 // outputs were drained into the image. They only touch preallocated memory.
 
 #include <atomic>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -147,10 +148,23 @@ void prepare() {
     log_info("loaded %s: %s adapter %s, %u bit/s, master node ID %u, %zu slave%s", path.c_str(),
              cfg.adapter.type.c_str(), cfg.adapter.interface.c_str(), cfg.adapter.bitrate, cfg.master.node_id,
              cfg.nodes.size(), cfg.nodes.size() == 1 ? "" : "s");
-    if (cfg.master.sync_period_us)
-      log_info("SYNC every %u us", cfg.master.sync_period_us);
-    else
+    const MasterConfig& m = cfg.master;
+    if (m.sync_plc_cycle) {
+      unsigned long long tick_us = g_rt.base_tick_ns / 1000;
+      if (!tick_us)
+        log_info("SYNC from the PLC cycle, every %u PLC cycle%s (the runtime does not report its base tick)",
+                 m.sync_cycles, m.sync_cycles == 1 ? "" : "s");
+      else
+        log_info("SYNC from the PLC cycle, every %u PLC cycle%s (base tick %llu us)", m.sync_cycles,
+                 m.sync_cycles == 1 ? "" : "s", tick_us);
+      if (tick_us && tick_us * m.sync_cycles < 1000)
+        log_warn("a SYNC period of %llu us is below 1 ms; the bus may not carry all PDOs in one period",
+                 tick_us * m.sync_cycles);
+    } else if (m.sync_period_us) {
+      log_info("SYNC every %u us", m.sync_period_us);
+    } else {
       log_info("no SYNC period: the master produces no SYNC and sends outputs when they change");
+    }
   }
 
   for (auto& cfg : st->set.networks) {
@@ -165,6 +179,11 @@ void prepare() {
     log_info("device configuration %s in %s", net->gen.reused ? "unchanged, reusing" : "generated",
              net->gen.work_dir.c_str());
     net->image.build(cfg);
+    if (cfg.master.sync_plc_cycle && net->image.sync_fd() < 0) {
+      log_error("cannot create the PLC-cycle SYNC event (%s); CANopen inactive, CAN interface not opened",
+                strerror(errno));
+      return;
+    }
     if (cfg.master.has_diagnostics) net->hub.reset(new DiagHub(cfg, CANOPEN_PLUGIN_VERSION));
     net->bus.reset(new Bus(cfg, net->gen, net->image, net->hub.get()));
     log_info("%zu input and %zu output PDO entries bound to the PLC image", net->image.inputs().size(),
@@ -219,7 +238,10 @@ PLUGIN_API void cleanup(void) {
 
 PLUGIN_API void cycle_start(void) {
   if (!g_exchange.load(std::memory_order_acquire)) return;
-  for (auto& n : g_state->nets) n->image.copy_to_plc(g_rt);
+  for (auto& n : g_state->nets) {
+    n->image.copy_to_plc(g_rt);
+    n->image.request_sync();  // PLC-cycle SYNC only
+  }
 }
 
 PLUGIN_API void cycle_end(void) {

@@ -345,6 +345,37 @@ class Page(unittest.TestCase):
         self.save()
         self.assertEqual(load(path)["master"], {"node_id": 1})
 
+    def test_sync_source_plc_cycle(self):
+        pg = self.page
+        os.makedirs(os.path.join(self.project, "canopen"))
+        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canopen"))
+        cfg = srv.empty_config()  # SYNC period 10 ms; the EDS's TPDO 1 is type 1
+        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "tx_pdos": [{
+            "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
+        path = os.path.join(self.project, "canopen", "canopen.json")
+        with open(path, "w") as f:
+            json.dump(cfg, f)
+        self.open_from_start("#start-project", self.project)
+        pg.click('button[data-view="bus"]')
+        sel = 'select[data-path="master.sync_source"]'
+        self.assertEqual(pg.input_value(sel), "")
+        pg.select_option(sel, "plc_cycle")
+        pg.wait_for_selector('input[data-path="master.sync_cycles"]')
+        self.assertEqual(pg.locator('input[data-path="master.sync_period_us"]').count(), 0)
+        self.assertEqual(pg.get_attribute('input[data-path="master.sync_cycles"]', "placeholder"), "1")
+        self.fill("master.sync_cycles", "2")
+        self.save()
+        self.assertEqual(load(path)["master"], {"node_id": 1, "sync_source": "plc_cycle", "sync_cycles": 2})
+        # Back to the timer.
+        pg.select_option(sel, "")
+        pg.wait_for_selector('input[data-path="master.sync_period_us"]')
+        self.fill("master.sync_period_us", "10")
+        self.save()
+        deadline = time.time() + 10
+        while "sync_source" in load(path)["master"] and time.time() < deadline:
+            time.sleep(0.1)
+        self.assertEqual(load(path)["master"], {"node_id": 1, "sync_period_us": 10000})
+
     def test_slcan_adapter(self):
         pg = self.page
         self.open_from_start("#start-project", self.project)
