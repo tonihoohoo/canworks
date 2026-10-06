@@ -205,7 +205,7 @@ const FnInfo kFns[] = {
     {"abs", Fn::Abs, 1, 1},       {"floor", Fn::Floor, 1, 1},          {"ceil", Fn::Ceil, 1, 1},
     {"round", Fn::Round, 1, 1},   {"sqrt", Fn::Sqrt, 1, 1},            {"exp", Fn::Exp, 1, 1},
     {"log", Fn::Log, 1, 1},       {"sin", Fn::Sin, 1, 1},              {"cos", Fn::Cos, 1, 1},
-    {"min", Fn::Min, 1, -1},      {"max", Fn::Max, 1, -1},             {"clamp", Fn::Clamp, 3, 3},
+    {"min", Fn::Min, 2, -1},      {"max", Fn::Max, 2, -1},             {"clamp", Fn::Clamp, 3, 3},
     {"if", Fn::If, 3, 3},         {"bit", Fn::Bit, 2, 2},              {"setbit", Fn::SetBit, 3, 3},
     {"noise", Fn::Noise, 1, 1},   {"lag", Fn::Lag, 2, 2},              {"delay", Fn::Delay, 2, 2},
     {"rate_limit", Fn::RateLimit, 2, 2}, {"integrate", Fn::Integrate, 1, 1}, {"hold", Fn::Hold, 2, 2},
