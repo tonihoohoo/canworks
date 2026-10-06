@@ -84,3 +84,21 @@ set_target_properties(canopen_plugin PROPERTIES
     # Export only the plugin entry points.
     CXX_VISIBILITY_PRESET hidden
 )
+
+# openplc-canopen-sim, the standalone simulator (docs/simulator.md): the
+# simulator engine of canopen_core on a SocketCAN interface. It reports the
+# plugin's version.
+add_executable(openplc-canopen-sim
+    ${PROJECT_SOURCE_DIR}/tools/sim/main.cpp
+    ${PROJECT_SOURCE_DIR}/tools/sim/sim_run.cpp
+    ${PROJECT_SOURCE_DIR}/tools/sim/sim_commands.cpp
+    ${PROJECT_SOURCE_DIR}/tools/sim/control.cpp
+)
+target_compile_definitions(openplc-canopen-sim PRIVATE CANOPEN_PLUGIN_VERSION="${CANOPEN_PLUGIN_VERSION}")
+target_compile_options(openplc-canopen-sim PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_link_libraries(openplc-canopen-sim PRIVATE canopen_core)
+set_target_properties(openplc-canopen-sim PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    BUILD_RPATH "${LELY_LIBRARY_DIRS}"
+    INSTALL_RPATH "${LELY_LIBRARY_DIRS}"
+)

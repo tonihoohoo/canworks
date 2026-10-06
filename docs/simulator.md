@@ -95,7 +95,7 @@ openplc-canopen-sim scenario start sensor-break
 openplc-canopen-sim scenario stop sensor-break
 ```
 
-The `fault` kinds are those of [Faults](#faults), written with dashes (`heartbeat-stop`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `forget-node-id`, ...); `fault 5 json '{...}'` takes the JSON form.
+The `fault` kinds are those of [Faults](#faults), written with dashes (`heartbeat-stop`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `forget-node-id`, ...); `fault 5 json '{...}'` takes the JSON form. Their fields are arguments or options as above (`emcy CODE --period-ms MS`, `sdo-delay MS --object OBJ`, `identity --serial-number N`, `drive-input --blocked`, ...; `openplc-canopen-sim --help` lists them). `get 5` without objects prints every object in node 5's PDOs. A command exits 1 when the simulator answers with an error, 2 when it cannot reach it.
 
 ### Test mode
 
@@ -106,7 +106,7 @@ openplc-canopen-sim test canopen/canopen.json --scenario alarm --junit results.x
 openplc-canopen-sim test --runtime plc.local --token-file token --scenario alarm
 ```
 
-With a config it starts the devices as the run mode does, waits until every simulated node is OPERATIONAL (or `--start-timeout` seconds), runs the named scenarios (default: every scenario with `"test": true`) one after another (`--parallel` runs them together), and stops after the last one or after `--timeout` seconds. With `--runtime` it runs the scenarios in the plugin's simulated devices through the diagnostics channel instead. It prints one line per scenario, writes a JUnit XML report with `--junit FILE`, and exits 0 only when every scenario passed (1: a scenario failed, 2: usage or start-up error).
+With a config it starts the devices as the run mode does, waits until every simulated node is OPERATIONAL (or `--start-timeout` seconds, default 30; then it runs the scenarios anyway, with a warning), runs the named scenarios (default: every scenario with `"test": true`) one after another (`--parallel` runs them together), and stops after the last one or after `--timeout` seconds (default 300; scenarios still running then fail). With `--runtime HOST[:PORT]` (default port 7531) it runs the scenarios in the plugin's simulated devices through the diagnostics channel instead; with the port of a standalone simulator's control channel (`--runtime 127.0.0.1:7532`) it runs them there. It prints one line per scenario, writes a JUnit XML report with `--junit FILE`, and exits 0 only when every scenario passed (1: a scenario failed, 2: usage or start-up error).
 
 ## The simulation file
 
