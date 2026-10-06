@@ -68,6 +68,7 @@ PC-side helpers get one `networks(cfg)` function in `contract.py` returning norm
 
 - **SYNC tied to the PLC cycle** (thread "SYNC tied to PLC cycle"): its new `master` fields land in v1's `master` definition and become per network here through the reference. Its `cycle_end()` hook must trigger SYNC on every network whose master asks for it; with this change `cycle_end()` already loops over the networks, so the SYNC trigger belongs inside that loop. Whichever change merges second rebases `canopen_plugin.cpp` and the configurator's Bus and master section (which this change wraps in a tab).
 - **EDS device simulator**: it runs on one interface. If it learns to read nodes from a `canopen.json`, it needs a `--network` option with the same rules as `openplc-canopen-diag`, and its configurator hook (setting simulated values) goes through the network picker of the online view.
+- The simulator proposal (branch `propose/add-device-simulator`) adds `adapter.simulate: true`, which runs a network on an in-process virtual bus. Here that is per network: each simulated network gets its own virtual bus, and the interface and serial-device uniqueness check skips simulated adapters. Its separate `simulation.json` will need a network name per simulated device once there are several networks.
 - Both touch the configurator's Bus and master section and the schema; the conflict is textual, not semantic. Neither changes the top-level layout this change introduces.
 
 ## Risks / Trade-offs
