@@ -38,6 +38,9 @@
 
 ## 6. Hardware (runtime device, CAN adapter, one real node)
 
-- [ ] 6.1 Run the template project with `"sync_source": "plc_cycle"` and a 10 ms task; record SYNC intervals in the configurator trace for 60 s. Verify: node stays OPERATIONAL, no late PDOs, report min/max interval.
-- [ ] 6.2 Repeat with and without the bus thread's SCHED_FIFO (`CANOPEN_BUS_NO_FIFO=1` for the run without it) and compare jitter; drop the FIFO step if it makes no measurable difference.
-- [ ] 6.3 Stop and start the PLC from the editor. Verify: SYNC stops with the PLC and resumes on start, the node recovers without a boot error.
+- [x] 6.1 Run the template project with `"sync_source": "plc_cycle"` and a 10 ms task; record SYNC intervals in the configurator trace for 60 s. Verify: node stays OPERATIONAL, no late PDOs, report min/max interval.
+  Result (2026-10-06, Pi 5 + slcan adapter + one real node): 60 s at 10 ms gave 6000 SYNCs on candump, interval 9914-10111 us (stdev 8.7 us); diag min 9924 / max 10091 us, skipped 0, late_pdos 0; node stayed OPERATIONAL. The node's only PDO is event-driven, so late_pdos was not really exercised on hardware (the sim test covers it).
+- [x] 6.2 Repeat with and without the bus thread's SCHED_FIFO (`CANOPEN_BUS_NO_FIFO=1` for the run without it) and compare jitter; drop the FIFO step if it makes no measurable difference.
+  Result: idle, both runs look alike on the bus (spread about 200 us), but the plugin's own interval stats widened without FIFO (9113-10899 us). Under CPU load (6 busy loops on 4 cores, 30 s) without FIFO 4 SYNCs were about 6 ms late (4048-15954 us); with FIFO 9946-10077 us. FIFO stays.
+- [x] 6.3 Stop and start the PLC from the editor. Verify: SYNC stops with the PLC and resumes on start, the node recovers without a boot error.
+  Result (stop/start through the runtime API, as the editor does): SYNC stopped within about 1 ms and stayed off for the 13 s stop; on start the node booted, was configured and OPERATIONAL about 1 s later, SYNC resumed at 9893-10140 us, no boot error.
