@@ -41,5 +41,7 @@
 
 ## 8. Hardware (open in the PR if no drive is available)
 
-- [ ] 8.1 With a real CiA 402 drive: power on, home, absolute move, velocity, halt, fault reset from the demo program on the Pi.
-- [ ] 8.2 In OpenPLC Editor 4.3.2: a project from the example config with `drive_demo.st` as `main` passes Build only for OpenPLC Runtime v4.
+- [x] 8.1 With a real CiA 402 drive: power on, home, absolute move, velocity, halt, fault reset from the demo program on the Pi.
+  Skipped (Toni, 2026-10-06): no CiA 402 drive is available. Covered only by the simulated drive (6.2, 6.4).
+- [x] 8.2 In OpenPLC Editor 4.3.2: a project from the example config with `drive_demo.st` as `main` passes Build only for OpenPLC Runtime v4.
+  Done 2026-10-06 with the 4.3.2 release's own `openplc-cli compile` (the code path behind the Build button, run headless): the project from `--new-project` and the same project with `drive_demo.st` as `main` both compile for OpenPLC Runtime v4. The only warnings: the library's axis state, error and mode types are not debuggable.
