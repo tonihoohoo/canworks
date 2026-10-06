@@ -1,6 +1,10 @@
 """Bundle assembly: an editor build output plus conf/canopen.json, the EDS
 files under conf/canopen/eds/ and any program files (`software_file`) under
-conf/canopen/fw/, zipped the way the runtime's upload expects.
+conf/canopen/fw/, zipped the way the runtime's upload expects. A simulation
+file goes to conf/canopen/simulation.json; the EDS/DCF files of its extra
+devices join the node EDS files in conf/canopen/eds/ (its `eds` values become
+eds/<file>, relative to the simulation file) and its CSV files go to
+conf/canopen/sim/ (`file` values sim/<file>).
 
 The editor's "Build only" (and `openplc-cli compile`) writes the runtime v4
 bundle to <project>/build/<target>/src/: generated.hpp, the generated *.cpp,
@@ -19,6 +23,8 @@ from .eds import to_utf8
 
 EDS_DIR = "canopen/eds"  # under conf/, and as the rewritten `eds` value prefix
 FW_DIR = "canopen/fw"  # the same for `software_file`
+SIM_FILE = "canopen/simulation.json"  # under conf/
+SIM_CSV_DIR = "canopen/sim"  # under conf/: the simulation file's CSV files
 
 
 class BundleError(Exception):
@@ -103,9 +109,37 @@ def rewrite(cfg, config_path):
     return out, by_name
 
 
-def assemble(bundle_dir, deployed_cfg, eds_by_name, work_dir, fw_by_name=None):
+def merge_by_name(by_name, more, what):
+    """Adds {name: source} entries to by_name; BundleError when a name is
+    taken by a different file."""
+    for name, src in more.items():
+        other = by_name.get(name)
+        if other and os.path.realpath(other) != os.path.realpath(src):
+            raise BundleError("two different %s are both named %s (%s and %s); rename one" % (what, name, other, src))
+        by_name[name] = src
+    return by_name
+
+
+def sim_rewrite(sim_data, sim_path):
+    """Returns (deployed simulation file, {name under conf/canopen/eds: source}
+    for its extra devices, {name under conf/canopen/sim: source} for its CSV
+    files)."""
+    from . import simfile
+    files = simfile.referenced_files(sim_data, sim_path)
+    eds_by = _by_name(files["eds"], "EDS files of extra devices")
+    csv_by = _by_name(files["csv"], "CSV files")
+    eds_rel = EDS_DIR.split("/", 1)[1]
+    csv_rel = SIM_CSV_DIR.split("/", 1)[1]
+    out = simfile.rewrite(sim_data, sim_path, lambda p: "%s/%s" % (eds_rel, os.path.basename(p)),
+                          lambda p: "%s/%s" % (csv_rel, os.path.basename(p)))
+    return out, eds_by, csv_by
+
+
+def assemble(bundle_dir, deployed_cfg, eds_by_name, work_dir, fw_by_name=None, sim=None):
     """Copies the bundle to work_dir/bundle and adds the CANopen files, each
     EDS as UTF-8 (see eds.to_utf8). Every other file is copied unchanged.
+    sim: (deployed simulation file, {CSV name: source}), whose extra devices'
+    EDS files are already in eds_by_name.
     Returns (staged directory, names of the EDS files converted to UTF-8)."""
     staged = os.path.join(work_dir, "bundle")
     shutil.copytree(bundle_dir, staged, symlinks=False)
@@ -127,6 +161,16 @@ def assemble(bundle_dir, deployed_cfg, eds_by_name, work_dir, fw_by_name=None):
         os.makedirs(fw_dir)
         for name, src in sorted(fw_by_name.items()):
             shutil.copyfile(src, os.path.join(fw_dir, name))
+    if sim is not None:
+        sim_data, csv_by_name = sim
+        if csv_by_name:
+            csv_dir = os.path.join(conf, *SIM_CSV_DIR.split("/"))
+            os.makedirs(csv_dir)
+            for name, src in sorted(csv_by_name.items()):
+                shutil.copyfile(src, os.path.join(csv_dir, name))
+        with open(os.path.join(conf, *SIM_FILE.split("/")), "w", encoding="utf-8") as f:
+            json.dump(sim_data, f, indent=2)
+            f.write("\n")
     with open(os.path.join(conf, "canopen.json"), "w", encoding="utf-8") as f:
         json.dump(deployed_cfg, f, indent=2)
         f.write("\n")

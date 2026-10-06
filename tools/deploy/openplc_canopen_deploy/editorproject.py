@@ -109,9 +109,11 @@ def main_st(decls):
     return "PROGRAM main\n%s\n\n%s\n\nEND_PROGRAM" % (declare.editor_block(decls), BODY)
 
 
-def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_address=None, progress=None):
+def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_address=None, progress=None,
+           sim_path=None):
     """Creates the project. Returns (project folder, declarations). The config
-    must already have passed the deploy tool's checks."""
+    (and the simulation file sim_path, when given) must already have passed
+    the deploy tool's checks."""
     progress = progress or (lambda m: None)
     project_dir = os.path.abspath(os.path.expanduser(project_dir))
     parent, name = os.path.split(project_dir.rstrip(os.sep))
@@ -147,7 +149,7 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
             run.returncode, ":\n" + run.stdout.strip() if run.stdout.strip() else ""))
     try:
         _patch(project_dir, decls, runtime_address)
-        project_mod.write(cfg, config_path, project_dir)
+        project_mod.write(cfg, config_path, project_dir, sim_path=sim_path)
     except (OSError, ValueError, project_mod.ProjectError, NewProjectError) as e:
         shutil.rmtree(project_dir, ignore_errors=True)
         raise NewProjectError("%s (the new project folder was removed)" % e)
