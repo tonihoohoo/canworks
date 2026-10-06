@@ -356,8 +356,17 @@ class CheckAndSave(Running):
         self.cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 1
         data = self.ok("POST", "/api/check", {"config": self.cfg})
         [item] = [i for i in data["items"] if "needs SYNC" in i["message"]]
-        self.assertIn("TPDO 1: transmission type 1 needs SYNC, but master.sync_period_us is not set", item["message"])
+        self.assertIn("TPDO 1: transmission type 1 needs SYNC, but the master produces none", item["message"])
         self.assertIn("nodes[0].tx_pdos[0].transmission", item["paths"])
+
+    def test_check_with_plc_cycle_sync(self):
+        # PLC-cycle SYNC: synchronous PDOs are fine without a SYNC period.
+        del self.cfg["master"]["sync_period_us"]
+        self.cfg["master"]["sync_source"] = "plc_cycle"
+        self.cfg["master"]["sync_cycles"] = 2
+        self.cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 1
+        data = self.ok("POST", "/api/check", {"config": self.cfg})
+        self.assertFalse([i for i in data["items"] if "SYNC" in i["message"]], data["items"])
 
     def test_check_reruns_the_lint(self):
         # A node whose EDS has a finding in 0x6061: accepted with "off", the

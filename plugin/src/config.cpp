@@ -425,9 +425,9 @@ class Parser {
       error("", "missing required field 'master' (an object)");
     } else {
       check_known(master, "master",
-                  {"node_id", "sync_period_us", "heartbeat_ms", "eds_lint", "strict_eds", "bus_state_location",
-                   "tx_error_count_location", "rx_error_count_location", "bus_off_count_location", "state_location",
-                   "vendor_id", "product_code", "revision_number", "serial_number", "sync_window_us",
+                  {"node_id", "sync_period_us", "sync_source", "sync_cycles", "heartbeat_ms", "eds_lint", "strict_eds",
+                   "bus_state_location", "tx_error_count_location", "rx_error_count_location",
+                   "bus_off_count_location", "state_location", "vendor_id", "product_code", "revision_number", "serial_number", "sync_window_us",
                    "sync_counter_overflow", "time_cob_id", "emcy_inhibit_time_us", "heartbeat_consumer",
                    "heartbeat_multiplier", "error_behavior", "nmt_inhibit_time_us", "start", "start_nodes",
                    "start_all_nodes", "reset_all_nodes", "stop_all_nodes", "boot_time_ms", "sdo_timeout_ms",
@@ -438,6 +438,7 @@ class Parser {
       }
       // Left out or 0: the master produces no SYNC.
       if (get_uint(master, "sync_period_us", "master", false, 0xFFFFFFFF, v)) cfg.master.sync_period_us = (unsigned)v;
+      parse_sync_source(master, cfg.master);
       if (get_uint(master, "heartbeat_ms", "master", false, 0xFFFF, v)) cfg.master.heartbeat_ms = (unsigned)v;
       bool has_lint = cJSON_GetObjectItemCaseSensitive(master, "eds_lint") != nullptr;
       bool has_strict = cJSON_GetObjectItemCaseSensitive(master, "strict_eds") != nullptr;
@@ -571,6 +572,29 @@ class Parser {
     check_time_consumers(cfg);
     check_sync_needs(cfg);
     return errors_.size() == before;
+  }
+
+  // sync_source / sync_cycles; sync_period_us is already read.
+  void parse_sync_source(const cJSON* master, MasterConfig& m) {
+    const std::string w = "master";
+    const cJSON* src = cJSON_GetObjectItemCaseSensitive(master, "sync_source");
+    if (src) {
+      std::string s = cJSON_IsString(src) ? src->valuestring : "";
+      if (s == "plc_cycle")
+        m.sync_plc_cycle = true;
+      else if (s != "timer")
+        error(w, "field 'sync_source' must be \"timer\" or \"plc_cycle\"");
+    }
+    uint64_t v;
+    if (get_uint(master, "sync_cycles", w, false, 1000, v)) {
+      if (v < 1) error(w, "field 'sync_cycles' must be 1-1000");
+      m.has_sync_cycles = true;
+      m.sync_cycles = v < 1 ? 1 : (unsigned)v;
+      if (!m.sync_plc_cycle) error(w, "field 'sync_cycles' needs \"sync_source\": \"plc_cycle\"");
+    }
+    if (m.sync_plc_cycle && m.sync_period_us)
+      error(w, "field 'sync_period_us' cannot be used with \"sync_source\": \"plc_cycle\": the SYNC period comes "
+               "from the PLC cycle");
   }
 
   void parse_master_options(const cJSON* master, MasterConfig& m) {
@@ -1037,12 +1061,13 @@ class Parser {
 
   // TIME produced but no configured node set to consume it (bit 31 of its
   // time_cob_id). Only a warning: a device may consume TIME by its EDS default.
-  // Without a SYNC period the master produces no SYNC, so settings that only
+  // Without a SYNC period or PLC-cycle SYNC the master produces no SYNC, so settings that only
   // act on SYNC would never take effect. A PDO's transmission type from the
   // EDS is checked with the EDS (eds_check.cpp).
   void check_sync_needs(const Config& cfg) {
-    if (cfg.master.sync_period_us) return;
-    const char* why = "' needs 'sync_period_us' (without it the master produces no SYNC)";
+    if (cfg.master.produces_sync()) return;
+    const char* why =
+        "' needs 'sync_period_us' or \"sync_source\": \"plc_cycle\" (without them the master produces no SYNC)";
     if (cfg.master.has_sync_window) error("master", std::string("field 'sync_window_us") + why);
     if (cfg.master.has_sync_counter_overflow) error("master", std::string("field 'sync_counter_overflow") + why);
     for (size_t i = 0; i < cfg.nodes.size(); ++i) {
@@ -1258,7 +1283,8 @@ std::string dir_of(const std::string& path) {
 
 std::string sync_needed_message(unsigned transmission, bool from_eds) {
   return "transmission type " + std::to_string(transmission) + (from_eds ? " (from the EDS)" : "") +
-         " needs SYNC, but master.sync_period_us is not set; set sync_period_us or \"transmission\": 254 or 255";
+         " needs SYNC, but the master produces none; set master.sync_period_us, \"sync_source\": \"plc_cycle\" or "
+         "\"transmission\": 254 or 255";
 }
 
 std::string default_eds_fallback_dir() {

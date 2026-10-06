@@ -600,6 +600,24 @@ def _token(args, prompt="Diagnostics token: "):
     return getpass.getpass(prompt)
 
 
+def format_sync(sy):
+    """One line for the status answer's SYNC object, or None (plugins before 0.24)."""
+    if not sy:
+        return None
+    src = sy.get("source")
+    if src == "none":
+        return "SYNC: off"
+    if src == "plc_cycle":
+        n = sy.get("cycles") or 1
+        head = "SYNC: PLC cycle" + ("" if n == 1 else ", every %d cycles" % n)
+    else:
+        head = "SYNC: timer %s us" % sy.get("period_us")
+    line = "%s, %d sent" % (head, sy.get("count") or 0)
+    if sy.get("count", 0) > 1:
+        line += ", interval %s us (min %s, max %s)" % (sy.get("last_us"), sy.get("min_us"), sy.get("max_us"))
+    return line + ", skipped %d, late PDOs %d" % (sy.get("skipped") or 0, sy.get("late_pdos") or 0)
+
+
 def _print_status(st, out):
     bus = st.get("bus") or {}
     m = st.get("master") or {}
@@ -613,6 +631,9 @@ def _print_status(st, out):
                                                               bus.get("bus_off_count"))
     out.write(line + "\n")
     out.write("master node %s: %s\n" % (m.get("node_id"), state_name(m.get("state"))))
+    sync_line = format_sync(st.get("sync"))
+    if sync_line:
+        out.write(sync_line + "\n")
     rows = [("NODE", "NAME", "STATE", "OK", "BOOT", "HOLD", "LAST EMCY")]
     for nd in st.get("nodes") or []:
         if nd.get("boot_error"):
