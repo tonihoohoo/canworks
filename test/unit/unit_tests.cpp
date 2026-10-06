@@ -31,6 +31,9 @@
 #include "config.h"
 #include "dcf_gen.h"
 #include "diag.h"
+#include "sim_trace.h"
+
+#include <lely/can/msg.h>
 #include "eds_check.h"
 #include "eds_lint.h"
 #include "fake_runtime.hpp"
@@ -2766,6 +2769,98 @@ TEST(diag_server_token_and_offline_answers) {
   CHECK(c.line().find("request line too long") != std::string::npos);
   CHECK(c.line() == "<closed>");
   server.stop();
+  set_log_sink(nullptr);
+}
+
+TEST(config_simulate_switches) {
+  Config cfg;
+  std::vector<std::string> errors;
+  // Old configs are unchanged: nothing simulated.
+  CHECK(parse(kValid, cfg, errors));
+  CHECK(!cfg.adapter.simulate && !cfg.nodes[0].simulate && !simulates_anything(cfg));
+  // A simulated network simulates every node by default; the adapter is still checked.
+  std::string sim = replace(kValid, "\"bitrate\": 125000 }", "\"bitrate\": 125000, \"simulate\": true }");
+  CHECK(parse(sim, cfg, errors));
+  CHECK(cfg.adapter.simulate && cfg.nodes[0].simulate && simulates_anything(cfg));
+  CHECK(parse(replace(sim, "\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"simulate\": false,"), cfg, errors));
+  CHECK(cfg.adapter.simulate && !cfg.nodes[0].simulate);
+  errors.clear();
+  CHECK(!parse(replace(sim, "\"bitrate\": 125000", "\"bitrate\": 123"), cfg, errors));
+  // One simulated node on a real network.
+  errors.clear();
+  CHECK(parse(replace(kValid, "\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"simulate\": true,"), cfg, errors));
+  CHECK(!cfg.adapter.simulate && cfg.nodes[0].simulate && simulates_anything(cfg));
+  errors.clear();
+  CHECK(!parse(replace(kValid, "\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"simulate\": 1,"), cfg, errors));
+}
+
+TEST(sim_trace_tap) {
+  auto tap = std::make_shared<SimTraceTap>();
+  auto src = make_sim_trace_source(tap);
+  can_msg m = CAN_MSG_INIT;
+  m.id = 0x702;
+  m.len = 1;
+  m.data[0] = 5;
+  tap->push(m);  // no trace: not kept
+  CHECK(src->open("simulated", {}, false) == 0 && src->fd() >= 0);
+  tap->push(m);
+  m.id = 0x182;
+  m.len = 4;
+  tap->push(m);
+  std::vector<TraceRecord> got;
+  uint64_t drops = 0;
+  CHECK(src->drain(got, drops));
+  CHECK(got.size() == 2 && got[0].id == 0x702 && got[0].dlc == 1 && got[0].data[0] == 5 && got[1].id == 0x182);
+  CHECK(drops == 0 && got[0].time_us > 0);
+  src->close();
+  tap->push(m);
+  got.clear();
+  CHECK(src->open("simulated", {}, false) == 0);
+  CHECK(src->drain(got, drops) && got.empty());
+  src->close();
+}
+
+TEST(diag_server_sim_ops) {
+  set_log_sink(diag_capture);
+  // Nothing simulated: every sim_ request says so.
+  {
+    Config cfg = diag_config(true);
+    DiagHub hub(cfg, "test-1");
+    DiagServer server(hub);
+    server.start();
+    CHECK(wait_port(server));
+    DiagClient c(server.port());
+    c.ask(R"({"op":"hello","token":"secret"})");
+    CHECK(c.ask(R"({"op":"sim_status"})").find("nothing simulated") != std::string::npos);
+    CHECK(c.ask(R"({"op":"sim_set","node":2,"values":{"0x2000":1}})").find("nothing simulated") != std::string::npos);
+    std::string st = c.ask(R"({"op":"status"})");
+    CHECK_MSG(st.find("\"simulated_network\":false") != std::string::npos && st.find("\"simulated\":false") != std::string::npos, st);
+    server.stop();
+  }
+  // A simulated network, read-only: reads go to the bus thread (no bus here),
+  // changes are refused at once.
+  {
+    Config cfg = diag_config(false);
+    cfg.adapter.simulate = true;
+    for (auto& n : cfg.nodes) n.simulate = true;
+    DiagHub hub(cfg, "test-1");
+    DiagServer server(hub);
+    server.start();
+    CHECK(wait_port(server));
+    DiagClient c(server.port());
+    c.ask(R"({"op":"hello","token":"secret"})");
+    CHECK(c.ask(R"({"op":"sim_status"})").find("no bus") != std::string::npos);
+    CHECK(c.ask(R"({"op":"sim_get","items":[{"node":2,"object":"0x1000"}]})").find("no bus") != std::string::npos);
+    CHECK(c.ask(R"({"op":"sim_check_expr","node":2,"expr":"1"})").find("no bus") != std::string::npos);
+    for (const char* op : {"sim_set", "sim_override", "sim_release", "sim_source", "sim_fault", "sim_clear",
+                           "sim_scenario_start", "sim_scenario_stop"})
+      CHECK_MSG(c.ask(std::string(R"({"op":")") + op + R"(","node":2})").find("changes not allowed") != std::string::npos, op);
+    std::string st = c.ask(R"({"op":"status"})");
+    CHECK_MSG(st.find("\"simulated_network\":true") != std::string::npos &&
+                  st.find("\"interface\":\"simulated\"") != std::string::npos && st.find("\"simulated\":true") != std::string::npos,
+              st);
+    server.stop();
+  }
   set_log_sink(nullptr);
 }
 
