@@ -56,11 +56,6 @@ int lss_watch(const can_msg* msg, void* data) {
   return 0;
 }
 
-int lss_store(co_lss_t*, co_unsigned8_t id, co_unsigned16_t, void* data) {
-  static_cast<SimDevice*>(data)->LssStored(id);
-  return 0;
-}
-
 }  // namespace
 
 struct SimDevice::IndCtx {
@@ -206,6 +201,7 @@ uint32_t SimDevice::Rule(uint16_t index, uint8_t subindex, bool write) {
 }
 
 bool SimDevice::Blocked(uint32_t id, const uint8_t* data, uint8_t len) const {
+  if (!powered) return true;
   uint8_t nid = node_id();
   if (nid == 0 || nid > 127) return false;
   if (heartbeat_stopped && id == 0x700u + nid && len == 1 && data[0] != 0) return true;
@@ -267,15 +263,24 @@ void SimDevice::Foreign() {
 }
 
 void SimDevice::LssWaiting() {
-  lely::ev::Executor(exec_).post([this]() {
+  std::weak_ptr<bool> alive = alive_;
+  lely::ev::Executor(exec_).post([this, alive]() {
+    if (alive.expired()) return;
     co_nmt_t* n = N(nmt());
     if (co_dev_get_id(D(dev())) == 0xFF && co_nmt_get_id(n) != 0xFF) co_nmt_cs_ind(n, CO_NMT_CS_RESET_COMM);
   });
 }
 
+void SimDevice::OnStore(uint8_t id, int) { LssStored(id); }
+
+void SimDevice::OnSync(uint8_t, const time_point&) noexcept {
+  if (on_sync) on_sync();
+}
+
 void SimDevice::LssStored(uint8_t id) {
   store_->lss_id = id;
   if (on_log) on_log("stored node ID " + std::to_string(id) + " (LSS)");
+  if (on_stored) on_stored();
 }
 
 void SimDevice::Save(uint8_t subindex) {
@@ -290,11 +295,13 @@ void SimDevice::Save(uint8_t subindex) {
     }
   }
   if (on_log) on_log("saved parameters (0x1010 sub " + std::to_string(subindex) + ")");
+  if (on_stored) on_stored();
 }
 
 void SimDevice::Load(uint8_t subindex) {
   for (char k : ranges_of(subindex)) store_->saved.erase(k);
   if (on_log) on_log("restore defaults at the next reset (0x1011 sub " + std::to_string(subindex) + ")");
+  if (on_stored) on_stored();
 }
 
 void SimDevice::ApplyStored(bool node) {
@@ -325,8 +332,6 @@ void SimDevice::OnCommand(lely::canopen::NmtCommand cs) noexcept {
     ApplyStored(node_reset_);
     node_reset_ = false;
     ApplyOverrides();
-    co_lss_t* lss = co_nmt_get_lss(N(nmt()));
-    if (lss) co_lss_set_store_ind(lss, &lss_store, this);
     InstallIndications();
   }
 }
@@ -339,6 +344,7 @@ void SimDevice::SelfCommand(uint8_t cs) { co_nmt_cs_ind(N(nmt()), cs); }
 
 void SimDevice::ForgetNodeId() {
   co_nmt_t* n = N(nmt());
+  store_->lss_id = 0;
   co_nmt_set_id(n, 0xFF);
   co_nmt_cs_ind(n, CO_NMT_CS_RESET_COMM);
 }

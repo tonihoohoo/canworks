@@ -237,4 +237,12 @@ std::string od_access(__co_dev* dev, uint16_t index, uint8_t subindex) {
   }
 }
 
+std::vector<std::pair<uint16_t, uint8_t>> od_objects(__co_dev* dev) {
+  std::vector<std::pair<uint16_t, uint8_t>> out;
+  co_dev_t* d = reinterpret_cast<co_dev_t*>(dev);
+  for (co_obj_t* o = co_dev_first_obj(d); o; o = co_obj_next(o))
+    for (co_sub_t* s = co_obj_first_sub(o); s; s = co_sub_next(s)) out.emplace_back(co_obj_get_idx(o), co_sub_get_subidx(s));
+  return out;
+}
+
 }  // namespace canopen_sim

@@ -13,6 +13,8 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 
 struct __co_dev;
 struct __co_sub;
@@ -56,6 +58,8 @@ bool od_write(__co_dev* dev, uint16_t index, uint8_t subindex, const Value& v, b
 bool od_limits(__co_dev* dev, uint16_t index, uint8_t subindex, double& lo, double& hi);
 // Access type letters as in the EDS: "ro", "wo", "rw", "rwr", "rww", "const".
 std::string od_access(__co_dev* dev, uint16_t index, uint8_t subindex);
+// Every sub-object of the dictionary, in order.
+std::vector<std::pair<uint16_t, uint8_t>> od_objects(__co_dev* dev);
 
 }  // namespace canopen_sim
 

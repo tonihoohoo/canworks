@@ -98,6 +98,12 @@ class SimDevice : public lely::canopen::BasicSlave {
   std::vector<std::pair<uint16_t, uint8_t>> PdoObjects() const;
 
   std::function<void(const std::string&)> on_log;
+  // Called after 0x1010 save, 0x1011 load or an LSS store.
+  std::function<void()> on_stored;
+  // Called on every SYNC the device receives.
+  std::function<void()> on_sync;
+  // False: the device sends nothing (powered off until it is recreated).
+  bool powered = true;
 
  // ---- for the hooks in sim_device.cpp ----
   // True when the frame must not go out (fault filters).
@@ -117,6 +123,8 @@ class SimDevice : public lely::canopen::BasicSlave {
 
  protected:
   void OnCommand(lely::canopen::NmtCommand cs) noexcept override;
+  void OnStore(uint8_t id, int bitrate) override;
+  void OnSync(uint8_t cnt, const time_point& t) noexcept override;
 
  private:
   void InstallIndications();
@@ -138,6 +146,8 @@ class SimDevice : public lely::canopen::BasicSlave {
   ev_exec_t* exec_;
   std::shared_ptr<StoredState> store_;
   bool node_reset_ = true;
+  // Expires with the device, for work posted to the loop.
+  std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
 };
 
 }  // namespace canopen_sim
