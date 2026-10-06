@@ -108,6 +108,7 @@ int main(int argc, char** argv) {
   rt->log_debug = log_d;
   rt->log_warn = log_w;
   rt->log_error = log_e;
+  rt->base_tick_ns = 10000000;  // the 10 ms loop below
 
   if (init(rt.get()) != 0) {
     std::fprintf(stderr, "canopen_host: init failed\n");

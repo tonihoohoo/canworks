@@ -389,9 +389,23 @@ function switchAdapterType(type) {
   changed(true);
 }
 
+// SYNC source: the timer's period and the PLC cycle count exclude each other.
+function switchSyncSource(source) {
+  const m = S.config.master || (S.config.master = {});
+  if (source === "plc_cycle") {
+    m.sync_source = "plc_cycle";
+    delete m.sync_period_us;
+  } else {
+    delete m.sync_source;
+    delete m.sync_cycles;
+  }
+  changed(true);
+}
+
 function renderBus(view) {
   const a = "adapter";
   const slcan = getPath("adapter.type") === "slcan";
+  const plcCycle = getPath("master.sync_source") === "plc_cycle";
   const rateSel = el("select", { dataset: { path: "adapter.bitrate" }, "aria-label": "Bit rate" },
     BITRATES.map((r) => el("option", { value: r }, (r >= 1000000 ? r / 1000000 + " Mbit/s" : r / 1000 + " kbit/s"))));
   const rate = getPath("adapter.bitrate");
@@ -428,6 +442,14 @@ function renderBus(view) {
       el("div", { class: "grid" },
         field("Node ID", "master.node_id", "intstr", { placeholder: "1",
           hint: "Required, 1 to 127, and not used by any slave. New configs start with 1." }),
+        choice("SYNC source", "master.sync_source", [
+          { value: undefined, label: "Timer",
+            help: "Default. The master sends SYNC at a fixed period of its own, independent of the PLC cycle." },
+          { value: "plc_cycle", label: "PLC cycle",
+            help: "One SYNC at the start of every PLC cycle (or every N cycles): inputs are one cycle old and outputs reach the devices after a fixed delay. The SYNC period is the PLC task interval; give every task an interval that is a multiple of the fastest one." },
+        ], { onChange: switchSyncSource }),
+        plcCycle ? field("Every N PLC cycles", "master.sync_cycles", "intstr", { placeholder: "1",
+          hint: "1 to 1000. Empty: a SYNC every PLC cycle." }) :
         field("SYNC period (ms)", "master.sync_period_us", "int", {
           show: (us) => (typeof us === "number" ? us / 1000 : us),
           parse: (t) => (/^[0-9]+(\.[0-9]+)?$/.test(t) ? Math.round(parseFloat(t) * 1000) : t),
@@ -639,6 +661,7 @@ function renderNode(view, i) {
           "Optional. Error code of the node's latest emergency message, 0 when no error is active (after its error reset or a restart). Every EMCY is also logged. Empty: not mapped."),
         nodeInput("Error register", "errreg", "error_register_location", "%IB…",
           "Optional. Error register (object 0x1001 bits) from the latest emergency message, 0 after a restart. Empty: not mapped."))),
+    axisFields(i, eds),
     nodeAdvanced(i, eds));
   if (eds && eds.error) view.append(el("p", { class: "field-msg" }, eds.error));
   for (const [key, dir, title] of [["tx_pdos", "input", "Inputs (TPDOs, slave to PLC)"],
@@ -646,6 +669,60 @@ function renderNode(view, i) {
     view.append(renderPdos(i, key, dir, title, eds));
   }
   view.append(renderObjects(i, eds), renderSdos(i, eds), renderSdoVars(i, eds));
+}
+
+// The node as a CiA 402 axis for the editor's PLCopen motion blocks: the
+// `axis` object (left out when off) with its scaling, and "Map CiA 402
+// objects" (/api/map_cia402), which puts the standard objects into PDOs.
+function axisFields(i, eds) {
+  const base = `nodes[${i}]`;
+  const n = S.config.nodes[i];
+  const on = !!n.axis && typeof n.axis === "object";
+  const box = el("input", { type: "checkbox", dataset: { path: base + ".axis" } });
+  box.checked = on;
+  box.addEventListener("change", () => { setPath(base + ".axis", box.checked ? {} : undefined); render(); });
+  const fs = el("fieldset", { dataset: { axis: base } }, el("legend", null, "CiA 402 axis"),
+    el("div", { class: "check-field" },
+      el("label", { class: "check" }, box, " Use as a CiA 402 axis"),
+      hint("The generated program declares an axis (AXIS_REF_SM3) for this node and calls the editor's CiA 402 drive bridge first in every scan, so MC_Power, MC_MoveAbsolute, MC_MoveVelocity and the other motion blocks drive it. Default: off."),
+      el("span", { class: "field-msg", dataset: { for: base + ".axis" } })));
+  if (!on) return fs;
+  const dt = objectInfo(eds, "0x1000", 0);
+  const value = dt ? num(dt.default) : NaN;
+  if (eds && !eds.error && !(Number.isFinite(value) && (value & 0xFFFF) === 402))
+    fs.append(el("p", { class: "field-msg warning", dataset: { axisProfile: "" } },
+      "The EDS device type (0x1000) does not say device profile 402. Check that this device is a CiA 402 drive."));
+  if (!n.status_location)
+    fs.append(el("p", { class: "field-msg", dataset: { axisStatus: "" } },
+      "An axis needs the status bit (under Supervision): the axis goes into error stop when the drive is lost."));
+  fs.append(el("div", { class: "grid" },
+    field("Scale numerator", base + ".axis.scale_numerator", "int", { placeholder: "1",
+      hint: "Drive increments for 'denominator' units of the program (10: a move of 25 units is 250 increments). Empty: 1." }),
+    field("Scale denominator", base + ".axis.scale_denominator", "intstr", { placeholder: "1",
+      hint: "Program units the numerator's increments stand for. Empty: 1." }),
+    field("Scale factor", base + ".axis.scale_factor", "text", { placeholder: "1.0",
+      parse: (t) => (/^-?[0-9]*\.?[0-9]+(e-?[0-9]+)?$/i.test(t) ? Number(t) : t), hint: "The motion library's extra scale factor on that ratio. Empty: 1.0." })));
+  const result = el("div", { dataset: { axisResult: "" } });
+  fs.append(el("div", { class: "toolbar" },
+    el("button", { type: "button", dataset: { mapCia402: base }, disabled: !eds || !!eds.error, onclick: async () => {
+      const r = await api("POST", "/api/map_cia402", { config: S.config, node: i });
+      S.config.nodes[i] = r.node;
+      S.axisResult = { node: i, mapped: r.mapped, missing: r.missing };
+      changed(true);
+    } }, "Map CiA 402 objects"),
+    hint("Puts the drive's controlword, statusword, modes, positions, velocities and torques that are not mapped yet into its PDOs, with suggested locations, as the drive's own default mapping has them where it can.")),
+    result);
+  const last = S.axisResult && S.axisResult.node === i ? S.axisResult : null;
+  if (last) {
+    const lines = [];
+    lines.push(el("p", { class: "muted" }, last.mapped.length
+      ? "Mapped: " + last.mapped.map((m) => m.index ? `${m.index} ${m.name} (${m.pdo}, ${m.location})` : `${m.name} ${m.location}`).join("; ") + "."
+      : "Nothing new to map."));
+    if (last.missing.length)
+      lines.push(el("ul", { class: "field-msg warning" }, ...last.missing.map((m) => el("li", null, `${m.index} ${m.name}: ${m.reason}`))));
+    result.append(...lines);
+  }
+  return fs;
 }
 
 function nodeAdvanced(i, eds) {
@@ -1796,13 +1873,26 @@ async function pollOnline(seq) {
       el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, `${st.bus.interface}: ${BUS_STATES[st.bus.state] || st.bus.state}`),
         el("th", null, "TX / RX errors"), el("td", null, `${st.bus.tx_errors ?? "-"} / ${st.bus.rx_errors ?? "-"}`),
         el("th", null, "Bus-off"), el("td", null, String(st.bus.bus_off_count ?? "-")),
-        el("th", null, "Master"), el("td", null, `node ${st.master.node_id}, ${stateName(st.master.state)}`)))),
+        el("th", null, "Master"), el("td", null, `node ${st.master.node_id}, ${stateName(st.master.state)}`)),
+      st.sync ? el("tr", null, el("th", null, "SYNC"),
+        el("td", { colspan: 7, dataset: { online: "sync" } }, syncText(st.sync))) : null)),
     el("table", { class: "online-nodes" },
       el("thead", null, el("tr", null, ["Node", "Name", "State", "Status bit", "Boot", "Hold", "Last EMCY", "SDO variables"].map((h) => el("th", null, h)))),
       el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No nodes in the configuration the runtime runs."))])));
   if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
   if (S.lssAllow !== r.hello.allow_changes) renderLss(r.hello.allow_changes);
   S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
+}
+
+// The status answer's SYNC object as one line (as the CLI's status prints it).
+function syncText(sy) {
+  if (sy.source === "none") return "off";
+  const head = sy.source === "plc_cycle"
+    ? "PLC cycle" + (sy.cycles > 1 ? `, every ${sy.cycles} cycles` : "")
+    : `timer ${sy.period_us} µs`;
+  let t = `${head}, ${sy.count} sent`;
+  if (sy.count > 1) t += `, interval ${sy.last_us} µs (min ${sy.min_us}, max ${sy.max_us})`;
+  return t + `, skipped ${sy.skipped}, late PDOs ${sy.late_pdos}`;
 }
 
 // ---------------------------------------------------------------------------

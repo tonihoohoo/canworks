@@ -24,6 +24,7 @@
 #include <lely/coapp/lss_master.hpp>
 #include <lely/coapp/master.hpp>
 #include <lely/ev/exec.hpp>
+#include <lely/io2/posix/poll.hpp>
 #include <lely/io2/timer.hpp>
 
 #include "config.h"
@@ -81,6 +82,20 @@ class Network : public lely::canopen::BasicMaster {
 
   bool IsOperational(unsigned id) const;
 
+  // PLC-cycle SYNC: sends one SYNC for the requests the scan made since the
+  // last call (ProcessImage::request_sync), with the newest outputs. Call on
+  // the loop thread when ProcessImage::sync_fd() is readable (SyncWake).
+  void ServiceSyncRequests();
+
+  // SYNC statistics (canopen-master-bringup "SYNC statistics").
+  struct SyncStats {
+    uint64_t count = 0;
+    uint64_t last_us = 0, min_us = 0, max_us = 0;  // interval between SYNCs
+    uint64_t skipped = 0;  // frames merged into one SYNC
+    uint64_t late = 0;     // cyclic synchronous node TPDOs that missed their SYNC
+  };
+  const SyncStats& sync_stats() const { return sync_stats_; }
+
   // Serves the diagnostics channel's requests from `hub` (call before
   // Start()); the caller attaches and detaches the hub.
   void SetDiag(DiagHub* hub) { diag_ = hub; }
@@ -101,6 +116,9 @@ class Network : public lely::canopen::BasicMaster {
   static constexpr std::chrono::milliseconds kRequestPeriod{10};
   // Without SYNC: how often the bus thread looks for new outputs from the scan.
   static constexpr std::chrono::milliseconds kOutputPeriod{1};
+  // Late PDO and skipped SYNC warnings: at most one per PDO (and one for
+  // skips) in this period.
+  static constexpr std::chrono::seconds kSyncWarnPeriod{10};
 
   // SDO variable transfer status (status_location).
   enum SdoStatus : uint8_t { kSdoNone = 0, kSdoBusy = 1, kSdoDone = 2, kSdoAborted = 3, kSdoUnavailable = 4 };
@@ -124,6 +142,7 @@ class Network : public lely::canopen::BasicMaster {
   void OnNodeGuarding(uint8_t id, bool occurred) noexcept override;
   void OnState(uint8_t id, lely::canopen::NmtState st) noexcept override;
   void OnSync(uint8_t cnt, const time_point& t) noexcept override;
+  void OnRpdo(int num, std::error_code ec, const void* p, std::size_t n) noexcept override;
   void OnCommand(lely::canopen::NmtCommand cs) noexcept override;
   void OnEmcy(uint8_t id, uint16_t eec, uint8_t er, uint8_t msef[5]) noexcept override;
 
@@ -259,6 +278,12 @@ class Network : public lely::canopen::BasicMaster {
   void ConfigNext(uint8_t id);
   void EnableTpdos(const NodeState& n, bool enable);
   void MapTpdos();
+  // Master RPDOs that carry a node's cyclic synchronous TPDO, for the late
+  // PDO check; with PLC-cycle SYNC they are switched to event-driven so the
+  // inputs reach the image as they arrive.
+  void MapSyncRpdos();
+  void CountSync();
+  void SendSync();
   void ArmTick();
   void OnTick();
   void WriteOutputs();
@@ -326,6 +351,21 @@ class Network : public lely::canopen::BasicMaster {
   std::map<unsigned, uint32_t> tpdo_cob_;  // master TPDO number -> COB-ID
   std::set<unsigned> tpdo_event_;          // event-driven master TPDOs
   std::vector<uint64_t> last_out_;
+  // A master RPDO fed by a node's cyclic synchronous TPDO (type 1-240).
+  struct SyncRpdo {
+    unsigned node_id = 0;
+    unsigned pdo = 0;      // the node's TPDO number (0 = unknown)
+    unsigned trans = 1;    // the node's transmission type
+    unsigned since = 0;    // SYNCs since it last arrived
+    bool armed = false;    // arrived once since the node came up
+    clock::time_point warned{};
+  };
+  std::map<unsigned, SyncRpdo> sync_rpdos_;  // master RPDO number ->
+  SyncStats sync_stats_;
+  clock::time_point last_sync_{};
+  clock::time_point skip_warned_{};
+  uint64_t sync_seen_ = 0;    // ProcessImage::sync_requests() handled
+  uint8_t sync_cnt_ = 1;      // next SYNC counter value (with 0x1019 > 1)
   std::set<unsigned> emcy_unknown_;  // unconfigured node IDs already warned about
   DiagHub* diag_ = nullptr;
   std::vector<ManualSdo> manual_;
@@ -362,6 +402,29 @@ class Network : public lely::canopen::BasicMaster {
   bool master_op_ = false;  // the master itself is OPERATIONAL (PDOs run)
   uint8_t master_state_ = 0;
   clock::time_point started_;
+};
+
+// PLC-cycle SYNC: calls Network::ServiceSyncRequests() on the loop thread
+// each time the scan requests a SYNC (ProcessImage::sync_fd() readable).
+// Does nothing when `fd` is -1.
+class SyncWake {
+ public:
+  SyncWake(lely::io::Poll& poll, int fd, Network& net);
+  ~SyncWake();
+  SyncWake(const SyncWake&) = delete;
+  SyncWake& operator=(const SyncWake&) = delete;
+
+ private:
+  static void OnEvent(struct ::io_poll_watch* watch, int events) noexcept;
+  void Arm();
+
+  struct Watch {
+    struct ::io_poll_watch w;
+    SyncWake* self;
+  } watch_;
+  lely::io::Poll& poll_;
+  int fd_;
+  Network& net_;
 };
 
 template <class F>

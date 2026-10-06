@@ -249,6 +249,8 @@ def pdo_marks(n, eds):
 
 def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings):
     sync_us = _u(cfg["master"].get("sync_period_us"), 0)
+    plc_cycle = cfg["master"].get("sync_source") == "plc_cycle"
+    sync_cycles = _u(cfg["master"].get("sync_cycles"), 1) or 1
     msgs = []
     for key in ("tx_pdos", "rx_pdos"):
         tx = key == "tx_pdos"
@@ -266,11 +268,15 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings):
             cycle = None
             if trans is not None and 1 <= trans <= 240 and sync_us:
                 cycle = int(round(sync_us * trans / 1000.0)) or None
+            text = "node %d %s %d, transmission %s%s" % (n_id(n), kind, num,
+                                                        trans if trans is not None else "not set", source)
+            if trans is not None and 1 <= trans <= 240 and plc_cycle:
+                # The SYNC period is the PLC task's, which the config does not hold.
+                text += ", sent at %s, one SYNC every %s" % (
+                    "every SYNC" if trans == 1 else "every %d SYNCs" % trans,
+                    "PLC cycle" if sync_cycles == 1 else "%d PLC cycles" % sync_cycles)
             msg = Message(cob, "%s_%s%d" % (node_name, kind, num), (total + 7) // 8,
-                          node_name if tx else MASTER,
-                          "node %d %s %d, transmission %s%s" % (n_id(n), kind, num,
-                                                                 trans if trans is not None else "not set", source),
-                          cycle)
+                          node_name if tx else MASTER, text, cycle)
             receiver = MASTER if tx else node_name
             taken = _Names()
             bit = 0
@@ -404,8 +410,8 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None):
     nmt.signals += [Signal("Command", 0, 8, receivers=node_names or [NO_RECEIVER], values=NMT_COMMANDS),
                     Signal("Node_ID", 8, 8, receivers=node_names or [NO_RECEIVER])]
     messages.append(nmt)
-    # Without a SYNC period the master produces no SYNC.
-    if _u(cfg["master"].get("sync_period_us"), 0):
+    # Without a SYNC period or PLC-cycle SYNC the master produces no SYNC.
+    if _u(cfg["master"].get("sync_period_us"), 0) or cfg["master"].get("sync_source") == "plc_cycle":
         messages.append(Message(0x080, "SYNC", 0, MASTER, "SYNC"))
     comment = "CANopen network of %s, exported by openplc-canopen-deploy %s" % (
         os.path.basename(config_path), __version__)

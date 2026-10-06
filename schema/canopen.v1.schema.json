@@ -303,12 +303,32 @@
           "$ref": "#/$defs/node_id"
         },
         "sync_period_us": {
-          "description": "SYNC period. Omitted or 0: the master produces no SYNC, and every configured PDO must be event-driven.",
+          "description": "SYNC period of the master's timer. Omitted or 0: no SYNC timer; without \"sync_source\": \"plc_cycle\" the master then produces no SYNC, and every configured PDO must be event-driven. Not allowed with \"sync_source\": \"plc_cycle\".",
           "anyOf": [
             {
               "type": "integer",
               "minimum": 0,
               "maximum": 4294967295
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "sync_source": {
+          "description": "Where SYNC comes from: \"timer\" (default, every sync_period_us) or \"plc_cycle\" (one SYNC every sync_cycles PLC cycles, sent at the start of the cycle).",
+          "enum": [
+            "timer",
+            "plc_cycle"
+          ]
+        },
+        "sync_cycles": {
+          "description": "With \"sync_source\": \"plc_cycle\": PLC cycles per SYNC, 1-1000. Default 1.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
             },
             {
               "$ref": "#/$defs/uint_string"
@@ -635,6 +655,31 @@
             "store": {
               "description": "After setting a new node ID, store it in the device's non-volatile memory (LSS store configuration). Never when the ID was already right. Needs assign. Default false.",
               "type": "boolean"
+            }
+          }
+        },
+        "axis": {
+          "description": "The node is a CiA 402 drive used by the PLC program as one PLCopen axis (AXIS_REF_SM3 of the editor's built-in PLCopen SoftMotion library), named after the node. Its standard objects (0x6040, 0x6041, ...) are found in the node's PDO mapping; needs status_location. The plugin does nothing different on the bus. See docs/cia402.md.",
+          "type": "object",
+          "properties": {
+            "scale_numerator": {
+              "description": "Axis iRatioTechUnitsNum (DINT): increments per technical unit together with scale_denominator and scale_factor. Default 1.",
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "scale_denominator": {
+              "description": "Axis dwRatioTechUnitsDenom (DWORD). Default 1.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            },
+            "scale_factor": {
+              "description": "Axis fScalefactor (LREAL), not 0. Default 1.0.",
+              "type": "number",
+              "not": {
+                "const": 0
+              }
             }
           }
         },

@@ -180,6 +180,9 @@ class OnlinePage(OnlineBase):
             self.assertIn("0x4210 temperature (3)", pg.inner_text('tr[data-online-node="2"]'))
             self.assertIn("(uptime) = 42", pg.inner_text('tr[data-online-node="2"]'))
             self.assertIn("error-active", pg.inner_text('[data-online="bus"]'))
+            self.assertEqual(pg.inner_text('[data-online="sync"]'),
+                             "PLC cycle, every 2 cycles, 500 sent, interval 10012 µs (min 9870, max 10240), "
+                             "skipped 0, late PDOs 3")
             pg.click('tr[data-online-node="2"]')
             pg.wait_for_selector('[data-online="emcy"] table')
             self.assertIn("temperature", pg.inner_text('[data-online="emcy"]'))

@@ -356,8 +356,17 @@ class CheckAndSave(Running):
         self.cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 1
         data = self.ok("POST", "/api/check", {"config": self.cfg})
         [item] = [i for i in data["items"] if "needs SYNC" in i["message"]]
-        self.assertIn("TPDO 1: transmission type 1 needs SYNC, but master.sync_period_us is not set", item["message"])
+        self.assertIn("TPDO 1: transmission type 1 needs SYNC, but the master produces none", item["message"])
         self.assertIn("nodes[0].tx_pdos[0].transmission", item["paths"])
+
+    def test_check_with_plc_cycle_sync(self):
+        # PLC-cycle SYNC: synchronous PDOs are fine without a SYNC period.
+        del self.cfg["master"]["sync_period_us"]
+        self.cfg["master"]["sync_source"] = "plc_cycle"
+        self.cfg["master"]["sync_cycles"] = 2
+        self.cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 1
+        data = self.ok("POST", "/api/check", {"config": self.cfg})
+        self.assertFalse([i for i in data["items"] if "SYNC" in i["message"]], data["items"])
 
     def test_check_reruns_the_lint(self):
         # A node whose EDS has a finding in 0x6061: accepted with "off", the
@@ -721,3 +730,38 @@ class Command(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Cia402(Running):
+    """add-cia402-drive-support: "Map CiA 402 objects" and the axis lines in
+    the declarations."""
+
+    def setUp(self):
+        super().setUp()
+        self.open_project()
+        example = os.path.join(REPO, "config", "cia402-drive")
+        self.assertEqual(self.eds(os.path.join(example, "servo402.eds"))[0], 200)
+        self.cfg = srv.empty_config()
+        self.cfg["nodes"] = [{"node_id": 4, "name": "drive", "eds": "servo402.eds", "axis": {}}]
+
+    def test_map_and_declarations(self):
+        data = self.ok("POST", "/api/map_cia402", {"config": self.cfg, "node": 0})
+        self.assertEqual(data["missing"], [])
+        self.assertEqual(data["node"]["status_location"], "%IX100.0")
+        self.assertEqual(data["node"]["rx_pdos"][1]["entries"][1]["index"], "0x6081")
+        self.assertNotIn("rx_pdos", self.cfg["nodes"][0])
+        self.cfg["nodes"][0] = data["node"]
+        self.cfg["nodes"][0]["heartbeat_ms"] = 50
+        checked = self.ok("POST", "/api/check", {"config": self.cfg})
+        self.assertEqual(checked["errors"], 0, checked["items"])
+        self.assertIn("drive_Statusword", checked["block"])
+        self.assertIn("  drive        : AXIS_REF_SM3;", checked["block"])
+        self.assertIn("drive_bridge(Axis := drive,", checked["block"])
+
+    def test_map_refused(self):
+        status, data, _ = self.request("POST", "/api/map_cia402", {"config": self.cfg, "node": 3})
+        self.assertEqual(status, 400)
+        self.cfg["nodes"][0]["eds"] = "missing.eds"
+        status, data, _ = self.request("POST", "/api/map_cia402", {"config": self.cfg, "node": 0})
+        self.assertEqual(status, 400)
+        self.assertIn("not found", data["error"])
