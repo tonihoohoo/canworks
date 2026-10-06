@@ -92,7 +92,31 @@ test/bus/run.sh                                 # bus state byte with vcan0 take
 test/slcan/run.sh                               # slcan adapter (needs the slcan module and vcan1)
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of these, plus `test/stock/run.sh` against the upstream runtime and the Docker-mode install. A change that touches only documentation or specs runs just the OpenSpec validation; the build and test jobs are skipped. `.github/workflows/pc-tools.yml` installs the PC tools with uv on Windows and macOS when they change, and a `deploy-v<version>` tag publishes them as a wheel on a GitHub release (`release-deploy.yml`).
+CI (`.github/workflows/ci.yml`) runs all of these on every pull request and push to `main` that changes code, the deploy tool and page tests spread over several runners; its last job, `ci-ok`, is the one check a branch ruleset needs. A change that touches only documentation or specs runs just the OpenSpec validation; the build and test jobs are skipped.
+
+### Integration tests (by hand, weekly, or locally)
+
+Two end-to-end installs test against things outside this repository and mostly catch upstream drift, so they are not in the pull request run. `.github/workflows/integration.yml` runs them weekly, on "Run workflow", and on pull requests that change the install routes (`install-stock.sh`, `test/stock/`, `test/docker/`, the editor hook). On a Linux machine with the development build above:
+
+```sh
+pip install jsonschema python-dotenv
+test/stock/run.sh ../openplc-runtime build      # stock runtime install, upload rules and editor hook (upstream development)
+sudo test/docker/run.sh --image ghcr.io/autonomy-logic/openplc-runtime:latest   # Docker route; needs Docker and vcan0
+```
+
+Use a development machine, not one running your PLC: the stock test installs into `/opt/openplc-canopen` and the runtime checkout, and the Docker test starts runtime containers on the host network.
+
+### PC tools on Windows and macOS
+
+`.github/workflows/pc-tools.yml` installs the PC tools with uv on Windows and macOS on version bumps on `main` (the release waits for it), on `deploy-v<version>` tags and on "Run workflow" (start it on a pull request's branch when a change needs those systems checked). On your own PC, from a checkout (bash; Git Bash on Windows):
+
+```sh
+uv build --wheel --out-dir dist tools/deploy && uv tool install --force --python 3.12 dist/*.whl
+uv run --no-project --python 3.12 --with jsonschema --with cantools python -m unittest discover -s tools/deploy/tests -t tools/deploy
+uv run --no-project --python 3.12 python test/pc-tools/smoke.py "$(sed -n 's/^version = "\(.*\)"/\1/p' tools/deploy/pyproject.toml)"
+```
+
+A `deploy-v<version>` release publishes the tools as a wheel on GitHub (`release-deploy.yml`).
 
 ## Installing it
 

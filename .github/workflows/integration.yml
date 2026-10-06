@@ -1,0 +1,68 @@
+name: Integration (upstream runtime, Docker)
+
+# End-to-end installs against things outside this repository: the stock
+# runtime install against upstream `development`, and the managed Docker route
+# against the published runtime image. They are slow and mostly catch upstream
+# drift, so pull requests run them only when they touch the install routes;
+# otherwise they run weekly, by hand ("Run workflow"), or locally (README,
+# "Integration tests"). CI's ci-ok check does not wait for them.
+on:
+  pull_request:
+    paths:
+      - "scripts/install-stock.sh"
+      - "scripts/docker_spec.py"
+      - "scripts/build-lely.sh"
+      - "test/stock/**"
+      - "test/docker/**"
+      - "tools/editor-hook/**"
+      - ".github/actions/build-plugin/**"
+      - ".github/workflows/integration.yml"
+  schedule:
+    - cron: "17 4 * * 1"  # Mondays 04:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: integration-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  stock:
+    # Stock runtime install, upload rules and editor hook against upstream development.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/build-plugin
+        with:
+          kernel-modules: "false"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the stock test's Python dependencies
+        # python-dotenv: the upstream runtime's webserver config, imported by test/stock.
+        run: python -m pip install -q jsonschema python-dotenv
+
+      - name: Stock runtime install, upload rules and editor hook (upstream development)
+        run: test/stock/run.sh upstream-runtime build
+
+  docker:
+    # The managed Docker install route (canopen-docker-install) against the
+    # published runtime image.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create vcan0
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" || true
+          sudo modprobe vcan
+          sudo ip link add dev vcan0 type vcan
+          sudo ip link set vcan0 up
+
+      - name: Build in the runtime image, ping-pong and the runtime container
+        run: sudo test/docker/run.sh --image ghcr.io/autonomy-logic/openplc-runtime:latest

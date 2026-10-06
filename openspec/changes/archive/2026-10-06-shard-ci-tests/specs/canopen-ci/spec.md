@@ -1,9 +1,4 @@
-# canopen-ci Specification
-
-## Purpose
-What CI runs for which change (the pull request suite for code, spec validation only for documentation and specs, the upstream install tests in a separate integration workflow), what it must keep covering, how the test work runs in parallel, the one check a ruleset needs, and how superseded runs are cancelled.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Full suite for code changes
 
@@ -27,25 +22,6 @@ The two end-to-end install tests against things outside this repository (the sto
 - **WHEN** upstream `development` breaks the stock install and no pull request touches the install routes
 - **THEN** the next weekly integration run fails
 
-### Requirement: Light run for documentation and spec changes
-
-When every changed file is in the documentation allow-list (`openspec/**`, `docs/**`, or a `*.md` file outside `test/`, `config/` and `tools/`), CI SHALL skip the build and test jobs and SHALL run `openspec validate --all --strict`. Skipped jobs SHALL report as skipped, not as pending, so required checks do not block the pull request. A file that any test reads SHALL NOT be in the allow-list.
-
-#### Scenario: Archive commit
-- **WHEN** a pull request only moves a change folder into `openspec/changes/archive/` and updates `openspec/specs/`
-- **THEN** only the change classification and the spec validation run, and the run finishes in under a minute
-
-#### Scenario: Invalid spec
-- **WHEN** a documentation-only pull request leaves a spec that fails strict validation
-- **THEN** the spec validation job fails
-
-#### Scenario: Markdown fixture
-- **WHEN** a pull request changes only a Markdown file under `test/`
-- **THEN** the full suite runs
-
-#### Scenario: Unknown base
-- **WHEN** the base commit of a push cannot be compared (new branch, force push)
-- **THEN** the full suite runs
 
 ### Requirement: Parallel test jobs
 
@@ -67,17 +43,7 @@ The test work SHALL be split into jobs that run at the same time, and the C++ si
 - **WHEN** the `tools` shards and the `configurator-page` shards of one run are added up
 - **THEN** they ran every deploy tool, configurator page and layout test once
 
-### Requirement: Superseded runs cancelled
-
-A pull request run SHALL be cancelled when a newer commit to the same pull request starts a run of the same workflow. Runs for pushes to `main` SHALL NOT be cancelled.
-
-#### Scenario: Two pushes in a row
-- **WHEN** a second commit is pushed to a pull request while the first commit's CI is still running
-- **THEN** the first run is cancelled and the second runs to completion
-
-#### Scenario: Merges to main
-- **WHEN** two pull requests are merged into `main` shortly after each other
-- **THEN** both `main` runs complete
+## ADDED Requirements
 
 ### Requirement: One required check
 

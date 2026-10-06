@@ -16,6 +16,7 @@ jobs:
     # code=false when only documentation and specs changed: the build and
     # test jobs below are then skipped (reported as skipped, not pending).
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       code: ${{ steps.classify.outputs.code }}
     steps:
@@ -58,6 +59,7 @@ jobs:
   spec-check:
     # Runs for every change; the only check when only docs and specs changed.
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -68,17 +70,36 @@ jobs:
         run: openspec validate --all --strict --no-interactive
 
   plugin:
-    # Build, C++ unit and simulation tests, and the plugin on vcan.
+    # Build, and the C++ unit and simulation tests.
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/build-plugin
+        with:
+          kernel-modules: "false"
 
       - name: Unit and virtual-bus tests (one ctest test per simulation case, run in parallel)
         run: ctest --test-dir build --output-on-failure -j4
+
+  vcan:
+    # The plugin on vcan, split over two runners (each has its own vcan0).
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2]
+    name: vcan (${{ matrix.group }}/2)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/build-plugin
 
       - uses: actions/setup-python@v5
         with:
@@ -94,8 +115,12 @@ jobs:
           sudo modprobe vcan
           sudo ip link add dev vcan0 type vcan
 
+      - name: Bring vcan0 up (group 2; in group 1 the link setup test leaves it up)
+        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        run: sudo ip link set vcan0 up
+
       - name: Link setup on vcan0 (as root, then without CAP_NET_ADMIN)
-        if: steps.vcan.outcome == 'success'
+        if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: |
           sudo build/test/link_check vcan0 --expect ready
           ip link show vcan0 | grep -q ",UP"
@@ -104,7 +129,7 @@ jobs:
           sudo ip link set vcan0 up
 
       - name: Ping-pong on vcan0
-        if: steps.vcan.outcome == 'success'
+        if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: |
           test/pingpong/run.sh --seconds 10
           if test/pingpong/run.sh --seconds 4 --no-slave; then
@@ -112,33 +137,33 @@ jobs:
           fi
 
       - name: LSS node ID assignment on vcan0 (slave without a node ID)
-        if: steps.vcan.outcome == 'success'
+        if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: test/lss/run.sh --seconds 10
 
       - name: Bus trace on vcan0 (capture, directions, filter, formats, idle trace)
-        if: steps.vcan.outcome == 'success'
+        if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: test/trace/run.sh
 
       - name: Bus state byte on vcan0 (interface taken down and up)
-        if: steps.vcan.outcome == 'success'
+        if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: test/bus/run.sh
 
       - name: slcan adapter (fake CANable on a pty, bridged to vcan1)
-        if: steps.vcan.outcome == 'success'
+        if: steps.vcan.outcome == 'success' && matrix.group == 2
         run: test/slcan/run.sh
 
       - name: RTD temperature module on vcan0
-        if: steps.vcan.outcome == 'success'
+        if: steps.vcan.outcome == 'success' && matrix.group == 2
         run: |
           test/sensor/run.sh --seconds 10
           test/sensor/run.sh --seconds 6 --keep-vendor-pdos
 
       - name: Device parameter backup, compare and restore on vcan0 (RTD module)
-        if: steps.vcan.outcome == 'success'
+        if: steps.vcan.outcome == 'success' && matrix.group == 2
         run: test/params/run.sh
 
       - name: Fixed PDO mapping (read-only mapping and COB-IDs) on vcan0
-        if: steps.vcan.outcome == 'success'
+        if: steps.vcan.outcome == 'success' && matrix.group == 2
         run: test/fixed/run.sh
 
       - name: Report skipped vcan test
@@ -147,14 +172,23 @@ jobs:
 
   tools:
     # Deploy tool and configurator tests without a browser (the page tests run
-    # in configurator-page), with the DCF export compared to the C++ build.
+    # in configurator-page), with the DCF export compared to the C++ build,
+    # split over three runners by test class (.github/scripts/test_shard.py).
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    name: tools (${{ matrix.shard }}/3)
     steps:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/build-plugin
+        with:
+          kernel-modules: "false"
 
       - uses: actions/setup-python@v5
         with:
@@ -171,22 +205,39 @@ jobs:
       - name: Deploy tool and configurator tests (shared fixtures, bundle, clash check, stub runtime, server, DCF export parity, DBC export)
         env:
           CANOPEN_REQUIRE_PARITY: "1"  # the DCF export is compared with build/canopen_check --dump-writes
-        run: python -m unittest discover -v -s tools/deploy/tests -t tools/deploy
+        run: >
+          python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3
+          --start tools/deploy/tests --top tools/deploy --exclude 'test_configurator_(.*page|layout)$'
 
       - name: Release tag check (deploy-v<version> must match the package version)
+        if: matrix.shard == 1
         run: python -m unittest discover -v -s test/pc-tools
 
-      - name: CI change classification
+      - name: CI change classification, test sharding and banned words
+        if: matrix.shard == 1
         run: python -m unittest discover -v -s test/ci
 
       - name: Editor hook tests (snapshot reading, shared fixtures, child process)
+        if: matrix.shard == 2
         run: PYTHONPATH=tools/editor-hook:tools/deploy python -m unittest discover -v -s tools/editor-hook/tests -t tools/editor-hook
 
+      - name: Install-script Docker mode and runtime spec edits (stub docker)
+        if: matrix.shard == 3
+        # last: runs as root (it may leave root-owned files)
+        run: sudo python3 -m unittest discover -v -s test/docker
+
   configurator-page:
-    # The configurator's pages in Chromium. Needs no plugin build.
+    # The configurator's pages in Chromium, split over three runners by test
+    # class. Needs no plugin build.
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    name: configurator-page (${{ matrix.shard }}/3)
     steps:
       - uses: actions/checkout@v4
 
@@ -203,50 +254,27 @@ jobs:
       - name: Configurator page and layout tests
         env:
           CANOPEN_REQUIRE_BROWSER: "1"  # fail instead of skipping without Playwright/Chromium
-        run: |
-          python -m unittest discover -v -s tools/deploy/tests -t tools/deploy -p 'test_configurator_*page.py'
-          python -m unittest discover -v -s tools/deploy/tests -t tools/deploy -p 'test_configurator_layout.py'
+        run: >
+          python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3
+          --start tools/deploy/tests --top tools/deploy
+          --pattern 'test_configurator_*page.py' --pattern 'test_configurator_layout.py'
 
-  stock:
-    # Stock runtime install, upload rules and editor hook against upstream development.
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+  ci-ok:
+    # The one check a branch ruleset needs: green when every job above passed
+    # or was skipped on purpose (documentation-only changes), red otherwise.
+    # Job names inside it can change without touching the ruleset.
+    if: always()
+    needs: [changes, banned-words, spec-check, plugin, vcan, tools, configurator-page]
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: ./.github/actions/build-plugin
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install the stock test's Python dependencies
-        # python-dotenv: the upstream runtime's webserver config, imported by test/stock.
-        run: python -m pip install -q jsonschema python-dotenv
-
-      - name: Stock runtime install, upload rules and editor hook (upstream development)
-        run: test/stock/run.sh upstream-runtime build
-
-  docker:
-    # The managed Docker install route (canopen-docker-install) against the
-    # published runtime image.
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install-script Docker mode and runtime spec edits (stub docker)
-        run: sudo python3 -m unittest discover -v -s test/docker
-
-      - name: Create vcan0
+      - name: Every CI job passed or was skipped
+        env:
+          RESULTS: ${{ toJSON(needs) }}
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" || true
-          sudo modprobe vcan
-          sudo ip link add dev vcan0 type vcan
-          sudo ip link set vcan0 up
-
-      - name: Build in the runtime image, ping-pong and the runtime container
-        run: sudo test/docker/run.sh --image ghcr.io/autonomy-logic/openplc-runtime:latest
+          echo "$RESULTS" | python3 -c '
+          import json, sys
+          bad = {k: v["result"] for k, v in json.load(sys.stdin).items() if v["result"] not in ("success", "skipped")}
+          for k, r in bad.items():
+              print(f"::error::{k}: {r}")
+          sys.exit(1 if bad else 0)'
