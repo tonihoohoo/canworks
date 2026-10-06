@@ -28,6 +28,7 @@
     <button id="btn-save" type="button" class="primary">Save</button>
   </div>
 </header>
+<div id="sim-banner" role="note" hidden></div>
 <div id="banner" role="status" hidden><span id="banner-text"></span><button id="banner-close" type="button" title="Close" aria-label="Close message">✕</button></div>
 <main id="start" hidden>
   <section class="start-choices">
@@ -61,6 +62,7 @@
     <button type="button" data-view="online" class="nav-item">Online</button>
     <button type="button" data-view="scan" class="nav-item">Scan the bus</button>
     <button type="button" data-view="trace" class="nav-item">Trace</button>
+    <button type="button" data-view="simulation" class="nav-item">Simulation</button>
     <div id="unused-eds"></div>
     <p id="scan-info" class="muted"></p>
   </nav>
@@ -76,5 +78,6 @@
 <script src="uplot/uPlot.iife.min.js"></script>
 <script src="app.js"></script>
 <script src="trace.js"></script>
+<script src="sim.js"></script>
 </body>
 </html>
