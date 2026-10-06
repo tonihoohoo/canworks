@@ -104,7 +104,9 @@ Flashing candleLight (CANable updater, https://canable.io/updater/) turns the CA
 | Field | Required | Meaning |
 |---|---|---|
 | `node_id` | yes | The master's node ID, 1-127. |
-| `sync_period_us` | no | SYNC period in microseconds. Synchronous PDOs are exchanged on every SYNC. Left out or 0: the master produces no SYNC, and every configured PDO must be event-driven: a PDO whose transmission type, from `transmission` or else from the EDS, is 0-240 or 252 is rejected (set `"transmission": 254` or `255`), and so are `sync_window_us`, `sync_counter_overflow` and `sync_start`. Outputs are then sent as soon as they change (see [At runtime](#at-runtime)). |
+| `sync_period_us` | no | SYNC period in microseconds, for the master's own SYNC timer. Synchronous PDOs are exchanged on every SYNC. Left out or 0 without `"sync_source": "plc_cycle"`: the master produces no SYNC, and every configured PDO must be event-driven: a PDO whose transmission type, from `transmission` or else from the EDS, is 0-240 or 252 is rejected (set `"transmission": 254` or `255`), and so are `sync_window_us`, `sync_counter_overflow` and `sync_start`. Outputs are then sent as soon as they change (see [At runtime](#at-runtime)). Not allowed with `"sync_source": "plc_cycle"`. |
+| `sync_source` | no | `"timer"` (default): SYNC every `sync_period_us`. `"plc_cycle"`: SYNC from the PLC cycle ([SYNC from the PLC cycle](#sync-from-the-plc-cycle)). |
+| `sync_cycles` | no | With `"sync_source": "plc_cycle"`: one SYNC every this many PLC cycles, 1-1000 (default 1). |
 | `heartbeat_ms` | no | Heartbeat the master produces (default 0, off). |
 | `eds_lint` | no | Which `dcfgen` EDS lint findings stop the load: `"communication"` (default), `"all"` or `"off"` ([EDS lint](#eds-lint)). |
 | `strict_eds` | no | Deprecated: `true` reads as `eds_lint: "all"`, `false` as `"off"`. Not together with `eds_lint`. |
@@ -167,8 +169,8 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 | Field | Object | Meaning |
 |---|---|---|
 | `vendor_id`, `product_code`, `revision_number`, `serial_number` | 0x1018 | The master's own identity. |
-| `sync_window_us` | 0x1007 | Synchronous window length. Needs `sync_period_us`. |
-| `sync_counter_overflow` | 0x1019 | 0 (no counter) or 2-240: SYNC then carries a counter, which a PDO's `sync_start` needs. Needs `sync_period_us`. |
+| `sync_window_us` | 0x1007 | Synchronous window length. Needs SYNC (`sync_period_us` or `"sync_source": "plc_cycle"`). |
+| `sync_counter_overflow` | 0x1019 | 0 (no counter) or 2-240: SYNC then carries a counter, which a PDO's `sync_start` needs. Needs SYNC (`sync_period_us` or `"sync_source": "plc_cycle"`). |
 | `time_cob_id` | 0x1012 | COB-ID of the master's TIME message, default 0x100. With `time_period_ms` the master sets the producer bit (bit 30) itself. |
 | `time_period_ms` | 0x1012 bit 30 | 100-3600000. The master produces TIME: a CiA 301 TIME_OF_DAY from the runtime host's clock (UTC) on `time_cob_id` (or 0x100), sent at once when the bus comes up, again at once after the bus recovers, and then every `time_period_ms`. Left out, the master sends no TIME. The start-up log names the COB-ID, the period and the host's time, so a host without NTP or a real-time clock shows up there. Nodes use TIME only when their own 0x1012 has the consumer bit: set the node's `time_cob_id` to `0x80000100` (or `0x80000000` plus your COB-ID); the plugin warns when no configured node does. |
 | `emcy_inhibit_time_us` | 0x1015 | Inhibit time of the master's own EMCY, multiple of 100. |
@@ -576,4 +578,29 @@ In every case the PLC starts and runs normally; fix the file and restart the PLC
 
 - Inputs are copied to the PLC before every scan and hold their last received value; a node that never came up reads zero.
 - Outputs are read after every scan and sent at the next SYNC, only to nodes that are operational. Without a SYNC period, the master looks for new outputs every millisecond and sends each event-driven PDO whose data changed (within its inhibit time); outputs that do not change send nothing.
+- With the SYNC timer (`sync_period_us`) the SYNC and the PLC cycle run on separate clocks: output latency varies between almost nothing and one SYNC period, and a scan may now and then see no new inputs. Use `"sync_source": "plc_cycle"` when that matters.
 - A node that is absent, rejects its configuration, or stops sending heartbeats does not stop the PLC or the other nodes. Its status bit goes FALSE, and the master keeps trying to boot and configure it in the background.
+
+## SYNC from the PLC cycle
+
+With `"sync_source": "plc_cycle"` the master sends SYNC at the start of the PLC cycle instead of from its own timer:
+
+```json
+"master": { "node_id": 1, "sync_source": "plc_cycle", "sync_cycles": 1 }
+```
+
+On every `sync_cycles`-th PLC cycle the plugin's `cycle_start()` first copies the newest inputs to the PLC and then asks the bus thread for a SYNC, which goes out with the outputs the previous scan wrote. For a node whose PDOs have transmission type 1, with cycle k starting at SYNC k:
+
+```
+cycle k:    SYNC k: nodes sample their inputs and send them    scan k runs and writes outputs
+cycle k+1:  the inputs of SYNC k reach the PLC                 SYNC k+1, then the outputs of scan k
+cycle k+2:  nodes apply the outputs of scan k at SYNC k+2
+```
+
+Inputs are one cycle old and outputs are applied two SYNCs after the scan that wrote them, every time. The SYNC period is the PLC task interval times `sync_cycles`; `sync_period_us` is not allowed with it, and the master's own 0x1006 stays 0. `sync_window_us` and `sync_counter_overflow` work as with the timer, and every PDO setting the config leaves out keeps its EDS value. The master takes synchronous inputs as they arrive (its own RPDOs become event-driven; the nodes keep their types), so they are ready for the next cycle.
+
+- The runtime calls the plugin once per PLC *frame*: a base tick on which at least one task is due. With one task, or tasks whose intervals are all multiples of the fastest one, frames come at the fastest task's interval. Other mixes (10 ms and 15 ms) give uneven frames and an uneven SYNC.
+- The bus thread runs at SCHED_FIFO priority 49 (the runtime's highest task level) so the SYNC follows the cycle closely. If the runtime may not set it, the plugin logs a warning and runs at normal priority.
+- When the PLC stops, SYNC stops. A node that supervises SYNC (its own 0x1006, or a drive's interpolation watchdog) reports that as a fault. A long scan overrun does not stop SYNC, because the runtime keeps starting frames.
+- A cycle below 1 ms is allowed, with a warning at start: the bus may not carry all PDOs in one period.
+- The diagnostics status ([diagnostics.md](diagnostics.md)) and the configurator's online view show the SYNC interval (last, shortest, longest), cycles merged into one SYNC because the bus thread fell behind, and late PDOs: node TPDOs with a cyclic synchronous type that did not arrive before the next SYNC. Both are also logged, at most once per 10 seconds per PDO.

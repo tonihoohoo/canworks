@@ -389,9 +389,23 @@ function switchAdapterType(type) {
   changed(true);
 }
 
+// SYNC source: the timer's period and the PLC cycle count exclude each other.
+function switchSyncSource(source) {
+  const m = S.config.master || (S.config.master = {});
+  if (source === "plc_cycle") {
+    m.sync_source = "plc_cycle";
+    delete m.sync_period_us;
+  } else {
+    delete m.sync_source;
+    delete m.sync_cycles;
+  }
+  changed(true);
+}
+
 function renderBus(view) {
   const a = "adapter";
   const slcan = getPath("adapter.type") === "slcan";
+  const plcCycle = getPath("master.sync_source") === "plc_cycle";
   const rateSel = el("select", { dataset: { path: "adapter.bitrate" }, "aria-label": "Bit rate" },
     BITRATES.map((r) => el("option", { value: r }, (r >= 1000000 ? r / 1000000 + " Mbit/s" : r / 1000 + " kbit/s"))));
   const rate = getPath("adapter.bitrate");
@@ -428,6 +442,14 @@ function renderBus(view) {
       el("div", { class: "grid" },
         field("Node ID", "master.node_id", "intstr", { placeholder: "1",
           hint: "Required, 1 to 127, and not used by any slave. New configs start with 1." }),
+        choice("SYNC source", "master.sync_source", [
+          { value: undefined, label: "Timer",
+            help: "Default. The master sends SYNC at a fixed period of its own, independent of the PLC cycle." },
+          { value: "plc_cycle", label: "PLC cycle",
+            help: "One SYNC at the start of every PLC cycle (or every N cycles): inputs are one cycle old and outputs reach the devices after a fixed delay. The SYNC period is the PLC task interval; give every task an interval that is a multiple of the fastest one." },
+        ], { onChange: switchSyncSource }),
+        plcCycle ? field("Every N PLC cycles", "master.sync_cycles", "intstr", { placeholder: "1",
+          hint: "1 to 1000. Empty: a SYNC every PLC cycle." }) :
         field("SYNC period (ms)", "master.sync_period_us", "int", {
           show: (us) => (typeof us === "number" ? us / 1000 : us),
           parse: (t) => (/^[0-9]+(\.[0-9]+)?$/.test(t) ? Math.round(parseFloat(t) * 1000) : t),
@@ -1789,13 +1811,26 @@ async function pollOnline(seq) {
       el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, `${st.bus.interface}: ${BUS_STATES[st.bus.state] || st.bus.state}`),
         el("th", null, "TX / RX errors"), el("td", null, `${st.bus.tx_errors ?? "-"} / ${st.bus.rx_errors ?? "-"}`),
         el("th", null, "Bus-off"), el("td", null, String(st.bus.bus_off_count ?? "-")),
-        el("th", null, "Master"), el("td", null, `node ${st.master.node_id}, ${stateName(st.master.state)}`)))),
+        el("th", null, "Master"), el("td", null, `node ${st.master.node_id}, ${stateName(st.master.state)}`)),
+      st.sync ? el("tr", null, el("th", null, "SYNC"),
+        el("td", { colspan: 7, dataset: { online: "sync" } }, syncText(st.sync))) : null)),
     el("table", { class: "online-nodes" },
       el("thead", null, el("tr", null, ["Node", "Name", "State", "Status bit", "Boot", "Hold", "Last EMCY", "SDO variables"].map((h) => el("th", null, h)))),
       el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No nodes in the configuration the runtime runs."))])));
   if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
   if (S.lssAllow !== r.hello.allow_changes) renderLss(r.hello.allow_changes);
   S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
+}
+
+// The status answer's SYNC object as one line (as the CLI's status prints it).
+function syncText(sy) {
+  if (sy.source === "none") return "off";
+  const head = sy.source === "plc_cycle"
+    ? "PLC cycle" + (sy.cycles > 1 ? `, every ${sy.cycles} cycles` : "")
+    : `timer ${sy.period_us} µs`;
+  let t = `${head}, ${sy.count} sent`;
+  if (sy.count > 1) t += `, interval ${sy.last_us} µs (min ${sy.min_us}, max ${sy.max_us})`;
+  return t + `, skipped ${sy.skipped}, late PDOs ${sy.late_pdos}`;
 }
 
 // ---------------------------------------------------------------------------

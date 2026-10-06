@@ -326,7 +326,7 @@ void check_pdos(Config& cfg, NodeConfig& n, const co_dev_t* dev, bool is_tx,
     // never move; the plugin does not pick another type on its own.
     uint64_t tt = 0;
     const co_sub_t* tt_sub = co_dev_find_sub(dev, comm, 2);
-    if (!cfg.master.sync_period_us && !p.has_transmission && tt_sub && sub_value(tt_sub, tt) &&
+    if (!cfg.master.produces_sync() && !p.has_transmission && tt_sub && sub_value(tt_sub, tt) &&
         transmission_needs_sync((unsigned)tt))
       errors.push_back(n.label() + ": " + kind + " " + std::to_string(p.number) + ": " +
                        sync_needed_message((unsigned)tt, true));

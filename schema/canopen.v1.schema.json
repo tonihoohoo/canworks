@@ -303,12 +303,32 @@
           "$ref": "#/$defs/node_id"
         },
         "sync_period_us": {
-          "description": "SYNC period. Omitted or 0: the master produces no SYNC, and every configured PDO must be event-driven.",
+          "description": "SYNC period of the master's timer. Omitted or 0: no SYNC timer; without \"sync_source\": \"plc_cycle\" the master then produces no SYNC, and every configured PDO must be event-driven. Not allowed with \"sync_source\": \"plc_cycle\".",
           "anyOf": [
             {
               "type": "integer",
               "minimum": 0,
               "maximum": 4294967295
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "sync_source": {
+          "description": "Where SYNC comes from: \"timer\" (default, every sync_period_us) or \"plc_cycle\" (one SYNC every sync_cycles PLC cycles, sent at the start of the cycle).",
+          "enum": [
+            "timer",
+            "plc_cycle"
+          ]
+        },
+        "sync_cycles": {
+          "description": "With \"sync_source\": \"plc_cycle\": PLC cycles per SYNC, 1-1000. Default 1.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
             },
             {
               "$ref": "#/$defs/uint_string"

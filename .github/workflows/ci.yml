@@ -162,6 +162,10 @@ jobs:
             echo "run.sh passed without the slave" >&2; exit 1
           fi
 
+      - name: PLC-cycle SYNC on vcan0
+        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        run: test/pingpong/run.sh --seconds 6 --plc-cycle
+
       - name: LSS node ID assignment on vcan0 (slave without a node ID)
         if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: test/lss/run.sh --seconds 10

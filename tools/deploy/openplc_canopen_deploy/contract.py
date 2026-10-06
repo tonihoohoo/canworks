@@ -295,7 +295,12 @@ def plugin_owned_object(index):
     }.get(index)
 
 
-SYNC_NEEDED = " needs 'sync_period_us' (without it the master produces no SYNC)"
+SYNC_NEEDED = " needs 'sync_period_us' or \"sync_source\": \"plc_cycle\" (without them the master produces no SYNC)"
+
+
+def produces_sync(master):
+    """Whether the master sends SYNC: a timer period or PLC-cycle SYNC (plugin: MasterConfig::produces_sync)."""
+    return bool(_uint(master.get("sync_period_us", 0)) or 0) or master.get("sync_source") == "plc_cycle"
 
 
 def sdo_variable_label(entry, name=""):
@@ -452,8 +457,16 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
             err("master", "field '%s' must be a multiple of 100: %d" % (f, v), ["master." + f])
     if _uint(master.get("sync_counter_overflow", 0)) == 1 or (_uint(master.get("sync_counter_overflow", 0)) or 0) > 240:
         err("master", "field 'sync_counter_overflow' must be 0 (no counter) or 2-240", ["master.sync_counter_overflow"])
-    # Left out or 0: the master produces no SYNC.
-    sync_period = _uint(master.get("sync_period_us", 0)) or 0
+    plc_cycle = master.get("sync_source") == "plc_cycle"
+    if "sync_cycles" in master and not plc_cycle:
+        err("master", "field 'sync_cycles' needs \"sync_source\": \"plc_cycle\"", ["master.sync_cycles"])
+    if plc_cycle and (_uint(master.get("sync_period_us", 0)) or 0):
+        err("master", "field 'sync_period_us' cannot be used with \"sync_source\": \"plc_cycle\": the SYNC period "
+                      "comes from the PLC cycle", ["master.sync_period_us", "master.sync_source"])
+    if plc_cycle and "sync_cycles" in master and not 1 <= (_uint(master["sync_cycles"]) or 0) <= 1000:
+        err("master", "field 'sync_cycles' must be 1-1000", ["master.sync_cycles"])
+    # Neither a timer period nor PLC-cycle SYNC: the master produces no SYNC.
+    sync_period = produces_sync(master)
     if not sync_period:
         for f in ("sync_window_us", "sync_counter_overflow"):
             if f in master:
