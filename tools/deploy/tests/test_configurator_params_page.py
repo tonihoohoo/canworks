@@ -140,6 +140,12 @@ class ParamsPage(OnlineBase):
             copied = lambda: pg.evaluate("() => window.__copied[window.__copied.length - 1]")
             # A read-only INTEGER16 entry copies the read call at once.
             self.search("0x7130")
+            # Read, Edit and ST fit in the actions column (a button that spills
+            # over sits under the watch column and cannot be clicked).
+            spill = pg.evaluate("""() => {
+                const b = document.querySelector('tr[data-od-key="%d:1"] button[data-online="od-st"]');
+                return b.getBoundingClientRect().right - b.closest("td").getBoundingClientRect().right; }""" % 0x7130)
+            self.assertLessEqual(spill, 0)
             pg.click('tr[data-od-key="%d:1"] button[data-online="od-st"]' % 0x7130)
             pg.wait_for_function("() => window.__copied.length === 1")
             text = copied()
