@@ -5,9 +5,10 @@ heartbeat and EMCY identifiers come from the DBC export's model
 (dbcexport.build), so the trace shows the same names as the exported DBC.
 SDO object names and types come from the nodes' EDS files. Without a config
 (or with one that does not check) the predefined connection set of CiA 301
-is used.
+is used. A trace records one network: with several networks in the config
+the decoder takes the traced network's nodes (`network`).
 
-    dec = Decoder.from_config(cfg, config_path, names=dbcexport.plc_names(uses))
+    dec = Decoder.from_config(cfg, config_path, names=dbcexport.plc_names(uses), network="drives")
     d = dec.decode(frame)   # Decoded: kind, node, name, text, signals
 
 decode() keeps state for segmented SDO transfers: feed it the frames in
@@ -16,7 +17,7 @@ order (reset() before a new pass).
 
 import struct
 
-from .. import dbcexport, diag
+from .. import contract, dbcexport, diag
 from .model import Frame
 
 KINDS = ("nmt", "sync", "time", "emcy", "heartbeat", "sdo", "pdo", "lss", "error", "gap", "other")
@@ -113,12 +114,18 @@ class Decoder:
         self.reset()
 
     @classmethod
-    def from_config(cls, cfg, config_path, eds_paths=None, names=None):
-        """A decoder for a config. A config that does not pass the checks
-        still decodes with the predefined connection set; the reason is in
-        `warnings`."""
+    def from_config(cls, cfg, config_path, eds_paths=None, names=None, network=None):
+        """A decoder for a config, with the nodes of its network `network`
+        (needed when it has several). A config that does not pass the checks,
+        or has no such network, still decodes with the predefined connection
+        set; the reason is in `warnings`."""
         d = cls()
         if not cfg:
+            return d
+        try:
+            cfg = contract.network_config(cfg, network)
+        except ValueError as e:
+            d.warnings.append("decoding without the config's nodes: %s" % e)
             return d
         master = cfg.get("master") or {}
         d.master_id = dbcexport._u(master.get("node_id"))

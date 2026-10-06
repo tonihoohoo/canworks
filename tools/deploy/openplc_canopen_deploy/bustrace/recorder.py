@@ -147,6 +147,10 @@ class Recorder:
                         continue
                     with self.session.lock:
                         meta = self.session.trace.meta
+                        # The network the trace records (a plugin with
+                        # several networks names it; an older one does not).
+                        if r.get("network"):
+                            meta.setdefault("network", r["network"])
                         meta.setdefault("interface", r.get("interface"))
                         if r.get("bitrate"):
                             meta["bitrate"] = r["bitrate"]

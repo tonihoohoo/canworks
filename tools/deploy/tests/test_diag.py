@@ -3,13 +3,15 @@
 import io
 import json
 import os
+import shlex
 import unittest
 from contextlib import redirect_stderr
 from unittest import mock
 
 from openplc_canopen_deploy import diag
 
-from .fake_diag import TOKEN, FakePlugin, closed_port
+from .fake_diag import TOKEN, TWO_NETWORKS, FakePlugin, closed_port
+from .helpers import REPO
 
 
 def run(*argv, env_token=TOKEN):
@@ -229,6 +231,132 @@ class Cli(unittest.TestCase):
                 with self.assertRaises(SystemExit, msg=argv):
                     diag.parser().parse_args(argv)
         self.assertEqual(run("status")[0], 2)
+
+
+class Networks(unittest.TestCase):
+    """A plugin that runs two networks (io, drives), one that lists one, and
+    an older one that lists none (the default fake)."""
+
+    def test_hello_lists_the_networks(self):
+        with FakePlugin(networks=TWO_NETWORKS) as fp:
+            c = diag.Client("127.0.0.1", fp.port, TOKEN)
+            c.connect()
+            try:
+                self.assertEqual([n["name"] for n in c.networks], ["io", "drives"])
+                self.assertTrue(c.several())
+                with self.assertRaises(diag.DiagError) as cm:
+                    c.status()
+                self.assertEqual(str(cm.exception), "network required (io, drives)")
+                with self.assertRaises(diag.DiagError) as cm:
+                    c.request("status", network="x")
+                self.assertEqual(str(cm.exception), "unknown network 'x' (io, drives)")
+                c.network = "drives"
+                self.assertEqual(c.status()["network"], "drives")
+                self.assertEqual(fp.requests[-1], {"op": "status", "id": 4, "network": "drives"})
+            finally:
+                c.close()
+
+    def test_status_of_every_network(self):
+        with FakePlugin(networks=TWO_NETWORKS) as fp:
+            code, out, err = run("--runtime", fp.runtime, "status")
+            self.assertEqual(code, 0, err)
+            self.assertEqual([r.get("network") for r in fp.requests], ["io", "drives"])
+        self.assertTrue(out.startswith("network io (vcan0)\nplugin v-test"), out)
+        io_part, drives_part = out.split("\nnetwork drives (vcan1)\n")
+        self.assertRegex(io_part, r"2\s+pingpong\s+OPERATIONAL")
+        self.assertIn("bus vcan1: error active", drives_part)
+        self.assertRegex(drives_part, r"2\s+drive\s+PRE-OPERATIONAL")
+        self.assertNotIn("pingpong", drives_part)
+
+    def test_status_json_of_every_network(self):
+        with FakePlugin(networks=TWO_NETWORKS) as fp:
+            code, out, _ = run("--runtime", fp.runtime, "--json", "status")
+        self.assertEqual(code, 0)
+        self.assertEqual([st["network"] for st in json.loads(out)["networks"]], ["io", "drives"])
+
+    def test_status_of_one_network(self):
+        with FakePlugin(networks=TWO_NETWORKS) as fp:
+            code, out, err = run("--runtime", fp.runtime, "status", "--network", "drives")
+            self.assertEqual(code, 0, err)
+            self.assertEqual([r.get("network") for r in fp.requests], ["drives"])
+        self.assertTrue(out.startswith("plugin v-test"))
+        self.assertIn("bus vcan1", out)
+
+    def test_commands_need_a_network(self):
+        with FakePlugin(networks=TWO_NETWORKS, allow_changes=True) as fp:
+            for argv in (["sdo-read", "2", "0x1018", "1"], ["emcy", "2"], ["nmt", "2", "stop"], ["scan"],
+                         ["lss-find"], ["sdo-write", "2", "0x2000", "0", "1", "--type", "UNSIGNED32"]):
+                code, _, err = run("--runtime", fp.runtime, *argv)
+                self.assertEqual(code, 1, argv)
+                self.assertIn("runs 2 networks (io, drives); give --network NAME", err)
+            self.assertEqual(fp.requests, [])
+            code, _, err = run("--runtime", fp.runtime, "sdo-read", "2", "0x1008", "0", "--network", "motion")
+            self.assertEqual(code, 1)
+            self.assertIn("runs no network 'motion' (io, drives)", err)
+
+    def test_sdo_read_on_the_second_network(self):
+        with FakePlugin(networks=TWO_NETWORKS) as fp:
+            code, out, err = run("--runtime", fp.runtime, "sdo-read", "2", "0x1008", "0", "--type",
+                                 "VISIBLE_STRING", "--network", "drives")
+            self.assertEqual((code, out), (0, "drive\n"), err)
+            self.assertEqual(fp.requests[-1]["network"], "drives")
+            code, out, err = run("--runtime", fp.runtime, "sdo-read", "2", "0x1008", "0", "--type",
+                                 "VISIBLE_STRING", "--network", "io")
+            self.assertEqual((code, out), (0, "pingpong\n"), err)
+
+    def test_one_listed_network(self):
+        # A plugin with one network: --network may be left out and is never sent.
+        with FakePlugin(networks=TWO_NETWORKS[:1]) as fp:
+            code, out, err = run("--runtime", fp.runtime, "status")
+            self.assertEqual(code, 0, err)
+            self.assertTrue(out.startswith("plugin v-test"))
+            code, out, _ = run("--runtime", fp.runtime, "sdo-read", "2", "0x1008", "0", "--network", "io")
+            self.assertEqual(code, 0)
+            self.assertFalse([r for r in fp.requests if "network" in r])
+            code, _, err = run("--runtime", fp.runtime, "status", "--network", "drives")
+            self.assertEqual(code, 1)
+            self.assertIn("runs no network 'drives' (io)", err)
+
+    def test_older_plugin(self):
+        # No networks in the hello: the output is as before, and `network` is
+        # never sent, whatever --network says.
+        with FakePlugin() as fp:
+            code, out, err = run("--runtime", fp.runtime, "status")
+            self.assertEqual(code, 0, err)
+            self.assertTrue(out.startswith("plugin v-test, up 12 s"))
+            self.assertNotIn("network", out)
+            code, out, _ = run("--runtime", fp.runtime, "sdo-read", "2", "0x1008", "0", "--network", "io")
+            self.assertEqual(code, 0)
+            self.assertFalse([r for r in fp.requests if "network" in r])
+
+
+def documented_commands():
+    """Every openplc-canopen-diag command line in the docs' code blocks, as
+    argument lists ([optional] parts included)."""
+    out = []
+    for name in ("diagnostics.md", "trace.md"):
+        with open(os.path.join(REPO, "docs", name), encoding="utf-8") as f:
+            text = f.read()
+        for block in text.split("```")[1::2]:
+            for line in block.splitlines():
+                line = line.strip()
+                if line.startswith("openplc-canopen-diag "):
+                    argv = shlex.split(line.replace("[", "").replace("]", ""), comments=True)
+                    out.append((name, argv[1:]))
+    return out
+
+
+class Docs(unittest.TestCase):
+    def test_documented_commands_parse(self):
+        commands = documented_commands()
+        self.assertGreater(len(commands), 20)
+        self.assertTrue(any("--network" in argv for _, argv in commands))
+        for name, argv in commands:
+            with redirect_stderr(io.StringIO()):
+                try:
+                    diag.parser().parse_args(argv)
+                except SystemExit:
+                    self.fail("%s: %s does not parse" % (name, " ".join(argv)))
 
 
 if __name__ == "__main__":

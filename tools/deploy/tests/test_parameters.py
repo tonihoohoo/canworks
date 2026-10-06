@@ -500,5 +500,116 @@ class CliTest(Base):
             self.assertIn("does not answer SDO", err)
 
 
+# Node 2 on two networks: the RTD module on io (125 kbit/s), the servo drive
+# on drives (500 kbit/s).
+TWO_NETWORKS = [{"name": "io", "interface": "vcan0", "bitrate": 125000, "master_node_id": 1},
+                {"name": "drives", "interface": "vcan1", "bitrate": 500000, "master_node_id": 1}]
+
+
+def two_network_config(folder):
+    for path in (RTD_EDS, SERVO_EDS):
+        shutil.copy(path, folder)
+    cfg = {"schema_version": 2, "networks": [
+        {"name": net["name"], "adapter": {"type": "socketcan", "interface": net["interface"],
+                                          "bitrate": net["bitrate"]},
+         "master": {"node_id": 1},
+         "nodes": [{"node_id": 2, "name": name, "eds": os.path.basename(eds)}]}
+        for net, name, eds in ((TWO_NETWORKS[0], "rtd", RTD_EDS), (TWO_NETWORKS[1], "drive", SERVO_EDS))]}
+    path = os.path.join(folder, "canopen.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f)
+    return path
+
+
+class TwoNetworkDevices(fake_diag.FakePlugin):
+    """A plugin with networks io and drives, node 2 answering on each from
+    its own EDS."""
+
+    def __init__(self):
+        super().__init__(allow_changes=True, networks=TWO_NETWORKS)
+        for name, path in (("io", RTD_EDS), ("drives", SERVO_EDS)):
+            net = self.network(name)
+            eds, _ = P.read_eds(path)
+            for key, data in device_values(eds, 2).items():
+                net.objects[(2,) + key] = data
+            net.present.add(2)
+        self.network("drives").objects[(2, 0x1018, 2)] = (0x3E9).to_bytes(4, "little")
+
+    def sdo_requests(self, op, network):
+        return [(r["index"], r["subindex"]) for r in self.requests
+                if r.get("op") == op and r.get("node") == 2 and r.get("network") == network]
+
+
+class NetworkTest(Base):
+    run_cli = CliTest.run_cli
+
+    def setUp(self):
+        super().setUp()
+        self.config = two_network_config(self.tmp)
+
+    def test_backup_on_each_network(self):
+        with TwoNetworkDevices() as fp:
+            for network, eds_path, name, kbit, servo in (("drives", SERVO_EDS, "drive", 500, True),
+                                                          ("io", RTD_EDS, "rtd", 125, False)):
+                path = os.path.join(self.tmp, "%s.dcf" % network)
+                fp.requests.clear()
+                code, out, err = self.run_cli(fp, "backup", "2", "--network", network, "-o", path,
+                                              "--config", self.config)
+                self.assertEqual(code, 0, err)
+                self.assertRegex(out, r"%s\.dcf: \d+ entries read, 0 not read" % network)
+                # Every read went to that network, entry by entry of that node's EDS.
+                eds, _ = P.read_eds(eds_path)
+                self.assertEqual(sorted(fp.sdo_requests("sdo_read", network)), sorted(e.key for e in P.readable(eds)))
+                self.assertFalse([r for r in fp.requests if r.get("network") != network])
+                with open(path, encoding="utf-8") as f:
+                    text = f.read()
+                self.assertIn("NodeName=%s" % name, text)
+                self.assertIn("Baudrate=%d" % kbit, text)
+                self.assertEqual("[6040]" in text, servo)  # the drive's controlword
+
+    def test_compare_restore_store_on_drives(self):
+        with TwoNetworkDevices() as fp:
+            path = os.path.join(self.tmp, "drives.dcf")
+            self.assertEqual(self.run_cli(fp, "backup", "2", "--network", "drives", "-o", path,
+                                          "--config", self.config)[0], 0)
+            code, out, err = self.run_cli(fp, "compare", "2", "--with", path, "--network", "drives",
+                                          "--config", self.config)
+            self.assertEqual(code, 0, err)
+            self.assertIn(" 0 different", out)
+            fp.requests.clear()
+            code, out, err = self.run_cli(fp, "restore", "2", path, "--network", "drives", "--config", self.config,
+                                          "--dry-run")
+            self.assertEqual(code, 0, err)
+            self.assertIn("0 to write", out)
+            fp.requests.clear()
+            code, out, err = self.run_cli(fp, "store", "2", "--network", "drives", "--config", self.config, "--yes")
+            self.assertEqual(code, 0, err)
+            self.assertEqual(fp.sdo_requests("sdo_write", "drives"), [(0x1010, 1)])
+            self.assertFalse(fp.sdo_requests("sdo_write", "io"))
+
+    def test_network_needed(self):
+        with TwoNetworkDevices() as fp:
+            for argv in (["backup", "2"], ["compare", "2", "--with-eds-defaults"], ["store", "2", "--yes"],
+                         ["restore", "2", "x.dcf"]):
+                code, _, err = self.run_cli(fp, *(argv + ["--config", self.config]))
+                self.assertEqual(code, 1, argv)
+                self.assertIn("(io, drives); give --network NAME", err)
+            code, _, err = self.run_cli(fp, "backup", "2", "--network", "motion", "--config", self.config)
+            self.assertEqual(code, 1)
+            self.assertIn("no network 'motion'", err)
+        # The config alone names the networks too, also for a runtime with one.
+        with self.assertRaises(P.ParameterError) as cm:
+            P.node_context(2, self.config)
+        self.assertIn("2 networks (io, drives); name one with --network NAME", str(cm.exception))
+        with self.assertRaises(P.ParameterError) as cm:
+            P.node_context(2, self.config, network="motion")
+        self.assertIn("no network 'motion' in the config (io, drives)", str(cm.exception))
+        with self.assertRaises(P.ParameterError) as cm:
+            P.node_context(5, self.config, network="io")
+        self.assertIn("node 5 is not on network 'io'", str(cm.exception))
+        ctx = P.node_context(2, self.config, network="drives")
+        self.assertEqual((ctx.name, ctx.bitrate_kbit, ctx.eds_name), ("drive", 500, "servo-drive.eds"))
+
+
 if __name__ == "__main__":
     unittest.main()

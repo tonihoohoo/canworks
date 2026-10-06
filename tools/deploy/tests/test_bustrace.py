@@ -22,7 +22,7 @@ from openplc_canopen_deploy.bustrace.model import RECORD_SIZE, Frame, Trace
 from openplc_canopen_deploy.bustrace.recorder import Recorder, Session
 from openplc_canopen_deploy.bustrace.stats import Analysis, frame_bits
 
-from .fake_diag import TOKEN, FakePlugin
+from .fake_diag import TOKEN, TWO_NETWORKS, FakePlugin
 from .test_contract import FIXTURES, REPO, load_cases
 
 try:
@@ -66,6 +66,30 @@ def pingpong_decoder():
     with open(PINGPONG, encoding="utf-8") as f:
         cfg = json.load(f)
     return Decoder.from_config(cfg, PINGPONG)
+
+
+def two_network_config(folder):
+    """Node 2 on two networks: the ping-pong slave on io, a drive with its
+    statusword and position in TPDO1 on drives."""
+    shutil.copy(os.path.join(REPO, "config", "pingpong", "cpp-slave.eds"), folder)
+    shutil.copy(os.path.join(FIXTURES, "eds", "drives", "servo-drive.eds"), folder)
+    with open(PINGPONG, encoding="utf-8") as f:
+        pp = json.load(f)
+    drive = {"node_id": 2, "name": "drive", "eds": "servo-drive.eds", "tx_pdos": [{"entries": [
+        {"index": "0x6041", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%IW200"},
+        {"index": "0x6064", "subindex": 0, "type": "INTEGER32", "iec_location": "%ID201"}]}]}
+    cfg = {"schema_version": 2, "networks": [
+        {"name": "io", "adapter": pp["adapter"], "master": pp["master"], "nodes": pp["nodes"]},
+        {"name": "drives", "adapter": {"type": "socketcan", "interface": "vcan1", "bitrate": 500000},
+         "master": {"node_id": 1}, "nodes": [drive]}]}
+    path = os.path.join(folder, "canopen.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f)
+    return cfg, path
+
+
+# TPDO1 of node 2: 0x0237, then 0xFFFFFFFF.
+NODE2_TPDO1 = bytes([0x37, 0x02, 0xFF, 0xFF, 0xFF, 0xFF])
 
 
 def written(trace, fmt, decoder=None):
@@ -302,6 +326,26 @@ class Decoding(unittest.TestCase):
         self.assertEqual(d.text, "valve_status=7")
         self.assertEqual(dbcexport.identifier("valve_status"), "valve_status")
 
+    def test_network_picks_the_nodes(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        cfg, path = two_network_config(tmp)
+        frame = Frame(T0, 0x182, NODE2_TPDO1)
+        io_dec = Decoder.from_config(cfg, path, network="io")
+        self.assertEqual(io_dec.warnings, [])
+        d = io_dec.decode(frame)
+        self.assertEqual((d.name, d.text), ("pingpong_TPDO1", "UNSIGNED32_sent_from_slave=4294902327"))
+        self.assertEqual(io_dec.decode(Frame(T0, 0x702, bytes([5]))).text, "node 2 (pingpong) OPERATIONAL")
+        drives_dec = Decoder.from_config(cfg, path, network="drives")
+        d = drives_dec.decode(frame)
+        self.assertEqual((d.name, d.text), ("drive_TPDO1", "Statusword=567, Position_actual_value=-1"))
+        self.assertEqual(drives_dec.decode(Frame(T0, 0x702, bytes([5]))).text, "node 2 (drive) OPERATIONAL")
+        # Without a network a config with several decodes like no config, and says why.
+        dec = Decoder.from_config(cfg, path)
+        self.assertEqual(dec.warnings, ["decoding without the config's nodes: the config has 2 networks "
+                                        "(io, drives); name one"])
+        self.assertEqual(dec.decode(frame).name, "TPDO1")
+
     def test_signal_values(self):
         self.assertEqual(signal_value(b"\xff\xff", 0, 16, True, 0), -1)
         self.assertEqual(signal_value(b"\x00\x00\x80\x3f", 0, 32, False, 1), 1.0)
@@ -482,6 +526,33 @@ class Recording(unittest.TestCase):
         self.fake.trace_session = False
         self.assertTrue(self.wait_for(lambda: r.state == "no_bus"))
 
+    def test_records_one_network(self):
+        fake = FakePlugin(networks=TWO_NETWORKS)
+        fake.__enter__()
+        self.addCleanup(fake.__exit__)
+
+        def connect():
+            c = diag.Client("127.0.0.1", fake.port, TOKEN, 2.0, network="drives")
+            c.connect()
+            return c
+
+        s = Session(pingpong_decoder())
+        r = Recorder(connect, s, fetch_interval=0.02, status_interval=0.05)
+        self.addCleanup(r.stop)
+        r.start()
+        self.assertTrue(self.wait_for(lambda: r.state == "recording"))
+        fake.push([Frame(int(time.time() * 1e6), 0x182, bytes(4))])
+        self.assertTrue(self.wait_for(lambda: len(s.trace) == 1))
+        self.assertTrue(self.wait_for(lambda: r.status is not None))
+        r.stop()
+        self.assertEqual(r.status["network"], "drives")
+        self.assertEqual({k: s.trace.meta[k] for k in ("network", "interface", "bitrate")},
+                         {"network": "drives", "interface": "vcan1", "bitrate": 500000})
+        self.assertEqual({q.get("network") for q in fake.requests}, {"drives"})
+        # The network is saved with the trace.
+        back = formats.read(written(s.trace, "pcapng"), "x.pcapng")
+        self.assertEqual(back.meta["network"], "drives")
+
     def test_old_plugin(self):
         self.fake.trace_supported = False
         s, r = self.recorder()
@@ -557,6 +628,55 @@ class Cli(unittest.TestCase):
         with open(csv, encoding="utf-8") as f:
             self.assertIn("pingpong_TPDO1,UNSIGNED32_sent_from_slave=5", f.read())
         self.assertEqual(diag.main(["convert", log, os.path.join(tmp, "a.txt")]), 2)
+
+    def test_trace_and_convert_on_a_network(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        _, config = two_network_config(tmp)
+        with FakePlugin(networks=TWO_NETWORKS) as fake:
+            stop = threading.Event()
+
+            def feed():
+                while not stop.is_set():
+                    fake.push([Frame(int(time.time() * 1e6), 0x182, NODE2_TPDO1)])
+                    time.sleep(0.02)
+
+            th = threading.Thread(target=feed, daemon=True)
+            th.start()
+            self.addCleanup(stop.set)
+            base = ["--runtime", fake.runtime, "--token", TOKEN, "trace", "--duration", "0.4", "--config", config]
+            # Without --network the runtime's two networks are named.
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(diag.main(base + ["-o", os.path.join(tmp, "never.log")]), 1)
+            self.assertIn("runs 2 networks (io, drives); give --network NAME", err.getvalue())
+            self.assertFalse(fake.trace_starts)
+            path = os.path.join(tmp, "drives.pcapng")
+            with contextlib.redirect_stderr(io.StringIO()):  # the drive EDS's lint notes
+                rc = diag.run(diag.parser().parse_args(base + ["-o", path, "--network", "drives"]), io.StringIO())
+            stop.set()
+            self.assertEqual(rc, 0)
+            self.assertEqual(fake.trace_starts[-1]["network"], "drives")
+        trace = formats.read_file(path)
+        self.assertEqual(trace.meta["network"], "drives")
+        self.assertEqual(trace.meta["interface"], "vcan1")
+        # convert decodes with the network the file names, or the one given.
+        csv = os.path.join(tmp, "drives.csv")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(diag.run(diag.parser().parse_args(["convert", path, csv, "--config", config]),
+                                      io.StringIO()), 0)
+        with open(csv, encoding="utf-8") as f:
+            self.assertIn('drive_TPDO1,"Statusword=567, Position_actual_value=-1"', f.read())
+        self.assertEqual(diag.run(diag.parser().parse_args(["convert", path, csv, "--config", config,
+                                                            "--network", "io"]), io.StringIO()), 0)
+        with open(csv, encoding="utf-8") as f:
+            self.assertIn("pingpong_TPDO1,UNSIGNED32_sent_from_slave=4294902327", f.read())
+        # A file that names no network needs --network with this config.
+        log = os.path.join(tmp, "a.log")
+        formats.write_file(trace, log)
+        with self.assertRaises(diag.DiagError) as cm:
+            diag.run(diag.parser().parse_args(["convert", log, csv, "--config", config]), io.StringIO())
+        self.assertIn("2 networks (io, drives); name one with --network NAME", str(cm.exception))
 
     def test_bad_trigger_and_filter(self):
         with FakePlugin() as fake:

@@ -2,10 +2,13 @@
 
   openplc-canopen-diag --runtime plc.local status
   openplc-canopen-diag --runtime plc.local sdo-read 23 0x1008 0 --type VISIBLE_STRING
+  openplc-canopen-diag --runtime plc.local sdo-read 2 0x1018 1 --network drives
   openplc-canopen-diag hash-token
 
 The channel is opt-in (master.diagnostics in canopen.json) and speaks
 line-delimited JSON over TCP, port 7531 by default; see docs/diagnostics.md.
+With several CAN networks every command but status needs --network NAME;
+status then prints every network.
 The token comes from --token, $OPENPLC_CANOPEN_TOKEN or a prompt. The
 configurator's online view uses the Client class of this module.
 """
@@ -269,8 +272,13 @@ class DiagError(Exception):
 
 
 class Client:
-    def __init__(self, host, port=DEFAULT_PORT, token="", timeout=5.0):
+    """One connection to the plugin. `network` names the network every
+    request after the hello is for; it is sent only when the plugin runs
+    several networks (an older plugin knows no networks)."""
+
+    def __init__(self, host, port=DEFAULT_PORT, token="", timeout=5.0, network=None):
         self.host, self.port, self.token, self.timeout = host, port, token, timeout
+        self.network = network
         self.sock = None
         self.buf = b""
         self.info = None
@@ -279,6 +287,16 @@ class Client:
     @property
     def where(self):
         return "%s:%d" % (self.host, self.port)
+
+    @property
+    def networks(self):
+        """The hello's networks ([{name, interface, bitrate, master_node_id}]);
+        [] from a plugin that runs one network and does not list it."""
+        nets = (self.info or {}).get("networks")
+        return nets if isinstance(nets, list) else []
+
+    def several(self):
+        return len(self.networks) > 1
 
     def connect(self):
         """Connect and authenticate; the hello result (protocol, version,
@@ -342,6 +360,8 @@ class Client:
         rid = self.next_id
         self.next_id += 1
         msg = dict(fields, op=op, id=rid)
+        if op != "hello" and self.network and "network" not in msg and self.several():
+            msg["network"] = self.network
         if timeout is not None:
             self.sock.settimeout(timeout)
         try:
@@ -476,6 +496,16 @@ def _lss_address_args(p):
         p.add_argument(key, type=_u32(key.replace("_", " ")), metavar=key.split("_")[0].upper())
 
 
+def _network_arg(p, text="the network to talk to (needed when the runtime runs several)"):
+    p.add_argument("--network", metavar="NAME", help=text)
+
+
+# The commands that talk to one network of the plugin (status takes --network
+# too, but goes over every network without it).
+NETWORK_COMMANDS = ("emcy", "sdo-read", "sdo-write", "nmt", "scan", "lss-find", "lss-inquire", "lss-set-id",
+                    "lss-set-bitrate", "trace", "backup", "compare", "restore", "store")
+
+
 def parser():
     p = argparse.ArgumentParser(
         prog="openplc-canopen-diag",
@@ -490,7 +520,8 @@ def parser():
     p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
     sub.required = True
-    sub.add_parser("status", help="master, bus and node states")
+    s = sub.add_parser("status", help="master, bus and node states")
+    _network_arg(s, "the network to show (default: every network)")
     e = sub.add_parser("emcy", help="a node's emergency history, newest first")
     e.add_argument("node", type=_node)
     r = sub.add_parser("sdo-read", help="read an object")
@@ -526,10 +557,11 @@ def parser():
                     help="kbit/s: " + ", ".join(str(b) for b in LSS_BITRATES))
     lb.add_argument("--store", action="store_true", help="also store the bit rate in the device's memory")
     tr = sub.add_parser("trace", help="record the frames on the bus into a file (read-only)",
-                        description="Records every CAN frame on the runtime's CANopen interface until --duration "
-                                    "ends, a single-mode trigger has fired and its post-trigger time passed, or "
-                                    "Ctrl-C; then writes the file. The format follows the file's extension: "
-                                    ".pcapng, .log (candump), .asc, .blf, .trc or .csv.")
+                        description="Records every CAN frame on the runtime's CANopen interface (with several "
+                                    "networks, the one --network names) until --duration ends, a single-mode "
+                                    "trigger has fired and its post-trigger time passed, or Ctrl-C; then writes "
+                                    "the file. The format follows the file's extension: .pcapng, .log (candump), "
+                                    ".asc, .blf, .trc or .csv.")
     tr.add_argument("-o", "--output", required=True, metavar="FILE", help="the trace file to write")
     tr.add_argument("--format", help="the file format when the extension does not say it")
     tr.add_argument("--duration", type=float, metavar="S", help="stop after S seconds (default: Ctrl-C)")
@@ -552,6 +584,7 @@ def parser():
     cv.add_argument("output", help=".pcapng, .log, .asc, .blf, .trc or .csv")
     cv.add_argument("--format", help="the output format when the extension does not say it")
     cv.add_argument("--config", metavar="canopen.json", help="decode with this config (CSV)")
+    _network_arg(cv, "decode with this network of --config (default: the one the trace file names)")
     def _source(q):
         q.add_argument("--config", metavar="FILE", help="canopen.json naming the node's EDS (default %s when "
                                                         "present)" % os.path.join("canopen", "canopen.json"))
@@ -586,6 +619,8 @@ def parser():
                     help="0x1010 sub-index (default 1: all parameters)")
     st.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     _source(st)
+    for name in NETWORK_COMMANDS:
+        _network_arg(sub.choices[name])
     h = sub.add_parser("hash-token", help="print token_sha256 for a token (no connection)")
     h.add_argument("value", nargs="?", help="the token (default: --token, $%s or a prompt)" % TOKEN_ENV)
     return p
@@ -598,6 +633,25 @@ def _token(args, prompt="Diagnostics token: "):
     if not sys.stdin.isatty():
         raise DiagError("token", "give the token with --token or $%s" % TOKEN_ENV)
     return getpass.getpass(prompt)
+
+
+def network_names(client):
+    return [n.get("name") or "" for n in client.networks if isinstance(n, dict)]
+
+
+def check_network(client, network):
+    """Checks --network against the networks the plugin runs: several need
+    one, and a name the plugin lists must be among them. An older plugin
+    lists none and runs one network, so any name goes there. Raises
+    DiagError("network")."""
+    names = network_names(client)
+    if network is None:
+        if client.several():
+            raise DiagError("network", "%s runs %d networks (%s); give --network NAME"
+                            % (client.where, len(names), ", ".join(names)))
+        return
+    if any(names) and network not in names:
+        raise DiagError("network", "%s runs no network '%s' (%s)" % (client.where, network, ", ".join(names)))
 
 
 def _print_status(st, out):
@@ -688,7 +742,7 @@ def _parameters(client, args, host, out):
     """backup, compare, restore and store (canopen-device-parameters)."""
     from . import parameters as P
     try:
-        ctx = P.node_context(args.node, args.config, args.eds)
+        ctx = P.node_context(args.node, args.config, args.eds, network=args.network)
     except P.ParameterError as e:
         raise DiagError("usage", str(e))
     node = args.node
@@ -827,10 +881,25 @@ def run(args, out=sys.stdout):
         host, port = parse_runtime(args.runtime)
     except ValueError as e:
         raise DiagError("usage", str(e))
-    client = Client(host, port, _token(args), args.timeout)
+    client = Client(host, port, _token(args), args.timeout, network=args.network)
     client.connect()
     try:
-        if args.command == "status":
+        all_networks = args.command == "status" and not args.network and client.several()
+        if not all_networks:
+            check_network(client, args.network)
+        if all_networks:
+            # Every network, one after another, each headed by its name.
+            res = []
+            for i, net in enumerate(client.networks):
+                st = client.request("status", network=net.get("name"))
+                res.append(st)
+                if not args.json:
+                    out.write("%snetwork %s (%s)\n" % ("\n" if i else "", net.get("name"),
+                                                       net.get("interface") or "no interface"))
+                    _print_status(st, out)
+            if args.json:
+                res = {"networks": res}
+        elif args.command == "status":
             res = client.status()
             if not args.json:
                 _print_status(res, out)
@@ -941,7 +1010,11 @@ def _filter(text):
         raise DiagError("usage", "--filter %r: write ID or ID/MASK, e.g. 0x180/0x780" % text)
 
 
-def _decoder(config):
+def _decoder(config, network=None, default=None):
+    """A decoder with the nodes of `network` in the config (a trace records
+    one network). `default` is the network for a config with several when
+    `network` is None: the one the trace or the plugin names."""
+    from . import contract
     from .bustrace.decode import Decoder
     if not config:
         return Decoder()
@@ -950,7 +1023,13 @@ def _decoder(config):
             cfg = json.load(f)
     except (OSError, ValueError) as e:
         raise DiagError("usage", "cannot read %s: %s" % (config, e))
-    dec = Decoder.from_config(cfg, config)
+    if network is None and len(contract.networks(cfg)) > 1:
+        network = default
+    try:
+        contract.network_config(cfg, network)
+    except ValueError as e:
+        raise DiagError("network", "%s: %s%s" % (config, e, " with --network NAME" if network is None else ""))
+    dec = Decoder.from_config(cfg, config, network=network)
     for w in dec.warnings:
         print("openplc-canopen-diag: %s" % w, file=sys.stderr)
     return dec
@@ -960,7 +1039,8 @@ def _convert(args, out):
     from .bustrace import formats
     try:
         trace = formats.read_file(args.input)
-        fmt = formats.write_file(trace, args.output, args.format, _decoder(args.config))
+        decoder = _decoder(args.config, args.network, trace.meta.get("network"))
+        fmt = formats.write_file(trace, args.output, args.format, decoder)
     except (OSError, formats.FormatError) as e:
         raise DiagError("usage", str(e))
     out.write("%d frames written to %s (%s)\n" % (sum(1 for f in trace if not f.gap), args.output, fmt))
@@ -993,20 +1073,30 @@ def _trace(args, out):
     token = _token(args)
 
     def connect():
-        c = Client(host, port, token, args.timeout)
+        c = Client(host, port, token, args.timeout, network=args.network)
         c.connect()
         return c
 
-    # Fail early on a wrong host or token instead of retrying.
-    decoder = _decoder(args.config)
+    # Fail early on a wrong host, token or network instead of retrying.
+    first = connect()
+    try:
+        check_network(first, args.network)
+        names = network_names(first)
+    finally:
+        first.close()
+    # The traced network's nodes decode its frames; without --network that is
+    # the plugin's only network.
+    network = args.network or (names[0] if len(names) == 1 and names[0] else None)
+    decoder = _decoder(args.config, args.network, network)
     if spec:
         try:
             triggers.resolve_signals(spec, decoder.signal_keys())
         except triggers.TriggerError as e:
             raise DiagError("usage", "--trigger: %s" % e)
-    connect().close()
     session = Session(decoder)
     session.trace.meta["runtime"] = args.runtime
+    if network:
+        session.trace.meta["network"] = network
     prefix = os.path.splitext(os.path.basename(args.output))[0]
     rec = Recorder(connect, session, filters, args.error_frames, spec, name_prefix=prefix)
     started = time.monotonic()

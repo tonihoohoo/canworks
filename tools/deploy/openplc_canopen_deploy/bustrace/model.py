@@ -97,7 +97,7 @@ class Trace:
     """Frames in time order, packed, with markers and loss notes.
 
     markers: [{"time_us", "label", "kind"}]; lost: [(time_us, frames)].
-    meta: interface, bitrate (bit/s), config_sha256, source, trigger, ...
+    meta: network, interface, bitrate (bit/s), config_sha256, source, trigger, ...
     """
 
     def __init__(self, limit=DEFAULT_LIMIT):

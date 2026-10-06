@@ -720,11 +720,13 @@ def _num(v):
     return int(str(v), 0)
 
 
-def node_context(node_id, config_path=None, eds_path=None, cfg=None, eds_paths=None):
+def node_context(node_id, config_path=None, eds_path=None, cfg=None, eds_paths=None, network=None):
     """A NodeContext from --eds, or from a config (the node's EDS, name and
-    the bus bit rate). With neither, canopen/canopen.json when it exists."""
+    the bus bit rate). With neither, canopen/canopen.json when it exists.
+    `network` names the config's network the node is on; a config with
+    several networks needs it."""
     import json
-    from . import bundle
+    from . import bundle, contract
     if eds_path:
         eds, text = read_eds(eds_path)
         return NodeContext(node_id, eds, text, eds_path)
@@ -738,9 +740,14 @@ def node_context(node_id, config_path=None, eds_path=None, cfg=None, eds_paths=N
                 cfg = json.load(f)
         except (OSError, ValueError) as e:
             raise ParameterError("cannot read %s: %s" % (config_path, e))
+    try:
+        cfg = contract.network_config(cfg, network)
+    except ValueError as e:
+        raise ParameterError("%s: %s%s" % (config_path, e, " with --network NAME" if network is None else ""))
     node = next((n for n in cfg.get("nodes", []) if _num(n.get("node_id")) == node_id), None)
     if node is None:
-        raise ParameterError("node %d is not in %s; give its EDS with --eds" % (node_id, config_path))
+        where = "on network '%s' in %s" % (network, config_path) if network else "in %s" % config_path
+        raise ParameterError("node %d is not %s; give its EDS with --eds" % (node_id, where))
     paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
     path = paths[node["eds"]]
     eds, text = read_eds(path)
