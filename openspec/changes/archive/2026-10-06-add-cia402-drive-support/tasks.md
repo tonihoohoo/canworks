@@ -37,7 +37,7 @@
 ## 7. Docs and release
 
 - [x] 7.1 `docs/cia402.md`: what is supported (profile position, velocity, homing), PDO layout and transmission types, scaling, one-scan latency, library limits, homing and ramps via startup SDOs, editor version needed; links from README, `docs/config.md` and `docs/configurator.md`.
-- [x] 7.2 Deploy tool version bump (0.24.0; the repo keeps no changelog file).
+- [x] 7.2 Deploy tool version bump (0.25.0; the repo keeps no changelog file).
 
 ## 8. Hardware (open in the PR if no drive is available)
 
