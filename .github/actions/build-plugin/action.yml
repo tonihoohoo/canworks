@@ -4,6 +4,13 @@ description: >
   dependencies, Lely CANopen from the cache (or built), the deploy tool in the
   plugin venv (the plugin's EDS lint) and the cmake build in ./build.
 
+inputs:
+  kernel-modules:
+    description: >
+      Install linux-modules-extra (the vcan module). Only the jobs that create
+      vcan interfaces need it; it is the slowest package to install.
+    default: "true"
+
 runs:
   using: composite
   steps:
@@ -16,12 +23,17 @@ runs:
 
     - name: Install build dependencies
       shell: bash
+      env:
+        KERNEL_MODULES: ${{ inputs.kernel-modules }}
       run: |
         sudo apt-get update -qq
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential cmake pkg-config autoconf automake libtool \
-          python3-venv can-utils "linux-modules-extra-$(uname -r)" || \
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential cmake pkg-config autoconf automake libtool \
-          python3-venv can-utils
+        pkgs="build-essential cmake pkg-config autoconf automake libtool python3-venv can-utils"
+        if [ "$KERNEL_MODULES" = true ]; then
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkgs "linux-modules-extra-$(uname -r)" || \
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkgs
+        else
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkgs
+        fi
 
     - name: Prepare /opt/openplc-canopen
       shell: bash
