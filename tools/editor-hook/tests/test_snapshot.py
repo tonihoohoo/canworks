@@ -272,6 +272,8 @@ class SharedFixtures(Base):
         eds.update({"canopen/fw/" + n: read(os.path.join(eds_dir, "fw", n)) for n in os.listdir(os.path.join(eds_dir, "fw"))})
         eds.update({"canopen/lint/" + n: read(os.path.join(eds_dir, "lint", n))
                     for n in os.listdir(os.path.join(eds_dir, "lint")) if n.endswith(".eds")})
+        eds.update({"canopen/drives/" + n: read(os.path.join(eds_dir, "drives", n))
+                    for n in os.listdir(os.path.join(eds_dir, "drives")) if n.endswith(".eds")})
         rejected = 0
         for case in doc["cases"]:
             with self.subTest(case["name"]):

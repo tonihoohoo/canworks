@@ -239,6 +239,7 @@ Each is optional. The first group lives only in the master (0x1F81 and the expec
 | `revision_number` | master 0x1F87 | Expected revision (0x1018 sub 3). Default: the EDS value. `0` switches the check off. |
 | `serial_number` | master 0x1F88 | Expected serial number (0x1018 sub 4), to pin one physical device. Left out: not checked. |
 | `software_file`, `software_version` | master 0x1F58, 0x1F55 | Program download, see [Program download](#program-download). |
+| `axis` | PLC program | Marks the node as a CiA 402 drive used as a PLCopen axis; see [CiA 402 axis](#cia-402-axis). The plugin itself does nothing different. |
 | `lss` | master (LSS) | `{"assign": true}` gives the device its node ID over the bus by its serial number, `"store": true` also saves it in the device; see [LSS](#lss). Left out: no LSS. |
 | `heartbeat_consumer` | node 0x1016 | `true`: the node watches the master's heartbeat with timeout `master.heartbeat_ms` × `master.heartbeat_multiplier`; needs `master.heartbeat_ms` above 0. `false`: the node's entry is cleared. Left out: the EDS entries stay. |
 | `time_cob_id` | node 0x1012 | COB-ID of TIME; bit 31 (`0x80000000`) set makes the node consume TIME. Written only when it differs from the EDS value. |
@@ -303,6 +304,22 @@ Rules, checked by the plugin and the deploy tool:
 - An EDS that does not say `LSS_Supported=1` gives a warning, not an error: many EDS files leave it out although the device supports LSS.
 
 Without any node with `lss` and without diagnostics changes the master sends no LSS frame at all. To set the node ID or bit rate of a device by hand (commissioning, or a device that is not in the config yet), use the configurator's online view or `openplc-canopen-diag lss-...` ([diagnostics.md](diagnostics.md#what-it-offers)). Changing one device's bit rate takes effect at its next power cycle; set `adapter.bitrate` to match once all devices are set.
+
+### CiA 402 axis
+
+`axis` makes the node a PLCopen axis for the editor's motion blocks (`MC_Power`, `MC_MoveAbsolute`, ...), named after the node. The project generator declares the axis and calls the editor's CiA 402 drive bridge with the node's mapped standard objects (0x6040, 0x6041, 0x6060, 0x6061, 0x6064, 0x606C, 0x607A, 0x6081, 0x60FF, 0x6071, 0x6077); the plugin only accepts the field.
+
+```json
+"axis": { "scale_numerator": 1, "scale_denominator": 1, "scale_factor": 1.0 }
+```
+
+| Field | Meaning |
+|---|---|
+| `scale_numerator` | Drive increments for `scale_denominator` position units, -2147483648 to 2147483647. Default 1. |
+| `scale_denominator` | 1 to 4294967295. Default 1. |
+| `scale_factor` | The library's extra factor, any number but 0. Default 1.0. |
+
+An axis node needs `status_location` and 0x6040 in an RPDO and 0x6041 in a TPDO, each with a location; the deploy tool and the configurator check this and the other standard objects' directions and types. See [cia402.md](cia402.md).
 
 ### Mandatory nodes
 
@@ -550,6 +567,7 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a time in µs that CiA counts in 100 µs is not a multiple of 100, `sync_counter_overflow` is 1 or above 240, or an `error_behavior` sub-index is outside 1-254;
 - a node sets `config_check` while its EDS has no writable 0x1020 sub 1 and sub 2, or `store_configuration` outside 1-127, without `config_check`, or on a 0x1010 sub-index its EDS does not define as writable;
 - a node sets `lss.assign` without `serial_number` or with `reset_communication: false`, `lss.store` without `lss.assign`, or two nodes with `lss.assign` have the same LSS address;
+- a node's `axis` is not an object, has an unknown field, a `scale_numerator` that is not an integer in the DINT range, a `scale_denominator` outside 1-4294967295 or a `scale_factor` of 0;
 - a node sets `heartbeat_consumer: true` while `master.heartbeat_ms` is 0, sets `software_version` without `software_file`, or names a `software_file` that does not exist;
 - a location lies outside the runtime's I/O image (index 1024 and up on a default runtime).
 - `nodes` is empty without `master.diagnostics`, or `master.diagnostics` has a `token_sha256` that is not 64 hex digits, a `port` outside 1024-65535 or a `bind` that is not an IPv4 address.

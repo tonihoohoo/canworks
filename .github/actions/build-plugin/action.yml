@@ -10,6 +10,11 @@ inputs:
       Install linux-modules-extra (the vcan module). Only the jobs that create
       vcan interfaces need it; it is the slowest package to install.
     default: "true"
+  strucpp:
+    description: >
+      Path of the STruC++ command (scripts/fetch-strucpp.sh). Set: the build
+      also compiles the CiA 402 demo program into sim_tests.
+    default: ""
 
 runs:
   using: composite
@@ -61,6 +66,8 @@ runs:
 
     - name: Build
       shell: bash
+      env:
+        STRUCPP: ${{ inputs.strucpp }}
       run: |
-        cmake -B build -DOPENPLC_ROOT="$PWD/upstream-runtime"
+        cmake -B build -DOPENPLC_ROOT="$PWD/upstream-runtime" ${STRUCPP:+-DSTRUCPP="$STRUCPP"}
         cmake --build build -j"$(nproc)"

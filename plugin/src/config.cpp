@@ -488,8 +488,8 @@ class Parser {
                      "emcy_code_location", "error_register_location", "nmt_command_location", "mandatory",
                      "boot", "reset_communication", "revision_number", "serial_number", "heartbeat_consumer",
                      "retry_factor", "time_cob_id", "error_behavior", "restore_configuration", "config_check",
-                     "store_configuration", "lss", "software_file", "software_version", "tx_pdos", "rx_pdos",
-                     "sdo", "sdo_variables"});
+                     "store_configuration", "lss", "axis", "software_file", "software_version", "tx_pdos",
+                     "rx_pdos", "sdo", "sdo_variables"});
         if (get_uint(node, "node_id", w, true, 0xFFFF, v)) n.node_id = (unsigned)v;
         get_string(node, "name", w, false, n.name);
         if (get_string(node, "eds", w, true, n.eds)) resolve_eds(cfg, n);
@@ -711,6 +711,7 @@ class Parser {
         n.has_store_configuration = true, n.store_configuration = (unsigned)v;
     }
     parse_lss(node, n, w);
+    parse_axis(node, w);
     if (get_string(node, "software_file", w, false, n.software_file)) {
       std::vector<std::string> candidates;
       n.software_path = resolve_file(cfg, n.software_file, candidates);
@@ -745,6 +746,26 @@ class Parser {
     if (n.lss_assign && !n.reset_communication)
       error(w, n.label() + ": 'lss.assign' needs 'reset_communication' true: a node ID set by LSS becomes active "
                            "only on a communication reset");
+  }
+
+  // A CiA 402 axis is for the PLC program (the editor's motion blocks); the
+  // bus does nothing different, so only its form is checked here.
+  void parse_axis(const cJSON* node, const std::string& w) {
+    const cJSON* axis = cJSON_GetObjectItemCaseSensitive(node, "axis");
+    if (!axis) return;
+    if (!cJSON_IsObject(axis)) {
+      error(w, "field 'axis' must be an object");
+      return;
+    }
+    std::string aw = w + ": axis";
+    check_known(axis, aw, {"scale_numerator", "scale_denominator", "scale_factor"});
+    double v = 0;
+    if (get_number(axis, "scale_numerator", aw, -2147483648.0, 2147483647.0, v) && v != std::floor(v))
+      error(aw, "field 'scale_numerator' must be an integer");
+    if (get_number(axis, "scale_denominator", aw, 1.0, 4294967295.0, v) && v != std::floor(v))
+      error(aw, "field 'scale_denominator' must be an integer");
+    if (get_number(axis, "scale_factor", aw, -DBL_MAX, DBL_MAX, v) && v == 0)
+      error(aw, "field 'scale_factor' must not be 0");
   }
 
   void parse_adapter(const cJSON* root, AdapterConfig& a) {

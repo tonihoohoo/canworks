@@ -17,6 +17,37 @@ add_executable(sim_tests sim/sim_tests.cpp)
 target_include_directories(sim_tests PRIVATE common pingpong sensor)
 target_compile_definitions(sim_tests PRIVATE PINGPONG_DIR="${PINGPONG_DIR}" RTD_DIR="${RTD_DIR}" FIXTURES_DIR="${FIXTURES_DIR}")
 target_link_libraries(sim_tests PRIVATE canopen_core)
+
+# The CiA 402 example's PLC program (config/cia402-drive/drive_demo.st) runs
+# in sim_cia402_demo when STruC++, the editor's compiler, is given:
+# -DSTRUCPP=$(scripts/fetch-strucpp.sh). Without it that case says it was not
+# built, and fails when CANOPEN_REQUIRE_STRUCPP=1 (CI).
+set(STRUCPP "" CACHE FILEPATH "strucpp command (scripts/fetch-strucpp.sh), for the CiA 402 simulation test")
+set(CIA402_DIR ${PROJECT_SOURCE_DIR}/config/cia402-drive)
+target_include_directories(sim_tests PRIVATE drive cia402)
+target_compile_definitions(sim_tests PRIVATE CIA402_DIR="${CIA402_DIR}")
+if(STRUCPP)
+  get_filename_component(STRUCPP_CLI "${STRUCPP}" REALPATH)
+  get_filename_component(STRUCPP_PKG "${STRUCPP_CLI}/../../.." ABSOLUTE)  # <pkg>/dist/node/cli.js
+  set(STRUCPP_RUNTIME "${STRUCPP_PKG}/src/runtime/include")
+  if(NOT EXISTS "${STRUCPP_RUNTIME}/iec_types.hpp")
+    message(FATAL_ERROR "STRUCPP=${STRUCPP}: no runtime headers at ${STRUCPP_RUNTIME}")
+  endif()
+  set(CIA402_GEN ${CMAKE_CURRENT_BINARY_DIR}/cia402)
+  add_custom_command(
+    OUTPUT ${CIA402_GEN}/drive_demo.cpp ${CIA402_GEN}/drive_demo.hpp
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CIA402_GEN}
+    COMMAND ${STRUCPP} ${CIA402_DIR}/drive_demo.st -o ${CIA402_GEN}/drive_demo.cpp
+    DEPENDS ${CIA402_DIR}/drive_demo.st
+    COMMENT "STruC++: config/cia402-drive/drive_demo.st")
+  add_library(cia402_program STATIC cia402/program_host.cpp ${CIA402_GEN}/drive_demo.cpp)
+  # The generated code and its runtime headers need C++17 (inline variables).
+  set_target_properties(cia402_program PROPERTIES CXX_STANDARD 17)
+  target_include_directories(cia402_program PRIVATE ${CIA402_GEN} ${STRUCPP_RUNTIME} cia402)
+  target_compile_options(cia402_program PRIVATE -w)
+  target_link_libraries(sim_tests PRIVATE cia402_program)
+  target_compile_definitions(sim_tests PRIVATE CIA402_PROGRAM=1)
+endif()
 # One ctest test per TEST() case, so `ctest -j` overlaps their real-time waits.
 file(STRINGS sim/sim_tests.cpp SIM_CASES REGEX "^TEST\\([a-z0-9_]+\\)")
 if(NOT SIM_CASES)

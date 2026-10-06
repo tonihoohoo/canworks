@@ -18,6 +18,7 @@ The plugin's behaviour is set in the config file; [docs/config.md](docs/config.m
 - **EDS checks:** every EDS goes through Lely's CiA 306 lint at load, and every PDO entry and SDO is checked against the EDS for type and access before anything is sent.
 - **Status to the PLC:** a status bit and a state byte per node, the bus state and error counters, and the last EMCY code and error register per node.
 - **From the program:** SDO variables (read and write node objects while running) and NMT commands per node.
+- **CiA 402 drives as PLCopen axes:** a node marked as an axis is driven with the editor's built-in motion blocks (`MC_Power`, `MC_MoveAbsolute`, `MC_MoveVelocity`, `MC_Home`, ...) in profile position, profile velocity and homing mode; the generated program holds the glue ([docs/cia402.md](docs/cia402.md)).
 - **Everything `dcfgen` can set:** SYNC, heartbeat, error behaviour and the other master and slave options of Lely's dcf-tools, plus a TIME producer that sends the runtime host's clock (UTC).
 - **Online diagnostics** (opt-in, token protected): a TCP channel for the PC tools below. Nothing a client does touches the PLC scan.
 
@@ -42,13 +43,16 @@ CMakeLists.txt     builds libcanopen_plugin.so; the runtime's install.sh builds 
 plugin/            native plugin source
 schema/            the config contract: canopen.v1.schema.json (JSON Schema 2020-12)
 config/            example configurations: config/pingpong/ (the ping-pong slave),
-                   config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404)
+                   config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404),
+                   config/cia402-drive/ (a made-up CiA 402 drive as a PLCopen axis, with a demo program)
 tools/             canopen_check: validates a config and its EDS files without starting the PLC
 tools/deploy/      the PC tools (Python, one package): openplc-canopen-deploy, openplc-canopen-config
                    (the configurator), openplc-canopen-diag (online diagnostics, parameters, trace)
 tools/editor-hook/ the runtime-side hook that keeps CANopen on with the editor's Build and upload
 test/unit/         unit tests: config validation, EDS checks, dcfgen, process image
 test/sim/          master against Lely slaves on an in-process virtual CAN bus
+test/drive/        a simulated CiA 402 drive (Lely slave) for the virtual bus
+test/cia402/       ST tests of the CiA 402 axis glue with STruC++ (run.sh) and its host for sim_tests
 test/pingpong/     the Lely tutorial ping-pong slave and run.sh for vcan0
 test/sensor/       sensor_slave (a measuring device from any EDS) and run.sh for vcan0
 test/fixed/        a fixed-mapping I/O module against the plugin on vcan0
@@ -65,8 +69,9 @@ test/fixtures/     config and EDS fixtures shared by the plugin's and the deploy
 test/stock/        install-stock.sh, the editor hook and the upstream runtime's upload rules, end to end
 test/docker/       install-stock.sh in Docker mode and the runtime spec edits
 test/pc-tools/     the release tag check; test/ci/: the CI change classification
-scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh
-docs/              config.md (the config format), configurator.md, deploy.md, diagnostics.md,
+scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
+                   fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
+docs/              config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
                    install-pc.md, install-stock.md, trace.md
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
 ```
@@ -91,6 +96,14 @@ test/params/run.sh                              # device parameter backup, compa
 test/trace/run.sh                               # bus trace and its export formats
 test/bus/run.sh                                 # bus state byte with vcan0 taken down and up
 test/slcan/run.sh                               # slcan adapter (needs the slcan module and vcan1)
+```
+
+The CiA 402 tests use the editor's ST compiler, STruC++ (needs Node 22):
+
+```sh
+test/cia402/run.sh                              # ST tests of the generated axis glue against a drive model
+cmake -B build -DOPENPLC_ROOT=../openplc-runtime -DSTRUCPP=$(scripts/fetch-strucpp.sh)
+cmake --build build -j && build/test/sim_tests --exact sim_cia402_demo   # the demo program on the virtual bus
 ```
 
 CI (`.github/workflows/ci.yml`) runs all of these on every pull request and push to `main` that changes code, the deploy tool and page tests spread over several runners; its last job, `ci-ok`, is the one check a branch ruleset needs. A change that touches only documentation or specs runs just the OpenSpec validation; the build and test jobs are skipped.
