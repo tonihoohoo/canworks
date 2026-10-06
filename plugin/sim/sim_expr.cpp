@@ -1,5 +1,7 @@
 #include "sim_expr.h"
 
+#include <functional>
+
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -579,6 +581,14 @@ std::unique_ptr<Expr> Expr::compile(const std::string& text, const ExprResolver&
     std::vector<Token> toks = tokenize(text);
     Parser p(toks, resolver, e->reads_);
     e->root_ = p.parse();
+    std::function<bool(const ExprNode&)> plain = [&](const ExprNode& n) {
+      if (n.kind == ExprNode::Kind::Dt || n.kind == ExprNode::Kind::Prev) return false;
+      if (n.kind == ExprNode::Kind::Call && n.fn >= Fn::Noise) return false;
+      for (const auto& a : n.args)
+        if (!plain(*a)) return false;
+      return true;
+    };
+    e->stateless_ = plain(*e->root_);
   } catch (const Fail& f) {
     err = f.err;
     return nullptr;

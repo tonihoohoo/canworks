@@ -39,6 +39,8 @@ add_library(canopen_core STATIC
     sim/sim_device.cpp
     sim/sim_file.cpp
     sim/sim_drive.cpp
+    sim/sim_engine.cpp
+    sim/sim_host.cpp
     ${NATIVE_DIR}/cjson/cJSON.c
 )
 target_include_directories(canopen_core PUBLIC

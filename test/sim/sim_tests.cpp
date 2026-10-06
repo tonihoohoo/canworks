@@ -43,6 +43,8 @@
 #include "network.h"
 #include "pingpong_slave.hpp"
 #include "sensor_slave.hpp"
+#include "sim_engine.h"
+#include "sim_host.h"
 #include "process_image.h"
 
 // From <lely/co/lss.h>, which does not mix with the C++ headers.
@@ -394,6 +396,7 @@ class Sim {
   ~Sim() {
     if (hub_) hub_->detach();
     slaves_.clear();
+    simulator_.reset();
     if (net_) net_->Stop();
     ctx_.shutdown();
     loop_.restart();
@@ -627,6 +630,48 @@ class Sim {
   }
   int nmt(uint8_t id, uint8_t cs) { return nmt_[id * 256 + cs]; }
 
+  // Simulated devices (canopen_sim) on this bus. `specs` default to every
+  // node of the config.
+  bool StartSimulator(const std::string& sim_json, std::vector<canopen_sim::DeviceSpec> specs = {},
+                      canopen_sim::SimOptions opt = canopen_sim::SimOptions()) {
+    canopen_sim::SimFile file;
+    std::vector<std::string> errors;
+    if (!sim_json.empty() && !canopen_sim::parse_sim_file(sim_json, cfg_.config_dir + "/simulation.json", file, errors)) {
+      for (const auto& e : errors) std::printf("  simulation file: %s\n", e.c_str());
+      return false;
+    }
+    if (specs.empty()) {
+      for (const auto& n : cfg_.nodes) {
+        canopen_sim::DeviceSpec d;
+        d.node = n.node_id;
+        d.name = n.name;
+        d.eds_path = n.eds_path;
+        specs.push_back(d);
+      }
+    }
+    opt.simulated_network = true;
+    sim_host_.reset(new canopen_sim::LoopHost(ctx_, poll_, exec_, ctrl_, [](canopen_sim::Host::Level l, const std::string& m) {
+      if (l == canopen_sim::Host::Level::Info) log_info("sim: %s", m.c_str());
+      else if (l == canopen_sim::Host::Level::Warn) log_warn("sim: %s", m.c_str());
+      else log_error("sim: %s", m.c_str());
+    }));
+    simulator_.reset(new canopen_sim::Simulator(*sim_host_, specs, file, opt));
+    simulator_->on_scenario_end = [this](const canopen_sim::ScenarioResult& r) { results_.push_back(r); };
+    errors.clear();
+    bool ok = simulator_->Start(errors);
+    for (const auto& e : errors) std::printf("  simulator: %s\n", e.c_str());
+    return ok;
+  }
+  canopen_sim::Simulator& simulator() { return *simulator_; }
+  const std::vector<canopen_sim::ScenarioResult>& scenario_results() const { return results_; }
+  // A control request to the simulator; the parsed answer (cJSON_Delete it).
+  cJSON* SimAsk(const std::string& json) {
+    cJSON* req = cJSON_Parse(json.c_str());
+    std::string line = simulator_->Handle(req, "", "test");
+    cJSON_Delete(req);
+    return cJSON_Parse(line.c_str());
+  }
+
   bool status() { return fake_.bool_in[10][0] != 0; }
   uint8_t state() { return static_cast<uint8_t>(fake_.byte_in[20]); }
   uint32_t in() { return fake_.dint_in[100]; }
@@ -691,6 +736,9 @@ class Sim {
   std::map<int, int> nmt_;
   std::vector<Stamped> time_frames_;
   std::map<uint8_t, std::unique_ptr<SlaveBox>> slaves_;
+  std::unique_ptr<canopen_sim::LoopHost> sim_host_;
+  std::unique_ptr<canopen_sim::Simulator> simulator_;
+  std::vector<canopen_sim::ScenarioResult> results_;
   Config cfg_;
   GeneratedConfig gen_;
   ProcessImage image_;
@@ -2851,6 +2899,199 @@ TEST(sim_lss_diag_read_only) {
   cJSON_Delete(a);
   sim->RunFor(milliseconds(200));
   CHECK(sim->lss_total() == 0);
+  delete sim;
+}
+
+// ---- simulated devices (canopen_sim) ----
+
+// The ping-pong node as a simulated device: its TPDO object follows the
+// RPDO object the program writes, so the counter runs as with the real slave.
+TEST(sim_simulated_pingpong) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 5; }, seconds(5)));
+  uint32_t a = sim->in();
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->in() >= a + 4, std::to_string(a) + " -> " + std::to_string(sim->in()));
+  CHECK(sim->simulator().AllOperational());
+  CHECK(logged("sim: node 2: OPERATIONAL"));
+
+  // A source on the object the master writes is refused.
+  cJSON* r = sim->SimAsk(R"({"op":"sim_source","node":2,"object":"0x4000","source":{"constant":5}})");
+  CHECK(!ok(r));
+  CHECK_MSG(str(r, "error").find("the master writes 0x4000:0") != std::string::npos, str(r, "error"));
+  cJSON_Delete(r);
+  // An override wins over the source; release gives it back.
+  r = sim->SimAsk(R"({"op":"sim_override","node":2,"values":{"0x4001":7}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  sim->RunFor(milliseconds(300));
+  CHECK_MSG(sim->in() == 7, std::to_string(sim->in()));
+  r = sim->SimAsk(R"({"op":"sim_get","items":[{"node":2,"object":"0x4001"}]})");
+  const cJSON* v = cJSON_GetArrayItem(field(result(r), "values"), 0);
+  CHECK(num(v, "value") == 7 && str(v, "writer") == "override" && str(v, "type") == "UNSIGNED32");
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_release","node":2,"objects":"all"})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->in() > 20; }, seconds(5)));
+  // Status lists the device.
+  r = sim->SimAsk(R"({"op":"sim_status"})");
+  const cJSON* d = cJSON_GetArrayItem(field(result(r), "devices"), 0);
+  CHECK(num(d, "node") == 2 && str(d, "power") == "on" && str(d, "nmt") == "operational");
+  CHECK(cJSON_IsTrue(field(result(r), "simulated_network")));
+  cJSON_Delete(r);
+  delete sim;
+}
+
+// Faults the master notices: heartbeat stop, power off/on, SDO abort rules.
+TEST(sim_simulated_faults) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->EnableDiag();
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"heartbeat":"stop"}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"heartbeat"})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"cycle","off_ms":500}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(10)));
+  CHECK(logged("sim: node 2: powered off"));
+
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"sdo_abort":{"object":"0x1008","code":"0x08000020","count":1}}})");
+  CHECK(!ok(r) && str(r, "error") == "node 2 has no object 0x1008:0");
+  cJSON_Delete(r);
+  cJSON* a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 1));
+  CHECK(ok(a) && cJSON_IsTrue(field(result(a), "success")));
+  cJSON_Delete(a);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"sdo_abort":{"object":"0x1018:1","code":"0x08000020","count":1}}})");
+  cJSON_Delete(r);
+  a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 1));
+  CHECK_MSG(ok(a) && num(result(a), "abort_code") == 0x08000020, a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+  a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 1));  // count 1: the next one passes
+  CHECK(ok(a) && cJSON_IsTrue(field(result(a), "success")));
+  cJSON_Delete(a);
+
+  // Wrong identity: 0x1018 reads the override.
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"identity":{"serial_number":4660}}})");
+  cJSON_Delete(r);
+  a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 4));
+  CHECK_MSG(str(result(a), "data") == "34 12 00 00", str(result(a), "data"));
+  cJSON_Delete(a);
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"all"})");
+  cJSON_Delete(r);
+  a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 4));
+  CHECK_MSG(str(result(a), "data") == "00 00 00 00", str(result(a), "data"));
+  cJSON_Delete(a);
+  delete sim;
+}
+
+// Stored parameters: the master's configuration is saved (0x1010) and kept
+// across a power cycle, so the configuration check skips the download.
+TEST(sim_simulated_store_power_cycle) {
+  clear_logs();
+  std::string dir = make_dir(config_check_json(), {{"cpp-slave.eds", config_check_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 2; }, seconds(10)));
+  CHECK(logged("node 2 (pingpong): configuring ("));
+  CHECK(logged("sim: node 2: saved parameters (0x1010 sub 1)"));
+  clear_logs();
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"cycle","off_ms":300}})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return logged("configuration unchanged"); }, seconds(10)));
+  uint32_t c = sim->in();
+  CHECK(sim->RunUntil([&] { return sim->status() && sim->in() > c + 5; }, seconds(10)));
+  delete sim;
+}
+
+// A scenario drives a value and checks what the program answers.
+TEST(sim_simulated_scenario) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  // The program answers 2x its input.
+  sim->SetProgram([](fake_runtime::Image& io) { io.dint_out[100] = io.dint_in[100] * 2; });
+  CHECK(sim->StartSimulator(R"({"scenarios": {
+    "double": {"test": true, "steps": [
+      {"wait": {"node": 2, "object": "0x1001", "eq": 0}, "timeout_ms": 1000},
+      {"node": 2, "override": {"0x4001": 21}},
+      {"expect": {"node": 2, "object": "0x4000", "eq": 42}, "within_ms": 2000},
+      {"expect": {"expr": "[2/0x4000] == 2 * [2/0x4001]"}, "for_ms": 300},
+      {"log": "doubled"}]},
+    "wrong": {"steps": [
+      {"node": 2, "override": {"0x4001": 5}},
+      {"expect": {"node": 2, "object": "0x4000", "eq": 11}, "within_ms": 500}]}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  std::string err;
+  CHECK(sim->simulator().StartScenario("double", err));
+  CHECK(sim->RunUntil([] { return !sim->scenario_results().empty(); }, seconds(5)));
+  CHECK(!sim->scenario_results().empty() && sim->scenario_results()[0].passed);
+  CHECK(logged("scenario double: doubled"));
+  CHECK(sim->simulator().StartScenario("wrong", err));
+  CHECK(sim->RunUntil([] { return sim->scenario_results().size() == 2; }, seconds(5)));
+  if (sim->scenario_results().size() == 2) {
+    const auto& res = sim->scenario_results()[1];
+    CHECK(!res.passed);
+    CHECK_MSG(res.message.find("step 2: expected [2/0x4000:0] == 11 within 500 ms (value seen: 10)") != std::string::npos,
+              res.message);
+  }
+  delete sim;
+}
+
+// A node with simulate: false next to simulated ones stays absent.
+TEST(sim_simulated_subset) {
+  clear_logs();
+  std::string extra = R"(,
+    { "node_id": 3, "name": "other", "eds": "cpp-slave.eds", "heartbeat_ms": 50,
+      "status_location": "%IX10.1",
+      "tx_pdos": [ { "entries": [ { "index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID104" } ] } ],
+      "rx_pdos": [ { "entries": [ { "index": "0x4000", "type": "UNSIGNED32", "iec_location": "%QD104" } ] } ] })";
+  std::string dir = make_dir(pingpong_json(extra), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  canopen_sim::DeviceSpec d;
+  d.node = 2;
+  d.eds_path = dir + "/cpp-slave.eds";
+  CHECK(sim->StartSimulator(R"({"nodes": {"3": {"default_behaviour": false}}})", {d}));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(500));
+  CHECK(sim->plc().bool_in[10][1] == 0);
+  CHECK(!sim->simulator().Simulates(3));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_get","items":[{"node":3,"object":"0x1000"}]})");
+  CHECK(str(cJSON_GetArrayItem(field(result(r), "values"), 0), "error") == "node 3 is not simulated");
+  cJSON_Delete(r);
   delete sim;
 }
 

@@ -81,6 +81,9 @@ class Expr {
   void reset();
 
   const std::string& text() const { return text_; }
+  // No stateful function, dt or prev: evaluating it again in the same tick
+  // gives the same result for the same inputs.
+  bool stateless() const { return stateless_; }
   // Every object the expression reads, and whether the read goes through a
   // lag, delay or integrate (which breaks a reference cycle).
   struct Read {
@@ -94,6 +97,7 @@ class Expr {
   std::string text_;
   std::unique_ptr<ExprNode> root_;
   std::vector<Read> reads_;
+  bool stateless_ = false;
 };
 
 // Parses "0x6200:1", "0x6200" (subindex 0); false when malformed.

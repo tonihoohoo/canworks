@@ -277,6 +277,10 @@ void SimDevice::OnSync(uint8_t, const time_point&) noexcept {
   if (on_sync) on_sync();
 }
 
+void SimDevice::OnRpdoWrite(uint8_t, uint16_t, uint8_t) noexcept {
+  if (on_rpdo) on_rpdo();
+}
+
 void SimDevice::LssStored(uint8_t id) {
   store_->lss_id = id;
   if (on_log) on_log("stored node ID " + std::to_string(id) + " (LSS)");

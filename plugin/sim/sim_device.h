@@ -102,6 +102,8 @@ class SimDevice : public lely::canopen::BasicSlave {
   std::function<void()> on_stored;
   // Called on every SYNC the device receives.
   std::function<void()> on_sync;
+  // Called after an RPDO wrote the dictionary.
+  std::function<void()> on_rpdo;
   // False: the device sends nothing (powered off until it is recreated).
   bool powered = true;
 
@@ -125,6 +127,7 @@ class SimDevice : public lely::canopen::BasicSlave {
   void OnCommand(lely::canopen::NmtCommand cs) noexcept override;
   void OnStore(uint8_t id, int bitrate) override;
   void OnSync(uint8_t cnt, const time_point& t) noexcept override;
+  void OnRpdoWrite(uint8_t id, uint16_t idx, uint8_t subidx) noexcept override;
 
  private:
   void InstallIndications();
