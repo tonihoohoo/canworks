@@ -3152,6 +3152,40 @@ TEST(config_v2_networks) {
   CHECK(v1.networks[0].work_dir == std::string(PINGPONG_DIR) + "/.canopen");
 }
 
+TEST(dcfgen_work_dir_per_network) {
+  // Each network generates into .canopen/<name>/ with its own reuse stamp:
+  // a change to one network regenerates only that network.
+  std::string dir = tmpdir();
+  write(dir + "/cpp-slave.eds", read(std::string(PINGPONG_DIR) + "/cpp-slave.eds"));
+  auto generate = [&](const std::string& json, bool& io_reused, bool& drives_reused) {
+    ConfigSet set;
+    std::vector<std::string> errors;
+    CHECK_MSG(parse_config_set(json, dir + "/canopen_config.json", ImageLimits(), set, errors), join(errors));
+    if (set.networks.size() != 2) return;
+    GeneratedConfig io, drives;
+    CHECK_MSG(generate_device_config(set.networks[0], default_dcfgen(), io, errors), join(errors));
+    CHECK_MSG(generate_device_config(set.networks[1], default_dcfgen(), drives, errors), join(errors));
+    CHECK(io.work_dir == dir + "/.canopen/io" && drives.work_dir == dir + "/.canopen/vcan1");
+    io_reused = io.reused;
+    drives_reused = drives.reused;
+  };
+  std::string json = two_networks_json();
+  bool a = true, b = true;
+  generate(json, a, b);
+  CHECK(!a && !b);
+  struct stat st;
+  CHECK(stat((dir + "/.canopen/io/master.dcf").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canopen/vcan1/master.dcf").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canopen/master.dcf").c_str(), &st) != 0);
+  std::string changed = json;
+  size_t at = changed.find("\"node_id\": 3, \"sync_period_us\": 10000");
+  CHECK(at != std::string::npos);
+  if (at == std::string::npos) return;
+  changed.replace(at, std::strlen("\"node_id\": 3"), "\"node_id\": 4");
+  generate(changed, a, b);
+  CHECK(a && !b);
+}
+
 TEST(config_v2_single_network_has_no_prefix) {
   std::string json = R"({ "schema_version": 2, "networks": [
     { "name": "plant", "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },

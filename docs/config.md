@@ -2,7 +2,7 @@
 
 The CANopen plugin reads one JSON file, the config path given for the `canopen` entry in the runtime's `plugins.conf`. It describes the CAN adapter, the master, and every slave node with its EDS file, PDO entries and startup SDOs. Each PDO entry is bound to one explicit PLC address; nothing is assigned automatically.
 
-The format is a versioned contract: [`schema/canopen.v1.schema.json`](../schema/canopen.v1.schema.json) (JSON Schema 2020-12) describes `schema_version` 1. The plugin, the deploy tool ([docs/deploy.md](deploy.md)) and any future editor GUI read and write the same file. The deploy tool and the editor hook deliver it with each upload as `conf/canopen.json`, and the runtime points `plugins.conf` at it.
+The format is a versioned contract: [`schema/canopen.v1.schema.json`](../schema/canopen.v1.schema.json) (JSON Schema 2020-12) describes `schema_version` 1, the file with one CAN network, and [`schema/canopen.v2.schema.json`](../schema/canopen.v2.schema.json) describes `schema_version` 2, the file with [several networks](#several-networks-schema_version-2). The plugin, the deploy tool ([docs/deploy.md](deploy.md)) and any future editor GUI read and write the same file. The deploy tool and the editor hook deliver it with each upload as `conf/canopen.json`, and the runtime points `plugins.conf` at it.
 
 At every PLC start the plugin validates the file, runs `dcfgen`'s EDS lint on each node's EDS ([EDS lint](#eds-lint)), checks each entry against the node's EDS, and runs Lely's `dcfgen` on the device to produce the master DCF and one concise DCF per slave. The output goes to a `.canopen/` directory next to the config file and is reused while the config and EDS files are unchanged.
 
@@ -57,6 +57,35 @@ canopen_check /etc/openplc-canopen/canopen_config.json
 | `adapter` | yes | The CAN adapter (below). |
 | `master` | yes | The master's settings (below). |
 | `nodes` | yes | The slave nodes (below), at least one. An empty list is allowed only together with [`master.diagnostics`](#online-diagnostics), as a scan-only config for commissioning. |
+
+## Several networks (`schema_version` 2)
+
+One PLC can drive up to 8 CAN networks, each on its own adapter, with its own master, bit rate, SYNC and nodes. Such a file has `"schema_version": 2` and a `networks` list instead of the top-level `adapter`, `master` and `nodes`; [`config/two-networks`](../config/two-networks/canopen_config.json) is an example:
+
+```json
+{
+  "schema_version": 2,
+  "diagnostics": { "token_sha256": "..." },
+  "networks": [
+    { "name": "io", "adapter": { "type": "socketcan", "interface": "can0", "bitrate": 125000 },
+      "master": { "node_id": 1, "sync_period_us": 10000 }, "nodes": [ ... ] },
+    { "name": "drives", "adapter": { "type": "socketcan", "interface": "can1", "bitrate": 500000 },
+      "master": { "node_id": 1, "sync_period_us": 2000 }, "nodes": [ ... ] }
+  ]
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `networks` | yes | 1 to 8 networks. Each has `adapter`, `master` and `nodes` exactly as a version 1 file has them at the top level, and an optional `name`. |
+| `networks[].name` | no | A letter, then letters, digits and `_`, at most 16 characters; names differ, ignoring case. Default: the adapter's `interface`, which then must be usable as a name. |
+| `diagnostics` | no | [Online diagnostics](#online-diagnostics) for all networks together: one port and one token. In version 2 it sits at the top level, not in a network's `master`. |
+
+Each network is checked as a version 1 file is: node IDs and COB-IDs need only be unique inside their network, so node 2 can exist on two networks. Across networks, two networks may not use the same `interface` or the same `slcan` `device`, and no two locations may overlap: all networks share the PLC's one I/O image. Messages name the network: `networks[1]: nodes[0]: ...`, and an overlap names both sides with their networks.
+
+An error in any network rejects the whole file and no interface is opened. Once running, each network has its own bus thread: a network whose adapter fails or whose node is lost does not stop the others. With several networks every log line starts with the network's name (`[CANOPEN] drives: node 2 (pingpong) is operational`), and the generated files go to `.canopen/<name>/` instead of `.canopen/`. A version 2 file with one network behaves as a version 1 file.
+
+A version 2 file needs the plugin and the deploy tool from the same release or later; an older plugin rejects it as a newer `schema_version`. Version 1 files load unchanged, and the configurator saves a config with one network as version 1.
 
 Files written before the contract have top-level `interface` and `bitrate` instead of `adapter`. They still load, with the same meaning as before: a `socketcan` adapter with `configure_link: false`, so the plugin leaves the link as it finds it. The plugin logs a deprecation warning. A file with both `adapter` and a top-level `interface` or `bitrate` is rejected.
 
@@ -492,7 +521,7 @@ The schema describes every field, its type and whether it is required. It cannot
 - a startup SDO value fits its type, and numbers given as strings are in range;
 - everything against the EDS: the file parses, PDO numbers exist, objects exist, are PDO-mappable, have the configured `DataType` and an `AccessType` that allows the direction.
 
-The shared fixtures in [`test/fixtures/config/cases.json`](../test/fixtures/config/cases.json) run through the schema, the plugin and the deploy tool, and CI checks that they agree.
+The shared fixtures in [`test/fixtures/config/cases.json`](../test/fixtures/config/cases.json) and, for several networks, [`cases-v2.json`](../test/fixtures/config/cases-v2.json) run through the schema, the plugin and the deploy tool, and CI checks that they agree.
 
 ## Emergency messages
 
@@ -550,7 +579,8 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a node sets `lss.assign` without `serial_number` or with `reset_communication: false`, `lss.store` without `lss.assign`, or two nodes with `lss.assign` have the same LSS address;
 - a node sets `heartbeat_consumer: true` while `master.heartbeat_ms` is 0, sets `software_version` without `software_file`, or names a `software_file` that does not exist;
 - a location lies outside the runtime's I/O image (index 1024 and up on a default runtime).
-- `nodes` is empty without `master.diagnostics`, or `master.diagnostics` has a `token_sha256` that is not 64 hex digits, a `port` outside 1024-65535 or a `bind` that is not an IPv4 address.
+- in a version 2 file: `networks` is missing, empty or longer than 8, a network name is invalid or used twice, two networks use the same interface or serial device, a field of a network (`adapter`, `master`, `nodes`) sits at the top level, or `diagnostics` sits in a network's `master`;
+- `nodes` is empty without `master.diagnostics` (in version 2, without the top-level `diagnostics`), or `master.diagnostics` has a `token_sha256` that is not 64 hex digits, a `port` outside 1024-65535 or a `bind` that is not an IPv4 address.
 
 In every case the PLC starts and runs normally; fix the file and restart the PLC to activate the plugin.
 

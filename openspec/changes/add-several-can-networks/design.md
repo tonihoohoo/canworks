@@ -20,9 +20,7 @@ Today `Config` (plugin/src/config.h) holds one `AdapterConfig`, one `MasterConfi
 
 ### 1. Config model: a list of network configs plus shared settings
 
-`Config` becomes `{path, config_dir, file_sha256, schema_version, networks, diagnostics, warnings, notes}`; `NetworkConfig` is `{name, index, adapter, master, nodes, work_dir, label_prefix}`. The diagnostics fields move from `MasterConfig` into a `DiagnosticsConfig` on `Config`. The v1 parser fills one `NetworkConfig` with an empty name and `work_dir = .canopen`, and moves `master.diagnostics` into `Config::diagnostics`. The v2 parser loops over `networks` with the same adapter/master/node parsers, so the field rules stay in one place.
-
-Code that today takes `const Config&` and reads `adapter`/`master`/`nodes` (Bus, Network, BusMonitor, dcf_gen, eds_check, eds_lint, ProcessImage, DiagHub) takes `const NetworkConfig&` instead. That is the bulk of the change and it is mechanical: the member names stay.
+A new `ConfigSet` holds the file: `{path, config_dir, file_sha256, schema_version, networks, warnings, notes}`, where each of `networks` is a `Config`, the struct the plugin already had for one network, extended with `network` (the name), `network_index`, `work_dir` and `log_prefix`. Keeping the name `Config` for one network keeps the change to Bus, Network, BusMonitor, dcf_gen, eds_check, eds_lint, ProcessImage and DiagHub small: they take one network's `Config` as before. The top-level `diagnostics` of a version 2 file is copied into every network's `MasterConfig`, so the diagnostics code reads it where it always did. The v1 parser fills one `Config` with an empty name and `work_dir = .canopen`. The v2 parser loops over `networks` with the same adapter/master/node parsers, so the field rules stay in one place. `load_config`/`parse_config` remain for the code that takes a file with one network, and refuse a file with several.
 
 Alternative: keep `Config` as is and add `std::vector<Config> extra_networks`. Rejected: two code paths for the first and the other networks, and the diagnostics fields would sit in a per-network struct while being global.
 
@@ -44,7 +42,7 @@ A name is `[A-Za-z][A-Za-z0-9_]{0,15}`: it is a folder name for dcfgen output an
 
 ### 5. Schema v2 references v1 definitions
 
-`schema/canopen.v2.schema.json` defines only the top level, `network` and `diagnostics`, and points at `canopen.v1.schema.json#/$defs/adapter`, `.../master` and `.../node`. The network's master is `allOf: [{$ref: v1 master}, {not: {required: [diagnostics]}}]`. `diagnostics` reuses the v1 master's `diagnostics` subschema by reference. `contract.py` validates with a `referencing` registry holding both schema files under their `$id`s, so the `$ref`s resolve offline (this needs `jsonschema>=4.18`, raised from `>=4.0` in `pyproject.toml`), and its own `_resolve` (used by the unknown-field walker) learns to follow a ref into the other file. The plugin does not use the schema files, so nothing changes there.
+`schema/canopen.v2.schema.json` defines only the top level, `network` and `diagnostics`, and points at `canopen.v1.schema.json#/$defs/adapter`, `.../master` and `.../node`. The network's master is `allOf: [{$ref: v1 master}, {not: {required: [diagnostics]}}]`. `diagnostics` reuses the v1 master's `diagnostics` subschema by reference. `contract.py` loads the v2 schema with every `$ref` into the v1 file rewritten to a local one and v1's `$defs` copied in, so the refs resolve offline, the unknown-field walker needs no change, and `jsonschema>=4.0` stays enough. The plugin does not use the schema files, so nothing changes there.
 
 This matters for the parallel changes: a field they add to v1's `master` or `node` is valid in v2 without touching the v2 file.
 
@@ -76,7 +74,7 @@ PC-side helpers get one `networks(cfg)` function in `contract.py` returning norm
 - [A v2 file uploaded to a runtime with an older plugin is rejected at PLC start ("version 2, supported 1"), and CANopen is off] → the log says so plainly; docs/config.md and the release notes say to update the plugin (`install-stock.sh`) and the deploy tool together; tools write v1 whenever possible, so only real multi-network configs are v2.
 - [Each network adds a bus thread, a Lely loop and up to two sockets] → limit of 8 networks; the cost per network is what one network costs today.
 - [Scan time grows with networks, since `cycle_start`/`cycle_end` copy more images] → the copies are memcpy-sized per bound entry, the same total as one network with the same entries.
-- [The refactor from `Config` to `NetworkConfig` touches most plugin files] → done first as a pure refactor with the v1 test suite green before any v2 parsing lands (tasks group 1).
+- [The refactor to a per-network config touches most plugin files] → keeping `Config` as the one-network struct and adding `ConfigSet` around it limits it to the loader, the plugin state and the diagnostics server, with the v1 test suite green throughout.
 - [Configurator UI grows a level of nesting] → with one network the bar shows only "Add network", so today's page is unchanged for most users.
 
 ## Migration Plan

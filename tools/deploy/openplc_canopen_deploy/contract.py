@@ -87,6 +87,12 @@ def networks(cfg):
     return out
 
 
+def all_nodes(cfg):
+    """Every node entry of the config, network after network (the dicts
+    themselves, so changes land in `cfg`)."""
+    return [n for net in networks(cfg) for n in net["nodes"] if isinstance(n, dict)]
+
+
 def network_config(cfg, name=None):
     """A version 1 style config (adapter, master, nodes) of one network, for
     the code that works on one network at a time. `name` picks the network;
@@ -95,12 +101,14 @@ def network_config(cfg, name=None):
     nets = networks(cfg)
     if name is None:
         if len(nets) != 1:
-            raise ValueError("the config has %d networks (%s); name one" % (len(nets), ", ".join(n["name"] for n in nets)))
+            raise ValueError("the config has %d networks (%s); name one"
+                             % (len(nets), ", ".join(n["name"] for n in nets)))
         net = nets[0]
     else:
         found = [n for n in nets if n["name"] == name]
         if not found:
-            raise ValueError("no network '%s' in the config (%s)" % (name, ", ".join(n["name"] or "unnamed" for n in nets)))
+            raise ValueError("no network '%s' in the config (%s)"
+                             % (name, ", ".join(n["name"] or "unnamed" for n in nets)))
         net = found[0]
     if not net["path"]:
         return cfg
@@ -398,8 +406,8 @@ def software_files(cfg, base):
     """{software_file value: absolute path on this PC} for every node that
     names one, relative values resolved against `base`."""
     out = {}
-    for n in cfg.get("nodes", []):
-        value = n.get("software_file") if isinstance(n, dict) else None
+    for n in all_nodes(cfg):
+        value = n.get("software_file")
         if isinstance(value, str) and value:
             out[value] = value if os.path.isabs(value) else os.path.join(base, value)
     return out

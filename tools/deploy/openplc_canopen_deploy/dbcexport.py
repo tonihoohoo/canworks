@@ -373,16 +373,20 @@ def _sdo_messages(n, node_name, eds, option):
     return msgs
 
 
-def build(cfg, config_path, eds_paths=None, sdo="none", names=None):
-    """The DBC model of a checked config. Raises ExportFailed with the config
-    checks' errors. `names`: plc_names() of the editor project, or None."""
+def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=False):
+    """The DBC model of a config with one network. Raises ExportFailed with
+    the config checks' errors; `checked`: the caller ran them, and the model's
+    warnings are only the export's own. `names`: plc_names() of the editor
+    project, or None."""
     if sdo not in SDO_OPTIONS:
         raise ValueError("sdo must be one of %s" % ", ".join(SDO_OPTIONS))
     paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
-    result = contract.check_config(cfg, config_path, eds_paths=paths)
-    if not result.ok:
-        raise ExportFailed([(i["message"], i["paths"]) for i in result.items if i["level"] == "error"])
-    warnings = list(result.warnings)
+    warnings = []
+    if not checked:
+        result = contract.check_config(cfg, config_path, eds_paths=paths)
+        if not result.ok:
+            raise ExportFailed([(i["message"], i["paths"]) for i in result.items if i["level"] == "error"])
+        warnings = list(result.warnings)
     eds_list = _load_eds(cfg, config_path, paths)
     pdos = _normalized_pdos(cfg)
     node_names = _node_identifiers(cfg)
@@ -452,9 +456,45 @@ def write(model):
 
 
 def export(cfg, config_path, eds_paths=None, sdo="none", names=None):
-    """(DBC text, warnings [str]). Raises ExportFailed."""
+    """(DBC text, warnings [str]) of a config with one network. Raises
+    ExportFailed."""
     model = build(cfg, config_path, eds_paths, sdo, names)
     return write(model), model.warnings
+
+
+def export_networks(cfg, config_path, eds_paths=None, sdo="none", names=None, network=None):
+    """([(network name, DBC text)], warnings): one DBC per network, or only
+    for the one `network` names; the name is "" for a version 1 file. Every
+    network is checked (and the checks across networks run) before any is
+    built. Raises ExportFailed."""
+    paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
+    result = contract.check_config(cfg, config_path, eds_paths=paths)
+    if not result.ok:
+        raise ExportFailed([(i["message"], i["paths"]) for i in result.items if i["level"] == "error"])
+    every = contract.networks(cfg)
+    nets = every
+    if network is not None:
+        nets = [n for n in every if n["name"] == network]
+        if not nets:
+            raise ExportFailed([("no network '%s' in the config (%s)" % (
+                network, ", ".join(n["name"] or "unnamed" for n in every)), ["networks"])])
+    files, warnings = [], list(result.warnings)
+    for net in nets:
+        one = contract.network_config(cfg, net["name"] if net["path"] else None)
+        model = build(one, config_path, paths, sdo, names, checked=True)
+        if len(every) > 1:
+            model.comment = "CANopen network %s of %s, exported by openplc-canopen-deploy %s" % (
+                net["name"], os.path.basename(config_path), __version__)
+        files.append((net["name"], write(model)))
+        warnings += [(net["name"] + ": " if len(every) > 1 else "") + w for w in model.warnings]
+    return files, warnings
+
+
+def network_file(path, network):
+    """The file of one network when the export writes several:
+    <stem>_<network>.dbc next to `path`."""
+    stem, ext = os.path.splitext(path)
+    return "%s_%s%s" % (stem, network, ext or ".dbc")
 
 
 def write_file(text, path):

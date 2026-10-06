@@ -89,10 +89,11 @@ def cli_command(cli):
 def declarations(cfg, config_path):
     """The config's declarations in program order, named from its EDS files."""
     files = bundle.eds_files(cfg, config_path)
+    nodes = contract.all_nodes(cfg)
     eds = {}
 
     def object_name(i, index, sub):
-        value = cfg["nodes"][i].get("eds")
+        value = nodes[i].get("eds")
         if value not in eds:
             try:
                 eds[value] = Eds.read(files[value])
