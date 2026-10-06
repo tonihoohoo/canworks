@@ -57,9 +57,9 @@
 - [ ] 8.2 Add the Python simulation-file checks (schema, objects in EDS, master-written objects, expression grammar) and run the shared expression corpus against them; verify in deploy tool tests.
 - [ ] 8.3 Bundle `simulation.json` with its EDS/DCF/CSV files in deploy, `--into-project` and `--new-project`; add the warning naming what is simulated and `--simulated`; verify in deploy tool tests for a simulated network and for one simulated node.
 - [ ] 8.4 Add `openplc-canopen-sim test --runtime` support in the Python client used by the native command's remote mode (or a `openplc-canopen-diag sim test` alias); verify a remote test run against the fake diag server.
-- [ ] 8.5 Add the configurator network choice, per-node **Simulated** switch and badge, **Simulate all / none** and the banner; verify with page tests for all four combinations.
-- [ ] 8.6 Add the configurator Simulation view (live values, sliders and switches, overrides, source editor with expression checking, faults, extra devices, save to `simulation.json`, read-only without **Allow changes**); verify with page tests against the fake server.
-- [ ] 8.7 Add the scenario list, step editor and live run state; verify with page tests.
+- [x] 8.5 Add the configurator network choice, per-node **Simulated** switch and badge, **Simulate all / none** and the banner; verify with page tests for all four combinations.
+- [x] 8.6 Add the configurator Simulation view (live values, sliders and switches, overrides, source editor with expression checking, faults, extra devices, save to `simulation.json`, read-only without **Allow changes**); verify with page tests against the fake server.
+- [x] 8.7 Add the scenario list, step editor and live run state; verify with page tests.
 - [ ] 8.8 Document the switch and the view in `docs/configurator.md` and the bundle changes in `docs/deploy.md`; bump the deploy tool version.
 
 ## 9. Install
