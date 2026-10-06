@@ -29,7 +29,7 @@ import urllib.parse
 import webbrowser
 import zipfile
 
-from .. import __version__, axis, contract, dbcexport, dcfexport, diag, editorproject, edslint, project as project_mod
+from .. import __version__, axis, contract, dbcexport, dcfexport, diag, editorproject, edslint, project as project_mod, sdolibrary
 from .. import eds as eds_mod
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
@@ -744,7 +744,7 @@ class Session:
 
 
     # -- a new editor project around a standalone config --------------------
-    def new_project(self, parent, name, interval=None):
+    def new_project(self, parent, name, interval=None, sdo_blocks=False):
         if self.mode != "standalone":
             raise ApiError(400, "only a standalone config can become a new editor project")
         if self.pending or self.changed_on_disk() or not os.path.isfile(self.config_path):
@@ -773,11 +773,14 @@ class Session:
         try:
             path, decls = editorproject.create(cfg, self.config_path, target,
                                                interval=interval or editorproject.DEFAULT_INTERVAL,
-                                               runtime_address=address)
+                                               runtime_address=address, sdo_blocks=sdo_blocks)
         except editorproject.NewProjectError as e:
             raise ApiError(422, str(e))
         self.open(path, "project")
-        return {"project": path, "declared": len(decls)}
+        out = {"project": path, "declared": len(decls)}
+        if sdo_blocks:
+            out["library_ok"], out["library"] = sdolibrary.ensure_installed()
+        return out
 
 
 def list_folders(path):
@@ -972,7 +975,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out["state"] = s.state()
                 elif route == ("POST", "/api/new_project"):
                     self._need_open(s)
-                    out = s.new_project(body.get("parent"), body.get("name"), body.get("interval"))
+                    out = s.new_project(body.get("parent"), body.get("name"), body.get("interval"),
+                                        bool(body.get("sdo_blocks")))
                     out["state"] = s.state()
                 elif route == ("POST", "/api/quit"):
                     quitting = True

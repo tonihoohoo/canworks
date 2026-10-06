@@ -29,7 +29,14 @@ writes only that network to bus.dbc.
 
 creates an OpenPLC Editor project in <dir> with openplc-cli create: target
 OpenPLC Runtime v4, the config in its canopen/ folder, and a program main
-declaring every CANopen location. Uploads nothing.
+declaring every CANopen location. Uploads nothing. With --sdo-blocks the
+project also enables the openplc_canopen library (the CO_SDO_* blocks).
+
+  openplc-canopen-deploy library [--out DIR] [--install] [--project DIR]
+
+writes the openplc_canopen editor library (SDO function blocks for the PLC
+program) as openplc_canopen.stlib into DIR, installs it into OpenPLC Editor
+on this computer, and/or enables it in an editor project. See docs/plc-sdo.md.
 """
 
 import argparse
@@ -40,7 +47,7 @@ import shutil
 import subprocess
 import sys
 
-from . import __version__, bundle, clash, contract, dbcexport, dcfexport, editorproject, project, runtime
+from . import __version__, bundle, clash, contract, dbcexport, dcfexport, editorproject, project, runtime, sdolibrary
 
 EDITOR_WARNING = (
     "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canopen.json, so the "
@@ -84,6 +91,9 @@ def parser():
     src.add_argument("--new-project", metavar="DIR",
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
                           "and declares its I/O in the program main")
+    p.add_argument("--sdo-blocks", action="store_true",
+                   help="with --new-project: enable the openplc_canopen library (SDO function blocks for the "
+                        "program) in the project, and install it into the editor if it is missing or older")
     p.add_argument("--task-interval", metavar="T#...",
                    help="with --new-project: the task interval (default: %s)" % editorproject.DEFAULT_INTERVAL)
     p.add_argument("--dbc-sdo", choices=dbcexport.SDO_OPTIONS,
@@ -155,6 +165,9 @@ def run(args, out=print, err=None, password_source=None):
     interval = getattr(args, "task_interval", None)
     if interval and not new_project:
         raise Failure("--task-interval needs --new-project")
+    sdo_blocks = getattr(args, "sdo_blocks", False)
+    if sdo_blocks and not new_project:
+        raise Failure("--sdo-blocks needs --new-project")
     if new_project and (args.runtime or args.output or args.check_only):
         raise Failure("--new-project only creates an editor project; leave out --runtime, --output and --check-only")
     if not into and not export_dir and not dbc_file and not new_project and not args.check_only and not args.runtime:
@@ -206,11 +219,16 @@ def run(args, out=print, err=None, password_source=None):
     if new_project:
         try:
             path, decls = editorproject.create(cfg, args.config, new_project,
-                                               interval=interval or editorproject.DEFAULT_INTERVAL, progress=out)
+                                               interval=interval or editorproject.DEFAULT_INTERVAL, progress=out,
+                                               sdo_blocks=sdo_blocks)
         except editorproject.NewProjectError as e:
             raise Failure(str(e))
         out("created %s with %d CANopen variable%s declared in main" % (path, len(decls),
                                                                        "" if len(decls) == 1 else "s"))
+        if sdo_blocks:
+            out("the project enables the %s library (CO_SDO_* blocks)" % sdolibrary.NAME)
+            ok, message = sdolibrary.ensure_installed()
+            (out if ok else err)(message if ok else "warning: " + message)
         return 0
 
     if into:
@@ -308,7 +326,54 @@ def run(args, out=print, err=None, password_source=None):
     return 0
 
 
+def library_parser():
+    p = argparse.ArgumentParser(
+        prog="openplc-canopen-deploy library",
+        description="The %s editor library: SDO function blocks (CO_SDO_READ, CO_SDO_WRITE, ...) the PLC program "
+                    "calls to read and write any object of any node at run time. See docs/plc-sdo.md."
+                    % sdolibrary.NAME)
+    p.add_argument("--out", metavar="DIR",
+                   help="write %s into DIR, for the editor's Library Manager (install from file)"
+                        % sdolibrary.FILE_NAME)
+    p.add_argument("--install", action="store_true",
+                   help="install the library into OpenPLC Editor on this computer, as its Library Manager does "
+                        "(restart the editor afterwards)")
+    p.add_argument("--project", metavar="DIR", help="enable the library in this editor project")
+    p.add_argument("--list", action="store_true", help="list the library's function blocks")
+    return p
+
+
+def run_library(args, out=print, err=None):
+    err = err or (lambda m: print(m, file=sys.stderr))
+    if not (args.out or args.install or args.project or args.list):
+        raise Failure("give --out DIR, --install, --project DIR or --list")
+    try:
+        if args.list:
+            for name in sdolibrary.block_names():
+                out(name)
+        if args.out:
+            out("wrote %s (%s %s)" % (sdolibrary.write(args.out), sdolibrary.NAME, __version__))
+        if args.install:
+            out("installed %s %s into the editor (%s); restart OpenPLC Editor if it is open"
+                % (sdolibrary.NAME, __version__, sdolibrary.install()))
+        if args.project:
+            sdolibrary.enable_in_project(args.project)
+            out("enabled %s in %s" % (sdolibrary.NAME, os.path.abspath(args.project)))
+            if not args.install and sdolibrary.installed_version() is None:
+                err("note: the editor does not have the library yet: run 'openplc-canopen-deploy library --install'")
+    except (sdolibrary.LibraryError, OSError, ValueError) as e:
+        raise Failure(str(e))
+    return 0
+
+
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["library"]:
+        try:
+            return run_library(library_parser().parse_args(argv[1:]))
+        except Failure as e:
+            print("error: " + str(e), file=sys.stderr)
+            return 1
     args = parser().parse_args(argv)
     try:
         return run(args)

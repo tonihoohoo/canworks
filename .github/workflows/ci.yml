@@ -204,6 +204,15 @@ jobs:
         if: steps.vcan.outcome == 'success' && matrix.group == 2
         run: test/fixed/run.sh
 
+      - name: PLC program SDO blocks on vcan0 (a PLC stop cancels a transfer in flight)
+        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        env:
+          CANOPEN_EDSLINT: python3
+          PYTHONPATH: tools/deploy
+        run: |
+          test/plc_sdo/lookup_check.sh build/test/plc_sdo_lookup_check build/plugins/libcanopen_plugin.so \
+            build/test/sdo_program.so config/pingpong "$RUNNER_TEMP/plc_sdo_stop" --stop-check
+
       - name: Report skipped vcan test
         if: steps.vcan.outcome != 'success'
         run: echo "::warning::vcan is not available on this runner; the ping-pong test was skipped"

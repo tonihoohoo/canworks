@@ -18,7 +18,7 @@ The plugin's behaviour is set in the config file; [docs/config.md](docs/config.m
 - **LSS node ID assignment:** devices without DIP switches get their node ID over the bus from their serial number at every start and after a device is replaced; storing it on the device is opt-in.
 - **EDS checks:** every EDS goes through Lely's CiA 306 lint at load, and every PDO entry and SDO is checked against the EDS for type and access before anything is sent.
 - **Status to the PLC:** a status bit and a state byte per node, the bus state and error counters, and the last EMCY code and error register per node.
-- **From the program:** SDO variables (read and write node objects while running) and NMT commands per node.
+- **From the program:** SDO variables (read and write node objects while running), NMT commands per node, and SDO function blocks (`CO_SDO_READ`, `CO_SDO_WRITE`, ... in the `openplc_canopen` editor library) that read or write any object of any node when the program decides, including REAL, strings and byte blocks ([docs/plc-sdo.md](docs/plc-sdo.md)).
 - **CiA 402 drives as PLCopen axes:** a node marked as an axis is driven with the editor's built-in motion blocks (`MC_Power`, `MC_MoveAbsolute`, `MC_MoveVelocity`, `MC_Home`, ...) in profile position, profile velocity and homing mode; the generated program holds the glue ([docs/cia402.md](docs/cia402.md)).
 - **Everything `dcfgen` can set:** SYNC, heartbeat, error behaviour and the other master and slave options of Lely's dcf-tools, plus a TIME producer that sends the runtime host's clock (UTC).
 - **Online diagnostics** (opt-in, token protected): a TCP channel for the PC tools below. Nothing a client does touches the PLC scan.
@@ -28,7 +28,7 @@ The plugin's behaviour is set in the config file; [docs/config.md](docs/config.m
 Three commands in one package, for Windows, macOS and Linux. They install with uv without a Python on the PC: [docs/install-pc.md](docs/install-pc.md).
 
 - **`openplc-canopen-config`**, a configurator in a local web page ([docs/configurator.md](docs/configurator.md)): add nodes from their EDS, map PDO entries to PLC addresses, startup SDOs and SDO variables, with every address checked against the editor project, and one tab per CAN network. It writes the project's `canopen/` folder, exports DCF and DBC files, and creates a new editor project with the I/O already declared. Its **Online** view shows the live network: node and bus state, EMCY history, SDO read and write, NMT, a bus scan, LSS commissioning, an object dictionary browser with watch, and device parameter backup, compare and restore. Its **Trace** view records the bus with CANopen decoding, graphs and triggers ([docs/trace.md](docs/trace.md)).
-- **`openplc-canopen-deploy`** ([docs/deploy.md](docs/deploy.md)): adds the config to an editor build and uploads it to the runtime, checks a config without a runtime, puts the config into an editor project, creates a new editor project from a config (`--new-project`), and exports DCF (`--export-dcf`) and DBC (`--export-dbc`) files, per network or for one with `--network`.
+- **`openplc-canopen-deploy`** ([docs/deploy.md](docs/deploy.md)): adds the config to an editor build and uploads it to the runtime, checks a config without a runtime, puts the config into an editor project, creates a new editor project from a config (`--new-project`, with `--sdo-blocks` to enable the SDO function blocks), writes or installs the `openplc_canopen` editor library (`library`), and exports DCF (`--export-dcf`) and DBC (`--export-dbc`) files, per network or for one with `--network`.
 - **`openplc-canopen-diag`** ([docs/diagnostics.md](docs/diagnostics.md)): the online functions from a terminal, including `backup`, `compare`, `restore` and `store` of device parameters (a CiA 306 DCF, so a replaced device gets its settings back), LSS commands, `--network` to pick one of several networks, and `trace` with export to pcapng, candump, ASC, BLF, TRC or CSV.
 
 ## Scope
@@ -52,6 +52,8 @@ tools/             canopen_check: validates a config and its EDS files without s
 tools/deploy/      the PC tools (Python, one package): openplc-canopen-deploy, openplc-canopen-config
                    (the configurator), openplc-canopen-diag (online diagnostics, parameters, trace)
 tools/editor-hook/ the runtime-side hook that keeps CANopen on with the editor's Build and upload
+library/           the openplc_canopen editor library (SDO function blocks): generate.py writes the
+                   block sources, build.sh builds the .stlib the deploy tool carries
 test/unit/         unit tests: config validation, EDS checks, dcfgen, process image
 test/sim/          master against Lely slaves on an in-process virtual CAN bus
 test/drive/        a simulated CiA 402 drive (Lely slave) for the virtual bus
@@ -65,6 +67,7 @@ test/trace/        bus trace recording, filters and export formats on vcan0
 test/bus/          the bus state byte while vcan0 goes down and up
 test/networks/     two networks on vcan0 and vcan1, one of them losing its node
 test/slcan/        the slcan adapter against a fake CANable on a pseudo-terminal, bridged to vcan1
+test/plc_sdo/      the SDO blocks compiled as the editor does, finding the real plugin in-process
 test/host/         canopen_host: loads the plugin .so with a stand-in PLC scan; plugin lifecycle tests
 test/link/         link_check: the SocketCAN link setup on a real interface
 test/dump/         canopen_check --dump-writes against a checked-in list (DCF export parity)
@@ -76,7 +79,8 @@ test/pc-tools/     the release tag check; test/ci/: the CI change classification
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
 docs/              config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
-                   install-pc.md, install-stock.md, trace.md
+                   install-pc.md, install-stock.md, plc-sdo.md,
+                   trace.md
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
 ```
 

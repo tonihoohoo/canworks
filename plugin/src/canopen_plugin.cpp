@@ -38,6 +38,7 @@ extern "C" {
 #include "eds_check.h"
 #include "eds_lint.h"
 #include "log.h"
+#include "plc_api.h"
 #include "process_image.h"
 #include "runtime_version.h"
 
@@ -87,6 +88,7 @@ void stop_all() {
 
 void teardown() {
   g_exchange.store(false, std::memory_order_release);
+  PlcRequests::instance().close();
   stop_all();
   g_state.reset();
 }
@@ -222,11 +224,13 @@ PLUGIN_API int start_loop(void) {
   for (auto& n : g_state->nets) n->bus->start();
   if (g_state->server) g_state->server->start();
   g_exchange.store(true, std::memory_order_release);
+  PlcRequests::instance().open();
   return 0;
 }
 
 PLUGIN_API void stop_loop(void) {
   g_exchange.store(false, std::memory_order_release);
+  PlcRequests::instance().close();
   stop_all();
 }
 
@@ -248,5 +252,9 @@ PLUGIN_API void cycle_end(void) {
   if (!g_exchange.load(std::memory_order_acquire)) return;
   for (auto& n : g_state->nets) n->image.copy_from_plc(g_rt);
 }
+
+// The SDO function blocks of the PLC program's CANopen library find this with
+// dlopen("libcanopen_plugin.so", RTLD_NOLOAD) + dlsym (spec canopen-plc-sdo).
+PLUGIN_API const void* canopen_plc_api(uint32_t version) { return plc_api_table(version); }
 
 }  // extern "C"

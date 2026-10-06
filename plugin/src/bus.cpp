@@ -157,6 +157,9 @@ void Bus::run_session() {
       if (loop.stopped()) break;
       if (!shut_down && (stop_ || iface_state(cfg_.adapter.interface) != IfaceState::Up)) {
         if (!stop_) iface_lost = true;
+        // As the supervision tick does when it ends the session: what is in
+        // flight is cancelled, so the loop can drain.
+        net.Stop();
         end_session();
       } else if (shut_down && ++slices_after_shutdown >= kShutdownSlices) {
         // The shutdown did not drain the loop (with the adapter gone, its

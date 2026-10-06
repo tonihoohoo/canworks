@@ -174,6 +174,8 @@ Network::~Network() {
   sup_timer_.cancel_wait(tick_wait_);
   if (req_timer_) req_timer_->cancel_wait(req_wait_);
   if (out_timer_) out_timer_->cancel_wait(out_wait_);
+  // Program transfers this session took never finish now.
+  if (cfg_.network_index == 0) PlcRequests::instance().cancel_taken();
 }
 
 void Network::Start() {
@@ -199,7 +201,8 @@ void Network::Start() {
   }
   sup_timer_.settime(kTick, kTick);
   sup_timer_.submit_wait(tick_wait_);
-  if (req_timer_ && (has_requests_ || diag_)) {
+  // Always: the program's SDO function blocks may start transfers any time.
+  if (req_timer_) {
     req_timer_->settime(kRequestPeriod, kRequestPeriod);
     req_timer_->submit_wait(req_wait_);
   }
@@ -232,8 +235,10 @@ void Network::SendTime() {
 }
 
 void Network::Stop() {
+  if (stopped_) return;
   stopped_ = true;
   if (lss_) lss_->CancelAll();
+  CancelPrograms();
 }
 
 void Network::MapTpdos() {
@@ -1102,44 +1107,50 @@ void Network::ApplyNmtCommand(unsigned id, NodeState& n, uint8_t level, uint64_t
 }
 
 void Network::ServiceRequests() {
-  if (!has_requests_ || stopped_) return;
+  if (stopped_) return;
+  auto now = clock::now();
+  // The program's SDO blocks name network 0, the first network.
+  if (cfg_.network_index == 0) ServiceProgram(now);
+  if (!has_requests_ && prog_.empty()) return;
   const uint64_t* snap = image_.latest_outputs();
   // Nothing before the program has run once: the outputs are not its yet.
-  if (image_.scan_count(snap) == 0) return;
-  auto now = clock::now();
+  bool scanned = image_.scan_count(snap) != 0;
   for (auto& it : nodes_) {
     unsigned id = it.first;
     NodeState& n = it.second;
-    uint8_t level = 0, code = 0;
-    uint64_t resets = 0;
-    if (image_.nmt_command(snap, id, level, resets, code)) ApplyNmtCommand(id, n, level, resets, code);
-    if (n.vars.empty()) continue;
+    if (scanned) {
+      uint8_t level = 0, code = 0;
+      uint64_t resets = 0;
+      if (image_.nmt_command(snap, id, level, resets, code)) ApplyNmtCommand(id, n, level, resets, code);
+    }
     bool avail = SdoAvailable(id, n);
-    for (size_t k : n.vars) {
-      VarState& v = vars_[k];
-      const SdoVariable& var = image_.sdo_vars()[k].var;
-      if (var.has_trigger) {
-        uint64_t count = image_.sdo_trigger_count(snap, k);
-        if (count != v.trig_seen) {
-          v.trig_seen = count;
-          if (avail) {
-            v.trig_pending = true;
-          } else {
-            v.trig_pending = false;
-            SetSdoStatus(k, kSdoUnavailable, 0, false);  // dropped
+    if (scanned) {
+      for (size_t k : n.vars) {
+        VarState& v = vars_[k];
+        const SdoVariable& var = image_.sdo_vars()[k].var;
+        if (var.has_trigger) {
+          uint64_t count = image_.sdo_trigger_count(snap, k);
+          if (count != v.trig_seen) {
+            v.trig_seen = count;
+            if (avail) {
+              v.trig_pending = true;
+            } else {
+              v.trig_pending = false;
+              SetSdoStatus(k, kSdoUnavailable, 0, false);  // dropped
+            }
           }
         }
+        // Automatic transfers wait for the node, showing that they do.
+        bool automatic = var.is_read() || !var.has_trigger;
+        if (!avail && automatic && !(n.sdo_busy && image_.sdo_status(k) == kSdoBusy))
+          SetSdoStatus(k, kSdoUnavailable, 0, false);
       }
-      // Automatic transfers wait for the node, showing that they do.
-      bool automatic = var.is_read() || !var.has_trigger;
-      if (!avail && automatic && !(n.sdo_busy && image_.sdo_status(k) == kSdoBusy))
-        SetSdoStatus(k, kSdoUnavailable, 0, false);
     }
     if (!avail || n.sdo_busy) continue;
-    // Next transfer: triggered ones, owned writes, post-boot reads, periodic
-    // reads.
+    // Next SDO variable transfer: triggered ones, owned writes, post-boot
+    // reads, periodic reads.
     size_t pick = SIZE_MAX;
-    for (int pass = 0; pass < 4 && pick == SIZE_MAX; ++pass)
+    for (int pass = 0; scanned && pass < 4 && pick == SIZE_MAX; ++pass)
       for (size_t k : n.vars) {
         VarState& v = vars_[k];
         const SdoVariable& var = image_.sdo_vars()[k].var;
@@ -1158,7 +1169,15 @@ void Network::ServiceRequests() {
           break;
         }
       }
-    if (pick != SIZE_MAX) StartTransfer(id, n, pick, snap);
+    // Program transfers and SDO variables take turns on the node.
+    auto q = prog_.find(id);
+    bool prog = q != prog_.end() && !q->second.empty();
+    if (prog && (pick == SIZE_MAX || !n.last_prog)) {
+      StartProgram(id, &n, now);
+    } else if (pick != SIZE_MAX) {
+      n.last_prog = false;
+      StartTransfer(id, n, pick, snap);
+    }
   }
 }
 
