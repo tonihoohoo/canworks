@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <sys/eventfd.h>
+#include <unistd.h>
 
 namespace canopen_plugin {
 
@@ -40,7 +42,24 @@ const uint64_t* TripleBuffer::latest(bool* fresh) {
 // ---------------------------------------------------------------------------
 // ProcessImage
 
+ProcessImage::~ProcessImage() {
+  if (sync_fd_ >= 0) close(sync_fd_);
+}
+
+void ProcessImage::request_sync() {
+  if (!sync_cycles_ || ++sync_frames_ < sync_cycles_) return;
+  sync_frames_ = 0;
+  sync_requests_.fetch_add(1, std::memory_order_acq_rel);
+  uint64_t one = 1;
+  ssize_t r = write(sync_fd_, &one, sizeof(one));  // EAGAIN only with 2^64-2 unread requests
+  (void)r;
+}
+
 void ProcessImage::build(const Config& cfg) {
+  sync_cycles_ = cfg.master.sync_plc_cycle ? cfg.master.sync_cycles : 0;
+  sync_frames_ = 0;
+  if (sync_cycles_ && sync_fd_ < 0) sync_fd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+  if (sync_fd_ < 0) sync_cycles_ = 0;
   inputs_.clear();
   outputs_.clear();
   node_ids_.clear();

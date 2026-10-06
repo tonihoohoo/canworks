@@ -19,6 +19,7 @@
 // outputs were drained into the image. They only touch preallocated memory.
 
 #include <atomic>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -124,10 +125,23 @@ void prepare() {
            st->cfg.adapter.type.c_str(), st->cfg.adapter.interface.c_str(), st->cfg.adapter.bitrate,
            st->cfg.master.node_id, st->cfg.nodes.size(),
            st->cfg.nodes.size() == 1 ? "" : "s");
-  if (st->cfg.master.sync_period_us)
-    log_info("SYNC every %u us", st->cfg.master.sync_period_us);
-  else
+  const MasterConfig& m = st->cfg.master;
+  if (m.sync_plc_cycle) {
+    unsigned long long tick_us = g_rt.base_tick_ns / 1000;
+    if (!tick_us)
+      log_info("SYNC from the PLC cycle, every %u PLC cycle%s (the runtime does not report its base tick)",
+               m.sync_cycles, m.sync_cycles == 1 ? "" : "s");
+    else
+      log_info("SYNC from the PLC cycle, every %u PLC cycle%s (base tick %llu us)", m.sync_cycles,
+               m.sync_cycles == 1 ? "" : "s", tick_us);
+    if (tick_us && tick_us * m.sync_cycles < 1000)
+      log_warn("a SYNC period of %llu us is below 1 ms; the bus may not carry all PDOs in one period",
+               tick_us * m.sync_cycles);
+  } else if (m.sync_period_us) {
+    log_info("SYNC every %u us", m.sync_period_us);
+  } else {
     log_info("no SYNC period: the master produces no SYNC and sends outputs when they change");
+  }
 
   if (!generate_device_config(st->cfg, default_dcfgen(), st->gen, errors)) {
     for (const auto& e : errors) log_error("%s", e.c_str());
@@ -138,6 +152,11 @@ void prepare() {
            st->gen.work_dir.c_str());
 
   st->image.build(st->cfg);
+  if (m.sync_plc_cycle && st->image.sync_fd() < 0) {
+    log_error("cannot create the PLC-cycle SYNC event (%s); CANopen inactive, CAN interface not opened",
+              strerror(errno));
+    return;
+  }
   if (st->cfg.master.has_diagnostics) {
     st->hub.reset(new DiagHub(st->cfg, CANOPEN_PLUGIN_VERSION));
     st->server.reset(new DiagServer(*st->hub));
@@ -190,6 +209,7 @@ PLUGIN_API void cleanup(void) {
 PLUGIN_API void cycle_start(void) {
   if (!g_exchange.load(std::memory_order_acquire)) return;
   g_state->image.copy_to_plc(g_rt);
+  g_state->image.request_sync();  // PLC-cycle SYNC only
 }
 
 PLUGIN_API void cycle_end(void) {

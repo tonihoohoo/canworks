@@ -30,13 +30,19 @@ Order inside `cycle_start()`: copy the newest input snapshot to the PLC (as toda
 
 ### 3. Sending SYNC without Lely's timer
 
-With `"plc_cycle"` the master DCF keeps 0x1006 = 0, so Lely's SYNC service runs no timer, and 0x1005 keeps the producer bit (bit 30) and COB-ID (0x080 unless the EDS/DCF says otherwise). The plugin builds the SYNC frame itself (0 bytes, or 1 byte counter when 0x1019 > 1, counter 1..overflow) and sends it with `can_net_send()` under the master lock, then calls Lely's `co_nmt_on_sync()` with the same counter so the master's synchronous TPDOs go out and its synchronous RPDOs are taken over, the same path Lely uses after its own SYNC. Task 1.1 verifies this against Lely (dcfgen's handling of 0x1005 with `sync_period: 0`, and that `co_nmt_on_sync()` covers TPDO send and RPDO take-over); if dcfgen drops the producer bit, the plugin sets it in its DCF post-processing as it already does for 0x1F26/0x1F27.
+With `"plc_cycle"` the master DCF keeps 0x1006 = 0, so Lely's SYNC service runs no timer, and 0x1005 keeps the producer bit (bit 30) and COB-ID (0x080 unless the EDS/DCF says otherwise). The plugin builds the SYNC frame itself (0 bytes, or 1 byte counter when 0x1019 > 1, counter 1..overflow) and sends it with `can_net_send()` under the master lock, then calls Lely's `co_nmt_on_sync()` with the same counter so the master's synchronous TPDOs go out and its synchronous RPDOs are taken over, the same path Lely uses after its own SYNC. Checked against the pinned lely-core (task 1.1): dcfgen's master template always writes 0x1005 = 0x40000080 and takes 0x1006 from `sync_period`, Lely's SYNC service arms its timer only when 0x1006 is non-zero, and `co_nmt_on_sync()` sends the synchronous TPDOs, actuates the synchronous RPDOs and then calls the SYNC indication, which is the plugin's `OnSync()`. So no DCF post-processing is needed, and the plugin's existing SYNC follow-up (SDO variable and NMT requests) runs unchanged.
+
+The plugin writes the outputs into the master's TPDO objects before it sends the SYNC (with the timer they are written in `OnSync()`, after the TPDOs went out, so they leave one SYNC later).
+
+### 3a. The master's synchronous RPDOs become event-driven
+
+dcfgen gives each master RPDO the node TPDO's transmission type, and Lely holds a received synchronous RPDO until the next SYNC. With PLC-cycle SYNC that would put the inputs of SYNC k into the image only at SYNC k+1, two cycles late. So with `"plc_cycle"` the plugin switches the master's own RPDOs with a type 1-240 to 255 after its NMT reset (as it already rewrites the master TPDO COB-IDs there); the nodes keep their types. Inputs then reach the image as they arrive, and the next `cycle_start()` copies them.
 
 Alternative considered: keep Lely's timer and re-phase it every frame. Rejected: Lely has no API to re-arm the SYNC timer from outside, and re-phasing would still drift between frames.
 
 ### 4. Bus thread priority
 
-A normal-priority bus thread can be delayed by anything else on the CPU, which turns into SYNC jitter. In `"plc_cycle"` mode the plugin sets the `canopen_bus` thread to SCHED_FIFO at the priority of the runtime's highest task level, below the dispatcher. If `pthread_setschedparam` fails (no CAP_SYS_NICE, container limits) it logs one warning and continues. In `"timer"` mode nothing changes. Task 6.2 measures SYNC jitter on real hardware with and without this; if FIFO makes no measurable difference, it is dropped before archive.
+A normal-priority bus thread can be delayed by anything else on the CPU, which turns into SYNC jitter. In `"plc_cycle"` mode the plugin sets the `canopen_bus` thread to SCHED_FIFO at the priority of the runtime's highest task level, below the dispatcher. If `pthread_setschedparam` fails (no CAP_SYS_NICE, container limits) it logs one warning and continues. In `"timer"` mode nothing changes. Task 6.2 measures SYNC jitter on real hardware with and without this (the environment variable `CANOPEN_BUS_NO_FIFO=1` skips it, for that comparison only); if FIFO makes no measurable difference, a follow-up drops it.
 
 ### 5. Configuration rules
 
@@ -49,13 +55,11 @@ A normal-priority bus thread can be delayed by anything else on the CPU, which t
 
 ### 6. Health counters
 
-Kept on the bus thread, read by the diagnostics hub:
-- `sync_count`, last/min/max interval between sent SYNCs in µs (CLOCK_MONOTONIC at send).
-- `sync_skipped`: frames merged into one SYNC because the bus thread was still busy.
-- `sync_late_pdos`: before sending SYNC n+1, each node TPDO with a cyclic synchronous type (1-240) that was due at SYNC n but has not arrived counts once; the log names node and PDO, at most once per 10 s per PDO.
-- Reset with the diag channel's existing statistics reset (if none exists, on plugin start only).
-
-The same counters exist in `"timer"` mode (interval and late PDOs are useful there too); `sync_skipped` stays 0.
+Kept on the bus thread (`Network`), read by the status answer, which runs there too:
+- SYNCs sent, last/min/max interval between them in µs (steady clock, taken in `OnSync()` right after the send).
+- Skipped: frames merged into one SYNC because the bus thread had not handled the previous request yet.
+- Late PDOs, checked in `OnSync()` for both sources: each master RPDO fed by a node TPDO of type 1-240 counts the SYNCs since it last arrived (Lely's `OnRpdo()` resets the count); when the count reaches the type, the PDO missed its SYNC and counts once. A PDO is only checked once it has arrived after its node came up, so the first SYNCs after a boot do not count. The log names node and PDO, at most once per 10 s per PDO.
+- Counted from the plugin's start; no reset operation.
 
 ### 7. Tools
 

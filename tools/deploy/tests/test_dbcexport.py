@@ -230,6 +230,18 @@ class FixedFrames(unittest.TestCase):
         m = model(cfg)
         self.assertFalse([x for x in m.messages if x.cob_id == 0x80])
 
+    def test_plc_cycle_sync(self):
+        cfg = base_config()
+        del cfg["master"]["sync_period_us"]
+        cfg["master"]["sync_source"] = "plc_cycle"
+        cfg["master"]["sync_cycles"] = 2
+        cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 1
+        m = model(cfg)
+        self.assertEqual(message(m, "SYNC").cob_id, 0x80)
+        tpdo = message(m, "pingpong_TPDO1")
+        self.assertIsNone(tpdo.cycle_ms)
+        self.assertIn("sent at every SYNC, one SYNC every 2 PLC cycles", tpdo.comment)
+
 
 class Sdo(unittest.TestCase):
     def test_default_without_sdo(self):
