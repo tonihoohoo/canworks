@@ -115,6 +115,10 @@ jobs:
           sudo modprobe vcan
           sudo ip link add dev vcan0 type vcan
 
+      - name: Bring vcan0 up (group 2; in group 1 the link setup test leaves it up)
+        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        run: sudo ip link set vcan0 up
+
       - name: Link setup on vcan0 (as root, then without CAP_NET_ADMIN)
         if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: |
@@ -169,7 +173,7 @@ jobs:
   tools:
     # Deploy tool and configurator tests without a browser (the page tests run
     # in configurator-page), with the DCF export compared to the C++ build,
-    # split over two runners by test class (.github/scripts/test_shard.py).
+    # split over three runners by test class (.github/scripts/test_shard.py).
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
@@ -177,8 +181,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
-    name: tools (${{ matrix.shard }}/2)
+        shard: [1, 2, 3]
+    name: tools (${{ matrix.shard }}/3)
     steps:
       - uses: actions/checkout@v4
 
@@ -202,7 +206,7 @@ jobs:
         env:
           CANOPEN_REQUIRE_PARITY: "1"  # the DCF export is compared with build/canopen_check --dump-writes
         run: >
-          python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/2
+          python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3
           --start tools/deploy/tests --top tools/deploy --exclude 'test_configurator_(.*page|layout)$'
 
       - name: Release tag check (deploy-v<version> must match the package version)
@@ -218,7 +222,7 @@ jobs:
         run: PYTHONPATH=tools/editor-hook:tools/deploy python -m unittest discover -v -s tools/editor-hook/tests -t tools/editor-hook
 
       - name: Install-script Docker mode and runtime spec edits (stub docker)
-        if: matrix.shard == 2
+        if: matrix.shard == 3
         # last: runs as root (it may leave root-owned files)
         run: sudo python3 -m unittest discover -v -s test/docker
 
