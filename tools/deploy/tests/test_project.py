@@ -34,7 +34,8 @@ class IntoProject(unittest.TestCase):
         config = os.path.join(RTD, "canopen_config.json")
         code, out, err = deploy("--config", config, "--into-project", self.project)
         self.assertEqual(code, 0, err)
-        self.assertEqual(sorted(os.listdir(self.canopen)), ["canopen.json", "rtd8.eds"])
+        # The example's simulation.json next to the config comes along.
+        self.assertEqual(sorted(os.listdir(self.canopen)), ["canopen.json", "rtd8.eds", "simulation.json"])
         with open(os.path.join(self.canopen, "canopen.json"), encoding="utf-8") as f:
             cfg = json.load(f)
         self.assertEqual(cfg["nodes"][0]["eds"], "rtd8.eds")

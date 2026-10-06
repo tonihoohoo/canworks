@@ -73,7 +73,8 @@ class Examples(unittest.TestCase):
         found = 0
         for root, _, files in os.walk(os.path.join(REPO, "config")):
             for name in files:
-                if name.endswith(".json"):
+                # simulation.json files follow canopen-sim.v1 (test_simfile).
+                if name.endswith(".json") and name != "simulation.json":
                     path = os.path.join(root, name)
                     with open(path, encoding="utf-8") as f:
                         cfg = json.load(f)

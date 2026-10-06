@@ -9,7 +9,7 @@
 #   3. the editor hook: one .pth in the runtime venv, active when the
 #      webserver imports its modules, and test/stock/editor_hook.py (the hook
 #      on the runtime's own modules); --no-editor-hook removes it
-#   4. --uninstall: no canopen line, library and hook gone
+#   4. --uninstall: no canopen line, library, hook and simulator link gone
 #
 #   test/stock/run.sh <runtime checkout> [build dir with canopen_check]
 #
@@ -46,6 +46,9 @@ echo "==> install (twice)"
 grep -qx 'canopen,/opt/openplc-canopen/lib/libcanopen_plugin.so,0,1,/opt/openplc-canopen/lib/canopen.json,' \
     "$RUNTIME/plugins.conf" || fail "unexpected canopen line"
 [ -f /opt/openplc-canopen/lib/libcanopen_plugin.so ] || fail "library not installed"
+SIM_VERSION=$(openplc-canopen-sim --version | awk '{print $2}')
+[ -n "$SIM_VERSION" ] && grep -aqF "$SIM_VERSION" /opt/openplc-canopen/lib/libcanopen_plugin.so ||
+    fail "openplc-canopen-sim --version ($SIM_VERSION) does not match the plugin"
 [ -z "$(git -C "$RUNTIME" status --porcelain --untracked-files=no)" ] || {
     git -C "$RUNTIME" status --short; fail "tracked runtime files were modified"; }
 
@@ -97,6 +100,8 @@ echo "==> uninstall"
 ! grep -q '^canopen,' "$RUNTIME/plugins.conf" || fail "canopen line left in plugins.conf"
 [ ! -e /opt/openplc-canopen/lib ] || fail "library directory left behind"
 [ ! -e "$PTH" ] || fail "uninstall left $PTH"
+[ ! -e /usr/local/bin/openplc-canopen-sim ] && [ ! -L /usr/local/bin/openplc-canopen-sim ] ||
+    fail "uninstall left /usr/local/bin/openplc-canopen-sim"
 [ -z "$(hook_log)" ] || fail "uninstall: the hook still logs"
 [ -x /opt/openplc-canopen/venv/bin/dcfgen ] || fail "uninstall without --purge removed dcfgen"
 [ -z "$(git -C "$RUNTIME" status --porcelain --untracked-files=no)" ] || fail "tracked runtime files were modified"
