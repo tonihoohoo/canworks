@@ -1,0 +1,252 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer commit to a pull request cancels its older run; runs on main never
+# cancel each other (grouped by commit).
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    # code=false when only documentation and specs changed: the build and
+    # test jobs below are then skipped (reported as skipped, not pending).
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify the changed files
+        id: classify
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 .github/scripts/ci_changes.py "$BASE" "$HEAD" >> "$GITHUB_OUTPUT"
+
+  banned-words:
+    # Words from a private list must not reach the repository. The list is
+    # the BANNED_WORDS secret, so it is not in
+    # the repository or the log; without it (pull requests from forks) the
+    # check says so and passes. BANNED_WORDS_EXCLUDE (a repository variable)
+    # names one path to leave out.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Files, new commits and the pull request text
+        env:
+          BANNED_WORDS: ${{ secrets.BANNED_WORDS }}
+          EXCLUDE: ${{ vars.BANNED_WORDS_EXCLUDE }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python3 scripts/check-banned-words.py --files --exclude "$EXCLUDE" \
+            --range "$BASE..$HEAD" --env-text PR_TITLE --env-text PR_BODY
+
+  spec-check:
+    # Runs for every change; the only check when only docs and specs changed.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the OpenSpec CLI
+        run: npm install -g --silent @fission-ai/openspec@1.14.0
+
+      - name: Validate every spec and change
+        run: openspec validate --all --strict --no-interactive
+
+  plugin:
+    # Build, C++ unit and simulation tests, and the plugin on vcan.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/build-plugin
+
+      - name: Unit and virtual-bus tests (one ctest test per simulation case, run in parallel)
+        run: ctest --test-dir build --output-on-failure -j4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python dependencies of the vcan scripts (deploy tool modules, diagnostics, trace export)
+        run: python -m pip install -q jsonschema cantools python-can
+
+      - name: Create vcan0 (down; the plugin's link setup brings it up)
+        id: vcan
+        continue-on-error: true
+        run: |
+          sudo modprobe vcan
+          sudo ip link add dev vcan0 type vcan
+
+      - name: Link setup on vcan0 (as root, then without CAP_NET_ADMIN)
+        if: steps.vcan.outcome == 'success'
+        run: |
+          sudo build/test/link_check vcan0 --expect ready
+          ip link show vcan0 | grep -q ",UP"
+          sudo ip link set vcan0 down
+          build/test/link_check vcan0 --expect not-permitted
+          sudo ip link set vcan0 up
+
+      - name: Ping-pong on vcan0
+        if: steps.vcan.outcome == 'success'
+        run: |
+          test/pingpong/run.sh --seconds 10
+          if test/pingpong/run.sh --seconds 4 --no-slave; then
+            echo "run.sh passed without the slave" >&2; exit 1
+          fi
+
+      - name: LSS node ID assignment on vcan0 (slave without a node ID)
+        if: steps.vcan.outcome == 'success'
+        run: test/lss/run.sh --seconds 10
+
+      - name: Bus trace on vcan0 (capture, directions, filter, formats, idle trace)
+        if: steps.vcan.outcome == 'success'
+        run: test/trace/run.sh
+
+      - name: Bus state byte on vcan0 (interface taken down and up)
+        if: steps.vcan.outcome == 'success'
+        run: test/bus/run.sh
+
+      - name: slcan adapter (fake CANable on a pty, bridged to vcan1)
+        if: steps.vcan.outcome == 'success'
+        run: test/slcan/run.sh
+
+      - name: RTD temperature module on vcan0
+        if: steps.vcan.outcome == 'success'
+        run: |
+          test/sensor/run.sh --seconds 10
+          test/sensor/run.sh --seconds 6 --keep-vendor-pdos
+
+      - name: Device parameter backup, compare and restore on vcan0 (RTD module)
+        if: steps.vcan.outcome == 'success'
+        run: test/params/run.sh
+
+      - name: Fixed PDO mapping (read-only mapping and COB-IDs) on vcan0
+        if: steps.vcan.outcome == 'success'
+        run: test/fixed/run.sh
+
+      - name: Report skipped vcan test
+        if: steps.vcan.outcome != 'success'
+        run: echo "::warning::vcan is not available on this runner; the ping-pong test was skipped"
+
+  tools:
+    # Deploy tool and configurator tests without a browser (the page tests run
+    # in configurator-page), with the DCF export compared to the C++ build.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/build-plugin
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: tshark (test_bustrace checks that Wireshark decodes the exported pcapng as CANopen)
+        run: sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tshark
+
+      - name: Install the deploy tool tests' Python dependencies
+        # cantools: loads every exported DBC strictly (test_dbcexport); not a deploy tool dependency.
+        # python-can: reads back every exported trace format (test_bustrace); not a deploy tool dependency.
+        run: python -m pip install -q jsonschema cantools python-can
+
+      - name: Deploy tool and configurator tests (shared fixtures, bundle, clash check, stub runtime, server, DCF export parity, DBC export)
+        env:
+          CANOPEN_REQUIRE_PARITY: "1"  # the DCF export is compared with build/canopen_check --dump-writes
+        run: python -m unittest discover -v -s tools/deploy/tests -t tools/deploy
+
+      - name: Release tag check (deploy-v<version> must match the package version)
+        run: python -m unittest discover -v -s test/pc-tools
+
+      - name: CI change classification
+        run: python -m unittest discover -v -s test/ci
+
+      - name: Editor hook tests (snapshot reading, shared fixtures, child process)
+        run: PYTHONPATH=tools/editor-hook:tools/deploy python -m unittest discover -v -s tools/editor-hook/tests -t tools/editor-hook
+
+  configurator-page:
+    # The configurator's pages in Chromium. Needs no plugin build.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the page tests' Python dependencies
+        run: python -m pip install -q jsonschema playwright
+
+      - name: Chromium for the configurator page tests
+        run: python -m playwright install --with-deps chromium
+
+      - name: Configurator page and layout tests
+        env:
+          CANOPEN_REQUIRE_BROWSER: "1"  # fail instead of skipping without Playwright/Chromium
+        run: |
+          python -m unittest discover -v -s tools/deploy/tests -t tools/deploy -p 'test_configurator_*page.py'
+          python -m unittest discover -v -s tools/deploy/tests -t tools/deploy -p 'test_configurator_layout.py'
+
+  stock:
+    # Stock runtime install, upload rules and editor hook against upstream development.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/build-plugin
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the stock test's Python dependencies
+        # python-dotenv: the upstream runtime's webserver config, imported by test/stock.
+        run: python -m pip install -q jsonschema python-dotenv
+
+      - name: Stock runtime install, upload rules and editor hook (upstream development)
+        run: test/stock/run.sh upstream-runtime build
+
+  docker:
+    # The managed Docker install route (canopen-docker-install) against the
+    # published runtime image.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install-script Docker mode and runtime spec edits (stub docker)
+        run: sudo python3 -m unittest discover -v -s test/docker
+
+      - name: Create vcan0
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" || true
+          sudo modprobe vcan
+          sudo ip link add dev vcan0 type vcan
+          sudo ip link set vcan0 up
+
+      - name: Build in the runtime image, ping-pong and the runtime container
+        run: sudo test/docker/run.sh --image ghcr.io/autonomy-logic/openplc-runtime:latest

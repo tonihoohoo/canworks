@@ -1,0 +1,310 @@
+"""openplc-canopen-deploy: add a CANopen config to an OpenPLC editor build,
+check it, and upload it to an OpenPLC Runtime v4.
+
+  openplc-canopen-deploy --bundle <project>/build/"OpenPLC Runtime v4"/src \\
+      --config canopen_config.json --runtime 192.168.1.20 --user openplc --fingerprint AB:CD:...
+
+The runtime switches the CANopen plugin on because the upload carries
+conf/canopen.json, exactly as it does for EtherCAT. See docs/deploy.md.
+
+  openplc-canopen-deploy --config canopen_config.json --into-project <project>
+
+copies the config and its EDS files into the project's canopen/ folder
+instead, for runtimes with the editor hook (docs/install-stock.md).
+
+  openplc-canopen-deploy --config canopen_config.json --export-dcf <dir>
+
+writes each node's configuration as a CiA 306 DCF (node_<id>.dcf) into
+<dir>, checked against CiA 306, and uploads nothing.
+
+  openplc-canopen-deploy --config canopen_config.json --export-dbc bus.dbc [--dbc-sdo config]
+
+writes the network's PDOs, heartbeat, EMCY, NMT and SYNC (and optionally its
+SDO frames) as a DBC file for CAN bus tools, and uploads nothing.
+
+  openplc-canopen-deploy --config canopen_config.json --new-project <dir> [--task-interval T#10ms]
+
+creates an OpenPLC Editor project in <dir> with openplc-cli create: target
+OpenPLC Runtime v4, the config in its canopen/ folder, and a program main
+declaring every CANopen location. Uploads nothing.
+"""
+
+import argparse
+import getpass
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+from . import __version__, bundle, clash, contract, dbcexport, dcfexport, editorproject, project, runtime
+
+EDITOR_WARNING = (
+    "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canopen.json, so the "
+    "runtime switches CANopen off until you deploy with openplc-canopen-deploy again.")
+EDITOR_HOOK_NOTE = (
+    "Note: this runtime has the CANopen editor hook, so the editor's own \"Build and upload\" keeps CANopen on if "
+    "the project has a canopen/ folder (openplc-canopen-deploy --into-project) and switches it off if not.")
+# Logged by the editor hook (tools/editor-hook) for an upload that carries conf/canopen.json.
+HOOK_LOG_LINE = "CANopen: the upload carries conf/canopen.json"
+
+DEFAULT_TARGET = "OpenPLC Runtime v4"
+
+
+class Failure(Exception):
+    def __init__(self, message, uploaded=False):
+        super().__init__(message)
+        self.uploaded = uploaded
+
+
+def parser():
+    p = argparse.ArgumentParser(
+        prog="openplc-canopen-deploy",
+        description="Add a CANopen config and its EDS files to an OpenPLC editor build, check them, and upload "
+                    "the program to an OpenPLC Runtime v4.",
+        epilog=EDITOR_WARNING)
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--bundle", metavar="DIR",
+                     help="the editor's \"Build only\" output: <project>/build/<target>/src")
+    src.add_argument("--project", metavar="DIR",
+                     help="an editor project: build it with openplc-cli compile first")
+    src.add_argument("--into-project", metavar="DIR",
+                     help="copy the config and its EDS files into this editor project's canopen/ folder instead of "
+                          "deploying, so the editor's own \"Build and upload\" carries them (needs the editor hook "
+                          "on the runtime)")
+    src.add_argument("--export-dcf", metavar="DIR",
+                     help="write each node's configuration as a CiA 306 DCF (node_<id>.dcf) into DIR instead of "
+                          "deploying; nothing is built or uploaded")
+    src.add_argument("--export-dbc", metavar="FILE",
+                     help="write the network as a DBC file for CAN bus tools (PDOs, heartbeat, EMCY, NMT, SYNC) "
+                          "instead of deploying; nothing is built or uploaded")
+    src.add_argument("--new-project", metavar="DIR",
+                     help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
+                          "and declares its I/O in the program main")
+    p.add_argument("--task-interval", metavar="T#...",
+                   help="with --new-project: the task interval (default: %s)" % editorproject.DEFAULT_INTERVAL)
+    p.add_argument("--dbc-sdo", choices=dbcexport.SDO_OPTIONS,
+                   help="with --export-dbc: SDO frames to include: none (default), config (the config's SDO "
+                        "variables and startup SDOs) or all (every EDS object up to 32 bits)")
+    p.add_argument("--force", action="store_true", help="with --into-project: replace an existing canopen/ folder")
+    p.add_argument("--target", default=DEFAULT_TARGET,
+                   help="board target for --project (default: %(default)s)")
+    p.add_argument("--config", required=True, metavar="FILE",
+                   help="the CANopen config (canopen_config.json); EDS paths are relative to it")
+    p.add_argument("--runtime", metavar="HOST[:PORT]", help="the runtime to upload to (HTTPS, default port 8443)")
+    p.add_argument("--user", default=os.environ.get("OPENPLC_USER"),
+                   help="runtime user (default: $OPENPLC_USER); the password comes from $OPENPLC_PASSWORD or a "
+                        "prompt")
+    p.add_argument("--allow-clash", action="store_true",
+                   help="report input address clashes with other plugins as warnings instead of errors")
+    tls = p.add_mutually_exclusive_group()
+    tls.add_argument("--ca", metavar="FILE", help="verify the runtime's certificate against this CA/certificate file")
+    tls.add_argument("--fingerprint", metavar="SHA256",
+                     help="verify the runtime's certificate by its SHA-256 fingerprint")
+    tls.add_argument("--insecure", action="store_true", help="do not verify the runtime's certificate")
+    p.add_argument("--output", metavar="ZIP", help="also write the program zip to this file")
+    p.add_argument("--check-only", action="store_true", help="check and assemble, but do not upload")
+    p.add_argument("--no-start", action="store_true",
+                   help="leave the PLC stopped after the upload (by default the tool starts it)")
+    p.add_argument("--timeout", type=float, default=900.0, metavar="S",
+                   help="how long to wait for the runtime's build (default: %(default)s s)")
+    p.add_argument("--version", action="version", version="%(prog)s " + __version__)
+    return p
+
+
+def build_project(project, target, out):
+    # openplc-cli treats a path that is not absolute as a cloud project id and
+    # builds into its own scratch directory instead of <project>/build.
+    project = os.path.abspath(project)
+    cli = editorproject.cli_program()
+    cmd = (editorproject.cli_command(cli) or [cli]) + ["compile", project, "--target", target, "--no-json"]
+    out("$ " + " ".join('"%s"' % c if " " in c else c for c in cmd))
+    try:
+        rc = subprocess.call(cmd)
+    except OSError as e:
+        raise Failure("cannot run %s: %s (install it from the editor with 'openplc-cli install-cli', or set "
+                      "$OPENPLC_CLI)" % (cli, e))
+    if rc != 0:
+        raise Failure("openplc-cli compile failed (exit %d)" % rc)
+    return os.path.join(project, "build", target, "src")
+
+
+def run(args, out=print, err=None, password_source=None):
+    err = err or (lambda m: print(m, file=sys.stderr))
+
+    into = getattr(args, "into_project", None)
+    export_dir = getattr(args, "export_dcf", None)
+    if export_dir and (args.runtime or args.output or args.check_only):
+        raise Failure("--export-dcf only writes DCF files; leave out --runtime, --output and --check-only")
+    dbc_file = getattr(args, "export_dbc", None)
+    dbc_sdo = getattr(args, "dbc_sdo", None)
+    if dbc_sdo and not dbc_file:
+        raise Failure("--dbc-sdo needs --export-dbc")
+    if dbc_file and (args.runtime or args.output or args.check_only):
+        raise Failure("--export-dbc only writes a DBC file; leave out --runtime, --output and --check-only")
+    new_project = getattr(args, "new_project", None)
+    interval = getattr(args, "task_interval", None)
+    if interval and not new_project:
+        raise Failure("--task-interval needs --new-project")
+    if new_project and (args.runtime or args.output or args.check_only):
+        raise Failure("--new-project only creates an editor project; leave out --runtime, --output and --check-only")
+    if not into and not export_dir and not dbc_file and not new_project and not args.check_only and not args.runtime:
+        raise Failure("give --runtime to upload, or --check-only")
+
+    # 1. The config and its checks.
+    try:
+        with open(args.config, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except OSError as e:
+        raise Failure("cannot read %s: %s" % (args.config, e))
+    except ValueError as e:
+        raise Failure("%s: not valid JSON (%s)" % (args.config, e))
+    missing = bundle.missing_eds(cfg, args.config) if isinstance(cfg, dict) else []
+    if missing:
+        raise Failure("\n".join(missing))
+    result = contract.check_config(cfg, args.config, eds_paths=bundle.eds_files(cfg, args.config),
+                                   software_paths=bundle.software_files(cfg, args.config))
+    for w in result.warnings:
+        err("warning: " + w)
+    if not result.ok:
+        raise Failure("\n".join(result.errors))
+    out("ok: %s passes the schema and EDS checks" % args.config)
+
+    if export_dir:
+        try:
+            files, _ = dcfexport.export(cfg, args.config)
+        except dcfexport.ExportFailed as e:
+            raise Failure("\n".join(m for m, _ in e.problems) + "\nno DCF was written")
+        for path in dcfexport.write_files(files, export_dir):
+            out("wrote %s" % path)
+        out("ok: %d DCF file%s checked against CiA 306" % (len(files), "" if len(files) == 1 else "s"))
+        return 0
+
+    if dbc_file:
+        try:
+            text, warnings = dbcexport.export(cfg, args.config, sdo=dbc_sdo or "none",
+                                              names=dbcexport.project_names(args.config))
+        except dbcexport.ExportFailed as e:
+            raise Failure("\n".join(m for m, _ in e.problems) + "\nno DBC was written")
+        for w in warnings:
+            if w not in result.warnings:
+                err("warning: " + w)
+        out("wrote %s" % dbcexport.write_file(text, dbc_file))
+        return 0
+
+    if new_project:
+        try:
+            path, decls = editorproject.create(cfg, args.config, new_project,
+                                               interval=interval or editorproject.DEFAULT_INTERVAL, progress=out)
+        except editorproject.NewProjectError as e:
+            raise Failure(str(e))
+        out("created %s with %d CANopen variable%s declared in main" % (path, len(decls),
+                                                                       "" if len(decls) == 1 else "s"))
+        return 0
+
+    if into:
+        try:
+            written, converted = project.write(cfg, args.config, into, force=args.force)
+        except project.ProjectError as e:
+            raise Failure(str(e))
+        for name in converted:
+            out("converted %s from CP1252 to UTF-8 (the editor sends project files as UTF-8)" % name)
+        out("wrote %s" % ", ".join(written))
+        out("The editor's \"Build and upload\" now carries this config, on a runtime with the CANopen editor hook "
+            "(docs/install-stock.md).")
+        return 0
+
+    # 2. The bundle.
+    bundle_dir = build_project(args.project, args.target, out) if args.project else args.bundle
+    try:
+        bundle.check_editor_bundle(bundle_dir)
+        deployed, eds_by_name = bundle.rewrite(cfg, args.config)
+        fw_by_name = bundle.software_by_name(cfg, args.config)
+    except bundle.BundleError as e:
+        raise Failure(str(e))
+    work = bundle.temp_dir()
+    try:
+        staged, converted = bundle.assemble(bundle_dir, deployed, eds_by_name, work, fw_by_name)
+        for name in converted:
+            out("converted %s from CP1252 to UTF-8 in the bundle" % name)
+
+        # 3. Address clashes with the other plugins in the bundle.
+        uses, problems = clash.bundle_uses(staged)
+        for p in problems:
+            err("warning: " + p)
+        errors, warnings = clash.check(uses, args.allow_clash)
+        for w in warnings:
+            err("warning: " + w)
+        if errors:
+            raise Failure("\n".join(errors) + "\n(use --allow-clash to deploy anyway)")
+        others = sorted({u.file for u in uses} - {"conf/canopen.json"})
+        out("ok: no address clashes%s" % (" with " + ", ".join(others) if others else ""))
+
+        zip_path = os.path.join(work, "program.zip")
+        names = bundle.make_zip(staged, zip_path)
+        out("ok: bundle of %d files with conf/canopen.json and %d EDS file%s%s"
+            % (len(names), len(eds_by_name), "" if len(eds_by_name) == 1 else "s",
+               " and %d program file%s" % (len(fw_by_name), "" if len(fw_by_name) == 1 else "s") if fw_by_name else ""))
+        if args.output:
+            shutil.copyfile(zip_path, args.output)
+            out("wrote %s" % args.output)
+        if args.check_only:
+            return 0
+        with open(zip_path, "rb") as f:
+            data = f.read()
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+    # 4. Upload.
+    if not args.user:
+        raise Failure("give --user (or set $OPENPLC_USER)")
+    client = runtime.Client(args.runtime, ca=args.ca, fingerprint=args.fingerprint, insecure=args.insecure)
+    if args.insecure:
+        err("warning: --insecure: the runtime's certificate is not checked")
+    sent = False
+    try:
+        client._connect().close()  # certificate first, before any credentials
+        password = os.environ.get("OPENPLC_PASSWORD")
+        if password is None:
+            password = (password_source or getpass.getpass)("Password for %s on %s: " % (args.user, args.runtime))
+        client.login(args.user, password)
+        out("uploading to %s:%d" % (client.host, client.port))
+        client.upload(data)
+        sent = True
+        ok, logs = client.wait_for_build(lambda line: out("  | " + line.rstrip("\n")), timeout=args.timeout)
+    except runtime.RuntimeError_ as e:
+        raise Failure(str(e), uploaded=sent)
+    if not ok:
+        raise Failure("the runtime's build failed (log above)", uploaded=True)
+    state = runtime.canopen_state(logs)
+    if state is False:
+        raise Failure("the build succeeded, but the runtime did not enable the canopen plugin: is it installed on "
+                      "the runtime (scripts/install-stock.sh)?", uploaded=True)
+    errors = runtime.canopen_errors(logs)
+    if errors:
+        raise Failure("the build succeeded, but CANopen was turned off: %s" % errors[-1].split("CANopen: ", 1)[1],
+                      uploaded=True)
+    built = "program built%s" % (" and the canopen plugin enabled" if state else "")
+    if args.no_start:
+        out("ok: %s; the PLC is stopped (--no-start)" % built)
+    else:
+        try:
+            client.start_plc()
+        except runtime.RuntimeError_ as e:
+            raise Failure("the %s, but %s" % (built, str(e)[0].lower() + str(e)[1:]), uploaded=True)
+        out("ok: %s; the PLC is running" % built)
+    out(EDITOR_HOOK_NOTE if any(HOOK_LOG_LINE in line for line in logs) else EDITOR_WARNING)
+    return 0
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
+    try:
+        return run(args)
+    except Failure as e:
+        print("error: " + str(e).replace("\n", "\nerror: "), file=sys.stderr)
+        if not e.uploaded:
+            print("nothing was uploaded", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130

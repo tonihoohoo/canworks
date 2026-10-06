@@ -1,0 +1,54 @@
+name: Build the plugin
+description: >
+  Upstream runtime checkout (plugin headers, stock install test), build
+  dependencies, Lely CANopen from the cache (or built), the deploy tool in the
+  plugin venv (the plugin's EDS lint) and the cmake build in ./build.
+
+runs:
+  using: composite
+  steps:
+    - name: Check out the upstream OpenPLC runtime (plugin headers, stock install test)
+      uses: actions/checkout@v4
+      with:
+        repository: Autonomy-Logic/openplc-runtime
+        ref: development
+        path: upstream-runtime
+
+    - name: Install build dependencies
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential cmake pkg-config autoconf automake libtool \
+          python3-venv can-utils "linux-modules-extra-$(uname -r)" || \
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential cmake pkg-config autoconf automake libtool \
+          python3-venv can-utils
+
+    - name: Prepare /opt/openplc-canopen
+      shell: bash
+      run: sudo mkdir -p /opt/openplc-canopen && sudo chown "$USER" /opt/openplc-canopen
+
+    - name: Cache Lely CANopen
+      id: lely-cache
+      uses: actions/cache@v4
+      with:
+        path: /opt/openplc-canopen
+        key: lely-${{ runner.os }}-${{ hashFiles('scripts/build-lely.sh') }}
+
+    - name: Build Lely CANopen and dcfgen
+      if: steps.lely-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: scripts/build-lely.sh --prefix /opt/openplc-canopen
+
+    - name: Vendored Lely dcf package matches the pinned lely-core
+      shell: bash
+      run: scripts/check-lely-dcf.sh --prefix /opt/openplc-canopen
+
+    - name: Install the deploy tool into the plugin venv (the plugin's EDS lint)
+      shell: bash
+      run: /opt/openplc-canopen/venv/bin/python -m pip install -q ./tools/deploy
+
+    - name: Build
+      shell: bash
+      run: |
+        cmake -B build -DOPENPLC_ROOT="$PWD/upstream-runtime"
+        cmake --build build -j"$(nproc)"

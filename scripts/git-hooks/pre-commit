@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refuses a commit whose staged files contain a banned word (see
+# scripts/check-banned-words.py). Enable with: git config core.hooksPath scripts/git-hooks
+exec python3 "$(git rev-parse --show-toplevel)/scripts/check-banned-words.py" --staged $BANNED_WORDS_HOOK_ARGS

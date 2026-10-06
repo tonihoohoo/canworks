@@ -1,0 +1,26 @@
+time_s,utc,dir,id,ext,rtr,err,dlc,data,kind,node,name,decoded
+0.000000,2026-10-05T06:20:00.000000+00:00,Tx,0x0,0,0,0,2,01 02,nmt,2,NMT,start node 2 (pingpong)
+0.010000,2026-10-05T06:20:00.010000+00:00,Tx,0x80,0,0,0,0,,sync,,SYNC,
+0.010400,2026-10-05T06:20:00.010400+00:00,Tx,0x202,0,0,0,4,00 00 00 00,pdo,2,pingpong_RPDO1,UNSIGNED32_received_by_slave=0
+0.011100,2026-10-05T06:20:00.011100+00:00,Rx,0x182,0,0,0,4,01 00 00 00,pdo,2,pingpong_TPDO1,UNSIGNED32_sent_from_slave=1
+0.020000,2026-10-05T06:20:00.020000+00:00,Tx,0x80,0,0,0,0,,sync,,SYNC,
+0.020400,2026-10-05T06:20:00.020400+00:00,Tx,0x202,0,0,0,4,01 00 00 00,pdo,2,pingpong_RPDO1,UNSIGNED32_received_by_slave=1
+0.021100,2026-10-05T06:20:00.021100+00:00,Rx,0x182,0,0,0,4,02 00 00 00,pdo,2,pingpong_TPDO1,UNSIGNED32_sent_from_slave=2
+0.030000,2026-10-05T06:20:00.030000+00:00,Tx,0x80,0,0,0,0,,sync,,SYNC,
+0.030400,2026-10-05T06:20:00.030400+00:00,Tx,0x202,0,0,0,4,02 00 00 00,pdo,2,pingpong_RPDO1,UNSIGNED32_received_by_slave=2
+0.031100,2026-10-05T06:20:00.031100+00:00,Rx,0x182,0,0,0,4,03 00 00 00,pdo,2,pingpong_TPDO1,UNSIGNED32_sent_from_slave=3
+0.040000,2026-10-05T06:20:00.040000+00:00,Tx,0x80,0,0,0,0,,sync,,SYNC,
+0.040400,2026-10-05T06:20:00.040400+00:00,Tx,0x202,0,0,0,4,03 00 00 00,pdo,2,pingpong_RPDO1,UNSIGNED32_received_by_slave=3
+0.041100,2026-10-05T06:20:00.041100+00:00,Rx,0x182,0,0,0,4,04 00 00 00,pdo,2,pingpong_TPDO1,UNSIGNED32_sent_from_slave=4
+0.050000,2026-10-05T06:20:00.050000+00:00,Tx,0x80,0,0,0,0,,sync,,SYNC,
+0.050400,2026-10-05T06:20:00.050400+00:00,Tx,0x202,0,0,0,4,04 00 00 00,pdo,2,pingpong_RPDO1,UNSIGNED32_received_by_slave=4
+0.051100,2026-10-05T06:20:00.051100+00:00,Rx,0x182,0,0,0,4,05 00 00 00,pdo,2,pingpong_TPDO1,UNSIGNED32_sent_from_slave=5
+0.055000,2026-10-05T06:20:00.055000+00:00,Rx,0x702,0,0,0,1,05,heartbeat,2,Heartbeat,node 2 (pingpong) OPERATIONAL
+0.250000,2026-10-05T06:20:00.250000+00:00,Tx,0x602,0,0,0,8,40 18 10 04 00 00 00 00,sdo,2,SDO request,node 2 (pingpong) read 0x1018:4 Identity object / Serial number
+0.251200,2026-10-05T06:20:00.251200+00:00,Rx,0x582,0,0,0,8,43 18 10 04 78 56 34 12,sdo,2,SDO response,node 2 (pingpong) read 0x1018:4 Identity object / Serial number = 305419896 (0x12345678)
+0.260000,2026-10-05T06:20:00.260000+00:00,Tx,0x602,0,0,0,8,40 00 10 00 00 00 00 00,sdo,2,SDO request,node 2 (pingpong) read 0x1000:0 Device type
+0.261000,2026-10-05T06:20:00.261000+00:00,Rx,0x582,0,0,0,8,80 00 10 00 02 00 01 06,sdo,2,SDO response,node 2 (pingpong) abort 0x1000:0 Device type: 0x06010002 attempt to write a read only object
+0.300000,2026-10-05T06:20:00.300000+00:00,Rx,0x82,0,0,0,8,10 50 01 00 00 00 00 00,emcy,2,EMCY,"node 2 (pingpong) 0x5010 device hardware, register 0x01 (generic)"
+0.310000,2026-10-05T06:20:00.310000+00:00,Rx,0x18FF0017,1,0,0,2,01 02,other,,,
+0.320000,2026-10-05T06:20:00.320000+00:00,Tx,0x702,0,1,0,1,,heartbeat,2,Node guarding,request to node 2 (pingpong)
+0.330000,2026-10-05T06:20:00.330000+00:00,Rx,0x20,0,0,1,8,00 00 00 00 00 00 00 00,error,,error frame,no acknowledgement

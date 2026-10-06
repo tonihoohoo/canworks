@@ -1,0 +1,31 @@
+{
+  "meta": {
+    "name": "fixture",
+    "type": "plc-project",
+    "deviceConfiguration": { "deviceBoard": "OpenPLC Runtime v4" }
+  },
+  "data": {
+    "dataTypes": [],
+    "pous": [],
+    "configuration": {
+      "resource": {
+        "tasks": [{ "name": "main_task", "triggering": "Cyclic", "interval": "T#20ms", "priority": 1 }],
+        "instances": [{ "name": "main_instance", "task": "main_task", "program": "main" }],
+        "globalVariables": [
+          {
+            "name": "ai_spare",
+            "type": { "definition": "base-type", "value": "int" },
+            "location": "%IW120",
+            "documentation": ""
+          },
+          {
+            "name": "run_lamp",
+            "type": { "definition": "base-type", "value": "bool" },
+            "location": "lamp",
+            "documentation": "bound to the pin-mapping alias lamp"
+          }
+        ]
+      }
+    }
+  }
+}

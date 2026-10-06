@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openplc-canopen-editor-hook"
+version = "0.1.0"
+description = "Applies the CANopen config in an OpenPLC Editor project when the editor uploads it to a stock OpenPLC Runtime v4"
+requires-python = ">=3.8"
+dependencies = ["openplc-canopen-deploy"]
+
+[tool.setuptools]
+packages = ["openplc_canopen_hook"]

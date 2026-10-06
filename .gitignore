@@ -1,0 +1,4 @@
+build/
+.canopen/
+__pycache__/
+*.egg-info/

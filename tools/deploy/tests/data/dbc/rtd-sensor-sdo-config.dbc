@@ -1,0 +1,96 @@
+VERSION ""
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	BA_DEF_DEF_
+	SIG_VALTYPE_
+
+BS_:
+
+BU_: Master rtd
+
+BO_ 389 rtd_TPDO1: 8 rtd
+ SG_ AI_Input_PV_AI0_Input_PV : 0|16@1- (1,0) [-32768|32767] "" Master
+ SG_ AI_Input_PV_AI1_Input_PV : 16|16@1- (1,0) [-32768|32767] "" Master
+ SG_ AI_Input_PV_AI2_Input_PV : 32|16@1- (1,0) [-32768|32767] "" Master
+ SG_ AI_Input_PV_AI3_Input_PV : 48|16@1- (1,0) [-32768|32767] "" Master
+
+BO_ 645 rtd_TPDO2: 4 rtd
+ SG_ AI_Status_AI0_Status : 0|8@1+ (1,0) [0|255] "" Master
+ SG_ AI_Status_AI1_Status : 8|8@1+ (1,0) [0|255] "" Master
+ SG_ AI_Status_AI2_Status : 16|8@1+ (1,0) [0|255] "" Master
+ SG_ AI_Status_AI3_Status : 24|8@1+ (1,0) [0|255] "" Master
+
+BO_ 1797 rtd_Heartbeat: 1 rtd
+ SG_ NMT_State : 0|7@1+ (1,0) [0|127] "" Master
+
+BO_ 133 rtd_EMCY: 8 rtd
+ SG_ Error_Code : 0|16@1+ (1,0) [0|65535] "" Master
+ SG_ Error_Register : 16|8@1+ (1,0) [0|255] "" Master
+ SG_ Manufacturer_Data : 24|40@1+ (1,0) [0|1099511627775] "" Master
+
+BO_ 1541 rtd_SDO_Rx: 8 Master
+ SG_ Command : 0|8@1+ (1,0) [0|255] "" rtd
+ SG_ Object M : 8|24@1+ (1,0) [0|16777215] "" rtd
+ SG_ AI_Sensor_Type_AI0_Sensor_Type m90384 : 32|16@1+ (1,0) [0|65535] "" rtd
+ SG_ AI_Sensor_Type_AI1_Sensor_Type m155920 : 32|16@1+ (1,0) [0|65535] "" rtd
+ SG_ AI_Sensor_Type_AI2_Sensor_Type m221456 : 32|16@1+ (1,0) [0|65535] "" rtd
+ SG_ AI_Sensor_Type_AI3_Sensor_Type m286992 : 32|16@1+ (1,0) [0|65535] "" rtd
+
+BO_ 1413 rtd_SDO_Tx: 8 rtd
+ SG_ Command : 0|8@1+ (1,0) [0|255] "" Master
+ SG_ Object M : 8|24@1+ (1,0) [0|16777215] "" Master
+ SG_ AI_Sensor_Type_AI0_Sensor_Type m90384 : 32|16@1+ (1,0) [0|65535] "" Master
+ SG_ AI_Sensor_Type_AI1_Sensor_Type m155920 : 32|16@1+ (1,0) [0|65535] "" Master
+ SG_ AI_Sensor_Type_AI2_Sensor_Type m221456 : 32|16@1+ (1,0) [0|65535] "" Master
+ SG_ AI_Sensor_Type_AI3_Sensor_Type m286992 : 32|16@1+ (1,0) [0|65535] "" Master
+
+BO_ 0 NMT: 2 Master
+ SG_ Command : 0|8@1+ (1,0) [0|255] "" rtd
+ SG_ Node_ID : 8|8@1+ (1,0) [0|255] "" rtd
+
+BO_ 128 SYNC: 0 Master
+
+CM_ "CANopen network of canopen_config.json, exported by openplc-canopen-deploy TEST";
+CM_ BO_ 389 "node 5 TPDO 1, transmission 1";
+CM_ SG_ 389 AI_Input_PV_AI0_Input_PV "0x7130:1 INTEGER16 -> %IW100";
+CM_ SG_ 389 AI_Input_PV_AI1_Input_PV "0x7130:2 INTEGER16 -> %IW101";
+CM_ SG_ 389 AI_Input_PV_AI2_Input_PV "0x7130:3 INTEGER16 -> %IW102";
+CM_ SG_ 389 AI_Input_PV_AI3_Input_PV "0x7130:4 INTEGER16 -> %IW103";
+CM_ BO_ 645 "node 5 TPDO 2, transmission 1";
+CM_ SG_ 645 AI_Status_AI0_Status "0x6150:1 UNSIGNED8 -> %IB100";
+CM_ SG_ 645 AI_Status_AI1_Status "0x6150:2 UNSIGNED8 -> %IB101";
+CM_ SG_ 645 AI_Status_AI2_Status "0x6150:3 UNSIGNED8 -> %IB102";
+CM_ SG_ 645 AI_Status_AI3_Status "0x6150:4 UNSIGNED8 -> %IB103";
+CM_ BO_ 1797 "node 5 heartbeat";
+CM_ BO_ 133 "node 5 emergency";
+CM_ BO_ 1541 "node 5 SDO request (client to server)";
+CM_ SG_ 1541 Command "SDO command specifier. Only expedited transfers (up to 4 bytes) decode; on an abort (0x80) bytes 4-7 hold the abort code, shown as the object's data.";
+CM_ SG_ 1541 Object "index + subindex * 65536 (bytes 1-3 of the frame)";
+CM_ SG_ 1541 AI_Sensor_Type_AI0_Sensor_Type "0x6110:1 UNSIGNED16, startup SDO, value 30";
+CM_ SG_ 1541 AI_Sensor_Type_AI1_Sensor_Type "0x6110:2 UNSIGNED16, startup SDO, value 30";
+CM_ SG_ 1541 AI_Sensor_Type_AI2_Sensor_Type "0x6110:3 UNSIGNED16, startup SDO, value 30";
+CM_ SG_ 1541 AI_Sensor_Type_AI3_Sensor_Type "0x6110:4 UNSIGNED16, startup SDO, value 30";
+CM_ BO_ 1413 "node 5 SDO response (server to client)";
+CM_ SG_ 1413 Command "SDO command specifier. Only expedited transfers (up to 4 bytes) decode; on an abort (0x80) bytes 4-7 hold the abort code, shown as the object's data.";
+CM_ SG_ 1413 Object "index + subindex * 65536 (bytes 1-3 of the frame)";
+CM_ SG_ 1413 AI_Sensor_Type_AI0_Sensor_Type "0x6110:1 UNSIGNED16, startup SDO, value 30";
+CM_ SG_ 1413 AI_Sensor_Type_AI1_Sensor_Type "0x6110:2 UNSIGNED16, startup SDO, value 30";
+CM_ SG_ 1413 AI_Sensor_Type_AI2_Sensor_Type "0x6110:3 UNSIGNED16, startup SDO, value 30";
+CM_ SG_ 1413 AI_Sensor_Type_AI3_Sensor_Type "0x6110:4 UNSIGNED16, startup SDO, value 30";
+CM_ BO_ 0 "NMT node control; Node_ID 0 addresses all nodes";
+CM_ BO_ 128 "SYNC";
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_ "GenMsgCycleTime" BO_ 389 100;
+BA_ "GenMsgCycleTime" BO_ 645 100;
+VAL_ 1797 NMT_State 0 "Boot-up" 4 "Stopped" 5 "Operational" 127 "Pre-operational" ;
+VAL_ 1541 Command 34 "Download" 35 "Download 4 bytes" 39 "Download 3 bytes" 43 "Download 2 bytes" 47 "Download 1 byte" 64 "Upload request" 128 "Abort" ;
+VAL_ 1541 Object 90384 "0x6110:1 AI_Sensor_Type_AI0_Sensor_Type" 155920 "0x6110:2 AI_Sensor_Type_AI1_Sensor_Type" 221456 "0x6110:3 AI_Sensor_Type_AI2_Sensor_Type" 286992 "0x6110:4 AI_Sensor_Type_AI3_Sensor_Type" ;
+VAL_ 1413 Command 66 "Upload" 67 "Upload 4 bytes" 71 "Upload 3 bytes" 75 "Upload 2 bytes" 79 "Upload 1 byte" 96 "Download response" 128 "Abort" ;
+VAL_ 1413 Object 90384 "0x6110:1 AI_Sensor_Type_AI0_Sensor_Type" 155920 "0x6110:2 AI_Sensor_Type_AI1_Sensor_Type" 221456 "0x6110:3 AI_Sensor_Type_AI2_Sensor_Type" 286992 "0x6110:4 AI_Sensor_Type_AI3_Sensor_Type" ;
+VAL_ 0 Command 1 "Start" 2 "Stop" 128 "Enter pre-operational" 129 "Reset node" 130 "Reset communication" ;

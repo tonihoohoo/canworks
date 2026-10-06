@@ -1,0 +1,9 @@
+#!/bin/sh
+# Refuses a commit message, author or committer with a banned word (see
+# scripts/check-banned-words.py). Enable with: git config core.hooksPath scripts/git-hooks
+top=$(git rev-parse --show-toplevel)
+printf '%s\n%s\n' "$(git var GIT_AUTHOR_IDENT)" "$(git var GIT_COMMITTER_IDENT)" | cat "$1" - > "$top/.git/banned-words-msg" &&
+python3 "$top/scripts/check-banned-words.py" --message-file "$top/.git/banned-words-msg"
+status=$?
+rm -f "$top/.git/banned-words-msg"
+exit $status

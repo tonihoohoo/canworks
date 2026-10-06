@@ -1,0 +1,354 @@
+; A simple digital I/O module with a fixed PDO mapping, as many real devices
+; have: the mapping objects (0x1600, 0x1A00, 0x1A01) and the PDO COB-IDs and
+; transmission types are read-only, so a master can use the PDOs only as
+; they are. Inputs 0x6000:1-3 (UNSIGNED8), outputs 0x6200:1-2 (UNSIGNED8).
+; RPDO 1 carries 0x6200:1 and :2; TPDO 1 carries 0x6000:1 and :2; TPDO 2
+; carries 0x6000:1 on a non-default COB-ID ($NODEID+0x380). 0x6000:3 is
+; mappable but in no default mapping. Fixture for add-device-pdo-mapping.
+
+[FileInfo]
+FileName=fixed-io.eds
+FileVersion=1
+FileRevision=0
+EDSVersion=4.0
+Description=Fixed-mapping digital I/O module (test fixture)
+CreationTime=12:00PM
+CreationDate=10-03-2026
+CreatedBy=openplc-canopen
+ModificationTime=12:00PM
+ModificationDate=10-03-2026
+ModifiedBy=openplc-canopen
+
+[DeviceInfo]
+VendorName=Lely Industries N.V.
+VendorNumber=0x00000360
+ProductName=fixed-io
+ProductNumber=0x00000000
+RevisionNumber=0x00000000
+OrderCode=
+BaudRate_10=1
+BaudRate_20=1
+BaudRate_50=1
+BaudRate_125=1
+BaudRate_250=1
+BaudRate_500=1
+BaudRate_800=1
+BaudRate_1000=1
+SimpleBootUpMaster=0
+SimpleBootUpSlave=1
+Granularity=8
+DynamicChannelsSupported=0
+GroupMessaging=0
+NrOfRxPDO=1
+NrOfTxPDO=2
+LSS_Supported=0
+
+[DummyUsage]
+Dummy0001=0
+Dummy0002=1
+Dummy0003=1
+Dummy0004=1
+Dummy0005=1
+Dummy0006=1
+Dummy0007=1
+
+[Comments]
+Lines=0
+
+[MandatoryObjects]
+SupportedObjects=3
+1=0x1000
+2=0x1001
+3=0x1018
+
+[1000]
+ParameterName=Device type
+DataType=0x0007
+AccessType=ro
+DefaultValue=0x00000000
+PDOMapping=0
+
+[1001]
+ParameterName=Error register
+DataType=0x0005
+AccessType=ro
+DefaultValue=0x00
+PDOMapping=1
+
+[1018]
+SubNumber=5
+ParameterName=Identity object
+ObjectType=0x09
+
+[1018sub0]
+ParameterName=Highest sub-index supported
+DataType=0x0005
+AccessType=const
+DefaultValue=4
+PDOMapping=0
+
+[1018sub1]
+ParameterName=Vendor-ID
+DataType=0x0007
+AccessType=ro
+DefaultValue=0x00000360
+PDOMapping=0
+
+[1018sub2]
+ParameterName=Product code
+DataType=0x0007
+AccessType=ro
+DefaultValue=0x00000000
+PDOMapping=0
+
+[1018sub3]
+ParameterName=Revision number
+DataType=0x0007
+AccessType=ro
+DefaultValue=0x00000000
+PDOMapping=0
+
+[1018sub4]
+ParameterName=Serial number
+DataType=0x0007
+AccessType=ro
+DefaultValue=0x00000000
+PDOMapping=0
+
+[OptionalObjects]
+SupportedObjects=10
+1=0x1005
+2=0x1017
+3=0x1400
+4=0x1600
+5=0x1800
+6=0x1801
+7=0x1A00
+8=0x1A01
+9=0x6000
+10=0x6200
+
+[1005]
+ParameterName=COB-ID SYNC message
+DataType=0x0007
+AccessType=rw
+DefaultValue=0x00000080
+PDOMapping=0
+
+[1017]
+ParameterName=Producer heartbeat time
+DataType=0x0006
+AccessType=rw
+DefaultValue=0
+PDOMapping=0
+
+[1400]
+SubNumber=3
+ParameterName=RPDO communication parameter
+ObjectType=0x09
+
+[1400sub0]
+ParameterName=Highest sub-index supported
+DataType=0x0005
+AccessType=const
+DefaultValue=2
+PDOMapping=0
+
+[1400sub1]
+ParameterName=COB-ID used by RPDO
+DataType=0x0007
+AccessType=ro
+DefaultValue=$NODEID+0x200
+PDOMapping=0
+
+[1400sub2]
+ParameterName=Transmission type
+DataType=0x0005
+AccessType=ro
+DefaultValue=0x01
+PDOMapping=0
+
+[1600]
+SubNumber=3
+ParameterName=RPDO mapping parameter
+ObjectType=0x09
+
+[1600sub0]
+ParameterName=Number of mapped application objects in PDO
+DataType=0x0005
+AccessType=ro
+DefaultValue=2
+PDOMapping=0
+
+[1600sub1]
+ParameterName=Application object 1
+DataType=0x0007
+AccessType=ro
+DefaultValue=0x62000108
+PDOMapping=0
+
+[1600sub2]
+ParameterName=Application object 2
+DataType=0x0007
+AccessType=ro
+DefaultValue=0x62000208
+PDOMapping=0
+
+[1800]
+SubNumber=3
+ParameterName=TPDO communication parameter
+ObjectType=0x09
+
+[1800sub0]
+ParameterName=Highest sub-index supported
+DataType=0x0005
+AccessType=const
+DefaultValue=2
+PDOMapping=0
+
+[1800sub1]
+ParameterName=COB-ID used by TPDO
+DataType=0x0007
+AccessType=ro
+DefaultValue=$NODEID+0x180
+PDOMapping=0
+
+[1800sub2]
+ParameterName=Transmission type
+DataType=0x0005
+AccessType=ro
+DefaultValue=0x01
+PDOMapping=0
+
+[1801]
+SubNumber=3
+ParameterName=TPDO communication parameter
+ObjectType=0x09
+
+[1801sub0]
+ParameterName=Highest sub-index supported
+DataType=0x0005
+AccessType=const
+DefaultValue=2
+PDOMapping=0
+
+[1801sub1]
+ParameterName=COB-ID used by TPDO
+DataType=0x0007
+AccessType=ro
+DefaultValue=$NODEID+0x380
+PDOMapping=0
+
+[1801sub2]
+ParameterName=Transmission type
+DataType=0x0005
+AccessType=ro
+DefaultValue=0x01
+PDOMapping=0
+
+[1A00]
+SubNumber=3
+ParameterName=TPDO mapping parameter
+ObjectType=0x09
+
+[1A00sub0]
+ParameterName=Number of mapped application objects in PDO
+DataType=0x0005
+AccessType=ro
+DefaultValue=2
+PDOMapping=0
+
+[1A00sub1]
+ParameterName=Application object 1
+DataType=0x0007
+AccessType=ro
+DefaultValue=0x60000108
+PDOMapping=0
+
+[1A00sub2]
+ParameterName=Application object 2
+DataType=0x0007
+AccessType=ro
+DefaultValue=0x60000208
+PDOMapping=0
+
+[1A01]
+SubNumber=2
+ParameterName=TPDO mapping parameter
+ObjectType=0x09
+
+[1A01sub0]
+ParameterName=Number of mapped application objects in PDO
+DataType=0x0005
+AccessType=ro
+DefaultValue=1
+PDOMapping=0
+
+[1A01sub1]
+ParameterName=Application object 1
+DataType=0x0007
+AccessType=ro
+DefaultValue=0x60000108
+PDOMapping=0
+
+[6000]
+SubNumber=4
+ParameterName=Read inputs 8-bit
+ObjectType=0x09
+
+[6000sub0]
+ParameterName=Highest sub-index supported
+DataType=0x0005
+AccessType=const
+DefaultValue=3
+PDOMapping=0
+
+[6000sub1]
+ParameterName=Read inputs 0x1
+DataType=0x0005
+AccessType=ro
+DefaultValue=0
+PDOMapping=1
+
+[6000sub2]
+ParameterName=Read inputs 0x2
+DataType=0x0005
+AccessType=ro
+DefaultValue=0
+PDOMapping=1
+
+[6000sub3]
+ParameterName=Read inputs 0x3
+DataType=0x0005
+AccessType=ro
+DefaultValue=0
+PDOMapping=1
+
+[6200]
+SubNumber=3
+ParameterName=Write outputs 8-bit
+ObjectType=0x09
+
+[6200sub0]
+ParameterName=Highest sub-index supported
+DataType=0x0005
+AccessType=const
+DefaultValue=2
+PDOMapping=0
+
+[6200sub1]
+ParameterName=Write outputs 0x1
+DataType=0x0005
+AccessType=rww
+DefaultValue=0
+PDOMapping=1
+
+[6200sub2]
+ParameterName=Write outputs 0x2
+DataType=0x0005
+AccessType=rww
+DefaultValue=0
+PDOMapping=1
+
+[ManufacturerObjects]
+SupportedObjects=0

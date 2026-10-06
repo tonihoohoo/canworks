@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en" data-theme="{{THEME}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="canopen-token" content="{{TOKEN}}">
+<title>CANopen configurator</title>
+<link rel="stylesheet" href="uplot/uPlot.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="top">
+  <h1>CANopen configurator</h1>
+  <span id="mode" class="badge" hidden></span>
+  <div class="spacer"></div>
+  <div id="theme" class="segmented" role="group" aria-label="Theme">
+    <button type="button" data-theme-choice="light">Light</button><button type="button" data-theme-choice="dark">Dark</button><button type="button" data-theme-choice="auto">Auto</button>
+  </div>
+  <div id="actions" hidden>
+    <button id="btn-move" type="button" hidden>Move into project…</button>
+    <button id="btn-new-project" type="button" hidden title="Create an OpenPLC Editor project with this config and its I/O declared in the program main">New editor project…</button>
+    <button id="btn-reload" type="button">Reload from disk</button>
+    <button id="btn-close" type="button">Close</button>
+    <button id="btn-export-all" type="button" title="Every node as a CiA 306 DCF file, checked, in one zip">Export all DCFs</button>
+    <span id="dbc-export" class="joined"><select id="dbc-sdo" aria-label="SDO frames in the DBC file" title="SDO frames in the DBC file">
+      <option value="none">No SDO frames</option><option value="config">SDO: configured objects</option><option value="all">SDO: all EDS objects</option>
+    </select><button id="btn-export-dbc" type="button" title="The network as a DBC file for CAN bus tools (PDOs, heartbeat, EMCY, NMT, SYNC)">Export DBC</button></span>
+    <button id="btn-save" type="button" class="primary">Save</button>
+  </div>
+</header>
+<div id="banner" role="status" hidden><span id="banner-text"></span><button id="banner-close" type="button" title="Close" aria-label="Close message">✕</button></div>
+<main id="start" hidden>
+  <section class="start-choices">
+    <button id="start-project" type="button" class="choice"><strong>Open editor project</strong><span>Edit the project's canopen/ folder. Addresses are checked against the rest of the project.</span></button>
+    <button id="start-standalone" type="button" class="choice"><strong>Open standalone config</strong><span>A folder with canopen.json and its EDS files, before a project exists.</span></button>
+    <button id="start-new" type="button" class="choice"><strong>New standalone config</strong><span>Start an empty config in a folder; it is created when you first save.</span></button>
+  </section>
+  <section class="browser">
+    <h2 id="browser-title">Choose a folder</h2>
+    <div class="row">
+      <button id="browser-up" type="button" title="Parent folder">↑</button>
+      <input id="browser-path" type="text" spellcheck="false" aria-label="Folder path">
+      <button id="browser-go" type="button">Go</button>
+      <button id="browser-open" type="button" class="primary">Open this folder</button>
+    </div>
+    <ul id="browser-list" class="folders"></ul>
+  </section>
+  <section>
+    <h2>Recent</h2>
+    <ul id="recent" class="folders"></ul>
+  </section>
+</main>
+<main id="editor" hidden>
+  <nav id="side">
+    <button type="button" data-view="bus" class="nav-item">Bus and master</button>
+    <h3>Nodes</h3>
+    <ul id="node-list"></ul>
+    <label class="file-button">Add node from EDS… <input id="eds-input" type="file" accept=".eds,.EDS"></label>
+    <button type="button" data-view="declarations" class="nav-item">Variable declarations</button>
+    <h3>Runtime</h3>
+    <button type="button" data-view="online" class="nav-item">Online</button>
+    <button type="button" data-view="scan" class="nav-item">Scan the bus</button>
+    <button type="button" data-view="trace" class="nav-item">Trace</button>
+    <div id="unused-eds"></div>
+    <p id="scan-info" class="muted"></p>
+  </nav>
+  <section id="view"></section>
+  <aside id="problems"><details id="problems-box" open>
+    <summary><h3>Problems</h3> <span id="problem-count" class="muted"></span></summary>
+    <div id="overlap-box" hidden><label class="check" title="Save even if a CANopen location overlaps one the editor project uses"><input id="allow-overlap" type="checkbox"> Allow overlap</label>
+      <span class="hint">Save even though these locations overlap the editor project, like the deploy tool's --allow-clash.</span></div>
+    <ul id="problem-list"></ul>
+  </details></aside>
+</main>
+<dialog id="modal"><form method="dialog"><p id="modal-text"></p><div id="modal-extra"></div><menu id="modal-buttons"></menu></form></dialog>
+<script src="uplot/uPlot.iife.min.js"></script>
+<script src="app.js"></script>
+<script src="trace.js"></script>
+</body>
+</html>

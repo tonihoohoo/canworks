@@ -1,0 +1,131 @@
+{
+  "comm-broken.eds": {
+    "corrections": [],
+    "read_error": false,
+    "findings": [
+      {
+        "object": "0x1A00 sub 0",
+        "message": "DataType should be UNSIGNED8 in [1A00sub0]",
+        "limit_only": false,
+        "blocking": true
+      }
+    ]
+  },
+  "comm-limit.eds": {
+    "corrections": [],
+    "read_error": false,
+    "findings": [
+      {
+        "object": "0x1800 sub 1",
+        "message": "DefaultValue overflow in [1800sub1]",
+        "limit_only": true,
+        "blocking": false
+      }
+    ]
+  },
+  "cp1252.eds": {
+    "corrections": [
+      "utf8"
+    ],
+    "read_error": false,
+    "findings": []
+  },
+  "octal-limit.eds": {
+    "corrections": [],
+    "read_error": false,
+    "findings": [
+      {
+        "object": "0x605B",
+        "message": "invalid HighLimit in [605B]: 01",
+        "limit_only": true,
+        "blocking": false
+      }
+    ]
+  },
+  "octet-string.eds": {
+    "corrections": [
+      "string"
+    ],
+    "read_error": false,
+    "findings": []
+  },
+  "out-of-limits.eds": {
+    "corrections": [],
+    "read_error": false,
+    "findings": [
+      {
+        "object": "0x6060",
+        "message": "DefaultValue underflow in [6060]",
+        "limit_only": true,
+        "blocking": false
+      }
+    ]
+  },
+  "real-decimal.eds": {
+    "corrections": [
+      "real"
+    ],
+    "read_error": false,
+    "findings": []
+  },
+  "signed-hex.eds": {
+    "corrections": [],
+    "read_error": false,
+    "findings": [
+      {
+        "object": "0x6061",
+        "message": "HighLimit overflow in [6061]",
+        "limit_only": true,
+        "blocking": false
+      },
+      {
+        "object": "0x60C0",
+        "message": "LowLimit overflow in [60C0]",
+        "limit_only": true,
+        "blocking": false
+      }
+    ]
+  },
+  "structure.eds": {
+    "corrections": [],
+    "read_error": false,
+    "findings": [
+      {
+        "object": "0x200B",
+        "message": "AccessType not supported in [200B]",
+        "limit_only": false,
+        "blocking": false
+      },
+      {
+        "object": "0x200B",
+        "message": "1 missing sub-object(s) for object 0x200B",
+        "limit_only": false,
+        "blocking": false
+      },
+      {
+        "object": "0x6064 sub 0",
+        "message": "DataType should be UNSIGNED8 in [6064sub0]",
+        "limit_only": false,
+        "blocking": false
+      }
+    ]
+  },
+  "type-limits.eds": {
+    "corrections": [],
+    "read_error": false,
+    "findings": [
+      {
+        "object": "0x2100",
+        "message": "LowLimit underflow in [2100]",
+        "limit_only": true,
+        "blocking": false
+      },
+      {
+        "object": "0x2101",
+        "message": "HighLimit overflow in [2101]",
+        "limit_only": true,
+        "blocking": false
+      }
+    ]
+  }
+}

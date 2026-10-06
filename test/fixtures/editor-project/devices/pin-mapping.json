@@ -1,0 +1,4 @@
+[
+  { "pin": "8", "pinType": "digitalInput", "address": "%IX0.0" },
+  { "pin": "9", "pinType": "digitalOutput", "address": "%QX0.0", "alias": "lamp" }
+]

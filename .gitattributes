@@ -1,0 +1,10 @@
+# DBC golden files are CRLF on purpose (what the export writes).
+tools/deploy/tests/data/dbc/*.dbc -text
+
+# EDS and DCF files ship to the PLC byte for byte, and the tests compare them
+# that way: never convert their line endings on checkout (Windows autocrlf).
+*.eds -text
+*.dcf -text
+
+# Trace golden files: ASC and TRC are CRLF on purpose (what the export writes).
+tools/deploy/tests/data/trace/* -text

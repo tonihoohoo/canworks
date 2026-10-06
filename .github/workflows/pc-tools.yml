@@ -1,0 +1,66 @@
+name: PC tools (Windows, macOS)
+
+# The configurator, deploy tool and diagnostics as a developer installs them on
+# a Windows PC or Mac (canopen-pc-install): the wheel installed with uv and a
+# uv-managed Python, no Python on the runner needed. Only for changes to the
+# tools and for release tags (macOS minutes are expensive on a private repo).
+on:
+  push:
+    branches: [main]
+    tags: ["deploy-v*"]
+    paths:
+      - "tools/deploy/**"
+      - "test/pc-tools/**"
+      - "config/rtd-sensor/**"
+      - ".github/workflows/pc-tools.yml"
+  pull_request:
+    paths:
+      - "tools/deploy/**"
+      - "test/pc-tools/**"
+      - "config/rtd-sensor/**"
+      - ".github/workflows/pc-tools.yml"
+
+# A newer commit to a pull request cancels its older run (macOS minutes are
+# the expensive ones); runs on main and tags never cancel each other.
+concurrency:
+  group: pc-tools-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pc-tools:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build the wheel
+        run: uv build --wheel --out-dir dist tools/deploy
+
+      - name: Install it as the docs say (uv tool install, uv-managed Python 3.12)
+        run: |
+          uv tool install --python 3.12 --managed-python dist/*.whl
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+
+      - name: Deploy tool and configurator tests
+        # Page tests (Playwright) and the DCF parity check (C++ canopen_check)
+        # run on Linux only; they skip here and say why.
+        run: >
+          uv run --no-project --python 3.12 --managed-python --with jsonschema --with cantools
+          python -m unittest discover -v -s tools/deploy/tests -t tools/deploy
+
+      - name: Release tag check tests
+        run: uv run --no-project --python 3.12 --managed-python python -m unittest discover -v -s test/pc-tools
+
+      - name: Smoke run of the installed commands
+        run: |
+          version=$(uv run --no-project --python 3.12 --managed-python python -c \
+            "import re; print(re.search(r'^version = \"(.+)\"', open('tools/deploy/pyproject.toml').read(), re.M).group(1))")
+          uv run --no-project --python 3.12 --managed-python python test/pc-tools/smoke.py "$version"

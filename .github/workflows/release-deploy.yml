@@ -1,0 +1,125 @@
+name: Release PC tools
+
+# Publishes the PC tools as one wheel on a GitHub release deploy-v<version>
+# (canopen-pc-install). Normally automatic: when CI and PC tools finish on a
+# main commit whose package version has no release yet and both passed (PC
+# tools may also not have run), the tag and release are created on that
+# commit. A hand-pushed deploy-v<version> tag still releases (it must match
+# the package version), and "Run workflow" releases the current main.
+# Tags made here with GITHUB_TOKEN start no other workflow, so an automatic
+# release never re-triggers itself through the tag trigger.
+on:
+  push:
+    tags: ["deploy-v*"]
+  workflow_run:
+    workflows: ["CI", "PC tools (Windows, macOS)"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+# The two workflow_run triggers of one commit arrive close together: run them
+# one after the other so only one can create the release.
+concurrency:
+  group: release-deploy
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # workflow_run: only main pushes that passed. A failed CI or PC tools run
+    # also arrives as the other workflow's success, and is refused below.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+
+      - name: Version to release
+        id: version
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            version=$(python3 scripts/release_version.py "$GITHUB_REF_NAME")
+          else
+            version=$(python3 scripts/release_version.py --package)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=deploy-v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether this commit is released now
+        id: gate
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          go() { echo "go=$1" >> "$GITHUB_OUTPUT"; }
+          if [ "$GITHUB_EVENT_NAME" = push ]; then go true; exit 0; fi
+
+          if gh release view "$TAG" --json assets --jq '.assets[].name' > assets.txt 2>/dev/null; then
+            if grep -qx "openplc_canopen_deploy-$VERSION-py3-none-any.whl" assets.txt; then
+              echo "::notice::$TAG is already released; nothing to do"
+              go false; exit 0
+            fi
+            echo "::error::release $TAG exists without its wheel; fix it by hand (upload the wheel or delete the release)"
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
+            echo "::notice::tag $TAG exists (pushed by hand?); its own run publishes the release"
+            go false; exit 0
+          fi
+
+          main_version=$(git show origin/main:tools/deploy/pyproject.toml | sed -n 's/^version *= *"\(.*\)"/\1/p')
+          if python3 scripts/release_version.py --superseded "$VERSION" "$main_version"; then
+            echo "::notice::main is at $main_version already; $VERSION is skipped"
+            go false; exit 0
+          fi
+
+          gh run list --commit "$SHA" --workflow ci.yml --event push --json status,conclusion --limit 1 > ci.json
+          gh run list --commit "$SHA" --workflow pc-tools.yml --event push --json status,conclusion --limit 1 > pc.json
+          decision=$(python3 scripts/release_version.py --decide ci.json pc.json)
+          echo "CI: $(cat ci.json)  PC tools: $(cat pc.json)  -> $decision"
+          case "$decision" in
+            release) go true ;;
+            wait) echo "::notice::a check on $SHA is still running; its completion releases $TAG"; go false ;;
+            *) echo "::notice::a check on $SHA did not pass (or CI did not run); $TAG is not released from it"; go false ;;
+          esac
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.gate.outputs.go == 'true'
+
+      - name: Build the wheel
+        if: steps.gate.outputs.go == 'true'
+        run: uv build --wheel --out-dir dist tools/deploy
+
+      - name: Exactly one platform-independent wheel
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          ls dist
+          test "$(ls dist/*.whl | wc -l)" -eq 1
+          test -f "dist/openplc_canopen_deploy-${{ steps.version.outputs.version }}-py3-none-any.whl"
+
+      - name: Create the release
+        if: steps.gate.outputs.go == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          previous=$(git tag --list 'deploy-v*' | python3 scripts/release_version.py --previous-tag "$VERSION")
+          notes="Install on Windows or macOS without Python: see docs/install-pc.md. Download the wheel below, then run: uv tool install --python 3.12 openplc_canopen_deploy-$VERSION-py3-none-any.whl"
+          gh release create "$TAG" dist/*.whl \
+            --target "$SHA" \
+            --title "PC tools $VERSION" \
+            --notes "$notes" \
+            --generate-notes \
+            ${previous:+--notes-start-tag "$previous"}

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
+  "master": { "node_id": 1, "sync_period_us": 100000 },
+  "nodes": [
+    {
+      "node_id": 5,
+      "name": "rtd",
+      "eds": "rtd8.eds",
+      "heartbeat_ms": 100,
+      "heartbeat_timeout_ms": 300,
+      "status_location": "%IX10.0",
+      "tx_pdos": [
+        {
+          "number": 1,
+          "transmission": 1,
+          "entries": [
+            { "index": "0x7130", "subindex": 1, "type": "INTEGER16", "iec_location": "%IW100" },
+            { "index": "0x7130", "subindex": 2, "type": "INTEGER16", "iec_location": "%IW101" },
+            { "index": "0x7130", "subindex": 3, "type": "INTEGER16", "iec_location": "%IW102" },
+            { "index": "0x7130", "subindex": 4, "type": "INTEGER16", "iec_location": "%IW103" }
+          ]
+        },
+        {
+          "number": 2,
+          "transmission": 1,
+          "entries": [
+            { "index": "0x6150", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%IB100" },
+            { "index": "0x6150", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%IB101" },
+            { "index": "0x6150", "subindex": 3, "type": "UNSIGNED8", "iec_location": "%IB102" },
+            { "index": "0x6150", "subindex": 4, "type": "UNSIGNED8", "iec_location": "%IB103" }
+          ]
+        }
+      ],
+      "sdo": [
+        { "index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": 30 },
+        { "index": "0x6110", "subindex": 2, "type": "UNSIGNED16", "value": 30 },
+        { "index": "0x6110", "subindex": 3, "type": "UNSIGNED16", "value": 30 },
+        { "index": "0x6110", "subindex": 4, "type": "UNSIGNED16", "value": 30 }
+      ]
+    }
+  ]
+}

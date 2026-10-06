@@ -1,0 +1,36 @@
+{
+  "name": "io-rack",
+  "protocol": "modbus-tcp",
+  "modbusTcpConfig": {
+    "transport": "tcp",
+    "host": "192.168.1.50",
+    "port": 502,
+    "timeout": 1000,
+    "slaveId": 1,
+    "ioGroups": [
+      {
+        "id": "g1",
+        "name": "Analog in",
+        "functionCode": "4",
+        "cycleTime": 100,
+        "offset": "0",
+        "length": 2,
+        "errorHandling": "keep-last-value",
+        "ioPoints": [
+          { "id": "p1", "name": "ai0", "type": "%IW", "iecLocation": "%IW200" },
+          { "id": "p2", "name": "ai1", "type": "%IW", "iecLocation": "%IW201" }
+        ]
+      },
+      {
+        "id": "g2",
+        "name": "Coils",
+        "functionCode": "15",
+        "cycleTime": 100,
+        "offset": "0",
+        "length": 1,
+        "errorHandling": "keep-last-value",
+        "ioPoints": [{ "id": "p3", "name": "do0", "type": "%QX", "iecLocation": "%QX20.0" }]
+      }
+    ]
+  }
+}

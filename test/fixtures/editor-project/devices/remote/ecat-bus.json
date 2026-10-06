@@ -1,0 +1,23 @@
+{
+  "name": "ecat-bus",
+  "protocol": "ethercat",
+  "ethercatConfig": {
+    "devices": [
+      {
+        "id": "d1",
+        "position": 1,
+        "name": "drive1",
+        "esiDeviceRef": { "repositoryItemId": "r1", "deviceIndex": 0 },
+        "vendorId": "0x00000002",
+        "productCode": "0x00000001",
+        "revisionNo": "0x00000001",
+        "addedFrom": "repository",
+        "config": {},
+        "channelMappings": [
+          { "channelId": "tx-0x1A00-0x6064-0", "iecLocation": "%ID100" },
+          { "channelId": "rx-0x1600-0x607A-0", "iecLocation": "%QD100" }
+        ]
+      }
+    ]
+  }
+}
