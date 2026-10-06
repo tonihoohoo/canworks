@@ -753,7 +753,7 @@ bool parse_sim_file(const std::string& json, const std::string& path, SimFile& o
     return false;
   }
   std::string err;
-  if (!known_keys(root, {"schema_version", "tick_ms", "nodes", "extra_devices", "scenarios", "$schema"}, err)) {
+  if (!known_keys(root, {"schema_version", "tick_ms", "nodes", "extra_devices", "scenarios"}, err)) {
     fail("", err);
     return false;
   }

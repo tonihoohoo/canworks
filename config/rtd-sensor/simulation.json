@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "nodes": {
+    "5": {
+      "sources": {
+        "0x7130:1": { "sine": { "min": 200, "max": 260, "period_s": 20 }, "noise": 1 },
+        "0x7130:2": { "random_walk": { "min": 300, "max": 360, "max_step": 2 } },
+        "0x7130:3": { "ramp": { "from": 400, "to": 460, "duration_s": 30, "then": "reverse" } },
+        "0x7130:4": { "expr": "-70 + 30 * sin(2 * pi * t / 40)" }
+      }
+    }
+  },
+  "scenarios": {
+    "alarm": {
+      "test": true,
+      "description": "AI0 above 25.0 degC: the starter program's alarm output follows.",
+      "steps": [
+        { "node": 5, "override": { "0x7130:1": 300 } },
+        { "after_ms": 2000, "log": "AI0 held at 30.0 degC for 2 s" },
+        { "node": 5, "release": "all" }
+      ]
+    },
+    "sensor-break": {
+      "description": "Channel 1 reports a wire break (0x7FFF) with an EMCY, then recovers.",
+      "steps": [
+        { "node": 5, "override": { "0x7130:1": 32767 } },
+        { "node": 5, "fault": { "emcy": { "code": "0x5000", "register": 1 } } },
+        { "after_ms": 3000, "node": 5, "release": ["0x7130:1"] },
+        { "node": 5, "clear": "emcy" }
+      ]
+    }
+  }
+}
