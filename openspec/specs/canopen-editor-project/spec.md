@@ -6,7 +6,7 @@ An OpenPLC Editor project created from a CANopen config: made with the editor's 
 ## Requirements
 
 ### Requirement: Project files
-Creating an editor project from a CANopen config SHALL create the project with the installed editor's own New Project command (`openplc-cli create`, Structured Text), so its files and the editor's project history are the editor's own, and SHALL then change only the device configuration's target, `pous/programs/main.st` and the `canopen/` folder. The project name SHALL be the folder name. Without a working `openplc-cli` creation SHALL be refused, saying how to install it, and nothing SHALL be written.
+Creating an editor project from a CANopen config SHALL create the project with the installed editor's own New Project command (`openplc-cli create`, Structured Text), so its files and the editor's project history are the editor's own, and SHALL then change only the device configuration's target, `pous/programs/main.st`, the `canopen/` folder and, when the SDO blocks are asked for, the project's list of enabled libraries. The project name SHALL be the folder name. Without a working `openplc-cli` creation SHALL be refused, saying how to install it, and nothing SHALL be written.
 
 #### Scenario: Files written
 - **WHEN** a project is created at `~/workspace/rtd-monitor` from the RTD sensor config
@@ -78,3 +78,18 @@ Creating a project SHALL be refused when the target folder already exists, and S
 #### Scenario: Failure after create
 - **WHEN** writing `canopen/` fails after `openplc-cli create` succeeded
 - **THEN** the new project folder is removed and the error is shown
+
+### Requirement: SDO blocks in a new project
+Creating a project with the SDO blocks option (`--sdo-blocks`) SHALL enable the library `openplc_canopen` in the project, in the form the editor itself writes when the user enables a library, so the project's library tree shows the `CO_SDO_*` blocks. Without the option the project SHALL enable no library. When the editor on the same computer has no `openplc_canopen` library, or an older version, creation SHALL install the tools' version into it as `openplc-canopen-deploy library --install` does. When that is not possible (the editor has not run on this computer), creation SHALL still succeed and SHALL say how to install the library.
+
+#### Scenario: Option given
+- **WHEN** a project is created with `--sdo-blocks` and the library is installed in the editor
+- **THEN** opening the project in OpenPLC Editor 4.3.2 shows `openplc_canopen` enabled with its eight blocks, and Build only succeeds
+
+#### Scenario: Library not installed yet
+- **WHEN** a project is created with `--sdo-blocks` on a PC whose editor does not have the library
+- **THEN** the project is created with the library enabled, the library is installed into the editor, and the output says so
+
+#### Scenario: No editor settings on this computer
+- **WHEN** a project is created with `--sdo-blocks` on a PC where the editor has never run
+- **THEN** the project is created with the library enabled and the output says how to install the library
