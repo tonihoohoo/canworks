@@ -69,3 +69,11 @@ set_tests_properties(plugin_lifecycle PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
 # user). Not a ctest: it needs an interface the test may change.
 add_executable(link_check link/link_check.cpp)
 target_link_libraries(link_check PRIVATE canopen_core)
+
+# The simulator engine's unit tests (expressions, sources, file, scenarios).
+add_executable(sim_unit_tests sim_unit/sim_unit_tests.cpp)
+target_include_directories(sim_unit_tests PRIVATE common)
+target_compile_definitions(sim_unit_tests PRIVATE FIXTURES_DIR="${FIXTURES_DIR}" PINGPONG_DIR="${PINGPONG_DIR}" RTD_DIR="${RTD_DIR}")
+target_link_libraries(sim_unit_tests PRIVATE canopen_core)
+add_test(NAME sim_unit_tests COMMAND sim_unit_tests)
+set_tests_properties(sim_unit_tests PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")

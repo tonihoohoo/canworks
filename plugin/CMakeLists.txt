@@ -33,10 +33,12 @@ add_library(canopen_core STATIC
     src/bus.cpp
     src/bus_monitor.cpp
     src/runtime_version.cpp
+    sim/sim_expr.cpp
     ${NATIVE_DIR}/cjson/cJSON.c
 )
 target_include_directories(canopen_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/sim
     ${NATIVE_DIR}/cjson
     ${OPENPLC_ROOT}/core/src/drivers
     ${OPENPLC_ROOT}/core/src/lib
