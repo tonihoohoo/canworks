@@ -530,6 +530,13 @@ class Parser {
   // IEC locations.
   void check_networks(const ConfigSet& set) {
     std::map<std::string, unsigned> names, ifaces, devices;
+    // "networks[1] (drives)": the network by index and name.
+    auto who = [&set](unsigned i) {
+      std::string s = "networks[" + std::to_string(i) + "]";
+      for (const auto& c : set.networks)
+        if (c.network_index == i && !c.network.empty()) s += " (" + c.network + ")";
+      return s;
+    };
     for (const auto& cfg : set.networks) {
       std::string me = "networks[" + std::to_string(cfg.network_index) + "]";
       if (!cfg.network.empty()) {
@@ -543,7 +550,7 @@ class Parser {
       if (!cfg.adapter.interface.empty()) {
         auto it = ifaces.find(cfg.adapter.interface);
         if (it != ifaces.end())
-          error("networks", "networks[" + std::to_string(it->second) + "] and " + me + " both use interface " +
+          error("networks", who(it->second) + " and " + who(cfg.network_index) + " both use interface " +
                                 cfg.adapter.interface);
         else
           ifaces[cfg.adapter.interface] = cfg.network_index;
@@ -551,7 +558,7 @@ class Parser {
       if (cfg.adapter.type == "slcan" && !cfg.adapter.device.empty()) {
         auto it = devices.find(cfg.adapter.device);
         if (it != devices.end())
-          error("networks", "networks[" + std::to_string(it->second) + "] and " + me + " both use serial device " +
+          error("networks", who(it->second) + " and " + who(cfg.network_index) + " both use serial device " +
                                 cfg.adapter.device);
         else
           devices[cfg.adapter.device] = cfg.network_index;

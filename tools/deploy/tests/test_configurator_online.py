@@ -13,7 +13,7 @@ import unittest
 from openplc_canopen_deploy import diag
 from openplc_canopen_deploy.configurator import online
 
-from .fake_diag import TOKEN, FakePlugin, closed_port
+from .fake_diag import TOKEN, TWO_NETWORKS, FakePlugin, closed_port
 from .helpers import PINGPONG, REPO, tmpdir
 from .test_configurator_server import RTD, Running, read, rtd_node
 
@@ -297,6 +297,70 @@ class Scan(Online):
                 r = self.ok("POST", "/api/online/scan", {"start": False, "config": cfg})
         node2 = [d for d in r["nodes"] if d["node_id"] == 2][0]
         self.assertEqual(node2["expected"]["revision_number"], 2)
+
+
+class TwoNetworks(Online):
+    """A plugin that runs io and drives (add-several-can-networks task 6.4):
+    every route passes the page's network."""
+
+    def two(self):
+        with open(os.path.join(REPO, "config", "two-networks", "canopen_config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        self.assertEqual(self.eds(os.path.join(REPO, "config", "two-networks", "cpp-slave.eds"))[0], 200)
+        cfg["diagnostics"] = dict(DIAG)
+        cfg["networks"][1]["nodes"][0]["name"] = "drive"
+        return cfg
+
+    def test_status_names_the_network(self):
+        with FakePlugin(networks=TWO_NETWORKS) as fp:
+            self.connect(fp)
+            r = self.ok("POST", "/api/online/status", {"network": "drives"})
+            self.assertEqual((r["network"], r["status"]["bus"]["interface"]), ("drives", "vcan1"))
+            self.assertEqual([n["name"] for n in r["networks"]], ["io", "drives"])
+            # A tab the runtime does not run: the first network, said so.
+            r = self.ok("POST", "/api/online/status", {"network": "can7"})
+            self.assertEqual((r["network"], r["status"]["bus"]["interface"]), ("io", "vcan0"))
+            r = self.ok("POST", "/api/online/status", {})
+            self.assertEqual(r["network"], "io")
+
+    def test_one_network_sends_none(self):
+        with FakePlugin() as fp:
+            self.connect(fp)
+            r = self.ok("POST", "/api/online/status", {"network": "can0"})
+            self.assertEqual((r["network"], r["networks"]), (None, []))
+            self.ok("POST", "/api/online/sdo_read", {"node": 2, "index": "0x1008", "type": 9, "network": "can0"})
+            self.assertFalse([q for q in fp.requests if "network" in q])
+
+    def test_sdo_and_nmt_go_to_the_picked_network(self):
+        with FakePlugin(networks=TWO_NETWORKS, allow_changes=True) as fp:
+            self.connect(fp)
+            r = self.ok("POST", "/api/online/sdo_read", {"node": 2, "index": "0x1008", "type": 9, "network": "drives"})
+            self.assertEqual(r["decoded"]["text"], "drive")
+            r = self.ok("POST", "/api/online/sdo_read", {"node": 2, "index": "0x1008", "type": 9, "network": "io"})
+            self.assertEqual(r["decoded"]["text"], "pingpong")
+            self.ok("POST", "/api/online/nmt", {"node": 2, "command": "stop", "network": "drives"})
+            self.assertEqual(fp.network("drives").status["nodes"][0]["state"], 4)
+            self.assertEqual(fp.status["nodes"][0]["hold"], "none")
+            # Without a network the plugin refuses, naming both.
+            status, data, _ = self.request("POST", "/api/online/sdo_read", {"node": 2, "index": "0x1008"})
+            self.assertEqual(status, 422)
+            self.assertIn("io, drives", data["error"])
+
+    def test_scan_and_od_entries_use_the_network(self):
+        cfg = self.two()
+        with FakePlugin(networks=TWO_NETWORKS, scan_polls=0) as fp:
+            self.connect(fp)
+            r = self.ok("POST", "/api/online/scan", {"start": True, "config": cfg, "network": "drives"})
+            self.assertEqual(r["network"], "drives")
+            self.assertEqual(r["nodes"][0]["config_name"], "drive")
+            self.assertEqual([q.get("network") for q in fp.requests if q["op"] == "scan"], ["drives"])
+            r = self.ok("POST", "/api/online/od_entries", {"node": 2, "config": cfg, "network": "drives"})
+            self.assertEqual((r["configured"], r["eds"]), (True, "cpp-slave.eds"))
+            # Watch lists are kept per network.
+            self.ok("POST", "/api/online/watch", {"node": 2, "network": "drives", "keys": [[0x1008, 0]]})
+            self.assertEqual(self.ok("POST", "/api/online/watch", {"node": 2, "network": "io"})["keys"], [])
+            self.assertEqual(self.ok("POST", "/api/online/watch", {"node": 2, "network": "drives"})["keys"],
+                             [[0x1008, 0]])
 
 
 class Helpers(unittest.TestCase):

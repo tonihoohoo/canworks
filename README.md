@@ -10,6 +10,7 @@ The plugin reads a JSON file that lists the slave nodes, their EDS files and PDO
 
 The plugin's behaviour is set in the config file; [docs/config.md](docs/config.md) describes each field.
 
+- **Several networks:** up to 8 CAN networks from one PLC, each on its own adapter with its own master, bit rate, SYNC and nodes (`schema_version` 2, [docs/config.md](docs/config.md#several-networks-schema_version-2)). A network that fails does not stop the others.
 - **Adapters:** any SocketCAN interface (CAN HAT, candleLight/gs_usb, PEAK, vcan), with bit rate and link set up by the plugin, and serial-line `slcan` adapters such as a CANable with stock firmware, driven directly without `slcand`. A CANable that is unplugged and plugged back in is picked up again.
 - **PDOs:** mapping from the config, or the device's own fixed or default mapping for devices whose mapping cannot be written; transmission type, inhibit time, event timer and SYNC start value, defaulting to the EDS's own values.
 - **Node bring-up:** startup SDO writes, identity check (0x1018), mandatory nodes, heartbeat or node guarding, program download, a configurable SDO timeout for boot and configuration, and an opt-in configuration check (0x1020) that skips an unchanged download. Saving to the device's non-volatile memory (0x1010) only happens when a node asks for it.
@@ -24,9 +25,9 @@ The plugin's behaviour is set in the config file; [docs/config.md](docs/config.m
 
 Three commands in one package, for Windows, macOS and Linux. They install with uv without a Python on the PC: [docs/install-pc.md](docs/install-pc.md).
 
-- **`openplc-canopen-config`**, a configurator in a local web page ([docs/configurator.md](docs/configurator.md)): add nodes from their EDS, map PDO entries to PLC addresses, startup SDOs and SDO variables, with every address checked against the editor project. It writes the project's `canopen/` folder, exports DCF and DBC files, and creates a new editor project with the I/O already declared. Its **Online** view shows the live network: node and bus state, EMCY history, SDO read and write, NMT, a bus scan, LSS commissioning, an object dictionary browser with watch, and device parameter backup, compare and restore. Its **Trace** view records the bus with CANopen decoding, graphs and triggers ([docs/trace.md](docs/trace.md)).
-- **`openplc-canopen-deploy`** ([docs/deploy.md](docs/deploy.md)): adds the config to an editor build and uploads it to the runtime, checks a config without a runtime, puts the config into an editor project, creates a new editor project from a config (`--new-project`), and exports DCF (`--export-dcf`) and DBC (`--export-dbc`) files.
-- **`openplc-canopen-diag`** ([docs/diagnostics.md](docs/diagnostics.md)): the online functions from a terminal, including `backup`, `compare`, `restore` and `store` of device parameters (a CiA 306 DCF, so a replaced device gets its settings back), LSS commands, and `trace` with export to pcapng, candump, ASC, BLF, TRC or CSV.
+- **`openplc-canopen-config`**, a configurator in a local web page ([docs/configurator.md](docs/configurator.md)): add nodes from their EDS, map PDO entries to PLC addresses, startup SDOs and SDO variables, with every address checked against the editor project, and one tab per CAN network. It writes the project's `canopen/` folder, exports DCF and DBC files, and creates a new editor project with the I/O already declared. Its **Online** view shows the live network: node and bus state, EMCY history, SDO read and write, NMT, a bus scan, LSS commissioning, an object dictionary browser with watch, and device parameter backup, compare and restore. Its **Trace** view records the bus with CANopen decoding, graphs and triggers ([docs/trace.md](docs/trace.md)).
+- **`openplc-canopen-deploy`** ([docs/deploy.md](docs/deploy.md)): adds the config to an editor build and uploads it to the runtime, checks a config without a runtime, puts the config into an editor project, creates a new editor project from a config (`--new-project`), and exports DCF (`--export-dcf`) and DBC (`--export-dbc`) files, per network or for one with `--network`.
+- **`openplc-canopen-diag`** ([docs/diagnostics.md](docs/diagnostics.md)): the online functions from a terminal, including `backup`, `compare`, `restore` and `store` of device parameters (a CiA 306 DCF, so a replaced device gets its settings back), LSS commands, `--network` to pick one of several networks, and `trace` with export to pcapng, candump, ASC, BLF, TRC or CSV.
 
 ## Scope
 
@@ -39,9 +40,11 @@ Three commands in one package, for Windows, macOS and Linux. They install with u
 ```
 CMakeLists.txt     builds libcanopen_plugin.so; the runtime's install.sh builds it from here
 plugin/            native plugin source
-schema/            the config contract: canopen.v1.schema.json (JSON Schema 2020-12)
+schema/            the config contract (JSON Schema 2020-12): canopen.v1.schema.json (one network),
+                   canopen.v2.schema.json (several networks)
 config/            example configurations: config/pingpong/ (the ping-pong slave),
-                   config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404)
+                   config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404),
+                   config/two-networks/ (two ping-pong networks on vcan0 and vcan1)
 tools/             canopen_check: validates a config and its EDS files without starting the PLC
 tools/deploy/      the PC tools (Python, one package): openplc-canopen-deploy, openplc-canopen-config
                    (the configurator), openplc-canopen-diag (online diagnostics, parameters, trace)
@@ -55,6 +58,7 @@ test/lss/          LSS node ID assignment to a slave without a node ID on vcan0
 test/params/       device parameter backup, compare and restore on vcan0
 test/trace/        bus trace recording, filters and export formats on vcan0
 test/bus/          the bus state byte while vcan0 goes down and up
+test/networks/     two networks on vcan0 and vcan1, one of them losing its node
 test/slcan/        the slcan adapter against a fake CANable on a pseudo-terminal, bridged to vcan1
 test/host/         canopen_host: loads the plugin .so with a stand-in PLC scan; plugin lifecycle tests
 test/link/         link_check: the SocketCAN link setup on a real interface

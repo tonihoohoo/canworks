@@ -76,6 +76,14 @@ main#editor { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; 
 #side ul { list-style: none; padding: 0; margin: 0; }
 .nav-item, #node-list li { display: block; width: 100%; text-align: left; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 0; background: none; }
 .nav-item.active, #node-list li.active { background: var(--hover); font-weight: 600; }
+#net-bar { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.net-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.net-tab { padding: 3px 8px; font-size: 13px; }
+.net-tab.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+.net-tab .count { margin-left: 4px; color: var(--error); font-size: 11px; }
+.net-tab.active .count { color: var(--accent-text); }
+.net-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.net-actions button { padding: 2px 8px; font-size: 12px; }
 #node-list li .count { float: right; color: var(--error); font-size: 12px; white-space: nowrap; }
 #node-list li .export-dcf { display: none; float: right; margin-left: 6px; padding: 0 6px; font-size: 12px; }
 #node-list li:hover .export-dcf, #node-list li.active .export-dcf, #node-list li .export-dcf:focus { display: inline-block; }

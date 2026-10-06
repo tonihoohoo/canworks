@@ -46,7 +46,8 @@ RECENT_MAX = 10
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
-    "": ["$schema", "schema_version", "adapter", "master", "nodes"],
+    "": ["$schema", "schema_version", "adapter", "master", "nodes", "networks", "diagnostics"],
+    "network": ["name", "adapter", "master", "nodes"],
     "adapter": ["type", "interface", "bitrate", "configure_link", "restart_ms"],
     "master": ["node_id", "sync_period_us", "heartbeat_ms", "eds_lint", "strict_eds", "bus_state_location",
                "tx_error_count_location", "rx_error_count_location", "bus_off_count_location", "state_location",
@@ -140,8 +141,18 @@ def _ordered(obj, kind):
 
 
 def canonical(cfg):
-    """The config with its keys in a fixed order (unknown keys kept)."""
-    cfg = _ordered(cfg, "")
+    """The config with its keys in a fixed order (unknown keys kept): the
+    top level of version 1, or of each network of version 2."""
+    cfg = _canonical_network(_ordered(cfg, ""))
+    if isinstance(cfg.get("diagnostics"), dict):
+        cfg["diagnostics"] = _ordered(cfg["diagnostics"], "diagnostics")
+    if isinstance(cfg.get("networks"), list):
+        cfg["networks"] = [_canonical_network(_ordered(net, "network")) if isinstance(net, dict) else net
+                           for net in cfg["networks"]]
+    return cfg
+
+
+def _canonical_network(cfg):
     if isinstance(cfg.get("adapter"), dict):
         cfg["adapter"] = _ordered(cfg["adapter"], "adapter")
     if isinstance(cfg.get("master"), dict):
@@ -173,6 +184,40 @@ def empty_config():
             "adapter": {"type": "socketcan", "interface": "can0", "bitrate": 250000},
             "master": {"node_id": 1, "sync_period_us": 10000},
             "nodes": []}
+
+
+SCHEMA_FILE = "canopen.v%d.schema.json"
+
+
+def lowest_version(cfg):
+    """The config in the lowest schema version that holds it (canopen-config-
+    contract): a version 2 file with one network that has no name of its own
+    (none, or its interface's) becomes version 1, its diagnostics back in the
+    master. Anything else comes back as it is, also a file the checks will
+    refuse, so they report it as the user wrote it."""
+    if not isinstance(cfg, dict) or cfg.get("schema_version") != 2 or not isinstance(cfg.get("networks"), list) \
+            or len(cfg["networks"]) != 1 or not isinstance(cfg["networks"][0], dict):
+        return cfg
+    net = cfg["networks"][0]
+    adapter, master, name = net.get("adapter"), net.get("master"), net.get("name")
+    if name not in (None, "") and not (isinstance(adapter, dict) and name == adapter.get("interface")):
+        return cfg
+    if any(k not in ("name", "adapter", "master", "nodes") for k in net) or \
+            (isinstance(master, dict) and "diagnostics" in master) or \
+            ("diagnostics" in cfg and not (isinstance(cfg["diagnostics"], dict) and isinstance(master, dict))):
+        return cfg
+    out = {}
+    for k, v in cfg.items():
+        if k == "networks":
+            out.update((key, net[key]) for key in ("adapter", "master", "nodes") if key in net)
+        elif k != "diagnostics":
+            out[k] = 1 if k == "schema_version" else v
+    ref = out.get("$schema")
+    if isinstance(ref, str) and ref.endswith(SCHEMA_FILE % 2):
+        out["$schema"] = ref[:-len(SCHEMA_FILE % 2)] + SCHEMA_FILE % 1
+    if "diagnostics" in cfg:
+        out["master"] = dict(master, diagnostics=cfg["diagnostics"])
+    return out
 
 
 def migrate(cfg):
@@ -393,8 +438,13 @@ class Session:
                 out[name] = {"error": "EDS file %s cannot be parsed: %s" % (path, e)}
         return out
 
+    def eds_paths(self, cfg):
+        """{eds value: path} of every node of every network."""
+        return {n.get("eds"): self.eds_path(n.get("eds")) for n in contract.all_nodes(cfg)
+                if isinstance(n.get("eds"), str) and n.get("eds")}
+
     def eds_names(self, cfg):
-        names = [n.get("eds") for n in (cfg.get("nodes") or []) if isinstance(n, dict)]
+        names = [n.get("eds") for n in contract.all_nodes(cfg)]
         names = [n for n in names if isinstance(n, str) and n]
         if os.path.isdir(self.canopen_dir):
             names += [f for f in sorted(os.listdir(self.canopen_dir)) if f.lower().endswith(".eds")]
@@ -408,7 +458,7 @@ class Session:
         if not self.mode:
             return base
         cfg, notices, error = self.read_config()
-        referenced = {n.get("eds") for n in cfg.get("nodes", []) if isinstance(n, dict)}
+        referenced = {n.get("eds") for n in contract.all_nodes(cfg)}
         names = self.eds_names(cfg)
         base.update({
             "folder": self.folder, "name": os.path.basename(self.folder.rstrip(os.sep)) or self.folder,
@@ -472,8 +522,7 @@ class Session:
     def check(self, cfg, allow_overlap=False):
         if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
-        eds_paths = {n.get("eds"): self.eds_path(n.get("eds")) for n in cfg.get("nodes") or []
-                     if isinstance(n, dict) and isinstance(n.get("eds"), str) and n.get("eds")}
+        eds_paths = self.eds_paths(cfg)
         result = contract.check_config(cfg, self.config_path, eds_paths=eds_paths)
         items = list(result.items)
         extra, declared = layout.project_checks(cfg, self.uses, allow_overlap)
@@ -485,7 +534,7 @@ class Session:
             for name, info in summaries.items():
                 for o in info.get("objects", []):
                     names[(name, int(o["index"], 16), o["subindex"])] = o["name"]
-            nodes = cfg.get("nodes") or []
+            nodes = contract.all_nodes(cfg)  # declare's node index runs over every network
             decls = declare.declarations(
                 cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), declared)
             block = declare.st_block(decls)
@@ -496,19 +545,23 @@ class Session:
                 "overlaps": sum(1 for i in items if i.get("overlap"))}
 
     # -- DCF export ---------------------------------------------------------
-    def export_dcf(self, cfg, node_id=None):
+    def export_dcf(self, cfg, node_id=None, network=None):
         """The draft's nodes as CiA 306 DCFs (canopen-dcf-export): one node's
         `node_<id>.dcf`, or all of them in `<folder>_dcf.zip`, base64 in
-        `data`. On a problem: the /api/check shape, and no file. Nothing is
-        written to the folder."""
+        `data`. With several networks `network` names the one to export
+        (`<folder>_<network>_dcf.zip` for all its nodes); without it every
+        network goes into the zip, in a folder per network. On a problem:
+        the /api/check shape, and no file. Nothing is written to the folder."""
         if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
         if node_id is not None and (isinstance(node_id, bool) or not isinstance(node_id, int)):
             raise ApiError(400, "node must be a node ID")
-        eds_paths = {n.get("eds"): self.eds_path(n.get("eds")) for n in cfg.get("nodes") or []
-                     if isinstance(n, dict) and isinstance(n.get("eds"), str) and n.get("eds")}
+        network = self._network_arg(cfg, network)
+        if node_id is not None and network is None and len(contract.networks(cfg)) > 1:
+            raise ApiError(400, "name the network of the node")
         try:
-            files, _ = dcfexport.export(cfg, self.config_path, eds_paths=eds_paths, node_id=node_id)
+            files, _ = dcfexport.export(cfg, self.config_path, eds_paths=self.eds_paths(cfg), node_id=node_id,
+                                        network=network)
         except dcfexport.ExportFailed as e:
             items = [{"level": "error", "message": m, "paths": p} for m, p in e.problems]
             return {"items": items, "errors": len(items)}
@@ -521,35 +574,53 @@ class Session:
                 for n in sorted(files):
                     z.writestr(n, files[n].encode("utf-8"))
             folder = os.path.basename(self.folder.rstrip(os.sep)) or "canopen"
+            if network:
+                folder += "_" + network
             name, data, ctype = folder + "_dcf.zip", buf.getvalue(), "application/zip"
         return {"items": [], "errors": 0, "name": name, "content_type": ctype,
                 "files": sorted(files), "data": base64.b64encode(data).decode("ascii")}
 
     # -- DBC export ---------------------------------------------------------
-    def export_dbc(self, cfg, sdo="none"):
-        """The draft as a DBC file (canopen-dbc-export): `<folder>.dbc`, base64
-        in `data`, with the export's warnings as items. Signal names use the
-        project's located variables in project mode. On a problem: the
-        /api/check shape, and no file. Nothing is written to the folder."""
+    def export_dbc(self, cfg, sdo="none", network=None):
+        """The draft as a DBC file (canopen-dbc-export): `<folder>.dbc`, or
+        with several networks `<folder>_<network>.dbc` of the one `network`
+        names, base64 in `data`, with the export's warnings as items. Signal
+        names use the project's located variables in project mode. On a
+        problem: the /api/check shape, and no file. Nothing is written to the
+        folder."""
         if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
         if sdo not in dbcexport.SDO_OPTIONS:
             raise ApiError(400, "sdo must be one of: " + ", ".join(dbcexport.SDO_OPTIONS))
-        eds_paths = {n.get("eds"): self.eds_path(n.get("eds")) for n in cfg.get("nodes") or []
-                     if isinstance(n, dict) and isinstance(n.get("eds"), str) and n.get("eds")}
+        network = self._network_arg(cfg, network)
+        if network is None and len(contract.networks(cfg)) > 1:
+            raise ApiError(400, "name the network to export")
         names = dbcexport.plc_names(self.uses) if self.mode == "project" else None
         try:
-            text, warnings = dbcexport.export(cfg, self.config_path, eds_paths=eds_paths, sdo=sdo, names=names)
+            texts, warnings = dbcexport.export_networks(cfg, self.config_path, eds_paths=self.eds_paths(cfg), sdo=sdo,
+                                                        names=names, network=network)
         except dbcexport.ExportFailed as e:
             items = [{"level": "error", "message": m, "paths": p} for m, p in e.problems]
             return {"items": items, "errors": len(items)}
         folder = os.path.basename(self.folder.rstrip(os.sep)) or "canopen"
+        name = dbcexport.network_file(folder + ".dbc", network) if network else folder + ".dbc"
+        text = texts[0][1]
         return {"items": [{"level": "warning", "message": w, "paths": []} for w in warnings], "errors": 0,
-                "name": folder + ".dbc", "content_type": "application/octet-stream",
+                "name": name, "content_type": "application/octet-stream",
                 "data": base64.b64encode(text.encode("ascii")).decode("ascii")}
 
+    @staticmethod
+    def _network_arg(cfg, network):
+        """The network name a request gives, or None for a version 1 file
+        (whose one network has no name) and when none is given."""
+        if network in (None, "") or contract.version_of(cfg) == 1:
+            return None
+        if not isinstance(network, str):
+            raise ApiError(400, "network must be a network name")
+        return network
+
     # -- where a new entry or status bit goes ------------------------------
-    def place(self, cfg, node, direction, type_name, start=None):
+    def place(self, cfg, node, direction, type_name, start=None, network=0):
         """Suggested location (and PDO, for an entry) for something new in
         node `node`: direction "input"/"output" with a CANopen type, or
         direction "status" for the node's status bit, "state" for its
@@ -558,15 +629,16 @@ class Session:
         NMT command byte, "sdo_read"/"sdo_write" with a CANopen type for an
         SDO variable's value, "sdo_trigger", "sdo_status" or "sdo_abort" for
         an SDO variable's other locations, or a master diagnostic key (no
-        node needed)."""
+        node needed). `network` is the index of the node's network; the
+        suggestion skips the locations of every network."""
         used = layout.taken(cfg, self.uses) if isinstance(cfg, dict) else set()
         start = layout.DEFAULT_START if start in (None, "") else int(start)
         for key, size, _, _ in layout.MASTER_LOCATIONS:
             if direction == key:
                 return {"location": layout.suggest("I", size, used, start)}
         try:
-            n = cfg["nodes"][int(node)]
-        except (KeyError, IndexError, TypeError, ValueError):
+            n = contract.networks(cfg)[int(network or 0)]["nodes"][int(node)]
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError):
             raise ApiError(400, "no node %r in the config" % node)
         if direction == "status":
             return {"location": layout.suggest("I", "X", used, start)}
@@ -595,6 +667,7 @@ class Session:
 
     # -- save ---------------------------------------------------------------
     def save(self, cfg, allow_overlap=False, overwrite=False):
+        cfg = lowest_version(cfg)
         checked = self.check(cfg, allow_overlap)
         if checked["errors"]:
             raise ApiError(422, "the config has %d error%s; nothing was saved"
@@ -603,7 +676,7 @@ class Session:
             raise ApiError(409, "%s changed on disk after it was loaded" % self.config_path, changed_on_disk=True)
         os.makedirs(self.canopen_dir, exist_ok=True)
         written = []
-        referenced = {n["eds"] for n in cfg.get("nodes", [])}
+        referenced = {n["eds"] for n in contract.all_nodes(cfg)}
         for name, data in sorted(self.pending.items()):
             if name not in referenced:
                 continue
@@ -810,7 +883,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     length = int(self.headers.get("Content-Length") or 0)
                     if length > MAX_TRACE_FILE:
                         raise ApiError(413, "the file is larger than %d MiB" % (MAX_TRACE_FILE >> 20))
-                    body = {"raw": self.rfile.read(length), "name": query.get("name", ["trace"])[0]}
+                    body = {"raw": self.rfile.read(length), "name": query.get("name", ["trace"])[0],
+                            "network": query.get("network", [None])[0]}
                 else:
                     body = self._body() if method == "POST" else {}
                 try:
@@ -854,14 +928,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = s.check(body.get("config"), bool(body.get("allow_overlap")))
                 elif route == ("POST", "/api/export_dbc"):
                     self._need_open(s)
-                    out = s.export_dbc(body.get("config"), body.get("sdo", "none"))
+                    out = s.export_dbc(body.get("config"), body.get("sdo", "none"), body.get("network"))
                 elif route == ("POST", "/api/export_dcf"):
                     self._need_open(s)
-                    out = s.export_dcf(body.get("config"), body.get("node"))
+                    out = s.export_dcf(body.get("config"), body.get("node"), body.get("network"))
                 elif route == ("POST", "/api/place"):
                     self._need_open(s)
                     out = s.place(body.get("config"), body.get("node"), body.get("direction"), body.get("type"),
-                                  body.get("start"))
+                                  body.get("start"), body.get("network", 0))
                 elif route == ("POST", "/api/save"):
                     self._need_open(s)
                     out = s.save(body.get("config"), bool(body.get("allow_overlap")), bool(body.get("overwrite")))
@@ -897,10 +971,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _watch(self, settings, folder, body):
         """The object dictionary watch lists of this project, kept per node in
         online.json on this PC: {"node": N} reads one, with "keys" (and
-        "period_ms") it is replaced; an empty key list removes it."""
+        "period_ms") it is replaced; an empty key list removes it. With a
+        `network` the list is that network's node's ("<network>/<node>")."""
         node = body.get("node")
         if isinstance(node, bool) or not isinstance(node, int) or not 1 <= node <= 127:
             raise ApiError(400, "node must be 1-127")
+        network = body.get("network")
+        key = "%s/%d" % (network, node) if isinstance(network, str) and network else str(node)
         lists = settings.project(folder).get("watch")
         lists = dict(lists) if isinstance(lists, dict) else {}
         if "keys" in body:
@@ -918,11 +995,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if isinstance(period, bool) or not isinstance(period, int) or not 500 <= period <= 60000:
                 raise ApiError(400, "period_ms must be 500-60000")
             if clean:
-                lists[str(node)] = {"keys": clean, "period_ms": period}
+                lists[key] = {"keys": clean, "period_ms": period}
             else:
-                lists.pop(str(node), None)
+                lists.pop(key, None)
             settings.update_project(folder, watch=lists or None)
-        got = lists.get(str(node)) or {}
+        got = lists.get(key) or {}
         return {"node": node, "keys": got.get("keys") or [], "period_ms": got.get("period_ms") or 1000}
 
     # -- online access ------------------------------------------------------
@@ -998,12 +1075,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise ApiError(422, str(e))
         if ":" not in host.rsplit("]", 1)[-1] and isinstance(body.get("port"), int):
             port = body["port"]  # the diagnostics port of the config, when the host gives none
+        # The network the page picked; sent only to a plugin that runs several.
+        network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
 
         def call(fn):
             try:
-                return conn.call(hostname, port, token, fn)
+                return conn.call(hostname, port, token, fn, network)
             except diag.DiagError as e:
                 raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
+
+        def picked(c):
+            """The page's network, or the first one when the runtime does not
+            run it (a picker that starts on a tab the runtime does not know):
+            for status and scan, which only read."""
+            names = [n.get("name") for n in c.networks]
+            if c.several() and c.network not in names:
+                c.network = names[0]
+            return c.network if c.several() else None
 
         def node_arg(key="node"):
             try:
@@ -1025,7 +1113,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if route in params.ROUTES:
             node = None if route[1].endswith("/job") else node_arg()
-            client = params.Client(conn, hostname, port, token)
+            client = params.Client(conn, hostname, port, token, network)
             try:
                 return params.handle(route, body, s, conn, self.server.jobs, client, node, settings.eds_library,
                                      host)
@@ -1034,11 +1122,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except diag.DiagError as e:
                 raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
         if route == ("POST", "/api/online/status"):
-            st = call(lambda c: c.status())
+            used, st = call(lambda c: (picked(c), c.status()))
             prints = online.fingerprints(config_path)
             same = st.get("config_sha256") in prints
-            return {"hello": conn.info, "status": st,
-                    "config": "none" if not prints else ("same" if same else "different")}
+            return {"hello": conn.info, "status": st, "networks": (conn.info or {}).get("networks") or [],
+                    "network": used, "config": "none" if not prints else ("same" if same else "different")}
         if route == ("POST", "/api/online/emcy"):
             node = node_arg()
             res = call(lambda c: c.emcy(node))
@@ -1096,9 +1184,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ApiError(400, "bitrate_kbit must be one of " + ", ".join(str(b) for b in diag.LSS_BITRATES))
             return call(lambda c: c.lss_set_bitrate(address, kbit, store))
         if route == ("POST", "/api/online/scan"):
-            res = call(lambda c: c.scan(bool(body.get("start"))))
+            used, res = call(lambda c: (picked(c), c.scan(bool(body.get("start")))))
+            res["networks"], res["network"] = (conn.info or {}).get("networks") or [], used
             if res.get("nodes") is not None:
-                self._match_scan(s, settings, canopen_dir, res, body.get("config"))
+                self._match_scan(s, settings, canopen_dir, res, body.get("config"), used)
             return res
         raise ApiError(404, "no such API: %s %s" % route)
 
@@ -1115,14 +1204,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         base_name = os.path.basename(folder.rstrip(os.sep)) or "canopen"
         traces_dir = os.path.join(config_dir(), "traces")
 
+        # A trace records and decodes one network (canopen-bus-trace).
+        network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
+
         def decoder():
             cfg = body.get("config")
             with s.lock:
                 if not isinstance(cfg, dict):
                     cfg = s.read_config()[0]
-                eds_paths = {n.get("eds"): s.eds_path(n.get("eds")) for n in cfg.get("nodes") or []
-                             if isinstance(n, dict) and isinstance(n.get("eds"), str) and n.get("eds")}
-            return tracing.decoder_for(cfg, config_path, eds_paths, names)
+                eds_paths = s.eds_paths(cfg)
+            return tracing.decoder_for(cfg, config_path, eds_paths, names, network)
 
         def time_range():
             return tracing._opt_time(body.get("start_us"), "start_us"), tracing._opt_time(body.get("end_us"), "end_us")
@@ -1179,7 +1270,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ApiError(422, str(e))
             if ":" not in host.rsplit("]", 1)[-1] and isinstance(body.get("port"), int):
                 port = body["port"]
-            connect = tracing.connector(hostname, port, token)
+            connect = tracing.connector(hostname, port, token, network=network)
             try:  # a wrong host, token or an old plugin is said at once instead of retried
                 c = connect()
                 try:
@@ -1196,7 +1287,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     triggers_mod.resolve_signals(spec or ws.trigger, dec.signal_keys())
                 except triggers_mod.TriggerError as e:
                     raise ApiError(422, str(e))
-            ws.start(connect, dec, filters, bool(body.get("error_frames")), spec, traces_dir, base_name)
+            ws.start(connect, dec, filters, bool(body.get("error_frames")), spec, traces_dir, base_name, network)
             return state()
         if route == ("POST", "/api/trace/open"):
             path, name = body.get("path"), body.get("name") or "trace"
@@ -1218,7 +1309,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ApiError(422, str(e))
             except OSError as e:
                 raise ApiError(422, "%s cannot be read: %s" % (path, e.strerror or e))
-            ws.open(trace, name, decoder())
+            ws.open(trace, name, decoder(), network)
             return state()
         if route == ("POST", "/api/trace/export"):
             start, end = time_range()
@@ -1241,14 +1332,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return {"path": path, "frames": len(part)}
         raise ApiError(404, "no such API: %s %s" % route)
 
-    def _match_scan(self, s, settings, canopen_dir, res, cfg):
+    def _match_scan(self, s, settings, canopen_dir, res, cfg, network=None):
         """Adds to each scanned device the EDS files that match it and, for a
-        configured node, what the config expects."""
+        configured node of the scanned network, what the config expects."""
         if not isinstance(cfg, dict):
             with s.lock:
                 cfg = s.read_config()[0]
         by_id = {}
-        for n in cfg.get("nodes") or []:
+        try:
+            nodes = contract.network_config(cfg, network if contract.version_of(cfg) == 2 else None)["nodes"]
+        except (ValueError, TypeError, AttributeError):
+            nodes = []  # a network the draft does not have: nothing is configured there
+        for n in nodes or []:
             if isinstance(n, dict):
                 try:
                     by_id[int(str(n.get("node_id")), 0)] = n

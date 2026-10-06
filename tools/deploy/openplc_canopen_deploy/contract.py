@@ -543,6 +543,7 @@ def _check_v2(r, cfg, schema_errors, err, args):
 def _check_across_networks(r, cfg, err):
     nets = networks(cfg)
     names, ifaces, devices = {}, {}, {}
+    label = {n["index"]: "networks[%d]" % n["index"] + (" (%s)" % n["name"] if n["name"] else "") for n in nets}
     for n in nets:
         me = "networks[%d]" % n["index"]
         if n["name"]:
@@ -556,14 +557,14 @@ def _check_across_networks(r, cfg, err):
         iface = a.get("interface")
         if isinstance(iface, str) and iface:
             if iface in ifaces:
-                err("networks", "networks[%d] and %s both use interface %s" % (ifaces[iface], me, iface),
+                err("networks", "%s and %s both use interface %s" % (label[ifaces[iface]], label[n["index"]], iface),
                     ["networks[%d].adapter.interface" % ifaces[iface], me + ".adapter.interface"])
             else:
                 ifaces[iface] = n["index"]
         dev = a.get("device")
         if a.get("type") == "slcan" and isinstance(dev, str) and dev:
             if dev in devices:
-                err("networks", "networks[%d] and %s both use serial device %s" % (devices[dev], me, dev),
+                err("networks", "%s and %s both use serial device %s" % (label[devices[dev]], label[n["index"]], dev),
                     ["networks[%d].adapter.device" % devices[dev], me + ".adapter.device"])
             else:
                 devices[dev] = n["index"]
