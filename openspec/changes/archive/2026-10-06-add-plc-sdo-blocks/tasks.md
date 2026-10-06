@@ -36,4 +36,4 @@
 
 ## 6. Hardware check
 
-- [ ] 6.1 On the Pi with a real node: read 0x1008 as a string, write and read back a parameter with `SIZE := 0`, provoke an abort, unplug the node during a read, stop the PLC during a transfer
+- [x] 6.1 On the Pi with a real node: read 0x1008 as a string, write and read back a parameter with `SIZE := 0`, provoke an abort, unplug the node during a read, stop the PLC during a transfer (bench run 2026-10-06: all as specified; it found that reads in the first scans after a PLC start were refused and that a stop during a transfer to an absent node took 2 s, both fixed after it)

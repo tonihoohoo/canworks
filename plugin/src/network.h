@@ -307,6 +307,10 @@ class Network : public lely::canopen::BasicMaster {
                   size_t size);
   // The payload of a program write as it goes on the bus: sizes from the EDS
   // and REAL32 conversion. Returns an ERROR_ID, or 0.
+  // The session ends: cancels the program's transfers in flight (an SDO to a
+  // node outside the configuration would otherwise keep the loop busy until
+  // its timeout).
+  void CancelPrograms();
   uint16_t ResolveWrite(unsigned id, ProgJob& p);
   // The EDS data type of a configured node's object (0 = not in the EDS).
   uint16_t EdsType(const NodeConfig& n, uint16_t index, uint8_t subindex);

@@ -3169,11 +3169,20 @@ TEST(sim_plc_sdo_blocks) {
   if (!sim->ok()) return;
   PlcRequests::instance().open();
   sim->SetProgram([](fake_runtime::Image&) { blk->Scan(); });
-  sim->StartSensor(5, dir + "/rtd8.eds", {{0x7130, 1, 200, 260, 1}});
   sim->StartSlave(9, dir + "/cpp-slave.eds");  // a device the configuration does not list
-  sim->net().Start();
-  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
   SdoBlocks& b = *blk;
+  // A read the program starts in its first scans, before the master has heard
+  // from the node, waits for the node's boot instead of failing.
+  target(b.rd2, 5, 0x1018, 1, 4000);
+  b.rd2.EXECUTE = true;
+  sim->net().Start();
+  sim->RunFor(milliseconds(300));
+  CHECK_MSG(b.rd2.BUSY, std::to_string(b.rd2.ERROR_ID.get()));
+  sim->StartSensor(5, dir + "/rtd8.eds", {{0x7130, 1, 200, 260, 1}});
+  CHECK(sim->RunUntil([&] { return static_cast<bool>(b.rd2.DONE) || static_cast<bool>(b.rd2.ERROR); }, seconds(5)));
+  CHECK_MSG(b.rd2.DONE && b.rd2.DATA.get() == 0xF0F0F0u, std::to_string(b.rd2.ERROR_ID.get()));
+  b.rd2.EXECUTE = false;
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
 
   // Integer read: DONE while EXECUTE is held, cleared once it drops.
   target(b.rd, 5, 0x1018, 1);

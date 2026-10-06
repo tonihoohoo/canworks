@@ -89,11 +89,11 @@ A reply longer than 254 characters ends with `ERROR_ID` 7; read it with `CO_SDO_
 | 5 | Too many transfers at once (64 across all blocks) |
 | 6 | Invalid input: node outside 1..127, a `SIZE` the block cannot send, `SIZE := 0` without an EDS type |
 | 7 | The data does not fit the block's output (a reply longer than 8 bytes for `CO_SDO_READ`, 254 characters for a string, 1024 bytes for bytes) |
-| 8 | Cancelled: the PLC stopped or CANopen restarted during the transfer, or the block did not collect its result within 10 s |
+| 8 | Cancelled: the PLC stopped or CANopen restarted during the transfer (the runtime log says how many transfers a stop cancelled), or the block did not collect its result within 10 s |
 
 ## How it shares the bus
 
 - Transfers to one node run one at a time, in the order the blocks started them, taking turns with the node's [SDO variables](config.md#sdo-variables) so neither starves the other. Transfers to different nodes run at the same time.
-- A transfer waits while its node boots and is refused (error 3) while the node is lost. A node ID the config does not list is reached through the default SDO channel (0x600 + node / 0x580 + node).
+- A transfer waits while its node boots, including the first boot after a PLC start (so a program can read at startup; give it a `TIMEOUT` long enough for the node's boot), and is refused (error 3) while the node is lost or failed to boot. A node ID the config does not list is reached through the default SDO channel (0x600 + node / 0x580 + node).
 - Writing an object the plugin configures at boot (PDO mapping and communication, heartbeat, startup SDOs) is allowed, but the next boot writes it back; the runtime log warns once per object.
 - An abort is logged once per node, object and abort code. Nothing is ever saved to the device's non-volatile memory unless the program writes 0x1010 itself.

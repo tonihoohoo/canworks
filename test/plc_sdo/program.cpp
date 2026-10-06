@@ -8,12 +8,12 @@
 // One CO_SDO_READ instance, called once per scan: 0 busy, 1 done, 2 error
 // (with *error_id), -1 idle.
 extern "C" __attribute__((visibility("default"))) int sdo_program_scan(int execute, unsigned node,
-                                                                       unsigned* error_id) {
+                                                                       unsigned timeout_ms, unsigned* error_id) {
   static CO_SDO_READ_INST rd;
   rd.NODE = static_cast<uint8_t>(node);
   rd.INDEX = 0x1018;
   rd.SUBINDEX = 1;
-  rd.TIMEOUT = 300000000LL;  // T#300ms
+  rd.TIMEOUT = static_cast<long long>(timeout_ms) * 1000000LL;
   rd.EXECUTE = execute != 0;
   co_sdo_read_call(&rd);
   *error_id = rd.ERROR_ID.get();

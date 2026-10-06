@@ -237,6 +237,7 @@ void Network::SendTime() {
 void Network::Stop() {
   stopped_ = true;
   if (lss_) lss_->CancelAll();
+  CancelPrograms();
 }
 
 void Network::MapTpdos() {

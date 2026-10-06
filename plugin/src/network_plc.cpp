@@ -116,9 +116,12 @@ void Network::ServiceProgram(clock::time_point now) {
         continue;
       }
       if (n && !SdoAvailable(id, *n)) {
-        // Being configured after its boot-up message: wait. Lost, not
-        // booted or STOPPED: not available.
-        bool booting = n->cfg->boot && !n->booted && image_.node_state(id) == kStatePreop;
+        // Being configured after its boot-up message, in a boot retry, or not
+        // heard from yet since the master started (its first boot is still
+        // to come): wait. Lost, not booted or STOPPED: not available.
+        bool first_boot = !n->warned_absent && now - started_ < kAbsentAfter;
+        bool booting = n->cfg->boot && !n->booted &&
+                       (image_.node_state(id) == kStatePreop || n->boot_waiting || first_boot);
         if (!booting) {
           EndProgram(id, p.job.handle, CANOPEN_PLC_ERR_UNAVAILABLE, 0, nullptr, 0);
           q.pop_front();
@@ -200,6 +203,11 @@ void Network::FinishProgram(unsigned id, uint32_t handle, const PlcRequests::Job
     prog_foreign_busy_.erase(id);
     ReleaseForeignSdo(id);
   }
+  if (stopped_) {
+    // Cancelled because the session ends (CancelPrograms): not the node's doing.
+    EndProgram(id, handle, CANOPEN_PLC_ERR_CANCELLED, 0, nullptr, 0);
+    return;
+  }
   const canopen_plc_request& r = job.req;
   uint32_t key = object_key(id, r.index, r.subindex);
   if (!ec) {
@@ -228,6 +236,17 @@ void Network::FinishProgram(unsigned id, uint32_t handle, const PlcRequests::Job
                kind_name(r.kind), r.write ? "write" : "read", r.index, r.subindex, abort, ec.message().c_str());
   }
   EndProgram(id, handle, err, abort, nullptr, 0);
+}
+
+void Network::CancelPrograms() {
+  std::vector<unsigned> ids(prog_foreign_busy_.begin(), prog_foreign_busy_.end());
+  for (auto& n : nodes_)
+    if (n.second.sdo_busy && n.second.last_prog) ids.push_back(n.first);
+  if (ids.empty()) return;
+  log_info("CANopen stops: %zu PLC program SDO transfer%s in progress cancelled", ids.size(),
+           ids.size() == 1 ? "" : "s");
+  std::lock_guard<lely::util::BasicLockable> lock(*this);
+  for (unsigned id : ids) CancelSdo(static_cast<uint8_t>(id));
 }
 
 void Network::EndProgram(unsigned, uint32_t handle, uint16_t error_id, uint32_t abort, const uint8_t* data,
