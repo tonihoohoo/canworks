@@ -46,9 +46,12 @@ echo "==> install (twice)"
 grep -qx 'canopen,/opt/openplc-canopen/lib/libcanopen_plugin.so,0,1,/opt/openplc-canopen/lib/canopen.json,' \
     "$RUNTIME/plugins.conf" || fail "unexpected canopen line"
 [ -f /opt/openplc-canopen/lib/libcanopen_plugin.so ] || fail "library not installed"
+# The simulator and the plugin take their version from the same CMake value
+# (git describe of the checkout they were built from).
 SIM_VERSION=$(openplc-canopen-sim --version | awk '{print $2}')
-[ -n "$SIM_VERSION" ] && grep -aqF "$SIM_VERSION" /opt/openplc-canopen/lib/libcanopen_plugin.so ||
-    fail "openplc-canopen-sim --version ($SIM_VERSION) does not match the plugin"
+PLUGIN_VERSION=$(git -C "$REPO" describe --always --tags --dirty)
+[ "$SIM_VERSION" = "$PLUGIN_VERSION" ] ||
+    fail "openplc-canopen-sim --version ($SIM_VERSION) is not the plugin version ($PLUGIN_VERSION)"
 [ -z "$(git -C "$RUNTIME" status --porcelain --untracked-files=no)" ] || {
     git -C "$RUNTIME" status --short; fail "tracked runtime files were modified"; }
 

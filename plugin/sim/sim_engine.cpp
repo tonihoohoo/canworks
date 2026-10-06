@@ -22,12 +22,6 @@ using Clock = std::chrono::steady_clock;
 
 double seconds(Clock::duration d) { return std::chrono::duration<double>(d).count(); }
 
-std::string hex(uint32_t v, int width) {
-  char b[16];
-  std::snprintf(b, sizeof b, "0x%0*X", width, v);
-  return b;
-}
-
 std::string fmt_value(const Value& v) {
   if (v.is_string) return "\"" + v.str + "\"";
   char b[32];
