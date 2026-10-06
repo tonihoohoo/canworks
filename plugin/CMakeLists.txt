@@ -26,6 +26,8 @@ add_library(canopen_core STATIC
     src/network.cpp
     src/network_diag.cpp
     src/network_lss.cpp
+    src/network_plc.cpp
+    src/plc_api.cpp
     src/diag.cpp
     src/trace_capture.cpp
     src/sha256.cpp
@@ -72,4 +74,7 @@ set_target_properties(canopen_plugin PROPERTIES
     INSTALL_RPATH "${LELY_LIBRARY_DIRS}"
     # Export only the plugin entry points.
     CXX_VISIBILITY_PRESET hidden
+    # The PLC program's SDO function blocks find the loaded plugin by this
+    # name (dlopen RTLD_NOLOAD), wherever it is installed.
 )
+target_link_options(canopen_plugin PRIVATE -Wl,-soname,libcanopen_plugin.so)

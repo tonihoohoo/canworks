@@ -495,6 +495,43 @@ bool eds_sub_value(const NodeConfig& n, uint16_t index, uint8_t subindex, uint64
   return ok;
 }
 
+bool eds_sub_type(const NodeConfig& n, uint16_t index, uint8_t subindex, uint16_t& type) {
+  std::string why;
+  co_dev_t* dev = parse_eds(n.eds_path, why);
+  if (!dev) return false;
+  const co_sub_t* sub = co_dev_find_sub(dev, index, subindex);
+  if (sub) type = co_sub_get_type(sub);
+  co_dev_destroy(dev);
+  return sub != nullptr;
+}
+
+unsigned co_type_bytes(uint16_t type) {
+  switch (type) {
+    case CO_DEFTYPE_BOOLEAN:
+    case CO_DEFTYPE_INTEGER8:
+    case CO_DEFTYPE_UNSIGNED8: return 1;
+    case CO_DEFTYPE_INTEGER16:
+    case CO_DEFTYPE_UNSIGNED16: return 2;
+    case CO_DEFTYPE_INTEGER24:
+    case CO_DEFTYPE_UNSIGNED24: return 3;
+    case CO_DEFTYPE_INTEGER32:
+    case CO_DEFTYPE_UNSIGNED32:
+    case CO_DEFTYPE_REAL32: return 4;
+    case CO_DEFTYPE_INTEGER40:
+    case CO_DEFTYPE_UNSIGNED40: return 5;
+    case CO_DEFTYPE_INTEGER48:
+    case CO_DEFTYPE_UNSIGNED48:
+    case CO_DEFTYPE_TIME_OF_DAY:
+    case CO_DEFTYPE_TIME_DIFF: return 6;
+    case CO_DEFTYPE_INTEGER56:
+    case CO_DEFTYPE_UNSIGNED56: return 7;
+    case CO_DEFTYPE_INTEGER64:
+    case CO_DEFTYPE_UNSIGNED64:
+    case CO_DEFTYPE_REAL64: return 8;
+    default: return 0;
+  }
+}
+
 bool eds_identity(const NodeConfig& n, uint32_t& vendor_id, uint32_t& product_code) {
   std::string why;
   co_dev_t* dev = parse_eds(n.eds_path, why);

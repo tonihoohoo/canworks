@@ -10,6 +10,8 @@ This module then changes only what `create` cannot set:
                                  and for each CiA 402 axis node the axis, its
                                  drive bridge and the bridge call
     canopen/                     the config and its files (project.write())
+    project.json                 with sdo_blocks: the openplc_canopen library
+                                 enabled (sdolibrary.enable_in_project())
 
 The project is created in place (the editor records its path), so a failure
 after `create` removes the folder it made.
@@ -21,7 +23,7 @@ import re
 import shutil
 import subprocess
 
-from . import axis, bundle, contract
+from . import axis, bundle, contract, sdolibrary
 from . import project as project_mod
 from .configurator import declare
 from .eds import Eds, EdsError
@@ -131,7 +133,8 @@ def program(cfg, config_path):
     return main_st(decls, body)
 
 
-def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_address=None, progress=None):
+def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_address=None, progress=None,
+           sdo_blocks=False):
     """Creates the project. Returns (project folder, located declarations). The config
     must already have passed the deploy tool's checks."""
     progress = progress or (lambda m: None)
@@ -170,7 +173,9 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
     try:
         _patch(project_dir, decls, body, runtime_address)
         project_mod.write(cfg, config_path, project_dir)
-    except (OSError, ValueError, project_mod.ProjectError, NewProjectError) as e:
+        if sdo_blocks:
+            sdolibrary.enable_in_project(project_dir)
+    except (OSError, ValueError, project_mod.ProjectError, NewProjectError, sdolibrary.LibraryError) as e:
         shutil.rmtree(project_dir, ignore_errors=True)
         raise NewProjectError("%s (the new project folder was removed)" % e)
     return project_dir, [d for d in decls if d.get("location")]

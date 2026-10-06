@@ -129,6 +129,57 @@ class ParamsPage(OnlineBase):
             self.search("0x611")
             self.shot("object-dictionary")
 
+    def test_copy_as_st_call(self):
+        """add-plc-sdo-blocks 4.4: Copy as ST call."""
+        pg = self.page
+        with self.device() as fp:
+            self.open_node(fp, tab="od")
+            pg.wait_for_selector('details[data-od-group="profile"]')
+            pg.evaluate("() => { window.__copied = []; navigator.clipboard.writeText = async (t) => { "
+                        "window.__copied.push(t); }; }")
+            copied = lambda: pg.evaluate("() => window.__copied[window.__copied.length - 1]")
+            # A read-only INTEGER16 entry copies the read call at once.
+            self.search("0x7130")
+            # Read, Edit and ST fit in the actions column (a button that spills
+            # over sits under the watch column and cannot be clicked).
+            spill = pg.evaluate("""() => {
+                const b = document.querySelector('tr[data-od-key="%d:1"] button[data-online="od-st"]');
+                return b.getBoundingClientRect().right - b.closest("td").getBoundingClientRect().right; }""" % 0x7130)
+            self.assertLessEqual(spill, 0)
+            pg.click('tr[data-od-key="%d:1"] button[data-online="od-st"]' % 0x7130)
+            pg.wait_for_function("() => window.__copied.length === 1")
+            text = copied()
+            self.assertIn("rd_n%d_7130_1 : CO_SDO_READ;" % NODE, text)
+            self.assertIn("NODE := %d, INDEX := 16#7130, SUBINDEX := 1" % NODE, text)
+            self.assertIn("LWORD_TO_INT(rd_n%d_7130_1.DATA)" % NODE, text)
+            self.assertIn("Copied the CO_SDO_READ call", pg.inner_text("#banner"))
+            # The device name (const VISIBLE_STRING) is only read, as a string.
+            self.search("0x1008")
+            pg.click('tr[data-od-key="%d:0"] button[data-online="od-st"]' % 0x1008)
+            pg.wait_for_function("() => window.__copied.length === 2")
+            self.assertIn(": CO_SDO_READ_STRING;", copied())
+            # A read-write entry asks which call.
+            self.search("0x6112")
+            pg.click('tr[data-od-key="%d:3"] button[data-online="od-st"]' % 0x6112)
+            pg.click('#modal button[data-value="write"]')
+            pg.wait_for_function("() => window.__copied.length === 3")
+            self.assertIn("wr_n%d_6112_3 : CO_SDO_WRITE;" % NODE, copied())
+            self.assertIn("DATA := USINT_TO_LWORD(value), SIZE := 0", copied())
+            # Any entry: no type gives CO_SDO_READ / CO_SDO_WRITE; REAL32 the REAL blocks.
+            self.search("")
+            pg.click('details[data-online="od-any"] > summary')
+            pg.fill('input[data-online="od-any-index"]', "0x2100")
+            pg.fill('input[data-online="od-any-sub"]', "3")
+            pg.click('button[data-online="od-any-st"]')
+            pg.click('#modal button[data-value="read"]')
+            pg.wait_for_function("() => window.__copied.length === 4")
+            self.assertIn("rd_n%d_2100_3 : CO_SDO_READ;" % NODE, copied())
+            pg.select_option('select[data-online="od-any-type"]', "REAL32")
+            pg.click('button[data-online="od-any-st"]')
+            pg.click('#modal button[data-value="write"]')
+            pg.wait_for_function("() => window.__copied.length === 5")
+            self.assertIn(": CO_SDO_WRITE_REAL;", copied())
+
     def test_tree_read_object_filters_formats(self):
         """improve-od-browser 2.1-2.5."""
         pg = self.page

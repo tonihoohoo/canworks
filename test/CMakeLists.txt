@@ -13,8 +13,41 @@ add_test(NAME unit_tests COMMAND unit_tests)
 set(EDSLINT_ENV "CANOPEN_EDSLINT=python3" "PYTHONPATH=${PROJECT_SOURCE_DIR}/tools/deploy")
 set_tests_properties(unit_tests PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
 
-add_executable(sim_tests sim/sim_tests.cpp)
-target_include_directories(sim_tests PRIVATE common pingpong sensor)
+# The editor's ST-to-C++ compiler package, the version OpenPLC Editor 4.3.2
+# ships: its runtime headers compile the library's SDO function blocks
+# (library/openplc_canopen) into sim_tests the way the editor builds them into
+# a PLC program (test/plc_sdo/bridge.py writes the editor's glue).
+set(STRUCPP_VERSION 0.7.0)
+set(STRUCPP_SHA256 8d78ae92d931b87c06145520222d1491206f424c147ec66ea84653cb8b0e1be5)
+set(STRUCPP_DIR ${CMAKE_BINARY_DIR}/strucpp-${STRUCPP_VERSION})
+if(NOT EXISTS ${STRUCPP_DIR}/package/src/runtime/include/iec_std_lib.hpp)
+  file(DOWNLOAD https://github.com/Autonomy-Logic/STruCpp/releases/download/v${STRUCPP_VERSION}/strucpp-${STRUCPP_VERSION}.tgz
+       ${CMAKE_BINARY_DIR}/strucpp-${STRUCPP_VERSION}.tgz EXPECTED_HASH SHA256=${STRUCPP_SHA256})
+  file(MAKE_DIRECTORY ${STRUCPP_DIR})
+  execute_process(COMMAND tar xzf ${CMAKE_BINARY_DIR}/strucpp-${STRUCPP_VERSION}.tgz -C ${STRUCPP_DIR}
+                  RESULT_VARIABLE strucpp_untar)
+  if(NOT strucpp_untar EQUAL 0)
+    message(FATAL_ERROR "cannot unpack strucpp ${STRUCPP_VERSION}")
+  endif()
+endif()
+file(GLOB SDO_BLOCK_SOURCES ${PROJECT_SOURCE_DIR}/library/openplc_canopen/*.cpp)
+set(SDO_BLOCKS_DIR ${CMAKE_CURRENT_BINARY_DIR}/sdo_blocks)
+add_custom_command(
+  OUTPUT ${SDO_BLOCKS_DIR}/c_blocks_code.cpp ${SDO_BLOCKS_DIR}/c_blocks.h
+  COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/plc_sdo/bridge.py ${SDO_BLOCKS_DIR} ${SDO_BLOCK_SOURCES}
+  DEPENDS ${SDO_BLOCK_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/plc_sdo/bridge.py
+  COMMENT "Editor glue for the SDO function blocks")
+add_library(sdo_blocks OBJECT ${SDO_BLOCKS_DIR}/c_blocks_code.cpp)
+target_include_directories(sdo_blocks PUBLIC ${SDO_BLOCKS_DIR} ${STRUCPP_DIR}/package/src/runtime/include)
+# In one process with the master, the blocks call the API table directly.
+target_compile_definitions(sdo_blocks PRIVATE CO_SDO_TEST_ENTRY=canopen_plc_api_test)
+set_target_properties(sdo_blocks PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON)
+
+add_executable(sim_tests sim/sim_tests.cpp $<TARGET_OBJECTS:sdo_blocks>)
+target_include_directories(sim_tests PRIVATE common pingpong sensor ${SDO_BLOCKS_DIR}
+                           ${STRUCPP_DIR}/package/src/runtime/include)
+set_target_properties(sim_tests PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON)
+add_dependencies(sim_tests sdo_blocks)
 target_compile_definitions(sim_tests PRIVATE PINGPONG_DIR="${PINGPONG_DIR}" RTD_DIR="${RTD_DIR}" FIXTURES_DIR="${FIXTURES_DIR}")
 target_link_libraries(sim_tests PRIVATE canopen_core)
 
@@ -100,3 +133,27 @@ set_tests_properties(plugin_lifecycle PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
 # user). Not a ctest: it needs an interface the test may change.
 add_executable(link_check link/link_check.cpp)
 target_link_libraries(link_check PRIVATE canopen_core)
+
+# The SDO blocks find the loaded plugin by its SONAME (test/plc_sdo).
+add_library(sdo_program SHARED plc_sdo/program.cpp ${SDO_BLOCKS_DIR}/c_blocks_code.cpp)
+target_include_directories(sdo_program PRIVATE ${SDO_BLOCKS_DIR} ${STRUCPP_DIR}/package/src/runtime/include)
+set_target_properties(sdo_program PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON PREFIX "")
+add_executable(plc_sdo_lookup_check plc_sdo/lookup_check.cpp)
+target_include_directories(plc_sdo_lookup_check PRIVATE common ${OPENPLC_ROOT}/core/src/drivers)
+target_link_libraries(plc_sdo_lookup_check PRIVATE ${CMAKE_DL_LIBS})
+add_test(NAME plc_sdo_lookup
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/plc_sdo/lookup_check.sh $<TARGET_FILE:plc_sdo_lookup_check>
+                 $<TARGET_FILE:canopen_plugin> $<TARGET_FILE:sdo_program> ${PINGPONG_DIR}
+                 ${CMAKE_CURRENT_BINARY_DIR}/plc_sdo_lookup)
+set_tests_properties(plc_sdo_lookup PROPERTIES ENVIRONMENT "${EDSLINT_ENV}" TIMEOUT 120)
+
+# The library sources are what library/generate.py writes.
+add_test(NAME plc_sdo_sources_current COMMAND python3 ${PROJECT_SOURCE_DIR}/library/generate.py --check)
+# The .stlib the deploy tool carries is what strucpp builds from the sources
+# (needs Node.js and npm; skipped without them).
+find_program(NPM_PROGRAM npm)
+if(NPM_PROGRAM)
+  add_test(NAME plc_sdo_stlib_current COMMAND sh ${PROJECT_SOURCE_DIR}/library/build.sh --check)
+  set_tests_properties(plc_sdo_stlib_current PROPERTIES
+    ENVIRONMENT "STRUCPP_TGZ=${CMAKE_BINARY_DIR}/strucpp-${STRUCPP_VERSION}.tgz")
+endif()

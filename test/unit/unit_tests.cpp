@@ -19,6 +19,7 @@
 #include <linux/rtnetlink.h>
 #include <map>
 #include <set>
+#include <vector>
 #include <net/if.h>
 
 #include <lely/co/dcf.h>
@@ -35,6 +36,7 @@
 #include "eds_lint.h"
 #include "fake_runtime.hpp"
 #include "iec_location.h"
+#include "plc_api.h"
 #include "log.h"
 #include "process_image.h"
 #include "runtime_version.h"
@@ -3078,6 +3080,97 @@ TEST(runtime_version_guard) {
   CHECK(e.find("install-stock.sh") != std::string::npos);
   unlink(stamp.c_str());
   rmdir(dir.c_str());
+}
+
+// The request slots behind the PLC program's SDO blocks (add-plc-sdo-blocks 2.6).
+TEST(plc_requests_slots_and_handles) {
+  using canopen_plugin::PlcRequests;
+  PlcRequests& q = PlcRequests::instance();
+  canopen_plc_request r{};
+  r.node = 5;
+  r.index = 0x1018;
+  r.subindex = 1;
+  uint16_t err = 0;
+  q.close();
+  CHECK(q.start(r, err) == 0);
+  CHECK(err == CANOPEN_PLC_ERR_NOT_RUNNING);
+  q.open();
+  // Input checks.
+  canopen_plc_request bad = r;
+  bad.node = 0;
+  CHECK(q.start(bad, err) == 0 && err == CANOPEN_PLC_ERR_INPUT);
+  bad = r;
+  bad.network = 1;
+  CHECK(q.start(bad, err) == 0 && err == CANOPEN_PLC_ERR_INPUT);
+  uint8_t payload[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  bad = r;
+  bad.write = 1;
+  bad.kind = CANOPEN_PLC_REAL;
+  bad.data = payload;
+  bad.length = 8;
+  bad.size = 2;
+  CHECK(q.start(bad, err) == 0 && err == CANOPEN_PLC_ERR_INPUT);
+  bad.kind = CANOPEN_PLC_BYTES;
+  bad.length = CANOPEN_PLC_MAX_DATA + 1;
+  CHECK(q.start(bad, err) == 0 && err == CANOPEN_PLC_ERR_INPUT);
+  // A request runs and its result is collected once.
+  uint32_t h = q.start(r, err);
+  CHECK(h != 0 && err == 0);
+  canopen_plc_result res{};
+  CHECK(q.poll(h, &res, nullptr, 0) == 0);
+  std::vector<PlcRequests::Job> jobs;
+  q.take(jobs);
+  CHECK(jobs.size() == 1 && jobs[0].handle == h && jobs[0].req.timeout_ms == PlcRequests::kDefaultTimeoutMs);
+  uint8_t reply[4] = {0x78, 0x56, 0x34, 0x12};
+  q.finish(h, 0, 0, reply, sizeof reply);
+  uint8_t got[8] = {};
+  CHECK(q.poll(h, &res, got, sizeof got) == 1);
+  CHECK(res.error_id == 0 && res.size == 4 && got[0] == 0x78 && got[3] == 0x12);
+  CHECK(q.poll(h, &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_CANCELLED);
+  // A reused slot gets a new handle; the old one stays stale.
+  uint32_t h2 = q.start(r, err);
+  CHECK(h2 != 0 && h2 != h && (h2 & (CANOPEN_PLC_SLOTS - 1)) == (h & (CANOPEN_PLC_SLOTS - 1)));
+  CHECK(q.poll(h, &res, nullptr, 0) == 2);
+  // An abort keeps its code; the reply data is not copied.
+  jobs.clear();
+  q.take(jobs);
+  q.finish(h2, CANOPEN_PLC_ERR_ABORT, 0x06020000u, nullptr, 0);
+  CHECK(q.poll(h2, &res, got, sizeof got) == 2 && res.error_id == CANOPEN_PLC_ERR_ABORT && res.abort_code == 0x06020000u);
+  // 64 slots, then BUSY; oldest first when taken.
+  std::vector<uint32_t> handles;
+  for (unsigned i = 0; i < CANOPEN_PLC_SLOTS; ++i) {
+    handles.push_back(q.start(r, err));
+    CHECK(handles.back() != 0);
+  }
+  CHECK(q.start(r, err) == 0 && err == CANOPEN_PLC_ERR_BUSY);
+  jobs.clear();
+  q.take(jobs);
+  CHECK(jobs.size() == CANOPEN_PLC_SLOTS);
+  bool ordered = true;
+  for (unsigned i = 0; i < jobs.size(); ++i) ordered = ordered && jobs[i].handle == handles[i];
+  CHECK(ordered);
+  // A finished result nobody collects is dropped after 10 s.
+  q.finish(handles[0], 0, 0, reply, 1);
+  q.expire(PlcRequests::clock::now() + PlcRequests::kKeepResult);
+  CHECK(q.poll(handles[0], &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_CANCELLED);
+  // Taken requests of a network that went away end as cancelled.
+  q.cancel_taken();
+  CHECK(q.poll(handles[1], &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_CANCELLED);
+  // A queued request no network takes times out.
+  canopen_plc_request quick = r;
+  quick.timeout_ms = 1;
+  uint32_t h3 = q.start(quick, err);
+  usleep(5000);
+  CHECK(q.poll(h3, &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_TIMEOUT && res.abort_code == 0x05040000u);
+  // Stopping the PLC drops everything.
+  uint32_t h4 = q.start(r, err);
+  q.close();
+  CHECK(q.poll(h4, &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_CANCELLED);
+  // Only API version 1 is offered; another is noted once.
+  CHECK(canopen_plugin::plc_api_table(1) != nullptr);
+  CHECK(canopen_plugin::plc_api_table(7) == nullptr);
+  CHECK(q.take_unknown_version() == 7);
+  CHECK(q.take_unknown_version() == 0);
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

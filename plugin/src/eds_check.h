@@ -37,6 +37,14 @@ bool eds_sub_value(const NodeConfig& n, uint16_t index, uint8_t subindex, uint64
 // read.
 bool eds_identity(const NodeConfig& n, uint32_t& vendor_id, uint32_t& product_code);
 
+// The DataType (a CiA 301 type code) the node's EDS gives a sub-object. False
+// if the EDS or the sub-object is missing.
+bool eds_sub_type(const NodeConfig& n, uint16_t index, uint8_t subindex, uint16_t& type);
+
+// Bytes a value of a basic CiA 301 data type takes on the bus (BOOLEAN takes
+// one), or 0 for other types (strings, domains...).
+unsigned co_type_bytes(uint16_t type);
+
 }  // namespace canopen_plugin
 
 #endif  // CANOPEN_EDS_CHECK_H
