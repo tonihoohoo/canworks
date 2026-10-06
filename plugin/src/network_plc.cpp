@@ -110,15 +110,14 @@ void Network::ServiceProgram(clock::time_point now) {
           continue;
         }
       }
-      if (now >= p.job.deadline) {
-        EndProgram(id, p.job.handle, CANOPEN_PLC_ERR_TIMEOUT, kAbortTimeout, nullptr, 0);
-        q.pop_front();
-        continue;
-      }
       if (n && !SdoAvailable(id, *n)) {
         // Being configured after its boot-up message, in a boot retry, or not
         // heard from yet since the master started (its first boot is still
-        // to come): wait. Lost, not booted or STOPPED: not available.
+        // to come): wait, and start TIMEOUT only once the node can be asked,
+        // so a read at startup works with the default timeout. The wait
+        // ends with the boot: the node comes up, or it is reported absent
+        // and the request ends here with ERROR_ID 3. Lost, not booted or
+        // STOPPED: not available.
         bool first_boot = !n->warned_absent && now - started_ < kAbsentAfter;
         bool booting = n->cfg->boot && !n->booted &&
                        (image_.node_state(id) == kStatePreop || n->boot_waiting || first_boot);
@@ -127,6 +126,14 @@ void Network::ServiceProgram(clock::time_point now) {
           q.pop_front();
           continue;
         }
+        auto from_now = now + std::chrono::milliseconds(p.job.req.timeout_ms);
+        if (p.job.deadline < from_now) p.job.deadline = from_now;
+        break;
+      }
+      if (now >= p.job.deadline) {
+        EndProgram(id, p.job.handle, CANOPEN_PLC_ERR_TIMEOUT, kAbortTimeout, nullptr, 0);
+        q.pop_front();
+        continue;
       }
       break;
     }

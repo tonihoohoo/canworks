@@ -83,7 +83,7 @@ A reply longer than 254 characters ends with `ERROR_ID` 7; read it with `CO_SDO_
 | `ERROR_ID` | Meaning |
 |---|---|
 | 1 | The node aborted the transfer; `ABORT_CODE` holds its CiA 301 abort code (e.g. `16#06020000` object does not exist, `16#06010002` read-only) |
-| 2 | Timeout: no answer within `TIMEOUT` (`ABORT_CODE` = `16#05040000`) |
+| 2 | Timeout: no answer within `TIMEOUT`, counted from when the node can be asked (`ABORT_CODE` = `16#05040000`) |
 | 3 | The node is not available: configured, but lost or failed to boot |
 | 4 | CANopen is not running (no plugin, no config, or CANopen switched off) |
 | 5 | Too many transfers at once (64 across all blocks) |
@@ -94,6 +94,6 @@ A reply longer than 254 characters ends with `ERROR_ID` 7; read it with `CO_SDO_
 ## How it shares the bus
 
 - Transfers to one node run one at a time, in the order the blocks started them, taking turns with the node's [SDO variables](config.md#sdo-variables) so neither starves the other. Transfers to different nodes run at the same time.
-- A transfer waits while its node boots, including the first boot after a PLC start (so a program can read at startup; give it a `TIMEOUT` long enough for the node's boot), and is refused (error 3) while the node is lost or failed to boot. A node ID the config does not list is reached through the default SDO channel (0x600 + node / 0x580 + node).
+- A transfer waits while its node boots, including the first boot after a PLC start, so a program can read at startup with the default `TIMEOUT`: the timeout starts once the node can be asked. If the node does not come up (about 3 s after a start, when the log says it is not answering), the transfer ends with error 3. A transfer to a node that is lost or failed to boot is refused at once (error 3). A node ID the config does not list is reached through the default SDO channel (0x600 + node / 0x580 + node).
 - Writing an object the plugin configures at boot (PDO mapping and communication, heartbeat, startup SDOs) is allowed, but the next boot writes it back; the runtime log warns once per object.
 - An abort is logged once per node, object and abort code. Nothing is ever saved to the device's non-volatile memory unless the program writes 0x1010 itself.

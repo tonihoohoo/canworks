@@ -100,7 +100,7 @@ A block that ends with `ERROR` SHALL set `ERROR_ID` to: 1 the device or the SDO 
 - **THEN** the block ends with `ERROR_ID` 4 in the same call
 
 ### Requirement: Node availability
-For a node the configuration lists, a transfer SHALL be sent only while the node is available (booted and not lost, not STOPPED). A transfer started while the node is being booted or configured, or before the master has heard from it since CANopen started (its first boot is still to come), SHALL wait and be sent after the boot ends, with the wait counted in `TIMEOUT`. A transfer started while the node is lost, has not booted, or is STOPPED SHALL end at once with `ERROR_ID` 3. For a node the configuration does not list, the transfer SHALL be sent at once. Program transfers SHALL NOT change a node's NMT state, status bit or state byte.
+For a node the configuration lists, a transfer SHALL be sent only while the node is available (booted and not lost, not STOPPED). A transfer started while the node is being booted or configured, or before the master has heard from it since CANopen started (its first boot is still to come), SHALL wait and be sent after the boot ends; its `TIMEOUT` SHALL count from when the node can be asked, and a node that does not come up SHALL end the wait with `ERROR_ID` 3. A transfer started while the node is lost, has not booted, or is STOPPED SHALL end at once with `ERROR_ID` 3. For a node the configuration does not list, the transfer SHALL be sent at once. Program transfers SHALL NOT change a node's NMT state, status bit or state byte.
 
 #### Scenario: Node lost
 - **WHEN** node 5 is lost and the program starts a read from it
@@ -111,8 +111,12 @@ For a node the configuration lists, a transfer SHALL be sent only while the node
 - **THEN** the read is sent after node 5's boot ends and the block ends with `DONE`
 
 #### Scenario: Read in the first scans
-- **WHEN** the program starts a read from node 5 in its first scan after a PLC start, before node 5 has answered the restarted master, with `TIMEOUT := T#4s`
+- **WHEN** the program starts a read from node 5 with the default `TIMEOUT` in its first scan after a PLC start, before node 5 has answered the restarted master, and node 5's boot takes longer than 1 s
 - **THEN** the read waits for node 5's boot and the block ends with `DONE`
+
+#### Scenario: Node absent at start
+- **WHEN** the program starts a read with the default `TIMEOUT` in its first scan from a configured node 5 that never answers
+- **THEN** the block stays `BUSY` until the master reports node 5 as not answering, then ends with `ERROR_ID` 3
 
 ### Requirement: Sharing the SDO channel
 The master SHALL run at most one SDO transfer per node at a time across program transfers, SDO variables and the diagnostics channel, SHALL NOT start a program transfer while the node is being booted or configured, and SHALL send a node's program transfers in the order they were started. When both are due for the same node, a program transfer and an SDO variable transfer SHALL take turns, so neither waits for all of the other's. At most 64 program transfers SHALL be in progress or waiting at a time; a block started beyond that SHALL end at once with `ERROR_ID` 5. Transfers to different nodes SHALL run at the same time.

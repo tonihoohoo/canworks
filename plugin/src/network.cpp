@@ -235,6 +235,7 @@ void Network::SendTime() {
 }
 
 void Network::Stop() {
+  if (stopped_) return;
   stopped_ = true;
   if (lss_) lss_->CancelAll();
   CancelPrograms();

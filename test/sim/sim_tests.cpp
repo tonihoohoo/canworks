@@ -3172,11 +3172,12 @@ TEST(sim_plc_sdo_blocks) {
   sim->StartSlave(9, dir + "/cpp-slave.eds");  // a device the configuration does not list
   SdoBlocks& b = *blk;
   // A read the program starts in its first scans, before the master has heard
-  // from the node, waits for the node's boot instead of failing.
-  target(b.rd2, 5, 0x1018, 1, 4000);
+  // from the node, waits for the node's boot instead of failing, and its
+  // TIMEOUT (here the default 1 s) starts only once the node can be asked.
+  target(b.rd2, 5, 0x1018, 1);
   b.rd2.EXECUTE = true;
   sim->net().Start();
-  sim->RunFor(milliseconds(300));
+  sim->RunFor(milliseconds(1200));
   CHECK_MSG(b.rd2.BUSY, std::to_string(b.rd2.ERROR_ID.get()));
   sim->StartSensor(5, dir + "/rtd8.eds", {{0x7130, 1, 200, 260, 1}});
   CHECK(sim->RunUntil([&] { return static_cast<bool>(b.rd2.DONE) || static_cast<bool>(b.rd2.ERROR); }, seconds(5)));
@@ -3370,6 +3371,34 @@ TEST(sim_plc_sdo_blocks) {
   PlcRequests::instance().close();
   delete sim;
   delete blk;
+}
+
+// A configured node that never answers: a read started at once waits for its
+// first boot and ends with ERROR_ID 3 when the master reports it absent, not
+// with a timeout of the default 1 s.
+TEST(sim_plc_sdo_node_absent_at_start) {
+  clear_logs();
+  std::string eds = read(std::string(RTD_DIR) + "/rtd8.eds");
+  std::string dir = make_dir(rtd_sim_config(""), {{"rtd8.eds", eds}});
+  static Sim* sim;
+  static CO_SDO_READ_INST* rd;
+  sim = new Sim(dir);
+  rd = new CO_SDO_READ_INST();
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  PlcRequests::instance().open();
+  sim->SetProgram([](fake_runtime::Image&) { co_sdo_read_call(rd); });
+  target(*rd, 5, 0x1018, 1);
+  rd->EXECUTE = true;
+  sim->net().Start();
+  sim->RunFor(milliseconds(1500));
+  CHECK_MSG(rd->BUSY, std::to_string(rd->ERROR_ID.get()));
+  CHECK(sim->RunUntil([] { return static_cast<bool>(rd->ERROR) || static_cast<bool>(rd->DONE); }, seconds(4)));
+  CHECK_MSG(rd->ERROR && rd->ERROR_ID.get() == 3, std::to_string(rd->ERROR_ID.get()));
+  CHECK(logged("not answering"));
+  PlcRequests::instance().close();
+  delete sim;
+  delete rd;
 }
 
 // ---------------------------------------------------------------------------
