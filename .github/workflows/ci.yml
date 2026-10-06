@@ -297,3 +297,23 @@ jobs:
 
       - name: Build in the runtime image, ping-pong and the runtime container
         run: sudo test/docker/run.sh --image ghcr.io/autonomy-logic/openplc-runtime:latest
+
+  ci-ok:
+    # The one check a branch ruleset needs: green when every job above passed
+    # or was skipped on purpose (documentation-only changes), red otherwise.
+    # Job names inside it can change without touching the ruleset.
+    if: always()
+    needs: [changes, banned-words, spec-check, plugin, vcan, tools, configurator-page, stock, docker]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every CI job passed or was skipped
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | python3 -c '
+          import json, sys
+          bad = {k: v["result"] for k, v in json.load(sys.stdin).items() if v["result"] not in ("success", "skipped")}
+          for k, r in bad.items():
+              print(f"::error::{k}: {r}")
+          sys.exit(1 if bad else 0)'

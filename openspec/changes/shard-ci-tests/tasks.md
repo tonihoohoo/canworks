@@ -10,6 +10,7 @@
 - [x] 2.2 Run `tools` as two shards and `configurator-page` as three with `test_shard.py`; keep `CANOPEN_REQUIRE_PARITY` / `CANOPEN_REQUIRE_BROWSER`.
 - [x] 2.3 Add the `kernel-modules` input to the build action and set it to `"false"` in `plugin`, `tools` and `stock`.
 - [x] 2.4 Add `timeout-minutes` to every CI job.
+- [x] 2.5 Add the `ci-ok` job (needs every job, `if: always()`, fails on a failed or cancelled job).
 
 ## 3. Measure
 

@@ -18,6 +18,7 @@ The repository is public, so GitHub-hosted minutes are free and more parallel jo
 - The deploy tool tests (`tools`) run as two shards and the configurator page and layout tests (`configurator-page`) as three, split by whole test class with `.github/scripts/test_shard.py` (largest class first onto the shard with the fewest tests, so every runner computes the same split). The small suites (release tag check, CI scripts, editor hook) run on one `tools` shard each.
 - The shared build action takes `kernel-modules: "false"` to skip `linux-modules-extra` in jobs without vcan (`plugin`, `tools`, `stock`).
 - Every CI job gets a time limit.
+- A last job, `ci-ok`, passes only when every other job passed or was skipped, so a branch ruleset needs just that one check and job names can change freely.
 - Same coverage: every test still runs once per change, `CANOPEN_REQUIRE_PARITY` and `CANOPEN_REQUIRE_BROWSER` stay where those tests run, and a shard with no tests fails instead of passing.
 - Expected: a code change's run goes from about 4 min 50 s to about 3 min.
 
@@ -27,11 +28,11 @@ The repository is public, so GitHub-hosted minutes are free and more parallel jo
 <!-- none -->
 
 ### Modified Capabilities
-- `canopen-ci`: the parallel test jobs requirement adds the vcan split, test sharding and the new wall time.
+- `canopen-ci`: the parallel test jobs requirement adds the vcan split, test sharding and the new wall time; a new requirement adds the single `ci-ok` check.
 
 ## Impact
 
 - `.github/workflows/ci.yml`, `.github/actions/build-plugin/action.yml`.
 - New `.github/scripts/test_shard.py` with tests in `test/ci/test_shard.py`.
-- Check names change: `plugin` stays, `vcan (1/2)`, `vcan (2/2)`, `tools (1/2)`, `tools (2/2)`, `configurator-page (1/3)` … are new. A branch protection rule that requires the old `tools` or `configurator-page` checks needs the new names.
+- Check names change: `plugin` stays, `vcan (1/2)`, `vcan (2/2)`, `tools (1/2)`, `tools (2/2)`, `configurator-page (1/3)` … are new. A ruleset should require only `ci-ok`.
 - No change to the plugin, the tools or their tests.

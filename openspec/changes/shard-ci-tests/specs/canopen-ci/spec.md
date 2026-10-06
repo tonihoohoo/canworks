@@ -19,3 +19,17 @@ The test work SHALL be split into jobs that run at the same time, and the C++ si
 #### Scenario: Shard split
 - **WHEN** the `tools` shards and the `configurator-page` shards of one run are added up
 - **THEN** they ran every deploy tool, configurator page and layout test once
+
+## ADDED Requirements
+
+### Requirement: One required check
+
+CI SHALL end with one job, `ci-ok`, that runs after every other CI job whatever their outcome, passes when each of them passed or was skipped, and fails when any of them failed or was cancelled. A branch ruleset SHALL need only this check, so jobs can be renamed or split without changing the ruleset.
+
+#### Scenario: Documentation-only change
+- **WHEN** only documentation changed and the test jobs are skipped
+- **THEN** `ci-ok` passes
+
+#### Scenario: One shard fails
+- **WHEN** one `configurator-page` shard fails and every other job passes
+- **THEN** `ci-ok` fails and names that job
