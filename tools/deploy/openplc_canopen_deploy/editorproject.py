@@ -8,6 +8,8 @@ This module then changes only what `create` cannot set:
                                  runtime address, when one is known)
     pous/programs/main.st        a VAR block declaring every CANopen location
     canopen/                     the config and its files (project.write())
+    project.json                 with sdo_blocks: the openplc_canopen library
+                                 enabled (sdolibrary.enable_in_project())
 
 The project is created in place (the editor records its path), so a failure
 after `create` removes the folder it made.
@@ -19,7 +21,7 @@ import re
 import shutil
 import subprocess
 
-from . import bundle, contract
+from . import bundle, contract, sdolibrary
 from . import project as project_mod
 from .configurator import declare
 from .eds import Eds, EdsError
@@ -109,7 +111,8 @@ def main_st(decls):
     return "PROGRAM main\n%s\n\n%s\n\nEND_PROGRAM" % (declare.editor_block(decls), BODY)
 
 
-def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_address=None, progress=None):
+def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_address=None, progress=None,
+           sdo_blocks=False):
     """Creates the project. Returns (project folder, declarations). The config
     must already have passed the deploy tool's checks."""
     progress = progress or (lambda m: None)
@@ -148,7 +151,9 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
     try:
         _patch(project_dir, decls, runtime_address)
         project_mod.write(cfg, config_path, project_dir)
-    except (OSError, ValueError, project_mod.ProjectError, NewProjectError) as e:
+        if sdo_blocks:
+            sdolibrary.enable_in_project(project_dir)
+    except (OSError, ValueError, project_mod.ProjectError, NewProjectError, sdolibrary.LibraryError) as e:
         shutil.rmtree(project_dir, ignore_errors=True)
         raise NewProjectError("%s (the new project folder was removed)" % e)
     return project_dir, decls

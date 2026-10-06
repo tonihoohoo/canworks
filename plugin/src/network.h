@@ -12,6 +12,7 @@
 
 #include <array>
 #include <chrono>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -29,6 +30,7 @@
 #include "dcf_gen.h"
 #include "diag.h"
 #include "log.h"
+#include "plc_api.h"
 #include "process_image.h"
 
 namespace canopen_plugin {
@@ -59,7 +61,7 @@ class Network : public lely::canopen::BasicMaster {
   // `tick` is called from the loop every supervision period; returning false
   // ends the session (the caller then shuts the loop down). `req_timer`, when
   // given, polls the program's SDO variable and NMT requests every
-  // kRequestPeriod (armed only when the configuration has any); without it
+  // kRequestPeriod, and the program's SDO function blocks; without it
   // they are polled on each SYNC and supervision tick. `out_timer`, when
   // given and the master produces no SYNC, sends the outputs every
   // kOutputPeriod instead of on SYNC.
@@ -161,7 +163,8 @@ class Network : public lely::canopen::BasicMaster {
     Hold hold = Hold::None;
     bool hold_by_operator = false;  // the hold came from a diagnostics client
     std::vector<size_t> vars;  // ProcessImage::sdo_vars() of this node
-    bool sdo_busy = false;     // an SDO variable transfer is in flight
+    bool sdo_busy = false;     // an SDO variable or program transfer is in flight
+    bool last_prog = false;    // the last transfer started was the program's
     // Diagnostics: the boot result text, and the newest emergency messages
     // (ring buffer, newest at emcy_head - 1).
     std::string boot_what;
@@ -220,6 +223,12 @@ class Network : public lely::canopen::BasicMaster {
     uint32_t logged_abort = 0;  // abort code logged since the last success
   };
 
+  // A program transfer (spec canopen-plc-sdo) waiting for or using its node.
+  struct ProgJob {
+    PlcRequests::Job job;
+    bool resolved = false;  // the write payload is in its final form
+  };
+
   template <class F>
   void Defer(F&& f);
   // Runs an SDO submission. Lely's Submit*() first advances the CAN timers,
@@ -262,6 +271,20 @@ class Network : public lely::canopen::BasicMaster {
   void FinishTransfer(unsigned id, size_t k, std::error_code ec, const std::vector<uint8_t>* data, uint64_t value);
   void SetSdoStatus(size_t k, uint8_t status, uint32_t abort, bool set_abort);
   void OnBooted(unsigned id, NodeState& n);
+  // Program transfers from the SDO function blocks (spec canopen-plc-sdo).
+  void ServiceProgram(clock::time_point now);
+  // Whether node `id`'s oldest program transfer can start now; ends it
+  // first when it cannot run at all or ran out of time.
+  void StartProgram(unsigned id, NodeState* n, clock::time_point now);
+  void FinishProgram(unsigned id, uint32_t handle, const PlcRequests::Job& job, std::error_code ec,
+                     const std::vector<uint8_t>* data);
+  void EndProgram(unsigned id, uint32_t handle, uint16_t error_id, uint32_t abort, const uint8_t* data,
+                  size_t size);
+  // The payload of a program write as it goes on the bus: sizes from the EDS
+  // and REAL32 conversion. Returns an ERROR_ID, or 0.
+  uint16_t ResolveWrite(unsigned id, ProgJob& p);
+  // The EDS data type of a configured node's object (0 = not in the EDS).
+  uint16_t EdsType(const NodeConfig& n, uint16_t index, uint8_t subindex);
   void ResetNode(unsigned id, NodeState& n, bool comm, const char* by);
   // Diagnostics channel (see the spec canopen-online-diagnostics).
   void ServiceDiag();
@@ -306,6 +329,12 @@ class Network : public lely::canopen::BasicMaster {
   std::set<unsigned> emcy_unknown_;  // unconfigured node IDs already warned about
   DiagHub* diag_ = nullptr;
   std::vector<ManualSdo> manual_;
+  std::map<unsigned, std::deque<ProgJob>> prog_;  // node ID -> program transfers, oldest first
+  std::set<unsigned> prog_foreign_busy_;          // unconfigured node IDs with a transfer in flight
+  std::vector<PlcRequests::Job> prog_taken_;      // scratch for PlcRequests::take
+  std::map<uint32_t, uint16_t> eds_types_;        // node<<24 | index<<8 | subindex -> EDS DataType
+  std::set<uint64_t> prog_aborts_logged_;         // node, object and abort code logged
+  std::set<uint32_t> prog_owned_warned_;          // node<<24 | index<<8 | subindex warned about
   std::map<unsigned, unsigned> foreign_sdo_;  // unconfigured node ID -> transfers in flight
   bool scan_running_ = false;
   bool scan_have_result_ = false;

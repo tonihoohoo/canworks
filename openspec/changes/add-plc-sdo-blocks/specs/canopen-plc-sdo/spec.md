@@ -156,8 +156,12 @@ The plugin SHALL log an aborted or timed-out program transfer with the node, the
 - **THEN** the log shows that abort once
 
 ### Requirement: Library delivery
-The library SHALL be built from its editor library project in this repository into `openplc_canopen.stlib`. Each `deploy-v` release SHALL carry that file, and `openplc-canopen-deploy library --out DIR` SHALL write the copy that matches the installed tools into `DIR`. The library's version SHALL equal the deploy package version. Installing it once with the editor's Library Manager ("install from file") SHALL make the blocks appear in the editor's library tree for every project that enables it.
+The library SHALL be built from its editor library project in this repository into `openplc_canopen.stlib`. Each `deploy-v` release SHALL carry that file, `openplc-canopen-deploy library --out DIR` SHALL write the copy that matches the installed tools into `DIR`, `openplc-canopen-deploy library --install` SHALL install that copy into OpenPLC Editor on the same computer as the editor's Library Manager does, and `openplc-canopen-deploy library --project DIR` SHALL enable it in an editor project. The library's version SHALL equal the deploy package version. Installing it once with the editor's Library Manager ("install from file") SHALL make the blocks appear in the editor's library tree for every project that enables it.
 
 #### Scenario: Install in the editor
 - **WHEN** the user runs `openplc-canopen-deploy library --out .` and installs the written file in OpenPLC Editor 4.3.2
 - **THEN** the library tree lists `openplc_canopen` with the eight blocks, and a project that enables it and calls `CO_SDO_READ` builds for OpenPLC Runtime v4
+
+#### Scenario: Install from the command line
+- **WHEN** the user runs `openplc-canopen-deploy library --install` on a PC where OpenPLC Editor has run, then restarts the editor
+- **THEN** the editor's library list shows `openplc_canopen` with the tools' version, and libraries installed before are still listed

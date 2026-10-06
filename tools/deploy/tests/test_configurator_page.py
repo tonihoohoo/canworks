@@ -752,10 +752,20 @@ class Page(unittest.TestCase):
         pg.wait_for_selector("#modal-text:has-text('Not created')")
         self.assertIn("already exists", pg.inner_text("#modal-text"))
         self.assertEqual(os.listdir(os.path.join(work, "taken")), [])
+        user_data = os.path.join(self.dir, "open-plc-editor")
+        os.makedirs(user_data)
+        os.environ["OPENPLC_EDITOR_USER_DATA"] = user_data
+        self.addCleanup(os.environ.pop, "OPENPLC_EDITOR_USER_DATA", None)
+        self.assertFalse(pg.is_checked('#modal-extra input[aria-label="Enable CANopen SDO blocks"]'))
+        pg.check('#modal-extra input[aria-label="Enable CANopen SDO blocks"]')
         pg.fill('#modal-extra input[aria-label="Project name"]', "rtd-monitor")
         pg.click("#modal-buttons button[data-value=create]")
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")
         self.assertIn("1 CANopen variable declared in main", pg.inner_text("#banner"))
+        self.assertIn("Installed openplc_canopen", pg.inner_text("#banner"))
+        self.assertEqual(load(os.path.join(work, "rtd-monitor", "project.json"))["data"]["libraries"][0]["name"],
+                         "openplc_canopen")
+        self.assertTrue(os.path.isfile(os.path.join(user_data, "libraries", "registry.json")))
         self.assertTrue(pg.is_hidden("#btn-new-project"))
         main = os.path.join(work, "rtd-monitor", "pous", "programs", "main.st")
         with open(main, encoding="utf-8") as f:

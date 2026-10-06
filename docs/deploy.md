@@ -72,7 +72,20 @@ PROGRAM main
 
 Master diagnostics come first, then each node in config order: diagnostics, inputs, outputs and the NMT command byte. Everything is in `main` because Editor 4.3.2 accepts located variables only in a program's VAR block; put your own logic in function blocks called from `main` if you want to split it. The task interval defaults to `T#20ms`.
 
+With `--sdo-blocks` the project also enables the `openplc_canopen` library (the SDO function blocks, [plc-sdo.md](plc-sdo.md)), and the library is installed into the editor on this PC if it is missing or older than the tools; if that cannot be done (the editor has never run here), the output says how to install it.
+
 The project is written once: later config changes do not touch `main`. Declare new locations from the configurator's "not yet declared" block. An existing folder (even an empty one) is refused, and a failure after `openplc-cli create` removes the new folder. The command needs `openplc-cli` (the editor installs it on first run, or run `openplc-cli install-cli`; `$OPENPLC_CLI` names another program). Nothing is uploaded.
+
+## The SDO block library
+
+```sh
+openplc-canopen-deploy library --install              # into OpenPLC Editor on this PC
+openplc-canopen-deploy library --out DIR              # writes DIR/openplc_canopen.stlib
+openplc-canopen-deploy library --project <project>    # enables it in an editor project
+openplc-canopen-deploy library --list                 # the block names
+```
+
+The library's version is the tools' version. `--install` does what the editor's Library Manager does for "install from file" (restart the editor if it is open); `$OPENPLC_EDITOR_USER_DATA` names another editor settings folder. See [plc-sdo.md](plc-sdo.md).
 
 ## Checking without a runtime
 

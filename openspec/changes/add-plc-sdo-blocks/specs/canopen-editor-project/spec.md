@@ -18,7 +18,7 @@ Creating an editor project from a CANopen config SHALL create the project with t
 ## ADDED Requirements
 
 ### Requirement: SDO blocks in a new project
-Creating a project with the SDO blocks option (`--sdo-blocks`) SHALL enable the library `openplc_canopen` in the project, in the form the editor itself writes when the user enables a library, so the project's library tree shows the `CO_SDO_*` blocks. Without the option the project SHALL enable no library. When the editor has no `openplc_canopen` library installed, creation SHALL still succeed and SHALL say how to install it (`openplc-canopen-deploy library --out DIR`, then the editor's Library Manager).
+Creating a project with the SDO blocks option (`--sdo-blocks`) SHALL enable the library `openplc_canopen` in the project, in the form the editor itself writes when the user enables a library, so the project's library tree shows the `CO_SDO_*` blocks. Without the option the project SHALL enable no library. When the editor on the same computer has no `openplc_canopen` library, or an older version, creation SHALL install the tools' version into it as `openplc-canopen-deploy library --install` does. When that is not possible (the editor has not run on this computer), creation SHALL still succeed and SHALL say how to install the library.
 
 #### Scenario: Option given
 - **WHEN** a project is created with `--sdo-blocks` and the library is installed in the editor
@@ -26,4 +26,8 @@ Creating a project with the SDO blocks option (`--sdo-blocks`) SHALL enable the 
 
 #### Scenario: Library not installed yet
 - **WHEN** a project is created with `--sdo-blocks` on a PC whose editor does not have the library
+- **THEN** the project is created with the library enabled, the library is installed into the editor, and the output says so
+
+#### Scenario: No editor settings on this computer
+- **WHEN** a project is created with `--sdo-blocks` on a PC where the editor has never run
 - **THEN** the project is created with the library enabled and the output says how to install the library

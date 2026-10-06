@@ -1475,6 +1475,68 @@ const BUS_STATES = { 0: "no bus", 1: "error-active", 2: "error-warning", 3: "err
 const SDO_TYPES = ["BOOLEAN", "INTEGER8", "INTEGER16", "INTEGER24", "INTEGER32", "INTEGER64", "UNSIGNED8",
   "UNSIGNED16", "UNSIGNED24", "UNSIGNED32", "UNSIGNED64", "REAL32", "REAL64", "VISIBLE_STRING", "OCTET_STRING",
   "UNICODE_STRING", "DOMAIN"];
+// "Copy as ST call": a CO_SDO_* block instance and its call (spec
+// canopen-configurator, Copy as ST call; the blocks are the openplc_canopen
+// library, docs/plc-sdo.md).
+const ST_INT_TYPES = { BOOLEAN: "BOOL", INTEGER8: "SINT", INTEGER16: "INT", INTEGER24: "DINT", INTEGER32: "DINT",
+  INTEGER40: "LINT", INTEGER48: "LINT", INTEGER56: "LINT", INTEGER64: "LINT", UNSIGNED8: "USINT", UNSIGNED16: "UINT",
+  UNSIGNED24: "UDINT", UNSIGNED32: "UDINT", UNSIGNED40: "ULINT", UNSIGNED48: "ULINT", UNSIGNED56: "ULINT",
+  UNSIGNED64: "ULINT" };
+function stBlock(type, write) {
+  const kind = type === "REAL32" || type === "REAL64" ? "_REAL" : type === "VISIBLE_STRING" ? "_STRING"
+    : type === "OCTET_STRING" || type === "DOMAIN" ? "_BYTES" : "";
+  return (write ? "CO_SDO_WRITE" : "CO_SDO_READ") + kind;
+}
+function stCall(node, index, subindex, type, write) {
+  const block = stBlock(type, write);
+  const ix = index.toString(16).toUpperCase().padStart(4, "0");
+  const inst = `${write ? "wr" : "rd"}_n${node}_${ix}_${subindex}`;
+  const iec = ST_INT_TYPES[type];
+  const lines = [`VAR`, `  ${inst} : ${block};`];
+  if (block.endsWith("_BYTES")) lines.push(`  ${inst}_buf : ARRAY[0..1023] OF BYTE;`);
+  lines.push(`END_VAR`, ``);
+  lines.push(`(* EXECUTE: a rising edge starts the transfer; FALSE clears DONE and ERROR. *)`);
+  const args = [`EXECUTE := ${inst}_go`, `NODE := ${node}`, `INDEX := 16#${ix}`, `SUBINDEX := ${subindex}`];
+  if (block === "CO_SDO_WRITE") args.push(`DATA := ${iec ? `${iec}_TO_LWORD(value)` : "value"}`, `SIZE := 0`);
+  if (block === "CO_SDO_WRITE_REAL") args.push(`VALUE := value`, `SIZE := 0`);
+  if (block === "CO_SDO_WRITE_STRING") args.push(`VALUE := text`);
+  if (block === "CO_SDO_WRITE_BYTES") args.push(`BUFFER := ${inst}_buf`, `SIZE := 0 (* bytes to send *)`);
+  if (block === "CO_SDO_READ_BYTES") args.push(`BUFFER := ${inst}_buf`);
+  lines.splice(2, 0, `  ${inst}_go : BOOL;`);
+  lines.push(`${inst}(${args.join(", ")});`);
+  lines.push(`IF ${inst}.DONE THEN`);
+  if (!write) {
+    const result = block === "CO_SDO_READ" ? (iec ? `LWORD_TO_${iec}(${inst}.DATA)` : `${inst}.DATA (* SIZE bytes *)`)
+      : block === "CO_SDO_READ_BYTES" ? `${inst}_buf (* ${inst}.SIZE bytes *)` : `${inst}.VALUE`;
+    lines.push(`  (* value := ${result}; *)`);
+  } else lines.push(`  (* written *)`);
+  lines.push(`ELSIF ${inst}.ERROR THEN`, `  (* ${inst}.ERROR_ID, ${inst}.ABORT_CODE *)`, `END_IF;`, ``);
+  return lines.join("\n");
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {
+    const ta = el("textarea", null);
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+}
+// Copies the read or write call, asking which when both apply.
+async function copyStCall(node, index, subindex, type, readable, writable) {
+  let write = !readable && writable;
+  if (readable && writable) {
+    const v = await modal(`Copy the Structured Text call for ${hex4(index)}:${subindex} of node ${node}:`,
+      [["read", "Read call (" + stBlock(type, false) + ")", true], ["write", "Write call (" + stBlock(type, true) + ")"], ["cancel", "Cancel"]]);
+    if (v !== "read" && v !== "write") return;
+    write = v === "write";
+  } else if (!readable && !writable) return;
+  const text = stCall(node, index, subindex, type, write);
+  await copyText(text);
+  banner(`Copied the ${stBlock(type, write)} call. Enable the openplc_canopen library in the editor project to use it.`);
+}
 const NO_CHANGES = "Online changes are not allowed in this configuration (turn on \"Allow changes\" under Online access, then upload).";
 
 function hex8(n) { return "0x" + (Number(n) >>> 0).toString(16).toUpperCase().padStart(8, "0"); }
@@ -2622,7 +2684,10 @@ function odBuild(box, id, n, allow, data) {
       el("td", { class: "od-name" }, el("div", null, isSub ? e.sub_name || e.name : e.name), marks),
       el("td", { class: "od-type" }, e.type || "?", " ", el("span", { class: "muted" }, e.access),
         e.default ? el("div", { class: "muted", title: "EDS default" }, "default " + e.default) : null),
-      value, el("td", { class: "actions" }, read, edit), el("td", { class: "od-watch" }, watch));
+      value, el("td", { class: "actions" }, read, edit,
+        el("button", { type: "button", class: "small", disabled: !e.readable && !e.writable, title: "Copy as ST call (CO_SDO_* block)",
+          dataset: { online: "od-st" }, onclick: () => copyStCall(id, e.index, e.subindex, e.type, e.readable, e.writable) }, "ST")),
+      el("td", { class: "od-watch" }, watch));
     cells[key] = { tr, value, marks, watch, text: `${hex4(e.index)}:${e.subindex} ${e.index.toString(16)} ${e.name}`.toLowerCase() };
     return tr;
   };
@@ -2806,6 +2871,10 @@ function odBuild(box, id, n, allow, data) {
         el("button", { type: "button", dataset: { online: "od-any-read" }, onclick: anyRead }, "Read"),
         el("label", { class: "inline" }, "Value ", anyValue),
         el("button", { type: "button", disabled: !allow, title: allow ? null : NO_CHANGES, dataset: { online: "od-any-write" }, onclick: anyWrite }, "Write"),
+        el("button", { type: "button", title: "Copy as ST call (CO_SDO_* block)", dataset: { online: "od-any-st" }, onclick: () => {
+          const t = anyTarget();
+          if (t) copyStCall(id, t.index, t.subindex, t.type || "", true, true);
+        } }, "Copy as ST call"),
         anyOut)),
     ...groups.map(([det]) => det));
   renderChips();
@@ -3647,7 +3716,10 @@ async function newEditorProject() {
   const [pl, parent] = field("Folder to create it in", S.state.home, "Parent folder");
   const [nl, name] = field("Project name (its folder)", "", "Project name");
   const [il, interval] = field("Task interval", "T#20ms", "Task interval");
-  const form = el("div", { class: "new-project" }, pl, nl, il,
+  const sdoBlocks = el("input", { type: "checkbox", "aria-label": "Enable CANopen SDO blocks", dataset: { newProject: "sdo-blocks" } });
+  const sl = el("label", { class: "inline", title: "Enables the openplc_canopen library (CO_SDO_READ, CO_SDO_WRITE, ...) in the project and installs it into the editor" },
+    sdoBlocks, " Enable CANopen SDO blocks");
+  const form = el("div", { class: "new-project" }, pl, nl, il, sl,
     el("p", { class: "hint" }, "The program main declares every CANopen location once. Later config changes do not " +
       "change it: declare new locations from Variable declarations."));
   let text = "New OpenPLC Editor project (target OpenPLC Runtime v4) with this config in its canopen/ folder:";
@@ -3657,7 +3729,7 @@ async function newEditorProject() {
     let r;
     try {
       r = await api("POST", "/api/new_project", { parent: parent.value.trim(), name: name.value.trim(),
-        interval: interval.value.trim() });
+        interval: interval.value.trim(), sdo_blocks: sdoBlocks.checked });
     } catch (e) {
       text = "Not created: " + e.message;
       continue;
@@ -3668,7 +3740,8 @@ async function newEditorProject() {
     S.view = "bus";
     render();
     banner(`Created ${r.project} with ${r.declared} CANopen variable${r.declared === 1 ? "" : "s"} declared in main. ` +
-      "Open it in the editor with Open Project.");
+      "Open it in the editor with Open Project." + (r.library ? " " + r.library[0].toUpperCase() + r.library.slice(1) + "." : ""),
+      r.library_ok === false);
     runCheck();
     return;
   }

@@ -8,6 +8,10 @@
 // without SocketCAN; test/pingpong/run.sh
 // runs the same scenario on vcan0 through the real runtime.
 
+// The library's SDO function blocks with the editor's glue
+// (test/plc_sdo/bridge.py); first, before headers that define MIN and MAX.
+#include "c_blocks.h"
+
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -43,7 +47,9 @@
 #include "network.h"
 #include "pingpong_slave.hpp"
 #include "sensor_slave.hpp"
+#include "plc_api.h"
 #include "process_image.h"
+
 
 // From <lely/co/lss.h>, which does not mix with the C++ headers.
 extern "C" {
@@ -2852,6 +2858,269 @@ TEST(sim_lss_diag_read_only) {
   sim->RunFor(milliseconds(200));
   CHECK(sim->lss_total() == 0);
   delete sim;
+}
+
+// The SDO function blocks of library/openplc_canopen, built with the editor's
+// glue, find the master's API table through this (CO_SDO_TEST_ENTRY) instead
+// of dlopen; test/plc_sdo/lookup_check covers the dlopen route.
+extern "C" const void* canopen_plc_api_test(uint32_t version) { return plc_api_table(version); }
+
+namespace {
+
+// Block instances the fake PLC program calls every scan.
+struct SdoBlocks {
+  CO_SDO_READ_INST rd, rd2, rd_node;
+  CO_SDO_WRITE_INST wr;
+  CO_SDO_READ_REAL_INST rdr;
+  CO_SDO_WRITE_REAL_INST wrr;
+  CO_SDO_READ_STRING_INST rds;
+  CO_SDO_WRITE_STRING_INST wrs;
+  CO_SDO_READ_BYTES_INST rdb;
+  CO_SDO_WRITE_BYTES_INST wrb;
+  CO_SDO_READ_INST many[65];
+  bool call_many = false;
+  void Scan() {
+    co_sdo_read_call(&rd);
+    co_sdo_read_call(&rd2);
+    co_sdo_read_call(&rd_node);
+    co_sdo_write_call(&wr);
+    co_sdo_read_real_call(&rdr);
+    co_sdo_write_real_call(&wrr);
+    co_sdo_read_string_call(&rds);
+    co_sdo_write_string_call(&wrs);
+    co_sdo_read_bytes_call(&rdb);
+    co_sdo_write_bytes_call(&wrb);
+    if (call_many)
+      for (auto& b : many) co_sdo_read_call(&b);
+  }
+};
+
+template <class I>
+void target(I& b, unsigned node, unsigned index, unsigned sub, int64_t timeout_ms = 0) {
+  b.NODE = static_cast<uint8_t>(node);
+  b.INDEX = static_cast<uint16_t>(index);
+  b.SUBINDEX = static_cast<uint8_t>(sub);
+  b.TIMEOUT = timeout_ms * 1000000;
+}
+
+// Raises EXECUTE, runs until DONE or ERROR, then drops EXECUTE.
+template <class I>
+bool run_block(Sim* sim, I& b, milliseconds timeout = milliseconds(3000)) {
+  b.EXECUTE = true;
+  bool ended = sim->RunUntil([&b] { return static_cast<bool>(b.DONE) || static_cast<bool>(b.ERROR); }, timeout);
+  b.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+  return ended;
+}
+
+}  // namespace
+
+// SDO transfers from the PLC program through the library's function blocks
+// (spec canopen-plc-sdo).
+TEST(sim_plc_sdo_blocks) {
+  clear_logs();
+  std::string eds = read(std::string(RTD_DIR) + "/rtd8.eds");
+  std::string dir = make_dir(rtd_sim_config(""), {{"rtd8.eds", eds}, {"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  static SdoBlocks* blk;
+  sim = new Sim(dir);
+  blk = new SdoBlocks();
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  PlcRequests::instance().open();
+  sim->SetProgram([](fake_runtime::Image&) { blk->Scan(); });
+  sim->StartSensor(5, dir + "/rtd8.eds", {{0x7130, 1, 200, 260, 1}});
+  sim->StartSlave(9, dir + "/cpp-slave.eds");  // a device the configuration does not list
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  SdoBlocks& b = *blk;
+
+  // Integer read: DONE while EXECUTE is held, cleared once it drops.
+  target(b.rd, 5, 0x1018, 1);
+  b.rd.EXECUTE = true;
+  CHECK(sim->RunUntil([&] { return static_cast<bool>(b.rd.DONE); }, seconds(2)));
+  CHECK(!b.rd.BUSY && !b.rd.ERROR);
+  CHECK_MSG(b.rd.DATA.get() == 0xF0F0F0u && b.rd.SIZE.get() == 4, std::to_string(b.rd.DATA.get()));
+  sim->RunFor(milliseconds(50));
+  CHECK(b.rd.DONE);
+  b.rd.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+  CHECK(!b.rd.DONE);
+  // Signed value: LWORD_TO_INT gives -200.
+  target(b.rd, 5, 0x7134, 1);
+  CHECK(run_block(sim, b.rd));
+  CHECK_MSG(b.rd.DATA.get() == 0xFF38u && b.rd.SIZE.get() == 2, std::to_string(b.rd.DATA.get()));
+  CHECK(static_cast<int16_t>(b.rd.DATA.get()) == -200);
+
+  // Integer write with the size from the EDS (INTEGER16), read back.
+  target(b.wr, 5, 0x7134, 1);
+  b.wr.DATA = static_cast<uint64_t>(int64_t(-150));
+  b.wr.SIZE = 0;
+  CHECK(run_block(sim, b.wr));
+  CHECK(!b.wr.ERROR);
+  CHECK(run_block(sim, b.rd));
+  CHECK_MSG(static_cast<int16_t>(b.rd.DATA.get()) == -150, std::to_string(b.rd.DATA.get()));
+
+  // A value the device refuses: ERROR_ID 1 with the abort code, logged once.
+  target(b.wr, 5, 0x6110, 1);
+  b.wr.DATA = 0x40;
+  for (int i = 0; i < 2; ++i) {
+    CHECK(run_block(sim, b.wr));
+    b.wr.EXECUTE = true;  // ERROR stays while EXECUTE is held
+    sim->RunFor(milliseconds(30));
+    CHECK(b.wr.ERROR && b.wr.ERROR_ID.get() == 1);
+    b.wr.EXECUTE = false;
+    sim->RunFor(milliseconds(30));
+  }
+  uint32_t abort = b.wr.ABORT_CODE.get();
+  CHECK_MSG(abort == 0x06090031 || abort == 0x06090030, std::to_string(abort));
+  CHECK(count_logs("PLC program SDO write of 0x6110 sub 1 aborted") == 1);
+  CHECK(sim->net().IsOperational(5));
+
+  // REAL32 write (size from the EDS) and read.
+  target(b.wrr, 5, 0x6126, 1);
+  b.wrr.VALUE = 12.5;
+  b.wrr.SIZE = 0;
+  CHECK(run_block(sim, b.wrr));
+  CHECK(!b.wrr.ERROR);
+  target(b.rdr, 5, 0x6126, 1);
+  CHECK(run_block(sim, b.rdr));
+  CHECK_MSG(b.rdr.VALUE.get() == 12.5, std::to_string(b.rdr.VALUE.get()));
+  // A 5-byte object does not fit a REAL: ERROR_ID 7, VALUE kept.
+  target(b.rdr, 5, 0x1008, 0);
+  CHECK(run_block(sim, b.rdr));
+  CHECK(b.rdr.ERROR_ID.get() == 7 && b.rdr.VALUE.get() == 12.5);
+
+  // Strings: the device name; a 2-character string into a 16-bit object.
+  target(b.rds, 5, 0x1008, 0);
+  CHECK(run_block(sim, b.rds));
+  CHECK_MSG(std::string(b.rds.VALUE.c_str()) == "RTD-8", b.rds.VALUE.c_str());
+  target(b.wrs, 5, 0x7133, 1);
+  b.wrs.VALUE = "AB";
+  CHECK(run_block(sim, b.wrs));
+  CHECK(!b.wrs.ERROR);
+  target(b.rd, 5, 0x7133, 1);
+  CHECK(run_block(sim, b.rd));
+  CHECK_MSG(b.rd.DATA.get() == 0x4241u, std::to_string(b.rd.DATA.get()));
+
+  // Bytes.
+  target(b.rdb, 5, 0x1008, 0);
+  CHECK(run_block(sim, b.rdb));
+  CHECK(b.rdb.SIZE.get() == 5 && b.rdb.BUFFER[0].get() == 'R' && b.rdb.BUFFER[4].get() == '8');
+  target(b.wrb, 5, 0x7133, 1);
+  b.wrb.BUFFER[0] = 0x10;
+  b.wrb.BUFFER[1] = 0x00;
+  b.wrb.SIZE = 2;
+  CHECK(run_block(sim, b.wrb));
+  CHECK(!b.wrb.ERROR);
+  CHECK(run_block(sim, b.rd));
+  CHECK(b.rd.DATA.get() == 0x10u);
+
+  // A device the configuration does not list; SIZE 0 needs its EDS.
+  target(b.rd_node, 9, 0x1018, 1);
+  CHECK(run_block(sim, b.rd_node));
+  CHECK_MSG(!b.rd_node.ERROR && b.rd_node.SIZE.get() == 4,
+            std::to_string(b.rd_node.ERROR_ID.get()));
+  target(b.wr, 9, 0x2000, 0);
+  b.wr.SIZE = 0;
+  CHECK(run_block(sim, b.wr));
+  CHECK(b.wr.ERROR_ID.get() == 6);
+
+  // Bad node ID: ERROR_ID 6 in the same call.
+  target(b.rd, 0, 0x1000, 0);
+  b.rd.EXECUTE = true;
+  sim->RunFor(milliseconds(15));
+  CHECK(b.rd.ERROR && b.rd.ERROR_ID.get() == 6);
+  b.rd.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+
+  // No answer: ERROR_ID 2 after TIMEOUT, logged.
+  target(b.rd, 40, 0x1000, 0, 200);
+  auto t0 = steady_clock::now();
+  CHECK(run_block(sim, b.rd));
+  auto took = duration_cast<milliseconds>(steady_clock::now() - t0).count();
+  CHECK(b.rd.ERROR_ID.get() == 2 && b.rd.ABORT_CODE.get() == 0x05040000u);
+  CHECK_MSG(took >= 150 && took < 1000, std::to_string(took));
+
+  // Two blocks on one node in the same scan: both done, one after the other.
+  target(b.rd, 5, 0x1018, 1);
+  target(b.rd2, 5, 0x1008, 0);
+  b.rd.EXECUTE = true;
+  b.rd2.EXECUTE = true;
+  CHECK(sim->RunUntil([&] { return b.rd.DONE && b.rd2.DONE; }, seconds(2)));
+  b.rd.EXECUTE = false;
+  b.rd2.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+
+  // 65 at once: 64 run or wait, one ends with ERROR_ID 5 in the same call.
+  for (auto& m : b.many) {
+    target(m, 40, 0x1000, 0, 300);
+    m.EXECUTE = true;
+  }
+  b.call_many = true;
+  sim->RunFor(milliseconds(15));
+  int busy = 0, full = 0;
+  for (auto& m : b.many) {
+    busy += m.BUSY ? 1 : 0;
+    full += m.ERROR && m.ERROR_ID.get() == 5 ? 1 : 0;
+  }
+  CHECK_MSG(busy == 64 && full == 1, std::to_string(busy) + " " + std::to_string(full));
+  CHECK(sim->RunUntil([&] {
+    for (auto& m : b.many)
+      if (m.BUSY) return false;
+    return true;
+  }, seconds(3)));
+  for (auto& m : b.many) m.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+  b.call_many = false;
+
+  // Writing an object the plugin configures: sent, warned once.
+  target(b.wr, 5, 0x100C, 0);
+  b.wr.DATA = 0;
+  b.wr.SIZE = 0;
+  CHECK(run_block(sim, b.wr));
+  CHECK(run_block(sim, b.wr));
+  CHECK(count_logs("the PLC program writes 0x100C sub 0, which the plugin configures") == 1);
+
+  // PLC stop during a transfer: ERROR_ID 8, then a new edge works.
+  target(b.rd, 40, 0x1000, 0, 500);
+  b.rd.EXECUTE = true;
+  sim->RunFor(milliseconds(30));
+  CHECK(b.rd.BUSY);
+  PlcRequests::instance().close();
+  PlcRequests::instance().open();
+  sim->RunFor(milliseconds(30));
+  CHECK(b.rd.ERROR && b.rd.ERROR_ID.get() == 8);
+  b.rd.EXECUTE = false;
+  sim->RunFor(milliseconds(600));  // the abandoned transfer ends unseen
+  target(b.rd, 5, 0x1018, 1);
+  CHECK(run_block(sim, b.rd));
+  CHECK(!b.rd.ERROR && b.rd.DATA.get() == 0xF0F0F0u);
+
+  // CANopen not running: ERROR_ID 4 in the same call.
+  PlcRequests::instance().close();
+  b.rd.EXECUTE = true;
+  sim->RunFor(milliseconds(15));
+  CHECK(b.rd.ERROR && b.rd.ERROR_ID.get() == 4);
+  b.rd.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+  PlcRequests::instance().open();
+
+  // A library asking for an unknown API version: logged once.
+  CHECK(plc_api_table(99) == nullptr);
+  CHECK(plc_api_table(1) != nullptr);
+  sim->RunFor(milliseconds(50));
+  CHECK(count_logs("asks for SDO block API version 99") == 1);
+
+  // Node lost: ERROR_ID 3 at once.
+  sim->Unplug(5);
+  CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
+  CHECK(run_block(sim, b.rd, milliseconds(500)));
+  CHECK_MSG(b.rd.ERROR_ID.get() == 3, std::to_string(b.rd.ERROR_ID.get()));
+
+  PlcRequests::instance().close();
+  delete sim;
+  delete blk;
 }
 
 int main(int argc, char** argv) {
