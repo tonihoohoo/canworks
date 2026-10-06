@@ -45,12 +45,7 @@
 - [ ] 6.5 DCF and DBC export buttons per open tab / all networks. Verify: page test of exported file names.
 - [ ] 6.6 Update `docs/configurator.md`. Verify: screenshots and text match the page.
 
-## 7. Hardware
-
-- [ ] 7.1 On the Pi with two CAN adapters (a second adapter is needed): two networks, one node on each, unplug one adapter and check the other keeps running, plug it back. Verify: log and online view as in the canopen-networks scenarios.
-- [ ] 7.2 On the Pi with the current single-network project: update plugin and tools, redeploy unchanged, check nothing regenerates and the online view works as before. Verify: log shows "unchanged, reusing".
-
 ## Workflow follow-up
 
-- Archive the change on the implementation branch once CI is green, before asking for the merge; open hardware tasks are listed in the PR.
+- Archive the change on the implementation branch once CI is green, before asking for the merge.
 - Bump the deploy tool version and note in the release notes that a v2 config needs the updated plugin.
