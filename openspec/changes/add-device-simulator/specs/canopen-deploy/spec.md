@@ -7,9 +7,13 @@ When a `simulation.json` lies next to the config, the deploy tool SHALL check it
 - **WHEN** a user deploys a project whose `canopen/` folder has `simulation.json` naming `data/temp.csv`
 - **THEN** the bundle has `conf/canopen/simulation.json` and the CSV, and the simulated devices use the CSV on the runtime
 
-### Requirement: Warning before uploading a simulated config
-When the config has `adapter.simulate: true`, the deploy tool SHALL say before uploading that the PLC will run on simulated devices and that no CAN interface will be used, and SHALL ask for confirmation unless `--yes` or `--simulated` is given. `--check-only` SHALL report it as a warning.
+### Requirement: Warning before uploading a config with simulated parts
+When the config has a simulated network or any simulated node, the deploy tool SHALL say before uploading what is simulated (the network and no CAN interface used, or the simulated node IDs on the real network), and SHALL ask for confirmation unless `--yes` or `--simulated` is given. `--check-only` SHALL report it as a warning.
 
 #### Scenario: Upload refused without confirmation
-- **WHEN** a user deploys a simulated config non-interactively without `--yes` or `--simulated`
+- **WHEN** a user deploys a config with a simulated network non-interactively without `--yes` or `--simulated`
 - **THEN** the deploy tool stops before uploading and says which option uploads it anyway
+
+#### Scenario: One simulated node
+- **WHEN** a user deploys interactively a config on `can0` with node 5 simulated
+- **THEN** the deploy tool says that node 5 will be a simulated device on the real network `can0` and asks before uploading
