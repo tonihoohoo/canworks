@@ -22,6 +22,7 @@ RTD = os.path.join(REPO, "config", "rtd-sensor")
 FIXTURE = os.path.join(REPO, "test", "fixtures", "editor-project")
 LINT = os.path.join(REPO, "test", "fixtures", "eds", "lint")
 DRIVES = os.path.join(REPO, "test", "fixtures", "eds", "drives")
+CIA402 = os.path.join(REPO, "config", "cia402-drive")
 
 
 def load(path):
@@ -524,6 +525,56 @@ class Page(unittest.TestCase):
             pg.click('details[data-advanced="node1"] > summary')
         self.assertEqual(pg.locator("[data-lss-warning]").count(), 1)
         self.assertTrue(pg.is_enabled('input[data-path="nodes[1].lss.assign"]'))
+
+    def test_cia402_axis(self):
+        pg = self.page
+        self.open_from_start("#start-project", self.project)
+        self.fill("adapter.interface", "can0")
+        self.add_node(os.path.join(CIA402, "servo402.eds"))
+        self.fill("nodes[0].node_id", "4")
+        self.fill("nodes[0].name", "drive")
+        box = 'input[data-path="nodes[0].axis"]'
+        self.assertEqual(pg.locator("button[data-map-cia402]").count(), 0)
+        pg.check(box)
+        self.assertEqual(pg.locator("[data-axis-status]").count(), 1)
+        self.assertEqual(pg.locator("[data-axis-profile]").count(), 0)  # device type 0x00020192
+        pg.click('button[data-map-cia402="nodes[0]"]')
+        pg.wait_for_selector('input[data-path="nodes[0].rx_pdos[3].entries[0].iec_location"]')
+        self.assertIn("0x6081 profile velocity (RPDO2", pg.inner_text("[data-axis-result]"))
+        self.assertEqual(pg.locator("[data-axis-status]").count(), 0)
+        self.fill("nodes[0].axis.scale_numerator", "10")
+        self.fill("nodes[0].axis.scale_factor", "2.5")
+        self.save()
+        node = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]
+        self.assertEqual(node["axis"], {"scale_numerator": 10, "scale_factor": 2.5})
+        self.assertEqual(node["status_location"], "%IX100.0")
+        example = load(os.path.join(CIA402, "canopen_config.json"))["nodes"][0]
+
+        def layout_of(n):
+            return {k: [(p["number"], [e["index"] for e in p["entries"]]) for p in n[k]] for k in ("tx_pdos", "rx_pdos")}
+        got, want = layout_of(node), layout_of(example)
+        # The example maps everything but the torques.
+        self.assertEqual(got["tx_pdos"][:3], want["tx_pdos"])
+        self.assertEqual(got["rx_pdos"][:3], want["rx_pdos"])
+        self.assertEqual((got["tx_pdos"][3], got["rx_pdos"][3]), ((4, ["0x6077"]), (4, ["0x6071"])))
+        # Mapping again adds nothing.
+        pg.click('button[data-map-cia402="nodes[0]"]')
+        pg.wait_for_selector("[data-axis-result]:has-text('Nothing new to map')")
+        # The declarations have the axis and its bridge call.
+        pg.click('button[data-view="declarations"]')
+        block = pg.input_value("textarea.block")
+        self.assertIn("drive        : AXIS_REF_SM3;", block)
+        self.assertIn("drive_bridge : SM_Drive_GenericDS402;", block)
+        self.assertIn("drive.iRatioTechUnitsNum := DINT#10;", block)
+        self.assertIn("drive.fScalefactor := LREAL#2.5;", block)
+        self.assertIn("bOnline := drive_ok", block)
+        # A device that is not a CiA 402 drive: the profile warning.
+        pg.click('#node-list li[data-node="0"]')
+        self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
+        pg.check('input[data-path="nodes[1].axis"]')
+        self.assertEqual(pg.locator("[data-axis-profile]").count(), 1)
+        pg.click('button[data-map-cia402="nodes[1]"]')
+        pg.wait_for_selector("[data-axis-result] li:has-text('0x6040 controlword: not in the EDS')")
 
     def test_pdo_timing_and_sdo_picker(self):
         pg = self.page

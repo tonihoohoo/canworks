@@ -78,12 +78,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache STruC++ (the editor's ST compiler, for the CiA 402 tests)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/openplc-canopen/strucpp
+          key: strucpp-${{ runner.os }}-${{ hashFiles('scripts/fetch-strucpp.sh') }}
+
+      - name: Fetch STruC++
+        id: strucpp
+        run: echo "cli=$(scripts/fetch-strucpp.sh)" >> "$GITHUB_OUTPUT"
+
       - uses: ./.github/actions/build-plugin
         with:
           kernel-modules: "false"
+          strucpp: ${{ steps.strucpp.outputs.cli }}
 
       - name: Unit and virtual-bus tests (one ctest test per simulation case, run in parallel)
+        env:
+          CANOPEN_REQUIRE_STRUCPP: "1"
         run: ctest --test-dir build --output-on-failure -j4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: CiA 402 ST tests (the generated axis glue and the demo program against a drive model)
+        run: |
+          python -m pip install -q jsonschema
+          test/cia402/run.sh --strucpp "${{ steps.strucpp.outputs.cli }}"
 
   vcan:
     # The plugin on vcan, split over two runners (each has its own vcan0).

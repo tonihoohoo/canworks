@@ -96,8 +96,9 @@ def check(cfg, err, warn):
             for pkey, j, k, e in hits:
                 at = "%s.%s[%d].entries[%d]" % (w, pkey, j, k)
                 if pkey != key:
-                    err(w, "%s: CiA 402 axis: 0x%04X (%s) must be mapped in an %s, not a %s"
-                        % (who, index, name, kind, "TPDO" if pkey == "tx_pdos" else "RPDO"), [at])
+                    err(w, "%s: CiA 402 axis: 0x%04X (%s) must be mapped in %s, not %s"
+                        % (who, index, name, "a TPDO" if kind == "TPDO" else "an RPDO",
+                           "a TPDO" if pkey == "tx_pdos" else "an RPDO"), [at])
                 elif e.get("type") != co_type:
                     err(w, "%s: CiA 402 axis: 0x%04X (%s) needs type %s (%s), not %s"
                         % (who, index, name, co_type, iec, e.get("type")), [at + ".type"])

@@ -30,11 +30,11 @@ For an axis node, the standard objects SHALL be found from its mapped PDO entrie
 - **THEN** the config is refused saying the axis needs the statusword 0x6041 in a TPDO
 
 ### Requirement: Types of the standard objects
-The config SHALL be refused, naming the node and object, when a mapped standard object's location has another IEC type than the bridge uses for it: UINT for 0x6040 and 0x6041, SINT for 0x6060 and 0x6061, DINT for 0x607A, 0x6064, 0x606C and 0x60FF, UDINT for 0x6081, INT for 0x6071 and 0x6077.
+The config SHALL be refused, naming the node and object, when a mapped standard object's entry has another type than the bridge pin needs: UNSIGNED16 (UINT) for 0x6040 and 0x6041, INTEGER8 (SINT) for 0x6060 and 0x6061, INTEGER32 (DINT) for 0x607A, 0x6064, 0x606C and 0x60FF, UNSIGNED32 (UDINT) for 0x6081, INTEGER16 (INT) for 0x6071 and 0x6077.
 
 #### Scenario: Wrong type
-- **WHEN** 0x6040 is mapped at `%QD100`
-- **THEN** the config is refused saying 0x6040 needs a UINT location (`%QW`)
+- **WHEN** 0x6040 is mapped with type INTEGER32 at `%QD100`
+- **THEN** the config is refused saying 0x6040 needs type UNSIGNED16 (UINT)
 
 ### Requirement: Axis needs the node status bit
 An axis node SHALL have a `status_location`. The config SHALL be refused without it, saying the axis uses the status bit to put the axis into error stop when the drive is lost.
