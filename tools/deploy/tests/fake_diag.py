@@ -1,5 +1,7 @@
 """A stand-in for the plugin's diagnostics channel (plugin/src/diag.cpp), for
-the CLI and configurator tests. Speaks protocol 1 on 127.0.0.1."""
+the CLI and configurator tests. Speaks protocol 1 on 127.0.0.1. With
+sim=FakeSim(...) (fake_sim.py) it simulates devices and answers the sim_
+requests; without, every sim_ request answers "nothing simulated"."""
 
 import base64
 import copy
@@ -43,8 +45,9 @@ SCAN_RESULT = [
 
 
 class FakePlugin:
-    def __init__(self, token=TOKEN, allow_changes=False, scan_polls=2):
+    def __init__(self, token=TOKEN, allow_changes=False, scan_polls=2, sim=None):
         self.token = token
+        self.sim = sim
         self.allow_changes = allow_changes
         self.status = status()
         self.objects = {(2, 0x1008, 0): b"pingpong", (2, 0x1018, 4): (305419896).to_bytes(4, "little"),
@@ -162,8 +165,18 @@ class FakePlugin:
             return self._trace(req, lambda r: {"ok": True, "result": r}, lambda w: {"ok": False, "error": w})
         ok = lambda result: {"ok": True, "result": result}  # noqa: E731
         err = lambda why: {"ok": False, "error": why}  # noqa: E731
+        if isinstance(op, str) and op.startswith("sim_"):
+            if self.sim is None:
+                return err("nothing simulated")
+            return self.sim.handle(req, allow_changes=self.allow_changes)
         if op == "status":
-            return ok(copy.deepcopy(self.status))
+            st = copy.deepcopy(self.status)
+            if self.sim is not None:
+                st["simulated_network"] = self.sim.simulated_network
+                simulated = {d["node"] for d in self.sim.devices if d["node"]}
+                for n in st["nodes"]:
+                    n["simulated"] = n["node_id"] in simulated
+            return ok(st)
         if op == "emcy":
             return ok({"node_id": req["node"], "emcy": self.emcy.get(req["node"], [])})
         if op in ("sdo_write", "nmt") and not self.allow_changes:
