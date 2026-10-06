@@ -35,16 +35,22 @@ def patched(base, patch):
     return cfg
 
 
-def load_cases():
-    with open(os.path.join(FIXTURES, "config", "cases.json"), encoding="utf-8") as f:
+def load_cases(name="cases.json"):
+    with open(os.path.join(FIXTURES, "config", name), encoding="utf-8") as f:
         return json.load(f)
 
 
 class SharedFixtures(unittest.TestCase):
     def test_cases(self):
-        doc = load_cases()
-        validator = jsonschema.Draft202012Validator(contract.schema())
-        self.assertGreater(len(doc["cases"]), 20)
+        self.run_cases(load_cases(), contract.schema(), 20)
+
+    def test_cases_v2(self):
+        # Several networks (test/fixtures/config/cases-v2.json).
+        self.run_cases(load_cases("cases-v2.json"), contract.schema(2), 15)
+
+    def run_cases(self, doc, schema, at_least):
+        validator = jsonschema.Draft202012Validator(schema)
+        self.assertGreater(len(doc["cases"]), at_least)
         for case in doc["cases"]:
             with self.subTest(case["name"]):
                 cfg = patched(doc["base"], case["patch"])
@@ -64,12 +70,12 @@ class SharedFixtures(unittest.TestCase):
 class Examples(unittest.TestCase):
     def test_schema_copy_matches(self):
         # The package ships a copy of schema/; it must not drift.
-        self.assertTrue(filecmp.cmp(os.path.join(REPO, "schema", "canopen.v1.schema.json"),
-                                    os.path.join(REPO, "tools", "deploy", "openplc_canopen_deploy", "schema",
-                                                 "canopen.v1.schema.json"), shallow=False))
+        for name in ("canopen.v1.schema.json", "canopen.v2.schema.json"):
+            self.assertTrue(filecmp.cmp(os.path.join(REPO, "schema", name),
+                                        os.path.join(REPO, "tools", "deploy", "openplc_canopen_deploy", "schema",
+                                                     name), shallow=False), name)
 
     def test_example_configs_validate(self):
-        validator = jsonschema.Draft202012Validator(contract.schema())
         found = 0
         for root, _, files in os.walk(os.path.join(REPO, "config")):
             for name in files:
@@ -77,6 +83,7 @@ class Examples(unittest.TestCase):
                     path = os.path.join(root, name)
                     with open(path, encoding="utf-8") as f:
                         cfg = json.load(f)
+                    validator = jsonschema.Draft202012Validator(contract.schema(contract.version_of(cfg)))
                     self.assertEqual(list(validator.iter_errors(cfg)), [], path)
                     r = contract.check_config(cfg, path)
                     self.assertTrue(r.ok, r.errors)

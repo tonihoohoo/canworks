@@ -2,7 +2,7 @@
 // does and drives it with a stand-in PLC scan, so the real plugin can be run
 // against a real SocketCAN bus without a compiled PLC program.
 //
-//   canopen_host <libcanopen_plugin.so> <canopen_config.json> [seconds] [pingpong|rtd|bus|fixed]
+//   canopen_host <libcanopen_plugin.so> <canopen_config.json> [seconds] [pingpong|rtd|bus|fixed|two]
 //
 // The scan runs every 10 ms. Once a second it prints the inputs and the node
 // status bit %IX10.0.
@@ -16,6 +16,11 @@
 // starter program's alarm `%QX100.0 := AI0 > 25.0 degC`. Exits 0 if the
 // status bit is TRUE at the end and, during the last half of the run, every
 // temperature stayed in its simulated range and AI0 changed; 1 otherwise.
+//
+// two: two networks (config/two-networks), one ping-pong node on each;
+// computes `%QD100 := %ID100 + 1` and `%QD101 := %ID101 + 1`. Exits 0 if both
+// status bits %IX10.0 and %IX10.1 are TRUE at the end and both counters rose
+// by at least 5 during the last half of the run.
 //
 // fixed: the fixed-mapping I/O module of test/fixed/run.sh; computes
 // `%QB40 := %IB40`. Exits 0 if the status bit is TRUE at the end and, during
@@ -74,9 +79,10 @@ int main(int argc, char** argv) {
   // went 1 -> 0 -> 1 (test/bus/run.sh takes the interface down and up).
   const bool bus = argc > 4 && std::strcmp(argv[4], "bus") == 0;
   const bool fixed = argc > 4 && std::strcmp(argv[4], "fixed") == 0;
+  const bool two = argc > 4 && std::strcmp(argv[4], "two") == 0;
   bool fixed_in_range = true, fixed_moved = false;
   uint8_t fixed_first = 0;
-  if (argc > 4 && !rtd && !bus && !fixed && std::strcmp(argv[4], "pingpong") != 0) {
+  if (argc > 4 && !rtd && !bus && !fixed && !two && std::strcmp(argv[4], "pingpong") != 0) {
     std::fprintf(stderr, "canopen_host: unknown program '%s'\n", argv[4]);
     return 2;
   }
@@ -126,7 +132,7 @@ int main(int argc, char** argv) {
   auto next_print = t0 + std::chrono::seconds(1);
   const auto half = t0 + std::chrono::milliseconds(seconds * 500);
   bool have_mid = false;
-  IEC_UDINT mid = 0;
+  IEC_UDINT mid = 0, mid2 = 0;
   std::string bus_states;  // distinct successive values of %IB110
   int last_bus = -1;
 
@@ -139,6 +145,7 @@ int main(int argc, char** argv) {
       img->byte_out[40] = img->byte_in[40];  // %QB40 := %IB40
     else
       img->dint_out[100] = img->dint_in[100] + 1;  // %QD100 := %ID100 + 1
+    if (two) img->dint_out[101] = img->dint_in[101] + 1;  // %QD101 := %ID101 + 1
     cycle_end();
 
     if (bus && img->byte_in[110] != last_bus) {
@@ -150,6 +157,7 @@ int main(int argc, char** argv) {
     }
     if (!have_mid && clock::now() >= half) {
       mid = img->dint_in[100];
+      mid2 = img->dint_in[101];
       rtd_first = ai(0);
       fixed_first = img->byte_in[40];
       have_mid = true;
@@ -170,6 +178,9 @@ int main(int argc, char** argv) {
       else if (rtd)
         std::printf("t=%2lds  AI0..AI3=%.1f %.1f %.1f %.1f degC  alarm=%d  %%IX10.0=%d\n", t, ai(0) / 10.0,
                     ai(1) / 10.0, ai(2) / 10.0, ai(3) / 10.0, img->bool_out[100][0], img->bool_in[10][0]);
+      else if (two)
+        std::printf("t=%2lds  %%ID100=%u  %%IX10.0=%d  %%ID101=%u  %%IX10.1=%d\n", t, (unsigned)img->dint_in[100],
+                    img->bool_in[10][0], (unsigned)img->dint_in[101], img->bool_in[10][1]);
       else
         std::printf("t=%2lds  %%ID100=%u  %%IX10.0=%d\n", t, (unsigned)img->dint_in[100], img->bool_in[10][0]);
       std::fflush(stdout);
@@ -179,8 +190,8 @@ int main(int argc, char** argv) {
     std::this_thread::sleep_until(next);
   }
 
-  const IEC_UDINT last = img->dint_in[100];
-  const bool up = img->bool_in[10][0] != 0;
+  const IEC_UDINT last = img->dint_in[100], last2 = img->dint_in[101];
+  const bool up = img->bool_in[10][0] != 0, up2 = img->bool_in[10][1] != 0;
   stop_loop();
   cleanup();
   dlclose(h);
@@ -201,6 +212,13 @@ int main(int argc, char** argv) {
     std::printf("%s: status bit %s, temperatures %s their simulated ranges, AI0 %s, alarm %s\n",
                 ok ? "PASS" : "FAIL", up ? "TRUE" : "FALSE", rtd_in_range ? "stayed in" : "left",
                 rtd_moved ? "changed" : "did not change", rtd_alarm_seen ? "seen" : "not seen");
+    return ok ? 0 : 1;
+  }
+  if (two) {
+    const bool ok = up && up2 && have_mid && last >= mid + 5 && last2 >= mid2 + 5;
+    std::printf("%s: status bits %s/%s, %%ID100 went from %u to %u and %%ID101 from %u to %u in the last half\n",
+                ok ? "PASS" : "FAIL", up ? "TRUE" : "FALSE", up2 ? "TRUE" : "FALSE", (unsigned)mid, (unsigned)last,
+                (unsigned)mid2, (unsigned)last2);
     return ok ? 0 : 1;
   }
   const bool ok = up && have_mid && last >= mid + 5;

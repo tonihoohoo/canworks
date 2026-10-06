@@ -527,7 +527,7 @@ std::pair<uint32_t, uint32_t> config_stamp(const std::vector<SdoWrite>& sdos, un
 bool generate_device_config(const Config& cfg, const std::string& dcfgen, GeneratedConfig& out,
                             std::vector<std::string>& errors) {
   out = GeneratedConfig();
-  out.work_dir = cfg.config_dir + "/.canopen";
+  out.work_dir = cfg.work_dir.empty() ? cfg.config_dir + "/.canopen" : cfg.work_dir;
   out.master_dcf = out.work_dir + "/master.dcf";
   if (!mkdir_p(out.work_dir)) {
     errors.push_back("cannot create " + out.work_dir + ": " + std::strerror(errno));

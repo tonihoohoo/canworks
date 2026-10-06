@@ -56,6 +56,7 @@ bool Bus::wait_for(std::chrono::milliseconds d) {
 
 void Bus::thread_main() {
   pthread_setname_np(pthread_self(), "canopen_bus");
+  set_thread_log_prefix(cfg_.log_prefix.empty() ? "" : cfg_.log_prefix + ": ");
   const char* name = cfg_.adapter.interface.c_str();
   AdapterState last = AdapterState::Ready;
   std::string last_problem;

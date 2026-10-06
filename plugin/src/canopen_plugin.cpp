@@ -47,13 +47,19 @@ namespace {
 plugin_runtime_args_t g_rt;  // copied by value: the runtime frees args after init()
 bool g_have_rt = false;
 
-struct PluginState {
-  Config cfg;
+// One CANopen network: its generated configuration, image, diagnostics hub
+// and bus thread. Bus keeps references into the ConfigSet and into this.
+struct NetworkState {
   GeneratedConfig gen;
   ProcessImage image;
-  std::unique_ptr<DiagHub> hub;  // with master.diagnostics only
-  std::unique_ptr<DiagServer> server;
+  std::unique_ptr<DiagHub> hub;  // with diagnostics only
   std::unique_ptr<Bus> bus;
+};
+
+struct PluginState {
+  ConfigSet set;
+  std::vector<std::unique_ptr<NetworkState>> nets;
+  std::unique_ptr<DiagServer> server;
 };
 
 std::unique_ptr<PluginState> g_state;
@@ -71,12 +77,20 @@ void runtime_sink(LogLevel level, const char* msg) {
   if (f) f("%s", msg);
 }
 
+void stop_all() {
+  if (!g_state) return;
+  if (g_state->server) g_state->server->stop();
+  for (auto& n : g_state->nets)
+    if (n->bus) n->bus->stop();
+}
+
 void teardown() {
   g_exchange.store(false, std::memory_order_release);
-  if (g_state && g_state->server) g_state->server->stop();
-  if (g_state && g_state->bus) g_state->bus->stop();
+  stop_all();
   g_state.reset();
 }
+
+std::string prefix_of(const Config& cfg) { return cfg.log_prefix.empty() ? "" : cfg.log_prefix + ": "; }
 
 // Loads the config, checks it and generates the device configuration. Sets
 // g_state on success; logs why not otherwise.
@@ -100,51 +114,68 @@ void prepare() {
   limits.buffer_size = g_rt.buffer_size > 0 ? static_cast<unsigned>(g_rt.buffer_size) : 1024;
 
   std::vector<std::string> errors;
-  bool loaded = load_config(path, limits, st->cfg, errors);
-  for (const auto& w : st->cfg.warnings) log_warn("%s", w.c_str());
-  for (const auto& m : st->cfg.notes) log_info("%s", m.c_str());
-  if (loaded)
-    for (const auto& n : st->cfg.nodes) log_info("%s: EDS %s", n.label().c_str(), n.eds_path.c_str());
-  size_t warned = st->cfg.warnings.size(), noted = st->cfg.notes.size();
-  // dcfgen's EDS lint and the prepared copies, then the EDS checks on them.
-  bool checked = loaded &&
-                 run_eds_lint(st->cfg, default_edslint_python(), st->cfg.config_dir + "/.canopen", errors) &&
-                 check_eds_files(st->cfg, errors);
-  // What the lint and the EDS checks settled (prepared copies, accepted
-  // findings, device mappings, kept PDOs).
-  for (size_t i = warned; i < st->cfg.warnings.size(); ++i) log_warn("%s", st->cfg.warnings[i].c_str());
-  for (size_t i = noted; i < st->cfg.notes.size(); ++i) log_info("%s", st->cfg.notes[i].c_str());
+  bool loaded = load_config_set(path, limits, st->set, errors);
+  for (const auto& w : st->set.warnings) log_warn("%s", w.c_str());
+  for (const auto& m : st->set.notes) log_info("%s", m.c_str());
+  // Every network is checked before any interface opens: an error in any of
+  // them leaves CANopen inactive (canopen-networks spec).
+  bool checked = loaded;
+  for (auto& cfg : st->set.networks) {
+    ScopedLogPrefix prefix(prefix_of(cfg));
+    for (const auto& w : cfg.warnings) log_warn("%s", w.c_str());
+    for (const auto& m : cfg.notes) log_info("%s", m.c_str());
+    if (!loaded) continue;
+    for (const auto& n : cfg.nodes) log_info("%s: EDS %s", n.label().c_str(), n.eds_path.c_str());
+    size_t warned = cfg.warnings.size(), noted = cfg.notes.size(), failed = errors.size();
+    // dcfgen's EDS lint and the prepared copies, then the EDS checks on them.
+    bool ok = run_eds_lint(cfg, default_edslint_python(), cfg.work_dir, errors) && check_eds_files(cfg, errors);
+    // What the lint and the EDS checks settled (prepared copies, accepted
+    // findings, device mappings, kept PDOs).
+    for (size_t i = warned; i < cfg.warnings.size(); ++i) log_warn("%s", cfg.warnings[i].c_str());
+    for (size_t i = noted; i < cfg.notes.size(); ++i) log_info("%s", cfg.notes[i].c_str());
+    for (size_t i = failed; i < errors.size(); ++i) errors[i] = prefix_of(cfg) + errors[i];
+    checked = checked && ok;
+  }
   if (!checked) {
     for (const auto& e : errors) log_error("%s", e.c_str());
     log_error("configuration rejected (%zu problem%s); CANopen inactive, CAN interface not opened",
               errors.size(), errors.size() == 1 ? "" : "s");
     return;
   }
-  log_info("loaded %s: %s adapter %s, %u bit/s, master node ID %u, %zu slave%s", path.c_str(),
-           st->cfg.adapter.type.c_str(), st->cfg.adapter.interface.c_str(), st->cfg.adapter.bitrate,
-           st->cfg.master.node_id, st->cfg.nodes.size(),
-           st->cfg.nodes.size() == 1 ? "" : "s");
-  if (st->cfg.master.sync_period_us)
-    log_info("SYNC every %u us", st->cfg.master.sync_period_us);
-  else
-    log_info("no SYNC period: the master produces no SYNC and sends outputs when they change");
-
-  if (!generate_device_config(st->cfg, default_dcfgen(), st->gen, errors)) {
-    for (const auto& e : errors) log_error("%s", e.c_str());
-    log_error("could not generate the device configuration; CANopen inactive, CAN interface not opened");
-    return;
+  for (auto& cfg : st->set.networks) {
+    ScopedLogPrefix prefix(prefix_of(cfg));
+    log_info("loaded %s: %s adapter %s, %u bit/s, master node ID %u, %zu slave%s", path.c_str(),
+             cfg.adapter.type.c_str(), cfg.adapter.interface.c_str(), cfg.adapter.bitrate, cfg.master.node_id,
+             cfg.nodes.size(), cfg.nodes.size() == 1 ? "" : "s");
+    if (cfg.master.sync_period_us)
+      log_info("SYNC every %u us", cfg.master.sync_period_us);
+    else
+      log_info("no SYNC period: the master produces no SYNC and sends outputs when they change");
   }
-  log_info("device configuration %s in %s", st->gen.reused ? "unchanged, reusing" : "generated",
-           st->gen.work_dir.c_str());
 
-  st->image.build(st->cfg);
-  if (st->cfg.master.has_diagnostics) {
-    st->hub.reset(new DiagHub(st->cfg, CANOPEN_PLUGIN_VERSION));
-    st->server.reset(new DiagServer(*st->hub));
+  for (auto& cfg : st->set.networks) {
+    ScopedLogPrefix prefix(prefix_of(cfg));
+    std::unique_ptr<NetworkState> net(new NetworkState);
+    size_t failed = errors.size();
+    if (!generate_device_config(cfg, default_dcfgen(), net->gen, errors)) {
+      for (size_t i = failed; i < errors.size(); ++i) log_error("%s", errors[i].c_str());
+      log_error("could not generate the device configuration; CANopen inactive, CAN interface not opened");
+      return;
+    }
+    log_info("device configuration %s in %s", net->gen.reused ? "unchanged, reusing" : "generated",
+             net->gen.work_dir.c_str());
+    net->image.build(cfg);
+    if (cfg.master.has_diagnostics) net->hub.reset(new DiagHub(cfg, CANOPEN_PLUGIN_VERSION));
+    net->bus.reset(new Bus(cfg, net->gen, net->image, net->hub.get()));
+    log_info("%zu input and %zu output PDO entries bound to the PLC image", net->image.inputs().size(),
+             net->image.outputs().size());
+    st->nets.push_back(std::move(net));
   }
-  st->bus.reset(new Bus(st->cfg, st->gen, st->image, st->hub.get()));
-  log_info("%zu input and %zu output PDO entries bound to the PLC image", st->image.inputs().size(),
-           st->image.outputs().size());
+  if (st->set.networks[0].master.has_diagnostics) {
+    std::vector<DiagHub*> hubs;
+    for (auto& n : st->nets) hubs.push_back(n->hub.get());
+    st->server.reset(new DiagServer(hubs));
+  }
   g_state = std::move(st);
 }
 
@@ -169,7 +200,7 @@ PLUGIN_API int start_loop(void) {
   teardown();
   prepare();
   if (!g_state) return -1;
-  g_state->bus->start();
+  for (auto& n : g_state->nets) n->bus->start();
   if (g_state->server) g_state->server->start();
   g_exchange.store(true, std::memory_order_release);
   return 0;
@@ -177,8 +208,7 @@ PLUGIN_API int start_loop(void) {
 
 PLUGIN_API void stop_loop(void) {
   g_exchange.store(false, std::memory_order_release);
-  if (g_state && g_state->server) g_state->server->stop();
-  if (g_state && g_state->bus) g_state->bus->stop();
+  stop_all();
 }
 
 PLUGIN_API void cleanup(void) {
@@ -189,12 +219,12 @@ PLUGIN_API void cleanup(void) {
 
 PLUGIN_API void cycle_start(void) {
   if (!g_exchange.load(std::memory_order_acquire)) return;
-  g_state->image.copy_to_plc(g_rt);
+  for (auto& n : g_state->nets) n->image.copy_to_plc(g_rt);
 }
 
 PLUGIN_API void cycle_end(void) {
   if (!g_exchange.load(std::memory_order_acquire)) return;
-  g_state->image.copy_from_plc(g_rt);
+  for (auto& n : g_state->nets) n->image.copy_from_plc(g_rt);
 }
 
 }  // extern "C"

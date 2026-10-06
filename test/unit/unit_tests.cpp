@@ -593,8 +593,8 @@ TEST(contract_version_omitted) {
 TEST(contract_version_from_the_future) {
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(!parse(replace(kValid, "\"schema_version\": 1", "\"schema_version\": 2"), cfg, errors));
-  CHECK_MSG(has_error(errors, "schema_version 2 is not supported; the highest supported version is 1"), join(errors));
+  CHECK(!parse(replace(kValid, "\"schema_version\": 1", "\"schema_version\": 3"), cfg, errors));
+  CHECK_MSG(has_error(errors, "schema_version 3 is not supported; the highest supported version is 2"), join(errors));
   CHECK(errors.size() == 1);
 }
 
@@ -846,26 +846,33 @@ std::vector<std::string> strings(const cJSON* obj, const char* key) {
   return out;
 }
 
-TEST(shared_fixtures) {
+// Runs one fixture file; returns the number of cases.
+int run_fixture_file(const std::string& file) {
   std::string fixtures = FIXTURES_DIR;
-  cJSON* doc = cJSON_Parse(read(fixtures + "/config/cases.json").c_str());
-  CHECK(doc != nullptr);
-  if (!doc) return;
+  cJSON* doc = cJSON_Parse(read(fixtures + "/config/" + file).c_str());
+  CHECK_MSG(doc != nullptr, file);
+  if (!doc) return 0;
   const cJSON* base = cJSON_GetObjectItemCaseSensitive(doc, "base");
   const cJSON* c;
   int count = 0;
   set_log_sink(silent);
-  std::string lint_dir = tmpdir();  // the prepared EDS copies
   cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(doc, "cases")) {
     std::string name = cJSON_GetObjectItemCaseSensitive(c, "name")->valuestring;
     cJSON* cfg_json = cJSON_Duplicate(base, true);
     const cJSON* op;
     cJSON_ArrayForEach(op, cJSON_GetObjectItemCaseSensitive(c, "patch")) apply_patch(cfg_json, op);
     char* text = cJSON_Print(cfg_json);
-    Config cfg;
+    ConfigSet set;
     std::vector<std::string> errors;
-    bool ok = parse_config(text, fixtures + "/eds/canopen.json", ImageLimits(), cfg, errors, "/nonexistent") &&
-              run_eds_lint(cfg, default_edslint_python(), lint_dir, errors) && check_eds_files(cfg, errors);
+    bool ok = parse_config_set(text, fixtures + "/eds/canopen.json", ImageLimits(), set, errors, "/nonexistent");
+    std::vector<std::string> warnings = set.warnings;
+    for (auto& cfg : set.networks) {
+      if (ok) {
+        std::string lint_dir = tmpdir();  // the prepared EDS copies
+        ok = run_eds_lint(cfg, default_edslint_python(), lint_dir, errors) && check_eds_files(cfg, errors);
+      }
+      warnings.insert(warnings.end(), cfg.warnings.begin(), cfg.warnings.end());
+    }
     std::free(text);
     cJSON_Delete(cfg_json);
     bool want = std::string(cJSON_GetObjectItemCaseSensitive(c, "verdict")->valuestring) == "accept";
@@ -876,13 +883,17 @@ TEST(shared_fixtures) {
     }
     for (const char* key : {"messages", "plugin_messages"})
       for (const auto& m : strings(c, key)) CHECK_MSG(has_error(errors, m), name + ": " + m + join(errors));
-    for (const auto& m : strings(c, "warnings")) CHECK_MSG(has_warning(cfg, m), name + ": " + m + join(cfg.warnings));
+    for (const auto& m : strings(c, "warnings")) CHECK_MSG(has_error(warnings, m), name + ": " + m + join(warnings));
     ++count;
   }
   set_log_sink(nullptr);
   cJSON_Delete(doc);
-  CHECK(count > 20);
+  return count;
 }
+
+TEST(shared_fixtures) { CHECK(run_fixture_file("cases.json") > 20); }
+
+TEST(shared_fixtures_v2) { CHECK(run_fixture_file("cases-v2.json") > 15); }
 
 // ---------------------------------------------------------------------------
 // SocketCAN link setup on a mocked rtnetlink layer (canopen-master-bringup)
@@ -3081,3 +3092,148 @@ TEST(runtime_version_guard) {
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }
+
+// ---------------------------------------------------------------------------
+// Several networks (canopen-networks spec)
+
+namespace {
+
+std::string two_networks_json(const std::string& diagnostics = "") {
+  std::string d = diagnostics.empty() ? "" : "\"diagnostics\": " + diagnostics + ",";
+  return R"({ "schema_version": 2, )" + d + R"( "networks": [
+    { "name": "io", "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
+      "master": { "node_id": 1, "sync_period_us": 10000 },
+      "nodes": [ { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 500,
+        "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] } ],
+        "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD100" } ] } ] } ] },
+    { "adapter": { "type": "socketcan", "interface": "vcan1", "bitrate": 500000 },
+      "master": { "node_id": 3, "sync_period_us": 10000 },
+      "nodes": [ { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 500,
+        "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID101" } ] } ],
+        "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD101" } ] } ] } ] }
+  ] })";
+}
+
+}  // namespace
+
+TEST(config_v2_networks) {
+  std::string path = std::string(PINGPONG_DIR) + "/canopen_config.json";
+  std::string h = sha256_hex("secret");
+  std::string json = two_networks_json("{ \"token_sha256\": \"" + h + "\", \"port\": 9000 }");
+  ConfigSet set;
+  std::vector<std::string> errors;
+  CHECK_MSG(parse_config_set(json, path, ImageLimits(), set, errors), join(errors));
+  CHECK(set.schema_version == 2 && set.networks.size() == 2 && set.several());
+  if (set.networks.size() != 2) return;
+  const Config& io = set.networks[0];
+  const Config& drives = set.networks[1];
+  CHECK(io.network == "io" && io.network_index == 0 && io.log_prefix == "io");
+  // Without a name, the network is named after its interface.
+  CHECK(drives.network == "vcan1" && drives.network_index == 1 && drives.log_prefix == "vcan1");
+  CHECK(io.work_dir == std::string(PINGPONG_DIR) + "/.canopen/io");
+  CHECK(drives.work_dir == std::string(PINGPONG_DIR) + "/.canopen/vcan1");
+  CHECK(io.master.node_id == 1 && drives.master.node_id == 3 && drives.adapter.bitrate == 500000);
+  // The one diagnostics object reaches every network's master.
+  for (const auto& cfg : set.networks)
+    CHECK(cfg.master.has_diagnostics && cfg.master.diag_token_sha256 == h && cfg.master.diag_port == 9000);
+  CHECK(io.file_sha256 == sha256_hex(json) && set.file_sha256 == io.file_sha256);
+
+  // The one-network form refuses a file with two.
+  Config one;
+  errors.clear();
+  CHECK(!parse_config(json, path, ImageLimits(), one, errors));
+  CHECK_MSG(has_error(errors, "holds 2 networks; this tool takes a file with one"), join(errors));
+
+  // A version 1 file: one unnamed network, no log prefix, .canopen as before.
+  errors.clear();
+  ConfigSet v1;
+  CHECK(parse_config_set(kValid, path, ImageLimits(), v1, errors));
+  CHECK(v1.networks.size() == 1 && v1.networks[0].network.empty() && v1.networks[0].log_prefix.empty());
+  CHECK(v1.networks[0].work_dir == std::string(PINGPONG_DIR) + "/.canopen");
+}
+
+TEST(config_v2_single_network_has_no_prefix) {
+  std::string json = R"({ "schema_version": 2, "networks": [
+    { "name": "plant", "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
+      "master": { "node_id": 1 },
+      "nodes": [ { "node_id": 2, "eds": "cpp-slave.eds" } ] } ] })";
+  ConfigSet set;
+  std::vector<std::string> errors;
+  CHECK_MSG(parse_config_set(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors), join(errors));
+  CHECK(set.networks.size() == 1 && set.networks[0].network == "plant" && set.networks[0].log_prefix.empty());
+  CHECK(set.networks[0].work_dir == std::string(PINGPONG_DIR) + "/.canopen/plant");
+  Config cfg;
+  CHECK(parse_config(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), cfg, errors));
+}
+
+TEST(log_prefix_per_thread) {
+  {
+    std::lock_guard<std::mutex> lock(g_diag_log_mutex);
+    g_diag_log.clear();
+  }
+  set_log_sink(diag_capture);
+  {
+    ScopedLogPrefix p("drives: ");
+    log_info("node 10 (valve) lost");
+    std::thread([] { log_info("other thread"); }).join();
+  }
+  log_info("after");
+  set_log_sink(nullptr);
+  CHECK(diag_log_count("[CANOPEN] drives: node 10 (valve) lost") == 1);
+  CHECK(diag_log_count("[CANOPEN] other thread") == 1);
+  CHECK(diag_log_count("[CANOPEN] after") == 1);
+}
+
+TEST(diag_server_two_networks) {
+  set_log_sink(diag_capture);
+  ConfigSet set;
+  std::vector<std::string> errors;
+  CHECK(parse_config_set(two_networks_json("{ \"token_sha256\": \"" + sha256_hex("secret") +
+                                           "\", \"port\": 1024, \"bind\": \"127.0.0.1\" }"),
+                         std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors));
+  if (set.networks.size() != 2) return;
+  for (auto& cfg : set.networks) cfg.master.diag_port = 0;  // any free port
+  DiagHub io(set.networks[0], "test"), drives(set.networks[1], "test");
+  DiagServer server(std::vector<DiagHub*>{&io, &drives});
+  std::atomic<bool> present{true};
+  std::atomic<int> opens0{0}, opens1{0};
+  std::vector<TraceFilter> f0, f1;
+  server.set_trace_source(std::unique_ptr<TraceSource>(new FakeTraceSource(&present, &opens0, &f0)), 0);
+  server.set_trace_source(std::unique_ptr<TraceSource>(new FakeTraceSource(&present, &opens1, &f1)), 1);
+  server.start();
+  CHECK(wait_port(server));
+  DiagClient c(server.port());
+  std::string hello = c.ask(R"({"op":"hello","token":"secret"})");
+  CHECK_MSG(hello.find(R"("protocol":1)") != std::string::npos &&
+                hello.find(R"("networks":[{"name":"io","interface":"vcan0","bitrate":125000,"master_node_id":1},)"
+                           R"({"name":"vcan1","interface":"vcan1","bitrate":500000,"master_node_id":3}])") !=
+                    std::string::npos,
+            hello);
+  std::string st = c.ask(R"({"op":"status"})");
+  CHECK_MSG(st.find("network required (io, vcan1)") != std::string::npos, st);
+  st = c.ask(R"({"op":"status","network":"bus9"})");
+  CHECK_MSG(st.find("unknown network 'bus9' (io, vcan1)") != std::string::npos, st);
+  st = c.ask(R"({"op":"status","network":"vcan1"})");
+  CHECK_MSG(st.find(R"("network":"vcan1")") != std::string::npos && st.find(R"("session":false)") != std::string::npos &&
+                st.find(R"("node_id":3)") != std::string::npos,
+            st);
+  // The master check uses the picked network's master node ID.
+  CHECK(c.ask(R"({"op":"sdo_read","network":"vcan1","node":3,"index":4096,"subindex":0})").find("is the master itself") !=
+        std::string::npos);
+  CHECK(c.ask(R"({"op":"sdo_read","network":"io","node":3,"index":4096,"subindex":0})").find("no bus") !=
+        std::string::npos);
+  // One network has a session, the other not.
+  drives.attach();
+  st = c.ask(R"({"op":"trace_start","network":"io"})");
+  CHECK_MSG(st.find("no bus") != std::string::npos, st);
+  st = c.ask(R"({"op":"trace_start","network":"vcan1"})");
+  CHECK_MSG(st.find(R"("interface":"vcan1")") != std::string::npos && st.find(R"("network":"vcan1")") != std::string::npos,
+            st);
+  CHECK(opens0 == 0 && opens1 == 1);
+  CHECK(c.ask(R"({"op":"trace_fetch","network":"io","after":0})").find("no trace running") != std::string::npos);
+  CHECK(c.ask(R"({"op":"trace_fetch","network":"vcan1","after":0})").find(R"("ok":true)") != std::string::npos);
+  CHECK(c.ask(R"({"op":"trace_stop","network":"vcan1"})").find(R"("ok":true)") != std::string::npos);
+  drives.detach();
+  server.stop();
+  set_log_sink(nullptr);
+}

@@ -1,0 +1,110 @@
+{
+  "comment": [
+    "Shared schema_version 2 fixtures (several networks), in the same form as cases.json and run by the same",
+    "tests in the plugin (test/unit) and the deploy tool (tools/deploy/tests)."
+  ],
+  "base": {
+    "schema_version": 2,
+    "networks": [
+      {
+        "name": "io",
+        "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
+        "master": { "node_id": 1, "sync_period_us": 100000 },
+        "nodes": [
+          {
+            "node_id": 2,
+            "name": "pingpong",
+            "eds": "cpp-slave.eds",
+            "heartbeat_ms": 100,
+            "status_location": "%IX10.0",
+            "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] } ],
+            "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD100" } ] } ]
+          }
+        ]
+      },
+      {
+        "name": "drives",
+        "adapter": { "type": "socketcan", "interface": "vcan1", "bitrate": 500000 },
+        "master": { "node_id": 1, "sync_period_us": 100000 },
+        "nodes": [
+          {
+            "node_id": 2,
+            "name": "pingpong",
+            "eds": "cpp-slave.eds",
+            "heartbeat_ms": 100,
+            "status_location": "%IX10.1",
+            "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID101" } ] } ],
+            "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD101" } ] } ]
+          }
+        ]
+      }
+    ]
+  },
+  "cases": [
+    { "name": "v2: two networks, same node ID and COB-IDs on both", "patch": [], "schema": "valid", "verdict": "accept" },
+    { "name": "v2: one network without a name", "patch": [ ["delete", "networks/1"], ["delete", "networks/0/name"] ],
+      "schema": "valid", "verdict": "accept" },
+    { "name": "v2: no networks", "patch": [ ["set", "networks", []] ],
+      "schema": "invalid", "verdict": "reject", "messages": [ "field 'networks' lists no networks" ] },
+    { "name": "v2: too many networks",
+      "patch": [ ["set", "networks/2", { "name": "n2", "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
+                 ["set", "networks/3", { "name": "n3", "adapter": { "type": "socketcan", "interface": "vcan3", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
+                 ["set", "networks/4", { "name": "n4", "adapter": { "type": "socketcan", "interface": "vcan4", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
+                 ["set", "networks/5", { "name": "n5", "adapter": { "type": "socketcan", "interface": "vcan5", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
+                 ["set", "networks/6", { "name": "n6", "adapter": { "type": "socketcan", "interface": "vcan6", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
+                 ["set", "networks/7", { "name": "n7", "adapter": { "type": "socketcan", "interface": "vcan7", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
+                 ["set", "networks/8", { "name": "n8", "adapter": { "type": "socketcan", "interface": "vcan8", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
+                 ["set", "diagnostics", { "token_sha256": "0000000000000000000000000000000000000000000000000000000000000000" }] ],
+      "schema": "invalid", "verdict": "reject", "messages": [ "field 'networks' lists 9 networks; at most 8 are supported" ] },
+    { "name": "v2: duplicate names ignoring case", "patch": [ ["set", "networks/1/name", "IO"] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "networks[0] and networks[1] are both named \"IO\" (names must differ, ignoring case)" ] },
+    { "name": "v2: name not usable", "patch": [ ["set", "networks/1/name", "1st-bus"] ],
+      "schema": "invalid", "verdict": "reject",
+      "messages": [ "network name \"1st-bus\" must start with a letter and hold only letters, digits and '_', at most 16 characters" ] },
+    { "name": "v2: interface without a usable name",
+      "patch": [ ["delete", "networks/1/name"], ["set", "networks/1/adapter/interface", "can-x.1"] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "networks[1]: interface \"can-x.1\" is not usable as a network name; give the network a 'name'" ] },
+    { "name": "v2: name defaults to the interface",
+      "patch": [ ["delete", "networks/0/name"], ["delete", "networks/1/name"] ],
+      "schema": "valid", "verdict": "accept" },
+    { "name": "v2: same interface twice", "patch": [ ["set", "networks/1/adapter/interface", "vcan0"] ],
+      "schema": "valid", "verdict": "reject", "messages": [ "networks[0] and networks[1] both use interface vcan0" ] },
+    { "name": "v2: same serial device twice",
+      "patch": [ ["set", "networks/0/adapter", { "type": "slcan", "device": "/dev/ttyACM0", "interface": "slcan0", "bitrate": 125000 }],
+                 ["set", "networks/1/adapter", { "type": "slcan", "device": "/dev/ttyACM0", "interface": "slcan1", "bitrate": 500000 }] ],
+      "schema": "valid", "verdict": "reject", "messages": [ "networks[0] and networks[1] both use serial device /dev/ttyACM0" ] },
+    { "name": "v2: location clash between networks",
+      "patch": [ ["set", "networks/1/nodes/0/tx_pdos/0/entries/0/iec_location", "%ID100"] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "networks[0] (io) node 2 (pingpong) TPDO 1 object 0x4001:0 and networks[1] (drives) node 2 (pingpong) TPDO 1 object 0x4001:0 both map to %ID100" ] },
+    { "name": "v2: duplicate node ID inside one network",
+      "patch": [ ["set", "networks/1/nodes/1", { "node_id": 2, "eds": "cpp-slave.eds" }] ],
+      "schema": "valid", "verdict": "reject", "messages": [ "networks[1]: nodes: node ID 2 is used by more than one slave" ] },
+    { "name": "v2: version 1 keys at the top level", "patch": [ ["set", "nodes", []] ],
+      "schema": "invalid", "verdict": "reject", "messages": [ "field 'nodes' belongs in networks[].nodes in schema_version 2" ] },
+    { "name": "v2: diagnostics inside a network",
+      "patch": [ ["set", "networks/0/master/diagnostics", { "token_sha256": "0000000000000000000000000000000000000000000000000000000000000000" }] ],
+      "schema": "invalid", "verdict": "reject",
+      "messages": [ "networks[0]: master: field 'diagnostics' is a top-level object in schema_version 2, not part of a network's master" ] },
+    { "name": "v2: top-level diagnostics and a scan-only network",
+      "patch": [ ["set", "networks/1/nodes", []],
+                 ["set", "diagnostics", { "token_sha256": "0000000000000000000000000000000000000000000000000000000000000000" }] ],
+      "schema": "valid", "verdict": "accept" },
+    { "name": "v2: empty node list without diagnostics", "patch": [ ["set", "networks/1/nodes", []] ],
+      "schema": "invalid", "verdict": "reject",
+      "messages": [ "networks[1]: field 'nodes' lists no slave nodes (an empty list needs a top-level 'diagnostics', for a scan-only configuration)" ] },
+    { "name": "v2: interface and bitrate inside a network",
+      "patch": [ ["set", "networks/1/interface", "vcan1"] ],
+      "schema": "invalid", "verdict": "reject",
+      "messages": [ "networks[1]: field 'interface' belongs in 'adapter' in schema_version 2" ] },
+    { "name": "v2: unknown field in a network", "patch": [ ["set", "networks/1/colour", "blue"] ],
+      "schema": "valid", "verdict": "accept",
+      "warnings": [ "unknown field 'colour' (networks[1].colour) ignored" ] },
+    { "name": "v2: node option error names the network",
+      "patch": [ ["set", "networks/1/master/heartbeat_ms", 0], ["set", "networks/1/nodes/0/heartbeat_consumer", true] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "networks[1]: nodes[0]: 'heartbeat_consumer' needs a master heartbeat (master 'heartbeat_ms' above 0)" ] }
+  ]
+}

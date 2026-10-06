@@ -213,6 +213,7 @@ std::string DiagHub::offline_answer(const DiagRequest& r) const {
   cJSON_AddStringToObject(res, "version", version_.c_str());
   cJSON_AddNumberToObject(res, "uptime_s", uptime_s());
   cJSON_AddStringToObject(res, "config_sha256", cfg_.file_sha256.c_str());
+  cJSON_AddStringToObject(res, "network", cfg_.network.c_str());
   cJSON_AddBoolToObject(res, "session", false);
   cJSON* m = cJSON_AddObjectToObject(res, "master");
   cJSON_AddNumberToObject(m, "node_id", cfg_.master.node_id);
@@ -243,7 +244,45 @@ constexpr std::chrono::seconds DiagServer::kRetryListen;
 constexpr size_t DiagServer::kTraceFetchDefault;
 constexpr size_t DiagServer::kTraceFetchMax;
 
-DiagServer::DiagServer(DiagHub& hub) : hub_(hub) {}
+DiagServer::DiagServer(DiagHub& hub) : DiagServer(std::vector<DiagHub*>{&hub}) {}
+
+DiagServer::DiagServer(std::vector<DiagHub*> hubs) {
+  chans_.resize(hubs.size());
+  for (size_t i = 0; i < hubs.size(); ++i) chans_[i].hub = hubs[i];
+}
+
+std::string DiagServer::net_prefix(size_t net) const {
+  const std::string& p = chans_[net].hub->config().log_prefix;
+  return p.empty() ? "" : p + ": ";
+}
+
+bool DiagServer::pick_network(const cJSON* req, size_t& net, std::string& why) const {
+  const cJSON* nv = cJSON_GetObjectItemCaseSensitive(req, "network");
+  auto names = [this] {
+    std::string s;
+    for (const auto& ch : chans_) s += (s.empty() ? "" : ", ") + ch.hub->config().network;
+    return s;
+  };
+  if (!nv || cJSON_IsNull(nv)) {
+    if (chans_.size() == 1) {
+      net = 0;
+      return true;
+    }
+    why = "network required (" + names() + ")";
+    return false;
+  }
+  if (!cJSON_IsString(nv)) {
+    why = "field 'network' must be a network name";
+    return false;
+  }
+  for (size_t i = 0; i < chans_.size(); ++i)
+    if (chans_[i].hub->config().network == nv->valuestring) {
+      net = i;
+      return true;
+    }
+  why = std::string("unknown network '") + nv->valuestring + "' (" + names() + ")";
+  return false;
+}
 
 DiagServer::~DiagServer() { stop(); }
 
@@ -253,7 +292,8 @@ void DiagServer::start() {
     log_error("diagnostics: cannot create a pipe: %s; diagnostics are off", std::strerror(errno));
     return;
   }
-  if (!trace_source_) trace_source_ = make_can_trace_source();
+  for (auto& ch : chans_)
+    if (!ch.source) ch.source = make_can_trace_source();
   thread_ = std::thread([this] { run(); });
 }
 
@@ -265,8 +305,10 @@ void DiagServer::stop() {
     thread_.join();
   }
   for (size_t i = clients_.size(); i-- > 0;) close_client(i);
-  if (trace_source_) trace_source_->close();
-  capture_open_ = false;
+  for (auto& ch : chans_) {
+    if (ch.source) ch.source->close();
+    ch.open = false;
+  }
   if (listen_fd_ >= 0) close(listen_fd_);
   listen_fd_ = -1;
   port_ = 0;
@@ -277,7 +319,7 @@ void DiagServer::stop() {
 }
 
 bool DiagServer::open_listener() {
-  const MasterConfig& m = hub_.config().master;
+  const MasterConfig& m = settings();
   int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
   std::string why;
   if (fd < 0) {
@@ -320,43 +362,53 @@ void DiagServer::run() {
     if (listen_fd_ < 0 && now >= next_listen_try_) {
       if (!open_listener()) next_listen_try_ = now + kRetryListen;
     }
+    // stop pipe, listener, then per network its hub's wake pipe and its
+    // capture, then the clients.
+    const size_t nets = chans_.size(), first_client = 2 + 2 * nets;
     std::vector<pollfd> fds;
     fds.push_back({stop_pipe_[0], POLLIN, 0});
-    fds.push_back({hub_.wake_fd(), POLLIN, 0});
     fds.push_back({listen_fd_, static_cast<short>(listen_fd_ >= 0 ? POLLIN : 0), 0});
-    int cap_fd = capture_open_ ? trace_source_->fd() : -1;
-    fds.push_back({cap_fd, static_cast<short>(cap_fd >= 0 ? POLLIN : 0), 0});
+    bool waiting_capture = false;
+    for (const auto& ch : chans_) {
+      fds.push_back({ch.hub->wake_fd(), POLLIN, 0});
+      int cap_fd = ch.open ? ch.source->fd() : -1;
+      fds.push_back({cap_fd, static_cast<short>(cap_fd >= 0 ? POLLIN : 0), 0});
+    }
+    for (size_t n = 0; n < nets; ++n) waiting_capture = waiting_capture || (any_trace(n) && !chans_[n].open);
     for (const auto& c : clients_) {
       short ev = c.out.empty() ? 0 : POLLOUT;
       if (!c.closing) ev |= POLLIN;
       fds.push_back({c.fd, ev, 0});
     }
     // A trace waiting for its capture to open retries often.
-    int r = poll(fds.data(), fds.size(), any_trace() && !capture_open_ ? 200 : 1000);
+    int r = poll(fds.data(), fds.size(), waiting_capture ? 200 : 1000);
     if (r < 0 && errno != EINTR) {
       log_error("diagnostics: poll failed: %s; diagnostics stop", std::strerror(errno));
       return;
     }
     if (fds[0].revents) return;
     now = clock::now();
-    if (capture_open_ && (fds[3].revents & (POLLIN | POLLERR | POLLHUP))) read_capture();
+    for (size_t n = 0; n < nets; ++n)
+      if (chans_[n].open && (fds[3 + 2 * n].revents & (POLLIN | POLLERR | POLLHUP))) read_capture(n);
 
-    // Answers from the bus thread.
-    std::vector<std::pair<uint64_t, std::string>> answers;
-    hub_.take_answers(answers);
-    for (auto& a : answers)
-      for (auto& c : clients_)
-        if (c.waiting == a.first) {
-          c.waiting = 0;
-          c.out += a.second;
-        }
+    // Answers from the bus threads. Sequence numbers are per hub, so each
+    // answer goes to the client waiting on that hub.
+    for (size_t n = 0; n < nets; ++n) {
+      std::vector<std::pair<uint64_t, std::string>> answers;
+      chans_[n].hub->take_answers(answers);
+      for (auto& a : answers)
+        for (auto& c : clients_)
+          if (c.waiting == a.first && c.waiting_net == n) {
+            c.waiting = 0;
+            c.out += a.second;
+          }
+    }
 
-    // Client I/O. Indices into fds are 4 + client index, for the clients
-    // that existed before this poll.
-    size_t polled = fds.size() - 4;
+    // Client I/O, for the clients that existed before this poll.
+    size_t polled = fds.size() - first_client;
     for (size_t i = 0; i < polled && i < clients_.size(); ++i) {
       Client& c = clients_[i];
-      short re = fds[4 + i].revents;
+      short re = fds[first_client + i].revents;
       if (re & (POLLERR | POLLNVAL)) {
         c.closing = true;
         c.out.clear();
@@ -390,7 +442,7 @@ void DiagServer::run() {
       bool alive = flush(c);
       if (!alive || (c.closing && c.out.empty())) close_client(i);
     }
-    if (listen_fd_ >= 0 && (fds[2].revents & POLLIN)) accept_clients();
+    if (listen_fd_ >= 0 && (fds[1].revents & POLLIN)) accept_clients();
     update_capture(clock::now());
   }
 }
@@ -488,10 +540,21 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
   }
   const cJSON* opv = cJSON_GetObjectItemCaseSensitive(req, "op");
   r.op = cJSON_IsString(opv) ? opv->valuestring : "";
-  const MasterConfig& m = hub_.config().master;
+  const MasterConfig& m = settings();
+
+  size_t net = 0;
+  if (c.authed && r.op != "hello") {
+    std::string why;
+    if (!pick_network(req, net, why)) {
+      cJSON_Delete(req);
+      c.out += diag_error(r.id, why);
+      return;
+    }
+  }
+  DiagHub& hub = *chans_[net].hub;
 
   if (c.authed && r.op.compare(0, 6, "trace_") == 0) {
-    handle_trace(c, r.op, r.id, req);
+    handle_trace(c, net, r.op, r.id, req);
     cJSON_Delete(req);
     return;
   }
@@ -511,9 +574,19 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
     c.authed = true;
     cJSON* res = cJSON_CreateObject();
     cJSON_AddNumberToObject(res, "protocol", kDiagProtocol);
-    cJSON_AddStringToObject(res, "version", hub_.version().c_str());
+    cJSON_AddStringToObject(res, "version", hub.version().c_str());
     cJSON_AddBoolToObject(res, "allow_changes", m.diag_allow_changes);
     cJSON_AddNumberToObject(res, "master_node_id", m.node_id);
+    cJSON* list = cJSON_AddArrayToObject(res, "networks");
+    for (const auto& ch : chans_) {
+      const Config& nc = ch.hub->config();
+      cJSON* o = cJSON_CreateObject();
+      cJSON_AddStringToObject(o, "name", nc.network.c_str());
+      cJSON_AddStringToObject(o, "interface", nc.adapter.interface.c_str());
+      cJSON_AddNumberToObject(o, "bitrate", nc.adapter.bitrate);
+      cJSON_AddNumberToObject(o, "master_node_id", nc.master.node_id);
+      cJSON_AddItemToArray(list, o);
+    }
     c.out += diag_ok(r.id, res);
     return;
   }
@@ -527,7 +600,7 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
       return false;
     }
     r.node = static_cast<unsigned>(v);
-    if (any_id && r.node == m.node_id) {
+    if (any_id && r.node == hub.config().master.node_id) {
       why = "node " + std::to_string(r.node) + " is the master itself";
       return false;
     }
@@ -594,7 +667,7 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
     }
   } else if (r.op == "emcy") {
     valid = get_node(false);
-    if (valid && !configured(hub_.config(), r.node)) {
+    if (valid && !configured(hub.config(), r.node)) {
       why = "node " + std::to_string(r.node) + " is not in the configuration";
       valid = false;
     }
@@ -628,7 +701,7 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
       why = "changes not allowed";
       valid = false;
     }
-    if (valid && !configured(hub_.config(), r.node)) {
+    if (valid && !configured(hub.config(), r.node)) {
       why = "node " + std::to_string(r.node) + " is not in the configuration";
       valid = false;
     }
@@ -650,11 +723,18 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
     c.out += diag_error(r.id, why);
     return;
   }
-  c.waiting = hub_.submit(std::move(r));
+  c.waiting_net = net;
+  c.waiting = hub.submit(std::move(r));
 }
 
 // ---------------------------------------------------------------------------
 // Traces (frame capture)
+
+bool DiagServer::any_trace(size_t net) const {
+  for (const auto& c : clients_)
+    if (c.tracing && c.trace_net == net) return true;
+  return false;
+}
 
 bool DiagServer::any_trace() const {
   for (const auto& c : clients_)
@@ -662,24 +742,26 @@ bool DiagServer::any_trace() const {
   return false;
 }
 
-void DiagServer::close_capture(bool gap) {
-  if (!capture_open_) return;
-  trace_source_->close();
-  capture_open_ = false;
-  kernel_drops_ += kernel_drops_sock_;
-  kernel_drops_sock_ = 0;
-  if (gap) capture_gap_ = true;
+void DiagServer::close_capture(size_t net, bool gap) {
+  Channel& ch = chans_[net];
+  if (!ch.open) return;
+  ch.source->close();
+  ch.open = false;
+  ch.kernel_drops += ch.kernel_drops_sock;
+  ch.kernel_drops_sock = 0;
+  if (gap) ch.gap = true;
 }
 
-void DiagServer::read_capture() {
+void DiagServer::read_capture(size_t net) {
+  Channel& ch = chans_[net];
   std::vector<TraceRecord> got;
-  bool alive = trace_source_->drain(got, kernel_drops_sock_);
-  for (const auto& r : got) ring_.push(r);
+  bool alive = ch.source->drain(got, ch.kernel_drops_sock);
+  for (const auto& r : got) ch.ring.push(r);
   if (!alive) {
-    log_warn("diagnostics: trace capture on %s lost (interface gone); resuming when it is back",
-             hub_.config().adapter.interface.c_str());
-    close_capture(true);
-    next_capture_try_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+    log_warn("%sdiagnostics: trace capture on %s lost (interface gone); resuming when it is back",
+             net_prefix(net).c_str(), ch.hub->config().adapter.interface.c_str());
+    close_capture(net, true);
+    ch.next_try = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
   }
 }
 
@@ -690,17 +772,21 @@ void DiagServer::update_capture(std::chrono::steady_clock::time_point now) {
       log_info("diagnostics: trace of %s ended: no fetch for %lld ms", c.peer.c_str(),
                (long long)trace_idle_.count());
     }
-  bool tracing = any_trace();
-  if (!tracing) {
-    if (capture_open_) log_info("diagnostics: trace capture stopped");
-    close_capture(false);
-    ring_.clear();
-    capture_gap_ = false;
-    kernel_drops_ = kernel_drops_sock_ = 0;
+  for (size_t n = 0; n < chans_.size(); ++n) update_channel(n, now);
+}
+
+void DiagServer::update_channel(size_t net, std::chrono::steady_clock::time_point now) {
+  Channel& ch = chans_[net];
+  if (!any_trace(net)) {
+    if (ch.open) log_info("%sdiagnostics: trace capture stopped", net_prefix(net).c_str());
+    close_capture(net, false);
+    ch.ring.clear();
+    ch.gap = false;
+    ch.kernel_drops = ch.kernel_drops_sock = 0;
     return;
   }
-  if (!hub_.attached()) {
-    close_capture(true);
+  if (!ch.hub->attached()) {
+    close_capture(net, true);
     return;
   }
   // The kernel filter is the union of the clients' filters; a client without
@@ -708,7 +794,7 @@ void DiagServer::update_capture(std::chrono::steady_clock::time_point now) {
   std::vector<TraceFilter> filters;
   bool all = false, errors = false;
   for (const auto& c : clients_) {
-    if (!c.tracing) continue;
+    if (!c.tracing || c.trace_net != net) continue;
     errors = errors || c.trace_errors;
     if (c.trace_filters.empty()) all = true;
     filters.insert(filters.end(), c.trace_filters.begin(), c.trace_filters.end());
@@ -720,44 +806,47 @@ void DiagServer::update_capture(std::chrono::steady_clock::time_point now) {
       if (a[i].id != b[i].id || a[i].mask != b[i].mask) return false;
     return true;
   };
-  const std::string& ifname = hub_.config().adapter.interface;
-  if (!capture_open_) {
-    if (now < next_capture_try_) return;
-    int e = trace_source_->open(ifname, filters, errors);
+  const std::string& ifname = ch.hub->config().adapter.interface;
+  if (!ch.open) {
+    if (now < ch.next_try) return;
+    int e = ch.source->open(ifname, filters, errors);
     if (e) {
-      if (!warned_capture_)
-        log_warn("diagnostics: cannot capture frames on %s: %s; retrying", ifname.c_str(), std::strerror(-e));
-      warned_capture_ = true;
-      next_capture_try_ = now + std::chrono::seconds(1);
+      if (!ch.warned)
+        log_warn("%sdiagnostics: cannot capture frames on %s: %s; retrying", net_prefix(net).c_str(),
+                 ifname.c_str(), std::strerror(-e));
+      ch.warned = true;
+      ch.next_try = now + std::chrono::seconds(1);
       return;
     }
-    warned_capture_ = false;
-    capture_open_ = true;
-    capture_filters_ = filters;
-    capture_errors_ = errors;
-    log_info("diagnostics: trace capture on %s started", ifname.c_str());
-    if (capture_gap_) {
+    ch.warned = false;
+    ch.open = true;
+    ch.filters = filters;
+    ch.errors = errors;
+    log_info("%sdiagnostics: trace capture on %s started", net_prefix(net).c_str(), ifname.c_str());
+    if (ch.gap) {
       TraceRecord gap;
       gap.flags = kTraceGap;
       timeval tv{};
       gettimeofday(&tv, nullptr);
       gap.time_us = uint64_t(tv.tv_sec) * 1000000u + uint64_t(tv.tv_usec);
-      ring_.push(gap);
-      capture_gap_ = false;
+      ch.ring.push(gap);
+      ch.gap = false;
     }
-  } else if (!same(filters, capture_filters_) || errors != capture_errors_) {
-    trace_source_->set_filters(filters, errors);
-    capture_filters_ = filters;
-    capture_errors_ = errors;
+  } else if (!same(filters, ch.filters) || errors != ch.errors) {
+    ch.source->set_filters(filters, errors);
+    ch.filters = filters;
+    ch.errors = errors;
   }
 }
 
-bool DiagServer::handle_trace(Client& c, const std::string& op, const std::string& id, const cJSON* req) {
+bool DiagServer::handle_trace(Client& c, size_t net, const std::string& op, const std::string& id,
+                              const cJSON* req) {
   auto now = std::chrono::steady_clock::now();
+  Channel& ch = chans_[net];
   std::string why;
   uint64_t v = 0;
   if (op == "trace_start") {
-    if (!hub_.attached()) {
+    if (!ch.hub->attached()) {
       c.out += diag_error(id, "no bus");
       return false;
     }
@@ -794,23 +883,26 @@ bool DiagServer::handle_trace(Client& c, const std::string& op, const std::strin
       c.out += diag_error(id, "field 'error_frames' must be true or false");
       return false;
     }
-    if (!c.tracing) log_info("diagnostics: trace started by %s", c.peer.c_str());
+    if (!c.tracing || c.trace_net != net)
+      log_info("%sdiagnostics: trace started by %s", net_prefix(net).c_str(), c.peer.c_str());
     c.tracing = true;
+    c.trace_net = net;
     c.trace_filters = filters;
     c.trace_errors = cJSON_IsTrue(ef);
     c.trace_fetched = now;
     update_capture(now);
     cJSON* res = cJSON_CreateObject();
-    cJSON_AddNumberToObject(res, "next", double(ring_.last_seq()));
-    cJSON_AddNumberToObject(res, "buffer_frames", double(ring_.capacity()));
+    cJSON_AddNumberToObject(res, "next", double(ch.ring.last_seq()));
+    cJSON_AddNumberToObject(res, "buffer_frames", double(ch.ring.capacity()));
     cJSON_AddNumberToObject(res, "record_size", double(sizeof(TraceRecord)));
-    cJSON_AddStringToObject(res, "interface", hub_.config().adapter.interface.c_str());
-    cJSON_AddNumberToObject(res, "bitrate", hub_.config().adapter.bitrate);
+    cJSON_AddStringToObject(res, "network", ch.hub->config().network.c_str());
+    cJSON_AddStringToObject(res, "interface", ch.hub->config().adapter.interface.c_str());
+    cJSON_AddNumberToObject(res, "bitrate", ch.hub->config().adapter.bitrate);
     c.out += diag_ok(id, res);
     return true;
   }
   if (op == "trace_fetch") {
-    if (!c.tracing) {
+    if (!c.tracing || c.trace_net != net) {
       c.out += diag_error(id, "no trace running (send trace_start)");
       return false;
     }
@@ -828,15 +920,15 @@ bool DiagServer::handle_trace(Client& c, const std::string& op, const std::strin
       max = static_cast<size_t>(v);
     }
     c.trace_fetched = now;
-    if (capture_open_) read_capture();
-    TraceRing::Fetch f = ring_.fetch(after, max, c.trace_filters, c.trace_errors);
+    if (ch.open) read_capture(net);
+    TraceRing::Fetch f = ch.ring.fetch(after, max, c.trace_filters, c.trace_errors);
     cJSON* res = cJSON_CreateObject();
     cJSON_AddNumberToObject(res, "count", double(f.records.size()));
     cJSON_AddNumberToObject(res, "next", double(f.next));
-    cJSON_AddBoolToObject(res, "more", f.next < ring_.last_seq());
+    cJSON_AddBoolToObject(res, "more", f.next < ch.ring.last_seq());
     cJSON_AddNumberToObject(res, "lost", double(f.lost));
-    cJSON_AddNumberToObject(res, "kernel_drops", double(kernel_drops_ + kernel_drops_sock_));
-    cJSON_AddBoolToObject(res, "session", hub_.attached() && capture_open_);
+    cJSON_AddNumberToObject(res, "kernel_drops", double(ch.kernel_drops + ch.kernel_drops_sock));
+    cJSON_AddBoolToObject(res, "session", ch.hub->attached() && ch.open);
     cJSON_AddStringToObject(res, "frames", trace_base64(f.records).c_str());
     c.out += diag_ok(id, res);
     return true;

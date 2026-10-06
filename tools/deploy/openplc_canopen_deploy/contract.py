@@ -19,16 +19,95 @@ from . import edslint
 from .eds import sync_needed_message, transmission_needs_sync
 from .iec import CO_TYPES, parse_location, type_fits, SIZE_BITS
 
-SUPPORTED_VERSION = 1
+SUPPORTED_VERSION = 2
+MAX_NETWORKS = 8
 _SCHEMA_DIR = os.path.join(os.path.dirname(__file__), "schema")
 _schemas = {}
+_V1_REF = "canopen.v1.schema.json#"
+NETWORK_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,15}$")
 
 
-def schema(version=SUPPORTED_VERSION):
+def _local_refs(node):
+    """`node` with every reference into the version 1 schema made local."""
+    if isinstance(node, dict):
+        return {k: ("#" + v[len(_V1_REF):] if k == "$ref" and isinstance(v, str) and v.startswith(_V1_REF)
+                    else _local_refs(v)) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_local_refs(v) for v in node]
+    return node
+
+
+def schema(version=1):
+    """The published schema of a version, ready to validate with. Version 2
+    refers to version 1's definitions by file name; here they are copied in
+    so the references resolve without loading anything else."""
     if version not in _schemas:
         with open(os.path.join(_SCHEMA_DIR, "canopen.v%d.schema.json" % version), encoding="utf-8") as f:
-            _schemas[version] = json.load(f)
+            doc = json.load(f)
+        if version > 1:
+            doc = _local_refs(doc)
+            defs = dict(schema(1)["$defs"])
+            defs.update(doc.get("$defs", {}))
+            doc["$defs"] = defs
+        _schemas[version] = doc
     return _schemas[version]
+
+
+def version_of(cfg):
+    """The config's schema_version as the plugin reads it (1 when left out),
+    or None when it is not a version number."""
+    if not isinstance(cfg, dict) or "schema_version" not in cfg:
+        return 1
+    v = _uint(cfg["schema_version"])
+    return v if v else None
+
+
+def networks(cfg):
+    """The config's networks, for both versions: a list of dicts with `name`
+    ("" for a version 1 file), `index`, `path` (the JSON path prefix of the
+    network's fields, "" for version 1), `adapter`, `master` and `nodes`.
+    A version 2 network without a name is named after its interface."""
+    if version_of(cfg) == 1 or not isinstance(cfg.get("networks"), list):
+        adapter = cfg.get("adapter")
+        if adapter is None and "interface" in cfg:
+            adapter = {"type": "socketcan", "interface": cfg.get("interface"), "bitrate": cfg.get("bitrate")}
+        return [{"name": "", "index": 0, "path": "", "adapter": adapter or {}, "master": cfg.get("master") or {},
+                 "nodes": cfg.get("nodes") or [], "json": cfg}]
+    out = []
+    for i, net in enumerate(cfg["networks"]):
+        if not isinstance(net, dict):
+            continue
+        adapter = net.get("adapter") if isinstance(net.get("adapter"), dict) else {}
+        name = net.get("name")
+        if not isinstance(name, str) or not name:
+            iface = adapter.get("interface")
+            name = iface if isinstance(iface, str) and NETWORK_NAME.match(iface) else ""
+        out.append({"name": name, "index": i, "path": "networks[%d]" % i, "adapter": adapter,
+                    "master": net.get("master") or {}, "nodes": net.get("nodes") or [], "json": net})
+    return out
+
+
+def network_config(cfg, name=None):
+    """A version 1 style config (adapter, master, nodes) of one network, for
+    the code that works on one network at a time. `name` picks the network;
+    without it the config must have exactly one. Raises ValueError naming the
+    networks otherwise. Version 2 diagnostics go into the master."""
+    nets = networks(cfg)
+    if name is None:
+        if len(nets) != 1:
+            raise ValueError("the config has %d networks (%s); name one" % (len(nets), ", ".join(n["name"] for n in nets)))
+        net = nets[0]
+    else:
+        found = [n for n in nets if n["name"] == name]
+        if not found:
+            raise ValueError("no network '%s' in the config (%s)" % (name, ", ".join(n["name"] or "unnamed" for n in nets)))
+        net = found[0]
+    if not net["path"]:
+        return cfg
+    out = {"schema_version": 1, "adapter": net["adapter"], "master": dict(net["master"]), "nodes": net["nodes"]}
+    if isinstance(cfg.get("diagnostics"), dict):
+        out["master"]["diagnostics"] = cfg["diagnostics"]
+    return out
 
 
 class Result:
@@ -337,7 +416,9 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
     `eds_paths` ({eds value: file path}) or relative to `eds_dir`
     (default: the config's directory); messages name them by their `eds`
     value. Program files (`software_file`) likewise through `software_paths`
-    or relative to `eds_dir`. Returns a Result.
+    or relative to `eds_dir`. A version 2 file is checked network by network
+    (messages and paths start with `networks[i]`), then across networks.
+    Returns a Result.
     """
     r = Result()
 
@@ -367,6 +448,203 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
             return r
         version = v
 
+    s = schema(version)
+    validator = jsonschema.Draft202012Validator(s)
+    schema_errors = sorted(validator.iter_errors(cfg), key=lambda e: list(map(str, e.absolute_path)))
+    found = []
+    unknown_fields(cfg, s, s, [], found)
+    base = eds_dir if eds_dir is not None else os.path.dirname(os.path.abspath(path))
+    sw_paths = software_paths if software_paths is not None else software_files(cfg, base)
+    args = dict(path=path, base=base, eds_paths=eds_paths, sw_paths=sw_paths)
+
+    if version == 1:
+        _check_network(r, cfg, "", 1, [(list(e.absolute_path), e) for e in schema_errors], **args)
+    else:
+        _check_v2(r, cfg, schema_errors, err, args)
+    for where, key in found:
+        parent = where[: -len(key)].rstrip(".")
+        warn(parent, "unknown field '%s' (%s) ignored" % (key, where), [where])
+    return r
+
+
+MOVED_V1_KEYS = (("adapter", "networks[].adapter"), ("master", "networks[].master"), ("nodes", "networks[].nodes"),
+                 ("interface", "networks[].adapter.interface"), ("bitrate", "networks[].adapter.bitrate"))
+
+
+def _check_v2(r, cfg, schema_errors, err, args):
+    """A version 2 file: the top level, each network, then the checks across
+    networks (canopen-networks spec)."""
+    for key, where in MOVED_V1_KEYS:
+        if key in cfg:
+            err("", "field '%s' belongs in %s in schema_version 2" % (key, where), [key])
+    nets = cfg.get("networks")
+    if not isinstance(nets, list):
+        err("", "missing required field 'networks' (an array)", ["networks"])
+        return
+    if not nets:
+        err("", "field 'networks' lists no networks", ["networks"])
+    if len(nets) > MAX_NETWORKS:
+        err("", "field 'networks' lists %d networks; at most %d are supported" % (len(nets), MAX_NETWORKS),
+            ["networks"])
+    by_net = {}
+    for e in schema_errors:
+        p = list(e.absolute_path)
+        if len(p) >= 2 and p[0] == "networks" and isinstance(p[1], int):
+            by_net.setdefault(p[1], []).append((p[2:], e))
+            continue
+        where = json_path(p)
+        if where == "" and e.validator in ("not", "required"):
+            continue  # moved keys and a missing networks list, reported above
+        if where == "networks" and e.validator in ("minItems", "maxItems", "type"):
+            continue  # reported above
+        if where == "schema_version":
+            err("", "field 'schema_version' must be 2 in a file with 'networks'", ["schema_version"])
+            continue
+        err(where, e.message)
+    diag = isinstance(cfg.get("diagnostics"), dict)
+    for i, net in enumerate(nets):
+        prefix = "networks[%d]" % i
+        if not isinstance(net, dict):
+            err(prefix, "must be an object", [prefix])
+            continue
+        before = len(r.errors)
+        for key in ("interface", "bitrate"):
+            if key in net:
+                err(prefix, "field '%s' belongs in 'adapter' in schema_version 2" % key, [prefix + "." + key])
+        name = net.get("name")
+        if "name" in net and not (isinstance(name, str) and NETWORK_NAME.match(name)):
+            err(prefix, 'network name "%s" must start with a letter and hold only letters, digits and \'_\', at '
+                        "most 16 characters" % name, [prefix + ".name"])
+        master = net.get("master")
+        if isinstance(master, dict) and "diagnostics" in master:
+            err(prefix + ": master", "field 'diagnostics' is a top-level object in schema_version 2, not part of a "
+                                     "network's master", [prefix + ".master.diagnostics"])
+        errors = [(p, e) for p, e in by_net.get(i, []) if not (
+            (p == ["name"] and e.validator == "pattern") or
+            (p == [] and e.validator == "not") or
+            (p == ["master"] and e.validator == "not"))]
+        _check_network(r, net, prefix, 2, errors, diag=diag, before=before, **args)
+        adapter = net.get("adapter") if isinstance(net.get("adapter"), dict) else {}
+        iface = adapter.get("interface")
+        if "name" not in net and isinstance(iface, str) and iface and not NETWORK_NAME.match(iface):
+            err(prefix, 'interface "%s" is not usable as a network name; give the network a \'name\'' % iface,
+                [prefix + ".adapter.interface"])
+    _check_across_networks(r, cfg, err)
+
+
+def _check_across_networks(r, cfg, err):
+    nets = networks(cfg)
+    names, ifaces, devices = {}, {}, {}
+    for n in nets:
+        me = "networks[%d]" % n["index"]
+        if n["name"]:
+            key = n["name"].lower()
+            if key in names:
+                err("networks", 'networks[%d] and %s are both named "%s" (names must differ, ignoring case)'
+                    % (names[key], me, n["name"]), ["networks[%d].name" % names[key], me + ".name"])
+            else:
+                names[key] = n["index"]
+        a = n["adapter"]
+        iface = a.get("interface")
+        if isinstance(iface, str) and iface:
+            if iface in ifaces:
+                err("networks", "networks[%d] and %s both use interface %s" % (ifaces[iface], me, iface),
+                    ["networks[%d].adapter.interface" % ifaces[iface], me + ".adapter.interface"])
+            else:
+                ifaces[iface] = n["index"]
+        dev = a.get("device")
+        if a.get("type") == "slcan" and isinstance(dev, str) and dev:
+            if dev in devices:
+                err("networks", "networks[%d] and %s both use serial device %s" % (devices[dev], me, dev),
+                    ["networks[%d].adapter.device" % devices[dev], me + ".adapter.device"])
+            else:
+                devices[dev] = n["index"]
+    uses = []
+    for n in nets:
+        who = "networks[%d]" % n["index"] + (" (%s)" % n["name"] if n["name"] else "")
+        uses += location_uses(n, who + " ")
+    for i, a in enumerate(uses):
+        for b in uses[i + 1:]:
+            if a[0] == b[0]:
+                err("networks", "%s and %s both map to %s" % (a[1], b[1], a[3]), [a[2], b[2]])
+
+
+def location_uses(net, prefix=""):
+    """Every IEC location of one network as (key, who, JSON path, text), named
+    as the plugin names them; key compares equal for the same variable."""
+    out = []
+    base = net["path"] + "." if net["path"] else ""
+
+    def add(text, who, at):
+        loc = parse_location(text)
+        if loc is not None:
+            out.append(((loc.area, loc.size, loc.element), prefix + who, base + at, str(loc)))
+
+    m = net["master"]
+    for key in ("bus_state_location", "tx_error_count_location", "rx_error_count_location", "bus_off_count_location",
+                "state_location"):
+        if key in m:
+            add(m[key], "master " + key, "master." + key)
+    for i, n in enumerate(net["nodes"]):
+        if not isinstance(n, dict):
+            continue
+        nid = _uint(n.get("node_id"))
+        label = "node %s" % nid + (" (%s)" % n["name"] if n.get("name") else "")
+        w = "nodes[%d]" % i
+        for key in ("status_location", "state_location", "boot_error_location", "emcy_code_location",
+                    "error_register_location", "nmt_command_location"):
+            if key in n:
+                add(n[key], label + " " + key, w + "." + key)
+        for j, v in enumerate(n.get("sdo_variables", [])):
+            entry = {"index": _uint(v.get("index")) or 0, "subindex": _uint(v.get("subindex", 0)) or 0}
+            who = label + " " + sdo_variable_label(entry, v.get("name", ""))
+            vw = "%s.sdo_variables[%d]" % (w, j)
+            add(v.get("iec_location"), who, vw + ".iec_location")
+            for key in ("trigger_location", "status_location", "abort_code_location"):
+                if key in v:
+                    add(v[key], who + " " + key, vw + "." + key)
+        for key, kind in (("tx_pdos", "TPDO"), ("rx_pdos", "RPDO")):
+            for j, p in enumerate(n.get(key, [])):
+                number = _uint(p.get("number", j + 1))
+                for k, e in enumerate(p.get("entries", [])):
+                    add(e.get("iec_location"), "%s %s %s object 0x%04X:%d" % (
+                        label, kind, number, _uint(e.get("index")) or 0, _uint(e.get("subindex", 0)) or 0),
+                        "%s.%s[%d].entries[%d].iec_location" % (w, key, j, k))
+    return out
+
+
+def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths, sw_paths, diag=False, before=None):
+    """One network: the version 1 top level, or one networks[] entry of a
+    version 2 file (`prefix` "networks[i]", in front of every message's
+    place and every path). `schema_errors`: (path inside the network,
+    error)."""
+    if before is None:
+        before = len(r.errors)
+
+    def full(where):
+        if not prefix:
+            return where
+        return prefix + (": " + where if where else "")
+
+    def _paths(where, paths):
+        ps = paths if paths is not None else [where.replace(": ", ".")]
+        if not prefix:
+            return ps
+        return [prefix + ("." + p if p else "") for p in ps if p is not None]
+
+    def err(where, msg, paths=None):
+        w = full(where)
+        r.add("error", "%s: %s%s" % (path, w + ": " if w else "", msg), _paths(where, paths))
+
+    def warn(where, msg, paths=None):
+        w = full(where)
+        r.add("warning", "%s: %s%s" % (path, w + ": " if w else "", msg), _paths(where, paths))
+
+    def add(level, msg, paths):
+        r.add(level, (prefix + ": " if prefix else "") + msg, _paths("", paths))
+
+    if not isinstance(cfg, dict):
+        return
     # Adapter and the pre-contract keys.
     has_adapter = "adapter" in cfg
     old_iface, old_rate = "interface" in cfg, "bitrate" in cfg
@@ -404,15 +682,13 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
             err("master", "field 'eds_lint' must be \"communication\", \"all\" or \"off\"", ["master.eds_lint"])
 
     # The schema, with one message per problem at its JSON path.
-    s = schema(version)
-    validator = jsonschema.Draft202012Validator(s)
-    for e in sorted(validator.iter_errors(cfg), key=lambda e: list(map(str, e.absolute_path))):
+    for rel, e in schema_errors:
         while e.context:
             # Of the alternatives, the one for the value's own type says what
             # is wrong with it ("200 is greater than the maximum of 127").
             fitting = [c for c in e.context if c.validator != "type"]
             e = best_match(fitting or e.context)
-        where = json_path(list(e.absolute_path))
+        where = json_path(rel)
         if where in ("", "adapter") and e.validator in ("oneOf", "not", "required", "enum") and (
                 "adapter" in e.message or "interface" in e.message or "bitrate" in e.message
                 or "device" in e.message or e.validator == "not" or "socketcan" in e.message):
@@ -421,25 +697,21 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
             continue
         if (where == "master" and e.validator == "not") or where == "master.eds_lint":
             continue  # reported above
-        if where == "master" and e.validator == "required" and "'diagnostics'" in e.message:
+        if (where == "master" and e.validator == "required" and "'diagnostics'" in e.message) or (
+                version > 1 and where == "nodes" and e.validator == "minItems"):
             # The schema's rule for an empty node list, in the plugin's words.
-            err("", "field 'nodes' lists no slave nodes (an empty list needs master.diagnostics, for a "
-                    "scan-only configuration)", ["nodes"])
+            err("", "field 'nodes' lists no slave nodes (an empty list needs %s, for a scan-only configuration)"
+                % ("master.diagnostics" if version == 1 else "a top-level 'diagnostics'"), ["nodes"])
             continue
-        pdo_msg = _pdo_schema_message(cfg, list(e.absolute_path), e)
+        pdo_msg = _pdo_schema_message(cfg, list(rel), e)
         if pdo_msg:
             err(pdo_msg[0], pdo_msg[1], [where])
             continue
         err(where, e.message)
 
-    found = []
-    unknown_fields(cfg, s, s, [], found)
-    for where, key in found:
-        parent = where[: -len(key)].rstrip(".")
-        warn(parent, "unknown field '%s' (%s) ignored" % (key, where), [where])
 
-    if r.errors:
-        return r
+    if len(r.errors) > before:
+        return
 
     # Schema-valid from here on: normalise numbers and run the plugin's
     # cross-field checks.
@@ -472,8 +744,6 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
         warn("master", "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until it is "
                        "started", ["master.start"])
     master_hb = _uint(master.get("heartbeat_ms", 0)) or 0
-    base = eds_dir if eds_dir is not None else os.path.dirname(os.path.abspath(path))
-    sw_paths = software_paths if software_paths is not None else software_files(cfg, base)
     nodes = []
     seen = {}
     for i, n in enumerate(cfg["nodes"]):
@@ -598,8 +868,8 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
     for (i, key, j), cob in auto_cob_ids(nodes).items():
         nodes[i][key][j]["cob_id"] = cob
 
-    if r.errors:
-        return r
+    if len(r.errors) > before:
+        return
 
     # EDS checks, node by node. Their warnings (objects a device mapping
     # sends as 0) only matter for a config that is accepted.
@@ -609,7 +879,7 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
         w = "nodes[%d]" % i
         file = (eds_paths or {}).get(node["eds"]) or os.path.join(base, node["eds"])
         if not os.path.isfile(file):
-            r.add("error", "node %d: EDS file %s not found" % (node["node_id"], file), [w + ".eds"])
+            add("error", "node %d: EDS file %s not found" % (node["node_id"], file), [w + ".eds"])
             continue
         # The plugin's EDS lint, on the prepared copy every later check reads.
         with open(file, "rb") as f:
@@ -617,14 +887,14 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
         label = "node %d" % node["node_id"] + (" (%s)" % node["name"] if node.get("name") else "")
         lint_error, lint_warning, _ = edslint.verdict(label, node["eds"], corrections, lint, lint_mode)
         if lint_error:
-            r.add("error", lint_error, [w + ".eds"])
+            add("error", lint_error, [w + ".eds"])
             continue
         if lint_warning:
             eds_warnings.append(("%s: %s" % (label, lint_warning), w + ".eds"))
         try:
             eds = eds_mod.Eds.read(file, text)
         except eds_mod.EdsError as e:
-            r.add("error", "node %d: EDS file %s cannot be parsed: %s" % (node["node_id"], file, e), [w + ".eds"])
+            add("error", "node %d: EDS file %s cannot be parsed: %s" % (node["node_id"], file, e), [w + ".eds"])
             continue
         messages, where, warnings = [], [], []
         eds_mod.check_node(node, eds, messages, where, warnings)
@@ -635,7 +905,7 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
                 warnings.append(("%s: its EDS does not say LSS_Supported=1; LSS assignment may not work with this "
                                  "device" % label, ".lss.assign"))
         for msg, sub in zip(messages, where):
-            r.add("error", msg, [w + sub])
+            add("error", msg, [w + sub])
         eds_warnings += [(msg, w + sub) for msg, sub in warnings]
     # Two nodes with lss.assign must not name the same device.
     lss_nodes = [(i, n) for i, n in enumerate(nodes) if "vendor_id" in n.get("lss", {})]
@@ -649,10 +919,9 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
             if p["revision_number"] and q["revision_number"] and p["revision_number"] != q["revision_number"]:
                 continue
             labels = ["node %d" % n["node_id"] + (" (%s)" % n["name"] if n.get("name") else "") for n in (x, y)]
-            r.add("error", "%s and %s have the same LSS address (vendor ID 0x%08X, product code 0x%08X, serial "
+            add("error", "%s and %s have the same LSS address (vendor ID 0x%08X, product code 0x%08X, serial "
                   "number 0x%08X)" % (labels[0], labels[1], p["vendor_id"], p["product_code"], p["serial_number"]),
                   ["nodes[%d].lss" % i, "nodes[%d].lss" % j])
-    if not r.errors:
+    if len(r.errors) == before:
         for msg, at in eds_warnings:
-            r.add("warning", msg, [at])
-    return r
+            add("warning", msg, [at])

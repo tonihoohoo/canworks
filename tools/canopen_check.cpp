@@ -13,6 +13,9 @@
 //   step <node ID> restore <0x1011 sub-index>
 //   step <node ID> firmware <software_file>
 // The deploy tool's DCF export is tested against this list.
+//
+// A file with several networks (schema_version 2) is checked network by
+// network; its output then puts "network <name>" before each network's lines.
 
 #include <cstdio>
 #include <cstdlib>
@@ -48,39 +51,49 @@ int main(int argc, char** argv) {
     return 2;
   }
   route_lely_diagnostics();
-  Config cfg;
+  ConfigSet set;
   std::vector<std::string> errors;
-  bool loaded = load_config(path, limits, cfg, errors);
-  bool checked = loaded && run_eds_lint(cfg, default_edslint_python(), cfg.config_dir + "/.canopen", errors) &&
-                 check_eds_files(cfg, errors);
-  for (const auto& w : cfg.warnings) std::printf("warning: %s\n", w.c_str());
-  for (const auto& m : cfg.notes) std::printf("note: %s\n", m.c_str());
+  bool checked = load_config_set(path, limits, set, errors);
+  for (const auto& w : set.warnings) std::printf("warning: %s\n", w.c_str());
+  for (const auto& m : set.notes) std::printf("note: %s\n", m.c_str());
+  for (auto& cfg : set.networks) {
+    bool ok = checked && run_eds_lint(cfg, default_edslint_python(), cfg.work_dir, errors) && check_eds_files(cfg, errors);
+    for (const auto& w : cfg.warnings) std::printf("warning: %s%s\n", set.several() ? (cfg.network + ": ").c_str() : "", w.c_str());
+    for (const auto& m : cfg.notes) std::printf("note: %s%s\n", set.several() ? (cfg.network + ": ").c_str() : "", m.c_str());
+    checked = checked && ok;
+  }
   if (!checked) {
     for (const auto& e : errors) std::printf("error: %s\n", e.c_str());
     return 1;
   }
-  std::printf("ok: %s adapter %s, %u bit/s, master node ID %u, %zu slave(s)\n", cfg.adapter.type.c_str(),
-              cfg.adapter.interface.c_str(), cfg.adapter.bitrate, cfg.master.node_id, cfg.nodes.size());
-  for (const auto& n : cfg.nodes) std::printf("    %s: EDS %s\n", n.label().c_str(), n.eds_path.c_str());
-  if (!run_dcfgen) return 0;
-  GeneratedConfig gen;
-  if (!generate_device_config(cfg, default_dcfgen(), gen, errors)) {
-    for (const auto& e : errors) std::printf("error: %s\n", e.c_str());
-    return 1;
+  for (const auto& cfg : set.networks) {
+    if (set.several()) std::printf("network %s\n", cfg.network.c_str());
+    std::printf("ok: %s adapter %s, %u bit/s, master node ID %u, %zu slave(s)\n", cfg.adapter.type.c_str(),
+                cfg.adapter.interface.c_str(), cfg.adapter.bitrate, cfg.master.node_id, cfg.nodes.size());
+    for (const auto& n : cfg.nodes) std::printf("    %s: EDS %s\n", n.label().c_str(), n.eds_path.c_str());
   }
-  std::printf("ok: device configuration %s in %s\n", gen.reused ? "unchanged" : "generated", gen.work_dir.c_str());
-  for (const auto& s : gen.slave_sdos) std::printf("    node %u: %zu SDO downloads at boot\n", s.first, s.second.size());
-  if (!dump_writes) return 0;
-  for (const auto& n : cfg.nodes) {
-    auto it = gen.slave_sdos.find(n.node_id);
-    if (it != gen.slave_sdos.end())
-      for (const auto& w : it->second) {
-        std::printf("write %u 0x%04X %u ", n.node_id, w.index, unsigned(w.subindex));
-        for (uint8_t b : w.data) std::printf("%02x", b);
-        std::printf("\n");
-      }
-    if (n.has_restore_configuration) std::printf("step %u restore %u\n", n.node_id, n.restore_configuration);
-    if (!n.software_file.empty()) std::printf("step %u firmware %s\n", n.node_id, n.software_file.c_str());
+  if (!run_dcfgen) return 0;
+  for (const auto& cfg : set.networks) {
+    if (set.several()) std::printf("network %s\n", cfg.network.c_str());
+    GeneratedConfig gen;
+    if (!generate_device_config(cfg, default_dcfgen(), gen, errors)) {
+      for (const auto& e : errors) std::printf("error: %s\n", e.c_str());
+      return 1;
+    }
+    std::printf("ok: device configuration %s in %s\n", gen.reused ? "unchanged" : "generated", gen.work_dir.c_str());
+    for (const auto& s : gen.slave_sdos) std::printf("    node %u: %zu SDO downloads at boot\n", s.first, s.second.size());
+    if (!dump_writes) continue;
+    for (const auto& n : cfg.nodes) {
+      auto it = gen.slave_sdos.find(n.node_id);
+      if (it != gen.slave_sdos.end())
+        for (const auto& w : it->second) {
+          std::printf("write %u 0x%04X %u ", n.node_id, w.index, unsigned(w.subindex));
+          for (uint8_t b : w.data) std::printf("%02x", b);
+          std::printf("\n");
+        }
+      if (n.has_restore_configuration) std::printf("step %u restore %u\n", n.node_id, n.restore_configuration);
+      if (!n.software_file.empty()) std::printf("step %u firmware %s\n", n.node_id, n.software_file.c_str());
+    }
   }
   return 0;
 }
