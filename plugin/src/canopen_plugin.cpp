@@ -39,6 +39,8 @@ extern "C" {
 #include "log.h"
 #include "process_image.h"
 #include "runtime_version.h"
+#include "sim_config.h"
+#include "sim_trace.h"
 
 using namespace canopen_plugin;
 
@@ -55,6 +57,24 @@ struct PluginState {
   std::unique_ptr<DiagServer> server;
   std::unique_ptr<Bus> bus;
 };
+
+// Parameters simulated devices saved (0x1010, LSS store) live as long as the
+// runtime, across PLC stop and start (docs/simulator.md).
+std::shared_ptr<canopen_sim::StoreMap> g_sim_store = std::make_shared<canopen_sim::StoreMap>();
+
+// The simulation file for `cfg`: next to the config, or in the canopen/
+// folder of the runtime's generated conf/ (where an upload puts it). "" = none.
+std::string find_sim_file(const Config& cfg) {
+  std::vector<std::string> c = {cfg.config_dir + "/simulation.json", cfg.config_dir + "/canopen/simulation.json"};
+  std::string fb = default_eds_fallback_dir();
+  if (!fb.empty()) {
+    c.push_back(fb + "/canopen/simulation.json");
+    c.push_back(fb + "/simulation.json");
+  }
+  for (const auto& p : c)
+    if (access(p.c_str(), R_OK) == 0) return p;
+  return "";
+}
 
 std::unique_ptr<PluginState> g_state;
 std::atomic<bool> g_exchange{false};  // cycle hooks active
@@ -120,8 +140,9 @@ void prepare() {
               errors.size(), errors.size() == 1 ? "" : "s");
     return;
   }
-  log_info("loaded %s: %s adapter %s, %u bit/s, master node ID %u, %zu slave%s", path.c_str(),
+  log_info("loaded %s: %s adapter %s, %u bit/s%s, master node ID %u, %zu slave%s", path.c_str(),
            st->cfg.adapter.type.c_str(), st->cfg.adapter.interface.c_str(), st->cfg.adapter.bitrate,
+           st->cfg.adapter.simulate ? " (not used: the network is simulated)" : "",
            st->cfg.master.node_id, st->cfg.nodes.size(),
            st->cfg.nodes.size() == 1 ? "" : "s");
   if (st->cfg.master.sync_period_us)
@@ -137,12 +158,30 @@ void prepare() {
   log_info("device configuration %s in %s", st->gen.reused ? "unchanged, reusing" : "generated",
            st->gen.work_dir.c_str());
 
+  std::shared_ptr<SimSetup> sim;
+  if (simulates_anything(st->cfg)) {
+    sim = std::make_shared<SimSetup>();
+    sim->store = g_sim_store;
+    std::string sim_path = find_sim_file(st->cfg);
+    if (!sim_path.empty()) {
+      if (!canopen_sim::load_sim_file(sim_path, sim->file, errors) || !check_sim_file(st->cfg, sim->file, errors)) {
+        for (const auto& e : errors) log_error("%s", e.c_str());
+        log_error("simulation file rejected; CANopen inactive");
+        return;
+      }
+      log_info("simulation file %s", sim_path.c_str());
+    }
+    log_warn("%s", sim_summary(st->cfg, sim->file).c_str());
+    if (st->cfg.adapter.simulate) sim->tap = std::make_shared<SimTraceTap>();
+  }
+
   st->image.build(st->cfg);
   if (st->cfg.master.has_diagnostics) {
     st->hub.reset(new DiagHub(st->cfg, CANOPEN_PLUGIN_VERSION));
     st->server.reset(new DiagServer(*st->hub));
+    if (sim && sim->tap) st->server->set_trace_source(make_sim_trace_source(sim->tap));
   }
-  st->bus.reset(new Bus(st->cfg, st->gen, st->image, st->hub.get()));
+  st->bus.reset(new Bus(st->cfg, st->gen, st->image, st->hub.get(), sim));
   log_info("%zu input and %zu output PDO entries bound to the PLC image", st->image.inputs().size(),
            st->image.outputs().size());
   g_state = std::move(st);

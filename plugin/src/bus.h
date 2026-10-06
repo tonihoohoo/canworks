@@ -19,17 +19,28 @@
 #include "dcf_gen.h"
 #include "diag.h"
 #include "process_image.h"
+#include "sim_engine.h"
+#include "sim_trace.h"
 
 namespace canopen_plugin {
 
 enum class IfaceState { Missing, Down, Up };
+
+// Simulated devices (docs/simulator.md): the simulation file, the stored
+// parameters that outlive a session, and on a simulated network the trace tap.
+struct SimSetup {
+  canopen_sim::SimFile file;
+  std::shared_ptr<canopen_sim::StoreMap> store;
+  std::shared_ptr<SimTraceTap> tap;
+};
 IfaceState iface_state(const std::string& name);
 
 class Bus {
  public:
   // `hub`, when given, is served by each bus session's Network (the
   // diagnostics channel); between sessions it answers "no bus".
-  Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub = nullptr);
+  Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub = nullptr,
+      std::shared_ptr<const SimSetup> sim = nullptr);
   ~Bus();
 
   void start();
@@ -52,6 +63,7 @@ class Bus {
   const GeneratedConfig& gen_;
   ProcessImage& image_;
   DiagHub* hub_;
+  std::shared_ptr<const SimSetup> sim_;
   std::unique_ptr<CanAdapter> adapter_;
   BusMonitor monitor_;
   std::thread thread_;

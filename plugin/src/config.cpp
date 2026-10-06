@@ -1307,4 +1307,11 @@ bool load_config(const std::string& path, const ImageLimits& limits,
   return ok;
 }
 
+bool simulates_anything(const Config& cfg) {
+  if (cfg.adapter.simulate) return true;
+  for (const auto& n : cfg.nodes)
+    if (n.simulate) return true;
+  return false;
+}
+
 }  // namespace canopen_plugin

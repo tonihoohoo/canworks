@@ -299,6 +299,9 @@ struct Config {
   std::vector<std::string> notes;
 };
 
+// Whether anything is simulated: a simulated network or a simulated node.
+bool simulates_anything(const Config& cfg);
+
 // Limits of the runtime's I/O image, from plugin_runtime_args_t.
 struct ImageLimits {
   unsigned buffer_size = 1024;

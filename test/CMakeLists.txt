@@ -61,6 +61,7 @@ target_link_libraries(canopen_host PRIVATE ${CMAKE_DL_LIBS})
 add_executable(plugin_lifecycle host/plugin_lifecycle.cpp)
 target_include_directories(plugin_lifecycle PRIVATE common ${OPENPLC_ROOT}/core/src/drivers)
 target_link_libraries(plugin_lifecycle PRIVATE ${CMAKE_DL_LIBS})
+target_compile_definitions(plugin_lifecycle PRIVATE PINGPONG_DIR="${PINGPONG_DIR}")
 add_test(NAME plugin_lifecycle
          COMMAND plugin_lifecycle $<TARGET_FILE:canopen_plugin> ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(plugin_lifecycle PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
