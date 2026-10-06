@@ -8,7 +8,6 @@ import shutil
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy import diag
 from openplc_canopen_deploy.configurator import simulation
 
 from .fake_sim_page import TOKEN, FakeSim
@@ -16,7 +15,8 @@ from .test_configurator_server import RTD, Running, read, rtd_node
 
 
 def sim_config(**adapter):
-    return {"schema_version": 1, "adapter": dict({"type": "socketcan", "interface": "can0", "bitrate": 125000}, **adapter),
+    adapter = dict({"type": "socketcan", "interface": "can0", "bitrate": 125000}, **adapter)
+    return {"schema_version": 1, "adapter": adapter,
             "master": {"node_id": 1}, "nodes": [rtd_node()]}
 
 
