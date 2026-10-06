@@ -10,6 +10,9 @@
 - [x] 2.2 Run `tools` as two shards and `configurator-page` as three with `test_shard.py`; keep `CANOPEN_REQUIRE_PARITY` / `CANOPEN_REQUIRE_BROWSER`.
 - [x] 2.3 Add the `kernel-modules` input to the build action and set it to `"false"` in `plugin`, `tools` and `stock`.
 - [x] 2.4 Add `timeout-minutes` to every CI job.
+- [x] 2.6 Move `stock` and `docker` to `integration.yml` (weekly, by hand, install-route pull requests); keep the stub-`docker` unit tests in CI.
+- [x] 2.7 Run PC tools only on version bumps on `main`, release tags and by hand.
+- [x] 2.8 README: local commands for the integration tests and the PC tools checks.
 - [x] 2.5 Add the `ci-ok` job (needs every job, `if: always()`, fails on a failed or cancelled job).
 
 ## 3. Measure

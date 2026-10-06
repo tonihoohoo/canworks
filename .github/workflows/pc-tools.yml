@@ -2,29 +2,25 @@ name: PC tools (Windows, macOS)
 
 # The configurator, deploy tool and diagnostics as a developer installs them on
 # a Windows PC or Mac (canopen-pc-install): the wheel installed with uv and a
-# uv-managed Python, no Python on the runner needed. Only for changes to the
-# tools and for release tags (macOS minutes are expensive on a private repo).
+# uv-managed Python, no Python on the runner needed. Slow (macOS and Windows
+# runners), so it runs where a release can follow: a push to main that changes
+# the package's pyproject.toml (a version bump; the automatic release waits for
+# this run), a release tag, or "Run workflow" (on a pull request's branch when a
+# change needs Windows or macOS checked before merging). Pull requests do not
+# run it; the Linux tests in CI cover the same code.
 on:
   push:
     branches: [main]
     tags: ["deploy-v*"]
     paths:
-      - "tools/deploy/**"
-      - "test/pc-tools/**"
-      - "config/rtd-sensor/**"
-      - ".github/workflows/pc-tools.yml"
-  pull_request:
-    paths:
-      - "tools/deploy/**"
-      - "test/pc-tools/**"
-      - "config/rtd-sensor/**"
-      - ".github/workflows/pc-tools.yml"
+      - "tools/deploy/pyproject.toml"
+  workflow_dispatch:
 
-# A newer commit to a pull request cancels its older run (macOS minutes are
-# the expensive ones); runs on main and tags never cancel each other.
+# Runs on main and tags never cancel each other; a second manual run on the
+# same branch cancels the first.
 concurrency:
-  group: pc-tools-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: pc-tools-${{ github.event_name == 'workflow_dispatch' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 jobs:
   pc-tools:
@@ -33,6 +29,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-14]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
