@@ -8,6 +8,10 @@
 // without SocketCAN; test/pingpong/run.sh
 // runs the same scenario on vcan0 through the real runtime.
 
+// The library's SDO function blocks with the editor's glue
+// (test/plc_sdo/bridge.py); first, before headers that define MIN and MAX.
+#include "c_blocks.h"
+
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -41,11 +45,17 @@
 #include "fake_runtime.hpp"
 #include "log.h"
 #include "network.h"
+#include "cia402_slave.hpp"
 #include "pingpong_slave.hpp"
 #include "sensor_slave.hpp"
 #include "sim_engine.h"
 #include "sim_host.h"
+#include "plc_api.h"
+#ifdef CIA402_PROGRAM
+#include "program_host.h"
+#endif
 #include "process_image.h"
+
 
 // From <lely/co/lss.h>, which does not mix with the C++ headers.
 extern "C" {
@@ -214,6 +224,31 @@ class VendorDriveSlave : public StoringSlave {
 
 // The log is written from every thread that runs a Lely device (the slaves'
 // diagnostics go through the same sink), so all access takes this lock.
+// A device for PLC-cycle SYNC timing: its TPDO 1 (0x4001, type 1) carries a
+// counter it increments after every SYNC, and it keeps the output values
+// that arrive in 0x4000 (RPDO 1, type 1) in the order it applies them.
+class SyncCounterSlave : public lely::canopen::BasicSlave {
+ public:
+  using BasicSlave::BasicSlave;
+  std::atomic<uint32_t> syncs{0};
+  std::mutex mutex;
+  std::vector<uint32_t> applied;  // 0x4000 at each SYNC
+
+  // Stops (or resumes) TPDO 1, as a device that misses its SYNC would.
+  void Mute(bool mute) {
+    co_unsigned32_t cob = mute ? 0x80000182u : 0x182u;
+    co_sub_t* sub = co_dev_find_sub(reinterpret_cast<co_dev_t*>(dev()), 0x1800, 1);
+    co_sub_dn_ind_val(sub, CO_DEFTYPE_UNSIGNED32, &cob);  // through the PDO service
+  }
+
+ protected:
+  void OnSync(uint8_t, const time_point&) noexcept override {
+    (*this)[0x4001][0] = static_cast<uint32_t>(++syncs);
+    std::lock_guard<std::mutex> lock(mutex);
+    applied.push_back((*this)[0x4000][0]);
+  }
+};
+
 std::mutex& log_mutex() {
   static std::mutex m;
   return m;
@@ -385,6 +420,7 @@ class Sim {
     fake_runtime::attach(fake_, rt_);
     chan_.open(ctrl_);
     net_.reset(new Network(exec_, timer_, sup_timer_, chan_, cfg_, gen_, image_, nullptr, &req_timer_, &out_timer_));
+    sync_wake_.reset(new SyncWake(poll_, image_.sync_fd(), *net_));
     sniff_.open(ctrl_);
     Sniff();
     scan_timer_.settime(milliseconds(10), milliseconds(10));
@@ -398,6 +434,7 @@ class Sim {
     slaves_.clear();
     simulator_.reset();
     if (net_) net_->Stop();
+    sync_wake_.reset();
     ctx_.shutdown();
     loop_.restart();
     // As the plugin's session end (bus.cpp): the shutdown normally drains the
@@ -413,6 +450,7 @@ class Sim {
 
   bool ok() const { return ok_; }
   Network& net() { return *net_; }
+  std::string gen_master_dcf() const { return gen_.master_dcf; }
   const Config& cfg() const { return cfg_; }
 
   // Serves the diagnostics channel through a hub (call before Start()).
@@ -543,6 +581,15 @@ class Sim {
     return made;
   }
 
+  // A CiA 402 drive (test/drive/cia402_slave.hpp), moving on its own thread.
+  Cia402Slave* StartCia402Drive(uint8_t id, const std::string& eds) {
+    Cia402Slave* made = nullptr;
+    slaves_[id].reset(new SlaveBox(
+        ctrl_, [=, &made](io::TimerBase& t, io::CanChannelBase& c) { return made = new Cia402Slave(t, c, eds, id); },
+        [](canopen::BasicSlave& s) { static_cast<Cia402Slave&>(s).Start(); }));
+    return made;
+  }
+
   // Runs f(slave) on the slave's own thread.
   void OnSlave(uint8_t id, std::function<void(canopen::BasicSlave&)> f) { slaves_.at(id)->Post(f); }
 
@@ -551,6 +598,25 @@ class Sim {
       return new FirmwareSlave(t, c, eds, id);
     }));
   }
+
+  SyncCounterSlave* StartSyncCounterSlave(uint8_t id, const std::string& eds) {
+    SyncCounterSlave* made = nullptr;
+    slaves_[id].reset(new SlaveBox(ctrl_, [=, &made](io::TimerBase& t, io::CanChannelBase& c) {
+      return made = new SyncCounterSlave(t, c, eds, "", id);
+    }));
+    return made;
+  }
+
+  // Extra SYNC requests as if the bus thread had missed frames.
+  void RequestSync(int n) {
+    for (int i = 0; i < n; ++i) image_.request_sync();
+  }
+  // SYNC frames seen: arrival time and counter byte (-1 without one).
+  struct SyncFrame {
+    steady_clock::time_point at;
+    int cnt;
+  };
+  std::vector<SyncFrame> sync_frames() const { return sync_frames_; }
 
   FixedIoSlave* StartFixedIoSlave(uint8_t id, const std::string& eds) {
     FixedIoSlave* made = nullptr;
@@ -691,6 +757,7 @@ class Sim {
         if (idx >= 0x1400 && idx < 0x1C00) ++pdo_downloads_[static_cast<uint8_t>(m.id - 0x600)];
       }
       if (result == 1) ++frames_[m.id];
+      if (result == 1 && m.id == 0x080) sync_frames_.push_back({steady_clock::now(), m.len ? m.data[0] : -1});
       if (result == 1 && m.id == 0x7E5 && m.len >= 1) ++lss_cs_[m.data[0]];
       if (result == 1 && m.id > 0x700 && m.id < 0x780 && m.len == 1 && m.data[0] == 0)
         ++bootups_[static_cast<uint8_t>(m.id - 0x700)];
@@ -701,8 +768,9 @@ class Sim {
   }
 
   void Scan() {
-    // cycle_start, program, cycle_end
+    // cycle_start (with its PLC-cycle SYNC request), program, cycle_end
     image_.copy_to_plc(rt_);
+    image_.request_sync();
     if (program_)
       program_(fake_);
     else
@@ -735,6 +803,7 @@ class Sim {
   std::map<uint8_t, int> bootups_;
   std::map<int, int> nmt_;
   std::vector<Stamped> time_frames_;
+  std::vector<SyncFrame> sync_frames_;
   std::map<uint8_t, std::unique_ptr<SlaveBox>> slaves_;
   std::unique_ptr<canopen_sim::LoopHost> sim_host_;
   std::unique_ptr<canopen_sim::Simulator> simulator_;
@@ -745,6 +814,7 @@ class Sim {
   fake_runtime::Image fake_;
   plugin_runtime_args_t rt_;
   std::unique_ptr<Network> net_;
+  std::unique_ptr<SyncWake> sync_wake_;
   std::unique_ptr<DiagHub> hub_;
   std::function<void(fake_runtime::Image&)> program_;
   bool ok_ = false;
@@ -1236,6 +1306,182 @@ TEST(sim_no_sync_event_driven) {
   sim->RunFor(milliseconds(1000));
   CHECK_MSG(sim->frames(0x202) == before, std::to_string(sim->frames(0x202) - before) + " RPDOs for unchanged outputs");
   CHECK(sim->frames(0x080) == 0);
+  delete sim;
+}
+
+// PLC-cycle SYNC (canopen-master-bringup "SYNC from the PLC cycle", canopen-pdo-io
+// "PDO timing with PLC-cycle SYNC"): Sim's scan requests a SYNC in its
+// cycle_start step, every 10 ms.
+std::string plc_cycle_json(const std::string& extra = "") {
+  std::string json = pingpong_json();
+  json.replace(json.find("\"sync_period_us\": 20000"), 23, "\"sync_source\": \"plc_cycle\"" + extra);
+  return json;
+}
+
+// Every step of a run of values is +1.
+int steps_off(const std::vector<uint32_t>& v, size_t from) {
+  int bad = 0;
+  for (size_t i = from + 1; i < v.size(); ++i)
+    if (v[i] != v[i - 1] + 1) ++bad;
+  return bad;
+}
+
+TEST(sim_plc_cycle_sync) {
+  clear_logs();
+  std::string dir = make_dir(plc_cycle_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->cfg().master.sync_plc_cycle && sim->cfg().master.sync_period_us == 0);
+  // dcfgen gets no period, so Lely runs no SYNC timer; 0x1005 keeps the producer bit.
+  std::string dcf = read(sim->gen_master_dcf());
+  size_t at = dcf.find("[1006]");
+  CHECK(at != std::string::npos && dcf.find("DefaultValue=0\n", at) < dcf.find("[1007]"));
+  at = dcf.find("[1005]");
+  CHECK(at != std::string::npos && dcf.find("DefaultValue=0x40000080", at) < dcf.find("[1006]"));
+  SyncCounterSlave* slave = sim->StartSyncCounterSlave(2, dir + "/cpp-slave.eds");
+  static std::vector<uint32_t> seen;
+  static uint32_t scan_no;
+  seen.clear();
+  scan_no = 0;
+  sim->SetProgram([](fake_runtime::Image& plc) {
+    seen.push_back(plc.dint_in[100]);
+    plc.dint_out[100] = ++scan_no;
+  });
+  sim->EnableDiag();
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(300));
+  long scans0 = sim->scans();
+  int syncs0 = sim->frames(0x080);
+  size_t seen0 = seen.size();
+  size_t applied0;
+  {
+    std::lock_guard<std::mutex> lock(slave->mutex);
+    applied0 = slave->applied.size();
+  }
+  sim->RunFor(milliseconds(2000));
+  long scans = sim->scans() - scans0;
+  int syncs = sim->frames(0x080) - syncs0;
+  std::printf("    %ld scans, %d SYNCs\n", scans, syncs);
+  CHECK_MSG(std::abs(syncs - static_cast<int>(scans)) <= 1, std::to_string(syncs) + " SYNCs for " +
+                                                                 std::to_string(scans) + " scans");
+  // Inputs: the device counts SYNCs, and every scan sees the next count.
+  CHECK_MSG(steps_off(seen, seen0) == 0, std::to_string(steps_off(seen, seen0)) + " scans saw no new input");
+  // Outputs: each SYNC carries the newest scan's value, applied at the next.
+  std::vector<uint32_t> applied;
+  {
+    std::lock_guard<std::mutex> lock(slave->mutex);
+    applied = slave->applied;
+  }
+  CHECK(applied.size() > applied0 + 100);
+  CHECK_MSG(steps_off(applied, applied0) == 0,
+            std::to_string(steps_off(applied, applied0)) + " outputs repeated or lost");
+  const Network::SyncStats& st = sim->net().sync_stats();
+  std::printf("    SYNC interval last %llu, min %llu, max %llu us\n", (unsigned long long)st.last_us,
+              (unsigned long long)st.min_us, (unsigned long long)st.max_us);
+  CHECK(st.count >= static_cast<uint64_t>(syncs));
+  CHECK(st.skipped == 0);
+  CHECK(st.late == 0);
+  CHECK(st.min_us > 2000 && st.max_us < 40000);
+  // The status answer names the source and carries the statistics.
+  DiagRequest r;
+  r.op = "status";
+  r.peer = "127.0.0.1";
+  cJSON* res = sim->Ask(r);
+  CHECK(res != nullptr);
+  if (res) {
+    const cJSON* sync = cJSON_GetObjectItem(cJSON_GetObjectItem(res, "result"), "sync");
+    CHECK(sync && std::string(cJSON_GetStringValue(cJSON_GetObjectItem(sync, "source"))) == "plc_cycle");
+    CHECK(sync && cJSON_GetObjectItem(sync, "cycles")->valuedouble == 1);
+    CHECK(sync && cJSON_GetObjectItem(sync, "count")->valuedouble > 100);
+    cJSON_Delete(res);
+  }
+  delete sim;
+}
+
+TEST(sim_plc_cycle_sync_cycles_counter_skips) {
+  clear_logs();
+  std::string dir = make_dir(plc_cycle_json(", \"sync_cycles\": 2, \"sync_counter_overflow\": 10"),
+                             {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSyncCounterSlave(2, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  long scans0 = sim->scans();
+  int syncs0 = sim->frames(0x080);
+  sim->RunFor(milliseconds(2000));
+  long scans = sim->scans() - scans0;
+  int syncs = sim->frames(0x080) - syncs0;
+  CHECK_MSG(std::abs(2 * syncs - static_cast<int>(scans)) <= 2,
+            std::to_string(syncs) + " SYNCs for " + std::to_string(scans) + " scans");
+  auto frames = sim->sync_frames();
+  int bad = 0;
+  for (size_t i = 1; i < frames.size(); ++i)
+    if (frames[i].cnt != frames[i - 1].cnt % 10 + 1) ++bad;
+  CHECK_MSG(frames.size() > 50 && bad == 0, std::to_string(bad) + " SYNC counter steps off");
+  CHECK(frames.empty() || (frames[0].cnt >= 1 && frames[0].cnt <= 10));
+  // Two requests before the bus thread gets to them: one SYNC, one skip.
+  CHECK(sim->net().sync_stats().skipped == 0);
+  sim->RequestSync(4);
+  sim->RunFor(milliseconds(100));
+  CHECK_MSG(sim->net().sync_stats().skipped >= 1, std::to_string(sim->net().sync_stats().skipped) + " skipped");
+  CHECK(logged("fell behind the PLC cycle"));
+  delete sim;
+}
+
+TEST(sim_plc_cycle_late_pdo) {
+  clear_logs();
+  std::string dir = make_dir(plc_cycle_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSyncCounterSlave(2, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(200));
+  CHECK(sim->net().sync_stats().late == 0);
+  sim->OnSlave(2, [](canopen::BasicSlave& s) { static_cast<SyncCounterSlave&>(s).Mute(true); });
+  sim->RunFor(milliseconds(150));
+  sim->OnSlave(2, [](canopen::BasicSlave& s) { static_cast<SyncCounterSlave&>(s).Mute(false); });
+  sim->RunFor(milliseconds(200));
+  uint64_t late = sim->net().sync_stats().late;
+  std::printf("    %llu late PDOs\n", (unsigned long long)late);
+  CHECK(late >= 5 && late <= 20);
+  int lines = 0;
+  for (const auto& l : logs())
+    if (l.find("node 2 (pingpong) TPDO 1 (transmission type 1) did not arrive before the next SYNC") !=
+        std::string::npos)
+      ++lines;
+  CHECK_MSG(lines == 1, std::to_string(lines) + " late PDO warnings");
+  // Back in time: no more late PDOs.
+  sim->RunFor(milliseconds(300));
+  CHECK(sim->net().sync_stats().late == late);
+  delete sim;
+}
+
+TEST(sim_timer_sync_stats) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSlave(2, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(1000));
+  const Network::SyncStats& st = sim->net().sync_stats();
+  std::printf("    timer SYNC: %llu sent, interval min %llu max %llu us\n", (unsigned long long)st.count,
+              (unsigned long long)st.min_us, (unsigned long long)st.max_us);
+  CHECK(st.count >= 40);
+  CHECK(st.min_us > 10000 && st.max_us < 40000);
+  CHECK(st.skipped == 0 && st.late == 0);
   delete sim;
 }
 
@@ -3251,6 +3497,373 @@ TEST(sim_simulated_cpu_budget) {
   std::printf("    CPU load with 32 simulated devices (and the master and fake PLC): %.1f %%\n", load * 100);
   CHECK_MSG(load < 0.10, std::to_string(load));
   delete sim;
+}
+
+// The SDO function blocks of library/openplc_canopen, built with the editor's
+// glue, find the master's API table through this (CO_SDO_TEST_ENTRY) instead
+// of dlopen; test/plc_sdo/lookup_check covers the dlopen route.
+extern "C" const void* canopen_plc_api_test(uint32_t version) { return plc_api_table(version); }
+
+namespace {
+
+// Block instances the fake PLC program calls every scan.
+struct SdoBlocks {
+  CO_SDO_READ_INST rd, rd2, rd_node;
+  CO_SDO_WRITE_INST wr;
+  CO_SDO_READ_REAL_INST rdr;
+  CO_SDO_WRITE_REAL_INST wrr;
+  CO_SDO_READ_STRING_INST rds;
+  CO_SDO_WRITE_STRING_INST wrs;
+  CO_SDO_READ_BYTES_INST rdb;
+  CO_SDO_WRITE_BYTES_INST wrb;
+  CO_SDO_READ_INST many[65];
+  bool call_many = false;
+  void Scan() {
+    co_sdo_read_call(&rd);
+    co_sdo_read_call(&rd2);
+    co_sdo_read_call(&rd_node);
+    co_sdo_write_call(&wr);
+    co_sdo_read_real_call(&rdr);
+    co_sdo_write_real_call(&wrr);
+    co_sdo_read_string_call(&rds);
+    co_sdo_write_string_call(&wrs);
+    co_sdo_read_bytes_call(&rdb);
+    co_sdo_write_bytes_call(&wrb);
+    if (call_many)
+      for (auto& b : many) co_sdo_read_call(&b);
+  }
+};
+
+template <class I>
+void target(I& b, unsigned node, unsigned index, unsigned sub, int64_t timeout_ms = 0) {
+  b.NODE = static_cast<uint8_t>(node);
+  b.INDEX = static_cast<uint16_t>(index);
+  b.SUBINDEX = static_cast<uint8_t>(sub);
+  b.TIMEOUT = timeout_ms * 1000000;
+}
+
+// Raises EXECUTE, runs until DONE or ERROR, then drops EXECUTE.
+template <class I>
+bool run_block(Sim* sim, I& b, milliseconds timeout = milliseconds(3000)) {
+  b.EXECUTE = true;
+  bool ended = sim->RunUntil([&b] { return static_cast<bool>(b.DONE) || static_cast<bool>(b.ERROR); }, timeout);
+  b.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+  return ended;
+}
+
+}  // namespace
+
+// SDO transfers from the PLC program through the library's function blocks
+// (spec canopen-plc-sdo).
+TEST(sim_plc_sdo_blocks) {
+  clear_logs();
+  std::string eds = read(std::string(RTD_DIR) + "/rtd8.eds");
+  std::string dir = make_dir(rtd_sim_config(""), {{"rtd8.eds", eds}, {"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  static SdoBlocks* blk;
+  sim = new Sim(dir);
+  blk = new SdoBlocks();
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  PlcRequests::instance().open();
+  sim->SetProgram([](fake_runtime::Image&) { blk->Scan(); });
+  sim->StartSlave(9, dir + "/cpp-slave.eds");  // a device the configuration does not list
+  SdoBlocks& b = *blk;
+  // A read the program starts in its first scans, before the master has heard
+  // from the node, waits for the node's boot instead of failing, and its
+  // TIMEOUT (here the default 1 s) starts only once the node can be asked.
+  target(b.rd2, 5, 0x1018, 1);
+  b.rd2.EXECUTE = true;
+  sim->net().Start();
+  sim->RunFor(milliseconds(1200));
+  CHECK_MSG(b.rd2.BUSY, std::to_string(b.rd2.ERROR_ID.get()));
+  sim->StartSensor(5, dir + "/rtd8.eds", {{0x7130, 1, 200, 260, 1}});
+  CHECK(sim->RunUntil([&] { return static_cast<bool>(b.rd2.DONE) || static_cast<bool>(b.rd2.ERROR); }, seconds(5)));
+  CHECK_MSG(b.rd2.DONE && b.rd2.DATA.get() == 0xF0F0F0u, std::to_string(b.rd2.ERROR_ID.get()));
+  b.rd2.EXECUTE = false;
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+
+  // Integer read: DONE while EXECUTE is held, cleared once it drops.
+  target(b.rd, 5, 0x1018, 1);
+  b.rd.EXECUTE = true;
+  CHECK(sim->RunUntil([&] { return static_cast<bool>(b.rd.DONE); }, seconds(2)));
+  CHECK(!b.rd.BUSY && !b.rd.ERROR);
+  CHECK_MSG(b.rd.DATA.get() == 0xF0F0F0u && b.rd.SIZE.get() == 4, std::to_string(b.rd.DATA.get()));
+  sim->RunFor(milliseconds(50));
+  CHECK(b.rd.DONE);
+  b.rd.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+  CHECK(!b.rd.DONE);
+  // Signed value: LWORD_TO_INT gives -200.
+  target(b.rd, 5, 0x7134, 1);
+  CHECK(run_block(sim, b.rd));
+  CHECK_MSG(b.rd.DATA.get() == 0xFF38u && b.rd.SIZE.get() == 2, std::to_string(b.rd.DATA.get()));
+  CHECK(static_cast<int16_t>(b.rd.DATA.get()) == -200);
+
+  // Integer write with the size from the EDS (INTEGER16), read back.
+  target(b.wr, 5, 0x7134, 1);
+  b.wr.DATA = static_cast<uint64_t>(int64_t(-150));
+  b.wr.SIZE = 0;
+  CHECK(run_block(sim, b.wr));
+  CHECK(!b.wr.ERROR);
+  CHECK(run_block(sim, b.rd));
+  CHECK_MSG(static_cast<int16_t>(b.rd.DATA.get()) == -150, std::to_string(b.rd.DATA.get()));
+
+  // A value the device refuses: ERROR_ID 1 with the abort code, logged once.
+  target(b.wr, 5, 0x6110, 1);
+  b.wr.DATA = 0x40;
+  for (int i = 0; i < 2; ++i) {
+    CHECK(run_block(sim, b.wr));
+    b.wr.EXECUTE = true;  // ERROR stays while EXECUTE is held
+    sim->RunFor(milliseconds(30));
+    CHECK(b.wr.ERROR && b.wr.ERROR_ID.get() == 1);
+    b.wr.EXECUTE = false;
+    sim->RunFor(milliseconds(30));
+  }
+  uint32_t abort = b.wr.ABORT_CODE.get();
+  CHECK_MSG(abort == 0x06090031 || abort == 0x06090030, std::to_string(abort));
+  CHECK(count_logs("PLC program SDO write of 0x6110 sub 1 aborted") == 1);
+  CHECK(sim->net().IsOperational(5));
+
+  // REAL32 write (size from the EDS) and read.
+  target(b.wrr, 5, 0x6126, 1);
+  b.wrr.VALUE = 12.5;
+  b.wrr.SIZE = 0;
+  CHECK(run_block(sim, b.wrr));
+  CHECK(!b.wrr.ERROR);
+  target(b.rdr, 5, 0x6126, 1);
+  CHECK(run_block(sim, b.rdr));
+  CHECK_MSG(b.rdr.VALUE.get() == 12.5, std::to_string(b.rdr.VALUE.get()));
+  // A 5-byte object does not fit a REAL: ERROR_ID 7, VALUE kept.
+  target(b.rdr, 5, 0x1008, 0);
+  CHECK(run_block(sim, b.rdr));
+  CHECK(b.rdr.ERROR_ID.get() == 7 && b.rdr.VALUE.get() == 12.5);
+
+  // Strings: the device name; a 2-character string into a 16-bit object.
+  target(b.rds, 5, 0x1008, 0);
+  CHECK(run_block(sim, b.rds));
+  CHECK_MSG(std::string(b.rds.VALUE.c_str()) == "RTD-8", b.rds.VALUE.c_str());
+  target(b.wrs, 5, 0x7133, 1);
+  b.wrs.VALUE = "AB";
+  CHECK(run_block(sim, b.wrs));
+  CHECK(!b.wrs.ERROR);
+  target(b.rd, 5, 0x7133, 1);
+  CHECK(run_block(sim, b.rd));
+  CHECK_MSG(b.rd.DATA.get() == 0x4241u, std::to_string(b.rd.DATA.get()));
+
+  // Bytes.
+  target(b.rdb, 5, 0x1008, 0);
+  CHECK(run_block(sim, b.rdb));
+  CHECK(b.rdb.SIZE.get() == 5 && b.rdb.BUFFER[0].get() == 'R' && b.rdb.BUFFER[4].get() == '8');
+  target(b.wrb, 5, 0x7133, 1);
+  b.wrb.BUFFER[0] = 0x10;
+  b.wrb.BUFFER[1] = 0x00;
+  b.wrb.SIZE = 2;
+  CHECK(run_block(sim, b.wrb));
+  CHECK(!b.wrb.ERROR);
+  CHECK(run_block(sim, b.rd));
+  CHECK(b.rd.DATA.get() == 0x10u);
+
+  // A device the configuration does not list; SIZE 0 needs its EDS.
+  target(b.rd_node, 9, 0x1018, 1);
+  CHECK(run_block(sim, b.rd_node));
+  CHECK_MSG(!b.rd_node.ERROR && b.rd_node.SIZE.get() == 4,
+            std::to_string(b.rd_node.ERROR_ID.get()));
+  target(b.wr, 9, 0x2000, 0);
+  b.wr.SIZE = 0;
+  CHECK(run_block(sim, b.wr));
+  CHECK(b.wr.ERROR_ID.get() == 6);
+
+  // Bad node ID: ERROR_ID 6 in the same call.
+  target(b.rd, 0, 0x1000, 0);
+  b.rd.EXECUTE = true;
+  sim->RunFor(milliseconds(15));
+  CHECK(b.rd.ERROR && b.rd.ERROR_ID.get() == 6);
+  b.rd.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+
+  // No answer: ERROR_ID 2 after TIMEOUT, logged.
+  target(b.rd, 40, 0x1000, 0, 200);
+  auto t0 = steady_clock::now();
+  CHECK(run_block(sim, b.rd));
+  auto took = duration_cast<milliseconds>(steady_clock::now() - t0).count();
+  CHECK(b.rd.ERROR_ID.get() == 2 && b.rd.ABORT_CODE.get() == 0x05040000u);
+  CHECK_MSG(took >= 150 && took < 1000, std::to_string(took));
+
+  // Two blocks on one node in the same scan: both done, one after the other.
+  target(b.rd, 5, 0x1018, 1);
+  target(b.rd2, 5, 0x1008, 0);
+  b.rd.EXECUTE = true;
+  b.rd2.EXECUTE = true;
+  CHECK(sim->RunUntil([&] { return b.rd.DONE && b.rd2.DONE; }, seconds(2)));
+  b.rd.EXECUTE = false;
+  b.rd2.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+
+  // 65 at once: 64 run or wait, one ends with ERROR_ID 5 in the same call.
+  for (auto& m : b.many) {
+    target(m, 40, 0x1000, 0, 300);
+    m.EXECUTE = true;
+  }
+  b.call_many = true;
+  sim->RunFor(milliseconds(15));
+  int busy = 0, full = 0;
+  for (auto& m : b.many) {
+    busy += m.BUSY ? 1 : 0;
+    full += m.ERROR && m.ERROR_ID.get() == 5 ? 1 : 0;
+  }
+  CHECK_MSG(busy == 64 && full == 1, std::to_string(busy) + " " + std::to_string(full));
+  CHECK(sim->RunUntil([&] {
+    for (auto& m : b.many)
+      if (m.BUSY) return false;
+    return true;
+  }, seconds(3)));
+  for (auto& m : b.many) m.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+  b.call_many = false;
+
+  // Writing an object the plugin configures: sent, warned once.
+  target(b.wr, 5, 0x100C, 0);
+  b.wr.DATA = 0;
+  b.wr.SIZE = 0;
+  CHECK(run_block(sim, b.wr));
+  CHECK(run_block(sim, b.wr));
+  CHECK(count_logs("the PLC program writes 0x100C sub 0, which the plugin configures") == 1);
+
+  // PLC stop during a transfer: ERROR_ID 8, then a new edge works.
+  target(b.rd, 40, 0x1000, 0, 500);
+  b.rd.EXECUTE = true;
+  sim->RunFor(milliseconds(30));
+  CHECK(b.rd.BUSY);
+  PlcRequests::instance().close();
+  PlcRequests::instance().open();
+  sim->RunFor(milliseconds(30));
+  CHECK(b.rd.ERROR && b.rd.ERROR_ID.get() == 8);
+  b.rd.EXECUTE = false;
+  sim->RunFor(milliseconds(600));  // the abandoned transfer ends unseen
+  target(b.rd, 5, 0x1018, 1);
+  CHECK(run_block(sim, b.rd));
+  CHECK(!b.rd.ERROR && b.rd.DATA.get() == 0xF0F0F0u);
+
+  // CANopen not running: ERROR_ID 4 in the same call.
+  PlcRequests::instance().close();
+  b.rd.EXECUTE = true;
+  sim->RunFor(milliseconds(15));
+  CHECK(b.rd.ERROR && b.rd.ERROR_ID.get() == 4);
+  b.rd.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+  PlcRequests::instance().open();
+
+  // A library asking for an unknown API version: logged once.
+  CHECK(plc_api_table(99) == nullptr);
+  CHECK(plc_api_table(1) != nullptr);
+  sim->RunFor(milliseconds(50));
+  CHECK(count_logs("asks for SDO block API version 99") == 1);
+
+  // Node lost: ERROR_ID 3 at once.
+  sim->Unplug(5);
+  CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
+  CHECK(run_block(sim, b.rd, milliseconds(500)));
+  CHECK_MSG(b.rd.ERROR_ID.get() == 3, std::to_string(b.rd.ERROR_ID.get()));
+
+  PlcRequests::instance().close();
+  delete sim;
+  delete blk;
+}
+
+// A configured node that never answers: a read started at once waits for its
+// first boot and ends with ERROR_ID 3 when the master reports it absent, not
+// with a timeout of the default 1 s.
+TEST(sim_plc_sdo_node_absent_at_start) {
+  clear_logs();
+  std::string eds = read(std::string(RTD_DIR) + "/rtd8.eds");
+  std::string dir = make_dir(rtd_sim_config(""), {{"rtd8.eds", eds}});
+  static Sim* sim;
+  static CO_SDO_READ_INST* rd;
+  sim = new Sim(dir);
+  rd = new CO_SDO_READ_INST();
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  PlcRequests::instance().open();
+  sim->SetProgram([](fake_runtime::Image&) { co_sdo_read_call(rd); });
+  target(*rd, 5, 0x1018, 1);
+  rd->EXECUTE = true;
+  sim->net().Start();
+  sim->RunFor(milliseconds(1500));
+  CHECK_MSG(rd->BUSY, std::to_string(rd->ERROR_ID.get()));
+  CHECK(sim->RunUntil([] { return static_cast<bool>(rd->ERROR) || static_cast<bool>(rd->DONE); }, seconds(4)));
+  CHECK_MSG(rd->ERROR && rd->ERROR_ID.get() == 3, std::to_string(rd->ERROR_ID.get()));
+  CHECK(logged("not answering"));
+  PlcRequests::instance().close();
+  delete sim;
+  delete rd;
+}
+
+// ---------------------------------------------------------------------------
+// CiA 402 axis: the example's demo program (config/cia402-drive/drive_demo.st),
+// compiled by STruC++ with the editor's PLCopen motion blocks, runs as the PLC
+// program against a simulated CiA 402 drive through the real master: power
+// on, homing, a move to 1000, 2 s at 200 units/s, halt; then a drive fault
+// and a lost drive, each followed by the fault reset and a new run.
+
+TEST(sim_cia402_demo) {
+#ifndef CIA402_PROGRAM
+  const char* need = std::getenv("CANOPEN_REQUIRE_STRUCPP");
+  std::printf("    not built: configure with -DSTRUCPP=$(scripts/fetch-strucpp.sh) to run the CiA 402 demo program\n");
+  CHECK_MSG(!(need && std::string(need) == "1"), "CANOPEN_REQUIRE_STRUCPP=1 but the CiA 402 program was not built");
+#else
+  clear_logs();
+  std::string dir = make_dir(read(std::string(CIA402_DIR) + "/canopen_config.json"),
+                             {{"servo402.eds", read(std::string(CIA402_DIR) + "/servo402.eds")}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  if (!sim->ok()) {
+    CHECK(sim->ok());
+    return;
+  }
+  program_host::Reset();
+  CHECK(program_host::LocatedCount() == 10);
+  auto t0 = steady_clock::now();
+  sim->SetProgram([t0](fake_runtime::Image& plc) {
+    program_host::Image img{plc.bool_in, plc.bool_out, plc.byte_in, plc.byte_out, plc.int_in,
+                            plc.int_out, plc.dint_in, plc.dint_out, fake_runtime::kSize};
+    program_host::Scan(img, std::chrono::duration_cast<std::chrono::nanoseconds>(steady_clock::now() - t0).count());
+  });
+  Cia402Slave* drive = sim->StartCia402Drive(4, dir + "/servo402.eds");
+  sim->net().Start();
+  auto step = [] { return program_host::Step(); };
+  auto where = [&] {
+    return "step " + std::to_string(step()) + ", drive state " + std::to_string(drive->state.load()) + ", position " +
+           std::to_string(drive->position.load()) + ", velocity " + std::to_string(drive->velocity.load()) +
+           ", %IW100 " + std::to_string(sim->uw(100));
+  };
+
+  // Power on, home, move to 1000.
+  CHECK_MSG(sim->RunUntil([&] { return step() == 30; }, seconds(20)), where());
+  CHECK_MSG(drive->position == 1000, where());
+  CHECK(sim->status());
+  // 200 units/s in profile velocity, then halt after 2 s.
+  CHECK_MSG(sim->RunUntil([&] { return drive->velocity == 200; }, seconds(3)), where());
+  CHECK_MSG(sim->RunUntil([&] { return step() == 50; }, seconds(5)), where());
+  CHECK_MSG(drive->velocity == 0 && drive->state == 4, where());
+  CHECK(drive->position > 1300);
+  std::printf("    demo done: %s\n", where().c_str());
+
+  // A drive fault: the program resets it and runs the sequence again.
+  drive->fault = true;
+  CHECK_MSG(sim->RunUntil([&] { return step() == 90; }, seconds(2)), where());
+  sim->RunFor(milliseconds(300));
+  drive->fault = false;
+  CHECK_MSG(sim->RunUntil([&] { return step() == 30; }, seconds(20)), where());
+  CHECK(drive->fault_resets >= 1);
+
+  // The drive goes away: the status bit drops and the axis is in error stop.
+  sim->KillSlave(4);
+  CHECK_MSG(sim->RunUntil([&] { return !sim->status() && step() == 90; }, seconds(3)), where());
+  CHECK(!logged("boot failed"));
+  delete sim;
+#endif
 }
 
 int main(int argc, char** argv) {

@@ -6,8 +6,12 @@ This module then changes only what `create` cannot set:
 
     devices/configuration.json   deviceBoard -> OpenPLC Runtime v4 (and the
                                  runtime address, when one is known)
-    pous/programs/main.st        a VAR block declaring every CANopen location
+    pous/programs/main.st        a VAR block declaring every CANopen location,
+                                 and for each CiA 402 axis node the axis, its
+                                 drive bridge and the bridge call
     canopen/                     the config and its files (project.write())
+    project.json                 with sdo_blocks: the openplc_canopen library
+                                 enabled (sdolibrary.enable_in_project())
 
 The project is created in place (the editor records its path), so a failure
 after `create` removes the folder it made.
@@ -19,7 +23,7 @@ import re
 import shutil
 import subprocess
 
-from . import bundle, contract
+from . import axis, bundle, contract, sdolibrary
 from . import project as project_mod
 from .configurator import declare
 from .eds import Eds, EdsError
@@ -104,14 +108,34 @@ def declarations(cfg, config_path):
     return declare.program_order(declare.declarations(cfg, object_name, {}))
 
 
-def main_st(decls):
+def with_axes(cfg, decls):
+    """(declarations, body lines before BODY): `decls` with each CiA 402
+    axis and its bridge after the last declaration of its node, and the
+    bridge calls."""
+    axes, body = axis.glue(cfg, decls)
+    out = list(decls)
+    for a in axes:
+        last = max([k for k, d in enumerate(out) if d.get("node") == a["node"]] or
+                   [k for k, d in enumerate(out) if d.get("node") is not None and d["node"] < a["node"]] or [-1])
+        out.insert(last + 1, a)
+    return out, body
+
+
+def main_st(decls, body=()):
     """pous/programs/main.st in the form the editor writes a Structured Text program."""
-    return "PROGRAM main\n%s\n\n%s\n\nEND_PROGRAM" % (declare.editor_block(decls), BODY)
+    lines = "\n".join(list(body) + ["", BODY]) if body else BODY
+    return "PROGRAM main\n%s\n\n%s\n\nEND_PROGRAM" % (declare.editor_block(decls), lines)
+
+
+def program(cfg, config_path):
+    """The whole main.st for a config (the text `create` writes)."""
+    decls, body = with_axes(cfg, declarations(cfg, config_path))
+    return main_st(decls, body)
 
 
 def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_address=None, progress=None,
-           sim_path=None):
-    """Creates the project. Returns (project folder, declarations). The config
+           sdo_blocks=False, sim_path=None):
+    """Creates the project. Returns (project folder, located declarations). The config
     (and the simulation file sim_path, when given) must already have passed
     the deploy tool's checks."""
     progress = progress or (lambda m: None)
@@ -127,7 +151,7 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
     result = contract.check_config(cfg, config_path)
     if not result.ok:
         raise NewProjectError("\n".join(result.errors))
-    decls = declarations(cfg, config_path)
+    decls, body = with_axes(cfg, declarations(cfg, config_path))
     cli = cli_program()
     start = cli_command(cli)
     if not start:
@@ -148,15 +172,17 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
         raise NewProjectError("openplc-cli create failed (exit %d)%s" % (
             run.returncode, ":\n" + run.stdout.strip() if run.stdout.strip() else ""))
     try:
-        _patch(project_dir, decls, runtime_address)
+        _patch(project_dir, decls, body, runtime_address)
         project_mod.write(cfg, config_path, project_dir, sim_path=sim_path)
-    except (OSError, ValueError, project_mod.ProjectError, NewProjectError) as e:
+        if sdo_blocks:
+            sdolibrary.enable_in_project(project_dir)
+    except (OSError, ValueError, project_mod.ProjectError, NewProjectError, sdolibrary.LibraryError) as e:
         shutil.rmtree(project_dir, ignore_errors=True)
         raise NewProjectError("%s (the new project folder was removed)" % e)
-    return project_dir, decls
+    return project_dir, [d for d in decls if d.get("location")]
 
 
-def _patch(project_dir, decls, runtime_address):
+def _patch(project_dir, decls, body, runtime_address):
     conf = os.path.join(project_dir, "devices", "configuration.json")
     with open(conf, encoding="utf-8") as f:
         device = json.load(f)
@@ -168,7 +194,7 @@ def _patch(project_dir, decls, runtime_address):
     _write(conf, json.dumps(device, indent=2))
     programs = os.path.join(project_dir, "pous", "programs")
     os.makedirs(programs, exist_ok=True)
-    _write(os.path.join(programs, "main.st"), main_st(decls))
+    _write(os.path.join(programs, "main.st"), main_st(decls, body))
 
 
 def _write(path, text):

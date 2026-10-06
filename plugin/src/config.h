@@ -205,6 +205,14 @@ struct NodeConfig {
 struct MasterConfig {
   unsigned node_id = 1;
   unsigned sync_period_us = 0;  // 0 (or left out): the master produces no SYNC
+  // SYNC source: Lely's timer (sync_period_us) or the PLC cycle, one SYNC
+  // every sync_cycles frames from cycle_start() (canopen-master-bringup "SYNC
+  // from the PLC cycle").
+  bool sync_plc_cycle = false;
+  bool has_sync_cycles = false;
+  unsigned sync_cycles = 1;
+  // Whether the master sends SYNC at all.
+  bool produces_sync() const { return sync_period_us || sync_plc_cycle; }
   unsigned heartbeat_ms = 0;  // master heartbeat producer (0 = off)
   // Which dcfgen EDS lint findings stop the load (eds_lint.h):
   // "communication", "all" or "off"; strict_eds true/false reads as all/off.

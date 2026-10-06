@@ -21,6 +21,8 @@ def status(config_sha256="0" * 64):
         "version": "v-test", "uptime_s": 12, "config_sha256": config_sha256, "session": True,
         "master": {"node_id": 1, "state": 5},
         "bus": {"interface": "vcan0", "state": 1, "tx_errors": 0, "rx_errors": 0, "bus_off_count": 0},
+        "sync": {"source": "plc_cycle", "cycles": 2, "count": 500, "last_us": 10012, "min_us": 9870,
+                 "max_us": 10240, "skipped": 0, "late_pdos": 3},
         "nodes": [
             {"node_id": 2, "name": "pingpong", "state": 5, "status": True, "booted": True, "boot_error": None,
              "retry_pending": False, "hold": "none", "hold_by": None,

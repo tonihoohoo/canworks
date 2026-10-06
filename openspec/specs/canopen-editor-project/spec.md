@@ -6,7 +6,7 @@ An OpenPLC Editor project created from a CANopen config: made with the editor's 
 ## Requirements
 
 ### Requirement: Project files
-Creating an editor project from a CANopen config SHALL create the project with the installed editor's own New Project command (`openplc-cli create`, Structured Text), so its files and the editor's project history are the editor's own, and SHALL then change only the device configuration's target, `pous/programs/main.st` and the `canopen/` folder. The project name SHALL be the folder name. Without a working `openplc-cli` creation SHALL be refused, saying how to install it, and nothing SHALL be written.
+Creating an editor project from a CANopen config SHALL create the project with the installed editor's own New Project command (`openplc-cli create`, Structured Text), so its files and the editor's project history are the editor's own, and SHALL then change only the device configuration's target, `pous/programs/main.st`, the `canopen/` folder and, when the SDO blocks are asked for, the project's list of enabled libraries. The project name SHALL be the folder name. Without a working `openplc-cli` creation SHALL be refused, saying how to install it, and nothing SHALL be written.
 
 #### Scenario: Files written
 - **WHEN** a project is created at `~/workspace/rtd-monitor` from the RTD sensor config
@@ -47,7 +47,7 @@ The project SHALL get the config and its EDS and program files in its `canopen/`
 - **THEN** creation is refused with that error and no project folder is created
 
 ### Requirement: CANopen I/O declared in main
-The program `main` SHALL declare, in one `VAR` block, a located variable for every location the config uses: mapped PDO entries, master and node diagnostic inputs, NMT command bytes and SDO variable locations, with the names and IEC types of the configurator's located variable declarations. Declarations SHALL use the editor's own form `name : TYPE AT location;`. The program body SHALL hold only a comment saying the block came from `canopen/canopen.json`. Entries without a location SHALL be left out.
+The program `main` SHALL declare, in one `VAR` block, a located variable for every location the config uses: mapped PDO entries, master and node diagnostic inputs, NMT command bytes and SDO variable locations, with the names and IEC types of the configurator's located variable declarations. Declarations SHALL use the editor's own form `name : TYPE AT location;`. For every axis node `main` SHALL also declare the axis, named after the node, of the library's axis type, and one drive bridge instance named `<node>_bridge`. The program body SHALL hold a comment saying the block came from `canopen/canopen.json`; when the config has axis nodes, the body SHALL start with generated lines that, for each axis in config order, set the axis's three scaling fields from the config and call its bridge with the axis, the node's mapped standard objects (only those mapped) and its status bit, and say they must stay first. Entries without a location SHALL be left out.
 
 #### Scenario: RTD sensor
 - **WHEN** a project is created from a config whose node `rtd` maps four INTEGER16 inputs at `%IW100` to `%IW103` and has status bit `%IX10.0`
@@ -56,6 +56,14 @@ The program `main` SHALL declare, in one `VAR` block, a located variable for eve
 #### Scenario: No locations
 - **WHEN** the config has nodes but no locations at all
 - **THEN** `main` has an empty `VAR` ... `END_VAR` block and the project is still created
+
+#### Scenario: Axis node
+- **WHEN** a project is created from a config whose node `drive` has `axis` with scale numerator 10 and maps 0x6040 at `%QW100` and 0x6041 at `%IW100`, with status bit `%IX10.0`
+- **THEN** `main` declares `drive : AXIS_REF_SM3;` and `drive_bridge : SM_Drive_GenericDS402;` next to the located variables, and its body starts with lines setting `drive.iRatioTechUnitsNum` to 10 and calling `drive_bridge` with `Axis := drive`, the statusword variable, `bOnline :=` the status bit variable and `wControlWord =>` the controlword variable
+
+#### Scenario: Axis project builds
+- **WHEN** the example CiA 402 config's project is opened in OpenPLC Editor 4.3.2 and a program line `MC_Power(Axis := drive, Enable := TRUE)` is added
+- **THEN** Build only succeeds for the target OpenPLC Runtime v4
 
 ### Requirement: Order and descriptions
 Declarations in `main` SHALL be ordered master diagnostics first, then node by node in config order; within a node: diagnostic inputs, PDO inputs, SDO variable inputs, then PDO outputs, SDO variable outputs and the NMT command byte. Each declaration SHALL carry a one-line comment that the editor shows as the variable's description, naming the node and the source (PDO and object index:subindex with the EDS name, SDO variable, or diagnostic).
@@ -78,3 +86,18 @@ Creating a project SHALL be refused when the target folder already exists, and S
 #### Scenario: Failure after create
 - **WHEN** writing `canopen/` fails after `openplc-cli create` succeeded
 - **THEN** the new project folder is removed and the error is shown
+
+### Requirement: SDO blocks in a new project
+Creating a project with the SDO blocks option (`--sdo-blocks`) SHALL enable the library `openplc_canopen` in the project, in the form the editor itself writes when the user enables a library, so the project's library tree shows the `CO_SDO_*` blocks. Without the option the project SHALL enable no library. When the editor on the same computer has no `openplc_canopen` library, or an older version, creation SHALL install the tools' version into it as `openplc-canopen-deploy library --install` does. When that is not possible (the editor has not run on this computer), creation SHALL still succeed and SHALL say how to install the library.
+
+#### Scenario: Option given
+- **WHEN** a project is created with `--sdo-blocks` and the library is installed in the editor
+- **THEN** opening the project in OpenPLC Editor 4.3.2 shows `openplc_canopen` enabled with its eight blocks, and Build only succeeds
+
+#### Scenario: Library not installed yet
+- **WHEN** a project is created with `--sdo-blocks` on a PC whose editor does not have the library
+- **THEN** the project is created with the library enabled, the library is installed into the editor, and the output says so
+
+#### Scenario: No editor settings on this computer
+- **WHEN** a project is created with `--sdo-blocks` on a PC where the editor has never run
+- **THEN** the project is created with the library enabled and the output says how to install the library

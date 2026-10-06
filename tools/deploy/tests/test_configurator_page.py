@@ -22,6 +22,7 @@ RTD = os.path.join(REPO, "config", "rtd-sensor")
 FIXTURE = os.path.join(REPO, "test", "fixtures", "editor-project")
 LINT = os.path.join(REPO, "test", "fixtures", "eds", "lint")
 DRIVES = os.path.join(REPO, "test", "fixtures", "eds", "drives")
+CIA402 = os.path.join(REPO, "config", "cia402-drive")
 
 
 def load(path):
@@ -345,6 +346,37 @@ class Page(unittest.TestCase):
         self.save()
         self.assertEqual(load(path)["master"], {"node_id": 1})
 
+    def test_sync_source_plc_cycle(self):
+        pg = self.page
+        os.makedirs(os.path.join(self.project, "canopen"))
+        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canopen"))
+        cfg = srv.empty_config()  # SYNC period 10 ms; the EDS's TPDO 1 is type 1
+        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "tx_pdos": [{
+            "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
+        path = os.path.join(self.project, "canopen", "canopen.json")
+        with open(path, "w") as f:
+            json.dump(cfg, f)
+        self.open_from_start("#start-project", self.project)
+        pg.click('button[data-view="bus"]')
+        sel = 'select[data-path="master.sync_source"]'
+        self.assertEqual(pg.input_value(sel), "")
+        pg.select_option(sel, "plc_cycle")
+        pg.wait_for_selector('input[data-path="master.sync_cycles"]')
+        self.assertEqual(pg.locator('input[data-path="master.sync_period_us"]').count(), 0)
+        self.assertEqual(pg.get_attribute('input[data-path="master.sync_cycles"]', "placeholder"), "1")
+        self.fill("master.sync_cycles", "2")
+        self.save()
+        self.assertEqual(load(path)["master"], {"node_id": 1, "sync_source": "plc_cycle", "sync_cycles": 2})
+        # Back to the timer.
+        pg.select_option(sel, "")
+        pg.wait_for_selector('input[data-path="master.sync_period_us"]')
+        self.fill("master.sync_period_us", "10")
+        self.save()
+        deadline = time.time() + 10
+        while "sync_source" in load(path)["master"] and time.time() < deadline:
+            time.sleep(0.1)
+        self.assertEqual(load(path)["master"], {"node_id": 1, "sync_period_us": 10000})
+
     def test_slcan_adapter(self):
         pg = self.page
         self.open_from_start("#start-project", self.project)
@@ -524,6 +556,56 @@ class Page(unittest.TestCase):
             pg.click('details[data-advanced="node1"] > summary')
         self.assertEqual(pg.locator("[data-lss-warning]").count(), 1)
         self.assertTrue(pg.is_enabled('input[data-path="nodes[1].lss.assign"]'))
+
+    def test_cia402_axis(self):
+        pg = self.page
+        self.open_from_start("#start-project", self.project)
+        self.fill("adapter.interface", "can0")
+        self.add_node(os.path.join(CIA402, "servo402.eds"))
+        self.fill("nodes[0].node_id", "4")
+        self.fill("nodes[0].name", "drive")
+        box = 'input[data-path="nodes[0].axis"]'
+        self.assertEqual(pg.locator("button[data-map-cia402]").count(), 0)
+        pg.check(box)
+        self.assertEqual(pg.locator("[data-axis-status]").count(), 1)
+        self.assertEqual(pg.locator("[data-axis-profile]").count(), 0)  # device type 0x00020192
+        pg.click('button[data-map-cia402="nodes[0]"]')
+        pg.wait_for_selector('input[data-path="nodes[0].rx_pdos[3].entries[0].iec_location"]')
+        self.assertIn("0x6081 profile velocity (RPDO2", pg.inner_text("[data-axis-result]"))
+        self.assertEqual(pg.locator("[data-axis-status]").count(), 0)
+        self.fill("nodes[0].axis.scale_numerator", "10")
+        self.fill("nodes[0].axis.scale_factor", "2.5")
+        self.save()
+        node = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]
+        self.assertEqual(node["axis"], {"scale_numerator": 10, "scale_factor": 2.5})
+        self.assertEqual(node["status_location"], "%IX100.0")
+        example = load(os.path.join(CIA402, "canopen_config.json"))["nodes"][0]
+
+        def layout_of(n):
+            return {k: [(p["number"], [e["index"] for e in p["entries"]]) for p in n[k]] for k in ("tx_pdos", "rx_pdos")}
+        got, want = layout_of(node), layout_of(example)
+        # The example maps everything but the torques.
+        self.assertEqual(got["tx_pdos"][:3], want["tx_pdos"])
+        self.assertEqual(got["rx_pdos"][:3], want["rx_pdos"])
+        self.assertEqual((got["tx_pdos"][3], got["rx_pdos"][3]), ((4, ["0x6077"]), (4, ["0x6071"])))
+        # Mapping again adds nothing.
+        pg.click('button[data-map-cia402="nodes[0]"]')
+        pg.wait_for_selector("[data-axis-result]:has-text('Nothing new to map')")
+        # The declarations have the axis and its bridge call.
+        pg.click('button[data-view="declarations"]')
+        block = pg.input_value("textarea.block")
+        self.assertIn("drive        : AXIS_REF_SM3;", block)
+        self.assertIn("drive_bridge : SM_Drive_GenericDS402;", block)
+        self.assertIn("drive.iRatioTechUnitsNum := DINT#10;", block)
+        self.assertIn("drive.fScalefactor := LREAL#2.5;", block)
+        self.assertIn("bOnline := drive_ok", block)
+        # A device that is not a CiA 402 drive: the profile warning.
+        pg.click('#node-list li[data-node="0"]')
+        self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
+        pg.check('input[data-path="nodes[1].axis"]')
+        self.assertEqual(pg.locator("[data-axis-profile]").count(), 1)
+        pg.click('button[data-map-cia402="nodes[1]"]')
+        pg.wait_for_selector("[data-axis-result] li:has-text('0x6040 controlword: not in the EDS')")
 
     def test_pdo_timing_and_sdo_picker(self):
         pg = self.page
@@ -752,10 +834,20 @@ class Page(unittest.TestCase):
         pg.wait_for_selector("#modal-text:has-text('Not created')")
         self.assertIn("already exists", pg.inner_text("#modal-text"))
         self.assertEqual(os.listdir(os.path.join(work, "taken")), [])
+        user_data = os.path.join(self.dir, "open-plc-editor")
+        os.makedirs(user_data)
+        os.environ["OPENPLC_EDITOR_USER_DATA"] = user_data
+        self.addCleanup(os.environ.pop, "OPENPLC_EDITOR_USER_DATA", None)
+        self.assertFalse(pg.is_checked('#modal-extra input[aria-label="Enable CANopen SDO blocks"]'))
+        pg.check('#modal-extra input[aria-label="Enable CANopen SDO blocks"]')
         pg.fill('#modal-extra input[aria-label="Project name"]', "rtd-monitor")
         pg.click("#modal-buttons button[data-value=create]")
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")
         self.assertIn("1 CANopen variable declared in main", pg.inner_text("#banner"))
+        self.assertIn("Installed openplc_canopen", pg.inner_text("#banner"))
+        self.assertEqual(load(os.path.join(work, "rtd-monitor", "project.json"))["data"]["libraries"][0]["name"],
+                         "openplc_canopen")
+        self.assertTrue(os.path.isfile(os.path.join(user_data, "libraries", "registry.json")))
         self.assertTrue(pg.is_hidden("#btn-new-project"))
         main = os.path.join(work, "rtd-monitor", "pous", "programs", "main.st")
         with open(main, encoding="utf-8") as f:

@@ -12,6 +12,7 @@
 
 #include <array>
 #include <chrono>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -23,12 +24,14 @@
 #include <lely/coapp/lss_master.hpp>
 #include <lely/coapp/master.hpp>
 #include <lely/ev/exec.hpp>
+#include <lely/io2/posix/poll.hpp>
 #include <lely/io2/timer.hpp>
 
 #include "config.h"
 #include "dcf_gen.h"
 #include "diag.h"
 #include "log.h"
+#include "plc_api.h"
 #include "process_image.h"
 
 namespace canopen_plugin {
@@ -59,7 +62,7 @@ class Network : public lely::canopen::BasicMaster {
   // `tick` is called from the loop every supervision period; returning false
   // ends the session (the caller then shuts the loop down). `req_timer`, when
   // given, polls the program's SDO variable and NMT requests every
-  // kRequestPeriod (armed only when the configuration has any); without it
+  // kRequestPeriod, and the program's SDO function blocks; without it
   // they are polled on each SYNC and supervision tick. `out_timer`, when
   // given and the master produces no SYNC, sends the outputs every
   // kOutputPeriod instead of on SYNC.
@@ -78,6 +81,20 @@ class Network : public lely::canopen::BasicMaster {
   void Stop();
 
   bool IsOperational(unsigned id) const;
+
+  // PLC-cycle SYNC: sends one SYNC for the requests the scan made since the
+  // last call (ProcessImage::request_sync), with the newest outputs. Call on
+  // the loop thread when ProcessImage::sync_fd() is readable (SyncWake).
+  void ServiceSyncRequests();
+
+  // SYNC statistics (canopen-master-bringup "SYNC statistics").
+  struct SyncStats {
+    uint64_t count = 0;
+    uint64_t last_us = 0, min_us = 0, max_us = 0;  // interval between SYNCs
+    uint64_t skipped = 0;  // frames merged into one SYNC
+    uint64_t late = 0;     // cyclic synchronous node TPDOs that missed their SYNC
+  };
+  const SyncStats& sync_stats() const { return sync_stats_; }
 
   // Serves the diagnostics channel's requests from `hub` (call before
   // Start()); the caller attaches and detaches the hub.
@@ -103,6 +120,9 @@ class Network : public lely::canopen::BasicMaster {
   static constexpr std::chrono::milliseconds kRequestPeriod{10};
   // Without SYNC: how often the bus thread looks for new outputs from the scan.
   static constexpr std::chrono::milliseconds kOutputPeriod{1};
+  // Late PDO and skipped SYNC warnings: at most one per PDO (and one for
+  // skips) in this period.
+  static constexpr std::chrono::seconds kSyncWarnPeriod{10};
 
   // SDO variable transfer status (status_location).
   enum SdoStatus : uint8_t { kSdoNone = 0, kSdoBusy = 1, kSdoDone = 2, kSdoAborted = 3, kSdoUnavailable = 4 };
@@ -126,6 +146,7 @@ class Network : public lely::canopen::BasicMaster {
   void OnNodeGuarding(uint8_t id, bool occurred) noexcept override;
   void OnState(uint8_t id, lely::canopen::NmtState st) noexcept override;
   void OnSync(uint8_t cnt, const time_point& t) noexcept override;
+  void OnRpdo(int num, std::error_code ec, const void* p, std::size_t n) noexcept override;
   void OnCommand(lely::canopen::NmtCommand cs) noexcept override;
   void OnEmcy(uint8_t id, uint16_t eec, uint8_t er, uint8_t msef[5]) noexcept override;
 
@@ -165,7 +186,8 @@ class Network : public lely::canopen::BasicMaster {
     Hold hold = Hold::None;
     bool hold_by_operator = false;  // the hold came from a diagnostics client
     std::vector<size_t> vars;  // ProcessImage::sdo_vars() of this node
-    bool sdo_busy = false;     // an SDO variable transfer is in flight
+    bool sdo_busy = false;     // an SDO variable or program transfer is in flight
+    bool last_prog = false;    // the last transfer started was the program's
     // Diagnostics: the boot result text, and the newest emergency messages
     // (ring buffer, newest at emcy_head - 1).
     std::string boot_what;
@@ -224,6 +246,12 @@ class Network : public lely::canopen::BasicMaster {
     uint32_t logged_abort = 0;  // abort code logged since the last success
   };
 
+  // A program transfer (spec canopen-plc-sdo) waiting for or using its node.
+  struct ProgJob {
+    PlcRequests::Job job;
+    bool resolved = false;  // the write payload is in its final form
+  };
+
   template <class F>
   void Defer(F&& f);
   // Runs an SDO submission. Lely's Submit*() first advances the CAN timers,
@@ -254,6 +282,12 @@ class Network : public lely::canopen::BasicMaster {
   void ConfigNext(uint8_t id);
   void EnableTpdos(const NodeState& n, bool enable);
   void MapTpdos();
+  // Master RPDOs that carry a node's cyclic synchronous TPDO, for the late
+  // PDO check; with PLC-cycle SYNC they are switched to event-driven so the
+  // inputs reach the image as they arrive.
+  void MapSyncRpdos();
+  void CountSync();
+  void SendSync();
   void ArmTick();
   void OnTick();
   void WriteOutputs();
@@ -266,6 +300,24 @@ class Network : public lely::canopen::BasicMaster {
   void FinishTransfer(unsigned id, size_t k, std::error_code ec, const std::vector<uint8_t>* data, uint64_t value);
   void SetSdoStatus(size_t k, uint8_t status, uint32_t abort, bool set_abort);
   void OnBooted(unsigned id, NodeState& n);
+  // Program transfers from the SDO function blocks (spec canopen-plc-sdo).
+  void ServiceProgram(clock::time_point now);
+  // Whether node `id`'s oldest program transfer can start now; ends it
+  // first when it cannot run at all or ran out of time.
+  void StartProgram(unsigned id, NodeState* n, clock::time_point now);
+  void FinishProgram(unsigned id, uint32_t handle, const PlcRequests::Job& job, std::error_code ec,
+                     const std::vector<uint8_t>* data);
+  void EndProgram(unsigned id, uint32_t handle, uint16_t error_id, uint32_t abort, const uint8_t* data,
+                  size_t size);
+  // The payload of a program write as it goes on the bus: sizes from the EDS
+  // and REAL32 conversion. Returns an ERROR_ID, or 0.
+  // The session ends: cancels the program's transfers in flight (an SDO to a
+  // node outside the configuration would otherwise keep the loop busy until
+  // its timeout).
+  void CancelPrograms();
+  uint16_t ResolveWrite(unsigned id, ProgJob& p);
+  // The EDS data type of a configured node's object (0 = not in the EDS).
+  uint16_t EdsType(const NodeConfig& n, uint16_t index, uint8_t subindex);
   void ResetNode(unsigned id, NodeState& n, bool comm, const char* by);
   // Diagnostics channel (see the spec canopen-online-diagnostics).
   void ServiceDiag();
@@ -308,9 +360,30 @@ class Network : public lely::canopen::BasicMaster {
   std::map<unsigned, uint32_t> tpdo_cob_;  // master TPDO number -> COB-ID
   std::set<unsigned> tpdo_event_;          // event-driven master TPDOs
   std::vector<uint64_t> last_out_;
+  // A master RPDO fed by a node's cyclic synchronous TPDO (type 1-240).
+  struct SyncRpdo {
+    unsigned node_id = 0;
+    unsigned pdo = 0;      // the node's TPDO number (0 = unknown)
+    unsigned trans = 1;    // the node's transmission type
+    unsigned since = 0;    // SYNCs since it last arrived
+    bool armed = false;    // arrived once since the node came up
+    clock::time_point warned{};
+  };
+  std::map<unsigned, SyncRpdo> sync_rpdos_;  // master RPDO number ->
+  SyncStats sync_stats_;
+  clock::time_point last_sync_{};
+  clock::time_point skip_warned_{};
+  uint64_t sync_seen_ = 0;    // ProcessImage::sync_requests() handled
+  uint8_t sync_cnt_ = 1;      // next SYNC counter value (with 0x1019 > 1)
   std::set<unsigned> emcy_unknown_;  // unconfigured node IDs already warned about
   DiagHub* diag_ = nullptr;
   std::vector<ManualSdo> manual_;
+  std::map<unsigned, std::deque<ProgJob>> prog_;  // node ID -> program transfers, oldest first
+  std::set<unsigned> prog_foreign_busy_;          // unconfigured node IDs with a transfer in flight
+  std::vector<PlcRequests::Job> prog_taken_;      // scratch for PlcRequests::take
+  std::map<uint32_t, uint16_t> eds_types_;        // node<<24 | index<<8 | subindex -> EDS DataType
+  std::set<uint64_t> prog_aborts_logged_;         // node, object and abort code logged
+  std::set<uint32_t> prog_owned_warned_;          // node<<24 | index<<8 | subindex warned about
   std::map<unsigned, unsigned> foreign_sdo_;  // unconfigured node ID -> transfers in flight
   bool scan_running_ = false;
   bool scan_have_result_ = false;
@@ -338,6 +411,29 @@ class Network : public lely::canopen::BasicMaster {
   bool master_op_ = false;  // the master itself is OPERATIONAL (PDOs run)
   uint8_t master_state_ = 0;
   clock::time_point started_;
+};
+
+// PLC-cycle SYNC: calls Network::ServiceSyncRequests() on the loop thread
+// each time the scan requests a SYNC (ProcessImage::sync_fd() readable).
+// Does nothing when `fd` is -1.
+class SyncWake {
+ public:
+  SyncWake(lely::io::Poll& poll, int fd, Network& net);
+  ~SyncWake();
+  SyncWake(const SyncWake&) = delete;
+  SyncWake& operator=(const SyncWake&) = delete;
+
+ private:
+  static void OnEvent(struct ::io_poll_watch* watch, int events) noexcept;
+  void Arm();
+
+  struct Watch {
+    struct ::io_poll_watch w;
+    SyncWake* self;
+  } watch_;
+  lely::io::Poll& poll_;
+  int fd_;
+  Network& net_;
 };
 
 template <class F>

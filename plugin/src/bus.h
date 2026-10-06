@@ -54,6 +54,9 @@ class Bus {
   // waits for the loop to finish after shutting it down.
   static constexpr std::chrono::milliseconds kLoopSlice{200};
   static constexpr int kShutdownSlices = 10;
+  // SCHED_FIFO priority of the bus thread with PLC-cycle SYNC: the runtime's
+  // highest task level (PLC_FIFO_TASK_MAX), below its dispatcher.
+  static constexpr int kSyncPriority = 49;
 
   void thread_main();
   void run_session();

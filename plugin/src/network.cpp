@@ -13,6 +13,10 @@ extern "C" int can_net_send(__can_net* net, const can_msg* msg);
 
 #include "log.h"
 
+// From <lely/co/nmt.h> (C header): sends the synchronous TPDOs and actuates
+// the synchronous RPDOs after a SYNC, then calls the SYNC indication (OnSync).
+extern "C" void co_nmt_on_sync(__co_nmt* nmt, uint8_t cnt);
+
 namespace canopen_plugin {
 
 using lely::canopen::NmtCommand;
@@ -21,6 +25,7 @@ using lely::canopen::NmtState;
 constexpr std::chrono::milliseconds Network::kTick;
 constexpr std::chrono::milliseconds Network::kRetryMin;
 constexpr std::chrono::milliseconds Network::kRetryMax;
+constexpr std::chrono::seconds Network::kSyncWarnPeriod;
 constexpr std::chrono::milliseconds Network::kAbsentAfter;
 constexpr std::chrono::milliseconds Network::kNoAnswerAfter;
 constexpr unsigned Network::kLoggedEmcyPerSecond;
@@ -169,6 +174,8 @@ Network::~Network() {
   sup_timer_.cancel_wait(tick_wait_);
   if (req_timer_) req_timer_->cancel_wait(req_wait_);
   if (out_timer_) out_timer_->cancel_wait(out_wait_);
+  // Program transfers this session took never finish now.
+  PlcRequests::instance().cancel_taken();
 }
 
 void Network::Start() {
@@ -177,6 +184,8 @@ void Network::Start() {
   // only switched on for nodes that are operational.
   Reset();
   MapTpdos();
+  MapSyncRpdos();
+  sync_seen_ = image_.sync_requests();
   for (const auto& t : tpdo_cob_) {
     std::error_code ec;
     (*this)[0x1800 + t.first - 1][1].Write<uint32_t>(t.second | 0x80000000u, ec);
@@ -192,12 +201,13 @@ void Network::Start() {
   }
   sup_timer_.settime(kTick, kTick);
   sup_timer_.submit_wait(tick_wait_);
-  if (req_timer_ && (has_requests_ || diag_)) {
+  // Always: the program's SDO function blocks may start transfers any time.
+  if (req_timer_) {
     req_timer_->settime(kRequestPeriod, kRequestPeriod);
     req_timer_->submit_wait(req_wait_);
   }
   // No SYNC: outputs no longer wait for OnSync.
-  if (out_timer_ && !cfg_.master.sync_period_us) {
+  if (out_timer_ && !cfg_.master.produces_sync()) {
     out_timer_->settime(kOutputPeriod, kOutputPeriod);
     out_timer_->submit_wait(out_wait_);
   }
@@ -225,8 +235,10 @@ void Network::SendTime() {
 }
 
 void Network::Stop() {
+  if (stopped_) return;
   stopped_ = true;
   if (lss_) lss_->CancelAll();
+  CancelPrograms();
 }
 
 void Network::MapTpdos() {
@@ -658,10 +670,131 @@ void Network::HandleRpdoWrite(uint8_t id, uint16_t idx, uint8_t subidx) {
 
 void Network::OnSync(uint8_t cnt, const time_point& t) noexcept {
   BasicMaster::OnSync(cnt, t);
-  Defer([this] {
-    WriteOutputs();
+  CountSync();
+  // With PLC-cycle SYNC the outputs went out with this SYNC (SendSync).
+  bool plc = cfg_.master.sync_plc_cycle;
+  Defer([this, plc] {
+    if (!plc) WriteOutputs();
     ServiceRequests();
   });
+}
+
+void Network::OnRpdo(int num, std::error_code ec, const void* p, std::size_t n) noexcept {
+  (void)p;
+  (void)n;
+  if (ec) return;
+  auto it = sync_rpdos_.find(static_cast<unsigned>(num));
+  if (it == sync_rpdos_.end()) return;
+  it->second.since = 0;
+  it->second.armed = true;
+}
+
+void Network::MapSyncRpdos() {
+  sync_rpdos_.clear();
+  for (unsigned num = 1; num <= 512; ++num) {
+    std::error_code ec;
+    uint32_t cob = (*this)[0x1400 + num - 1][1].Read<uint32_t>(ec);
+    if (ec) continue;
+    uint8_t trans = (*this)[0x1400 + num - 1][2].Read<uint8_t>(ec);
+    if (ec || trans < 1 || trans > 240) continue;
+    cob &= 0x7FF;
+    SyncRpdo r;
+    r.trans = trans;
+    for (const auto& n : cfg_.nodes)
+      for (const auto& pdo : n.tx_pdos)
+        if (n.tpdo_cob_id(pdo) == cob) r.node_id = n.node_id, r.pdo = pdo.number;
+    if (!r.node_id) continue;
+    sync_rpdos_[num] = r;
+    // PLC-cycle SYNC: take the inputs as they arrive, so the next frame's
+    // cycle_start() sees them (Lely would hold a synchronous RPDO until the
+    // next SYNC). The node keeps its own synchronous type.
+    if (cfg_.master.sync_plc_cycle) {
+      (*this)[0x1400 + num - 1][2].Write<uint8_t>(0xFF, ec);
+      if (ec) log_warn("cannot make master RPDO %u event-driven: %s", num, ec.message().c_str());
+    }
+  }
+}
+
+// After every SYNC the master sends (timer or PLC cycle): the interval and
+// the late PDO check. Runs on the loop thread with the master locked.
+void Network::CountSync() {
+  auto now = clock::now();
+  SyncStats& st = sync_stats_;
+  if (st.count) {
+    auto d = std::chrono::duration_cast<std::chrono::microseconds>(now - last_sync_);
+    uint64_t us = static_cast<uint64_t>(d.count());
+    st.last_us = us;
+    if (st.count == 1 || us < st.min_us) st.min_us = us;
+    if (us > st.max_us) st.max_us = us;
+  }
+  ++st.count;
+  last_sync_ = now;
+  for (auto& it : sync_rpdos_) {
+    SyncRpdo& r = it.second;
+    auto n = nodes_.find(r.node_id);
+    if (n == nodes_.end() || !n->second.up) {
+      r.armed = false;
+      continue;
+    }
+    if (!r.armed) continue;
+    if (r.since >= r.trans) {
+      ++st.late;
+      r.since = 0;
+      if (now - r.warned >= kSyncWarnPeriod) {
+        r.warned = now;
+        log_warn("%s TPDO %u (transmission type %u) did not arrive before the next SYNC (%llu late PDOs so far)",
+                 n->second.cfg->label().c_str(), r.pdo, r.trans, static_cast<unsigned long long>(st.late));
+      }
+    }
+    ++r.since;
+  }
+}
+
+void Network::ServiceSyncRequests() {
+  uint64_t req = image_.sync_requests();
+  if (req == sync_seen_ || stopped_) {
+    sync_seen_ = req;
+    return;
+  }
+  uint64_t skipped = req - sync_seen_ - 1;
+  sync_seen_ = req;
+  if (skipped) {
+    sync_stats_.skipped += skipped;
+    auto now = clock::now();
+    if (now - skip_warned_ >= kSyncWarnPeriod) {
+      skip_warned_ = now;
+      log_warn("the bus thread fell behind the PLC cycle: %llu SYNCs merged into one (%llu skipped so far)",
+               static_cast<unsigned long long>(skipped + 1), static_cast<unsigned long long>(sync_stats_.skipped));
+    }
+  }
+  WriteOutputs();
+  SendSync();
+}
+
+// One SYNC as Lely's own producer sends it (co_sync_timer), then Lely's
+// synchronous PDO processing for it.
+void Network::SendSync() {
+  std::error_code ec;
+  uint32_t cobid = (*this)[0x1005][0].Read<uint32_t>(ec);
+  if (ec) cobid = 0x80;
+  uint8_t max_cnt = (*this)[0x1019][0].Read<uint8_t>(ec);
+  if (ec) max_cnt = 0;
+  can_msg msg = CAN_MSG_INIT;
+  if (cobid & 0x20000000u) {
+    msg.id = cobid & CAN_MASK_EID;
+    msg.flags |= CAN_FLAG_IDE;
+  } else {
+    msg.id = cobid & CAN_MASK_BID;
+  }
+  uint8_t cnt = 0;
+  if (max_cnt > 1) {
+    msg.len = 1;
+    msg.data[0] = cnt = sync_cnt_;
+    sync_cnt_ = sync_cnt_ < max_cnt ? sync_cnt_ + 1 : 1;
+  }
+  std::lock_guard<lely::util::BasicLockable> lock(*this);
+  can_net_send(net(), &msg);
+  co_nmt_on_sync(nmt(), cnt);
 }
 
 void Network::WriteOutputs() {
@@ -974,44 +1107,49 @@ void Network::ApplyNmtCommand(unsigned id, NodeState& n, uint8_t level, uint64_t
 }
 
 void Network::ServiceRequests() {
-  if (!has_requests_ || stopped_) return;
+  if (stopped_) return;
+  auto now = clock::now();
+  ServiceProgram(now);
+  if (!has_requests_ && prog_.empty()) return;
   const uint64_t* snap = image_.latest_outputs();
   // Nothing before the program has run once: the outputs are not its yet.
-  if (image_.scan_count(snap) == 0) return;
-  auto now = clock::now();
+  bool scanned = image_.scan_count(snap) != 0;
   for (auto& it : nodes_) {
     unsigned id = it.first;
     NodeState& n = it.second;
-    uint8_t level = 0, code = 0;
-    uint64_t resets = 0;
-    if (image_.nmt_command(snap, id, level, resets, code)) ApplyNmtCommand(id, n, level, resets, code);
-    if (n.vars.empty()) continue;
+    if (scanned) {
+      uint8_t level = 0, code = 0;
+      uint64_t resets = 0;
+      if (image_.nmt_command(snap, id, level, resets, code)) ApplyNmtCommand(id, n, level, resets, code);
+    }
     bool avail = SdoAvailable(id, n);
-    for (size_t k : n.vars) {
-      VarState& v = vars_[k];
-      const SdoVariable& var = image_.sdo_vars()[k].var;
-      if (var.has_trigger) {
-        uint64_t count = image_.sdo_trigger_count(snap, k);
-        if (count != v.trig_seen) {
-          v.trig_seen = count;
-          if (avail) {
-            v.trig_pending = true;
-          } else {
-            v.trig_pending = false;
-            SetSdoStatus(k, kSdoUnavailable, 0, false);  // dropped
+    if (scanned) {
+      for (size_t k : n.vars) {
+        VarState& v = vars_[k];
+        const SdoVariable& var = image_.sdo_vars()[k].var;
+        if (var.has_trigger) {
+          uint64_t count = image_.sdo_trigger_count(snap, k);
+          if (count != v.trig_seen) {
+            v.trig_seen = count;
+            if (avail) {
+              v.trig_pending = true;
+            } else {
+              v.trig_pending = false;
+              SetSdoStatus(k, kSdoUnavailable, 0, false);  // dropped
+            }
           }
         }
+        // Automatic transfers wait for the node, showing that they do.
+        bool automatic = var.is_read() || !var.has_trigger;
+        if (!avail && automatic && !(n.sdo_busy && image_.sdo_status(k) == kSdoBusy))
+          SetSdoStatus(k, kSdoUnavailable, 0, false);
       }
-      // Automatic transfers wait for the node, showing that they do.
-      bool automatic = var.is_read() || !var.has_trigger;
-      if (!avail && automatic && !(n.sdo_busy && image_.sdo_status(k) == kSdoBusy))
-        SetSdoStatus(k, kSdoUnavailable, 0, false);
     }
     if (!avail || n.sdo_busy) continue;
-    // Next transfer: triggered ones, owned writes, post-boot reads, periodic
-    // reads.
+    // Next SDO variable transfer: triggered ones, owned writes, post-boot
+    // reads, periodic reads.
     size_t pick = SIZE_MAX;
-    for (int pass = 0; pass < 4 && pick == SIZE_MAX; ++pass)
+    for (int pass = 0; scanned && pass < 4 && pick == SIZE_MAX; ++pass)
       for (size_t k : n.vars) {
         VarState& v = vars_[k];
         const SdoVariable& var = image_.sdo_vars()[k].var;
@@ -1030,7 +1168,15 @@ void Network::ServiceRequests() {
           break;
         }
       }
-    if (pick != SIZE_MAX) StartTransfer(id, n, pick, snap);
+    // Program transfers and SDO variables take turns on the node.
+    auto q = prog_.find(id);
+    bool prog = q != prog_.end() && !q->second.empty();
+    if (prog && (pick == SIZE_MAX || !n.last_prog)) {
+      StartProgram(id, &n, now);
+    } else if (pick != SIZE_MAX) {
+      n.last_prog = false;
+      StartTransfer(id, n, pick, snap);
+    }
   }
 }
 
@@ -1113,6 +1259,34 @@ void Network::FinishTransfer(unsigned id, size_t k, std::error_code ec, const st
   image_.set_sdo_status(k, kSdoDone);
   image_.set_sdo_abort(k, 0);
   image_.commit_inputs();
+}
+
+SyncWake::SyncWake(lely::io::Poll& poll, int fd, Network& net) : poll_(poll), fd_(fd), net_(net) {
+  watch_.w = IO_POLL_WATCH_INIT(&SyncWake::OnEvent);
+  watch_.self = this;
+  Arm();
+}
+
+SyncWake::~SyncWake() {
+  if (fd_ < 0) return;
+  std::error_code ec;
+  poll_.watch(fd_, lely::io::Event::NONE, watch_.w, ec);
+}
+
+void SyncWake::Arm() {
+  if (fd_ < 0) return;
+  std::error_code ec;
+  poll_.watch(fd_, lely::io::Event::IN, watch_.w, ec);
+  if (ec) log_error("cannot watch the PLC-cycle SYNC requests: %s", ec.message().c_str());
+}
+
+void SyncWake::OnEvent(struct ::io_poll_watch* watch, int) noexcept {
+  SyncWake* self = reinterpret_cast<Watch*>(watch)->self;
+  uint64_t n;
+  while (read(self->fd_, &n, sizeof(n)) == static_cast<ssize_t>(sizeof(n))) {
+  }
+  self->net_.ServiceSyncRequests();
+  self->Arm();  // a watch reports one event
 }
 
 }  // namespace canopen_plugin

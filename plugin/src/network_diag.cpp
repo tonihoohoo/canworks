@@ -131,6 +131,18 @@ void Network::DiagStatus(const DiagRequest& r) {
   cJSON_AddNumberToObject(b, "tx_errors", image_.bus_tx_errors());
   cJSON_AddNumberToObject(b, "rx_errors", image_.bus_rx_errors());
   cJSON_AddNumberToObject(b, "bus_off_count", image_.bus_off_count());
+  const MasterConfig& mc = cfg_.master;
+  cJSON* sy = cJSON_AddObjectToObject(res, "sync");
+  cJSON_AddStringToObject(sy, "source", mc.sync_plc_cycle ? "plc_cycle" : mc.sync_period_us ? "timer" : "none");
+  if (mc.sync_plc_cycle) cJSON_AddNumberToObject(sy, "cycles", mc.sync_cycles);
+  if (mc.sync_period_us) cJSON_AddNumberToObject(sy, "period_us", mc.sync_period_us);
+  const SyncStats& ss = sync_stats_;
+  cJSON_AddNumberToObject(sy, "count", static_cast<double>(ss.count));
+  cJSON_AddNumberToObject(sy, "last_us", static_cast<double>(ss.last_us));
+  cJSON_AddNumberToObject(sy, "min_us", static_cast<double>(ss.min_us));
+  cJSON_AddNumberToObject(sy, "max_us", static_cast<double>(ss.max_us));
+  cJSON_AddNumberToObject(sy, "skipped", static_cast<double>(ss.skipped));
+  cJSON_AddNumberToObject(sy, "late_pdos", static_cast<double>(ss.late));
   cJSON* nodes = cJSON_AddArrayToObject(res, "nodes");
   const auto& vars = image_.sdo_vars();
   for (const auto& it : nodes_) {

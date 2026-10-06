@@ -96,7 +96,7 @@ The configurator SHALL edit the `socketcan` adapter: interface name, bit rate ch
 - **THEN** the page shows a SocketCAN adapter on `vcan0` at 125000 with "configure link" off, says the file uses the old keys, and saving writes them as `adapter` with `configure_link: false`
 
 ### Requirement: Master settings
-The configurator SHALL edit the master's node ID, SYNC period, master heartbeat period, EDS lint setting and boot SDO timeout. The SYNC period field SHALL be optional: left empty it SHALL show "off" as its placeholder and SHALL save no `sync_period_us`, and its hint SHALL say that synchronous PDOs then need an event-driven transmission type. New configs SHALL still start with a SYNC period of 10 ms. The boot SDO timeout field SHALL show 1000 as its placeholder and SHALL save nothing when left empty. The EDS lint setting SHALL offer "communication objects" (`"communication"`, the default, saved as no field), "every object" (`"all"`) and "off" (`"off"`). A loaded config with `strict_eds` SHALL be shown as the matching setting and saved as `eds_lint`, with the page saying so.
+The configurator SHALL edit the master's node ID, SYNC source, SYNC period, PLC cycles per SYNC, master heartbeat period, EDS lint setting and boot SDO timeout. The SYNC period field SHALL be optional: left empty it SHALL show "off" as its placeholder and SHALL save no `sync_period_us`, and its hint SHALL say that synchronous PDOs then need an event-driven transmission type. New configs SHALL still start with a SYNC period of 10 ms. The SYNC source SHALL offer "timer" (saved as no field) and "PLC cycle" (`"plc_cycle"`); with "PLC cycle" the SYNC period field SHALL be hidden and not saved, and an "every N PLC cycles" field SHALL show 1 as its placeholder, save nothing when empty and save `sync_cycles` otherwise. The boot SDO timeout field SHALL show 1000 as its placeholder and SHALL save nothing when left empty. The EDS lint setting SHALL offer "communication objects" (`"communication"`, the default, saved as no field), "every object" (`"all"`) and "off" (`"off"`). A loaded config with `strict_eds` SHALL be shown as the matching setting and saved as `eds_lint`, with the page saying so.
 
 #### Scenario: Change the SYNC period
 - **WHEN** the user sets the SYNC period to 10 ms and saves
@@ -125,6 +125,14 @@ The configurator SHALL edit the master's node ID, SYNC period, master heartbeat 
 #### Scenario: Lint rerun on check
 - **WHEN** the user changes the EDS lint setting from "off" to "every object" for a config whose node EDS has findings in 0x6061, and presses Check
 - **THEN** the check reports the same lint error the plugin would log for that node
+
+#### Scenario: Switch to PLC-cycle SYNC
+- **WHEN** a config has `"sync_period_us": 10000`, the user picks "PLC cycle", enters 2 in "every N PLC cycles" and saves
+- **THEN** the saved `master` object has `"sync_source": "plc_cycle"` and `"sync_cycles": 2` and no `sync_period_us`, and the Check accepts a node TPDO with EDS default type 1
+
+#### Scenario: Back to the timer
+- **WHEN** the user switches a PLC-cycle config back to "timer", enters 10 ms and saves
+- **THEN** the saved `master` object has `"sync_period_us": 10000` and neither `sync_source` nor `sync_cycles`
 
 ### Requirement: Node supervision settings
 For each node the configurator SHALL edit node ID, name, heartbeat period and timeout, or node guarding time and life time factor, and the status bit location. A new node's status bit SHALL get a suggested free `%IX` location.
@@ -491,11 +499,15 @@ The page header SHALL have an "Export DBC" action. It SHALL run the `canopen-dbc
 - **THEN** nothing is downloaded and the Problems pane shows the error
 
 ### Requirement: New editor project from a standalone config
-In standalone mode the page SHALL offer "New editor project" next to "move into project". It SHALL ask for a parent folder (prefilled with the home folder, as "move into project" does), a project name and the task interval (default `T#20ms`), create the project as `canopen-editor-project` describes, and then switch to project mode on the new project. It SHALL require the config to be saved first and SHALL show the reason when creation is refused. The standalone folder SHALL be left unchanged.
+In standalone mode the page SHALL offer "New editor project" next to "move into project". It SHALL ask for a parent folder (prefilled with the home folder, as "move into project" does), a project name, the task interval (default `T#20ms`) and whether to enable the CANopen SDO blocks (unchecked by default), create the project as `canopen-editor-project` describes, and then switch to project mode on the new project. It SHALL require the config to be saved first and SHALL show the reason when creation is refused. The standalone folder SHALL be left unchanged.
 
 #### Scenario: Create and switch
 - **WHEN** the user has saved a standalone config in `~/canopen/rtd`, chooses "New editor project", picks `~/workspace` and the name `rtd-monitor`
 - **THEN** `~/workspace/rtd-monitor` is created with the config in its `canopen/` folder and `main` declaring its I/O, and the page shows mode "project rtd-monitor" with every CANopen entry marked as declared
+
+#### Scenario: SDO blocks enabled
+- **WHEN** the user ticks "Enable CANopen SDO blocks" in the dialog
+- **THEN** the project is created as with `--sdo-blocks`, and the page shows how to install the library when the creation output says it is missing
 
 #### Scenario: Unsaved changes
 - **WHEN** the config has unsaved changes
@@ -740,3 +752,49 @@ The object dictionary tab SHALL copy the rows it shows to the clipboard as tab-s
 #### Scenario: Save changed values
 - **WHEN** the filter "changed from default" is on and the user saves CSV
 - **THEN** the file holds one line per changed entry, with a header line
+
+### Requirement: Copy as ST call
+The object dictionary tab SHALL offer "Copy as ST call" for a selected entry. It SHALL copy Structured Text that declares an instance of the matching block and calls it with the node ID, index and subindex filled in: `CO_SDO_READ_REAL`/`CO_SDO_WRITE_REAL` for REAL32 and REAL64, `CO_SDO_READ_STRING`/`CO_SDO_WRITE_STRING` for VISIBLE_STRING, `CO_SDO_READ_BYTES`/`CO_SDO_WRITE_BYTES` for OCTET_STRING and DOMAIN, and `CO_SDO_READ`/`CO_SDO_WRITE` for every other type, with the `LWORD_TO_<type>` conversion for the entry's IEC type in a comment. It SHALL offer the read call for readable entries and the write call for writable ones, and both when both apply. The entry row for any index and subindex SHALL offer the same, using `CO_SDO_READ`/`CO_SDO_WRITE` when no type is given.
+
+#### Scenario: INTEGER16 entry
+- **WHEN** the user picks "Copy as ST call", read, on node 5's 0x6401 subindex 1 (INTEGER16, `ro`)
+- **THEN** the clipboard holds a declaration of a `CO_SDO_READ` instance, a call with `NODE := 5, INDEX := 16#6401, SUBINDEX := 1`, and a comment showing `LWORD_TO_INT(...DATA)`
+
+#### Scenario: Device name
+- **WHEN** the user picks "Copy as ST call" on 0x1008 subindex 0 (VISIBLE_STRING, `const`)
+- **THEN** only the read is offered and it uses `CO_SDO_READ_STRING`
+### Requirement: CiA 402 axis setting
+The node settings SHALL offer a "CiA 402 axis" switch with the three scaling fields, writing the node's `axis` object, and SHALL show the axis checks' errors and warnings with the node. The switch SHALL be offered for every node and SHALL say when the EDS does not report device profile 402. Turning it on SHALL require a status bit and SHALL suggest one when the node has none.
+
+#### Scenario: Turn on
+- **WHEN** the user turns on "CiA 402 axis" for node `drive`, which has a status bit, and saves
+- **THEN** the saved config has `"axis": {}` on node `drive` (scaling left at the defaults is not written)
+
+#### Scenario: Error shown
+- **WHEN** the axis node does not map 0x6041
+- **THEN** the node shows the error and the config is not saved
+
+### Requirement: Map CiA 402 objects
+For an axis node the configurator SHALL offer "Map CiA 402 objects", which adds each standard axis object that the EDS has as PDO-mappable and that is not yet mapped to a free entry of an RPDO (outputs) or TPDO (inputs) the device lets the master map, with suggested locations of the bridge's IEC types, and leaves PDO communication settings at the EDS's values. Objects that do not fit SHALL be listed by name and nothing already mapped SHALL change.
+
+#### Scenario: Servo drive
+- **WHEN** the user runs "Map CiA 402 objects" on an axis node whose EDS has all eleven standard objects, writable mapping and four RPDOs and TPDOs, with nothing mapped
+- **THEN** all eleven objects are mapped with locations of the right IEC types and the axis check passes
+
+#### Scenario: Does not fit
+- **WHEN** the EDS has no 0x6077 object
+- **THEN** the action maps the others and says 0x6077 is not in the EDS
+
+### Requirement: Map CiA 402 objects on a fixed-mapping device
+For a device whose PDO mapping the master cannot change, "Map CiA 402 objects" SHALL only give suggested locations to the standard objects already in the device's mapping and SHALL list the missing ones.
+
+#### Scenario: Fixed mapping
+- **WHEN** the device's fixed RPDO 1 holds 0x6040 and 0x60FF and the action runs
+- **THEN** both get locations and the other standard outputs are listed as not in the device's mapping
+
+### Requirement: Axis lines in the declarations
+For an axis node the located variable declarations SHALL also offer the axis and bridge declarations and the bridge call lines the project generator writes, ready to copy into an existing project.
+
+#### Scenario: Copy axis lines
+- **WHEN** node `drive` is an axis
+- **THEN** the declarations panel shows the `drive : AXIS_REF_SM3;` and `drive_bridge` declarations and the call of `drive_bridge` with the node's mapped objects

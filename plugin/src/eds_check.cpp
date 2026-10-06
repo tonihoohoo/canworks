@@ -326,7 +326,7 @@ void check_pdos(Config& cfg, NodeConfig& n, const co_dev_t* dev, bool is_tx,
     // never move; the plugin does not pick another type on its own.
     uint64_t tt = 0;
     const co_sub_t* tt_sub = co_dev_find_sub(dev, comm, 2);
-    if (!cfg.master.sync_period_us && !p.has_transmission && tt_sub && sub_value(tt_sub, tt) &&
+    if (!cfg.master.produces_sync() && !p.has_transmission && tt_sub && sub_value(tt_sub, tt) &&
         transmission_needs_sync((unsigned)tt))
       errors.push_back(n.label() + ": " + kind + " " + std::to_string(p.number) + ": " +
                        sync_needed_message((unsigned)tt, true));
@@ -493,6 +493,43 @@ bool eds_sub_value(const NodeConfig& n, uint16_t index, uint8_t subindex, uint64
   bool ok = sub && sub_value(sub, value);
   co_dev_destroy(dev);
   return ok;
+}
+
+bool eds_sub_type(const NodeConfig& n, uint16_t index, uint8_t subindex, uint16_t& type) {
+  std::string why;
+  co_dev_t* dev = parse_eds(n.eds_path, why);
+  if (!dev) return false;
+  const co_sub_t* sub = co_dev_find_sub(dev, index, subindex);
+  if (sub) type = co_sub_get_type(sub);
+  co_dev_destroy(dev);
+  return sub != nullptr;
+}
+
+unsigned co_type_bytes(uint16_t type) {
+  switch (type) {
+    case CO_DEFTYPE_BOOLEAN:
+    case CO_DEFTYPE_INTEGER8:
+    case CO_DEFTYPE_UNSIGNED8: return 1;
+    case CO_DEFTYPE_INTEGER16:
+    case CO_DEFTYPE_UNSIGNED16: return 2;
+    case CO_DEFTYPE_INTEGER24:
+    case CO_DEFTYPE_UNSIGNED24: return 3;
+    case CO_DEFTYPE_INTEGER32:
+    case CO_DEFTYPE_UNSIGNED32:
+    case CO_DEFTYPE_REAL32: return 4;
+    case CO_DEFTYPE_INTEGER40:
+    case CO_DEFTYPE_UNSIGNED40: return 5;
+    case CO_DEFTYPE_INTEGER48:
+    case CO_DEFTYPE_UNSIGNED48:
+    case CO_DEFTYPE_TIME_OF_DAY:
+    case CO_DEFTYPE_TIME_DIFF: return 6;
+    case CO_DEFTYPE_INTEGER56:
+    case CO_DEFTYPE_UNSIGNED56: return 7;
+    case CO_DEFTYPE_INTEGER64:
+    case CO_DEFTYPE_UNSIGNED64:
+    case CO_DEFTYPE_REAL64: return 8;
+    default: return 0;
+  }
 }
 
 bool eds_identity(const NodeConfig& n, uint32_t& vendor_id, uint32_t& product_code) {

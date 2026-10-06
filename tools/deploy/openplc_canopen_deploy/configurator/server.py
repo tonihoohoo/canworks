@@ -29,13 +29,12 @@ import urllib.parse
 import webbrowser
 import zipfile
 
-from .. import __version__, contract, dbcexport, dcfexport, diag, editorproject, edslint, parameters
-from .. import project as project_mod
+from .. import __version__, axis, contract, dbcexport, dcfexport, diag, editorproject, edslint, parameters, project as project_mod, sdolibrary
 from .. import eds as eds_mod
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES
-from . import declare, layout, online, params, scan, simulation, tracing
+from . import cia402map, declare, layout, online, params, scan, simulation, tracing
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 TOKEN_HEADER = "X-CANopen-Token"
@@ -509,6 +508,9 @@ class Session:
             decls = declare.declarations(
                 cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), declared)
             block = declare.st_block(decls)
+            axes = axis.text_block(cfg, decls)
+            if axes:
+                block = (block + "\n" if block else "") + axes
         except (KeyError, TypeError, ValueError, AttributeError):
             pass  # the contract errors already say what is wrong with the entries
         errors = sum(1 for i in items if i["level"] == "error")
@@ -613,6 +615,24 @@ class Session:
         pdo, reason = layout.pack(pdos, type_name, count)
         return {"location": layout.suggest(area, size, used, start), "pdo": pdo, "reason": reason}
 
+    # -- CiA 402 axis -------------------------------------------------------
+    def map_cia402(self, cfg, node, start=None):
+        """Node `node` of the draft with the standard CiA 402 objects its EDS
+        has put into PDOs (cia402map), and its status bit when it has none:
+        {node, mapped, missing}. Nothing is saved."""
+        if not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        try:
+            n = cfg["nodes"][int(node)]
+        except (KeyError, IndexError, TypeError, ValueError):
+            raise ApiError(400, "no node %r in the config" % node)
+        info = self.eds_info([n.get("eds")]).get(n.get("eds"), {}) if n.get("eds") else {}
+        if not info or info.get("error"):
+            raise ApiError(400, info.get("error") or "the node has no EDS file")
+        start = layout.DEFAULT_START if start in (None, "") else int(start)
+        new, mapped, missing = cia402map.map_objects(n, info, layout.taken(cfg, self.uses), start)
+        return {"node": new, "mapped": mapped, "missing": missing}
+
     # -- save ---------------------------------------------------------------
     def save(self, cfg, allow_overlap=False, overwrite=False):
         checked = self.check(cfg, allow_overlap)
@@ -701,7 +721,7 @@ class Session:
 
 
     # -- a new editor project around a standalone config --------------------
-    def new_project(self, parent, name, interval=None):
+    def new_project(self, parent, name, interval=None, sdo_blocks=False):
         if self.mode != "standalone":
             raise ApiError(400, "only a standalone config can become a new editor project")
         if self.pending or self.changed_on_disk() or not os.path.isfile(self.config_path):
@@ -730,11 +750,14 @@ class Session:
         try:
             path, decls = editorproject.create(cfg, self.config_path, target,
                                                interval=interval or editorproject.DEFAULT_INTERVAL,
-                                               runtime_address=address)
+                                               runtime_address=address, sdo_blocks=sdo_blocks)
         except editorproject.NewProjectError as e:
             raise ApiError(422, str(e))
         self.open(path, "project")
-        return {"project": path, "declared": len(decls)}
+        out = {"project": path, "declared": len(decls)}
+        if sdo_blocks:
+            out["library_ok"], out["library"] = sdolibrary.ensure_installed()
+        return out
 
 
 def list_folders(path):
@@ -917,6 +940,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._need_open(s)
                     out = s.place(body.get("config"), body.get("node"), body.get("direction"), body.get("type"),
                                   body.get("start"))
+                elif route == ("POST", "/api/map_cia402"):
+                    self._need_open(s)
+                    out = s.map_cia402(body.get("config"), body.get("node"), body.get("start"))
                 elif route == ("POST", "/api/save"):
                     self._need_open(s)
                     out = s.save(body.get("config"), bool(body.get("allow_overlap")), bool(body.get("overwrite")))
@@ -927,7 +953,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out["state"] = s.state()
                 elif route == ("POST", "/api/new_project"):
                     self._need_open(s)
-                    out = s.new_project(body.get("parent"), body.get("name"), body.get("interval"))
+                    out = s.new_project(body.get("parent"), body.get("name"), body.get("interval"),
+                                        bool(body.get("sdo_blocks")))
                     out["state"] = s.state()
                 elif route == ("POST", "/api/quit"):
                     quitting = True

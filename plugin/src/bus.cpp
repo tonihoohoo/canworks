@@ -1,5 +1,7 @@
 #include "bus.h"
 
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <net/if.h>
 #include <pthread.h>
@@ -21,6 +23,7 @@ namespace canopen_plugin {
 
 constexpr std::chrono::milliseconds Bus::kLoopSlice;
 constexpr int Bus::kShutdownSlices;
+constexpr int Bus::kSyncPriority;
 
 IfaceState iface_state(const std::string& name) {
   std::ifstream in("/sys/class/net/" + name + "/flags");
@@ -61,6 +64,18 @@ bool Bus::wait_for(std::chrono::milliseconds d) {
 
 void Bus::thread_main() {
   pthread_setname_np(pthread_self(), "canopen_bus");
+  if (cfg_.master.sync_plc_cycle && !std::getenv("CANOPEN_BUS_NO_FIFO")) {
+    // PLC-cycle SYNC: the SYNC should follow the frame closely, so the bus
+    // thread runs at the level of the runtime's highest task priority (below
+    // its dispatcher). Without the right to do so it runs as before.
+    // CANOPEN_BUS_NO_FIFO skips this, to measure what it gains.
+    sched_param sp{};
+    sp.sched_priority = kSyncPriority;
+    int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
+    if (rc)
+      log_warn("cannot run the CANopen bus thread at SCHED_FIFO %d (%s); PLC-cycle SYNC may jitter more",
+               kSyncPriority, strerror(rc));
+  }
   if (cfg_.adapter.simulate) {
     // A simulated network has no adapter: no link, no interface to wait for.
     while (!stop_) {
@@ -216,6 +231,7 @@ void Bus::run_session() {
       tap_read();
     }
     net.Start();
+    SyncWake sync_wake(poll, image_.sync_fd(), net);
     if (hub_) hub_->attach();
     // The loop runs in slices so that a stop or a lost interface ends the
     // session even when no supervision tick comes: when an slcan adapter is
@@ -228,6 +244,9 @@ void Bus::run_session() {
       if (loop.stopped()) break;
       if (!shut_down && (stop_ || iface_down())) {
         if (!stop_) iface_lost = true;
+        // As the supervision tick does when it ends the session: what is in
+        // flight is cancelled, so the loop can drain.
+        net.Stop();
         end_session();
       } else if (shut_down && ++slices_after_shutdown >= kShutdownSlices) {
         // The shutdown did not drain the loop (with the adapter gone, its
