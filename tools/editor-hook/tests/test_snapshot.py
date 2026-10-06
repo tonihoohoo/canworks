@@ -13,7 +13,7 @@ import unittest
 import zipfile
 from unittest import mock
 
-from openplc_canopen_deploy import contract
+from openplc_canopen_deploy import contract, simfile
 from openplc_canopen_hook import snapshot
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -206,6 +206,118 @@ class Materialize(Base):
         project["canopen/canopen.json"] = json.dumps(cfg).encode()
         project["canopen/other/rtd8.eds"] = project["canopen/eds/rtd8.eds"] + b"; changed\n"
         self.assertIgnored(project, "two different EDS files are both named rtd8.eds")
+
+
+class Simulation(Base):
+    """canopen/simulation.json travels with the config, in the deploy
+    tool's layout."""
+
+    def project(self, sim=None, simulate=False):
+        project = rtd_project()
+        if simulate:
+            cfg = json.loads(project["canopen/canopen.json"])
+            cfg["adapter"]["simulate"] = True
+            project["canopen/canopen.json"] = json.dumps(cfg).encode()
+        project["canopen/devices/pingpong.eds"] = read(os.path.join(FIXTURES, "eds", "cpp-slave.eds"))
+        project["canopen/data/temp.csv"] = b"time,value\n0,200\n10,260\n"
+        if sim is None:
+            sim = {
+                "schema_version": 1,
+                "nodes": {"5": {"sources": {
+                    "0x7130:1": {"sine": {"min": 200, "max": 260, "period_s": 10}},
+                    "0x7130:2": {"csv": {"file": "data/temp.csv", "interpolate": "linear", "loop": True}}}}},
+                "extra_devices": [{"node": 40, "name": "pp", "eds": "devices/pingpong.eds"}],
+            }
+        project["canopen/simulation.json"] = json.dumps(sim).encode()
+        return project
+
+    def test_carried_and_rewritten(self):
+        project = self.project(simulate=True)
+        applied, messages = snapshot.materialize(self.snapshot(project), self.conf)
+        self.assertTrue(applied, messages)
+        self.assertEqual(self.conf_files(), ["canopen.json", "canopen/eds/pingpong.eds", "canopen/eds/rtd8.eds",
+                                             "canopen/sim/temp.csv", "canopen/simulation.json", "ethercat.json"])
+        with open(os.path.join(self.conf, "canopen", "simulation.json"), encoding="utf-8") as f:
+            sim = json.load(f)
+        self.assertEqual(sim["extra_devices"][0]["eds"], "eds/pingpong.eds")
+        self.assertEqual(sim["nodes"]["5"]["sources"]["0x7130:2"]["csv"]["file"], "sim/temp.csv")
+        self.assertEqual(sim["nodes"]["5"]["sources"]["0x7130:1"],
+                         json.loads(project["canopen/simulation.json"])["nodes"]["5"]["sources"]["0x7130:1"])
+        self.assertEqual(read(os.path.join(self.conf, "canopen", "eds", "pingpong.eds")),
+                         project["canopen/devices/pingpong.eds"])
+        self.assertEqual(read(os.path.join(self.conf, "canopen", "sim", "temp.csv")),
+                         project["canopen/data/temp.csv"])
+        self.assertIn(("INFO", "CANopen: simulation file carried (canopen/simulation.json, 1 extra device EDS "
+                               "file, 1 CSV file)"), messages)
+        sims = [t for level, t in messages if level == "WARNING" and "simulates devices" in t]
+        self.assertEqual(len(sims), 1, messages)
+        self.assertIn("the network is simulated", sims[0])
+        # The written simulation file passes the deploy tool's checks where it now lives.
+        with open(os.path.join(self.conf, "canopen.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        _, r = simfile.check_file(os.path.join(self.conf, "canopen", "simulation.json"), cfg,
+                                  os.path.join(self.conf, "canopen.json"))
+        self.assertTrue(r.ok, r.errors)
+
+    def test_carried_when_nothing_is_simulated(self):
+        applied, messages = snapshot.materialize(self.snapshot(self.project()), self.conf)
+        self.assertTrue(applied, messages)
+        self.assertIn("canopen/simulation.json", self.conf_files())
+        self.assertFalse([t for _, t in messages if "simulates devices" in t], messages)
+        self.assertIn("the config simulates nothing", messages[-1][1])
+
+    def test_bad_simulation_file_rejects_the_config(self):
+        sim = {"schema_version": 1, "nodes": {"5": {"sources": {"0x7130:1": {"constant": 1}}}}, "bogus": 1}
+        self.assertIgnored(self.project(sim), "canopen/simulation.json: ")
+        # Schema-valid, but the object is not in the node's EDS.
+        sim = {"schema_version": 1, "nodes": {"5": {"sources": {"0x7FFF:1": {"constant": 1}}}}}
+        self.assertIgnored(self.project(sim), "canopen/simulation.json: ")
+
+    def test_invalid_json(self):
+        project = self.project()
+        project["canopen/simulation.json"] = b"{"
+        self.assertIgnored(project, "canopen/simulation.json is not valid JSON")
+
+    def test_missing_csv(self):
+        project = self.project()
+        del project["canopen/data/temp.csv"]
+        self.assertIgnored(project, "canopen/data/temp.csv is missing from the project "
+                                    "(named by canopen/simulation.json)")
+
+    def test_paths_outside_canopen(self):
+        for bad in ("../pingpong.eds", "/etc/pingpong.eds", "devices/../../x.eds", "./devices/pingpong.eds"):
+            with self.subTest(bad):
+                sim = json.loads(self.project()["canopen/simulation.json"])
+                sim["extra_devices"][0]["eds"] = bad
+                self.assertIgnored(self.project(sim), "canopen/simulation.json: invalid EDS path")
+        sim = json.loads(self.project()["canopen/simulation.json"])
+        sim["nodes"]["5"]["sources"]["0x7130:2"]["csv"]["file"] = "../temp.csv"
+        self.assertIgnored(self.project(sim), "canopen/simulation.json: invalid CSV file path")
+
+    def test_size_cap(self):
+        project = self.project()
+        project["canopen/data/temp.csv"] = b"time,value\n" + b"0,1\n" * 4096
+        size = sum(len(v) for k, v in project.items() if k != "canopen/data/temp.csv")
+        with mock.patch.object(snapshot, "MAX_TOTAL_BYTES", size + 1024):
+            self.assertIgnored(project, "larger than")
+
+    def test_extra_device_eds_name_clash(self):
+        project = self.project()
+        project["canopen/devices/rtd8.eds"] = project.pop("canopen/devices/pingpong.eds")
+        sim = json.loads(project["canopen/simulation.json"])
+        sim["extra_devices"][0]["eds"] = "devices/rtd8.eds"
+        project["canopen/simulation.json"] = json.dumps(sim).encode()
+        self.assertIgnored(project, "two different EDS files are both named rtd8.eds")
+
+    def test_no_simulation_file_leaves_none_behind(self):
+        os.makedirs(os.path.join(self.conf, "canopen", "sim"))
+        for name in ("simulation.json", os.path.join("sim", "old.csv")):
+            with open(os.path.join(self.conf, "canopen", name), "w") as f:
+                f.write("{}")
+        applied, messages = snapshot.materialize(self.snapshot(rtd_project()), self.conf)
+        self.assertTrue(applied, messages)
+        self.assertEqual(self.conf_files(), ["canopen.json", "canopen/eds/rtd8.eds", "ethercat.json"])
+        self.assertFalse([t for _, t in messages if "simulat" in t], messages)
 
 
 class IntoProject(Base):

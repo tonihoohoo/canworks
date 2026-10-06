@@ -65,7 +65,7 @@ On a runtime with the [editor hook](install-stock.md#the-editors-build-and-uploa
 openplc-canopen-deploy --config config/rtd-sensor/canopen_config.json --into-project ~/Documents/workspace/rtd-monitor
 ```
 
-It runs the same checks as a deploy, then writes `canopen/canopen.json` (each node's `eds` relative to `canopen/`) and the EDS files into the project. EDS files are written as UTF-8 and one in CP1252/Latin-1 is converted, because the editor sends project files as UTF-8 text. An existing `canopen/` folder is replaced only with `--force`. Nothing is uploaded.
+It runs the same checks as a deploy, then writes `canopen/canopen.json` (each node's `eds` relative to `canopen/`) and the EDS files into the project. EDS files are written as UTF-8 and one in CP1252/Latin-1 is converted, because the editor sends project files as UTF-8 text. An existing `canopen/` folder is replaced only with `--force`. Nothing is uploaded. A simulation file `canopen/simulation.json` in the project travels with the editor's upload too, and the editor hook checks it as this tool does.
 
 ## A new editor project from the config
 
