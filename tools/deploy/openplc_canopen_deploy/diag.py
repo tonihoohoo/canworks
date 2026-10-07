@@ -52,8 +52,10 @@ LSS_KEYS = ("vendor_id", "product_code", "revision_number", "serial_number")
 DETECT_RATES = (1000, 800, 500, 250, 125, 50, 20, 10)  # kbit/s, the order a bit rate sweep listens in
 FORCE_NEEDED = "force needed"  # the end of a refusal the request may be repeated with force: true
 TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
-SILENT_HINT = ("The bus was silent. A device sends a boot-up message when it is powered on or reset: power-cycle "
-               "one during the sweep, or run more rounds.")
+SILENT_HINT = ("The bus was silent. A listening adapter sends no acknowledge, so frames only count when "
+               "another device acknowledges them: with one device on the bus, add a second device or a second "
+               "adapter in normal mode. A device that only sends its boot-up message: power-cycle it during the "
+               "sweep, or run more rounds.")
 
 
 # ---------------------------------------------------------------------------

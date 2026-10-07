@@ -157,8 +157,7 @@ class DetectPage(Base):
         pg.click('#modal button[data-value="detect"]')
         pg.wait_for_selector('[data-online="detect-verdict"]')
         self.assertEqual(pg.inner_text('[data-online="detect-verdict"]'),
-                         "The bus was silent. A device sends a boot-up message when it is powered on or reset: "
-                         "power-cycle one during the sweep, or run more rounds.")
+                         diag.SILENT_HINT)
         self.assertEqual(pg.locator('[data-online="use-bitrate"]').count(), 0)
 
     def test_force_and_refusals(self):

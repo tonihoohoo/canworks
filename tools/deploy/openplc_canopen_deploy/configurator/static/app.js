@@ -4632,7 +4632,7 @@ function renderScan(view) {
 // listen-only mode and starts CANopen again. S.detect keeps the last answer
 // per network for this page.
 
-const SILENT_TEXT = "The bus was silent. A device sends a boot-up message when it is powered on or reset: power-cycle one during the sweep, or run more rounds.";
+const SILENT_TEXT = "The bus was silent. A listening adapter sends no acknowledge, so frames only count when another device acknowledges them: with one device on the bus, add a second device or a second adapter in normal mode. A device that only sends its boot-up message: power-cycle it during the sweep, or run more rounds.";
 
 function detectSection() {
   const local = S.online.target === "adapter";

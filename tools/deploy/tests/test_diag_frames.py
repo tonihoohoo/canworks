@@ -202,7 +202,7 @@ class Detect(unittest.TestCase):
             fp.sweep_hears = {}
             code, out, err = run("--runtime", fp.runtime, "detect-bitrate")
             self.assertEqual(code, 1)
-            self.assertIn("The bus was silent. A device sends a boot-up message", out)
+            self.assertIn(diag.SILENT_HINT, out)
             self.assertIn("no bit rate detected (silent)", err)
             fp.sweep_hears = {250: {"frames": 10, "error_frames": 0}, 125: {"frames": 3, "error_frames": 0}}
             fp.sweep = None
