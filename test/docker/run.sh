@@ -70,6 +70,9 @@ if docker run --rm --privileged --network host -v /dev:/dev -v "$BIND" -v "$SRC:
     --entrypoint bash "$IMAGE" -c '
         set -e
         command -v ip >/dev/null || { apt-get update -qq && apt-get install -y -qq iproute2 >/dev/null; }
+        # The test programs build against OpenSSL, which the runtime image has
+        # only as a library.
+        pkg-config --exists openssl 2>/dev/null || { apt-get update -qq && apt-get install -y -qq libssl-dev >/dev/null; }
         git config --global --add safe.directory "*"
         cmake -S /src -B /tmp/b -DOPENPLC_ROOT=/workdir -DLELY_PREFIX=/opt/openplc-canopen/lely >/dev/null
         cmake --build /tmp/b --target canopen_host pingpong_slave -j"$(nproc)" >/dev/null
