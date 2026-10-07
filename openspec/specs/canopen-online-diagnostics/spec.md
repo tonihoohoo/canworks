@@ -6,14 +6,14 @@ An opt-in, token-protected TCP channel on the plugin that lets the configurator 
 ## Requirements
 
 ### Requirement: Diagnostics channel is opt-in
-The `master` object MAY give a `diagnostics` object with `token_sha256` (required: 64 hexadecimal characters, the SHA-256 of the access token), `port` (1024 to 65535, default 7531), `bind` (an IPv4 address, default `0.0.0.0`) and `allow_changes` (boolean, default false). Without `master.diagnostics` the plugin SHALL open no network listener. With it, the plugin SHALL listen on `bind`:`port` from the start of the CANopen session until the PLC stops, and SHALL log the address and whether changes are allowed. A listener that cannot be opened (port in use, address not on the host) SHALL be logged as a warning and SHALL NOT stop CANopen or the PLC; the plugin SHALL retry opening it every 10 seconds. An invalid `diagnostics` object SHALL reject the configuration, naming the field.
+The `master` object (or the top-level `diagnostics` of a version 2 file) MAY give a `diagnostics` object with `token_verifier` (required: a SCRAM-SHA-256 verifier of the access token in the form `SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>`, base64 fields, iterations 4096 to 1000000, salt at least 16 bytes), `port` (1024 to 65535, default 7531), `bind` (an IPv4 address, default `0.0.0.0`) and `allow_changes` (boolean, default false). Without `diagnostics` the plugin SHALL open no network listener. With it, the plugin SHALL listen on `bind`:`port` from the start of the CANopen session until the PLC stops, and SHALL log the address and whether changes are allowed. A listener that cannot be opened (port in use, address not on the host) SHALL be logged as a warning and SHALL NOT stop CANopen or the PLC; the plugin SHALL retry opening it every 10 seconds. An invalid `diagnostics` object SHALL reject the configuration, naming the field. The former `token_sha256` SHALL reject the configuration with a message saying that the channel is encrypted now and the token must be set again (the configurator's Online access, or `openplc-canopen-diag hash-token`).
 
 #### Scenario: Not configured
 - **WHEN** `canopen.json` has no `master.diagnostics`
 - **THEN** the plugin opens no TCP port
 
 #### Scenario: Enabled read-only
-- **WHEN** `master.diagnostics` is `{"token_sha256": "<64 hex>"}`
+- **WHEN** `master.diagnostics` is `{"token_verifier": "SCRAM-SHA-256$4096:..."}`
 - **THEN** the plugin logs that diagnostics listen on `0.0.0.0:7531` read-only, and a client with the token can read status and scan
 
 #### Scenario: Port in use
@@ -21,15 +21,27 @@ The `master` object MAY give a `diagnostics` object with `token_sha256` (require
 - **THEN** the plugin logs a warning naming the port, CANopen runs normally, and the listener opens once the port is free
 
 #### Scenario: Bad token hash
-- **WHEN** `token_sha256` is not 64 hexadecimal characters
-- **THEN** the plugin rejects the configuration and names `master.diagnostics.token_sha256`
+- **WHEN** `master.diagnostics` still has the former `token_sha256`
+- **THEN** the plugin rejects the configuration, names `master.diagnostics.token_sha256` and says to set the token again for the encrypted channel
+
+#### Scenario: Bad verifier
+- **WHEN** `token_verifier` does not start with `SCRAM-SHA-256$` or its salt is shorter than 16 bytes
+- **THEN** the plugin rejects the configuration and names `master.diagnostics.token_verifier`
 
 ### Requirement: Access control
-Each connection SHALL first present a token; the plugin SHALL compare its SHA-256 with `token_sha256` in constant time and close the connection without answering any request when it does not match. Failed attempts SHALL be logged at most once per minute per peer address. The plugin SHALL serve at most 4 connections at a time and refuse more. Without `allow_changes`, SDO writes and NMT commands SHALL be refused with the reason "changes not allowed" and nothing SHALL be sent on the bus. Every SDO write and NMT command carried out SHALL be logged with the peer address, the node and the object or command.
+Every connection SHALL be TLS 1.2 or newer, with a key and self-signed certificate the plugin generates in memory each time it opens the listener and never writes to disk. Inside TLS the client SHALL log in with SCRAM-SHA-256 bound to the server certificate (`tls-server-end-point`): the plugin SHALL accept a login only when the client's proof matches the verifier and the certificate this connection uses, compared in constant time, and SHALL then return its server signature with the hello information. A failed login SHALL close the connection without answering any request. The token itself SHALL never be sent. Failed attempts SHALL be logged at most once per minute per peer address, and a peer address whose login failed SHALL wait at least 1 second before its next login is answered. The plugin SHALL serve at most 4 connections at a time and refuse more. Without `allow_changes`, SDO writes and NMT commands SHALL be refused with the reason "changes not allowed" and nothing SHALL be sent on the bus. Every SDO write and NMT command carried out SHALL be logged with the peer address, the node and the object or command.
 
 #### Scenario: Wrong token
-- **WHEN** a client connects and presents a token whose SHA-256 differs from `token_sha256`
+- **WHEN** a client logs in with a token that does not match `token_verifier`
 - **THEN** the connection is closed, no status is returned, and one warning naming the peer address is logged
+
+#### Scenario: Token never on the wire
+- **WHEN** a client logs in and the whole exchange is captured, including the TLS keys of that connection
+- **THEN** the capture does not contain the token, and replaying the client's login on a new connection fails
+
+#### Scenario: Machine in the middle
+- **WHEN** a proxy terminates the client's TLS with its own certificate and opens its own TLS connection to the plugin, forwarding the login
+- **THEN** the plugin rejects the login and the client reports that the runtime could not prove it knows the token, and no request is served
 
 #### Scenario: Write refused when read-only
 - **WHEN** `allow_changes` is false and an authenticated client asks to write 0x2000 subindex 1 of node 5
@@ -55,7 +67,8 @@ A status request SHALL return, as of no more than 100 ms before the answer:
 - the plugin version, the time since the CANopen session started, and the SHA-256 of the loaded `canopen.json` file;
 - the master node ID and NMT state code, and the bus state, TX and RX error counters and bus-off count as the bus diagnostics define them (whether or not their PLC locations are configured);
 - the SYNC source (`none`, `timer` or `plc_cycle`), `sync_cycles` for `plc_cycle`, and the SYNC statistics: SYNCs sent, last, shortest and longest interval in microseconds, skipped frames and late PDOs;
-- for each configured node: node ID, name, NMT state code as the state byte defines it, status bit value, whether its last boot succeeded, its last boot error letter with Lely's text (or none), whether a boot retry is pending, the hold in force (none, by the program, or by an operator, with STOPPED or PRE-OPERATIONAL), its last emergency code and error register, and for each SDO variable its name, current value, status code and abort code.
+- for each configured node: node ID, name, NMT state code as the state byte defines it, status bit value, whether its last boot succeeded, its last boot error letter with Lely's text (or none), whether a boot retry is pending, the hold in force (none, by the program, or by an operator, with STOPPED or PRE-OPERATIONAL), its last emergency code and error register, and for each SDO variable its name, current value, status code and abort code;
+- for each node TPDO with `timeout_ms`: the TPDO number, the resolved timeout in milliseconds, whether it is timed out now, the number of timeouts since the session started, and the milliseconds since its last PDO.
 
 These values SHALL be available whether or not the corresponding PLC locations are configured. The configurator's online view SHALL show the SYNC line (source, interval last/min/max, skipped, late PDOs) above the node list.
 
@@ -78,6 +91,10 @@ These values SHALL be available whether or not the corresponding PLC locations a
 #### Scenario: No SYNC
 - **WHEN** the master produces no SYNC
 - **THEN** the status answer gives SYNC source `none` with zero counts
+
+#### Scenario: Timed-out PDO without a location
+- **WHEN** node 23's TPDO 1 has `"timeout_ms": 500` and no `timeout_location`, and it has stopped arriving
+- **THEN** the status answer shows node 23's TPDO 1 as timed out with a count of at least 1, and `openplc-canopen-diag status` prints a line for node 23's TPDO 1 saying it is timed out
 
 ### Requirement: Emergency history
 For each configured node the plugin SHALL keep the last 16 emergency messages received since the CANopen session started, each with its wall-clock time, error code, error register and the five manufacturer bytes, and SHALL return them on request, newest first. The history SHALL include messages whose log lines were suppressed by log throttling, up to the 16 kept. A boot-up message SHALL NOT clear the history.
@@ -365,3 +382,118 @@ For a slave network the object dictionary view SHALL read the slave's own dictio
 #### Scenario: Read own object
 - **WHEN** the user reads 0x2100:1 in the object dictionary view of a slave network
 - **THEN** it shows the value the last scan wrote
+
+### Requirement: Plain connections refused
+A connection that does not start with a TLS handshake SHALL get one error line, "this runtime needs an encrypted connection; update openplc-canopen-diag", and be closed without serving any request.
+
+#### Scenario: Old client
+- **WHEN** an older `openplc-canopen-diag` sends a plain hello
+- **THEN** it receives "this runtime needs an encrypted connection; update openplc-canopen-diag" and the connection closes
+
+### Requirement: Encrypted clients
+`openplc-canopen-diag`, the configurator and `openplc-canopen-sim` SHALL connect with TLS, log in with SCRAM-SHA-256 bound to the certificate they received, and check the plugin's server signature before using any answer; a wrong signature SHALL drop the connection with "the runtime could not prove it knows this project's token". They SHALL NOT validate the certificate chain or pin a certificate. They SHALL NOT fall back to an unencrypted connection.
+
+#### Scenario: Wrong signature
+- **WHEN** a machine in the middle answers the client's login with a signature made without the verifier
+- **THEN** the client drops the connection saying the runtime could not prove it knows this project's token, and sends no request
+
+### Requirement: Clients against an older plugin
+Against a plugin that does not complete a TLS handshake, `openplc-canopen-diag` and the configurator SHALL stop with a message saying the runtime's plugin is too old for encrypted diagnostics and needs an update.
+
+#### Scenario: Client against an older plugin
+- **WHEN** a user runs `openplc-canopen-diag --runtime plc.local status` against a plugin without TLS
+- **THEN** the command exits 1 saying the runtime's plugin does not speak encrypted diagnostics and must be updated
+
+### Requirement: Token verifier from the CLI
+`openplc-canopen-diag hash-token` SHALL print a `token_verifier` with a fresh random salt and 4096 iterations.
+
+#### Scenario: New verifier
+- **WHEN** a user runs `openplc-canopen-diag hash-token` twice with the same token
+- **THEN** it prints two different `SCRAM-SHA-256$4096:...` verifiers, and either one in the config accepts the token
+
+### Requirement: Send raw frames
+The channel SHALL offer `send_frame` to send one CAN frame, or a cyclic job, on the request's network: a standard (11-bit) or extended (29-bit) identifier given as `can_id` (the request's own `id` stays free for matching its answer), a data frame with 0-8 data bytes or a remote frame with a DLC. A single frame SHALL be written once and answered with `sent`. A request with `period_ms` (10-60000) SHALL start a cyclic job that sends the frame at that period and SHALL be answered with a job number; the job SHALL end after `count` frames when given, on `send_frame_stop`, when its client disconnects, when a write fails, or after 10 minutes. The plugin SHALL send from the diagnostics side, never delaying the PLC scan, PDO exchange or supervision. On a simulated network the frame SHALL go onto the simulated bus. Frames sent this way SHALL be received by the plugin's own master or slave like any frame on the bus, and SHALL appear in traces marked Tx. Every single frame, and each cyclic job's start and end with its count, SHALL be logged with the client's address.
+
+#### Scenario: One frame to an unconfigured device
+- **WHEN** `allow_changes` is true, no node is OPERATIONAL, and a client sends identifier 0x60A with data `40 18 10 01 00 00 00 00`
+- **THEN** the frame is sent once, the answer has `sent`, a running trace shows it as Tx followed by the device's answer on 0x58A, and the runtime log names the client's address
+
+#### Scenario: Cyclic frame stops with its client
+- **WHEN** a client starts a cyclic job with period 100 ms and then disconnects
+- **THEN** the plugin stops sending that frame and logs how many were sent
+
+#### Scenario: Cyclic frame with a count
+- **WHEN** a client starts a cyclic job with period 50 ms and count 20
+- **THEN** exactly 20 frames are sent and the job ends
+
+#### Scenario: Period too short
+- **WHEN** a client asks for a period of 2 ms
+- **THEN** the request is refused naming the allowed range
+
+### Requirement: Guards on raw frames
+`send_frame` SHALL be refused with "changes not allowed" unless the config has `allow_changes: true`. With it, the request SHALL be refused unless it carries `force: true` when the identifier is in the running network's COB-ID map (NMT, SYNC, TIME, the EMCY, PDO, SDO and heartbeat COB-IDs of the configured nodes and of the master or the plugin's own slave, LSS), or when any configured node of the network, or the plugin's own slave, is OPERATIONAL; the refusal SHALL name the reason. Single frames SHALL be limited to 50 per second per client and cyclic jobs to 8 per network; requests over a limit SHALL be refused with "rate limit" or "too many jobs". `send_frame_stop` SHALL stop one of the client's own jobs, or all of them without a job number, and answer each job's sent count and why it ended. `status` SHALL list the network's cyclic jobs.
+
+#### Scenario: Identifier the network uses
+- **WHEN** node 5 has RPDO1 on 0x205 and a client sends 0x205 without `force`
+- **THEN** the request is refused with "0x205 is RPDO1 of node 5; force needed" and nothing is sent
+
+#### Scenario: Running machine
+- **WHEN** node 5 is OPERATIONAL and a client sends 0x60A without `force`
+- **THEN** the request is refused saying node 5 is OPERATIONAL and force is needed
+
+#### Scenario: Forced
+- **WHEN** the same request carries `force: true`
+- **THEN** the frame is sent and the log line says it was forced
+
+#### Scenario: Read-only channel
+- **WHEN** `allow_changes` is false and a client sends any frame
+- **THEN** the request is refused with "changes not allowed"
+
+#### Scenario: Too fast by hand
+- **WHEN** a client sends 60 single frames within one second
+- **THEN** the frames over 50 are refused with "rate limit"
+
+### Requirement: Bit rate detection
+The channel SHALL offer `detect_bitrate` to find the bit rate of the traffic on a network's bus. The plugin SHALL end the network's CANopen session as on an adapter loss, then for each requested rate (default 1000, 800, 500, 250, 125, 50, 20 and 10 kbit/s), for `rounds` rounds (1-20, default 1), set the interface to that rate in listen-only mode and count, for `per_rate_ms` (100-10000, default 1000), the valid frames, the error frames and the distinct identifiers it receives. It SHALL NOT transmit or acknowledge any frame during the sweep. Afterwards it SHALL set the configured bit rate without listen-only and start a new CANopen session. `detect_bitrate` SHALL answer at once with the sweep's progress and `detect_bitrate_status` SHALL return progress and, when finished, the per-rate counts and a verdict: `detected` with the bit rate when exactly one rate received valid frames with error frames no more than 1 % of them, `ambiguous` with the candidates otherwise when frames were received, `silent` when no frame was received at any rate, or `failed` with the reason; with `detected` it SHALL say whether the rate equals the configured one. One sweep SHALL run per network at a time; other networks SHALL keep running. While a sweep runs, the network SHALL have no CANopen session: requests on it other than `status` and `detect_bitrate_status` SHALL answer "no bus", as between sessions.
+
+#### Scenario: Wrong configured rate
+- **WHEN** `adapter.bitrate` is 500000, the only device sends heartbeats at 250 kbit/s, and a client runs `detect_bitrate`
+- **THEN** the result is `detected` 250 kbit/s with `matches_config` false, the 250 kbit/s row lists the device's heartbeat identifier, and afterwards the interface runs at 500 kbit/s again with a new CANopen session
+
+#### Scenario: Silent bus
+- **WHEN** the devices on the bus send nothing during the sweep
+- **THEN** the result is `silent` and says that a device powered on or reset during the sweep sends a boot-up message that is enough
+
+#### Scenario: Nothing is sent
+- **WHEN** a sweep runs while a second analyser records the bus
+- **THEN** the analyser sees no frame and no error frame from the PLC's adapter until the sweep ends
+
+### Requirement: Guards on bit rate detection
+`detect_bitrate` SHALL be refused with "changes not allowed" unless the config has `allow_changes: true`, and without `force: true` while any configured node of the network, or the plugin's own slave, is OPERATIONAL. It SHALL be refused on a vcan interface and on a simulated network ("no bit rate on a virtual bus"), on a `socketcan` adapter with `configure_link: false`, and with "no bus" when the interface is missing. When the adapter's driver does not support listen-only mode, the sweep SHALL stop before listening, restore the configured bit rate and end with `failed` naming that. A second `detect_bitrate` on a network while one runs SHALL return the running sweep's progress.
+
+#### Scenario: Running machine
+- **WHEN** node 5 is OPERATIONAL and a client asks for a sweep without `force`
+- **THEN** the request is refused saying CANopen on that network would stop and force is needed
+
+#### Scenario: vcan
+- **WHEN** the network runs on vcan0 and a client asks for a sweep
+- **THEN** the request is refused with "no bit rate on a virtual bus" and the session goes on
+
+#### Scenario: Link left to the system
+- **WHEN** the adapter has `configure_link: false`
+- **THEN** the request is refused naming `configure_link`
+
+### Requirement: Raw frame and bit rate commands in the command-line client
+`openplc-canopen-diag send ID [DATA]` SHALL send one frame, with `--ext`, `--rtr` with `--dlc N`, and `--force`; with `--period-ms` it SHALL start a cyclic job, keep running until `--count` frames, `--duration` seconds or Ctrl-C, and stop the job on exit. `openplc-canopen-diag send-stop [JOB]` SHALL stop jobs of its own connection only and is meant for scripts that keep a connection. `openplc-canopen-diag detect-bitrate` SHALL run a sweep with `--rates`, `--per-rate-ms`, `--rounds` and `--force`, print progress and a table per rate, and exit 0 only on `detected`. Each command SHALL take `--network` as the other commands do. A plugin that answers `unknown op` SHALL be reported as too old for the command.
+
+#### Scenario: Send from the terminal
+- **WHEN** `openplc-canopen-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"` runs with `allow_changes` true and nothing OPERATIONAL
+- **THEN** it prints that the frame was sent and exits 0
+
+#### Scenario: Detect from the terminal
+- **WHEN** `openplc-canopen-diag --runtime plc.local detect-bitrate --rates 125,250,500` runs on a bus at 250 kbit/s
+- **THEN** it prints one row per rate with frame and error counts, then `250 kbit/s`, and exits 0
+
+#### Scenario: Older plugin
+- **WHEN** the runtime's plugin predates these ops
+- **THEN** the command exits 1 saying the runtime's plugin is too old for it

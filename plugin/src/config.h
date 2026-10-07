@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "iec_location.h"
+#include "secure_channel.h"
 
 namespace canopen_plugin {
 
@@ -50,6 +51,17 @@ struct PdoConfig {
   unsigned event_timer_ms = 0;
   bool has_sync_start = false;
   unsigned sync_start = 0;
+  // Receive timeout of a node TPDO (canopen-pdo-io "Receive timeout setting"):
+  // the deadline of the master's own RPDO for it, in ms. "auto" resolves to
+  // two times the TPDO's event timer (config or EDS) in check_eds_files;
+  // timeout_ms stays 0 until then.
+  bool has_timeout = false;
+  bool timeout_auto = false;
+  unsigned timeout_ms = 0;
+  unsigned timeout_event_ms = 0;  // with timeout_auto: the event timer it came from
+  bool timeout_zero = false;  // on_timeout "zero" (default "hold")
+  bool has_timeout_location = false;
+  IecLocation timeout_location;  // %IX, TRUE while timed out
   // Who sets the PDO's mapping object (JSON `mapping`): the plugin writes it
   // from `entries` ("config"), or the node keeps its EDS default mapping
   // ("device"). Unset follows the EDS: "device" when the mapping object is
@@ -281,7 +293,9 @@ struct MasterConfig {
   // Diagnostics channel (canopen-online-diagnostics spec); off without
   // `diagnostics`.
   bool has_diagnostics = false;
-  std::string diag_token_sha256;  // lower-case hex
+  // The access token's SCRAM verifier (TLS and login, secure_channel.h).
+  std::string diag_token_verifier;  // as given; parsed into diag_scram
+  ScramVerifier diag_scram;
   unsigned diag_port = 7531;
   std::string diag_bind = "0.0.0.0";
   bool diag_allow_changes = false;

@@ -156,9 +156,11 @@ set_tests_properties(plugin_lifecycle PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
 add_executable(link_check link/link_check.cpp)
 target_link_libraries(link_check PRIVATE canopen_core)
 
-# The simulator engine's unit tests (expressions, sources, file, scenarios).
-add_executable(sim_unit_tests sim_unit/sim_unit_tests.cpp sim_unit/sim_drive_tests.cpp sim_unit/sim_file_tests.cpp)
-target_include_directories(sim_unit_tests PRIVATE common)
+# The simulator engine's unit tests (expressions, sources, file, scenarios)
+# and its control channel.
+add_executable(sim_unit_tests sim_unit/sim_unit_tests.cpp sim_unit/sim_drive_tests.cpp sim_unit/sim_file_tests.cpp
+               sim_unit/sim_control_tests.cpp ${PROJECT_SOURCE_DIR}/tools/sim/control.cpp)
+target_include_directories(sim_unit_tests PRIVATE common ${PROJECT_SOURCE_DIR}/tools/sim)
 target_compile_definitions(sim_unit_tests PRIVATE FIXTURES_DIR="${FIXTURES_DIR}" PINGPONG_DIR="${PINGPONG_DIR}" RTD_DIR="${RTD_DIR}")
 target_link_libraries(sim_unit_tests PRIVATE canopen_core)
 add_test(NAME sim_unit_tests COMMAND sim_unit_tests)

@@ -97,6 +97,25 @@ class Network : public lely::canopen::BasicMaster {
   };
   const SyncStats& sync_stats() const { return sync_stats_; }
 
+  // A master RPDO that receives a configured node TPDO.
+  struct InputPdo {
+    unsigned node_id = 0;
+    unsigned pdo = 0;          // the node's TPDO number
+    unsigned timeout_ms = 0;   // 0: not monitored
+    bool zero = false;         // on_timeout "zero"
+    int bit = -1;              // ProcessImage::timeout_bits() index
+    std::vector<size_t> bindings;  // its ProcessImage input bindings
+    unsigned map_bytes = 0;    // bytes its mapping needs (0: unknown)
+    bool timed_out = false;
+    bool seen = false;         // arrived since the node came up
+    bool len_warned = false;   // short PDO logged since the last good one
+    std::size_t last_len = 0;  // data bytes of the last PDO
+    uint64_t timeouts = 0;
+    std::chrono::steady_clock::time_point armed{}, last_rx{}, missing_since{};
+  };
+  const std::map<unsigned, InputPdo>& input_pdos() const { return in_pdos_; }
+
+
   // Serves the diagnostics channel's requests from `hub` (call before
   // Start()); the caller attaches and detaches the hub.
   void SetDiag(DiagHub* hub) { diag_ = hub; }
@@ -156,6 +175,7 @@ class Network : public lely::canopen::BasicMaster {
   void OnState(uint8_t id, lely::canopen::NmtState st) noexcept override;
   void OnSync(uint8_t cnt, const time_point& t) noexcept override;
   void OnRpdo(int num, std::error_code ec, const void* p, std::size_t n) noexcept override;
+  void OnRpdoError(int num, uint16_t eec, uint8_t er) noexcept override;
   void OnCommand(lely::canopen::NmtCommand cs) noexcept override;
   void OnEmcy(uint8_t id, uint16_t eec, uint8_t er, uint8_t msef[5]) noexcept override;
 
@@ -309,6 +329,15 @@ class Network : public lely::canopen::BasicMaster {
   void MapSyncRpdos();
   void CountSync();
   void CheckInterpolationPeriods(clock::time_point now);
+  // Receive timeouts and short PDOs of node TPDOs (canopen-pdo-io "Input PDO
+  // timeout detection", "Short PDOs are logged").
+  void MapInputPdos();
+  void ArmInputPdos(unsigned id, bool up);
+  void CheckInputPdos(clock::time_point now);
+  void HandleRpdoTimeout(unsigned num);
+  void HandleRpdoBack(unsigned num);
+  void HandleRpdoShort(unsigned num);
+  void PdoTimedOut(InputPdo& p, clock::time_point now);
   void SendSync();
   void ArmTick();
   void OnTick();
@@ -397,6 +426,7 @@ class Network : public lely::canopen::BasicMaster {
     clock::time_point warned{};
   };
   std::map<unsigned, SyncRpdo> sync_rpdos_;  // master RPDO number ->
+  std::map<unsigned, InputPdo> in_pdos_;     // master RPDO number ->
   SyncStats sync_stats_;
   clock::time_point last_sync_{};
   clock::time_point first_sync_{};

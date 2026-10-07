@@ -233,6 +233,11 @@ def _pdo(p):
             "Event timer" if p["kind"] == "TPDO" else "Deadline", p["event_timer_ms"]))
     if p.get("sync_start") is not None:
         chips.append('<span class="chip">SYNC start %d</span>' % p["sync_start"])
+    if p.get("timeout"):
+        t = p["timeout"]
+        chips.append('<span class="chip">Receive timeout %s%s, %s%s</span>' % (
+            "?" if t["ms"] is None else "%d ms" % t["ms"], " (auto)" if t["auto"] else "", E(t["on_timeout"]),
+            (", timeout bit " + _loc(t["location"], t["variables"])) if t["location"] else ""))
     chips.append('<span class="chip">%s</span>' % {
         "device": "Device mapping kept", "eds": "Mapping as the EDS gives it"}.get(p["mapping"],
                                                                                "Mapping written by the master"))

@@ -142,11 +142,19 @@ For each node the configurator SHALL edit node ID, name, heartbeat period and ti
 - **THEN** the node has `heartbeat_ms` 100, `heartbeat_timeout_ms` 300 and a `status_location` that is free in the project
 
 ### Requirement: PDO communication parameters
-For each PDO the configurator SHALL edit the PDO number, COB-ID, transmission type and event timer, leaving each unset to use the default unless the user sets it.
+For each PDO the configurator SHALL edit the PDO number, COB-ID, transmission type and event timer, leaving each unset to use the default unless the user sets it. For a TPDO it SHALL also edit the receive timeout: an empty field (no `timeout_ms`, shown as "off"), a number of milliseconds, or Auto, which SHALL show the resolved value next to it (two times the event timer from the config or the EDS) and SHALL be offered only when that event timer is not 0. When a timeout is set the configurator SHALL show the "on timeout" choice (hold, the default and saved as no field, or zero) and a timeout bit address field (`%IX`, optional, included in the address suggestion and clash checks). The Check SHALL give the same messages as the plugin for these fields, and SHALL warn when a numeric timeout is shorter than the PDO's effective event timer.
 
 #### Scenario: Event-driven TPDO
 - **WHEN** the user sets a TPDO's transmission type to 254 and event timer to 500 ms
 - **THEN** the saved PDO has `transmission` 254 and `event_timer_ms` 500, and no `cob_id` unless one was set
+
+#### Scenario: Auto timeout from the EDS
+- **WHEN** a TPDO has no event timer set, its EDS gives 100 ms, and the user picks Auto
+- **THEN** the field shows "auto (200 ms)" next to it and the saved PDO has `"timeout_ms": "auto"`
+
+#### Scenario: Timeout off
+- **WHEN** the user clears the timeout field and saves
+- **THEN** the saved PDO has no `timeout_ms`, `on_timeout` or `timeout_location`
 
 ### Requirement: Defaults and fixed choices on the page
 Every setting the plugin defaults when it is left out SHALL show that default on the page (in the empty field and in a short hint), computed where it depends on other values: the CiA 301 COB-ID of PDOs 1 to 4 from the node ID and PDO number, and the heartbeat timeout as 3 × the heartbeat period. Settings with a fixed set of values SHALL be dropdowns that explain each choice: adapter type, bit rate, supervision method (none, heartbeat, node guarding, showing only the chosen method's fields), PDO transmission type and startup SDO data type.
@@ -347,18 +355,22 @@ For each PDO the configurator SHALL show whether its mapping is written from the
 - **THEN** the PDO saves with `"mapping": "device"` only after 0x4002 sub 0 is removed, and until then the entry shows an error listing the default mapping
 
 ### Requirement: Online access settings
-The master settings SHALL have an "Online access" section that turns `master.diagnostics` on and off and edits its port, bind address and "allow changes" (off by default, with a warning that anyone with the token can then write parameters and stop nodes). Turning it on SHALL generate a random token of at least 128 bits, write only its SHA-256 to `token_sha256`, and keep the token in the configurator's own settings on this PC for this project, never in the project folder. The page SHALL let the user copy the token, enter an existing token (for a project set up on another PC, checked against `token_sha256`), and generate a new one. The runtime host for online access SHALL be stored with the token and default to the host last used by the deploy tool when known.
+The master settings SHALL have an "Online access" section that turns `master.diagnostics` on and off and edits its port, bind address and "allow changes" (off by default, with a warning that anyone with the token can then write parameters and stop nodes). Turning it on SHALL generate a random token of at least 128 bits, write only its SCRAM-SHA-256 verifier to `token_verifier`, and keep the token in the configurator's own settings on this PC for this project, never in the project folder. The page SHALL let the user copy the token, enter an existing token (for a project set up on another PC, checked against `token_verifier`), and generate a new one. When a project's config still has the former `token_sha256`, the section SHALL say that the token must be set again for the encrypted channel and, when this PC holds the matching token, offer **Upgrade**, which replaces `token_sha256` with a `token_verifier` for the same token; otherwise **New token** or **Enter token…** replaces it. The runtime host for online access SHALL be stored with the token and default to the host last used by the deploy tool when known.
 
 #### Scenario: Enable online access
 - **WHEN** the user turns on online access in a project and saves
-- **THEN** `canopen.json` has `master.diagnostics` with `token_sha256` and no token, and the configurator's settings hold the token for this project
+- **THEN** `canopen.json` has `master.diagnostics` with `token_verifier` and neither the token nor `token_sha256`, and the configurator's settings hold the token for this project
 
 #### Scenario: Token from another PC
-- **WHEN** the project already has `token_sha256` and this PC has no token for it
-- **THEN** the online view asks for the token and accepts it only if its SHA-256 matches
+- **WHEN** the project already has `token_verifier` and this PC has no token for it
+- **THEN** the online view asks for the token and accepts it only if it matches the verifier
+
+#### Scenario: Upgrade an old project
+- **WHEN** the project has `token_sha256`, this PC holds its token, and the user presses **Upgrade** and saves
+- **THEN** `canopen.json` has a `token_verifier` for the same token and no `token_sha256`, and the copied token still works after the next upload
 
 ### Requirement: Online view
-With online access set up, the configurator SHALL offer an online view that connects to the runtime, refreshes about twice a second, and shows the bus state and counters, the master state, and for each node its state, status bit, boot result with error text, retry and hold state, last EMCY with class, and SDO variable values and status, using the node names from the config. Opening a node SHALL show its EMCY history with times and CiA 301 error classes. When the runtime's config fingerprint differs from the saved `canopen.json`, the view SHALL say that the runtime runs a different configuration. Connection failures SHALL be shown with the reason (host unreachable, port closed, wrong token, no CANopen session) and retried.
+With online access set up, the configurator SHALL offer an online view that connects to the runtime over the encrypted channel, refreshes about twice a second, and shows the bus state and counters, the master state, and for each node its state, status bit, boot result with error text, retry and hold state, last EMCY with class, SDO variable values and status, and a mark on each monitored TPDO that is timed out with its timeout count, using the node names from the config. Opening a node SHALL show its EMCY history with times and CiA 301 error classes, and for each monitored TPDO its timeout, count and time since its last PDO. When the runtime's config fingerprint differs from the saved `canopen.json`, the view SHALL say that the runtime runs a different configuration. Connection failures SHALL be shown with the reason (host unreachable, port closed, wrong token, runtime could not prove the token, plugin too old for encryption, no CANopen session) and retried.
 
 #### Scenario: Watch a node come back
 - **WHEN** the online view is open and node 23's cable is plugged back in
@@ -367,6 +379,14 @@ With online access set up, the configurator SHALL offer an online view that conn
 #### Scenario: Different config on the runtime
 - **WHEN** the user saved a change but has not uploaded it yet
 - **THEN** the online view shows that the runtime runs a different configuration
+
+#### Scenario: Timed-out PDO
+- **WHEN** node 23 is OPERATIONAL and its monitored TPDO 1 has timed out
+- **THEN** node 23's row stays green for its state and shows "TPDO 1 timed out" with the count
+
+#### Scenario: Plugin too old
+- **WHEN** the runtime's plugin does not complete a TLS handshake
+- **THEN** the view says the runtime's plugin is too old for encrypted diagnostics and must be updated, and offers no unencrypted connection
 
 ### Requirement: Manual SDO and NMT in the online view
 For each node the online view SHALL offer an SDO panel: pick an object from the node's EDS (all objects, not only mappable ones) or type index and subindex, read it, and show the value decoded with the EDS data type (numbers in decimal and hex, VISIBLE_STRING as text, other types as hex bytes), or the abort code with its CiA 301 text. When the runtime allows changes, the panel SHALL also write a value encoded from the EDS type after a range check, warning before writing an object the plugin configures itself or one owned by an SDO variable; and the node SHALL have NMT buttons (start, stop, pre-operational, reset node, reset communication), with confirmation for stop and the resets. When the runtime does not allow changes, write and NMT controls SHALL be shown disabled with the reason.
@@ -918,3 +938,58 @@ The page header SHALL have an "Export documentation" action. It SHALL run the `c
 #### Scenario: Config with errors
 - **WHEN** the config has a duplicate node ID
 - **THEN** nothing is downloaded and the Problems pane shows the error
+
+### Requirement: USB adapter as online target
+The online access settings SHALL offer three targets: a runtime host, the local simulator runtime, and a USB adapter on this PC. For a USB adapter the page SHALL offer the adapter type, a port picked from the adapters found on this PC (with a refresh button) or typed, the bit rate (defaulting to the current network's `adapter.bitrate`), and an "Allow changes" checkbox that starts off for every connection and is not saved. The adapter type, port and bit rate SHALL be kept in the configurator's settings on this PC per project folder, never in the project. No token SHALL be needed for an adapter.
+
+#### Scenario: Connect to a CANable
+- **WHEN** the user picks "USB adapter", the found port `COM5` (slcan) and 250 kbit/s, and connects
+- **THEN** the online view opens on that adapter, the banner says "USB adapter slcan:COM5, 250 kbit/s, read-only", and the project folder is unchanged
+
+#### Scenario: Different bit rate than the config
+- **WHEN** the network's `adapter.bitrate` is 500000 and the user types 250
+- **THEN** the connection is made at 250 kbit/s and the banner shows both rates
+
+### Requirement: Online pages on a USB adapter
+On a USB adapter the Online view, scan page, object dictionary view with watch, Parameters actions and Trace view SHALL work as on a runtime, through the local backend. Fields the local backend does not report (boot result, retry, hold, SDO variable values, SYNC counters) SHALL be hidden, and the Simulation view and slave and gateway status SHALL be hidden. When another master is detected, the banner SHALL say so, and LSS buttons SHALL ask whether to go ahead anyway before sending with `force`. Write, NMT, LSS and restore controls SHALL be disabled with the reason while "Allow changes" is off.
+
+#### Scenario: Scan from the PC
+- **WHEN** the user runs a scan on a USB adapter target with a project open
+- **THEN** found devices are listed and matched against EDS files and the config as on a runtime, and "Add as node" works
+
+#### Scenario: PLC still running
+- **WHEN** the user clicks LSS Find on a USB adapter while a PLC master runs on the bus
+- **THEN** the page warns that another master is active and sends nothing unless the user confirms
+
+### Requirement: Commission a device without a config
+The configurator's start page SHALL offer "Commission a device", which opens the online pages on a USB adapter without any project or config: scan, object dictionary view (EDS from the scan match in the EDS library, or picked by the user), LSS, Parameters (backup, compare, restore, store) and Trace. "Add as node" SHALL be offered only when a config is open.
+
+#### Scenario: New device on the desk
+- **WHEN** the user opens "Commission a device", connects to a CANable at 250 kbit/s with "Allow changes" on, finds an unconfigured device with LSS and gives it node ID 12
+- **THEN** a scan lists node 12, and nothing was stored on the device unless the user ticked "store"
+
+### Requirement: Send frames from the Trace view
+The Trace view SHALL have a Send panel for the picked network with the identifier (hex), extended and remote options, a DLC for remote frames, up to 8 data bytes, and single or cyclic sending with a period and an optional count. It SHALL send through online access with `send_frame` and stop jobs with `send_frame_stop`, list the running cyclic jobs with their sent counts and a Stop for each, and list the last 20 frames sent. A frame selected in the trace SHALL be offered as "Send this frame", filling the panel. When online access has no `allow_changes`, the panel SHALL be disabled and say why. When the plugin refuses a frame because `force` is needed, the configurator SHALL show the plugin's reason in a confirmation and resend with `force` only when the user confirms. Leaving the Trace view or closing the page SHALL stop the page's cyclic jobs.
+
+#### Scenario: Single frame while recording
+- **WHEN** a trace is recording and the user sends 0x60A with eight data bytes
+- **THEN** the frame appears in the trace as Tx and in the panel's sent list
+
+#### Scenario: Force needs confirmation
+- **WHEN** the user sends on 0x205, which is RPDO1 of node 5
+- **THEN** a confirmation quotes "0x205 is RPDO1 of node 5" and nothing is sent unless the user confirms
+
+#### Scenario: No changes allowed
+- **WHEN** the config's online access has `allow_changes` off
+- **THEN** the Send panel is disabled and says that sending needs Allow changes
+
+### Requirement: Detect the bit rate from the Scan page
+The Scan the bus page SHALL have a "Detect bit rate" action for the picked network. Before starting it SHALL warn that CANopen on that network stops during the sweep and the nodes boot again afterwards, and ask for confirmation (with `force` when the plugin says a node is OPERATIONAL). While it runs it SHALL show the rate being listened to and the per-rate counts so far; when finished, the verdict and a table of the rates with frame, error frame and identifier counts. On `detected` with a rate different from the network's `adapter.bitrate`, it SHALL offer "Use N kbit/s", which sets the network's bit rate on the page without saving. It SHALL show no such button for `silent`, `ambiguous` or `failed`, and SHALL show the plugin's reason for `failed` and refusals.
+
+#### Scenario: Unknown device's rate
+- **WHEN** the tab's bit rate is 500 kbit/s and the sweep finds 250 kbit/s
+- **THEN** the page shows `250 kbit/s detected` and a "Use 250 kbit/s" button, and clicking it sets the bit rate field to 250 kbit/s with the page marked unsaved
+
+#### Scenario: Silent bus
+- **WHEN** the sweep finds no frames
+- **THEN** the page says the bus was silent and suggests powering a device on or resetting it during the sweep

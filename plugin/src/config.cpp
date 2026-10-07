@@ -295,6 +295,54 @@ class Parser {
     return true;
   }
 
+  // timeout_ms, on_timeout and timeout_location of one PDO (canopen-pdo-io
+  // "Receive timeout setting", "Inputs while a PDO is timed out").
+  void parse_timeout(const cJSON* p, const std::string& pw, const std::string& pdo_name, bool is_tx,
+                     PdoConfig& pdo) {
+    const cJSON* t = cJSON_GetObjectItemCaseSensitive(p, "timeout_ms");
+    if (t) {
+      uint64_t v;
+      if (!is_tx) {
+        error(pw, pdo_name + ": field 'timeout_ms' is only for tx_pdos (PDOs the node sends)");
+      } else if (cJSON_IsString(t) && std::string(t->valuestring) == "auto") {
+        pdo.has_timeout = true;
+        pdo.timeout_auto = true;
+      } else if (get_uint(p, "timeout_ms", pw, false, 0xFFFF, v)) {
+        if (v == 0)
+          error(pw, pdo_name + ": field 'timeout_ms' must be 1-65535 or \"auto\"; leave it out for no timeout");
+        pdo.has_timeout = true;
+        pdo.timeout_ms = (unsigned)v;
+      }
+    }
+    std::string on;
+    if (cJSON_GetObjectItemCaseSensitive(p, "on_timeout") && get_string(p, "on_timeout", pw, false, on)) {
+      if (on == "zero")
+        pdo.timeout_zero = true;
+      else if (on != "hold")
+        error(pw, pdo_name + ": field 'on_timeout' must be \"hold\" or \"zero\", not \"" + on + "\"");
+      if (is_tx && !t) error(pw, pdo_name + ": field 'on_timeout' needs 'timeout_ms'");
+    }
+    if (cJSON_GetObjectItemCaseSensitive(p, "timeout_location")) {
+      IecLocation loc;
+      if (get_location(p, "timeout_location", pw, false, loc)) {
+        if (loc.area != IecArea::Input || loc.size != IecSize::X) {
+          error(pw, pdo_name + ": field 'timeout_location' must be an input bit (%IX...), not " + loc.str());
+        } else {
+          pdo.has_timeout_location = true;
+          pdo.timeout_location = loc;
+        }
+      }
+      if (is_tx && !t) error(pw, pdo_name + ": field 'timeout_location' needs 'timeout_ms'");
+    }
+    if (!is_tx) {
+      if (cJSON_GetObjectItemCaseSensitive(p, "on_timeout"))
+        error(pw, pdo_name + ": field 'on_timeout' is only for tx_pdos (PDOs the node sends)");
+      if (cJSON_GetObjectItemCaseSensitive(p, "timeout_location"))
+        error(pw, pdo_name + ": field 'timeout_location' is only for tx_pdos (PDOs the node sends)");
+      pdo.has_timeout_location = false;
+    }
+  }
+
   void parse_pdos(const cJSON* node, const char* key, NodeConfig& n,
                   const std::string& where, bool is_tx) {
     const cJSON* arr = cJSON_GetObjectItemCaseSensitive(node, key);
@@ -316,7 +364,7 @@ class Parser {
         continue;
       }
       check_known(p, pw, {"number", "cob_id", "transmission", "inhibit_time_us", "event_timer_ms", "sync_start",
-                          "mapping", "entries"});
+                          "mapping", "entries", "timeout_ms", "on_timeout", "timeout_location"});
       const std::string what = std::string(is_tx ? "TPDO " : "RPDO ");
       pdo.number = i + 1;
       if (get_uint(p, "number", pw, false, 512, v)) {
@@ -364,6 +412,7 @@ class Parser {
         pdo.sync_start = (unsigned)v;
         pdo.has_sync_start = true;
       }
+      parse_timeout(p, pw, what + std::to_string(pdo.number), is_tx, pdo);
       std::string mapping;
       if (get_string(p, "mapping", pw, false, mapping)) {
         if (mapping == "config")
@@ -570,7 +619,8 @@ class Parser {
 
   static void copy_diagnostics(const MasterConfig& from, MasterConfig& to) {
     to.has_diagnostics = from.has_diagnostics;
-    to.diag_token_sha256 = from.diag_token_sha256;
+    to.diag_token_verifier = from.diag_token_verifier;
+    to.diag_scram = from.diag_scram;
     to.diag_port = from.diag_port;
     to.diag_bind = from.diag_bind;
     to.diag_allow_changes = from.diag_allow_changes;
@@ -923,21 +973,21 @@ class Parser {
       error(parent_where, "field 'diagnostics' must be an object");
       return;
     }
-    check_known(d, w, {"token_sha256", "port", "bind", "allow_changes"});
     // Set even when a field is wrong, so the empty-node-list check adds no
     // second error.
     m.has_diagnostics = true;
-    std::string hash;
-    if (get_string(d, "token_sha256", w, true, hash)) {
-      bool hex = hash.size() == 64;
-      for (char& c : hash) {
-        hex = hex && std::isxdigit(static_cast<unsigned char>(c));
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-      }
-      if (!hex)
-        error(w, "field 'token_sha256' must be 64 hexadecimal characters (the SHA-256 of the access token; "
-                 "openplc-canopen-diag hash-token prints it)");
-      m.diag_token_sha256 = hash;
+    if (cJSON_GetObjectItemCaseSensitive(d, "token_sha256")) {
+      error(w + ".token_sha256",
+            "the diagnostics channel is encrypted now and needs a 'token_verifier' instead: set the token again "
+            "(configurator: Online access, Upgrade or New token; or openplc-canopen-diag hash-token)");
+      return;
+    }
+    check_known(d, w, {"token_verifier", "port", "bind", "allow_changes"});
+    std::string text;
+    if (get_string(d, "token_verifier", w, true, text)) {
+      std::string why;
+      if (!parse_scram_verifier(text, m.diag_scram, why)) error(w, "field 'token_verifier' " + why);
+      m.diag_token_verifier = text;
     }
     uint64_t v;
     if (get_uint(d, "port", w, false, 65535, v)) {
@@ -1865,6 +1915,9 @@ class Parser {
         if (sv.has_status) uses.push_back({sv.status_location, who + " status_location"});
         if (sv.has_abort_code) uses.push_back({sv.abort_code_location, who + " abort_code_location"});
       }
+      for (const auto& pdo : n.tx_pdos)
+        if (pdo.has_timeout_location)
+          uses.push_back({pdo.timeout_location, nl + " TPDO " + std::to_string(pdo.number) + " timeout_location"});
       auto add = [&](const std::vector<PdoConfig>& pdos, const char* dir) {
         for (const auto& p : pdos)
           for (const auto& e : p.entries) {

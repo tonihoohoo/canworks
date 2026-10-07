@@ -4,6 +4,8 @@ A bus trace records every CAN frame on the runtime's CANopen interface, received
 
 Record from the configurator's [Trace view](configurator.md#trace), or with `openplc-canopen-diag trace` on any PC with the deploy tool ([install-pc.md](install-pc.md)).
 
+A trace can also be recorded straight from a USB CAN adapter on the PC, with no runtime: `openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 trace -o bench.pcapng`, or the Trace view on a [USB adapter connection](configurator.md#usb-adapter-on-this-pc) ([pc-adapter.md](pc-adapter.md)). It keeps the same formats, filters and triggers; time stamps are the PC's receive times, and frames the PC itself sends are recorded as sent.
+
 A trace records one network. With several CAN networks in the config (`schema_version: 2`) pick it in the trace view or with `--network NAME`; the trace command without it exits naming the networks. The frames are decoded with that network's nodes from the config, so node 2 on `io` and node 2 on `drives` each get their own PDO mapping and object names. To watch two networks, record two traces.
 
 ## Recording
@@ -13,6 +15,10 @@ The plugin keeps the newest 65536 frames in memory while a client traces, and th
 Capture filters (ID and mask, up to 16) are applied on the runtime and limit what is recorded, for example `0x180/0x780` for all TPDO1s or `0x717/0x7FF` for node 23's heartbeat. Error frames (bus errors, error-passive, bus-off) are recorded on request; with an slcan adapter such as the CANable they need Linux 6.0 or later and adapter firmware that reports them.
 
 When the CAN interface goes away (the adapter is unplugged) the trace keeps going and gets a gap mark where the capture restarted. A trace ends 10 seconds after the PC stops fetching.
+
+## Sending frames while recording
+
+With `allow_changes` on, the configurator's **Send** panel and `openplc-canopen-diag send` put frames on the bus by hand ([diagnostics.md](diagnostics.md#raw-frames-and-bit-rate)). They show in the trace marked Tx, followed by whatever the devices answer, so a hand-made SDO request and its response can be read side by side.
 
 ## Time stamps
 

@@ -322,8 +322,23 @@ def _pdo_schema_message(cfg, path, e):
     kind = "TPDO" if key == "tx_pdos" else "RPDO"
     where = "nodes[%d]: %s[%d]" % (i, key, j)
     if len(path) == 4 and e.validator == "not" and key == "rx_pdos":
-        field = "inhibit_time_us" if "inhibit_time_us" in p else "sync_start"
+        field = next(f for f in ("inhibit_time_us", "sync_start", "timeout_ms", "on_timeout", "timeout_location")
+                     if f in p)
         return where, "%s %d: field '%s' is only for tx_pdos (PDOs the node sends)" % (kind, number, field)
+    if len(path) == 4 and e.validator == "dependentRequired":
+        field = next(f for f in ("on_timeout", "timeout_location") if f in p)
+        return where, "%s %d: field '%s' needs 'timeout_ms'" % (kind, number, field)
+    if len(path) == 5 and path[4] == "timeout_ms" and _uint(p["timeout_ms"]) == 0:
+        return where, "%s %d: field 'timeout_ms' must be 1-65535 or \"auto\"; leave it out for no timeout" % (
+            kind, number)
+    if len(path) == 5 and path[4] == "on_timeout" and e.validator == "enum":
+        return where, "%s %d: field 'on_timeout' must be \"hold\" or \"zero\", not \"%s\"" % (
+            kind, number, p["on_timeout"])
+    if len(path) == 5 and path[4] == "timeout_location" and e.validator == "pattern":
+        loc = parse_location(p["timeout_location"])
+        if loc is not None:
+            return where, "%s %d: field 'timeout_location' must be an input bit (%%IX...), not %s" % (
+                kind, number, loc)
     if len(path) == 5 and path[4] == "inhibit_time_us" and e.validator == "multipleOf":
         return where, "%s %d: field 'inhibit_time_us' must be a multiple of 100" % (kind, number)
     return None
@@ -732,6 +747,10 @@ def location_uses(net, prefix=""):
             for key in ("trigger_location", "status_location", "abort_code_location"):
                 if key in v:
                     add(v[key], who + " " + key, vw + "." + key)
+        for j, p in enumerate(n.get("tx_pdos", [])):
+            if "timeout_location" in p:
+                add(p["timeout_location"], "%s TPDO %s timeout_location" % (label, _uint(p.get("number", j + 1))),
+                    "%s.tx_pdos[%d].timeout_location" % (w, j))
         for key, kind in (("tx_pdos", "TPDO"), ("rx_pdos", "RPDO")):
             for j, p in enumerate(n.get(key, [])):
                 number = _uint(p.get("number", j + 1))
@@ -830,6 +849,18 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             continue
         if (where == "master" and e.validator == "not") or where == "master.eds_lint":
             continue  # reported above
+        if where.endswith("diagnostics.token_sha256"):
+            err(where, "the diagnostics channel is encrypted now and needs a 'token_verifier' instead: set the token "
+                       "again (configurator: Online access, Upgrade or New token; or openplc-canopen-diag hash-token)")
+            continue
+        if where.endswith("diagnostics") and e.validator == "required" and "token_verifier" in e.message:
+            d = cfg.get("diagnostics") if where == "diagnostics" else (cfg.get("master") or {}).get("diagnostics")
+            if isinstance(d, dict) and "token_sha256" in d:
+                continue  # reported as token_sha256
+        if where.endswith("diagnostics.token_verifier") and e.validator == "pattern":
+            err(where, "field 'token_verifier' must look like SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:"
+                       "<ServerKey> (openplc-canopen-diag hash-token prints it)")
+            continue
         if role == "slave" and where.split(".")[0].split("[")[0] in ("master", "nodes"):
             continue  # misplaced in a slave network, reported by _check_v2
         if (where == "master" and e.validator == "required" and "'diagnostics'" in e.message) or (
@@ -844,6 +875,15 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             continue
         err(where, e.message)
 
+    # The verifier's numbers, which the schema's pattern does not check.
+    d = cfg.get("diagnostics") if version > 1 else (cfg.get("master") or {}).get("diagnostics")
+    if isinstance(d, dict) and isinstance(d.get("token_verifier"), str) and re.match(
+            r"^SCRAM-SHA-256\$[0-9]{1,7}:", d["token_verifier"]):
+        from . import diag
+        if diag.parse_verifier(d["token_verifier"]) is None:
+            where = "diagnostics" if version > 1 else "master.diagnostics"
+            err(where, "field 'token_verifier' needs iterations 4096-1000000 and a salt of at least 16 bytes",
+                [where + ".token_verifier"])
 
     if len(r.errors) > before:
         return
@@ -952,6 +992,8 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 for f in ("transmission", "inhibit_time_us", "event_timer_ms", "sync_start"):
                     if f in p:
                         pdo[f] = _uint(p[f])
+                if "timeout_ms" in p:
+                    pdo["timeout_ms"] = "auto" if p["timeout_ms"] == "auto" else _uint(p["timeout_ms"])
                 if "cob_id" in p:
                     pdo["cob_id"] = "auto" if p["cob_id"] == "auto" else _uint(p["cob_id"])
                 pdo["default_cob_id"] = default_cob_id(node["node_id"], pdo["number"], key == "tx_pdos")

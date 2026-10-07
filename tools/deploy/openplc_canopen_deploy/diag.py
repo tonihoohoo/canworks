@@ -3,6 +3,8 @@
   openplc-canopen-diag --runtime plc.local status
   openplc-canopen-diag --runtime plc.local sdo-read 23 0x1008 0 --type VISIBLE_STRING
   openplc-canopen-diag --runtime plc.local sdo-read 2 0x1018 1 --network drives
+  openplc-canopen-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"
+  openplc-canopen-diag --runtime plc.local detect-bitrate --rates 125,250,500
   openplc-canopen-diag hash-token
   openplc-canopen-diag --runtime plc.local sim fault 5 emcy 0x5000 --register 1
   openplc-canopen-diag sim --sim 127.0.0.1 status
@@ -11,7 +13,9 @@
 --runtime, or a standalone openplc-canopen-sim's, with --sim HOST[:PORT].
 
 The channel is opt-in (master.diagnostics in canopen.json) and speaks
-line-delimited JSON over TCP, port 7531 by default; see docs/diagnostics.md.
+line-delimited JSON over TLS, port 7531 by default, after a SCRAM-SHA-256
+login bound to the server's certificate, so the token never crosses the
+network; see docs/diagnostics.md.
 With several CAN networks every command but status needs --network NAME;
 status then prints every network.
 The token comes from --token, $OPENPLC_CANOPEN_TOKEN or a prompt. The
@@ -19,12 +23,15 @@ configurator's online view uses the Client class of this module.
 """
 
 import argparse
+import base64
 import getpass
 import hashlib
+import hmac
 import json
 import os
 import secrets
 import socket
+import ssl
 import struct
 import sys
 import time
@@ -32,17 +39,97 @@ import time
 from . import __version__, localruntime
 
 DEFAULT_PORT = 7531
-PROTOCOL = 1
+PROTOCOL = 2        # TLS and the SCRAM login
+PLAIN_PROTOCOL = 1  # a standalone simulator without a token, on loopback
+SCRAM_MECH = "SCRAM-SHA-256-PLUS"
+SCRAM_ITERATIONS = 4096
+SCRAM_MIN_ITERATIONS, SCRAM_MAX_ITERATIONS = 4096, 1000000
 TOKEN_ENV = "OPENPLC_CANOPEN_TOKEN"
 MAX_LINE = 1024 * 1024
 NMT_COMMANDS = ("start", "stop", "preop", "reset", "reset-comm")
 LSS_BITRATES = (10, 20, 50, 125, 250, 500, 800, 1000)  # kbit/s, the CiA 305 bit timing table
 LSS_KEYS = ("vendor_id", "product_code", "revision_number", "serial_number")
+DETECT_RATES = (1000, 800, 500, 250, 125, 50, 20, 10)  # kbit/s, the order a bit rate sweep listens in
+FORCE_NEEDED = "force needed"  # the end of a refusal the request may be repeated with force: true
+TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
+SILENT_HINT = ("The bus was silent. A device sends a boot-up message when it is powered on or reset: power-cycle "
+               "one during the sweep, or run more rounds.")
 
 
-def hash_token(token):
-    """What goes in master.diagnostics.token_sha256."""
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+# ---------------------------------------------------------------------------
+# The SCRAM-SHA-256 login (plugin/src/secure_channel.h has the same math).
+
+
+def _b64(data):
+    return base64.b64encode(data).decode("ascii")
+
+
+def _salted(token, salt, iterations):
+    return hashlib.pbkdf2_hmac("sha256", token.encode("utf-8"), salt, iterations)
+
+
+def _hmac(key, data):
+    return hmac.new(key, data if isinstance(data, bytes) else data.encode("utf-8"), hashlib.sha256).digest()
+
+
+def token_verifier(token, salt=None, iterations=SCRAM_ITERATIONS):
+    """What goes in master.diagnostics.token_verifier: SCRAM-SHA-256 with a
+    fresh random salt. It does not let anyone log in."""
+    salt = salt if salt is not None else secrets.token_bytes(16)
+    sp = _salted(token, salt, iterations)
+    stored = hashlib.sha256(_hmac(sp, "Client Key")).digest()
+    return "SCRAM-SHA-256$%d:%s$%s:%s" % (iterations, _b64(salt), _b64(stored), _b64(_hmac(sp, "Server Key")))
+
+
+def parse_verifier(text):
+    """(iterations, salt, stored_key, server_key), or None when `text` is not
+    a valid token_verifier."""
+    try:
+        if not isinstance(text, str) or not text.startswith("SCRAM-SHA-256$"):
+            return None
+        params, keys = text[len("SCRAM-SHA-256$"):].split("$")
+        it, salt = params.split(":")
+        stored, server = keys.split(":")
+        it = int(it)
+        salt, stored, server = (base64.b64decode(x, validate=True) for x in (salt, stored, server))
+    except (ValueError, TypeError):
+        return None
+    if not SCRAM_MIN_ITERATIONS <= it <= SCRAM_MAX_ITERATIONS or len(salt) < 16 or len(stored) != 32 or len(server) != 32:
+        return None
+    return it, salt, stored, server
+
+
+def token_matches(token, verifier):
+    """Whether `token` is the token of `verifier`."""
+    v = parse_verifier(verifier)
+    if not v or not token:
+        return False
+    it, salt, stored, _ = v
+    return hmac.compare_digest(hashlib.sha256(_hmac(_salted(token, salt, it), "Client Key")).digest(), stored)
+
+
+def scram_auth_message(cnonce, snonce, salt_b64, iterations, cbind):
+    return "openplc-canopen-diag/2,%s,%s,%s,%d,%s" % (cnonce, snonce, salt_b64, iterations, _b64(cbind))
+
+
+def scram_client(token, salt, iterations, auth_message):
+    """(ClientProof, the ServerSignature the server must send back)."""
+    sp = _salted(token, salt, iterations)
+    client_key = _hmac(sp, "Client Key")
+    sig = _hmac(hashlib.sha256(client_key).digest(), auth_message)
+    proof = bytes(a ^ b for a, b in zip(client_key, sig))
+    return proof, _hmac(_hmac(sp, "Server Key"), auth_message)
+
+
+def _client_context():
+    # The login checks the server (channel binding to its certificate), so
+    # the chain is not checked: the plugin makes a new self-signed
+    # certificate whenever it starts.
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
 
 
 def new_token():
@@ -275,8 +362,9 @@ def state_name(state):
 
 
 class DiagError(Exception):
-    """kind: unreachable, closed (port closed), token, timeout, protocol, or
-    refused (the plugin answered with an error)."""
+    """kind: unreachable, closed (port closed), token, timeout, protocol,
+    old (no TLS: the plugin is too old), impostor (the server could not prove
+    it knows the token), or refused (the plugin answered with an error)."""
 
     def __init__(self, kind, message):
         super().__init__(message)
@@ -286,7 +374,11 @@ class DiagError(Exception):
 class Client:
     """One connection to the plugin. `network` names the network every
     request after the hello is for; it is sent only when the plugin runs
-    several networks (an older plugin knows no networks)."""
+    several networks (an older plugin knows no networks).
+
+    With a token the connection is TLS with the SCRAM login (the plugin
+    always; a standalone simulator with a token); without one it is plain,
+    for a local simulator without a token."""
 
     def __init__(self, host, port=DEFAULT_PORT, token="", timeout=5.0, network=None):
         self.host, self.port, self.token, self.timeout = host, port, token, timeout
@@ -327,19 +419,65 @@ class Client:
         except OSError as e:
             raise DiagError("unreachable", "host %s is unreachable: %s" % (self.host, e.strerror or e))
         self.buf = b""
+        if not self.token:
+            try:
+                self.info = self.request("hello")
+            except DiagError:
+                self.close()
+                raise
+            want = PLAIN_PROTOCOL
+        else:
+            self._login()
+            want = PROTOCOL
+        if self.info.get("protocol") != want:
+            proto = self.info.get("protocol")
+            self.close()
+            raise DiagError("protocol", "%s speaks diagnostics protocol %s; this tool speaks %d"
+                            % (self.where, proto, want))
+        return self.info
+
+    def _login(self):
+        old = DiagError("old", "%s does not speak encrypted diagnostics: the plugin (or simulator) there is too old; "
+                               "update it" % self.where)
         try:
-            self.info = self.request("hello", token=self.token)
+            self.sock = _client_context().wrap_socket(self.sock, server_hostname=None)
+        except socket.timeout:
+            self.close()
+            raise old
+        except (ssl.SSLError, OSError):
+            self.close()
+            raise old
+        cbind = hashlib.sha256(self.sock.getpeercert(binary_form=True) or b"").digest()
+        cnonce = _b64(secrets.token_bytes(18))
+        try:
+            first = self.request("hello", mech=SCRAM_MECH, nonce=cnonce)
+            salt_b64, snonce, it = first.get("salt"), first.get("nonce"), first.get("iterations")
+            try:
+                salt = base64.b64decode(salt_b64, validate=True)
+            except (ValueError, TypeError):
+                salt = None
+            if (not isinstance(snonce, str) or salt is None or not isinstance(it, int)
+                    or not SCRAM_MIN_ITERATIONS <= it <= SCRAM_MAX_ITERATIONS):
+                raise DiagError("protocol", "%s sent an unexpected login answer" % self.where)
+            auth = scram_auth_message(cnonce, snonce, salt_b64, it, cbind)
+            proof, want = scram_client(self.token, salt, it, auth)
+            info = self.request("login", proof=_b64(proof))
         except DiagError as e:
             self.close()
             if e.kind == "eof":
                 raise DiagError("token", "%s refused the token (wrong token for this configuration)" % self.where)
             raise
-        if self.info.get("protocol") != PROTOCOL:
-            proto = self.info.get("protocol")
+        sig = info.pop("signature", None)
+        try:
+            got = base64.b64decode(sig or "", validate=True)
+        except (ValueError, TypeError):
+            got = b""
+        if not hmac.compare_digest(got, want):
             self.close()
-            raise DiagError("protocol", "%s speaks diagnostics protocol %s; this tool speaks %d"
-                            % (self.where, proto, PROTOCOL))
-        return self.info
+            raise DiagError("impostor", "%s could not prove it knows this project's token (a machine in the "
+                                        "middle?); nothing was sent" % self.where)
+        self.info = info
+        self.next_id = 2  # requests are numbered from 2 after the login, as after a plain hello
 
     def close(self):
         if self.sock:
@@ -457,6 +595,112 @@ class Client:
     def trace_stop(self):
         return self.request("trace_stop")
 
+    # Raw frames and bit rate detection (allow_changes). A refusal that ends in
+    # "force needed" may be repeated with force=True once the user agrees.
+    def send_frame(self, can_id, data=b"", ext=False, rtr=False, dlc=None, period_ms=None, count=None, force=False):
+        """One frame, or with period_ms a cyclic job of this connection: the
+        result has "sent", or "job", "period_ms" and "count"."""
+        # The identifier is can_id: "id" is the request's own (echoed in the answer).
+        fields = {"can_id": can_id, "ext": bool(ext), "rtr": bool(rtr)}
+        if rtr:
+            fields["dlc"] = dlc or 0
+        elif data:
+            fields["data"] = hex_bytes(data)
+        if period_ms:
+            fields["period_ms"] = period_ms
+            if count:
+                fields["count"] = count
+        if force:
+            fields["force"] = True
+        return self.request("send_frame", **fields)
+
+    def send_frame_stop(self, job=None):
+        """Stops one cyclic job of this connection, or all of them: "stopped"
+        lists each with its "sent" count and "reason"."""
+        return self.request("send_frame_stop", **({} if job is None else {"job": job}))
+
+    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False):
+        """Starts a bit rate sweep (unless one runs) and returns its progress."""
+        fields = {}
+        if rates:
+            fields["rates"] = list(rates)
+        if per_rate_ms:
+            fields["per_rate_ms"] = per_rate_ms
+        if rounds:
+            fields["rounds"] = rounds
+        if force:
+            fields["force"] = True
+        return self.request("detect_bitrate", **fields)
+
+    def detect_bitrate_status(self):
+        return self.request("detect_bitrate_status")
+
+
+def too_old(e):
+    """The plugin does not know the op: it predates the command."""
+    return e.kind == "refused" and str(e).startswith("unknown op")
+
+
+def needs_force(e):
+    """A refusal the request may be repeated for with force: true."""
+    return e.kind == "refused" and str(e).rstrip().endswith(FORCE_NEEDED)
+
+
+def parse_frame_id(value, ext=False):
+    """A CAN identifier: an int, or text as 0x60A or decimal; 11 bits, or 29
+    with ext."""
+    if isinstance(value, bool):
+        raise ValueError("identifier %r is not a number" % value)
+    if not isinstance(value, int):
+        try:
+            value = int(str(value).strip(), 0)
+        except ValueError:
+            raise ValueError("identifier %r is not a number (write hex as 0x60A)" % value)
+    top = 0x1FFFFFFF if ext else 0x7FF
+    if not 0 <= value <= top:
+        raise ValueError("identifier 0x%X is out of range: 0x0-0x%X%s" % (value, top, "" if ext else
+                                                                          " (an extended identifier needs ext)"))
+    return value
+
+
+def parse_frame_data(parts):
+    """Up to 8 data bytes from "40 18 10 01", "40181001" or several pieces."""
+    if isinstance(parts, str):
+        parts = [parts]
+    digits = "".join("".join(parts or []).split())
+    if not digits:
+        return b""
+    data = parse_hex(digits)
+    if len(data) > 8:
+        raise ValueError("a CAN frame carries at most 8 data bytes, not %d" % len(data))
+    return data
+
+
+def frame_text(can_id, ext=False, rtr=False, dlc=None, data=b""):
+    """A frame as the CLI and the logs show it: "0x60A [4] 40 18 10 01"."""
+    ident = ("0x%08X" if ext else "0x%03X") % can_id
+    if rtr:
+        return "%s remote [%d]" % (ident, dlc or 0)
+    return "%s [%d] %s" % (ident, len(data), hex_bytes(data)) if data else "%s [0]" % ident
+
+
+def verdict_text(res):
+    """One line for a finished bit rate sweep."""
+    v = res.get("verdict")
+    if v == "detected":
+        rate, conf = res.get("bitrate_kbit"), res.get("configured_kbit")
+        if res.get("matches_config"):
+            return "%s kbit/s detected, as configured" % rate
+        return "%s kbit/s detected%s" % (rate, " (the configuration has %s kbit/s)" % conf if conf else "")
+    if v == "ambiguous":
+        cands = res.get("candidates") or []
+        return "ambiguous: frames at %s kbit/s" % ", ".join(str(c) for c in cands) if cands else "ambiguous"
+    if v == "silent":
+        return SILENT_HINT
+    if v == "failed":
+        return "the sweep failed: %s" % (res.get("error") or "no reason given")
+    return "no result"
+
 
 def lss_address_text(a):
     """An LSS address as the plugin logs it."""
@@ -516,7 +760,28 @@ def _network_arg(p, text="the network to talk to (needed when the runtime runs s
 # The commands that talk to one network of the plugin (status takes --network
 # too, but goes over every network without it).
 NETWORK_COMMANDS = ("emcy", "sdo-read", "sdo-write", "nmt", "scan", "lss-find", "lss-inquire", "lss-set-id",
-                    "lss-set-bitrate", "trace", "backup", "compare", "restore", "store")
+                    "lss-set-bitrate", "trace", "backup", "compare", "restore", "store", "send", "send-stop",
+                    "detect-bitrate")
+
+
+def _int_range(what, lo, hi):
+    def parse(t):
+        v = _uint(t, what, hi)
+        if v < lo:
+            raise argparse.ArgumentTypeError("%s must be %d-%d" % (what, lo, hi))
+        return v
+    return parse
+
+
+def _rates(text):
+    try:
+        rates = [int(r) for r in text.replace(" ", "").split(",") if r]
+    except ValueError:
+        raise argparse.ArgumentTypeError("--rates %r: write kbit/s separated by commas, e.g. 125,250,500" % text)
+    bad = [r for r in rates if r not in DETECT_RATES]
+    if bad or not rates:
+        raise argparse.ArgumentTypeError("--rates takes kbit/s out of %s" % ", ".join(str(r) for r in DETECT_RATES))
+    return rates
 
 
 def parser():
@@ -528,6 +793,17 @@ def parser():
     p.add_argument("--runtime", metavar="HOST[:PORT]",
                    help="the runtime host (diagnostics port, default %d); `local` is the local simulator runtime "
                         "of openplc-canopen-sim-runtime" % DEFAULT_PORT)
+    p.add_argument("--adapter", metavar="TYPE:CHANNEL",
+                   help="talk to the bus through a CAN adapter on this PC instead of a runtime: slcan:COM5, "
+                        "slcan:/dev/tty.usbmodem14101, socketcan:can0, ... (see 'adapters' and docs/pc-adapter.md)")
+    p.add_argument("--bitrate", type=int, metavar="KBIT",
+                   help="--adapter: the bus's bit rate in kbit/s (default: the network's adapter.bitrate from --config)")
+    p.add_argument("--adapter-option", action="append", default=[], metavar="KEY=VALUE",
+                   help="--adapter: an option passed to python-can (repeatable), e.g. tty_baudrate=115200")
+    p.add_argument("--allow-changes", action="store_true",
+                   help="--adapter: allow SDO writes, NMT, LSS, restore and store in this session")
+    p.add_argument("--force", action="store_true",
+                   help="--adapter: run LSS even while another master is active on the bus")
     p.add_argument("--sim", dest="sim_addr", metavar="HOST[:PORT]",
                    help="sim commands: a standalone simulator's control channel (default port 7532)")
     p.add_argument("--token", help="access token (default: $%s, else a prompt)" % TOKEN_ENV)
@@ -539,6 +815,7 @@ def parser():
     sub.required = True
     s = sub.add_parser("status", help="master, bus and node states")
     _network_arg(s, "the network to show (default: every network)")
+    s.add_argument("--config", metavar="canopen.json", help="--adapter: name the network's nodes from this config")
     e = sub.add_parser("emcy", help="a node's emergency history, newest first")
     e.add_argument("node", type=_node)
     r = sub.add_parser("sdo-read", help="read an object")
@@ -557,7 +834,8 @@ def parser():
     n = sub.add_parser("nmt", help="send an NMT command to a configured node (needs allow_changes)")
     n.add_argument("node", type=_node)
     n.add_argument("nmt_command", choices=NMT_COMMANDS, metavar="|".join(NMT_COMMANDS))
-    sub.add_parser("scan", help="find the devices on the bus (node IDs 1-127)")
+    sc = sub.add_parser("scan", help="find the devices on the bus (node IDs 1-127)")
+    sc.add_argument("--config", metavar="canopen.json", help="--adapter: compare the devices with this config")
     lf = sub.add_parser("lss-find", help="find a device without a node ID with LSS fastscan (needs allow_changes)")
     lf.add_argument("--vendor", type=_u32("vendor ID"), help="only devices with this vendor ID (needs --product)")
     lf.add_argument("--product", type=_u32("product code"), help="only devices with this product code")
@@ -573,6 +851,37 @@ def parser():
     lb.add_argument("bitrate_kbit", type=int, choices=LSS_BITRATES, metavar="KBIT",
                     help="kbit/s: " + ", ".join(str(b) for b in LSS_BITRATES))
     lb.add_argument("--store", action="store_true", help="also store the bit rate in the device's memory")
+    sf = sub.add_parser("send", help="send a CAN frame, once or cyclically (needs allow_changes)",
+                        description="Sends one frame, or with --period-ms one every period until --count frames, "
+                                    "--duration seconds or Ctrl-C; the job is stopped on exit. Identifiers the "
+                                    "network uses, and any frame while a node is OPERATIONAL, need --force.")
+    sf.add_argument("id", metavar="ID", help="the identifier, e.g. 0x60A")
+    sf.add_argument("data", nargs="*", metavar="DATA",
+                    help='0-8 data bytes in hex: "40 18 10 01", 40181001 or 40 18 10 01')
+    sf.add_argument("--ext", action="store_true", help="extended (29-bit) identifier")
+    sf.add_argument("--rtr", action="store_true", help="a remote frame (no data; give --dlc)")
+    sf.add_argument("--dlc", type=_int_range("DLC", 0, 8), metavar="N", help="the remote frame's DLC, 0-8")
+    sf.add_argument("--period-ms", type=_int_range("period", 10, 60000), metavar="MS",
+                    help="send cyclically at this period (10-60000 ms)")
+    sf.add_argument("--count", type=_int_range("count", 1, 1000000), metavar="N",
+                    help="cyclic: stop after N frames")
+    sf.add_argument("--duration", type=float, metavar="S", help="cyclic: stop after S seconds (default: Ctrl-C)")
+    sf.add_argument("--force", action="store_true",
+                    help="send even when the network uses the identifier or a node is OPERATIONAL")
+    ss = sub.add_parser("send-stop", help="stop cyclic send jobs of this connection (for scripts that keep one)")
+    ss.add_argument("job", nargs="?", type=_int_range("job", 0, 0xFFFFFFFF), metavar="JOB",
+                    help="the job number (default: every job of this connection)")
+    db = sub.add_parser("detect-bitrate", help="find the bus's bit rate by listening (needs allow_changes)",
+                        description="Stops CANopen on the network, listens in listen-only mode at each bit rate "
+                                    "and starts CANopen again; nodes boot again afterwards. Nothing is sent. "
+                                    "Exits 0 only when one bit rate was detected.")
+    db.add_argument("--rates", type=_rates, metavar="KBIT,...",
+                    help="the rates to try, e.g. 125,250,500 (default %s)" % ",".join(str(r) for r in DETECT_RATES))
+    db.add_argument("--per-rate-ms", type=_int_range("per-rate time", 100, 10000), metavar="MS",
+                    help="how long to listen at each rate (100-10000, default 1000)")
+    db.add_argument("--rounds", type=_int_range("rounds", 1, 20), metavar="N",
+                    help="sweep N times, for devices that send rarely (1-20, default 1)")
+    db.add_argument("--force", action="store_true", help="sweep even while a node is OPERATIONAL")
     tr = sub.add_parser("trace", help="record the frames on the bus into a file (read-only)",
                         description="Records every CAN frame on the runtime's CANopen interface (with several "
                                     "networks, the one --network names) until --duration ends, a single-mode "
@@ -638,7 +947,8 @@ def parser():
     _source(st)
     for name in NETWORK_COMMANDS:
         _network_arg(sub.choices[name])
-    h = sub.add_parser("hash-token", help="print token_sha256 for a token (no connection)")
+    sub.add_parser("adapters", help="list the CAN adapters on this PC (for --adapter; no connection)")
+    h = sub.add_parser("hash-token", help="print the token_verifier for a token (no connection)")
     h.add_argument("value", nargs="?", help="the token (default: --token, $%s or a prompt)" % TOKEN_ENV)
     _sim_parser(sub)
     return p
@@ -720,6 +1030,13 @@ def _print_status(st, out):
     sync_line = format_sync(st.get("sync"))
     if sync_line:
         out.write(sync_line + "\n")
+    if (st.get("bitrate_sweep") or {}).get("running"):
+        out.write("bit rate sweep running: CANopen on this network is paused until it ends\n")
+    for j in st.get("send_jobs") or []:
+        out.write("send job %s: %s every %s ms, %s sent%s%s\n" % (
+            j.get("job"), ("0x%08X" if j.get("ext") else "0x%03X") % (j.get("id") or 0), j.get("period_ms"),
+            j.get("sent", 0), " of %s" % j["count"] if j.get("count") else "",
+            ", by %s" % j["peer"] if j.get("peer") else ""))
     sim_nodes = [str(nd.get("node_id")) for nd in st.get("nodes") or [] if nd.get("simulated")]
     if st.get("simulation_forced"):
         out.write("simulation forced by the runtime (local simulator runtime): every network runs simulated\n")
@@ -754,6 +1071,13 @@ def _print_status(st, out):
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]) - 1)]
     for r in rows:
         out.write("  ".join(c.ljust(w) for c, w in zip(r, widths)) + "  " + r[-1] + "\n")
+    for nd in st.get("nodes") or []:
+        for t in nd.get("pdo_timeouts") or []:
+            since = t.get("since_ms")
+            out.write("node %s TPDO %s: %s (timeout %s ms, %d timeout%s, last PDO %s)\n" % (
+                nd.get("node_id"), t.get("tpdo"), "TIMED OUT" if t.get("timed_out") else "receiving",
+                t.get("timeout_ms"), t.get("count") or 0, "" if t.get("count") == 1 else "s",
+                "never" if since is None else "%d ms ago" % since))
     for nd in st.get("nodes") or []:
         for v in nd.get("sdo_variables") or []:
             line = "node %s %s, %s %s: raw %s, status %s" % (
@@ -859,7 +1183,8 @@ def _parameters(client, args, host, out):
     node = args.node
     if args.command == "backup":
         boot = None
-        for nd in (client.status().get("nodes") or []):
+        st = client.status()
+        for nd in (st.get("nodes") or []) if not st.get("local") else ():
             if nd.get("node_id") == node and not nd.get("booted"):
                 boot = "not booted"
         reading = P.read_all(client, node, ctx.eds, _progress("reading"))
@@ -975,27 +1300,244 @@ def _parameters(client, args, host, out):
     return res
 
 
+def _local_client(args):
+    """A localbus.LocalBus for --adapter: the bit rate from --bitrate or the
+    network of --config, the configured nodes' names from --config."""
+    from . import localbus
+    from .localbus import configinfo
+    try:
+        spec = localbus.parse(args.adapter, args.adapter_option)
+    except localbus.AdapterError as e:
+        raise DiagError("usage", str(e))
+    bitrate = args.bitrate * 1000 if args.bitrate else None
+    nodes = {}
+    config = getattr(args, "config", None)
+    if config:
+        try:
+            cfg_bitrate, nodes = configinfo.load(config, args.network)
+        except (OSError, ValueError) as e:
+            raise DiagError("usage", "cannot use %s: %s" % (config, e))
+        bitrate = bitrate or cfg_bitrate
+    if not bitrate:
+        raise DiagError("usage", "give the bus's bit rate with --bitrate KBIT (or --config with the network's "
+                                 "adapter.bitrate); a wrong bit rate disturbs the bus, so there is no default")
+    if localbus.untested(spec):
+        print("openplc-canopen-diag: adapter type %s is passed to python-can untested" % spec.kind, file=sys.stderr)
+    return localbus.LocalBus(spec, bitrate, allow_changes=args.allow_changes, force=args.force, config=nodes,
+                             network=args.network, timeout=args.timeout)
+
+
+def _adapters(args, out):
+    from . import localbus
+    found = localbus.list_adapters()
+    if args.json:
+        out.write(json.dumps(found, indent=2) + "\n")
+        return 0
+    if not found:
+        out.write("no CAN adapter found (plug one in; an slcan adapter shows as a serial port)\n")
+    for a in found:
+        line = "--adapter %s" % a["text"]
+        if a.get("known"):
+            line += "  %s" % a["known"]
+        elif a.get("description"):
+            line += "  %s" % a["description"]
+        if a.get("usb_id"):
+            line += " [USB %s]" % a["usb_id"]
+        out.write(line + "\n")
+    return 0
+
+
+def _print_local_status(st, out):
+    """The status of a local adapter: what the bus showed since connecting."""
+    out.write("adapter %s, %d kbit/s, %s, connected %d s\n" % (
+        st.get("adapter"), (st.get("bitrate") or 0) // 1000,
+        "changes allowed" if st.get("allow_changes") else "read-only", int(st.get("uptime_s") or 0)))
+    if st.get("untested_adapter"):
+        out.write("note: this adapter type is untested\n")
+    other = st.get("other_master_seen")
+    if other:
+        out.write("another master is active on this bus: %s (since %s, last %s)\n"
+                  % (other.get("what"), other.get("first_at"), other.get("last_at")))
+    nodes = st.get("nodes") or []
+    if not nodes:
+        out.write("no node heard yet (a node without heartbeat shows up in a scan)\n")
+        return
+    rows = [("NODE", "NAME", "STATE", "HEARD", "LAST EMCY")]
+    for nd in nodes:
+        heard = "-" if nd.get("last_heard_s") is None else "%.1f s ago" % nd["last_heard_s"]
+        em = nd.get("emcy") or {}
+        emcy = "-"
+        if em.get("count"):
+            emcy = "0x%04X %s, reg 0x%02X (%d total)" % (em.get("code", 0), emcy_class(em.get("code", 0)),
+                                                        em.get("error_register", 0), em["count"])
+        state = "-" if nd.get("state") is None else state_name(nd.get("state"))
+        rows.append((str(nd.get("node_id")), nd.get("name") or "", state, heard, emcy))
+    widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]) - 1)]
+    for r in rows:
+        out.write("  ".join(c.ljust(w) for c, w in zip(r, widths)) + "  " + r[-1] + "\n")
+
+
+def _stopped_text(s):
+    return "job %s: %d frame%s sent, %s" % (s.get("job"), s.get("sent") or 0, "" if s.get("sent") == 1 else "s",
+                                             s.get("reason") or "ended")
+
+
+def _send(client, args, out):
+    """send: one frame, or a cyclic job kept until --count, --duration or
+    Ctrl-C and always stopped on the way out."""
+    cyclic = args.period_ms is not None
+    if args.rtr and args.data:
+        raise DiagError("usage", "a remote frame (--rtr) carries no data; give its length with --dlc")
+    if args.dlc is not None and not args.rtr:
+        raise DiagError("usage", "--dlc is for remote frames (--rtr); a data frame's length is its data")
+    if not cyclic and (args.count is not None or args.duration is not None):
+        raise DiagError("usage", "--count and --duration are for cyclic sending (--period-ms)")
+    try:
+        can_id = parse_frame_id(args.id, args.ext)
+        data = parse_frame_data(args.data)
+    except ValueError as e:
+        raise DiagError("usage", str(e))
+    text = frame_text(can_id, args.ext, args.rtr, args.dlc, data)
+    try:
+        res = client.send_frame(can_id, data, args.ext, args.rtr, args.dlc, args.period_ms, args.count, args.force)
+    except DiagError as e:
+        if needs_force(e):
+            raise DiagError("refused", "%s; add --force to send it anyway" % e)
+        raise
+    if not cyclic:
+        if not args.json:
+            out.write("sent %s%s\n" % (text, " (forced)" if args.force else ""))
+        return res
+    job = res.get("job")
+    if not args.json:
+        out.write("job %s: sending %s every %d ms%s; Ctrl-C stops\n" % (
+            job, text, args.period_ms, ", %d frames" % args.count if args.count else ""))
+        out.flush()
+    started = time.monotonic()
+    # With a count the plugin ends the job itself; wait a little longer than it takes.
+    limit = args.duration
+    if args.count:
+        need = args.count * args.period_ms / 1000.0 + 2.0
+        limit = need if limit is None else min(limit, need)
+    sent = None
+    try:
+        while limit is None or time.monotonic() - started < limit:
+            time.sleep(0.5)
+            st = client.status()
+            if "send_jobs" not in st:
+                continue  # a plugin that does not list jobs: wait for the time
+            mine = [j for j in st["send_jobs"] if j.get("job") == job]
+            if not mine or mine[0].get("reason"):
+                break  # ended by the plugin (count reached, transmit error, time limit)
+            sent = mine[0].get("sent")
+            if not args.json and sys.stderr.isatty():
+                sys.stderr.write("\rjob %s: %s sent, %.0f s " % (job, sent, time.monotonic() - started))
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if not args.json and sys.stderr.isatty():
+            sys.stderr.write("\r" + " " * 40 + "\r")
+        stopped = client.send_frame_stop(job).get("stopped") or []
+    ended = next((s for s in stopped if s.get("job") == job), None) or {"job": job, "sent": sent, "reason": "ended"}
+    if not args.json:
+        out.write(_stopped_text(ended) + "\n")
+    if ended.get("reason") not in ("stopped", "count reached"):
+        if args.json:
+            out.write(json.dumps({"job": job, "stopped": stopped}, indent=2) + "\n")
+        raise DiagError("refused", "job %s ended early: %s" % (job, ended.get("reason") or "ended"))
+    return {"job": job, "stopped": stopped}
+
+
+def _send_stop(client, args, out):
+    res = client.send_frame_stop(args.job)
+    if not args.json:
+        stopped = res.get("stopped") or []
+        for s in stopped:
+            out.write(_stopped_text(s) + "\n")
+        if not stopped:
+            out.write("no job of this connection was running\n")
+    return res
+
+
+def _print_sweep(res, out):
+    rows = [("RATE", "FRAMES", "ERROR FRAMES", "IDENTIFIERS")]
+    for r in res.get("results") or []:
+        ids = r.get("ids") or []
+        text = " ".join("0x%X" % i for i in ids) + (" ..." if len(ids) >= 16 else "")
+        rows.append(("%s kbit/s" % r.get("bitrate_kbit"), str(r.get("frames", 0)), str(r.get("error_frames", 0)),
+                     text or "-"))
+    widths = [max(len(r[i]) for r in rows) for i in range(3)]
+    for r in rows:
+        out.write("  ".join(c.rjust(w) if i else c.ljust(w) for i, (c, w) in enumerate(zip(r, widths))) + "  " +
+                  r[3] + "\n")
+
+
+def _detect(client, args, out):
+    """detect-bitrate: starts the sweep, follows it, prints the table and the
+    verdict; exits 0 only when one rate was detected."""
+    try:
+        res = client.detect_bitrate(args.rates, args.per_rate_ms, args.rounds, args.force)
+    except DiagError as e:
+        if needs_force(e):
+            raise DiagError("refused", "%s; add --force to stop CANopen on this network for the sweep" % e)
+        raise
+    shown = 0
+    while True:
+        if not args.json and sys.stderr.isatty():
+            for r in (res.get("results") or [])[shown:]:
+                sys.stderr.write("\r%s kbit/s: %d frames, %d error frames%s\n" % (
+                    r.get("bitrate_kbit"), r.get("frames", 0), r.get("error_frames", 0), " " * 10))
+            shown = len(res.get("results") or [])
+            if res.get("running"):
+                sys.stderr.write("\rlistening at %s kbit/s (%s/%s)%s " % (
+                    res.get("rate_kbit"), res.get("done"), res.get("total"),
+                    ", round %s" % res["round"] if (args.rounds or 1) > 1 and res.get("round") else ""))
+        if not res.get("running"):
+            break
+        time.sleep(0.3)
+        res = client.detect_bitrate_status()
+    if not args.json and sys.stderr.isatty():
+        sys.stderr.write("\r" + " " * 50 + "\r")
+    if not args.json:
+        _print_sweep(res, out)
+        out.write(verdict_text(res) + "\n")
+    if res.get("verdict") != "detected":
+        if args.json:
+            out.write(json.dumps(res, indent=2) + "\n")
+        raise DiagError("refused", "no bit rate detected (%s)" % (res.get("verdict") or "no result"))
+    return res
+
+
 def run(args, out=sys.stdout):
     if args.command == "hash-token":
         token = args.value or args.token or os.environ.get(TOKEN_ENV)
         if not token:
             token = getpass.getpass("Token: ")
-        out.write(hash_token(token) + "\n")
+        out.write(token_verifier(token) + "\n")
         return 0
     if args.command == "convert":
         return _convert(args, out)
+    if args.command == "adapters":
+        return _adapters(args, out)
+    if getattr(args, "adapter", None) and (args.runtime or args.command == "sim"):
+        raise DiagError("usage", "--adapter talks to the bus directly; give either --adapter or --runtime, not both"
+                        if args.runtime else "sim commands need a runtime or a standalone simulator, not --adapter")
     if args.command == "sim":
         from . import simcli
         return simcli.run(args, out)
-    if not args.runtime:
-        raise DiagError("usage", "give --runtime HOST[:PORT]")
+    if not args.runtime and not getattr(args, "adapter", None):
+        raise DiagError("usage", "give --runtime HOST[:PORT], or --adapter TYPE:CHANNEL for a CAN adapter on this PC")
     if args.command == "trace":
         return _trace(args, out)
-    try:
-        host, port = parse_runtime(args.runtime)
-    except ValueError as e:
-        raise DiagError("usage", str(e))
-    client = Client(host, port, _token(args), args.timeout, network=args.network)
+    if args.adapter:
+        client = _local_client(args)
+        host = str(client.spec)
+    else:
+        try:
+            host, port = parse_runtime(args.runtime)
+        except ValueError as e:
+            raise DiagError("usage", str(e))
+        client = Client(host, port, _token(args), args.timeout, network=args.network)
     client.connect()
     try:
         all_networks = args.command == "status" and not args.network and client.several()
@@ -1016,7 +1558,7 @@ def run(args, out=sys.stdout):
         elif args.command == "status":
             res = client.status()
             if not args.json:
-                _print_status(res, out)
+                (_print_local_status if res.get("local") else _print_status)(res, out)
         elif args.command == "emcy":
             res = client.emcy(args.node)
             if not args.json:
@@ -1082,6 +1624,14 @@ def run(args, out=sys.stdout):
                                                                   res.get("note", "")))
         elif args.command in ("backup", "compare", "restore", "store"):
             res = _parameters(client, args, host, out)
+        elif args.command in ("send", "send-stop", "detect-bitrate"):
+            try:
+                res = {"send": _send, "send-stop": _send_stop, "detect-bitrate": _detect}[args.command](
+                    client, args, out)
+            except DiagError as e:
+                if too_old(e):
+                    raise DiagError("refused", TOO_OLD)
+                raise
         elif args.command == "nmt":
             res = client.nmt(args.node, args.nmt_command)
             if not args.json:
@@ -1163,7 +1713,6 @@ def _convert(args, out):
 
 def _trace(args, out):
     from .bustrace import formats, triggers
-    from .bustrace.recorder import Recorder, Session
     try:
         fmt = formats.format_of(args.output, args.format)
     except formats.FormatError as e:
@@ -1183,21 +1732,43 @@ def _trace(args, out):
                                   autosave=autosave)
         except triggers.TriggerError as e:
             raise DiagError("usage", "--trigger: %s" % e)
-    host, port = parse_runtime(args.runtime)
-    token = _token(args)
+    if args.adapter:
+        # The adapter stays open for the whole recording: the recorder's
+        # connections are handles on it, and reopening an slcan port is slow.
+        first = _local_client(args)
+        first.connect()
 
-    def connect():
-        c = Client(host, port, token, args.timeout, network=args.network)
-        c.connect()
-        return c
-
-    # Fail early on a wrong host, token or network instead of retrying.
-    first = connect()
-    try:
-        check_network(first, args.network)
+        def connect():
+            c = _local_client(args)
+            c.connect()
+            return c
         names = network_names(first)
+    else:
+        host, port = parse_runtime(args.runtime)
+        token = _token(args)
+
+        def connect():
+            c = Client(host, port, token, args.timeout, network=args.network)
+            c.connect()
+            return c
+
+        # Fail early on a wrong host, token or network instead of retrying.
+        first = connect()
+        try:
+            check_network(first, args.network)
+            names = network_names(first)
+        finally:
+            first.close()
+    try:
+        return _record(args, out, fmt, filters, spec, connect, names)
     finally:
-        first.close()
+        if args.adapter:
+            first.close()
+
+
+def _record(args, out, fmt, filters, spec, connect, names):
+    from .bustrace import formats, triggers
+    from .bustrace.recorder import Recorder, Session
     # The traced network's nodes decode its frames; without --network that is
     # the plugin's only network.
     network = args.network or (names[0] if len(names) == 1 and names[0] else None)
@@ -1208,7 +1779,7 @@ def _trace(args, out):
         except triggers.TriggerError as e:
             raise DiagError("usage", "--trigger: %s" % e)
     session = Session(decoder)
-    session.trace.meta["runtime"] = args.runtime
+    session.trace.meta["runtime"] = args.runtime or args.adapter
     if network:
         session.trace.meta["network"] = network
     prefix = os.path.splitext(os.path.basename(args.output))[0]

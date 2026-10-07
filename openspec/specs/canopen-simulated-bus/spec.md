@@ -114,7 +114,7 @@ The standalone simulator SHALL refuse an interface that is not a vcan interface 
 - **THEN** the simulated device powers off and the simulator prints the conflict
 
 ### Requirement: Standalone control channel
-The standalone simulator SHALL offer its live control on a TCP port (default 7532) with the same one-JSON-object-per-line framing as the diagnostics channel. It SHALL listen on 127.0.0.1 unless `--bind` names another address; on any other address it SHALL require a token (`--token` or `--token-file`) in the first request. Its subcommands `status`, `get`, `set`, `override`, `release`, `source`, `fault`, `clear`, `scenario start|stop|list` SHALL use this channel.
+The standalone simulator SHALL offer its live control on a TCP port (default 7532) with the same one-JSON-object-per-line framing as the diagnostics channel. It SHALL listen on 127.0.0.1 unless `--bind` names another address; on any other address it SHALL require a token (`--token` or `--token-file`). With a token, the channel SHALL use the same TLS and SCRAM-SHA-256 login as the plugin's diagnostics channel, with a verifier the simulator computes from the token at start, and SHALL refuse plain connections with "this simulator needs an encrypted connection". Without a token it SHALL stay plain. Its subcommands `status`, `get`, `set`, `override`, `release`, `source`, `fault`, `clear`, `scenario start|stop|list` SHALL use this channel.
 
 #### Scenario: Local control
 - **WHEN** a simulator runs with default options and a user runs `openplc-canopen-sim set 5 0x7130:1 450`
@@ -123,6 +123,10 @@ The standalone simulator SHALL offer its live control on a TCP port (default 753
 #### Scenario: Remote bind without token
 - **WHEN** a user starts the simulator with `--bind 0.0.0.0` and no token
 - **THEN** the simulator refuses to start and says a token is needed
+
+#### Scenario: Remote control is encrypted
+- **WHEN** a simulator runs with `--bind 0.0.0.0 --token-file token` and a user runs `openplc-canopen-diag sim --sim host status --token-file token`
+- **THEN** the client connects over TLS, logs in without sending the token, and prints the status
 
 ### Requirement: Test mode
 `openplc-canopen-sim test` SHALL start the simulation, run the named scenarios (or all scenarios marked `test`) one after another or together as asked, stop when they are done or after `--timeout`, print a result line per scenario, write a JUnit XML report with `--junit FILE`, and exit 0 only when every scenario passed. It SHALL work both with its own devices on a SocketCAN interface and against the plugin's simulated devices through the diagnostics channel (`--runtime`).

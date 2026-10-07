@@ -33,7 +33,7 @@ fi
 echo "==> Installing build dependencies"
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    build-essential cmake pkg-config autoconf automake libtool git curl \
+    build-essential cmake pkg-config autoconf automake libtool git curl libssl-dev \
     python3 python3-venv iproute2 can-utils >/dev/null
 
 "$(dirname "$0")/build-lely.sh" --prefix "$PREFIX" --ref "$LELY_REF"

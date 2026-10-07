@@ -3,7 +3,7 @@ kept on this PC, the connection to the plugin's diagnostics channel, config
 fingerprints, and EDS matching for scan results.
 
 The token is never written to the project: canopen.json holds only its
-SHA-256 (master.diagnostics.token_sha256). The plain token and the runtime
+SCRAM verifier (master.diagnostics.token_verifier). The plain token and the runtime
 host live in online.json in the configurator's settings folder, per project
 folder.
 """
@@ -19,6 +19,7 @@ from .. import eds as eds_mod
 
 SETTINGS = "online.json"
 IDLE_CLOSE_S = 30.0
+SEND_IDLE_CLOSE_S = 10.0  # the Trace view polls its jobs every second; a closed page lets them end
 DEPLOYED_EDS_DIR = "canopen/eds"  # bundle.EDS_DIR, and the editor hook's
 DEPLOYED_FW_DIR = "canopen/fw"
 
@@ -115,6 +116,41 @@ def fingerprints(config_path):
 # Connection to the plugin
 
 
+class AdapterTarget:
+    """A CAN adapter on this PC as the online target (canopen-local-bus), in
+    place of a runtime host: the adapter (TYPE:CHANNEL), the bit rate in
+    bit/s, the session's allow-changes switch and the configured nodes
+    ({node_id: {name, expect}}) for status and scan. Equal targets share the
+    kept-open connection."""
+
+    def __init__(self, adapter, bitrate, allow_changes=False, nodes=None, network=None):
+        self.adapter, self.bitrate, self.allow_changes = adapter, bitrate, bool(allow_changes)
+        self.nodes = nodes or {}
+        self.network = network
+
+    def _key(self):
+        return (self.adapter, self.bitrate, self.allow_changes, self.network,
+                json.dumps(self.nodes, sort_keys=True, default=str))
+
+    def __eq__(self, other):
+        return isinstance(other, AdapterTarget) and self._key() == other._key()
+
+    def __hash__(self):
+        return hash(self._key())
+
+    def __str__(self):
+        return "USB adapter %s" % self.adapter
+
+    def client(self, timeout):
+        from .. import localbus
+        try:
+            spec = localbus.parse(self.adapter)
+        except localbus.AdapterError as e:
+            raise diag.DiagError("usage", str(e))
+        return localbus.LocalBus(spec, self.bitrate, allow_changes=self.allow_changes, config=self.nodes,
+                                 network=self.network, timeout=timeout)
+
+
 class Connection:
     """One diagnostics connection, opened on the first request and closed
     after IDLE_CLOSE_S without one (or by close())."""
@@ -155,7 +191,10 @@ class Connection:
         return self.client.info if self.client else None
 
     def _open(self, key):
-        c = diag.Client(key[0], key[1], key[2], self.timeout)
+        if isinstance(key[0], AdapterTarget):
+            c = key[0].client(self.timeout)
+        else:
+            c = diag.Client(key[0], key[1], key[2], self.timeout)
         c.connect()
         self.client, self.key = c, key
 
@@ -186,6 +225,94 @@ class Connection:
     @property
     def connected(self):
         return self.client is not None
+
+
+class Sender:
+    """Raw frames of the Trace view's Send panel, on a connection of their own:
+    a cyclic job belongs to the connection that started it and ends when it
+    closes, so the online view closing its connection must not stop them. A
+    page that goes away without stopping its jobs stops polling, and the
+    connection closes after SEND_IDLE_CLOSE_S, which ends them on the plugin.
+    `jobs` are the cyclic jobs started here, by (network, job number)."""
+
+    def __init__(self, idle=SEND_IDLE_CLOSE_S, timeout=3.0):
+        self.connection = Connection(idle=idle, timeout=timeout)
+        self.lock = threading.Lock()
+        self.jobs = {}
+
+    def send(self, where, network, frame, force=False):
+        """frame: {can_id, ext, rtr, dlc, data (bytes), period_ms, count}.
+        where: (host, port, token). Raises diag.DiagError."""
+        res = self.connection.call(*where, lambda c: c.send_frame(
+            frame["can_id"], frame.get("data") or b"", frame.get("ext"), frame.get("rtr"), frame.get("dlc"),
+            frame.get("period_ms"), frame.get("count"), force), network)
+        if res.get("job") is not None:
+            with self.lock:
+                self.jobs[(network, res["job"])] = {
+                    "job": res["job"], "network": network, "id": frame["can_id"], "ext": bool(frame.get("ext")),
+                    "rtr": bool(frame.get("rtr")), "dlc": frame.get("dlc"),
+                    "data": diag.hex_bytes(frame.get("data") or b""), "period_ms": res.get("period_ms"),
+                    "count": res.get("count"), "sent": 0}
+        return res
+
+    def stop(self, where, network=None, job=None):
+        """Stops one job, or every job started here (on every network); the
+        plugin's "stopped" entries. Nothing to stop opens no connection."""
+        with self.lock:
+            keys = [k for k in self.jobs if job is None or k == (network, job)]
+        out = []
+        for net in sorted({k[0] for k in keys}, key=str):
+            if not self.connection.connected:
+                break  # the connection, and with it the jobs, is gone
+            mine = [k[1] for k in keys if k[0] == net]
+            res = self.connection.call(*where, lambda c: c.send_frame_stop(job if job is not None else None), net)
+            for s in res.get("stopped") or []:
+                if s.get("job") in mine:
+                    out.append(dict(s, network=net))
+        with self.lock:
+            for k in keys:
+                self.jobs.pop(k, None)
+        return out
+
+    def poll(self, where):
+        """The jobs started here with their sent counts from the plugin's
+        status, and the ones that ended since the last poll (count reached,
+        transmit error, time limit) with their reason."""
+        with self.lock:
+            jobs = dict(self.jobs)
+        ended = []
+        if not jobs:
+            return {"jobs": [], "ended": []}
+        if not self.connection.connected:
+            # The connection closed (idle, or the runtime went away): its jobs ended with it.
+            with self.lock:
+                for k in jobs:
+                    self.jobs.pop(k, None)
+            return {"jobs": [], "ended": [dict(j, reason="connection closed") for j in jobs.values()]}
+        for net in sorted({k[0] for k in jobs}, key=str):
+            st = self.connection.call(*where, lambda c: c.status(), net)
+            if "send_jobs" not in st:
+                continue  # a plugin that does not list jobs: counts stay unknown
+            live = {j.get("job"): j for j in st.get("send_jobs") or [] if not j.get("reason")}
+            for (n, number), j in jobs.items():
+                if n != net:
+                    continue
+                if number in live:
+                    j["sent"] = live[number].get("sent", j["sent"])
+                    continue
+                res = self.connection.call(*where, lambda c: c.send_frame_stop(number), net)
+                got = next((s for s in res.get("stopped") or [] if s.get("job") == number), {})
+                ended.append(dict(j, sent=got.get("sent", j["sent"]), reason=got.get("reason") or "ended"))
+                with self.lock:
+                    self.jobs.pop((n, number), None)
+        with self.lock:
+            return {"jobs": [dict(j) for j in self.jobs.values()], "ended": ended}
+
+    def close(self):
+        """Closes the connection; the plugin ends its jobs."""
+        self.connection.close()
+        with self.lock:
+            self.jobs.clear()
 
 
 # ---------------------------------------------------------------------------

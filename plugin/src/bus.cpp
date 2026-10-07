@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <fstream>
 #include <map>
 #include <net/if.h>
@@ -125,9 +126,43 @@ void Bus::thread_main() {
     last_problem.clear();
     run_session();
     if (monitor_.no_bus()) image_.commit_inputs();
+    // A bit rate sweep ended the session: run it, then a new session at once.
+    if (run_requested_sweep(hub_, adapter_.get(), cfg_, stop_)) continue;
     if (!stop_ && !wait_for(std::chrono::milliseconds(1000))) break;
   }
   adapter_->release();
+}
+
+bool run_requested_sweep(DiagHub* hub, CanAdapter* adapter, const Config& cfg, const std::atomic<bool>& stop) {
+  SweepRequest req;
+  if (!hub || !hub->take_sweep(req)) return false;
+  SweepResult res;
+  LinkOps* ops = adapter ? adapter->link_ops() : nullptr;
+  if (!ops || stop) {
+    res.verdict = SweepVerdict::Failed;
+    res.error = stop ? "stopped (the PLC stopped)" : "the adapter cannot change its bit rate";
+  } else {
+    std::string rates;
+    for (unsigned k : req.rates_kbit) rates += (rates.empty() ? "" : ", ") + std::to_string(k);
+    log_info("bit rate detection on %s: listening %u ms per rate (%s), %u round(s)", cfg.adapter.interface.c_str(),
+             req.per_rate_ms, rates.empty() ? "all CiA 301 rates" : rates.c_str(), req.rounds);
+    auto listener = make_can_sweep_listener();
+    res = run_bitrate_sweep(*ops, *listener, cfg.adapter.interface, cfg.adapter.bitrate,
+                            cfg.adapter.has_restart_ms ? static_cast<long>(cfg.adapter.restart_ms) : -1, req,
+                            [hub](const SweepProgress& p) { hub->sweep_progress(p); },
+                            [&stop] { return stop.load(); });
+  }
+  std::string what = sweep_verdict_name(res.verdict);
+  if (res.verdict == SweepVerdict::Detected)
+    what += " " + std::to_string(res.bitrate_kbit) + " kbit/s" +
+            (res.bitrate_kbit * 1000 == cfg.adapter.bitrate ? " (as configured)" : " (the config says " +
+                                                                std::to_string(cfg.adapter.bitrate / 1000) + ")");
+  else if (res.verdict == SweepVerdict::Failed)
+    what += ": " + res.error;
+  log_info("bit rate detection on %s ended: %s; CANopen starts again at %u bit/s", cfg.adapter.interface.c_str(),
+           what.c_str(), cfg.adapter.bitrate);
+  hub->sweep_done(res);
+  return true;
 }
 
 void Bus::run_session() {
@@ -241,6 +276,9 @@ void Bus::run_session() {
         });
       }
     }
+    // Frames sent by hand (below) that the tap has yet to see: it marks them
+    // Tx when they come by.
+    std::deque<can_msg> injected;
     // The bus trace on a simulated network: a channel that sees every frame.
     if (virt && sim_ && sim_->tap) {
       tap_chan.reset(new lely::io::VirtualCanChannel(ctx, exec));
@@ -249,11 +287,45 @@ void Bus::run_session() {
       tap_read = [&, tap]() {
         tap_chan->submit_read(&tap_msg, nullptr, nullptr, exec, [&, tap](int result, std::error_code ec) {
           if (ec) return;
-          if (result == 1) tap->push(tap_msg);
+          if (result == 1) {
+            bool tx = false;
+            for (auto it = injected.begin(); it != injected.end(); ++it)
+              if (it->id == tap_msg.id && it->flags == tap_msg.flags && it->len == tap_msg.len &&
+                  std::memcmp(it->data, tap_msg.data, tap_msg.len) == 0) {
+                injected.erase(it);
+                tx = true;
+                break;
+              }
+            tap->push(tap_msg, tx);
+          }
           tap_read();
         });
       };
       tap_read();
+    }
+    // Frames sent by hand through the diagnostics channel, onto the virtual
+    // bus (frame_tx.h); the tap sees them there and marks them Tx.
+    std::unique_ptr<lely::io::VirtualCanChannel> inject_chan;
+    std::unique_ptr<FdWake> inject_wake;
+    if (virt && sim_ && sim_->injector) {
+      inject_chan.reset(new lely::io::VirtualCanChannel(ctx, exec));
+      inject_chan->open(*vbus);
+      SimFrameInjector* inj = sim_->injector.get();
+      const bool tapped = static_cast<bool>(tap_chan);
+      inject_wake.reset(new FdWake(poll, inj->read_fd(), [&, inj, tapped] {
+        std::vector<RawFrame> frames;
+        inj->drain(frames);
+        for (const auto& f : frames) {
+          can_msg msg;
+          raw_frame_to_msg(f, msg);
+          std::error_code ec;
+          inject_chan->write(msg, 0, ec);
+          if (!ec && tapped) {
+            if (injected.size() >= 64) injected.pop_front();  // never seen: do not grow
+            injected.push_back(msg);
+          }
+        }
+      }));
     }
     net.Start();
     SyncWake sync_wake(poll, image_.sync_fd(), net);
@@ -272,6 +344,12 @@ void Bus::run_session() {
         if (!stop_) iface_lost = true;
         // As the supervision tick does when it ends the session: what is in
         // flight is cancelled, so the loop can drain.
+        net.Stop();
+        end_session();
+      } else if (!shut_down && hub_ && hub_->sweep_pending()) {
+        // Bit rate detection: the session ends as on an adapter loss and the
+        // sweep runs before the next one (run_requested_sweep).
+        log_info("bit rate detection requested: ending the CANopen session on %s", where.c_str());
         net.Stop();
         end_session();
       } else if (shut_down && ++slices_after_shutdown >= kShutdownSlices) {

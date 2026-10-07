@@ -24,6 +24,7 @@ The start page offers three ways in:
 - **Open editor project**: a folder with `project.json`. The config is `<project>/canopen/canopen.json`, and every address is checked against the rest of the project.
 - **Open standalone config**: a plain folder with `canopen.json` and its EDS files, for a bus set up before its editor project exists. The checks against a project are skipped, and the page says so.
 - **New standalone config**: an empty config in a new or empty folder, created when you first save.
+- **Commission a device**: no project at all. It opens the online view on a [USB adapter on this PC](#usb-adapter-on-this-pc), for a device on the bench: scan, object dictionary, parameters, LSS and trace. Nothing is added to a config, and the scratch folder it uses is not listed among the recent folders.
 
 The folder browser and the list of recent folders are on the same page. A path given on the command line opens directly: as a project when it has `project.json`, as a standalone config otherwise.
 
@@ -100,6 +101,8 @@ Under each PDO, **Mapping** says who sets its mapping. When the EDS makes it rea
 
 Under each PDO, **Timing** shows the communication settings the node's EDS defines for that PDO: for a TPDO the inhibit time (in ms, stored in µs), the event timer and, with a synchronous transmission type, the SYNC start value; for an RPDO the deadline (event timer). A setting the EDS does not define is not shown. One it marks read-only shows the EDS value and cannot be changed, and so does a read-only transmission type. Empty fields show the EDS value and write nothing.
 
+Under each input PDO (TPDO), **Timeout** sets its [receive timeout](config.md#receive-timeout): empty is off, a number is milliseconds, and **Auto** uses two times the PDO's event timer, shown next to the field (`auto (200 ms)`), or says that auto needs an event timer when there is none. With a timeout set, **On timeout** picks whether the PDO's inputs keep their last values or read 0 meanwhile, and **Timeout bit** takes an optional `%IX` address (**Suggest** picks a free one), which the generated declarations include. Emptying the timeout drops both.
+
 ## Startup SDO writes
 
 Each node has an ordered list of SDO writes that the plugin performs every time the node is configured at boot, after the PDO parameters. Pick an object from the node's writable EDS objects, or type its index and subindex.
@@ -158,11 +161,12 @@ END_VAR
 
 ## Online access
 
-**Bus and master → Online access** turns on the plugin's diagnostics channel (`master.diagnostics`, or the top-level `diagnostics` of a version 2 file; see [config.md](config.md#online-diagnostics) and [diagnostics.md](diagnostics.md)). Turning it on generates a random access token, writes only its SHA-256 into the config, and keeps the token itself in the configurator's settings on this PC (`online.json` in the settings folder: `~/Library/Application Support/openplc-canopen` on a Mac, `%APPDATA%\openplc-canopen` on Windows, `~/.config/openplc-canopen` on Linux), per project folder. It is never written to the project. The section also sets the port, the bind address and **Allow changes** (off by default; turning it on warns that anyone with the token can then write parameters and stop nodes), and the **Runtime host** (`plc.local`, or `HOST:PORT`), which is kept with the token. **Local simulator runtime** next to it sets the host to `local`: the [local simulator runtime](local-runtime.md) on this PC, at the diagnostics port it publishes. When the runtime forces simulation (the local simulator runtime does), the online view says that every network runs simulated.
+**Bus and master → Online access** turns on the plugin's diagnostics channel (`master.diagnostics`, or the top-level `diagnostics` of a version 2 file; see [config.md](config.md#online-diagnostics) and [diagnostics.md](diagnostics.md)). Turning it on generates a random access token, writes only its verifier (`token_verifier`, which does not let anyone log in) into the config, and keeps the token itself in the configurator's settings on this PC (`online.json` in the settings folder: `~/Library/Application Support/openplc-canopen` on a Mac, `%APPDATA%\openplc-canopen` on Windows, `~/.config/openplc-canopen` on Linux), per project folder. It is never written to the project. The section also sets the port, the bind address and **Allow changes** (off by default; turning it on warns that anyone with the token can then write parameters and stop nodes), and the **Runtime host** (`plc.local`, or `HOST:PORT`), which is kept with the token. **Local simulator runtime** next to it sets the host to `local`: the [local simulator runtime](local-runtime.md) on this PC, at the diagnostics port it publishes. When the runtime forces simulation (the local simulator runtime does), the online view says that every network runs simulated.
 
 - **Copy token** copies it, for `openplc-canopen-diag` or another PC.
-- **Enter token…** takes a token from another PC; it is accepted only if its SHA-256 matches the config.
+- **Enter token…** takes a token from another PC; it is accepted only if it matches the config's verifier.
 - **New token** replaces it; the old one works until the new config is uploaded.
+- **Upgrade** appears for a config from before the encrypted channel (`token_sha256`, which the plugin no longer accepts) when this PC has its token: it writes a `token_verifier` for the same token, so copies of the token on other PCs keep working. Without the token on this PC, use **Enter token…** or **New token**.
 
 Save and upload the program as usual: the runtime opens the port when the PLC starts.
 
@@ -170,9 +174,17 @@ With several networks there is still one Online access for the whole config, one
 
 On a PC without the host or token yet (a fresh install, another PC), **Online** and **Scan the bus** show a **Connect** box: enter the runtime host and press **Connect**. It asks for the token when this PC has none or one that does not match the config, and says what is missing instead of doing nothing.
 
+## USB adapter on this PC
+
+The online view, **Scan the bus** and **Trace** can also reach the bus straight through a CAN adapter plugged into this PC, with no runtime and no online access in the config ([pc-adapter.md](pc-adapter.md)). In the **Connect** box pick **USB adapter on this PC**, choose a found adapter or type one (`slcan:COM5`, `slcan:/dev/tty.usbmodem14101`, `socketcan:can0`), and the bit rate (the network's own is marked), then **Connect**. **Connection…** in the view brings the box back to switch between the runtime and the adapter. The adapter and bit rate are kept on this PC per project (in `online.json`), never in the project. When the bus's bit rate is unknown, **Detect** next to the bit rate listens at each CiA 301 rate in listen-only mode, sending nothing, and picks the rate it finds ([pc-adapter.md](pc-adapter.md)). On the adapter, **Detect bit rate** on the Scan page needs no **Allow changes** for the same reason.
+
+The connection is read-only to start with: **Allow changes…** in the connection banner (or **Allow changes** in the box) asks once and allows SDO writes, NMT, restore and LSS until you disconnect or change the target; it is never saved. Storing to a device's non-volatile memory still asks each time.
+
+The view then shows what the bus showed since connecting: each node heard, by heartbeat, with its state and when it was last heard, and its last EMCY, with the configured nodes named. The node's **Overview**, **Object dictionary** and **Parameters** tabs work as with a runtime. Boot results, holds, SDO variables, the bus error counters and simulated devices need the runtime and are not shown. The banner warns when the adapter's bit rate differs from the network's and when another master is active on the bus (NMT, SYNC, TIME or SDO requests the PC did not send); LSS then asks before it runs, with **Run anyway**.
+
 ## Online view
 
-**Online** connects to the runtime and refreshes about twice a second: the bus state and error counters, the master's state, and per node its NMT state, status bit, boot result (with the CiA 302 error letter and Lely's text, and whether a retry is pending), hold (STOPPED or PRE-OPERATIONAL, by the program or by an operator), last EMCY with its CiA 301 class, and SDO variable values. A connection problem is shown with its reason (host unreachable, port closed, wrong token) and retried. When the runtime runs another config than the saved `canopen.json` (saved but not uploaded yet), the view says so.
+**Online** connects to the runtime and refreshes about twice a second: the bus state and error counters, the master's state, and per node its NMT state, status bit, boot result (with the CiA 302 error letter and Lely's text, and whether a retry is pending), hold (STOPPED or PRE-OPERATIONAL, by the program or by an operator), last EMCY with its CiA 301 class, SDO variable values, and an input PDO that is timed out (`TPDO 1 timed out (2)`, with the number of timeouts so far). A node's overview lists its input PDOs with a receive timeout: the timeout, whether it is timed out now, the count and the time since the last PDO. A connection problem is shown with its reason (host unreachable, port closed, wrong token) and retried. When the runtime runs another config than the saved `canopen.json` (saved but not uploaded yet), the view says so.
 
 When the runtime runs several networks, **Online**, **Scan the bus** and **Trace** have a **Network** picker that starts on the open tab's network and lists the runtime's networks with their interfaces. Each view shows and acts on the picked network only: its bus state and nodes, and every SDO, NMT, LSS, object dictionary and parameter action goes to that network's nodes. Picking a network opens its tab, so a node a scan finds is added to that network, and a trace records that network's interface and decodes with its nodes (an opened trace file is decoded with the picked network's nodes too).
 
@@ -229,6 +241,8 @@ A found device with a serial number also offers **Use for node…**, listing the
 
 A config with no nodes and online access on is a valid scan-only config: upload it to see what is on a new bus before configuring anything.
 
+**Detect bit rate** finds the bit rate of the traffic on the picked network's bus ([diagnostics.md](diagnostics.md#finding-the-bit-rate)). It needs **Allow changes** and asks first, because CANopen on that network stops while the adapter listens at each rate and the nodes boot again afterwards; while a node is OPERATIONAL it asks a second time, quoting the runtime. The page shows the rate being listened to and, at the end, the verdict and a table of frames, error frames and identifiers per rate. When a rate is detected that differs from the network's bit rate, **Use N kbit/s** sets the network's bit rate on the page; save and upload to use it. A silent bus means no device sent anything: power-cycle one during the sweep, or run more rounds.
+
 ## Trace
 
 **Trace** records the bus through the runtime, or shows a trace file, decoded as CANopen ([trace.md](trace.md)). Opening, viewing and exporting files works without a runtime; recording needs [online access](#online-access) for the project, and the view says so when it is missing. Frames are decoded with the saved `canopen.json`: PDO signals by their names (in an editor project, the PLC variables at their locations), SDO objects by their EDS names.
@@ -242,6 +256,10 @@ A config with no nodes and online access on is a valid scan-only config: upload 
 - **Trigger** sets one condition, or two joined by AND or THEN, its count, single or normal mode, the pre- and post-trigger times, and auto-save of each hit's window ([trace.md](trace.md#triggers)). It applies to the next Start, and at once to a running recording. Hits are listed with buttons to show each in the frames or the graph.
 
 The trace is kept by the configurator, not the page: reloading the page or switching views keeps it, and a recording goes on until Stop. The recording uses one of the plugin's 4 diagnostics client slots.
+
+### Sending frames
+
+The **Send** panel under the trace sends CAN frames by hand through online access ([diagnostics.md](diagnostics.md#sending-frames-by-hand)): identifier in hex, **Extended**, **Remote** with its DLC, up to 8 data bytes, and **Single** or **Cyclic** with a period and an optional count. Running cyclic jobs are listed with how many frames they sent and a **Stop** each, and the last 20 frames sent are listed below. **Send this frame** on a selected trace row copies that frame into the panel. Sending needs **Allow changes**; without it the panel says so. When the runtime asks for force (the identifier is one the network uses, or a node is OPERATIONAL), the page shows its reason and sends only after you confirm. Cyclic jobs stop when you leave the Trace view or close the page. Sent frames show in a running trace as Tx.
 
 ## Simulation view
 

@@ -101,6 +101,14 @@ def declarations(cfg, object_name, declared, slave_object=None):
                                 "type": iec_type, "path": path, "declared_as": declared.get(path), "node": i,
                                 "kind": "nmt" if key == "nmt_command_location" else "diag",
                                 "description": "%s: %s" % (who, NODE_TEXT[key])})
+            for j, p in enumerate(n.get("tx_pdos") or []):
+                if parse_location(p.get("timeout_location")):
+                    path = at + "nodes[%d].tx_pdos[%d].timeout_location" % (i - first, j)
+                    number = p.get("number") or j + 1
+                    out.append({"name": unique("%s_tpdo%s_timeout" % (prefix, number)),
+                                "location": p["timeout_location"].strip(), "type": "BOOL", "path": path,
+                                "declared_as": declared.get(path), "node": i, "kind": "diag",
+                                "description": "%s: TPDO %s receive timeout" % (who, number)})
             for key in ("tx_pdos", "rx_pdos"):
                 for j, p in enumerate(n.get(key) or []):
                     for k, e in enumerate(p.get("entries") or []):

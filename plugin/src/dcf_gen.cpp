@@ -591,6 +591,82 @@ bool set_config_stamps(const std::string& master_dcf,
   return body == text || write_file(master_dcf, body);
 }
 
+// Receive timeouts of node TPDOs (canopen-pdo-io "Receive timeout setting"):
+// sub-index 5 (the deadline) of the master RPDO that receives each one, found
+// by its COB-ID, as a ParameterValue in the master DCF. dcfgen's own
+// event_deadline key fails without an event timer, and a value set at run
+// time would be lost at the master's NMT reset. `deadlines` maps COB-ID ->
+// milliseconds; `missing` gets the COB-IDs no master RPDO receives.
+bool set_rpdo_deadlines(const std::string& master_dcf, const std::map<uint32_t, unsigned>& deadlines,
+                        std::vector<uint32_t>& missing) {
+  std::string text;
+  if (!read_file(master_dcf, text)) return false;
+  std::vector<std::string> lines;
+  {
+    std::istringstream in(text);
+    for (std::string line; std::getline(in, line);) lines.push_back(line);
+  }
+  auto bare = [](std::string l) {
+    if (!l.empty() && l.back() == '\r') l.pop_back();
+    return l;
+  };
+  // The COB-ID of every master RPDO: [14xxsub1], ParameterValue over DefaultValue.
+  std::map<unsigned, uint32_t> cob_of;  // RPDO communication index -> COB-ID
+  std::string section;
+  std::map<unsigned, std::pair<bool, uint32_t>> found;  // index -> (from ParameterValue, value)
+  for (const auto& raw : lines) {
+    std::string l = bare(raw);
+    if (!l.empty() && l[0] == '[') {
+      section = l;
+      continue;
+    }
+    if (section.size() != 10 || section.compare(5, 5, "sub1]") != 0) continue;
+    unsigned idx = static_cast<unsigned>(std::strtoul(section.substr(1, 4).c_str(), nullptr, 16));
+    if (idx < 0x1400 || idx > 0x15FF) continue;
+    bool param = l.compare(0, 15, "ParameterValue=") == 0;
+    if (!param && l.compare(0, 13, "DefaultValue=") != 0) continue;
+    uint32_t v = static_cast<uint32_t>(std::strtoul(l.c_str() + (param ? 15 : 13), nullptr, 0));
+    auto it = found.find(idx);
+    if (it == found.end() || (param && !it->second.first)) found[idx] = {param, v};
+  }
+  for (const auto& f : found)
+    if (!(f.second.second & 0x80000000u)) cob_of[f.first] = f.second.second & 0x7FF;
+  std::map<unsigned, unsigned> want;  // index -> ms
+  for (const auto& d : deadlines) {
+    bool hit = false;
+    for (const auto& c : cob_of)
+      if (c.second == d.first) want[c.first] = d.second, hit = true;
+    if (!hit) missing.push_back(d.first);
+  }
+  if (want.empty()) return true;
+  // Rewrite [14xxsub5]: drop its ParameterValue, add the deadline after it.
+  std::ostringstream out;
+  for (size_t i = 0; i < lines.size(); ++i) {
+    std::string l = bare(lines[i]);
+    unsigned idx = 0;
+    if (l.size() == 10 && l[0] == '[' && l.compare(5, 5, "sub5]") == 0)
+      idx = static_cast<unsigned>(std::strtoul(l.substr(1, 4).c_str(), nullptr, 16));
+    auto w = want.find(idx);
+    if (w == want.end()) {
+      out << lines[i] << "\n";
+      continue;
+    }
+    out << lines[i] << "\n";
+    size_t j = i + 1;
+    std::vector<std::string> body;
+    for (; j < lines.size() && (bare(lines[j]).empty() || bare(lines[j])[0] != '['); ++j)
+      if (bare(lines[j]).compare(0, 15, "ParameterValue=") != 0) body.push_back(lines[j]);
+    while (!body.empty() && bare(body.back()).empty()) body.pop_back();
+    for (const auto& b : body) out << b << "\n";
+    out << "ParameterValue=" << w->second << "\n";
+    if (j < lines.size()) out << "\n";
+    want.erase(w);
+    i = j - 1;
+  }
+  for (const auto& w : want) missing.push_back(cob_of[w.first]);  // a master RPDO without sub-index 5
+  return write_file(master_dcf, out.str());
+}
+
 }  // namespace
 
 std::pair<uint32_t, uint32_t> config_stamp(const std::vector<SdoWrite>& sdos, unsigned store_subindex) {
@@ -628,6 +704,11 @@ bool generate_device_config(const Config& cfg, const std::string& dcfgen, Genera
   h = fnv1a(h, startup_sdo_key(cfg));
   for (const auto& n : cfg.nodes)  // the master DCF gets 1F26/1F27 when any node checks
     if (n.config_check) h = fnv1a(h, "config_check " + std::to_string(n.node_id));
+  std::map<uint32_t, unsigned> deadlines;  // and the RPDO deadlines
+  for (const auto& n : cfg.nodes)
+    for (const auto& p : n.tx_pdos)
+      if (p.has_timeout && p.timeout_ms) deadlines[n.tpdo_cob_id(p)] = p.timeout_ms;
+  for (const auto& d : deadlines) h = fnv1a(h, "rpdo deadline " + std::to_string(d.first) + "=" + std::to_string(d.second));
   for (const auto& n : cfg.nodes) {
     std::string eds;
     read_file(n.eds_path, eds);
@@ -671,6 +752,18 @@ bool generate_device_config(const Config& cfg, const std::string& dcfgen, Genera
       errors.push_back("cannot add 1F26/1F27 to " + out.master_dcf);
       return false;
     }
+    std::vector<uint32_t> missing;
+    if (!deadlines.empty() && !set_rpdo_deadlines(out.master_dcf, deadlines, missing)) {
+      errors.push_back("cannot write the receive timeouts to " + out.master_dcf);
+      return false;
+    }
+    for (uint32_t cob : missing) {
+      char buf[160];
+      std::snprintf(buf, sizeof(buf), "dcfgen made no master RPDO with a deadline for COB-ID 0x%03X; its timeout_ms "
+                    "cannot be set", cob);
+      errors.push_back(buf);
+    }
+    if (!missing.empty()) return false;
     write_file(hash_path, hash);
   }
   // Also on a reused run, so the warnings show at every start.

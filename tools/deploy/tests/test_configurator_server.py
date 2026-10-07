@@ -34,6 +34,10 @@ def rtd_node(eds="rtd8.eds"):
             "tx_pdos": [{"entries": [{"index": "0x7130", "subindex": s, "type": "INTEGER16",
                                       "iec_location": "%%IW%d" % (99 + s)} for s in range(1, 5)]}]}
 
+# A valid token_verifier (the token "test"'s, as in test/fixtures/config).
+FIXTURE_VERIFIER = "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="
+
+
 
 class Running(unittest.TestCase):
     """A server on a free port, with recent folders kept in a temp dir."""
@@ -606,7 +610,7 @@ class Networks(Running):
         shutil.copy(os.path.join(TWO, "cpp-slave.eds"), self.folder)
         self.path = os.path.join(self.folder, "canopen.json")
         self.two = json.loads(read(os.path.join(TWO, "canopen_config.json")))
-        self.two["diagnostics"] = {"token_sha256": "ab" * 32, "port": 7600}
+        self.two["diagnostics"] = {"token_verifier": FIXTURE_VERIFIER, "port": 7600}
 
     def open(self, cfg):
         with open(self.path, "w", encoding="utf-8") as f:
@@ -653,7 +657,7 @@ class Networks(Running):
         self.assertEqual([n["name"] for n in saved["networks"]], ["io", "drives"])
         self.assertEqual(list(saved["networks"][0]), ["name", "adapter", "master", "nodes"])
         self.assertNotIn("diagnostics", saved["networks"][0]["master"])
-        self.assertEqual(saved["diagnostics"], {"token_sha256": "ab" * 32, "port": 7600})
+        self.assertEqual(saved["diagnostics"], {"token_verifier": FIXTURE_VERIFIER, "port": 7600})
         state = self.ok("POST", "/api/reload")
         self.assertEqual(state["config"]["schema_version"], 2)
         self.assertEqual(state["unused_eds"], [])

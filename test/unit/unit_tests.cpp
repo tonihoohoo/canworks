@@ -2,6 +2,7 @@
 // the canopen-master-bringup and canopen-pdo-io specs), EDS checks, dcfgen
 // generation and caching, and the PDO <-> PLC image binding.
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <chrono>
@@ -31,7 +32,9 @@
 #include "check.hpp"
 #include "config.h"
 #include "dcf_gen.h"
+#include "bitrate_sweep.h"
 #include "diag.h"
+#include "frame_tx.h"
 #include "sim_trace.h"
 
 #include <lely/can/msg.h>
@@ -65,6 +68,12 @@ using namespace canopen_plugin;
 #endif
 
 namespace {
+
+// A token_verifier for the token "secret" (one salt for the whole run).
+const std::string& test_verifier() {
+  static const std::string v = format_scram_verifier(make_scram_verifier("secret", random_bytes(16), 4096));
+  return v;
+}
 
 std::string read(const std::string& path) {
   std::ifstream in(path);
@@ -941,6 +950,13 @@ struct MockLink : LinkOps {
   int set_txqlen(const std::string&, unsigned len) override {
     calls.push_back("txqlen " + std::to_string(len));
     return fail_set ? -fail_set : 0;
+  }
+  bool no_listen_only = false;  // the driver has no listen-only mode
+  int set_listen_only(const std::string& name, bool on) override {
+    calls.push_back(on ? "listen-only on" : "listen-only off");
+    if (no_listen_only) return -EOPNOTSUPP;
+    if (links[name].up) return -EBUSY;
+    return 0;
   }
 };
 
@@ -1979,6 +1995,112 @@ TEST(dcfgen_rpdo_event_timer_sdo) {
 }
 
 // ---------------------------------------------------------------------------
+// Receive timeout of input PDOs (canopen-pdo-io "Receive timeout setting",
+// "Automatic receive timeout from the event timer", "Inputs while a PDO is
+// timed out")
+
+TEST(config_input_pdo_timeout_fields) {
+  const std::string tx = "\"tx_pdos\": [ { \"entries\"";
+  Config cfg;
+  std::vector<std::string> errors;
+  CHECK_MSG(parse(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": 500, \"on_timeout\": \"zero\", "
+                                      "\"timeout_location\": \"%IX10.1\", \"entries\""),
+                  cfg, errors),
+            join(errors));
+  const PdoConfig& p = cfg.nodes[0].tx_pdos[0];
+  CHECK(p.has_timeout && !p.timeout_auto && p.timeout_ms == 500 && p.timeout_zero);
+  CHECK(p.has_timeout_location && p.timeout_location.str() == "%IX10.1");
+
+  cfg = Config();
+  errors.clear();
+  CHECK(parse(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": \"auto\", \"entries\""), cfg, errors));
+  CHECK(cfg.nodes[0].tx_pdos[0].timeout_auto && cfg.nodes[0].tx_pdos[0].timeout_ms == 0);
+  CHECK(!cfg.nodes[0].tx_pdos[0].timeout_zero);
+
+  // Without timeout_ms nothing is monitored.
+  cfg = Config();
+  CHECK(parse(kValid, cfg, errors) && !cfg.nodes[0].tx_pdos[0].has_timeout);
+
+  auto rejected = [&](const std::string& json, const std::string& needle) {
+    Config c;
+    std::vector<std::string> e;
+    CHECK_MSG(!parse(json, c, e) && has_error(e, needle), needle + " | " + join(e));
+  };
+  rejected(replace(kValid, "\"rx_pdos\": [ { \"entries\"", "\"rx_pdos\": [ { \"timeout_ms\": 100, \"entries\""),
+           "RPDO 1: field 'timeout_ms' is only for tx_pdos");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": 0, \"entries\""), "TPDO 1: field 'timeout_ms' must be 1-65535");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"on_timeout\": \"zero\", \"entries\""),
+           "TPDO 1: field 'on_timeout' needs 'timeout_ms'");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_location\": \"%IX10.1\", \"entries\""),
+           "TPDO 1: field 'timeout_location' needs 'timeout_ms'");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": 100, \"on_timeout\": \"last\", \"entries\""),
+           "field 'on_timeout' must be \"hold\" or \"zero\"");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": 100, \"timeout_location\": \"%IB10\", \"entries\""),
+           "field 'timeout_location' must be an input bit");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": 100, \"timeout_location\": \"%IX10.0\", \"entries\""),
+           "timeout_location");
+}
+
+TEST(config_input_pdo_timeout_auto) {
+  std::string dir = tmpdir();
+  std::string eds = read(std::string(FIXTURES_DIR) + "/eds/cpp-slave.eds");
+  auto check = [&](const std::string& tpdo, const std::string& with_eds, std::vector<std::string>& errors) {
+    write(dir + "/cpp-slave.eds", with_eds);
+    write(dir + "/canopen.json", replace(kValid, "\"tx_pdos\": [ { \"entries\"", "\"tx_pdos\": [ { " + tpdo + "\"entries\""));
+    Config cfg;
+    errors.clear();
+    bool ok = load_config(dir + "/canopen.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors);
+    return ok ? cfg.nodes[0].tx_pdos[0].timeout_ms : 0u;
+  };
+  std::vector<std::string> errors;
+  // cpp-slave.eds: TPDO 1 event timer 0.
+  CHECK(check("\"timeout_ms\": \"auto\", ", eds, errors) == 0);
+  CHECK_MSG(has_error(errors, "TPDO 1: 'timeout_ms' \"auto\" needs the PDO's event timer, but its EDS value is 0"),
+            join(errors));
+  CHECK(check("\"timeout_ms\": \"auto\", \"event_timer_ms\": 0, ", eds, errors) == 0);
+  CHECK_MSG(has_error(errors, "but 'event_timer_ms' is 0"), join(errors));
+  CHECK_MSG(check("\"timeout_ms\": \"auto\", \"event_timer_ms\": 250, ", eds, errors) == 500, join(errors));
+  size_t at = eds.find("DefaultValue=", eds.find("[1800sub5]"));
+  std::string eds100 = eds.substr(0, at) + "DefaultValue=100" + eds.substr(eds.find('\n', at));
+  CHECK_MSG(check("\"timeout_ms\": \"auto\", ", eds100, errors) == 200, join(errors));
+  CHECK_MSG(check("\"timeout_ms\": \"auto\", \"event_timer_ms\": 40000, ", eds, errors) == 65535, join(errors));
+  CHECK_MSG(check("\"timeout_ms\": 70, ", eds, errors) == 70, join(errors));
+}
+
+// The deadline lands in the master DCF's RPDO for the TPDO's COB-ID, and a
+// config without timeouts keeps the master DCF as it was.
+TEST(dcfgen_rpdo_deadline_in_master_dcf) {
+  set_log_sink(silent);
+  std::string dir = tmpdir();
+  write(dir + "/cpp-slave.eds", read(std::string(FIXTURES_DIR) + "/eds/cpp-slave.eds"));
+  auto master = [&](const std::string& json) {
+    write(dir + "/canopen.json", json);
+    Config cfg;
+    GeneratedConfig gen;
+    std::vector<std::string> errors;
+    CHECK_MSG(load_config(dir + "/canopen.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors) &&
+                  generate_device_config(cfg, default_dcfgen(), gen, errors),
+              join(errors));
+    return read(gen.master_dcf);
+  };
+  auto sub5 = [](const std::string& dcf) {
+    size_t cob = dcf.find("DefaultValue=0x00000182");
+    size_t at = dcf.rfind("[", cob);
+    std::string idx = dcf.substr(at + 1, 4);
+    size_t s5 = dcf.find("[" + idx + "sub5]");
+    return dcf.substr(s5, dcf.find("\n[", s5) - s5);
+  };
+  std::string plain = master(kValid);
+  CHECK_MSG(sub5(plain).find("ParameterValue") == std::string::npos, sub5(plain));
+  std::string timed = master(replace(kValid, "\"tx_pdos\": [ { \"entries\"", "\"tx_pdos\": [ { \"timeout_ms\": 500, \"entries\""));
+  CHECK_MSG(sub5(timed).find("DefaultValue=0\nParameterValue=500\n") != std::string::npos, sub5(timed));
+  // Same length of everything else: only that one line was added.
+  CHECK(timed.size() == plain.size() + std::string("ParameterValue=500\n").size());
+  CHECK(master(kValid) == plain);  // removing the field regenerates the DCF
+  set_log_sink(nullptr);
+}
+
+// ---------------------------------------------------------------------------
 // dcfgen options (master and node)
 
 // A configuration without the new fields gives the same YAML as before them.
@@ -2648,23 +2770,34 @@ TEST(sha256_vectors) {
 TEST(config_diagnostics_defaults_and_fields) {
   Config cfg;
   std::vector<std::string> errors;
-  std::string h = sha256_hex("secret");
-  CHECK(parse(replace(kValid, "\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"diagnostics\": { \"token_sha256\": \"" + h + "\" }"),
+  std::string v = format_scram_verifier(make_scram_verifier("secret", random_bytes(16), 4096));
+  CHECK(parse(replace(kValid, "\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"diagnostics\": { \"token_verifier\": \"" + v + "\" }"),
               cfg, errors));
-  CHECK(cfg.master.has_diagnostics && cfg.master.diag_token_sha256 == h);
+  CHECK(cfg.master.has_diagnostics && cfg.master.diag_token_verifier == v && cfg.master.diag_scram.iterations == 4096);
   CHECK(cfg.master.diag_port == 7531 && cfg.master.diag_bind == "0.0.0.0" && !cfg.master.diag_allow_changes);
   Config cfg2;
   CHECK(parse(replace(kValid, "\"sync_period_us\": 10000",
-                      "\"sync_period_us\": 10000, \"diagnostics\": { \"token_sha256\": \"" + sha256_hex("x").substr(0, 0) +
-                          "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08\", \"port\": 9000, \"bind\": "
-                          "\"127.0.0.1\", \"allow_changes\": true }"),
+                      "\"sync_period_us\": 10000, \"diagnostics\": { \"token_verifier\": \"" + v +
+                          "\", \"port\": 9000, \"bind\": \"127.0.0.1\", \"allow_changes\": true }"),
               cfg2, errors));
-  CHECK(cfg2.master.diag_token_sha256 == "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
   CHECK(cfg2.master.diag_port == 9000 && cfg2.master.diag_bind == "127.0.0.1" && cfg2.master.diag_allow_changes);
   Config cfg3;
   CHECK(!parse(replace(kValid, "\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"diagnostics\": true"), cfg3,
                errors));
   CHECK(has_error(errors, "master: field 'diagnostics' must be an object"));
+  // The former token_sha256: set the token again.
+  Config cfg4;
+  errors.clear();
+  CHECK(!parse(replace(kValid, "\"sync_period_us\": 10000",
+                       "\"sync_period_us\": 10000, \"diagnostics\": { \"token_sha256\": \"" + sha256_hex("secret") + "\" }"),
+               cfg4, errors));
+  CHECK(has_error(errors, "master.diagnostics.token_sha256: the diagnostics channel is encrypted now"));
+  Config cfg5;
+  errors.clear();
+  CHECK(!parse(replace(kValid, "\"sync_period_us\": 10000",
+                       "\"sync_period_us\": 10000, \"diagnostics\": { \"token_verifier\": \"secret\" }"),
+               cfg5, errors));
+  CHECK(has_error(errors, "master.diagnostics: field 'token_verifier' must look like SCRAM-SHA-256$"));
 }
 
 TEST(config_file_fingerprint) {
@@ -2680,11 +2813,11 @@ TEST(config_file_fingerprint) {
 
 namespace {
 
-// A blocking test client for the diagnostics server.
-struct DiagClient {
+// A blocking plain-TCP test client (an older, protocol 1 client).
+struct PlainClient {
   int fd = -1;
   std::string buf;
-  explicit DiagClient(unsigned port, int rcvbuf = 0) {
+  explicit PlainClient(unsigned port, int rcvbuf = 0) {
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (rcvbuf) setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof rcvbuf);
     sockaddr_in a{};
@@ -2696,7 +2829,7 @@ struct DiagClient {
       fd = -1;
     }
   }
-  ~DiagClient() {
+  ~PlainClient() {
     if (fd >= 0) close(fd);
   }
   bool send_line(const std::string& line) {
@@ -2730,6 +2863,123 @@ struct DiagClient {
   }
 };
 
+// A blocking TLS test client for the diagnostics server. A hello line with a
+// "token" (the protocol 1 form the tests were written in) is turned into the
+// SCRAM login with that token; its answer is the login's.
+struct DiagClient {
+  PlainClient raw;
+  std::unique_ptr<TlsConn> tls;
+  std::string plain;
+  std::vector<std::string> queued;  // answers produced by the login
+  bool failed = false;
+  bool logged_in = false;
+  Bytes expected_signature;
+  explicit DiagClient(unsigned port, int rcvbuf = 0) : raw(port, rcvbuf) {
+    std::string why;
+    tls = TlsConn::client(why);
+    tls->start(why);
+    flush();
+  }
+  void flush() {
+    std::string& w = tls->wire();
+    if (!w.empty() && raw.fd >= 0) ::send(raw.fd, w.data(), w.size(), MSG_NOSIGNAL);
+    w.clear();
+  }
+  void pump(int ms) {
+    pollfd p{raw.fd, POLLIN, 0};
+    if (poll(&p, 1, ms) <= 0) return;
+    char tmp[4096];
+    ssize_t n = recv(raw.fd, tmp, sizeof tmp, 0);
+    std::string why;
+    if (n <= 0 || !tls->feed(tmp, static_cast<size_t>(n), plain, why)) failed = true;
+    flush();
+  }
+  bool handshake(int timeout_ms = 3000) {
+    auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (!tls->established() && !failed && std::chrono::steady_clock::now() < end) pump(50);
+    return tls->established();
+  }
+  bool write(const std::string& line) {
+    std::string why;
+    bool ok = tls->write(line + "\n", why);
+    flush();
+    return ok;
+  }
+  bool send_line(const std::string& line) {
+    if (!logged_in) {
+      cJSON* j = cJSON_Parse(line.c_str());
+      const cJSON* op = cJSON_GetObjectItemCaseSensitive(j, "op");
+      const cJSON* tok = cJSON_GetObjectItemCaseSensitive(j, "token");
+      if (cJSON_IsString(op) && std::string(op->valuestring) == "hello" && cJSON_IsString(tok)) {
+        std::string token = tok->valuestring;
+        const cJSON* id = cJSON_GetObjectItemCaseSensitive(j, "id");
+        std::string id_text;
+        if (id) {
+          char* t = cJSON_PrintUnformatted(id);
+          id_text = t;
+          cJSON_free(t);
+        }
+        cJSON_Delete(j);
+        queued.push_back(login(token, {}, id_text));
+        return true;
+      }
+      cJSON_Delete(j);
+    }
+    return write(line);
+  }
+  // The next line, "" on timeout, "<closed>" when the server closed.
+  std::string line(int timeout_ms = 3000) {
+    if (!queued.empty()) {
+      std::string l = queued.front();
+      queued.erase(queued.begin());
+      return l;
+    }
+    auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    for (;;) {
+      size_t nl = plain.find('\n');
+      if (nl != std::string::npos) {
+        std::string l = plain.substr(0, nl);
+        plain.erase(0, nl + 1);
+        return l;
+      }
+      if (failed) return "<closed>";
+      if (std::chrono::steady_clock::now() >= end) return "";
+      pump(50);
+    }
+  }
+  std::string ask(const std::string& req) {
+    send_line(req);
+    return line();
+  }
+  // The SCRAM login with `token`, bound to `cbind` (default: the certificate
+  // this connection received). The login answer, or "<closed>".
+  std::string login(const std::string& token, Bytes cbind = {}, const std::string& id = "") {
+    if (!handshake()) return failed ? "<closed>" : "<no handshake>";
+    if (cbind.empty()) cbind = tls->peer_cert_hash();
+    std::string cnonce = b64_encode(random_bytes(18));
+    write(R"({"op":"hello","mech":"SCRAM-SHA-256-PLUS","nonce":")" + cnonce + "\"}");
+    std::string h = line();
+    cJSON* a = cJSON_Parse(h.c_str());
+    const cJSON* r = cJSON_GetObjectItemCaseSensitive(a, "result");
+    if (!r) {
+      cJSON_Delete(a);
+      return h;
+    }
+    std::string snonce = cJSON_GetObjectItemCaseSensitive(r, "nonce")->valuestring;
+    std::string salt_b64 = cJSON_GetObjectItemCaseSensitive(r, "salt")->valuestring;
+    unsigned iter = static_cast<unsigned>(cJSON_GetObjectItemCaseSensitive(r, "iterations")->valuedouble);
+    cJSON_Delete(a);
+    Bytes salt, proof;
+    b64_decode(salt_b64, salt);
+    std::string auth = scram_auth_message(cnonce, snonce, salt_b64, iter, cbind);
+    scram_client(token, salt, iter, auth, proof, expected_signature);
+    write(R"({"op":"login","proof":")" + b64_encode(proof) + "\"" + (id.empty() ? "" : ",\"id\":" + id) + "}");
+    std::string answer = line();
+    logged_in = answer.find("\"ok\":true") != std::string::npos;
+    return answer;
+  }
+};
+
 std::vector<std::string> g_diag_log;
 std::mutex g_diag_log_mutex;
 void diag_capture(LogLevel, const char* msg) {
@@ -2749,7 +2999,9 @@ Config diag_config(bool allow_changes) {
   parse(kValid, cfg, errors);
   cfg.file_sha256 = sha256_hex("config");
   cfg.master.has_diagnostics = true;
-  cfg.master.diag_token_sha256 = sha256_hex("secret");
+  cfg.master.diag_token_verifier = test_verifier();
+  std::string why;
+  parse_scram_verifier(cfg.master.diag_token_verifier, cfg.master.diag_scram, why);
   cfg.master.diag_port = 0;  // any free port
   cfg.master.diag_bind = "127.0.0.1";
   cfg.master.diag_allow_changes = allow_changes;
@@ -2791,7 +3043,7 @@ TEST(diag_server_token_and_offline_answers) {
 
   DiagClient c(server.port());
   std::string hello = c.ask(R"({"op":"hello","token":"secret","id":1})");
-  CHECK_MSG(hello.find("\"ok\":true") != std::string::npos && hello.find("\"protocol\":1") != std::string::npos &&
+  CHECK_MSG(hello.find("\"ok\":true") != std::string::npos && hello.find("\"protocol\":2") != std::string::npos &&
                 hello.find("\"allow_changes\":false") != std::string::npos && hello.find("\"id\":1") != std::string::npos,
             hello);
   // No bus session: status says so, the rest is refused.
@@ -2974,7 +3226,9 @@ TEST(diag_server_client_limit_and_stalled_client) {
           std::string::npos);
   }
   {
+    // Answered in the client's own mode (here TLS), once that is known.
     DiagClient fifth(server.port());
+    fifth.send_line(R"({"op":"hello","token":"secret"})");
     CHECK(fifth.line().find("too many clients") != std::string::npos);
     CHECK(fifth.line() == "<closed>");
   }
@@ -2991,10 +3245,13 @@ TEST(diag_server_client_limit_and_stalled_client) {
   stalled.send_line(R"({"op":"hello","token":"secret"})");
   std::string many;
   for (int i = 0; i < 40000; ++i) many += "{\"op\":\"status\"}\n";
+  std::string why;
+  stalled.tls->write(many, why);
+  many.swap(stalled.tls->wire());  // the encrypted bytes, sent without reading
   for (size_t off = 0; off < many.size();) {
-    pollfd p{stalled.fd, POLLOUT, 0};
+    pollfd p{stalled.raw.fd, POLLOUT, 0};
     if (poll(&p, 1, 2000) <= 0) break;
-    ssize_t n = ::send(stalled.fd, many.data() + off, many.size() - off, MSG_NOSIGNAL | MSG_DONTWAIT);
+    ssize_t n = ::send(stalled.raw.fd, many.data() + off, many.size() - off, MSG_NOSIGNAL | MSG_DONTWAIT);
     if (n <= 0) break;
     off += static_cast<size_t>(n);
   }
@@ -3428,8 +3685,8 @@ std::string two_networks_json(const std::string& diagnostics = "") {
 
 TEST(config_v2_networks) {
   std::string path = std::string(PINGPONG_DIR) + "/canopen_config.json";
-  std::string h = sha256_hex("secret");
-  std::string json = two_networks_json("{ \"token_sha256\": \"" + h + "\", \"port\": 9000 }");
+  std::string h = test_verifier();
+  std::string json = two_networks_json("{ \"token_verifier\": \"" + h + "\", \"port\": 9000 }");
   ConfigSet set;
   std::vector<std::string> errors;
   CHECK_MSG(parse_config_set(json, path, ImageLimits(), set, errors), join(errors));
@@ -3445,7 +3702,7 @@ TEST(config_v2_networks) {
   CHECK(io.master.node_id == 1 && drives.master.node_id == 3 && drives.adapter.bitrate == 500000);
   // The one diagnostics object reaches every network's master.
   for (const auto& cfg : set.networks)
-    CHECK(cfg.master.has_diagnostics && cfg.master.diag_token_sha256 == h && cfg.master.diag_port == 9000);
+    CHECK(cfg.master.has_diagnostics && cfg.master.diag_token_verifier == h && cfg.master.diag_port == 9000);
   CHECK(io.file_sha256 == sha256_hex(json) && set.file_sha256 == io.file_sha256);
 
   // The one-network form refuses a file with two.
@@ -3532,7 +3789,7 @@ TEST(diag_server_two_networks) {
   set_log_sink(diag_capture);
   ConfigSet set;
   std::vector<std::string> errors;
-  CHECK(parse_config_set(two_networks_json("{ \"token_sha256\": \"" + sha256_hex("secret") +
+  CHECK(parse_config_set(two_networks_json("{ \"token_verifier\": \"" + test_verifier() +
                                            "\", \"port\": 1024, \"bind\": \"127.0.0.1\" }"),
                          std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors));
   if (set.networks.size() != 2) return;
@@ -3548,7 +3805,7 @@ TEST(diag_server_two_networks) {
   CHECK(wait_port(server));
   DiagClient c(server.port());
   std::string hello = c.ask(R"({"op":"hello","token":"secret"})");
-  CHECK_MSG(hello.find(R"("protocol":1)") != std::string::npos &&
+  CHECK_MSG(hello.find(R"("protocol":2)") != std::string::npos &&
                 hello.find(R"("networks":[{"name":"io","interface":"vcan0","bitrate":125000,"role":"master","master_node_id":1},)"
                            R"({"name":"vcan1","interface":"vcan1","bitrate":500000,"role":"master",)"
                            R"("master_node_id":3}])") !=
@@ -3588,7 +3845,7 @@ TEST(diag_server_two_networks) {
 // shape, and master-only operations are refused before their fields are read.
 TEST(diag_server_slave_network) {
   set_log_sink(diag_capture);
-  std::string json = R"({ "schema_version": 2, "diagnostics": { "token_sha256": ")" + sha256_hex("secret") +
+  std::string json = R"({ "schema_version": 2, "diagnostics": { "token_verifier": ")" + test_verifier() +
                      R"(", "port": 1024, "bind": "127.0.0.1", "allow_changes": true }, "networks": [
     { "name": "line", "role": "slave", "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 250000 },
       "slave": { "node_id": 10, "eds": "openplc-slave.eds" } },
@@ -3725,4 +3982,563 @@ TEST(cyclic_writes_interpolation_period) {
     CHECK(!find(gen.slave_sdos[4], 1));
   }
   set_log_sink(nullptr);
+}
+
+// ---------------------------------------------------------------------------
+// Encrypted diagnostics: TLS and the SCRAM login (secure_channel.h).
+
+TEST(scram_rfc7677_vector) {
+  // RFC 7677 section 3: user "user", password "pencil".
+  Bytes salt;
+  CHECK(b64_decode("W22ZaJ0SNY7soEsUEjb6gQ==", salt));
+  const std::string auth =
+      "n=user,r=rOprNGfwEbeRWgbNEkqO,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,"
+      "s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096,c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0";
+  Bytes proof, sig;
+  scram_client("pencil", salt, 4096, auth, proof, sig);
+  CHECK(b64_encode(proof) == "dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=");
+  CHECK(b64_encode(sig) == "6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=");
+  ScramVerifier v = make_scram_verifier("pencil", salt, 4096);
+  CHECK(scram_check_proof(v, auth, proof));
+  CHECK(bytes_equal(scram_server_signature(v, auth), sig));
+  proof[0] ^= 1;
+  CHECK(!scram_check_proof(v, auth, proof));
+}
+
+TEST(scram_verifier_format) {
+  ScramVerifier v = make_scram_verifier("secret", random_bytes(16), 4096);
+  std::string text = format_scram_verifier(v), why;
+  CHECK(text.compare(0, 19, "SCRAM-SHA-256$4096:") == 0);
+  ScramVerifier back;
+  CHECK_MSG(parse_scram_verifier(text, back, why), why);
+  CHECK(bytes_equal(back.stored_key, v.stored_key) && bytes_equal(back.salt, v.salt) && back.iterations == 4096);
+  CHECK(!parse_scram_verifier("secret", back, why));
+  CHECK(!parse_scram_verifier(format_scram_verifier(make_scram_verifier("x", random_bytes(8), 4096)), back, why));
+  CHECK(why.find("salt") != std::string::npos);
+  CHECK(!parse_scram_verifier(format_scram_verifier(make_scram_verifier("x", random_bytes(16), 1000)), back, why));
+  CHECK(why.find("iterations") != std::string::npos);
+}
+
+namespace {
+
+}  // namespace
+
+TEST(diag_server_tls_login) {
+  {
+    std::lock_guard<std::mutex> lock(g_diag_log_mutex);
+    g_diag_log.clear();
+  }
+  set_log_sink(diag_capture);
+  Config cfg = diag_config(false);
+  DiagHub hub(cfg, "test-1");
+  DiagServer server(hub);
+  server.start();
+  CHECK(wait_port(server));
+  CHECK(diag_log_count("read-only, encrypted (TLS)") == 1);
+
+  // The right token: the login answer carries the hello information and a
+  // signature that proves the server knows the verifier.
+  {
+    DiagClient c(server.port());
+    std::string a = c.login("secret");
+    CHECK_MSG(a.find("\"ok\":true") != std::string::npos && a.find("\"protocol\":2") != std::string::npos,
+              a);
+    cJSON* j = cJSON_Parse(a.c_str());
+    const cJSON* sig = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "result"), "signature");
+    Bytes got;
+    CHECK(cJSON_IsString(sig) && b64_decode(sig->valuestring, got) && bytes_equal(got, c.expected_signature));
+    cJSON_Delete(j);
+    std::string st = c.ask(R"({"op":"status","id":7})");
+    CHECK_MSG(st.find("\"session\":false") != std::string::npos && st.find("\"id\":7") != std::string::npos, st);
+  }
+  // A wrong token: closed without an answer, logged.
+  {
+    DiagClient c(server.port());
+    CHECK(c.login("guess") == "<closed>");
+  }
+  CHECK(diag_log_count("refused: wrong token") == 1);
+  // The next login from the same address waits about a second.
+  {
+    auto t0 = std::chrono::steady_clock::now();
+    DiagClient c(server.port());
+    CHECK(c.login("secret").find("\"ok\":true") != std::string::npos);
+    CHECK(std::chrono::steady_clock::now() - t0 >= std::chrono::milliseconds(500));
+  }
+  // A machine in the middle: the client bound itself to another certificate.
+  {
+    DiagClient c(server.port());
+    CHECK(c.login("secret", sha256(Bytes{1, 2, 3})) == "<closed>");
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  // A replayed login: the proof belongs to the first connection's nonces.
+  {
+    DiagClient first(server.port());
+    CHECK(first.handshake());
+    std::string cnonce = b64_encode(random_bytes(18));
+    std::string h = first.ask(R"({"op":"hello","mech":"SCRAM-SHA-256-PLUS","nonce":")" + cnonce + "\"}");
+    cJSON* a = cJSON_Parse(h.c_str());
+    const cJSON* r = cJSON_GetObjectItemCaseSensitive(a, "result");
+    std::string snonce = cJSON_GetObjectItemCaseSensitive(r, "nonce")->valuestring;
+    std::string salt_b64 = cJSON_GetObjectItemCaseSensitive(r, "salt")->valuestring;
+    cJSON_Delete(a);
+    Bytes salt, proof, sig;
+    b64_decode(salt_b64, salt);
+    scram_client("secret", salt, 4096, scram_auth_message(cnonce, snonce, salt_b64, 4096, first.tls->peer_cert_hash()),
+                 proof, sig);
+    DiagClient second(server.port());
+    CHECK(second.handshake());
+    second.ask(R"({"op":"hello","mech":"SCRAM-SHA-256-PLUS","nonce":")" + cnonce + "\"}");
+    CHECK(second.ask(R"({"op":"login","proof":")" + b64_encode(proof) + "\"}") == "<closed>");
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  // A plain (protocol 1) client is told to update.
+  {
+    PlainClient c(server.port());
+    std::string a = c.ask(R"({"op":"hello","token":"secret"})");
+    CHECK_MSG(a.find("this runtime needs an encrypted connection; update openplc-canopen-diag") != std::string::npos, a);
+    CHECK(c.line() == "<closed>");
+  }
+  server.stop();
+  set_log_sink(nullptr);
+}
+
+
+// ---------------------------------------------------------------------------
+// Raw frames and bit rate detection (canopen-online-diagnostics: "Send raw
+// frames", "Guards on raw frames", "Bit rate detection", "Guards on bit rate
+// detection")
+
+TEST(cob_id_use_names_the_network_frames) {
+  Config cfg;
+  std::vector<std::string> errors;
+  CHECK(parse(kValid, cfg, errors));
+  CHECK(cob_id_use(cfg, 0x000, false) == "NMT");
+  CHECK(cob_id_use(cfg, 0x080, false) == "SYNC");
+  CHECK(cob_id_use(cfg, 0x100, false) == "TIME");
+  CHECK(cob_id_use(cfg, 0x7E5, false) == "LSS");
+  CHECK(cob_id_use(cfg, 0x701, false) == "the master's heartbeat");
+  CHECK_MSG(cob_id_use(cfg, 0x182, false) == "TPDO1 of node 2 (pingpong)", cob_id_use(cfg, 0x182, false));
+  CHECK_MSG(cob_id_use(cfg, 0x202, false) == "RPDO1 of node 2 (pingpong)", cob_id_use(cfg, 0x202, false));
+  CHECK(cob_id_use(cfg, 0x282, false) == "TPDO2 of node 2 (pingpong) (predefined)");
+  CHECK(cob_id_use(cfg, 0x602, false) == "the SDO request channel of node 2 (pingpong)");
+  CHECK(cob_id_use(cfg, 0x702, false) == "the heartbeat of node 2 (pingpong)");
+  CHECK(cob_id_use(cfg, 0x082, false) == "EMCY of node 2 (pingpong)");
+  // Free: an unconfigured node's SDO channel, an extended identifier.
+  CHECK(cob_id_use(cfg, 0x60A, false).empty());
+  CHECK(cob_id_use(cfg, 0x182, true).empty());
+}
+
+TEST(sim_frame_injector_queues_and_wakes) {
+  // The bus thread's FdWake drains read_fd() as an eventfd; the frames must
+  // survive that and come out of drain() in order.
+  SimFrameInjector inj;
+  CHECK(inj.read_fd() >= 0);
+  RawFrame a, b;
+  a.id = 0x602;
+  a.dlc = 8;
+  a.data[0] = 0x40;
+  b.id = 0x123;
+  CHECK(inj.push(a) == 0);
+  CHECK(inj.push(b) == 0);
+  pollfd p{inj.read_fd(), POLLIN, 0};
+  CHECK(poll(&p, 1, 0) == 1);
+  uint64_t n = 0;
+  CHECK(read(inj.read_fd(), &n, sizeof n) == static_cast<ssize_t>(sizeof n));
+  std::vector<RawFrame> got;
+  inj.drain(got);
+  CHECK(got.size() == 2 && got[0].id == 0x602 && got[0].data[0] == 0x40 && got[1].id == 0x123);
+  for (size_t i = 0; i < SimFrameInjector::kMaxQueued; ++i) CHECK(inj.push(b) == 0);
+  CHECK(inj.push(b) == -ENOBUFS);
+}
+
+TEST(raw_frame_text_and_rate_limit) {
+  RawFrame f;
+  f.id = 0x60A;
+  f.dlc = 4;
+  f.data[0] = 0x40;
+  f.data[1] = 0x18;
+  f.data[2] = 0x10;
+  f.data[3] = 0x01;
+  CHECK_MSG(raw_frame_text(f) == "0x60A [4] 40 18 10 01", raw_frame_text(f));
+  f.ext = true;
+  f.rtr = true;
+  f.dlc = 2;
+  CHECK_MSG(raw_frame_text(f) == "0x0000060A RTR [2]", raw_frame_text(f));
+  RateLimit rl(50, 50);
+  auto t = std::chrono::steady_clock::now();
+  int ok = 0;
+  for (int i = 0; i < 60; ++i) ok += rl.take(t);
+  CHECK_MSG(ok == 50, std::to_string(ok));
+  CHECK(!rl.take(t));
+  CHECK(rl.take(t + std::chrono::milliseconds(40)));  // two tokens back after 40 ms
+}
+
+TEST(sweep_verdicts) {
+  auto make = [](std::vector<std::array<uint64_t, 3>> rows) {
+    SweepResult r;
+    for (auto& x : rows) {
+      SweepRate s;
+      s.bitrate_kbit = static_cast<unsigned>(x[0]);
+      s.frames = x[1];
+      s.error_frames = x[2];
+      r.results.push_back(s);
+    }
+    decide_sweep(r);
+    return r;
+  };
+  SweepResult r = make({{1000, 0, 40}, {500, 0, 12}, {250, 37, 0}, {125, 0, 9}});
+  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 250);
+  // Errors up to 1 % of the valid frames still match.
+  r = make({{500, 0, 3}, {250, 200, 2}});
+  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 250);
+  r = make({{500, 0, 0}, {250, 0, 0}});
+  CHECK(r.verdict == SweepVerdict::Silent);
+  r = make({{500, 20, 0}, {250, 10, 0}});
+  CHECK(r.verdict == SweepVerdict::Ambiguous && r.candidates.size() == 2);
+  r = make({{500, 5, 50}, {250, 10, 30}});
+  CHECK(r.verdict == SweepVerdict::Ambiguous && r.candidates.size() == 1 && r.candidates[0] == 250);
+}
+
+// The cases the PC tools' verdict (bitrate.decide) is tested against too.
+TEST(sweep_verdict_parity) {
+  cJSON* doc = cJSON_Parse(read(std::string(FIXTURES_DIR) + "/sweep_verdicts.json").c_str());
+  CHECK(doc != nullptr);
+  if (!doc) return;
+  int count = 0;
+  const cJSON* c;
+  cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(doc, "cases")) {
+    const std::string name = cJSON_GetObjectItemCaseSensitive(c, "name")->valuestring;
+    SweepResult r;
+    const cJSON* row;
+    cJSON_ArrayForEach(row, cJSON_GetObjectItemCaseSensitive(c, "results")) {
+      SweepRate s;
+      s.bitrate_kbit = static_cast<unsigned>(cJSON_GetArrayItem(row, 0)->valuedouble);
+      s.frames = static_cast<uint64_t>(cJSON_GetArrayItem(row, 1)->valuedouble);
+      s.error_frames = static_cast<uint64_t>(cJSON_GetArrayItem(row, 2)->valuedouble);
+      r.results.push_back(s);
+    }
+    decide_sweep(r);
+    CHECK_MSG(cJSON_GetObjectItemCaseSensitive(c, "verdict")->valuestring == std::string(sweep_verdict_name(r.verdict)),
+              name);
+    const cJSON* rate = cJSON_GetObjectItemCaseSensitive(c, "bitrate_kbit");
+    CHECK_MSG(cJSON_IsNull(rate) ? r.bitrate_kbit == 0 : r.bitrate_kbit == static_cast<unsigned>(rate->valuedouble),
+              name);
+    std::vector<unsigned> want;
+    const cJSON* k;
+    cJSON_ArrayForEach(k, cJSON_GetObjectItemCaseSensitive(c, "candidates")) want.push_back(static_cast<unsigned>(k->valuedouble));
+    CHECK_MSG(r.candidates == want, name);
+    ++count;
+  }
+  cJSON_Delete(doc);
+  CHECK(count >= 8);
+}
+
+namespace {
+
+// A bus that has traffic only at one bit rate.
+struct FakeSweepBus : SweepListener {
+  MockLink* link;
+  unsigned rate;  // bit/s of the traffic
+  std::vector<unsigned> heard;
+  int fail = 0;
+  int listen(const std::string& interface, unsigned, SweepRate& out, const std::function<bool()>&) override {
+    if (fail) return -fail;
+    unsigned at = link->links[interface].bitrate;
+    heard.push_back(at / 1000);
+    if (at == rate) {
+      out.frames += 10;
+      if (out.ids.empty()) out.ids.push_back(0x705);
+    } else {
+      out.error_frames += 3;
+    }
+    return 0;
+  }
+};
+
+std::string sweep_calls(const MockLink& l) {
+  std::string s;
+  for (const auto& c : l.calls) s += (s.empty() ? "" : ", ") + c;
+  return s;
+}
+
+}  // namespace
+
+TEST(sweep_listens_at_each_rate_and_restores) {
+  MockLink link;
+  link.links["can0"] = LinkInfo{true, "can", 500000};
+  FakeSweepBus bus;
+  bus.link = &link;
+  bus.rate = 250000;
+  SweepRequest req;
+  req.rates_kbit = {500, 250, 125};
+  std::vector<unsigned> seen;
+  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, 100, req,
+                                    [&](const SweepProgress& p) { seen.push_back(p.done); }, [] { return false; });
+  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 250);
+  CHECK(r.results.size() == 3 && r.results[1].frames == 10 && r.results[1].ids.size() == 1 && r.results[0].error_frames == 3);
+  CHECK_MSG(sweep_calls(link) ==
+                "down, bitrate 500000, listen-only on, up, down, bitrate 250000, listen-only on, up, down, bitrate 125000, "
+                "listen-only on, up, down, listen-only off, bitrate 500000 restart 100, up",
+            sweep_calls(link));
+  CHECK(link.links["can0"].up && link.links["can0"].bitrate == 500000);
+  CHECK(!seen.empty() && seen.back() == 3);
+}
+
+TEST(sweep_stops_after_a_clear_round) {
+  MockLink link;
+  link.links["can0"] = LinkInfo{true, "can", 500000};
+  FakeSweepBus bus;
+  bus.link = &link;
+  bus.rate = 125000;
+  SweepRequest req;
+  req.rates_kbit = {250, 125};
+  req.rounds = 5;
+  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 125);
+  CHECK_MSG(bus.heard.size() == 2, std::to_string(bus.heard.size()));
+  // Silent: every round runs.
+  bus.rate = 1;
+  bus.heard.clear();
+  req.rounds = 3;
+  r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+  CHECK(r.verdict == SweepVerdict::Ambiguous || r.verdict == SweepVerdict::Silent);
+  CHECK(bus.heard.size() == 6);
+}
+
+TEST(sweep_without_listen_only_restores_the_link) {
+  MockLink link;
+  link.links["can0"] = LinkInfo{true, "can", 500000};
+  link.no_listen_only = true;
+  FakeSweepBus bus;
+  bus.link = &link;
+  bus.rate = 500000;
+  SweepRequest req;
+  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+  CHECK(r.verdict == SweepVerdict::Failed && r.error == "the adapter's driver has no listen-only mode");
+  CHECK(bus.heard.empty());
+  CHECK_MSG(sweep_calls(link) == "down, bitrate 1000000, listen-only on, down, listen-only off, bitrate 500000, up",
+            sweep_calls(link));
+  CHECK(link.links["can0"].up && link.links["can0"].bitrate == 500000);
+}
+
+TEST(sweep_stopped_by_the_plc) {
+  MockLink link;
+  link.links["can0"] = LinkInfo{true, "can", 500000};
+  FakeSweepBus bus;
+  bus.link = &link;
+  bus.rate = 500000;
+  SweepRequest req;
+  int n = 0;
+  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {},
+                                    [&n] { return ++n > 2; });
+  CHECK(r.verdict == SweepVerdict::Failed && r.error.find("stopped") != std::string::npos);
+  CHECK(link.links["can0"].up && link.links["can0"].bitrate == 500000);
+}
+
+namespace {
+
+struct FakeFrameSink : FrameSink {
+  std::mutex* mu;
+  std::vector<RawFrame>* sent;
+  std::atomic<int>* fail;
+  bool open_ = false;
+  int open() override {
+    open_ = true;
+    return 0;
+  }
+  int send(const RawFrame& f) override {
+    if (*fail) return -*fail;
+    std::lock_guard<std::mutex> lock(*mu);
+    sent->push_back(f);
+    return 0;
+  }
+  void close() override { open_ = false; }
+  bool is_open() const override { return open_; }
+};
+
+struct TxFixture {
+  Config cfg;
+  std::unique_ptr<DiagHub> hub;
+  std::unique_ptr<DiagServer> server;
+  std::mutex mu;
+  std::vector<RawFrame> sent;
+  std::atomic<int> fail{0};
+  MockLink* link = new MockLink;
+  explicit TxFixture(bool allow = true, const std::string& kind = "can") {
+    {
+      std::lock_guard<std::mutex> lock(g_diag_log_mutex);
+      g_diag_log.clear();
+    }
+    set_log_sink(diag_capture);
+    cfg = diag_config(allow);
+    cfg.adapter.interface = "can0";
+    link->links["can0"] = LinkInfo{true, kind, kind == "can" ? 125000u : 0u};
+    hub.reset(new DiagHub(cfg, "test"));
+    server.reset(new DiagServer(*hub));
+    auto* sink = new FakeFrameSink;
+    sink->mu = &mu;
+    sink->sent = &sent;
+    sink->fail = &fail;
+    server->set_frame_sink(std::unique_ptr<FrameSink>(sink));
+    server->set_link_ops(std::unique_ptr<LinkOps>(link));
+    hub->attach();
+    server->start();
+  }
+  ~TxFixture() {
+    server->stop();
+    set_log_sink(nullptr);
+  }
+  size_t count() {
+    std::lock_guard<std::mutex> lock(mu);
+    return sent.size();
+  }
+};
+
+bool has(const std::string& s, const std::string& needle) { return s.find(needle) != std::string::npos; }
+
+}  // namespace
+
+TEST(diag_send_frame_single_and_guards) {
+  TxFixture f;
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  std::string a = c.ask(R"({"op":"send_frame","can_id":"0x60A","data":"40 18 10 01 00 00 00 00"})");
+  CHECK_MSG(has(a, R"("sent":true)"), a);
+  CHECK(f.count() == 1 && f.sent[0].id == 0x60A && f.sent[0].dlc == 8 && f.sent[0].data[0] == 0x40);
+  CHECK(diag_log_count("diagnostics: frame 0x60A [8] 40 18 10 01 00 00 00 00 sent by 127.0.0.1") == 1);
+  // An identifier the network uses needs force.
+  a = c.ask(R"({"op":"send_frame","can_id":"0x202","data":"01 00 00 00"})");
+  CHECK_MSG(has(a, "0x202 is RPDO1 of node 2 (pingpong) on network can0; force needed"), a);
+  CHECK(f.count() == 1);
+  a = c.ask(R"({"op":"send_frame","can_id":"0x202","data":"01 00 00 00","force":true})");
+  CHECK_MSG(has(a, R"("sent":true)"), a);
+  CHECK(diag_log_count("(forced: 0x202 is RPDO1") == 1);
+  // A running machine needs force for any frame.
+  f.hub->set_operational("node 2 (pingpong)");
+  a = c.ask(R"({"op":"send_frame","can_id":"0x60A","data":"40"})");
+  CHECK_MSG(has(a, "node 2 (pingpong) is OPERATIONAL; force needed"), a);
+  f.hub->set_operational("");
+  // Remote frame, extended identifier, bad fields.
+  a = c.ask(R"({"op":"send_frame","can_id":"0x18FF0001","ext":true,"rtr":true,"dlc":4})");
+  CHECK_MSG(has(a, R"("sent":true)"), a);
+  CHECK(f.count() == 3 && f.sent[2].ext && f.sent[2].rtr && f.sent[2].dlc == 4);
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x800"})"), "field 'can_id'"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"data":"00 01 02 03 04 05 06 07 08"})"), "at most 8 data bytes"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"rtr":true,"data":"00"})"), "a remote frame has no data"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"period_ms":2})"), "'period_ms' must be 0 (one frame) or 10-60000"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"count":3})"), "'count' needs 'period_ms'"));
+  // Rate limit: 50 single frames per second.
+  int limited = 0;
+  for (int i = 0; i < 60; ++i) limited += has(c.ask(R"({"op":"send_frame","can_id":"0x123"})"), "rate limit");
+  CHECK_MSG(limited >= 5, std::to_string(limited));
+  // Without a session.
+  f.hub->detach();
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x123"})"), "no bus"));
+}
+
+TEST(diag_send_frame_read_only) {
+  TxFixture f(false);
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x60A"})"), "changes not allowed"));
+  CHECK(has(c.ask(R"({"op":"detect_bitrate"})"), "changes not allowed"));
+  CHECK(f.count() == 0);
+}
+
+TEST(diag_send_frame_cyclic_jobs) {
+  TxFixture f;
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  std::string a = c.ask(R"({"op":"send_frame","can_id":"0x123","data":"AA","period_ms":10,"count":5})");
+  CHECK_MSG(has(a, R"("job":1)") && has(a, R"("count":5)"), a);
+  for (int i = 0; i < 100 && f.count() < 5; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  CHECK_MSG(f.count() == 5, std::to_string(f.count()));
+  a = c.ask(R"({"op":"send_frame_stop"})");
+  CHECK_MSG(has(a, R"("job":1)") && has(a, R"("sent":5)") && has(a, R"("reason":"count reached")"), a);
+  // An endless job shows in status and ends with its client.
+  a = c.ask(R"({"op":"send_frame","can_id":"0x124","period_ms":20})");
+  CHECK_MSG(has(a, R"("job":2)") && has(a, R"("count":null)"), a);
+  {
+    DiagClient other(f.server->port());
+    other.ask(R"({"op":"hello","token":"secret"})");
+    std::string st = other.ask(R"({"op":"send_frame","can_id":"0x125","period_ms":20})");
+    CHECK_MSG(has(st, R"("job":3)"), st);
+    // One client cannot stop another's job.
+    CHECK(has(other.ask(R"({"op":"send_frame_stop","job":2})"), "no job 2 of this connection"));
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  CHECK(diag_log_count("(job 3) of 127.0.0.1 ended: client disconnected") == 1);
+  // Status answers carry the network's jobs (status itself is answered by the bus thread).
+  cJSON* res = cJSON_CreateObject();
+  f.hub->add_tx_status(res);
+  char* t = cJSON_PrintUnformatted(res);
+  std::string st = t;
+  cJSON_free(t);
+  cJSON_Delete(res);
+  CHECK_MSG(has(st, R"("send_jobs":[{"job":2,"id":292)") && !has(st, R"("job":3)") &&
+                has(st, R"("bitrate_sweep":{"running":false})"),
+            st);
+  a = c.ask(R"({"op":"send_frame_stop","job":2})");
+  CHECK_MSG(has(a, R"("reason":"stopped")"), a);
+  // At most 8 jobs per network.
+  for (int i = 0; i < 8; ++i) c.ask(R"({"op":"send_frame","can_id":"0x130","period_ms":1000})");
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x130","period_ms":1000})"), "too many jobs"));
+  c.ask(R"({"op":"send_frame_stop"})");
+  // A transmit error ends the job.
+  f.fail = ENOBUFS;
+  c.ask(R"({"op":"send_frame","can_id":"0x131","period_ms":10})");
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  a = c.ask(R"({"op":"send_frame_stop"})");
+  CHECK_MSG(has(a, R"("reason":"transmit queue full")"), a);
+}
+
+TEST(diag_detect_bitrate_guards_and_request) {
+  {
+    TxFixture f(true, "vcan");
+    CHECK(wait_port(*f.server));
+    DiagClient c(f.server->port());
+    c.ask(R"({"op":"hello","token":"secret"})");
+    CHECK(has(c.ask(R"({"op":"detect_bitrate"})"), "no bit rate on a virtual bus"));
+    CHECK(!f.hub->sweep_busy());
+  }
+  TxFixture f;
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  std::string a = c.ask(R"({"op":"detect_bitrate_status"})");
+  CHECK_MSG(has(a, R"("running":false)") && has(a, R"("verdict":null)"), a);
+  CHECK(has(c.ask(R"({"op":"detect_bitrate","rates":[300]})"), "field 'rates' takes"));
+  CHECK(has(c.ask(R"({"op":"detect_bitrate","per_rate_ms":50})"), "'per_rate_ms' must be 100-10000"));
+  f.hub->set_operational("node 2 (pingpong)");
+  a = c.ask(R"({"op":"detect_bitrate"})");
+  CHECK_MSG(has(a, "node 2 (pingpong) is OPERATIONAL; CANopen on network can0 would stop for the sweep; force needed"), a);
+  a = c.ask(R"({"op":"detect_bitrate","rates":[250,125],"per_rate_ms":200,"force":true})");
+  CHECK_MSG(has(a, R"("running":true)") && has(a, R"("total":2)") && has(a, R"("configured_kbit":125)"), a);
+  CHECK(f.hub->sweep_pending());
+  // Asking again returns the running sweep; other requests see no bus once the session ends.
+  CHECK(has(c.ask(R"({"op":"detect_bitrate","force":true})"), R"("running":true)"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x60A"})"), "no bus"));
+  // The bus thread's side.
+  SweepRequest req;
+  CHECK(f.hub->take_sweep(req) && req.rates_kbit.size() == 2 && req.per_rate_ms == 200);
+  SweepResult r;
+  r.verdict = SweepVerdict::Detected;
+  r.bitrate_kbit = 250;
+  SweepRate s;
+  s.bitrate_kbit = 250;
+  s.frames = 12;
+  s.ids = {0x705};
+  r.results = {s};
+  f.hub->sweep_done(r);
+  a = c.ask(R"({"op":"detect_bitrate_status"})");
+  CHECK_MSG(has(a, R"("verdict":"detected")") && has(a, R"("bitrate_kbit":250,"matches_config":false)") &&
+                has(a, R"("ids":[1797])") && has(a, R"("finished_at":")"),
+            a);
+  // configure_link false: the plugin leaves the link alone.
+  f.cfg.adapter.configure_link = false;
+  CHECK(has(c.ask(R"({"op":"detect_bitrate"})"), "configure_link false"));
 }

@@ -1,7 +1,10 @@
 """openplc-canopen-diag and the diag client against a fake plugin."""
 
+import base64
 import io
 import json
+import socket
+import threading
 import os
 import shlex
 import unittest
@@ -30,9 +33,27 @@ def run(*argv, env_token=TOKEN):
 
 
 class Values(unittest.TestCase):
-    def test_hash_token(self):
-        self.assertEqual(diag.hash_token("test"),
-                         "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08")
+    def test_token_verifier(self):
+        v = diag.token_verifier("test")
+        self.assertTrue(v.startswith("SCRAM-SHA-256$4096:"))
+        self.assertNotEqual(v, diag.token_verifier("test"))  # a fresh salt each time
+        self.assertTrue(diag.token_matches("test", v))
+        self.assertFalse(diag.token_matches("guess", v))
+        self.assertFalse(diag.token_matches("test", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"))
+        self.assertIsNone(diag.parse_verifier(diag.token_verifier("test", salt=b"short")))
+        self.assertIsNone(diag.parse_verifier(diag.token_verifier("test", iterations=1000)))
+        # The fixture verifier (test/fixtures/config) is the token "test"'s.
+        self.assertTrue(diag.token_matches("test", "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPsz"
+                                                   "AhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="))
+
+    def test_scram_rfc7677_vector(self):
+        auth = ("n=user,r=rOprNGfwEbeRWgbNEkqO,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,"
+                "s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096,c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0")
+        proof, sig = diag.scram_client("pencil", base64.b64decode("W22ZaJ0SNY7soEsUEjb6gQ=="), 4096, auth)
+        self.assertEqual(base64.b64encode(proof).decode(), "dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=")
+        self.assertEqual(base64.b64encode(sig).decode(), "6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=")
+
+    def test_new_token(self):
         self.assertGreaterEqual(len(diag.new_token()), 32)
         self.assertNotEqual(diag.new_token(), diag.new_token())
 
@@ -89,6 +110,8 @@ class Cli(unittest.TestCase):
         self.assertIn("error J: the configuration download failed", out)
         self.assertIn("(retrying)", out)
         self.assertIn("node 2 SDO variable 0x2001:0 (uptime), UNSIGNED32 read: raw 42", out)
+        self.assertIn("node 23 TPDO 1: TIMED OUT (timeout 500 ms, 2 timeouts, last PDO 1800 ms ago)", out)
+        self.assertIn("node 23 TPDO 2: receiving (timeout 200 ms, 0 timeouts, last PDO never)", out)
 
     def test_format_sync(self):
         from openplc_canopen_deploy.diag import format_sync
@@ -108,6 +131,39 @@ class Cli(unittest.TestCase):
             code, _, err = run("--runtime", fp.runtime, "--token", "nope", "status")
         self.assertEqual(code, 1)
         self.assertIn("refused the token", err)
+
+    def test_token_never_sent(self):
+        with FakePlugin() as fp:
+            self.assertEqual(run("--runtime", fp.runtime, "status")[0], 0)
+            self.assertNotIn(TOKEN, json.dumps(fp.logins))
+
+    def test_impostor(self):
+        # A server that does not know the verifier cannot make the signature.
+        with FakePlugin(bad_signature=True) as fp:
+            code, _, err = run("--runtime", fp.runtime, "status")
+            self.assertEqual(code, 1)
+            self.assertIn("could not prove it knows this project's token", err)
+            self.assertEqual(fp.requests, [])
+
+    def test_older_plugin(self):
+        # An older plugin speaks plain lines: it answers the TLS hello with an
+        # error line, or not at all.
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+
+        def old_plugin():
+            c, _ = srv.accept()
+            c.recv(4096)
+            c.sendall(b'{"ok": false, "error": "not a JSON object"}\n')
+            c.close()
+
+        t = threading.Thread(target=old_plugin, daemon=True)
+        t.start()
+        code, _, err = run("--runtime", "127.0.0.1:%d" % srv.getsockname()[1], "status")
+        srv.close()
+        self.assertEqual(code, 1)
+        self.assertIn("does not speak encrypted diagnostics", err)
 
     def test_closed_port(self):
         code, _, err = run("--runtime", "127.0.0.1:%d" % closed_port(), "status")
@@ -231,7 +287,8 @@ class Cli(unittest.TestCase):
 
     def test_hash_token_command(self):
         code, out, _ = run("hash-token", "test", env_token=None)
-        self.assertEqual(out.strip(), "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08")
+        self.assertEqual(code, 0)
+        self.assertTrue(diag.token_matches("test", out.strip()))
 
     def test_bad_arguments(self):
         with redirect_stderr(io.StringIO()):

@@ -22,7 +22,7 @@ class SimTraceTap {
   SimTraceTap();
   ~SimTraceTap();
   // Bus thread: one frame seen on the virtual bus.
-  void push(const can_msg& msg);
+  void push(const can_msg& msg, bool tx = false);
   // Server thread.
   void enable(bool on) { on_.store(on, std::memory_order_release); }
   int read_fd() const { return pipe_[0]; }

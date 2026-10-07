@@ -185,6 +185,7 @@ void Network::Start() {
   Reset();
   MapTpdos();
   MapSyncRpdos();
+  MapInputPdos();
   sync_seen_ = image_.sync_requests();
   for (const auto& t : tpdo_cob_) {
     std::error_code ec;
@@ -291,6 +292,7 @@ void Network::SetUp(unsigned id, bool up, const char* why) {
   n.up = up;
   if (up) n.warned_absent = false;
   image_.set_node_status(id, up);
+  ArmInputPdos(id, up);
   image_.commit_inputs();
   EnableTpdos(n, up);
   if (up)
@@ -333,6 +335,7 @@ void Network::MarkAllDown() {
     n.second.node_op = false;
     image_.set_node_status(n.first, false);
     image_.set_node_state(n.first, kStateNoContact);
+    ArmInputPdos(n.first, false);
   }
   image_.commit_inputs();
 }
@@ -385,6 +388,7 @@ void Network::OnTick() {
   auto now = clock::now();
   if (cfg_.master.time_period_ms && now >= next_time_) SendTime();
   LssRecover(now);
+  CheckInputPdos(now);
   for (auto& it : nodes_) {
     NodeState& n = it.second;
     FlushEmcySummary(n, now, false);
@@ -831,12 +835,157 @@ void Network::OnSync(uint8_t cnt, const time_point& t) noexcept {
 
 void Network::OnRpdo(int num, std::error_code ec, const void* p, std::size_t n) noexcept {
   (void)p;
-  (void)n;
+  auto in = in_pdos_.find(static_cast<unsigned>(num));
+  if (in != in_pdos_.end()) {
+    InputPdo& ip = in->second;
+    ip.last_len = n;
+    if (!ec) {
+      // Only member state here (the master is locked); logging and the image
+      // in the deferred handler.
+      ip.last_rx = clock::now();
+      ip.seen = true;
+      ip.len_warned = false;
+      if (ip.timed_out) Defer([this, num] { HandleRpdoBack(static_cast<unsigned>(num)); });
+    }
+  }
   if (ec) return;
   auto it = sync_rpdos_.find(static_cast<unsigned>(num));
   if (it == sync_rpdos_.end()) return;
   it->second.since = 0;
   it->second.armed = true;
+}
+
+// Lely's RPDO errors: 0x8250 when the master RPDO's deadline (sub-index 5)
+// expires, 0x8210 for a PDO shorter than its mapping. Lely's default sends
+// an EMCY from the master and sets its error register, which nothing would
+// clear again; the plugin reports them itself instead.
+void Network::OnRpdoError(int num, uint16_t eec, uint8_t er) noexcept {
+  (void)er;
+  unsigned u = static_cast<unsigned>(num);
+  if (eec == 0x8250)
+    Defer([this, u] { HandleRpdoTimeout(u); });
+  else if (eec == 0x8210)
+    Defer([this, u] { HandleRpdoShort(u); });
+}
+
+void Network::MapInputPdos() {
+  in_pdos_.clear();
+  const auto& bindings = image_.inputs();
+  const auto& bits = image_.timeout_bits();
+  for (unsigned num = 1; num <= 512; ++num) {
+    std::error_code ec;
+    uint32_t cob = (*this)[0x1400 + num - 1][1].Read<uint32_t>(ec);
+    if (ec || (cob & 0x80000000u)) continue;
+    cob &= 0x7FF;
+    for (const auto& n : cfg_.nodes)
+      for (const auto& pdo : n.tx_pdos) {
+        if (n.tpdo_cob_id(pdo) != cob) continue;
+        InputPdo ip;
+        ip.node_id = n.node_id;
+        ip.pdo = pdo.number;
+        ip.timeout_ms = pdo.has_timeout ? pdo.timeout_ms : 0;
+        ip.zero = pdo.timeout_zero;
+        for (size_t k = 0; k < bits.size(); ++k)
+          if (bits[k].node_id == n.node_id && bits[k].pdo == pdo.number) ip.bit = static_cast<int>(k);
+        auto node = nodes_.find(n.node_id);
+        if (node != nodes_.end())
+          for (size_t i : node->second.inputs)
+            for (const auto& e : pdo.entries)
+              if (bindings[i].index == e.index && bindings[i].subindex == e.subindex) ip.bindings.push_back(i);
+        unsigned bits_total = 0;
+        uint8_t count = (*this)[0x1600 + num - 1][0].Read<uint8_t>(ec);
+        for (uint8_t k = 1; !ec && k <= count; ++k) {
+          uint32_t m = (*this)[0x1600 + num - 1][k].Read<uint32_t>(ec);
+          if (!ec) bits_total += m & 0xFF;
+        }
+        if (!ec) ip.map_bytes = (bits_total + 7) / 8;
+        if (ip.timeout_ms) {
+          if (pdo.timeout_auto)
+            log_info("%s TPDO %u: receive timeout %u ms (auto: two times its event timer of %u ms)",
+                     n.label().c_str(), pdo.number, ip.timeout_ms, pdo.timeout_event_ms);
+          else
+            log_info("%s TPDO %u: receive timeout %u ms", n.label().c_str(), pdo.number, ip.timeout_ms);
+        }
+        in_pdos_[num] = std::move(ip);
+      }
+  }
+}
+
+// A node came up: its monitored PDOs must arrive within their timeout from
+// now. A node went down: timeouts end without a log (the status bit says it).
+void Network::ArmInputPdos(unsigned id, bool up) {
+  auto now = clock::now();
+  for (auto& it : in_pdos_) {
+    InputPdo& p = it.second;
+    if (p.node_id != id) continue;
+    p.seen = false;
+    p.armed = now;
+    if (p.timed_out) {
+      p.timed_out = false;
+      if (p.bit >= 0) image_.set_timeout_bit(static_cast<size_t>(p.bit), false);
+    }
+    (void)up;
+  }
+}
+
+// Lely's deadline runs only from a received PDO; one that never arrives
+// after the node came up is caught here, on the supervision tick.
+void Network::CheckInputPdos(clock::time_point now) {
+  for (auto& it : in_pdos_) {
+    InputPdo& p = it.second;
+    if (!p.timeout_ms || p.timed_out || p.seen || !IsOperational(p.node_id)) continue;
+    if (now - p.armed >= std::chrono::milliseconds(p.timeout_ms)) PdoTimedOut(p, now);
+  }
+}
+
+void Network::HandleRpdoTimeout(unsigned num) {
+  auto it = in_pdos_.find(num);
+  if (it == in_pdos_.end()) return;
+  InputPdo& p = it->second;
+  auto now = clock::now();
+  if (!p.timeout_ms || p.timed_out || !IsOperational(p.node_id)) return;
+  // A PDO that came in after Lely's timer fired and before this ran.
+  if (p.seen && now - p.last_rx < std::chrono::milliseconds(p.timeout_ms)) return;
+  PdoTimedOut(p, now);
+}
+
+void Network::PdoTimedOut(InputPdo& p, clock::time_point now) {
+  p.timed_out = true;
+  ++p.timeouts;
+  p.missing_since = p.seen ? p.last_rx : p.armed;
+  const NodeState& n = nodes_[p.node_id];
+  log_warn("%s TPDO %u: no PDO for %u ms (timeout_ms)%s", n.cfg->label().c_str(), p.pdo, p.timeout_ms,
+           p.zero ? "; its inputs read 0 until it is back" : "; its inputs keep their last values");
+  if (p.bit >= 0) image_.set_timeout_bit(static_cast<size_t>(p.bit), true);
+  if (p.zero)
+    for (size_t i : p.bindings) image_.set_input(i, 0);
+  image_.commit_inputs();
+  (void)now;
+}
+
+void Network::HandleRpdoBack(unsigned num) {
+  auto it = in_pdos_.find(num);
+  if (it == in_pdos_.end() || !it->second.timed_out) return;
+  InputPdo& p = it->second;
+  p.timed_out = false;
+  auto gone = std::chrono::duration_cast<std::chrono::milliseconds>(p.last_rx - p.missing_since);
+  log_info("%s TPDO %u is back after %lld ms without it", nodes_[p.node_id].cfg->label().c_str(), p.pdo,
+           static_cast<long long>(gone.count()));
+  if (p.bit >= 0) image_.set_timeout_bit(static_cast<size_t>(p.bit), false);
+  image_.commit_inputs();
+}
+
+void Network::HandleRpdoShort(unsigned num) {
+  auto it = in_pdos_.find(num);
+  if (it == in_pdos_.end() || it->second.len_warned) return;
+  InputPdo& p = it->second;
+  p.len_warned = true;
+  if (p.map_bytes)
+    log_warn("%s TPDO %u: a PDO with %zu data bytes arrived, but its mapping needs %u; its inputs are unchanged",
+             nodes_[p.node_id].cfg->label().c_str(), p.pdo, p.last_len, p.map_bytes);
+  else
+    log_warn("%s TPDO %u: a PDO with %zu data bytes arrived, shorter than its mapping; its inputs are unchanged",
+             nodes_[p.node_id].cfg->label().c_str(), p.pdo, p.last_len);
 }
 
 void Network::MapSyncRpdos() {

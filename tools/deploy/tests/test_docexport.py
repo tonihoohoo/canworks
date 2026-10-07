@@ -16,7 +16,7 @@ import shutil
 import tempfile
 import unittest
 
-from openplc_canopen_deploy import cli, dbcexport, dcfexport, docexport
+from openplc_canopen_deploy import cli, dbcexport, dcfexport, docexport, docwriter
 
 from .test_contract import FIXTURES, REPO, load_cases
 
@@ -229,6 +229,21 @@ class Model(unittest.TestCase):
         self.assertEqual([(e["index"], e["subindex"], e["used"]) for e in t["entries"]],
                          [(0x6000, 1, False), (0x6000, 2, True)])
 
+    def test_receive_timeout(self):
+        cfg = base_config()
+        t = cfg["nodes"][0]["tx_pdos"][0]
+        t.update({"event_timer_ms": 100, "timeout_ms": "auto", "timeout_location": "%IX20.0"})
+        doc = build(cfg)
+        [net] = doc["networks"]
+        self.assertEqual(pdo(net["nodes"][0], "TPDO", 1)["timeout"],
+                         {"ms": 200, "auto": True, "on_timeout": "hold", "location": "%IX20.0", "variables": []})
+        self.assertIn("%IX20.0", [u["location"] for u in doc["io"]])
+        self.assertIn("Receive timeout 200 ms (auto), hold, timeout bit <code>%IX20.0</code>", docwriter.write(doc))
+        # Without timeout_ms there is no timeout; RPDOs never have one.
+        del t["timeout_ms"], t["timeout_location"]
+        [net] = build(cfg)["networks"]
+        self.assertNotIn("timeout", pdo(net["nodes"][0], "TPDO", 1))
+
     def test_plc_variable_names_and_cycle_from_project(self):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
@@ -319,12 +334,12 @@ class Privacy(unittest.TestCase):
         folder = os.path.join(tmp, "canopen")
         shutil.copytree(EDS_DIR, folder)
         cfg = base_config()
-        cfg["master"]["diagnostics"] = {"token_sha256": "c0ffee" * 10 + "abcd"}
+        cfg["master"]["diagnostics"] = {"token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="}
         path = os.path.join(folder, "canopen.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         text, _ = docexport.export(cfg, path, embed_eds=True, now=NOW)
-        self.assertNotIn("c0ffee" * 10, text)
+        self.assertNotIn("SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk", text)
         self.assertNotIn(tmp, text)
         self.assertNotIn("plantdocs-", text)
         self.assertIn("cpp-slave.eds", text)

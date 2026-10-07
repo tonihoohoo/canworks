@@ -493,10 +493,14 @@
           "description": "The diagnostics channel: the plugin listens on TCP for the configurator's online view, manual SDO/NMT and network scan (docs/diagnostics.md). Absent = no network listener.",
           "type": "object",
           "properties": {
-            "token_sha256": {
-              "description": "SHA-256 of the access token, as 64 hexadecimal characters (openplc-canopen-diag hash-token prints it). The token itself is never stored in the config.",
+            "token_verifier": {
+              "description": "SCRAM-SHA-256 verifier of the access token, SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey> in base64 (openplc-canopen-diag hash-token prints it; iterations 4096-1000000, salt at least 16 bytes). The token itself is never stored in the config, and the verifier does not let anyone log in.",
               "type": "string",
-              "pattern": "^[0-9A-Fa-f]{64}$"
+              "pattern": "^SCRAM-SHA-256\\$[0-9]{1,7}:[A-Za-z0-9+/]+={0,2}\\$[A-Za-z0-9+/]{43}=:[A-Za-z0-9+/]{43}=$"
+            },
+            "token_sha256": {
+              "description": "No longer accepted: the diagnostics channel is encrypted and needs token_verifier (set the token again in the configurator).",
+              "not": {}
             },
             "port": {
               "description": "TCP port (default 7531).",
@@ -515,7 +519,7 @@
             }
           },
           "required": [
-            "token_sha256"
+            "token_verifier"
           ]
         }
       },
@@ -744,6 +748,14 @@
     },
     "pdo": {
       "type": "object",
+      "dependentRequired": {
+        "on_timeout": [
+          "timeout_ms"
+        ],
+        "timeout_location": [
+          "timeout_ms"
+        ]
+      },
       "properties": {
         "number": {
           "anyOf": [
@@ -815,6 +827,34 @@
             "device"
           ]
         },
+        "timeout_ms": {
+          "description": "TPDO only (tx_pdos). Receive timeout: the deadline of the master's own RPDO for this PDO, in milliseconds (1-65535), or \"auto\" for two times the PDO's event timer (event_timer_ms, else the EDS value; refused when that is 0). Left out, the PDO is not monitored.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            {
+              "const": "auto"
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "on_timeout": {
+          "description": "TPDO only, with timeout_ms. What the PDO's inputs show while it is timed out: \"hold\" (default, the last values) or \"zero\".",
+          "enum": [
+            "hold",
+            "zero"
+          ]
+        },
+        "timeout_location": {
+          "description": "TPDO only, with timeout_ms. An input bit (%IX...) that is TRUE while the PDO is timed out and its node is up.",
+          "type": "string",
+          "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$"
+        },
         "sync_start": {
           "description": "TPDO only, with a synchronous transmission type (1-240). Sub-index 6. Left out, the EDS value stays.",
           "anyOf": [
@@ -865,6 +905,21 @@
           {
             "required": [
               "sync_start"
+            ]
+          },
+          {
+            "required": [
+              "timeout_ms"
+            ]
+          },
+          {
+            "required": [
+              "on_timeout"
+            ]
+          },
+          {
+            "required": [
+              "timeout_location"
             ]
           }
         ]

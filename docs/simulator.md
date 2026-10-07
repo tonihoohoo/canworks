@@ -79,7 +79,7 @@ With a config, `simulation.json` next to it is used when it exists (`--sim FILE`
 | `--state-dir DIR` | Keep stored parameters (0x1010) and LSS-stored node IDs in DIR, so they survive a restart of the simulator. Without it they live as long as the process. |
 | `--scenario NAME` | Start this scenario once the devices are up (may repeat). |
 | `--port N`, `--bind ADDR` | The control channel, default `127.0.0.1:7532`. Any address other than loopback needs a token. |
-| `--token T`, `--token-file F` | The control channel's token. |
+| `--token T`, `--token-file F` | The control channel's token. With a token the channel is encrypted (TLS, the token never sent). |
 | `--quiet` | Only errors and scenario results. |
 
 Without `--real-bus`, an interface that is not vcan is refused, because simulated devices on a real bus can collide with real ones. The simulator prints a line per device at start, and one for every NMT state change, power change, fault and scenario result. SIGINT or SIGTERM stop every device.
@@ -298,7 +298,7 @@ A scenario with `"autostart": true` starts with the simulation; one with `"test"
 
 ## Control protocol
 
-The plugin's diagnostics channel ([diagnostics.md](diagnostics.md#protocol)) and the standalone simulator's control channel take the same requests: one JSON object per line each way, answers `{"id": ..., "ok": true, "result": {...}}` or `{"id": ..., "ok": false, "error": "..."}`. The standalone simulator listens on `127.0.0.1:7532` by default; it wants the hello line `{"op": "hello", "token": "..."}` first only when it has a token, and answers it with `protocol` (1), `version` and `simulator: true`.
+The plugin's diagnostics channel ([diagnostics.md](diagnostics.md#protocol)) and the standalone simulator's control channel take the same requests: one JSON object per line each way, answers `{"id": ..., "ok": true, "result": {...}}` or `{"id": ..., "ok": false, "error": "..."}`. The standalone simulator listens on `127.0.0.1:7532` by default. With a token it is encrypted and wants the same TLS and login as the diagnostics channel ([diagnostics.md](diagnostics.md#protocol)), computing the verifier from its token at start; its login answer carries `protocol` (2), `version` and `simulator: true`, and it refuses plain connections. Without a token (loopback only) it speaks plain lines, takes an optional `{"op": "hello"}` and answers it with `protocol` (1), `version` and `simulator: true`.
 
 Objects are `"0xIIII:S"`; `node` is a node ID or the name of an extra device. Values are JSON numbers, or strings for VISIBLE_STRING objects.
 

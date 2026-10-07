@@ -32,7 +32,7 @@ runs:
         KERNEL_MODULES: ${{ inputs.kernel-modules }}
       run: |
         sudo apt-get update -qq
-        pkgs="build-essential cmake pkg-config autoconf automake libtool python3-venv can-utils"
+        pkgs="build-essential cmake pkg-config autoconf automake libtool python3-venv can-utils libssl-dev"
         if [ "$KERNEL_MODULES" = true ]; then
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkgs "linux-modules-extra-$(uname -r)" || \
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkgs

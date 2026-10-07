@@ -47,7 +47,7 @@ Each release's notes SHALL give the install command and list the pull requests m
 
 ### Requirement: Install on a PC without Python
 
-The documentation SHALL give, for Windows, for macOS and for Linux, the commands that install the tools on a PC with no Python and no admin rights: install uv with its official installer, then install the release wheel with uv using a uv-managed Python. After these commands the user's shell SHALL find `openplc-canopen-config`, `openplc-canopen-deploy` and `openplc-canopen-diag`, and they SHALL behave as when installed with pip. The documentation SHALL name, per operating system, the folder uv links the commands into and the configurator's settings folder, and SHALL say that the tools reach the CAN bus only through the runtime, so a CAN adapter on the PC is used only by a runtime running on that PC.
+The documentation SHALL give, for Windows, for macOS and for Linux, the commands that install the tools on a PC with no Python and no admin rights: install uv with its official installer, then install the release wheel with uv using a uv-managed Python. After these commands the user's shell SHALL find `openplc-canopen-config`, `openplc-canopen-deploy` and `openplc-canopen-diag`, and they SHALL behave as when installed with pip. The documentation SHALL name, per operating system, the folder uv links the commands into and the configurator's settings folder. It SHALL say that the tools reach the CAN bus through a runtime, or directly through a USB CAN adapter on the PC (canopen-local-bus), and SHALL give per operating system what an slcan adapter needs: no driver on Windows 10 and 11, macOS and Linux, and the port name pattern on each, plus on Linux the `dialout` group for serial ports.
 
 #### Scenario: Fresh Windows PC
 - **WHEN** a Windows user with no Python installed runs the documented uv install command and then the documented `uv tool install` command on the downloaded wheel, and opens a new terminal
@@ -72,6 +72,10 @@ The documentation SHALL give, for Windows, for macOS and for Linux, the commands
 #### Scenario: Corporate proxy
 - **WHEN** the PC reaches the internet through a TLS-inspecting proxy
 - **THEN** the documentation names the uv option that makes uv trust the operating system's certificate store
+
+#### Scenario: USB adapter after install
+- **WHEN** a user installed the tools with uv on Windows, macOS or Linux and plugs in a CANable with stock firmware
+- **THEN** `openplc-canopen-diag adapters` lists it without any further install step (on Linux, after joining `dialout` when the docs say so)
 
 ### Requirement: Update and uninstall
 
@@ -116,3 +120,10 @@ Installing the tools with pip or pipx into an existing Python 3.8+ SHALL keep wo
 #### Scenario: Externally managed Python
 - **WHEN** a Debian or Ubuntu user follows the pip section and their distribution refuses `python3 -m pip install` with "externally-managed-environment"
 - **THEN** the same section tells them to use uv, pipx or a virtual environment instead
+
+### Requirement: Adapter libraries in the package
+The tools package SHALL depend on python-can and pyserial, and every dependency SHALL install with uv from wheels or pure Python sources on Windows, macOS (Intel and Apple silicon) and Linux (x86_64 and ARM64) without a compiler. The PC tools CI job SHALL run the local backend's virtual-bus tests on each of its runners.
+
+#### Scenario: Fresh install on each runner
+- **WHEN** the PC tools job installs the wheel with uv on its four runners
+- **THEN** the install needs no compiler and the local backend's virtual-bus tests pass on each
