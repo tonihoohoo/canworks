@@ -11,6 +11,10 @@
 // request may carry an "id", echoed in its answer. Answers are
 // {"id":...,"ok":true,"result":{...}} or {"id":...,"ok":false,"error":"..."}.
 // Each connection gets its answers in the order it sent the requests.
+//
+// Several networks (canopen-networks spec): one server and one DiagHub per
+// network. The hello lists the networks; every later request names one in
+// "network", which may be left out when there is only one.
 
 #ifndef CANOPEN_DIAG_H
 #define CANOPEN_DIAG_H
@@ -122,6 +126,9 @@ class DiagServer {
   static constexpr size_t kTraceFetchMax = 4000;
 
   explicit DiagServer(DiagHub& hub);
+  // One hub per network, in config order; the diagnostics settings come from
+  // the first network's master (they are the same in every network).
+  explicit DiagServer(std::vector<DiagHub*> hubs);
   ~DiagServer();
 
   void start();
@@ -131,8 +138,12 @@ class DiagServer {
   unsigned port() const { return port_.load(); }
   // For tests, before start(): where trace frames come from, the ring size
   // and how long a trace lives without a fetch.
-  void set_trace_source(std::unique_ptr<TraceSource> source) { trace_source_ = std::move(source); }
-  void set_trace_ring(size_t capacity) { ring_ = TraceRing(capacity); }
+  void set_trace_source(std::unique_ptr<TraceSource> source, size_t network = 0) {
+    chans_[network].source = std::move(source);
+  }
+  void set_trace_ring(size_t capacity) {
+    for (auto& ch : chans_) ch.ring = TraceRing(capacity);
+  }
   void set_trace_idle(std::chrono::milliseconds idle) { trace_idle_ = idle; }
 
  private:
@@ -143,13 +154,30 @@ class DiagServer {
     std::string out;
     bool authed = false;
     uint64_t waiting = 0;  // seq of the request on the bus thread, 0 = none
+    size_t waiting_net = 0;  // the network whose hub has it
     std::chrono::steady_clock::time_point since;
     bool closing = false;  // close after `out` is sent
     // Trace (frame capture) state of this client.
     bool tracing = false;
     std::vector<TraceFilter> trace_filters;
     bool trace_errors = false;
+    size_t trace_net = 0;  // the network traced
     std::chrono::steady_clock::time_point trace_fetched;
+  };
+
+  // A network's hub and frame capture.
+  struct Channel {
+    DiagHub* hub = nullptr;
+    std::unique_ptr<TraceSource> source;
+    TraceRing ring;
+    bool open = false;
+    bool gap = false;  // put a gap record before the next frame
+    std::vector<TraceFilter> filters;
+    bool errors = false;
+    uint64_t kernel_drops = 0;      // since the trace started (all sockets so far)
+    uint64_t kernel_drops_sock = 0;  // the open socket's count
+    std::chrono::steady_clock::time_point next_try{};
+    bool warned = false;
   };
 
   void run();
@@ -161,15 +189,22 @@ class DiagServer {
   void close_client(size_t i);
   void log_auth_failure(const std::string& peer);
   // Trace ops, answered here without the bus thread.
-  bool handle_trace(Client& c, const std::string& op, const std::string& id, const cJSON* req);
-  // Opens, re-filters or closes the capture to match the clients' traces and
-  // the session; reads waiting frames into the ring.
+  bool handle_trace(Client& c, size_t net, const std::string& op, const std::string& id, const cJSON* req);
+  // The network a request names ("network"), or why not.
+  bool pick_network(const cJSON* req, size_t& net, std::string& why) const;
+  // "can1: " in front of a network's log lines when there are several.
+  std::string net_prefix(size_t net) const;
+  // Opens, re-filters or closes each capture to match the clients' traces
+  // and the sessions; reads waiting frames into the rings.
   void update_capture(std::chrono::steady_clock::time_point now);
-  void read_capture();
-  void close_capture(bool gap);
+  void update_channel(size_t net, std::chrono::steady_clock::time_point now);
+  void read_capture(size_t net);
+  void close_capture(size_t net, bool gap);
+  bool any_trace(size_t net) const;
   bool any_trace() const;
+  const MasterConfig& settings() const { return chans_[0].hub->config().master; }
 
-  DiagHub& hub_;
+  std::vector<Channel> chans_;
   std::thread thread_;
   int stop_pipe_[2] = {-1, -1};
   int listen_fd_ = -1;
@@ -179,17 +214,7 @@ class DiagServer {
   std::chrono::steady_clock::time_point next_listen_try_{};
   bool warned_listen_ = false;
 
-  std::unique_ptr<TraceSource> trace_source_;
-  TraceRing ring_;
   std::chrono::milliseconds trace_idle_{10000};
-  bool capture_open_ = false;
-  bool capture_gap_ = false;  // put a gap record before the next frame
-  std::vector<TraceFilter> capture_filters_;
-  bool capture_errors_ = false;
-  uint64_t kernel_drops_ = 0;      // since the trace started (all sockets so far)
-  uint64_t kernel_drops_sock_ = 0;  // the open socket's count
-  std::chrono::steady_clock::time_point next_capture_try_{};
-  bool warned_capture_ = false;
 };
 
 }  // namespace canopen_plugin

@@ -35,22 +35,33 @@ openplc-canopen-diag --runtime plc.local store 23 [--subindex 1]                
 openplc-canopen-diag hash-token                                                       # prints token_sha256
 ```
 
+With several CAN networks ([config.md](config.md), `schema_version: 2`) every command that talks to the plugin takes `--network NAME`. `status` without it prints every network one after another, each headed by its name and interface; every other command without it exits with status 1 naming the networks. With one network `--network` may be left out, and an older plugin, which knows no networks, ignores it.
+
+```sh
+openplc-canopen-diag --runtime plc.local status                                   # every network
+openplc-canopen-diag --runtime plc.local status --network drives
+openplc-canopen-diag --runtime plc.local sdo-read 2 0x1018 1 --network drives      # node 2 on drives, not on io
+openplc-canopen-diag --runtime plc.local backup 2 --network drives                 # drives' node 2 EDS and bit rate
+openplc-canopen-diag --runtime plc.local trace -o drives.pcapng --network drives --config canopen/canopen.json
+```
+
 `--runtime` takes `HOST` or `HOST:PORT` (default port 7531). Types are the CiA 301 names (`UNSIGNED16`, `INTEGER32`, `REAL32`, `VISIBLE_STRING`, `OCTET_STRING`, ...); `sdo-read` without `--type` prints hex bytes, and `sdo-write` takes hex bytes for `OCTET_STRING` and `DOMAIN`.
 
 ### Simulated devices: `sim`
 
-`openplc-canopen-diag sim ...` controls [simulated devices](simulator.md): the plugin's, with `--runtime HOST` (token as above; everything but `status`, `get` and `scenario list` needs `allow_changes`), or a standalone `openplc-canopen-sim`, with `--sim HOST[:PORT]` (default port 7532; token only when the simulator has one, from `--token` or `--token-file`). Without either it talks to the standalone simulator on `127.0.0.1:7532`. These options may also follow the subcommand.
+`openplc-canopen-diag sim ...` controls [simulated devices](simulator.md): the plugin's, with `--runtime HOST` (token as above; everything but `status`, `get` and `scenario list` needs `allow_changes`), or a standalone `openplc-canopen-sim`, with `--sim HOST[:PORT]` (default port 7532; token only when the simulator has one, from `--token` or `--token-file`). Without either it talks to the standalone simulator on `127.0.0.1:7532`. With several networks, `--network NAME` after `sim` picks the network whose simulated devices to talk to. These options may also follow the subcommand.
 
 ```sh
 openplc-canopen-diag --runtime plc.local sim status
 openplc-canopen-diag --runtime plc.local sim get 5 0x7130:1 0x7130:2           # or: get 5 --pdo
 openplc-canopen-diag --runtime plc.local sim set 5 0x7130:1 450                # once; a value source moves it again
 openplc-canopen-diag --runtime plc.local sim override 5 0x7130:1 1500          # held until released
-openplc-canopen-diag --runtime plc.local sim release 5 [0x7130:1 ...]          # without objects: all of node 5
+openplc-canopen-diag --runtime plc.local sim release 5 [0x7130:1]              # without objects: all of node 5
 openplc-canopen-diag --runtime plc.local sim source 5 0x7130:2 '{"sine": {"min": 200, "max": 260, "period_s": 10}}'
 openplc-canopen-diag --runtime plc.local sim source 5 0x7130:2 none
 openplc-canopen-diag sim fault 5 emcy 0x5000 --register 1 --runtime plc.local
 openplc-canopen-diag --runtime plc.local sim clear 5 emcy                      # or: clear 5 all
+openplc-canopen-diag --runtime plc.local sim status --network drives          # one of several networks
 openplc-canopen-diag --sim 127.0.0.1 sim scenario list                         # start NAME | stop NAME
 openplc-canopen-diag --sim 127.0.0.1 sim test --scenario sensor-break --junit results.xml
 ```
@@ -98,7 +109,9 @@ openplc-canopen-diag --sim 127.0.0.1 sim test --scenario sensor-break --junit re
   - Nothing is stored in the device's memory unless the request says `store: true` (`--store`); without it a power cycle undoes the change.
   - One LSS request runs at a time, shared with the boot-time assignment of nodes with `lss.assign` ([config.md](config.md#lss)); a request while one runs answers `LSS busy`. Each request ends with all devices switched back to LSS waiting and is logged with the client's address. PDOs, heartbeats and SDO traffic of the configured nodes go on meanwhile.
 
-- **Device parameters** (`backup`, `compare`, `restore`, `store`): see [Replacing a device](#replacing-a-device). They run on the PC over the SDO read and write above, one SDO at a time, so they need no newer plugin. The node's EDS comes from `--config canopen.json` (default `canopen/canopen.json` when it exists) or `--eds FILE` for a node that is not configured.
+- **Device parameters** (`backup`, `compare`, `restore`, `store`): see [Replacing a device](#replacing-a-device). They run on the PC over the SDO read and write above, one SDO at a time, so they need no newer plugin. The node's EDS comes from `--config canopen.json` (default `canopen/canopen.json` when it exists) or `--eds FILE` for a node that is not configured. With several networks, `--network NAME` picks both the network the SDOs go to and the node's EDS, name and bit rate from that network of the config; a config with several networks needs it even when the runtime runs one.
+
+- **Several networks**: one channel serves all networks of the config, with one port, one token, one `allow_changes` and one client limit. Each request acts on one network. Scans, LSS requests, traces, holds, EMCY history and `no bus` are per network: a scan on one network does not make a scan on another answer busy, and a network whose interface is missing answers `no bus` while the others answer normally.
 
 ## Replacing a device
 
@@ -121,11 +134,13 @@ The first line must be the hello:
 {"op": "hello", "token": "the token", "id": 1}
 ```
 
-A wrong token closes the connection without an answer. The answer carries `protocol` (1), `version`, `allow_changes` and `master_node_id`. Then:
+A wrong token closes the connection without an answer. The answer carries `protocol` (1), `version`, `allow_changes`, `master_node_id` (the first network's) and `networks`: the networks in config order, each `{"name", "interface", "bitrate", "master_node_id"}`, the name empty for a version 1 config. A plugin from before several networks sends no `networks`.
+
+Every request after the hello may carry `network`, the name of the network it is for. With one network it may be left out. With several, a request without it answers `network required (io, drives)` and one with a name the plugin does not run `unknown network 'x' (io, drives)`. A client sends `network` only when the hello lists more than one network, so it also talks to an older plugin. Then:
 
 | `op` | Fields | Result |
 |---|---|---|
-| `status` | | as above |
+| `status` | | as above, with `network` (the network's name) |
 | `emcy` | `node` | `node_id`, `emcy` list |
 | `sdo_read` | `node`, `index`, `subindex`, `timeout_ms` | `success`, `data` (hex bytes such as `"1E 00"`) and `size`, or `abort_code`, `abort_code_hex` and `error` |
 | `sdo_write` | `node`, `index`, `subindex`, `data`, `timeout_ms` | `success`, or as for a read |
@@ -138,10 +153,12 @@ A wrong token closes the connection without an answer. The answer carries `proto
 | `lss_set_id` | the address, `node`, `store` (default false) | `node_id`, `previous_node_id`, `had_node_id`, `note`, `stored` |
 | `lss_set_bitrate` | the address, `bitrate_kbit`, `store` (default false) | `bitrate_kbit`, `note`, `stored` |
 
-| `trace_start` | `filters` (optional list of `{"id", "mask"}`, at most 16), `error_frames` (default false) | `next` (the sequence number to fetch after), `buffer_frames` (65536), `record_size` (24), `interface`, `bitrate` |
+| `trace_start` | `filters` (optional list of `{"id", "mask"}`, at most 16), `error_frames` (default false) | `next` (the sequence number to fetch after), `buffer_frames` (65536), `record_size` (24), `network`, `interface`, `bitrate` of the traced network |
 | `trace_fetch` | `after` (the last sequence number received), `max` (1-4000, default 2000) | `count`, `next`, `more` (more frames are waiting), `lost` (frames the ring overwrote before this client fetched them), `kernel_drops` (frames the kernel dropped since tracing started), `session`, `frames` |
 | `trace_stop` | | ends this client's trace |
 | `sim_status`, `sim_get`, `sim_set`, `sim_override`, `sim_release`, `sim_source`, `sim_fault`, `sim_clear`, `sim_scenario_list`, `sim_scenario_start`, `sim_scenario_stop`, `sim_check_expr` | see [simulator.md](simulator.md#control-protocol) | the plugin's simulated devices; `nothing simulated` when the config simulates nothing, `node N is not simulated` for a node it does not simulate |
+
+A client traces one network at a time: `trace_start` on another network moves its trace there, and `trace_fetch` for another network than the traced one answers `no trace running`.
 
 Numbers may also be given as strings (`"0x1018"`). `sdo_write`, `nmt`, the `lss_` ops except `lss_find_status`, and the `sim_` ops except `sim_status`, `sim_get`, `sim_scenario_list` and `sim_check_expr` answer `changes not allowed` unless the config has `allow_changes: true`. Requests other than `status` answer `no bus` while there is no CANopen session.
 

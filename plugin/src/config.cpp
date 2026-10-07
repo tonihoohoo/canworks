@@ -96,15 +96,24 @@ class Parser {
       : path_(path), limits_(limits), eds_fallback_dir_(eds_fallback_dir), errors_(errors),
         warnings_(warnings) {}
 
+  // `where` inside the network being parsed ("master", "nodes[0]"), with the
+  // network's own place in a version 2 file in front ("networks[1]: master").
+  std::string full(const std::string& where) const {
+    if (prefix_.empty()) return where;
+    return where.empty() ? prefix_ : prefix_ + ": " + where;
+  }
+
   void error(const std::string& where, const std::string& msg) {
     std::string s = path_ + ": ";
-    if (!where.empty()) s += where + ": ";
+    std::string w = full(where);
+    if (!w.empty()) s += w + ": ";
     errors_.push_back(s + msg);
   }
 
   void warning(const std::string& where, const std::string& msg) {
     std::string s = path_ + ": ";
-    if (!where.empty()) s += where + ": ";
+    std::string w = full(where);
+    if (!w.empty()) s += w + ": ";
     warnings_.push_back(s + msg);
   }
 
@@ -116,7 +125,7 @@ class Parser {
       bool ok = false;
       for (const char* k : known) ok |= std::strcmp(k, item->string) == 0;
       if (!ok)
-        warning(where, std::string("unknown field '") + item->string + "' (" + json_path(where, item->string) +
+        warning(where, std::string("unknown field '") + item->string + "' (" + json_path(full(where), item->string) +
                            ") ignored");
     }
   }
@@ -398,7 +407,7 @@ class Parser {
     }
   }
 
-  bool parse(const cJSON* root, Config& cfg) {
+  bool parse(const cJSON* root, ConfigSet& set) {
     size_t before = errors_.size();
     if (!cJSON_IsObject(root)) {
       error("", "top level must be a JSON object");
@@ -413,11 +422,160 @@ class Parser {
                       std::to_string(kSchemaVersion));
         return false;
       }
-      cfg.schema_version = (unsigned)v;
+      set.schema_version = v ? (unsigned)v : 1;
     } else if (cJSON_GetObjectItemCaseSensitive(root, "schema_version")) {
       return false;
     }
-    check_known(root, "", {"$schema", "schema_version", "adapter", "interface", "bitrate", "master", "nodes"});
+    version_ = set.schema_version;
+    if (version_ == 1) {
+      check_known(root, "", {"$schema", "schema_version", "adapter", "interface", "bitrate", "master", "nodes"});
+      Config cfg = blank(set);
+      cfg.work_dir = set.config_dir + "/.canopen";
+      parse_network(root, cfg);
+      set.networks.push_back(cfg);
+      return errors_.size() == before;
+    }
+
+    // Version 2: networks[] and one diagnostics object for all of them.
+    check_known(root, "", {"$schema", "schema_version", "networks", "diagnostics"});
+    static const char* const kMoved[][2] = {{"adapter", "networks[].adapter"},
+                                            {"master", "networks[].master"},
+                                            {"nodes", "networks[].nodes"},
+                                            {"interface", "networks[].adapter.interface"},
+                                            {"bitrate", "networks[].adapter.bitrate"}};
+    for (const auto& m : kMoved)
+      if (cJSON_GetObjectItemCaseSensitive(root, m[0]))
+        error("", std::string("field '") + m[0] + "' belongs in " + m[1] + " in schema_version 2");
+    MasterConfig diag;
+    parse_diagnostics(root, diag, "");
+    const cJSON* nets = cJSON_GetObjectItemCaseSensitive(root, "networks");
+    if (!nets || !cJSON_IsArray(nets)) {
+      error("", "missing required field 'networks' (an array)");
+      return false;
+    }
+    int count = cJSON_GetArraySize(nets);
+    if (count < 1) error("", "field 'networks' lists no networks");
+    if (count > (int)kMaxNetworks)
+      error("", "field 'networks' lists " + std::to_string(count) + " networks; at most " +
+                    std::to_string(kMaxNetworks) + " are supported");
+    int i = 0;
+    const cJSON* net;
+    cJSON_ArrayForEach(net, nets) {
+      prefix_ = "networks[" + std::to_string(i) + "]";
+      Config cfg = blank(set);
+      cfg.network_index = (unsigned)i;
+      copy_diagnostics(diag, cfg.master);
+      if (!cJSON_IsObject(net)) {
+        error("", "must be an object");
+      } else {
+        check_known(net, "", {"name", "adapter", "master", "nodes"});
+        for (const char* old_key : {"interface", "bitrate"})
+          if (cJSON_GetObjectItemCaseSensitive(net, old_key))
+            error("", std::string("field '") + old_key + "' belongs in 'adapter' in schema_version 2");
+        bool named = get_string(net, "name", "", false, cfg.network);
+        if (named && !valid_network_name(cfg.network))
+          error("", "network name \"" + cfg.network + "\" must start with a letter and hold only letters, digits "
+                    "and '_', at most 16 characters");
+        parse_network(net, cfg);
+        if (!named && !cfg.adapter.interface.empty()) {
+          if (valid_network_name(cfg.adapter.interface))
+            cfg.network = cfg.adapter.interface;
+          else
+            error("", "interface \"" + cfg.adapter.interface + "\" is not usable as a network name; give the "
+                      "network a 'name'");
+        }
+      }
+      set.networks.push_back(cfg);
+      ++i;
+    }
+    prefix_.clear();
+    check_networks(set);
+    if (set.networks.size() > 1)
+      for (auto& cfg : set.networks) cfg.log_prefix = cfg.network;
+    for (auto& cfg : set.networks)
+      cfg.work_dir = set.config_dir + "/.canopen/" + (cfg.network.empty() ? std::to_string(cfg.network_index)
+                                                                         : cfg.network);
+    return errors_.size() == before;
+  }
+
+  static Config blank(const ConfigSet& set) {
+    Config cfg;
+    cfg.path = set.path;
+    cfg.config_dir = set.config_dir;
+    cfg.schema_version = set.schema_version;
+    return cfg;
+  }
+
+  static bool valid_network_name(const std::string& name) {
+    if (name.empty() || name.size() > 16 || !std::isalpha(static_cast<unsigned char>(name[0]))) return false;
+    for (char c : name)
+      if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') return false;
+    return true;
+  }
+
+  static void copy_diagnostics(const MasterConfig& from, MasterConfig& to) {
+    to.has_diagnostics = from.has_diagnostics;
+    to.diag_token_sha256 = from.diag_token_sha256;
+    to.diag_port = from.diag_port;
+    to.diag_bind = from.diag_bind;
+    to.diag_allow_changes = from.diag_allow_changes;
+  }
+
+  static std::string lower(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+  }
+
+  // The checks between networks (canopen-networks spec): names, adapters and
+  // IEC locations.
+  void check_networks(const ConfigSet& set) {
+    std::map<std::string, unsigned> names, ifaces, devices;
+    // "networks[1] (drives)": the network by index and name.
+    auto who = [&set](unsigned i) {
+      std::string s = "networks[" + std::to_string(i) + "]";
+      for (const auto& c : set.networks)
+        if (c.network_index == i && !c.network.empty()) s += " (" + c.network + ")";
+      return s;
+    };
+    for (const auto& cfg : set.networks) {
+      std::string me = "networks[" + std::to_string(cfg.network_index) + "]";
+      if (!cfg.network.empty()) {
+        auto it = names.find(lower(cfg.network));
+        if (it != names.end())
+          error("networks", "networks[" + std::to_string(it->second) + "] and " + me + " are both named \"" +
+                                cfg.network + "\" (names must differ, ignoring case)");
+        else
+          names[lower(cfg.network)] = cfg.network_index;
+      }
+      if (!cfg.adapter.interface.empty()) {
+        auto it = ifaces.find(cfg.adapter.interface);
+        if (it != ifaces.end())
+          error("networks", who(it->second) + " and " + who(cfg.network_index) + " both use interface " +
+                                cfg.adapter.interface);
+        else
+          ifaces[cfg.adapter.interface] = cfg.network_index;
+      }
+      if (cfg.adapter.type == "slcan" && !cfg.adapter.device.empty()) {
+        auto it = devices.find(cfg.adapter.device);
+        if (it != devices.end())
+          error("networks", who(it->second) + " and " + who(cfg.network_index) + " both use serial device " +
+                                cfg.adapter.device);
+        else
+          devices[cfg.adapter.device] = cfg.network_index;
+      }
+    }
+    std::vector<Use> uses;
+    for (const auto& cfg : set.networks) {
+      std::string who = "networks[" + std::to_string(cfg.network_index) + "]";
+      if (!cfg.network.empty()) who += " (" + cfg.network + ")";
+      collect_uses(cfg, who + " ", uses);
+    }
+    report_overlaps(uses, "networks");
+  }
+
+  // Parses one network: the version 1 top level, or one networks[] entry.
+  void parse_network(const cJSON* root, Config& cfg) {
+    uint64_t v;
     parse_adapter(root, cfg.adapter);
 
     const cJSON* master = cJSON_GetObjectItemCaseSensitive(root, "master");
@@ -562,18 +720,19 @@ class Parser {
       // An empty list is a scan-only configuration, which needs the
       // diagnostics channel to be of any use.
       if (cfg.nodes.empty() && !cfg.master.has_diagnostics)
-        error("", "field 'nodes' lists no slave nodes (an empty list needs master.diagnostics, for a scan-only "
-                  "configuration)");
+        error("", std::string("field 'nodes' lists no slave nodes (an empty list needs ") +
+                      (version_ == 1 ? "master.diagnostics" : "a top-level 'diagnostics'") +
+                      ", for a scan-only configuration)");
     }
 
     check_node_ids(cfg);
     resolve_auto_cob_ids(cfg);
-    check_overlaps(cfg);
+    // A version 2 file checks the locations of all networks at once.
+    if (version_ == 1) check_overlaps(cfg);
     check_sdo_overrides(cfg);
     check_sdo_variable_overrides(cfg);
     check_time_consumers(cfg);
     check_sync_needs(cfg);
-    return errors_.size() == before;
   }
 
   // sync_source / sync_cycles; sync_period_us is already read.
@@ -641,18 +800,22 @@ class Parser {
       else
         m.time_period_ms = (unsigned)v;
     }
-    parse_diagnostics(master, m);
+    if (version_ == 1)
+      parse_diagnostics(master, m, "master");
+    else if (cJSON_GetObjectItemCaseSensitive(master, "diagnostics"))
+      error(w, "field 'diagnostics' is a top-level object in schema_version 2, not part of a network's master");
     if (!m.start)
       warning(w, "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged "
                  "until it is started");
   }
 
-  void parse_diagnostics(const cJSON* master, MasterConfig& m) {
-    const cJSON* d = cJSON_GetObjectItemCaseSensitive(master, "diagnostics");
+  // `parent_where`: "master" in version 1, "" (the top level) in version 2.
+  void parse_diagnostics(const cJSON* parent, MasterConfig& m, const std::string& parent_where) {
+    const cJSON* d = cJSON_GetObjectItemCaseSensitive(parent, "diagnostics");
     if (!d) return;
-    const std::string w = "master.diagnostics";
+    const std::string w = parent_where.empty() ? "diagnostics" : parent_where + ".diagnostics";
     if (!cJSON_IsObject(d)) {
-      error("master", "field 'diagnostics' must be an object");
+      error(parent_where, "field 'diagnostics' must be an object");
       return;
     }
     check_known(d, w, {"token_sha256", "port", "bind", "allow_changes"});
@@ -1243,29 +1406,44 @@ class Parser {
     out = loc;
   }
 
+  struct Use {
+    IecLocation loc;
+    std::string who;
+  };
+
   void check_overlaps(const Config& cfg) {
-    struct Use {
-      IecLocation loc;
-      std::string who;
-    };
     std::vector<Use> uses;
+    collect_uses(cfg, "", uses);
+    report_overlaps(uses, "nodes");
+  }
+
+  void report_overlaps(const std::vector<Use>& uses, const std::string& where) {
+    for (size_t i = 0; i < uses.size(); ++i)
+      for (size_t j = i + 1; j < uses.size(); ++j)
+        if (uses[i].loc.overlaps(uses[j].loc))
+          error(where, uses[i].who + " and " + uses[j].who + " both map to " + uses[i].loc.str());
+  }
+
+  // Every IEC location of one network; `p` goes in front of each name.
+  void collect_uses(const Config& cfg, const std::string& p, std::vector<Use>& uses) {
     const MasterConfig& m = cfg.master;
-    if (m.has_bus_state_location) uses.push_back({m.bus_state_location, "master bus_state_location"});
-    if (m.has_tx_error_count_location) uses.push_back({m.tx_error_count_location, "master tx_error_count_location"});
-    if (m.has_rx_error_count_location) uses.push_back({m.rx_error_count_location, "master rx_error_count_location"});
-    if (m.has_bus_off_count_location) uses.push_back({m.bus_off_count_location, "master bus_off_count_location"});
-    if (m.has_state_location) uses.push_back({m.state_location, "master state_location"});
+    if (m.has_bus_state_location) uses.push_back({m.bus_state_location, p + "master bus_state_location"});
+    if (m.has_tx_error_count_location) uses.push_back({m.tx_error_count_location, p + "master tx_error_count_location"});
+    if (m.has_rx_error_count_location) uses.push_back({m.rx_error_count_location, p + "master rx_error_count_location"});
+    if (m.has_bus_off_count_location) uses.push_back({m.bus_off_count_location, p + "master bus_off_count_location"});
+    if (m.has_state_location) uses.push_back({m.state_location, p + "master state_location"});
     for (const auto& n : cfg.nodes) {
-      if (n.has_status_location) uses.push_back({n.status_location, n.label() + " status_location"});
-      if (n.has_state_location) uses.push_back({n.state_location, n.label() + " state_location"});
-      if (n.has_boot_error_location) uses.push_back({n.boot_error_location, n.label() + " boot_error_location"});
-      if (n.has_emcy_code_location) uses.push_back({n.emcy_code_location, n.label() + " emcy_code_location"});
+      const std::string nl = p + n.label();
+      if (n.has_status_location) uses.push_back({n.status_location, nl + " status_location"});
+      if (n.has_state_location) uses.push_back({n.state_location, nl + " state_location"});
+      if (n.has_boot_error_location) uses.push_back({n.boot_error_location, nl + " boot_error_location"});
+      if (n.has_emcy_code_location) uses.push_back({n.emcy_code_location, nl + " emcy_code_location"});
       if (n.has_error_register_location)
-        uses.push_back({n.error_register_location, n.label() + " error_register_location"});
+        uses.push_back({n.error_register_location, nl + " error_register_location"});
       if (n.has_nmt_command_location)
-        uses.push_back({n.nmt_command_location, n.label() + " nmt_command_location"});
+        uses.push_back({n.nmt_command_location, nl + " nmt_command_location"});
       for (const auto& sv : n.sdo_variables) {
-        std::string who = n.label() + " " + sv.label();
+        std::string who = nl + " " + sv.label();
         uses.push_back({sv.location, who});
         if (sv.has_trigger) uses.push_back({sv.trigger_location, who + " trigger_location"});
         if (sv.has_status) uses.push_back({sv.status_location, who + " status_location"});
@@ -1276,16 +1454,12 @@ class Parser {
           for (const auto& e : p.entries) {
             char obj[64];
             std::snprintf(obj, sizeof(obj), " %s %u object 0x%04X:%u", dir, p.number, e.index, e.subindex);
-            uses.push_back({e.location, n.label() + obj});
+            uses.push_back({e.location, nl + obj});
           }
       };
       add(n.tx_pdos, "TPDO");
       add(n.rx_pdos, "RPDO");
     }
-    for (size_t i = 0; i < uses.size(); ++i)
-      for (size_t j = i + 1; j < uses.size(); ++j)
-        if (uses[i].loc.overlaps(uses[j].loc))
-          error("nodes", uses[i].who + " and " + uses[j].who + " both map to " + uses[i].loc.str());
   }
 
  private:
@@ -1294,6 +1468,8 @@ class Parser {
   std::string eds_fallback_dir_;
   std::vector<std::string>& errors_;
   std::vector<std::string>& warnings_;
+  std::string prefix_;  // "networks[i]" while parsing a version 2 network
+  unsigned version_ = 1;
 };
 
 std::string dir_of(const std::string& path) {
@@ -1319,12 +1495,12 @@ std::string default_eds_fallback_dir() {
   return std::string(cwd) + "/core/generated/conf";
 }
 
-bool parse_config(const std::string& json, const std::string& path,
-                  const ImageLimits& limits, Config& out,
-                  std::vector<std::string>& errors, const std::string& eds_fallback_dir) {
-  out = Config();
+bool parse_config_set(const std::string& json, const std::string& path, const ImageLimits& limits,
+                      ConfigSet& out, std::vector<std::string>& errors, const std::string& eds_fallback_dir) {
+  out = ConfigSet();
   out.path = path;
   out.config_dir = dir_of(path);
+  out.file_sha256 = sha256_hex(json);
   cJSON* root = cJSON_Parse(json.c_str());
   if (!root) {
     const char* at = cJSON_GetErrorPtr();
@@ -1335,23 +1511,58 @@ bool parse_config(const std::string& json, const std::string& path,
   Parser parser(path, limits, eds_fallback_dir, errors, out.warnings);
   bool ok = parser.parse(root, out);
   cJSON_Delete(root);
+  for (auto& cfg : out.networks) cfg.file_sha256 = out.file_sha256;
   return ok;
 }
 
-bool load_config(const std::string& path, const ImageLimits& limits,
-                 Config& out, std::vector<std::string>& errors,
-                 const std::string& eds_fallback_dir) {
+bool load_config_set(const std::string& path, const ImageLimits& limits, ConfigSet& out,
+                     std::vector<std::string>& errors, const std::string& eds_fallback_dir) {
   std::ifstream in(path);
   if (!in) {
+    out = ConfigSet();
     errors.push_back(path + ": cannot open the configuration file");
     return false;
   }
   std::stringstream ss;
   ss << in.rdbuf();
-  std::string text = ss.str();
-  bool ok = parse_config(text, path, limits, out, errors, eds_fallback_dir);
-  out.file_sha256 = sha256_hex(text);
+  return parse_config_set(ss.str(), path, limits, out, errors, eds_fallback_dir);
+}
+
+namespace {
+
+bool only_network(ConfigSet& set, bool ok, Config& out, std::vector<std::string>& errors) {
+  if (ok && set.networks.size() != 1) {
+    errors.push_back(set.path + ": holds " + std::to_string(set.networks.size()) +
+                     " networks; this tool takes a file with one");
+    ok = false;
+  }
+  out = set.networks.empty() ? Config() : set.networks[0];
+  if (set.networks.empty()) {
+    out.path = set.path;
+    out.config_dir = set.config_dir;
+    out.file_sha256 = set.file_sha256;
+  }
+  out.warnings.insert(out.warnings.begin(), set.warnings.begin(), set.warnings.end());
+  out.notes.insert(out.notes.begin(), set.notes.begin(), set.notes.end());
   return ok;
+}
+
+}  // namespace
+
+bool parse_config(const std::string& json, const std::string& path,
+                  const ImageLimits& limits, Config& out,
+                  std::vector<std::string>& errors, const std::string& eds_fallback_dir) {
+  ConfigSet set;
+  bool ok = parse_config_set(json, path, limits, set, errors, eds_fallback_dir);
+  return only_network(set, ok, out, errors);
+}
+
+bool load_config(const std::string& path, const ImageLimits& limits,
+                 Config& out, std::vector<std::string>& errors,
+                 const std::string& eds_fallback_dir) {
+  ConfigSet set;
+  bool ok = load_config_set(path, limits, set, errors, eds_fallback_dir);
+  return only_network(set, ok, out, errors);
 }
 
 bool simulates_anything(const Config& cfg) {

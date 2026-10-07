@@ -15,12 +15,15 @@ instead, for runtimes with the editor hook (docs/install-stock.md).
   openplc-canopen-deploy --config canopen_config.json --export-dcf <dir>
 
 writes each node's configuration as a CiA 306 DCF (node_<id>.dcf) into
-<dir>, checked against CiA 306, and uploads nothing.
+<dir>, checked against CiA 306, and uploads nothing. With several networks
+each network's files go into <dir>/<network>/; --network NAME exports one.
 
   openplc-canopen-deploy --config canopen_config.json --export-dbc bus.dbc [--dbc-sdo config]
 
 writes the network's PDOs, heartbeat, EMCY, NMT and SYNC (and optionally its
-SDO frames) as a DBC file for CAN bus tools, and uploads nothing.
+SDO frames) as a DBC file for CAN bus tools, and uploads nothing. With
+several networks it writes bus_<network>.dbc per network; --network NAME
+writes only that network to bus.dbc.
 
   openplc-canopen-deploy --config canopen_config.json --new-project <dir> [--task-interval T#10ms]
 
@@ -101,6 +104,9 @@ def parser():
     p.add_argument("--dbc-sdo", choices=dbcexport.SDO_OPTIONS,
                    help="with --export-dbc: SDO frames to include: none (default), config (the config's SDO "
                         "variables and startup SDOs) or all (every EDS object up to 32 bits)")
+    p.add_argument("--network", metavar="NAME",
+                   help="with --export-dcf or --export-dbc and a config with several networks: export only this "
+                        "network (default: every network, DCFs in a folder per network, a DBC file per network)")
     p.add_argument("--force", action="store_true", help="with --into-project: replace an existing canopen/ folder")
     p.add_argument("--target", default=DEFAULT_TARGET,
                    help="board target for --project (default: %(default)s)")
@@ -172,6 +178,9 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         raise Failure("--dbc-sdo needs --export-dbc")
     if dbc_file and (args.runtime or args.output or args.check_only):
         raise Failure("--export-dbc only writes a DBC file; leave out --runtime, --output and --check-only")
+    network = getattr(args, "network", None)
+    if network and not export_dir and not dbc_file:
+        raise Failure("--network needs --export-dcf or --export-dbc")
     new_project = getattr(args, "new_project", None)
     interval = getattr(args, "task_interval", None)
     if interval and not new_project:
@@ -233,7 +242,7 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
 
     if export_dir:
         try:
-            files, _ = dcfexport.export(cfg, args.config)
+            files, _ = dcfexport.export(cfg, args.config, network=network)
         except dcfexport.ExportFailed as e:
             raise Failure("\n".join(m for m, _ in e.problems) + "\nno DCF was written")
         for path in dcfexport.write_files(files, export_dir):
@@ -243,14 +252,16 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
 
     if dbc_file:
         try:
-            text, warnings = dbcexport.export(cfg, args.config, sdo=dbc_sdo or "none",
-                                              names=dbcexport.project_names(args.config))
+            files, warnings = dbcexport.export_networks(cfg, args.config, sdo=dbc_sdo or "none",
+                                                        names=dbcexport.project_names(args.config), network=network)
         except dbcexport.ExportFailed as e:
             raise Failure("\n".join(m for m, _ in e.problems) + "\nno DBC was written")
         for w in warnings:
             if w not in result.warnings:
                 err("warning: " + w)
-        out("wrote %s" % dbcexport.write_file(text, dbc_file))
+        for name, text in files:
+            path = dbcexport.network_file(dbc_file, name) if len(files) > 1 else dbc_file
+            out("wrote %s" % dbcexport.write_file(text, path))
         return 0
 
     if new_project:

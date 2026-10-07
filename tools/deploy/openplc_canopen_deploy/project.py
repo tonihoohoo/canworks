@@ -55,7 +55,7 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
         raise ProjectError(str(e))
     software = bundle.software_files(cfg, config_path)
     out = json.loads(json.dumps(cfg))
-    for n in out.get("nodes", []):
+    for n in contract.all_nodes(out):
         n["eds"] = os.path.basename(files[n["eds"]])
         if n.get("software_file"):
             n["software_file"] = os.path.basename(software[n["software_file"]])

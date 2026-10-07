@@ -10,7 +10,9 @@ const TYPES = ["BOOLEAN", "INTEGER8", "INTEGER16", "INTEGER32", "INTEGER64", "UN
 
 const S = {
   state: null,      // last /api/state
-  config: null,     // the draft
+  model: null,      // the draft: { top, networks, diagnostics } (see toModel)
+  net: 0,           // the open network tab
+  config: null,     // the open network of the draft (adapter, master, nodes)
   dirty: false,
   view: "bus",      // "bus" | "node:<i>" | "declarations" | "online" | "scan" | "trace" | "simulation"
   check: null,      // last /api/check
@@ -45,6 +47,12 @@ function el(tag, attrs, ...children) {
 }
 
 async function api(method, path, body) {
+  // Requests to the runtime name the picked network; the server passes it
+  // on only to a plugin that runs several.
+  const net = onlineNetwork();
+  if (net !== null && body && body.network === undefined && (path.startsWith("/api/online/") || path.startsWith("/api/trace/") || path.startsWith("/api/sim/"))) {
+    body = Object.assign({ network: net }, body);
+  }
   const res = await fetch(path, {
     method,
     headers: Object.assign({ "X-CANopen-Token": TOKEN }, body ? { "Content-Type": "application/json" } : {}),
@@ -145,10 +153,19 @@ function num(v) {
 }
 function sameObject(a, ai, b, bi) { return num(a) === num(b) && num(ai || 0) === num(bi || 0); }
 
+// The object a page path starts in, and the path's parts: the open network,
+// or for "master.diagnostics…" the draft's one diagnostics object, which
+// every network shares (master.diagnostics in a version 1 file).
+function pathRoot(path) {
+  const parts = path.match(/[^.[\]]+/g);
+  if (parts[0] === "master" && parts[1] === "diagnostics") return [S.model, parts.slice(1)];
+  return [S.config, parts];
+}
+
 // Writes a value at a JSON path in the draft ("" or undefined deletes it).
 function setPath(path, value) {
-  const parts = path.match(/[^.[\]]+/g);
-  let obj = S.config;
+  const [root, parts] = pathRoot(path);
+  let obj = root;
   for (let i = 0; i < parts.length - 1; i++) {
     const k = /^\d+$/.test(parts[i]) ? Number(parts[i]) : parts[i];
     if (obj[k] === undefined || obj[k] === null) obj[k] = /^\d+$/.test(parts[i + 1]) ? [] : {};
@@ -161,8 +178,8 @@ function setPath(path, value) {
 }
 
 function getPath(path) {
-  let obj = S.config;
-  for (const p of path.match(/[^.[\]]+/g)) {
+  let [obj, parts] = pathRoot(path);
+  for (const p of parts) {
     if (obj === undefined || obj === null) return undefined;
     obj = obj[/^\d+$/.test(p) ? Number(p) : p];
   }
@@ -238,12 +255,272 @@ function choice(label, path, choices, opts) {
 }
 
 // ---------------------------------------------------------------------------
+// Networks (canopen-networks). The draft is always a network list; a file
+// with one network that has no name of its own goes back to the server as
+// version 1, anything else as version 2 (canopen-config-contract: writers
+// use the lowest version that holds the config).
+
+const NETWORK_NAME = /^[A-Za-z][A-Za-z0-9_]{0,15}$/;
+const MAX_NETWORKS = 8;
+const NETWORK_KEYS = ["name", "adapter", "master", "nodes"];
+
+// The draft of a file as the server sent it (version 1 or 2).
+function toModel(cfg) {
+  cfg = JSON.parse(JSON.stringify(cfg || {}));
+  const top = {};
+  let networks;
+  let diagnostics;
+  if (cfg.schema_version === 2 && Array.isArray(cfg.networks)) {
+    for (const [k, v] of Object.entries(cfg)) if (k !== "networks" && k !== "diagnostics") top[k] = v;
+    networks = cfg.networks.map((n) => (n && typeof n === "object" && !Array.isArray(n) ? n : {}));
+    diagnostics = cfg.diagnostics;
+  } else {
+    const net = {};
+    for (const [k, v] of Object.entries(cfg)) {
+      if (k === "adapter" || k === "master" || k === "nodes") net[k] = v;
+      else top[k] = v;
+    }
+    if (net.master && typeof net.master === "object" && "diagnostics" in net.master) {
+      diagnostics = net.master.diagnostics;
+      delete net.master.diagnostics;
+    }
+    networks = [net];
+  }
+  if (!networks.length) networks.push({ adapter: { type: "socketcan", bitrate: 250000 }, master: { node_id: 1 }, nodes: [] });
+  return { top, networks, diagnostics };
+}
+
+function setModel(cfg) {
+  S.model = toModel(cfg);
+  openNet(Math.min(S.net || 0, S.model.networks.length - 1));
+}
+
+function openNet(i) {
+  S.net = i;
+  S.config = S.model.networks[i];
+}
+
+function several() { return !!S.model && S.model.networks.length > 1; }
+
+// A network's name: its own, else its interface's (when that is a valid name).
+function netName(net) {
+  if (net && typeof net.name === "string" && net.name) return net.name;
+  const iface = net && net.adapter ? net.adapter.interface : undefined;
+  return typeof iface === "string" && NETWORK_NAME.test(iface) ? iface : "";
+}
+function netLabel(net, i) { return netName(net) || `network ${i + 1}`; }
+
+function customName(net) {
+  return typeof net.name === "string" && net.name !== "" && !(net.adapter && net.name === net.adapter.interface);
+}
+
+// The draft as a file: version 1 when it holds one network without a name
+// of its own, else version 2.
+function fileConfig() {
+  const m = S.model;
+  const out = {};
+  const swapSchema = (from, to) => {
+    if (typeof out.$schema === "string" && out.$schema.endsWith(`canopen.v${from}.schema.json`)) {
+      out.$schema = out.$schema.slice(0, -`canopen.v${from}.schema.json`.length) + `canopen.v${to}.schema.json`;
+    }
+  };
+  const net = m.networks[0];
+  if (m.networks.length === 1 && !customName(net) && Object.keys(net).every((k) => NETWORK_KEYS.includes(k))) {
+    for (const [k, v] of Object.entries(m.top)) out[k] = k === "schema_version" && v === 2 ? 1 : v;
+    for (const k of ["adapter", "master", "nodes"]) if (k in net) out[k] = net[k];
+    if (m.diagnostics !== undefined) out.master = Object.assign({}, net.master, { diagnostics: m.diagnostics });
+    swapSchema(2, 1);
+    return out;
+  }
+  out.schema_version = 2;
+  for (const [k, v] of Object.entries(m.top)) out[k] = k === "schema_version" ? 2 : v;
+  out.networks = m.networks;
+  if (m.diagnostics !== undefined) out.diagnostics = m.diagnostics;
+  swapSchema(1, 2);
+  return out;
+}
+
+function fileVersion(cfg) { return cfg.schema_version === 2 ? 2 : 1; }
+
+// A path of a check result, in the page's terms: { net, path } with net the
+// network index (null for the shared diagnostics and the top level) and the
+// path as the page's fields name it.
+function pagePath(p, version) {
+  if (typeof p !== "string") return { net: null, path: p };
+  if (version === 2) {
+    const m = /^networks\[(\d+)\](?:\.(.*))?$/.exec(p);
+    if (m) return { net: Number(m[1]), path: m[2] || "" };
+    if (p === "diagnostics" || p.startsWith("diagnostics.")) return { net: null, path: "master." + p };
+    return { net: null, path: p };
+  }
+  if (p.startsWith("master.diagnostics")) return { net: null, path: p };
+  return { net: 0, path: p };
+}
+
+// A /api/check shaped answer with its paths in the page's terms: `where` on
+// each item, and the declared map keyed by "<network index>|<path>".
+function normCheck(r, version) {
+  for (const it of r.items || []) it.where = (it.paths || []).map((p) => pagePath(p, version));
+  if (r.declared) {
+    const d = {};
+    for (const [p, name] of Object.entries(r.declared)) {
+      const w = pagePath(p, version);
+      d[`${w.net}|${w.path}`] = name;
+    }
+    r.declared = d;
+  }
+  return r;
+}
+
+function renderNetBar() {
+  const bar = $("#net-bar");
+  if (!bar || !S.model) return;
+  const nets = S.model.networks;
+  bar.replaceChildren(
+    several() ? el("div", { class: "net-tabs", role: "tablist", "aria-label": "Networks" }, nets.map((n, i) =>
+      el("button", { type: "button", role: "tab", class: "net-tab" + (i === S.net ? " active" : ""),
+        "aria-selected": String(i === S.net), dataset: { net: i }, title: n.adapter && n.adapter.interface ? "Interface " + n.adapter.interface : null,
+        onclick: () => switchNet(i) }, netLabel(n, i), el("span", { class: "count" })))) : null,
+    el("div", { class: "net-actions" },
+      nets.length < MAX_NETWORKS ? el("button", { type: "button", dataset: { netAction: "add" }, onclick: addNetwork,
+        title: "Another CANopen network with its own CAN interface, master and nodes" }, "Add network") : null,
+      several() ? el("button", { type: "button", dataset: { netAction: "rename" }, onclick: renameNetwork }, "Rename") : null,
+      several() ? el("button", { type: "button", dataset: { netAction: "remove" }, onclick: removeNetwork }, "Remove") : null));
+}
+
+// Opens a network's tab. The online and scan views follow it; a node page
+// goes to the new tab's Bus and master.
+function switchNet(i) {
+  if (i === S.net) return;
+  openNet(i);
+  S.onlineNet = null;
+  S.onlineNode = null;
+  S.scanResult = null;
+  S.lssDevice = null;
+  S.supervision = {};
+  if (S.view.startsWith("node:")) S.view = "bus";
+  render();
+}
+
+function addNetwork() {
+  const first = S.model.networks[0];
+  const rate = first && first.adapter && Number.isInteger(first.adapter.bitrate) ? first.adapter.bitrate : 250000;
+  // No interface: the user picks it (each network needs its own).
+  S.model.networks.push({ adapter: { type: "socketcan", bitrate: rate }, master: { node_id: 1, sync_period_us: 10000 }, nodes: [] });
+  openNet(S.model.networks.length - 1);
+  S.onlineNet = null;
+  S.view = "bus";
+  banner(`Added network ${S.model.networks.length}. Enter its CAN interface (each network needs its own), then add its nodes.`);
+  changed(true);
+}
+
+async function renameNetwork() {
+  const net = S.config;
+  const input = el("input", { type: "text", spellcheck: "false", maxlength: 16, "aria-label": "Network name", dataset: { net: "name" } });
+  input.value = netName(net);
+  const iface = net.adapter && net.adapter.interface;
+  let text = "Network name: a letter, then letters, digits or _, at most 16 characters. It names the network's folder " +
+    "in exports and prefixes its variables" + (iface ? `. Empty: ${iface}, the interface's name.` : ".");
+  for (;;) {
+    const v = await modal(text, [["rename", "Rename", true], ["cancel", "Cancel"]], input);
+    if (v !== "rename") return;
+    const name = input.value.trim();
+    const taken = S.model.networks.some((n, i) => i !== S.net && netName(n).toLowerCase() === name.toLowerCase());
+    if (name && !NETWORK_NAME.test(name)) text = `"${name}" is not a network name: a letter, then letters, digits or _, at most 16 characters.`;
+    else if (name && taken) text = `Another network is already named ${name}.`;
+    else break;
+  }
+  const name = input.value.trim();
+  if (!name || name === iface) delete net.name;
+  else net.name = name;
+  changed(true);
+}
+
+async function removeNetwork() {
+  const label = netLabel(S.config, S.net);
+  const k = (S.config.nodes || []).length;
+  const v = await modal(`Remove network ${label}` + (k ? ` and its ${k} node${k === 1 ? "" : "s"}` : "") +
+    "? Its EDS files stay in the folder.", [["remove", "Remove network", true], ["cancel", "Cancel"]]);
+  if (v !== "remove") return;
+  S.model.networks.splice(S.net, 1);
+  openNet(Math.min(S.net, S.model.networks.length - 1));
+  S.onlineNet = null;
+  S.onlineNode = null;
+  S.scanResult = null;
+  if (S.view.startsWith("node:")) S.view = "bus";
+  banner(`Removed network ${label}.`);
+  changed(true);
+}
+
+// The network the online, scan and trace views talk to: the picked one, else
+// the open tab's. null with one network everywhere (nothing to name).
+function onlineNetwork() {
+  if (!S.model) return null;
+  const runtime = S.runtimeNets || [];
+  if (!several() && runtime.length < 2) return null;
+  return S.onlineNet || netName(S.config) || (runtime[0] ? runtime[0].name : null);
+}
+
+// The draft network the picked runtime network is (its nodes and EDS files).
+function onlineConfig() {
+  const name = onlineNetwork();
+  if (name === null) return S.config;
+  return S.model.networks.find((n) => netName(n) === name) || { nodes: [] };
+}
+
+// The network picker of the online, scan and trace views: the runtime's
+// networks once it has said them, else the draft's.
+function netPicker() {
+  const runtime = (S.runtimeNets || []).map((n) => n.name).filter((n) => n);
+  const names = runtime.length > 1 ? runtime : S.model.networks.map(netName).filter((n) => n);
+  if (names.length < 2) return el("span", { dataset: { online: "net-picker" } });
+  const current = onlineNetwork();
+  const sel = el("select", { "aria-label": "Network", dataset: { online: "network" } },
+    names.map((n) => el("option", { value: n }, n + ((S.runtimeNets || []).find((r) => r.name === n && r.interface)
+      ? ` (${S.runtimeNets.find((r) => r.name === n).interface})` : ""))));
+  if (!names.includes(current)) sel.prepend(el("option", { value: current }, current + " (not on the runtime)"));
+  sel.value = current;
+  sel.addEventListener("change", () => pickNetwork(sel.value));
+  return el("label", { class: "inline", dataset: { online: "net-picker" } }, "Network ", sel);
+}
+
+function pickNetwork(name) {
+  const i = S.model.networks.findIndex((n) => netName(n) === name);
+  if (i >= 0 && i !== S.net) {
+    openNet(i);
+    S.supervision = {};
+  }
+  S.onlineNet = name;
+  S.onlineNode = null;
+  S.scanResult = null;
+  S.lssDevice = null;
+  render();
+}
+
+// The runtime's networks from an online answer; the picker is drawn again
+// when they change, or when the server picked another network.
+function runtimeNetworks(r) {
+  const nets = Array.isArray(r.networks) ? r.networks : [];
+  let redraw = JSON.stringify(nets) !== JSON.stringify(S.runtimeNets || []);
+  S.runtimeNets = nets;
+  if (r.network && nets.length > 1 && r.network !== onlineNetwork()) {
+    S.onlineNet = r.network;
+    redraw = true;
+    const i = S.model.networks.findIndex((n) => netName(n) === r.network);
+    if (i >= 0 && i !== S.net) { openNet(i); renderSide(); }
+  }
+  if (redraw) {
+    for (const old of document.querySelectorAll("[data-online=net-picker]")) old.replaceWith(netPicker());
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Start page
 
 async function loadState() {
   S.state = await api("GET", "/api/state");
   if (S.state.mode) {
-    S.config = JSON.parse(JSON.stringify(S.state.config));
+    setModel(S.state.config);
     await loadOnlineSettings();
     S.dirty = false;
     S.supervision = {};
@@ -358,6 +635,7 @@ function render() {
 }
 
 function renderSide() {
+  renderNetBar();
   for (const b of document.querySelectorAll(".nav-item")) b.classList.toggle("active", b.dataset.view === S.view);
   const list = $("#node-list");
   list.replaceChildren(...(S.config.nodes || []).map((n, i) => el("li", {
@@ -366,7 +644,7 @@ function renderSide() {
   }, `${n.node_id ?? "?"} ${n.name || ""}`, simBadge(n), el("span", { class: "count" }),
   el("button", { type: "button", class: "export-dcf", title: `Export DCF: node ${n.node_id ?? "?"} as a CiA 306 DCF file`,
     "aria-label": `Export DCF of node ${n.node_id ?? "?"}`,
-    onclick: (ev) => { ev.stopPropagation(); exportDcf(n.node_id); } }, "Export DCF"))));
+    onclick: (ev) => { ev.stopPropagation(); exportDcf(n.node_id, tabNetwork()); } }, "Export DCF"))));
   if (!(S.config.nodes || []).length) list.append(el("li", { class: "muted" }, "No nodes yet"));
   const unused = S.state.unused_eds || [];
   $("#unused-eds").replaceChildren(...(unused.length ? [el("h3", null, "Unused EDS files"),
@@ -404,9 +682,10 @@ function switchAdapterType(type) {
 // network, real on a real one), so switching the network sets every node back
 // to that default.
 
-function simNetwork() { return !!(S.config && S.config.adapter && S.config.adapter.simulate === true); }
-function nodeSimulated(n) { return n.simulate === undefined ? simNetwork() : n.simulate === true; }
-function anySimulated() { return simNetwork() || (S.config.nodes || []).some((n) => nodeSimulated(n)); }
+function simNetwork(net = S.config) { return !!(net && net.adapter && net.adapter.simulate === true); }
+function nodeSimulated(n, net = S.config) { return n.simulate === undefined ? simNetwork(net) : n.simulate === true; }
+function netSimulates(net) { return simNetwork(net) || (net.nodes || []).some((n) => nodeSimulated(n, net)); }
+function anySimulated() { return !!S.model && S.model.networks.some(netSimulates); }
 function nodeIds(list) { return list.map((n) => n.node_id ?? "?").join(", "); }
 function plural(list, one, many) { return list.length === 1 ? one : many; }
 
@@ -416,20 +695,29 @@ function simBadge(n) {
   return null;
 }
 
-// What is simulated, in one sentence, or "" when nothing is.
-function simSummary() {
-  if (!S.config) return "";
-  const nodes = S.config.nodes || [];
-  const sim = nodes.filter((n) => nodeSimulated(n));
-  if (simNetwork()) {
-    const absent = nodes.filter((n) => !nodeSimulated(n));
+// What is simulated in one network, in one sentence, or "" when nothing is.
+function netSimSummary(net) {
+  const nodes = net.nodes || [];
+  const sim = nodes.filter((n) => nodeSimulated(n, net));
+  if (simNetwork(net)) {
+    const absent = nodes.filter((n) => !nodeSimulated(n, net));
     return "The network is simulated: the master runs on a virtual bus inside the plugin" +
       (sim.length ? `, with ${plural(sim, "node", "nodes")} ${nodeIds(sim)} simulated` : ", with no node simulated") +
       (absent.length ? ` and ${plural(absent, "node", "nodes")} ${nodeIds(absent)} absent` : "") + ".";
   }
   if (!sim.length) return "";
-  const iface = (S.config.adapter && S.config.adapter.interface) || "";
+  const iface = (net.adapter && net.adapter.interface) || "";
   return `${plural(sim, "Node", "Nodes")} ${nodeIds(sim)} ${plural(sim, "is", "are")} simulated on the real network${iface ? " " + iface : ""}.`;
+}
+
+// What is simulated, network by network when there are several, or "".
+function simSummary() {
+  if (!S.config || !S.model) return "";
+  if (!several()) return netSimSummary(S.config);
+  const parts = S.model.networks.map((net, i) => [net, i]).filter(([net]) => netSimulates(net))
+    .map(([net, i]) => `Network ${netLabel(net, i)}: ${netSimSummary(net)}`);
+  if (!parts.length) return "";
+  return parts.join(" ") + " With several networks the simulation file is not used: simulated devices run with their default behaviour.";
 }
 
 // The banner on every page while anything is simulated.
@@ -450,8 +738,7 @@ async function simulationNeedsOnline() {
       const r = await api("POST", "/api/online/token", { action: "generate" });
       S.online = Object.assign(S.online, r);
     }
-    S.config.master = S.config.master || {};
-    S.config.master.diagnostics = { token_sha256: await sha256Hex(S.online.token), allow_changes: true };
+    S.model.diagnostics = { token_sha256: await sha256Hex(S.online.token), allow_changes: true };
     await checkToken();
     banner("Online access is now on with Allow changes, so the Simulation view can control the simulated devices. Save and upload to use it.");
   } catch (e) { banner(e.message, true); }
@@ -538,7 +825,7 @@ function renderBus(view) {
   rateSel.value = rate === undefined ? "" : String(rate);
   rateSel.addEventListener("change", () => setPath("adapter.bitrate", Number(rateSel.value)));
   view.append(
-    el("h2", null, "Bus and master"),
+    el("h2", null, several() ? `Bus and master: network ${netLabel(S.config, S.net)}` : "Bus and master"),
     networkSettings(),
     el("fieldset", null, el("legend", null, "CAN adapter"),
       el("div", { class: "grid" },
@@ -597,7 +884,7 @@ function renderBus(view) {
         const path = "master." + key;
         const btn = el("button", { type: "button", dataset: { suggest: key },
           onclick: async () => {
-            const r = await api("POST", "/api/place", { config: S.config, direction: key });
+            const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, direction: key });
             setPath(path, r.location);
             render();
           } }, "Suggest");
@@ -719,6 +1006,7 @@ function showTimeCob() {
 document.addEventListener("input", (ev) => {
   const path = ev.target && ev.target.dataset ? ev.target.dataset.path : null;
   if (path === "master.time_period_ms" || path === "master.time_cob_id") showTimeCob();
+  if (path === "adapter.interface" && several()) renderNetBar();  // the tab shows the interface's name
 });
 
 function edsFor(n) { return (S.state.eds || {})[n.eds] || null; }
@@ -728,7 +1016,7 @@ function objectInfo(eds, index, sub) {
   return eds.objects.find((o) => sameObject(o.index, o.subindex, index, sub)) || null;
 }
 
-function declaredAs(path) { return S.check && S.check.declared ? S.check.declared[path] : null; }
+function declaredAs(path) { return S.check && S.check.declared ? S.check.declared[`${S.net}|${path}`] : null; }
 
 function renderNode(view, i) {
   const n = S.config.nodes[i];
@@ -740,7 +1028,7 @@ function renderNode(view, i) {
   edsSel.addEventListener("change", () => { setPath(base + ".eds", edsSel.value); render(); });
   const suggestBtn = (direction, key) => el("button", { type: "button", dataset: { suggest: direction },
     onclick: async () => {
-      const r = await api("POST", "/api/place", { config: S.config, node: i, direction });
+      const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction });
       setPath(base + "." + key, r.location);
       render();
     } }, "Suggest");
@@ -832,7 +1120,7 @@ function axisFields(i, eds) {
   const result = el("div", { dataset: { axisResult: "" } });
   fs.append(el("div", { class: "toolbar" },
     el("button", { type: "button", dataset: { mapCia402: base }, disabled: !eds || !!eds.error, onclick: async () => {
-      const r = await api("POST", "/api/map_cia402", { config: S.config, node: i });
+      const r = await api("POST", "/api/map_cia402", { config: fileConfig(), network: S.net, node: i });
       S.config.nodes[i] = r.node;
       S.axisResult = { node: i, mapped: r.mapped, missing: r.missing };
       changed(true);
@@ -1427,7 +1715,7 @@ function devicePdoFor(i, dir, o) {
 async function addToPdo(i, dir, number, o) {
   const n = S.config.nodes[i];
   const key = dir === "input" ? "tx_pdos" : "rx_pdos";
-  const r = await api("POST", "/api/place", { config: S.config, node: i, direction: dir, type: o.type });
+  const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction: dir, type: o.type });
   n[key] = n[key] || [];
   let p = n[key].find((q, j) => (num(q.number) || j + 1) === number);
   if (!p) {
@@ -1563,7 +1851,7 @@ function renderSdoVars(i, eds) {
     const input = field("", vp + "." + key, "text", { placeholder }).querySelector("input");
     input.setAttribute("aria-label", label);
     const btn = el("button", { type: "button", dataset: { suggest: direction }, onclick: async () => {
-      const r = await api("POST", "/api/place", { config: S.config, node: i, direction, type });
+      const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction, type });
       setPath(vp + "." + key, r.location);
       render();
     } }, "Suggest");
@@ -1691,16 +1979,26 @@ function stBlock(type, write) {
     : type === "OCTET_STRING" || type === "DOMAIN" ? "_BYTES" : "";
   return (write ? "CO_SDO_WRITE" : "CO_SDO_READ") + kind;
 }
-function stCall(node, index, subindex, type, write) {
+// With several networks: the online network's number (its place in the
+// runtime's list, which is the config's order) and name; null with one.
+function stNetwork() {
+  const name = onlineNetwork();
+  if (name === null) return null;
+  const runtime = S.runtimeNets || [];
+  let i = runtime.findIndex((n) => n.name === name);
+  if (i < 0) i = S.model.networks.findIndex((n) => netName(n) === name);
+  return i < 0 ? null : { index: i, name };
+}
+function stCall(node, index, subindex, type, write, net = stNetwork()) {
   const block = stBlock(type, write);
   const ix = index.toString(16).toUpperCase().padStart(4, "0");
-  const inst = `${write ? "wr" : "rd"}_n${node}_${ix}_${subindex}`;
+  const inst = `${write ? "wr" : "rd"}_${net ? net.name + "_" : ""}n${node}_${ix}_${subindex}`;
   const iec = ST_INT_TYPES[type];
   const lines = [`VAR`, `  ${inst} : ${block};`];
   if (block.endsWith("_BYTES")) lines.push(`  ${inst}_buf : ARRAY[0..1023] OF BYTE;`);
   lines.push(`END_VAR`, ``);
   lines.push(`(* EXECUTE: a rising edge starts the transfer; FALSE clears DONE and ERROR. *)`);
-  const args = [`EXECUTE := ${inst}_go`, `NODE := ${node}`, `INDEX := 16#${ix}`, `SUBINDEX := ${subindex}`];
+  const args = [`EXECUTE := ${inst}_go`, ...(net ? [`NETWORK := ${net.index} (* ${net.name} *)`] : []), `NODE := ${node}`, `INDEX := 16#${ix}`, `SUBINDEX := ${subindex}`];
   if (block === "CO_SDO_WRITE") args.push(`DATA := ${iec ? `${iec}_TO_LWORD(value)` : "value"}`, `SIZE := 0`);
   if (block === "CO_SDO_WRITE_REAL") args.push(`VALUE := value`, `SIZE := 0`);
   if (block === "CO_SDO_WRITE_STRING") args.push(`VALUE := text`);
@@ -1745,7 +2043,7 @@ const NO_CHANGES = "Online changes are not allowed in this configuration (turn o
 
 function hex8(n) { return "0x" + (Number(n) >>> 0).toString(16).toUpperCase().padStart(8, "0"); }
 function stateName(s) { return NODE_STATES[s] || String(s); }
-function diagConfig() { return S.config && S.config.master ? S.config.master.diagnostics : undefined; }
+function diagConfig() { return S.model ? S.model.diagnostics : undefined; }
 function diagPort() { const d = diagConfig(); return d && Number.isInteger(d.port) ? d.port : DIAG_PORT; }
 
 async function sha256Hex(text) {
@@ -1774,16 +2072,15 @@ async function enableOnline(on) {
     const v = await modal("Turn online access off? The runtime closes the diagnostics port after the next upload.",
       [["off", "Turn off", true], ["cancel", "Cancel"]]);
     if (v !== "off") return render();
-    delete S.config.master.diagnostics;
+    delete S.model.diagnostics;
     return changed(true);
   }
-  S.config.master = S.config.master || {};
   if (S.online.token) {
-    S.config.master.diagnostics = { token_sha256: await sha256Hex(S.online.token) };
+    S.model.diagnostics = { token_sha256: await sha256Hex(S.online.token) };
   } else {
     const r = await api("POST", "/api/online/token", { action: "generate" });
     S.online = Object.assign(S.online, r);
-    S.config.master.diagnostics = { token_sha256: r.token_sha256 };
+    S.model.diagnostics = { token_sha256: r.token_sha256 };
   }
   await checkToken();
   changed(true);
@@ -1795,7 +2092,7 @@ async function newToken() {
   if (v !== "new") return;
   const r = await api("POST", "/api/online/token", { action: "generate" });
   S.online = Object.assign(S.online, r);
-  S.config.master.diagnostics.token_sha256 = r.token_sha256;
+  S.model.diagnostics.token_sha256 = r.token_sha256;
   await checkToken();
   changed(true);
 }
@@ -1847,7 +2144,7 @@ function onlineAccessSettings() {
   const on = el("input", { type: "checkbox", dataset: { online: "enable" } });
   on.checked = !!d;
   on.addEventListener("change", () => enableOnline(on.checked));
-  const fs = el("fieldset", { dataset: { section: "online" } }, el("legend", null, "Online access"),
+  const fs = el("fieldset", { dataset: { section: "online" } }, el("legend", null, several() ? "Online access (all networks)" : "Online access"),
     el("p", { class: "muted" }, "Lets this configurator (and openplc-canopen-diag) watch the live network from this PC: node states, boot errors, emergencies, SDO values, and a scan of the bus. Off by default; the plugin opens no port without it."),
     el("div", { class: "check-field" }, el("label", { class: "check" }, on, " Online access (diagnostics channel)")));
   if (!d) return fs;
@@ -1943,6 +2240,7 @@ function renderOnline(view) {
   view.append(el("h2", null, "Online"));
   if (!onlineSetup(view)) return;
   view.append(
+    el("div", { class: "toolbar" }, netPicker()),
     el("div", { id: "online-conn", class: "online-conn" }, "Connecting to " + S.online.host + "…"),
     el("div", { id: "online-live" }),
     el("div", { id: "online-lss" }),
@@ -1970,6 +2268,7 @@ async function pollOnline(seq) {
     return;
   }
   S.onlineLast = r;
+  runtimeNetworks(r);
   const st = r.status;
   const notes = [];
   if (!st.session) notes.push(el("div", { class: "online-note error" }, `No CANopen session: the CAN interface ${st.bus.interface} is missing or down on the runtime.`));
@@ -1977,10 +2276,10 @@ async function pollOnline(seq) {
     "The runtime runs a different configuration than the saved canopen.json (saved changes not uploaded yet, or another project)."));
   if (S.dirty) notes.push(el("div", { class: "online-note" }, "This page has unsaved changes; the runtime runs what was uploaded."));
   conn.className = "online-conn ok";
-  conn.replaceChildren(`Connected to ${S.online.host}: plugin ${st.version}, CANopen session up ${Math.floor(st.uptime_s)} s, ` +
+  conn.replaceChildren(`Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version}, CANopen session up ${Math.floor(st.uptime_s)} s, ` +
     (r.hello.allow_changes ? "changes allowed." : "read-only."), ...notes);
   const nodeName = (id, fallback) => {
-    const n = (S.config.nodes || []).find((x) => num(x.node_id) === id);
+    const n = (onlineConfig().nodes || []).find((x) => num(x.node_id) === id);
     return n && n.name ? n.name : fallback;
   };
   const rows = (st.nodes || []).map((n) => {
@@ -2180,7 +2479,7 @@ function emcyClass(code) {
   return "reserved";
 }
 
-function configNode(id) { return (S.config.nodes || []).find((x) => num(x.node_id) === id) || null; }
+function configNode(id) { return (onlineConfig().nodes || []).find((x) => num(x.node_id) === id) || null; }
 
 async function renderOnlineNode() {
   const box = $("#online-node");
@@ -2339,7 +2638,7 @@ const JOB_NAMES = { read: "Reading all", backup: "Backing up", compare: "Compari
 // node, else the EDS a scan row opened it with.
 function nodeSource(id) {
   const n = configNode(id);
-  if (n && n.eds) return { node: id, config: S.config, port: diagPort() };
+  if (n && n.eds) return { node: id, config: fileConfig(), port: diagPort() };
   const p = (S.onlineEds || {})[id];
   return p ? { node: id, eds_path: p, port: diagPort() } : null;
 }
@@ -3358,7 +3657,7 @@ function renderScan(view) {
     hint("Optional. Found devices are matched against the EDS files here (and its subfolders) and in the project's canopen folder. Kept on this PC."))));
   if (!onlineSetup(view)) return;
   const progress = el("span", { class: "muted", dataset: { online: "scan-progress" } });
-  view.append(el("div", { class: "toolbar" },
+  view.append(el("div", { class: "toolbar" }, netPicker(),
     el("button", { type: "button", class: "primary", dataset: { online: "scan" }, onclick: () => runScan(true) }, "Scan the bus"), progress),
   el("div", { id: "scan-result" }));
   S.onlineOpen = true;
@@ -3370,12 +3669,13 @@ async function runScan(start) {
   const seq = S.onlineSeq;
   let r;
   try {
-    r = await api("POST", "/api/online/scan", { start, config: S.config, port: diagPort() });
+    r = await api("POST", "/api/online/scan", { start, config: fileConfig(), port: diagPort() });
   } catch (e) {
     if (seq === S.onlineSeq) banner(e.message, true);
     return;
   }
   if (seq !== S.onlineSeq || S.view !== "scan") return;
+  runtimeNetworks(r);
   const progress = document.querySelector("[data-online=scan-progress]");
   if (r.running) {
     progress.textContent = `Scanning… ${r.done} of ${r.total} node IDs`;
@@ -3562,7 +3862,7 @@ async function addEntry(i, o, dir) {
     changed(true);
     return;
   }
-  const r = await api("POST", "/api/place", { config: S.config, node: i, direction: dir, type: o.type });
+  const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction: dir, type: o.type });
   if (r.pdo === null || r.pdo === undefined) { banner(`Cannot add ${o.index}:${o.subindex}: ${r.reason}.`, true); return; }
   n[key] = n[key] || [];
   if (r.pdo === n[key].length) n[key].push({ entries: [] });
@@ -3639,7 +3939,7 @@ async function addSdoVar(i, index, subindex, direction) {
     return;
   }
   if (!info.type) { banner(`${hex4(ix)}:${sx} has a data type the config does not support.`, true); return; }
-  const r = await api("POST", "/api/place", { config: S.config, node: i, direction: write ? "sdo_write" : "sdo_read", type: info.type });
+  const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction: write ? "sdo_write" : "sdo_read", type: info.type });
   n.sdo_variables = n.sdo_variables || [];
   n.sdo_variables.push({ index: hex4(ix), subindex: sx, type: info.type, direction, iec_location: r.location });
   banner("");
@@ -3665,9 +3965,10 @@ function scheduleCheck() {
 async function runCheck() {
   const seq = ++S.checkSeq;
   try {
-    const r = await api("POST", "/api/check", { config: S.config, allow_overlap: $("#allow-overlap").checked });
+    const cfg = fileConfig();
+    const r = await api("POST", "/api/check", { config: cfg, allow_overlap: $("#allow-overlap").checked });
     if (seq !== S.checkSeq) return;
-    S.check = r;
+    S.check = normCheck(r, fileVersion(cfg));
     if (S.view === "declarations") render(); else applyCheck();
   } catch (e) {
     banner(e.message, true);
@@ -3675,16 +3976,32 @@ async function runCheck() {
   if (seq === S.checkSeq) document.body.dataset.checking = "0";
 }
 
+// The open tab's network name when the draft has several (exports name it).
+function tabNetwork() { return several() ? netName(S.config) : null; }
+
 // Exports the draft (saved or not) as CiA 306 DCF files: one node's file,
-// or every node's in a zip. Problems go to the Problems pane, and nothing
-// is downloaded.
-async function exportDcf(nodeId) {
+// or every node's in a zip. With several networks: the open tab's nodes, or
+// every network in a folder per network. Problems go to the Problems pane,
+// and nothing is downloaded.
+async function exportDcf(nodeId, network) {
   const one = nodeId !== undefined;
   if (one && !Number.isInteger(nodeId)) { banner("Give the node a node ID first.", true); return; }
+  if (!one && several()) {
+    const label = netLabel(S.config, S.net);
+    const v = await modal(`Export the DCF files of network ${label}, or of every network (a folder per network in the zip)?`,
+      [["tab", `Network ${label}`], ["all", "All networks", true], ["cancel", "Cancel"]]);
+    if (v !== "tab" && v !== "all") return;
+    network = v === "tab" ? netName(S.config) : null;
+  }
   try {
-    const r = await api("POST", "/api/export_dcf", one ? { config: S.config, node: nodeId } : { config: S.config });
+    const cfg = fileConfig();
+    const body = { config: cfg };
+    if (one) body.node = nodeId;
+    if (network) body.network = network;
+    const r = await api("POST", "/api/export_dcf", body);
     if (r.errors) {
       const prev = (S.check && S.check.items) || [];
+      normCheck(r, fileVersion(cfg));
       S.check = Object.assign({}, S.check || {}, { items: r.items.concat(prev) });
       applyCheck();
       banner(`DCF export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"} (see Problems). Nothing was downloaded.`, true);
@@ -3704,11 +4021,15 @@ async function exportDcf(nodeId) {
 }
 
 // Exports the draft (saved or not) as a DBC file for CAN bus tools, with
-// the SDO frames chosen next to the button. Errors go to the Problems pane
+// the SDO frames chosen next to the button: the open tab's network. Errors go to the Problems pane
 // and nothing is downloaded; warnings go there after the download.
 async function exportDbc() {
   try {
-    const r = await api("POST", "/api/export_dbc", { config: S.config, sdo: $("#dbc-sdo").value });
+    const cfg = fileConfig();
+    const body = { config: cfg, sdo: $("#dbc-sdo").value };
+    if (several()) body.network = netName(S.config);
+    const r = await api("POST", "/api/export_dbc", body);
+    normCheck(r, fileVersion(cfg));
     if (r.items.length) {
       const prev = (S.check && S.check.items) || [];
       S.check = Object.assign({}, S.check || {}, { items: r.items.concat(prev) });
@@ -3751,11 +4072,17 @@ function applyCheck() {
   list.replaceChildren();
   const counts = {};
   const items = (S.check && S.check.items) || [];
+  const netErrors = {};
   for (const it of items) {
-    const li = el("li", { class: it.level, title: it.message }, problemText(it));
-    li.addEventListener("click", () => focusPath(it.paths[0]));
+    const where = it.where || (it.paths || []).map((p) => ({ net: S.net, path: p }));
+    const li = el("li", { class: it.level, title: it.message }, problemText(it, where[0]));
+    li.addEventListener("click", () => focusPath(where[0]));
     list.append(li);
-    for (const p of it.paths) {
+    if (it.level === "error") for (const k of new Set(where.map((w) => w.net))) if (k !== null) netErrors[k] = (netErrors[k] || 0) + 1;
+    for (const w of where) {
+      // Fields of another network's tab are not on the page.
+      if (w.net !== null && w.net !== S.net) continue;
+      const p = w.path;
       const m = /^nodes\[(\d+)\]/.exec(p);
       if (m && it.level === "error") counts[m[1]] = (counts[m[1]] || 0) + 1;
       const input = document.querySelector(`[data-path="${CSS.escape(p)}"]`);
@@ -3778,6 +4105,11 @@ function applyCheck() {
     const span = li.querySelector(".count");
     if (span) span.textContent = c ? `${c} error${c === 1 ? "" : "s"}` : "";
   }
+  for (const tab of document.querySelectorAll("#net-bar [data-net]")) {
+    const c = netErrors[tab.dataset.net];
+    const span = tab.querySelector(".count");
+    if (span) span.textContent = c ? String(c) : "";
+  }
   updateSave();
 }
 
@@ -3792,9 +4124,10 @@ function readable(m) {
   return t;
 }
 
-// "Node 5 rtd, TPDO 2, 0x6150:1: type UNSIGNED8 ...".
-function problemText(it) {
-  const where = placeOf(it.paths[0]);
+// "Node 5 rtd, TPDO 2, 0x6150:1: type UNSIGNED8 ...", with the network first
+// when the draft has several.
+function problemText(it, w) {
+  const where = placeOf(w);
   let text = readable(it.message);
   if (!where.length) return text;
   const obj = /^(0x[0-9A-Fa-f]+:\d+): /.exec(text);
@@ -3805,15 +4138,21 @@ function problemText(it) {
   return `${where.join(", ")}: ${text}`;
 }
 
-// Where a config path is, in the page's words: ["Node 5 rtd", "TPDO 2"].
-function placeOf(path) {
-  if (!path) return [];
-  if (path.startsWith("adapter")) return ["CAN adapter"];
-  if (path.startsWith("master")) return ["Master"];
+// Where a check path ({ net, path }) is, in the page's words:
+// ["Node 5 rtd", "TPDO 2"], led by "Network io" when there are several.
+function placeOf(w) {
+  if (!w || !w.path) return [];
+  const net = w.net === null ? null : S.model.networks[w.net];
+  const lead = several() && net ? [`Network ${netLabel(net, w.net)}`] : [];
+  const path = w.path;
+  if (path.startsWith("master.diagnostics")) return ["Online access"];
+  if (!net) return [];
+  if (path.startsWith("adapter")) return lead.concat(["CAN adapter"]);
+  if (path.startsWith("master")) return lead.concat(["Master"]);
   const m = /^nodes\[(\d+)\](?:\.(tx_pdos|rx_pdos|sdo|sdo_variables)\[(\d+)\](?:\.entries\[(\d+)\])?)?/.exec(path);
-  const n = m && S.config && (S.config.nodes || [])[Number(m[1])];
-  if (!n) return [];
-  const parts = [`Node ${n.node_id ?? "?"}${n.name ? " " + n.name : ""}`];
+  const n = m && (net.nodes || [])[Number(m[1])];
+  if (!n) return lead;
+  const parts = lead.concat([`Node ${n.node_id ?? "?"}${n.name ? " " + n.name : ""}`]);
   const j = Number(m[3]);
   if (m[2] === "tx_pdos" || m[2] === "rx_pdos") {
     const p = (n[m[2]] || [])[j] || {};
@@ -3830,8 +4169,10 @@ function placeOf(path) {
   return parts;
 }
 
-function focusPath(path) {
-  if (!path) return;
+function focusPath(w) {
+  if (!w || !w.path) return;
+  if (w.net !== null && w.net !== S.net && S.model.networks[w.net]) switchNet(w.net);
+  const path = w.path;
   const m = /^nodes\[(\d+)\]/.exec(path);
   const want = m ? "node:" + m[1] : (path.startsWith("adapter") || path.startsWith("master") ? "bus" : S.view);
   if (want !== S.view) showView(want);
@@ -3849,10 +4190,11 @@ function updateSave() {
 }
 
 async function save(overwrite) {
+  const cfg = fileConfig();
   try {
-    const r = await api("POST", "/api/save", { config: S.config, allow_overlap: $("#allow-overlap").checked, overwrite: !!overwrite });
+    const r = await api("POST", "/api/save", { config: cfg, allow_overlap: $("#allow-overlap").checked, overwrite: !!overwrite });
     S.state = r.state;
-    S.config = JSON.parse(JSON.stringify(S.state.config));
+    setModel(S.state.config);
     S.dirty = false;
     await checkToken();
     banner("Saved " + r.written.join(", "));
@@ -3865,7 +4207,7 @@ async function save(overwrite) {
       if (v === "overwrite") return save(true);
       if (v === "reload") return reload(true);
     } else if (e.status === 422 && e.body.check) {
-      S.check = e.body.check;
+      S.check = normCheck(e.body.check, fileVersion(cfg));
       applyCheck();
       banner(e.message, true);
     } else {
@@ -3914,7 +4256,7 @@ async function moveIntoProject() {
     } else { banner(e.message, true); return; }
   }
   S.state = r.state;
-  S.config = JSON.parse(JSON.stringify(S.state.config));
+  setModel(S.state.config);
   S.dirty = false;
   S.view = "bus";
   render();
@@ -3953,7 +4295,7 @@ async function newEditorProject() {
       continue;
     }
     S.state = r.state;
-    S.config = JSON.parse(JSON.stringify(S.state.config));
+    setModel(S.state.config);
     S.dirty = false;
     S.view = "bus";
     render();

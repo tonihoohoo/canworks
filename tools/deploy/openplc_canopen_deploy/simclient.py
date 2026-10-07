@@ -48,9 +48,14 @@ class SimClient:
         self.client = client
 
     @classmethod
-    def for_runtime(cls, host, port=diag.DEFAULT_PORT, token="", timeout=5.0):
-        c = diag.Client(host, port, token, timeout)
+    def for_runtime(cls, host, port=diag.DEFAULT_PORT, token="", timeout=5.0, network=None):
+        c = diag.Client(host, port, token, timeout, network=network)
         c.connect()
+        try:
+            diag.check_network(c, network)
+        except diag.DiagError:
+            c.close()
+            raise
         return cls(c)
 
     @classmethod

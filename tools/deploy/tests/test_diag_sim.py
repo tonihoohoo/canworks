@@ -129,6 +129,26 @@ class Runtime(unittest.TestCase):
             n23 = [n for n in json.loads(out)["nodes"] if n["node_id"] == 23][0]
             self.assertEqual((n23["simulated"], n23["sim_conflict"]), (False, True))
 
+    def test_several_networks(self):
+        # The fake simulates on its first network, io; drives simulates nothing.
+        nets = [{"name": "io", "interface": "can0", "bitrate": 250000, "master_node_id": 1},
+                {"name": "drives", "interface": "can1", "bitrate": 500000, "master_node_id": 1}]
+        with FakePlugin(networks=nets, sim=FakeSim.example()) as fp:
+            code, out, err = run("sim", "status", "--runtime", fp.runtime)
+            self.assertEqual(code, 1)
+            self.assertIn("give --network NAME", err)
+            self.assertIn("io, drives", err)
+            code, out, err = run("sim", "status", "--runtime", fp.runtime, "--network", "io")
+            self.assertEqual(code, 0, err)
+            self.assertIn("rtd", out)
+            self.assertEqual(fp.requests[-1].get("network"), "io")
+            code, out, err = run("sim", "status", "--runtime", fp.runtime, "--network", "drives")
+            self.assertEqual(code, 1)
+            self.assertIn("nothing simulated", err)
+            code, out, err = run("sim", "status", "--runtime", fp.runtime, "--network", "axes")
+            self.assertEqual(code, 1)
+            self.assertIn("no network 'axes'", err)
+
     def test_nothing_simulated(self):
         with FakePlugin() as fp:
             code, out, err = run("sim", "status", "--runtime", fp.runtime)

@@ -19,6 +19,7 @@ import shutil
 import tempfile
 import zipfile
 
+from .contract import all_nodes
 from .eds import to_utf8
 
 EDS_DIR = "canopen/eds"  # under conf/, and as the rewritten `eds` value prefix
@@ -47,7 +48,7 @@ def eds_files(cfg, config_path):
     resolved against the config file's directory."""
     base = os.path.dirname(os.path.abspath(config_path))
     out = {}
-    for n in cfg.get("nodes", []):
+    for n in all_nodes(cfg):
         value = n.get("eds")
         if isinstance(value, str) and value:
             out[value] = value if os.path.isabs(value) else os.path.join(base, value)
@@ -58,7 +59,7 @@ def missing_eds(cfg, config_path):
     """Messages for EDS files that do not exist, naming node ID and file."""
     files = eds_files(cfg, config_path)
     problems = []
-    for n in cfg.get("nodes", []):
+    for n in all_nodes(cfg):
         value = n.get("eds")
         if isinstance(value, str) and value and not os.path.isfile(files[value]):
             problems.append("node %s: EDS file %s not found (eds: \"%s\" in %s)"
@@ -70,7 +71,7 @@ def software_files(cfg, config_path):
     """{software_file value: absolute path on this PC}, like eds_files()."""
     base = os.path.dirname(os.path.abspath(config_path))
     out = {}
-    for n in cfg.get("nodes", []):
+    for n in all_nodes(cfg):
         value = n.get("software_file")
         if isinstance(value, str) and value:
             out[value] = value if os.path.isabs(value) else os.path.join(base, value)
@@ -102,7 +103,7 @@ def rewrite(cfg, config_path):
     software = software_files(cfg, config_path)
     _by_name(software, "program files")
     out = json.loads(json.dumps(cfg))
-    for n in out.get("nodes", []):
+    for n in all_nodes(out):
         n["eds"] = "%s/%s" % (EDS_DIR, os.path.basename(files[n["eds"]]))
         if n.get("software_file"):
             n["software_file"] = "%s/%s" % (FW_DIR, os.path.basename(software[n["software_file"]]))

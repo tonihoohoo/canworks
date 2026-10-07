@@ -24,6 +24,10 @@ That gives four combinations:
 
 A config with anything simulated is announced everywhere: a warning at every PLC start naming what is simulated, `simulated_network` and per-node `simulated` in the diagnostics status, a banner in the configurator, and a question before the deploy tool uploads it. Outputs to a simulated device go nowhere, so never leave a machine's config simulated.
 
+### Several networks
+
+In a config with several networks ([version 2](config.md)), each network has its own switches: one network can be simulated while another runs on its real interface, and the simulated devices of each network are reached by its name (`--network NAME` on `openplc-canopen-diag sim`, the network picker in the configurator). The simulation file serves a config with one network only: with several networks the plugin and the deploy tool's check say it is not used, and the simulated devices run with their [default behaviour](#default-behaviour).
+
 ### Simulated devices on a real network
 
 Before a simulated device starts on a real interface, the plugin listens for 1 second. A node ID that sends heartbeats, boot-up messages, EMCY or SDO answers there belongs to a real device: its simulated device is not started, the log names the conflict, the node's boot error says so, and the master goes on with the real device. While a simulated device runs, a heartbeat, boot-up or EMCY with its node ID that it did not send makes it power off at once, with a log line. A real device that stays silent during that first second and never sends a heartbeat can still go unnoticed; give real devices a heartbeat.
@@ -76,7 +80,7 @@ Without `--real-bus`, an interface that is not vcan is refused, because simulate
 
 ### Control subcommands
 
-While a simulator runs, these talk to it over its control channel (default `127.0.0.1:7532`; `--sim HOST[:PORT]` and `--token`/`--token-file` for another one). `openplc-canopen-diag sim ...` has the same subcommands for the plugin's simulated devices (`--runtime HOST`) and for a standalone simulator (`--sim HOST[:PORT]`).
+While a simulator runs, these talk to it over its control channel (default `127.0.0.1:7532`; `--sim HOST[:PORT]` and `--token`/`--token-file` for another one). `openplc-canopen-diag sim ...` has the same subcommands for the plugin's simulated devices (`--runtime HOST`, with `--network NAME` when the runtime runs several networks) and for a standalone simulator (`--sim HOST[:PORT]`).
 
 ```sh
 openplc-canopen-sim status

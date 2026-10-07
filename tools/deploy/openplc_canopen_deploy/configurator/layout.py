@@ -1,6 +1,7 @@
 """Address suggestion, PDO packing, and the checks of CANopen locations
 against the rest of an editor project."""
 
+from .. import contract
 from ..iec import CO_TYPES, parse_location, element_str, _FITS
 
 DEFAULT_START = 100
@@ -39,35 +40,44 @@ def area_size(direction, type_name):
 
 def canopen_uses(cfg):
     """[(json path, Location)] for every iec_location, node diagnostic
-    location, SDO variable location and master diagnostic location in a config
-    (unparseable values are left to the contract check)."""
+    location, SDO variable location and master diagnostic location in a config,
+    over every network of a version 2 file (paths "networks[i]. ...";
+    unparseable values are left to the contract check)."""
     out = []
-    master = cfg.get("master") if isinstance(cfg, dict) else None
+    if not isinstance(cfg, dict):
+        return out
+    for net in contract.networks(cfg):
+        out += _network_uses(net["master"], net["nodes"], net["path"] + "." if net["path"] else "")
+    return out
+
+
+def _network_uses(master, nodes, at):
+    out = []
     if isinstance(master, dict):
         for key in MASTER_LOCATION_KEYS:
             loc = parse_location(master.get(key))
             if loc:
-                out.append(("master.%s" % key, loc))
-    for i, n in enumerate(cfg.get("nodes", []) if isinstance(cfg, dict) else []):
+                out.append(("%smaster.%s" % (at, key), loc))
+    for i, n in enumerate(nodes if isinstance(nodes, list) else []):
         if not isinstance(n, dict):
             continue
         for key, _, _, _ in NODE_LOCATIONS:
             loc = parse_location(n.get(key))
             if loc:
-                out.append(("nodes[%d].%s" % (i, key), loc))
+                out.append(("%snodes[%d].%s" % (at, i, key), loc))
         for key in ("tx_pdos", "rx_pdos"):
             for j, p in enumerate(n.get(key) or []):
                 for k, e in enumerate((p or {}).get("entries") or []):
                     loc = parse_location((e or {}).get("iec_location"))
                     if loc:
-                        out.append(("nodes[%d].%s[%d].entries[%d].iec_location" % (i, key, j, k), loc))
+                        out.append(("%snodes[%d].%s[%d].entries[%d].iec_location" % (at, i, key, j, k), loc))
         for j, v in enumerate(n.get("sdo_variables") or []):
             if not isinstance(v, dict):
                 continue
             for key in ("iec_location",) + tuple(m[0] for m in SDO_VARIABLE_LOCATIONS):
                 loc = parse_location(v.get(key))
                 if loc:
-                    out.append(("nodes[%d].sdo_variables[%d].%s" % (i, j, key), loc))
+                    out.append(("%snodes[%d].sdo_variables[%d].%s" % (at, i, j, key), loc))
     return out
 
 

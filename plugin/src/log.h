@@ -7,6 +7,8 @@
 #ifndef CANOPEN_LOG_H
 #define CANOPEN_LOG_H
 
+#include <string>
+
 namespace canopen_plugin {
 
 enum class LogLevel { Debug, Info, Warn, Error };
@@ -15,6 +17,21 @@ using LogSink = void (*)(LogLevel level, const char* msg);
 
 // Installs the sink. Passing nullptr restores the default (stderr).
 void set_log_sink(LogSink sink);
+
+// Text put in front of every message logged by the calling thread
+// ("drives: "), for the threads of one network; "" for none.
+void set_thread_log_prefix(const std::string& prefix);
+const std::string& thread_log_prefix();
+
+// Sets the calling thread's prefix for the life of the object.
+class ScopedLogPrefix {
+ public:
+  explicit ScopedLogPrefix(const std::string& prefix) : old_(thread_log_prefix()) { set_thread_log_prefix(prefix); }
+  ~ScopedLogPrefix() { set_thread_log_prefix(old_); }
+
+ private:
+  std::string old_;
+};
 
 // Routes Lely's diagnostic messages (diag()/diag_at()) to the sink.
 void route_lely_diagnostics();

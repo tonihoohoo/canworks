@@ -89,7 +89,7 @@ void Network::ServiceProgram(clock::time_point now) {
              v, CANOPEN_PLC_API_VERSION);
   api.expire(now);
   prog_taken_.clear();
-  api.take(prog_taken_);
+  api.take(cfg_.network_index, prog_taken_);
   for (auto& j : prog_taken_) {
     ProgJob p;
     p.job = std::move(j);

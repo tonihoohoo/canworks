@@ -41,22 +41,23 @@ class PlcRequests {
   uint32_t start(const canopen_plc_request& req, uint16_t& error_id);
   int poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, uint32_t cap);
 
-  // Plugin lifecycle: open() when CANopen runs; close() when the PLC stops
-  // (every request is dropped, so their handles end with
+  // Plugin lifecycle: open() when CANopen runs, with the number of networks
+  // (a request names one of them, 0 = the first in the config); close() when
+  // the PLC stops (every request is dropped, so their handles end with
   // CANOPEN_PLC_ERR_CANCELLED).
-  void open();
+  void open(unsigned networks = 1);
   void close();
   bool running() const { return running_.load(std::memory_order_acquire); }
 
-  // Bus thread: queued requests, oldest first, marked as taken.
-  void take(std::vector<Job>& out);
+  // Bus thread: the network's queued requests, oldest first, marked as taken.
+  void take(unsigned network, std::vector<Job>& out);
   // Bus thread: the result of a taken request (ignored if it was dropped).
   void finish(uint32_t handle, uint16_t error_id, uint32_t abort_code, const uint8_t* data, size_t size);
   // Bus thread: drops results no block collected in time.
   void expire(clock::time_point now);
   // Bus thread: the network that took requests is gone; they end with
   // CANOPEN_PLC_ERR_CANCELLED.
-  void cancel_taken();
+  void cancel_taken(unsigned network);
   // The API version a block asked for and this plugin does not offer, once
   // (0 = none since the last call).
   uint32_t take_unknown_version();
@@ -78,13 +79,14 @@ class PlcRequests {
 
   PlcRequests() = default;
   Slot* find(uint32_t handle);
-  static uint16_t validate(const canopen_plc_request& req);
+  uint16_t validate(const canopen_plc_request& req) const;
 
   std::mutex mutex_;
   Slot slots_[CANOPEN_PLC_SLOTS];
   uint32_t next_seq_ = 1;
   uint64_t next_order_ = 1;
   std::atomic<bool> running_{false};
+  std::atomic<unsigned> networks_{1};
   std::atomic<uint32_t> unknown_version_{0};
   bool unknown_logged_ = false;
 };

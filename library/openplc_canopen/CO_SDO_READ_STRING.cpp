@@ -1,6 +1,7 @@
 FUNCTION_BLOCK CO_SDO_READ_STRING
 VAR_INPUT
   EXECUTE : BOOL;
+  NETWORK : USINT;
   NODE : USINT;
   INDEX : UINT;
   SUBINDEX : USINT;
@@ -173,6 +174,7 @@ void loop() {
     ABORT_CODE = 0;
     unsigned short err = 0;
     co_sdo::request req = {};
+    req.network = NETWORK;
     req.node = NODE;
     req.index = INDEX;
     req.subindex = SUBINDEX;

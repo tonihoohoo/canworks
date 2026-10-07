@@ -570,7 +570,26 @@ def simulated(cfg):
 
 
 def describe_simulated(cfg):
-    """A sentence naming what a config simulates, or None."""
+    """A sentence naming what a config simulates, or None. With several
+    networks, one part per network that simulates something, headed by its
+    name."""
+    nets = contract.networks(cfg) if isinstance(cfg, dict) else []
+    if len(nets) <= 1:
+        return _describe_one(cfg)
+    parts = []
+    for net in nets:
+        text = _describe_one({"adapter": net["adapter"], "nodes": net["nodes"]})
+        if text:
+            parts.append("network %s: %s" % (net["name"], text))
+    return "; ".join(parts) or None
+
+
+def several_networks(cfg):
+    """True when the config has more than one network (a version 2 file)."""
+    return isinstance(cfg, dict) and len(contract.networks(cfg)) > 1
+
+
+def _describe_one(cfg):
     network, nodes = simulated(cfg)
     ids = ", ".join(str(n) for n in nodes)
     if network:
@@ -754,6 +773,16 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
         err(where, msg)
     if r.errors:
         return r
+    if several_networks(cfg):
+        # As the plugin: the file serves a configuration with one network.
+        warn("", "not used: a simulation file serves a configuration with one network only; the simulated "
+                 "devices of a configuration with several networks run with their default behaviour")
+        return r
+    if isinstance(cfg, dict) and contract.version_of(cfg) != 1:
+        try:
+            cfg = contract.network_config(cfg)
+        except ValueError:
+            pass
 
     base = os.path.dirname(os.path.abspath(path))
     devices = {}  # node ID or name -> _Device

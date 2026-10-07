@@ -1,6 +1,6 @@
 # SDO from the PLC program: the `openplc_canopen` library
 
-The `openplc_canopen` library gives the PLC program eight function blocks that read or write any object of any node over SDO while the network runs. They are for transfers the program decides on at run time: a recipe parameter, a device name to log, a calibration table. For an object the program reads or writes all the time, an [SDO variable](config.md#sdo-variables) in the config is simpler, since it needs no code.
+The `openplc_canopen` library gives the PLC program eight function blocks that read or write any object of any node over SDO while the network runs. They are for transfers the program decides on at run time: a recipe parameter, a device name to log, a calibration table. For an object the program reads or writes all the time, an [SDO variable](config.md#sdo-variables) in the config is simpler, since it needs no code. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network.
 
 | Block | Data | For |
 |---|---|---|
@@ -31,7 +31,7 @@ The blocks need the CANopen plugin on the runtime from the same release or later
 
 Every block has the same handshake:
 
-- Inputs: `EXECUTE : BOOL`, `NODE : USINT` (1..127), `INDEX : UINT`, `SUBINDEX : USINT`, `TIMEOUT : TIME` (`T#0s` means 1 s).
+- Inputs: `EXECUTE : BOOL`, `NETWORK : USINT` (the network's place in the config's `networks` list, from 0; leave it unset, which is 0, with one network), `NODE : USINT` (1..127), `INDEX : UINT`, `SUBINDEX : USINT`, `TIMEOUT : TIME` (`T#0s` means 1 s).
 - Outputs: `BUSY`, `DONE`, `ERROR : BOOL`, `ERROR_ID : UINT`, `ABORT_CODE : UDINT`.
 - A rising edge on `EXECUTE` starts one transfer. `BUSY` is TRUE until it ends; then `DONE` or `ERROR` is TRUE (and the data outputs are set) for as long as `EXECUTE` stays TRUE, or for one scan if it is already FALSE. Setting `EXECUTE` FALSE clears `DONE` and `ERROR`. A new rising edge while `BUSY` is ignored.
 - Call the instance on every scan while it is busy. The scan never waits: the transfer runs on the bus thread.
@@ -87,7 +87,7 @@ A reply longer than 254 characters ends with `ERROR_ID` 7; read it with `CO_SDO_
 | 3 | The node is not available: configured, but lost or failed to boot |
 | 4 | CANopen is not running (no plugin, no config, or CANopen switched off) |
 | 5 | Too many transfers at once (64 across all blocks) |
-| 6 | Invalid input: node outside 1..127, a `SIZE` the block cannot send, `SIZE := 0` without an EDS type |
+| 6 | Invalid input: node outside 1..127, a `NETWORK` the config does not have, a `SIZE` the block cannot send, `SIZE := 0` without an EDS type |
 | 7 | The data does not fit the block's output (a reply longer than 8 bytes for `CO_SDO_READ`, 254 characters for a string, 1024 bytes for bytes) |
 | 8 | Cancelled: the PLC stopped or CANopen restarted during the transfer (the runtime log says how many transfers a stop cancelled), or the block did not collect its result within 10 s |
 

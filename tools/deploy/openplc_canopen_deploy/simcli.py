@@ -137,6 +137,9 @@ def _common():
     c.add_argument("--runtime", default=s, metavar="HOST[:PORT]", help="the plugin's simulated devices")
     c.add_argument("--sim", dest="sim_addr", default=s, metavar="HOST[:PORT]",
                    help="a standalone simulator (default 127.0.0.1:%d)" % simclient.SIM_PORT)
+    c.add_argument("--network", default=s, metavar="NAME",
+                   help="with --runtime: the network whose simulated devices to talk to (needed when the "
+                        "runtime runs several)")
     c.add_argument("--token", default=s, help="access token")
     c.add_argument("--token-file", default=s, metavar="FILE", help="read the access token from this file")
     c.add_argument("--json", action="store_true", default=s, help="print the answer as JSON")
@@ -443,7 +446,8 @@ def connect(args):
     try:
         if runtime:
             host, port = diag.parse_runtime(runtime)
-            return simclient.SimClient.for_runtime(host, port, diag._token(args), timeout)
+            return simclient.SimClient.for_runtime(host, port, diag._token(args), timeout,
+                                                   network=getattr(args, "network", None))
         host, port = simclient.parse_sim(sim_addr) if sim_addr else ("127.0.0.1", simclient.SIM_PORT)
     except ValueError as e:
         raise DiagError("usage", str(e))

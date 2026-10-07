@@ -50,6 +50,17 @@ Before it starts a simulated device on a real network, the plugin SHALL listen o
 - **WHEN** a simulated node 5 runs on `can0` and a real device with node ID 5 is plugged in and sends its boot-up
 - **THEN** the simulated node 5 powers off and the log names the conflict
 
+### Requirement: Simulation with several networks
+In a config with several networks (version 2), `adapter.simulate` and each node's `simulate` SHALL apply to their own network, so one network can be simulated while another runs on its real interface, each with its own trace and `sim_` operations selected by the request's `network`. The simulation file SHALL serve a config with one network only: with several networks the plugin SHALL log a warning that the file is not used and run the simulated devices with their default behaviour, and the deploy tool's check SHALL say the same.
+
+#### Scenario: One simulated network next to a real one
+- **WHEN** a version 2 config has network `io` on `can0` and network `test` with `adapter.simulate: true`
+- **THEN** `io` runs on `can0`, every node of `test` is simulated, and `sim_status` with `network: "test"` lists them
+
+#### Scenario: Simulation file with two networks
+- **WHEN** a project with two networks has a `simulation.json`
+- **THEN** the plugin logs that the file is not used, and the simulated devices run with their defaults
+
 ### Requirement: Simulation is always visible
 When the network is simulated or any node is simulated, the plugin SHALL log a warning at every PLC start naming the simulated network and the simulated node IDs, the diagnostics status SHALL say `simulated_network` (true or false) and per node `simulated`, a simulated network SHALL report error-active bus state as a healthy bus does, and the configurator, the diagnostics client, the trace and the deploy tool SHALL each say what is simulated.
 

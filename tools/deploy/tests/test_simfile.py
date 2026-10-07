@@ -199,6 +199,21 @@ class Checks(unittest.TestCase):
         self.assertEqual(r.errors, [])
         self.assertEqual(r.warnings, [])
 
+    def test_several_networks(self):
+        # One network in a version 2 file: checked as version 1.
+        v2 = {"schema_version": 2, "networks": [dict(self.f.cfg, name="io")]}
+        r = self.f.check(cfg=v2)
+        self.assertEqual((r.errors, r.warnings), ([], []))
+        self.assertTrue(any("node 5" in e for e in self.f.check(self.changed(
+            lambda s: s["nodes"]["5"]["sources"].update({"0x6999:1": {"constant": 1}})), cfg=v2).errors))
+        # Two networks: the file is not used, and not checked against nodes.
+        two = {"schema_version": 2, "networks": [dict(self.f.cfg, name="io"),
+                                                  dict(copy.deepcopy(self.f.cfg), name="drives")]}
+        r = self.f.check(cfg=two)
+        self.assertEqual(r.errors, [])
+        self.assertEqual(len(r.warnings), 1)
+        self.assertIn("not used: a simulation file serves a configuration with one network only", r.warnings[0])
+
     def test_check_file_and_load(self):
         write_json(self.f.sim_path, self.f.sim)
         data, r = simfile.check_file(self.f.sim_path, self.f.cfg, self.f.config)
@@ -344,6 +359,12 @@ class Simulated(unittest.TestCase):
                          "nodes 5, 7 are simulated devices on the real network can0")
         self.assertEqual(simfile.describe_simulated(self.cfg(False, ((5, True), (7, False)))),
                          "node 5 is a simulated device on the real network can0")
+
+    def test_describe_several_networks(self):
+        two = {"schema_version": 2, "networks": [dict(self.cfg(), name="io"), dict(self.cfg(True), name="test")]}
+        self.assertEqual(simfile.describe_simulated(two),
+                         "network test: the network is simulated; no CAN interface is used")
+        self.assertIsNone(simfile.describe_simulated({"schema_version": 2, "networks": [self.cfg(), self.cfg()]}))
 
 
 if __name__ == "__main__":
