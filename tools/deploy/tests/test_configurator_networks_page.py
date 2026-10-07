@@ -279,8 +279,7 @@ class NetworksPage(unittest.TestCase):
             self.assertEqual(pg.input_value('select[data-online="network"]'), "drives")
             pg.click('button[data-trace="start"]')
             pg.wait_for_selector("#trace-source:has-text('network drives')")
-            # The configurator starts the recording on its own connection,
-            # which may reach the plugin after the page shows the source.
+            # The fake runtime records the start on its own thread: wait for it.
             for _ in range(50):
                 if fp.trace_starts:
                     break

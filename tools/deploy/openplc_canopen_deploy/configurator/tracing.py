@@ -18,7 +18,8 @@ import threading
 from array import array
 
 from .. import contract, dbcexport, diag
-from ..bustrace import formats, triggers
+from ..bustrace import explain as explain_mod
+from ..bustrace import formats, sequences, triggers
 from ..bustrace.decode import KINDS, Decoder
 from ..bustrace.recorder import Recorder, Session
 from ..bustrace.stats import KIND_CODE
@@ -27,6 +28,7 @@ MAX_ROWS = 1000
 LOOKBACK = 4000  # frames searched back for SDO transfers when decoding a window
 SPAN_CONTEXT = 50000  # above this, frames between filtered rows are not decoded for SDO context
 MAX_VIEWS = 8
+MAX_SEQUENCES = 2000  # conversations or boot stories sent to the page
 SDO = KIND_CODE["sdo"]
 GAP = KIND_CODE["gap"]
 EXPORT_FORMATS = ("pcapng", "candump", "asc", "blf", "trc", "csv", "signals")
@@ -167,10 +169,12 @@ class Workspace:
         self.warnings = []
         self.generation = 0
         self.views = {}
+        self.seq_cache = {}
 
     def _replace(self, session, source, warnings):
         self.session, self.source, self.warnings = session, source, list(warnings)
         self.views = {}
+        self.seq_cache = {}
         self.generation += 1
 
     # -- recording ----------------------------------------------------------
@@ -318,6 +322,83 @@ class Workspace:
                 if sr is not None:
                     out[k] = sr.range(start_us, end_us, points)
             return {"series": out, "start_us": self.session.trace.start_us, "end_us": self.session.trace.end_us}
+
+    # -- explanations and sequences (canopen-bus-trace: "Frame inspector on
+    # traces", "SDO conversations", "SYNC cycle view", "Boot story") ---------
+    def explain(self, seq, bitrate=None, fallback=None):
+        """The layers of frame `seq` (absolute), decoded with the SDO frames
+        before it as context. The bit rate: the one chosen, else the
+        trace's, else `fallback` (the configuration's)."""
+        with self.lock:
+            s = self.session
+        with s.lock:
+            t = s.trace
+            i = seq - t.dropped
+            if not 0 <= i < len(t):
+                raise Refused(404, "frame %d is not in the trace (any more)" % seq)
+            f = t.frame(i)
+            if f.gap:
+                raise Refused(422, "this row marks lost frames; it is not a frame")
+            rate = bitrate or s.analysis.bitrate or fallback or None
+            m = explain_mod.explain(f, s.decoder, rate, explain_mod.context_for(t, i, s.decoder))
+        m.update(seq=seq, t_us=f.time_us, dir="Tx" if f.tx else "Rx")
+        return m
+
+    def _cached(self, s, name, make):
+        t = s.trace
+        key = (self.generation, len(t), t.dropped)
+        if self.seq_cache.get("key") != key:
+            self.seq_cache = {"key": key}
+        if name not in self.seq_cache:
+            self.seq_cache[name] = make()
+        return self.seq_cache[name]
+
+    def sequence(self, kind, n=None, node=None, expected=None, at=None, limit=MAX_SEQUENCES):
+        """SDO conversations, boot stories or one SYNC period of the trace.
+        With `at` (a frame number): the conversation, boot or SYNC period
+        that holds that frame is `selected` (or `n`)."""
+        with self.lock:
+            s = self.session
+        with s.lock:
+            t, a, dec = s.trace, s.analysis, s.decoder
+            base = t.dropped
+
+            def convs():
+                return self._cached(s, "sdo", lambda: sequences.sdo_conversations(t, a.kinds, dec, base=base))
+
+            if kind == "sdo":
+                lst = [c for c in convs() if node is None or c["node"] == node]
+                sel = sequences.conversation_at(lst, at) if at is not None else None
+                shown = lst[-limit:]
+                if sel is not None and sel not in shown:
+                    shown = [sel] + shown
+                return {"kind": "sdo", "total": len(lst), "conversations": shown,
+                        "nodes": sorted({c["node"] for c in convs()}), "selected": sel["seq"] if sel else None}
+            if kind == "boot":
+                lst = sequences.boot_stories(t, a.kinds, dec, expected, base, convs())
+                lst = [b for b in lst if node is None or b["node"] == node]
+                sel = next((b for b in lst if at is not None and b["seq"] <= at <= b["end_seq"]
+                            and any(st["seq"] == at for st in b["steps"])), None) if at is not None else None
+                return {"kind": "boot", "total": len(lst), "stories": lst[-limit:], "compared": expected is not None,
+                        "selected": sel["seq"] if sel else None}
+            if kind == "sync":
+                cycles = self._cached(s, "sync", lambda: sequences.sync_cycles(t, a.kinds, dec, base))
+                if not cycles:
+                    return {"kind": "sync", "count": 0, "cycle": None, "slowest": None, "late": []}
+                slow = sequences.slowest_cycle(cycles)
+                if at is not None:
+                    n = max(0, _bisect(cycles, at + 1, key=lambda c: c["seq"]) - 1)
+                if n == "slowest":
+                    n = slow["n"] if slow else 0
+                n = 0 if n is None else n
+                periods = [c["period_us"] for c in cycles if c["period_us"] is not None]
+                return {"kind": "sync", "count": len(cycles), "slowest": slow["n"] if slow else None,
+                        "slowest_us": slow["last_sync_pdo_us"] if slow else None,
+                        "late": [c["n"] for c in cycles if c["late"]][:1000],
+                        "period_min_us": min(periods) if periods else None,
+                        "period_max_us": max(periods) if periods else None,
+                        "cycle": sequences.sync_cycle(t, a.kinds, dec, n, base)}
+        raise Refused(400, "kind must be sdo, boot or sync")
 
     def part(self, start_us=None, end_us=None):
         with self.session.lock:

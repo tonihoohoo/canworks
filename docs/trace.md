@@ -64,6 +64,10 @@ Heartbeat lost, boot error and bus state come from the plugin's status, which th
 
 In **single** mode the recording stops once the post-trigger time (0-600 s) has passed after the first hit; the trace then holds what was recorded before (the pre-trigger time) and after it. In **normal** mode every hit puts a marker in the trace and the graph and recording goes on; with auto-save on, the pre/post window around each hit is written to its own file, named `<project>-trace-<UTC time>.<ext>`. The configurator writes them to the `traces` folder in its settings folder unless another folder is chosen; it refuses the project's `canopen/` folder, which travels with the PLC program.
 
+## Explaining frames
+
+The configurator's frame inspector explains any frame of a trace bit by bit, with the trace's SDO context and bit rate, and its Sequences tab shows SDO conversations, boot stories and SYNC cycles; `openplc-canopen-diag explain --trace FILE --index N` does the same for one frame in a terminal ([frame-inspector.md](frame-inspector.md)).
+
 ## Command line
 
 ```sh
