@@ -60,13 +60,17 @@ The Lely slave is built with LSS. `node_id: null` starts with 0xFF; an LSS store
 ### D9. Diagnostics
 `DiagHub` per network gains a slave flavour: status fields from D5, the PDO mappings read from the local dictionary, local OD reads. Master-only ops answer `network is a slave`. Protocol stays 1; the new fields are optional.
 
+### D10. Shared simulated bus for a master and a slave
+The simulator change gives each simulated network its own in-process virtual bus. Here simulated networks with the same `interface` name share one `VirtualCanController`, at most one master and one slave, so one config can run the plugin's master against the plugin's slave with no adapter, vcan or privileges, including the Docker install. It is how the tests and the Pi check work without a second master. Real interfaces keep the one-network-per-interface rule.
+*Alternative:* allow master and slave on one real interface (two sockets, kernel loopback). Rejected: on a real bus that is a second device of the same controller on the wire, which users would mistake for a supported layout; vcan plus `cangw` covers the socket path in tests.
+
 ## Risks / Trade-offs
 
 - [The master writes inputs at bus speed while the scan reads them once per cycle] -> the newest value wins, as for master-side RPDOs; documented.
 - [A user EDS with odd access types (e.g. everything `rw`)] -> every `rw` object is an input; the error message for an output on an `rw` object suggests `rwr`, and the generator never emits this.
 - [State file applied to a different device after a node ID change] -> keyed by network name and EDS hash; the node ID is part of the file and a mismatch is logged.
 - [Depends on the simulator branch for the base] -> D2 allows either order.
-- [Hardware test needs a second master] -> sim and vcan tests use the plugin's own master as the other side; the wire test waits for a bench with a second master.
+- [No second master on the bench] -> the plugin's own master is the other side: on a shared simulated bus (D10), on a vcan pair joined by `cangw`, and on the Pi next to the existing real network. A test against another vendor's master stays a user report, not a task.
 
 ## Migration Plan
 

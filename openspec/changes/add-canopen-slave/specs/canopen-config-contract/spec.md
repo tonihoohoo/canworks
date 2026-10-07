@@ -19,10 +19,18 @@ The `slave` object SHALL have `node_id` (1-127, or null for LSS) and `eds`, and 
 - **THEN** it validates
 
 ### Requirement: One role per interface
-Two networks on the same adapter interface SHALL be rejected whatever their roles, so a master and a slave never share one bus in the plugin.
+Two networks on the same real adapter interface SHALL be rejected whatever their roles, so a master and a slave never share one real bus in the plugin. Simulated networks (`adapter.simulate: true`) with the same `interface` name SHALL share one simulated bus, allowed for at most one master network and one slave network.
 
 #### Scenario: Master and slave on can0
 - **WHEN** a master network and a slave network both use `can0`
+- **THEN** the file is rejected with an error naming the interface and both networks
+
+#### Scenario: Master and slave on one simulated bus
+- **WHEN** a master network and a slave network both have `adapter.simulate: true` and `interface: "bench"`
+- **THEN** the file loads and both networks run on one in-process simulated bus named `bench`
+
+#### Scenario: Two masters on one simulated bus
+- **WHEN** two master networks are simulated with the same `interface`
 - **THEN** the file is rejected with an error naming the interface and both networks
 
 ### Requirement: Configs with a slave network are version 2

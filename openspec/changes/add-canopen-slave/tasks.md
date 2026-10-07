@@ -13,7 +13,8 @@
 - [ ] 2.3 Run slave networks in their own bus session next to master networks, with start-up logging; verify a sim test with one master and one slave network in one config.
 - [ ] 2.4 Status locations (state, comm OK, SYNC count) and EMCY from the program; verify lost master heartbeat, NMT stop and EMCY raise/clear in sim tests.
 - [ ] 2.5 State file for 0x1010/0x1011, 0x1020 and LSS store, keyed by network and EDS hash; verify save, PLC restart, load, changed EDS and LSS assignment in sim tests.
-- [ ] 2.6 vcan test: plugin master on one socket and plugin slave on another socket of `vcan0` (`test/slave/run.sh`) in CI.
+- [ ] 2.6 Shared simulated bus: a master network and a slave network with `adapter.simulate` and the same `interface` run on one virtual bus; verify with a sim test of the plugin's own master booting its own slave there, and the two-masters rejection in config tests.
+- [ ] 2.7 vcan test: master network on `vcan0`, slave network on `vcan1`, the two joined with a `cangw` route, in one config (`test/slave/run.sh`) in CI.
 
 ## 3. EDS generator and deploy tool
 
@@ -32,6 +33,8 @@
 - [ ] 5.2 State directory in `install-stock.sh` for native and Docker installs; verify with the Docker install test.
 - [ ] 5.3 Deploy tool minor version bump.
 
-## 6. Hardware
+## 6. Hardware (the current Pi setup, vcan and simulation)
 
-- [ ] 6.1 On the Pi, run a slave network under a second master on the bench (another controller or a PC master tool) over a real wire: boot, remap, PDO exchange both ways, heartbeat loss, store across a PLC restart.
+- [ ] 6.1 On the Pi with its current setup (CAN adapter on `can0`, the template project's network and its real node), deploy a config that keeps that network and adds a master network on `vcan0` and a slave network on `vcan1` joined by `cangw`, with a PLC program that loops values through both; check slave boot, remap by the master, PDOs both ways, heartbeat loss (route removed and restored), store across a PLC restart, and that the template's node stays operational throughout.
+- [ ] 6.2 Same on the Pi with the master and slave networks simulated on one bus (`adapter.simulate`, shared `interface`), plus a simulated device from the simulator on the master network; check the same points and the PLC scan time against the template project alone.
+- [ ] 6.3 Put the template project back on the Pi and check its node is operational.

@@ -19,7 +19,7 @@ The plugin can only be the CANopen master. A common plant layout has a larger PL
 - `canopen-slave-eds`: generating a slave EDS on the PC from an object list, its layouts, default PDOs and identity, and exporting it.
 
 ### Modified Capabilities
-- `canopen-config-contract`: `role` and `slave` in a version 2 network; a config with a slave network is always written as version 2.
+- `canopen-config-contract`: `role` and `slave` in a version 2 network; simulated master and slave networks sharing one simulated bus; a config with a slave network is always written as version 2.
 - `canopen-configurator`: network role switch, slave device page (objects, identity, status locations, EDS generate and export).
 - `canopen-deploy`: checks and bundling for slave networks and their EDS.
 - `canopen-editor-project`: declarations and project template for slave bindings.
@@ -31,5 +31,5 @@ The plugin can only be the CANopen master. A common plant layout has a larger PL
 - `schema/canopen.v2.schema.json` (slave network), `schema/canopen.v1.schema.json` unchanged.
 - `tools/deploy`: contract helpers, EDS generator (`slaveeds.py`), CLI `slave-eds`, bundle and checks, configurator page, declarations, editor project.
 - Docs: `docs/slave.md`, config, configurator, deploy, README feature list.
-- Tests: sim tests with the plugin's own master against the plugin's slave on a virtual bus, a vcan test, generator unit tests. Hardware: a wire test needs a second master on the bench.
+- Tests: sim tests with the plugin's own master against the plugin's slave on a virtual bus, a vcan test, generator unit tests. Simulated master and slave networks can share one simulated bus, so the plugin's own master is the other side in tests and on the Pi (current setup, vcan pair and simulation), with no second master needed.
 - Deploy tool minor version bump.

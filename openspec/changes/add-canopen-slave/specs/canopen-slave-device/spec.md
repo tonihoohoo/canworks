@@ -141,3 +141,10 @@ When a frame from another device with the slave's own node ID is seen (boot-up, 
 #### Scenario: Two devices with node 10
 - **WHEN** another device sends a heartbeat on 0x70A
 - **THEN** the log has an error naming node 10 as used by another device
+
+### Requirement: Slave on a simulated bus
+A slave network with `adapter.simulate: true` SHALL run on the in-process simulated bus named by its `interface`, shared with a simulated master network of the same `interface` name and any simulated devices on it, with no CAN adapter, vcan or extra privileges, and with the same behaviour as on a real interface.
+
+#### Scenario: Own master against own slave
+- **WHEN** one config has a master network and a slave network, both simulated on `bench`, and the master's node list has the slave's node ID and EDS
+- **THEN** the master boots the slave, PDOs move both ways between the two networks' PLC locations, and no interface is opened
