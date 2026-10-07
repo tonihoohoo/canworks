@@ -134,11 +134,15 @@ found=$(openplc-canopen-diag --runtime local lss-find --network io 2>&1)
 grep -q "serial 0x00001BBB" <<<"$found" && ok "LSS fastscan finds the spare device" || fail "lss-find: $found"
 
 echo "6. test scenarios"
+# The scenarios marked "test" in simulation.json (wire-break is the autostart timeline).
+declare -A TESTS=([io]="alarm gateway-route dio-lost" [motion]="drive-moves")
 for net in io motion; do
+    scenarios=()
+    for t in ${TESTS[$net]}; do scenarios+=(--scenario "$t"); done
     junit=()
     [ -n "${JUNIT_DIR:-}" ] && mkdir -p "$JUNIT_DIR" && junit=(--junit "$JUNIT_DIR/virtual-example-$net.xml")
-    if openplc-canopen-diag --runtime local sim test --network "$net" --timeout 120 "${junit[@]}" \
-            > "$WORK/test-$net.log" 2>&1; then
+    if openplc-canopen-diag --runtime local sim test --network "$net" "${scenarios[@]}" --timeout 120 \
+            "${junit[@]}" > "$WORK/test-$net.log" 2>&1; then
         ok "network $net: $(tr '\n' ' ' < "$WORK/test-$net.log")"
     else
         cat "$WORK/test-$net.log"; fail "scenarios of network $net"

@@ -87,6 +87,10 @@ With `sdo_bridge`, the gateway's dictionary has a record at `sdo_bridge_index` (
 
 The upper master writes the network, node, object, value and length, then the command, and reads the status until it is 2 or 3; a read leaves the value in sub-index 5. The request goes through the same path as the program's SDO function blocks, so requests to one node queue behind each other and share their timeout. A write needs `sdo_bridge_write: true`; without it command 2 ends with status 3. Segmented transfers and strings are not supported.
 
+## Trying it without an upper master
+
+On a simulated bus ([simulator.md](simulator.md)) a master network of the same config can play the upper master: give it the upper slave network's simulated interface and the slave's node ID as a node with `"simulate": false` (the plugin's own slave answers as that node). That network configures the gateway's PDOs, starts it, supervises it and lets the program act as the machine controller. It stands in for the upper master and is not a field network: it has no place in the field node status, routes may not end on it, and EMCYs from its nodes are not forwarded up (the gateway's own EMCY would come back up again and again). Its PDO entries see what a real upper master would. [`examples/virtual-plant`](../examples/virtual-plant/README.md) uses this with network `host`.
+
 ## Checks
 
 On top of the [slave network checks](slave.md#direction), a gateway is rejected when `upper` is missing or not a slave network, there is no master network, a route names a network, node or PDO entry that does not exist or a slave object its EDS does not define, a route's direction does not fit the slave object's access type, the two ends have different types, a route target has a second writer, or `status` or `sdo_bridge` is set while the EDS lacks their objects (for `status`, those of the first master network). `sdo_bridge_write` without `sdo_bridge` gives a warning.

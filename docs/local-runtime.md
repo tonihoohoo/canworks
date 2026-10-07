@@ -55,6 +55,8 @@ The container restarts with the engine (unless stopped) and listens only on this
 
 ## Use it
 
+[tour.md](tour.md) takes you through [`examples/virtual-plant`](../examples/virtual-plant/README.md) on the local simulator runtime step by step: every feature that does not need hardware, in one project.
+
 - **Editor:** type the address `localhost:8443` with the printed user and password (the device settings' search does not list the local runtime, since it scans the network rather than this PC; typing the address connects), then **Build and Upload** a project with a `canopen/` folder ([install-stock.md](install-stock.md)). The runtime log shows the CANopen start, and the debugger shows the values of the simulated devices. Simulated values follow the project's simulation file ([simulator.md](simulator.md)).
 - **Deploy tool:** `openplc-canopen-deploy --runtime local --config canopen/canopen.json --project .` reads the address, user, password and fingerprint from `local-runtime.json`; `--user`/`--password` still win. It skips the question about uploading a non-simulated config, since nothing real is driven here.
 - **Diagnostics and configurator:** `openplc-canopen-diag --runtime local status`, and in the configurator's online access the **Local simulator runtime** button (host `local`). The project's config needs `master.diagnostics` with a token as for any runtime ([diagnostics.md](diagnostics.md)); the plugin's default `bind` (`0.0.0.0`) and port (7531) fit the container.
