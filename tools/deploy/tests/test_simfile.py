@@ -257,6 +257,16 @@ class Checks(unittest.TestCase):
         self.assertEqual(out["networks"]["io"]["extra_devices"][0]["eds"], "eds/x.eds")
         self.assertEqual(out["networks"]["drives"]["nodes"]["4"]["sources"]["0x6064:0"]["csv"]["file"], "csv/y.csv")
 
+    def test_virtual_example(self):
+        # examples/virtual-plant: a version 2 file with a section per network.
+        config = os.path.join(REPO, "examples", "virtual-plant", "canopen", "canopen.json")
+        with open(config, encoding="utf-8") as f:
+            cfg = json.load(f)
+        data, r = simfile.check_file(os.path.join(os.path.dirname(config), "simulation.json"), cfg, config)
+        self.assertTrue(r.ok, r.errors)
+        self.assertEqual(r.warnings, [])
+        self.assertEqual(sorted(data["networks"]), ["io", "motion"])
+
     def test_check_file_and_load(self):
         write_json(self.f.sim_path, self.f.sim)
         data, r = simfile.check_file(self.f.sim_path, self.f.cfg, self.f.config)

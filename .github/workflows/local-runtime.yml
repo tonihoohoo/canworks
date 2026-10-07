@@ -3,9 +3,10 @@ name: Local simulator runtime
 # The image of the local simulator runtime (canopen-local-runtime,
 # docker/local-runtime/Dockerfile) built from the pinned upstream runtime
 # image, and openplc-canopen-sim-runtime run against it with a real PLC program
-# (test/local-runtime/run.sh). Pull requests run it when they touch what goes
-# into the image or the command; it also runs weekly (upstream drift) and by
-# hand. The arm64 image is built (not run) on an arm64 runner. Publishing is
+# (test/local-runtime/run.sh), then the virtual example on it
+# (test/virtual-example/run.sh, docs/tour.md). Pull requests run it when they
+# touch what goes into the image, the command or the example; it also runs
+# weekly (upstream drift) and by hand. The arm64 image is built (not run) on an arm64 runner. Publishing is
 # release-deploy.yml's job.
 on:
   pull_request:
@@ -21,6 +22,8 @@ on:
       - "tools/deploy/openplc_canopen_deploy/cli.py"
       - "tools/deploy/openplc_canopen_deploy/diag.py"
       - "test/local-runtime/**"
+      - "examples/**"
+      - "test/virtual-example/**"
       - ".github/workflows/local-runtime.yml"
   schedule:
     - cron: "41 4 * * 1"  # Mondays 04:41 UTC
@@ -73,6 +76,19 @@ jobs:
 
       - name: openplc-canopen-sim-runtime with the image and a PLC program
         run: test/local-runtime/run.sh --image openplc-canopen-sim-runtime:ci --strucpp "${{ steps.strucpp.outputs.cli }}"
+
+      - name: The virtual example on the image (the tour's command-line steps and its test scenarios)
+        env:
+          JUNIT_DIR: ${{ runner.temp }}/junit
+        run: test/virtual-example/run.sh --image openplc-canopen-sim-runtime:ci --strucpp "${{ steps.strucpp.outputs.cli }}"
+
+      - name: Scenario reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: virtual-example-junit
+          path: ${{ runner.temp }}/junit
+          if-no-files-found: ignore
 
   arm64:
     runs-on: ubuntu-24.04-arm

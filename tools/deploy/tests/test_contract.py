@@ -77,20 +77,24 @@ class Examples(unittest.TestCase):
 
     def test_example_configs_validate(self):
         found = 0
+        paths = [os.path.join(REPO, "examples", d, "canopen", "canopen.json")
+                 for d in sorted(os.listdir(os.path.join(REPO, "examples")))]
         for root, _, files in os.walk(os.path.join(REPO, "config")):
             for name in files:
                 # Other JSON files there are not configs: simulation.json follows
                 # canopen-sim.v1 (test_simfile), *_eds.json are slave EDS descriptions.
                 if name.endswith(".json") and name != "simulation.json" and not name.endswith("_eds.json"):
-                    path = os.path.join(root, name)
-                    with open(path, encoding="utf-8") as f:
-                        cfg = json.load(f)
-                    validator = jsonschema.Draft202012Validator(contract.schema(contract.version_of(cfg)))
-                    self.assertEqual(list(validator.iter_errors(cfg)), [], path)
-                    r = contract.check_config(cfg, path)
-                    self.assertTrue(r.ok, r.errors)
-                    self.assertEqual(r.warnings, [])
-                    found += 1
+                    paths.append(os.path.join(root, name))
+        for path in paths:
+            with self.subTest(path):
+                with open(path, encoding="utf-8") as f:
+                    cfg = json.load(f)
+                validator = jsonschema.Draft202012Validator(contract.schema(contract.version_of(cfg)))
+                self.assertEqual(list(validator.iter_errors(cfg)), [], path)
+                r = contract.check_config(cfg, path)
+                self.assertTrue(r.ok, r.errors)
+                self.assertEqual(r.warnings, [])
+                found += 1
         self.assertGreater(found, 0)
 
     def test_node_id_out_of_range_names_path_and_range(self):
