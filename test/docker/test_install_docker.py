@@ -189,6 +189,8 @@ class Installer(unittest.TestCase):
         # The PLC restart is announced before the container goes.
         self.assertIn("the PLC stops now", p.stdout)
         self.assertEqual(calls[-2:], ["rm -f openplc-runtime", "restart openplc-bootloader"])
+        # Slave networks' saved parameters live on the bind-mounted prefix.
+        self.assertTrue(os.path.isdir(os.path.join(self.prefix, "state")))
 
         p = self.run_script()
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -199,6 +201,7 @@ class Installer(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.read_spec(), UPSTREAM_SPEC)
         self.assertFalse(os.path.exists(os.path.join(self.prefix, "lib")))
+        self.assertTrue(os.path.isdir(os.path.join(self.prefix, "state")))  # kept without --purge
         self.assertEqual(self.calls()[-2:], ["rm -f openplc-runtime", "restart openplc-bootloader"])
 
     def test_failed_build_changes_nothing(self):

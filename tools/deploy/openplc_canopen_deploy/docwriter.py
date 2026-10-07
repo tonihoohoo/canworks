@@ -72,6 +72,15 @@ def _meter(v):
         cls, _attr(_pct(v)), min(v, 100.0))
 
 
+def _device_title(n):
+    """"Node 5 · name", or for the PLC's own device on a slave network
+    "OpenPLC · node 10"."""
+    nid = "node %d" % n["node_id"] if n["node_id"] is not None else "node ID from LSS"
+    if n.get("role") == "slave":
+        return "OpenPLC · " + nid
+    return "Node %d%s" % (n["node_id"], (" · " + n["name"]) if n["name"] else "")
+
+
 # -- sections ------------------------------------------------------------------
 
 def _summary(model):
@@ -79,15 +88,20 @@ def _summary(model):
     for net in model["networks"]:
         load = net["bus_load"]
         pdos = sum(len(n["pdos"]) for n in net["nodes"])
+        if net["role"] == "slave":
+            dev = net["nodes"][0]
+            first = "<b>slave</b> %s" % ("node %d" % dev["node_id"] if dev["node_id"] is not None else "LSS")
+        else:
+            first = "<b>%d</b> nodes" % len(net["nodes"])
         tiles.append(
             '<a class="tile" href="#%s"><span class="tile-title">%s</span>'
             '<span class="tile-sub">%s · %s</span>'
-            '<span class="stats"><span><b>%d</b> nodes</span><span><b>%d</b> PDOs</span></span>'
+            '<span class="stats"><span>%s</span><span><b>%d</b> PDOs</span></span>'
             '<span class="loadrow"><span>Cyclic load</span><b>%s</b>%s</span>'
             '<span class="loadrow"><span>Worst case</span><b>%s</b>%s</span></a>' % (
                 _attr(net["anchor"]), E(net["name"] or "Network"), E(net["interface"]),
                 E("%d kbit/s" % (net["bitrate"] // 1000) if net["bitrate"] else "bitrate not set"),
-                len(net["nodes"]), pdos, _pct(load["cyclic"]), _meter(load["cyclic"]), _pct(load["worst"]),
+                first, pdos, _pct(load["cyclic"]), _meter(load["cyclic"]), _pct(load["worst"]),
                 _meter(load["worst"])))
     warns = "".join("<li>%s</li>" % E(w) for w in model["warnings"])
     checks = ('<ul class="warnings">%s</ul>' % warns) if warns else '<p class="ok-text">No warnings.</p>'
@@ -97,9 +111,15 @@ def _summary(model):
 
 def _topology(net):
     nodes = net["nodes"]
-    boxes = [("Master", "node %d" % net["master_node_id"], "#" + net["anchor"] + "-settings", True)]
-    boxes += [(n["name"] or "node %d" % n["node_id"], "node %d" % n["node_id"], "#" + n["anchor"], False)
-              for n in sorted(nodes, key=lambda n: n["node_id"])]
+    if net["role"] == "slave":
+        dev = nodes[0]
+        boxes = [("Upper master", "another device", "", True),
+                 ("OpenPLC", "node %d" % dev["node_id"] if dev["node_id"] is not None else "LSS",
+                  "#" + dev["anchor"], False)]
+    else:
+        boxes = [("Master", "node %d" % net["master_node_id"], "#" + net["anchor"] + "-settings", True)]
+        boxes += [(n["name"] or "node %d" % n["node_id"], "node %d" % n["node_id"], "#" + n["anchor"], False)
+                  for n in sorted(nodes, key=lambda n: n["node_id"])]
     per_row = 6
     rows = (len(boxes) + per_row - 1) // per_row
     bw, gap = 128, 22
@@ -117,11 +137,11 @@ def _topology(net):
         for i, (title, sub, href, is_master) in enumerate(boxes[r * per_row:(r + 1) * per_row]):
             x = 24 + i * (bw + gap)
             label = title if len(title) <= 15 else title[:14] + "\u2026"
-            s.append('<a href="%s"><g class="box%s"><title>%s</title>'
-                     '<rect x="%d" y="%d" width="%d" height="58" rx="8"/>'
-                     '<text x="%d" y="%d" class="t">%s</text><text x="%d" y="%d" class="s">%s</text></g></a>' % (
-                         _attr(href), " master" if is_master else "", E("%s (%s)" % (title, sub)), x, y, bw,
-                         x + bw // 2, y + 25, E(label), x + bw // 2, y + 45, E(sub)))
+            box = ('<g class="box%s"><title>%s</title><rect x="%d" y="%d" width="%d" height="58" rx="8"/>'
+                   '<text x="%d" y="%d" class="t">%s</text><text x="%d" y="%d" class="s">%s</text></g>' % (
+                       " master" if is_master else "", E("%s (%s)" % (title, sub)), x, y, bw,
+                       x + bw // 2, y + 25, E(label), x + bw // 2, y + 45, E(sub)))
+            s.append('<a href="%s">%s</a>' % (_attr(href), box) if href else box)
             s.append('<line class="drop" x1="%d" y1="%d" x2="%d" y2="%d"/>' % (
                 x + bw // 2, y + 58, x + bw // 2, line_y))
     first_y = 20 + 92
@@ -132,8 +152,10 @@ def _topology(net):
     s.append('<rect class="term" x="%d" y="%d" width="10" height="16" rx="2"><title>120 \u03a9 termination</title>'
              '</rect>' % (end_x, last_y - 8))
     s.append("</svg>")
-    return ('<figure class="topology">%s<figcaption>Master and nodes on the bus line, terminated at both ends. '
-            'Select a device to open its section.</figcaption></figure>' % "".join(s))
+    what = ("The upper master and OpenPLC as one of its devices" if net["role"] == "slave"
+            else "Master and nodes")
+    return ('<figure class="topology">%s<figcaption>%s on the bus line, terminated at both ends. '
+            'Select a device to open its section.</figcaption></figure>' % ("".join(s), what))
 
 
 def _frames(net):
@@ -211,8 +233,9 @@ def _pdo(p):
             "Event timer" if p["kind"] == "TPDO" else "Deadline", p["event_timer_ms"]))
     if p.get("sync_start") is not None:
         chips.append('<span class="chip">SYNC start %d</span>' % p["sync_start"])
-    chips.append('<span class="chip">%s</span>' % (
-        "Device mapping kept" if p["mapping"] == "device" else "Mapping written by the master"))
+    chips.append('<span class="chip">%s</span>' % {
+        "device": "Device mapping kept", "eds": "Mapping as the EDS gives it"}.get(p["mapping"],
+                                                                               "Mapping written by the master"))
     if p.get("trigger"):
         chips.append('<span class="chip">%s</span>' % E(p["trigger"]))
     rows = []
@@ -226,7 +249,7 @@ def _pdo(p):
             what = _loc(e["location"], e["variables"])
         rows.append([str(e["bit"]), str(e["length"]), "<code>%s:%d</code>" % (hx(e["index"]), e["subindex"]),
                      E(e["name"]), E(e["type"]), what])
-    direction = "node → master" if p["kind"] == "TPDO" else "master → node"
+    direction = p.get("direction") or ("node → master" if p["kind"] == "TPDO" else "master → node")
     return ('<div class="pdo" id="%s"><h5>%s %d <span class="muted">%s · %d byte%s</span></h5>'
             '<div class="chips">%s</div>%s%s</div>' % (
                 _attr(p["anchor"]), p["kind"], p["number"], direction, p["dlc"], "" if p["dlc"] == 1 else "s",
@@ -245,25 +268,39 @@ def _identity(node):
     return _table(["Identity (0x1018)", "EDS", "Expected at boot", "Check"], rows)
 
 
+def _objects(node):
+    rows = [["<code>%s:%d</code>" % (hx(o["index"]), o["subindex"]), E(o["name"]), E(o["type"]), E(o["access"]),
+             E(o["direction"]), _loc(o["location"], o["variables"]), E(o["pdo"])] for o in node["objects"]]
+    return ("<h5>Objects bound to the PLC</h5>" +
+            _table(["Object", "Name", "Type", "Access", "Direction", "PLC", "Carried in"], rows, "sortable",
+                   empty="No object is bound to a PLC address."))
+
+
 def _node(node):
     eds = node["eds"]
+    slave = node.get("role") == "slave"
     product = " ".join(x for x in (eds["vendor_name"], eds["product_name"]) if x)
-    head = ('<section class="node" id="%s"><header class="node-head"><h4>Node %d%s</h4><p>%s</p></header>' % (
-        _attr(node["anchor"]), node["node_id"], (" · " + E(node["name"])) if node["name"] else "",
+    head = ('<section class="node" id="%s"><header class="node-head"><h4>%s</h4><p>%s</p></header>' % (
+        _attr(node["anchor"]), E(_device_title(node)),
         E(product) or '<span class="muted">no product name in the EDS</span>'))
     eds_line = ('<p class="small">EDS <code>%s</code> · SHA-256 <code class="hash">%s</code>%s%s</p>' % (
         E(eds["file"]), E(eds["sha256"]), " · LSS supported" if eds["lss_supported"] else "",
         (' · <a download="%s" href="data:application/octet-stream;base64,%s">Save EDS file</a>' % (
             _attr(eds["file"].rsplit("/", 1)[-1]), eds["data"])) if eds.get("data") else ""))
-    parts = [head, eds_line, '<div class="cols"><div>', _identity(node), '</div><div>', _kv(node["settings"]),
-             '</div></div>']
+    if slave:
+        ident = _table(["Identity (0x1018)", "EDS"], [[E(i["field"]), "<code>%s</code>" % (
+            hx(i["eds"], 8) if isinstance(i["eds"], int) else "–")] for i in node["identity"]])
+        parts = [head, eds_line, ident, _objects(node)]
+    else:
+        parts = [head, eds_line, '<div class="cols"><div>', _identity(node), '</div><div>', _kv(node["settings"]),
+                 '</div></div>']
     if node["locations"]:
-        parts.append("<h5>Status and control in the PLC</h5>")
+        parts.append("<h5>%s in the PLC</h5>" % ("Own status and EMCY" if slave else "Status and control"))
         parts.append(_table(["PLC", "Holds"], [[_loc(l["location"], l["variables"]), E(l["what"])]
                                                for l in node["locations"]]))
     parts.append("<h5>PDOs</h5>")
-    parts.append("".join(_pdo(p) for p in node["pdos"]) or '<p class="muted">No PDOs: every PDO of the node is '
-                                                            'switched off.</p>')
+    parts.append("".join(_pdo(p) for p in node["pdos"]) or '<p class="muted">No PDOs: every PDO of the %s is '
+                                                            'switched off.</p>' % ("EDS" if slave else "node"))
     if node["boot"]:
         b = node["boot"]
         parts.append('<h5>Boot configuration <span class="muted">%d SDO writes, in order</span></h5>' %
@@ -308,7 +345,9 @@ def _network(net):
     parts = ['<section class="network" id="%s"><h2>%s</h2>' % (_attr(net["anchor"]), E(
         "Network " + net["name"] if net["name"] else "Network"))]
     parts.append(_topology(net))
-    parts.append('<h3 id="%s-settings">Master and bus settings</h3>' % _attr(net["anchor"]))
+    slave = net["role"] == "slave"
+    parts.append('<h3 id="%s-settings">%s</h3>' % (_attr(net["anchor"]), "Slave and bus settings" if slave
+                                                   else "Master and bus settings"))
     parts.append(_kv(net["settings"]))
     if net["locations"]:
         parts.append("<h4>Master status in the PLC</h4>")
@@ -316,11 +355,42 @@ def _network(net):
                                                for l in net["locations"]]))
     parts.append(_frames(net))
     parts.append(_bus_load(net))
-    parts.append('<h3>Nodes%s</h3>' % (" of network " + E(net["name"]) if net["name"] else ""))
-    parts.append("".join(_node(n) for n in sorted(net["nodes"], key=lambda n: n["node_id"])) or
+    parts.append('<h3>%s%s</h3>' % ("OpenPLC as a device" if slave else "Nodes",
+                                     (" on network " if slave else " of network ") + E(net["name"])
+                                     if net["name"] else ""))
+    parts.append("".join(_node(n) for n in sorted(net["nodes"], key=lambda n: n["node_id"] or 0)) or
                  '<p class="muted">No nodes configured.</p>')
     parts.append("</section>")
     return "".join(parts)
+
+
+def _gateway(model):
+    g = model.get("gateway")
+    if not g:
+        return ""
+    rows = []
+    for r in g["routes"]:
+        field = "%s node %d <code>%s:%d</code>" % (E(r["field_network"]), r["field_node"], hx(r["field_index"]),
+                                                    r["field_subindex"])
+        if r["field_link"]:
+            field = '<a href="#%s">%s</a>' % (_attr(r["field_link"]), field)
+        rows.append([E(r["name"]), "<code>%s:%d</code>" % (hx(r["slave_index"]), r["slave_subindex"]),
+                     E(r["slave_name"]), E(r["type"]), E(r["direction"]), field])
+    settings = [
+        {"label": "Upper network (OpenPLC is a slave)", "value": g["upper"]},
+        {"label": "Field node states", "value": "from %s (one ARRAY per master network)" % hx(g["status_index"])},
+        {"label": "Field EMCYs forwarded upward", "value": "yes" if g["emcy_forward"] else "no"},
+        {"label": "Routed values down when the upper master is lost", "value": {
+            "zero": "sent as 0", "stop_nodes": "the field nodes that receive routes are stopped"}.get(
+                g["on_upper_loss"], "keep their last values")},
+        {"label": "SDO bridge", "value": ("at %s, %s" % (hx(g["sdo_bridge_index"]), "reads and writes" if
+                                                         g["sdo_bridge_write"] else "reads only"))
+         if g["sdo_bridge"] else "off"},
+    ]
+    return ('<section id="gateway"><h2>Gateway</h2><p class="muted">The plugin copies these values between the upper '
+            'network and the master networks without the PLC program.</p>%s<h3>Routes</h3>%s</section>' % (
+                _kv(settings), _table(["Route", "Slave object", "Name", "Type", "Direction", "Field node entry"],
+                                      rows, "sortable", empty="No routes.")))
 
 
 def _io(model):
@@ -343,11 +413,12 @@ def _appendix(model):
 def _toc(model):
     items = ['<li><a href="#summary">Summary</a></li>']
     for net in model["networks"]:
-        sub = "".join('<li><a href="#%s">%s</a></li>' % (_attr(n["anchor"]), E(
-            "Node %d · %s" % (n["node_id"], n["name"]) if n["name"] else "Node %d" % n["node_id"]))
-            for n in sorted(net["nodes"], key=lambda n: n["node_id"]))
+        sub = "".join('<li><a href="#%s">%s</a></li>' % (_attr(n["anchor"]), E(_device_title(n)))
+                      for n in sorted(net["nodes"], key=lambda n: n["node_id"] or 0))
         items.append('<li><a href="#%s">%s</a><ul>%s</ul></li>' % (
             _attr(net["anchor"]), E("Network " + net["name"] if net["name"] else "Network"), sub))
+    if model.get("gateway"):
+        items.append('<li><a href="#gateway">Gateway</a></li>')
     items.append('<li><a href="#io">PLC I/O</a></li><li><a href="#config">Configuration file</a></li>')
     return '<nav class="toc" aria-label="Contents"><p class="toc-title">Contents</p><ul>%s</ul></nav>' % "".join(items)
 
@@ -361,7 +432,8 @@ def write(model):
             '</button><button type="button" data-print>Print</button></div></header>' % (
                 E(title), E(model["config"]["file"]), E(model["config"]["sha256"][:16]), E(model["generated"]),
                 E(model["tool"]["name"]), E(model["tool"]["version"])))
-    body = [_summary(model)] + [_network(n) for n in model["networks"]] + [_io(model), _appendix(model)]
+    body = [_summary(model)] + [_network(n) for n in model["networks"]] + [_gateway(model), _io(model),
+                                                                          _appendix(model)]
     return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
             "<meta name=\"generator\" content=\"%s %s\"><title>%s</title><style>%s</style></head>"

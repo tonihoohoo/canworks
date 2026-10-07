@@ -102,6 +102,8 @@ def scan(project_dir):
                 continue
             kind = "device" if rel.startswith("devices/") else "variable"
             if ext == ".json":
+                if not text.strip():
+                    continue
                 try:
                     doc = json.loads(text)
                 except ValueError as e:

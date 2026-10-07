@@ -725,6 +725,289 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
     }
 
 
+SLAVE_LOCATIONS = (
+    ("state_location", "own NMT state (0 not started, 4 stopped, 5 operational, 127 pre-operational)"),
+    ("comm_ok_location", "TRUE while OPERATIONAL with no heartbeat or life guarding error"),
+    ("sync_count_location", "SYNCs received (wraps at 65535)"),
+    ("emcy_code_location", "EMCY error code the program sends (0 resets the error)"),
+    ("error_register_location", "error register sent with the program's EMCY"),
+)
+
+
+def _slave_pdos(eds, node_id, bound, names):
+    """The PDOs a slave's EDS defines, as `_pdos` gives a node's: the EDS
+    communication and mapping values, entries bound to the config's PLC
+    locations. PDOs whose COB-ID has the invalid bit set are left out."""
+    out = []
+    for tx, kind, comm_base in ((True, "TPDO", 0x1800), (False, "RPDO", 0x1400)):
+        for k in range(eds.pdo_count("input" if tx else "output")):
+            comm = comm_base + k
+            cob = _eds_value(eds, comm, 1, node_id or 0)
+            if cob is None or cob & 0x80000000:
+                continue
+            info = eds_mod.mapping_info(eds, comm + 0x200)
+            entries, bit = [], 0
+            for v in info["defaults"]:
+                index, sub, length = v >> 16, (v >> 8) & 0xFF, v & 0xFF
+                if index < 0x0008:
+                    entries.append({"bit": bit, "length": length, "index": index, "subindex": sub, "name": "dummy",
+                                    "type": CO_TYPE_BY_CODE.get(index, ""), "location": "", "variables": [],
+                                    "used": False, "dummy": True})
+                else:
+                    obj = eds.find(index, sub)
+                    loc = bound.get((index, sub), "")
+                    entries.append({"bit": bit, "length": length, "index": index, "subindex": sub,
+                                    "name": _od_text(eds, index, sub), "type": (obj.type_name if obj else "") or "",
+                                    "location": loc, "variables": _plc_names(names, loc), "used": bool(loc),
+                                    "dummy": False})
+                bit += length
+            trans = _eds_value(eds, comm, 2, node_id or 0)
+            inhibit = _eds_value(eds, comm, 3, node_id or 0)
+            out.append({"kind": kind, "number": k + 1, "anchor": "", "cob_id": cob & 0x7FF,
+                        "transmission": trans, "transmission_from_eds": trans is not None,
+                        "transmission_text": _transmission_meaning(trans),
+                        "inhibit_time_us": inhibit * 100 if (tx and inhibit) else None,
+                        "event_timer_ms": _eds_value(eds, comm, 5, node_id or 0), "sync_start": None,
+                        "mapping": "eds", "direction": "this PLC → upper master" if tx else
+                        "upper master → this PLC", "dlc": (bit + 7) // 8, "bits": bit, "entries": entries})
+    return out
+
+
+def _slave_frame(cob_id, name, kind, producer, consumers, dlc, trigger, bitrate, rate=0.0, worst=None, link="",
+                 note=""):
+    bits = frame_bits(dlc)
+    worst = rate if worst is None else worst
+    return {"cob_id": cob_id, "name": name, "kind": kind, "producer": producer, "consumers": consumers,
+            "dlc": dlc, "bits": bits, "trigger": trigger, "rate_cyclic": round(rate, 4), "rate_worst": round(worst, 4),
+            "load_cyclic": _pct(bits, rate, bitrate), "load_worst": _pct(bits, worst, bitrate), "notes": note,
+            "link": link, "duplicate": False}
+
+
+def _slave_network(net, paths, names, od_mode, embed, plc_cycle_ms, several, warnings, gateway):
+    """A slave network (canopen-slave-device): the PLC is one device of it and
+    another master runs the bus. Documents the device as its EDS and the
+    config's bindings define it and the frames it takes part in."""
+    nname, s, a = net["name"], net["slave"], net["adapter"]
+    node_id = _u(s.get("node_id")) if s.get("node_id") is not None else None
+    bitrate = _u(a.get("bitrate"), 0) or 0
+    label = (nname + ": ") if several else ""
+    net_anchor = anchor("net", nname or "network")
+    with open(paths[s["eds"]], "rb") as f:
+        raw = f.read()
+    text, _, _ = edslint.check(raw, node_id or 1)
+    eds = eds_mod.Eds.read(s["eds"], text)
+    info = eds_mod.device_info(paths[s["eds"]]) or {}
+    me = "OpenPLC"
+    upper = "upper master"
+
+    bound, objects = {}, []
+    for o in s.get("objects", []):
+        index, sub = _u(o.get("index")), _u(o.get("subindex"), 0)
+        loc = str(parse_location(o.get("iec_location", "")) or o.get("iec_location", ""))
+        bound[(index, sub)] = loc
+        obj = eds.find(index, sub)
+        access = obj.access if obj else ""
+        side = contract.slave_direction(access)
+        objects.append({"index": index, "subindex": sub, "name": o.get("name") or _od_text(eds, index, sub),
+                        "type": (obj.type_name if obj else "") or "", "access": access,
+                        "direction": {"input": "upper master writes, PLC reads",
+                                      "output": "PLC writes, upper master reads"}.get(side, ""),
+                        "location": loc, "variables": _plc_names(names, loc), "pdo": ""})
+    pdos = _slave_pdos(eds, node_id, bound, names)
+    dev_anchor = anchor("node", nname, node_id if node_id is not None else "lss")
+    carried = {}
+    for p in pdos:
+        p["anchor"] = anchor("pdo", nname, node_id if node_id is not None else "lss",
+                             p["kind"].lower() + str(p["number"]))
+        for e in p["entries"]:
+            if not e["dummy"]:
+                carried.setdefault((e["index"], e["subindex"]), []).append(
+                    "%s%d bits %d-%d" % (p["kind"], p["number"], e["bit"], e["bit"] + e["length"] - 1))
+    for o in objects:
+        o["pdo"] = ", ".join(carried.get((o["index"], o["subindex"]), [])) or "SDO only"
+
+    hb = _eds_value(eds, 0x1017, 0, node_id or 0) or 0
+    consumer = []
+    for sub in range(1, 128):
+        v = _eds_value(eds, 0x1016, sub, node_id or 0)
+        if v is None:
+            break
+        if (v >> 16) & 0x7F and v & 0xFFFF:
+            consumer.append("node %d, timeout %d ms" % ((v >> 16) & 0x7F, v & 0xFFFF))
+    sync_cob = _eds_value(eds, 0x1005, 0, node_id or 0)
+    emcy_cob = _eds_value(eds, 0x1014, 0, node_id or 0)
+
+    rows = []
+
+    def add(label_, value, obj=""):
+        rows.append({"label": label_, "value": value, "object": obj})
+
+    add("Adapter", "%s %s" % (a.get("type", "socketcan"), a.get("interface") or (
+        shown_path(a["device"]) if a.get("device") else "")))
+    if a.get("bitrate"):
+        add("Bitrate", "%d kbit/s" % (bitrate // 1000))
+    if a.get("simulate"):
+        add("Simulated network", "yes: the network runs on the in-plugin virtual bus")
+    add("Role", "slave: another master runs this bus and OpenPLC is one of its devices")
+    add("Own node ID", str(node_id) if node_id is not None else "none at start: assigned by an LSS master")
+    add("Heartbeat produced", "%d ms" % hb if hb else "off (boot-up message only)", "0x1017")
+    add("Watches heartbeats", "; ".join(consumer) if consumer else "none", "0x1016")
+    if sync_cob is not None:
+        add("SYNC consumed", "COB-ID %s" % hx(sync_cob & 0x7FF, 3), "0x1005")
+    if emcy_cob is not None:
+        add("EMCY", "COB-ID %s" % hx(emcy_cob & 0x7FF, 3), "0x1014")
+    add("Inputs while not OPERATIONAL or communication is lost", {"zero": "set to 0"}.get(
+        s.get("inputs_on_loss"), "keep their last values"))
+    add("EDS lint", s.get("eds_lint", "communication"))
+    if gateway and gateway["upper"] == nname:
+        add("Gateway", "%d routes to the master networks (see Gateway)" % len(gateway["routes"]))
+
+    locations = []
+    for key, what in SLAVE_LOCATIONS:
+        if s.get(key):
+            loc = str(parse_location(s[key]) or s[key])
+            locations.append({"location": loc, "what": what, "variables": _plc_names(names, loc)})
+
+    identity = []
+    for key, sub, field in (("vendor_id", 1, "Vendor ID"), ("product_code", 2, "Product code"),
+                            ("revision_number", 3, "Revision"), ("serial_number", 4, "Serial number")):
+        v = _eds_value(eds, 0x1018, sub, node_id or 0)
+        identity.append({"field": field, "eds": v if v is not None else info.get(key), "expected": None,
+                         "checked": False})
+    keys = {(0x1000, 0)} | {(0x1018, k) for k in range(5)} | set(bound)
+    for p in pdos:
+        keys |= {(e["index"], e["subindex"]) for e in p["entries"] if not e["dummy"]}
+    od = [{"index": i, "subindex": k, "name": _od_text(eds, i, k), "type": o.type_name or
+           eds_mod.data_type_name(o.data_type), "access": o.access, "low": o.low_limit, "high": o.high_limit,
+           "default": o.default, "configured": ""}
+          for i, k, o in eds.items() if od_mode == "all" or (i, k) in keys]
+    device = {"node_id": node_id, "name": "OpenPLC", "ident": me, "anchor": dev_anchor, "role": "slave",
+              "eds": {"file": shown_path(s["eds"]), "sha256": hashlib.sha256(raw).hexdigest(),
+                      "vendor_name": info.get("vendor_name", ""), "product_name": info.get("product_name", ""),
+                      "lss_supported": bool(info.get("lss_supported"))},
+              "identity": identity, "settings": [], "locations": locations, "pdos": pdos, "boot": None,
+              "startup_sdos": [], "sdo_variables": [], "objects": objects, "od": od}
+    if embed:
+        device["eds"]["data"] = base64.b64encode(raw).decode("ascii")
+
+    # Frames: what this device sends and receives; the upper master's own
+    # frames and timing are not in this config.
+    frames, cyclic_bits, worst_bits, unbounded = [], 0.0, 0.0, []
+    frames.append(_slave_frame(0x000, "NMT", "nmt", upper, [me], 2, "on demand", bitrate))
+    if sync_cob is not None and sync_cob & 0x7FF:
+        frames.append(_slave_frame(sync_cob & 0x7FF, "SYNC", "sync", upper, [me], 0,
+                                   "set by the upper master; not counted", bitrate))
+    if node_id is not None:
+        hb_rate = _per(hb)
+        frames.append(_slave_frame(0x700 + node_id, "OpenPLC_Heartbeat", "heartbeat", me, [upper], 1,
+                                   "every %d ms" % hb if hb else "off (boot-up message only)", bitrate, hb_rate))
+        if emcy_cob is not None and not emcy_cob & 0x80000000:
+            frames.append(_slave_frame(emcy_cob & 0x7FF, "OpenPLC_EMCY", "emcy", me, [upper], 8, "on error",
+                                       bitrate))
+        frames.append(_slave_frame(0x600 + node_id, "OpenPLC_SDO_Request", "sdo_request", upper, [me], 8,
+                                   "on demand (the upper master's configuration and SDO access)", bitrate))
+        frames.append(_slave_frame(0x580 + node_id, "OpenPLC_SDO_Response", "sdo_response", me, [upper], 8,
+                                   "on demand", bitrate))
+        for p in pdos:
+            if p["kind"] == "TPDO":
+                t = p["transmission"]
+                if t is not None and t <= 240:
+                    cyc = worst = 0.0
+                    trigger = "SYNC from the upper master; not counted"
+                else:
+                    # The plugin sends a changed event-driven TPDO at the end
+                    # of the PLC scan (docs/slave.md), so at most once a scan
+                    # unless the inhibit time is longer.
+                    cyc, worst, trigger, _ = _pdo_rates(p, _NoSync())
+                    scan = "at most once per PLC scan"
+                    if plc_cycle_ms and (not worst or _per(plc_cycle_ms) < worst):
+                        worst = _per(plc_cycle_ms)
+                        trigger = "on change, %s (%g ms)" % (scan, plc_cycle_ms) + (
+                            ", event timer %d ms" % p["event_timer_ms"] if p["event_timer_ms"] else "")
+                    elif not worst:
+                        trigger = "on change, %s; not counted: PLC cycle not given" % scan
+                frames.append(_slave_frame(p["cob_id"], "OpenPLC_TPDO%d" % p["number"], "tpdo", me, [upper],
+                                           p["dlc"], trigger, bitrate, cyc, worst, p["anchor"]))
+            else:
+                trigger = "sent by the upper master; not counted"
+                frames.append(_slave_frame(p["cob_id"], "OpenPLC_RPDO%d" % p["number"], "rpdo", upper, [me],
+                                           p["dlc"], trigger, bitrate, link=p["anchor"]))
+            p["trigger"] = trigger
+    frames.sort(key=lambda f: (f["cob_id"], f["name"]))
+    seen = {}
+    for f in frames:
+        seen.setdefault(f["cob_id"], []).append(f)
+        cyclic_bits += f["bits"] * f["rate_cyclic"]
+        worst_bits += f["bits"] * f["rate_worst"]
+    for cob, same in seen.items():
+        if len(same) > 1:
+            for f in same:
+                f["duplicate"] = True
+            warnings.append("%sCOB-ID %s is used by %s" % (label, hx(cob, 3), ", ".join(f["name"] for f in same)))
+    notes = ["Another master runs this bus: its SYNC, its own frames, other devices and the RPDO rates are not in "
+             "this configuration, so the totals count only the frames this device times itself."]
+    if not plc_cycle_ms and any(p["kind"] == "TPDO" and (p["transmission"] or 0) > 240 for p in pdos):
+        notes.append("The PLC cycle was not given: event-driven TPDOs, sent at most once per PLC scan, are left "
+                     "out of the worst case.")
+    if node_id is None:
+        notes.append("The node ID is assigned by LSS at run time: the device's COB-IDs follow it and are not listed.")
+    io = []
+    for key, who, path, text_ in contract.location_uses(net):
+        io.append({"key": list(key), "location": text_, "network": nname, "who": who, "path": path,
+                   "variables": _plc_names(names, text_)})
+    return {
+        "name": nname, "anchor": net_anchor, "role": "slave", "master_node_id": None,
+        "interface": a.get("interface") or a.get("type", ""), "bitrate": bitrate,
+        "settings": rows, "locations": [], "frames": frames,
+        "bus_load": {"cyclic": round(100.0 * cyclic_bits / bitrate, 2) if bitrate else None,
+                     "worst": round(100.0 * worst_bits / bitrate, 2) if bitrate else None,
+                     "unbounded": unbounded, "notes": notes, "sync_ms": None, "plc_cycle_ms": None},
+        "nodes": [device], "io": io,
+    }
+
+
+class _NoSync:
+    """Rates of a slave network for _pdo_rates: the SYNC is not this config's."""
+    plc_cycle = False
+    sync_ms = None
+    has_sync = False
+    sync_cycles = 1
+
+
+def _gateway(cfg, networks):
+    """The gateway section (canopen-gateway) of a config, or None."""
+    g = cfg.get("gateway") if isinstance(cfg.get("gateway"), dict) else None
+    if not g:
+        return None
+    by_name = {n["name"]: n for n in networks}
+    upper = by_name.get(g.get("upper"))
+    upper_dev = upper["nodes"][0] if upper and upper["role"] == "slave" and upper["nodes"] else None
+    od = {(o["index"], o["subindex"]): o for o in (upper_dev["od"] if upper_dev else [])}
+    routes = []
+    for r in g.get("routes", []):
+        sl, fd = r.get("slave", {}), r.get("field", {})
+        si, ss = _u(sl.get("index")), _u(sl.get("subindex"), 0)
+        fi, fs = _u(fd.get("index")), _u(fd.get("subindex"), 0)
+        node = _u(fd.get("node"))
+        o = od.get((si, ss))
+        side = contract.slave_direction(o["access"]) if o else None
+        field_net = by_name.get(fd.get("network"))
+        link = ""
+        if field_net:
+            link = next((n["anchor"] for n in field_net["nodes"] if n["node_id"] == node), "")
+        routes.append({"name": r.get("name", ""), "slave_index": si, "slave_subindex": ss,
+                       "slave_name": o["name"] if o else "", "type": o["type"] if o else "",
+                       "direction": {"input": "down: upper master → field node",
+                                     "output": "up: field node → upper master"}.get(side, ""),
+                       "field_network": fd.get("network", ""), "field_node": node, "field_index": fi,
+                       "field_subindex": fs, "field_link": link})
+    status = _u((g.get("status") or {}).get("index"), 0x5E00)
+    return {"upper": g.get("upper", ""), "routes": routes, "status_index": status,
+            "emcy_forward": bool(g.get("emcy_forward")), "on_upper_loss": g.get("on_upper_loss", "hold"),
+            "sdo_bridge": bool(g.get("sdo_bridge")), "sdo_bridge_index": _u(g.get("sdo_bridge_index"), 0x5F00),
+            "sdo_bridge_write": bool(g.get("sdo_bridge_write"))}
+
+
 def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None, od="used", embed_eds=False,
           plc_cycle_ms=None, now=None):
     """The document model of a config. `names`: {location: [PLC variable
@@ -746,9 +1029,16 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
     warnings = list(result.warnings)
     several = len(every) > 1
     networks = []
+    gateway_cfg = cfg.get("gateway") if isinstance(cfg.get("gateway"), dict) else None
     for net in nets:
+        if net["role"] == "slave":
+            networks.append(_slave_network(net, paths, names, od, embed_eds, plc_cycle_ms, several, warnings,
+                                           gateway_cfg and {
+                "upper": gateway_cfg.get("upper"), "routes": gateway_cfg.get("routes", [])}))
+            continue
         one = contract.network_config(cfg, net["name"] if net["path"] else None)
         networks.append(_network(net, one, config_path, paths, names, od, embed_eds, plc_cycle_ms, several, warnings))
+    gateway = _gateway(cfg, networks) if network is None else None
     io = sorted((r for n in networks for r in n["io"]), key=lambda r: (r["key"], r["network"], r["who"]))
     for n in networks:
         del n["io"]
@@ -772,6 +1062,7 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
                    "schema_version": contract.version_of(cfg), "text": raw},
         "warnings": warnings,
         "networks": networks,
+        "gateway": gateway,
         "io": io,
     }
 

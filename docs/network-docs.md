@@ -29,6 +29,8 @@ Every value comes from the code the deploy tool, the DCF export and the DBC expo
   - the **boot configuration**: every SDO write the master makes at boot, in order, with object, name, value, its meaning for CiA 301 objects (COB-IDs, transmission types, mapping entries, heartbeat, ...), access, EDS default and where it comes from (PDO configuration, node settings, startup SDO, configuration check); the same writes the DCF export puts into `ParameterValue`;
   - SDO variables with their settings;
   - an object dictionary extract: the objects the configuration writes or maps (or every object with `--doc-od all`), with type, access, limits, EDS default and configured value.
+- **Slave networks:** where OpenPLC is a device of another master's network ([slave.md](slave.md)), the network section shows the upper master and OpenPLC, the slave settings, the device as its EDS defines it (identity, PDOs, object dictionary extract), every bound object with its direction, PLC address and the PDO bits that carry it, the own status addresses, and the frames it sends and receives. The bus load counts only what the device times itself: its heartbeat, and event-driven TPDOs at most once per PLC scan when the PLC cycle is known; the upper master's frames are not in the configuration.
+- **Gateway:** with a [gateway](gateway.md), a section with its settings and every route between the upper network and the field nodes, linked to the field node.
 - **PLC I/O cross-reference:** every PLC address the configuration uses, sorted by address, with network, node, what it is and the config field.
 - **Appendix:** the config file itself (with the diagnostics token hash removed).
 

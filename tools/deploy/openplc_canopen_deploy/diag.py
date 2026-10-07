@@ -29,7 +29,7 @@ import struct
 import sys
 import time
 
-from . import __version__
+from . import __version__, localruntime
 
 DEFAULT_PORT = 7531
 PROTOCOL = 1
@@ -55,6 +55,13 @@ def parse_runtime(text):
     text = (text or "").strip()
     if not text:
         raise ValueError("no runtime host given")
+    if localruntime.is_local(text):
+        # The local simulator runtime (openplc-canopen-runtime): its published diagnostics port.
+        try:
+            saved = localruntime.load_settings() or {}
+        except localruntime.LocalRuntimeError:
+            saved = {}
+        return "127.0.0.1", int(saved.get("diag_port") or localruntime.DIAG_PORT)
     host, port = text, DEFAULT_PORT
     if text.startswith("["):
         host, _, rest = text[1:].partition("]")
@@ -295,7 +302,8 @@ class Client:
 
     @property
     def networks(self):
-        """The hello's networks ([{name, interface, bitrate, master_node_id}]);
+        """The hello's networks ([{name, interface, bitrate, role,
+        master_node_id}], a slave network with node_id instead);
         [] from a plugin that runs one network and does not list it."""
         nets = (self.info or {}).get("networks")
         return nets if isinstance(nets, list) else []
@@ -518,7 +526,8 @@ def parser():
                     "(master.diagnostics in canopen.json), and, when the configuration allows changes, write "
                     "objects and send NMT commands.")
     p.add_argument("--runtime", metavar="HOST[:PORT]",
-                   help="the runtime host (diagnostics port, default %d)" % DEFAULT_PORT)
+                   help="the runtime host (diagnostics port, default %d); `local` is the local simulator runtime "
+                        "of openplc-canopen-runtime" % DEFAULT_PORT)
     p.add_argument("--sim", dest="sim_addr", metavar="HOST[:PORT]",
                    help="sim commands: a standalone simulator's control channel (default port 7532)")
     p.add_argument("--token", help="access token (default: $%s, else a prompt)" % TOKEN_ENV)
@@ -699,6 +708,9 @@ def _print_status(st, out):
         out.write("no CANopen session: the CAN interface %s is missing or down\n" % (bus.get("interface") or "?"))
     out.write("plugin %s, up %d s, config %s\n" % (st.get("version"), int(st.get("uptime_s") or 0),
                                                    (st.get("config_sha256") or "?")[:12]))
+    if st.get("role") == "slave":
+        _print_slave_status(st, out)
+        return
     line = "bus %s: %s" % (bus.get("interface"), BUS_STATES.get(bus.get("state"), bus.get("state")))
     if "tx_errors" in bus:
         line += ", tx errors %s, rx errors %s, bus-off %s" % (bus.get("tx_errors"), bus.get("rx_errors"),
@@ -709,6 +721,8 @@ def _print_status(st, out):
     if sync_line:
         out.write(sync_line + "\n")
     sim_nodes = [str(nd.get("node_id")) for nd in st.get("nodes") or [] if nd.get("simulated")]
+    if st.get("simulation_forced"):
+        out.write("simulation forced by the runtime (local simulator runtime): every network runs simulated\n")
     if st.get("simulated_network"):
         out.write("simulated network: no CAN interface is used%s\n"
                   % ("; simulated nodes " + ", ".join(sim_nodes) if sim_nodes else "; no node is simulated"))
@@ -748,6 +762,47 @@ def _print_status(st, out):
             if v.get("abort_code"):
                 line += ", " + abort_text(v["abort_code"])
             out.write(line + "\n")
+
+
+def transmission_text(t):
+    """A PDO transmission type in words."""
+    if t == 0:
+        return "synchronous (acyclic)"
+    if isinstance(t, int) and 1 <= t <= 240:
+        return "every SYNC" if t == 1 else "every %d SYNCs" % t
+    if t in (254, 255):
+        return "event (%d)" % t
+    return "type %s" % t
+
+
+def _print_slave_status(st, out):
+    """The status of a slave network: the plugin's own device, its PDO
+    mappings in force and, on a gateway's upper network, the gateway."""
+    bus = st.get("bus") or {}
+    s = st.get("slave") or {}
+    out.write("bus %s\n" % (bus.get("interface") or "?"))
+    nid = s.get("node_id")
+    out.write("slave %s: %s, communication %s, SYNC count %s\n" % (
+        "node %d" % nid if nid else "waiting for a node ID (LSS)",
+        state_name(s.get("state")) if s.get("state") else "not started",
+        "OK" if s.get("comm_ok") else "not OK", s.get("sync_count", "-")))
+    if "emcy_code" in s:
+        code = s.get("emcy_code") or 0
+        out.write("EMCY %s, error register 0x%02X\n" % ("0x%04X %s" % (code, emcy_class(code)) if code else "none",
+                                                       s.get("error_register") or 0))
+    g = st.get("gateway")
+    if g:
+        out.write("gateway: %d routes, upper master %s, %d forwarded errors active\n" % (
+            g.get("routes") or 0, "present" if g.get("upper_ok") else "missing", g.get("forwarded_errors") or 0))
+    for key, label in (("tpdos", "TPDO"), ("rpdos", "RPDO")):
+        for p in s.get(key) or []:
+            cob = p.get("cob_id") or 0
+            entries = ", ".join("0x%04X:%d (%d bit%s)" % (e.get("index", 0), e.get("subindex", 0), e.get("bits", 0),
+                                                          "" if e.get("bits") == 1 else "s")
+                                for e in p.get("entries") or []) or "nothing mapped"
+            out.write("%s%d  COB-ID 0x%03X%s, %s: %s\n" % (label, p.get("number"), cob & 0x1FFFFFFF,
+                                                       " (off)" if cob & 0x80000000 else "",
+                                                       transmission_text(p.get("transmission")), entries))
 
 
 def _print_scan(res, out):

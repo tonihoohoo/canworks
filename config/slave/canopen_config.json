@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "networks": [
+    {
+      "name": "line",
+      "role": "slave",
+      "adapter": { "type": "socketcan", "interface": "vcan1", "bitrate": 250000 },
+      "slave": {
+        "node_id": 10,
+        "eds": "openplc-slave.eds",
+        "objects": [
+          { "index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed_setpoint" },
+          { "index": "0x2001", "subindex": 1, "iec_location": "%IB300" },
+          { "index": "0x2002", "subindex": 1, "iec_location": "%IX300.0" },
+          { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" },
+          { "index": "0x2100", "subindex": 2, "iec_location": "%QW301" },
+          { "index": "0x2101", "subindex": 1, "iec_location": "%QW302" }
+        ],
+        "inputs_on_loss": "zero",
+        "state_location": "%IB301",
+        "comm_ok_location": "%IX300.1",
+        "sync_count_location": "%IW301",
+        "emcy_code_location": "%QW303",
+        "error_register_location": "%QB300"
+      }
+    }
+  ]
+}

@@ -31,6 +31,16 @@ SDO_VARIABLE_LOCATIONS = (
     ("abort_code_location", "I", "D", "abort", "UDINT"),
 )
 MASTER_LOCATION_KEYS = tuple(m[0] for m in MASTER_LOCATIONS)
+# A slave network's status and EMCY locations: (key, area, size letter, name suffix, IEC type).
+SLAVE_LOCATIONS = (
+    ("state_location", "I", "B", "state", "USINT"),
+    ("comm_ok_location", "I", "X", "comm_ok", "BOOL"),
+    ("sync_count_location", "I", "W", "sync_count", "UINT"),
+    ("emcy_code_location", "Q", "W", "emcy", "WORD"),
+    ("error_register_location", "Q", "B", "errreg", "BYTE"),
+)
+# The IEC type of a location size when the object's type does not say it.
+SIZE_TYPES = {"X": "BOOL", "B": "USINT", "W": "UINT", "D": "UDINT", "L": "ULINT"}
 
 
 def area_size(direction, type_name):
@@ -41,13 +51,30 @@ def area_size(direction, type_name):
 def canopen_uses(cfg):
     """[(json path, Location)] for every iec_location, node diagnostic
     location, SDO variable location and master diagnostic location in a config,
-    over every network of a version 2 file (paths "networks[i]. ...";
-    unparseable values are left to the contract check)."""
+    and every slave binding and slave status location, over every network of
+    a version 2 file (paths "networks[i]. ..."; unparseable values are left
+    to the contract check)."""
     out = []
     if not isinstance(cfg, dict):
         return out
     for net in contract.networks(cfg):
-        out += _network_uses(net["master"], net["nodes"], net["path"] + "." if net["path"] else "")
+        at = net["path"] + "." if net["path"] else ""
+        out += _network_uses(net["master"], net["nodes"], at)
+        out += _slave_uses(net["slave"], at)
+    return out
+
+
+def _slave_uses(slave, at):
+    out = []
+    for key, _, _, _, _ in SLAVE_LOCATIONS:
+        loc = parse_location(slave.get(key))
+        if loc:
+            out.append(("%sslave.%s" % (at, key), loc))
+    objects = slave.get("objects")
+    for j, o in enumerate(objects if isinstance(objects, list) else []):
+        loc = parse_location(o.get("iec_location") if isinstance(o, dict) else None)
+        if loc:
+            out.append(("%sslave.objects[%d].iec_location" % (at, j), loc))
     return out
 
 

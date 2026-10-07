@@ -6,6 +6,7 @@
   "text": "{\n  \"schema_version\": 1,\n  \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n  \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n  \"nodes\": [\n    {\n      \"node_id\": 5,\n      \"name\": \"rtd\",\n      \"eds\": \"rtd8.eds\",\n      \"heartbeat_ms\": 100,\n      \"heartbeat_timeout_ms\": 300,\n      \"status_location\": \"%IX10.0\",\n      \"tx_pdos\": [\n        {\n          \"number\": 1,\n          \"transmission\": 1,\n          \"entries\": [\n            { \"index\": \"0x7130\", \"subindex\": 1, \"type\": \"INTEGER16\", \"iec_location\": \"%IW100\" },\n            { \"index\": \"0x7130\", \"subindex\": 2, \"type\": \"INTEGER16\", \"iec_location\": \"%IW101\" },\n            { \"index\": \"0x7130\", \"subindex\": 3, \"type\": \"INTEGER16\", \"iec_location\": \"%IW102\" },\n            { \"index\": \"0x7130\", \"subindex\": 4, \"type\": \"INTEGER16\", \"iec_location\": \"%IW103\" }\n          ]\n        },\n        {\n          \"number\": 2,\n          \"transmission\": 1,\n          \"entries\": [\n            { \"index\": \"0x6150\", \"subindex\": 1, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB100\" },\n            { \"index\": \"0x6150\", \"subindex\": 2, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB101\" },\n            { \"index\": \"0x6150\", \"subindex\": 3, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB102\" },\n            { \"index\": \"0x6150\", \"subindex\": 4, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB103\" }\n          ]\n        }\n      ],\n      \"sdo\": [\n        { \"index\": \"0x6110\", \"subindex\": 1, \"type\": \"UNSIGNED16\", \"value\": 30 },\n        { \"index\": \"0x6110\", \"subindex\": 2, \"type\": \"UNSIGNED16\", \"value\": 30 },\n        { \"index\": \"0x6110\", \"subindex\": 3, \"type\": \"UNSIGNED16\", \"value\": 30 },\n        { \"index\": \"0x6110\", \"subindex\": 4, \"type\": \"UNSIGNED16\", \"value\": 30 }\n      ]\n    }\n  ]\n}\n"
  },
  "doc_schema_version": 1,
+ "gateway": null,
  "generated": "2026-01-02 03:04",
  "io": [
   {
@@ -1272,7 +1273,7 @@
  "title": "CANopen network documentation",
  "tool": {
   "name": "openplc-canopen-deploy",
-  "version": "0.29.0"
+  "version": "0.31.0"
  },
  "warnings": []
 }

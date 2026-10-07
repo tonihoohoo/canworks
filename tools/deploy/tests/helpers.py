@@ -80,6 +80,7 @@ class StubRuntime:
         self.build_ok = build_ok
         self.canopen_line = canopen_line
         self.requests = []
+        self.users = ["openplc"]  # /api/create-user only works while this is empty
         self.uploaded = None
         self.polls = 0
         stub = self
@@ -107,6 +108,13 @@ class StubRuntime:
                     if doc.get("password") != stub.password:
                         return self.reply(401, "Wrong username or password")
                     return self.reply(200, {"access_token": "token-1"})
+                if self.path == "/api/create-user":
+                    if stub.users:
+                        return self.reply(401, {"msg": "User already created"})
+                    doc = json.loads(body)
+                    stub.users.append(doc["username"])
+                    stub.password = doc["password"]
+                    return self.reply(201, {"msg": "User created", "id": 1})
                 if self.path == "/api/upload-file":
                     if not self.authorized():
                         return self.reply(401, {"msg": "Missing Authorization Header"})
@@ -118,6 +126,11 @@ class StubRuntime:
 
             def do_GET(self):
                 stub.requests.append(("GET", self.path))
+                if self.path == "/api/version":
+                    return self.reply(200, {"version": "v4.2.4"})
+                if self.path == "/api/get-users-info" and not self.authorized():
+                    return self.reply(200 if stub.users else 404, {"msg": "Users found" if stub.users else
+                                                                    "No users found"})
                 if self.path == "/api/status" and self.authorized():
                     state = stub.plc
                     if state == "TRANSITIONING":

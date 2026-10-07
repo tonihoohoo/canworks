@@ -2,7 +2,7 @@
 
 > **Experimental.** All code, tests and documentation in this repository were written by Claude (Anthropic's AI model), directed and tested by a person. Treat everything here as experimental: it has run on a test bench, not in production, and comes with no warranty (see [LICENSE](LICENSE)). Do not use it to control machinery where a fault could hurt people or damage equipment.
 
-A CANopen master plugin for the [OpenPLC Runtime v4](https://github.com/Autonomy-Logic/openplc-runtime), built on [Lely CANopen](https://gitlab.com/lely_industries/lely-core) over Linux SocketCAN.
+A CANopen master (and slave) plugin for the [OpenPLC Runtime v4](https://github.com/Autonomy-Logic/openplc-runtime), built on [Lely CANopen](https://gitlab.com/lely_industries/lely-core) over Linux SocketCAN.
 
 The plugin reads a JSON file that lists the slave nodes, their EDS files and PDO entries, and binds each PDO entry to an explicit PLC address (`%IX`, `%IB`, `%IW`, `%ID`, `%IL` and the `%Q` equivalents). At every PLC start it validates the file against the EDS files, generates the device configuration with Lely's `dcfgen`, boots and configures every slave over SDO, and exchanges PDOs with the PLC image once per scan. A slave that is missing or drops off the bus never stops the PLC; its status bit goes FALSE and the master keeps trying to bring it back.
 
@@ -21,22 +21,25 @@ The plugin's behaviour is set in the config file; [docs/config.md](docs/config.m
 - **From the program:** SDO variables (read and write node objects while running), NMT commands per node, and SDO function blocks (`CO_SDO_READ`, `CO_SDO_WRITE`, ... in the `openplc_canopen` editor library) that read or write any object of any node on any network when the program decides, including REAL, strings and byte blocks ([docs/plc-sdo.md](docs/plc-sdo.md)).
 - **CiA 402 drives as PLCopen axes:** a node marked as an axis is driven with the editor's built-in motion blocks (`MC_Power`, `MC_MoveAbsolute`, `MC_MoveVelocity`, `MC_Home`, ...) in profile position, profile velocity and homing mode; the generated program holds the glue ([docs/cia402.md](docs/cia402.md)).
 - **Everything `dcfgen` can set:** SYNC, heartbeat, error behaviour and the other master and slave options of Lely's dcf-tools, plus a TIME producer that sends the runtime host's clock (UTC).
+- **OpenPLC as a slave:** a network with `"role": "slave"` makes the PLC a node of a network another master runs, with the objects the master writes on `%I` locations and those it reads on `%Q`, the PDO mapping left to that master, store and restore, LSS, and the slave's own state and EMCY for the program ([docs/slave.md](docs/slave.md)). Its EDS is generated from a short object list and is the file the other master's tool imports. On the simulated bus, one config runs the plugin's own master against its own slave without any CAN hardware.
+- **Gateway:** a slave network and master networks in one config, with routes that copy values between upper-network objects and field PDO entries in the plugin, without the PLC program, plus field node status, EMCY forwarding, behaviour on loss of the upper master and an SDO bridge ([docs/gateway.md](docs/gateway.md)).
 - **Online diagnostics** (opt-in, token protected): a TCP channel for the PC tools below. Nothing a client does touches the PLC scan.
 - **Simulated devices** ([docs/simulator.md](docs/simulator.md)): any node, or the whole network, can be simulated from its EDS, so a project and its PLC program run without the real devices or any CAN hardware. Simulated devices boot, answer SDO, exchange PDOs, send heartbeats and EMCY and store parameters as their EDS describes; their values can follow waveforms, formulas across devices, recorded CSV data, a CiA 401 loopback, a CiA 404 slow movement or a CiA 402 drive model; faults (EMCY, lost heartbeat, power loss, SDO aborts and delays, wrong identity, ...) come on command or from timed scenarios that also test the program's reaction. Two switches in the config pick what is simulated: the network (`adapter.simulate`) and each node (`simulate`), in any mix with real devices.
 
 ## On the engineering PC
 
-Three commands in one package, for Windows, macOS and Linux. They install with uv without a Python on the PC: [docs/install-pc.md](docs/install-pc.md).
+Four commands in one package, for Windows, macOS and Linux. They install with uv without a Python on the PC: [docs/install-pc.md](docs/install-pc.md).
 
-- **`openplc-canopen-config`**, a configurator in a local web page ([docs/configurator.md](docs/configurator.md)): add nodes from their EDS, map PDO entries to PLC addresses, startup SDOs and SDO variables, with every address checked against the editor project, and one tab per CAN network. It writes the project's `canopen/` folder, exports DCF and DBC files and an HTML documentation of the network, and creates a new editor project with the I/O already declared. Its **Online** view shows the live network: node and bus state, EMCY history, SDO read and write, NMT, a bus scan, LSS commissioning, an object dictionary browser with watch, and device parameter backup, compare and restore. Its **Trace** view records the bus with CANopen decoding, graphs and triggers ([docs/trace.md](docs/trace.md)).
-- **`openplc-canopen-deploy`** ([docs/deploy.md](docs/deploy.md)): adds the config to an editor build and uploads it to the runtime, checks a config without a runtime, puts the config into an editor project, creates a new editor project from a config (`--new-project`, with `--sdo-blocks` to enable the SDO function blocks), writes or installs the `openplc_canopen` editor library (`library`), exports DCF (`--export-dcf`) and DBC (`--export-dbc`) files, per network or for one with `--network`, and writes an HTML documentation of the networks (`--export-html`, [docs/network-docs.md](docs/network-docs.md)): topology, COB-ID map, bus load estimate, and per node its identity, PDO layouts, boot SDO writes and PLC addresses, in one offline, printable file.
+- **`openplc-canopen-config`**, a configurator in a local web page ([docs/configurator.md](docs/configurator.md)): add nodes from their EDS, map PDO entries to PLC addresses, startup SDOs and SDO variables, with every address checked against the editor project, and one tab per CAN network, each a master or a slave network, with the slave's EDS built and exported in the page and a gateway page for routes. It writes the project's `canopen/` folder, exports DCF and DBC files and an HTML documentation of the network, and creates a new editor project with the I/O already declared. Its **Online** view shows the live network: node and bus state, EMCY history, SDO read and write, NMT, a bus scan, LSS commissioning, an object dictionary browser with watch, and device parameter backup, compare and restore; on a slave network, the plugin's own device, its PDO mappings and the gateway's status. Its **Trace** view records the bus with CANopen decoding, graphs and triggers ([docs/trace.md](docs/trace.md)).
+- **`openplc-canopen-deploy`** ([docs/deploy.md](docs/deploy.md)): adds the config to an editor build and uploads it to the runtime, checks a config without a runtime, puts the config into an editor project, creates a new editor project from a config (`--new-project`, with `--sdo-blocks` to enable the SDO function blocks), writes or installs the `openplc_canopen` editor library (`library`), generates a slave's EDS (`slave-eds`), exports DCF (`--export-dcf`) and DBC (`--export-dbc`) files, per network or for one with `--network`, and writes an HTML documentation of the networks (`--export-html`, [docs/network-docs.md](docs/network-docs.md)): topology, COB-ID map, bus load estimate, and per node its identity, PDO layouts, boot SDO writes and PLC addresses, in one offline, printable file.
 - **`openplc-canopen-diag`** ([docs/diagnostics.md](docs/diagnostics.md)): the online functions from a terminal, including `backup`, `compare`, `restore` and `store` of device parameters (a CiA 306 DCF, so a replaced device gets its settings back), LSS commands, `--network` to pick one of several networks, `trace` with export to pcapng, candump, ASC, BLF, TRC or CSV, and `sim` to drive simulated devices and run scenarios as tests.
+- **`openplc-canopen-runtime`** ([docs/local-runtime.md](docs/local-runtime.md)): try a project without any hardware. It runs the stock OpenPLC Runtime v4 with the CANopen plugin in a container on the PC (Docker Engine, Podman or Colima; no Docker Desktop needed; amd64 and arm64, so M-series Macs too), with every network simulated. The editor uploads to `localhost` and debugs the program there, and the other tools reach it as `--runtime local`. The editor's own OpenPLC Simulator cannot run runtime plugins, so this takes its place for CANopen projects.
 
 The configurator's **Simulated** switches and **Simulation** view set up and drive simulated devices. On the runtime host, `openplc-canopen-sim` runs simulated devices on a SocketCAN interface for any CANopen master, with a `test` mode that runs scenarios and writes a JUnit report ([docs/simulator.md](docs/simulator.md#openplc-canopen-sim)).
 
 ## Scope
 
-- Master role only. The slave role is out of scope for now.
+- Master and slave roles, one role per CAN interface; no flying master, MPDO or SRDO, and no program download into OpenPLC as a slave.
 - Linux with SocketCAN (`can0`, `vcan0`, ...; serial `slcan` adapters need Linux 6.0 or later), OpenPLC v4 native installs (`install.sh --native`) and upstream's managed Docker install ([docs/install-stock.md](docs/install-stock.md#docker-installs)).
 - Stock runtime only (unmodified upstream): `scripts/install-stock.sh` installs the plugin and an editor hook next to the runtime. A program then gets its CANopen config either from a `canopen/` folder in the editor project, carried by the editor's own **Build and upload**, or from `openplc-canopen-deploy`, which uploads an editor build together with the config. Either way the runtime switches the plugin on. See [docs/install-stock.md](docs/install-stock.md) and [docs/deploy.md](docs/deploy.md).
 
@@ -48,21 +51,28 @@ plugin/            native plugin source
 plugin/sim/        the device simulator engine (simulated devices, value sources, expressions,
                    CiA 402 drive model, faults, scenarios), used by the plugin and openplc-canopen-sim
 schema/            the config contract (JSON Schema 2020-12): canopen.v1.schema.json (one network),
-                   canopen.v2.schema.json (several networks), and canopen-sim.v1.schema.json for
-                   the simulation file
+                   canopen.v2.schema.json (several networks, slave networks, the gateway), and
+                   canopen-sim.v1.schema.json for the simulation file
 config/            example configurations: config/pingpong/ (the ping-pong slave),
                    config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404), each with
                    an example simulation.json, config/two-networks/ (two ping-pong networks on
                    vcan0 and vcan1),
-                   config/cia402-drive/ (a made-up CiA 402 drive as a PLCopen axis, with a demo program)
+                   config/cia402-drive/ (a made-up CiA 402 drive as a PLCopen axis, with a demo program),
+                   config/slave/ (OpenPLC as slave node 10, its EDS description and a demo program),
+                   config/gateway/ (the ping-pong node on a field network, OpenPLC as a gateway above it)
 tools/             canopen_check: validates a config and its EDS files without starting the PLC
 tools/deploy/      the PC tools (Python, one package): openplc-canopen-deploy, openplc-canopen-config
                    (the configurator), openplc-canopen-diag (online diagnostics, parameters, trace)
+docker/local-runtime/ the local simulator runtime image (stock runtime + plugin, forced simulation) and
+                   the pinned upstream runtime version
 tools/editor-hook/ the runtime-side hook that keeps CANopen on with the editor's Build and upload
 library/           the openplc_canopen editor library (SDO function blocks): generate.py writes the
                    block sources, build.sh builds the .stlib the deploy tool carries
 test/unit/         unit tests: config validation, EDS checks, dcfgen, process image
 test/sim/          master against Lely slaves and simulated devices on an in-process virtual CAN bus
+test/slave/        the plugin's master against its own slave and gateway on virtual buses, and
+                   run.sh for a master on vcan0 and the slave on vcan1 joined by cangw, and
+                   simulated.sh for both on one simulated bus (a ctest)
 test/sim_unit/     simulator unit tests: expressions (shared corpus), sources, file loader, drive model
 test/drive/        a simulated CiA 402 drive (Lely slave) for the virtual bus
 test/cia402/       ST tests of the CiA 402 axis glue with STruC++ (run.sh) and its host for sim_tests
@@ -83,11 +93,12 @@ test/fixtures/     config and EDS fixtures shared by the plugin's and the deploy
                    (test/fixtures/eds/drives/: two made-up CiA 402 drives)
 test/stock/        install-stock.sh, the editor hook and the upstream runtime's upload rules, end to end
 test/docker/       install-stock.sh in Docker mode and the runtime spec edits
+test/local-runtime/ openplc-canopen-runtime against the image with a compiled PLC program (run.sh)
 test/pc-tools/     the release tag check; test/ci/: the CI change classification
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
 docs/              config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
-                   install-pc.md, install-stock.md, network-docs.md, plc-sdo.md, simulator.md,
+                   gateway.md, install-pc.md, install-stock.md, local-runtime.md, network-docs.md, plc-sdo.md, simulator.md, slave.md,
                    trace.md
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
 ```
@@ -137,9 +148,18 @@ sudo test/docker/run.sh --image ghcr.io/autonomy-logic/openplc-runtime:latest   
 
 Use a development machine, not one running your PLC: the stock test installs into `/opt/openplc-canopen` and the runtime checkout, and the Docker test starts runtime containers on the host network.
 
-### PC tools on Windows and macOS
+### Local simulator runtime image
 
-`.github/workflows/pc-tools.yml` installs the PC tools with uv on Windows and macOS on version bumps on `main` (the release waits for it), on `deploy-v<version>` tags and on "Run workflow" (start it on a pull request's branch when a change needs those systems checked). On your own PC, from a checkout (bash; Git Bash on Windows):
+`.github/workflows/local-runtime.yml` builds the image of [docs/local-runtime.md](docs/local-runtime.md) from the pinned upstream runtime (`docker/local-runtime/runtime-version`) and runs `openplc-canopen-runtime` against it with a PLC program compiled by STruC++, on pull requests that change the image, the plugin or the command, weekly and on "Run workflow"; an arm64 runner builds the arm64 image. Locally (needs Docker and Node 22):
+
+```sh
+docker build -f docker/local-runtime/Dockerfile --build-arg RUNTIME_IMAGE=ghcr.io/autonomy-logic/openplc-runtime:$(cat docker/local-runtime/runtime-version) -t openplc-canopen-runtime:dev .
+test/local-runtime/run.sh --image openplc-canopen-runtime:dev --strucpp "$(scripts/fetch-strucpp.sh)"
+```
+
+### PC tools on Windows, macOS and Linux
+
+`.github/workflows/pc-tools.yml` installs the PC tools with uv on Windows, macOS and Linux (x86_64 and ARM64) on version bumps on `main` (the release waits for it), on `deploy-v<version>` tags and on "Run workflow" (start it on a pull request's branch when a change needs those systems checked). On your own PC, from a checkout (bash; Git Bash on Windows):
 
 ```sh
 uv build --wheel --out-dir dist tools/deploy && uv tool install --force --python 3.12 dist/*.whl
@@ -147,7 +167,7 @@ uv run --no-project --python 3.12 --with jsonschema --with cantools python -m un
 uv run --no-project --python 3.12 python test/pc-tools/smoke.py "$(sed -n 's/^version = "\(.*\)"/\1/p' tools/deploy/pyproject.toml)"
 ```
 
-A `deploy-v<version>` release publishes the tools as a wheel on GitHub (`release-deploy.yml`).
+A `deploy-v<version>` release publishes the tools as a wheel on GitHub and the local simulator runtime image `ghcr.io/tonihoohoo/openplc-canopen-runtime:<version>` (`release-deploy.yml`).
 
 ## Installing it
 
@@ -155,7 +175,7 @@ A `deploy-v<version>` release publishes the tools as a wheel on GitHub (`release
 
 ## Specs
 
-The behaviour is specified with [OpenSpec](https://github.com/Fission-AI/OpenSpec) in `openspec/specs/`, one folder per capability: master bring-up, node supervision, PDO I/O, SDO variables, bus diagnostics, online diagnostics, device parameters, bus trace, the slcan adapter, the config contract, the stock install, the Docker install, the deploy tool, the editor upload, the editor project, the configurator, DCF export, DBC export, the network documentation, the PC install and CI. New work starts as a change under `openspec/changes/` and is archived into the specs once it is merged.
+The behaviour is specified with [OpenSpec](https://github.com/Fission-AI/OpenSpec) in `openspec/specs/`, one folder per capability: master bring-up, node supervision, PDO I/O, SDO variables, bus diagnostics, online diagnostics, device parameters, bus trace, the slcan adapter, the config contract, the stock install, the Docker install, the deploy tool, the editor upload, the editor project, the configurator, DCF export, DBC export, the network documentation, the PC install, the local simulator runtime and CI. New work starts as a change under `openspec/changes/` and is archived into the specs once it is merged.
 
 ## License
 

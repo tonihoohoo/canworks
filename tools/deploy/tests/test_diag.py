@@ -10,7 +10,7 @@ from unittest import mock
 
 from openplc_canopen_deploy import diag
 
-from .fake_diag import TOKEN, TWO_NETWORKS, FakePlugin, closed_port
+from .fake_diag import SLAVE_NETWORK, TOKEN, TWO_NETWORKS, FakePlugin, closed_port, slave_status
 from .helpers import REPO
 
 
@@ -337,6 +337,51 @@ class Networks(unittest.TestCase):
             code, out, _ = run("--runtime", fp.runtime, "sdo-read", "2", "0x1008", "0", "--network", "io")
             self.assertEqual(code, 0)
             self.assertFalse([r for r in fp.requests if "network" in r])
+
+
+class SlaveNetworks(unittest.TestCase):
+    """A slave network (add-canopen-slave task 4.2): its own status and
+    dictionary; the master's commands answer that it is a slave network."""
+
+    def test_status_of_a_slave_network(self):
+        with FakePlugin(networks=[SLAVE_NETWORK]) as fp:
+            code, out, err = run("--runtime", fp.runtime, "status")
+        self.assertEqual(code, 0, err)
+        self.assertIn("bus vcan1\n", out)
+        self.assertIn("slave node 10: OPERATIONAL, communication OK, SYNC count 42\n", out)
+        self.assertIn("EMCY 0x4210 temperature, error register 0x09\n", out)
+        self.assertIn("TPDO1  COB-ID 0x18A, event (255): 0x2100:1 (16 bits), 0x2100:2 (16 bits), 0x2101:1 (16 bits)\n",
+                      out)
+        self.assertIn("TPDO2  COB-ID 0x28A (off), every SYNC: nothing mapped\n", out)
+        self.assertIn("RPDO1  COB-ID 0x20A, event (255): 0x2000:1 (16 bits), 0x2001:1 (8 bits), 0x2002:1 (1 bit)\n",
+                      out)
+        self.assertNotIn("master node", out)
+        self.assertNotIn("gateway", out)
+
+    def test_gateway_and_waiting_for_lss(self):
+        nets = [dict(TWO_NETWORKS[0], name="field"), dict(SLAVE_NETWORK, name="upper", node_id=None)]
+        with FakePlugin(networks=nets) as fp:
+            st = fp.network("upper").status
+            st.update(slave_status(gateway=True), network="upper")
+            st["slave"].update(node_id=0, state=0, comm_ok=False)
+            code, out, err = run("--runtime", fp.runtime, "status")
+        self.assertEqual(code, 0, err)
+        field, upper = out.split("\nnetwork upper (vcan1)\n")
+        self.assertIn("master node 1: OPERATIONAL", field)
+        self.assertIn("slave waiting for a node ID (LSS): not started, communication not OK", upper)
+        self.assertIn("gateway: 2 routes, upper master missing, 1 forwarded errors active\n", upper)
+
+    def test_own_dictionary_and_master_commands(self):
+        with FakePlugin(networks=[SLAVE_NETWORK]) as fp:
+            code, out, err = run("--runtime", fp.runtime, "sdo-read", "10", "0x1008", "0", "--type", "VISIBLE_STRING")
+            self.assertEqual((code, out), (0, "OpenPLC slave example\n"), err)
+            code, _, err = run("--runtime", fp.runtime, "sdo-read", "2", "0x1008", "0")
+            self.assertEqual(code, 1)
+            self.assertIn("node 2 is not this slave (node ID 10)", err)
+            for argv, op in ((["scan"], "scan"), (["nmt", "10", "stop"], "nmt"), (["emcy", "10"], "emcy")):
+                code, _, err = run("--runtime", fp.runtime, *argv)
+                self.assertEqual(code, 1, argv)
+                self.assertIn('network "line" is a slave network; %s needs a master network' % op, err)
 
 
 def documented_commands():

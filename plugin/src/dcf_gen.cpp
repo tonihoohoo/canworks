@@ -97,6 +97,51 @@ void eds_pdo_numbers(const std::string& eds, std::set<unsigned>& tpdos, std::set
   co_dev_destroy(dev);
 }
 
+// The PDO parameters the config sets explicitly, as writes, inserted after
+// the write that switches their PDO off (or before the one that switches it
+// on) unless dcfgen already wrote them. Read-only sub-indices are left out:
+// the EDS checks made sure their value is the configured one.
+void add_explicit_pdo_writes(const NodeConfig& n, std::vector<SdoWrite>& sdos) {
+  auto le = [](uint32_t v, unsigned bytes) {
+    std::vector<uint8_t> d;
+    for (unsigned b = 0; b < bytes; ++b) d.push_back(static_cast<uint8_t>(v >> (8 * b)));
+    return d;
+  };
+  for (int tx = 1; tx >= 0; --tx) {
+    for (const auto& p : tx ? n.tx_pdos : n.rx_pdos) {
+      uint16_t comm = static_cast<uint16_t>((tx ? 0x1800 : 0x1400) + p.number - 1);
+      std::vector<SdoWrite> add;
+      auto want = [&](uint8_t sub, uint32_t value, unsigned bytes) {
+        if (n.ro_pdo_comm.count({comm, sub})) return;
+        for (const auto& w : sdos)
+          if (w.index == comm && w.subindex == sub) return;
+        SdoWrite w;
+        w.index = comm;
+        w.subindex = sub;
+        w.data = le(value, bytes);
+        add.push_back(std::move(w));
+      };
+      if (p.has_transmission) want(2, p.transmission, 1);
+      if (tx && p.has_inhibit_time) want(3, p.inhibit_time_us / 100, 2);
+      if (tx && p.has_event_timer) want(5, p.event_timer_ms, 2);
+      if (tx && p.has_sync_start) want(6, p.sync_start, 1);
+      if (add.empty()) continue;
+      // After the COB-ID write with bit 31 set (PDO off); else before the
+      // COB-ID write that switches it on; else last.
+      auto at = sdos.end();
+      for (auto it = sdos.begin(); it != sdos.end(); ++it) {
+        if (it->index != comm || it->subindex != 1 || it->data.size() != 4) continue;
+        if (it->data[3] & 0x80) {
+          at = it + 1;
+          break;
+        }
+        if (at == sdos.end()) at = it;
+      }
+      sdos.insert(at, add.begin(), add.end());
+    }
+  }
+}
+
 void emit_pdos(std::ostringstream& y, const NodeConfig& n, bool is_tx) {
   const auto& pdos = is_tx ? n.tx_pdos : n.rx_pdos;
   std::set<unsigned> tpdos, rpdos;
@@ -612,6 +657,12 @@ bool generate_device_config(const Config& cfg, const std::string& dcfgen, Genera
       else
         ++it;
     }
+    // dcfgen leaves out a PDO parameter the config sets explicitly when it
+    // equals the EDS default, but the node's real value can differ (a device
+    // that runs with another transmission type than its EDS gives). Explicit
+    // values are written: right after the write that switches the PDO off,
+    // where dcfgen puts its own parameter writes.
+    add_explicit_pdo_writes(n, sdos);
     // Without heartbeat_consumer the node keeps the 0x1016 entries its EDS
     // gives: dcfgen would clear an entry that watches the master.
     if (!n.has_heartbeat_consumer) {

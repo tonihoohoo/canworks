@@ -360,6 +360,22 @@ class Simulated(unittest.TestCase):
         self.assertEqual(simfile.describe_simulated(self.cfg(False, ((5, True), (7, False)))),
                          "node 5 is a simulated device on the real network can0")
 
+    def test_describe_shared_simulated_bus(self):
+        # The plugin's own slave on the master's simulated bus serves node 10.
+        master = dict(self.cfg(True, ((10, False), (5, None))), name="plc")
+        master["adapter"]["interface"] = "sim0"
+        slave = {"name": "line", "role": "slave",
+                 "adapter": {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": True},
+                 "slave": {"node_id": 10, "eds": "openplc-slave.eds"}}
+        cfg = {"schema_version": 2, "networks": [master, slave]}
+        self.assertEqual(simfile.describe_simulated(cfg),
+                         "network plc: the network is simulated; no CAN interface is used; node 10 is slave network "
+                         "line on the same simulated bus; network line: the slave runs on simulated bus sim0")
+        master["nodes"] = [{"node_id": 10, "simulate": False}]
+        self.assertEqual(simfile.describe_simulated(cfg),
+                         "network plc: the network is simulated; no CAN interface is used; node 10 is slave network "
+                         "line on the same simulated bus; network line: the slave runs on simulated bus sim0")
+
     def test_describe_several_networks(self):
         two = {"schema_version": 2, "networks": [dict(self.cfg(), name="io"), dict(self.cfg(True), name="test")]}
         self.assertEqual(simfile.describe_simulated(two),

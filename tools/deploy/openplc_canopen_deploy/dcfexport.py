@@ -307,6 +307,44 @@ def config_stamp(writes, store_subindex):
     return date or 1, time or 1
 
 
+def _add_explicit_pdo_writes(n, norm, ro, sdos):
+    """The PDO parameters the node's JSON sets explicitly, as writes after the
+    write that switches their PDO off (else before the one that switches it
+    on, else last), unless dcfgen already wrote them; as the plugin's
+    add_explicit_pdo_writes."""
+    sdos = list(sdos)
+    for key, base in (("tx_pdos", 0x1800), ("rx_pdos", 0x1400)):
+        tx = base == 0x1800
+        for p, pn in zip(n.get(key, []), norm[key]):
+            comm = base + pn["number"] - 1
+            want = []
+            if "transmission" in p:
+                want.append((2, _u(p["transmission"]), 1))
+            if tx and "inhibit_time_us" in p:
+                want.append((3, _u(p["inhibit_time_us"]) // 100, 2))
+            if tx and "event_timer_ms" in p:
+                want.append((5, _u(p["event_timer_ms"]), 2))
+            if tx and "sync_start" in p:
+                want.append((6, _u(p["sync_start"]), 1))
+            add = [(comm, sub, value.to_bytes(size, "little"), "pdo") for sub, value, size in want
+                   if (comm, sub) not in ro and not any(w[0] == comm and w[1] == sub for w in sdos)]
+            if not add:
+                continue
+            at = None
+            for i, w in enumerate(sdos):
+                if w[0] != comm or w[1] != 1 or len(w[2]) != 4:
+                    continue
+                if w[2][3] & 0x80:
+                    at = i + 1
+                    break
+                if at is None:
+                    at = i
+            if at is None:
+                at = len(sdos)
+            sdos[at:at] = add
+    return sdos
+
+
 class _Node:
     """What the export needs of one node: JSON, prepared EDS, Lely device."""
 
@@ -376,6 +414,9 @@ def plugin_downloads(cfg, config_path, eds_paths=None, software_paths=None, node
         # COB-ID; the plugin drops writes to read-only PDO communication
         # sub-indices (generate_device_config).
         sdos = [w for w in sdos if (w[0], w[1]) not in node.ro]
+        # Explicit PDO parameters equal to the EDS default, which dcfgen leaves
+        # out (add_explicit_pdo_writes).
+        sdos = _add_explicit_pdo_writes(n, node.norm, node.ro, sdos)
         # Without heartbeat_consumer the node keeps its 0x1016 entries.
         if "heartbeat_consumer" not in n:
             cleared = master_id << 16
@@ -700,7 +741,7 @@ def export(cfg, config_path, eds_paths=None, software_paths=None, node_id=None, 
                 network, ", ".join(n["name"] for n in contract.networks(cfg))), ["networks"])])
     several = len(nets) > 1
     files, problems = {}, []
-    for net in nets:
+    for net in _no_slave(nets, network, "DCF files"):
         one = contract.network_config(cfg, net["name"] if net["path"] else None)
         folder = net["name"] + "/" if several else ""
         at = net["path"] + "." if net["path"] else ""
@@ -713,6 +754,20 @@ def export(cfg, config_path, eds_paths=None, software_paths=None, node_id=None, 
     if problems:
         raise ExportFailed(problems)
     return files, list(result.warnings)
+
+
+def _no_slave(nets, network, what):
+    """The master networks of `nets`; ExportFailed when `network` names a
+    slave network or none is left (a slave network has no nodes to export:
+    its own EDS is the file for the other master's tool)."""
+    if network is not None and nets and nets[0]["role"] == "slave":
+        raise ExportFailed([("network '%s' is a slave network; it has no nodes to export as %s (its EDS, %s, is "
+                             "the file for the other master's tool)" % (network, what, nets[0]["slave"].get("eds")),
+                             [nets[0]["path"]])])
+    masters = [n for n in nets if n["role"] == "master"]
+    if not masters:
+        raise ExportFailed([("the config has no master network, so no nodes to export as %s" % what, ["networks"])])
+    return masters
 
 
 def _export_network(cfg, config_path, eds_paths, software_paths, node_id, now):

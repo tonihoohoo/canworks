@@ -40,7 +40,7 @@ Before uploading, the deploy tool SHALL validate the config against the publishe
 - **THEN** the tool exits non-zero with the same lint error the plugin would log, and uploads nothing
 
 ### Requirement: Address clash check across plugins
-Before uploading, the deploy tool SHALL collect the IEC locations used by every plugin config in the bundle's `conf/*.json` (CANopen `iec_location` and `status_location`, and `iec_location` fields in other plugins' configs), and compare their ranges. Since each size letter is a separate table in the OpenPLC image, only locations of the same area and size can overlap. Two plugins mapping overlapping input locations (`%I`) SHALL be an error, since both would write the same input. Two plugins mapping overlapping output locations (`%Q`) SHALL be a warning, since both only read it. An `--allow-clash` option SHALL turn the errors into warnings.
+Before uploading, the deploy tool SHALL collect the IEC locations used by every plugin config in the bundle's `conf/*.json` (CANopen `iec_location` and `status_location`, and `iec_location` fields in other plugins' configs), and compare their ranges. Since each size letter is a separate table in the OpenPLC image, only locations of the same area and size can overlap. Two plugins mapping overlapping input locations (`%I`) SHALL be an error, since both would write the same input. Two plugins mapping overlapping output locations (`%Q`) SHALL be a warning, since both only read it. An `--allow-clash` option SHALL turn the errors into warnings. A plugin config that is empty or holds only whitespace SHALL count as a config with no locations and SHALL be skipped without a warning; a config with other content that is not valid JSON SHALL be reported as a warning saying its locations are not checked.
 
 #### Scenario: Input clash with EtherCAT
 - **WHEN** `conf/ethercat.json` maps `%ID100` and `conf/canopen.json` maps `%ID100`
@@ -57,6 +57,14 @@ Before uploading, the deploy tool SHALL collect the IEC locations used by every 
 #### Scenario: Clash allowed
 - **WHEN** the input clash above is deployed with `--allow-clash`
 - **THEN** the tool prints it as a warning and uploads
+
+#### Scenario: Empty plugin config from the editor
+- **WHEN** the editor's build contains a zero-byte `conf/ethercat.json`
+- **THEN** the tool prints nothing about that file and checks the other configs as usual
+
+#### Scenario: Broken plugin config
+- **WHEN** `conf/ethercat.json` holds text that is not valid JSON
+- **THEN** the tool prints a warning that the file is not readable JSON and its locations are not checked, and continues
 
 ### Requirement: Upload through the runtime API
 The deploy tool SHALL log in with `POST /api/login`, upload the zip with `POST /api/upload-file`, and follow `compilation-status` until the build ends, printing the runtime's build log. After a successful build it SHALL start the PLC with `/api/start-plc` and wait until `/api/status` reports it running, unless the user passes `--no-start`. It SHALL exit zero only when the runtime reports a successful build and the PLC runs (or `--no-start` was given). It SHALL read the password from an environment variable or an interactive prompt, never from the command line or the config, and SHALL verify the runtime's TLS certificate against a CA file or a pinned SHA-256 fingerprint unless the user passes an explicit `--insecure`.
@@ -154,6 +162,31 @@ When the config has a simulated network or any simulated node, the deploy tool S
 #### Scenario: One simulated node
 - **WHEN** a user deploys interactively a config on `can0` with node 5 simulated
 - **THEN** the deploy tool says that node 5 will be a simulated device on the real network `can0` and asks before uploading
+
+### Requirement: Slave networks in the bundle and checks
+The deploy tool SHALL bundle each slave network's EDS with the config, and `--check` and every upload SHALL run the same EDS lint, object and binding checks the plugin runs, including the direction and location checks.
+
+#### Scenario: Binding error found on the PC
+- **WHEN** a slave binds an `rww` object to a `%Q` location and the user runs `openplc-canopen-deploy --check`
+- **THEN** the check fails with the same message the plugin would log, before anything is uploaded
+
+### Requirement: Slave EDS command
+The deploy tool SHALL provide `openplc-canopen-deploy slave-eds <description.json> -o <file.eds>` (canopen-slave-eds), exiting non-zero with the reason when the description is invalid.
+
+#### Scenario: Invalid description
+- **WHEN** the description has an object without a type
+- **THEN** the command exits non-zero naming the object
+
+### Requirement: Uploading to the local simulator runtime
+With `--runtime local`, the deploy tool SHALL take the target and credentials from the local runtime's saved settings (canopen-local-runtime), SHALL NOT ask the simulated-config confirmation, and SHALL print once before uploading that the local simulator runtime runs every network simulated. All other checks SHALL run as for any runtime.
+
+#### Scenario: Real config to the local runtime
+- **WHEN** a user deploys a config on `can0` with no simulated parts to `--runtime local` non-interactively
+- **THEN** the upload goes ahead without `--yes` or `--simulated`, and the output says that every network runs simulated there
+
+#### Scenario: Simulated config to the local runtime
+- **WHEN** a user deploys a config with `adapter.simulate: true` to `--runtime local` non-interactively
+- **THEN** the upload goes ahead without asking
 
 ### Requirement: Export network documentation from the command line
 The deploy tool SHALL accept `--export-html FILE` as an alternative to `--bundle`, `--project`, `--into-project`, `--export-dcf` and `--export-dbc`. With it, the tool SHALL run the checks before upload on `--config`, write the document as `canopen-network-docs` describes to FILE (replacing it, through a temporary file and rename), print the file name and any warnings, and SHALL NOT build, assemble or upload anything. `--network NAME` SHALL limit the document to one network. `--doc-title TEXT` SHALL set the title, `--doc-od used|all` the object dictionary extract (default `used`), `--doc-embed-eds` SHALL embed the EDS files, and `--doc-cycle-ms MS` SHALL give the PLC cycle for the bus-load estimate; these options SHALL be refused without `--export-html`. When `--config` is the `canopen/canopen.json` of an editor project, the project's located variables SHALL be used for PLC variable names and, without `--doc-cycle-ms`, the project's task interval for the PLC cycle. On any check failure it SHALL exit non-zero, print every message and leave FILE untouched.

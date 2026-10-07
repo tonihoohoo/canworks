@@ -24,7 +24,7 @@ EDS_DIR = os.path.join(FIXTURES, "eds")
 FIXTURE_CONFIG = os.path.join(EDS_DIR, "canopen.json")
 EDITOR_PROJECT = os.path.join(FIXTURES, "editor-project")
 GOLDEN = os.path.join(os.path.dirname(__file__), "data", "doc")
-EXAMPLES = ("rtd-sensor", "cia402-drive", "two-networks", "pingpong")
+EXAMPLES = ("rtd-sensor", "cia402-drive", "two-networks", "pingpong", "slave", "gateway")
 NOW = datetime.datetime(2026, 1, 2, 3, 4)
 
 
@@ -137,9 +137,9 @@ class Model(unittest.TestCase):
         for name in EXAMPLES:
             cfg, path = example(name)
             m = build(cfg, path)
-            for net in m["networks"]:
+            for net in (n for n in m["networks"] if n["role"] == "master"):
                 one = docexport.contract.network_config(cfg, net["name"] or None)
-                dbc = dbcexport.build(one, path)
+                dbc = dbcexport.build(one, path, checked=True)  # checked as a whole above
                 for msg in dbc.messages:
                     f = frame(net, msg.name)
                     self.assertEqual((f["cob_id"], f["dlc"]), (msg.cob_id, msg.length), (name, msg.name))
@@ -156,7 +156,7 @@ class Model(unittest.TestCase):
         for name in EXAMPLES:
             cfg, path = example(name)
             m = build(cfg, path)
-            for net in m["networks"]:
+            for net in (n for n in m["networks"] if n["role"] == "master"):
                 one = docexport.contract.network_config(cfg, net["name"] or None)
                 downloads = dcfexport.plugin_downloads(one, path)
                 for node in net["nodes"]:
@@ -381,6 +381,52 @@ class Html(unittest.TestCase):
     def test_title(self):
         text, _ = docexport.export(base_config(), FIXTURE_CONFIG, title="Line 3 <A>", now=NOW)
         self.assertIn("<title>Line 3 &lt;A&gt;</title>", text)
+
+
+class SlaveNetworks(unittest.TestCase):
+    def test_slave_device(self):
+        cfg, path = example("slave")
+        [net] = build(cfg, path)["networks"]
+        self.assertEqual((net["role"], net["master_node_id"]), ("slave", None))
+        [dev] = net["nodes"]
+        self.assertEqual((dev["role"], dev["node_id"], dev["boot"]), ("slave", 10, None))
+        speed = next(o for o in dev["objects"] if o["index"] == 0x2000)
+        self.assertEqual((speed["location"], speed["pdo"]), ("%IW300", "RPDO1 bits 0-15"))
+        self.assertIn("upper master writes", speed["direction"])
+        hb = frame(net, "OpenPLC_Heartbeat")
+        self.assertEqual((hb["cob_id"], hb["producer"]), (0x70A, "OpenPLC"))
+        t1 = frame(net, "OpenPLC_TPDO1")
+        self.assertEqual((t1["cob_id"], t1["rate_worst"]), (0x18A, 0))
+        self.assertIn("not counted", t1["trigger"])
+        self.assertEqual(frame(net, "OpenPLC_RPDO1")["producer"], "upper master")
+        self.assertTrue(any("Another master runs this bus" in n for n in net["bus_load"]["notes"]))
+
+    def test_slave_tpdo_at_plc_scan(self):
+        cfg, path = example("slave")
+        [net] = build(cfg, path, plc_cycle_ms=10)["networks"]
+        t1 = frame(net, "OpenPLC_TPDO1")
+        self.assertEqual(t1["rate_worst"], 100.0)
+        self.assertIn("once per PLC scan (10 ms)", t1["trigger"])
+
+    def test_lss_node_id(self):
+        cfg, path = example("slave")
+        cfg["networks"][0]["slave"]["node_id"] = None
+        [net] = build(cfg, path)["networks"]
+        self.assertEqual([f["name"] for f in net["frames"]], ["NMT", "SYNC"])
+        self.assertIn("node ID from LSS", docexport.export(cfg, path, now=NOW)[0])
+
+    def test_gateway(self):
+        cfg, path = example("gateway")
+        model = build(cfg, path)
+        g = model["gateway"]
+        self.assertEqual((g["upper"], g["sdo_bridge"], g["on_upper_loss"]), ("upper", True, "zero"))
+        ping = next(r for r in g["routes"] if r["name"] == "ping")
+        self.assertEqual((ping["field_node"], ping["field_link"]), (2, "node-field-2"))
+        self.assertTrue(ping["direction"].startswith("down"))
+        text, _ = docexport.export(cfg, path, now=NOW)
+        self.assertIn('id="gateway"', text)
+        self.assertIn('href="#node-field-2"', text)
+        self.assertIsNone(build(cfg, path, network="field")["gateway"])
 
 
 class Golden(unittest.TestCase):

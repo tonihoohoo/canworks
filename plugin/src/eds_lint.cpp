@@ -107,15 +107,33 @@ bool run_eds_lint(Config& cfg, const std::string& python, const std::string& wor
     errors.push_back("cannot create " + dir + ": " + std::strerror(errno));
     return false;
   }
-  for (auto& n : cfg.nodes) {
+  // One EDS to lint: the nodes' of a master network, or the slave's own.
+  struct Item {
+    std::string* eds_path;
+    std::vector<std::string>* findings;
+    const std::string* eds;
+    std::string label, base, mode;
+    unsigned node_id;
+  };
+  std::vector<Item> items;
+  if (cfg.is_slave()) {
+    SlaveConfig& s = cfg.slave;
+    // An LSS slave has no node ID yet; its EDS is linted as node 1.
+    items.push_back({&s.eds_path, &s.lint_findings, &s.eds, s.label(), dir + "/slave", s.eds_lint,
+                     s.lss ? 1u : s.node_id});
+  }
+  for (auto& n : cfg.nodes)
+    items.push_back({&n.eds_path, &n.lint_findings, &n.eds, n.label(), dir + "/node_" + std::to_string(n.node_id),
+                     cfg.master.eds_lint, n.node_id});
+  for (auto& it : items) {
     struct stat st;
-    if (stat(n.eds_path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;  // check_eds_files says so
-    std::string base = dir + "/node_" + std::to_string(n.node_id);
+    if (stat(it.eds_path->c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;  // check_eds_files says so
+    const std::string& base = it.base;
     std::string copy = base + ".eds", out_path = base + ".lint.json", err_path = base + ".lint.log";
     unlink(copy.c_str());  // a copy from an earlier load must not outlive its corrections
     std::vector<std::string> args = {python, "-m", "openplc_canopen_deploy.edslint", "--json",
-                                     "--node-id", std::to_string(n.node_id), "--mode", cfg.master.eds_lint,
-                                     "--label", n.label(), "--name", n.eds, "--out", copy, n.eds_path};
+                                     "--node-id", std::to_string(it.node_id), "--mode", it.mode,
+                                     "--label", it.label, "--name", *it.eds, "--out", copy, *it.eds_path};
     std::string why;
     int rc = run(args, out_path, err_path, why);
     std::string out, err;
@@ -135,16 +153,16 @@ bool run_eds_lint(Config& cfg, const std::string& python, const std::string& wor
     const cJSON* note;
     cJSON_ArrayForEach(note, notes) if (cJSON_IsString(note)) cfg.notes.push_back(note->valuestring);
     std::string warning = json_string(doc, "warning"), error = json_string(doc, "error");
-    if (!warning.empty()) cfg.warnings.push_back(n.label() + ": " + warning);
+    if (!warning.empty()) cfg.warnings.push_back(it.label + ": " + warning);
     if (!error.empty()) errors.push_back(error);
     const cJSON* finding;
-    n.lint_findings.clear();
+    it.findings->clear();
     cJSON_ArrayForEach(finding, cJSON_GetObjectItemCaseSensitive(doc, "findings")) {
       std::string message = json_string(finding, "message");
-      if (!message.empty()) n.lint_findings.push_back(message);
+      if (!message.empty()) it.findings->push_back(message);
     }
     std::string prepared = json_string(doc, "prepared");
-    if (!prepared.empty()) n.eds_path = prepared;
+    if (!prepared.empty()) *it.eds_path = prepared;
     cJSON_Delete(doc);
   }
   return errors.size() == before;

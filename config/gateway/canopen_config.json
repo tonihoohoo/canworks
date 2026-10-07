@@ -1,0 +1,52 @@
+{
+  "schema_version": 2,
+  "networks": [
+    {
+      "name": "field",
+      "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
+      "master": { "node_id": 1, "sync_period_us": 100000 },
+      "nodes": [
+        {
+          "node_id": 2,
+          "name": "pingpong",
+          "eds": "cpp-slave.eds",
+          "heartbeat_ms": 100,
+          "heartbeat_timeout_ms": 300,
+          "status_location": "%IX10.0",
+          "tx_pdos": [
+            { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] }
+          ],
+          "rx_pdos": [
+            { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32" } ] }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "upper",
+      "role": "slave",
+      "adapter": { "type": "socketcan", "interface": "vcan1", "bitrate": 250000 },
+      "slave": {
+        "node_id": 20,
+        "eds": "openplc-gateway.eds",
+        "objects": [
+          { "index": "0x2100", "subindex": 1, "iec_location": "%QX300.0" }
+        ],
+        "comm_ok_location": "%IX300.0"
+      }
+    }
+  ],
+  "gateway": {
+    "upper": "upper",
+    "routes": [
+      { "slave": { "index": "0x2101", "subindex": 1 },
+        "field": { "network": "field", "node": 2, "index": "0x4001", "subindex": 0 }, "name": "pong" },
+      { "slave": { "index": "0x2000", "subindex": 1 },
+        "field": { "network": "field", "node": 2, "index": "0x4000", "subindex": 0 }, "name": "ping" }
+    ],
+    "status": { "index": "0x5E00" },
+    "emcy_forward": true,
+    "on_upper_loss": "zero",
+    "sdo_bridge": true
+  }
+}

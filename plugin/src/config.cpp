@@ -55,6 +55,20 @@ const char* plugin_owned_object(uint16_t index) {
   }
 }
 
+std::string SlaveObject::label() const {
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "object 0x%04X:%u", index, subindex);
+  std::string s = buf;
+  if (!name.empty()) s += " (" + name + ")";
+  return s;
+}
+
+std::string SlaveConfig::label() const { return lss ? "slave (LSS)" : "slave (node " + std::to_string(node_id) + ")"; }
+
+std::string RouteConfig::label() const {
+  return "route " + std::to_string(number) + (name.empty() ? "" : " (" + name + ")");
+}
+
 std::string NodeConfig::label() const {
   std::string s = "node " + std::to_string(node_id);
   if (!name.empty()) s += " (" + name + ")";
@@ -376,10 +390,17 @@ class Parser {
           } else {
             ok = false;
           }
-          if (!get_location(e, "iec_location", ew, true, entry.location)) ok = false;
           char obj[32];
           std::snprintf(obj, sizeof(obj), "0x%04X:%u", entry.index, entry.subindex);
-          if (ok) {
+          if (!cJSON_GetObjectItemCaseSensitive(e, "iec_location")) {
+            // Allowed only for an entry a gateway route uses (checked once
+            // the gateway section is read).
+            entry.has_location = false;
+            if (ok) unlocated_.push_back({network_index_, n.node_id, is_tx, entry.index, entry.subindex, full(ew)});
+          } else if (!get_location(e, "iec_location", ew, true, entry.location)) {
+            ok = false;
+          }
+          if (ok && entry.has_location) {
             IecArea want = is_tx ? IecArea::Input : IecArea::Output;
             if (entry.location.area != want) {
               error(ew, n.label() + ", object " + obj + ": " +
@@ -428,16 +449,24 @@ class Parser {
     }
     version_ = set.schema_version;
     if (version_ == 1) {
-      check_known(root, "", {"$schema", "schema_version", "adapter", "interface", "bitrate", "master", "nodes"});
+      for (const char* key : {"role", "slave"})
+        if (cJSON_GetObjectItemCaseSensitive(root, key))
+          error("", std::string("field '") + key + "': slave networks need schema_version: 2 (networks[] with "
+                    "\"role\": \"slave\")");
+      if (cJSON_GetObjectItemCaseSensitive(root, "gateway"))
+        error("", "field 'gateway' needs schema_version: 2");
+      check_known(root, "", {"$schema", "schema_version", "adapter", "interface", "bitrate", "master", "nodes",
+                             "role", "slave", "gateway"});
       Config cfg = blank(set);
       cfg.work_dir = set.config_dir + "/.canopen";
       parse_network(root, cfg);
+      report_unlocated(set);
       set.networks.push_back(cfg);
       return errors_.size() == before;
     }
 
     // Version 2: networks[] and one diagnostics object for all of them.
-    check_known(root, "", {"$schema", "schema_version", "networks", "diagnostics"});
+    check_known(root, "", {"$schema", "schema_version", "networks", "diagnostics", "gateway"});
     static const char* const kMoved[][2] = {{"adapter", "networks[].adapter"},
                                             {"master", "networks[].master"},
                                             {"nodes", "networks[].nodes"},
@@ -464,11 +493,12 @@ class Parser {
       prefix_ = "networks[" + std::to_string(i) + "]";
       Config cfg = blank(set);
       cfg.network_index = (unsigned)i;
+      network_index_ = (unsigned)i;
       copy_diagnostics(diag, cfg.master);
       if (!cJSON_IsObject(net)) {
         error("", "must be an object");
       } else {
-        check_known(net, "", {"name", "adapter", "master", "nodes"});
+        check_known(net, "", {"name", "role", "adapter", "master", "nodes", "slave"});
         for (const char* old_key : {"interface", "bitrate"})
           if (cJSON_GetObjectItemCaseSensitive(net, old_key))
             error("", std::string("field '") + old_key + "' belongs in 'adapter' in schema_version 2");
@@ -476,7 +506,17 @@ class Parser {
         if (named && !valid_network_name(cfg.network))
           error("", "network name \"" + cfg.network + "\" must start with a letter and hold only letters, digits "
                     "and '_', at most 16 characters");
-        parse_network(net, cfg);
+        std::string role = "master";
+        if (get_string(net, "role", "", false, role) && role != "master" && role != "slave")
+          error("", "field 'role' must be \"master\" or \"slave\", not \"" + role + "\"");
+        if (role == "slave") {
+          cfg.role = NetworkRole::Slave;
+          parse_slave_network(net, cfg);
+        } else {
+          if (cJSON_GetObjectItemCaseSensitive(net, "slave"))
+            error("", "field 'slave' belongs to a slave network (\"role\": \"slave\"), not a master network");
+          parse_network(net, cfg);
+        }
         if (!named && !cfg.adapter.interface.empty()) {
           if (valid_network_name(cfg.adapter.interface))
             cfg.network = cfg.adapter.interface;
@@ -490,6 +530,8 @@ class Parser {
     }
     prefix_.clear();
     check_networks(set);
+    parse_gateway(root, set);
+    report_unlocated(set);
     if (set.networks.size() > 1)
       for (auto& cfg : set.networks) cfg.log_prefix = cfg.network;
     for (auto& cfg : set.networks)
@@ -530,6 +572,7 @@ class Parser {
   // IEC locations.
   void check_networks(const ConfigSet& set) {
     std::map<std::string, unsigned> names, ifaces, devices;
+    std::map<std::string, std::map<bool, unsigned>> simulated;  // interface -> slave? -> network
     // "networks[1] (drives)": the network by index and name.
     auto who = [&set](unsigned i) {
       std::string s = "networks[" + std::to_string(i) + "]";
@@ -547,7 +590,19 @@ class Parser {
         else
           names[lower(cfg.network)] = cfg.network_index;
       }
-      if (!cfg.adapter.interface.empty()) {
+      if (!cfg.adapter.interface.empty() && cfg.adapter.simulate) {
+        // Simulated networks with one interface name share one in-process
+        // bus: one master network and one slave network at most.
+        auto& bus = simulated[cfg.adapter.interface];
+        const bool slave = cfg.role == NetworkRole::Slave;
+        auto it = bus.find(slave);
+        if (it != bus.end())
+          error("networks", who(it->second) + " and " + who(cfg.network_index) + " are both " +
+                                (slave ? "slave" : "master") + " networks on simulated bus " + cfg.adapter.interface +
+                                " (a simulated bus takes one master network and one slave network)");
+        else
+          bus[slave] = cfg.network_index;
+      } else if (!cfg.adapter.interface.empty()) {
         auto it = ifaces.find(cfg.adapter.interface);
         if (it != ifaces.end())
           error("networks", who(it->second) + " and " + who(cfg.network_index) + " both use interface " +
@@ -564,6 +619,22 @@ class Parser {
           devices[cfg.adapter.device] = cfg.network_index;
       }
     }
+    // On a shared simulated bus the master's node for the slave network is
+    // the plugin's own slave: a simulated device with that node ID would
+    // answer next to it.
+    for (const auto& sl : set.networks) {
+      if (sl.role != NetworkRole::Slave || !sl.adapter.simulate || sl.adapter.interface.empty() || sl.slave.lss)
+        continue;
+      for (const auto& m : set.networks) {
+        if (m.role == NetworkRole::Slave || !m.adapter.simulate || m.adapter.interface != sl.adapter.interface)
+          continue;
+        for (size_t i = 0; i < m.nodes.size(); ++i)
+          if (m.nodes[i].node_id == sl.slave.node_id && m.nodes[i].simulate)
+            error("networks", who(m.network_index) + " node " + std::to_string(sl.slave.node_id) + " is " +
+                                  who(sl.network_index) + " on simulated bus " + sl.adapter.interface +
+                                  "; set \"simulate\": false on the node, or the simulator answers in its place");
+      }
+    }
     std::vector<Use> uses;
     for (const auto& cfg : set.networks) {
       std::string who = "networks[" + std::to_string(cfg.network_index) + "]";
@@ -577,6 +648,11 @@ class Parser {
   void parse_network(const cJSON* root, Config& cfg) {
     uint64_t v;
     parse_adapter(root, cfg.adapter);
+    if (limits_.force_simulate) {
+      // Before the nodes: they take the simulated-network default from it.
+      cfg.adapter.simulate = true;
+      cfg.adapter.simulation_forced = true;
+    }
 
     const cJSON* master = cJSON_GetObjectItemCaseSensitive(root, "master");
     if (!master || !cJSON_IsObject(master)) {
@@ -1251,6 +1327,292 @@ class Parser {
   // Without a SYNC period or PLC-cycle SYNC the master produces no SYNC, so settings that only
   // act on SYNC would never take effect. A PDO's transmission type from the
   // EDS is checked with the EDS (eds_check.cpp).
+  // An optional output location of one size (%QW or %QB).
+  void get_output_location(const cJSON* obj, const char* key, const std::string& where, IecSize size, bool& has,
+                           IecLocation& out) {
+    if (!cJSON_GetObjectItemCaseSensitive(obj, key)) return;
+    IecLocation loc;
+    if (!get_location(obj, key, where, false, loc)) return;
+    if (loc.area != IecArea::Output || loc.size != size) {
+      error(where, std::string(key) + (size == IecSize::B ? " must be an output byte (%QB...), not "
+                                                           : " must be an output word (%QW...), not ") +
+                       loc.str());
+      return;
+    }
+    has = true;
+    out = loc;
+  }
+
+  // A version 2 network with "role": "slave" (canopen-slave-device spec).
+  void parse_slave_network(const cJSON* net, Config& cfg) {
+    parse_adapter(net, cfg.adapter);
+    if (limits_.force_simulate) {
+      cfg.adapter.simulate = true;
+      cfg.adapter.simulation_forced = true;
+    }
+    for (const char* key : {"master", "nodes"})
+      if (cJSON_GetObjectItemCaseSensitive(net, key))
+        error("", std::string("field '") + key +
+                      "' belongs to a master network; a slave network (\"role\": \"slave\") has 'adapter' and "
+                      "'slave' only");
+    const cJSON* sl = cJSON_GetObjectItemCaseSensitive(net, "slave");
+    if (!sl || !cJSON_IsObject(sl)) {
+      error("", "missing required field 'slave' (an object) for a slave network");
+      return;
+    }
+    const std::string w = "slave";
+    SlaveConfig& s = cfg.slave;
+    check_known(sl, w, {"node_id", "eds", "objects", "inputs_on_loss", "state_location", "comm_ok_location",
+                        "sync_count_location", "emcy_code_location", "error_register_location", "eds_lint"});
+    uint64_t v;
+    const cJSON* id = cJSON_GetObjectItemCaseSensitive(sl, "node_id");
+    if (!id) {
+      error(w, "missing required field 'node_id' (1-127, or null to get it over LSS)");
+    } else if (cJSON_IsNull(id)) {
+      s.lss = true;
+    } else if (get_uint(sl, "node_id", w, true, 0xFFFF, v)) {
+      if (v < 1 || v > 127) error(w, "node ID " + std::to_string(v) + " is out of range (1-127, or null for LSS)");
+      s.node_id = (unsigned)v;
+    }
+    if (get_string(sl, "eds", w, true, s.eds)) s.eds_path = resolve_file(cfg, s.eds, s.eds_candidates);
+    std::string text;
+    if (get_string(sl, "inputs_on_loss", w, false, text)) {
+      if (text == "zero")
+        s.inputs_on_loss_zero = true;
+      else if (text != "hold")
+        error(w, "field 'inputs_on_loss' must be \"hold\" or \"zero\", not \"" + text + "\"");
+    }
+    if (get_string(sl, "eds_lint", w, false, text)) {
+      if (text == "communication" || text == "all" || text == "off")
+        s.eds_lint = text;
+      else
+        error(w, "field 'eds_lint' must be \"communication\", \"all\" or \"off\"");
+    }
+    get_input_location(sl, "state_location", w, IecSize::B, s.has_state_location, s.state_location);
+    if (cJSON_GetObjectItemCaseSensitive(sl, "comm_ok_location")) {
+      IecLocation loc;
+      if (get_location(sl, "comm_ok_location", w, false, loc)) {
+        if (loc.area != IecArea::Input || loc.size != IecSize::X) {
+          error(w, "comm_ok_location must be an input bit (%IX...), not " + loc.str());
+        } else {
+          s.has_comm_ok_location = true;
+          s.comm_ok_location = loc;
+        }
+      }
+    }
+    get_input_location(sl, "sync_count_location", w, IecSize::W, s.has_sync_count_location, s.sync_count_location);
+    get_output_location(sl, "emcy_code_location", w, IecSize::W, s.has_emcy_code_location, s.emcy_code_location);
+    get_output_location(sl, "error_register_location", w, IecSize::B, s.has_error_register_location,
+                        s.error_register_location);
+    const cJSON* objs = cJSON_GetObjectItemCaseSensitive(sl, "objects");
+    if (objs && !cJSON_IsArray(objs)) {
+      error(w, "field 'objects' must be an array");
+    } else if (objs) {
+      std::set<uint32_t> seen;
+      int i = 0;
+      const cJSON* o;
+      cJSON_ArrayForEach(o, objs) {
+        std::string ow = w + ": objects[" + std::to_string(i++) + "]";
+        if (!cJSON_IsObject(o)) {
+          error(ow, "must be an object");
+          continue;
+        }
+        check_known(o, ow, {"index", "subindex", "iec_location", "name"});
+        SlaveObject so;
+        bool ok = true;
+        if (get_uint(o, "index", ow, true, 0xFFFF, v)) so.index = (uint16_t)v; else ok = false;
+        if (get_uint(o, "subindex", ow, false, 0xFF, v)) so.subindex = (uint8_t)v;
+        get_string(o, "name", ow, false, so.name);
+        if (!get_location(o, "iec_location", ow, true, so.location)) ok = false;
+        if (!ok) continue;
+        if (!seen.insert(uint32_t(so.index) << 8 | so.subindex).second) {
+          error(ow, so.label() + " is bound twice");
+          continue;
+        }
+        s.objects.push_back(so);
+      }
+    }
+  }
+
+  // The top-level gateway section (canopen-gateway spec). The checks that
+  // need the EDS files (slave object access and types) are in
+  // check_gateway_eds().
+  void parse_gateway(const cJSON* root, ConfigSet& set) {
+    const cJSON* gw = cJSON_GetObjectItemCaseSensitive(root, "gateway");
+    if (!gw) return;
+    const std::string w = "gateway";
+    if (!cJSON_IsObject(gw)) {
+      error(w, "must be an object");
+      return;
+    }
+    check_known(gw, w, {"upper", "routes", "status", "emcy_forward", "on_upper_loss", "sdo_bridge",
+                        "sdo_bridge_index", "sdo_bridge_write"});
+    GatewayConfig& g = set.gateway;
+    auto find = [&set](const std::string& name) -> int {
+      for (const auto& c : set.networks)
+        if (lower(c.network) == lower(name)) return (int)c.network_index;
+      return -1;
+    };
+    std::string upper;
+    if (!get_string(gw, "upper", w, true, upper)) return;
+    int up = find(upper);
+    if (up < 0) {
+      error(w, "upper network \"" + upper + "\" is not in 'networks'");
+      return;
+    }
+    if (!set.networks[up].is_slave()) {
+      error(w, "upper network \"" + upper + "\" must be a slave network (\"role\": \"slave\"); it is a master network");
+      return;
+    }
+    g.enabled = true;
+    g.upper = (unsigned)up;
+    bool any_master = false;
+    for (const auto& c : set.networks) any_master |= !c.is_slave();
+    if (!any_master) error(w, "a gateway needs at least one master network (its field network) besides \"" + upper + "\"");
+    get_bool(gw, "emcy_forward", w, g.emcy_forward);
+    get_bool(gw, "sdo_bridge", w, g.sdo_bridge);
+    get_bool(gw, "sdo_bridge_write", w, g.sdo_bridge_write);
+    if (g.sdo_bridge_write && !g.sdo_bridge) warning(w, "'sdo_bridge_write' has no effect without 'sdo_bridge'");
+    uint64_t v;
+    if (get_uint(gw, "sdo_bridge_index", w, false, 0xFFFF, v)) {
+      if (v < 0x2000 || v > 0x5FFF) error(w, "field 'sdo_bridge_index' must be in the manufacturer area 0x2000-0x5FFF");
+      g.sdo_bridge_index = (uint16_t)v;
+    }
+    std::string loss;
+    if (get_string(gw, "on_upper_loss", w, false, loss)) {
+      if (loss == "hold")
+        g.on_upper_loss = GatewayConfig::UpperLoss::Hold;
+      else if (loss == "zero")
+        g.on_upper_loss = GatewayConfig::UpperLoss::Zero;
+      else if (loss == "stop_nodes")
+        g.on_upper_loss = GatewayConfig::UpperLoss::StopNodes;
+      else
+        error(w, "field 'on_upper_loss' must be \"hold\", \"zero\" or \"stop_nodes\", not \"" + loss + "\"");
+    }
+    const cJSON* st = cJSON_GetObjectItemCaseSensitive(gw, "status");
+    if (st) {
+      if (!cJSON_IsObject(st)) {
+        error(w, "field 'status' must be an object, e.g. {\"index\": \"0x5E00\"}");
+      } else {
+        check_known(st, w + ": status", {"index"});
+        g.has_status = true;
+        if (get_uint(st, "index", w + ": status", false, 0xFFFF, v)) {
+          if (v < 0x2000 || v > 0x5FEF) error(w + ": status", "field 'index' must be in 0x2000-0x5FEF");
+          g.status_index = (uint16_t)v;
+        }
+      }
+    }
+    const cJSON* routes = cJSON_GetObjectItemCaseSensitive(gw, "routes");
+    if (routes && !cJSON_IsArray(routes)) {
+      error(w, "field 'routes' must be an array");
+      return;
+    }
+    std::map<uint32_t, unsigned> slave_ends;
+    std::map<std::string, unsigned> field_ends;
+    int i = 0;
+    const cJSON* r;
+    cJSON_ArrayForEach(r, routes) {
+      std::string rw = w + ": routes[" + std::to_string(i) + "]";
+      RouteConfig rc;
+      rc.number = (unsigned)++i;
+      if (!cJSON_IsObject(r)) {
+        error(rw, "must be an object");
+        continue;
+      }
+      check_known(r, rw, {"slave", "field", "name"});
+      get_string(r, "name", rw, false, rc.name);
+      const cJSON* se = cJSON_GetObjectItemCaseSensitive(r, "slave");
+      const cJSON* fe = cJSON_GetObjectItemCaseSensitive(r, "field");
+      if (!cJSON_IsObject(se) || !cJSON_IsObject(fe)) {
+        error(rw, "a route needs 'slave' ({index, subindex}) and 'field' ({network, node, index, subindex})");
+        continue;
+      }
+      std::string sw = rw + ": slave", fw = rw + ": field";
+      check_known(se, sw, {"index", "subindex"});
+      check_known(fe, fw, {"network", "node", "index", "subindex"});
+      bool ok = true;
+      if (get_uint(se, "index", sw, true, 0xFFFF, v)) rc.slave_index = (uint16_t)v; else ok = false;
+      if (get_uint(se, "subindex", sw, false, 0xFF, v)) rc.slave_subindex = (uint8_t)v;
+      if (get_uint(fe, "node", fw, true, 127, v)) rc.node = (unsigned)v; else ok = false;
+      if (get_uint(fe, "index", fw, true, 0xFFFF, v)) rc.index = (uint16_t)v; else ok = false;
+      if (get_uint(fe, "subindex", fw, false, 0xFF, v)) rc.subindex = (uint8_t)v;
+      std::string fnet;
+      if (!get_string(fe, "network", fw, true, fnet)) ok = false;
+      if (!ok) continue;
+      int fn = find(fnet);
+      if (fn < 0) {
+        error(fw, "network \"" + fnet + "\" is not in 'networks'");
+        continue;
+      }
+      const Config& field = set.networks[fn];
+      if (field.is_slave()) {
+        error(fw, "network \"" + fnet + "\" is a slave network; a route's field end is on a master network");
+        continue;
+      }
+      rc.field_network = (unsigned)fn;
+      const NodeConfig* node = nullptr;
+      for (const auto& n : field.nodes)
+        if (n.node_id == rc.node) node = &n;
+      char obj[32];
+      std::snprintf(obj, sizeof(obj), "0x%04X:%u", rc.index, rc.subindex);
+      if (!node) {
+        error(fw, "node " + std::to_string(rc.node) + " is not configured on network \"" + field.network + "\"");
+        continue;
+      }
+      const PdoEntry* entry = nullptr;
+      for (bool tx : {true, false})
+        for (const auto& p : tx ? node->tx_pdos : node->rx_pdos)
+          for (const auto& e : p.entries)
+            if (!entry && e.index == rc.index && e.subindex == rc.subindex) {
+              entry = &e;
+              rc.up = tx;
+            }
+      if (!entry) {
+        error(fw, node->label() + " on network \"" + field.network + "\" has no PDO entry " + obj +
+                      " (a route's field end must be an entry of its tx_pdos or rx_pdos)");
+        continue;
+      }
+      rc.type = entry->type;
+      char skey[32];
+      std::snprintf(skey, sizeof(skey), "0x%04X:%u", rc.slave_index, rc.slave_subindex);
+      auto sdup = slave_ends.find(uint32_t(rc.slave_index) << 8 | rc.slave_subindex);
+      if (sdup != slave_ends.end()) {
+        error(rw, rc.label() + " and route " + std::to_string(sdup->second) + " both use slave object " + skey);
+        continue;
+      }
+      slave_ends[uint32_t(rc.slave_index) << 8 | rc.slave_subindex] = rc.number;
+      std::string fkey = std::to_string(fn) + "/" + std::to_string(rc.node) + "/" + obj;
+      auto fdup = field_ends.find(fkey);
+      if (fdup != field_ends.end() && !rc.up) {
+        error(rw, rc.label() + " and route " + std::to_string(fdup->second) + " both write " + node->label() + " " +
+                      obj + " on network \"" + field.network + "\"");
+        continue;
+      }
+      field_ends[fkey] = rc.number;
+      // One writer per object: the route writes a field RPDO entry, so the
+      // PLC must not (an input on a TPDO entry is fine: the PLC only reads).
+      if (!rc.up && entry->has_location)
+        error(rw, rc.label() + " writes " + node->label() + " RPDO entry " + obj + " on network \"" + field.network +
+                      "\", which also has " + entry->location.str() + "; only one of them may write it (remove the "
+                      "entry's iec_location)");
+      g.routes.push_back(rc);
+    }
+  }
+
+  // PDO entries without iec_location: allowed only when a route uses them.
+  void report_unlocated(const ConfigSet& set) {
+    for (const auto& u : unlocated_) {
+      bool routed = false;
+      for (const auto& r : set.gateway.routes)
+        routed |= r.field_network == u.network && r.node == u.node && r.index == u.index && r.subindex == u.subindex;
+      if (!routed)
+        errors_.push_back(path_ + ": " + u.where +
+                          ": missing required field 'iec_location' (only an entry a gateway route uses may leave it "
+                          "out)");
+    }
+    unlocated_.clear();
+  }
+
   void check_sync_needs(const Config& cfg) {
     if (cfg.master.produces_sync()) return;
     const char* why =
@@ -1426,6 +1788,17 @@ class Parser {
 
   // Every IEC location of one network; `p` goes in front of each name.
   void collect_uses(const Config& cfg, const std::string& p, std::vector<Use>& uses) {
+    if (cfg.is_slave()) {
+      const SlaveConfig& s = cfg.slave;
+      if (s.has_state_location) uses.push_back({s.state_location, p + "slave state_location"});
+      if (s.has_comm_ok_location) uses.push_back({s.comm_ok_location, p + "slave comm_ok_location"});
+      if (s.has_sync_count_location) uses.push_back({s.sync_count_location, p + "slave sync_count_location"});
+      if (s.has_emcy_code_location) uses.push_back({s.emcy_code_location, p + "slave emcy_code_location"});
+      if (s.has_error_register_location)
+        uses.push_back({s.error_register_location, p + "slave error_register_location"});
+      for (const auto& o : s.objects) uses.push_back({o.location, p + "slave " + o.label()});
+      return;
+    }
     const MasterConfig& m = cfg.master;
     if (m.has_bus_state_location) uses.push_back({m.bus_state_location, p + "master bus_state_location"});
     if (m.has_tx_error_count_location) uses.push_back({m.tx_error_count_location, p + "master tx_error_count_location"});
@@ -1452,6 +1825,7 @@ class Parser {
       auto add = [&](const std::vector<PdoConfig>& pdos, const char* dir) {
         for (const auto& p : pdos)
           for (const auto& e : p.entries) {
+            if (!e.has_location) continue;
             char obj[64];
             std::snprintf(obj, sizeof(obj), " %s %u object 0x%04X:%u", dir, p.number, e.index, e.subindex);
             uses.push_back({e.location, nl + obj});
@@ -1470,6 +1844,17 @@ class Parser {
   std::vector<std::string>& warnings_;
   std::string prefix_;  // "networks[i]" while parsing a version 2 network
   unsigned version_ = 1;
+  unsigned network_index_ = 0;  // the network being parsed
+  // PDO entries without iec_location, for report_unlocated().
+  struct Unlocated {
+    unsigned network = 0;
+    unsigned node = 0;
+    bool tx = false;
+    uint16_t index = 0;
+    uint8_t subindex = 0;
+    std::string where;
+  };
+  std::vector<Unlocated> unlocated_;
 };
 
 std::string dir_of(const std::string& path) {
@@ -1564,6 +1949,8 @@ bool load_config(const std::string& path, const ImageLimits& limits,
   bool ok = load_config_set(path, limits, set, errors, eds_fallback_dir);
   return only_network(set, ok, out, errors);
 }
+
+bool force_simulate_from_env(const char* value) { return value && std::strcmp(value, "1") == 0; }
 
 bool simulates_anything(const Config& cfg) {
   if (cfg.adapter.simulate) return true;

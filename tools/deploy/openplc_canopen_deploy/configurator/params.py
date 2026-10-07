@@ -141,6 +141,9 @@ def context(session, body, node, library=""):
     nodes = []
     if isinstance(cfg, dict):
         network = (body.get("network") or None) if contract.version_of(cfg) == 2 else None
+        ctx = slave_context(session, cfg, network, node)
+        if ctx is not None:
+            return ctx
         try:
             nodes = contract.network_config(cfg, network)["nodes"] or []
         except ValueError:
@@ -178,6 +181,54 @@ def context(session, body, node, library=""):
         ctx.eds_name = os.path.basename(real)
         return ctx
     raise Refused(422, "node %d has no EDS: add it to the configuration, or open it from the scan with its EDS" % node)
+
+
+def slave_context(session, cfg, network, node):
+    """The own device of a slave network as a NodeContext from the slave's
+    EDS in the draft, with `slave` set to its bound objects; None when the
+    request's network (or the config's only one) is not a slave network.
+    The node ID is the runtime's: a slave that waits for LSS has none in the
+    config."""
+    nets = contract.networks(cfg)
+    found = [n for n in nets if n["name"] == network] if network else nets if len(nets) == 1 else []
+    if not found or found[0]["role"] != "slave":
+        return None
+    net = found[0]
+    eds = net["slave"].get("eds")
+    if not isinstance(eds, str) or not eds:
+        raise Refused(422, "the slave network has no EDS yet: build or pick it on the network's page")
+    with session.lock:
+        path = session.eds_path(eds)
+    try:
+        ctx = P.node_context(node, eds_path=path)
+    except (OSError, P.ParameterError) as e:
+        raise Refused(422, str(e))
+    ctx.eds_name = eds
+    ctx.slave = slave_binds(cfg, net)
+    return ctx
+
+
+def slave_binds(cfg, net):
+    """{(index, sub): {"iec_location", "name"} or {"route"}} of a slave
+    network in the draft: its bound objects and, on a gateway's upper
+    network, the slave ends of the routes."""
+    out = {}
+    for o in net["slave"].get("objects") or []:
+        if not isinstance(o, dict):
+            continue
+        key = (_node_id(o.get("index")), _node_id(o.get("subindex", 0)))
+        if None not in key:
+            out[key] = {"iec_location": o.get("iec_location") or "", "name": o.get("name") or ""}
+    g = cfg.get("gateway") if isinstance(cfg.get("gateway"), dict) else {}
+    if g.get("upper") == net["name"]:
+        for i, r in enumerate(g.get("routes") or []):
+            end = r.get("slave") if isinstance(r, dict) else None
+            if not isinstance(end, dict):
+                continue
+            key = (_node_id(end.get("index")), _node_id(end.get("subindex", 0)))
+            if None not in key:
+                out[key] = {"route": r.get("name") or "route %d" % (i + 1)}
+    return out
 
 
 def config_marks(ctx):
@@ -224,6 +275,7 @@ def entries_json(ctx):
     boot, owned, note = config_marks(ctx)
     defaults = P.reference_from_eds(ctx.eds, ctx.node_id)
     pdo = pdo_marks(ctx)
+    binds = getattr(ctx, "slave", None)
     out = []
     for e in P.entries(ctx.eds):
         d = e.to_json(ctx.node_id)
@@ -239,8 +291,10 @@ def entries_json(ctx):
             d["config"] = True
         if e.key in owned:
             d["sdo_variable"] = owned[e.key] or True
+        if binds and e.key in binds:
+            d["slave_bind"] = binds[e.key]
         out.append(d)
-    return {"node": ctx.node_id, "eds": ctx.eds_name, "configured": ctx.configured,
+    return {"node": ctx.node_id, "eds": ctx.eds_name, "configured": ctx.configured, "slave": binds is not None,
             "has_store": ctx.eds.has(0x1010), "store_subindices": [s for s in range(1, 128)
                                                                     if ctx.eds.find(0x1010, s) is not None],
             "entries": out, "note": note}
@@ -293,6 +347,9 @@ def handle(route, body, session, conn, jobs, client, node, library, host):
         return {"job": job.to_json()}
 
     ctx = context(session, body, node, library)
+    if getattr(ctx, "slave", None) is not None and path not in ("od_entries", "od_read"):
+        raise Refused(409, "%s needs a master network: a slave network reads and writes only its own dictionary"
+                      % path.replace("_", " "))
     if path == "od_entries":
         return entries_json(ctx)
     if path == "od_read":

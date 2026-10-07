@@ -127,6 +127,24 @@ For each node the document SHALL list, in the order the master performs them, ev
 - **WHEN** the DCF export gives node 4 thirty-nine writes
 - **THEN** the boot list of node 4 has the same thirty-nine writes in the same order
 
+### Requirement: Slave networks
+A slave network (`"role": "slave"`, canopen-slave-device) SHALL have a network section in which OpenPLC is one device and another master runs the bus: its topology SHALL show the upper master and OpenPLC; its settings SHALL give the adapter, bitrate, role, own node ID (or that LSS assigns it), heartbeat produced and consumed, SYNC and EMCY COB-IDs from its EDS, the input behaviour on communication loss and the EDS lint; and a device section SHALL give the EDS file and SHA-256, the identity from the EDS, every bound object with its type, access, direction, PLC address, PLC variable and the PDO bits that carry it, the PDOs as the EDS defines them, the own status PLC addresses, and an object dictionary extract. Its COB-ID map SHALL list NMT, SYNC, the device's EMCY, heartbeat, SDO channels and PDOs. Its bus-load totals SHALL count only the frames the device times itself (its heartbeat, and event-driven TPDOs at most once per PLC scan when the PLC cycle is given), with a note that the upper master's frames and timing are not in the configuration. A slave network SHALL have no boot configuration.
+
+#### Scenario: Slave device
+- **WHEN** the document of `config/slave` is exported
+- **THEN** network `line` shows OpenPLC as node 10, object 0x2000:1 bound to `%IW300` and carried in RPDO 1 bits 0-15, and frames 0x18A (TPDO 1) and 0x70A (heartbeat) produced by OpenPLC
+
+#### Scenario: Node ID from LSS
+- **WHEN** the slave's `node_id` is null
+- **THEN** the device section says the node ID comes from LSS and the COB-ID map lists no frames that depend on it
+
+### Requirement: Gateway
+When the config has a `gateway` section and the document covers every network, the document SHALL have a gateway section with the upper network, the field node status index, EMCY forwarding, the behaviour on upper master loss, the SDO bridge, and a table of every route: name, slave object, its name and type, direction (up or down) and the field network, node and entry, linked to the field node's section.
+
+#### Scenario: Routes
+- **WHEN** the document of `config/gateway` is exported
+- **THEN** the gateway section lists route `ping` down to node 2 of network `field`, linked to that node
+
 ### Requirement: PLC I/O cross-reference
 The document SHALL have one table of every IEC location the config uses across all exported networks, sorted by area, size and address, with network, node, what it is (PDO object, status bit, SDO variable and its trigger, status and abort code, master status) and, in editor-project mode, the PLC variable name.
 
