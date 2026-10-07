@@ -22,7 +22,7 @@
 - [x] 3.2 CLI: `hash-token` prints a verifier; the deploy tool's config check rejects `token_sha256` with the same message as the plugin
 - [x] 3.3 `simclient.py` and every configurator view built on `diag.Client` pass through the new client (online, scan, LSS, parameters, OD browser, trace, simulator)
 - [x] 3.4 `tests/fake_diag.py` and `fake_sim.py` speak TLS + SCRAM (test certificate in `tests/data`); existing diag and configurator tests pass unchanged above the transport
-- [ ] 3.5 Deploy tool version 0.33.0
+- [x] 3.5 Deploy tool version 0.33.0
 
 ## 4. Configurator
 
