@@ -19,4 +19,5 @@
 
 ## 4. Measure
 
-- [ ] 4.1 Record the PR run's wall time and per-job times in the PR description. Verify: about 4 minutes or less, and the longest vcan group's tests at most about 1.5 times the shortest's.
+- [x] 4.1 Record the PR run's wall time and per-job times in the PR description. Verify: about 4 minutes or less, and the longest vcan group's tests at most about 1.5 times the shortest's.
+  Result: run on 55864bf (package caches warm) took 3 min 53 s (was about 6, spikes to 10.7): plugin 3.1 min, vcan 3.0 / 3.7 / 3.4 min (tests 105 / 113 / 121 s), tools 2.0-2.7 min, configurator-page 2.0-3.1 min, then ci-ok. Build action 58-98 s (was 223-316 s on the cold runs of this PR, where the first apt attempt stalled twice and the retry finished in 65-80 s). The integration workflow (stock, Docker) passed.
