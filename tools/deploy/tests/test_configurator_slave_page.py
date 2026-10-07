@@ -105,6 +105,10 @@ class SlavePage(unittest.TestCase):
         pg.fill('#view input[data-path="adapter.interface"]', "vcan1")
         pg.select_option('#view select[data-path="role"]', "slave")
         pg.wait_for_selector("#view h2:has-text('Bus and slave device')")
+        # The slave's own Network switch: the simulated bus.
+        pg.select_option('#view select[data-path="adapter.simulate"]', "true")
+        self.assertIn("simulated bus vcan1", pg.inner_text("#sim-banner"))
+        pg.select_option('#view select[data-path="adapter.simulate"]', "")
         self.assertEqual(pg.locator("#view legend:has-text('Master')").count(), 0)
         self.assertTrue(pg.is_hidden("label.file-button:has(#eds-input)"))
         self.assertTrue(pg.is_visible("#nav-gateway"))

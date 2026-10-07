@@ -24,7 +24,8 @@ std::vector<canopen_sim::DeviceSpec> sim_device_specs(const Config& cfg, bool on
 bool check_sim_file(const Config& cfg, const canopen_sim::SimFile& file, std::vector<std::string>& errors);
 
 // What simulated devices there are, for the start warning ("" = none).
-std::string sim_summary(const Config& cfg, const canopen_sim::SimFile& file);
+// `slave_network`: the slave network that shares the simulated bus, if any.
+std::string sim_summary(const Config& cfg, const canopen_sim::SimFile& file, const std::string& slave_network = "");
 
 // Listens on a SocketCAN interface for `ms` and returns the node IDs that
 // sent a heartbeat, boot-up, EMCY or SDO answer. False with `err` when the

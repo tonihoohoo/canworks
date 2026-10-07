@@ -109,7 +109,18 @@ With the top-level `diagnostics` object a slave network is served like a master 
 
 ## Simulated bus
 
-Not available yet: it comes with the device simulator change. With the device simulator's adapter option `"simulate": true`, a slave network runs on the plugin's in-process simulated bus named by its `interface`, shared with a simulated master network of the same `interface` name: one config then runs the plugin's own master against its own slave, with no CAN adapter, vcan or privileges. A simulated bus takes at most one master network and one slave network.
+With the adapter option `"simulate": true` ([simulator.md](simulator.md)), a slave network runs on the plugin's in-process simulated bus named by its `interface`, shared with a simulated master network of the same `interface` name. One config then runs the plugin's own master against its own slave, with no CAN adapter, vcan or privileges:
+
+```json
+{ "name": "plc", "adapter": { "type": "socketcan", "interface": "sim0", "bitrate": 250000, "simulate": true },
+  "master": { "node_id": 1, "heartbeat_ms": 100 },
+  "nodes": [ { "node_id": 10, "name": "openplc", "eds": "openplc-slave.eds", "simulate": false, ... } ] },
+{ "name": "line", "role": "slave",
+  "adapter": { "type": "socketcan", "interface": "sim0", "bitrate": 250000, "simulate": true },
+  "slave": { "node_id": 10, "eds": "openplc-slave.eds", ... } }
+```
+
+A simulated bus takes at most one master network and one slave network. On the master, the node for the slave has `"simulate": false`: otherwise the simulator would run a simulated device with the same node ID next to the plugin's slave, and the check refuses it. Both networks log a warning that they are simulated. `test/slave/simulated.sh` runs this setup (a ctest).
 
 ## Limits
 

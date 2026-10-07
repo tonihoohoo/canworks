@@ -658,6 +658,27 @@ def _check_across_networks(r, cfg, err):
                     ["networks[%d].adapter.device" % devices[dev], me + ".adapter.device"])
             else:
                 devices[dev] = n["index"]
+    # On a shared simulated bus the master's node for the slave network is the
+    # plugin's own slave: a simulated device with that node ID would answer
+    # next to it.
+    for sl in nets:
+        sa, ss = sl["adapter"], sl["slave"]
+        iface = sa.get("interface")
+        nid = ss.get("node_id")
+        if sl["role"] != "slave" or sa.get("simulate") is not True or not isinstance(iface, str) or not iface \
+                or isinstance(nid, bool) or not isinstance(nid, int):
+            continue
+        for m in nets:
+            ma = m["adapter"]
+            if m["role"] != "master" or ma.get("simulate") is not True or ma.get("interface") != iface:
+                continue
+            for j, node in enumerate(m["nodes"]):
+                if not isinstance(node, dict) or _uint(node.get("node_id")) != nid:
+                    continue
+                if node.get("simulate", True) is not False:
+                    err("networks", '%s node %d is %s on simulated bus %s; set "simulate": false on the node, or the '
+                                    'simulator answers in its place' % (label[m["index"]], nid, label[sl["index"]], iface),
+                        ["networks[%d].nodes[%d].simulate" % (m["index"], j)])
     uses = []
     for n in nets:
         who = "networks[%d]" % n["index"] + (" (%s)" % n["name"] if n["name"] else "")

@@ -23,7 +23,20 @@
 #include "sim_engine.h"
 #include "sim_trace.h"
 
+namespace lely {
+namespace io {
+class VirtualCanController;
+}
+}  // namespace lely
+
 namespace canopen_plugin {
+
+// The in-process CAN bus of simulated networks with this interface name: a
+// master network and a slave network that both have adapter.simulate and the
+// same interface share it, so the plugin's master sees the plugin's own
+// slave. It lives while a session holds it. Without an interface name, a
+// bus of its own.
+std::shared_ptr<lely::io::VirtualCanController> shared_virtual_bus(const std::string& interface);
 
 enum class IfaceState { Missing, Down, Up };
 

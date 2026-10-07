@@ -706,6 +706,11 @@ function simBadge(n) {
 
 // What is simulated in one network, in one sentence, or "" when nothing is.
 function netSimSummary(net) {
+  if (isSlave(net)) {
+    if (!simNetwork(net)) return "";
+    const iface = (net.adapter && net.adapter.interface) || "";
+    return `The slave runs on the simulated bus ${iface} inside the plugin, where a simulated master network with the same interface name reaches it.`;
+  }
   const nodes = net.nodes || [];
   const sim = nodes.filter((n) => nodeSimulated(n, net));
   if (simNetwork(net)) {
@@ -796,6 +801,22 @@ function networkSettings() {
     hint("A simulated device is built from the node's EDS. Its behaviour, faults and scenarios are set in the Simulation view (simulation.json)."));
 }
 
+// A slave network on the simulated bus (docs/slave.md, "Simulated bus").
+function slaveNetworkSettings() {
+  return el("fieldset", { dataset: { section: "network" } }, el("legend", null, "Network"),
+    el("div", { class: "grid" },
+      choice("Network", "adapter.simulate", [
+        { value: undefined, label: "Real",
+          help: "The CAN adapter below." },
+        { value: true, label: "Simulated",
+          help: "The simulated bus inside the plugin named by the interface below: a simulated master network with the same interface name runs the plugin's own master against this slave, with no CAN adapter. On that master, set the node for this slave to not simulated. The adapter settings below are kept for switching back." },
+      ], { onChange: (v) => {
+        const ad = S.config.adapter || (S.config.adapter = {});
+        if (v === true) ad.simulate = true; else delete ad.simulate;
+        changed(true);
+      } })));
+}
+
 // The node page's Simulated switch.
 function simSwitch(i) {
   const n = S.config.nodes[i];
@@ -837,7 +858,7 @@ function renderBus(view) {
   view.append(
     el("h2", null, (slave ? "Bus and slave device" : "Bus and master") + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
     roleField(),
-    slave ? null : networkSettings(),
+    slave ? slaveNetworkSettings() : networkSettings(),
     el("fieldset", null, el("legend", null, "CAN adapter"),
       el("div", { class: "grid" },
         choice("Adapter type", a + ".type", [

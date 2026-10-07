@@ -187,8 +187,10 @@ void prepare() {
     ScopedLogPrefix prefix(prefix_of(cfg));
     if (cfg.is_slave()) {
       std::string id = cfg.slave.lss ? std::string("from LSS") : std::to_string(cfg.slave.node_id);
-      log_info("loaded %s: %s adapter %s, %u bit/s, CANopen slave, node ID %s, %zu bound object%s", path.c_str(),
-               cfg.adapter.type.c_str(), cfg.adapter.interface.c_str(), cfg.adapter.bitrate, id.c_str(),
+      std::string unused = cfg.adapter.simulate ? " (not used: on the simulated bus " + cfg.adapter.interface + ")" : "";
+      log_info("loaded %s: %s adapter %s, %u bit/s%s, CANopen slave, node ID %s, %zu bound object%s", path.c_str(),
+               cfg.adapter.type.c_str(), cfg.adapter.interface.c_str(), cfg.adapter.bitrate,
+               unused.c_str(), id.c_str(),
                cfg.slave.objects.size(), cfg.slave.objects.size() == 1 ? "" : "s");
       continue;
     }
@@ -235,6 +237,15 @@ void prepare() {
       else if (!store->saved.empty() || store->lss_id)
         log_info("stored parameters from %s applied after each reset", state_path.c_str());
       net->slave_image.build(cfg);
+      if (cfg.adapter.simulate) {
+        std::string master;
+        for (const auto& other : st->set.networks)
+          if (!other.is_slave() && other.adapter.simulate && other.adapter.interface == cfg.adapter.interface)
+            master = other.network.empty() ? other.adapter.interface : other.network;
+        log_warn("the slave network is SIMULATED (adapter.simulate): no CAN interface is used; it runs on simulated "
+                 "bus %s %s", cfg.adapter.interface.c_str(),
+                 master.empty() ? "with no master network on it" : ("with master network \"" + master + "\"").c_str());
+      }
       if (cfg.master.has_diagnostics) net->hub.reset(new DiagHub(cfg, CANOPEN_PLUGIN_VERSION));
       net->slave_bus.reset(
           new SlaveBus(cfg, net->slave_image, store, state_path, st->gateway.get(), net->hub.get()));
@@ -275,7 +286,12 @@ void prepare() {
         }
         log_info("simulation file %s", sim_path.c_str());
       }
-      log_warn("%s", sim_summary(cfg, sim->file).c_str());
+      std::string shared;
+      if (cfg.adapter.simulate && !cfg.adapter.interface.empty())
+        for (const auto& other : st->set.networks)
+          if (other.is_slave() && other.adapter.simulate && other.adapter.interface == cfg.adapter.interface)
+            shared = other.network.empty() ? other.adapter.interface : other.network;
+      log_warn("%s", sim_summary(cfg, sim->file, shared).c_str());
       if (cfg.adapter.simulate) sim->tap = std::make_shared<SimTraceTap>();
     }
     net->sim = sim;

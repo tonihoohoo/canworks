@@ -572,6 +572,7 @@ class Parser {
   // IEC locations.
   void check_networks(const ConfigSet& set) {
     std::map<std::string, unsigned> names, ifaces, devices;
+    std::map<std::string, std::map<bool, unsigned>> simulated;  // interface -> slave? -> network
     // "networks[1] (drives)": the network by index and name.
     auto who = [&set](unsigned i) {
       std::string s = "networks[" + std::to_string(i) + "]";
@@ -589,7 +590,19 @@ class Parser {
         else
           names[lower(cfg.network)] = cfg.network_index;
       }
-      if (!cfg.adapter.interface.empty()) {
+      if (!cfg.adapter.interface.empty() && cfg.adapter.simulate) {
+        // Simulated networks with one interface name share one in-process
+        // bus: one master network and one slave network at most.
+        auto& bus = simulated[cfg.adapter.interface];
+        const bool slave = cfg.role == NetworkRole::Slave;
+        auto it = bus.find(slave);
+        if (it != bus.end())
+          error("networks", who(it->second) + " and " + who(cfg.network_index) + " are both " +
+                                (slave ? "slave" : "master") + " networks on simulated bus " + cfg.adapter.interface +
+                                " (a simulated bus takes one master network and one slave network)");
+        else
+          bus[slave] = cfg.network_index;
+      } else if (!cfg.adapter.interface.empty()) {
         auto it = ifaces.find(cfg.adapter.interface);
         if (it != ifaces.end())
           error("networks", who(it->second) + " and " + who(cfg.network_index) + " both use interface " +
@@ -604,6 +617,22 @@ class Parser {
                                 cfg.adapter.device);
         else
           devices[cfg.adapter.device] = cfg.network_index;
+      }
+    }
+    // On a shared simulated bus the master's node for the slave network is
+    // the plugin's own slave: a simulated device with that node ID would
+    // answer next to it.
+    for (const auto& sl : set.networks) {
+      if (sl.role != NetworkRole::Slave || !sl.adapter.simulate || sl.adapter.interface.empty() || sl.slave.lss)
+        continue;
+      for (const auto& m : set.networks) {
+        if (m.role == NetworkRole::Slave || !m.adapter.simulate || m.adapter.interface != sl.adapter.interface)
+          continue;
+        for (size_t i = 0; i < m.nodes.size(); ++i)
+          if (m.nodes[i].node_id == sl.slave.node_id && m.nodes[i].simulate)
+            error("networks", who(m.network_index) + " node " + std::to_string(sl.slave.node_id) + " is " +
+                                  who(sl.network_index) + " on simulated bus " + sl.adapter.interface +
+                                  "; set \"simulate\": false on the node, or the simulator answers in its place");
       }
     }
     std::vector<Use> uses;

@@ -3,12 +3,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <net/if.h>
 #include <pthread.h>
 
 #include <lely/ev/loop.hpp>
 #include <lely/io2/linux/can.hpp>
 #include <lely/io2/posix/poll.hpp>
+#include <lely/io2/sys/clock.hpp>
 #include <lely/io2/sys/io.hpp>
 #include <lely/io2/sys/timer.hpp>
 #include <lely/io2/vcan.hpp>
@@ -24,6 +26,22 @@ namespace canopen_plugin {
 constexpr std::chrono::milliseconds Bus::kLoopSlice;
 constexpr int Bus::kShutdownSlices;
 constexpr int Bus::kSyncPriority;
+
+std::shared_ptr<lely::io::VirtualCanController> shared_virtual_bus(const std::string& interface) {
+  if (interface.empty()) return std::make_shared<lely::io::VirtualCanController>(lely::io::clock_monotonic);
+  static std::mutex mutex;
+  static std::map<std::string, std::weak_ptr<lely::io::VirtualCanController>> buses;
+  std::lock_guard<std::mutex> lock(mutex);
+  auto& slot = buses[interface];
+  std::shared_ptr<lely::io::VirtualCanController> bus = slot.lock();
+  if (!bus) {
+    // Lely's virtual controller is thread-safe: each channel reads on its own
+    // event loop, so the master's and the slave's bus threads can share it.
+    bus = std::make_shared<lely::io::VirtualCanController>(lely::io::clock_monotonic);
+    slot = bus;
+  }
+  return bus;
+}
 
 IfaceState iface_state(const std::string& name) {
   std::ifstream in("/sys/class/net/" + name + "/flags");
@@ -134,11 +152,11 @@ void Bus::run_session() {
     const bool virt = cfg_.adapter.simulate;
     const std::string where = virt ? std::string("the simulated network") : cfg_.adapter.interface;
     // The master's channel: on the in-process virtual bus, or on the interface.
-    std::unique_ptr<lely::io::VirtualCanController> vbus;
+    std::shared_ptr<lely::io::VirtualCanController> vbus;
     std::unique_ptr<lely::io::CanController> ctrl;
     std::unique_ptr<lely::io::CanChannelBase> chan;
     if (virt) {
-      vbus.reset(new lely::io::VirtualCanController(timer.get_clock()));
+      vbus = shared_virtual_bus(cfg_.adapter.interface);
       auto* c = new lely::io::VirtualCanChannel(ctx, exec);
       chan.reset(c);
       c->open(*vbus);

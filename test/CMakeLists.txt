@@ -181,3 +181,8 @@ foreach(line IN LISTS SLAVE_CASES)
   add_test(NAME slave_tests.${name} COMMAND slave_tests --exact ${name})
   set_tests_properties(slave_tests.${name} PROPERTIES TIMEOUT 180 ENVIRONMENT "${EDSLINT_ENV}")
 endforeach()
+
+# The plugin's master and its own slave on one simulated bus (adapter.simulate
+# and the same interface on both networks), through the real plugin library.
+add_test(NAME slave_simulated_bus COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/slave/simulated.sh ${CMAKE_BINARY_DIR} 6)
+set_tests_properties(slave_simulated_bus PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")

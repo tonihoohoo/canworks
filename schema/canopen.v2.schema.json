@@ -119,7 +119,8 @@
         "tx_pdos": { "type": "array", "items": { "$ref": "#/$defs/field_tx_pdo" } },
         "rx_pdos": { "type": "array", "items": { "$ref": "#/$defs/field_rx_pdo" } },
         "sdo": { "$ref": "canopen.v1.schema.json#/$defs/node/properties/sdo" },
-        "sdo_variables": { "$ref": "canopen.v1.schema.json#/$defs/node/properties/sdo_variables" }
+        "sdo_variables": { "$ref": "canopen.v1.schema.json#/$defs/node/properties/sdo_variables" },
+        "simulate": { "$ref": "canopen.v1.schema.json#/$defs/node/properties/simulate" }
       },
       "required": [ "node_id", "eds" ]
     },
