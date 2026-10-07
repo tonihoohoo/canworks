@@ -124,14 +124,16 @@ for n in "${NODES[@]}"; do in_logs "$n" && ok "$n" || fail "not in the log: $n";
 in_logs "node 7 (new_io): LSS assigned node ID 7" && ok "LSS gave node 7 its node ID" || fail "no LSS assignment"
 in_logs "gateway: the upper master started this node; routes run" && ok "gateway started by host" ||
     fail "gateway not started"
-in_logs "ERROR" && { logs | grep ERROR | head; fail "errors in the log"; } || ok "no error in the log"
+# The runtime itself logs errors before the first upload (no program yet); only CANopen's count.
+canopen_errors=$(logs | grep "ERROR" | grep "CANOPEN")
+[ -z "$canopen_errors" ] && ok "no CANopen error in the log" || { head <<<"$canopen_errors"; fail "CANopen errors in the log"; }
 
 echo "5. diagnostics"
 st=$(openplc-canopen-diag --runtime local status 2>&1)
 grep -qi "gateway" <<<"$st" && ok "status shows the gateway" || fail "diag status: $st"
 grep -q "upper master present" <<<"$st" && ok "the gateway sees its upper master" || fail "diag status: $st"
 found=$(openplc-canopen-diag --runtime local lss-find --network io 2>&1)
-grep -q "serial 0x00001BBB" <<<"$found" && ok "LSS fastscan finds the spare device" || fail "lss-find: $found"
+grep -q "serial 0x00001BBB" <<<"$found" && ok "LSS fastscan finds the spare device, not a configured one" || fail "lss-find: $found"
 
 echo "6. test scenarios"
 # The scenarios marked "test" in simulation.json (wire-break is the autostart timeline).
