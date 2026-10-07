@@ -24,8 +24,10 @@ def _iso(t):
 
 
 class Sweep:
-    def __init__(self, spec, rates=None, per_rate_ms=1000, rounds=1, configured_kbit=None, opener=None):
+    def __init__(self, spec, rates=None, per_rate_ms=1000, rounds=1, configured_kbit=None, opener=None,
+                 disturb_bus=False):
         self.spec = spec
+        self.disturb_bus = disturb_bus  # sweep also when the adapter does not confirm listen-only
         rates = list(rates or bitrate_mod.RATES)
         # Rates the adapter cannot be set to are left out and named in the
         # result, not tried and failed.
@@ -75,7 +77,8 @@ class Sweep:
         if self._opened is not None:
             self._opened.close(restore=False)  # the link is set back once, at the end
             self._opened = None
-        opened = self.opener(self.spec, kbit * 1000, listen_only=True)
+        opened = self.opener(self.spec, kbit * 1000, listen_only=True,
+                             **({"disturb_bus": True} if self.disturb_bus else {}))
         if first:
             self._restore = opened.restore
         opened.restore = None

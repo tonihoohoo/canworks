@@ -1081,13 +1081,14 @@ struct MockSerial : SerialOps {
   int attach_err = 0;
   std::string kind = "can";  // what the created link reports ("" = pre-6.0 slcan)
   int open_fds = 0;
+  int real_fd = -1;  // handed out by open() when set (a pty for the sweep tests)
   std::vector<std::string> calls;
   explicit MockSerial(MockLink* l) : link(l) {}
 
   int open(const std::string& path, unsigned baudrate, int& fd) override {
     calls.push_back("open " + path + (baudrate ? " " + std::to_string(baudrate) : ""));
     if (!devices.count(path)) return -ENOENT;
-    fd = 42;
+    fd = real_fd >= 0 ? real_fd : 42;
     ++open_fds;
     return 0;
   }
@@ -4486,7 +4487,7 @@ TEST(slcan_sweep_without_silent_mode_uses_L) {
   CHECK_MSG(log.find(" O") == std::string::npos, log);
 }
 
-TEST(slcan_sweep_silent_mode_on_firmware_that_never_answers) {
+TEST(slcan_sweep_stops_when_silent_mode_is_unconfirmed) {
   FakeSlcanFirmware fw;  // as on the bench: no CR or BEL to any command
   fw.answers = false;
   fw.start();
@@ -4494,16 +4495,70 @@ TEST(slcan_sweep_silent_mode_on_firmware_that_never_answers) {
   req.rates_kbit = {1000, 500};
   req.per_rate_ms = 300;
   SweepResult r;
-  bool used = false;
+  bool unconfirmed = false;
   {
     SlcanSweepPort port(fw.slave);
     r = run_bitrate_sweep(port, port, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+    unconfirmed = port.unconfirmed();
+  }
+  CHECK_MSG(r.verdict == SweepVerdict::Failed, sweep_verdict_name(r.verdict));
+  CHECK(unconfirmed);
+  std::string log = fw.log();
+  // Never opened: no "O" and no "L"; the mode is set back.
+  CHECK_MSG(log.find("C S8 m1 C m0") == 0 && log.find(" O") == std::string::npos && log.find("L") == std::string::npos,
+            log);
+}
+
+TEST(slcan_sweep_unconfirmed_silent_mode_with_disturb_bus) {
+  FakeSlcanFirmware fw;
+  fw.answers = false;
+  fw.start();
+  SweepRequest req;
+  req.rates_kbit = {1000, 500};
+  req.per_rate_ms = 300;
+  req.disturb_bus = true;
+  SweepResult r;
+  bool used = false, unconfirmed = false;
+  {
+    SlcanSweepPort port(fw.slave, req.disturb_bus);
+    r = run_bitrate_sweep(port, port, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
     used = port.used_silent();
+    unconfirmed = port.unconfirmed();
   }
   CHECK_MSG(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 500, sweep_verdict_name(r.verdict));
-  CHECK(used);
+  CHECK(used && unconfirmed);
   std::string log = fw.log();
   CHECK_MSG(log.find("C S8 m1 O C m0 S6 m1 O C m0") == 0 && log.find("L") == std::string::npos, log);
+}
+
+TEST(slcan_adapter_refuses_unconfirmed_listen_only) {
+  for (bool disturb : {false, true}) {
+    FakeSlcanFirmware fw;
+    fw.answers = false;
+    fw.start();
+    SlcanFixture f;
+    f.serial->real_fd = fw.slave;
+    CHECK(f.prepare() == AdapterState::Ready);
+    SweepRequest req;
+    req.rates_kbit = {500};
+    req.per_rate_ms = 200;
+    SweepResult r;
+    std::string err;
+    g_log.clear();
+    CHECK(f.adapter->sweep_on_device(
+        [&](LinkOps& ops, SweepListener& l) {
+          r = run_bitrate_sweep(ops, l, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+        },
+        disturb, err));
+    if (!disturb) {
+      CHECK_MSG(err == kUnconfirmedListenOnly, err);
+    } else {
+      CHECK_MSG(err.empty() && r.verdict == SweepVerdict::Detected, err);
+      CHECK_MSG(has_error(g_log, "W: bit rate detection on /dev/ttyACM0 used the adapter's silent mode, which it did "
+                                 "not confirm (disturb_bus)"),
+                join(g_log));
+    }
+  }
 }
 
 TEST(slcan_sweep_rate_without_a_code) {
@@ -4520,7 +4575,7 @@ TEST(socketcan_sweeps_over_the_link) {
   CHECK(f.prepare() == AdapterState::Ready);
   std::string err;
   bool ran = false;
-  CHECK(!f.adapter->sweep_on_device([&](LinkOps&, SweepListener&) { ran = true; }, err));
+  CHECK(!f.adapter->sweep_on_device([&](LinkOps&, SweepListener&) { ran = true; }, false, err));
   CHECK(!ran);
 }
 
@@ -4705,7 +4760,8 @@ TEST(diag_detect_bitrate_guards_and_request) {
   f.hub->set_operational("node 2 (pingpong)");
   a = c.ask(R"({"op":"detect_bitrate"})");
   CHECK_MSG(has(a, "node 2 (pingpong) is OPERATIONAL; CANopen on network can0 would stop for the sweep; force needed"), a);
-  a = c.ask(R"({"op":"detect_bitrate","rates":[250,125],"per_rate_ms":200,"force":true})");
+  CHECK(has(c.ask(R"({"op":"detect_bitrate","force":true,"disturb_bus":1})"), "field 'disturb_bus' must be true or false"));
+  a = c.ask(R"({"op":"detect_bitrate","rates":[250,125],"per_rate_ms":200,"force":true,"disturb_bus":true})");
   CHECK_MSG(has(a, R"("running":true)") && has(a, R"("total":2)") && has(a, R"("configured_kbit":125)"), a);
   CHECK(f.hub->sweep_pending());
   // Asking again returns the running sweep; other requests see no bus once the session ends.
@@ -4713,7 +4769,7 @@ TEST(diag_detect_bitrate_guards_and_request) {
   CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x60A"})"), "no bus"));
   // The bus thread's side.
   SweepRequest req;
-  CHECK(f.hub->take_sweep(req) && req.rates_kbit.size() == 2 && req.per_rate_ms == 200);
+  CHECK(f.hub->take_sweep(req) && req.rates_kbit.size() == 2 && req.per_rate_ms == 200 && req.disturb_bus);
   SweepResult r;
   r.verdict = SweepVerdict::Detected;
   r.bitrate_kbit = 250;

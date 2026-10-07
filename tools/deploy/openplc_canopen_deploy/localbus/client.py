@@ -223,7 +223,7 @@ class LocalBus:
     def send_frame_stop(self, job=None):
         return self.request("send_frame_stop", **({} if job is None else {"job": job}))
 
-    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False):
+    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False, disturb_bus=False):
         fields = {}
         if rates:
             fields["rates"] = list(rates)
@@ -233,6 +233,8 @@ class LocalBus:
             fields["rounds"] = rounds
         if force:
             fields["force"] = True
+        if disturb_bus:
+            fields["disturb_bus"] = True
         return self.request("detect_bitrate", **fields)
 
     def detect_bitrate_status(self):
@@ -854,6 +856,9 @@ def _send_frame_stop(c, f):
 def _detect(c, f):
     if c.sweep is not None and c.sweep.running:
         return c.sweep.status()  # the running sweep's progress
+    for key in ("force", "disturb_bus"):
+        if key in f and not isinstance(f[key], bool):
+            raise DiagError("refused", "field '%s' must be true or false" % key)
     rates = f.get("rates")
     if rates is not None:
         if not isinstance(rates, list) or not rates or any(
@@ -875,7 +880,8 @@ def _detect(c, f):
     c.reopen_error = None
     tracing = c.trace_after is not None
     c.core, c.trace_after = None, None
-    sweep = sweep_mod.Sweep(c.spec, rates, per_rate_ms, rounds, configured_kbit=core.bitrate // 1000)
+    sweep = sweep_mod.Sweep(c.spec, rates, per_rate_ms, rounds, configured_kbit=core.bitrate // 1000,
+                            disturb_bus=f.get("disturb_bus") is True)
 
     def reopen():
         if c.sweep is not sweep:

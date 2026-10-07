@@ -453,7 +453,8 @@ class SlcanAdapter : public CanAdapter {
     log_info("released %s; CAN interface %s removed", cfg_.device.c_str(), cfg_.interface.c_str());
   }
 
-  bool sweep_on_device(const std::function<void(LinkOps&, SweepListener&)>& run, std::string& error) override {
+  bool sweep_on_device(const std::function<void(LinkOps&, SweepListener&)>& run, bool disturb_bus,
+                       std::string& error) override {
     release();
     int fd = -1;
     int rc = serial_->open(cfg_.device, cfg_.serial_baudrate, fd);
@@ -463,9 +464,15 @@ class SlcanAdapter : public CanAdapter {
       return true;
     }
     {
-      SlcanSweepPort port(fd);
+      SlcanSweepPort port(fd, disturb_bus);
       run(port, port);
-      if (port.used_silent()) log_info("bit rate detection on %s used the adapter's silent mode", cfg_.device.c_str());
+      if (port.unconfirmed() && !disturb_bus)
+        error = kUnconfirmedListenOnly;
+      else if (port.unconfirmed())
+        log_warn("bit rate detection on %s used the adapter's silent mode, which it did not confirm (disturb_bus)",
+                 cfg_.device.c_str());
+      else if (port.used_silent())
+        log_info("bit rate detection on %s used the adapter's silent mode", cfg_.device.c_str());
     }
     serial_->close(fd);
     return true;

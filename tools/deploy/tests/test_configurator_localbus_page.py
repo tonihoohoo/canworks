@@ -116,8 +116,12 @@ class DetectPage(AdapterPage):
         self.opened = []
         real = adapter_mod.open
 
-        def opener(spec, bitrate, listen_only=False, options=None):
+        self.unconfirmed = False  # the adapter does not confirm listen-only (slcan firmware that answers nothing)
+
+        def opener(spec, bitrate, listen_only=False, options=None, disturb_bus=False):
             self.opened.append((bitrate, listen_only))
+            if listen_only and self.unconfirmed and not disturb_bus:
+                raise adapter_mod.AdapterError("unconfirmed", adapter_mod.UNCONFIRMED)
             if listen_only and bitrate != 250000:
                 spec = parse("virtual:%s-other-%d" % (self.ch, bitrate))
             return real(spec, bitrate, listen_only, options)
@@ -159,6 +163,31 @@ class DetectPage(AdapterPage):
         pg.click('button[data-online="connect"]')
         pg.wait_for_selector("text=Connected to USB adapter")
         pg.wait_for_selector('#online-conn:has-text("250 kbit/s")')
+
+    def test_detect_asks_when_listen_only_is_unconfirmed(self):
+        pg = self.page
+        self.unconfirmed = True
+        self.open()
+        pg.click('button[data-view="online"]')
+        pg.check('input[data-online="target-adapter"]')
+        pg.fill('input[data-online="adapter"]', "virtual:" + self.ch)
+        pg.click('button[data-online="adapter-detect"]')
+        pg.wait_for_selector("#modal[open]")
+        self.assertIn("did not confirm that it only listens", pg.inner_text("#modal-text"))
+        pg.click('#modal button[data-value="cancel"]')
+        pg.wait_for_selector('[data-online="adapter-detect-msg"]:has-text("Not started")')
+        pg.click('button[data-online="adapter-detect"]')
+        pg.wait_for_selector("#modal[open]")
+        pg.click('#modal button[data-value="go"]')
+        pg.wait_for_selector('[data-online="adapter-detect-msg"]:has-text("250 kbit/s detected")', timeout=20000)
+        # The scan page asks the same.
+        pg.click('button[data-online="connect"]')
+        pg.wait_for_selector("text=Connected to USB adapter")
+        pg.click('button[data-view="scan"]')
+        pg.click('[data-online="detect"]')
+        pg.wait_for_selector("#modal[open]")
+        pg.click('#modal button[data-value="go"]')
+        pg.wait_for_selector('[data-online="detect-verdict"]:has-text("250 kbit/s detected")', timeout=20000)
 
     def test_detect_on_the_scan_page(self):
         pg = self.page

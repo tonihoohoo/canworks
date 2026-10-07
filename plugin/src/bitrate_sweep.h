@@ -31,7 +31,15 @@ struct SweepRequest {
   unsigned per_rate_ms = 1000;
   unsigned rounds = 1;
   std::string peer;  // the client, for the log
+  // Sweep also on an adapter that does not confirm listen-only (slcan
+  // firmware that answers nothing to its silent mode command), which may
+  // disturb the bus at a wrong bit rate.
+  bool disturb_bus = false;
 };
+
+// The refusal when the adapter does not confirm listen-only; the request may
+// be repeated with disturb_bus.
+extern const char* const kUnconfirmedListenOnly;
 
 struct SweepRate {
   unsigned bitrate_kbit = 0;

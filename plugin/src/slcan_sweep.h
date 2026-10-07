@@ -5,8 +5,10 @@
 // slcan firmware takes 'L' and then receives nothing. So for a sweep the
 // slcan backend gives up the kernel driver and talks to the adapter itself:
 // per rate "C", "S<n>", then silent mode ("m1", then "O": receive without
-// acknowledging or sending) unless the firmware refuses "m1" with a BEL
-// (some firmware answers no command at all), else "L". Closing
+// acknowledging or sending) when the firmware answers "m1" with CR, "L"
+// when it refuses "m1" with BEL. Some firmware answers no command at all and
+// may ignore "m1": the channel then opens only with `disturb_bus`, otherwise
+// the sweep stops before listening (unconfirmed()). Closing
 // sets the mode back with "m0", so the kernel driver's "O" opens a normal
 // channel again when CANopen restarts.
 
@@ -24,7 +26,7 @@ namespace canopen_plugin {
 // serial device opened raw (fd). The device stays the caller's.
 class SlcanSweepPort : public LinkOps, public SweepListener {
  public:
-  explicit SlcanSweepPort(int fd) : fd_(fd) {}
+  explicit SlcanSweepPort(int fd, bool disturb_bus = false) : fd_(fd), disturb_bus_(disturb_bus) {}
   ~SlcanSweepPort() override;  // closes the channel and sets the mode back
 
   int get(const std::string& name, LinkInfo& out) override;
@@ -42,14 +44,20 @@ class SlcanSweepPort : public LinkOps, public SweepListener {
 
   // Whether a listen-only open used silent mode ("m1") rather than "L".
   bool used_silent() const { return used_silent_; }
+  // Whether the firmware left "m1" unanswered: without disturb_bus the
+  // channel was not opened (set_up() returned -EPERM), with it it was.
+  bool unconfirmed() const { return unconfirmed_; }
 
  private:
   int send(const std::string& cmd);  // cmd + CR
-  bool ask(const std::string& cmd);  // false: the firmware refused it with BEL
+  enum class Answer { Ok, Refused, None };
+  Answer ask(const std::string& cmd);  // CR, BEL, or nothing in time
   void count(const std::string& line, SweepRate& out);
 
   int fd_;
+  bool disturb_bus_;
   bool listen_only_ = false;
+  bool unconfirmed_ = false;
   bool silent_ = false;  // the firmware is in silent mode now
   bool used_silent_ = false;
   unsigned unanswered_ = 0;  // commands sent whose answer is not read yet

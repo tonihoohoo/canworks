@@ -239,6 +239,17 @@ class Detect(unittest.TestCase):
             code, _, err = run("--runtime", fp.runtime, "detect-bitrate")
             self.assertEqual(code, 1)
             self.assertIn("no bit rate on a virtual bus", err)
+            fp.detect_refusal = ("the adapter did not answer its silent mode command, so it may not only listen: at a "
+                                 "wrong bit rate it can send error frames that disturb the devices on the bus; "
+                                 "disturb_bus needed")
+            code, _, err = run("--runtime", fp.runtime, "detect-bitrate")
+            self.assertEqual(code, 1)
+            self.assertIn("disturb_bus needed; add --disturb-bus to sweep anyway", err)
+            fp.detect_refusal = None
+            self.assertEqual(run("--runtime", fp.runtime, "detect-bitrate", "--disturb-bus")[0], 0)
+            self.assertTrue(fp.sweeps[-1]["disturb_bus"])
+            self.assertNotIn("disturb_bus", fp.sweeps[0])
+            fp.sweep = None
             fp.detect_supported = False
             code, _, err = run("--runtime", fp.runtime, "detect-bitrate")
             self.assertEqual(code, 1)

@@ -1580,7 +1580,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if rounds is not None and (isinstance(rounds, bool) or not isinstance(rounds, int) or
                                            not 1 <= rounds <= 20):
                     raise ApiError(400, "rounds must be 1-20")
-                fn = lambda c: c.detect_bitrate(rates, None, rounds, body.get("force") is True)  # noqa: E731
+                fn = lambda c: c.detect_bitrate(rates, None, rounds, body.get("force") is True,  # noqa: E731
+                                                body.get("disturb_bus") is True)
             try:
                 return conn.call(hostname, port, token, fn, network)
             except diag.DiagError as e:
@@ -1661,11 +1662,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         kbit = body.get("adapter_bitrate")
         self.server.connection.close()
         self.server.sender.close()
-        job = sweep_mod.Sweep(spec, rounds=rounds, configured_kbit=kbit if isinstance(kbit, int) else None)
+        job = sweep_mod.Sweep(spec, rounds=rounds, configured_kbit=kbit if isinstance(kbit, int) else None,
+                              disturb_bus=body.get("disturb_bus") is True)
         try:
             job.start()
         except localbus.AdapterError as e:
-            raise ApiError(422, str(e), kind=e.kind)
+            raise ApiError(422, str(e), kind=e.kind, disturb_bus=e.kind == "unconfirmed")
         self.server.adapter_sweep = job
         return dict(job.status(), adapter=str(spec))
 
@@ -2155,10 +2157,12 @@ def frame_from(body):
 
 def frame_error(e):
     """The ApiError for a refused or failed send or sweep: `force` true when
-    the plugin's reason says the request may be repeated with force."""
+    the plugin's reason says the request may be repeated with force,
+    `disturb_bus` when it may be repeated with disturb_bus."""
     if diag.too_old(e):
         return ApiError(422, TOO_OLD_FRAMES, kind="too_old")
-    return ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e))
+    return ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e),
+                    disturb_bus=diag.needs_disturb(e))
 
 
 class Server(http.server.ThreadingHTTPServer):

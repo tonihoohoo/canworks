@@ -27,6 +27,10 @@ TEST_ONLY = ("virtual",)
 LISTEN_ONLY = ("slcan", "pcan", "socketcan", "virtual")  # the types open(listen_only=True) takes
 SLCAN_KBIT = (10, 20, 50, 100, 125, 250, 500, 750, 1000)  # the rates python-can sets on slcan (S0-S8)
 NO_LISTEN_ONLY = "the adapter's driver has no listen-only mode"
+# The plugin's kUnconfirmedListenOnly: the request may be repeated with disturb_bus.
+DISTURB_NEEDED = "disturb_bus needed"
+UNCONFIRMED = ("the adapter did not answer its silent mode command, so it may not only listen: at a wrong bit rate "
+               "it can send error frames that disturb the devices on the bus; " + DISTURB_NEEDED)
 
 # USB IDs of adapters that run slcan firmware out of the box.
 SLCAN_USB_IDS = {
@@ -41,7 +45,8 @@ OTHER_USB_IDS = {
 
 class AdapterError(Exception):
     """kind: usage (bad spec or bit rate), busy (another tool has it open),
-    unreachable (cannot be opened)."""
+    unreachable (cannot be opened), unconfirmed (listen-only asked for, and
+    the adapter does not confirm it: UNCONFIRMED)."""
 
     def __init__(self, kind, message):
         super().__init__(message)
@@ -254,21 +259,23 @@ def _socketcan_listen_only(interface, bitrate):
                        % (interface, bitrate // 1000, err))
 
 
-def _slcan_bus(listen_only):
+def _slcan_bus(listen_only, disturb_bus=False):
     """python-can's slcan bus, opening the channel the way bit rate detection
     needs, also when it reopens it to change the bit rate.
 
     Listen-only: some slcan firmware takes 'L' and then receives nothing, so
     silent mode is asked for first: 'm1' (receive without acknowledging or
     sending), then 'O'. Firmware without 'm1' answers with an error (BEL) and
-    gets 'L'; no answer at all counts as taken, since some firmware answers
-    no command. Closing sets the mode back with 'm0'. A normal open sends 'm0'
+    gets 'L'. Some firmware answers no command at all and may ignore 'm1':
+    then the channel stays closed and `unconfirmed` is set, unless
+    `disturb_bus`. Closing sets the mode back with 'm0'. A normal open sends 'm0'
     before 'O' too, so a sweep that died in silent mode cannot leave the
     adapter mute."""
     from can.interfaces.slcan import slcanBus
 
     class Slcan(slcanBus):
         _silent = False
+        unconfirmed = False
 
         def _ask(self, cmd):
             # Answers to the commands before (close, bit rate) are not
@@ -280,14 +287,19 @@ def _slcan_bus(listen_only):
             while True:
                 reply = self._read(max(0.0, deadline - time.monotonic()))
                 if reply is None:
-                    return True  # some firmware answers nothing; only BEL refuses
+                    return None  # some firmware answers nothing
                 if len(reply) > 1 and reply[0] in "tTrR":
                     continue  # a received frame, not the answer
                 return not reply.endswith("\a")
 
         def open(self):
             if listen_only:
-                self._silent = self._ask("m1")
+                answer = self._ask("m1")
+                self._silent = answer is not False  # 'm0' on close, also after an unanswered 'm1'
+                if answer is None:
+                    self.unconfirmed = True
+                    if not disturb_bus:
+                        return  # open() in adapter refuses it
                 self._write("O" if self._silent else "L")
             else:
                 self._ask("m0")
@@ -352,9 +364,11 @@ def unsupported_rates(spec, rates_kbit):
     return []
 
 
-def open(spec, bitrate, listen_only=False, options=None):  # noqa: A001 - the module's one entry point
+def open(spec, bitrate, listen_only=False, options=None, disturb_bus=False):  # noqa: A001 - the module's one entry point
     """Open `spec` (a Spec) at `bitrate` (bit/s), with `listen_only` without
-    acknowledging or sending anything. Raises AdapterError."""
+    acknowledging or sending anything. An adapter that does not confirm
+    listen-only is refused (kind unconfirmed) unless `disturb_bus`. Raises
+    AdapterError."""
     if listen_only and spec.kind not in LISTEN_ONLY:
         raise AdapterError("usage", "%s (%s adapters; slcan, PCAN and SocketCAN have one)" % (NO_LISTEN_ONLY,
                                                                                               spec.kind))
@@ -384,7 +398,10 @@ def open(spec, bitrate, listen_only=False, options=None):  # noqa: A001 - the mo
         else:
             kwargs["bitrate"] = bitrate
         if spec.kind == "slcan":
-            bus = _slcan_bus(listen_only)(channel=spec.channel, **kwargs)
+            bus = _slcan_bus(listen_only, disturb_bus)(channel=spec.channel, **kwargs)
+            if bus.unconfirmed and not disturb_bus:
+                bus.shutdown()
+                raise AdapterError("unconfirmed", UNCONFIRMED)
         else:
             if listen_only and spec.kind == "pcan":
                 kwargs["state"] = can.BusState.PASSIVE  # PCAN_LISTEN_ONLY on

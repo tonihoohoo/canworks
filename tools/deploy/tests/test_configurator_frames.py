@@ -140,3 +140,10 @@ class DetectBitrate(Online):
             fp.detect_refusal = "no bit rate on a virtual bus"
             status, data, _ = self.request("POST", "/api/online/detect_bitrate", {"force": True})
             self.assertEqual((status, data["error"], data["force"]), (422, "no bit rate on a virtual bus", False))
+            self.assertFalse(data["disturb_bus"])
+            fp.detect_refusal = "the adapter did not answer its silent mode command; disturb_bus needed"
+            status, data, _ = self.request("POST", "/api/online/detect_bitrate", {"force": True})
+            self.assertEqual((status, data["disturb_bus"], data["force"]), (422, True, False))
+            fp.detect_refusal = None
+            self.assertEqual(self.sweep(force=True, disturb_bus=True)["verdict"], "detected")
+            self.assertTrue(fp.sweeps[-1]["disturb_bus"])
