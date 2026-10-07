@@ -15,6 +15,7 @@ decode() keeps state for segmented SDO transfers: feed it the frames in
 order (reset() before a new pass).
 """
 
+import re
 import struct
 
 from .. import contract, dbcexport, diag
@@ -60,8 +61,33 @@ class PdoLayout:
     """A configured PDO: message name, node, direction and its signals as
     (key, display name, start bit, length, signed, float kind, type name)."""
 
-    def __init__(self, cob_id, name, node, tx, signals):
+    def __init__(self, cob_id, name, node, tx, signals, length=None, info=None):
         self.cob_id, self.name, self.node, self.tx, self.signals = cob_id, name, node, tx, signals
+        self.length = length  # bytes, from the mapping
+        self.transmission = None  # transmission type, when the config or the EDS gives it
+        # per signal: {"index", "subindex", "type", "location", "variables", "used"} (frame explanation)
+        self.info = info or [{} for _ in signals]
+
+
+_SIGNAL_COMMENT = re.compile(r"0x([0-9A-Fa-f]{4}):(\d+) (\S+) (.*)$")
+
+
+def _signal_info(comment):
+    """What the DBC model's signal comment says: object, type and the PLC
+    location (dbcexport._pdo_messages writes "0xIIII:S TYPE -> %IW100 (name)")."""
+    m = _SIGNAL_COMMENT.match(comment or "")
+    if not m:
+        return {}
+    out = {"index": int(m.group(1), 16), "subindex": int(m.group(2)), "type": m.group(3), "used": False,
+           "location": None, "variables": []}
+    what = m.group(4)
+    if what.startswith("-> "):
+        loc = what[3:]
+        out["used"] = True
+        out["location"] = loc.split(" ", 1)[0]
+        if "(" in loc:
+            out["variables"] = [v.strip() for v in loc[loc.index("(") + 1:loc.rindex(")")].split(",")]
+    return out
 
 
 def _bits(data, start, length):
@@ -110,6 +136,8 @@ class Decoder:
         self.sync_cob = 0x080
         self.time_cob = 0x100
         self.master_id = None
+        self.sync_window_us = None
+        self.sync_period_us = None
         self.warnings = []
         self.reset()
 
@@ -129,6 +157,8 @@ class Decoder:
             return d
         master = cfg.get("master") or {}
         d.master_id = dbcexport._u(master.get("node_id"))
+        d.sync_window_us = dbcexport._u(master.get("sync_window_us")) or None
+        d.sync_period_us = dbcexport._u(master.get("sync_period_us")) or None
         tc = master.get("time_cob_id")
         if tc is not None and dbcexport._u(tc) is not None:
             d.time_cob = dbcexport._u(tc) & 0x7FF
@@ -154,11 +184,14 @@ class Decoder:
             tx = "_TPDO" in m.name
             node_ident = m.sender if tx else next((s.receivers[0] for s in m.signals if s.receivers), None)
             node = by_node_name.get(node_ident)
-            sigs = []
+            sigs, info = [], []
             for s in m.signals:
                 type_name = s.comment.split(" ", 2)[1] if s.comment.startswith("0x") else ""
                 sigs.append(("%s.%s" % (m.name, s.name), s.name, s.start, s.length, s.signed, s.float_kind, type_name))
-            d.pdos[m.cob_id] = PdoLayout(m.cob_id, m.name, node, tx, sigs)
+                info.append(_signal_info(s.comment))
+            d.pdos[m.cob_id] = PdoLayout(m.cob_id, m.name, node, tx, sigs, m.length, info)
+            tm = re.search(r"transmission (\d+)", m.comment or "")
+            d.pdos[m.cob_id].transmission = int(tm.group(1)) if tm else None
         return d
 
     def reset(self):
@@ -190,7 +223,9 @@ class Decoder:
     def object_type(self, nid, index, sub):
         eds = self.eds.get(nid)
         obj = eds.find(index, sub) if eds is not None else None
-        return obj.type_name if obj is not None else None
+        if obj is None:
+            return None
+        return obj.type_name or diag.TYPE_CODES.get(obj.data_type)
 
     def value_text(self, nid, index, sub, data):
         t = self.object_type(nid, index, sub)

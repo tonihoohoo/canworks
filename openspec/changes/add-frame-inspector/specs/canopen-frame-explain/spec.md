@@ -54,8 +54,8 @@ The data layer SHALL have fields for:
 - **THEN** bit 0 "generic error" and bit 1 "current" are shown set and the other six bits shown clear with their names
 
 #### Scenario: Digital input bits
-- **WHEN** a TPDO maps a UNSIGNED8 digital input object to `%IX100.0` to `%IX100.7` and byte 0 is 0x25
-- **THEN** bits 0, 2 and 5 are shown as on with `%IX100.0`, `%IX100.2` and `%IX100.5`
+- **WHEN** a TPDO maps a UNSIGNED8 digital input object to `%IB100` and byte 0 is 0x25
+- **THEN** bits 0, 2 and 5 are shown as on, each as that bit of `%IB100` with its weight (1, 4 and 32)
 
 ### Requirement: SDO segments in context
 When a frame is explained from a trace, an SDO segment, block segment or segment answer SHALL be explained with the transfer it belongs to: object, direction, segment number, toggle bit expected and received, and bytes so far. Without a trace, a segment SHALL be explained on its own with a note that the transfer is unknown.

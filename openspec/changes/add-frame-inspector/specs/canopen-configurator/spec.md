@@ -4,8 +4,8 @@
 In the Trace view, selecting a frame SHALL open an inspector panel with the four layers of the `canopen-frame-explain` model: meaning, identifier bits split into function code and node ID, a data grid with one row per byte (most significant bit on the left, CANopen bit number on each bit, each bit coloured by its field), the field list with values and working, and the wire strip with framing, stuff bits marked, the bus level line and the timing figures. Pointing at or focusing a bit or field SHALL show its explanation in a box that stays in view and SHALL highlight the same bits in every layer (a data bit in the grid and on the wire, a field's bits in the grid). Every bit SHALL be reachable with the keyboard. The panel SHALL follow the selected frame when the user moves through the list with the arrow keys, and SHALL offer the frame's SDO conversation, SYNC cycle or boot story where one exists. It SHALL work on opened trace files without a runtime, offline, in light and dark themes and at phone width.
 
 #### Scenario: Point at a data bit
-- **WHEN** the user points at bit 2 of byte 0 of node 5's TPDO1 whose bit 2 is mapped to `%IX100.2`
-- **THEN** the box names the input, its value, `%IX100.2`, the object and the wire bit number, and that bit is highlighted in the grid and on the wire strip
+- **WHEN** the user points at bit 2 of byte 0 of node 5's TPDO1, whose first byte is mapped to `%IB100`
+- **THEN** the box names the bit, its value, "bit 2 of `%IB100`", the object and the wire bit number, and that bit is highlighted in the grid and on the wire strip
 
 #### Scenario: Keyboard
 - **WHEN** the user tabs into the data grid and moves with the arrow keys

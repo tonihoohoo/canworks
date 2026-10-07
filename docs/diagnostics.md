@@ -38,7 +38,10 @@ openplc-canopen-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"   
 openplc-canopen-diag --runtime plc.local send 0x123 AA 55 --period-ms 100 --count 50  # cyclic
 openplc-canopen-diag --runtime plc.local detect-bitrate [--rates 125,250,500]     # needs allow_changes
 openplc-canopen-diag hash-token                                                       # prints a token_verifier
+openplc-canopen-diag explain 185#2500EA00 --config canopen/canopen.json             # every bit of a frame; no runtime
 ```
+
+`explain` needs no runtime: it explains frames given in candump syntax, or frame `--index` of a `--trace` file, layer by layer, as text or `--format json` ([frame-inspector.md](frame-inspector.md#command-line)).
 
 With several CAN networks ([config.md](config.md), `schema_version: 2`) every command that talks to the plugin takes `--network NAME`. `status` without it prints every network one after another, each headed by its name and interface; every other command without it exits with status 1 naming the networks. With one network `--network` may be left out, and an older plugin, which knows no networks, ignores it.
 

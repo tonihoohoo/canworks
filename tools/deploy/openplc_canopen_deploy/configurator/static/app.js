@@ -635,6 +635,7 @@ function render() {
   else if (S.view === "trace") renderTrace(view);
   else if (S.view === "gateway") renderGateway(view);
   else if (S.view === "simulation") renderSimulation(view);
+  else if (S.view === "framelab") renderFrameLab(view);
   else renderNode(view, Number(S.view.slice(5)));
   applyCheck();
 }

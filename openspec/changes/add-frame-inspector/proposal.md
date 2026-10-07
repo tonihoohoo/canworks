@@ -33,5 +33,5 @@ The deploy package already knows every PDO bit layout, every object name and typ
 - Configurator: endpoints `POST /api/trace/explain`, `POST /api/trace/sequence`, `POST /api/explain`, `POST /api/explain/build`; new `static/explain.js` (inspector, sequence diagrams, Frame lab; HTML grid and inline SVG, no new library), changes in `trace.js`, `index.html`, `style.css`.
 - `diag.py`: `explain` subcommand. `docwriter.py`: bit hover data in the PDO grid.
 - No plugin, runtime, schema or config-format change; no new runtime dependency.
-- Tests: golden explanations per frame kind, CRC-15 check value and wire golden bits, sequence detection on simulator traces, CLI tests, browser tests for the inspector, Frame lab and docs hover. Deploy tool minor version bump.
+- Tests: golden explanations per frame kind, CRC-15 check value and wire golden bits, sequence detection on built traces, CLI tests, browser tests for the inspector, Frame lab and docs hover. Deploy tool minor version bump.
 - Docs: new `docs/frame-inspector.md` (also a short CAN/CANopen primer built around the inspector), `docs/trace.md`, `docs/configurator.md`, `docs/diagnostics.md`, `docs/network-docs.md`, README.

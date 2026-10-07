@@ -1,0 +1,2013 @@
+000  [2]  01 05
+
+NMT
+  The PLC tells node 5 (rtd): Start remote node (go to OPERATIONAL: PDOs run).
+
+What it is
+  NMT (network management) commands switch nodes between their states. Only the master sends them,
+  on identifier 0, the highest priority on the bus. Nodes do not answer; their next heartbeat shows
+  the new state.
+
+Identifier (11 bits, most significant first)
+  function code 0000 = 0
+  0x000: function code 0, no node ID
+  NMT: network management command
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  0  0  0  0  1   0x01
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  1  0  1   0x05
+           B  B  B  B  B  B  B  B
+
+  A Command (bits 0-7): 0x01 = Start remote node
+      Command specifier: 01h start, 02h stop, 80h enter pre-operational, 81h reset node, 82h reset
+      communication. This one: go to OPERATIONAL: PDOs run.
+  B Target node (bits 8-15): 5 = node 5 (rtd)
+      The node the command is for; 0 means every node.
+
+On the wire at 125 kbit/s
+  67 bits + 3 intermission, 7 stuff bits, CRC 0x7CC1, 536.0 us on the bus, 24 % data
+  Start of frame:0 Identifier:0000[1]00000[1]00 RTR:0 IDE:0 r0:0[1] DLC:0010
+  Data:0000[1]000100000[1]101 CRC:1111[0]1001100000[1]1 CRC delimiter:1 ACK slot:0 ACK delimiter:1
+  End of frame:1111111 Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+000  [2]  81 00
+
+NMT
+  The PLC tells all nodes: Reset node (restart the application, all objects back to their stored or default values).
+
+What it is
+  NMT (network management) commands switch nodes between their states. Only the master sends them,
+  on identifier 0, the highest priority on the bus. Nodes do not answer; their next heartbeat shows
+  the new state.
+
+Identifier (11 bits, most significant first)
+  function code 0000 = 0
+  0x000: function code 0, no node ID
+  NMT: network management command
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  0  0  0  0  0  0  1   0x81
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  0  0  0   0x00
+           B  B  B  B  B  B  B  B
+
+  A Command (bits 0-7): 0x81 = Reset node
+      Command specifier: 01h start, 02h stop, 80h enter pre-operational, 81h reset node, 82h reset
+      communication. This one: restart the application, all objects back to their stored or default
+      values.
+  B Target node (bits 8-15): 0 = all nodes
+      The node the command is for; 0 means every node.
+
+On the wire at 125 kbit/s
+  65 bits + 3 intermission, 5 stuff bits, CRC 0x599D, 520.0 us on the bus, 25 % data
+  Start of frame:0 Identifier:0000[1]00000[1]00 RTR:0 IDE:0 r0:0[1] DLC:0010
+  Data:100000[1]0100000[1]000 CRC:101100110011101 CRC delimiter:1 ACK slot:0 ACK delimiter:1
+  End of frame:1111111 Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+080  [0]  (no data)
+
+SYNC
+  SYNC tick from the PLC.
+
+What it is
+  SYNC is the master's clock tick. Nodes with synchronous PDOs sample their inputs and send them
+  right after it, and apply the outputs they received before it. The frame usually has no data: its
+  arrival is the message.
+
+Identifier (11 bits, most significant first)
+  function code 0001 = 1
+  0x080: function code 1, no node ID
+  SYNC: SYNC, the master's clock tick
+
+On the wire at 125 kbit/s
+  48 bits + 3 intermission, 4 stuff bits, CRC 0x1C05, 384.0 us on the bus, 0 % data
+  Start of frame:0 Identifier:000100000[1]00 RTR:0 IDE:0 r0:0[1] DLC:0000 CRC:0[1]011100000[1]00101
+  CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111 Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+080  [1]  07
+
+SYNC
+  SYNC tick number 7 from the PLC.
+
+What it is
+  SYNC is the master's clock tick. Nodes with synchronous PDOs sample their inputs and send them
+  right after it, and apply the outputs they received before it. The frame usually has no data: its
+  arrival is the message.
+
+Identifier (11 bits, most significant first)
+  function code 0001 = 1
+  0x080: function code 1, no node ID
+  SYNC: SYNC, the master's clock tick
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  0  0  1  1  1   0x07
+           A  A  A  A  A  A  A  A
+
+  A SYNC counter (bits 0-7): 7
+      Optional counter (1 up to the overflow value of object 1019h), so a node can act only on every
+      n-th SYNC.
+
+On the wire at 125 kbit/s
+  56 bits + 3 intermission, 4 stuff bits, CRC 0x1065, 448.0 us on the bus, 14 % data
+  Start of frame:0 Identifier:000100000[1]00 RTR:0 IDE:0 r0:0[1] DLC:0001 Data:00000[1]111
+  CRC:00100000[1]1100101 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+100  [6]  00 E0 C1 03 1E 2A
+
+TIME
+  Time stamp: 2013-07-09 17:30:37.440.
+
+What it is
+  The TIME message gives every node the same clock: milliseconds after midnight and days since
+  1984-01-01.
+
+Identifier (11 bits, most significant first)
+  function code 0010 = 2
+  0x100: function code 2, no node ID
+  TIME: time stamp
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  0  0  0  0  0   0x00
+           A  A  A  A  A  A  A  A
+  byte 1   1  1  1  0  0  0  0  0   0xE0
+           A  A  A  A  A  A  A  A
+  byte 2   1  1  0  0  0  0  0  1   0xC1
+           A  A  A  A  A  A  A  A
+  byte 3   0  0  0  0  0  0  1  1   0x03
+           .  .  .  .  A  A  A  A
+  byte 4   0  0  0  1  1  1  1  0   0x1E
+           B  B  B  B  B  B  B  B
+  byte 5   0  0  1  0  1  0  1  0   0x2A
+           B  B  B  B  B  B  B  B
+
+  A Milliseconds after midnight (bits 0-27): 63037440 = 17:30:37.440
+      bytes 0-3 = 00 E0 C1 03, low byte first, so read backwards: 0x03C1E000, lower 28 bits
+      28 bits, little-endian.
+  . Reserved (bits 28-31): 0000
+      Reserved, 0.
+  B Days since 1984-01-01 (bits 32-47): 10782 = 2013-07-09
+      bytes 4-5 = 1E 2A, low byte first, so read backwards: 0x2A1E
+      16 bits, little-endian.
+
+On the wire at 125 kbit/s
+  98 bits + 3 intermission, 6 stuff bits, CRC 0x5B19, 784.0 us on the bus, 49 % data
+  Start of frame:0 Identifier:00100000[1]000 RTR:0 IDE:0[1] r0:0 DLC:0110
+  Data:0000[1]000011100000[1]1100000[1]100000[1]0110001111000101010 CRC:101101100011001
+  CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111 Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+085  [8]  10 23 03 00 00 00 00 00
+
+EMCY of node 5 (rtd)
+  Node 5 (rtd) reports error 0x2310 (current).
+
+What it is
+  A node sends an emergency (EMCY) once when an error appears, and once more with code 0000 when all
+  errors are gone. The plugin hands the latest one to the PLC program.
+
+Identifier (11 bits, most significant first)
+  function code 0001 = 1   node ID 0000101 = 5
+  0x085 = 1 × 0x80 + 5
+  EMCY: emergency message, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  1  0  0  0  0   0x10
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  1  0  0  0  1  1   0x23
+           A  A  A  A  A  A  A  A
+  byte 2   0  0  0  0  0  0  1  1   0x03
+           B  B  B  B  B  B  B  B
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 4   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+
+  A Error code (bits 0-15): 0x2310 (current)
+      bytes 0-1 = 10 23, low byte first, so read backwards: 0x2310
+      CiA 301 emergency error code. The first hex digit gives the class (here: current); the device
+      manual or device profile gives the rest.
+  B Error register (1001h) (bits 16-23): 0x03 = generic error, current
+      A copy of the node's error register at the time of the emergency; each bit flags one kind of
+      error.
+      bit 0 = 1 generic error
+      bit 1 = 1 current
+      bit 2 = 0 voltage
+      bit 3 = 0 temperature
+      bit 4 = 0 communication error (overrun, error state)
+      bit 5 = 0 device profile specific
+      bit 6 = 0 reserved (always 0)
+      bit 7 = 0 manufacturer specific
+  C Manufacturer data (bits 24-63): 00 00 00 00 00
+      Free for the device maker: the device manual says what it means.
+
+On the wire at 125 kbit/s
+  120 bits + 3 intermission, 12 stuff bits, CRC 0x7FAD, 960.0 us on the bus, 53 % data
+  Start of frame:0 Identifier:00010000101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:00[1]0100000[1]010001100000[1]01100000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]
+  CRC:1111[0]11110101101 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+085  [8]  00 00 00 00 00 00 00 00
+
+EMCY of node 5 (rtd)
+  Node 5 (rtd): all errors are gone (error reset).
+
+What it is
+  A node sends an emergency (EMCY) once when an error appears, and once more with code 0000 when all
+  errors are gone. The plugin hands the latest one to the PLC program.
+
+Identifier (11 bits, most significant first)
+  function code 0001 = 1   node ID 0000101 = 5
+  0x085 = 1 × 0x80 + 5
+  EMCY: emergency message, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  0  0  0  0  0   0x00
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  0  0  0   0x00
+           A  A  A  A  A  A  A  A
+  byte 2   0  0  0  0  0  0  0  0   0x00
+           B  B  B  B  B  B  B  B
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 4   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+
+  A Error code (bits 0-15): 0x0000 (error reset or no error)
+      bytes 0-1 = 00 00, low byte first, so read backwards: 0x0000
+      CiA 301 emergency error code. The first hex digit gives the class (here: error reset or no
+      error); the device manual or device profile gives the rest.
+  B Error register (1001h) (bits 16-23): 0x00
+      A copy of the node's error register at the time of the emergency; each bit flags one kind of
+      error.
+      bit 0 = 0 generic error
+      bit 1 = 0 current
+      bit 2 = 0 voltage
+      bit 3 = 0 temperature
+      bit 4 = 0 communication error (overrun, error state)
+      bit 5 = 0 device profile specific
+      bit 6 = 0 reserved (always 0)
+      bit 7 = 0 manufacturer specific
+  C Manufacturer data (bits 24-63): 00 00 00 00 00
+      Free for the device maker: the device manual says what it means.
+
+On the wire at 125 kbit/s
+  122 bits + 3 intermission, 14 stuff bits, CRC 0x4199, 976.0 us on the bus, 52 % data
+  Start of frame:0 Identifier:00010000101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:00[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00
+  CRC:100000[1]110011001 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+705  [1]  00
+
+Heartbeat of node 5 (rtd)
+  Node 5 (rtd) has booted and waits to be configured.
+
+What it is
+  Every node repeats its NMT state at its producer heartbeat time (object 1017h). If the heartbeat
+  stops, the master marks the node as lost. A boot-up message is a heartbeat with state 0: the
+  master then configures the node over SDO and starts it.
+
+Identifier (11 bits, most significant first)
+  function code 1110 = 14   node ID 0000101 = 5
+  0x705 = 14 × 0x80 + 5
+  Heartbeat: node state report (heartbeat, boot-up or node guarding), node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  0  0  0  0  0   0x00
+           A  B  B  B  B  B  B  B
+
+  A Toggle bit (bit 7): 0
+      Used only by node guarding, where it flips on every answer; always 0 in a heartbeat.
+  B NMT state (bits 0-6): 0 = Boot-up
+      0 boot-up, 4 STOPPED, 5 OPERATIONAL, 127 PRE-OPERATIONAL. This one: the node has just started.
+
+On the wire at 125 kbit/s
+  55 bits + 3 intermission, 3 stuff bits, CRC 0x75E9, 440.0 us on the bus, 14 % data
+  Start of frame:0 Identifier:11100000[1]101 RTR:0 IDE:0 r0:0 DLC:00[1]01 Data:00000[1]000
+  CRC:111010111101001 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+705  [1]  05
+
+Heartbeat of node 5 (rtd)
+  Node 5 (rtd) is OPERATIONAL.
+
+What it is
+  Every node repeats its NMT state at its producer heartbeat time (object 1017h). If the heartbeat
+  stops, the master marks the node as lost. A boot-up message is a heartbeat with state 0: the
+  master then configures the node over SDO and starts it.
+
+Identifier (11 bits, most significant first)
+  function code 1110 = 14   node ID 0000101 = 5
+  0x705 = 14 × 0x80 + 5
+  Heartbeat: node state report (heartbeat, boot-up or node guarding), node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  0  0  1  0  1   0x05
+           A  B  B  B  B  B  B  B
+
+  A Toggle bit (bit 7): 0
+      Used only by node guarding, where it flips on every answer; always 0 in a heartbeat.
+  B NMT state (bits 0-6): 5 = OPERATIONAL
+      0 boot-up, 4 STOPPED, 5 OPERATIONAL, 127 PRE-OPERATIONAL. This one: everything runs, including
+      PDOs.
+
+On the wire at 125 kbit/s
+  56 bits + 3 intermission, 4 stuff bits, CRC 0x68BF, 448.0 us on the bus, 14 % data
+  Start of frame:0 Identifier:11100000[1]101 RTR:0 IDE:0 r0:0 DLC:00[1]01 Data:00000[1]101
+  CRC:11010001011111[0]1 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+705  [1]  7F
+
+Heartbeat of node 5 (rtd)
+  Node 5 (rtd) is PRE-OPERATIONAL.
+
+What it is
+  Every node repeats its NMT state at its producer heartbeat time (object 1017h). If the heartbeat
+  stops, the master marks the node as lost. A boot-up message is a heartbeat with state 0: the
+  master then configures the node over SDO and starts it.
+
+Identifier (11 bits, most significant first)
+  function code 1110 = 14   node ID 0000101 = 5
+  0x705 = 14 × 0x80 + 5
+  Heartbeat: node state report (heartbeat, boot-up or node guarding), node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  1  1  1  1  1  1  1   0x7F
+           A  B  B  B  B  B  B  B
+
+  A Toggle bit (bit 7): 0
+      Used only by node guarding, where it flips on every answer; always 0 in a heartbeat.
+  B NMT state (bits 0-6): 127 = PRE-OPERATIONAL
+      0 boot-up, 4 STOPPED, 5 OPERATIONAL, 127 PRE-OPERATIONAL. This one: SDO, SYNC, EMCY and
+      heartbeat run; PDOs do not.
+
+On the wire at 125 kbit/s
+  55 bits + 3 intermission, 3 stuff bits, CRC 0x576F, 440.0 us on the bus, 14 % data
+  Start of frame:0 Identifier:11100000[1]101 RTR:0 IDE:0 r0:0 DLC:00[1]01 Data:011111[0]11
+  CRC:101011101101111 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+705  [1]  85
+
+Heartbeat of node 5 (rtd)
+  Node 5 (rtd) answers node guarding: OPERATIONAL (toggle 1).
+
+What it is
+  Node guarding is the older way to watch a node: the master sends a remote request and the node
+  answers with its state and a toggle bit that flips on every answer.
+
+Identifier (11 bits, most significant first)
+  function code 1110 = 14   node ID 0000101 = 5
+  0x705 = 14 × 0x80 + 5
+  Heartbeat: node state report (heartbeat, boot-up or node guarding), node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  0  0  0  0  1  0  1   0x85
+           A  B  B  B  B  B  B  B
+
+  A Toggle bit (bit 7): 1
+      Used only by node guarding, where it flips on every answer; always 0 in a heartbeat.
+  B NMT state (bits 0-6): 5 = OPERATIONAL
+      0 boot-up, 4 STOPPED, 5 OPERATIONAL, 127 PRE-OPERATIONAL. This one: everything runs, including
+      PDOs.
+
+On the wire at 125 kbit/s
+  54 bits + 3 intermission, 2 stuff bits, CRC 0x4AAC, 432.0 us on the bus, 15 % data
+  Start of frame:0 Identifier:11100000[1]101 RTR:0 IDE:0 r0:0 DLC:00[1]01 Data:10000101
+  CRC:100101010101100 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+705  [0]  remote request
+
+Heartbeat of node 5 (rtd)
+  The PLC asks node 5 (rtd) for its state (node guarding remote request).
+
+What it is
+  Node guarding is the older way to watch a node: the master sends a remote request and the node
+  answers with its state and a toggle bit that flips on every answer.
+
+Identifier (11 bits, most significant first)
+  function code 1110 = 14   node ID 0000101 = 5
+  0x705 = 14 × 0x80 + 5
+  Heartbeat: node state report (heartbeat, boot-up or node guarding), node 5 (rtd)
+
+On the wire at 125 kbit/s
+  46 bits + 3 intermission, 2 stuff bits, CRC 0x71AC, 368.0 us on the bus, 0 % data
+  Start of frame:0 Identifier:11100000[1]101 RTR:1 IDE:0 r0:0 DLC:000[1]0 CRC:111000110101100
+  CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111 Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+605  [8]  40 18 10 01 00 00 00 00
+
+SDO request of node 5 (rtd)
+  The PLC reads 1018h:01 Identity object / Vendor-ID from node 5 (rtd).
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1100 = 12   node ID 0000101 = 5
+  0x605 = 12 × 0x80 + 5
+  SDO request: service data request to the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  1  0  0  0  0  0  0   0x40
+           A  A  A  .  .  .  .  .
+  byte 1   0  0  0  1  1  0  0  0   0x18
+           B  B  B  B  B  B  B  B
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           B  B  B  B  B  B  B  B
+  byte 3   0  0  0  0  0  0  0  1   0x01
+           C  C  C  C  C  C  C  C
+  byte 4   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+
+  A Client command specifier (bits 5-7): 2 = initiate upload
+      Client command specifier (bits 7-5 of byte 0): what this request does. This one: start reading
+      an object.
+  . Not used (bits 0-4): 00000
+      Not used, sent as 0.
+  B Index (bits 8-23): 0x1018
+      bytes 1-2 = 18 10, low byte first, so read backwards: 0x1018
+      Object dictionary index. Little-endian: byte 1 is the low byte, byte 2 the high byte.
+  C Subindex (bits 24-31): 0x01 = Identity object / Vendor-ID
+      Subindex: the entry inside the object.
+  . Reserved (bits 32-63): 00 00 00 00
+      Reserved, 0.
+
+On the wire at 125 kbit/s
+  119 bits + 3 intermission, 11 stuff bits, CRC 0x3798, 952.0 us on the bus, 54 % data
+  Start of frame:0 Identifier:1100000[1]0101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:0100000[1]00001100000[1]0100000[1]00000[1]0100000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00
+  CRC:011011110011000 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+585  [8]  43 18 10 01 78 56 34 12
+
+SDO answer of node 5 (rtd)
+  Node 5 (rtd) answers 1018h:01 Identity object / Vendor-ID = 305419896 (0x12345678).
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1011 = 11   node ID 0000101 = 5
+  0x585 = 11 × 0x80 + 5
+  SDO answer: service data answer from the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  1  0  0  0  0  1  1   0x43
+           A  A  A  .  B  B  C  D
+  byte 1   0  0  0  1  1  0  0  0   0x18
+           E  E  E  E  E  E  E  E
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           E  E  E  E  E  E  E  E
+  byte 3   0  0  0  0  0  0  0  1   0x01
+           F  F  F  F  F  F  F  F
+  byte 4   0  1  1  1  1  0  0  0   0x78
+           G  G  G  G  G  G  G  G
+  byte 5   0  1  0  1  0  1  1  0   0x56
+           G  G  G  G  G  G  G  G
+  byte 6   0  0  1  1  0  1  0  0   0x34
+           G  G  G  G  G  G  G  G
+  byte 7   0  0  0  1  0  0  1  0   0x12
+           G  G  G  G  G  G  G  G
+
+  A Server command specifier (bits 5-7): 2 = initiate upload response
+      Server command specifier (bits 7-5 of byte 0): what this answer is. This one: the start of the
+      read answer.
+  . Not used (bit 4): 0
+      Not used, sent as 0.
+  B n: bytes without data (bits 2-3): 0 (4 data bytes)
+      n (bits 3-2): with e=1 and s=1, how many of the 4 data bytes carry no data. 0 means all 4
+      carry data, 3 means only byte 4 does.
+  C e: expedited (bit 1): 1
+      e (bit 1), expedited: 1 means the value is in this frame; 0 means it follows in segments.
+  D s: size indicated (bit 0): 1
+      s (bit 0), size indicated: 1 means the size is given, by n or by bytes 4-7.
+  E Index (bits 8-23): 0x1018
+      bytes 1-2 = 18 10, low byte first, so read backwards: 0x1018
+      Object dictionary index. Little-endian: byte 1 is the low byte, byte 2 the high byte.
+  F Subindex (bits 24-31): 0x01 = Identity object / Vendor-ID
+      Subindex: the entry inside the object.
+  G Data (bits 32-63): 305419896 (0x12345678)
+      bytes 4-7 = 78 56 34 12, low byte first, so read backwards: 0x12345678
+      The value itself as UNSIGNED32, little-endian.
+
+On the wire at 125 kbit/s
+  112 bits + 3 intermission, 4 stuff bits, CRC 0x36F5, 896.0 us on the bus, 57 % data
+  Start of frame:0 Identifier:10110000101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:010000110001100000[1]0100000[1]00000[1]01011110000101011000110100000[1]10010
+  CRC:011011011110101 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+605  [8]  2B 17 10 00 E8 03 00 00
+
+SDO request of node 5 (rtd)
+  The PLC writes 1000 (0x03E8) to 1017h:00 Producer heartbeat time of node 5 (rtd).
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1100 = 12   node ID 0000101 = 5
+  0x605 = 12 × 0x80 + 5
+  SDO request: service data request to the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  1  0  1  0  1  1   0x2B
+           A  A  A  .  B  B  C  D
+  byte 1   0  0  0  1  0  1  1  1   0x17
+           E  E  E  E  E  E  E  E
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           E  E  E  E  E  E  E  E
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           F  F  F  F  F  F  F  F
+  byte 4   1  1  1  0  1  0  0  0   0xE8
+           G  G  G  G  G  G  G  G
+  byte 5   0  0  0  0  0  0  1  1   0x03
+           G  G  G  G  G  G  G  G
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+
+  A Client command specifier (bits 5-7): 1 = initiate download
+      Client command specifier (bits 7-5 of byte 0): what this request does. This one: start writing
+      an object.
+  . Not used (bit 4): 0
+      Not used, sent as 0.
+  B n: bytes without data (bits 2-3): 2 (2 data bytes)
+      n (bits 3-2): with e=1 and s=1, how many of the 4 data bytes carry no data. 0 means all 4
+      carry data, 3 means only byte 4 does.
+  C e: expedited (bit 1): 1
+      e (bit 1), expedited: 1 means the value is in this frame; 0 means it follows in segments.
+  D s: size indicated (bit 0): 1
+      s (bit 0), size indicated: 1 means the size is given, by n or by bytes 4-7.
+  E Index (bits 8-23): 0x1017
+      bytes 1-2 = 17 10, low byte first, so read backwards: 0x1017
+      Object dictionary index. Little-endian: byte 1 is the low byte, byte 2 the high byte.
+  F Subindex (bits 24-31): 0x00 = Producer heartbeat time
+      Subindex: the entry inside the object.
+  G Data (bits 32-47): 1000 (0x03E8)
+      bytes 4-5 = E8 03, low byte first, so read backwards: 0x03E8
+      The value itself as UNSIGNED16, little-endian.
+  . Padding (bits 48-63): 00 00
+      No data: the n bits say these bytes are empty.
+
+On the wire at 125 kbit/s
+  116 bits + 3 intermission, 8 stuff bits, CRC 0x5A33, 928.0 us on the bus, 55 % data
+  Start of frame:0 Identifier:1100000[1]0101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:00[1]10101100010111000100000[1]00000[1]001110100000[1]00001100000[1]00000[1]00000[1]0
+  CRC:101101000110011 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+585  [8]  60 17 10 00 00 00 00 00
+
+SDO answer of node 5 (rtd)
+  Node 5 (rtd) confirms the write to 1017h:00 Producer heartbeat time.
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1011 = 11   node ID 0000101 = 5
+  0x585 = 11 × 0x80 + 5
+  SDO answer: service data answer from the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  1  1  0  0  0  0  0   0x60
+           A  A  A  .  .  .  .  .
+  byte 1   0  0  0  1  0  1  1  1   0x17
+           B  B  B  B  B  B  B  B
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           B  B  B  B  B  B  B  B
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 4   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+
+  A Server command specifier (bits 5-7): 3 = initiate download response
+      Server command specifier (bits 7-5 of byte 0): what this answer is. This one: the write was
+      accepted.
+  . Not used (bits 0-4): 00000
+      Not used, sent as 0.
+  B Index (bits 8-23): 0x1017
+      bytes 1-2 = 17 10, low byte first, so read backwards: 0x1017
+      Object dictionary index. Little-endian: byte 1 is the low byte, byte 2 the high byte.
+  C Subindex (bits 24-31): 0x00 = Producer heartbeat time
+      Subindex: the entry inside the object.
+  . Reserved (bits 32-63): 00 00 00 00
+      Reserved, 0.
+
+On the wire at 125 kbit/s
+  117 bits + 3 intermission, 9 stuff bits, CRC 0x7898, 936.0 us on the bus, 55 % data
+  Start of frame:0 Identifier:10110000101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:01100000[1]00010111000100000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]0000
+  CRC:111100010011000 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+585  [8]  80 00 10 00 02 00 01 06
+
+SDO answer of node 5 (rtd)
+  Node 5 (rtd) refuses the transfer of 1000h:00 Device type: attempt to write a read only object.
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1011 = 11   node ID 0000101 = 5
+  0x585 = 11 × 0x80 + 5
+  SDO answer: service data answer from the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  0  0  0  0  0  0  0   0x80
+           A  A  A  .  .  .  .  .
+  byte 1   0  0  0  0  0  0  0  0   0x00
+           B  B  B  B  B  B  B  B
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           B  B  B  B  B  B  B  B
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 4   0  0  0  0  0  0  1  0   0x02
+           D  D  D  D  D  D  D  D
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           D  D  D  D  D  D  D  D
+  byte 6   0  0  0  0  0  0  0  1   0x01
+           D  D  D  D  D  D  D  D
+  byte 7   0  0  0  0  0  1  1  0   0x06
+           D  D  D  D  D  D  D  D
+
+  A Server command specifier (bits 5-7): 4 = abort
+      Server command specifier (bits 7-5 of byte 0): what this answer is. This one: the transfer
+      failed.
+  . Not used (bits 0-4): 00000
+      Not used, sent as 0.
+  B Index (bits 8-23): 0x1000
+      bytes 1-2 = 00 10, low byte first, so read backwards: 0x1000
+      Object dictionary index. Little-endian: byte 1 is the low byte, byte 2 the high byte.
+  C Subindex (bits 24-31): 0x00 = Device type
+      Subindex: the entry inside the object.
+  D Abort code (bits 32-63): 0x06010002 = attempt to write a read only object
+      bytes 4-7 = 02 00 01 06, low byte first, so read backwards: 0x06010002
+      Abort code (CiA 301): why the transfer stopped.
+
+On the wire at 125 kbit/s
+  118 bits + 3 intermission, 10 stuff bits, CRC 0x34D0, 944.0 us on the bus, 54 % data
+  Start of frame:0 Identifier:10110000101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:100000[1]00000[1]00000[1]000100000[1]00000[1]00000[1]000100000[1]00000[1]00000[1]0100000[1]110
+  CRC:011010011010000 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+605  [8]  21 08 10 00 12 00 00 00
+
+SDO request of node 5 (rtd)
+  The PLC starts writing 18 bytes to 1008h:00 Manufacturer device name of node 5 (rtd) in segments.
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1100 = 12   node ID 0000101 = 5
+  0x605 = 12 × 0x80 + 5
+  SDO request: service data request to the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  1  0  0  0  0  1   0x21
+           A  A  A  .  B  B  C  D
+  byte 1   0  0  0  0  1  0  0  0   0x08
+           E  E  E  E  E  E  E  E
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           E  E  E  E  E  E  E  E
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           F  F  F  F  F  F  F  F
+  byte 4   0  0  0  1  0  0  1  0   0x12
+           G  G  G  G  G  G  G  G
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           G  G  G  G  G  G  G  G
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           G  G  G  G  G  G  G  G
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           G  G  G  G  G  G  G  G
+
+  A Client command specifier (bits 5-7): 1 = initiate download
+      Client command specifier (bits 7-5 of byte 0): what this request does. This one: start writing
+      an object.
+  . Not used (bit 4): 0
+      Not used, sent as 0.
+  B n: bytes without data (bits 2-3): 0 (not used)
+      n (bits 3-2): with e=1 and s=1, how many of the 4 data bytes carry no data. 0 means all 4
+      carry data, 3 means only byte 4 does.
+  C e: expedited (bit 1): 0
+      e (bit 1), expedited: 1 means the value is in this frame; 0 means it follows in segments.
+  D s: size indicated (bit 0): 1
+      s (bit 0), size indicated: 1 means the size is given, by n or by bytes 4-7.
+  E Index (bits 8-23): 0x1008
+      bytes 1-2 = 08 10, low byte first, so read backwards: 0x1008
+      Object dictionary index. Little-endian: byte 1 is the low byte, byte 2 the high byte.
+  F Subindex (bits 24-31): 0x00 = Manufacturer device name
+      Subindex: the entry inside the object.
+  G Size (bits 32-63): 18 bytes
+      bytes 4-7 = 12 00 00 00, low byte first, so read backwards: 0x00000012
+      The total number of bytes the transfer will carry.
+
+On the wire at 125 kbit/s
+  119 bits + 3 intermission, 11 stuff bits, CRC 0x65AB, 952.0 us on the bus, 54 % data
+  Start of frame:0 Identifier:1100000[1]0101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:00[1]1000010000100000[1]0100000[1]00000[1]00000[1]100100000[1]00000[1]00000[1]00000[1]00000[1]
+  CRC:110010110101011 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+605  [8]  00 30 31 32 33 34 35 36
+
+SDO request of node 5 (rtd)
+  An SDO write segment to node 5 (rtd).
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1100 = 12   node ID 0000101 = 5
+  0x605 = 12 × 0x80 + 5
+  SDO request: service data request to the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  0  0  0  0  0   0x00
+           A  A  A  B  C  C  C  D
+  byte 1   0  0  1  1  0  0  0  0   0x30
+           E  E  E  E  E  E  E  E
+  byte 2   0  0  1  1  0  0  0  1   0x31
+           E  E  E  E  E  E  E  E
+  byte 3   0  0  1  1  0  0  1  0   0x32
+           E  E  E  E  E  E  E  E
+  byte 4   0  0  1  1  0  0  1  1   0x33
+           E  E  E  E  E  E  E  E
+  byte 5   0  0  1  1  0  1  0  0   0x34
+           E  E  E  E  E  E  E  E
+  byte 6   0  0  1  1  0  1  0  1   0x35
+           E  E  E  E  E  E  E  E
+  byte 7   0  0  1  1  0  1  1  0   0x36
+           E  E  E  E  E  E  E  E
+
+  A Client command specifier (bits 5-7): 0 = download segment
+      Client command specifier (bits 7-5 of byte 0): what this request does. This one: a segment of
+      the value being written.
+  B t: toggle (bit 4): 0
+      t (bit 4), toggle bit: alternates 0, 1, 0, ... from segment to segment so a lost frame is
+      noticed.
+  C n: bytes without data (bits 1-3): 0 (7 data bytes)
+      n (bits 3-1): how many of the 7 data bytes of this segment carry no data.
+  D c: last segment (bit 0): 0
+      c (bit 0), complete: 1 marks the last segment.
+  E Segment data (bits 8-63): 30 31 32 33 34 35 36
+      Up to 7 bytes of the value, in order.
+
+  Note: Which transfer this segment belongs to is known only from the frames before it.
+
+On the wire at 125 kbit/s
+  112 bits + 3 intermission, 4 stuff bits, CRC 0x2319, 896.0 us on the bus, 57 % data
+  Start of frame:0 Identifier:1100000[1]0101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:00[1]00000[1]0001100000[1]01100010011001000110011001101000011010100110110
+  CRC:010001100011001 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+585  [8]  41 08 10 00 12 00 00 00
+
+SDO answer of node 5 (rtd)
+  Node 5 (rtd) answers 1008h:00 Manufacturer device name: 18 bytes follow in segments.
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1011 = 11   node ID 0000101 = 5
+  0x585 = 11 × 0x80 + 5
+  SDO answer: service data answer from the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  1  0  0  0  0  0  1   0x41
+           A  A  A  .  B  B  C  D
+  byte 1   0  0  0  0  1  0  0  0   0x08
+           E  E  E  E  E  E  E  E
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           E  E  E  E  E  E  E  E
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           F  F  F  F  F  F  F  F
+  byte 4   0  0  0  1  0  0  1  0   0x12
+           G  G  G  G  G  G  G  G
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           G  G  G  G  G  G  G  G
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           G  G  G  G  G  G  G  G
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           G  G  G  G  G  G  G  G
+
+  A Server command specifier (bits 5-7): 2 = initiate upload response
+      Server command specifier (bits 7-5 of byte 0): what this answer is. This one: the start of the
+      read answer.
+  . Not used (bit 4): 0
+      Not used, sent as 0.
+  B n: bytes without data (bits 2-3): 0 (not used)
+      n (bits 3-2): with e=1 and s=1, how many of the 4 data bytes carry no data. 0 means all 4
+      carry data, 3 means only byte 4 does.
+  C e: expedited (bit 1): 0
+      e (bit 1), expedited: 1 means the value is in this frame; 0 means it follows in segments.
+  D s: size indicated (bit 0): 1
+      s (bit 0), size indicated: 1 means the size is given, by n or by bytes 4-7.
+  E Index (bits 8-23): 0x1008
+      bytes 1-2 = 08 10, low byte first, so read backwards: 0x1008
+      Object dictionary index. Little-endian: byte 1 is the low byte, byte 2 the high byte.
+  F Subindex (bits 24-31): 0x00 = Manufacturer device name
+      Subindex: the entry inside the object.
+  G Size (bits 32-63): 18 bytes
+      bytes 4-7 = 12 00 00 00, low byte first, so read backwards: 0x00000012
+      The total number of bytes the transfer will carry.
+
+On the wire at 125 kbit/s
+  118 bits + 3 intermission, 10 stuff bits, CRC 0x48D1, 944.0 us on the bus, 54 % data
+  Start of frame:0 Identifier:10110000101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:0100000[1]10000100000[1]0100000[1]00000[1]00000[1]100100000[1]00000[1]00000[1]00000[1]00000[1]
+  CRC:100100011010001 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+585  [8]  00 4F 70 65 6E 50 4C 43
+
+SDO answer of node 5 (rtd)
+  An SDO read segment from node 5 (rtd).
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1011 = 11   node ID 0000101 = 5
+  0x585 = 11 × 0x80 + 5
+  SDO answer: service data answer from the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  0  0  0  0  0   0x00
+           A  A  A  B  C  C  C  D
+  byte 1   0  1  0  0  1  1  1  1   0x4F
+           E  E  E  E  E  E  E  E
+  byte 2   0  1  1  1  0  0  0  0   0x70
+           E  E  E  E  E  E  E  E
+  byte 3   0  1  1  0  0  1  0  1   0x65
+           E  E  E  E  E  E  E  E
+  byte 4   0  1  1  0  1  1  1  0   0x6E
+           E  E  E  E  E  E  E  E
+  byte 5   0  1  0  1  0  0  0  0   0x50
+           E  E  E  E  E  E  E  E
+  byte 6   0  1  0  0  1  1  0  0   0x4C
+           E  E  E  E  E  E  E  E
+  byte 7   0  1  0  0  0  0  1  1   0x43
+           E  E  E  E  E  E  E  E
+
+  A Server command specifier (bits 5-7): 0 = upload segment
+      Server command specifier (bits 7-5 of byte 0): what this answer is. This one: a segment of the
+      value being read.
+  B t: toggle (bit 4): 0
+      t (bit 4), toggle bit: alternates 0, 1, 0, ... from segment to segment so a lost frame is
+      noticed.
+  C n: bytes without data (bits 1-3): 0 (7 data bytes)
+      n (bits 3-1): how many of the 7 data bytes of this segment carry no data.
+  D c: last segment (bit 0): 0
+      c (bit 0), complete: 1 marks the last segment.
+  E Segment data (bits 8-63): 4F 70 65 6E 50 4C 43
+      Up to 7 bytes of the value, in order.
+
+  Note: Which transfer this segment belongs to is known only from the frames before it.
+
+On the wire at 125 kbit/s
+  113 bits + 3 intermission, 5 stuff bits, CRC 0x5F1A, 904.0 us on the bus, 57 % data
+  Start of frame:0 Identifier:10110000101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:00[1]00000[1]001001111011100000[1]110010101101110010100000[1]100110001000011
+  CRC:1011111[0]00011010 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+605  [8]  60 00 00 00 00 00 00 00
+
+SDO request of node 5 (rtd)
+  The PLC asks node 5 (rtd) for the next upload segment.
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1100 = 12   node ID 0000101 = 5
+  0x605 = 12 × 0x80 + 5
+  SDO request: service data request to the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  1  1  0  0  0  0  0   0x60
+           A  A  A  B  .  .  .  .
+  byte 1   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 2   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 4   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+
+  A Client command specifier (bits 5-7): 3 = upload segment request
+      Client command specifier (bits 7-5 of byte 0): what this request does. This one: ask for the
+      next segment of the value being read.
+  B t: toggle (bit 4): 0
+      t (bit 4), toggle bit: alternates 0, 1, 0, ... from segment to segment so a lost frame is
+      noticed.
+  . Not used (bits 0-3): 0000
+      Not used, sent as 0.
+  . Reserved (bits 8-63): 00 00 00 00 00 00 00
+      Reserved, 0.
+
+On the wire at 125 kbit/s
+  121 bits + 3 intermission, 13 stuff bits, CRC 0x0A45, 968.0 us on the bus, 53 % data
+  Start of frame:0 Identifier:1100000[1]0101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:01100000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]0
+  CRC:000101001000101 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+605  [7]  C2 08 10 00 00 00 00
+
+SDO request of node 5 (rtd)
+  The PLC starts a block write of 1008h:00 Manufacturer device name to node 5 (rtd).
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1100 = 12   node ID 0000101 = 5
+  0x605 = 12 × 0x80 + 5
+  SDO request: service data request to the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  1  0  0  0  0  1  0   0xC2
+           A  A  A  .  .  B  C  D
+  byte 1   0  0  0  0  1  0  0  0   0x08
+           E  E  E  E  E  E  E  E
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           E  E  E  E  E  E  E  E
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           F  F  F  F  F  F  F  F
+  byte 4   0  0  0  0  0  0  0  0   0x00
+           G  G  G  G  G  G  G  G
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           G  G  G  G  G  G  G  G
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           G  G  G  G  G  G  G  G
+
+  A Client command specifier (bits 5-7): 6 = block download
+      Client command specifier (bits 7-5 of byte 0): what this request does. This one: a block write
+      command.
+  . Not used (bits 3-4): 00
+      Not used, sent as 0.
+  B cc: CRC support (bit 2): 0
+      cc (bit 2): 1 means the client can use a CRC over the block data.
+  C s: size indicated (bit 1): 1
+      s (bit 0), size indicated: 1 means the size is given, by n or by bytes 4-7.
+  D Subcommand (bit 0): 0 = initiate
+      Subcommand (bits 1-0 or bit 0) of the block transfer.
+  E Index (bits 8-23): 0x1008
+      bytes 1-2 = 08 10, low byte first, so read backwards: 0x1008
+      Object dictionary index. Little-endian: byte 1 is the low byte, byte 2 the high byte.
+  F Subindex (bits 24-31): 0x00 = Manufacturer device name
+      Subindex: the entry inside the object.
+  G Size (bits 32-55): 0 bytes
+      bytes 4-7 = 00 00 00, low byte first, so read backwards: 0x000000
+      The total number of bytes the transfer will carry.
+
+On the wire at 125 kbit/s
+  112 bits + 3 intermission, 12 stuff bits, CRC 0x2675, 896.0 us on the bus, 50 % data
+  Start of frame:0 Identifier:1100000[1]0101 RTR:0 IDE:0 r0:0 DLC:0111
+  Data:11[0]0000[1]100000[1]100000[1]0100000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]0
+  CRC:010011001110101 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+585  [7]  C4 08 10 00 12 00 00
+
+SDO answer of node 5 (rtd)
+  Node 5 (rtd) answers the block read of 1008h:00 Manufacturer device name.
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1011 = 11   node ID 0000101 = 5
+  0x585 = 11 × 0x80 + 5
+  SDO answer: service data answer from the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  1  0  0  0  1  0  0   0xC4
+           A  A  A  .  .  B  C  D
+  byte 1   0  0  0  0  1  0  0  0   0x08
+           E  E  E  E  E  E  E  E
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           E  E  E  E  E  E  E  E
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           F  F  F  F  F  F  F  F
+  byte 4   0  0  0  1  0  0  1  0   0x12
+           .  .  .  .  .  .  .  .
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+
+  A Server command specifier (bits 5-7): 6 = block upload
+      Server command specifier (bits 7-5 of byte 0): what this answer is. This one: a block read
+      answer or data.
+  . Not used (bits 3-4): 00
+      Not used, sent as 0.
+  B sc: CRC support (bit 2): 1
+      sc (bit 2): 1 means the server can use a CRC over the block data.
+  C s: size indicated (bit 1): 0
+      s (bit 0), size indicated: 1 means the size is given, by n or by bytes 4-7.
+  D Subcommand (bit 0): 0 = initiate
+      Subcommand (bits 1-0 or bit 0) of the block transfer.
+  E Index (bits 8-23): 0x1008
+      bytes 1-2 = 08 10, low byte first, so read backwards: 0x1008
+      Object dictionary index. Little-endian: byte 1 is the low byte, byte 2 the high byte.
+  F Subindex (bits 24-31): 0x00 = Manufacturer device name
+      Subindex: the entry inside the object.
+  . Not used (bits 32-39): 00010010
+      Not used.
+  . Not used (bits 40-47): 00000000
+      Not used.
+  . Not used (bits 48-55): 00000000
+      Not used.
+
+On the wire at 125 kbit/s
+  110 bits + 3 intermission, 10 stuff bits, CRC 0x6106, 880.0 us on the bus, 51 % data
+  Start of frame:0 Identifier:10110000101 RTR:0 IDE:0 r0:0 DLC:0111
+  Data:11[0]000100000[1]0100000[1]0100000[1]00000[1]00000[1]100100000[1]00000[1]00000[1]00
+  CRC:110000100000[1]110 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+605  [8]  A4 08 10 00 12 7F 00 00
+
+SDO request of node 5 (rtd)
+  The PLC starts a block read of 1008h:00 Manufacturer device name from node 5 (rtd).
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1100 = 12   node ID 0000101 = 5
+  0x605 = 12 × 0x80 + 5
+  SDO request: service data request to the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  0  1  0  0  1  0  0   0xA4
+           A  A  A  .  .  B  C  C
+  byte 1   0  0  0  0  1  0  0  0   0x08
+           D  D  D  D  D  D  D  D
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           D  D  D  D  D  D  D  D
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           E  E  E  E  E  E  E  E
+  byte 4   0  0  0  1  0  0  1  0   0x12
+           F  F  F  F  F  F  F  F
+  byte 5   0  1  1  1  1  1  1  1   0x7F
+           G  G  G  G  G  G  G  G
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+
+  A Client command specifier (bits 5-7): 5 = block upload
+      Client command specifier (bits 7-5 of byte 0): what this request does. This one: a block read
+      command.
+  . Not used (bits 3-4): 00
+      Not used, sent as 0.
+  B cc: CRC support (bit 2): 1
+      cc (bit 2): 1 means the client can use a CRC over the block data.
+  C Subcommand (bits 0-1): 0 = initiate
+      Subcommand (bits 1-0 or bit 0) of the block transfer.
+  D Index (bits 8-23): 0x1008
+      bytes 1-2 = 08 10, low byte first, so read backwards: 0x1008
+      Object dictionary index. Little-endian: byte 1 is the low byte, byte 2 the high byte.
+  E Subindex (bits 24-31): 0x00 = Manufacturer device name
+      Subindex: the entry inside the object.
+  F Block size (bits 32-39): 18
+      Number of segments per block (1-127).
+  G Protocol switch threshold (bits 40-47): 127
+      Protocol switch threshold: below this size the server may answer with a normal upload instead.
+  . Reserved (bits 48-63): 00 00
+      Reserved, 0.
+
+On the wire at 125 kbit/s
+  119 bits + 3 intermission, 11 stuff bits, CRC 0x1F87, 952.0 us on the bus, 54 % data
+  Start of frame:0 Identifier:1100000[1]0101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:10100100000[1]0100000[1]0100000[1]00000[1]00000[1]10010011111[0]1100000[1]00000[1]00000[1]0
+  CRC:0011111[0]10000111 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+605  [7]  A3 00 00 00 00 00 00
+
+SDO request of node 5 (rtd)
+  The PLC tells node 5 (rtd) to start sending the blocks of the object.
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1100 = 12   node ID 0000101 = 5
+  0x605 = 12 × 0x80 + 5
+  SDO request: service data request to the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  0  1  0  0  0  1  1   0xA3
+           A  A  A  .  .  .  B  B
+  byte 1   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 2   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 4   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+
+  A Client command specifier (bits 5-7): 5 = block upload
+      Client command specifier (bits 7-5 of byte 0): what this request does. This one: a block read
+      command.
+  . Not used (bits 2-4): 000
+      Not used, sent as 0.
+  B Subcommand (bits 0-1): 3 = start
+      Subcommand (bits 1-0 or bit 0) of the block transfer.
+  . Reserved (bits 8-55): 00 00 00 00 00 00
+      Reserved, 0.
+
+On the wire at 125 kbit/s
+  111 bits + 3 intermission, 11 stuff bits, CRC 0x299F, 888.0 us on the bus, 50 % data
+  Start of frame:0 Identifier:1100000[1]0101 RTR:0 IDE:0 r0:0 DLC:0111
+  Data:1010001100000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]000
+  CRC:010100110011111[0] CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+605  [8]  A2 05 0F 00 00 00 00 00
+
+SDO request of node 5 (rtd)
+  The PLC confirms 5 segments of the block read of the object.
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1100 = 12   node ID 0000101 = 5
+  0x605 = 12 × 0x80 + 5
+  SDO request: service data request to the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  0  1  0  0  0  1  0   0xA2
+           A  A  A  .  .  .  B  B
+  byte 1   0  0  0  0  0  1  0  1   0x05
+           C  C  C  C  C  C  C  C
+  byte 2   0  0  0  0  1  1  1  1   0x0F
+           D  D  D  D  D  D  D  D
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 4   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+
+  A Client command specifier (bits 5-7): 5 = block upload
+      Client command specifier (bits 7-5 of byte 0): what this request does. This one: a block read
+      command.
+  . Not used (bits 2-4): 000
+      Not used, sent as 0.
+  B Subcommand (bits 0-1): 2 = block received
+      Subcommand (bits 1-0 or bit 0) of the block transfer.
+  C Acknowledged sequence (bits 8-15): 5
+      Sequence number of the last segment received correctly in this block.
+  D Block size (bits 16-23): 15
+      Number of segments per block (1-127).
+  . Reserved (bits 24-63): 00 00 00 00 00
+      Reserved, 0.
+
+On the wire at 125 kbit/s
+  118 bits + 3 intermission, 10 stuff bits, CRC 0x56B2, 944.0 us on the bus, 54 % data
+  Start of frame:0 Identifier:1100000[1]0101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:101000100000[1]01010000111100000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]
+  CRC:101011010110010 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+605  [7]  A1 00 00 00 00 00 00
+
+SDO request of node 5 (rtd)
+  The PLC confirms the end of the block read of the object.
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1100 = 12   node ID 0000101 = 5
+  0x605 = 12 × 0x80 + 5
+  SDO request: service data request to the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  0  1  0  0  0  0  1   0xA1
+           A  A  A  .  .  .  B  B
+  byte 1   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 2   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 4   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+
+  A Client command specifier (bits 5-7): 5 = block upload
+      Client command specifier (bits 7-5 of byte 0): what this request does. This one: a block read
+      command.
+  . Not used (bits 2-4): 000
+      Not used, sent as 0.
+  B Subcommand (bits 0-1): 1 = end
+      Subcommand (bits 1-0 or bit 0) of the block transfer.
+  . Reserved (bits 8-55): 00 00 00 00 00 00
+      Reserved, 0.
+
+On the wire at 125 kbit/s
+  112 bits + 3 intermission, 12 stuff bits, CRC 0x00E4, 896.0 us on the bus, 50 % data
+  Start of frame:0 Identifier:1100000[1]0101 RTR:0 IDE:0 r0:0 DLC:0111
+  Data:1010000100000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]000
+  CRC:00[1]00000[1]11100100 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+585  [7]  A0 17 10 00 00 00 00
+
+SDO answer of node 5 (rtd)
+  Node 5 (rtd) accepts the block write of 1017h:00 Producer heartbeat time, 0 segments per block.
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1011 = 11   node ID 0000101 = 5
+  0x585 = 11 × 0x80 + 5
+  SDO answer: service data answer from the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  0  1  0  0  0  0  0   0xA0
+           A  A  A  .  .  B  C  C
+  byte 1   0  0  0  1  0  1  1  1   0x17
+           D  D  D  D  D  D  D  D
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           D  D  D  D  D  D  D  D
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           E  E  E  E  E  E  E  E
+  byte 4   0  0  0  0  0  0  0  0   0x00
+           F  F  F  F  F  F  F  F
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           .  .  .  .  .  .  .  .
+
+  A Server command specifier (bits 5-7): 5 = block download response
+      Server command specifier (bits 7-5 of byte 0): what this answer is. This one: a block write
+      answer.
+  . Not used (bits 3-4): 00
+      Not used, sent as 0.
+  B sc: CRC support (bit 2): 0
+      sc (bit 2): 1 means the server can use a CRC over the block data.
+  C Subcommand (bits 0-1): 0 = initiate
+      Subcommand (bits 1-0 or bit 0) of the block transfer.
+  D Index (bits 8-23): 0x1017
+      bytes 1-2 = 17 10, low byte first, so read backwards: 0x1017
+      Object dictionary index. Little-endian: byte 1 is the low byte, byte 2 the high byte.
+  E Subindex (bits 24-31): 0x00 = Producer heartbeat time
+      Subindex: the entry inside the object.
+  F Block size (bits 32-39): 0
+      Number of segments per block (1-127).
+  . Reserved (bits 40-55): 00 00
+      Reserved, 0.
+
+On the wire at 125 kbit/s
+  108 bits + 3 intermission, 8 stuff bits, CRC 0x6D87, 864.0 us on the bus, 52 % data
+  Start of frame:0 Identifier:10110000101 RTR:0 IDE:0 r0:0 DLC:0111
+  Data:10100000[1]00010111000100000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00000[1]0
+  CRC:110110110000111 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+585  [3]  A2 05 10
+
+SDO answer of node 5 (rtd)
+  Node 5 (rtd) confirms 5 segments of the block write of the object.
+
+What it is
+  SDO (service data) is a question-and-answer service to read and write a node's object dictionary.
+  The master (SDO client) asks on 600h + node ID and the node (SDO server) answers on 580h + node
+  ID. It is for settings and diagnostics, not for fast process data. Values of up to 4 bytes fit in
+  one frame (expedited); longer ones go in segments of 7 bytes, or in blocks.
+
+Identifier (11 bits, most significant first)
+  function code 1011 = 11   node ID 0000101 = 5
+  0x585 = 11 × 0x80 + 5
+  SDO answer: service data answer from the node's SDO server, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  0  1  0  0  0  1  0   0xA2
+           A  A  A  .  .  .  B  B
+  byte 1   0  0  0  0  0  1  0  1   0x05
+           C  C  C  C  C  C  C  C
+  byte 2   0  0  0  1  0  0  0  0   0x10
+           D  D  D  D  D  D  D  D
+
+  A Server command specifier (bits 5-7): 5 = block download response
+      Server command specifier (bits 7-5 of byte 0): what this answer is. This one: a block write
+      answer.
+  . Not used (bits 2-4): 000
+      Not used, sent as 0.
+  B Subcommand (bits 0-1): 2 = block received
+      Subcommand (bits 1-0 or bit 0) of the block transfer.
+  C Acknowledged sequence (bits 8-15): 5
+      Sequence number of the last segment received correctly in this block.
+  D Block size (bits 16-23): 16
+      Number of segments per block (1-127).
+
+On the wire at 125 kbit/s
+  72 bits + 3 intermission, 4 stuff bits, CRC 0x30E0, 576.0 us on the bus, 33 % data
+  Start of frame:0 Identifier:10110000101 RTR:0 IDE:0 r0:0 DLC:00[1]11
+  Data:101000100000[1]010100010000 CRC:0[1]11000011100000[1] CRC delimiter:1 ACK slot:0
+  ACK delimiter:1 End of frame:1111111 Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+185  [8]  EA 00 FF FF 10 00 20 00
+
+TPDO1 of node 5 (rtd)
+  Node 5 (rtd) sends TPDO1: %IW100 = 234, %IW101 = -1, %IW102 = 16, %IW103 = 32.
+
+What it is
+  A PDO (process data object) carries live values with no header at all: what each bit means comes
+  from the PDO mapping (objects 1600h-17FFh for RPDOs, 1A00h-1BFFh for TPDOs), which the master
+  writes at boot. That is why one frame carries many values at once. A TPDO is sent by the node, an
+  RPDO is received by the node.
+
+Identifier (11 bits, most significant first)
+  function code 0011 = 3   node ID 0000101 = 5
+  0x185 = 3 × 0x80 + 5
+  TPDO1: process data the node transmits, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  1  1  0  1  0  1  0   0xEA
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  0  0  0   0x00
+           A  A  A  A  A  A  A  A
+  byte 2   1  1  1  1  1  1  1  1   0xFF
+           B  B  B  B  B  B  B  B
+  byte 3   1  1  1  1  1  1  1  1   0xFF
+           B  B  B  B  B  B  B  B
+  byte 4   0  0  0  1  0  0  0  0   0x10
+           C  C  C  C  C  C  C  C
+  byte 5   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 6   0  0  1  0  0  0  0  0   0x20
+           D  D  D  D  D  D  D  D
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           D  D  D  D  D  D  D  D
+
+  A AI Input PV / AI0_Input_PV (bits 0-15): 234 (0x00EA)
+      bytes 0-1 = EA 00, low byte first, so read backwards: 0x00EA
+      Mapped object 7130h:01 AI Input PV / AI0_Input_PV (INTEGER16), bits 0-15 of the PDO. In the
+      PLC program: %IW100.
+  B AI Input PV / AI1_Input_PV (bits 16-31): -1 (0xFFFF)
+      bytes 2-3 = FF FF, low byte first, so read backwards: 0xFFFF
+      Mapped object 7130h:02 AI Input PV / AI1_Input_PV (INTEGER16), bits 16-31 of the PDO. In the
+      PLC program: %IW101.
+  C AI Input PV / AI2_Input_PV (bits 32-47): 16 (0x0010)
+      bytes 4-5 = 10 00, low byte first, so read backwards: 0x0010
+      Mapped object 7130h:03 AI Input PV / AI2_Input_PV (INTEGER16), bits 32-47 of the PDO. In the
+      PLC program: %IW102.
+  D AI Input PV / AI3_Input_PV (bits 48-63): 32 (0x0020)
+      bytes 6-7 = 20 00, low byte first, so read backwards: 0x0020
+      Mapped object 7130h:04 AI Input PV / AI3_Input_PV (INTEGER16), bits 48-63 of the PDO. In the
+      PLC program: %IW103.
+
+On the wire at 125 kbit/s
+  117 bits + 3 intermission, 9 stuff bits, CRC 0x023B, 936.0 us on the bus, 55 % data
+  Start of frame:0 Identifier:00110000101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:111010100000[1]000011111[0]11111[0]11111[0]1000100000[1]00000[1]0000100000[1]00000[1]000
+  CRC:00[1]0001000111011 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+285  [4]  25 00 00 00
+
+TPDO2 of node 5 (rtd)
+  Node 5 (rtd) sends TPDO2: %IB100 = 37, %IB101 = 0, %IB102 = 0, %IB103 = 0.
+
+What it is
+  A PDO (process data object) carries live values with no header at all: what each bit means comes
+  from the PDO mapping (objects 1600h-17FFh for RPDOs, 1A00h-1BFFh for TPDOs), which the master
+  writes at boot. That is why one frame carries many values at once. A TPDO is sent by the node, an
+  RPDO is received by the node.
+
+Identifier (11 bits, most significant first)
+  function code 0101 = 5   node ID 0000101 = 5
+  0x285 = 5 × 0x80 + 5
+  TPDO2: process data the node transmits, node 5 (rtd)
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  1  0  0  1  0  1   0x25
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  0  0  0   0x00
+           B  B  B  B  B  B  B  B
+  byte 2   0  0  0  0  0  0  0  0   0x00
+           C  C  C  C  C  C  C  C
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           D  D  D  D  D  D  D  D
+
+  A AI Status / AI0_Status (bits 0-7): 37 (0x25)
+      Mapped object 6150h:01 AI Status / AI0_Status (UNSIGNED8), bits 0-7 of the PDO. In the PLC
+      program: %IB100.
+  B AI Status / AI1_Status (bits 8-15): 0 (0x00)
+      Mapped object 6150h:02 AI Status / AI1_Status (UNSIGNED8), bits 8-15 of the PDO. In the PLC
+      program: %IB101.
+  C AI Status / AI2_Status (bits 16-23): 0 (0x00)
+      Mapped object 6150h:03 AI Status / AI2_Status (UNSIGNED8), bits 16-23 of the PDO. In the PLC
+      program: %IB102.
+  D AI Status / AI3_Status (bits 24-31): 0 (0x00)
+      Mapped object 6150h:04 AI Status / AI3_Status (UNSIGNED8), bits 24-31 of the PDO. In the PLC
+      program: %IB103.
+
+On the wire at 125 kbit/s
+  81 bits + 3 intermission, 5 stuff bits, CRC 0x14B2, 648.0 us on the bus, 40 % data
+  Start of frame:0 Identifier:01010000101 RTR:0 IDE:0 r0:0 DLC:0100
+  Data:0010010100000[1]00000[1]00000[1]00000[1]0000 CRC:0[1]01010010110010 CRC delimiter:1
+  ACK slot:0 ACK delimiter:1 End of frame:1111111 Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+185  [0]  remote request
+
+TPDO1 of node 5 (rtd)
+  The PLC asks node 5 (rtd) to send TPDO1 (remote request).
+
+What it is
+  A PDO (process data object) carries live values with no header at all: what each bit means comes
+  from the PDO mapping (objects 1600h-17FFh for RPDOs, 1A00h-1BFFh for TPDOs), which the master
+  writes at boot. That is why one frame carries many values at once. A TPDO is sent by the node, an
+  RPDO is received by the node.
+
+Identifier (11 bits, most significant first)
+  function code 0011 = 3   node ID 0000101 = 5
+  0x185 = 3 × 0x80 + 5
+  TPDO1: process data the node transmits, node 5 (rtd)
+
+  Note: A remote request carries no data: the RTR bit asks the owner of the identifier to send it.
+
+On the wire at 125 kbit/s
+  46 bits + 3 intermission, 2 stuff bits, CRC 0x380C, 368.0 us on the bus, 0 % data
+  Start of frame:0 Identifier:00110000101 RTR:1 IDE:0 r0:0 DLC:000[1]0 CRC:011100000[1]001100
+  CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111 Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+190  [2]  01 02
+
+TPDO1 of node 16
+  TPDO1 of node 16; it is not in the configuration, so its mapping is unknown.
+
+What it is
+  A PDO (process data object) carries live values with no header at all: what each bit means comes
+  from the PDO mapping (objects 1600h-17FFh for RPDOs, 1A00h-1BFFh for TPDOs), which the master
+  writes at boot. That is why one frame carries many values at once. A TPDO is sent by the node, an
+  RPDO is received by the node.
+
+Identifier (11 bits, most significant first)
+  function code 0011 = 3   node ID 0010000 = 16
+  0x190 = 3 × 0x80 + 16
+  TPDO1: process data the node transmits (set 1), node 16
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  0  0  0  0  1   0x01
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  0  1  0   0x02
+           A  A  A  A  A  A  A  A
+
+  A Process data (bits 0-15): 01 02
+      Without the PDO mapping only the bytes can be shown.
+
+On the wire at 125 kbit/s
+  63 bits + 3 intermission, 3 stuff bits, CRC 0x376B, 504.0 us on the bus, 25 % data
+  Start of frame:0 Identifier:00110010000 RTR:0[1] IDE:0 r0:0 DLC:0010 Data:0000[1]000100000[1]010
+  CRC:011011101101011 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+7E5  [2]  11 05
+
+LSS request
+  The PLC (LSS master): configure node-ID 5.
+
+What it is
+  LSS (layer setting services, CiA 305) gives a device its node ID and bit rate over the bus,
+  finding it by its identity (vendor, product, revision, serial number).
+
+Identifier (11 bits, most significant first)
+  11111100101
+  LSS request: layer setting services request
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  1  0  0  0  1   0x11
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  1  0  1   0x05
+           B  B  B  B  B  B  B  B
+
+  A Command specifier (bits 0-7): 0x11 = configure node-ID
+      LSS command (CiA 305).
+  B Node-ID (bits 8-15): 5
+      The node-ID to give the device in the configuration state.
+
+On the wire at 125 kbit/s
+  64 bits + 3 intermission, 4 stuff bits, CRC 0x57CA, 512.0 us on the bus, 25 % data
+  Start of frame:0 Identifier:11111[0]100101 RTR:0 IDE:0 r0:0 DLC:00[1]10 Data:0001000100000[1]101
+  CRC:101011111[0]001010 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+7E4  [2]  11 00
+
+LSS answer
+  The device: configure node-ID: done.
+
+What it is
+  LSS (layer setting services, CiA 305) gives a device its node ID and bit rate over the bus,
+  finding it by its identity (vendor, product, revision, serial number).
+
+Identifier (11 bits, most significant first)
+  11111100100
+  LSS answer: layer setting services answer
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  1  0  0  0  1   0x11
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  0  0  0   0x00
+           B  B  B  B  B  B  B  B
+
+  A Command specifier (bits 0-7): 0x11 = configure node-ID
+      LSS command (CiA 305).
+  B Error code (bits 8-15): 0
+      0: done, 1: node-ID out of range, 255: manufacturer error.
+
+On the wire at 125 kbit/s
+  64 bits + 3 intermission, 4 stuff bits, CRC 0x45E0, 512.0 us on the bus, 25 % data
+  Start of frame:0 Identifier:11111[0]100100 RTR:0 IDE:0 r0:0[1] DLC:0010 Data:0001000100000[1]000
+  CRC:100010111100000[1] CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+7E5  [3]  13 00 02
+
+LSS request
+  The PLC (LSS master): configure bit timing 500 kbit/s.
+
+What it is
+  LSS (layer setting services, CiA 305) gives a device its node ID and bit rate over the bus,
+  finding it by its identity (vendor, product, revision, serial number).
+
+Identifier (11 bits, most significant first)
+  11111100101
+  LSS request: layer setting services request
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  1  0  0  1  1   0x13
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  0  0  0   0x00
+           B  B  B  B  B  B  B  B
+  byte 2   0  0  0  0  0  0  1  0   0x02
+           C  C  C  C  C  C  C  C
+
+  A Command specifier (bits 0-7): 0x13 = configure bit timing
+      LSS command (CiA 305).
+  B Table selector (bits 8-15): 0
+      0: the CiA 305 standard bit timing table.
+  C Table index (bits 16-23): 2 = 500 kbit/s
+      Index into the bit timing table.
+
+On the wire at 125 kbit/s
+  72 bits + 3 intermission, 4 stuff bits, CRC 0x7B30, 576.0 us on the bus, 33 % data
+  Start of frame:0 Identifier:11111[0]100101 RTR:0 IDE:0 r0:0 DLC:00[1]11
+  Data:0001001100000[1]00000[1]000010 CRC:111101100110000 CRC delimiter:1 ACK slot:0
+  ACK delimiter:1 End of frame:1111111 Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+7E5  [5]  40 78 56 34 12
+
+LSS request
+  The PLC (LSS master): switch state selective, vendor-ID 0x12345678.
+
+What it is
+  LSS (layer setting services, CiA 305) gives a device its node ID and bit rate over the bus,
+  finding it by its identity (vendor, product, revision, serial number).
+
+Identifier (11 bits, most significant first)
+  11111100101
+  LSS request: layer setting services request
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  1  0  0  0  0  0  0   0x40
+           A  A  A  A  A  A  A  A
+  byte 1   0  1  1  1  1  0  0  0   0x78
+           B  B  B  B  B  B  B  B
+  byte 2   0  1  0  1  0  1  1  0   0x56
+           B  B  B  B  B  B  B  B
+  byte 3   0  0  1  1  0  1  0  0   0x34
+           B  B  B  B  B  B  B  B
+  byte 4   0  0  0  1  0  0  1  0   0x12
+           B  B  B  B  B  B  B  B
+
+  A Command specifier (bits 0-7): 0x40 = switch state selective, vendor-ID
+      LSS command (CiA 305).
+  B Value (bits 8-39): 0x12345678
+      bytes 1-4 = 78 56 34 12, low byte first, so read backwards: 0x12345678
+      The identity value of this command, little-endian.
+
+On the wire at 125 kbit/s
+  87 bits + 3 intermission, 3 stuff bits, CRC 0x3294, 696.0 us on the bus, 46 % data
+  Start of frame:0 Identifier:11111[0]100101 RTR:0 IDE:0 r0:0 DLC:0101
+  Data:0100000[1]0011110000101011000110100000[1]10010 CRC:011001010010100 CRC delimiter:1
+  ACK slot:0 ACK delimiter:1 End of frame:1111111 Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+7E4  [2]  5E 05
+
+LSS answer
+  The device: inquire node-ID = 5.
+
+What it is
+  LSS (layer setting services, CiA 305) gives a device its node ID and bit rate over the bus,
+  finding it by its identity (vendor, product, revision, serial number).
+
+Identifier (11 bits, most significant first)
+  11111100100
+  LSS answer: layer setting services answer
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  1  0  1  1  1  1  0   0x5E
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  1  0  1   0x05
+           B  B  B  B  B  B  B  B
+
+  A Command specifier (bits 0-7): 0x5E = inquire node-ID
+      LSS command (CiA 305).
+  B Node-ID (bits 8-15): 5
+      The device's node-ID.
+
+On the wire at 125 kbit/s
+  63 bits + 3 intermission, 3 stuff bits, CRC 0x6A8C, 504.0 us on the bus, 25 % data
+  Start of frame:0 Identifier:11111[0]100100 RTR:0 IDE:0 r0:0[1] DLC:0010 Data:010111100000[1]0101
+  CRC:110101010001100 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+7E5  [8]  51 00 00 00 00 80 00 00
+
+LSS request
+  The PLC (LSS master): fastscan.
+
+What it is
+  LSS (layer setting services, CiA 305) gives a device its node ID and bit rate over the bus,
+  finding it by its identity (vendor, product, revision, serial number).
+
+Identifier (11 bits, most significant first)
+  11111100101
+  LSS request: layer setting services request
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  1  0  1  0  0  0  1   0x51
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  0  0  0   0x00
+           B  B  B  B  B  B  B  B
+  byte 2   0  0  0  0  0  0  0  0   0x00
+           B  B  B  B  B  B  B  B
+  byte 3   0  0  0  0  0  0  0  0   0x00
+           B  B  B  B  B  B  B  B
+  byte 4   0  0  0  0  0  0  0  0   0x00
+           B  B  B  B  B  B  B  B
+  byte 5   1  0  0  0  0  0  0  0   0x80
+           C  C  C  C  C  C  C  C
+  byte 6   0  0  0  0  0  0  0  0   0x00
+           D  D  D  D  D  D  D  D
+  byte 7   0  0  0  0  0  0  0  0   0x00
+           E  E  E  E  E  E  E  E
+
+  A Command specifier (bits 0-7): 0x51 = fastscan
+      LSS command (CiA 305).
+  B ID number (bits 8-39): 0x00000000
+      bytes 1-4 = 00 00 00 00, low byte first, so read backwards: 0x00000000
+      The identity bits compared so far.
+  C Bit checked (bits 40-47): 128
+      Which bit is checked now (128 = reset the scan).
+  D LSS sub (bits 48-55): 0
+      Which identity part (0 vendor, 1 product, 2 revision, 3 serial).
+  E LSS next (bits 56-63): 0
+      Which part comes next.
+
+On the wire at 125 kbit/s
+  120 bits + 3 intermission, 12 stuff bits, CRC 0x697F, 960.0 us on the bus, 53 % data
+  Start of frame:0 Identifier:11111[0]100101 RTR:0 IDE:0 r0:0 DLC:1000
+  Data:0101000100000[1]00000[1]00000[1]00000[1]00000[1]00000[1]00100000[1]00000[1]00000[1]00000[1]000
+  CRC:1101001011111[0]11 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+18FF0017  [2]  01 02
+
+Extended frame
+  A frame with the extended identifier 0x18FF0017 and 2 data bytes; not a CANopen frame.
+
+What it is
+  An extended (29-bit) identifier. CANopen uses 11-bit identifiers; extended frames on the same bus
+  come from other protocols (for example J1939).
+
+Identifier (29 bits, most significant first)
+  11000111111110000000000010111
+  extended identifier, outside the CANopen predefined set
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   0  0  0  0  0  0  0  1   0x01
+           A  A  A  A  A  A  A  A
+  byte 1   0  0  0  0  0  0  1  0   0x02
+           A  A  A  A  A  A  A  A
+
+  A Data (bits 0-15): 01 02
+      Data of another protocol; its meaning is not known here.
+
+On the wire at 125 kbit/s
+  88 bits + 3 intermission, 8 stuff bits, CRC 0x235F, 704.0 us on the bus, 18 % data
+  Start of frame:0 Identifier:1100011111[0]1 SRR:1 IDE:1 Identifier:11[0]0000[1]00000[1]0010111
+  RTR:0 r1:0 r0:0 DLC:00[1]10 Data:0000[1]000100000[1]010 CRC:010001101011111[0] CRC delimiter:1
+  ACK slot:0 ACK delimiter:1 End of frame:1111111 Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.
+
+123  [1]  AA
+
+Unknown frame
+  Frame 0x123 with 1 data byte; nothing in CANopen or the configuration says what it is.
+
+What it is
+  This identifier is not one of the CANopen predefined identifiers and not configured, so its data
+  has no known meaning.
+
+Identifier (11 bits, most significant first)
+  function code 0010 = 2   node ID 0100011 = 35
+  not a CANopen predefined identifier
+
+Data bits (each row one byte, bit 7 first; letters mark the fields below)
+          b7 b6 b5 b4 b3 b2 b1 b0
+  byte 0   1  0  1  0  1  0  1  0   0xAA
+           A  A  A  A  A  A  A  A
+
+  A Data (bits 0-7): AA
+      Unknown data.
+
+On the wire at 125 kbit/s
+  54 bits + 3 intermission, 2 stuff bits, CRC 0x23F6, 432.0 us on the bus, 15 % data
+  Start of frame:0 Identifier:00100100011 RTR:0 IDE:0 r0:0 DLC:00[1]01 Data:10101010
+  CRC:0100011111[0]10110 CRC delimiter:1 ACK slot:0 ACK delimiter:1 End of frame:1111111
+  Intermission:111
+  [x] = stuff bit
+  Rebuilt from the identifier and data as a correct CAN controller sends them. SocketCAN hands over
+  finished frames, so real bit timing, real stuff bits and error flags are not measured here.

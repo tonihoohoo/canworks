@@ -105,7 +105,7 @@ function renderTrace(view) {
     sendPanel(),
     el("div", { id: "trace-stats", class: "trace-stats", dataset: { trace: "stats" } }),
     el("div", { class: "segmented trace-tabs", role: "tablist" },
-      [["frames", "Frames"], ["ids", "Identifiers"], ["graph", "Graph"], ["trigger", "Trigger"]].map(([v, l]) =>
+      [["frames", "Frames"], ["ids", "Identifiers"], ["graph", "Graph"], ["sequences", "Sequences"], ["trigger", "Trigger"]].map(([v, l]) =>
         el("button", { type: "button", role: "tab", "aria-pressed": String(T.tab === v), dataset: { traceTab: v },
           onclick: () => { T.tab = v; renderTraceTab(); } }, l))),
     el("div", { id: "trace-tab" }));
@@ -222,6 +222,7 @@ function renderTraceTab() {
   if (T.tab === "frames") renderFrames(box);
   else if (T.tab === "ids") { box.append(el("div", { id: "trace-ids" })); loadIds(); }
   else if (T.tab === "graph") renderGraph(box);
+  else if (T.tab === "sequences") fxRenderSequences(box);
   else renderTrigger(box);
 }
 
@@ -364,7 +365,16 @@ function renderFrames(box) {
       kinds),
     el("div", { class: "trace-head trace-row" }, ["Time", "Dir", "ID", "DLC", "Data", "Name", "Decoded"].map((h) => el("span", null, h))),
     list,
-    el("div", { class: "toolbar", id: "trace-row-actions" }));
+    el("div", { class: "toolbar", id: "trace-row-actions" }),
+    el("div", { id: "trace-inspector", class: "fx-host", dataset: { trace: "inspector" } },
+      el("p", { class: "muted" }, "Select a frame to see what every bit of it means. Up and down arrows move through the list.")));
+  list.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    T.follow = false;
+    follow.checked = false;
+    fxMoveSelection(e.key === "ArrowDown" ? 1 : -1);
+  });
   refreshRows(T.follow && T.st && T.st.recording.running, true);
 }
 
@@ -434,6 +444,7 @@ async function refreshRows(toEnd, reset, atUs) {
   else if (reset && atUs == null) scrollToRow(0);
   if (r.focus != null) {
     T.selected = r.rows[r.focus - r.offset] ? r.rows[r.focus - r.offset].seq : null;
+    if (T.selected != null) fxInspectSeq(T.selected);
     scrollToRow(Math.max(0, r.focus - Math.floor(visible / 2)));
     if (r.focus - Math.floor(visible / 2) !== r.offset) {
       // The window centred on the frame; fetch exactly what is now in view.
@@ -457,6 +468,11 @@ function drawRows(r) {
   }));
   if (!r.rows.length) rows.append(el("div", { class: "muted trace-empty" }, T.st && T.st.frames ? "No frames match the display filter." : "No frames."));
   rowActions();
+  if (T.pendingStep) {
+    const step = T.pendingStep;
+    T.pendingStep = 0;
+    fxMoveSelection(step);
+  }
 }
 
 function selectRow(x) {
@@ -465,6 +481,7 @@ function selectRow(x) {
   T.selectedRow = x;
   for (const r of document.querySelectorAll("#trace-rows .trace-row")) r.classList.toggle("selected", Number(r.dataset.seq) === x.seq);
   rowActions();
+  fxInspectSeq(x.seq);
 }
 
 function rowActions() {

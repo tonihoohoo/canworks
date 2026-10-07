@@ -33,7 +33,8 @@ import zipfile
 from .. import __version__, axis, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, parameters, project as project_mod, sdolibrary
 from .. import slaveeds
 from .. import eds as eds_mod
-from ..bustrace import formats as formats_mod, recorder as recorder_mod, triggers as triggers_mod
+from ..bustrace import explain as explain_mod, framebuild
+from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequences as sequences_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, parse_location
 from ..userdirs import config_dir
@@ -1042,6 +1043,19 @@ class Session:
         return out
 
 
+def _bitrate_arg(v):
+    """A bit rate the page chose (bit/s), or None."""
+    if v in (None, "", 0):
+        return None
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        raise ApiError(400, "bitrate must be a number of bit/s")
+    if not 10000 <= v <= 1000000:
+        raise ApiError(400, "bitrate must be 10000 to 1000000 bit/s")
+    return v
+
+
 def description_name(eds_name):
     """The file a configurator-built slave EDS keeps its description in."""
     return eds_name + ".json"
@@ -1189,6 +1203,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self._send(200, self._trace((method, url.path), body))
                 except tracing.Refused as e:
                     raise ApiError(e.status, str(e), **e.extra)
+            if url.path in ("/api/explain", "/api/explain/build"):
+                body = self._body() if method == "POST" else {}
+                return self._send(200, self._explain((method, url.path), body))
             with s.lock:
                 body = self._body() if method == "POST" else {}
                 route = (method, url.path)
@@ -1810,6 +1827,91 @@ class Handler(http.server.BaseHTTPRequestHandler):
         known = set(devices) | {str(d) for d in devices}
         return simulation.check_offline(expr, known, has_object)
 
+    # -- frame lab ----------------------------------------------------------
+    def _explain(self, route, body):
+        """/api/explain*: the Frame lab's explanations and built frames, from
+        the configuration on the page (canopen-configurator: "Frame lab
+        view"). Nothing here touches a runtime or a bus."""
+        if route[0] != "POST":
+            raise ApiError(405, "use POST")
+        s = self.server.session
+        cfg, eds_paths, names, config_path = body.get("config"), {}, None, None
+        with s.lock:
+            if s.mode:
+                if not isinstance(cfg, dict):
+                    cfg = s.read_config()[0]
+                eds_paths, names, config_path = s.eds_paths(cfg), tracing.plc_names(s), s.config_path
+        if not isinstance(cfg, dict):
+            cfg = None
+        nets = [n["name"] for n in contract.networks(cfg) if n["role"] == "master"] if cfg else []
+        network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
+        if network is None and cfg and contract.version_of(cfg) != 1 and nets:
+            network = nets[0]
+        warnings = []
+        try:
+            dec = tracing.decoder_for(cfg, config_path, eds_paths, names, network) if cfg else explain_mod.Decoder()
+            warnings += dec.warnings
+        except Exception as e:  # noqa: BLE001 - an unfinished configuration still explains frames
+            dec = explain_mod.Decoder()
+            warnings.append("the configuration cannot be read for names and PDO mappings: %s" % e)
+        bitrate = _bitrate_arg(body.get("bitrate"))
+        assumed = bitrate is None
+        if bitrate is None and cfg:
+            bitrate = explain_mod.bitrate_of(cfg, network)
+        info = {"networks": nets, "network": network, "warnings": warnings,
+                "bitrate": bitrate, "bitrate_from": "chosen" if not assumed else ("config" if bitrate else None)}
+
+        def model(f):
+            m = explain_mod.explain(f, dec, bitrate)
+            m["candump"] = explain_mod.candump_text(f)
+            return m
+
+        if route == ("POST", "/api/explain"):
+            text = body.get("frame")
+            if not isinstance(text, str):
+                raise ApiError(400, "frame must be a frame in candump syntax (ID#DATA)")
+            try:
+                f = explain_mod.parse_frame(text)
+                return dict(info, explanation=model(f))
+            except ValueError as e:
+                raise ApiError(422, str(e), field="frame")
+        what = body.get("what")
+        try:
+            if what == "examples":
+                groups = framebuild.examples(dec)
+                return dict(info, examples=[{"group": g["group"], "label": g["label"],
+                                             "frames": [{"label": x["label"], "frame": explain_mod.candump_text(x["frame"])}
+                                                        for x in g["frames"]]} for g in groups])
+            if what == "sdo":
+                built = framebuild.sdo(dec, body.get("node"), body.get("index"), body.get("subindex", 0),
+                                       body.get("op") or "read", body.get("value"), body.get("type") or None,
+                                       bool(body.get("segmented")))
+            elif what == "pdo":
+                values = body.get("values") if isinstance(body.get("values"), dict) else {}
+                built = framebuild.pdo(dec, body.get("cob_id"), values)
+            elif what == "nmt":
+                built = framebuild.nmt(body.get("command") or "start", body.get("node") or 0)
+            elif what == "heartbeat":
+                built = framebuild.heartbeat(body.get("node"), body.get("state") or "operational")
+            elif what == "emcy":
+                built = framebuild.emcy(body.get("node"), body.get("code", 0x1000), body.get("register", 1),
+                                        body.get("manufacturer") or "")
+            elif what == "pdos":
+                return dict(info, pdos=[{"cob_id": cob, "id": "%03X" % cob, "name": p.name, "node": p.node,
+                                         "direction": "TPDO" if p.tx else "RPDO",
+                                         "signals": [dict(key=sg[0], name=sg[1], bits=sg[3], signed=bool(sg[4]),
+                                                          type=sg[6], **{k: v for k, v in (p.info[k2] if k2 < len(p.info) else {}).items()
+                                                                         if k in ("location", "variables", "index", "subindex")})
+                                                     for k2, sg in enumerate(p.signals)]}
+                                        for cob, p in sorted(dec.pdos.items())],
+                            nodes=[{"node": n, "label": dec.node_label(n)} for n in sorted(dec.node_names)])
+            else:
+                raise ApiError(400, "what must be examples, pdos, sdo, pdo, nmt, heartbeat or emcy")
+        except framebuild.BuildError as e:
+            raise ApiError(422, str(e), field=e.field)
+        return dict(info, frames=[{"label": x["label"], "frame": explain_mod.candump_text(x["frame"]),
+                                   "explanation": model(x["frame"])} for x in built])
+
     # -- trace --------------------------------------------------------------
     def _trace(self, route, body):
         """/api/trace/*: the Trace view's recording or opened file for this
@@ -1925,6 +2027,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ApiError(422, "%s cannot be read: %s" % (path, e.strerror or e))
             ws.open(trace, name, decoder(), network)
             return state()
+        if route == ("POST", "/api/trace/explain"):
+            seq = tracing._int(body.get("seq"), "seq", 0)
+            with s.lock:
+                fallback = explain_mod.bitrate_of(s.read_config()[0], ws.network)
+            return ws.explain(seq, _bitrate_arg(body.get("bitrate")), fallback)
+        if route == ("POST", "/api/trace/sequence"):
+            kind = body.get("kind")
+            node = body.get("node")
+            node = None if node in (None, "", 0) else tracing._int(node, "node", 1, 127)
+            n = body.get("n")
+            if n != "slowest" and n is not None:
+                n = tracing._int(n, "n", 0)
+            expected = None
+            if kind == "boot":
+                with s.lock:
+                    cfg = s.read_config()[0]
+                    eds_paths = s.eds_paths(cfg)
+                expected = sequences_mod.expected_writes(cfg, config_path, ws.network, eds_paths)
+            at = body.get("at")
+            at = None if at is None else tracing._int(at, "at", 0)
+            return ws.sequence(kind, n, node, expected, at)
         if route == ("POST", "/api/trace/export"):
             start, end = time_range()
             fmt = body.get("format") or "pcapng"
