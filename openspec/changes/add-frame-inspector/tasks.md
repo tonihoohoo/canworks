@@ -31,7 +31,7 @@
 
 - [x] 6.1 Write `docs/frame-inspector.md` (the inspector, sequences, Frame lab, `explain`, the reconstruction limit, and a short CAN/CANopen primer built around example frames) with screenshots made from an opened trace and the Frame lab.
 - [x] 6.2 Update `docs/trace.md`, `docs/configurator.md`, `docs/diagnostics.md`, `docs/network-docs.md` and README (features, PC tools, capability list).
-- [ ] 6.3 Bump the deploy tool minor version.
+- [x] 6.3 Bump the deploy tool minor version. 0.37.0 (chain step 6).
 
 ## 7. Hardware check
 
