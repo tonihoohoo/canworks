@@ -113,7 +113,7 @@ cat > "$WORK/simulation.json" <<'JSON'
       "test": true,
       "steps": [
         { "wait": { "node": 2, "object": "0x4000", "gt": 10 }, "timeout_ms": 20000 },
-        { "expect": { "expr": "[2/0x4001] >= 10" } }
+        { "expect": { "expr": "[2/0x4001] >= 10" }, "within_ms": 1000 }
       ]
     },
     "never": {
