@@ -58,7 +58,15 @@ TEST(sim_file_examples_load) {
 TEST(sim_file_errors) {
   std::string e;
   CHECK(loads(R"({"schema_version": 1})", e));
-  CHECK(!loads(R"({"schema_version": 2})", e) && e.find("reads up to 1") != std::string::npos);
+  CHECK(!loads(R"({"schema_version": 3})", e) && e.find("reads up to 2") != std::string::npos);
+  CHECK(!loads(R"({"schema_version": 2})", e) && e.find("networks: is required") != std::string::npos);
+  CHECK(!loads(R"({"schema_version": 2, "networks": {}, "nodes": {}})", e) &&
+        e.find("go in a network's section") != std::string::npos);
+  CHECK(!loads(R"({"networks": {"io": {}}})", e) && e.find("\"schema_version\": 2") != std::string::npos);
+  CHECK(!loads(R"({"schema_version": 2, "networks": {"io": {"tick_ms": 5}}})", e) &&
+        e.find("networks.io") != std::string::npos);
+  CHECK(!loads(R"({"schema_version": 2, "networks": {"io": {"nodes": {"300": {}}}}})", e) &&
+        e.find("networks.io.nodes.300") != std::string::npos);
   CHECK(!loads(R"({"tick": 5})", e) && e.find("unknown key \"tick\"") != std::string::npos);
   CHECK(!loads(R"({"nodes": {"300": {}}})", e) && e.find("node ID 1-127") != std::string::npos);
   CHECK(!loads(R"({"nodes": {"5": {"sources": {"0x7130:1": {"sine": {"min": 1}}}}}})", e));
@@ -74,6 +82,30 @@ TEST(sim_file_errors) {
   SimFile f;
   CHECK(parse_sim_file(R"({"nodes": {"9": {}}})", "/x/simulation.json", f, errors));
   CHECK(!canopen_plugin::check_sim_file(cfg, f, errors) && errors.back().find("node 9 is neither in") != std::string::npos);
+}
+
+TEST(sim_file_version_2_sections) {
+  SimFile f;
+  std::vector<std::string> errors;
+  CHECK(parse_sim_file(R"({"schema_version": 2, "tick_ms": 20, "networks": {
+                             "io": {"nodes": {"5": {}}, "extra_devices": [{"node": 0, "name": "fresh", "eds": "a.eds"}],
+                                    "scenarios": {"s": {"autostart": true, "steps": [{"log": "x"}]}}},
+                             "drives": {"nodes": {"4": {}}}}})",
+                       "/x/simulation.json", f, errors));
+  CHECK(f.schema_version == 2 && f.networks.size() == 2 && f.nodes.empty());
+  SimFile io;
+  CHECK(sim_file_section(f, "io", io));
+  CHECK(io.tick_ms == 20 && io.section == "io" && io.nodes.count(5) && !io.nodes.count(4));
+  CHECK(io.extra.size() == 1 && io.extra[0].eds_path == "/x/a.eds" && io.scenarios.size() == 1 && io.scenarios[0].autostart);
+  SimFile drives;
+  CHECK(sim_file_section(f, "drives", drives) && drives.nodes.count(4) && drives.extra.empty());
+  SimFile none;
+  CHECK(!sim_file_section(f, "other", none) && none.nodes.empty() && none.tick_ms == 20);
+  // A node of another network: refused for this section, naming it.
+  canopen_plugin::Config cfg;
+  CHECK(canopen_plugin::load_config(std::string(PINGPONG_DIR) + "/canopen_config.json", canopen_plugin::ImageLimits(), cfg, errors));
+  CHECK(!canopen_plugin::check_sim_file(cfg, drives, errors) &&
+        errors.back().find("networks.drives.nodes.4") != std::string::npos);
 }
 
 TEST(sim_sources_waveforms) {

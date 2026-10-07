@@ -21,7 +21,7 @@ typedef struct cJSON cJSON;
 
 namespace canopen_sim {
 
-constexpr unsigned kSimSchemaVersion = 1;
+constexpr unsigned kSimSchemaVersion = 2;
 constexpr unsigned kDefaultTickMs = 10;
 
 // An object key "0xIIII:S" parsed.
@@ -130,15 +130,33 @@ struct ExtraDevice {
   NodeBehaviour behaviour;
 };
 
+// One network's part of a version 2 file (`networks.NAME`).
+struct SimSection {
+  std::string network;
+  std::map<unsigned, NodeBehaviour> nodes;
+  std::vector<ExtraDevice> extra;
+  std::vector<Scenario> scenarios;
+};
+
 struct SimFile {
   std::string path;  // "" when there is no file
   std::string dir;   // where relative paths start
   unsigned schema_version = 1;
   unsigned tick_ms = kDefaultTickMs;
+  // Version 1, or one network's section of version 2 (sim_file_section).
   std::map<unsigned, NodeBehaviour> nodes;
   std::vector<ExtraDevice> extra;
   std::vector<Scenario> scenarios;
+  // Version 2 only: the sections, in file order.
+  std::vector<SimSection> networks;
+  // Set by sim_file_section: the network whose section this is.
+  std::string section;
 };
+
+// What a version 2 file says for network `network`, shaped as a version 1
+// file (path, dir and tick_ms kept). False, with `out` holding the file's
+// path and tick only, when the file has no section for that network.
+bool sim_file_section(const SimFile& file, const std::string& network, SimFile& out);
 
 // Loads `path`; errors name the file and the JSON path.
 bool load_sim_file(const std::string& path, SimFile& out, std::vector<std::string>& errors);

@@ -74,17 +74,66 @@ const SIM = {
 
 function simClone(x) { return JSON.parse(JSON.stringify(x)); }
 
-// The simulation file as the project has it (on load and reload).
+// The simulation file as the project has it (on load and reload). SIM.file
+// is the whole file; SIM.doc the part the view edits: the file itself
+// (version 1), or the shown network's section (version 2).
 function simLoad() {
   const sim = (S.state && S.state.simulation) || {};
-  SIM.doc = simClone(sim.doc || { schema_version: 1 });
-  SIM.saved = JSON.stringify(SIM.doc);
+  SIM.file = simClone(sim.doc || { schema_version: 1 });
+  SIM.saved = simFileText();
+  SIM.converted = null;
   SIM.problems = [];
   SIM.scenario = null;
+  simBind();
   if (sim.error) banner(sim.error, true);
 }
 
-function simDirty() { return !!SIM.doc && JSON.stringify(SIM.doc) !== SIM.saved; }
+function simVersion() { return Number.isInteger(SIM.file.schema_version) ? SIM.file.schema_version : 1; }
+
+// The section name of the shown network (as the plugin: its name, or its
+// interface).
+function simSectionName() {
+  return netName(S.config) || (S.config.adapter && typeof S.config.adapter.interface === "string" ? S.config.adapter.interface : "");
+}
+
+// Points SIM.doc at the shown network's part. A version 1 file of a config
+// with several networks becomes version 2 here, its content in the first
+// network's section; the save asks before writing that.
+function simBind() {
+  if (simVersion() < 2 && several()) {
+    const first = netName(S.model.networks[0]) || ((S.model.networks[0].adapter || {}).interface || "");
+    const body = {};
+    for (const k of ["nodes", "extra_devices", "scenarios"]) if (SIM.file[k] !== undefined) body[k] = SIM.file[k];
+    const out = { schema_version: 2 };
+    if (SIM.file.tick_ms !== undefined) out.tick_ms = SIM.file.tick_ms;
+    out.networks = Object.keys(body).length ? { [first]: body } : {};
+    if (Object.keys(body).length) SIM.converted = first;
+    SIM.file = out;
+  }
+  if (simVersion() >= 2) {
+    const name = simSectionName();
+    if (!SIM.file.networks || typeof SIM.file.networks !== "object") SIM.file.networks = {};
+    if (!SIM.file.networks[name]) SIM.file.networks[name] = {};
+    SIM.doc = SIM.file.networks[name];
+  } else {
+    SIM.doc = SIM.file;
+  }
+}
+
+// The file as it would be saved: empty sections left out.
+function simFileOut() {
+  const out = simClone(SIM.file);
+  if (out.networks && typeof out.networks === "object") {
+    for (const k of Object.keys(out.networks)) {
+      const v = out.networks[k];
+      if (v && typeof v === "object" && !Object.keys(v).length) delete out.networks[k];
+    }
+  }
+  return out;
+}
+function simFileText() { return JSON.stringify(simFileOut()); }
+
+function simDirty() { return !!SIM.file && simFileText() !== SIM.saved; }
 
 function stopSim(keepConnection) {
   clearTimeout(SIM.timer);
@@ -294,7 +343,7 @@ async function loadSimSettings() {
 
 async function renderSimulation(view) {
   document.querySelector("#editor").classList.add("wide-view");
-  if (!SIM.doc) simLoad();
+  if (!SIM.file) simLoad(); else simBind();
   const seq = SIM.seq;
   if (!SIM.settings) await loadSimSettings();
   if (seq !== SIM.seq || S.view !== "simulation") return;
@@ -1048,26 +1097,47 @@ function simChanged() {
 
 async function simCheck() {
   try {
-    const r = await api("POST", "/api/sim/check", { doc: SIM.doc });
+    const r = await api("POST", "/api/sim/check", { doc: simFileOut() });
     SIM.problems = r.problems || [];
   } catch (e) { return; }
   simShowFileState();
   simShowProblems();
 }
 
+// Problems at paths of the part the view shows: a version 2 file's paths
+// lose the shown section's "networks.NAME." in front; other sections'
+// problems show in the file-wide box only.
+function simLocalProblems() {
+  if (simVersion() < 2) return SIM.problems;
+  const own = "networks." + simSectionName();
+  return SIM.problems.map((p) => {
+    if (p.path === own) return Object.assign({}, p, { path: "" });
+    if (p.path.startsWith(own + ".")) return Object.assign({}, p, { path: p.path.slice(own.length + 1) });
+    return Object.assign({}, p, { other: true });
+  });
+}
+
 function simShowProblems() {
+  const problems = simLocalProblems();
   for (const box of document.querySelectorAll("[data-sim-problems]")) {
     const prefix = box.dataset.simProblems;
-    const list = SIM.problems.filter((p) => !prefix || p.path === prefix || p.path.startsWith(prefix + ".") || p.path.startsWith(prefix + "["));
+    const list = problems.filter((p) => !p.other || !prefix).filter((p) => !prefix || p.path === prefix || p.path.startsWith(prefix + ".") || p.path.startsWith(prefix + "["));
     put(box, list.length ? el("ul", { class: "sim-problems" }, list.map((p) => el("li", { class: "field-msg" }, (p.path ? p.path + ": " : "") + p.message))) : null);
   }
 }
 
 async function simSave(overwrite) {
+  if (SIM.converted !== null && SIM.converted !== undefined && !overwrite) {
+    const v = await modal(`simulation.json is a version 1 file, which a configuration with several networks does not use. ` +
+      `Save it as version 2, with its content in the section of network ${SIM.converted}?`,
+      [["convert", "Save as version 2", true], ["cancel", "Cancel"]]);
+    if (v !== "convert") return;
+  }
   try {
-    const r = await api("POST", "/api/sim/save", { doc: SIM.doc, overwrite: !!overwrite });
+    const r = await api("POST", "/api/sim/save", { doc: simFileOut(), overwrite: !!overwrite });
     S.state = r.state;
-    SIM.saved = JSON.stringify(SIM.doc);
+    SIM.saved = simFileText();
+    SIM.converted = null;
     SIM.problems = [];
     banner("Saved " + r.written.join(", ") + ". The next simulated start uses it.");
     renderSide();
@@ -1093,14 +1163,16 @@ function simFileTab() {
   for (const n of S.config.nodes || []) if (Number.isInteger(num(n.node_id))) refs.push([num(n.node_id), n]);
   const extra = SIM.doc.extra_devices || [];
   const tick = el("input", { type: "text", class: "short", placeholder: "10", "aria-label": "Tick (ms)", dataset: { simField: "file-tick" } });
-  tick.value = SIM.doc.tick_ms === undefined ? "" : String(SIM.doc.tick_ms);
+  tick.value = SIM.file.tick_ms === undefined ? "" : String(SIM.file.tick_ms);
   tick.addEventListener("input", () => {
     const t = tick.value.trim();
-    if (!t) delete SIM.doc.tick_ms; else SIM.doc.tick_ms = /^\d+$/.test(t) ? Number(t) : t;
+    if (!t) delete SIM.file.tick_ms; else SIM.file.tick_ms = /^\d+$/.test(t) ? Number(t) : t;
     simChanged();
   });
   return el("div", null,
     el("p", { class: "muted" }, "What the simulated devices do from the start, saved in simulation.json next to canopen.json. Sources given on the Live values tab land here too. Nothing here needs a connection."),
+    simVersion() >= 2 ? el("p", { class: "muted", dataset: { sim: "file-section" } },
+      `Network ${simSectionName()}: this is its section of the file (version 2, one section per network). The tick is shared by all networks.`) : null,
     el("div", { dataset: { simProblems: "" } }),
     el("div", { class: "toolbar" }, el("label", { class: "inline" }, "Tick (ms) ", tick), hint("How often sources and models run, 1-60000 ms (default 10).")),
     refs.map(([id, n]) => simDeviceFile(id, `Node ${id} ${n.name || ""}`, nodeSimulated(n) ? null : "not simulated in this configuration: the entry is kept and does nothing")),
@@ -1292,7 +1364,11 @@ function simExtraDevices() {
 function simScenarios() { return SIM.doc.scenarios || {}; }
 
 function simSavedScenario(name) {
-  try { return (JSON.parse(SIM.saved).scenarios || {})[name]; } catch (e) { return undefined; }
+  try {
+    const saved = JSON.parse(SIM.saved);
+    const part = simVersion() >= 2 ? (saved.networks || {})[simSectionName()] || {} : saved;
+    return (part.scenarios || {})[name];
+  } catch (e) { return undefined; }
 }
 
 function simScenariosTab() {

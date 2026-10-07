@@ -2,7 +2,8 @@
 "Simulation view", "Scenarios in the configurator"; docs/simulator.md).
 
 The simulation file (canopen/simulation.json): reading it with the project,
-checking it against schema/canopen-sim.v1.schema.json and writing it with the
+checking it against schema/canopen-sim.v1.schema.json (or v2, one section per
+network) and writing it with the
 configurator's save rules. The live requests go to the runtime's simulated
 devices through the online access settings, or to a standalone simulator by
 address; its address and token are kept on this PC (online.json), never in the
@@ -20,7 +21,8 @@ from .. import contract, diag, simclient
 
 SIM_FILE = "simulation.json"
 DEFAULT_ADDRESS = "127.0.0.1:%d" % simclient.SIM_PORT
-SCHEMA_FILE = "canopen-sim.v1.schema.json"
+SCHEMA_FILE = "canopen-sim.v%d.schema.json"
+SUPPORTED_VERSION = 2
 TARGETS = ("runtime", "simulator")
 PINS_MAX = 64
 
@@ -30,21 +32,38 @@ OPS = ("sim_status", "sim_get", "sim_set", "sim_override", "sim_release", "sim_s
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
-    "": ["schema_version", "tick_ms", "nodes", "extra_devices", "scenarios"],
+    "": ["schema_version", "tick_ms", "nodes", "extra_devices", "scenarios", "networks"],
+    "section": ["nodes", "extra_devices", "scenarios"],
     "node": ["node", "name", "eds", "default_behaviour", "tick_ms", "identity", "device_type", "drive", "sources",
              "faults"],
     "scenario": ["description", "autostart", "test", "steps"],
 }
 
-_schema = None
+_schemas = {}
 
 
-def schema():
-    global _schema
-    if _schema is None:
-        with open(os.path.join(os.path.dirname(contract.__file__), "schema", SCHEMA_FILE), encoding="utf-8") as f:
-            _schema = json.load(f)
-    return _schema
+def schema(version=1):
+    if version not in _schemas:
+        with open(os.path.join(os.path.dirname(contract.__file__), "schema", SCHEMA_FILE % version),
+                  encoding="utf-8") as f:
+            _schemas[version] = json.load(f)
+    return _schemas[version]
+
+
+def version(doc):
+    v = doc.get("schema_version", 1) if isinstance(doc, dict) else 1
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 1 else 1
+
+
+def bodies(doc):
+    """The parts holding nodes, extra_devices and scenarios: the file (version
+    1) or each network's section (version 2)."""
+    if not isinstance(doc, dict):
+        return []
+    if version(doc) >= 2:
+        nets = doc.get("networks")
+        return [v for v in nets.values() if isinstance(v, dict)] if isinstance(nets, dict) else []
+    return [doc]
 
 
 def json_path(parts):
@@ -59,12 +78,12 @@ def check(doc):
     problem, at its JSON path (scenarios.alarm.steps[2].wait)."""
     if not isinstance(doc, dict):
         return [{"path": "", "message": "the simulation file must be a JSON object"}]
-    version = doc.get("schema_version", 1)
-    if isinstance(version, int) and not isinstance(version, bool) and version > 1:
+    v = doc.get("schema_version", 1)
+    if isinstance(v, int) and not isinstance(v, bool) and v > SUPPORTED_VERSION:
         return [{"path": "schema_version", "message": "schema_version %d is not supported; the highest supported "
-                                                      "version is 1" % version}]
+                                                      "version is %d" % (v, SUPPORTED_VERSION)}]
     out = []
-    validator = jsonschema.Draft202012Validator(schema())
+    validator = jsonschema.Draft202012Validator(schema(version(doc)))
     for e in sorted(validator.iter_errors(doc), key=lambda e: list(map(str, e.absolute_path))):
         while e.context:
             fitting = [c for c in e.context if c.validator != "type"]
@@ -97,8 +116,18 @@ def _ordered(obj, kind):
 
 def canonical(doc):
     """The file with its keys in a fixed order (unknown keys kept), nodes by
-    node ID."""
+    node ID; a version 2 file's empty sections left out."""
     doc = _ordered(doc, "")
+    if version(doc) >= 2 and isinstance(doc.get("networks"), dict):
+        doc["networks"] = {k: _canonical_body(_ordered(v, "section")) for k, v in doc["networks"].items()
+                           if not (isinstance(v, dict) and not v)}
+        return doc
+    return _canonical_body(doc)
+
+
+def _canonical_body(doc):
+    if not isinstance(doc, dict):
+        return doc
     if isinstance(doc.get("nodes"), dict):
         def key(k):
             return (0, int(k)) if str(k).isdigit() else (1, str(k))
@@ -159,9 +188,10 @@ def eds_files(canopen_dir):
 def extra_eds(doc):
     """The EDS values the extra devices of a simulation file name."""
     out = []
-    for d in (doc or {}).get("extra_devices") or []:
-        if isinstance(d, dict) and isinstance(d.get("eds"), str) and d["eds"]:
-            out.append(d["eds"])
+    for body in bodies(doc or {}):
+        for d in body.get("extra_devices") or []:
+            if isinstance(d, dict) and isinstance(d.get("eds"), str) and d["eds"]:
+                out.append(d["eds"])
     return out
 
 

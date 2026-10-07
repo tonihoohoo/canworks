@@ -98,7 +98,12 @@ class File(Sim):
         problems = self.ok("POST", "/api/sim/check", {"doc": doc})["problems"]
         self.assertTrue(problems)
         self.assertTrue(all(p["path"].startswith("scenarios.s.steps[") for p in problems), problems)
-        self.assertEqual(simulation.check({"schema_version": 2})[0]["path"], "schema_version")
+        self.assertEqual(simulation.check({"schema_version": 3})[0]["path"], "schema_version")
+        # Version 2: one section per network, problems at the section's paths.
+        self.assertEqual(simulation.check({"schema_version": 2, "networks": {"io": {"nodes": {"5": {}}}}}), [])
+        problems = simulation.check({"schema_version": 2, "networks": {"io": {"nodez": {}}}})
+        self.assertEqual([p["path"] for p in problems], ["networks.io"])
+        self.assertEqual(simulation.check({"schema_version": 2})[0]["path"], "")
 
 
 class Settings(Sim):

@@ -23,6 +23,13 @@ std::vector<canopen_sim::DeviceSpec> sim_device_specs(const Config& cfg, bool on
 // extra devices).
 bool check_sim_file(const Config& cfg, const canopen_sim::SimFile& file, std::vector<std::string>& errors);
 
+// The name a version 2 simulation file's section uses for `cfg`: the
+// network's name, or its interface for a version 1 config.
+std::string sim_network_name(const Config& cfg);
+
+// Every section of a version 2 simulation file must name a network of `set`.
+bool check_sim_sections(const ConfigSet& set, const canopen_sim::SimFile& file, std::vector<std::string>& errors);
+
 // What simulated devices there are, for the start warning ("" = none).
 // `slave_network`: the slave network that shares the simulated bus, if any.
 std::string sim_summary(const Config& cfg, const canopen_sim::SimFile& file, const std::string& slave_network = "");

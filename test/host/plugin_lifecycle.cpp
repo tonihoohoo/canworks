@@ -237,6 +237,63 @@ int main(int argc, char** argv) {
   expect(status && last > 5, "the node is operational and the round trip runs");
   expect(!logged("nonexistent0: ") && !logged("ERROR"), "no CAN interface touched, no error");
 
+  // Several simulated networks and a version 2 simulation file: each
+  // section drives its own network's devices only.
+  auto run_two = [&](const std::string& sim_json, int seconds) {
+    {
+      std::ofstream f(sim_dir + "/canopen.json");
+      f << R"({"schema_version": 2, "networks": [
+               {"name": "io", "adapter": {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true},
+                "master": {"node_id": 1, "sync_period_us": 20000},
+                "nodes": [{"node_id": 2, "name": "a", "eds": "cpp-slave.eds", "heartbeat_ms": 50, "status_location": "%IX10.0",
+                           "tx_pdos": [{"entries": [{"index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID100"}]}],
+                           "rx_pdos": [{"entries": [{"index": "0x4000", "type": "UNSIGNED32", "iec_location": "%QD100"}]}]}]},
+               {"name": "line", "adapter": {"type": "socketcan", "interface": "sim1", "bitrate": 125000, "simulate": true},
+                "master": {"node_id": 1, "sync_period_us": 20000},
+                "nodes": [{"node_id": 2, "name": "b", "eds": "cpp-slave.eds", "heartbeat_ms": 50, "status_location": "%IX10.1",
+                           "tx_pdos": [{"entries": [{"index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID101"}]}]}]}]})";
+      std::ofstream s(sim_dir + "/simulation.json");
+      s << sim_json;
+    }
+    g_logs.clear();
+    img.reset(new fake_runtime::Image);
+    rt = args(sim_dir + "/canopen.json");
+    expect(init(rt.get()) == 0, "init returns 0");
+    rt.reset();
+    bool started = start_loop() == 0;
+    for (int i = 0; started && i < seconds * 100; ++i) {
+      cycle_start();
+      img->dint_out[100] = img->dint_in[100] + 1;
+      cycle_end();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (started) stop_loop();
+    cleanup();
+    return started;
+  };
+  std::printf("two simulated networks, a version 2 simulation file:\n");
+  bool started = run_two(R"({"schema_version": 2, "networks": {
+                              "io": {"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}},
+                              "line": {"nodes": {"2": {"sources": {"0x4001": {"constant": 777}}}}}}})", 3);
+  expect(started, "start_loop starts CANopen");
+  expect(logged("section \"io\"") && logged("section \"line\""), "each network uses its own section");
+  expect(img->dint_in[100] > 5, "network io: node 2 follows its section (round trip)");
+  expect(img->dint_in[101] == 777, "network line: node 2 follows its own section (constant 777)");
+  expect(!logged("ERROR"), "no error");
+
+  std::printf("two simulated networks, a section for a network not in the config:\n");
+  started = run_two(R"({"schema_version": 2, "networks": {"drives": {}}})", 0);
+  expect(!started, "start_loop reports that CANopen did not start");
+  expect(logged("networks.drives: there is no network \"drives\"") && logged("networks: io, line"),
+         "the error names the section and the config's networks");
+
+  std::printf("two simulated networks, a version 1 simulation file:\n");
+  started = run_two(R"({"nodes": {"2": {"sources": {"0x4001": {"constant": 777}}}}})", 2);
+  expect(started, "start_loop starts CANopen");
+  expect(logged("WARN") && logged("is not used: a version 1 simulation file") && logged("version 2"),
+         "a warning says the version 1 file is not used and names version 2");
+  expect(img->dint_in[101] != 777, "the devices run with their default behaviour");
+
   // The first init() after an upload carries the runtime's 20 ms default
   // tick; the program's tasks are read before start_loop().
   std::printf("PLC-cycle SYNC, base tick read at start_loop:\n");
