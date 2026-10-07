@@ -1,4 +1,4 @@
-"""openplc-canopen-runtime and the `local` target (canopen-local-runtime).
+"""openplc-canopen-sim-runtime and the `local` target (canopen-local-runtime).
 
 The container engine is a fake that records its command lines; the runtime
 behind the published port is the HTTPS stub of the deploy tests."""
@@ -26,12 +26,27 @@ class FakeEngine:
         self.info_ok = set(info_ok)
         self.image_present = image_present
         self.run_errors = list(run_errors)  # stderr of the next failing `run`s
-        self.container = None  # (status, image)
+        self.containers = {}  # name -> [status, image, volume]
         self.volume = False
         self.calls = []
 
-    def __call__(self, argv, capture=True, timeout=None):
+    @property
+    def container(self):
+        """(status, image) of the container under the current name."""
+        c = self.containers.get(localruntime.CONTAINER)
+        return (c[0], c[1]) if c else None
+
+    @container.setter
+    def container(self, value):
+        if value is None:
+            self.containers.pop(localruntime.CONTAINER, None)
+        else:
+            old = self.containers.get(localruntime.CONTAINER)
+            self.containers[localruntime.CONTAINER] = [value[0], value[1], old[2] if old else localruntime.VOLUME]
+
+    def __call__(self, argv, capture=True, timeout=None, merge=False):
         self.calls.append(list(argv))
+        self.merged = merge
         prefix = 3 if argv[0] == "wsl" else 1
         name, args = " ".join(argv[:prefix]), argv[prefix:]
 
@@ -42,7 +57,12 @@ class FakeEngine:
         if cmd == "info":
             return done(0) if name in self.info_ok else done(1, err="Cannot connect to the daemon")
         if cmd == "inspect":
-            return done(0, "%s|%s\n" % self.container) if self.container else done(1, err="no such container")
+            c = self.containers.get(args[-1])
+            if not c:
+                return done(1, err="no such container")
+            if "Mounts" in args[-2]:
+                return done(0, c[2] + "\n")
+            return done(0, "%s|%s\n" % (c[0], c[1]))
         if cmd == "image":
             return done(0 if self.image_present else 1)
         if cmd == "pull":
@@ -51,17 +71,16 @@ class FakeEngine:
         if cmd == "run":
             if self.run_errors:
                 return done(125, err=self.run_errors.pop(0))
-            self.container = ("running", args[-1])
+            name = args[args.index("--name") + 1]
+            volume = args[args.index("-v") + 1].split(":")[0]
+            self.containers[name] = ["running", args[-1], volume]
             self.volume = True
             return done(0, "abc123\n")
-        if cmd == "start":
-            self.container = ("running", self.container[1])
-            return done(0)
-        if cmd == "stop":
-            self.container = ("exited", self.container[1])
+        if cmd in ("start", "stop"):
+            self.containers[args[-1]][0] = "running" if cmd == "start" else "exited"
             return done(0)
         if cmd == "rm":
-            self.container = None
+            self.containers.pop(args[-1], None)
             return done(0)
         if cmd == "volume":
             had, self.volume = self.volume, False
@@ -163,7 +182,7 @@ class Start(WithRuntime):
         self.assertEqual(run[-1], "%s:%s" % (localruntime.IMAGE_REPO, __version__))
         self.assertIn("127.0.0.1:%d:8443" % self.port, run)
         self.assertIn("127.0.0.1:7531:7531", run)
-        self.assertIn("openplc-canopen-runtime-data:/var/run/runtime", run)
+        self.assertIn("openplc-canopen-sim-runtime-data:/var/run/runtime", run)
         self.assertIn("unless-stopped", run)
         self.assertIn("SYS_NICE", run)
         saved = localruntime.load_settings()
@@ -226,7 +245,7 @@ class Start(WithRuntime):
         self.engine.container = ("running", "%s:0.1.0" % localruntime.IMAGE_REPO)
         code, out, err = self.start()
         self.assertEqual(code, 0, err)
-        self.assertIn("runs image %s:0.1.0; `openplc-canopen-runtime update` switches it" % localruntime.IMAGE_REPO, out)
+        self.assertIn("runs image %s:0.1.0; `openplc-canopen-sim-runtime update` switches it" % localruntime.IMAGE_REPO, out)
         self.assertEqual(localruntime.load_settings()["image"], "%s:0.1.0" % localruntime.IMAGE_REPO)
         code, out, err = self.start("--image", "other:1")
         self.assertEqual(code, 1)
@@ -238,7 +257,7 @@ class Manage(WithRuntime):
         self.assertEqual(self.start()[0], 0)
         code, out, err = self.cli("status", "--show-password")
         self.assertEqual(code, 0, err)
-        self.assertIn("container: openplc-canopen-runtime, running", out)
+        self.assertIn("container: openplc-canopen-sim-runtime, running", out)
         self.assertIn("password " + localruntime.load_settings()["password"], out)
         self.assertIn("PLC: STOPPED", out)
         self.assertIn("simulation forced by the runtime environment", out)
@@ -275,6 +294,82 @@ class Manage(WithRuntime):
         self.assertFalse(self.engine.volume)
 
 
+class Rename(WithRuntime):
+    """canopen-local-runtime: taking over a local runtime from the earlier name."""
+
+    def old_runtime(self, status="running"):
+        """A local runtime as PC tools 0.30.x left it: the old container name and
+        volume, and settings without a volume name."""
+        self.assertEqual(self.start()[0], 0)
+        self.engine.containers.pop(localruntime.CONTAINER)
+        self.engine.containers[localruntime.OLD_NAME] = [status, "ghcr.io/tonihoohoo/openplc-canopen-runtime:0.30.1",
+                                                         "openplc-canopen-runtime-data"]
+        saved = localruntime.load_settings()
+        saved.pop("volume")
+        localruntime.save_settings(saved)
+        return saved
+
+    def check_taken_over(self, first, out):
+        self.assertNotIn(localruntime.OLD_NAME, self.engine.containers)
+        new = self.engine.containers[localruntime.CONTAINER]
+        self.assertEqual((new[0], new[2]), ("running", "openplc-canopen-runtime-data"))
+        saved = localruntime.load_settings()
+        self.assertEqual((saved["password"], saved["fingerprint"]), (first["password"], first["fingerprint"]))
+        self.assertEqual(saved["volume"], "openplc-canopen-runtime-data")
+        self.assertIn("took over the local runtime openplc-canopen-runtime", out)
+
+    def test_update_takes_over(self):
+        first = self.old_runtime()
+        code, out, err = self.cli("update", "--port", str(self.port))
+        self.assertEqual(code, 0, err)
+        self.check_taken_over(first, out)
+        self.assertEqual(self.engine.container[1], localruntime.default_image())
+        # remove --data deletes the volume in use, not the default name
+        code, out, err = self.cli("remove", "--data")
+        self.assertEqual(code, 0, err)
+        self.assertIn(["docker", "volume", "rm", "openplc-canopen-runtime-data"], self.engine.calls)
+
+    def test_start_takes_over_stopped(self):
+        first = self.old_runtime("exited")
+        code, out, err = self.start()
+        self.assertEqual(code, 0, err)
+        self.check_taken_over(first, out)
+
+    def test_status_with_only_the_old_one(self):
+        self.old_runtime()
+        code, out, err = self.cli("status")
+        self.assertEqual(code, 1)
+        self.assertIn("openplc-canopen-sim-runtime update` takes it over", out)
+        self.assertIn(localruntime.OLD_NAME, self.engine.containers)
+
+    def test_both_containers(self):
+        self.assertEqual(self.start()[0], 0)
+        self.engine.containers[localruntime.OLD_NAME] = ["exited", "old", "openplc-canopen-runtime-data"]
+        for argv in (("status",), ("start", "--port", str(self.port))):
+            code, out, err = self.cli(*argv)
+            self.assertEqual(code, 0, err)
+            self.assertIn("remove it with `docker rm -f openplc-canopen-runtime`", out)
+        self.assertIn(localruntime.OLD_NAME, self.engine.containers)
+        self.assertEqual(self.engine.containers[localruntime.CONTAINER][2], localruntime.VOLUME)
+
+    def test_logs_one_stream(self):
+        self.assertEqual(self.start()[0], 0)
+        self.assertEqual(self.cli("logs")[0], 0)
+        self.assertEqual(self.engine.calls[-1], ["docker", "logs", localruntime.CONTAINER])
+        self.assertTrue(self.engine.merged)
+
+    def test_old_command_name(self):
+        self.assertEqual(self.start()[0], 0)
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = localruntime.old_main(["status"])
+        self.assertEqual(code, self.cli("status")[0])
+        self.assertEqual(err.getvalue().splitlines(),
+                         ["openplc-canopen-runtime is now openplc-canopen-sim-runtime; this name goes away in the "
+                          "next release"])
+        self.assertIn("container: openplc-canopen-sim-runtime, running", out.getvalue())
+
+
 class LocalTarget(WithRuntime):
     def test_deploy_to_local(self):
         self.assertEqual(self.start()[0], 0)
@@ -308,7 +403,7 @@ class LocalTarget(WithRuntime):
         src = editor_bundle(os.path.join(self.dir, "src"))
         code, out, err = deploy("--bundle", src, "--config", config, "--runtime", "local")
         self.assertEqual(code, 1)
-        self.assertIn("run `openplc-canopen-runtime start` first", err)
+        self.assertIn("run `openplc-canopen-sim-runtime start` first", err)
 
     def test_diag_host(self):
         self.assertEqual(diag.parse_runtime("local"), ("127.0.0.1", 7531))

@@ -1,6 +1,6 @@
-"""openplc-canopen-runtime: the local simulator runtime (docs/local-runtime.md).
+"""openplc-canopen-sim-runtime: the local simulator runtime (docs/local-runtime.md).
 
-Runs the image ghcr.io/tonihoohoo/openplc-canopen-runtime (OpenPLC Runtime v4
+Runs the image ghcr.io/tonihoohoo/openplc-canopen-sim-runtime (OpenPLC Runtime v4
 with the CANopen plugin built in, every network simulated) on this PC with a
 container engine: Docker or Podman, or either of them inside WSL2 on Windows.
 Docker Desktop is not needed. The runtime listens on 127.0.0.1 only; its
@@ -25,9 +25,13 @@ import time
 from . import __version__, runtime
 from .userdirs import config_dir
 
-IMAGE_REPO = "ghcr.io/tonihoohoo/openplc-canopen-runtime"
-CONTAINER = "openplc-canopen-runtime"
-VOLUME = "openplc-canopen-runtime-data"
+PROG = "openplc-canopen-sim-runtime"
+IMAGE_REPO = "ghcr.io/tonihoohoo/openplc-canopen-sim-runtime"
+CONTAINER = PROG
+VOLUME = PROG + "-data"
+# The name of PC tools 0.30.x (canopen-local-runtime: taking over a local
+# runtime from the earlier name); its command stays an alias for one release.
+OLD_NAME = "openplc-canopen-runtime"
 DATA_PATH = "/var/run/runtime"  # upstream's data directory in its image
 RUNTIME_PORT = 8443
 DIAG_PORT = 7531
@@ -97,7 +101,7 @@ def target():
     """The saved settings for `--runtime local`, or an error naming `start`."""
     doc = load_settings()
     if not doc or not doc.get("password"):
-        raise LocalRuntimeError("no local runtime: run `openplc-canopen-runtime start` first")
+        raise LocalRuntimeError("no local runtime: run `%s start` first" % PROG)
     return doc
 
 
@@ -107,11 +111,13 @@ def is_local(text):
 
 # --- Container engine --------------------------------------------------------
 
-def _run(argv, capture=True, timeout=None):
-    """subprocess.run on an argument list (never a shell); tests replace it."""
+def _run(argv, capture=True, timeout=None, merge=False):
+    """subprocess.run on an argument list (never a shell); tests replace it.
+    `merge` sends the program's stderr to stdout (uncaptured only)."""
     try:
         return subprocess.run(argv, stdout=subprocess.PIPE if capture else None,
-                              stderr=subprocess.PIPE if capture else None, timeout=timeout,
+                              stderr=subprocess.PIPE if capture else subprocess.STDOUT if merge else None,
+                              timeout=timeout,
                               universal_newlines=True if capture else None)
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(argv, 124, "", "timed out after %s s" % timeout)
@@ -124,7 +130,9 @@ class Engine:
         self.name = name
         self.argv = ENGINES[name]
 
-    def __call__(self, *args, capture=True, timeout=None):
+    def __call__(self, *args, capture=True, timeout=None, merge=False):
+        if merge:
+            return _run(self.argv + list(args), capture=capture, timeout=timeout, merge=True)
         return _run(self.argv + list(args), capture=capture, timeout=timeout)
 
     def __repr__(self):
@@ -171,14 +179,50 @@ def detect_engine(choice=None, platform=None, which=None):
                             % ("; ".join(found), _engine_hint(platform), DOCS))
 
 
-def container_state(eng):
+def container_state(eng, name=CONTAINER):
     """(status, image) of the runtime container, or None when there is none."""
-    r = eng("inspect", "--type", "container", "--format", "{{.State.Status}}|{{.Config.Image}}", CONTAINER,
+    r = eng("inspect", "--type", "container", "--format", "{{.State.Status}}|{{.Config.Image}}", name,
             timeout=30)
     if r.returncode != 0:
         return None
     status, _, image = (r.stdout or "").strip().partition("|")
     return status.lower(), image
+
+
+def saved_volume(settings):
+    """The data volume in use: the one saved (a runtime taken over from the
+    earlier name keeps its volume), else the default."""
+    return (settings or {}).get("volume") or VOLUME
+
+
+def _volume_of(eng, name):
+    r = eng("inspect", "--type", "container", "--format",
+            '{{range .Mounts}}{{if eq .Destination "%s"}}{{.Name}}{{end}}{{end}}' % DATA_PATH, name, timeout=30)
+    return (r.stdout or "").strip() if r.returncode == 0 else ""
+
+
+def _old_note(eng):
+    return ("note: an older local runtime container %s exists as well; remove it with `%s rm -f %s`"
+            % (OLD_NAME, " ".join(eng.argv), OLD_NAME))
+
+
+def take_over(eng, out):
+    """A container from the earlier name (PC tools 0.30.x) and none under the
+    current one: removes the old container and returns its data volume, so the
+    new container keeps the program, user and certificate. None otherwise."""
+    if container_state(eng, OLD_NAME) is None:
+        return None
+    if container_state(eng) is not None:
+        out(_old_note(eng))
+        return None
+    volume = _volume_of(eng, OLD_NAME) or OLD_NAME + "-data"
+    eng("stop", OLD_NAME, timeout=120)
+    r = eng("rm", OLD_NAME, timeout=60)
+    if r.returncode != 0:
+        raise LocalRuntimeError("%s could not remove the old container %s: %s"
+                                % (eng.name, OLD_NAME, _last_line(r.stderr)))
+    out("took over the local runtime %s (renamed %s): same data volume %s" % (OLD_NAME, CONTAINER, volume))
+    return volume
 
 
 def _has_image(eng, image):
@@ -196,11 +240,11 @@ def pull(eng, image, out):
         raise LocalRuntimeError("could not pull %s.%s" % (image, hint))
 
 
-def _run_args(image, port, diag_port, caps=True):
+def _run_args(image, port, diag_port, caps=True, volume=VOLUME):
     args = ["run", "-d", "--name", CONTAINER,
             "-p", "127.0.0.1:%d:%d" % (port, RUNTIME_PORT),
             "-p", "127.0.0.1:%d:%d" % (diag_port, diag_port),
-            "-v", "%s:%s" % (VOLUME, DATA_PATH),
+            "-v", "%s:%s" % (volume, DATA_PATH),
             "--restart", "unless-stopped"]
     if caps:
         # Upstream's flags for its real-time scheduling; timing only.
@@ -208,9 +252,9 @@ def _run_args(image, port, diag_port, caps=True):
     return args + [image]
 
 
-def create(eng, image, port, diag_port, out):
+def create(eng, image, port, diag_port, out, volume=VOLUME):
     """Creates and starts the container; removes what a failed attempt left."""
-    r = eng(*_run_args(image, port, diag_port), timeout=600)
+    r = eng(*_run_args(image, port, diag_port, volume=volume), timeout=600)
     if r.returncode != 0:
         msg = (r.stderr or r.stdout or "").strip()
         eng("rm", "-f", CONTAINER, timeout=60)
@@ -218,7 +262,7 @@ def create(eng, image, port, diag_port, out):
         if "cap" in low and ("sys_nice" in low or "sys_resource" in low or "capabilit" in low):
             out("note: %s refused the real-time capabilities; starting without them (only timing is affected)"
                 % eng.name)
-            r = eng(*_run_args(image, port, diag_port, caps=False), timeout=600)
+            r = eng(*_run_args(image, port, diag_port, caps=False, volume=volume), timeout=600)
             if r.returncode == 0:
                 return
             msg = (r.stderr or r.stdout or "").strip()
@@ -254,7 +298,7 @@ def wait_ready(port, timeout=READY_TIMEOUT, sleep=time.sleep, out=None):
             pass
         if time.monotonic() > deadline:
             raise LocalRuntimeError("the runtime did not answer on https://localhost:%d within %d s; see "
-                                    "`openplc-canopen-runtime logs`" % (port, timeout))
+                                    "`openplc-canopen-sim-runtime logs`" % (port, timeout))
         if out and not said:
             out("waiting for the runtime to answer on https://localhost:%d" % port)
             said = True
@@ -297,13 +341,13 @@ def _editor_text(doc):
             % (doc["port"], doc["user"], doc["password"]))
 
 
-def _credentials(eng, image, port, diag_port, settings, out):
+def _credentials(eng, image, port, diag_port, settings, out, volume=VOLUME):
     """After the runtime answers: first user, fingerprint and saved settings.
     Returns the settings, or raises when the credentials are lost."""
     fp = wait_ready(port, out=out)
     client = runtime.Client("127.0.0.1:%d" % port, fingerprint=fp)
     doc = dict(settings or {})
-    doc.update({"engine": eng.name, "image": image, "port": port, "diag_port": diag_port,
+    doc.update({"engine": eng.name, "image": image, "port": port, "diag_port": diag_port, "volume": volume,
                 "url": "https://127.0.0.1:%d" % port, "fingerprint": fp})
     if not has_users(client):
         doc["user"], doc["password"] = USER, new_password()
@@ -313,14 +357,14 @@ def _credentials(eng, image, port, diag_port, settings, out):
         return doc
     if not settings or not settings.get("password"):
         raise LocalRuntimeError("the local runtime already has a user, but its password is not saved on this PC "
-                                "(%s is missing). It cannot be recovered: run `openplc-canopen-runtime remove "
+                                "(%s is missing). It cannot be recovered: run `openplc-canopen-sim-runtime remove "
                                 "--data` and `start` again for new credentials." % settings_path())
     if runtime.normalize_fingerprint(settings.get("fingerprint") or "") != runtime.normalize_fingerprint(fp):
         out("note: the runtime's certificate changed; the new fingerprint is saved")
     try:
         client.login(settings["user"], settings["password"])
     except runtime.RuntimeError_ as e:
-        raise LocalRuntimeError("the saved credentials do not log in (%s). Run `openplc-canopen-runtime remove "
+        raise LocalRuntimeError("the saved credentials do not log in (%s). Run `openplc-canopen-sim-runtime remove "
                                 "--data` and `start` again for new ones." % e)
     save_settings(doc)
     return doc
@@ -332,24 +376,25 @@ def cmd_start(args, out):
     image = args.image or default_image()
     port = args.port or (settings or {}).get("port") or RUNTIME_PORT
     diag_port = args.diag_port or (settings or {}).get("diag_port") or DIAG_PORT
+    volume = take_over(eng, out) or saved_volume(settings)
     state = container_state(eng)
     if state is None:
         if not _has_image(eng, image):
             pull(eng, image, out)
         out("starting %s (%s) with %s" % (CONTAINER, image, eng.name))
-        create(eng, image, port, diag_port, out)
+        create(eng, image, port, diag_port, out, volume)
     else:
         status, running_image = state
         if args.image and running_image != args.image:
-            raise LocalRuntimeError("the local runtime runs image %s, not %s: run `openplc-canopen-runtime update "
+            raise LocalRuntimeError("the local runtime runs image %s, not %s: run `openplc-canopen-sim-runtime update "
                                     "--image %s`" % (running_image, args.image, args.image))
         if running_image != image:
-            out("note: the local runtime runs image %s; `openplc-canopen-runtime update` switches it to %s"
+            out("note: the local runtime runs image %s; `openplc-canopen-sim-runtime update` switches it to %s"
                 % (running_image, image))
             image = running_image
         if args.port and settings and args.port != settings.get("port") or \
                 args.diag_port and settings and args.diag_port != settings.get("diag_port"):
-            raise LocalRuntimeError("the container exists with other ports; run `openplc-canopen-runtime update` "
+            raise LocalRuntimeError("the container exists with other ports; run `openplc-canopen-sim-runtime update` "
                                     "with --port/--diag-port to change them")
         if status == "running":
             out("the local runtime is already running")
@@ -358,7 +403,7 @@ def cmd_start(args, out):
             if r.returncode != 0:
                 raise LocalRuntimeError("%s could not start %s: %s" % (eng.name, CONTAINER, _last_line(r.stderr)))
             out("started %s" % CONTAINER)
-    doc = _credentials(eng, image, port, diag_port, settings, out)
+    doc = _credentials(eng, image, port, diag_port, settings, out, volume)
     out(_editor_text(doc))
     return 0
 
@@ -391,10 +436,17 @@ def cmd_status(args, out):
     eng = _engine_for(args, settings)
     out("engine: %s" % eng.name)
     state = container_state(eng)
+    old = container_state(eng, OLD_NAME)
     if state is None:
-        out("container: none (run `openplc-canopen-runtime start`)")
+        if old is not None:
+            out("container: none; the older local runtime %s (%s) is there: `%s update` takes it over with "
+                "its data" % (OLD_NAME, old[0], PROG))
+        else:
+            out("container: none (run `%s start`)" % PROG)
         return 1
     out("container: %s, %s" % (CONTAINER, state[0]))
+    if old is not None:
+        out(_old_note(eng))
     out("image: %s" % state[1])
     if not settings:
         out("credentials: not saved on this PC (%s)" % settings_path())
@@ -425,7 +477,8 @@ def cmd_logs(args, out):
     if container_state(eng) is None:
         out("there is no local runtime container")
         return 1
-    return eng(*(["logs"] + (["-f"] if args.follow else []) + [CONTAINER]), capture=False).returncode
+    # The runtime writes to both streams: one stream, so `logs | grep` sees all.
+    return eng(*(["logs"] + (["-f"] if args.follow else []) + [CONTAINER]), capture=False, merge=True).returncode
 
 
 def cmd_update(args, out):
@@ -440,14 +493,15 @@ def cmd_update(args, out):
         if not _has_image(eng, image):
             raise
         out("note: could not pull %s; using the copy on this PC" % image)
+    volume = take_over(eng, out) or saved_volume(settings)
     if container_state(eng) is not None:
         eng("stop", CONTAINER, timeout=120)
         r = eng("rm", CONTAINER, timeout=60)
         if r.returncode != 0:
             raise LocalRuntimeError("%s could not remove the old container: %s" % (eng.name, _last_line(r.stderr)))
     out("starting %s (%s) with %s on the same data volume" % (CONTAINER, image, eng.name))
-    create(eng, image, port, diag_port, out)
-    doc = _credentials(eng, image, port, diag_port, settings, out)
+    create(eng, image, port, diag_port, out, volume)
+    doc = _credentials(eng, image, port, diag_port, settings, out, volume)
     out("The container is new: upload the PLC program again (the editor's Build and Upload, or "
         "openplc-canopen-deploy --runtime local).")
     out(_editor_text(doc))
@@ -465,8 +519,9 @@ def cmd_remove(args, out):
             raise LocalRuntimeError("%s could not remove %s: %s" % (eng.name, CONTAINER, _last_line(r.stderr)))
         out("removed %s" % CONTAINER)
     if args.data:
-        r = eng("volume", "rm", VOLUME, timeout=60)
-        out("removed the data volume %s" % VOLUME if r.returncode == 0 else "no data volume %s" % VOLUME)
+        volume = saved_volume(settings)
+        r = eng("volume", "rm", volume, timeout=60)
+        out("removed the data volume %s" % volume if r.returncode == 0 else "no data volume %s" % volume)
         if delete_settings():
             out("removed %s" % settings_path())
     return 0
@@ -474,7 +529,7 @@ def cmd_remove(args, out):
 
 def parser():
     p = argparse.ArgumentParser(
-        prog="openplc-canopen-runtime",
+        prog=PROG,
         description="Run OpenPLC Runtime v4 with the CANopen plugin on this PC, every CANopen network simulated, "
                     "in a container (Docker or Podman; Docker Desktop is not needed). See " + DOCS + ".")
     p.add_argument("--engine", choices=sorted(ENGINES),
@@ -503,6 +558,12 @@ def parser():
     return p
 
 
+def old_main(argv=None):
+    """The command's earlier name, kept for one release."""
+    print("%s is now %s; this name goes away in the next release" % (OLD_NAME, PROG), file=sys.stderr, flush=True)
+    return main(argv)
+
+
 COMMANDS = {"start": cmd_start, "stop": cmd_stop, "status": cmd_status, "logs": cmd_logs, "update": cmd_update,
             "remove": cmd_remove}
 
@@ -516,7 +577,7 @@ def main(argv=None):
     try:
         return COMMANDS[args.command](args, out)
     except LocalRuntimeError as e:
-        print("openplc-canopen-runtime: %s" % e, file=sys.stderr)
+        print("%s: %s" % (PROG, e), file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 130

@@ -65,10 +65,15 @@ target_compile_definitions(canopen_core PRIVATE CANOPEN_PREFIX="${CANOPEN_PREFIX
 target_link_directories(canopen_core PUBLIC ${LELY_LIBRARY_DIRS})
 target_link_libraries(canopen_core PUBLIC ${LELY_LIBRARIES} pthread)
 
-# The plugin version the diagnostics channel reports.
+# The plugin version the diagnostics channel reports: $CANOPEN_PLUGIN_VERSION
+# when set (the local simulator runtime image, built without .git), else git.
+if(DEFINED ENV{CANOPEN_PLUGIN_VERSION})
+  set(CANOPEN_PLUGIN_VERSION "$ENV{CANOPEN_PLUGIN_VERSION}")
+else()
 execute_process(COMMAND git describe --always --tags --dirty
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                 OUTPUT_VARIABLE CANOPEN_PLUGIN_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+endif()
 if(NOT CANOPEN_PLUGIN_VERSION)
   set(CANOPEN_PLUGIN_VERSION "unknown")
 endif()

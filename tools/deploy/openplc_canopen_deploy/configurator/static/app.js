@@ -2654,10 +2654,10 @@ function hostField() {
   input.value = S.online.host || "";
   input.addEventListener("change", () => saveHost(input.value.trim()));
   const local = el("button", { type: "button", class: "small", dataset: { online: "local" },
-    title: "The local simulator runtime started with openplc-canopen-runtime start" }, "Local simulator runtime");
+    title: "The local simulator runtime started with openplc-canopen-sim-runtime start" }, "Local simulator runtime");
   local.addEventListener("click", () => { input.value = "local"; saveHost("local"); });
   return el("label", null, "Runtime host", input, local,
-    hint(`The PLC running this config, as HOST or HOST:PORT (port ${diagPort()} when not given), or "local" for the local simulator runtime (openplc-canopen-runtime). Kept on this PC, not in the project.`));
+    hint(`The PLC running this config, as HOST or HOST:PORT (port ${diagPort()} when not given), or "local" for the local simulator runtime (openplc-canopen-sim-runtime). Kept on this PC, not in the project.`));
 }
 
 function onlineAccessSettings() {

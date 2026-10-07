@@ -63,7 +63,8 @@ std::string sim_summary(const Config& cfg, const canopen_sim::SimFile& file, con
   }
   std::string s;
   if (cfg.adapter.simulate) {
-    s = "the CAN network is SIMULATED (adapter.simulate): no CAN interface is used";
+    s = std::string("the CAN network is SIMULATED (") +
+        (cfg.adapter.simulation_forced ? "forced by the runtime" : "adapter.simulate") + "): no CAN interface is used";
     s += count ? "; simulated nodes: " + nodes : "; no node is simulated";
     if (!slave_network.empty()) s += "; slave network \"" + slave_network + "\" shares the simulated bus";
   } else if (count) {

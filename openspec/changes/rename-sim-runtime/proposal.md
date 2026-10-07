@@ -9,6 +9,7 @@ The local simulator runtime is published as `ghcr.io/tonihoohoo/openplc-canopen-
 - **Taking over an existing local runtime**: `start` and `update` find a container from the old name, replace it with the new one on the same data volume, and keep the saved credentials and the certificate fingerprint. Nothing is lost and no `remove --data` is needed.
 - **Release**: new versions are pushed only under the new image name. Tags already pushed under the old name stay where they are and are not updated.
 - **Unchanged**: `--runtime local`, host `local` in the configurator, `local-runtime.json`, `docs/local-runtime.md`, `docker/local-runtime/`, the capability name `canopen-local-runtime`, and the "local simulator runtime" wording in the docs.
+- **Fixes from the first hardware run of the local runtime** (tasks 6.1 and 6.2 of add-local-sim-runtime): the plugin in the image reports the PC tools version instead of "unknown" (the image is built without `.git`); with forced simulation the plugin's second simulated-network warning names the runtime instead of `adapter.simulate`; `logs` sends the container's two output streams to one, so `logs | grep CANOPEN` filters everything.
 - PC tools version bump (next free minor).
 
 ## Capabilities

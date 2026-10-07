@@ -246,8 +246,9 @@ void prepare() {
         for (const auto& other : st->set.networks)
           if (!other.is_slave() && other.adapter.simulate && other.adapter.interface == cfg.adapter.interface)
             master = other.network.empty() ? other.adapter.interface : other.network;
-        log_warn("the slave network is SIMULATED (adapter.simulate): no CAN interface is used; it runs on simulated "
-                 "bus %s %s", cfg.adapter.interface.c_str(),
+        log_warn("the slave network is SIMULATED (%s): no CAN interface is used; it runs on simulated "
+                 "bus %s %s", cfg.adapter.simulation_forced ? "forced by the runtime" : "adapter.simulate",
+                 cfg.adapter.interface.c_str(),
                  master.empty() ? "with no master network on it" : ("with master network \"" + master + "\"").c_str());
       }
       if (cfg.master.has_diagnostics) net->hub.reset(new DiagHub(cfg, CANOPEN_PLUGIN_VERSION));
