@@ -135,7 +135,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           previous=$(git tag --list 'deploy-v*' | python3 scripts/release_version.py --previous-tag "$VERSION")
-          notes="Install on Windows or macOS without Python: see docs/install-pc.md. Download the wheel below, then run: uv tool install --python 3.12 openplc_canopen_deploy-$VERSION-py3-none-any.whl. openplc_canopen.stlib is the SDO function block library for OpenPLC Editor (docs/plc-sdo.md). Local simulator runtime (no hardware needed, docs/local-runtime.md): openplc-canopen-runtime start pulls ghcr.io/${{ github.repository_owner }}/openplc-canopen-runtime:$VERSION (amd64 and arm64)."
+          notes="Install on Windows, macOS or Linux without Python: see docs/install-pc.md. Download the wheel below, then run: uv tool install --python 3.12 openplc_canopen_deploy-$VERSION-py3-none-any.whl. openplc_canopen.stlib is the SDO function block library for OpenPLC Editor (docs/plc-sdo.md). Local simulator runtime (no hardware needed, docs/local-runtime.md): openplc-canopen-runtime start pulls ghcr.io/${{ github.repository_owner }}/openplc-canopen-runtime:$VERSION (amd64 and arm64)."
           gh release create "$TAG" dist/*.whl dist/openplc_canopen.stlib \
             --target "$SHA" \
             --title "PC tools $VERSION" \
