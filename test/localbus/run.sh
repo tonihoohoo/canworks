@@ -74,12 +74,13 @@ fail() {
 
 cp "$ROOT/config/rtd-sensor/rtd8.eds" "$WORK/"
 python3 - "$ROOT/config/rtd-sensor/canopen_config.json" "$WORK/canopen_config.json" "$IFACE" "$PORT" <<'PY'
-import hashlib, json, os, sys
+import json, os, sys
+from openplc_canopen_deploy.diag import token_verifier
 cfg = json.load(open(sys.argv[1]))
 cfg["adapter"]["interface"] = sys.argv[3]
 cfg["adapter"]["configure_link"] = False
 cfg["master"]["diagnostics"] = {
-    "token_sha256": hashlib.sha256(os.environ["OPENPLC_CANOPEN_TOKEN"].encode()).hexdigest(),
+    "token_verifier": token_verifier(os.environ["OPENPLC_CANOPEN_TOKEN"]),
     "port": int(sys.argv[4]), "bind": "127.0.0.1"}
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
 PY

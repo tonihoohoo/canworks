@@ -58,7 +58,7 @@ openplc-canopen-diag adapters                                                   
 openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 status
 openplc-canopen-diag --adapter slcan:/dev/tty.usbmodem14101 --bitrate 250 scan --config canopen/canopen.json
 openplc-canopen-diag --adapter socketcan:can0 --bitrate 500 --allow-changes sdo-write 5 0x2000 2 1000 --type UNSIGNED16
-openplc-canopen-diag --adapter slcan:COM5 --config canopen/canopen.json --network io backup 5
+openplc-canopen-diag --adapter slcan:COM5 backup 5 --config canopen/canopen.json --network io
 ```
 
 | Option | |

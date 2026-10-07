@@ -29,7 +29,7 @@
 
 - [x] 5.1 Write `docs/pc-adapter.md`: which adapters, per OS port names and drivers (Windows 10/11 built-in CDC driver, macOS `/dev/tty.usbmodem*`, Linux `/dev/ttyACM*` and `dialout`, SocketCAN), first steps (adapters, status, scan, LSS, backup), the guest rules and another master, allow-changes and store, the limits (no NMT master, no PDOs, no simulator, one tool per adapter, untested pass-through types), and a pointer to the raw-frames and bit-rate commands once they exist.
 - [x] 5.2 Update README ("On the engineering PC": commissioning with a USB adapter, no runtime needed; the configurator and diag bullets), `docs/install-pc.md` (adapter notes, the changed "only through the runtime" sentence), `docs/diagnostics.md` (`--adapter` options and the local differences table), `docs/configurator.md` (USB adapter target, Commission a device) and `docs/trace.md` (recording from a local adapter).
-- [ ] 5.3 Bump the PC tools version to the next free minor after what `main` carries when this is applied.
+- [x] 5.3 Bump the PC tools version to the next free minor after what `main` carries when this is applied.
 
 ## 6. Hardware checks (manual)
 
