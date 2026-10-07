@@ -278,3 +278,33 @@ table.od.watch tr.changed td { background: var(--warn-bg); }
 .watch-graph { margin-top: 8px; min-width: 0; }
 details.od-any { margin: 0 0 12px; }
 details.od-any > summary { cursor: pointer; }
+
+/* Simulation: the banner on every page, and the Simulation view. */
+#sim-banner { padding: 6px 16px; background: var(--warn-bg); color: var(--warn); border-bottom: 1px solid var(--line); font-weight: 600; }
+.tag.sim-tag { background: var(--warn-bg); color: var(--warn); }
+.sim-form { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 6px 0; background: var(--panel); }
+.sim-form > strong { display: block; margin-bottom: 6px; }
+.sim-control { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin-bottom: 4px; }
+.sim-control input[type=range] { width: min(240px, 100%); }
+.sim-bits { display: inline-flex; flex-wrap: wrap; gap: 1px; }
+.sim-bits input { margin: 0 1px; }
+.sim-bit-gap { width: 6px; }
+table.sim-values td { vertical-align: middle; }
+.sim-expr { width: 100%; }
+.sim-expr-field { min-width: 0; }
+.sim-expr-msg { min-height: 1.3em; }
+pre.sim-caret { margin: 2px 0 0; font-size: 12px; color: var(--error); white-space: pre-wrap; overflow-wrap: anywhere; }
+ul.sim-faults, ul.sim-problems { margin: 4px 0 8px; padding-left: 18px; }
+ul.sim-faults button { margin-left: 4px; }
+.sim-steps { display: flex; flex-direction: column; gap: 8px; }
+.sim-step { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; background: var(--panel); }
+.sim-step-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-bottom: 6px; }
+.sim-step-head .spacer { flex: 1; }
+.sim-nested { margin-top: 6px; padding-left: 12px; border-left: 2px solid var(--line); }
+.sim-pairs { display: flex; flex-direction: column; gap: 4px; }
+.sim-cond { margin-bottom: 4px; }
+.sim-cond .row { gap: 6px 10px; }
+.small-file { padding: 1px 8px; font-size: 12px; margin: 4px 0 0; align-self: flex-start; }
+@media (max-width: 1100px) { .sim-control input[type=range] { width: 100%; } }
+table.sim-values td input.od-input { width: 10em; }
+table[data-sim="devices"] { margin-bottom: 12px; }

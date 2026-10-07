@@ -214,6 +214,15 @@ PLUGINS_CONF="$RUNTIME_DIR/plugins.conf"
 LIB_DIR="$PREFIX/lib"
 LIB="$LIB_DIR/libcanopen_plugin.so"
 LINE="canopen,$LIB,0,1,$LIB_DIR/canopen.json,"
+SIM_BIN="$LIB_DIR/openplc-canopen-sim"
+SIM_LINK=/usr/local/bin/openplc-canopen-sim
+
+# Removes the simulator link when it points into this install.
+remove_sim_link() {
+    if [ -L "$SIM_LINK" ] && [ "$(readlink "$SIM_LINK")" = "$SIM_BIN" ]; then
+        rm -f "$SIM_LINK"
+    fi
+}
 
 RUNTIME_VENV="$RUNTIME_DIR/venvs/runtime"
 PTH_NAME=openplc_canopen_hook.pth
@@ -252,6 +261,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
     say "Removing the canopen plugin from $PLUGINS_CONF"
     strip_canopen_lines
     remove_editor_hook
+    remove_sim_link
     if [ -x "$PREFIX/venv/bin/python" ]; then
         "$PREFIX/venv/bin/python" -m pip uninstall -q -y openplc-canopen-deploy >/dev/null 2>&1 || true
     fi
@@ -296,12 +306,19 @@ trap 'rm -rf "$BUILD_DIR"' EXIT
 say "Building the plugin against $RUNTIME_DIR ($COMMIT)"
 cmake -S "$REPO" -B "$BUILD_DIR" -DOPENPLC_ROOT="$RUNTIME_DIR" -DCANOPEN_BUILD_TESTS=OFF \
     -DLELY_PREFIX="$PREFIX/lely" -DCANOPEN_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release >/dev/null
-cmake --build "$BUILD_DIR" --target canopen_plugin -j"$(nproc)" >/dev/null
+cmake --build "$BUILD_DIR" --target canopen_plugin openplc-canopen-sim -j"$(nproc)" >/dev/null
 
 say "Installing $LIB"
 mkdir -p "$LIB_DIR"
 install -m 0755 "$BUILD_DIR/plugins/libcanopen_plugin.so" "$LIB.new"
 mv -f "$LIB.new" "$LIB"
+# The standalone device simulator (docs/simulator.md), same version as the plugin.
+install -m 0755 "$BUILD_DIR/bin/openplc-canopen-sim" "$SIM_BIN.new"
+mv -f "$SIM_BIN.new" "$SIM_BIN"
+if [ "$IN_IMAGE" -eq 0 ]; then
+    ln -sfn "$SIM_BIN" "$SIM_LINK"
+    say "Installed $SIM_LINK"
+fi
 echo "$COMMIT" > "$COMMIT_FILE"
 
 if [ "$IN_IMAGE" -eq 1 ]; then

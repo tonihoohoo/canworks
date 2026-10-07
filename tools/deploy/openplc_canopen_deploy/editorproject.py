@@ -141,9 +141,10 @@ def program(cfg, config_path):
 
 
 def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_address=None, progress=None,
-           sdo_blocks=False):
+           sdo_blocks=False, sim_path=None):
     """Creates the project. Returns (project folder, located declarations). The config
-    must already have passed the deploy tool's checks."""
+    (and the simulation file sim_path, when given) must already have passed
+    the deploy tool's checks."""
     progress = progress or (lambda m: None)
     project_dir = os.path.abspath(os.path.expanduser(project_dir))
     parent, name = os.path.split(project_dir.rstrip(os.sep))
@@ -179,7 +180,7 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
             run.returncode, ":\n" + run.stdout.strip() if run.stdout.strip() else ""))
     try:
         _patch(project_dir, decls, body, runtime_address)
-        project_mod.write(cfg, config_path, project_dir)
+        project_mod.write(cfg, config_path, project_dir, sim_path=sim_path)
         if sdo_blocks:
             sdolibrary.enable_in_project(project_dir)
     except (OSError, ValueError, project_mod.ProjectError, NewProjectError, sdolibrary.LibraryError) as e:

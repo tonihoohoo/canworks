@@ -222,6 +222,10 @@ jobs:
           test/plc_sdo/lookup_check.sh build/test/plc_sdo_lookup_check build/plugins/libcanopen_plugin.so \
             build/test/sdo_program.so config/pingpong "$RUNNER_TEMP/plc_sdo_stop" --stop-check
 
+      - name: Standalone device simulator next to the plugin on vcan0 (and real-bus checks on vcan1)
+        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        run: test/simulator/run.sh
+
       - name: Report skipped vcan test
         if: steps.vcan.outcome != 'success'
         run: echo "::warning::vcan is not available on this runner; the ping-pong test was skipped"

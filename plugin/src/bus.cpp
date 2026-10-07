@@ -11,10 +11,13 @@
 #include <lely/io2/posix/poll.hpp>
 #include <lely/io2/sys/io.hpp>
 #include <lely/io2/sys/timer.hpp>
+#include <lely/io2/vcan.hpp>
 
 #include "can_adapter.h"
 #include "log.h"
 #include "network.h"
+#include "sim_config.h"
+#include "sim_host.h"
 
 namespace canopen_plugin {
 
@@ -30,8 +33,10 @@ IfaceState iface_state(const std::string& name) {
   return (flags & IFF_UP) ? IfaceState::Up : IfaceState::Down;
 }
 
-Bus::Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub, GatewayLink* gw)
-    : cfg_(cfg), gen_(gen), image_(image), hub_(hub), gw_(gw), adapter_(make_adapter(cfg.adapter)), monitor_(cfg, image) {}
+Bus::Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub,
+         std::shared_ptr<const SimSetup> sim, GatewayLink* gw)
+    : cfg_(cfg), gen_(gen), image_(image), hub_(hub), sim_(std::move(sim)), gw_(gw),
+      adapter_(cfg.adapter.simulate ? nullptr : make_adapter(cfg.adapter)), monitor_(cfg, image) {}
 
 Bus::~Bus() { stop(); }
 
@@ -71,6 +76,15 @@ void Bus::thread_main() {
     if (rc)
       log_warn("cannot run the CANopen bus thread at SCHED_FIFO %d (%s); PLC-cycle SYNC may jitter more",
                kSyncPriority, strerror(rc));
+  }
+  if (cfg_.adapter.simulate) {
+    // A simulated network has no adapter: no link, no interface to wait for.
+    while (!stop_) {
+      run_session();
+      if (monitor_.no_bus()) image_.commit_inputs();
+      if (!stop_ && !wait_for(std::chrono::milliseconds(1000))) break;
+    }
+    return;
   }
   const char* name = cfg_.adapter.interface.c_str();
   AdapterState last = AdapterState::Ready;
@@ -117,9 +131,24 @@ void Bus::run_session() {
     lely::io::Timer sup_timer(poll, exec, CLOCK_MONOTONIC);
     lely::io::Timer req_timer(poll, exec, CLOCK_MONOTONIC);
     lely::io::Timer out_timer(poll, exec, CLOCK_MONOTONIC);
-    lely::io::CanController ctrl(cfg_.adapter.interface.c_str());
-    lely::io::CanChannel chan(poll, exec);
-    chan.open(ctrl);
+    const bool virt = cfg_.adapter.simulate;
+    const std::string where = virt ? std::string("the simulated network") : cfg_.adapter.interface;
+    // The master's channel: on the in-process virtual bus, or on the interface.
+    std::unique_ptr<lely::io::VirtualCanController> vbus;
+    std::unique_ptr<lely::io::CanController> ctrl;
+    std::unique_ptr<lely::io::CanChannelBase> chan;
+    if (virt) {
+      vbus.reset(new lely::io::VirtualCanController(timer.get_clock()));
+      auto* c = new lely::io::VirtualCanChannel(ctx, exec);
+      chan.reset(c);
+      c->open(*vbus);
+    } else {
+      ctrl.reset(new lely::io::CanController(cfg_.adapter.interface.c_str()));
+      auto* c = new lely::io::CanChannel(poll, exec);
+      chan.reset(c);
+      c->open(*ctrl);
+    }
+    auto iface_down = [&]() { return !virt && iface_state(cfg_.adapter.interface) != IfaceState::Up; };
 
     bool iface_lost = false;
     bool shut_down = false;
@@ -131,19 +160,83 @@ void Bus::run_session() {
     // The supervision tick ends the session by shutting the I/O context down:
     // that cancels every pending Lely operation, after which the loop stops
     // and everything can be destroyed cleanly.
-    Network net(exec, timer, sup_timer, chan, cfg_, gen_, image_, [&]() {
-      if (!stop_ && ++ticks % 5 == 0 && iface_state(cfg_.adapter.interface) != IfaceState::Up) iface_lost = true;
+    Network net(exec, timer, sup_timer, *chan, cfg_, gen_, image_, [&]() {
+      if (!stop_ && ++ticks % 5 == 0 && iface_down()) iface_lost = true;
       if (stop_ || iface_lost) {
         end_session();
         return false;
       }
-      if (monitor_.poll(BusMonitor::clock::now())) image_.commit_inputs();
+      if (virt ? monitor_.simulated() : monitor_.poll(BusMonitor::clock::now())) image_.commit_inputs();
       return true;
     }, &req_timer, &out_timer);
-    log_info("opened %s, starting the CANopen master (node ID %u)", cfg_.adapter.interface.c_str(),
-             cfg_.master.node_id);
+    log_info("opened %s, starting the CANopen master (node ID %u)", where.c_str(), cfg_.master.node_id);
     net.SetDiag(hub_);
     net.SetGateway(gw_);
+
+    // Simulated devices, on the virtual bus or on their own sockets on the
+    // interface; they boot before the master starts.
+    std::unique_ptr<canopen_sim::LoopHost> sim_host;
+    std::unique_ptr<canopen_sim::Simulator> simulator;
+    std::unique_ptr<lely::io::VirtualCanChannel> tap_chan;
+    can_msg tap_msg = CAN_MSG_INIT;
+    std::function<void()> tap_read;
+    if (sim_ && simulates_anything(cfg_)) {
+      auto sim_log = [](canopen_sim::Host::Level l, const std::string& m) {
+        if (l == canopen_sim::Host::Level::Info)
+          log_info("simulated %s", m.c_str());
+        else if (l == canopen_sim::Host::Level::Warn)
+          log_warn("simulated %s", m.c_str());
+        else
+          log_error("simulated %s", m.c_str());
+      };
+      std::vector<canopen_sim::DeviceSpec> specs = sim_device_specs(cfg_, true);
+      if (virt) {
+        sim_host.reset(new canopen_sim::LoopHost(ctx, poll, exec, *vbus, sim_log));
+      } else {
+        sim_host.reset(new canopen_sim::LoopHost(ctx, poll, exec, cfg_.adapter.interface, true, sim_log));
+        // A node ID that a device on the wire already uses stays real.
+        if (!specs.empty() || !sim_->file.extra.empty()) {
+          std::set<unsigned> seen;
+          std::string err;
+          if (!listen_node_ids(cfg_.adapter.interface, 1000, seen, err)) log_warn("%s", err.c_str());
+          std::set<unsigned> conflicts;
+          for (auto& d : specs) {
+            d.conflict = seen.count(d.node) > 0;
+            if (d.conflict && !d.extra) conflicts.insert(d.node);
+          }
+          net.SetSimConflicts(std::move(conflicts));
+        }
+      }
+      canopen_sim::SimOptions opt;
+      opt.store = sim_->store;
+      opt.simulated_network = virt;
+      simulator.reset(new canopen_sim::Simulator(*sim_host, specs, sim_->file, opt));
+      std::vector<std::string> errors;
+      if (!simulator->Start(errors)) {
+        for (const auto& e : errors) log_error("simulation: %s", e.c_str());
+        log_error("the simulated devices could not start; the master runs without them");
+        simulator.reset();
+      } else {
+        canopen_sim::Simulator* s = simulator.get();
+        net.SetSimHandler([s](const cJSON* req, const std::string& id, const std::string& peer) {
+          return s->Handle(req, id, peer);
+        });
+      }
+    }
+    // The bus trace on a simulated network: a channel that sees every frame.
+    if (virt && sim_ && sim_->tap) {
+      tap_chan.reset(new lely::io::VirtualCanChannel(ctx, exec));
+      tap_chan->open(*vbus);
+      SimTraceTap* tap = sim_->tap.get();
+      tap_read = [&, tap]() {
+        tap_chan->submit_read(&tap_msg, nullptr, nullptr, exec, [&, tap](int result, std::error_code ec) {
+          if (ec) return;
+          if (result == 1) tap->push(tap_msg);
+          tap_read();
+        });
+      };
+      tap_read();
+    }
     net.Start();
     SyncWake sync_wake(poll, image_.sync_fd(), net);
     FdWake gw_wake(poll, gw_ ? gw_->fd(cfg_.network_index) : -1, [&net] { net.ServiceGateway(); });
@@ -157,7 +250,7 @@ void Bus::run_session() {
     while (true) {
       loop.run_for(kLoopSlice);
       if (loop.stopped()) break;
-      if (!shut_down && (stop_ || iface_state(cfg_.adapter.interface) != IfaceState::Up)) {
+      if (!shut_down && (stop_ || iface_down())) {
         if (!stop_) iface_lost = true;
         // As the supervision tick does when it ends the session: what is in
         // flight is cancelled, so the loop can drain.
@@ -167,11 +260,12 @@ void Bus::run_session() {
         // The shutdown did not drain the loop (with the adapter gone, its
         // socket can keep the poll busy): stop it and let the objects below
         // cancel what is left as they are destroyed.
-        log_warn("CANopen session on %s did not end cleanly after shutdown", cfg_.adapter.interface.c_str());
+        log_warn("CANopen session on %s did not end cleanly after shutdown", where.c_str());
         loop.stop();
         break;
       }
     }
+    if (simulator) simulator->Stop();
     net.MarkAllDown();
     if (iface_lost)
       log_error("CAN interface %s went down; nodes are not operational, retrying", cfg_.adapter.interface.c_str());
@@ -179,7 +273,8 @@ void Bus::run_session() {
     for (unsigned id : image_.nodes()) image_.set_node_status(id, false);
     monitor_.no_bus();
     image_.commit_inputs();
-    log_error("CANopen session on %s failed: %s; retrying", cfg_.adapter.interface.c_str(), e.what());
+    log_error("CANopen session on %s failed: %s; retrying",
+              cfg_.adapter.simulate ? "the simulated network" : cfg_.adapter.interface.c_str(), e.what());
   }
 }
 

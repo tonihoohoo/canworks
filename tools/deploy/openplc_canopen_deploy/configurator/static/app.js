@@ -14,7 +14,7 @@ const S = {
   net: 0,           // the open network tab
   config: null,     // the open network of the draft (adapter, master, nodes)
   dirty: false,
-  view: "bus",      // "bus" | "node:<i>" | "declarations" | "online" | "scan" | "trace"
+  view: "bus",      // "bus" | "node:<i>" | "declarations" | "online" | "scan" | "trace" | "simulation"
   check: null,      // last /api/check
   startMode: "project",
   browserPath: null,
@@ -50,7 +50,7 @@ async function api(method, path, body) {
   // Requests to the runtime name the picked network; the server passes it
   // on only to a plugin that runs several.
   const net = onlineNetwork();
-  if (net !== null && body && body.network === undefined && (path.startsWith("/api/online/") || path.startsWith("/api/trace/"))) {
+  if (net !== null && body && body.network === undefined && (path.startsWith("/api/online/") || path.startsWith("/api/trace/") || path.startsWith("/api/sim/"))) {
     body = Object.assign({ network: net }, body);
   }
   const res = await fetch(path, {
@@ -191,6 +191,7 @@ function getPath(path) {
 function changed(rerender) {
   S.dirty = true;
   if (rerender) render();
+  else updateSimBanner();
   scheduleCheck();
 }
 
@@ -526,6 +527,7 @@ async function loadState() {
     S.dirty = false;
     S.supervision = {};
     if (S.view.startsWith("node:") && !(S.config.nodes || [])[Number(S.view.slice(5))]) S.view = "bus";
+    if (typeof simLoad === "function") simLoad();
     if (S.state.load_error) banner(S.state.load_error, true);
     else if (S.state.notices && S.state.notices.length) banner(S.state.notices.join(" "));
     else banner("");
@@ -539,6 +541,7 @@ function renderStart() {
   $("#editor").hidden = true;
   $("#actions").hidden = true;
   $("#mode").hidden = true;
+  $("#sim-banner").hidden = true;
   for (const [id, mode] of [["#start-project", "project"], ["#start-standalone", "standalone"], ["#start-new", "new"]]) {
     $(id).classList.toggle("selected", S.startMode === mode);
   }
@@ -615,7 +618,11 @@ function render() {
   $("#btn-move").hidden = S.state.mode !== "standalone";
   $("#btn-new-project").hidden = S.state.mode !== "standalone";
   renderSide();
-  stopOnline(S.view === "online" || S.view === "scan");
+  updateSimBanner();
+  // The online view, the scan page and the simulation view share one connection.
+  const keep = ["online", "scan", "simulation"].includes(S.view);
+  stopOnline(keep);
+  stopSim(keep);
   stopTrace();
   const view = $("#view");
   view.replaceChildren();
@@ -625,6 +632,7 @@ function render() {
   else if (S.view === "scan") renderScan(view);
   else if (S.view === "trace") renderTrace(view);
   else if (S.view === "gateway") renderGateway(view);
+  else if (S.view === "simulation") renderSimulation(view);
   else renderNode(view, Number(S.view.slice(5)));
   applyCheck();
 }
@@ -636,7 +644,7 @@ function renderSide() {
   list.replaceChildren(...(S.config.nodes || []).map((n, i) => el("li", {
     class: S.view === "node:" + i ? "active" : null, dataset: { node: i },
     onclick: () => showView("node:" + i),
-  }, `${n.node_id ?? "?"} ${n.name || ""}`, el("span", { class: "count" }),
+  }, `${n.node_id ?? "?"} ${n.name || ""}`, simBadge(n), el("span", { class: "count" }),
   el("button", { type: "button", class: "export-dcf", title: `Export DCF: node ${n.node_id ?? "?"} as a CiA 306 DCF file`,
     "aria-label": `Export DCF of node ${n.node_id ?? "?"}`,
     onclick: (ev) => { ev.stopPropagation(); exportDcf(n.node_id, tabNetwork()); } }, "Export DCF"))));
@@ -676,6 +684,132 @@ function switchAdapterType(type) {
   changed(true);
 }
 
+// ---------------------------------------------------------------------------
+// What is simulated (docs/simulator.md, "Two switches"): the network
+// (adapter.simulate) and each node (simulate). A node's field is stored only
+// when it differs from the network's default (simulated on a simulated
+// network, real on a real one), so switching the network sets every node back
+// to that default.
+
+function simNetwork(net = S.config) { return !!(net && net.adapter && net.adapter.simulate === true); }
+function nodeSimulated(n, net = S.config) { return n.simulate === undefined ? simNetwork(net) : n.simulate === true; }
+function netSimulates(net) { return simNetwork(net) || (net.nodes || []).some((n) => nodeSimulated(n, net)); }
+function anySimulated() { return !!S.model && S.model.networks.some(netSimulates); }
+function nodeIds(list) { return list.map((n) => n.node_id ?? "?").join(", "); }
+function plural(list, one, many) { return list.length === 1 ? one : many; }
+
+function simBadge(n) {
+  if (nodeSimulated(n)) return el("span", { class: "tag sim-tag", dataset: { simBadge: "simulated" }, title: "A simulated device" }, "simulated");
+  if (simNetwork()) return el("span", { class: "tag", dataset: { simBadge: "absent" }, title: "Absent from the simulated network" }, "absent");
+  return null;
+}
+
+// What is simulated in one network, in one sentence, or "" when nothing is.
+function netSimSummary(net) {
+  const nodes = net.nodes || [];
+  const sim = nodes.filter((n) => nodeSimulated(n, net));
+  if (simNetwork(net)) {
+    const absent = nodes.filter((n) => !nodeSimulated(n, net));
+    return "The network is simulated: the master runs on a virtual bus inside the plugin" +
+      (sim.length ? `, with ${plural(sim, "node", "nodes")} ${nodeIds(sim)} simulated` : ", with no node simulated") +
+      (absent.length ? ` and ${plural(absent, "node", "nodes")} ${nodeIds(absent)} absent` : "") + ".";
+  }
+  if (!sim.length) return "";
+  const iface = (net.adapter && net.adapter.interface) || "";
+  return `${plural(sim, "Node", "Nodes")} ${nodeIds(sim)} ${plural(sim, "is", "are")} simulated on the real network${iface ? " " + iface : ""}.`;
+}
+
+// What is simulated, network by network when there are several, or "".
+function simSummary() {
+  if (!S.config || !S.model) return "";
+  if (!several()) return netSimSummary(S.config);
+  const parts = S.model.networks.map((net, i) => [net, i]).filter(([net]) => netSimulates(net))
+    .map(([net, i]) => `Network ${netLabel(net, i)}: ${netSimSummary(net)}`);
+  if (!parts.length) return "";
+  return parts.join(" ") + " With several networks the simulation file is not used: simulated devices run with their default behaviour.";
+}
+
+// The banner on every page while anything is simulated.
+function updateSimBanner() {
+  const b = $("#sim-banner");
+  if (!b) return;
+  const text = S.state && S.state.mode ? simSummary() : "";
+  b.hidden = !text;
+  b.textContent = text ? text + " This configuration must not be uploaded to a machine as it is: its simulated devices control nothing." : "";
+}
+
+// Simulating anything needs online access with Allow changes for the
+// Simulation view; turned on when online access is off.
+async function simulationNeedsOnline() {
+  if (!anySimulated() || diagConfig()) return;
+  try {
+    if (!S.online.token) {
+      const r = await api("POST", "/api/online/token", { action: "generate" });
+      S.online = Object.assign(S.online, r);
+    }
+    S.model.diagnostics = { token_sha256: await sha256Hex(S.online.token), allow_changes: true };
+    await checkToken();
+    banner("Online access is now on with Allow changes, so the Simulation view can control the simulated devices. Save and upload to use it.");
+  } catch (e) { banner(e.message, true); }
+}
+
+async function setNetwork(simulated) {
+  const ad = S.config.adapter || (S.config.adapter = {});
+  if (simulated) ad.simulate = true; else delete ad.simulate;
+  for (const n of S.config.nodes || []) delete n.simulate;
+  await simulationNeedsOnline();
+  changed(true);
+}
+
+function storeSimulate(n, on) {
+  if (on === simNetwork()) delete n.simulate; else n.simulate = on;
+}
+
+async function setNodeSimulated(i, on) {
+  storeSimulate(S.config.nodes[i], on);
+  await simulationNeedsOnline();
+  changed(true);
+}
+
+async function simulateAll(on) {
+  for (const n of S.config.nodes || []) storeSimulate(n, on);
+  await simulationNeedsOnline();
+  changed(true);
+}
+
+function networkSettings() {
+  const nodes = S.config.nodes || [];
+  const sim = nodes.filter((n) => nodeSimulated(n));
+  return el("fieldset", { dataset: { section: "network" } }, el("legend", null, "Network"),
+    el("div", { class: "grid" },
+      choice("Network", "adapter.simulate", [
+        { value: undefined, label: "Real",
+          help: "The CAN adapter below. Nodes switched to Simulated run as simulated devices inside the plugin on the same interface, next to the real devices." },
+        { value: true, label: "Simulated",
+          help: "A virtual bus inside the plugin: no CAN interface or serial device is used and nothing needs installing. Every node is a simulated device unless switched off (then it is absent). The adapter settings below are kept for switching back." },
+      ], { onChange: (v) => setNetwork(v === true) })),
+    el("div", { class: "toolbar" },
+      el("span", { dataset: { sim: "nodes" } }, nodes.length
+        ? (sim.length ? `Simulated: ${plural(sim, "node", "nodes")} ${nodeIds(sim)}.` : "No node is simulated.") : "No nodes yet."),
+      el("button", { type: "button", dataset: { sim: "all" }, disabled: !nodes.length, onclick: () => simulateAll(true) }, "Simulate all"),
+      el("button", { type: "button", dataset: { sim: "none" }, disabled: !nodes.length, onclick: () => simulateAll(false) }, "Simulate none")),
+    hint("A simulated device is built from the node's EDS. Its behaviour, faults and scenarios are set in the Simulation view (simulation.json)."));
+}
+
+// The node page's Simulated switch.
+function simSwitch(i) {
+  const n = S.config.nodes[i];
+  const on = nodeSimulated(n);
+  const input = el("input", { type: "checkbox", dataset: { sim: "node" } });
+  input.checked = on;
+  input.addEventListener("change", () => setNodeSimulated(i, input.checked));
+  const help = simNetwork()
+    ? (on ? "A simulated device on the simulated network (the default there)." : "Absent: the node is left off the simulated network, as an unplugged device. Its status bit stays FALSE.")
+    : (on ? "A simulated device inside the plugin on the real network, next to the real devices. It starts only when no real device answers with its node ID."
+      : "A real device on the bus (the default on a real network).");
+  return el("div", { class: "check-field" }, el("label", { class: "check" }, input, " Simulated"), hint(help));
+}
+
 // SYNC source: the timer's period and the PLC cycle count exclude each other.
 function switchSyncSource(source) {
   const m = S.config.master || (S.config.master = {});
@@ -703,6 +837,7 @@ function renderBus(view) {
   view.append(
     el("h2", null, (slave ? "Bus and slave device" : "Bus and master") + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
     roleField(),
+    slave ? null : networkSettings(),
     el("fieldset", null, el("legend", null, "CAN adapter"),
       el("div", { class: "grid" },
         choice("Adapter type", a + ".type", [
@@ -1389,7 +1524,8 @@ function renderNode(view, i) {
       el("div", { class: "grid" },
         field("Node ID", base + ".node_id", "intstr"),
         field("Name", base + ".name", "text"),
-        el("label", null, "EDS", edsSel, el("span", { class: "field-msg", dataset: { for: base + ".eds" } })))),
+        el("label", null, "EDS", edsSel, el("span", { class: "field-msg", dataset: { for: base + ".eds" } })),
+        simSwitch(i))),
     el("fieldset", null, el("legend", null, "Supervision"),
       el("div", { class: "grid" }, supervisionFields(i),
         el("label", null, "Status bit", el("span", { class: "row" },
@@ -4567,7 +4703,7 @@ async function save(overwrite) {
 }
 
 async function reload(force) {
-  if (S.dirty && !force) {
+  if ((S.dirty || simDirty()) && !force) {
     const v = await modal("Discard the unsaved changes and reload from disk?", [["reload", "Reload", true], ["cancel", "Cancel"]]);
     if (v !== "reload") return;
   }
@@ -4576,11 +4712,12 @@ async function reload(force) {
 }
 
 async function closeFolder() {
-  if (S.dirty) {
+  if (S.dirty || simDirty()) {
     const v = await modal("Close without saving?", [["close", "Close", true], ["cancel", "Cancel"]]);
     if (v !== "close") return;
   }
   stopOnline(false);
+  stopSim(false);
   await api("POST", "/api/close");
   S.browserPath = null;
   await loadState();
@@ -4718,7 +4855,9 @@ function wire() {
   $("#banner-close").onclick = () => banner("");
   wireTheme();
   wireProblems();
-  window.addEventListener("beforeunload", (e) => { if (S.dirty) { e.preventDefault(); e.returnValue = ""; } });
+  window.addEventListener("beforeunload", (e) => {
+    if (S.dirty || (typeof simDirty === "function" && simDirty())) { e.preventDefault(); e.returnValue = ""; }
+  });
 }
 
 wire();

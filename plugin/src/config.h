@@ -195,6 +195,9 @@ struct NodeConfig {
   std::vector<PdoConfig> rx_pdos;  // master -> slave, fed from %Q*
   std::vector<StartupSdo> sdos;    // startup SDOs, in list order
   std::vector<SdoVariable> sdo_variables;
+  // A simulated device runs this node (docs/simulator.md); defaults to
+  // adapter.simulate.
+  bool simulate = false;
 
   // COB-ID a PDO uses on the bus (explicit or the CiA 301 default).
   uint32_t tpdo_cob_id(const PdoConfig& pdo) const;
@@ -283,6 +286,10 @@ struct AdapterConfig {
   // type "slcan": the serial device the plugin creates `interface` from.
   std::string device;
   unsigned serial_baudrate = 0;  // 0 = leave the UART speed as it is
+  // The network is simulated: the master runs on an in-process virtual bus
+  // and nothing above is opened (docs/simulator.md). The fields are still
+  // checked, so switching back needs only this one.
+  bool simulate = false;
 };
 
 // What a network is: the CANopen master of its nodes, or one CANopen device
@@ -398,6 +405,9 @@ struct Config {
   // Facts worth logging at start (automatic COB-IDs), logged as info.
   std::vector<std::string> notes;
 };
+
+// Whether anything is simulated: a simulated network or a simulated node.
+bool simulates_anything(const Config& cfg);
 
 // The whole file: one Config per network.
 struct ConfigSet {

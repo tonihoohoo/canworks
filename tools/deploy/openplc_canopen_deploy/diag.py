@@ -4,6 +4,11 @@
   openplc-canopen-diag --runtime plc.local sdo-read 23 0x1008 0 --type VISIBLE_STRING
   openplc-canopen-diag --runtime plc.local sdo-read 2 0x1018 1 --network drives
   openplc-canopen-diag hash-token
+  openplc-canopen-diag --runtime plc.local sim fault 5 emcy 0x5000 --register 1
+  openplc-canopen-diag sim --sim 127.0.0.1 status
+
+`sim` controls simulated devices (docs/simulator.md): the plugin's, with
+--runtime, or a standalone openplc-canopen-sim's, with --sim HOST[:PORT].
 
 The channel is opt-in (master.diagnostics in canopen.json) and speaks
 line-delimited JSON over TCP, port 7531 by default; see docs/diagnostics.md.
@@ -514,7 +519,10 @@ def parser():
                     "objects and send NMT commands.")
     p.add_argument("--runtime", metavar="HOST[:PORT]",
                    help="the runtime host (diagnostics port, default %d)" % DEFAULT_PORT)
+    p.add_argument("--sim", dest="sim_addr", metavar="HOST[:PORT]",
+                   help="sim commands: a standalone simulator's control channel (default port 7532)")
     p.add_argument("--token", help="access token (default: $%s, else a prompt)" % TOKEN_ENV)
+    p.add_argument("--token-file", metavar="FILE", help="read the access token from this file")
     p.add_argument("--json", action="store_true", help="print the plugin's answer as JSON")
     p.add_argument("--timeout", type=float, default=5.0, metavar="S", help="network timeout (default %(default)s s)")
     p.add_argument("--version", action="version", version="%(prog)s " + __version__)
@@ -623,11 +631,23 @@ def parser():
         _network_arg(sub.choices[name])
     h = sub.add_parser("hash-token", help="print token_sha256 for a token (no connection)")
     h.add_argument("value", nargs="?", help="the token (default: --token, $%s or a prompt)" % TOKEN_ENV)
+    _sim_parser(sub)
     return p
 
 
+def _token_file(args):
+    path = getattr(args, "token_file", None)
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError as e:
+        raise DiagError("usage", "cannot read the token file %s: %s" % (path, e.strerror or e))
+
+
 def _token(args, prompt="Diagnostics token: "):
-    token = args.token or os.environ.get(TOKEN_ENV)
+    token = args.token or _token_file(args) or os.environ.get(TOKEN_ENV)
     if token:
         return token
     if not sys.stdin.isatty():
@@ -688,6 +708,17 @@ def _print_status(st, out):
     sync_line = format_sync(st.get("sync"))
     if sync_line:
         out.write(sync_line + "\n")
+    sim_nodes = [str(nd.get("node_id")) for nd in st.get("nodes") or [] if nd.get("simulated")]
+    if st.get("simulated_network"):
+        out.write("simulated network: no CAN interface is used%s\n"
+                  % ("; simulated nodes " + ", ".join(sim_nodes) if sim_nodes else "; no node is simulated"))
+    elif sim_nodes:
+        out.write("simulated devices on this network: node%s %s\n" % ("s" if len(sim_nodes) > 1 else "",
+                                                                     ", ".join(sim_nodes)))
+    for nd in st.get("nodes") or []:
+        if nd.get("sim_conflict"):
+            out.write("node %s: marked simulated, but a device on the bus already uses node ID %s; "
+                      "the real device is used\n" % (nd.get("node_id"), nd.get("node_id")))
     rows = [("NODE", "NAME", "STATE", "OK", "BOOT", "HOLD", "LAST EMCY")]
     for nd in st.get("nodes") or []:
         if nd.get("boot_error"):
@@ -894,6 +925,9 @@ def run(args, out=sys.stdout):
         return 0
     if args.command == "convert":
         return _convert(args, out)
+    if args.command == "sim":
+        from . import simcli
+        return simcli.run(args, out)
     if not args.runtime:
         raise DiagError("usage", "give --runtime HOST[:PORT]")
     if args.command == "trace":
@@ -1162,12 +1196,19 @@ def _trace(args, out):
     return 0
 
 
+def _sim_parser(sub):
+    from . import simcli
+    simcli.add_parser(sub)
+
+
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        return run(args)
+        return run(args, sys.stdout)
     except DiagError as e:
         print("openplc-canopen-diag: %s" % e, file=sys.stderr)
+        if args.command == "sim" and getattr(args, "sim_command", None) == "test":
+            return 2  # a test run that could not start
         return 2 if e.kind == "usage" else 1
     except KeyboardInterrupt:
         return 130

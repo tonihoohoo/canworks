@@ -44,6 +44,8 @@ extern "C" {
 #include "runtime_version.h"
 #include "slave_bus.h"
 #include "slave_state.h"
+#include "sim_config.h"
+#include "sim_trace.h"
 
 using namespace canopen_plugin;
 
@@ -59,11 +61,30 @@ struct NetworkState {
   GeneratedConfig gen;
   ProcessImage image;
   std::unique_ptr<DiagHub> hub;  // with diagnostics only
+  std::shared_ptr<SimSetup> sim;  // simulated devices, if any
   std::unique_ptr<Bus> bus;
   // A slave network (canopen-slave-device spec) instead of the above.
   SlaveImage slave_image;
   std::unique_ptr<SlaveBus> slave_bus;
 };
+
+// Parameters simulated devices saved (0x1010, LSS store) live as long as the
+// runtime, across PLC stop and start (docs/simulator.md).
+std::shared_ptr<canopen_sim::StoreMap> g_sim_store = std::make_shared<canopen_sim::StoreMap>();
+
+// The simulation file for `cfg`: next to the config, or in the canopen/
+// folder of the runtime's generated conf/ (where an upload puts it). "" = none.
+std::string find_sim_file(const Config& cfg) {
+  std::vector<std::string> c = {cfg.config_dir + "/simulation.json", cfg.config_dir + "/canopen/simulation.json"};
+  std::string fb = default_eds_fallback_dir();
+  if (!fb.empty()) {
+    c.push_back(fb + "/canopen/simulation.json");
+    c.push_back(fb + "/simulation.json");
+  }
+  for (const auto& p : c)
+    if (access(p.c_str(), R_OK) == 0) return p;
+  return "";
+}
 
 struct PluginState {
   ConfigSet set;
@@ -171,8 +192,9 @@ void prepare() {
                cfg.slave.objects.size(), cfg.slave.objects.size() == 1 ? "" : "s");
       continue;
     }
-    log_info("loaded %s: %s adapter %s, %u bit/s, master node ID %u, %zu slave%s", path.c_str(),
-             cfg.adapter.type.c_str(), cfg.adapter.interface.c_str(), cfg.adapter.bitrate, cfg.master.node_id,
+    log_info("loaded %s: %s adapter %s, %u bit/s%s, master node ID %u, %zu slave%s", path.c_str(),
+             cfg.adapter.type.c_str(), cfg.adapter.interface.c_str(), cfg.adapter.bitrate,
+             cfg.adapter.simulate ? " (not used: the network is simulated)" : "", cfg.master.node_id,
              cfg.nodes.size(), cfg.nodes.size() == 1 ? "" : "s");
     const MasterConfig& m = cfg.master;
     if (m.sync_plc_cycle) {
@@ -235,8 +257,30 @@ void prepare() {
                 strerror(errno));
       return;
     }
+    // Simulated devices (docs/simulator.md). The simulation file names nodes
+    // by node ID alone, so it serves a config with one network only.
+    std::shared_ptr<SimSetup> sim;
+    if (simulates_anything(cfg)) {
+      sim = std::make_shared<SimSetup>();
+      sim->store = g_sim_store;
+      std::string sim_path = find_sim_file(cfg);
+      if (!sim_path.empty() && st->set.several()) {
+        log_warn("%s is not used: a simulation file serves a configuration with one network only; the "
+                 "simulated devices of this network run with their default behaviour", sim_path.c_str());
+      } else if (!sim_path.empty()) {
+        if (!canopen_sim::load_sim_file(sim_path, sim->file, errors) || !check_sim_file(cfg, sim->file, errors)) {
+          for (const auto& e : errors) log_error("%s", e.c_str());
+          log_error("simulation file rejected; CANopen inactive");
+          return;
+        }
+        log_info("simulation file %s", sim_path.c_str());
+      }
+      log_warn("%s", sim_summary(cfg, sim->file).c_str());
+      if (cfg.adapter.simulate) sim->tap = std::make_shared<SimTraceTap>();
+    }
+    net->sim = sim;
     if (cfg.master.has_diagnostics) net->hub.reset(new DiagHub(cfg, CANOPEN_PLUGIN_VERSION));
-    net->bus.reset(new Bus(cfg, net->gen, net->image, net->hub.get(), st->gateway.get()));
+    net->bus.reset(new Bus(cfg, net->gen, net->image, net->hub.get(), sim, st->gateway.get()));
     log_info("%zu input and %zu output PDO entries bound to the PLC image", net->image.inputs().size(),
              net->image.outputs().size());
     st->nets.push_back(std::move(net));
@@ -245,6 +289,9 @@ void prepare() {
     std::vector<DiagHub*> hubs;
     for (auto& n : st->nets) hubs.push_back(n->hub.get());
     st->server.reset(new DiagServer(hubs));
+    for (size_t i = 0; i < st->nets.size(); ++i)
+      if (st->nets[i]->sim && st->nets[i]->sim->tap)
+        st->server->set_trace_source(make_sim_trace_source(st->nets[i]->sim->tap), i);
   }
   g_state = std::move(st);
 }

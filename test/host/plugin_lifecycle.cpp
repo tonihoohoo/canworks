@@ -10,8 +10,14 @@
 // start_loop(), must reject the config with an error and not start.
 // With no config file at the configured path, or no path at all, an enabled
 // plugin warns, opens no CAN interface, and its scan hooks do nothing.
+// With a simulated network (adapter.simulate), the plugin runs the master and
+// its simulated devices without any CAN interface, and says so at start.
 
 #include <dlfcn.h>
+
+#include <chrono>
+#include <mutex>
+#include <thread>
 
 #include <cstdarg>
 #include <cstdio>
@@ -27,10 +33,12 @@
 namespace {
 
 std::vector<std::string> g_logs;
+std::mutex g_mutex;  // the plugin logs from its bus thread too
 
 void vlog(const char* level, const char* fmt, va_list ap) {
   char buf[1024];
   std::vsnprintf(buf, sizeof(buf), fmt, ap);
+  std::lock_guard<std::mutex> lock(g_mutex);
   g_logs.push_back(std::string(level) + " " + buf);
   std::fprintf(stderr, "    [%s] %s\n", level, buf);
 }
@@ -46,6 +54,7 @@ void expect(bool ok, const char* what) {
 }
 
 bool logged(const char* text) {
+  std::lock_guard<std::mutex> lock(g_mutex);
   for (const auto& l : g_logs)
     if (l.find(text) != std::string::npos) return true;
   return false;
@@ -145,6 +154,61 @@ int main(int argc, char** argv) {
   cycle_start();
   cycle_end();
   cleanup();
+
+  // A simulated network: no interface, the ping-pong node simulated, its
+  // TPDO object following the program's output.
+  auto stop_loop = sym<void (*)()>(h, "stop_loop");
+  const std::string sim_dir = std::string(argv[2]) + "/simulated";
+  if (std::system(("mkdir -p '" + sim_dir + "'").c_str()) != 0) expect(false, "scratch dir");
+  {
+    std::ifstream in(std::string(PINGPONG_DIR) + "/cpp-slave.eds", std::ios::binary);
+    std::ofstream out(sim_dir + "/cpp-slave.eds", std::ios::binary);
+    out << in.rdbuf();
+  }
+  auto run_simulated = [&](const std::string& node_extra, int seconds, unsigned& last) {
+    {
+      std::ofstream f(sim_dir + "/canopen.json");
+      f << R"({"schema_version": 1,
+               "adapter": {"type": "socketcan", "interface": "nonexistent0", "bitrate": 125000, "simulate": true},
+               "master": {"node_id": 1, "sync_period_us": 20000},
+               "nodes": [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 50,)"
+        << node_extra << R"( "status_location": "%IX10.0",
+                          "tx_pdos": [{"entries": [{"index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID100"}]}],
+                          "rx_pdos": [{"entries": [{"index": "0x4000", "type": "UNSIGNED32", "iec_location": "%QD100"}]}]}]})";
+      std::ofstream s(sim_dir + "/simulation.json");
+      s << R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})";
+    }
+    g_logs.clear();
+    img.reset(new fake_runtime::Image);
+    rt = args(sim_dir + "/canopen.json");
+    expect(init(rt.get()) == 0, "init returns 0");
+    rt.reset();
+    expect(start_loop() == 0, "start_loop starts CANopen");
+    for (int i = 0; i < seconds * 100; ++i) {
+      cycle_start();
+      img->dint_out[100] = img->dint_in[100] + 1;
+      cycle_end();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    last = img->dint_in[100];
+    bool status = img->bool_in[10][0] != 0;
+    stop_loop();
+    cleanup();
+    return status;
+  };
+  std::printf("simulated network, every node simulated:\n");
+  unsigned last = 0;
+  bool status = run_simulated("", 3, last);
+  expect(logged("WARN") && logged("the CAN network is SIMULATED") && logged("simulated nodes: 2"),
+         "a warning names what is simulated");
+  expect(logged("simulation file "), "the simulation file is loaded");
+  expect(status && last > 5, "the node is operational and the round trip runs");
+  expect(!logged("nonexistent0: ") && !logged("ERROR"), "no CAN interface touched, no error");
+
+  std::printf("simulated network, the node not simulated:\n");
+  status = run_simulated(R"( "simulate": false,)", 2, last);
+  expect(logged("no node is simulated"), "the warning says no node is simulated");
+  expect(!status, "the node stays absent");
 
   std::printf(g_failures ? "%d failure(s)\n" : "OK\n", g_failures);
   return g_failures ? 1 : 0;

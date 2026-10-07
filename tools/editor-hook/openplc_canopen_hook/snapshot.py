@@ -11,8 +11,17 @@ writes it into the upload's conf/ directory in the deploy tool's layout:
     conf/canopen/eds/<name>
     conf/canopen/fw/<name>
 
-so the runtime's own plugin configuration step enables the plugin. It never
-writes anything when a check fails.
+so the runtime's own plugin configuration step enables the plugin. A
+simulation file next to the config (canopen/simulation.json, its paths
+relative to canopen/ as well) is checked against the config and travels
+too, in the deploy tool's layout:
+
+    conf/canopen/simulation.json   (each extra device's eds -> eds/<name>,
+                                    each CSV file -> sim/<name>)
+    conf/canopen/eds/<name>        (the extra devices' EDS files)
+    conf/canopen/sim/<name>        (its CSV files)
+
+It never writes anything when a check fails.
 """
 
 import json
@@ -23,11 +32,12 @@ import stat
 import tempfile
 import zipfile
 
-from openplc_canopen_deploy import contract
-from openplc_canopen_deploy.bundle import EDS_DIR, FW_DIR
+from openplc_canopen_deploy import bundle, contract, simfile
+from openplc_canopen_deploy.bundle import EDS_DIR, FW_DIR, SIM_CSV_DIR, SIM_FILE
 
 PROJECT_DIR = "canopen"
 CONFIG_NAME = "canopen.json"
+SIM_NAME = simfile.FILE_NAME
 MAX_TOTAL_BYTES = 16 * 1024 * 1024
 REPLACEMENT_CHAR = b"\xef\xbf\xbd"  # U+FFFD in UTF-8
 
@@ -150,6 +160,8 @@ def _load(snapshot_zip):
                                "program file with openplc-canopen-deploy --runtime instead" % (PROJECT_DIR, rel))
             software[value] = data
 
+        sim = _read_sim(z, root, names, budget)
+
     # The deploy tool's checks, on the files as they arrived.
     work = tempfile.mkdtemp(prefix="openplc-canopen-hook-")
     try:
@@ -164,12 +176,89 @@ def _load(snapshot_zip):
                 paths[value] = p
             return paths
 
-        result = contract.check_config(cfg, where, eds_paths=stage(eds, "e"), software_paths=stage(software, "f"))
+        eds_paths = stage(eds, "e")
+        result = contract.check_config(cfg, where, eds_paths=eds_paths, software_paths=stage(software, "f"))
+        if not result.ok:
+            raise Rejected("; ".join(result.errors))
+        warnings = list(result.warnings)
+        if sim is not None:
+            sim, sim_warnings = _check_sim(sim, cfg, eds_paths, work)
+            warnings += sim_warnings
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    return cfg, eds, software, warnings, sim
+
+
+def _read_sim(z, root, names, budget):
+    """(parsed simulation file, {relative path inside canopen/: bytes} of
+    the files it names), or None when the project has none."""
+    where = PROJECT_DIR + "/" + SIM_NAME
+    if root + where not in names:
+        return None
+    info = _member(z, root + where)
+    if info is None:
+        raise Rejected("%s is not a regular file" % where)
+    try:
+        data = json.loads(_read(z, info, budget).decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as e:
+        raise Rejected("%s is not valid JSON: %s" % (where, e))
+    files = {}
+    # Paths as the simulation file names them; "/" stands for canopen/.
+    referenced = simfile.referenced_files(data, "/" + SIM_NAME)
+    for kind, what in (("eds", "EDS path"), ("csv", "CSV file path")):
+        for value in sorted(referenced[kind]):
+            rel = _safe_relative(value)
+            if rel is None:
+                raise Rejected("%s: invalid %s %r (it must be a relative path inside %s/)"
+                               % (where, what, value, PROJECT_DIR))
+            if rel in files:
+                continue
+            member = _member(z, root + PROJECT_DIR + "/" + rel)
+            if member is None:
+                raise Rejected("%s/%s is missing from the project (named by %s)" % (PROJECT_DIR, rel, where))
+            content = _read(z, member, budget)
+            if REPLACEMENT_CHAR in content:
+                raise Rejected("%s/%s (named by %s) is not UTF-8: the editor replaced some of its characters "
+                               "when it uploaded the project. Save it as UTF-8" % (PROJECT_DIR, rel, where))
+            files[rel] = content
+    return data, files
+
+
+def _check_sim(sim, cfg, eds_paths, work):
+    """The deploy tool's simulation file checks and rewrite, on the files as
+    they arrived, staged in work/canopen/. Returns ((deployed simulation
+    file, {extra device EDS name: bytes}, {CSV name: bytes}), warnings)."""
+    data, files = sim
+    top = os.path.join(work, PROJECT_DIR)
+    for rel, content in files.items():
+        p = os.path.join(top, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(content)
+    os.makedirs(top, exist_ok=True)
+    path = os.path.join(top, SIM_NAME)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+    def shown(text):  # the staged paths as the project names them
+        return text.replace(work + os.sep, "")
+
+    result = simfile.check(data, path, cfg, eds_paths=eds_paths)
     if not result.ok:
-        raise Rejected("; ".join(result.errors))
-    return cfg, eds, software, result.warnings
+        raise Rejected("; ".join(shown(e) for e in result.errors))
+    try:
+        out, eds_by, csv_by = bundle.sim_rewrite(data, path)
+    except bundle.BundleError as e:
+        raise Rejected(shown(str(e)))
+
+    def contents(by_name):
+        out = {}
+        for name, src in by_name.items():
+            with open(src, "rb") as f:
+                out[name] = f.read()
+        return out
+
+    return (out, contents(eds_by), contents(csv_by)), [shown(w) for w in result.warnings]
 
 
 def materialize(snapshot_zip, conf_dir):
@@ -187,7 +276,7 @@ def materialize(snapshot_zip, conf_dir):
         return False, [(WARNING, "CANopen: project config ignored: cannot read the project snapshot: %s" % e)]
     if loaded is None:
         return False, []
-    cfg, eds, software, warnings = loaded
+    cfg, eds, software, warnings, sim = loaded
 
     by_name = {}
     for value, data in eds.items():
@@ -196,6 +285,13 @@ def materialize(snapshot_zip, conf_dir):
             return False, [(WARNING, "CANopen: project config ignored: two different EDS files are both "
                                      "named %s; rename one" % name)]
         by_name[name] = data
+    if sim is not None:
+        for name, data in sim[1].items():
+            if name in by_name and by_name[name] != data:
+                return False, [(WARNING, "CANopen: project config ignored: two different EDS files are both "
+                                         "named %s (one of them for an extra device of %s/%s); rename one"
+                                % (name, PROJECT_DIR, SIM_NAME))]
+            by_name[name] = data
     fw_by_name = {}
     for value, data in software.items():
         name = posixpath.basename(value)
@@ -221,12 +317,32 @@ def materialize(snapshot_zip, conf_dir):
         for name, data in sorted(fw_by_name.items()):
             with open(os.path.join(fw_dir, name), "wb") as f:
                 f.write(data)
+    if sim is not None:
+        sim_data, sim_eds, sim_csv = sim
+        if sim_csv:
+            csv_dir = os.path.join(conf_dir, *SIM_CSV_DIR.split("/"))
+            os.makedirs(csv_dir)
+            for name, data in sorted(sim_csv.items()):
+                with open(os.path.join(csv_dir, name), "wb") as f:
+                    f.write(data)
+        with open(os.path.join(conf_dir, *SIM_FILE.split("/")), "w", encoding="utf-8") as f:
+            json.dump(sim_data, f, indent=2)
+            f.write("\n")
     with open(os.path.join(conf_dir, CONFIG_NAME), "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
         f.write("\n")
     msgs = [(WARNING, "CANopen: %s" % w) for w in warnings]
+    simulated = simfile.describe_simulated(cfg)
+    if simulated:
+        msgs.append((WARNING, "CANopen: this config simulates devices: %s. Outputs to a simulated device go "
+                              "nowhere; never leave a machine's config simulated." % simulated))
     msgs.append((INFO, "CANopen: config taken from the project snapshot (%s/%s, %d EDS file%s)"
                  % (PROJECT_DIR, CONFIG_NAME, len(by_name), "" if len(by_name) == 1 else "s")))
+    if sim is not None:
+        msgs.append((INFO, "CANopen: simulation file carried (%s/%s, %d extra device EDS file%s, %d CSV file%s)%s"
+                     % (PROJECT_DIR, SIM_NAME, len(sim_eds), "" if len(sim_eds) == 1 else "s",
+                        len(sim_csv), "" if len(sim_csv) == 1 else "s",
+                        "" if simulated else "; the config simulates nothing, so it has no effect")))
     return True, msgs
 
 

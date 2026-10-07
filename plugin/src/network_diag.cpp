@@ -70,6 +70,17 @@ void Network::ServiceDiag() {
       DiagScan(r, r.op == "scan");
     } else if (r.op.compare(0, 4, "lss_") == 0) {
       DiagLss(r);
+    } else if (r.op.compare(0, 4, "sim_") == 0) {
+      if (!sim_handler_) {
+        diag_->answer(r.seq, diag_error(r.id, "nothing simulated"));
+        continue;
+      }
+      cJSON* req = cJSON_Parse(r.raw.c_str());
+      std::string line = req ? sim_handler_(req, r.id, r.peer) : diag_error(r.id, "not a JSON object");
+      cJSON_Delete(req);
+      // The engine answers without the line end the diagnostics protocol needs.
+      if (line.empty() || line.back() != '\n') line += '\n';
+      diag_->answer(r.seq, line);
     } else if (r.op == "sdo_read" || r.op == "sdo_write") {
       ManualSdo m;
       m.deadline = now + std::chrono::milliseconds(r.timeout_ms);
@@ -117,8 +128,9 @@ void Network::DiagStatus(const DiagRequest& r) {
   cJSON* m = cJSON_AddObjectToObject(res, "master");
   cJSON_AddNumberToObject(m, "node_id", cfg_.master.node_id);
   cJSON_AddNumberToObject(m, "state", master_state_);
+  cJSON_AddBoolToObject(res, "simulated_network", cfg_.adapter.simulate);
   cJSON* b = cJSON_AddObjectToObject(res, "bus");
-  cJSON_AddStringToObject(b, "interface", cfg_.adapter.interface.c_str());
+  cJSON_AddStringToObject(b, "interface", cfg_.adapter.simulate ? "simulated" : cfg_.adapter.interface.c_str());
   cJSON_AddNumberToObject(b, "state", image_.bus_state());
   cJSON_AddNumberToObject(b, "tx_errors", image_.bus_tx_errors());
   cJSON_AddNumberToObject(b, "rx_errors", image_.bus_rx_errors());
@@ -146,6 +158,9 @@ void Network::DiagStatus(const DiagRequest& r) {
     cJSON_AddNumberToObject(o, "state", image_.node_state(id));
     cJSON_AddBoolToObject(o, "status", n.up);
     cJSON_AddBoolToObject(o, "booted", n.booted);
+    const bool conflict = sim_conflicts_.count(id) > 0;
+    cJSON_AddBoolToObject(o, "simulated", n.cfg->simulate && !conflict);
+    cJSON_AddBoolToObject(o, "sim_conflict", conflict);
     uint8_t letter = image_.node_boot_error(id);
     if (letter) {
       char es[2] = {static_cast<char>(letter), 0};

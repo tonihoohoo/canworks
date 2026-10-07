@@ -24,6 +24,7 @@ The plugin's behaviour is set in the config file; [docs/config.md](docs/config.m
 - **OpenPLC as a slave:** a network with `"role": "slave"` makes the PLC a node of a network another master runs, with the objects the master writes on `%I` locations and those it reads on `%Q`, the PDO mapping left to that master, store and restore, LSS, and the slave's own state and EMCY for the program ([docs/slave.md](docs/slave.md)). Its EDS is generated from a short object list and is the file the other master's tool imports.
 - **Gateway:** a slave network and master networks in one config, with routes that copy values between upper-network objects and field PDO entries in the plugin, without the PLC program, plus field node status, EMCY forwarding, behaviour on loss of the upper master and an SDO bridge ([docs/gateway.md](docs/gateway.md)).
 - **Online diagnostics** (opt-in, token protected): a TCP channel for the PC tools below. Nothing a client does touches the PLC scan.
+- **Simulated devices** ([docs/simulator.md](docs/simulator.md)): any node, or the whole network, can be simulated from its EDS, so a project and its PLC program run without the real devices or any CAN hardware. Simulated devices boot, answer SDO, exchange PDOs, send heartbeats and EMCY and store parameters as their EDS describes; their values can follow waveforms, formulas across devices, recorded CSV data, a CiA 401 loopback, a CiA 404 slow movement or a CiA 402 drive model; faults (EMCY, lost heartbeat, power loss, SDO aborts and delays, wrong identity, ...) come on command or from timed scenarios that also test the program's reaction. Two switches in the config pick what is simulated: the network (`adapter.simulate`) and each node (`simulate`), in any mix with real devices.
 
 ## On the engineering PC
 
@@ -31,7 +32,9 @@ Three commands in one package, for Windows, macOS and Linux. They install with u
 
 - **`openplc-canopen-config`**, a configurator in a local web page ([docs/configurator.md](docs/configurator.md)): add nodes from their EDS, map PDO entries to PLC addresses, startup SDOs and SDO variables, with every address checked against the editor project, and one tab per CAN network, each a master or a slave network, with the slave's EDS built and exported in the page and a gateway page for routes. It writes the project's `canopen/` folder, exports DCF and DBC files, and creates a new editor project with the I/O already declared. Its **Online** view shows the live network: node and bus state, EMCY history, SDO read and write, NMT, a bus scan, LSS commissioning, an object dictionary browser with watch, and device parameter backup, compare and restore. Its **Trace** view records the bus with CANopen decoding, graphs and triggers ([docs/trace.md](docs/trace.md)).
 - **`openplc-canopen-deploy`** ([docs/deploy.md](docs/deploy.md)): adds the config to an editor build and uploads it to the runtime, checks a config without a runtime, puts the config into an editor project, creates a new editor project from a config (`--new-project`, with `--sdo-blocks` to enable the SDO function blocks), writes or installs the `openplc_canopen` editor library (`library`), generates a slave's EDS (`slave-eds`), and exports DCF (`--export-dcf`) and DBC (`--export-dbc`) files, per network or for one with `--network`.
-- **`openplc-canopen-diag`** ([docs/diagnostics.md](docs/diagnostics.md)): the online functions from a terminal, including `backup`, `compare`, `restore` and `store` of device parameters (a CiA 306 DCF, so a replaced device gets its settings back), LSS commands, `--network` to pick one of several networks, and `trace` with export to pcapng, candump, ASC, BLF, TRC or CSV.
+- **`openplc-canopen-diag`** ([docs/diagnostics.md](docs/diagnostics.md)): the online functions from a terminal, including `backup`, `compare`, `restore` and `store` of device parameters (a CiA 306 DCF, so a replaced device gets its settings back), LSS commands, `--network` to pick one of several networks, `trace` with export to pcapng, candump, ASC, BLF, TRC or CSV, and `sim` to drive simulated devices and run scenarios as tests.
+
+The configurator's **Simulated** switches and **Simulation** view set up and drive simulated devices. On the runtime host, `openplc-canopen-sim` runs simulated devices on a SocketCAN interface for any CANopen master, with a `test` mode that runs scenarios and writes a JUnit report ([docs/simulator.md](docs/simulator.md#openplc-canopen-sim)).
 
 ## Scope
 
@@ -44,11 +47,15 @@ Three commands in one package, for Windows, macOS and Linux. They install with u
 ```
 CMakeLists.txt     builds libcanopen_plugin.so; the runtime's install.sh builds it from here
 plugin/            native plugin source
+plugin/sim/        the device simulator engine (simulated devices, value sources, expressions,
+                   CiA 402 drive model, faults, scenarios), used by the plugin and openplc-canopen-sim
 schema/            the config contract (JSON Schema 2020-12): canopen.v1.schema.json (one network),
-                   canopen.v2.schema.json (several networks, slave networks, the gateway)
+                   canopen.v2.schema.json (several networks, slave networks, the gateway), and
+                   canopen-sim.v1.schema.json for the simulation file
 config/            example configurations: config/pingpong/ (the ping-pong slave),
-                   config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404),
-                   config/two-networks/ (two ping-pong networks on vcan0 and vcan1),
+                   config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404), each with
+                   an example simulation.json, config/two-networks/ (two ping-pong networks on
+                   vcan0 and vcan1),
                    config/cia402-drive/ (a made-up CiA 402 drive as a PLCopen axis, with a demo program),
                    config/slave/ (OpenPLC as slave node 10, its EDS description and a demo program),
                    config/gateway/ (the ping-pong node on a field network, OpenPLC as a gateway above it)
@@ -59,9 +66,10 @@ tools/editor-hook/ the runtime-side hook that keeps CANopen on with the editor's
 library/           the openplc_canopen editor library (SDO function blocks): generate.py writes the
                    block sources, build.sh builds the .stlib the deploy tool carries
 test/unit/         unit tests: config validation, EDS checks, dcfgen, process image
-test/sim/          master against Lely slaves on an in-process virtual CAN bus
+test/sim/          master against Lely slaves and simulated devices on an in-process virtual CAN bus
 test/slave/        the plugin's master against its own slave and gateway on virtual buses, and
                    run.sh for a master on vcan0 and the slave on vcan1 joined by cangw
+test/sim_unit/     simulator unit tests: expressions (shared corpus), sources, file loader, drive model
 test/drive/        a simulated CiA 402 drive (Lely slave) for the virtual bus
 test/cia402/       ST tests of the CiA 402 axis glue with STruC++ (run.sh) and its host for sim_tests
 test/pingpong/     the Lely tutorial ping-pong slave and run.sh for vcan0
@@ -85,7 +93,7 @@ test/pc-tools/     the release tag check; test/ci/: the CI change classification
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
 docs/              config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
-                   gateway.md, install-pc.md, install-stock.md, plc-sdo.md, slave.md,
+                   gateway.md, install-pc.md, install-stock.md, plc-sdo.md, simulator.md, slave.md,
                    trace.md
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
 ```
@@ -99,6 +107,7 @@ cmake -B build -DOPENPLC_ROOT=../openplc-runtime
 cmake --build build -j
 ctest --test-dir build --output-on-failure -j4  # unit and virtual-bus tests (one test per sim case)
 build/test/sim_tests --exact sim_sdo_variables  # one sim case on its own
+build/test/sim_unit_tests                       # simulator unit tests
 python3 -m unittest discover -s tools/deploy/tests -t tools/deploy   # deploy tool and configurator (needs jsonschema;
                                                                      # the page tests also need playwright)
 PYTHONPATH=tools/editor-hook:tools/deploy python3 -m unittest discover -s tools/editor-hook/tests -t tools/editor-hook

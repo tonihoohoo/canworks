@@ -32,6 +32,11 @@ OpenPLC Runtime v4, the config in its canopen/ folder, and a program main
 declaring every CANopen location. Uploads nothing. With --sdo-blocks the
 project also enables the openplc_canopen library (the CO_SDO_* blocks).
 
+A simulation file (simulation.json next to the config, or --sim FILE) is
+checked and travels with the config (docs/simulator.md). A config that
+simulates the network or any node is uploaded only after a confirmation,
+--yes or --simulated.
+
   openplc-canopen-deploy library [--out DIR] [--install] [--project DIR]
 
 writes the openplc_canopen editor library (SDO function blocks for the PLC
@@ -54,7 +59,7 @@ import subprocess
 import sys
 
 from . import (__version__, bundle, clash, contract, dbcexport, dcfexport, editorproject, project, runtime, sdolibrary,
-               slaveeds)
+               simfile, slaveeds)
 
 EDITOR_WARNING = (
     "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canopen.json, so the "
@@ -125,6 +130,12 @@ def parser():
     tls.add_argument("--fingerprint", metavar="SHA256",
                      help="verify the runtime's certificate by its SHA-256 fingerprint")
     tls.add_argument("--insecure", action="store_true", help="do not verify the runtime's certificate")
+    p.add_argument("--sim", metavar="FILE",
+                   help="the simulation file to check and carry with the config (default: %s next to --config, "
+                        "when it exists)" % simfile.FILE_NAME)
+    p.add_argument("--simulated", action="store_true",
+                   help="upload a config that simulates the network or some nodes without asking")
+    p.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     p.add_argument("--output", metavar="ZIP", help="also write the program zip to this file")
     p.add_argument("--check-only", action="store_true", help="check and assemble, but do not upload")
     p.add_argument("--no-start", action="store_true",
@@ -152,7 +163,16 @@ def build_project(project, target, out):
     return os.path.join(project, "build", target, "src")
 
 
-def run(args, out=print, err=None, password_source=None):
+def _ask(question):
+    """y/N on the terminal; None when there is no terminal to ask on."""
+    if not sys.stdin or not sys.stdin.isatty():
+        return None
+    sys.stdout.write(question + " [y/N] ")
+    sys.stdout.flush()
+    return sys.stdin.readline().strip().lower() in ("y", "yes")
+
+
+def run(args, out=print, err=None, password_source=None, confirm_source=None):
     err = err or (lambda m: print(m, file=sys.stderr))
 
     into = getattr(args, "into_project", None)
@@ -199,6 +219,34 @@ def run(args, out=print, err=None, password_source=None):
         raise Failure("\n".join(result.errors))
     out("ok: %s passes the schema and EDS checks" % args.config)
 
+    # The simulation file and what the config simulates (not for the exports).
+    sim_path = None
+    simulated = None
+    if not export_dir and not dbc_file:
+        sim_path = getattr(args, "sim", None)
+        if sim_path and not os.path.isfile(sim_path):
+            raise Failure("simulation file %s not found" % sim_path)
+        if not sim_path and os.path.isfile(simfile.default_path(args.config)):
+            sim_path = simfile.default_path(args.config)
+        if sim_path:
+            _, sim_result = simfile.check_file(sim_path, cfg, args.config, eds_paths=bundle.eds_files(cfg, args.config))
+            for w in sim_result.warnings:
+                err("warning: " + w)
+            if not sim_result.ok:
+                raise Failure("\n".join(sim_result.errors))
+            out("ok: %s passes the simulation file checks" % sim_path)
+        simulated = simfile.describe_simulated(cfg)
+        uploading = not into and not new_project and not args.check_only
+        if simulated:
+            err("warning: this config simulates devices: %s. Outputs to a simulated device go nowhere; never leave "
+                "a machine's config simulated." % simulated)
+        if simulated and uploading and not (getattr(args, "yes", False) or getattr(args, "simulated", False)):
+            answer = (confirm_source or _ask)("Upload this config with simulated devices to %s?" % args.runtime)
+            if answer is None:
+                raise Failure("not uploaded: %s. Pass --simulated (or --yes) to upload it anyway" % simulated)
+            if not answer:
+                raise Failure("not confirmed")
+
     if export_dir:
         try:
             files, _ = dcfexport.export(cfg, args.config, network=network)
@@ -227,7 +275,7 @@ def run(args, out=print, err=None, password_source=None):
         try:
             path, decls = editorproject.create(cfg, args.config, new_project,
                                                interval=interval or editorproject.DEFAULT_INTERVAL, progress=out,
-                                               sdo_blocks=sdo_blocks)
+                                               sim_path=sim_path, sdo_blocks=sdo_blocks)
         except editorproject.NewProjectError as e:
             raise Failure(str(e))
         out("created %s with %d CANopen variable%s declared in main" % (path, len(decls),
@@ -240,7 +288,7 @@ def run(args, out=print, err=None, password_source=None):
 
     if into:
         try:
-            written, converted = project.write(cfg, args.config, into, force=args.force)
+            written, converted = project.write(cfg, args.config, into, force=args.force, sim_path=sim_path)
         except project.ProjectError as e:
             raise Failure(str(e))
         for name in converted:
@@ -256,11 +304,16 @@ def run(args, out=print, err=None, password_source=None):
         bundle.check_editor_bundle(bundle_dir)
         deployed, eds_by_name = bundle.rewrite(cfg, args.config)
         fw_by_name = bundle.software_by_name(cfg, args.config)
-    except bundle.BundleError as e:
+        sim = None
+        if sim_path:
+            sim_data, sim_eds, sim_csv = bundle.sim_rewrite(simfile.load(sim_path), sim_path)
+            bundle.merge_by_name(eds_by_name, sim_eds, "EDS files")
+            sim = (sim_data, sim_csv)
+    except (bundle.BundleError, simfile.SimFileError) as e:
         raise Failure(str(e))
     work = bundle.temp_dir()
     try:
-        staged, converted = bundle.assemble(bundle_dir, deployed, eds_by_name, work, fw_by_name)
+        staged, converted = bundle.assemble(bundle_dir, deployed, eds_by_name, work, fw_by_name, sim)
         for name in converted:
             out("converted %s from CP1252 to UTF-8 in the bundle" % name)
 
@@ -278,9 +331,11 @@ def run(args, out=print, err=None, password_source=None):
 
         zip_path = os.path.join(work, "program.zip")
         names = bundle.make_zip(staged, zip_path)
-        out("ok: bundle of %d files with conf/canopen.json and %d EDS file%s%s"
+        out("ok: bundle of %d files with conf/canopen.json and %d EDS file%s%s%s"
             % (len(names), len(eds_by_name), "" if len(eds_by_name) == 1 else "s",
-               " and %d program file%s" % (len(fw_by_name), "" if len(fw_by_name) == 1 else "s") if fw_by_name else ""))
+               " and %d program file%s" % (len(fw_by_name), "" if len(fw_by_name) == 1 else "s") if fw_by_name else "",
+               ", conf/%s%s" % (bundle.SIM_FILE, " and %d CSV file%s" % (len(sim[1]), "" if len(sim[1]) == 1 else "s")
+                                if sim[1] else "") if sim else ""))
         if args.output:
             shutil.copyfile(zip_path, args.output)
             out("wrote %s" % args.output)
