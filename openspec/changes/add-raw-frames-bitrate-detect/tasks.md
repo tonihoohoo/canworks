@@ -14,7 +14,7 @@
 
 - [x] 3.1 Add `send`, `send-stop` and `detect-bitrate` to `openplc-canopen-diag` with the options of the spec, `--network`, progress and table output, exit codes, and the "plugin too old" message on `unknown op`; verify with CLI tests against a fake diag server.
 - [x] 3.2 Configurator: Send panel in the Trace view (single, cyclic, jobs list, sent list, "Send this frame" from a trace row, force confirmation, disabled without `allow_changes`, jobs stopped when leaving the view) and Detect bit rate on the Scan page (warning and confirmation, progress, table, verdict, "Use N kbit/s" setting the field unsaved); verify with configurator API and headless page tests against a fake diag server.
-- [ ] 3.3 Bump the deploy tool minor version.
+- [x] 3.3 Bump the deploy tool minor version.
 
 ## 4. CI
 
@@ -27,9 +27,9 @@
 
 ## 6. PC-direct backend (needs add-local-bus-commissioning merged; otherwise moved to a follow-up)
 
-- [ ] 6.1 Implement `listen_only` in `localbus.adapter.open` for slcan (`L`), PCAN and SocketCAN (link setting, clear refusal without CAP_NET_ADMIN), refusing for adapters without it; verify with unit tests on fakes per adapter type.
-- [ ] 6.2 Add `send_frame`, `send_frame_stop`, `detect_bitrate`, `detect_bitrate_status` to the `LocalBus` op table through `_transmit`, with the guards of design D9 and the shared verdict; verify on python-can's `virtual` bus and with a verdict parity test against the plugin's cases.
-- [ ] 6.3 "Detect" next to the bit rate in the configurator's adapter connection dialog; verify with a page test against a fake local bus.
+- [x] 6.1 Implement `listen_only` in `localbus.adapter.open` for slcan (`L`), PCAN and SocketCAN (link setting, clear refusal without CAP_NET_ADMIN), refusing for adapters without it; verify with unit tests on fakes per adapter type.
+- [x] 6.2 Add `send_frame`, `send_frame_stop`, `detect_bitrate`, `detect_bitrate_status` to the `LocalBus` op table through `_transmit`, with the guards of design D9 and the shared verdict; verify on python-can's `virtual` bus and with a verdict parity test against the plugin's cases.
+- [x] 6.3 "Detect" next to the bit rate in the configurator's adapter connection dialog; verify with a page test against a fake local bus.
 
 ## 7. Hardware check
 

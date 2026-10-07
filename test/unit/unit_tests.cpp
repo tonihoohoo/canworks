@@ -4094,6 +4094,40 @@ TEST(sweep_verdicts) {
   CHECK(r.verdict == SweepVerdict::Ambiguous && r.candidates.size() == 1 && r.candidates[0] == 250);
 }
 
+// The cases the PC tools' verdict (bitrate.decide) is tested against too.
+TEST(sweep_verdict_parity) {
+  cJSON* doc = cJSON_Parse(read(std::string(FIXTURES_DIR) + "/sweep_verdicts.json").c_str());
+  CHECK(doc != nullptr);
+  if (!doc) return;
+  int count = 0;
+  const cJSON* c;
+  cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(doc, "cases")) {
+    const std::string name = cJSON_GetObjectItemCaseSensitive(c, "name")->valuestring;
+    SweepResult r;
+    const cJSON* row;
+    cJSON_ArrayForEach(row, cJSON_GetObjectItemCaseSensitive(c, "results")) {
+      SweepRate s;
+      s.bitrate_kbit = static_cast<unsigned>(cJSON_GetArrayItem(row, 0)->valuedouble);
+      s.frames = static_cast<uint64_t>(cJSON_GetArrayItem(row, 1)->valuedouble);
+      s.error_frames = static_cast<uint64_t>(cJSON_GetArrayItem(row, 2)->valuedouble);
+      r.results.push_back(s);
+    }
+    decide_sweep(r);
+    CHECK_MSG(cJSON_GetObjectItemCaseSensitive(c, "verdict")->valuestring == std::string(sweep_verdict_name(r.verdict)),
+              name);
+    const cJSON* rate = cJSON_GetObjectItemCaseSensitive(c, "bitrate_kbit");
+    CHECK_MSG(cJSON_IsNull(rate) ? r.bitrate_kbit == 0 : r.bitrate_kbit == static_cast<unsigned>(rate->valuedouble),
+              name);
+    std::vector<unsigned> want;
+    const cJSON* k;
+    cJSON_ArrayForEach(k, cJSON_GetObjectItemCaseSensitive(c, "candidates")) want.push_back(static_cast<unsigned>(k->valuedouble));
+    CHECK_MSG(r.candidates == want, name);
+    ++count;
+  }
+  cJSON_Delete(doc);
+  CHECK(count >= 8);
+}
+
 namespace {
 
 // A bus that has traffic only at one bit rate.

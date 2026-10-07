@@ -1413,6 +1413,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == ("POST", "/api/online/close"):
             conn.close()
             return {"closed": True}
+        if route in (("POST", "/api/online/adapter_detect"), ("POST", "/api/online/adapter_detect_status")):
+            return self._adapter_detect(route, body)
         if route == ("POST", "/api/online/use_eds"):
             return self._use_eds(s, settings, canopen_dir, body.get("path"), body.get("eds_lint"))
         if route == ("POST", "/api/online/watch"):
@@ -1540,6 +1542,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route in SEND_ROUTES:
             return self._send_frames(route, body, (hostname, port, token), network)
         if route in (("POST", "/api/online/detect_bitrate"), ("POST", "/api/online/detect_bitrate_status")):
+            if local and not route[1].endswith("status"):
+                self.server.sender.close()  # the sweep needs the adapter to itself; the Send panel's jobs end
             if route[1].endswith("status"):
                 fn = lambda c: c.detect_bitrate_status()  # noqa: E731
             else:
@@ -1606,6 +1610,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if ":" not in host.rsplit("]", 1)[-1] and isinstance(body.get("port"), int):
             port = body["port"]  # the diagnostics port of the config, when the host gives none
         return hostname, port, token
+
+    def _adapter_detect(self, route, body):
+        """/api/online/adapter_detect and _status: "Detect" next to the bit
+        rate in the USB adapter connection form. The adapter is opened
+        listen-only at each rate, so the online connections on this PC are
+        closed first; nothing is sent, so no allow-changes is needed."""
+        from .. import localbus
+        from ..localbus import sweep as sweep_mod
+        if route[1].endswith("status"):
+            job = self.server.adapter_sweep
+            if job is None:
+                return sweep_mod.idle_status(None)
+            return dict(job.status(), adapter=str(job.spec))
+        job = self.server.adapter_sweep
+        if job is not None and job.running:
+            return dict(job.status(), adapter=str(job.spec))
+        try:
+            spec = localbus.parse(body.get("adapter") or "")
+        except localbus.AdapterError as e:
+            raise ApiError(422, str(e))
+        rounds = body.get("rounds", 1)
+        if isinstance(rounds, bool) or not isinstance(rounds, int) or not 1 <= rounds <= 20:
+            raise ApiError(400, "rounds must be 1-20")
+        kbit = body.get("adapter_bitrate")
+        self.server.connection.close()
+        self.server.sender.close()
+        job = sweep_mod.Sweep(spec, rounds=rounds, configured_kbit=kbit if isinstance(kbit, int) else None)
+        try:
+            job.start()
+        except localbus.AdapterError as e:
+            raise ApiError(422, str(e), kind=e.kind)
+        self.server.adapter_sweep = job
+        return dict(job.status(), adapter=str(spec))
 
     def _send_frames(self, route, body, where, network):
         """/api/online/send_frame, send_stop and send_jobs: the Trace view's
@@ -2004,6 +2041,7 @@ class Server(http.server.ThreadingHTTPServer):
         self.connection = online.Connection()
         self.adapter_allow = False  # the USB adapter's allow-changes switch: this connection only, never saved
         self.sender = online.Sender()
+        self.adapter_sweep = None  # the connection form's bit rate sweep on a USB adapter (localbus.sweep.Sweep)
         self.eds_index = online.EdsIndex()
         self.traces = tracing.Traces()
         self.jobs = params.Jobs()
@@ -2022,6 +2060,8 @@ class Server(http.server.ThreadingHTTPServer):
         self.traces.stop_all()
         self.connection.close()
         self.sender.close()
+        if self.adapter_sweep is not None:
+            self.adapter_sweep.stop()
         shutil.rmtree(self.session.pending_dir, ignore_errors=True)
 
 

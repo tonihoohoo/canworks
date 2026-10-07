@@ -1,0 +1,25 @@
+{
+  "description": "Bit rate sweep verdicts: rows are [bitrate_kbit, frames, error_frames] in sweep order. Checked against the plugin's decide_sweep (test/unit/unit_tests.cpp) and the PC tools' bitrate.decide (tools/deploy/tests/test_localbus_frames.py).",
+  "cases": [
+    {"name": "one clean rate", "results": [[1000, 0, 40], [500, 0, 12], [250, 37, 0], [125, 0, 9]],
+     "verdict": "detected", "bitrate_kbit": 250, "candidates": []},
+    {"name": "errors up to 1 % still match", "results": [[500, 0, 3], [250, 200, 2]],
+     "verdict": "detected", "bitrate_kbit": 250, "candidates": []},
+    {"name": "just over 1 % does not match", "results": [[500, 0, 0], [250, 199, 2]],
+     "verdict": "ambiguous", "bitrate_kbit": null, "candidates": [250]},
+    {"name": "adapter without error reporting", "results": [[1000, 0, 0], [800, 0, 0], [500, 0, 0], [250, 0, 0], [125, 12, 0], [50, 0, 0], [20, 0, 0], [10, 0, 0]],
+     "verdict": "detected", "bitrate_kbit": 125, "candidates": []},
+    {"name": "silent", "results": [[500, 0, 0], [250, 0, 0]],
+     "verdict": "silent", "bitrate_kbit": null, "candidates": []},
+    {"name": "only error frames is silent", "results": [[500, 0, 7], [250, 0, 3]],
+     "verdict": "silent", "bitrate_kbit": null, "candidates": []},
+    {"name": "two clean rates", "results": [[500, 20, 0], [250, 10, 0]],
+     "verdict": "ambiguous", "bitrate_kbit": null, "candidates": [500, 250]},
+    {"name": "errors everywhere: most frames", "results": [[500, 5, 50], [250, 10, 30]],
+     "verdict": "ambiguous", "bitrate_kbit": null, "candidates": [250]},
+    {"name": "errors everywhere: the first of equals", "results": [[800, 4, 9], [500, 4, 9]],
+     "verdict": "ambiguous", "bitrate_kbit": null, "candidates": [800]},
+    {"name": "no rates", "results": [],
+     "verdict": "silent", "bitrate_kbit": null, "candidates": []}
+  ]
+}
