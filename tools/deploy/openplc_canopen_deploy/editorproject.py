@@ -10,7 +10,7 @@ This module then changes only what `create` cannot set:
                                  and for each CiA 402 axis node the axis, its
                                  drive bridge and the bridge call
     canopen/                     the config and its files (project.write())
-    project.json                 with sdo_blocks: the openplc_canopen library
+    project.json                 with sdo_blocks or a cyclic CiA 402 axis: the openplc_canopen library
                                  enabled (sdolibrary.enable_in_project())
 
 The project is created in place (the editor records its path), so a failure
@@ -38,6 +38,13 @@ _PART = re.compile(r"(\d+(?:\.\d+)?)(ms|us|ns|d|h|m|s)_?", re.IGNORECASE)
 
 class NewProjectError(Exception):
     pass
+
+
+def interval_seconds(text):
+    """An IEC duration's length in seconds (check_interval's rules)."""
+    value = check_interval(text)
+    rest = re.match(r"^(?:T|TIME)#(.+)$", value, re.IGNORECASE).group(1)
+    return sum(float(p.group(1)) * _UNITS[p.group(2).lower()] for p in _PART.finditer(rest)) / 1000.0
 
 
 def check_interval(text):
@@ -115,11 +122,11 @@ def declarations(cfg, config_path):
     return declare.program_order(declare.declarations(cfg, object_name, {}, slave_object))
 
 
-def with_axes(cfg, decls):
+def with_axes(cfg, decls, interval=DEFAULT_INTERVAL):
     """(declarations, body lines before BODY): `decls` with each CiA 402
     axis and its bridge after the last declaration of its node, and the
-    bridge calls."""
-    axes, body = axis.glue(cfg, decls)
+    bridge calls (a cyclic axis's cycle time from the task `interval`)."""
+    axes, body = axis.glue(cfg, decls, interval_seconds(interval))
     out = list(decls)
     for a in axes:
         last = max([k for k, d in enumerate(out) if d.get("node") == a["node"]] or
@@ -128,15 +135,21 @@ def with_axes(cfg, decls):
     return out, body
 
 
+def uses_library(cfg):
+    """Whether the program needs the openplc_canopen library without
+    --sdo-blocks: a cyclic CiA 402 axis (its CO402_Cyclic* blocks)."""
+    return any(axis.is_cyclic(n) for n in contract.all_nodes(cfg))
+
+
 def main_st(decls, body=()):
     """pous/programs/main.st in the form the editor writes a Structured Text program."""
     lines = "\n".join(list(body) + ["", BODY]) if body else BODY
     return "PROGRAM main\n%s\n\n%s\n\nEND_PROGRAM" % (declare.editor_block(decls), lines)
 
 
-def program(cfg, config_path):
+def program(cfg, config_path, interval=DEFAULT_INTERVAL):
     """The whole main.st for a config (the text `create` writes)."""
-    decls, body = with_axes(cfg, declarations(cfg, config_path))
+    decls, body = with_axes(cfg, declarations(cfg, config_path), interval)
     return main_st(decls, body)
 
 
@@ -158,7 +171,7 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
     result = contract.check_config(cfg, config_path)
     if not result.ok:
         raise NewProjectError("\n".join(result.errors))
-    decls, body = with_axes(cfg, declarations(cfg, config_path))
+    decls, body = with_axes(cfg, declarations(cfg, config_path), interval)
     cli = cli_program()
     start = cli_command(cli)
     if not start:
@@ -181,7 +194,7 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
     try:
         _patch(project_dir, decls, body, runtime_address)
         project_mod.write(cfg, config_path, project_dir, sim_path=sim_path)
-        if sdo_blocks:
+        if sdo_blocks or uses_library(cfg):
             sdolibrary.enable_in_project(project_dir)
     except (OSError, ValueError, project_mod.ProjectError, NewProjectError, sdolibrary.LibraryError) as e:
         shutil.rmtree(project_dir, ignore_errors=True)

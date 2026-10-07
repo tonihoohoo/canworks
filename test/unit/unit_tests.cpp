@@ -3880,6 +3880,111 @@ TEST(diag_server_slave_network) {
 }
 
 // ---------------------------------------------------------------------------
+// Cyclic synchronous CiA 402 axes (canopen-cia402-axis)
+
+namespace {
+
+std::string cyclic_dir() {
+  std::string dir = tmpdir();
+  write(dir + "/servo402.eds", read(std::string(CIA402_DIR) + "/servo402.eds"));
+  return dir;
+}
+
+std::string cyclic_json() { return read(std::string(CIA402_DIR) + "/canopen_config_cyclic.json"); }
+
+}  // namespace
+
+TEST(cyclic_interpolation_code) {
+  uint8_t v = 0;
+  int8_t e = 0;
+  CHECK(interpolation_code(10000, v, e) && v == 10 && e == -3);
+  CHECK(interpolation_code(2500, v, e) && v == 25 && e == -4);
+  CHECK(interpolation_code(1000, v, e) && v == 1 && e == -3);
+  CHECK(interpolation_code(125, v, e) && v == 125 && e == -6);
+  CHECK(interpolation_code(255000, v, e) && v == 255 && e == -3);
+  CHECK(!interpolation_code(333, v, e));
+  CHECK(!interpolation_code(0, v, e));
+}
+
+TEST(cyclic_config_loads) {
+  std::string dir = cyclic_dir();
+  Config cfg;
+  std::vector<std::string> errors;
+  CHECK_MSG(parse_config(cyclic_json(), dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
+  CHECK(cfg.nodes.size() == 1 && cfg.nodes[0].axis_cyclic && cfg.nodes[0].interpolation_period_us == 0);
+}
+
+TEST(cyclic_config_refused) {
+  std::string dir = cyclic_dir();
+  struct Case {
+    std::string from, to, needle;
+  } cases[] = {
+      {"\"sync_source\": \"plc_cycle\"", "\"sync_period_us\": 10000", "needs SYNC from the PLC cycle"},
+      {"\"sync_source\": \"plc_cycle\"", "\"sync_source\": \"plc_cycle\", \"sync_cycles\": 2",
+       "one SYNC every PLC cycle"},
+      {"\"cyclic\": true", "\"cyclic\": true, \"interpolation_period_us\": 333", "interpolation_period_us"},
+      {"\"cyclic\": true", "\"cyclic\": true, \"interpolation_period_us\": 50", "interpolation_period_us"},
+  };
+  for (const auto& c : cases) {
+    Config cfg;
+    std::vector<std::string> errors;
+    CHECK(!parse_config(replace(cyclic_json(), c.from, c.to), dir + "/canopen_config.json", ImageLimits(), cfg,
+                        errors));
+    CHECK_MSG(has_error(errors, c.needle), join(errors));
+  }
+}
+
+TEST(cyclic_writes_interpolation_period) {
+  set_log_sink(silent);
+  std::string dir = cyclic_dir();
+  auto find = [](const std::vector<SdoWrite>& ws, uint8_t sub) -> const SdoWrite* {
+    for (const auto& w : ws)
+      if (w.index == 0x60C2 && w.subindex == sub) return &w;
+    return nullptr;
+  };
+  {
+    // From the base tick: 10 ms = 10 x 10^-3 s.
+    Config cfg;
+    std::vector<std::string> errors;
+    CHECK(parse_config(cyclic_json(), dir + "/canopen_config.json", ImageLimits(), cfg, errors));
+    resolve_interpolation_periods(cfg, 10000);
+    CHECK(cfg.nodes[0].interpolation_write_us == 10000);
+    GeneratedConfig gen;
+    CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
+    const SdoWrite* s1 = find(gen.slave_sdos[4], 1);
+    const SdoWrite* s2 = find(gen.slave_sdos[4], 2);
+    CHECK(s1 && s1->data.size() == 1 && s1->data[0] == 10);
+    CHECK(s2 && s2->data.size() == 1 && s2->data[0] == 0xFD);
+  }
+  {
+    // interpolation_period_us wins over the base tick: 2.5 ms = 25 x 10^-4 s.
+    Config cfg;
+    std::vector<std::string> errors;
+    CHECK(parse_config(replace(cyclic_json(), "\"cyclic\": true", "\"cyclic\": true, \"interpolation_period_us\": 2500"),
+                       dir + "/canopen_config.json", ImageLimits(), cfg, errors));
+    resolve_interpolation_periods(cfg, 10000);
+    CHECK(cfg.nodes[0].interpolation_write_us == 2500);
+    GeneratedConfig gen;
+    CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
+    const SdoWrite* s1 = find(gen.slave_sdos[4], 1);
+    const SdoWrite* s2 = find(gen.slave_sdos[4], 2);
+    CHECK(s1 && s1->data[0] == 25 && s2 && s2->data[0] == 0xFC);
+  }
+  {
+    // An unrepresentable base tick (333 us): not written.
+    Config cfg;
+    std::vector<std::string> errors;
+    CHECK(parse_config(cyclic_json(), dir + "/canopen_config.json", ImageLimits(), cfg, errors));
+    resolve_interpolation_periods(cfg, 333);
+    CHECK(cfg.nodes[0].interpolation_write_us == 0);
+    GeneratedConfig gen;
+    CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
+    CHECK(!find(gen.slave_sdos[4], 1));
+  }
+  set_log_sink(nullptr);
+}
+
+// ---------------------------------------------------------------------------
 // Encrypted diagnostics: TLS and the SCRAM login (secure_channel.h).
 
 TEST(scram_rfc7677_vector) {

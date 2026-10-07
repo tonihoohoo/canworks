@@ -1101,6 +1101,10 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         profile = axis_mod.device_type_warning(cfg["nodes"][i], eds)
         if profile:
             warnings.append((profile, ".axis"))
+        cyc_errors, cyc_warnings = axis_mod.cyclic_eds_check(cfg["nodes"][i], node, eds)
+        messages += [m for m, _ in cyc_errors]
+        where += [sub for _, sub in cyc_errors]
+        warnings += cyc_warnings
         if "lss" in node:
             info = eds_mod.device_info(file) or {}
             node["lss"].update(vendor_id=info.get("vendor_id") or 0, product_code=info.get("product_code") or 0)

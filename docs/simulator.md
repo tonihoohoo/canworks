@@ -237,15 +237,17 @@ integrate([0x6200:1] * 10)                         a tank filled by an output
 A device whose profile is CiA 402 runs a drive model on the objects its EDS has:
 
 - the power drive state machine on the controlword 0x6040 and statusword 0x6041 (not ready to switch on, switch on disabled, ready to switch on, switched on, operation enabled, quick stop active, fault reaction active, fault), with fault reset, quick stop, "set-point acknowledge", "target reached", "following error" and "warning" bits;
-- the modes in 0x6060 (shown in 0x6061) that 0x6502 lists, or all of these when the EDS has no 0x6502: profile position (1), profile velocity (3), homing (6), cyclic synchronous position (8) and cyclic synchronous velocity (9);
+- the modes in 0x6060 (shown in 0x6061) that 0x6502 lists, or all of these when the EDS has no 0x6502: profile position (1), profile velocity (3), homing (6), cyclic synchronous position (8), cyclic synchronous velocity (9) and cyclic synchronous torque (10);
 - profile position: trapezoidal moves with the profile velocity 0x6081 and accelerations 0x6083/0x6084, absolute or relative (controlword bit 6), the set-point handshake with "change set immediately" (bit 5);
 - profile velocity: ramps to the target velocity 0x60FF;
-- cyclic synchronous modes: follow the target position 0x607A or velocity 0x60FF at every SYNC (or every tick when there is no SYNC);
+- cyclic synchronous modes: follow the target position 0x607A or velocity 0x60FF at every SYNC (or every tick when there is no SYNC); in torque mode the target torque 0x6071 (per mille) accelerates the axis by `torque_accel` per per mille, up to `max_velocity`, and 0x6077 shows it;
+- SYNC watchdog: once a SYNC has come in a cyclic synchronous mode with operation enabled, the drive faults with EMCY 0x8700 when no SYNC comes for three interpolation periods (0x60C2, or 10 ms when the EDS has none), as a real drive does when the PLC stops; `"sync_watchdog": false` switches it off;
+- set-point step counter: CSP set-points that move more than `max_velocity` times the interpolation period from one SYNC to the next are counted in `oversized_steps` of `sim_status`, so a test can show that a program's motion is smooth;
 - homing methods 17, 18 (limit switches), 33, 34, 35 and 37 (current position), with the homing speed 0x6099 and offset 0x607C; any other method ends with the homing error bit;
 - the actual position 0x6064 and velocity 0x606C follow the demand through a first-order lag, limited by `max_velocity` and `max_acceleration`;
 - the software position limits 0x607D stop a move at the limit and set the warning bit; the following error window 0x6065 (and time 0x6066) faults the drive with EMCY 0x8611 when exceeded.
 
-`drive` settings in the simulation file: `max_velocity` (counts/s, default 100000), `max_acceleration` (counts/s², default 1000000), `lag_ms` (default 5), `start_position` (0). Inputs, set as faults: `drive_input` with `blocked` (the axis does not move, which provokes a following error), `positive_limit`, `negative_limit` and `home_switch`.
+`drive` settings in the simulation file: `max_velocity` (counts/s, default 100000), `max_acceleration` (counts/s², default 1000000), `lag_ms` (default 5), `start_position` (0), `torque_accel` (counts/s² per per mille of target torque, default 10000), `sync_watchdog` (default true). Inputs, set as faults: `drive_input` with `blocked` (the axis does not move, which provokes a following error), `positive_limit`, `negative_limit` and `home_switch`.
 
 ## Faults
 
@@ -302,7 +304,7 @@ Objects are `"0xIIII:S"`; `node` is a node ID or the name of an extra device. Va
 
 | `op` | Fields | Result |
 |---|---|---|
-| `sim_status` | | `simulated_network`, `interface`, `devices` (each: `node`, `name`, `eds`, `profile`, `power` on/off, `nmt` (bootup, stopped, operational, preop), `conflict`, `faults` (the fault objects in force), `sources` (object → source), `overrides` (object → value)), `scenarios` (each: `name`, `state` idle/running/passed/failed/stopped, `step`, `message`) |
+| `sim_status` | | `simulated_network`, `interface`, `devices` (each: `node`, `name`, `eds`, `profile`, `power` on/off, `nmt` (bootup, stopped, operational, preop), `conflict`, `drive` (whether the drive model runs), `oversized_steps` (drive model only), `faults` (the fault objects in force), `sources` (object → source), `overrides` (object → value)), `scenarios` (each: `name`, `state` idle/running/passed/failed/stopped, `step`, `message`) |
 | `sim_get` | `items`: list of `{"node", "object"}`, or `node` with `pdo: true` (every object in the device's active PDOs) | `values`: list of `{"node", "object", "value", "type"}` or `{"node", "object", "error"}` |
 | `sim_set` | `node`, `values`: object → value | |
 | `sim_override` | `node`, `values` | |

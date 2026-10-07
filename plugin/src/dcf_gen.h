@@ -56,6 +56,13 @@ std::pair<uint32_t, uint32_t> config_stamp(const std::vector<SdoWrite>& sdos, un
 // A stable text form of every startup SDO, part of the input hash.
 std::string startup_sdo_key(const Config& cfg);
 
+// Sets each cyclic CiA 402 axis's interpolation_write_us: its
+// interpolation_period_us or, without it, the SYNC period (`base_tick_us`
+// times sync_cycles); 0 when a startup SDO writes 0x60C2, the EDS has no
+// 0x60C2 or the period cannot be written. Logs what it chose. Call before
+// generate_device_config.
+void resolve_interpolation_periods(Config& cfg, unsigned long long base_tick_us);
+
 // The dcfgen YAML for a config (exposed for tests).
 std::string make_dcfgen_yaml(const Config& cfg, const std::string& work_dir);
 

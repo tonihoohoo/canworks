@@ -1385,6 +1385,7 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
       cJSON_AddStringToObject(o, "nmt", d.dev ? nmt_name(d.dev->nmt_state()).c_str() : "off");
       cJSON_AddBoolToObject(o, "conflict", d.conflict);
       cJSON_AddBoolToObject(o, "drive", d.drive != nullptr);
+      if (d.drive) cJSON_AddNumberToObject(o, "oversized_steps", static_cast<double>(d.drive->oversized_steps()));
       cJSON* fa = cJSON_AddArrayToObject(o, "faults");
       for (const auto& kv : d.active) {
         cJSON* j = cJSON_Parse(kv.second.c_str());

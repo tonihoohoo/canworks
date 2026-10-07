@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 500000 },
+  "master": { "node_id": 1, "heartbeat_ms": 100, "sync_source": "plc_cycle" },
+  "nodes": [
+    {
+      "node_id": 4,
+      "name": "drive",
+      "eds": "servo402.eds",
+      "heartbeat_ms": 50,
+      "heartbeat_timeout_ms": 200,
+      "status_location": "%IX10.0",
+      "axis": { "cyclic": true },
+      "rx_pdos": [
+        {
+          "number": 1,
+          "transmission": 1,
+          "entries": [
+            { "index": "0x6040", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%QW100" },
+            { "index": "0x6060", "subindex": 0, "type": "INTEGER8", "iec_location": "%QB100" },
+            { "index": "0x607A", "subindex": 0, "type": "INTEGER32", "iec_location": "%QD100" }
+          ]
+        },
+        {
+          "number": 2,
+          "transmission": 1,
+          "entries": [
+            { "index": "0x60FF", "subindex": 0, "type": "INTEGER32", "iec_location": "%QD101" },
+            { "index": "0x6071", "subindex": 0, "type": "INTEGER16", "iec_location": "%QW101" }
+          ]
+        }
+      ],
+      "tx_pdos": [
+        {
+          "number": 1,
+          "transmission": 1,
+          "entries": [
+            { "index": "0x6041", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%IW100" },
+            { "index": "0x6061", "subindex": 0, "type": "INTEGER8", "iec_location": "%IB100" },
+            { "index": "0x6064", "subindex": 0, "type": "INTEGER32", "iec_location": "%ID100" }
+          ]
+        },
+        {
+          "number": 2,
+          "transmission": 1,
+          "entries": [
+            { "index": "0x606C", "subindex": 0, "type": "INTEGER32", "iec_location": "%ID101" },
+            { "index": "0x6077", "subindex": 0, "type": "INTEGER16", "iec_location": "%IW101" }
+          ]
+        }
+      ],
+      "sdo": [
+        { "index": "0x6065", "subindex": 0, "type": "UNSIGNED32", "value": 20000 },
+        { "index": "0x6098", "subindex": 0, "type": "INTEGER8", "value": 35 }
+      ]
+    }
+  ]
+}

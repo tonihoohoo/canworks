@@ -29,11 +29,17 @@ def _number(p, j):
     return _int(p.get("number")) or j + 1
 
 
-def map_objects(node, info, used, start=layout.DEFAULT_START):
+# The cyclic layout's PDO groups, in order (see the module docstring).
+CYCLIC_GROUPS = (("rx_pdos", (0x6040, 0x6060, 0x607A)), ("rx_pdos", (0x60FF, 0x6071)),
+                 ("tx_pdos", (0x6041, 0x6061, 0x6064)), ("tx_pdos", (0x606C, 0x6077)))
+
+
+def map_objects(node, info, used, start=layout.DEFAULT_START, changes=None):
     """(new node, mapped, missing) for node dict `node` and its EDS summary
     `info` (server.eds_summary). `used` is the set of taken location keys
     (layout.taken); it is updated. mapped: [{index, name, pdo, location}];
-    missing: [{index, name, reason}]."""
+    missing: [{index, name, reason}]. A cyclic axis's transmission type
+    changes are appended to `changes`: [{pdo, transmission, was}]."""
     node = copy.deepcopy(node)
     objects = {(_int(o["index"]), o["subindex"]): o for o in info.get("objects", [])}
     maps = info.get("pdo_maps", {})
@@ -96,6 +102,7 @@ def map_objects(node, info, used, start=layout.DEFAULT_START):
             return None, "no %s's fixed mapping has it" % kind
         return None, "no free %s (the others keep the device's mapping or are full)" % kind
 
+    todo = []  # (index, key, co_type, name, direction) the EDS lets the master map
     for index in axis.PIN_ORDER:
         _, key, co_type, _, name = axis.OBJECTS[index]
         if index in have:
@@ -111,10 +118,9 @@ def map_objects(node, info, used, start=layout.DEFAULT_START):
                     o.get("type"), co_type)
             missing.append({"index": "0x%04X" % index, "name": name, "reason": why})
             continue
-        p, reason = find(key, direction, index, CO_TYPES[co_type][1])
-        if p is None:
-            missing.append({"index": "0x%04X" % index, "name": name, "reason": reason})
-            continue
+        todo.append((index, key, co_type, name, direction))
+
+    def place(p, index, key, co_type, name, direction):
         area, size = layout.area_size(direction, co_type)
         loc = layout.suggest(area, size, used, start)
         used.add((area, size, _element(loc)))
@@ -123,6 +129,63 @@ def map_objects(node, info, used, start=layout.DEFAULT_START):
         number = _number(p, node[key].index(p))
         mapped.append({"index": "0x%04X" % index, "name": name,
                        "pdo": "%s%d" % ("TPDO" if direction == "input" else "RPDO", number), "location": loc})
+
+    filled = []  # PDOs the cyclic layout filled, by identity
+    if axis.is_cyclic(node):
+        taken = set()  # (key, number) a group of this run took
+        for key, group in CYCLIC_GROUPS:
+            items = [t for t in todo if t[0] in group]
+            if not items:
+                continue
+            direction = items[0][4]
+            bits = sum(CO_TYPES[t[2]][1] for t in items)
+            pdos = node.setdefault(key, [])
+            numbers = {_number(p, j): p for j, p in enumerate(pdos)}
+            target = None
+            # A config PDO that already has one of the group, written from the config, with room.
+            for number, p in sorted(numbers.items()):
+                m = pdo_map(direction, number)
+                if any(_int(e.get("index")) in group for e in p.get("entries") or []) and \
+                        m is not None and m["writable"] and not keeps_device(p, m) and room(p, bits):
+                    target = p
+                    break
+            # Else the first free PDO the master can write.
+            for number in range(1, counts.get(direction, 0) + 1):
+                if target is not None:
+                    break
+                m = pdo_map(direction, number)
+                if number not in numbers and (key, number) not in taken and m is not None and m["writable"]:
+                    target = {"number": number, "entries": []}
+                    pdos.append(target)
+                    made.append(target)
+            if target is None:
+                continue  # the generic placement below
+            taken.add((key, _number(target, pdos.index(target))))
+            for t in items:
+                if room(target, CO_TYPES[t[2]][1]):  # else the generic placement below
+                    place(target, *t)
+                    todo.remove(t)
+            if not any(target is f for f in filled):
+                filled.append(target)
+    for index, key, co_type, name, direction in todo:
+        p, reason = find(key, direction, index, CO_TYPES[co_type][1])
+        if p is None:
+            missing.append({"index": "0x%04X" % index, "name": name, "reason": reason})
+            continue
+        place(p, index, key, co_type, name, direction)
+        if axis.is_cyclic(node) and not any(p is f for f in filled):
+            filled.append(p)
+    # A cyclic axis's PDOs this run filled: synchronous (transmission type 1).
+    for p in filled:
+        key = "tx_pdos" if any(p is q for q in node.get("tx_pdos", [])) else "rx_pdos"
+        number = _number(p, node[key].index(p))
+        was = _int(p.get("transmission")) if p.get("transmission") is not None else _eds_transmission(
+            objects, (0x1800 if key == "tx_pdos" else 0x1400) + number - 1)
+        if was is None or was > 240:
+            p["transmission"] = 1
+            if changes is not None:
+                changes.append({"pdo": "%s%d" % ("TPDO" if key == "tx_pdos" else "RPDO", number), "transmission": 1,
+                                "was": was})
     for key in ("tx_pdos", "rx_pdos"):
         if key in node and not node[key]:
             del node[key]
@@ -134,6 +197,11 @@ def map_objects(node, info, used, start=layout.DEFAULT_START):
         node["status_location"] = loc
         mapped.append({"index": None, "name": "status bit", "pdo": None, "location": loc})
     return node, mapped, missing
+
+
+def _eds_transmission(objects, comm):
+    o = objects.get((comm, 2))
+    return _int(o.get("default")) if o is not None and o.get("default") not in (None, "") else None
 
 
 def _element(loc):

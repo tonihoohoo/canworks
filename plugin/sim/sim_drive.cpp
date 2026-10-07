@@ -50,6 +50,10 @@ const ModelObject kObjects[] = {
     {0x6099, 2, true, false},  // speed during search for zero
     {0x609A, 0, false, false}, // homing acceleration
     {0x60F4, 0, false, true},  // following error actual value
+    {0x6071, 0, false, false}, // target torque
+    {0x6077, 0, false, true},  // torque actual value
+    {0x60C2, 1, false, false}, // interpolation time period value
+    {0x60C2, 2, false, false}, // interpolation time index
     {0x60FF, 0, true, false},  // target velocity
     {0x6502, 0, false, false}, // supported drive modes
 };
@@ -74,10 +78,19 @@ bool parse_drive_settings(const cJSON* json, DriveSettings& out, std::string& er
     std::string key = c->string ? c->string : "";
     double* dst = nullptr;
     bool positive = true;
+    if (key == "sync_watchdog") {
+      if (!cJSON_IsBool(c)) {
+        err = "drive: \"sync_watchdog\" must be true or false";
+        return false;
+      }
+      s.sync_watchdog = cJSON_IsTrue(c);
+      continue;
+    }
     if (key == "max_velocity") dst = &s.max_velocity;
     else if (key == "max_acceleration") dst = &s.max_acceleration;
     else if (key == "lag_ms") dst = &s.lag_ms, positive = false;
     else if (key == "start_position") dst = &s.start_position, positive = false;
+    else if (key == "torque_accel") dst = &s.torque_accel;
     else {
       err = "drive: unknown key \"" + key + "\"";
       return false;
@@ -126,13 +139,21 @@ std::vector<std::pair<uint16_t, uint8_t>> DriveModel::missing() const {
 }
 
 bool DriveModel::mode_supported(int mode) const {
-  if (mode != 1 && mode != 3 && mode != 6 && mode != 8 && mode != 9) return false;
+  if (mode != 1 && mode != 3 && mode != 6 && mode != 8 && mode != 9 && mode != 10) return false;
   if (!io_.has(0x6502, 0)) return true;
   uint32_t mask = static_cast<uint32_t>(io_.read(0x6502, 0));
   return (mask >> (mode - 1)) & 1u;
 }
 
-bool DriveModel::velocity_follower() const { return mode_ == 3 || mode_ == 9; }
+bool DriveModel::velocity_follower() const { return mode_ == 3 || mode_ == 9 || mode_ == 10; }
+
+double DriveModel::interpolation_period() const {
+  if (!io_.has(0x60C2, 1) || !io_.has(0x60C2, 2)) return 0.01;
+  double v = io_.read(0x60C2, 1);
+  int e = static_cast<int>(static_cast<int8_t>(static_cast<int>(io_.read(0x60C2, 2))));
+  double t = v * std::pow(10.0, e);
+  return t > 0 ? t : 0.01;
+}
 
 bool DriveModel::limits_on(double& lo, double& hi) const {
   lo = rd(0x607D, 1, 0);
@@ -171,7 +192,9 @@ void DriveModel::power_on() {
   va_ = 0;
   cw_prev_ = 0;
   sync_seen_ = false;
-  cs_pos_ = cs_vel_ = 0;
+  cs_pos_ = cs_vel_ = cs_torque_ = 0;
+  cs_armed_ = false;
+  since_sync_ = 0;
   hm_ = Homing::Idle;
   hm_dir_ = 0;
   reset_motion();
@@ -186,8 +209,17 @@ void DriveModel::power_on() {
 
 void DriveModel::sync() {
   sync_seen_ = true;
-  cs_pos_ = rd(0x607A, 0, pd_);
+  double pos = rd(0x607A, 0, pd_);
+  bool following = state_ == State::OperationEnabled && cyclic_mode();
+  if (following && cs_armed_ && mode_ == 8 &&
+      std::fabs(pos - cs_pos_) > s_.max_velocity * interpolation_period() * (1 + 1e-6) + 0.5)
+    ++oversized_steps_;
+  cs_pos_ = pos;
   cs_vel_ = rd(0x60FF, 0, 0);
+  cs_torque_ = rd(0x6071, 0, 0);
+  if (following) cs_armed_ = true;
+  since_sync_ = 0;
+  sync_new_ = true;
 }
 
 void DriveModel::enter_enabled() {
@@ -195,14 +227,18 @@ void DriveModel::enter_enabled() {
   reset_motion();
   vd_ = 0;
   cs_pos_ = pa_;
+  cs_armed_ = false;
 }
 
-void DriveModel::enter_fault() {
+// 0x8611 following error, 0x8700 SYNC lost (error register: generic,
+// communication).
+void DriveModel::enter_fault(uint16_t code) {
   state_ = State::FaultReactionActive;
   pp_moving_ = pp_pending_ = ack_ = false;
+  cs_armed_ = false;
   if (hm_ == Homing::Search || hm_ == Homing::Back) hm_ = Homing::Idle;
-  wr(0x603F, 0, 0x8611);
-  io_.emcy(0x8611, 0x01);
+  wr(0x603F, 0, code);
+  io_.emcy(code, code == 0x8700 ? 0x11 : 0x01);
 }
 
 void DriveModel::update_state(uint16_t cw, bool edge7) {
@@ -272,6 +308,7 @@ void DriveModel::update_mode() {
   sw_limit_ = fe_ = false;
   fe_time_ = 0;
   cs_pos_ = pa_;
+  cs_armed_ = false;
   if (hm_ == Homing::Search || hm_ == Homing::Back) hm_ = Homing::Idle;
 }
 
@@ -283,6 +320,12 @@ void DriveModel::step(double dt) {
   bool edge7 = (cw & 0x80) && !(cw_prev_ & 0x80);
   update_state(cw, edge7);
   update_mode();
+  if (state_ != State::OperationEnabled) cs_armed_ = false;
+  // The SYNC came somewhere within the last tick: counting from the tick
+  // after it never faults early and at most one tick late.
+  if (sync_new_) sync_new_ = false;
+  else if (cs_armed_) since_sync_ += dt;
+  if (cs_armed_ && s_.sync_watchdog && since_sync_ >= 3 * interpolation_period() - 1e-9) enter_fault(0x8700);
 
   if (state_ == State::OperationEnabled) {
     run_mode(cw, edge4, fall4, dt);
@@ -305,6 +348,7 @@ void DriveModel::run_mode(uint16_t cw, bool edge4, bool fall4, double dt) {
     case 6: run_homing(cw, edge4, fall4, dt); break;
     case 8: run_csp(dt); break;
     case 9: run_csv(); break;
+    case 10: run_cst(dt); break;
     default: stop_ramp(quick_stop_decel(), dt); break;
   }
 }
@@ -450,6 +494,17 @@ void DriveModel::run_csv() {
   v_target_ = clampd(v, -s_.max_velocity, s_.max_velocity);
   sw_limit_ = false;
   vd_ = limit_velocity(v_target_, s_.max_acceleration);
+  pd_ = pa_;
+}
+
+// Cyclic synchronous torque: the torque set-point (per mille) accelerates
+// the axis by torque_accel per per mille, up to the maximum velocity.
+void DriveModel::run_cst(double dt) {
+  double t = sync_seen_ ? cs_torque_ : rd(0x6071, 0, 0);
+  sw_limit_ = false;
+  double v = clampd(vd_ + t * s_.torque_accel * dt, -s_.max_velocity, s_.max_velocity);
+  vd_ = limit_velocity(v, s_.max_acceleration);
+  v_target_ = vd_;
   pd_ = pa_;
 }
 
@@ -622,6 +677,7 @@ uint16_t DriveModel::compose_statusword(uint16_t cw) const {
       if (fe_) sw |= 0x2000;
       break;
     case 9:
+    case 10:
       sw |= 0x1000;
       break;
     default:
@@ -639,6 +695,8 @@ void DriveModel::write_outputs() {
   wr(0x606B, 0, std::round(vd_));
   wr(0x606C, 0, std::round(va_));
   wr(0x60F4, 0, std::round(pd_ - pa_));
+  bool torque = state_ == State::OperationEnabled && mode_ == 10;
+  wr(0x6077, 0, torque ? std::round(sync_seen_ ? cs_torque_ : rd(0x6071, 0, 0)) : 0);
 }
 
 }  // namespace canopen_sim

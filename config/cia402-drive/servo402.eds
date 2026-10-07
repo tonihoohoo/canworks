@@ -56,7 +56,7 @@ SupportedObjects=3
 3=0x1018
 
 [OptionalObjects]
-SupportedObjects=39
+SupportedObjects=42
 1=0x1005
 2=0x1008
 3=0x1014
@@ -84,18 +84,21 @@ SupportedObjects=39
 25=0x6060
 26=0x6061
 27=0x6064
-28=0x606C
-29=0x6071
-30=0x6077
-31=0x607A
-32=0x6081
-33=0x6083
-34=0x6084
-35=0x6098
-36=0x6099
-37=0x609A
-38=0x60FF
-39=0x6502
+28=0x6065
+29=0x6066
+30=0x606C
+31=0x6071
+32=0x6077
+33=0x607A
+34=0x6081
+35=0x6083
+36=0x6084
+37=0x6098
+38=0x6099
+39=0x609A
+40=0x60C2
+41=0x60FF
+42=0x6502
 
 [ManufacturerObjects]
 SupportedObjects=0
@@ -1198,6 +1201,22 @@ AccessType=ro
 DefaultValue=0
 PDOMapping=1
 
+[6065]
+ParameterName=Following error window
+ObjectType=0x7
+DataType=0x0007
+AccessType=rw
+DefaultValue=10000
+PDOMapping=0
+
+[6066]
+ParameterName=Following error time out
+ObjectType=0x7
+DataType=0x0006
+AccessType=rw
+DefaultValue=10
+PDOMapping=0
+
 [606C]
 ParameterName=Velocity actual value
 ObjectType=0x7
@@ -1299,6 +1318,37 @@ AccessType=rw
 DefaultValue=10000
 PDOMapping=0
 
+[60C2]
+ParameterName=Interpolation time period
+ObjectType=0x9
+SubNumber=3
+
+[60C2sub0]
+ParameterName=Highest sub-index supported
+ObjectType=0x7
+DataType=0x0005
+AccessType=ro
+DefaultValue=2
+PDOMapping=0
+
+[60C2sub1]
+ParameterName=Interpolation time period value
+ObjectType=0x7
+DataType=0x0005
+AccessType=rw
+DefaultValue=1
+PDOMapping=0
+
+[60C2sub2]
+ParameterName=Interpolation time index
+ObjectType=0x7
+DataType=0x0002
+AccessType=rw
+DefaultValue=-3
+PDOMapping=0
+LowLimit=-128
+HighLimit=63
+
 [60FF]
 ParameterName=Target velocity
 ObjectType=0x7
@@ -1312,5 +1362,5 @@ ParameterName=Supported drive modes
 ObjectType=0x7
 DataType=0x0007
 AccessType=ro
-DefaultValue=0x00000025
+DefaultValue=0x000003A5
 PDOMapping=0

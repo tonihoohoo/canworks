@@ -818,7 +818,7 @@
       "file": "servo402.eds",
       "lss_supported": false,
       "product_name": "Example servo drive SD-402",
-      "sha256": "09662558445ad7e7ccc2bdcfd3ad82cc0e1033dbcb77f5f01d2491f34c0edc09",
+      "sha256": "7c22fb4770778236c28328f2ce78a32e1f346300ab6f744f9c182fdfe1bb7b96",
       "vendor_name": "openplc-canopen example devices"
      },
      "ident": "drive",
@@ -1655,7 +1655,7 @@
  "title": "CANopen network documentation",
  "tool": {
   "name": "openplc-canopen-deploy",
-  "version": "0.35.0"
+  "version": "0.36.0"
  },
  "warnings": [
   "estimated worst-case bus load 64.5 % is above 60 %"

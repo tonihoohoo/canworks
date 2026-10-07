@@ -750,6 +750,13 @@
         },
         "start_position": {
           "type": "number"
+        },
+        "torque_accel": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "sync_watchdog": {
+          "type": "boolean"
         }
       }
     },

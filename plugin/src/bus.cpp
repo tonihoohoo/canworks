@@ -305,11 +305,22 @@ void Bus::run_session() {
     }
     // Frames sent by hand through the diagnostics channel, onto the virtual
     // bus (frame_tx.h); the tap sees them there and marks them Tx.
+    // The channel also receives every frame on the virtual bus: it is read
+    // and the frames dropped, or its receive queue fills and each write on
+    // the bus then blocks.
+    can_msg inject_msg = CAN_MSG_INIT;
+    std::function<void()> inject_read;
     std::unique_ptr<lely::io::VirtualCanChannel> inject_chan;
     std::unique_ptr<FdWake> inject_wake;
     if (virt && sim_ && sim_->injector) {
       inject_chan.reset(new lely::io::VirtualCanChannel(ctx, exec));
       inject_chan->open(*vbus);
+      inject_read = [&]() {
+        inject_chan->submit_read(&inject_msg, nullptr, nullptr, exec, [&](int, std::error_code ec) {
+          if (!ec) inject_read();
+        });
+      };
+      inject_read();
       SimFrameInjector* inj = sim_->injector.get();
       const bool tapped = static_cast<bool>(tap_chan);
       inject_wake.reset(new FdWake(poll, inj->read_fd(), [&, inj, tapped] {

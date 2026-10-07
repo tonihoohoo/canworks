@@ -18,6 +18,8 @@
 // before the fastest task's frame is released, cycle_end after the frame's
 // outputs were drained into the image. They only touch preallocated memory.
 
+#include <dlfcn.h>
+
 #include <atomic>
 #include <cerrno>
 #include <cstdlib>
@@ -122,6 +124,17 @@ void teardown() {
   PlcRequests::instance().close();
   stop_all();
   g_state.reset();
+}
+
+// The first init() after an upload runs before the runtime has read the
+// program's tasks, so its args carry the 20 ms default base tick
+// (plugin_driver.c). By start_loop() the runtime's own variable holds the
+// real one; the runtime is linked with -rdynamic, so it can be looked up.
+void refresh_base_tick() {
+  const void* p = dlsym(RTLD_DEFAULT, "base_tick_ns");
+  if (!p) return;
+  uint64_t ns = *static_cast<const uint64_t*>(p);
+  if (ns) g_rt.base_tick_ns = ns;
 }
 
 std::string prefix_of(const Config& cfg) { return cfg.log_prefix.empty() ? "" : cfg.log_prefix + ": "; }
@@ -260,6 +273,7 @@ void prepare() {
       continue;
     }
     size_t failed = errors.size();
+    resolve_interpolation_periods(cfg, g_rt.base_tick_ns / 1000);
     if (!generate_device_config(cfg, default_dcfgen(), net->gen, errors)) {
       for (size_t i = failed; i < errors.size(); ++i) log_error("%s", errors[i].c_str());
       log_error("could not generate the device configuration; CANopen inactive, CAN interface not opened");
@@ -340,6 +354,7 @@ PLUGIN_API int init(void* args) {
 
 PLUGIN_API int start_loop(void) {
   if (!g_have_rt) return -1;
+  refresh_base_tick();
   teardown();
   prepare();
   if (!g_state) return -1;

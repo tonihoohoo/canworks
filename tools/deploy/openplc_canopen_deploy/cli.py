@@ -336,8 +336,9 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
             raise Failure(str(e))
         out("created %s with %d CANopen variable%s declared in main" % (path, len(decls),
                                                                        "" if len(decls) == 1 else "s"))
-        if sdo_blocks:
-            out("the project enables the %s library (CO_SDO_* blocks)" % sdolibrary.NAME)
+        if sdo_blocks or editorproject.uses_library(cfg):
+            out("the project enables the %s library (%s)"
+                % (sdolibrary.NAME, "CO_SDO_* blocks" if sdo_blocks else "CO402_Cyclic* blocks"))
             ok, message = sdolibrary.ensure_installed()
             (out if ok else err)(message if ok else "warning: " + message)
         return 0

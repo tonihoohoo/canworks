@@ -607,6 +607,50 @@ class Page(unittest.TestCase):
         pg.click('button[data-map-cia402="nodes[1]"]')
         pg.wait_for_selector("[data-axis-result] li:has-text('0x6040 controlword: not in the EDS')")
 
+    def test_cia402_cyclic_axis(self):
+        # add-cia402-cyclic-modes: the switch, the SYNC fix button, the cyclic
+        # layout and the cycle time line with its task interval.
+        pg = self.page
+        self.open_from_start("#start-project", self.project)
+        self.fill("adapter.interface", "can0")
+        self.add_node(os.path.join(CIA402, "servo402.eds"))
+        self.fill("nodes[0].node_id", "4")
+        self.fill("nodes[0].name", "drive")
+        pg.check('input[data-path="nodes[0].axis"]')
+        cyc = 'input[data-path="nodes[0].axis.cyclic"]'
+        self.assertEqual(pg.locator('input[data-path="nodes[0].axis.interpolation_period_us"]').count(), 0)
+        pg.check(cyc)
+        self.assertEqual(pg.locator('input[data-path="nodes[0].axis.interpolation_period_us"]').count(), 1)
+        pg.click('button[data-map-cia402="nodes[0]"]')
+        pg.wait_for_selector("[data-axis-changes]")
+        self.assertIn("RPDO1 (was 255)", pg.inner_text("[data-axis-changes]"))
+        # The SYNC check: an error on the node, fixed by the button.
+        pg.wait_for_selector('[data-for="nodes[0].axis.cyclic"]:has-text("needs SYNC from the PLC cycle")')
+        self.assertEqual(pg.locator("button[data-cyclic-fix]").count(), 1)
+        def until(pred):
+            deadline = time.time() + 5
+            while not pred() and time.time() < deadline:
+                time.sleep(0.05)
+            return pred()
+        pg.click("button[data-cyclic-fix]")
+        self.assertTrue(until(lambda: not pg.inner_text('[data-for="nodes[0].axis.cyclic"]')))
+        self.assertEqual(pg.locator("button[data-cyclic-fix]").count(), 0)
+        self.save()
+        cfg = load(os.path.join(self.project, "canopen", "canopen.json"))
+        self.assertEqual(cfg["master"].get("sync_source"), "plc_cycle")
+        self.assertNotIn("sync_period_us", cfg["master"])
+        node = cfg["nodes"][0]
+        self.assertEqual(node["axis"], {"cyclic": True})
+        self.assertEqual([e["index"] for e in node["rx_pdos"][0]["entries"]], ["0x6040", "0x6060", "0x607A"])
+        self.assertTrue(all(p["transmission"] == 1 for p in node["rx_pdos"] + node["tx_pdos"]))
+        # The declarations: fCycleTime from the task interval.
+        pg.click('button[data-view="declarations"]')
+        self.assertTrue(until(lambda: "fCycleTime" in pg.input_value("textarea.block")))
+        self.assertIn("drive.fCycleTime := LREAL#0.02;", pg.input_value("textarea.block"))
+        pg.fill("#task-interval", "T#5ms")
+        pg.press("#task-interval", "Enter")
+        self.assertTrue(until(lambda: "drive.fCycleTime := LREAL#0.005;" in pg.input_value("textarea.block")))
+
     def test_pdo_timing_and_sdo_picker(self):
         pg = self.page
         self.open_from_start("#start-project", self.project)

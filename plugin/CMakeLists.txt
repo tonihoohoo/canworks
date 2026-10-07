@@ -86,7 +86,7 @@ endif()
 add_library(canopen_plugin SHARED src/canopen_plugin.cpp)
 target_compile_definitions(canopen_plugin PRIVATE CANOPEN_PLUGIN_VERSION="${CANOPEN_PLUGIN_VERSION}"
                            CANOPEN_PREFIX="${CANOPEN_PREFIX}")
-target_link_libraries(canopen_plugin PRIVATE canopen_core)
+target_link_libraries(canopen_plugin PRIVATE canopen_core ${CMAKE_DL_LIBS})
 # Keep cJSON and the core symbols private to the plugin.
 target_link_options(canopen_plugin PRIVATE -Wl,--exclude-libs,ALL)
 target_compile_options(canopen_plugin PRIVATE -Wall -Wextra -Wno-unused-parameter)

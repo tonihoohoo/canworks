@@ -4,7 +4,8 @@
 // and back after it, as the OpenPLC runtime binds them.
 //
 // Built only when CMake is given -DSTRUCPP=<strucpp command>
-// (scripts/fetch-strucpp.sh); the program is config/cia402-drive/drive_demo.st.
+// (scripts/fetch-strucpp.sh); the programs are config/cia402-drive/drive_demo.st
+// (namespace program_host) and drive_cyclic_demo.st (program_host_cyclic).
 // The interface uses plain types so the compiler's runtime headers stay in
 // program_host.cpp.
 

@@ -5,7 +5,13 @@
 #include <cstring>
 #include <memory>
 
+// The program's header: drive_demo.hpp, or another program's with its
+// namespaces renamed so that two programs link into one test (CMakeLists.txt).
+#ifdef PROGRAM_HOST_HEADER
+#include PROGRAM_HOST_HEADER
+#else
 #include "drive_demo.hpp"
+#endif
 
 namespace program_host {
 

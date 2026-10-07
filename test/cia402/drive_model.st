@@ -1,10 +1,13 @@
 (*
  * A CiA 402 drive for the ST tests (test/cia402/run.sh): the power state
  * machine (CiA 402 figure "state machine"), profile position (mode 1),
- * profile velocity (mode 3) and homing (mode 6, method 35: the current
- * position is home), with halt (controlword bit 8) and a fault input.
- * One call is one cycle of Dt. test/drive/drive_slave.cpp plays the same
- * drive on a CAN bus.
+ * profile velocity (mode 3), homing (mode 6, method 35: the current
+ * position is home) and the cyclic synchronous modes (8 position, 9
+ * velocity, 10 torque: the set-point of each call is applied, as on one
+ * SYNC), with halt (controlword bit 8) and a fault input. A mode that
+ * ModesSupported (0x6502 bits) does not list is not taken: 0x6061 keeps the
+ * old mode. One call is one cycle of Dt. test/drive/cia402_slave.hpp plays
+ * the profile modes on a CAN bus.
  *
  * Statusword bits: 0 ready to switch on, 1 switched on, 2 operation enabled,
  * 3 fault, 4 voltage enabled, 5 quick stop (1 = not active), 6 switch on
@@ -19,14 +22,18 @@ VAR_INPUT
 	TargetPosition : DINT;
 	ProfileVelocity : UDINT;
 	TargetVelocity : DINT;
+	TargetTorque : INT;
 	Fault : BOOL;                (* raise a drive fault *)
 	Dt : LREAL := 0.01;          (* cycle [s] *)
+	ModesSupported : DWORD := DWORD#16#000003A5;  (* 0x6502: modes 1, 3, 6, 8, 9, 10 *)
+	TorqueGain : LREAL := 10.0;  (* mode 10: acceleration [counts/s2] per mille of torque *)
 END_VAR
 VAR_OUTPUT
 	StatusWord : UINT;
 	ModesDisplay : SINT;
 	Position : DINT;
 	Velocity : DINT;
+	Torque : INT;
 	State : INT;                 (* 1 switch on disabled, 2 ready, 3 switched on, 4 enabled, 5 quick stop, 6 fault *)
 END_VAR
 VAR
@@ -63,7 +70,12 @@ END_VAR
 		IF State = 3 OR State = 5 THEN State := 4; END_IF  (* enable operation *)
 	END_IF
 
-	ModesDisplay := Modes;
+	IF Modes >= SINT#1 AND Modes <= SINT#32 THEN
+		IF (SHR(ModesSupported, SINT_TO_INT(Modes) - 1) AND DWORD#1) = DWORD#1 THEN
+			ModesDisplay := Modes;
+		END_IF
+	END_IF
+	Torque := 0;
 	IF State <> 4 THEN
 		vel := 0.0;
 		ack := FALSE;
@@ -88,6 +100,14 @@ END_VAR
 		END_IF
 	ELSIF ModesDisplay = 3 THEN
 		vel := DINT_TO_LREAL(TargetVelocity);
+	ELSIF ModesDisplay = 8 THEN
+		vel := (DINT_TO_LREAL(TargetPosition) - pos) / Dt;   (* CSP: at the set-point after one cycle *)
+		target := DINT_TO_LREAL(TargetPosition);
+	ELSIF ModesDisplay = 9 THEN
+		vel := DINT_TO_LREAL(TargetVelocity);
+	ELSIF ModesDisplay = 10 THEN
+		vel := vel + INT_TO_LREAL(TargetTorque) * TorqueGain * Dt;
+		Torque := TargetTorque;
 	ELSIF ModesDisplay = 6 THEN
 		vel := 0.0;
 		IF cw.4 AND NOT lastCw.4 THEN
@@ -125,6 +145,8 @@ END_VAR
 			IF vel = DINT_TO_LREAL(TargetVelocity) THEN StatusWord := StatusWord OR 16#0400; END_IF
 		ELSIF ModesDisplay = 6 THEN
 			IF homed THEN StatusWord := StatusWord OR 16#1400; END_IF
+		ELSIF ModesDisplay >= 8 AND ModesDisplay <= 10 THEN
+			StatusWord := StatusWord OR 16#1000;            (* drive follows the command value *)
 		END_IF
 	END_IF
 	lastCw := cw;
@@ -143,6 +165,7 @@ VAR_INPUT
 	TargetPosition : DINT;
 	ProfileVelocity : UDINT;
 	TargetVelocity : DINT;
+	TargetTorque : INT;
 	Fault : BOOL;
 	Lost : BOOL;                 (* the node stops answering: inputs hold, status bit FALSE *)
 END_VAR
@@ -151,6 +174,7 @@ VAR_OUTPUT
 	ModesDisplay : SINT;
 	Position : DINT;
 	Velocity : DINT;
+	Torque : INT;
 	Online : BOOL;
 END_VAR
 VAR
@@ -159,10 +183,12 @@ END_VAR
 	Online := NOT Lost;
 	IF NOT Lost THEN
 		Drive(ControlWord := ControlWord, Modes := Modes, TargetPosition := TargetPosition,
-		      ProfileVelocity := ProfileVelocity, TargetVelocity := TargetVelocity, Fault := Fault);
+		      ProfileVelocity := ProfileVelocity, TargetVelocity := TargetVelocity, TargetTorque := TargetTorque,
+		      Fault := Fault);
 		StatusWord := Drive.StatusWord;
 		ModesDisplay := Drive.ModesDisplay;
 		Position := Drive.Position;
 		Velocity := Drive.Velocity;
+		Torque := Drive.Torque;
 	END_IF
 END_FUNCTION_BLOCK

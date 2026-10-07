@@ -20,6 +20,7 @@
 #include <thread>
 
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -29,6 +30,11 @@
 #include <vector>
 
 #include "fake_runtime.hpp"
+
+// The runtime's own base tick (core/src/plc_app/utils/utils.c), exported as
+// the runtime exports it (-rdynamic).
+extern "C" uint64_t base_tick_ns;
+__attribute__((visibility("default"))) uint64_t base_tick_ns = 20000000ULL;
 
 namespace {
 
@@ -165,6 +171,8 @@ int main(int argc, char** argv) {
     std::ofstream out(sim_dir + "/cpp-slave.eds", std::ios::binary);
     out << in.rdbuf();
   }
+  unsigned mid = 0;
+  long long stop_ms = 0;
   auto run_simulated = [&](const std::string& node_extra, int seconds, unsigned& last,
                            const std::string& adapter_extra = R"(, "simulate": true)") {
     {
@@ -191,20 +199,27 @@ int main(int argc, char** argv) {
       img->dint_out[100] = img->dint_in[100] + 1;
       cycle_end();
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      if (i == (seconds - 1) * 100) mid = img->dint_in[100];
     }
     last = img->dint_in[100];
     bool status = img->bool_in[10][0] != 0;
+    auto t = std::chrono::steady_clock::now();
     stop_loop();
+    stop_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t).count();
     cleanup();
     return status;
   };
+  // Long enough for more frames than a virtual bus channel queues (1024):
+  // a channel nobody reads would block the bus by then.
   std::printf("simulated network, every node simulated:\n");
   unsigned last = 0;
-  bool status = run_simulated("", 3, last);
+  bool status = run_simulated("", 10, last);
   expect(logged("WARN") && logged("the CAN network is SIMULATED") && logged("simulated nodes: 2"),
          "a warning names what is simulated");
   expect(logged("simulation file "), "the simulation file is loaded");
   expect(status && last > 5, "the node is operational and the round trip runs");
+  expect(last > mid, "the round trip still runs after 1024 frames on the bus");
+  expect(stop_ms < 3000, "stop_loop returns promptly");
   expect(!logged("nonexistent0: ") && !logged("ERROR"), "no CAN interface touched, no error");
 
   std::printf("simulated network, the node not simulated:\n");
@@ -221,6 +236,29 @@ int main(int argc, char** argv) {
   expect(logged("the CAN network is SIMULATED"), "the network is announced as simulated");
   expect(status && last > 5, "the node is operational and the round trip runs");
   expect(!logged("nonexistent0: ") && !logged("ERROR"), "no CAN interface touched, no error");
+
+  // The first init() after an upload carries the runtime's 20 ms default
+  // tick; the program's tasks are read before start_loop().
+  std::printf("PLC-cycle SYNC, base tick read at start_loop:\n");
+  {
+    std::ofstream f(sim_dir + "/canopen.json");
+    f << R"({"schema_version": 1,
+             "adapter": {"type": "socketcan", "interface": "nonexistent0", "bitrate": 125000, "simulate": true},
+             "master": {"node_id": 1, "sync_source": "plc_cycle"},
+             "nodes": [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds",
+                        "tx_pdos": [{"entries": [{"index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID100"}]}]}]})";
+  }
+  g_logs.clear();
+  base_tick_ns = 20000000ULL;
+  rt = args(sim_dir + "/canopen.json");
+  rt->base_tick_ns = base_tick_ns;
+  expect(init(rt.get()) == 0, "init returns 0");
+  rt.reset();
+  base_tick_ns = 10000000ULL;  // symbols_init: a 10 ms task
+  expect(start_loop() == 0, "start_loop starts CANopen");
+  expect(logged("(base tick 10000 us)"), "the master uses the program's base tick");
+  stop_loop();
+  cleanup();
 
   std::printf(g_failures ? "%d failure(s)\n" : "OK\n", g_failures);
   return g_failures ? 1 : 0;

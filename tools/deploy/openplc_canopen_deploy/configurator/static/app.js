@@ -1621,15 +1621,18 @@ function axisFields(i, eds) {
       hint: "Program units the numerator's increments stand for. Empty: 1." }),
     field("Scale factor", base + ".axis.scale_factor", "text", { placeholder: "1.0",
       parse: (t) => (/^-?[0-9]*\.?[0-9]+(e-?[0-9]+)?$/i.test(t) ? Number(t) : t), hint: "The motion library's extra scale factor on that ratio. Empty: 1.0." })));
+  fs.append(cyclicFields(base, n));
   const result = el("div", { dataset: { axisResult: "" } });
   fs.append(el("div", { class: "toolbar" },
     el("button", { type: "button", dataset: { mapCia402: base }, disabled: !eds || !!eds.error, onclick: async () => {
       const r = await api("POST", "/api/map_cia402", { config: fileConfig(), network: S.net, node: i });
       S.config.nodes[i] = r.node;
-      S.axisResult = { node: i, mapped: r.mapped, missing: r.missing };
+      S.axisResult = { node: i, mapped: r.mapped, missing: r.missing, changes: r.changes || [] };
       changed(true);
     } }, "Map CiA 402 objects"),
-    hint("Puts the drive's controlword, statusword, modes, positions, velocities and torques that are not mapped yet into its PDOs, with suggested locations, as the drive's own default mapping has them where it can.")),
+    hint(n.axis.cyclic === true
+      ? "Puts the drive's objects that are not mapped yet into its PDOs for cyclic use: controlword, modes and target position in one RPDO, the other set-points in the next, statusword, modes display and actual position in one TPDO, with transmission type 1 (every SYNC)."
+      : "Puts the drive's controlword, statusword, modes, positions, velocities and torques that are not mapped yet into its PDOs, with suggested locations, as the drive's own default mapping has them where it can.")),
     result);
   const last = S.axisResult && S.axisResult.node === i ? S.axisResult : null;
   if (last) {
@@ -1637,11 +1640,52 @@ function axisFields(i, eds) {
     lines.push(el("p", { class: "muted" }, last.mapped.length
       ? "Mapped: " + last.mapped.map((m) => m.index ? `${m.index} ${m.name} (${m.pdo}, ${m.location})` : `${m.name} ${m.location}`).join("; ") + "."
       : "Nothing new to map."));
+    if (last.changes && last.changes.length)
+      lines.push(el("p", { class: "muted", dataset: { axisChanges: "" } }, "Transmission type 1 (every SYNC) for the cyclic axis: " +
+        last.changes.map((c) => `${c.pdo} (was ${c.was === null || c.was === undefined ? "not set" : c.was})`).join(", ") + "."));
     if (last.missing.length)
       lines.push(el("ul", { class: "field-msg warning" }, ...last.missing.map((m) => el("li", null, `${m.index} ${m.name}: ${m.reason}`))));
     result.append(...lines);
   }
   return fs;
+}
+
+// Cyclic synchronous modes (CSP/CSV/CST with the CO402_Cyclic* blocks):
+// `axis.cyclic` and `axis.interpolation_period_us`. A cyclic axis needs one
+// SYNC every PLC cycle; the button switches this network to it.
+function cyclicFields(base, n) {
+  const cyclic = n.axis.cyclic === true;
+  const box = el("input", { type: "checkbox", dataset: { path: base + ".axis.cyclic" } });
+  box.checked = cyclic;
+  box.addEventListener("change", () => {
+    setPath(base + ".axis.cyclic", box.checked ? true : undefined);
+    if (!box.checked) setPath(base + ".axis.interpolation_period_us", undefined);
+    render();
+  });
+  const wrap = el("div", { dataset: { axisCyclic: base } },
+    el("div", { class: "check-field" },
+      el("label", { class: "check" }, box, " Cyclic synchronous"),
+      hint("The program sends a set-point every cycle (CSP, CSV, CST) with the CO402_Cyclic* blocks of the openplc_canopen library; the drive interpolates between them. Needs SYNC from the PLC cycle and synchronous PDOs. Default: off."),
+      el("span", { class: "field-msg", dataset: { for: base + ".axis.cyclic" } })));
+  if (!cyclic) return wrap;
+  const m = S.config.master || {};
+  const cycles = num(m.sync_cycles);
+  if (m.sync_source !== "plc_cycle" || (Number.isFinite(cycles) && cycles !== 1)) {
+    // The check's error shows under the switch; this is its fix.
+    wrap.append(el("div", { class: "toolbar", dataset: { cyclicSync: "" } },
+      el("button", { type: "button", dataset: { cyclicFix: "" }, onclick: () => {
+        const mm = S.config.master || (S.config.master = {});
+        mm.sync_source = "plc_cycle";
+        delete mm.sync_period_us;
+        delete mm.sync_cycles;
+        changed(true);
+      } }, "Use SYNC from the PLC cycle"),
+      hint("Sets this network's SYNC source to the PLC cycle, one SYNC every cycle (Bus settings).")));
+  }
+  wrap.append(el("div", { class: "grid" },
+    field("Interpolation period (us)", base + ".axis.interpolation_period_us", "int", { placeholder: "the PLC cycle",
+      hint: "Written to the drive's 0x60C2 at boot. Empty: the runtime's cycle time, which is right when the task interval is the base tick." })));
+  return wrap;
 }
 
 function nodeAdvanced(i, eds) {
@@ -2522,6 +2566,20 @@ function sdoHiddenReason(list, o) {
   return null;
 }
 
+// A cyclic CiA 402 axis's cycle time line (fCycleTime) comes from the
+// program's task interval, which this page does not know: the user gives it.
+function cyclicInterval() {
+  const cyclic = S.model.networks.some((net) => (net.nodes || []).some((n) => n.axis && n.axis.cyclic === true));
+  if (!cyclic) return null;
+  const input = el("input", { type: "text", spellcheck: "false", id: "task-interval", placeholder: "T#20ms",
+    "aria-label": "Task interval" });
+  input.value = S.taskInterval || "";
+  input.addEventListener("change", () => { S.taskInterval = input.value.trim(); scheduleCheck(); });
+  return el("div", { class: "grid" }, el("label", null, "Task interval", input,
+    hint("The interval of the editor task that runs the program, for the cyclic axis's fCycleTime line. Change the line with the interval. Empty: T#20ms, the project generator's default."),
+    el("span", { class: "field-msg", dataset: { for: "task_interval" } })));
+}
+
 function renderDeclarations(view) {
   const decls = (S.check && S.check.declarations) || [];
   const block = (S.check && S.check.block) || "";
@@ -2534,6 +2592,7 @@ function renderDeclarations(view) {
       try { await navigator.clipboard.writeText(block); banner("Copied the declarations block."); }
       catch (e) { ta.select(); document.execCommand("copy"); banner("Copied the declarations block."); }
     } }, "Copy block")),
+    cyclicInterval(),
     ta,
     el("table", null, el("thead", null, el("tr", null, ["Name", "Location", "Type", "In the project"].map((h) => el("th", null, h)))),
       el("tbody", null, decls.map((d) => el("tr", null, el("td", null, d.name), el("td", null, d.location), el("td", null, d.type),
@@ -5070,7 +5129,8 @@ async function runCheck() {
   const seq = ++S.checkSeq;
   try {
     const cfg = fileConfig();
-    const r = await api("POST", "/api/check", { config: cfg, allow_overlap: $("#allow-overlap").checked });
+    const r = await api("POST", "/api/check", { config: cfg, allow_overlap: $("#allow-overlap").checked,
+      task_interval: S.taskInterval || undefined });
     if (seq !== S.checkSeq) return;
     S.check = normCheck(r, fileVersion(cfg));
     if (S.view === "declarations") render(); else applyCheck();

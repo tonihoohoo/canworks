@@ -170,6 +170,8 @@ void Network::DiagStatus(const DiagRequest& r) {
     const bool conflict = sim_conflicts_.count(id) > 0;
     cJSON_AddBoolToObject(o, "simulated", n.cfg->simulate && !conflict);
     cJSON_AddBoolToObject(o, "sim_conflict", conflict);
+    if (n.cfg->interpolation_write_us)
+      cJSON_AddNumberToObject(o, "interpolation_period_us", n.cfg->interpolation_write_us);
     uint8_t letter = image_.node_boot_error(id);
     if (letter) {
       char es[2] = {static_cast<char>(letter), 0};

@@ -688,6 +688,16 @@
               "not": {
                 "const": 0
               }
+            },
+            "cyclic": {
+              "description": "The program drives the axis in cyclic synchronous position (8), velocity (9) or torque (10) mode with the CO402_Cyclic* blocks. Needs \"sync_source\": \"plc_cycle\" with sync_cycles 1 and synchronous drive RPDOs; the plugin writes the interpolation time period 0x60C2. Default false. See docs/cia402.md.",
+              "type": "boolean"
+            },
+            "interpolation_period_us": {
+              "description": "With cyclic: the interpolation time period written to 0x60C2 instead of the SYNC period (the PLC base tick times sync_cycles). Must be a value of 1-255 times 1 ms, 100 us, 10 us or 1 us.",
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 255000
             }
           }
         },

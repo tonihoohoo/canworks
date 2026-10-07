@@ -38,6 +38,19 @@ std::string SdoVariable::label() const {
   return s;
 }
 
+bool interpolation_code(unsigned period_us, uint8_t& value, int8_t& exponent) {
+  static const struct { int8_t exponent; unsigned unit; } units[] = {{-3, 1000}, {-4, 100}, {-5, 10}, {-6, 1}};
+  if (!period_us) return false;
+  for (const auto& u : units) {
+    if (period_us % u.unit == 0 && period_us / u.unit >= 1 && period_us / u.unit <= 255) {
+      value = static_cast<uint8_t>(period_us / u.unit);
+      exponent = u.exponent;
+      return true;
+    }
+  }
+  return false;
+}
+
 const char* plugin_owned_object(uint16_t index) {
   if (index >= 0x1400 && index <= 0x1BFF) return "the PDO settings";
   switch (index) {
@@ -859,6 +872,22 @@ class Parser {
     check_sdo_variable_overrides(cfg);
     check_time_consumers(cfg);
     check_sync_needs(cfg);
+    check_cyclic_axes(cfg);
+  }
+
+  // A cyclic CiA 402 axis needs one SYNC every PLC cycle: with the master's
+  // timer, scan and SYNC drift and a set-point is applied twice or skipped.
+  void check_cyclic_axes(const Config& cfg) {
+    for (size_t i = 0; i < cfg.nodes.size(); ++i) {
+      const NodeConfig& n = cfg.nodes[i];
+      if (!n.axis_cyclic) continue;
+      std::string w = "nodes[" + std::to_string(i) + "]";
+      if (!cfg.master.sync_plc_cycle)
+        error(w, n.label() + ": a cyclic CiA 402 axis needs SYNC from the PLC cycle (\"sync_source\": \"plc_cycle\")");
+      else if (cfg.master.sync_cycles != 1)
+        error(w, n.label() + ": a cyclic CiA 402 axis needs one SYNC every PLC cycle ('sync_cycles' 1, not " +
+                     std::to_string(cfg.master.sync_cycles) + ")");
+    }
   }
 
   // sync_source / sync_cycles; sync_period_us is already read.
@@ -1002,7 +1031,7 @@ class Parser {
         n.has_store_configuration = true, n.store_configuration = (unsigned)v;
     }
     parse_lss(node, n, w);
-    parse_axis(node, w);
+    parse_axis(node, w, n);
     if (get_string(node, "software_file", w, false, n.software_file)) {
       std::vector<std::string> candidates;
       n.software_path = resolve_file(cfg, n.software_file, candidates);
@@ -1040,8 +1069,10 @@ class Parser {
   }
 
   // A CiA 402 axis is for the PLC program (the editor's motion blocks); the
-  // bus does nothing different, so only its form is checked here.
-  void parse_axis(const cJSON* node, const std::string& w) {
+  // bus does nothing different, so only its form is checked here. A cyclic
+  // axis gets its interpolation period written (canopen-cia402-axis
+  // "Interpolation time period"), checked in check_cyclic_axes.
+  void parse_axis(const cJSON* node, const std::string& w, NodeConfig& n) {
     const cJSON* axis = cJSON_GetObjectItemCaseSensitive(node, "axis");
     if (!axis) return;
     if (!cJSON_IsObject(axis)) {
@@ -1049,7 +1080,19 @@ class Parser {
       return;
     }
     std::string aw = w + ": axis";
-    check_known(axis, aw, {"scale_numerator", "scale_denominator", "scale_factor"});
+    check_known(axis, aw, {"scale_numerator", "scale_denominator", "scale_factor", "cyclic",
+                           "interpolation_period_us"});
+    get_bool(axis, "cyclic", aw, n.axis_cyclic);
+    uint64_t period;
+    if (get_uint(axis, "interpolation_period_us", aw, false, 255000, period)) {
+      uint8_t value;
+      int8_t exponent;
+      if (period < 100 || !interpolation_code((unsigned)period, value, exponent))
+        error(aw, "field 'interpolation_period_us' " + std::to_string(period) +
+                      " cannot be written to 0x60C2: it must be 1-255 times 1 ms, 100 us, 10 us or 1 us");
+      else
+        n.interpolation_period_us = (unsigned)period;
+    }
     double v = 0;
     if (get_number(axis, "scale_numerator", aw, -2147483648.0, 2147483647.0, v) && v != std::floor(v))
       error(aw, "field 'scale_numerator' must be an integer");
