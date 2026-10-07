@@ -18,7 +18,7 @@
 
 ## 4. CI
 
-- [ ] 4.1 vcan test: a frame sent with `send_frame` arrives on a second socket and in a trace as Tx; a cyclic job with count sends exactly that many; disconnect ends a job; an identifier from the map is refused without `force`; `detect_bitrate` on vcan is refused and the session goes on.
+- [x] 4.1 vcan test: a frame sent with `send_frame` arrives on a second socket and in a trace as Tx; a cyclic job with count sends exactly that many; disconnect ends a job; an identifier from the map is refused without `force`; `detect_bitrate` on vcan is refused and the session goes on.
 
 ## 5. Docs
 
