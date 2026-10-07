@@ -37,6 +37,8 @@ openplc-canopen-diag hash-token                                                 
 
 With several CAN networks ([config.md](config.md), `schema_version: 2`) every command that talks to the plugin takes `--network NAME`. `status` without it prints every network one after another, each headed by its name and interface; every other command without it exits with status 1 naming the networks. With one network `--network` may be left out, and an older plugin, which knows no networks, ignores it.
 
+On a slave network ([slave.md](slave.md#diagnostics)) `status` prints the plugin's own device instead of a master and nodes: its node ID (or that it waits for LSS), NMT state, communication OK, SYNC count, EMCY code and error register, each TPDO and RPDO in force with its COB-ID, transmission type and mapped objects, and on a gateway's upper network the gateway's route count, whether the upper master is there and the active forwarded errors. `sdo-read` and `sdo-write` with the slave's own node ID read and write its dictionary; the other commands exit with status 1 saying that they need a master network.
+
 ```sh
 openplc-canopen-diag --runtime plc.local status                                   # every network
 openplc-canopen-diag --runtime plc.local status --network drives

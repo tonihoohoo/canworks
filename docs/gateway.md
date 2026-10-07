@@ -93,4 +93,4 @@ On top of the [slave network checks](slave.md#direction), a gateway is rejected 
 
 ## Diagnostics
 
-The slave network's status in the diagnostics channel ([slave.md](slave.md#diagnostics)) has a `gateway` part: the number of routes, whether the upper master is there (`upper_ok`) and how many forwarded field errors are active.
+The slave network's status in the diagnostics channel ([slave.md](slave.md#diagnostics)) has a `gateway` part: the number of routes, whether the upper master is there (`upper_ok`) and how many forwarded field errors are active. The configurator's **Online** view shows it on the upper network ([configurator.md](configurator.md#online-view)), and `openplc-canopen-diag status` prints it.
