@@ -443,8 +443,36 @@ Each communication field that is set (`cob_id`, `transmission`, `inhibit_time_us
 | `inhibit_time_us` | no | TPDOs only. Minimum time between two sends of the PDO, in µs, a multiple of 100 (sub-index 3, which counts 100 µs). |
 | `event_timer_ms` | no | Sub-index 5. On a TPDO, the event timer: with an event-driven type the slave sends at least this often. On an RPDO, the deadline: the slave signals an error (usually an EMCY) when the PDO has not arrived within this time. 0 switches it off. |
 | `sync_start` | no | TPDOs only, with a synchronous transmission type (1-240, set here or in the EDS). The SYNC counter value at which the slave sends the PDO the first time (sub-index 6); it needs a SYNC counter on the master. |
+| `timeout_ms` | no | TPDOs only. Receive timeout in ms, 1-65535, or `"auto"` (two times the PDO's event timer). The master flags the PDO when none has arrived for this long while its node is up; see [Receive timeout](#receive-timeout). Left out: no timeout. |
+| `on_timeout` | no | TPDOs with `timeout_ms` only. What the PDO's inputs read while it is timed out: `"hold"` (default) keeps the last values, `"zero"` sets them to 0 until the PDO arrives again. |
+| `timeout_location` | no | TPDOs with `timeout_ms` only. An `%IX` input bit, TRUE while the PDO is timed out. |
 | `mapping` | no | Who sets the PDO's mapping: `"config"`, the master writes it from `entries`; or `"device"`, nothing is written and the node keeps the default mapping from its EDS (see below). Left out: `"device"` when the EDS makes the mapping read-only, else `"config"`. |
 | `entries` | yes | The mapped objects, in PDO order, at most 64 bits in total. With the device mapping: the objects of it the PLC uses, in any order. |
+
+### Receive timeout
+
+A node can stay operational, with a working heartbeat, while one of its input PDOs stops coming: a sensor fault, a remapped COB-ID, a node that only sends on change and has gone quiet. The node status bit does not show this. `timeout_ms` on a TPDO makes the master watch it: the plugin writes the time as the deadline (sub-index 5) of the master's own RPDO for that COB-ID in the master DCF, and Lely reports when it expires.
+
+- A PDO counts as timed out when, while its node is up, no PDO has arrived for `timeout_ms`, also when none arrived at all after the node came up. The next PDO ends the timeout. While the node is down nothing times out and the timeout bit is FALSE; the node status bit covers that case.
+- Each timeout logs one warning (`node 2 TPDO 1: no PDO for 200 ms (timeout_ms); its inputs keep their last values`) and is counted; when the PDO is back, one line says how long it was missing.
+- A timeout does not change the node's status bit, state byte, outputs or boot.
+- `"auto"` uses `event_timer_ms` when the config sets it, else the event timer from the EDS (0x1800+*n*-1 sub-index 5), so the slave sends at least once per event timer and the master waits for two. It is rejected when that event timer is 0 or missing; give milliseconds then.
+- Pick a value above the longest normal gap between two PDOs: two or three times the event timer, or for a synchronous PDO a few SYNC periods. The deploy tool warns when a number is below the event timer, because then the PDO times out between two sends.
+- A PDO shorter than its mapping is logged once (until a PDO of the right length arrives) and does not change the inputs.
+
+```json
+"tx_pdos": [
+  {
+    "event_timer_ms": 100,
+    "timeout_ms": "auto",
+    "on_timeout": "zero",
+    "timeout_location": "%IX20.0",
+    "entries": [{ "index": "0x6401", "subindex": 1, "type": "INTEGER16", "iec_location": "%IW100" }]
+  }
+]
+```
+
+Here the slave sends TPDO 1 at least every 100 ms; after 200 ms without it `%IX20.0` goes TRUE and `%IW100` reads 0 until the PDO is back. `openplc-canopen-diag status` and the configurator's online view show the timed-out PDOs and their counts (see [diagnostics](diagnostics.md)).
 
 ### Devices with a fixed PDO mapping
 
@@ -639,8 +667,9 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a PDO number does not exist on the slave, or two PDOs share a COB-ID;
 - a PDO's `mapping` is `"config"` on a mapping the EDS makes read-only; a device-mapped PDO has no default mapping in the EDS, or an entry that is not in it or has another size there;
 - a PDO communication field names a sub-index the EDS does not define, or one it marks read-only with another value (a read-only COB-ID also when `cob_id` is left out and the CiA 301 default differs); `inhibit_time_us` or `sync_start` is on an RPDO; `inhibit_time_us` is not a multiple of 100; or `sync_start` goes with an event-driven transmission type;
+- `timeout_ms`, `on_timeout` or `timeout_location` is on an RPDO; `timeout_ms` is 0, above 65535 or `"auto"` without an event timer; `on_timeout` or `timeout_location` is given without `timeout_ms`; `on_timeout` is not `"hold"` or `"zero"`; or `timeout_location` is not an `%IX` bit;
 - an entry received from a slave has an output location, an entry sent to a slave has an input location, or the type does not fit the location;
-- two entries (or an entry and a node or master diagnostic location, `emcy_code_location`, `error_register_location`, `nmt_command_location` and every SDO variable location included) map to the same location;
+- two entries (or an entry and a node or master diagnostic location, `emcy_code_location`, `error_register_location`, `nmt_command_location`, `timeout_location` and every SDO variable location included) map to the same location;
 - a master diagnostic location has the wrong type (`%IB` for the states and the counters, `%IW` for the bus-off count), a node's `state_location`, `boot_error_location` or `error_register_location` is not `%IB`, or its `emcy_code_location` is not `%IW`;
 - a time in µs that CiA counts in 100 µs is not a multiple of 100, `sync_counter_overflow` is 1 or above 240, or an `error_behavior` sub-index is outside 1-254;
 - a node sets `config_check` while its EDS has no writable 0x1020 sub 1 and sub 2, or `store_configuration` outside 1-127, without `config_check`, or on a 0x1010 sub-index its EDS does not define as writable;
@@ -659,7 +688,7 @@ In every case the PLC starts and runs normally; fix the file and restart the PLC
 
 ## At runtime
 
-- Inputs are copied to the PLC before every scan and hold their last received value; a node that never came up reads zero.
+- Inputs are copied to the PLC before every scan and hold their last received value; a node that never came up reads zero. A TPDO with `timeout_ms` is flagged when it stops coming while its node is up (see [Receive timeout](#receive-timeout)).
 - Outputs are read after every scan and sent at the next SYNC, only to nodes that are operational. Without a SYNC period, the master looks for new outputs every millisecond and sends each event-driven PDO whose data changed (within its inhibit time); outputs that do not change send nothing.
 - With the SYNC timer (`sync_period_us`) the SYNC and the PLC cycle run on separate clocks: output latency varies between almost nothing and one SYNC period, and a scan may now and then see no new inputs. Use `"sync_source": "plc_cycle"` when that matters.
 - A node that is absent, rejects its configuration, or stops sending heartbeats does not stop the PLC or the other nodes. Its status bit goes FALSE, and the master keeps trying to boot and configure it in the background.

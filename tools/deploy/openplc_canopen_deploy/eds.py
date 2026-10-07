@@ -332,6 +332,35 @@ def _check_comm(label, kind, eds, eds_name, node_id, comm, pdo, report):
                    % (label, kind, pdo["number"], t), "sync_start")
 
 
+def auto_timeout(eds, node_id, pdo):
+    """"timeout_ms": "auto" of a TPDO, as the plugin resolves it: (ms, event
+    timer it came from), or (None, why) when there is no event timer."""
+    comm = 0x1800 + pdo["number"] - 1
+    if pdo.get("event_timer_ms") is not None:
+        et = pdo["event_timer_ms"]
+        if not et:
+            return None, "'event_timer_ms' is 0"
+    else:
+        sub = eds.find(comm, 5)
+        et = sub.value(node_id) if sub is not None else None
+        if et is None:
+            return None, "the EDS has no 0x%04X subindex 5 value" % comm
+        if not et:
+            return None, "its EDS value is 0"
+    return min(2 * et, 0xFFFF), et
+
+
+def resolve_auto_timeout(label, eds, node_id, pdo, report):
+    """Sets pdo["timeout_ms_resolved"] for "auto", or reports why it cannot
+    (canopen-pdo-io "Automatic receive timeout from the event timer")."""
+    ms, why = auto_timeout(eds, node_id, pdo)
+    if ms is None:
+        report("%s: TPDO %d: 'timeout_ms' \"auto\" needs the PDO's event timer, but %s; give the timeout in "
+               "milliseconds instead" % (label, pdo["number"], why), "timeout_ms")
+    else:
+        pdo["timeout_ms_resolved"] = ms
+
+
 def mapping_info(eds, map_index):
     """The PDO mapping object as the EDS defines it, like the plugin's
     eds_mapping(): dict with writable, fixed_sub, fixed_access, has_default,
@@ -446,6 +475,19 @@ def check_node(node, eds, errors, paths=None, warnings=None):
                 if t is not None and transmission_needs_sync(t):
                     add("%s: %s %d: %s" % (label, kind, pdo["number"], sync_needed_message(t, True)),
                         ".%s[%d].transmission" % (key, j))
+            if is_tx and pdo.get("timeout_ms") == "auto":
+                resolve_auto_timeout(label, eds, node_id, pdo,
+                                     lambda m, f, j=j, key=key: add(m, ".%s[%d].%s" % (key, j, f)))
+            elif is_tx and isinstance(pdo.get("timeout_ms"), int):
+                # A timeout below the PDO's own sending period trips between two sends.
+                et = pdo.get("event_timer_ms")
+                if et is None:
+                    sub = eds.find(comm, 5)
+                    et = sub.value(node_id) if sub is not None else None
+                if et and pdo["timeout_ms"] < et:
+                    warnings.append(("%s: TPDO %d: timeout_ms %d is shorter than the PDO's event timer of %d ms, so "
+                                     "it times out between two sends" % (label, pdo["number"], pdo["timeout_ms"], et),
+                                     ".%s[%d].timeout_ms" % (key, j)))
             _check_mapping(label, kind, eds, eds_name, node_id, pdo, comm + 0x200,
                            lambda m, f, j=j, key=key: add(m, ".%s[%d]%s" % (key, j, f)),
                            lambda m, j=j, key=key: warnings.append((m, ".%s[%d]" % (key, j))))

@@ -646,6 +646,45 @@ class Page(unittest.TestCase):
         self.assertEqual(node["rx_pdos"][0].get("event_timer_ms"), 500)
         self.assertNotIn("transmission", node["rx_pdos"][0])
 
+    def test_input_pdo_receive_timeout(self):
+        pg = self.page
+        self.open_from_start("#start-project", self.project)
+        self.fill("adapter.interface", "can0")
+        self.fill("master.sync_period_us", "10")
+        self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "pdo-comm.eds"))
+        self.fill("nodes[0].node_id", "2")
+        pg.click('button[data-add="0x4001:0"]')
+        pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
+        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
+        # Off by default. The EDS event timer is 0, so auto has nothing to use.
+        self.assertEqual(pg.get_attribute('input[data-path="nodes[0].tx_pdos[0].timeout_ms"]', "placeholder"), "off")
+        self.assertEqual(pg.locator('select[data-path="nodes[0].tx_pdos[0].on_timeout"]').count(), 0)
+        pg.click('button[data-timeout-auto="nodes[0].tx_pdos[0]"]')
+        pg.wait_for_selector('[data-timeout-for="nodes[0].tx_pdos[0]"]:has-text("auto needs an event timer")')
+        self.fill("nodes[0].tx_pdos[0].event_timer_ms", "50")
+        pg.press('input[data-path="nodes[0].tx_pdos[0].event_timer_ms"]', "Tab")
+        pg.click('button[data-timeout-auto="nodes[0].tx_pdos[0]"]')
+        pg.wait_for_selector('[data-timeout-for="nodes[0].tx_pdos[0]"]:has-text("auto (100 ms)")')
+        pg.select_option('select[data-path="nodes[0].tx_pdos[0].on_timeout"]', "zero")
+        self.fill("nodes[0].tx_pdos[0].timeout_location", "%IX10.1")
+        self.save()
+        pdo = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]["tx_pdos"][0]
+        self.assertEqual(pdo.get("timeout_ms"), "auto")
+        self.assertEqual(pdo.get("on_timeout"), "zero")
+        self.assertEqual(pdo.get("timeout_location"), "%IX10.1")
+        # Emptying the timeout drops the fields that need it.
+        self.fill("nodes[0].tx_pdos[0].timeout_ms", "")
+        pg.press('input[data-path="nodes[0].tx_pdos[0].timeout_ms"]', "Tab")
+        pg.wait_for_selector('select[data-path="nodes[0].tx_pdos[0].on_timeout"]', state="detached")
+        self.save()  # the banner still says Saved from before, so wait for the file
+        path = os.path.join(self.project, "canopen", "canopen.json")
+        deadline = time.time() + 5
+        while "timeout_ms" in load(path)["nodes"][0]["tx_pdos"][0] and time.time() < deadline:
+            time.sleep(0.05)
+        pdo = load(path)["nodes"][0]["tx_pdos"][0]
+        for key in ("timeout_ms", "on_timeout", "timeout_location"):
+            self.assertNotIn(key, pdo)
+
     def test_device_pdo_mapping(self):
         pg = self.page
         self.open_from_start("#start-project", self.project)

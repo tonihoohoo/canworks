@@ -89,6 +89,8 @@ class Cli(unittest.TestCase):
         self.assertIn("error J: the configuration download failed", out)
         self.assertIn("(retrying)", out)
         self.assertIn("node 2 SDO variable 0x2001:0 (uptime), UNSIGNED32 read: raw 42", out)
+        self.assertIn("node 23 TPDO 1: TIMED OUT (timeout 500 ms, 2 timeouts, last PDO 1800 ms ago)", out)
+        self.assertIn("node 23 TPDO 2: receiving (timeout 200 ms, 0 timeouts, last PDO never)", out)
 
     def test_format_sync(self):
         from openplc_canopen_deploy.diag import format_sync

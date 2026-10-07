@@ -50,6 +50,17 @@ struct PdoConfig {
   unsigned event_timer_ms = 0;
   bool has_sync_start = false;
   unsigned sync_start = 0;
+  // Receive timeout of a node TPDO (canopen-pdo-io "Receive timeout setting"):
+  // the deadline of the master's own RPDO for it, in ms. "auto" resolves to
+  // two times the TPDO's event timer (config or EDS) in check_eds_files;
+  // timeout_ms stays 0 until then.
+  bool has_timeout = false;
+  bool timeout_auto = false;
+  unsigned timeout_ms = 0;
+  unsigned timeout_event_ms = 0;  // with timeout_auto: the event timer it came from
+  bool timeout_zero = false;  // on_timeout "zero" (default "hold")
+  bool has_timeout_location = false;
+  IecLocation timeout_location;  // %IX, TRUE while timed out
   // Who sets the PDO's mapping object (JSON `mapping`): the plugin writes it
   // from `entries` ("config"), or the node keeps its EDS default mapping
   // ("device"). Unset follows the EDS: "device" when the mapping object is

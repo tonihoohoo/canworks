@@ -1979,6 +1979,112 @@ TEST(dcfgen_rpdo_event_timer_sdo) {
 }
 
 // ---------------------------------------------------------------------------
+// Receive timeout of input PDOs (canopen-pdo-io "Receive timeout setting",
+// "Automatic receive timeout from the event timer", "Inputs while a PDO is
+// timed out")
+
+TEST(config_input_pdo_timeout_fields) {
+  const std::string tx = "\"tx_pdos\": [ { \"entries\"";
+  Config cfg;
+  std::vector<std::string> errors;
+  CHECK_MSG(parse(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": 500, \"on_timeout\": \"zero\", "
+                                      "\"timeout_location\": \"%IX10.1\", \"entries\""),
+                  cfg, errors),
+            join(errors));
+  const PdoConfig& p = cfg.nodes[0].tx_pdos[0];
+  CHECK(p.has_timeout && !p.timeout_auto && p.timeout_ms == 500 && p.timeout_zero);
+  CHECK(p.has_timeout_location && p.timeout_location.str() == "%IX10.1");
+
+  cfg = Config();
+  errors.clear();
+  CHECK(parse(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": \"auto\", \"entries\""), cfg, errors));
+  CHECK(cfg.nodes[0].tx_pdos[0].timeout_auto && cfg.nodes[0].tx_pdos[0].timeout_ms == 0);
+  CHECK(!cfg.nodes[0].tx_pdos[0].timeout_zero);
+
+  // Without timeout_ms nothing is monitored.
+  cfg = Config();
+  CHECK(parse(kValid, cfg, errors) && !cfg.nodes[0].tx_pdos[0].has_timeout);
+
+  auto rejected = [&](const std::string& json, const std::string& needle) {
+    Config c;
+    std::vector<std::string> e;
+    CHECK_MSG(!parse(json, c, e) && has_error(e, needle), needle + " | " + join(e));
+  };
+  rejected(replace(kValid, "\"rx_pdos\": [ { \"entries\"", "\"rx_pdos\": [ { \"timeout_ms\": 100, \"entries\""),
+           "RPDO 1: field 'timeout_ms' is only for tx_pdos");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": 0, \"entries\""), "TPDO 1: field 'timeout_ms' must be 1-65535");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"on_timeout\": \"zero\", \"entries\""),
+           "TPDO 1: field 'on_timeout' needs 'timeout_ms'");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_location\": \"%IX10.1\", \"entries\""),
+           "TPDO 1: field 'timeout_location' needs 'timeout_ms'");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": 100, \"on_timeout\": \"last\", \"entries\""),
+           "field 'on_timeout' must be \"hold\" or \"zero\"");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": 100, \"timeout_location\": \"%IB10\", \"entries\""),
+           "field 'timeout_location' must be an input bit");
+  rejected(replace(kValid, tx, "\"tx_pdos\": [ { \"timeout_ms\": 100, \"timeout_location\": \"%IX10.0\", \"entries\""),
+           "timeout_location");
+}
+
+TEST(config_input_pdo_timeout_auto) {
+  std::string dir = tmpdir();
+  std::string eds = read(std::string(FIXTURES_DIR) + "/eds/cpp-slave.eds");
+  auto check = [&](const std::string& tpdo, const std::string& with_eds, std::vector<std::string>& errors) {
+    write(dir + "/cpp-slave.eds", with_eds);
+    write(dir + "/canopen.json", replace(kValid, "\"tx_pdos\": [ { \"entries\"", "\"tx_pdos\": [ { " + tpdo + "\"entries\""));
+    Config cfg;
+    errors.clear();
+    bool ok = load_config(dir + "/canopen.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors);
+    return ok ? cfg.nodes[0].tx_pdos[0].timeout_ms : 0u;
+  };
+  std::vector<std::string> errors;
+  // cpp-slave.eds: TPDO 1 event timer 0.
+  CHECK(check("\"timeout_ms\": \"auto\", ", eds, errors) == 0);
+  CHECK_MSG(has_error(errors, "TPDO 1: 'timeout_ms' \"auto\" needs the PDO's event timer, but its EDS value is 0"),
+            join(errors));
+  CHECK(check("\"timeout_ms\": \"auto\", \"event_timer_ms\": 0, ", eds, errors) == 0);
+  CHECK_MSG(has_error(errors, "but 'event_timer_ms' is 0"), join(errors));
+  CHECK_MSG(check("\"timeout_ms\": \"auto\", \"event_timer_ms\": 250, ", eds, errors) == 500, join(errors));
+  size_t at = eds.find("DefaultValue=", eds.find("[1800sub5]"));
+  std::string eds100 = eds.substr(0, at) + "DefaultValue=100" + eds.substr(eds.find('\n', at));
+  CHECK_MSG(check("\"timeout_ms\": \"auto\", ", eds100, errors) == 200, join(errors));
+  CHECK_MSG(check("\"timeout_ms\": \"auto\", \"event_timer_ms\": 40000, ", eds, errors) == 65535, join(errors));
+  CHECK_MSG(check("\"timeout_ms\": 70, ", eds, errors) == 70, join(errors));
+}
+
+// The deadline lands in the master DCF's RPDO for the TPDO's COB-ID, and a
+// config without timeouts keeps the master DCF as it was.
+TEST(dcfgen_rpdo_deadline_in_master_dcf) {
+  set_log_sink(silent);
+  std::string dir = tmpdir();
+  write(dir + "/cpp-slave.eds", read(std::string(FIXTURES_DIR) + "/eds/cpp-slave.eds"));
+  auto master = [&](const std::string& json) {
+    write(dir + "/canopen.json", json);
+    Config cfg;
+    GeneratedConfig gen;
+    std::vector<std::string> errors;
+    CHECK_MSG(load_config(dir + "/canopen.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors) &&
+                  generate_device_config(cfg, default_dcfgen(), gen, errors),
+              join(errors));
+    return read(gen.master_dcf);
+  };
+  auto sub5 = [](const std::string& dcf) {
+    size_t cob = dcf.find("DefaultValue=0x00000182");
+    size_t at = dcf.rfind("[", cob);
+    std::string idx = dcf.substr(at + 1, 4);
+    size_t s5 = dcf.find("[" + idx + "sub5]");
+    return dcf.substr(s5, dcf.find("\n[", s5) - s5);
+  };
+  std::string plain = master(kValid);
+  CHECK_MSG(sub5(plain).find("ParameterValue") == std::string::npos, sub5(plain));
+  std::string timed = master(replace(kValid, "\"tx_pdos\": [ { \"entries\"", "\"tx_pdos\": [ { \"timeout_ms\": 500, \"entries\""));
+  CHECK_MSG(sub5(timed).find("DefaultValue=0\nParameterValue=500\n") != std::string::npos, sub5(timed));
+  // Same length of everything else: only that one line was added.
+  CHECK(timed.size() == plain.size() + std::string("ParameterValue=500\n").size());
+  CHECK(master(kValid) == plain);  // removing the field regenerates the DCF
+  set_log_sink(nullptr);
+}
+
+// ---------------------------------------------------------------------------
 // dcfgen options (master and node)
 
 // A configuration without the new fields gives the same YAML as before them.

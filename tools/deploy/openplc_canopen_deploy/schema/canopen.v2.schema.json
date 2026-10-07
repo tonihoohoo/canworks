@@ -131,7 +131,7 @@
     },
     "field_rx_pdo": {
       "allOf": [ { "$ref": "canopen.v1.schema.json#/$defs/pdo" } ],
-      "not": { "anyOf": [ { "required": [ "inhibit_time_us" ] }, { "required": [ "sync_start" ] } ] },
+      "not": { "anyOf": [ { "required": [ "inhibit_time_us" ] }, { "required": [ "sync_start" ] }, { "required": [ "timeout_ms" ] }, { "required": [ "on_timeout" ] }, { "required": [ "timeout_location" ] } ] },
       "properties": { "entries": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/field_rx_entry" } } },
       "required": [ "entries" ]
     },

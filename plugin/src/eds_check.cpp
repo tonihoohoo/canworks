@@ -1,5 +1,6 @@
 #include "eds_check.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <fstream>
@@ -159,6 +160,39 @@ void check_comm_params(const NodeConfig& n, const co_dev_t* dev, bool is_tx, con
       errors.push_back(buf);
     }
   }
+}
+
+// "timeout_ms": "auto": two times the TPDO's event timer, from the config or
+// else the EDS (canopen-pdo-io "Automatic receive timeout from the event
+// timer"); refused when there is none.
+void resolve_auto_timeout(const NodeConfig& n, const co_dev_t* dev, PdoConfig& p, std::vector<std::string>& errors) {
+  uint64_t et = 0;
+  bool known = false;
+  if (p.has_event_timer) {
+    et = p.event_timer_ms;
+    known = true;
+  } else if (const co_sub_t* sub = co_dev_find_sub(dev, 0x1800 + p.number - 1, 5)) {
+    known = sub_value(sub, et);
+  }
+  if (!known || et == 0) {
+    char buf[320];
+    std::snprintf(buf, sizeof(buf),
+                  "%s: TPDO %u: 'timeout_ms' \"auto\" needs the PDO's event timer, but %s; give the timeout in "
+                  "milliseconds instead",
+                  n.label().c_str(), p.number,
+                  !known ? (p.has_event_timer ? "it is unknown" : "the EDS has no 0x1800+n-1 subindex 5 value")
+                         : (p.has_event_timer ? "'event_timer_ms' is 0" : "its EDS value is 0"));
+    std::string msg = buf;
+    if (!known && !p.has_event_timer) {
+      char obj[16];
+      std::snprintf(obj, sizeof(obj), "0x%04X", 0x1800 + p.number - 1);
+      msg.replace(msg.find("0x1800+n-1"), 10, obj);
+    }
+    errors.push_back(msg);
+    return;
+  }
+  p.timeout_event_ms = static_cast<unsigned>(et);
+  p.timeout_ms = static_cast<unsigned>(std::min<uint64_t>(2 * et, 0xFFFF));
 }
 
 bool sub_writable(const co_sub_t* sub) { return co_sub_get_access(sub) & CO_ACCESS_WRITE; }
@@ -326,6 +360,7 @@ void check_pdos(Config& cfg, NodeConfig& n, const co_dev_t* dev, bool is_tx,
       errors.push_back(buf);
     }
     check_comm_params(n, dev, is_tx, p, errors);
+    if (is_tx && p.timeout_auto) resolve_auto_timeout(n, dev, p, errors);
     // Without SYNC, a PDO left at a synchronous EDS transmission type would
     // never move; the plugin does not pick another type on its own.
     uint64_t tt = 0;

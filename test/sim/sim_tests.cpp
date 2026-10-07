@@ -3290,6 +3290,136 @@ TEST(sim_simulated_faults) {
   delete sim;
 }
 
+// Receive timeout of an input PDO (canopen-pdo-io "Input PDO timeout
+// detection", "Timeout reported to the PLC and the log", "Inputs while a PDO
+// is timed out"): the simulated device keeps its heartbeat and stops TPDO 1.
+std::string input_timeout_json(const std::string& extra) {
+  std::string json = pingpong_json();
+  json.replace(json.find("\"tx_pdos\": [ { "), 15,
+               "\"tx_pdos\": [ { \"transmission\": 255, \"event_timer_ms\": 20, \"timeout_ms\": 100, "
+               "\"timeout_location\": \"%IX10.1\", " + extra);
+  return json;
+}
+
+const cJSON* pdo_timeout_of(const cJSON* status, unsigned node, unsigned tpdo) {
+  const cJSON* n;
+  cJSON_ArrayForEach(n, field(result(status), "nodes")) {
+    if (num(n, "node_id") != node) continue;
+    const cJSON* t;
+    cJSON_ArrayForEach(t, field(n, "pdo_timeouts"))
+      if (num(t, "tpdo") == tpdo) return t;
+  }
+  return nullptr;
+}
+
+TEST(sim_input_pdo_timeout) {
+  clear_logs();
+  std::string dir = make_dir(input_timeout_json(""), {{"cpp-slave.eds", slave_eds()}});
+  CHECK(read(dir + "/canopen_config.json").find("timeout_ms") != std::string::npos);
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->EnableDiag();
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  CHECK(logged("node 2 (pingpong) TPDO 1: receive timeout 100 ms"));
+  sim->RunFor(milliseconds(300));
+  CHECK(sim->plc().bool_in[10][1] == 0);
+  CHECK(!logged("no PDO for"));
+
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"tpdo_stop":1}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  auto stopped = steady_clock::now();
+  CHECK(sim->RunUntil([] { return sim->plc().bool_in[10][1] != 0; }, seconds(2)));
+  auto took = duration_cast<milliseconds>(steady_clock::now() - stopped).count();
+  std::printf("    timeout bit after %lld ms\n", (long long)took);
+  CHECK(took >= 80 && took < 400);
+  uint32_t held = sim->in();
+  sim->RunFor(milliseconds(500));
+  CHECK(sim->status());               // the node is still up
+  CHECK(sim->in() == held);           // hold: the last value
+  CHECK(sim->plc().bool_in[10][1] != 0);
+  CHECK_MSG(count_logs("node 2 (pingpong) TPDO 1: no PDO for 100 ms (timeout_ms); its inputs keep their last values") == 1,
+            std::to_string(count_logs("no PDO for")) + " timeout warnings");
+  cJSON* a = sim->Ask(diag_req("status"));
+  const cJSON* t = pdo_timeout_of(a, 2, 1);
+  CHECK_MSG(t && cJSON_IsTrue(field(t, "timed_out")) && num(t, "count") == 1 && num(t, "timeout_ms") == 100 &&
+                num(t, "since_ms") >= 500,
+            a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"tpdo_stop"})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->plc().bool_in[10][1] == 0; }, seconds(2)));
+  CHECK(sim->RunUntil([held] { return sim->in() > held; }, seconds(2)));
+  CHECK(logged("node 2 (pingpong) TPDO 1 is back after "));
+  a = sim->Ask(diag_req("status"));
+  t = pdo_timeout_of(a, 2, 1);
+  CHECK(t && cJSON_IsFalse(field(t, "timed_out")) && num(t, "count") == 1 && num(t, "since_ms") < 100);
+  cJSON_Delete(a);
+  // The master sent no EMCY of its own for it (Lely's default would).
+  CHECK(sim->frames(0x081) == 0);
+  delete sim;
+}
+
+TEST(sim_input_pdo_timeout_zero) {
+  clear_logs();
+  std::string dir = make_dir(input_timeout_json("\"on_timeout\": \"zero\", "), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"tpdo_stop":1}})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->plc().bool_in[10][1] != 0; }, seconds(2)));
+  CHECK(sim->in() == 0);
+  CHECK(logged("node 2 (pingpong) TPDO 1: no PDO for 100 ms (timeout_ms); its inputs read 0 until it is back"));
+  sim->RunFor(milliseconds(300));
+  CHECK(sim->in() == 0);
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"all"})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->plc().bool_in[10][1] == 0 && sim->in() > 0; }, seconds(2)));
+  delete sim;
+}
+
+// A TPDO that never arrives after the node came up times out too (Lely's
+// deadline only runs from a received PDO), and a lost node ends the timeout
+// without more warnings.
+TEST(sim_input_pdo_never_arrives) {
+  clear_logs();
+  std::string dir = make_dir(input_timeout_json(""), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"tpdo_stop":1}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  auto up = steady_clock::now();
+  CHECK(sim->RunUntil([] { return sim->plc().bool_in[10][1] != 0; }, seconds(2)));
+  auto took = duration_cast<milliseconds>(steady_clock::now() - up).count();
+  std::printf("    timeout bit %lld ms after the node came up\n", (long long)took);
+  CHECK(took < 400);
+  CHECK(sim->in() == 0);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"heartbeat":"stop"}})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
+  CHECK(sim->plc().bool_in[10][1] == 0);
+  sim->RunFor(milliseconds(500));
+  CHECK(sim->plc().bool_in[10][1] == 0);
+  CHECK_MSG(count_logs("no PDO for") == 1, std::to_string(count_logs("no PDO for")) + " timeout warnings");
+  delete sim;
+}
+
 // Stored parameters: the master's configuration is saved (0x1010) and kept
 // across a power cycle, so the configuration check skips the download.
 TEST(sim_simulated_store_power_cycle) {

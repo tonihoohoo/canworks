@@ -16,7 +16,7 @@ import shutil
 import tempfile
 import unittest
 
-from openplc_canopen_deploy import cli, dbcexport, dcfexport, docexport
+from openplc_canopen_deploy import cli, dbcexport, dcfexport, docexport, docwriter
 
 from .test_contract import FIXTURES, REPO, load_cases
 
@@ -228,6 +228,21 @@ class Model(unittest.TestCase):
         self.assertEqual(t["mapping"], "device")
         self.assertEqual([(e["index"], e["subindex"], e["used"]) for e in t["entries"]],
                          [(0x6000, 1, False), (0x6000, 2, True)])
+
+    def test_receive_timeout(self):
+        cfg = base_config()
+        t = cfg["nodes"][0]["tx_pdos"][0]
+        t.update({"event_timer_ms": 100, "timeout_ms": "auto", "timeout_location": "%IX20.0"})
+        doc = build(cfg)
+        [net] = doc["networks"]
+        self.assertEqual(pdo(net["nodes"][0], "TPDO", 1)["timeout"],
+                         {"ms": 200, "auto": True, "on_timeout": "hold", "location": "%IX20.0", "variables": []})
+        self.assertIn("%IX20.0", [u["location"] for u in doc["io"]])
+        self.assertIn("Receive timeout 200 ms (auto), hold, timeout bit <code>%IX20.0</code>", docwriter.write(doc))
+        # Without timeout_ms there is no timeout; RPDOs never have one.
+        del t["timeout_ms"], t["timeout_location"]
+        [net] = build(cfg)["networks"]
+        self.assertNotIn("timeout", pdo(net["nodes"][0], "TPDO", 1))
 
     def test_plc_variable_names_and_cycle_from_project(self):
         tmp = tempfile.mkdtemp()

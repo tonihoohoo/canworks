@@ -734,6 +734,14 @@
     },
     "pdo": {
       "type": "object",
+      "dependentRequired": {
+        "on_timeout": [
+          "timeout_ms"
+        ],
+        "timeout_location": [
+          "timeout_ms"
+        ]
+      },
       "properties": {
         "number": {
           "anyOf": [
@@ -805,6 +813,34 @@
             "device"
           ]
         },
+        "timeout_ms": {
+          "description": "TPDO only (tx_pdos). Receive timeout: the deadline of the master's own RPDO for this PDO, in milliseconds (1-65535), or \"auto\" for two times the PDO's event timer (event_timer_ms, else the EDS value; refused when that is 0). Left out, the PDO is not monitored.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            {
+              "const": "auto"
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "on_timeout": {
+          "description": "TPDO only, with timeout_ms. What the PDO's inputs show while it is timed out: \"hold\" (default, the last values) or \"zero\".",
+          "enum": [
+            "hold",
+            "zero"
+          ]
+        },
+        "timeout_location": {
+          "description": "TPDO only, with timeout_ms. An input bit (%IX...) that is TRUE while the PDO is timed out and its node is up.",
+          "type": "string",
+          "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$"
+        },
         "sync_start": {
           "description": "TPDO only, with a synchronous transmission type (1-240). Sub-index 6. Left out, the EDS value stays.",
           "anyOf": [
@@ -855,6 +891,21 @@
           {
             "required": [
               "sync_start"
+            ]
+          },
+          {
+            "required": [
+              "timeout_ms"
+            ]
+          },
+          {
+            "required": [
+              "on_timeout"
+            ]
+          },
+          {
+            "required": [
+              "timeout_location"
             ]
           }
         ]

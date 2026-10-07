@@ -1878,6 +1878,7 @@ function renderPdos(i, key, dir, title, eds) {
         cobIdField(pb, n, dir, p, j),
         transmissionField(pb, dir, p, eds)),
       timingLine(pb, dir, p, eds),
+      dir === "input" ? timeoutLine(i, pb, p, eds) : null,
       mappingLine(i, key, dir, p, j, eds));
     const rows = (p.entries || []).map((e, k) => {
       const ep = `${pb}.entries[${k}]`;
@@ -2092,6 +2093,71 @@ function timingLine(pb, dir, p, eds) {
   const shown = fields.filter(Boolean);
   return shown.length ? el("div", { class: "pdo-row" }, el("span", { class: "row-head" }, "Timing"),
     el("div", { class: "pdo-grid" }, ...shown)) : null;
+}
+
+// The receive timeout of a TPDO (canopen-pdo-io "Receive timeout setting"):
+// off, a number of ms, or "auto" (two times the PDO's event timer, from the
+// config or the EDS). With a timeout: what the inputs show meanwhile and the
+// optional timeout bit.
+function timeoutLine(i, pb, p, eds) {
+  const nr = num(p.number) || 1;
+  // Read when shown: the event timer field above can change without a render.
+  const eventTimer = () => {
+    const own = getPath(pb + ".event_timer_ms");
+    if (own !== undefined) return num(own);
+    return eds && commSub(eds, "input", nr, 5) ? commSub(eds, "input", nr, 5).value : null;
+  };
+  const path = pb + ".timeout_ms";
+  const input = el("input", { type: "text", spellcheck: "false", dataset: { path }, placeholder: "off",
+    "aria-label": "Receive timeout" });
+  const v = getPath(path);
+  input.value = v === undefined ? "" : String(v);
+  const resolved = el("span", { class: "hint", dataset: { timeoutFor: pb } });
+  const show = () => {
+    const t = getPath(path);
+    const et = eventTimer();
+    resolved.textContent = t !== "auto" ? ""
+      : et ? `auto (${Math.min(2 * et, 65535)} ms)` : "auto needs an event timer (set one, or give milliseconds)";
+  };
+  input.addEventListener("input", () => {
+    const t = input.value.trim();
+    setPath(path, t === "" ? undefined : /^[0-9]+$/.test(t) ? parseInt(t, 10) : t.toLowerCase() === "auto" ? "auto" : t);
+    show();
+  });
+  // Off and on change which fields follow.
+  input.addEventListener("change", () => {
+    if (getPath(path) === undefined) {
+      setPath(pb + ".on_timeout", undefined);
+      setPath(pb + ".timeout_location", undefined);
+    }
+    render();
+  });
+  show();
+  const autoBtn = el("button", { type: "button", dataset: { timeoutAuto: pb },
+    onclick: () => { setPath(path, "auto"); render(); } }, "Auto");
+  const fields = [el("label", null, "Receive timeout (ms)", el("span", { class: "row" }, input, autoBtn), resolved,
+    hint("The master flags this PDO when it has not arrived for this long while the node is up. Empty: off." +
+      " Auto: two times its event timer."),
+    el("span", { class: "field-msg", dataset: { for: path } }))];
+  if (v !== undefined) {
+    fields.push(choice("On timeout", pb + ".on_timeout", [
+      { value: undefined, label: "Hold last values", help: "The PDO's inputs keep their last values, as for a lost node." },
+      { value: "zero", label: "Set inputs to 0", help: "The PDO's inputs read 0 until it arrives again." },
+    ]));
+    const locPath = pb + ".timeout_location";
+    const loc = field("", locPath, "text", { placeholder: "%IX…" }).querySelector("input");
+    const suggest = el("button", { type: "button", dataset: { suggest: "timeout" },
+      onclick: async () => {
+        const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction: "status" });
+        setPath(locPath, r.location);
+        render();
+      } }, "Suggest");
+    fields.push(el("label", null, "Timeout bit", el("span", { class: "row" }, loc, suggest),
+      hint("Optional. TRUE while this PDO is timed out and its node is up. Empty: no bit."),
+      el("span", { class: "field-msg", dataset: { for: locPath } }), declNote(locPath)));
+  }
+  return el("div", { class: "pdo-row" }, el("span", { class: "row-head" }, "Timeout"),
+    el("div", { class: "pdo-grid" }, ...fields));
 }
 
 // A sub-object's DefaultValue in the EDS as a number (null if absent or
@@ -2815,10 +2881,13 @@ async function pollOnline(seq) {
     const hold = n.hold === "none" ? "" : `held ${n.hold === "stopped" ? "STOPPED" : "PRE-OPERATIONAL"} by ${n.hold_by === "operator" ? "operator" : "the program"}`;
     const em = n.emcy && n.emcy.count ? `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})` : "";
     const vars = (n.sdo_variables || []).map((v) => `${v.name} = ${v.raw}${v.status > 1 ? " (" + sdoStatus(v) + ")" : ""}`).join(", ");
+    const stale = (n.pdo_timeouts || []).filter((t) => t.timed_out).map((t) => `TPDO ${t.tpdo} timed out (${t.count})`);
     return el("tr", { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id },
       onclick: () => { S.onlineNode = n.node_id; renderOnlineNode(); pollHighlight(); } },
     el("td", null, String(n.node_id)), el("td", null, nodeName(n.node_id, n.name)),
-    el("td", { class: "state-" + n.state }, stateName(n.state)), el("td", null, n.status ? "TRUE" : "FALSE"),
+    el("td", { class: "state-" + n.state }, stateName(n.state)),
+    el("td", { dataset: { onlineStatus: n.node_id } }, n.status ? "TRUE" : "FALSE",
+      ...stale.map((t) => el("div", { class: "bad", dataset: { pdoTimeout: n.node_id } }, t))),
     el("td", { class: n.boot_error ? "bad" : null }, boot + (n.retry_pending ? " (retrying)" : "")),
     el("td", null, hold), el("td", null, em), el("td", null, vars));
   });
@@ -2833,6 +2902,8 @@ async function pollOnline(seq) {
     el("table", { class: "online-nodes" },
       el("thead", null, el("tr", null, ["Node", "Name", "State", "Status bit", "Boot", "Hold", "Last EMCY", "SDO variables"].map((h) => el("th", null, h)))),
       el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No nodes in the configuration the runtime runs."))])));
+  const tbox = document.querySelector("[data-online='pdo-timeouts']");
+  if (tbox) tbox.replaceChildren(pdoTimeoutTable((st.nodes || []).find((n) => n.node_id === S.onlineNode)));
   if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
   if (S.lssAllow !== r.hello.allow_changes) renderLss(r.hello.allow_changes);
   S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
@@ -3132,8 +3203,13 @@ async function renderOnlineNode() {
   if (tab === "params") { box.replaceChildren(title, tabs, paramsPanel(id, n, allow)); return; }
   if (slave) { box.replaceChildren(title, tabs, sdoPanel(id, n, allow)); return; }
   const emcy = el("div", { dataset: { online: "emcy" } }, el("span", { class: "muted" }, "Loading…"));
+  const last = S.onlineLast && S.onlineLast.status ? (S.onlineLast.status.nodes || []).find((x) => x.node_id === id) : null;
+  const timeouts = last && (last.pdo_timeouts || []).length
+    ? el("fieldset", null, el("legend", null, "Input PDO timeouts"), el("div", { dataset: { online: "pdo-timeouts" } }, pdoTimeoutTable(last)))
+    : null;
   box.replaceChildren(title, tabs,
     el("fieldset", null, el("legend", null, "NMT"), nmtButtons(id, allow)),
+    timeouts,
     sdoPanel(id, n, allow),
     el("fieldset", null, el("legend", null, "Emergency history (newest first)"), emcy,
       el("button", { type: "button", onclick: () => renderOnlineNode() }, "Refresh")));
@@ -3147,6 +3223,20 @@ async function renderOnlineNode() {
   } catch (e) {
     emcy.replaceChildren(el("p", { class: "field-msg" }, e.message));
   }
+}
+
+// The monitored TPDOs of a node in the status answer: timeout, timed out
+// now, timeouts so far, time since the last PDO.
+function pdoTimeoutTable(n) {
+  const list = (n && n.pdo_timeouts) || [];
+  if (!list.length) return el("p", { class: "muted" }, "No TPDO of this node has a receive timeout.");
+  return el("table", null,
+    el("thead", null, el("tr", null, ["TPDO", "Timeout", "Now", "Timeouts", "Last PDO"].map((h) => el("th", null, h)))),
+    el("tbody", null, list.map((t) => el("tr", { dataset: { pdoTimeoutRow: t.tpdo } },
+      el("td", null, String(t.tpdo)), el("td", null, `${t.timeout_ms} ms`),
+      el("td", { class: t.timed_out ? "bad" : null }, t.timed_out ? "timed out" : "receiving"),
+      el("td", null, String(t.count)),
+      el("td", null, t.since_ms === null || t.since_ms === undefined ? "never" : `${t.since_ms} ms ago`)))));
 }
 
 function nmtButtons(id, allow) {

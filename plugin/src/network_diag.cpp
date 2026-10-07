@@ -182,6 +182,24 @@ void Network::DiagStatus(const DiagRequest& r) {
     cJSON_AddNumberToObject(e, "code", image_.node_emcy_code(id));
     cJSON_AddNumberToObject(e, "error_register", image_.node_error_register(id));
     cJSON_AddNumberToObject(e, "count", static_cast<double>(n.emcy_n));
+    cJSON* pt = cJSON_AddArrayToObject(o, "pdo_timeouts");
+    auto now = clock::now();
+    for (const auto& ip : in_pdos_) {
+      const InputPdo& p = ip.second;
+      if (p.node_id != id || !p.timeout_ms) continue;
+      cJSON* t = cJSON_CreateObject();
+      cJSON_AddNumberToObject(t, "tpdo", p.pdo);
+      cJSON_AddNumberToObject(t, "timeout_ms", p.timeout_ms);
+      cJSON_AddBoolToObject(t, "timed_out", p.timed_out);
+      cJSON_AddNumberToObject(t, "count", static_cast<double>(p.timeouts));
+      if (p.last_rx == clock::time_point{})
+        cJSON_AddNullToObject(t, "since_ms");
+      else
+        cJSON_AddNumberToObject(
+            t, "since_ms",
+            static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(now - p.last_rx).count()));
+      cJSON_AddItemToArray(pt, t);
+    }
     cJSON* sv = cJSON_AddArrayToObject(o, "sdo_variables");
     for (size_t k : n.vars) {
       const SdoVariable& var = vars[k].var;

@@ -32,4 +32,4 @@ These values SHALL be available whether or not the corresponding PLC locations a
 
 #### Scenario: Timed-out PDO without a location
 - **WHEN** node 23's TPDO 1 has `"timeout_ms": 500` and no `timeout_location`, and it has stopped arriving
-- **THEN** the status answer shows node 23's TPDO 1 as timed out with a count of at least 1, and `openplc-canopen-diag status` prints it on node 23's line
+- **THEN** the status answer shows node 23's TPDO 1 as timed out with a count of at least 1, and `openplc-canopen-diag status` prints a line for node 23's TPDO 1 saying it is timed out

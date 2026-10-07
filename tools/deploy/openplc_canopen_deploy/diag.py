@@ -755,6 +755,13 @@ def _print_status(st, out):
     for r in rows:
         out.write("  ".join(c.ljust(w) for c, w in zip(r, widths)) + "  " + r[-1] + "\n")
     for nd in st.get("nodes") or []:
+        for t in nd.get("pdo_timeouts") or []:
+            since = t.get("since_ms")
+            out.write("node %s TPDO %s: %s (timeout %s ms, %d timeout%s, last PDO %s)\n" % (
+                nd.get("node_id"), t.get("tpdo"), "TIMED OUT" if t.get("timed_out") else "receiving",
+                t.get("timeout_ms"), t.get("count") or 0, "" if t.get("count") == 1 else "s",
+                "never" if since is None else "%d ms ago" % since))
+    for nd in st.get("nodes") or []:
         for v in nd.get("sdo_variables") or []:
             line = "node %s %s, %s %s: raw %s, status %s" % (
                 nd.get("node_id"), v.get("name"), v.get("type"),

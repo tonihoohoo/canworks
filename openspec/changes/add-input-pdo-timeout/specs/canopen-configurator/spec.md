@@ -9,7 +9,7 @@ For each PDO the configurator SHALL edit the PDO number, COB-ID, transmission ty
 
 #### Scenario: Auto timeout from the EDS
 - **WHEN** a TPDO has no event timer set, its EDS gives 100 ms, and the user picks Auto
-- **THEN** the field shows "auto (200 ms)" and the saved PDO has `"timeout_ms": "auto"`
+- **THEN** the field shows "auto (200 ms)" next to it and the saved PDO has `"timeout_ms": "auto"`
 
 #### Scenario: Timeout off
 - **WHEN** the user clears the timeout field and saves
