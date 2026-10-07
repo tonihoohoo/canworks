@@ -19,7 +19,7 @@ class Base(TraceBase):
         self.addCleanup(self.fake.__exit__)
 
     def trace(self, allow=True):
-        self.write_config({"token_sha256": diag.hash_token(TOKEN), "allow_changes": allow})
+        self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": allow})
         self.remember(self.fake.runtime)
         self.open()
         self.trace_view()
