@@ -21,6 +21,9 @@ struct PdoEntry {
   uint16_t index = 0;
   uint8_t subindex = 0;
   CoType type = CoType::UNSIGNED8;
+  // False only for an entry a gateway route reads or writes and the PLC does
+  // not (canopen-gateway spec); such an entry has no place in the image.
+  bool has_location = true;
   IecLocation location;
 };
 
@@ -282,6 +285,82 @@ struct AdapterConfig {
   unsigned serial_baudrate = 0;  // 0 = leave the UART speed as it is
 };
 
+// What a network is: the CANopen master of its nodes, or one CANopen device
+// (NMT slave) on a bus another master runs (canopen-slave-device spec).
+enum class NetworkRole { Master, Slave };
+
+// One object of the slave's own dictionary bound to one PLC location. The
+// direction comes from the EDS access type (check_eds_files): objects the
+// master writes (rww, rw) are PLC inputs, objects it reads (ro, rwr) PLC
+// outputs.
+struct SlaveObject {
+  uint16_t index = 0;
+  uint8_t subindex = 0;
+  std::string name;
+  IecLocation location;
+  // Set by check_eds_files from the EDS.
+  CoType type = CoType::UNSIGNED8;
+  bool input = false;  // written by the master, read by the PLC
+  std::string label() const;  // "object 0x2000:1 (speed)"
+};
+
+struct SlaveConfig {
+  bool lss = false;     // node_id null: the node ID comes over LSS
+  unsigned node_id = 0;  // 1-127 unless lss
+  std::string eds;       // as written in the JSON
+  std::string eds_path;  // resolved like a node's eds; the prepared copy after the lint
+  std::vector<std::string> eds_candidates;
+  std::vector<std::string> lint_findings;
+  std::string eds_lint = "communication";
+  std::string eds_sha256;  // of the file the slave runs, set by check_eds_files
+  std::vector<SlaveObject> objects;
+  bool inputs_on_loss_zero = false;  // "inputs_on_loss": "zero"
+  bool has_state_location = false;  // %IB own NMT state
+  IecLocation state_location;
+  bool has_comm_ok_location = false;  // %IX
+  IecLocation comm_ok_location;
+  bool has_sync_count_location = false;  // %IW
+  IecLocation sync_count_location;
+  bool has_emcy_code_location = false;  // %QW
+  IecLocation emcy_code_location;
+  bool has_error_register_location = false;  // %QB
+  IecLocation error_register_location;
+  // "slave (node 10)" or "slave (LSS)".
+  std::string label() const;
+};
+
+// A gateway route (canopen-gateway spec): one object of the gateway's slave
+// dictionary and one PDO entry of a node on a field (master) network.
+struct RouteConfig {
+  unsigned number = 0;  // 1-based place in `routes`
+  std::string name;
+  uint16_t slave_index = 0;
+  uint8_t slave_subindex = 0;
+  unsigned field_network = 0;  // index into ConfigSet::networks
+  unsigned node = 0;
+  uint16_t index = 0;
+  uint8_t subindex = 0;
+  // Up: the node's TPDO entry -> the slave object; down: the slave object ->
+  // the node's RPDO entry. Set from the slave object's access type.
+  bool up = true;
+  CoType type = CoType::UNSIGNED8;  // the field entry's type
+  std::string label() const;  // "route 2 (temp1)"
+};
+
+struct GatewayConfig {
+  bool enabled = false;
+  unsigned upper = 0;  // index of the slave network in ConfigSet::networks
+  std::vector<RouteConfig> routes;
+  bool has_status = false;
+  uint16_t status_index = 0x5E00;
+  bool emcy_forward = false;
+  enum class UpperLoss { Hold, Zero, StopNodes };
+  UpperLoss on_upper_loss = UpperLoss::Hold;
+  bool sdo_bridge = false;
+  uint16_t sdo_bridge_index = 0x5F00;
+  bool sdo_bridge_write = false;
+};
+
 // Highest config schema_version this plugin reads. Version 2 holds a list of
 // networks (canopen-networks spec); version 1 is one network.
 constexpr unsigned kSchemaVersion = 2;
@@ -305,8 +384,13 @@ struct Config {
   // Put in front of the network's log lines ("drives"), empty when the file
   // has one network.
   std::string log_prefix;
+  NetworkRole role = NetworkRole::Master;
+  bool is_slave() const { return role == NetworkRole::Slave; }
   AdapterConfig adapter;
+  // A master network's master settings; a slave network uses only the
+  // diagnostics settings here.
   MasterConfig master;
+  SlaveConfig slave;  // slave networks only
   std::vector<NodeConfig> nodes;
   // Non-fatal findings (deprecated keys, unknown fields), each naming the
   // file and the JSON path. The plugin logs them as warnings.
@@ -322,6 +406,7 @@ struct ConfigSet {
   std::string file_sha256;
   unsigned schema_version = 1;
   std::vector<Config> networks;
+  GatewayConfig gateway;
   // Findings of the parser (each names the file and JSON path).
   std::vector<std::string> warnings;
   std::vector<std::string> notes;

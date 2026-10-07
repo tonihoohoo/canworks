@@ -875,6 +875,9 @@ int run_fixture_file(const std::string& file) {
       }
       warnings.insert(warnings.end(), cfg.warnings.begin(), cfg.warnings.end());
     }
+    if (ok) ok = check_gateway_eds(set, errors);
+    warnings.insert(warnings.end(), set.warnings.begin() + static_cast<long>(std::min(warnings.size(), set.warnings.size())),
+                    set.warnings.end());
     std::free(text);
     cJSON_Delete(cfg_json);
     bool want = std::string(cJSON_GetObjectItemCaseSensitive(c, "verdict")->valuestring) == "accept";
@@ -3371,8 +3374,9 @@ TEST(diag_server_two_networks) {
   DiagClient c(server.port());
   std::string hello = c.ask(R"({"op":"hello","token":"secret"})");
   CHECK_MSG(hello.find(R"("protocol":1)") != std::string::npos &&
-                hello.find(R"("networks":[{"name":"io","interface":"vcan0","bitrate":125000,"master_node_id":1},)"
-                           R"({"name":"vcan1","interface":"vcan1","bitrate":500000,"master_node_id":3}])") !=
+                hello.find(R"("networks":[{"name":"io","interface":"vcan0","bitrate":125000,"role":"master","master_node_id":1},)"
+                           R"({"name":"vcan1","interface":"vcan1","bitrate":500000,"role":"master",)"
+                           R"("master_node_id":3}])") !=
                     std::string::npos,
             hello);
   std::string st = c.ask(R"({"op":"status"})");
@@ -3400,6 +3404,45 @@ TEST(diag_server_two_networks) {
   CHECK(c.ask(R"({"op":"trace_fetch","network":"vcan1","after":0})").find(R"("ok":true)") != std::string::npos);
   CHECK(c.ask(R"({"op":"trace_stop","network":"vcan1"})").find(R"("ok":true)") != std::string::npos);
   drives.detach();
+  server.stop();
+  set_log_sink(nullptr);
+}
+
+// A slave network in the diagnostics channel (canopen-slave-device): the
+// hello names its role and node ID, the offline status has the slave's
+// shape, and master-only operations are refused before their fields are read.
+TEST(diag_server_slave_network) {
+  set_log_sink(diag_capture);
+  std::string json = R"({ "schema_version": 2, "diagnostics": { "token_sha256": ")" + sha256_hex("secret") +
+                     R"(", "port": 1024, "bind": "127.0.0.1", "allow_changes": true }, "networks": [
+    { "name": "line", "role": "slave", "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 250000 },
+      "slave": { "node_id": 10, "eds": "openplc-slave.eds" } },
+    { "name": "field", "adapter": { "type": "socketcan", "interface": "vcan1", "bitrate": 500000 },
+      "master": { "node_id": 1 }, "nodes": [ { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds" } ] } ] })";
+  ConfigSet set;
+  std::vector<std::string> errors;
+  CHECK_MSG(parse_config_set(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors), join(errors));
+  if (set.networks.size() != 2) return;
+  for (auto& cfg : set.networks) cfg.master.diag_port = 0;
+  DiagHub line(set.networks[0], "test"), field(set.networks[1], "test");
+  DiagServer server(std::vector<DiagHub*>{&line, &field});
+  server.start();
+  CHECK(wait_port(server));
+  DiagClient c(server.port());
+  std::string hello = c.ask(R"({"op":"hello","token":"secret"})");
+  CHECK_MSG(hello.find(R"({"name":"line","interface":"vcan0","bitrate":250000,"role":"slave","node_id":10})") !=
+                std::string::npos,
+            hello);
+  std::string st = c.ask(R"({"op":"status","network":"line"})");
+  CHECK_MSG(st.find(R"("role":"slave")") != std::string::npos && st.find(R"("slave":{"node_id":10)") != std::string::npos,
+            st);
+  st = c.ask(R"({"op":"nmt","network":"line","node":10})");
+  CHECK_MSG(st.find("is a slave network; nmt needs a master network") != std::string::npos, st);
+  st = c.ask(R"({"op":"scan","network":"line"})");
+  CHECK_MSG(st.find("is a slave network") != std::string::npos, st);
+  // Its own node ID is not "the master itself"; without a session: no bus.
+  st = c.ask(R"({"op":"sdo_read","network":"line","node":1,"index":4096,"subindex":0})");
+  CHECK_MSG(st.find("no bus") != std::string::npos, st);
   server.stop();
   set_log_sink(nullptr);
 }

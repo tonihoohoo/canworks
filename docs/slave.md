@@ -53,10 +53,11 @@ So the master can only ever reach `%I` locations. A location of the wrong area, 
 ## At runtime
 
 - At PLC start the plugin loads the EDS, runs the same lint and checks as for master networks, sets the node ID and sends its boot-up message. A config error opens no interface of any network.
+- After boot-up the slave waits in PRE-OPERATIONAL for the master's NMT start, as CiA 301 asks. (Lely would start a device without an NMT startup object by itself, so an EDS without 0x1F80 gets a read-only 0x1F80 = 0x04, "do not start by itself"; an EDS with 0x1F80 keeps its own value.)
 - The slave obeys NMT start, stop, pre-operational, reset node and reset communication, addressed to its node ID or broadcast; PDOs move only in OPERATIONAL. Its SDO server answers uploads and downloads (expedited, segmented and block) for every object the EDS allows.
 - A value the master writes to a bound input, by RPDO or SDO, reaches the PLC at the next scan start; with several writes in one scan the newest wins. Inputs keep their last value while the node is not OPERATIONAL or the master's heartbeat is lost, unless `inputs_on_loss` is `"zero"`.
-- At the end of each scan changed output values go into the dictionary: synchronous TPDOs carry them at the next SYNC, event-driven TPDOs that map them are sent (inhibit time applies), and an SDO upload returns them. From the program to the bus takes at most one scan plus 1 ms.
-- A "save" the master writes to 0x1010 stores the selected ranges in a state file outside the uploaded project, so an upload does not lose them; a "load" to 0x1011 deletes them. Stored values (also 0x1020, so a master that checks the configuration date can skip its download) are applied after every start and reset node while the EDS is unchanged; with a changed EDS they are ignored with a warning.
+- At the end of each scan changed output values go into the dictionary: synchronous TPDOs carry them at the next SYNC, event-driven TPDOs that map them are sent (inhibit time applies), and an SDO upload returns them. From the program to the bus takes at most one scan plus 1 ms. On entering OPERATIONAL every event-driven TPDO is sent once, so the master has all values without waiting for a change.
+- A "save" the master writes to 0x1010 stores the selected ranges in a state file outside the uploaded project, `<prefix>/state/<network>.json` (`/opt/openplc-canopen/state` on a native install and on the Docker install's bind-mounted prefix; the environment variable `CANOPEN_STATE_DIR` overrides the directory), so an upload does not lose them; a "load" to 0x1011 deletes them. Stored values (also 0x1020, so a master that checks the configuration date can skip its download) are applied after every start and reset node while the EDS is unchanged; with a changed EDS they are ignored with a warning.
 - With `"node_id": null` the slave starts without a node ID and waits for an LSS master: it answers switch, identify and fastscan by its 0x1018 identity and keeps an ID stored by LSS in the state file. An LSS bit rate change is answered as not supported: the adapter's bit rate comes from the config.
 - A frame from another device with the slave's own node ID is logged once per PLC start.
 
@@ -102,9 +103,13 @@ The file has default RPDOs carrying the objects from the master and TPDOs carryi
 
 A vendor-style EDS written by hand works too: any objects with access types from the table above can be bound.
 
+## Diagnostics
+
+With the top-level `diagnostics` object a slave network is served like a master network ([diagnostics.md](diagnostics.md)): the hello lists it with `"role": "slave"` and its `node_id`, and `status` returns a `slave` object (node ID, NMT state, comm OK, SYNC count, EMCY code, error register and the PDO mappings in force, read from the dictionary). `sdo_read` and `sdo_write` with the slave's own node ID read and write its own dictionary (writes need `allow_changes`); every other operation answers that the network is a slave network.
+
 ## Simulated bus
 
-With the device simulator's adapter option `"simulate": true`, a slave network runs on the plugin's in-process simulated bus named by its `interface`, shared with a simulated master network of the same `interface` name: one config then runs the plugin's own master against its own slave, with no CAN adapter, vcan or privileges. A simulated bus takes at most one master network and one slave network.
+Not available yet: it comes with the device simulator change. With the device simulator's adapter option `"simulate": true`, a slave network runs on the plugin's in-process simulated bus named by its `interface`, shared with a simulated master network of the same `interface` name: one config then runs the plugin's own master against its own slave, with no CAN adapter, vcan or privileges. A simulated bus takes at most one master network and one slave network.
 
 ## Limits
 

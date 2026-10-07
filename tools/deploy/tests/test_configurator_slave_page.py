@@ -76,6 +76,18 @@ class SlavePage(unittest.TestCase):
     def settled(self):
         self.page.wait_for_function("() => document.body.dataset.checking === '0'")
 
+    def problems(self, none):
+        # The check runs after a short pause, so wait for its result rather
+        # than for "not checking" (which holds before it starts).
+        try:
+            self.page.wait_for_function(
+                "(none) => (document.querySelector('#problem-count').innerText === 'none') === none", arg=none,
+                timeout=5000)
+        except Exception:
+            pass
+        self.settled()
+        return self.page.inner_text("#problem-count"), self.page.inner_text("#problem-list")
+
     def save(self):
         self.settled()
         self.page.click("#btn-save")
@@ -106,15 +118,15 @@ class SlavePage(unittest.TestCase):
         self.answer("bind")
         pg.wait_for_selector('[data-slave-objects] tr[data-object="0x2100:1"]')
         self.assertEqual(pg.locator("[data-slave-objects] tr[data-object]").count(), 2)
-        self.settled()
-        self.assertEqual(pg.inner_text("#problem-count"), "none")
+        count, text = self.problems(True)
+        self.assertEqual(count, "none", text)
         # The area must match the direction.
         pg.fill('input[data-path="slave.objects[1].iec_location"]', "%IW500")
         self.settled()
         self.assertIn("needs a %Q location", pg.inner_text("#problem-list"))
         pg.click('tr[data-object="0x2100:1"] button[data-suggest="slave_object"]')
-        self.settled()
-        self.assertEqual(pg.inner_text("#problem-count"), "none")
+        count, text = self.problems(True)
+        self.assertEqual(count, "none", text)
         self.save()
         saved = load(self.config_path)
         net = saved["networks"][1]
@@ -141,7 +153,8 @@ class SlavePage(unittest.TestCase):
             shutil.copy(os.path.join(GATEWAY, name), self.folder)
         self.write(load(os.path.join(GATEWAY, "canopen_config.json")))
         self.open()
-        self.assertEqual(pg.inner_text("#problem-count"), "none")
+        count, text = self.problems(True)
+        self.assertEqual(count, "none", text)
         pg.click("#nav-gateway")
         pg.wait_for_selector("#view h2:has-text('Gateway')")
         self.assertEqual(pg.locator("tr[data-route]").count(), 2)
@@ -149,8 +162,8 @@ class SlavePage(unittest.TestCase):
         self.assertIn("0x4001:0", pg.inner_text('tr[data-route="0"] select[data-path="gateway.routes[0].field"] option:checked'))
         pg.click("[data-add-route]")
         self.assertEqual(pg.locator("tr[data-route]").count(), 3)
-        self.settled()
-        self.assertNotEqual(pg.inner_text("#problem-count"), "none")
+        count, text = self.problems(False)
+        self.assertNotEqual(count, "none", text)
         pg.click('tr[data-route="2"] button:has-text("Remove")')
         pg.select_option('select[data-path="gateway.on_upper_loss"]', "stop_nodes")
         self.save()

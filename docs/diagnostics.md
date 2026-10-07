@@ -90,7 +90,7 @@ The first line must be the hello:
 {"op": "hello", "token": "the token", "id": 1}
 ```
 
-A wrong token closes the connection without an answer. The answer carries `protocol` (1), `version`, `allow_changes`, `master_node_id` (the first network's) and `networks`: the networks in config order, each `{"name", "interface", "bitrate", "master_node_id"}`, the name empty for a version 1 config. A plugin from before several networks sends no `networks`.
+A wrong token closes the connection without an answer. The answer carries `protocol` (1), `version`, `allow_changes`, `master_node_id` (the first network's) and `networks`: the networks in config order, each `{"name", "interface", "bitrate", "role", "master_node_id"}` (a slave network has `"role": "slave"` and `node_id`, null while it waits for LSS, instead of `master_node_id`; see [slave.md](slave.md#diagnostics)), the name empty for a version 1 config. A plugin from before several networks sends no `networks`.
 
 Every request after the hello may carry `network`, the name of the network it is for. With one network it may be left out. With several, a request without it answers `network required (io, drives)` and one with a name the plugin does not run `unknown network 'x' (io, drives)`. A client sends `network` only when the hello lists more than one network, so it also talks to an older plugin. Then:
 

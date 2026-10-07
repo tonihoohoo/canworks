@@ -37,10 +37,13 @@ extern "C" {
 #include "diag.h"
 #include "eds_check.h"
 #include "eds_lint.h"
+#include "gateway.h"
 #include "log.h"
 #include "plc_api.h"
 #include "process_image.h"
 #include "runtime_version.h"
+#include "slave_bus.h"
+#include "slave_state.h"
 
 using namespace canopen_plugin;
 
@@ -52,14 +55,19 @@ bool g_have_rt = false;
 // One CANopen network: its generated configuration, image, diagnostics hub
 // and bus thread. Bus keeps references into the ConfigSet and into this.
 struct NetworkState {
+  bool slave = false;
   GeneratedConfig gen;
   ProcessImage image;
   std::unique_ptr<DiagHub> hub;  // with diagnostics only
   std::unique_ptr<Bus> bus;
+  // A slave network (canopen-slave-device spec) instead of the above.
+  SlaveImage slave_image;
+  std::unique_ptr<SlaveBus> slave_bus;
 };
 
 struct PluginState {
   ConfigSet set;
+  std::unique_ptr<GatewayLink> gateway;  // with a gateway section only
   std::vector<std::unique_ptr<NetworkState>> nets;
   std::unique_ptr<DiagServer> server;
 };
@@ -82,8 +90,10 @@ void runtime_sink(LogLevel level, const char* msg) {
 void stop_all() {
   if (!g_state) return;
   if (g_state->server) g_state->server->stop();
-  for (auto& n : g_state->nets)
+  for (auto& n : g_state->nets) {
     if (n->bus) n->bus->stop();
+    if (n->slave_bus) n->slave_bus->stop();
+  }
 }
 
 void teardown() {
@@ -128,6 +138,7 @@ void prepare() {
     for (const auto& w : cfg.warnings) log_warn("%s", w.c_str());
     for (const auto& m : cfg.notes) log_info("%s", m.c_str());
     if (!loaded) continue;
+    if (cfg.is_slave()) log_info("%s: EDS %s", cfg.slave.label().c_str(), cfg.slave.eds_path.c_str());
     for (const auto& n : cfg.nodes) log_info("%s: EDS %s", n.label().c_str(), n.eds_path.c_str());
     size_t warned = cfg.warnings.size(), noted = cfg.notes.size(), failed = errors.size();
     // dcfgen's EDS lint and the prepared copies, then the EDS checks on them.
@@ -139,6 +150,12 @@ void prepare() {
     for (size_t i = failed; i < errors.size(); ++i) errors[i] = prefix_of(cfg) + errors[i];
     checked = checked && ok;
   }
+  if (checked) {
+    // The gateway's routes against the upper network's EDS.
+    size_t warned = st->set.warnings.size();
+    checked = check_gateway_eds(st->set, errors);
+    for (size_t i = warned; i < st->set.warnings.size(); ++i) log_warn("%s", st->set.warnings[i].c_str());
+  }
   if (!checked) {
     for (const auto& e : errors) log_error("%s", e.c_str());
     log_error("configuration rejected (%zu problem%s); CANopen inactive, CAN interface not opened",
@@ -147,6 +164,13 @@ void prepare() {
   }
   for (auto& cfg : st->set.networks) {
     ScopedLogPrefix prefix(prefix_of(cfg));
+    if (cfg.is_slave()) {
+      std::string id = cfg.slave.lss ? std::string("from LSS") : std::to_string(cfg.slave.node_id);
+      log_info("loaded %s: %s adapter %s, %u bit/s, CANopen slave, node ID %s, %zu bound object%s", path.c_str(),
+               cfg.adapter.type.c_str(), cfg.adapter.interface.c_str(), cfg.adapter.bitrate, id.c_str(),
+               cfg.slave.objects.size(), cfg.slave.objects.size() == 1 ? "" : "s");
+      continue;
+    }
     log_info("loaded %s: %s adapter %s, %u bit/s, master node ID %u, %zu slave%s", path.c_str(),
              cfg.adapter.type.c_str(), cfg.adapter.interface.c_str(), cfg.adapter.bitrate, cfg.master.node_id,
              cfg.nodes.size(), cfg.nodes.size() == 1 ? "" : "s");
@@ -169,9 +193,34 @@ void prepare() {
     }
   }
 
+  if (st->set.gateway.enabled) {
+    const GatewayConfig& g = st->set.gateway;
+    st->gateway.reset(new GatewayLink(st->set));
+    log_info("gateway: upper network \"%s\", %zu route%s%s%s%s", st->set.networks[g.upper].network.c_str(),
+             g.routes.size(), g.routes.size() == 1 ? "" : "s", g.has_status ? ", node status" : "",
+             g.emcy_forward ? ", EMCY forwarding" : "", g.sdo_bridge ? ", SDO bridge" : "");
+  }
   for (auto& cfg : st->set.networks) {
     ScopedLogPrefix prefix(prefix_of(cfg));
     std::unique_ptr<NetworkState> net(new NetworkState);
+    if (cfg.is_slave()) {
+      net->slave = true;
+      std::string state_path = slave_state_path(default_slave_state_dir(), cfg.network);
+      auto store = std::make_shared<SlaveStore>();
+      std::string note;
+      load_slave_state(state_path, cfg.slave.eds_sha256, *store, note);
+      if (!note.empty()) log_warn("%s", note.c_str());
+      else if (!store->saved.empty() || store->lss_id)
+        log_info("stored parameters from %s applied after each reset", state_path.c_str());
+      net->slave_image.build(cfg);
+      if (cfg.master.has_diagnostics) net->hub.reset(new DiagHub(cfg, CANOPEN_PLUGIN_VERSION));
+      net->slave_bus.reset(
+          new SlaveBus(cfg, net->slave_image, store, state_path, st->gateway.get(), net->hub.get()));
+      log_info("%zu input and %zu output objects bound to the PLC image", net->slave_image.input_objects().size(),
+               net->slave_image.output_objects().size());
+      st->nets.push_back(std::move(net));
+      continue;
+    }
     size_t failed = errors.size();
     if (!generate_device_config(cfg, default_dcfgen(), net->gen, errors)) {
       for (size_t i = failed; i < errors.size(); ++i) log_error("%s", errors[i].c_str());
@@ -187,7 +236,7 @@ void prepare() {
       return;
     }
     if (cfg.master.has_diagnostics) net->hub.reset(new DiagHub(cfg, CANOPEN_PLUGIN_VERSION));
-    net->bus.reset(new Bus(cfg, net->gen, net->image, net->hub.get()));
+    net->bus.reset(new Bus(cfg, net->gen, net->image, net->hub.get(), st->gateway.get()));
     log_info("%zu input and %zu output PDO entries bound to the PLC image", net->image.inputs().size(),
              net->image.outputs().size());
     st->nets.push_back(std::move(net));
@@ -221,7 +270,10 @@ PLUGIN_API int start_loop(void) {
   teardown();
   prepare();
   if (!g_state) return -1;
-  for (auto& n : g_state->nets) n->bus->start();
+  for (auto& n : g_state->nets) {
+    if (n->bus) n->bus->start();
+    if (n->slave_bus) n->slave_bus->start();
+  }
   if (g_state->server) g_state->server->start();
   g_exchange.store(true, std::memory_order_release);
   PlcRequests::instance().open(static_cast<unsigned>(g_state->nets.size()));
@@ -243,6 +295,10 @@ PLUGIN_API void cleanup(void) {
 PLUGIN_API void cycle_start(void) {
   if (!g_exchange.load(std::memory_order_acquire)) return;
   for (auto& n : g_state->nets) {
+    if (n->slave) {
+      n->slave_image.copy_to_plc(g_rt);
+      continue;
+    }
     n->image.copy_to_plc(g_rt);
     n->image.request_sync();  // PLC-cycle SYNC only
   }
@@ -250,7 +306,12 @@ PLUGIN_API void cycle_start(void) {
 
 PLUGIN_API void cycle_end(void) {
   if (!g_exchange.load(std::memory_order_acquire)) return;
-  for (auto& n : g_state->nets) n->image.copy_from_plc(g_rt);
+  for (auto& n : g_state->nets) {
+    if (n->slave)
+      n->slave_image.copy_from_plc(g_rt);
+    else
+      n->image.copy_from_plc(g_rt);
+  }
 }
 
 // The SDO function blocks of the PLC program's CANopen library find this with

@@ -601,7 +601,9 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             err(prefix, 'interface "%s" is not usable as a network name; give the network a \'name\'' % iface,
                 [prefix + ".adapter.interface"])
     _check_across_networks(r, cfg, err)
-    if "gateway" in cfg:
+    # The gateway's own checks read the section's fields, so they run only
+    # once its shape is right (the schema errors above say what is not).
+    if "gateway" in cfg and not any(list(e.absolute_path)[:1] == ["gateway"] for e in schema_errors):
         _check_gateway(cfg, err, warn, slaves)
 
 
@@ -1184,16 +1186,25 @@ def _check_gateway(cfg, err, warn, slaves):
     eds, eds_name, bound = slave if slave else (None, None, {})
     if isinstance(g.get("status"), dict):
         if len(masters) > MAX_STATUS_NETWORKS:
-            err("gateway", "'status' covers at most %d field networks; the config has %d master networks"
-                % (MAX_STATUS_NETWORKS, len(masters)), ["gateway.status"])
-        elif eds is not None:
+            warn("gateway", "gateway status: only the first %d master networks are published; network \"%s\" is not"
+                 % (MAX_STATUS_NETWORKS, masters[MAX_STATUS_NETWORKS]["name"]), ["gateway.status"])
+        if eds is not None:
             base_index = _uint(g["status"].get("index", DEFAULT_STATUS_INDEX))
-            for k, m in enumerate(masters):
-                for index, what in ((base_index + k, "node states"), (base_index + 0x10 + k, "operational bits")):
+            for k, m in enumerate(masters[:MAX_STATUS_NETWORKS]):
+                rec, bits = base_index + k, base_index + 0x10 + k
+                # The first master network's records are required; a later
+                # network whose records are both missing (an EDS generated
+                # for fewer networks) is left out with a warning, as the
+                # plugin does.
+                if k > 0 and not eds.has(rec) and not eds.has(bits):
+                    warn("gateway", "gateway status of network \"%s\" is not published: objects 0x%04X and 0x%04X are "
+                                    "not in the EDS %s" % (m["name"], rec, bits, eds_name), ["gateway.status"])
+                    continue
+                for index in (rec, bits):
                     if not eds.has(index):
-                        err("gateway", "'status' needs object 0x%04X (%s of field network %s) in the slave's EDS %s; "
-                                       "generate the EDS with openplc-canopen-deploy slave-eds --gateway"
-                            % (index, what, m["name"], eds_name), ["gateway.status"])
+                        err("gateway", "gateway status of network \"%s\" needs object 0x%04X in the EDS %s (generate "
+                                       "the slave EDS with the gateway section: openplc-canopen-deploy slave-eds "
+                                       "--gateway)" % (m["name"], index, eds_name), ["gateway.status"])
     if g.get("sdo_bridge") is True and eds is not None:
         index = _uint(g.get("sdo_bridge_index", DEFAULT_BRIDGE_INDEX))
         if not eds.has(index) or eds.find(index, 9) is None:

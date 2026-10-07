@@ -338,6 +338,7 @@ void Network::MarkAllDown() {
 }
 
 void Network::SetState(unsigned id, uint8_t state) {
+  if (gw_) gw_->set_node_state(cfg_.network_index, id, state);
   if (image_.node_state(id) == state) return;
   image_.set_node_state(id, state);
   image_.commit_inputs();
@@ -637,35 +638,152 @@ void Network::HandleRpdoWrite(uint8_t id, uint16_t idx, uint8_t subidx) {
     const Binding& b = bindings[i];
     if (b.index != idx || b.subindex != subidx) continue;
     std::error_code ec;
-    uint64_t raw = 0;
-    switch (b.type) {
-      case CoType::BOOLEAN: raw = RpdoRead<bool>(id, idx, subidx, ec) ? 1 : 0; break;
-      case CoType::INTEGER8: raw = static_cast<uint8_t>(RpdoRead<int8_t>(id, idx, subidx, ec)); break;
-      case CoType::UNSIGNED8: raw = RpdoRead<uint8_t>(id, idx, subidx, ec); break;
-      case CoType::INTEGER16: raw = static_cast<uint16_t>(RpdoRead<int16_t>(id, idx, subidx, ec)); break;
-      case CoType::UNSIGNED16: raw = RpdoRead<uint16_t>(id, idx, subidx, ec); break;
-      case CoType::INTEGER32: raw = static_cast<uint32_t>(RpdoRead<int32_t>(id, idx, subidx, ec)); break;
-      case CoType::UNSIGNED32: raw = RpdoRead<uint32_t>(id, idx, subidx, ec); break;
-      case CoType::REAL32: {
-        float f = RpdoRead<float>(id, idx, subidx, ec);
-        uint32_t u;
-        std::memcpy(&u, &f, sizeof(u));
-        raw = u;
-        break;
-      }
-      case CoType::INTEGER64: raw = static_cast<uint64_t>(RpdoRead<int64_t>(id, idx, subidx, ec)); break;
-      case CoType::UNSIGNED64: raw = RpdoRead<uint64_t>(id, idx, subidx, ec); break;
-      case CoType::REAL64: {
-        double d = RpdoRead<double>(id, idx, subidx, ec);
-        std::memcpy(&raw, &d, sizeof(raw));
-        break;
-      }
-    }
+    uint64_t raw = RpdoRaw(id, idx, subidx, b.type, ec);
     if (ec) continue;
     image_.set_input(i, raw);
     changed = true;
   }
   if (changed) image_.commit_inputs();
+  if (!gw_) return;
+  for (size_t r : routes_up_) {
+    const RouteConfig& rc = gw_->cfg().routes[r];
+    if (rc.node != id || rc.index != idx || rc.subindex != subidx) continue;
+    std::error_code ec;
+    uint64_t raw = RpdoRaw(id, idx, subidx, rc.type, ec);
+    if (!ec) gw_->put(r, raw);
+  }
+}
+
+uint64_t Network::RpdoRaw(uint8_t id, uint16_t idx, uint8_t subidx, CoType type, std::error_code& ec) {
+  switch (type) {
+    case CoType::BOOLEAN: return RpdoRead<bool>(id, idx, subidx, ec) ? 1 : 0;
+    case CoType::INTEGER8: return static_cast<uint8_t>(RpdoRead<int8_t>(id, idx, subidx, ec));
+    case CoType::UNSIGNED8: return RpdoRead<uint8_t>(id, idx, subidx, ec);
+    case CoType::INTEGER16: return static_cast<uint16_t>(RpdoRead<int16_t>(id, idx, subidx, ec));
+    case CoType::UNSIGNED16: return RpdoRead<uint16_t>(id, idx, subidx, ec);
+    case CoType::INTEGER32: return static_cast<uint32_t>(RpdoRead<int32_t>(id, idx, subidx, ec));
+    case CoType::UNSIGNED32: return RpdoRead<uint32_t>(id, idx, subidx, ec);
+    case CoType::REAL32: {
+      float f = RpdoRead<float>(id, idx, subidx, ec);
+      uint32_t u;
+      std::memcpy(&u, &f, sizeof(u));
+      return u;
+    }
+    case CoType::INTEGER64: return static_cast<uint64_t>(RpdoRead<int64_t>(id, idx, subidx, ec));
+    case CoType::UNSIGNED64: return RpdoRead<uint64_t>(id, idx, subidx, ec);
+    case CoType::REAL64: {
+      double d = RpdoRead<double>(id, idx, subidx, ec);
+      uint64_t raw;
+      std::memcpy(&raw, &d, sizeof(raw));
+      return raw;
+    }
+  }
+  return 0;
+}
+
+void Network::TpdoRaw(uint8_t id, uint16_t idx, uint8_t subidx, CoType type, uint64_t v, std::error_code& ec) {
+  switch (type) {
+    case CoType::BOOLEAN: TpdoWrite<bool>(id, idx, subidx, v != 0, ec); break;
+    case CoType::INTEGER8: TpdoWrite<int8_t>(id, idx, subidx, static_cast<int8_t>(v), ec); break;
+    case CoType::UNSIGNED8: TpdoWrite<uint8_t>(id, idx, subidx, static_cast<uint8_t>(v), ec); break;
+    case CoType::INTEGER16: TpdoWrite<int16_t>(id, idx, subidx, static_cast<int16_t>(v), ec); break;
+    case CoType::UNSIGNED16: TpdoWrite<uint16_t>(id, idx, subidx, static_cast<uint16_t>(v), ec); break;
+    case CoType::INTEGER32: TpdoWrite<int32_t>(id, idx, subidx, static_cast<int32_t>(v), ec); break;
+    case CoType::UNSIGNED32: TpdoWrite<uint32_t>(id, idx, subidx, static_cast<uint32_t>(v), ec); break;
+    case CoType::REAL32: {
+      uint32_t u = static_cast<uint32_t>(v);
+      float f;
+      std::memcpy(&f, &u, sizeof(f));
+      TpdoWrite<float>(id, idx, subidx, f, ec);
+      break;
+    }
+    case CoType::INTEGER64: TpdoWrite<int64_t>(id, idx, subidx, static_cast<int64_t>(v), ec); break;
+    case CoType::UNSIGNED64: TpdoWrite<uint64_t>(id, idx, subidx, v, ec); break;
+    case CoType::REAL64: {
+      double d;
+      std::memcpy(&d, &v, sizeof(d));
+      TpdoWrite<double>(id, idx, subidx, d, ec);
+      break;
+    }
+  }
+}
+
+void Network::SetGateway(GatewayLink* gw) {
+  if (!gw || !gw->cfg().enabled) return;
+  gw_ = gw;
+  const auto& routes = gw->cfg().routes;
+  route_seen_.assign(routes.size(), 0);
+  route_value_.assign(routes.size(), 0);
+  for (size_t r = 0; r < routes.size(); ++r) {
+    if (routes[r].field_network != cfg_.network_index) continue;
+    (routes[r].up ? routes_up_ : routes_down_).push_back(r);
+  }
+  for (const auto& n : nodes_) gw_->set_node_state(cfg_.network_index, n.first, image_.node_state(n.first));
+}
+
+void Network::ServiceGateway() {
+  if (!gw_ || stopped_) return;
+  bool ok = gw_->upper_ok();
+  if (ok != upper_ok_) UpperLoss(ok);
+  bool zero = !ok && gw_->cfg().on_upper_loss == GatewayConfig::UpperLoss::Zero;
+  std::set<unsigned> changed;
+  for (size_t r : routes_down_) {
+    const RouteConfig& rc = gw_->cfg().routes[r];
+    uint64_t v;
+    if (!gw_->get(r, v, route_seen_[r])) continue;
+    route_value_[r] = v;
+    if (zero) continue;  // applied when the upper master is back
+    std::error_code ec;
+    TpdoRaw(static_cast<uint8_t>(rc.node), rc.index, rc.subindex, rc.type, v, ec);
+    if (!ec) changed.insert(rc.node);
+  }
+  for (unsigned id : changed) {
+    auto it = nodes_.find(id);
+    if (it == nodes_.end() || !it->second.up) continue;
+    for (unsigned num : it->second.tpdos)
+      if (tpdo_event_.count(num)) TpdoEvent(static_cast<int>(num));
+  }
+}
+
+void Network::UpperLoss(bool ok) {
+  upper_ok_ = ok;
+  auto loss = gw_->cfg().on_upper_loss;
+  std::set<unsigned> targets;
+  for (size_t r : routes_down_) targets.insert(gw_->cfg().routes[r].node);
+  if (loss == GatewayConfig::UpperLoss::Zero) {
+    // Lost: every routed field output to 0; back: the newest routed values.
+    for (size_t r : routes_down_) {
+      const RouteConfig& rc = gw_->cfg().routes[r];
+      std::error_code ec;
+      TpdoRaw(static_cast<uint8_t>(rc.node), rc.index, rc.subindex, rc.type, ok ? route_value_[r] : 0, ec);
+    }
+    if (!ok && !routes_down_.empty()) log_warn("gateway: the upper master is lost; routed outputs set to 0");
+    for (unsigned id : targets) {
+      auto it = nodes_.find(id);
+      if (it == nodes_.end() || !it->second.up) continue;
+      for (unsigned num : it->second.tpdos)
+        if (tpdo_event_.count(num)) TpdoEvent(static_cast<int>(num));
+    }
+  } else if (loss == GatewayConfig::UpperLoss::StopNodes) {
+    for (unsigned id : targets) {
+      auto it = nodes_.find(id);
+      if (it == nodes_.end()) continue;
+      NodeState& n = it->second;
+      if (!ok) {
+        if (n.hold != Hold::None && !n.hold_by_gateway) continue;  // the program or an operator holds it
+        n.hold = Hold::Stopped;
+        n.hold_by_gateway = true;
+        SendHold(id, n);
+      } else if (n.hold_by_gateway) {
+        n.hold = Hold::None;
+        n.hold_by_gateway = false;
+        if (n.booted) {
+          log_info("%s: NMT START (the upper master started the gateway)", n.cfg->label().c_str());
+          Command(NmtCommand::START, static_cast<uint8_t>(id));
+        }
+      }
+    }
+  }
 }
 
 void Network::OnSync(uint8_t cnt, const time_point& t) noexcept {
@@ -808,30 +926,7 @@ void Network::WriteOutputs() {
     uint64_t v = out[i];
     uint8_t id = static_cast<uint8_t>(b.node_id);
     std::error_code ec;
-    switch (b.type) {
-      case CoType::BOOLEAN: TpdoWrite<bool>(id, b.index, b.subindex, v != 0, ec); break;
-      case CoType::INTEGER8: TpdoWrite<int8_t>(id, b.index, b.subindex, static_cast<int8_t>(v), ec); break;
-      case CoType::UNSIGNED8: TpdoWrite<uint8_t>(id, b.index, b.subindex, static_cast<uint8_t>(v), ec); break;
-      case CoType::INTEGER16: TpdoWrite<int16_t>(id, b.index, b.subindex, static_cast<int16_t>(v), ec); break;
-      case CoType::UNSIGNED16: TpdoWrite<uint16_t>(id, b.index, b.subindex, static_cast<uint16_t>(v), ec); break;
-      case CoType::INTEGER32: TpdoWrite<int32_t>(id, b.index, b.subindex, static_cast<int32_t>(v), ec); break;
-      case CoType::UNSIGNED32: TpdoWrite<uint32_t>(id, b.index, b.subindex, static_cast<uint32_t>(v), ec); break;
-      case CoType::REAL32: {
-        uint32_t u = static_cast<uint32_t>(v);
-        float f;
-        std::memcpy(&f, &u, sizeof(f));
-        TpdoWrite<float>(id, b.index, b.subindex, f, ec);
-        break;
-      }
-      case CoType::INTEGER64: TpdoWrite<int64_t>(id, b.index, b.subindex, static_cast<int64_t>(v), ec); break;
-      case CoType::UNSIGNED64: TpdoWrite<uint64_t>(id, b.index, b.subindex, v, ec); break;
-      case CoType::REAL64: {
-        double d;
-        std::memcpy(&d, &v, sizeof(d));
-        TpdoWrite<double>(id, b.index, b.subindex, d, ec);
-        break;
-      }
-    }
+    TpdoRaw(id, b.index, b.subindex, b.type, v, ec);
     if (v != last_out_[i]) {
       last_out_[i] = v;
       changed[b.node_id] = true;
@@ -948,6 +1043,7 @@ void Network::OnEmcy(uint8_t id, uint16_t eec, uint8_t er, uint8_t msef[5]) noex
 
 void Network::SetEmcy(unsigned id, uint16_t code, uint8_t er) {
   if (image_.node_emcy_code(id) == code && image_.node_error_register(id) == er) return;
+  if (gw_) gw_->emcy(cfg_.network_index, id, code, er);
   image_.set_node_emcy(id, code, er);
   image_.commit_inputs();
 }
@@ -1043,7 +1139,8 @@ void Network::SendHold(unsigned id, const NodeState& n) {
   if (n.cfg->boot && !n.booted) return;  // applied when the boot ends
   NmtCommand cs = n.hold == Hold::Stopped ? NmtCommand::STOP : NmtCommand::ENTER_PREOP;
   log_info("%s: NMT %s (held by %s)", n.cfg->label().c_str(), n.hold == Hold::Stopped ? "STOP" : "ENTER PRE-OPERATIONAL",
-           n.hold_by_operator ? "a diagnostics client" : "the program");
+           n.hold_by_gateway ? "the gateway: the upper master is lost"
+                             : n.hold_by_operator ? "a diagnostics client" : "the program");
   Command(cs, static_cast<uint8_t>(id));
 }
 
@@ -1287,6 +1384,34 @@ void SyncWake::OnEvent(struct ::io_poll_watch* watch, int) noexcept {
   while (read(self->fd_, &n, sizeof(n)) == static_cast<ssize_t>(sizeof(n))) {
   }
   self->net_.ServiceSyncRequests();
+  self->Arm();  // a watch reports one event
+}
+
+FdWake::FdWake(lely::io::Poll& poll, int fd, std::function<void()> fn) : poll_(poll), fd_(fd), fn_(std::move(fn)) {
+  watch_.w = IO_POLL_WATCH_INIT(&FdWake::OnEvent);
+  watch_.self = this;
+  Arm();
+}
+
+FdWake::~FdWake() {
+  if (fd_ < 0) return;
+  std::error_code ec;
+  poll_.watch(fd_, lely::io::Event::NONE, watch_.w, ec);
+}
+
+void FdWake::Arm() {
+  if (fd_ < 0) return;
+  std::error_code ec;
+  poll_.watch(fd_, lely::io::Event::IN, watch_.w, ec);
+  if (ec) log_error("cannot watch the gateway's wake-ups: %s", ec.message().c_str());
+}
+
+void FdWake::OnEvent(struct ::io_poll_watch* watch, int) noexcept {
+  FdWake* self = reinterpret_cast<Watch*>(watch)->self;
+  uint64_t n;
+  while (read(self->fd_, &n, sizeof(n)) == static_cast<ssize_t>(sizeof(n))) {
+  }
+  if (self->fn_) self->fn_();
   self->Arm();  // a watch reports one event
 }
 

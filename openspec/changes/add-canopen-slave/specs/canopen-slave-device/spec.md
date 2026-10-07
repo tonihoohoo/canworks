@@ -16,7 +16,7 @@ At PLC start the plugin SHALL load each slave network's EDS, lint and check it a
 - **THEN** the config is rejected, the log names the EDS and the finding, and no interface is opened
 
 ### Requirement: Behaviour comes from the EDS
-The slave's object dictionary SHALL be the EDS's objects with their default values; the plugin SHALL NOT add objects or change EDS values except the node ID and values restored from a store. PDO communication and mapping, heartbeat, guarding, SYNC and TIME consumer and error behaviour SHALL follow the dictionary.
+The slave's object dictionary SHALL be the EDS's objects with their default values; the plugin SHALL NOT add objects or change EDS values except the node ID, values restored from a store, and the NMT startup object of the next requirement. PDO communication and mapping, heartbeat, guarding, SYNC and TIME consumer and error behaviour SHALL follow the dictionary.
 
 #### Scenario: Heartbeat from the EDS
 - **WHEN** the EDS has 0x1017 default 500
@@ -25,6 +25,13 @@ The slave's object dictionary SHALL be the EDS's objects with their default valu
 #### Scenario: Object not in the EDS
 - **WHEN** an `objects` entry names 0x2005:1 and the EDS has no such object
 - **THEN** the config is rejected with an error naming the network, the object and the EDS
+
+### Requirement: Wait for the master's start
+After boot-up the slave SHALL stay PRE-OPERATIONAL until the master starts it. When the EDS has no NMT startup object 0x1F80, the plugin SHALL add it read-only with value 0x04 (do not start by itself); an EDS with 0x1F80 keeps its own value.
+
+#### Scenario: Waits for the master's start
+- **WHEN** the slave EDS has no object 0x1F80 and no master sends NMT start
+- **THEN** the slave stays PRE-OPERATIONAL and sends no PDOs
 
 ### Requirement: NMT slave
 The slave SHALL obey NMT commands addressed to its node ID or broadcast: start, stop, enter pre-operational, reset node and reset communication, as CiA 301 defines. PDOs SHALL be exchanged only in OPERATIONAL. Reset node SHALL reload the dictionary from the EDS and then apply stored values.
@@ -78,7 +85,7 @@ A value the master writes to a bound input object, by RPDO or SDO, SHALL reach t
 - **THEN** the bound inputs keep their last values
 
 ### Requirement: Values from the PLC to the master
-At the end of each scan the plugin SHALL write changed bound output values into the dictionary. Synchronous TPDOs SHALL carry the newest written values at the next SYNC; event-driven TPDOs that map a changed object SHALL be sent, honouring their inhibit time; an SDO upload SHALL return the newest written value.
+At the end of each scan the plugin SHALL write changed bound output values into the dictionary. Synchronous TPDOs SHALL carry the newest written values at the next SYNC; event-driven TPDOs that map a changed object SHALL be sent, honouring their inhibit time; an SDO upload SHALL return the newest written value. On entering OPERATIONAL every event-driven TPDO SHALL be sent once, so the master has all values without waiting for a change.
 
 #### Scenario: Event-driven TPDO
 - **WHEN** the program changes `%QW300`, bound to 0x2100:1, which TPDO 1 with transmission type 255 maps

@@ -42,14 +42,18 @@ Routed values SHALL be copied between the networks by the plugin within 2 ms of 
 - **THEN** the file is rejected with an error naming the entry, the route and the location
 
 ### Requirement: Field node status to the upper master
-With `status` set, the gateway SHALL publish each field node's NMT state as an UNSIGNED8 sub-object of a status record in the slave's dictionary (0 while the node is not booted), updated on every change, plus a bit field of nodes that are OPERATIONAL.
+With `status` set, the gateway SHALL publish each field node's NMT state as an UNSIGNED8 sub-object of a status record in the slave's dictionary (0 while the node is not booted), updated on every change, plus a bit field of nodes that are OPERATIONAL, one record and bit field per master network by its position among the master networks (at most 4).
 
 #### Scenario: Field node lost
 - **WHEN** node 7 on a field network stops sending heartbeats
 - **THEN** its status sub-object reads 0 and its bit in the operational bit field clears, and an event-driven TPDO that maps them is sent
 
+#### Scenario: EDS made for fewer field networks
+- **WHEN** a second master network is added and the slave EDS has the status objects of the first only
+- **THEN** the config loads with a warning that the second network's status is not published, while missing objects of the first master network reject it
+
 ### Requirement: Emergency forwarding
-With `emcy_forward: true`, an EMCY from a field node SHALL be sent on the upper network as an EMCY of the gateway slave with the same error code and error register, and manufacturer bytes holding the field network index and node ID. An error reset from the field node SHALL clear that entry, and the slave's 0x1001 SHALL be the OR of all active field registers and the program's own.
+With `emcy_forward: true`, an EMCY from a field node SHALL be sent on the upper network as an EMCY of the gateway slave with the same error code and error register, and manufacturer bytes holding the field network's position among the master networks (0 = the first) and the node ID. An error reset from the field node SHALL clear that entry, and the slave's 0x1001 SHALL be the OR of all active field registers and the program's own.
 
 #### Scenario: Field EMCY forwarded
 - **WHEN** node 5 on field network 1 sends EMCY code 0x5000, register 0x01

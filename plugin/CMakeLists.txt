@@ -35,6 +35,11 @@ add_library(canopen_core STATIC
     src/bus.cpp
     src/bus_monitor.cpp
     src/runtime_version.cpp
+    src/slave_state.cpp
+    src/slave_device.cpp
+    src/plc_slave.cpp
+    src/slave_bus.cpp
+    src/gateway.cpp
     ${NATIVE_DIR}/cjson/cJSON.c
 )
 target_include_directories(canopen_core PUBLIC

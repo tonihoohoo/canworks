@@ -30,6 +30,7 @@
 #include "config.h"
 #include "dcf_gen.h"
 #include "diag.h"
+#include "gateway.h"
 #include "log.h"
 #include "plc_api.h"
 #include "process_image.h"
@@ -99,6 +100,11 @@ class Network : public lely::canopen::BasicMaster {
   // Serves the diagnostics channel's requests from `hub` (call before
   // Start()); the caller attaches and detaches the hub.
   void SetDiag(DiagHub* hub) { diag_ = hub; }
+  // A gateway's field network (canopen-gateway spec): routes, node states,
+  // EMCYs and the upper-loss behaviour go through `gw` (call before Start()).
+  void SetGateway(GatewayLink* gw);
+  // Routes down and the upper network's state changed (GatewayLink::fd()).
+  void ServiceGateway();
 
   // Supervision period and retry backoff limits.
   static constexpr std::chrono::milliseconds kTick{100};
@@ -181,6 +187,7 @@ class Network : public lely::canopen::BasicMaster {
     uint64_t nmt_resets = 0;
     Hold hold = Hold::None;
     bool hold_by_operator = false;  // the hold came from a diagnostics client
+    bool hold_by_gateway = false;   // gateway on_upper_loss "stop_nodes"
     std::vector<size_t> vars;  // ProcessImage::sdo_vars() of this node
     bool sdo_busy = false;     // an SDO variable or program transfer is in flight
     bool last_prog = false;    // the last transfer started was the program's
@@ -287,6 +294,10 @@ class Network : public lely::canopen::BasicMaster {
   void ArmTick();
   void OnTick();
   void WriteOutputs();
+  // A received or sent PDO object's value as raw bits (zero-extended).
+  uint64_t RpdoRaw(uint8_t id, uint16_t idx, uint8_t subidx, CoType type, std::error_code& ec);
+  void TpdoRaw(uint8_t id, uint16_t idx, uint8_t subidx, CoType type, uint64_t v, std::error_code& ec);
+  void UpperLoss(bool ok);
   // SDO variables and NMT command bytes (see the spec canopen-sdo-variables).
   void ServiceRequests();
   void ApplyNmtCommand(unsigned id, NodeState& n, uint8_t level, uint64_t resets, uint8_t reset_code);
@@ -372,6 +383,11 @@ class Network : public lely::canopen::BasicMaster {
   uint8_t sync_cnt_ = 1;      // next SYNC counter value (with 0x1019 > 1)
   std::set<unsigned> emcy_unknown_;  // unconfigured node IDs already warned about
   DiagHub* diag_ = nullptr;
+  GatewayLink* gw_ = nullptr;
+  std::vector<size_t> routes_up_, routes_down_;  // GatewayLink routes of this network
+  std::vector<uint32_t> route_seen_;              // per route: versions read
+  std::vector<uint64_t> route_value_;             // per route: last value written down
+  bool upper_ok_ = false;
   std::vector<ManualSdo> manual_;
   std::map<unsigned, std::deque<ProgJob>> prog_;  // node ID -> program transfers, oldest first
   std::set<unsigned> prog_foreign_busy_;          // unconfigured node IDs with a transfer in flight
@@ -406,6 +422,28 @@ class Network : public lely::canopen::BasicMaster {
   bool master_op_ = false;  // the master itself is OPERATIONAL (PDOs run)
   uint8_t master_state_ = 0;
   clock::time_point started_;
+};
+
+// Calls `fn` on the loop thread each time the eventfd `fd` becomes readable
+// (and drains it). Does nothing when `fd` is -1.
+class FdWake {
+ public:
+  FdWake(lely::io::Poll& poll, int fd, std::function<void()> fn);
+  ~FdWake();
+  FdWake(const FdWake&) = delete;
+  FdWake& operator=(const FdWake&) = delete;
+
+ private:
+  static void OnEvent(struct ::io_poll_watch* watch, int events) noexcept;
+  void Arm();
+
+  struct Watch {
+    struct ::io_poll_watch w;
+    FdWake* self;
+  } watch_;
+  lely::io::Poll& poll_;
+  int fd_;
+  std::function<void()> fn_;
 };
 
 // PLC-cycle SYNC: calls Network::ServiceSyncRequests() on the loop thread

@@ -30,8 +30,8 @@ IfaceState iface_state(const std::string& name) {
   return (flags & IFF_UP) ? IfaceState::Up : IfaceState::Down;
 }
 
-Bus::Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub)
-    : cfg_(cfg), gen_(gen), image_(image), hub_(hub), adapter_(make_adapter(cfg.adapter)), monitor_(cfg, image) {}
+Bus::Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub, GatewayLink* gw)
+    : cfg_(cfg), gen_(gen), image_(image), hub_(hub), gw_(gw), adapter_(make_adapter(cfg.adapter)), monitor_(cfg, image) {}
 
 Bus::~Bus() { stop(); }
 
@@ -143,8 +143,10 @@ void Bus::run_session() {
     log_info("opened %s, starting the CANopen master (node ID %u)", cfg_.adapter.interface.c_str(),
              cfg_.master.node_id);
     net.SetDiag(hub_);
+    net.SetGateway(gw_);
     net.Start();
     SyncWake sync_wake(poll, image_.sync_fd(), net);
+    FdWake gw_wake(poll, gw_ ? gw_->fd(cfg_.network_index) : -1, [&net] { net.ServiceGateway(); });
     if (hub_) hub_->attach();
     // The loop runs in slices so that a stop or a lost interface ends the
     // session even when no supervision tick comes: when an slcan adapter is

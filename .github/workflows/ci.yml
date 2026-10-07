@@ -204,6 +204,15 @@ jobs:
         if: steps.vcan.outcome == 'success' && matrix.group == 2
         run: test/fixed/run.sh
 
+      - name: The plugin's master and its own slave (vcan0 and vcan1 joined by cangw)
+        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq can-utils
+          sudo modprobe can-gw
+          ip link show vcan1 >/dev/null 2>&1 || sudo ip link add dev vcan1 type vcan
+          sudo ip link set vcan1 up
+          sudo --preserve-env=PATH test/slave/run.sh
+
       - name: PLC program SDO blocks on vcan0 (a PLC stop cancels a transfer in flight)
         if: steps.vcan.outcome == 'success' && matrix.group == 2
         env:

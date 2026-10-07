@@ -60,6 +60,8 @@ library/           the openplc_canopen editor library (SDO function blocks): gen
                    block sources, build.sh builds the .stlib the deploy tool carries
 test/unit/         unit tests: config validation, EDS checks, dcfgen, process image
 test/sim/          master against Lely slaves on an in-process virtual CAN bus
+test/slave/        the plugin's master against its own slave and gateway on virtual buses, and
+                   run.sh for a master on vcan0 and the slave on vcan1 joined by cangw
 test/drive/        a simulated CiA 402 drive (Lely slave) for the virtual bus
 test/cia402/       ST tests of the CiA 402 axis glue with STruC++ (run.sh) and its host for sim_tests
 test/pingpong/     the Lely tutorial ping-pong slave and run.sh for vcan0

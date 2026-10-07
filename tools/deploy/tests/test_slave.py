@@ -521,7 +521,7 @@ class SlaveContract(unittest.TestCase):
         cfg["gateway"]["routes"] = []
         cfg["networks"][1]["slave"]["objects"] = []
         text = self.errors(cfg)
-        self.assertIn("gateway: 'status' needs object 0x5E00 (node states of field network field)", text)
+        self.assertIn('gateway status of network "field" needs object 0x5E00 in the EDS', text)
         self.assertIn("gateway: 'sdo_bridge' needs the SDO bridge record 0x5F00", text)
         cfg = self.gateway()
         cfg["gateway"]["sdo_bridge_write"] = True

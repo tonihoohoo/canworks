@@ -18,6 +18,7 @@
 #include "config.h"
 #include "dcf_gen.h"
 #include "diag.h"
+#include "gateway.h"
 #include "process_image.h"
 
 namespace canopen_plugin {
@@ -29,7 +30,9 @@ class Bus {
  public:
   // `hub`, when given, is served by each bus session's Network (the
   // diagnostics channel); between sessions it answers "no bus".
-  Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub = nullptr);
+  // `gw`, when given, links the network into a gateway (canopen-gateway spec).
+  Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub = nullptr,
+      GatewayLink* gw = nullptr);
   ~Bus();
 
   void start();
@@ -55,6 +58,7 @@ class Bus {
   const GeneratedConfig& gen_;
   ProcessImage& image_;
   DiagHub* hub_;
+  GatewayLink* gw_;
   std::unique_ptr<CanAdapter> adapter_;
   BusMonitor monitor_;
   std::thread thread_;

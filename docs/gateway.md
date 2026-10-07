@@ -50,24 +50,24 @@ A gateway is one config with a [slave network](slave.md) (the upper network, run
 | `field` | `network` (a master network's name), `node` (a node ID on it), `index` and `subindex` of one of that node's PDO entries. |
 | `name` | Optional. Names the slave object the generator adds for the route. |
 
-A route from a field node's TPDO entry goes **up**: the plugin writes the value into the slave object, which must be one the upper master reads (AccessType `ro` or `rwr`). A route to a field node's RPDO entry goes **down**: the plugin reads a slave object the upper master writes (`rww` or `rw`). Both ends need the same CANopen data type. The values move between the networks' bus threads within 2 ms of arrival, also while the PLC program is stopped; the program is not involved.
+A route from a field node's TPDO entry goes **up**: the plugin writes the value into the slave object, which must be one the upper master reads (AccessType `ro` or `rwr`). A route to a field node's RPDO entry goes **down**: the plugin reads a slave object the upper master writes (`rww` or `rw`). Both ends need the same CANopen data type. A value moves to the other network's bus thread as soon as it arrives, also while the PLC program is stopped or slow; the program is not involved.
 
 A routed entry or slave object may also have a PLC location: an input location then shows the program the same value. An object has one writer, so the target of a route (the slave object of a route up, the RPDO entry of a route down) may not also have an output location, and one target takes one route.
 
 ## Field node status
 
-With `status`, the gateway's dictionary has for the k-th master network in the config (k = 0 to 3, so at most 4 field networks):
+With `status`, the gateway's dictionary has for the k-th master network in the config (k = 0 for the first master network, up to 3; a fifth master network gets a warning and no status):
 
 | Object | Type | Content |
 |---|---|---|
 | `index` + k | ARRAY of UNSIGNED8, 127 sub-indices | Sub-index n: the NMT state of node n (0 while it has not booted, 4 stopped, 5 operational, 127 pre-operational). |
 | `index` + 0x10 + k | ARRAY of UNSIGNED32, 4 sub-indices | Operational bits: sub-index 1 nodes 0-31, 2 nodes 32-63, 3 nodes 64-95, 4 nodes 96-127. |
 
-Both are updated on every change and are PDO-mappable.
+Both are updated on every change and are PDO-mappable; event-driven TPDOs that map them go out on each change and once when the gateway enters OPERATIONAL. The objects of the first master network must be in the EDS; a later network whose two objects are both missing (an EDS generated before that network was added) is left out with a warning.
 
 ## EMCY forwarding
 
-With `emcy_forward`, an EMCY from a field node is sent on the upper network as an EMCY of the gateway with the same error code and error register, and the field network's index and the node ID in the manufacturer bytes. The field node's error reset clears its entry; the gateway's 0x1001 is the OR of every active field register and the program's own ([slave.md](slave.md#status-and-emcy)).
+With `emcy_forward`, an EMCY from a field node is sent on the upper network as an EMCY of the gateway with the same error code and error register, and in the manufacturer bytes the field network's position among the master networks (byte 0, 0 = the first) and the node ID (byte 1). The field node's error reset clears its entry; the gateway's 0x1001 is the OR of every active field register and the program's own ([slave.md](slave.md#status-and-emcy)).
 
 ## SDO bridge
 
@@ -75,7 +75,7 @@ With `sdo_bridge`, the gateway's dictionary has a record at `sdo_bridge_index` (
 
 | Sub-index | Name | Type | Access |
 |---|---|---|---|
-| 1 | Network | UNSIGNED8 | rw: the master network's index in the config |
+| 1 | Network | UNSIGNED8 | rw: the field network's position among the master networks, 0 = the first |
 | 2 | Node | UNSIGNED8 | rw |
 | 3 | Index | UNSIGNED16 | rw |
 | 4 | Subindex | UNSIGNED8 | rw |
@@ -89,4 +89,8 @@ The upper master writes the network, node, object, value and length, then the co
 
 ## Checks
 
-On top of the [slave network checks](slave.md#direction), a gateway is rejected when `upper` is missing or not a slave network, there is no master network, a route names a network, node or PDO entry that does not exist or a slave object its EDS does not define, a route's direction does not fit the slave object's access type, the two ends have different types, a route target has a second writer, or `status` or `sdo_bridge` is set while the EDS lacks their objects. `sdo_bridge_write` without `sdo_bridge` gives a warning.
+On top of the [slave network checks](slave.md#direction), a gateway is rejected when `upper` is missing or not a slave network, there is no master network, a route names a network, node or PDO entry that does not exist or a slave object its EDS does not define, a route's direction does not fit the slave object's access type, the two ends have different types, a route target has a second writer, or `status` or `sdo_bridge` is set while the EDS lacks their objects (for `status`, those of the first master network). `sdo_bridge_write` without `sdo_bridge` gives a warning.
+
+## Diagnostics
+
+The slave network's status in the diagnostics channel ([slave.md](slave.md#diagnostics)) has a `gateway` part: the number of routes, whether the upper master is there (`upper_ok`) and how many forwarded field errors are active.
