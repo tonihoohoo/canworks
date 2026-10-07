@@ -8,3 +8,7 @@ tools/deploy/tests/data/dbc/*.dbc -text
 
 # Trace golden files: ASC and TRC are CRLF on purpose (what the export writes).
 tools/deploy/tests/data/trace/* -text
+
+# Example configs: the HTML document golden files embed their text and SHA-256,
+# so keep them LF on every checkout (Windows autocrlf would add CR).
+config/**/*.json text eol=lf
