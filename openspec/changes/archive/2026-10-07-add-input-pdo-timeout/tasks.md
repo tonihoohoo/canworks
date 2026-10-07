@@ -36,4 +36,4 @@
 
 ## 6. Hardware (runtime device, CAN adapter, one real node)
 
-- [ ] 6.1 Set `timeout_ms` on the real node's event-driven input PDO with a `timeout_location`, then stop the PDO (map it to a COB-ID nobody listens to through the configurator's OD view, or disable it in 0x1800+n-1 sub 1). Verify: bit TRUE and one warning after about the timeout, node stays OPERATIONAL, bit FALSE after restoring the PDO. Put the template project back afterwards.
+- [x] 6.1 Set `timeout_ms` on the real node's event-driven input PDO with a `timeout_location`, then stop the PDO (map it to a COB-ID nobody listens to through the configurator's OD view, or disable it in 0x1800+n-1 sub 1). Verify: bit TRUE and one warning after about the timeout, node stays OPERATIONAL, bit FALSE after restoring the PDO. Put the template project back afterwards.
