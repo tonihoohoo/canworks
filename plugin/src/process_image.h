@@ -57,6 +57,13 @@ struct Binding {
   IecLocation location;
 };
 
+// A node TPDO's receive timeout bit (timeout_location), config order.
+struct TimeoutSlot {
+  unsigned node_id = 0;
+  unsigned pdo = 0;  // the node's TPDO number
+  IecLocation location;
+};
+
 // An SDO variable's place in the image (config order across all nodes).
 struct SdoVarSlot {
   unsigned node_id = 0;
@@ -82,6 +89,7 @@ class ProcessImage {
   const std::vector<Binding>& outputs() const { return outputs_; }
   const std::vector<unsigned>& nodes() const { return node_ids_; }
   const std::vector<SdoVarSlot>& sdo_vars() const { return sdo_vars_; }
+  const std::vector<TimeoutSlot>& timeout_bits() const { return timeouts_; }
   // Whether the node has an NMT command byte.
   bool has_nmt_command(unsigned node_id) const;
 
@@ -124,6 +132,9 @@ class ProcessImage {
   uint64_t sdo_value(size_t k) const { return in_work_[sdo_in_slot_ + 3 * k]; }
   uint8_t sdo_status(size_t k) const { return static_cast<uint8_t>(in_work_[sdo_in_slot_ + 3 * k + 1]); }
   uint32_t sdo_abort(size_t k) const { return static_cast<uint32_t>(in_work_[sdo_in_slot_ + 3 * k + 2]); }
+  // Timeout bit k (index into timeout_bits()).
+  void set_timeout_bit(size_t k, bool on) { in_work_[timeout_slot_ + k] = on ? 1 : 0; }
+  bool timeout_bit(size_t k) const { return in_work_[timeout_slot_ + k] != 0; }
   void commit_inputs();
   // Newest output snapshot: one raw value per output binding, then the SDO
   // variable and NMT command slots read through the accessors below.
@@ -185,9 +196,11 @@ class ProcessImage {
   bool master_has_state_ = false;
   IecLocation master_state_loc_;
   std::vector<SdoVarSlot> sdo_vars_;
+  std::vector<TimeoutSlot> timeouts_;
   std::vector<bool> node_has_nmt_;
   std::vector<IecLocation> node_nmt_loc_;
   size_t sdo_in_slot_ = 0;
+  size_t timeout_slot_ = 0;
   size_t sdo_out_slot_ = 0;
   size_t nmt_out_slot_ = 0;
   size_t scan_slot_ = 0;
@@ -202,7 +215,8 @@ class ProcessImage {
   // Input snapshot layout: one slot per input binding, then one status slot,
   // one state slot, one boot error slot, one EMCY code slot and one error
   // register slot per node, then four bus diagnostic slots and the master
-  // state slot, then value, status and abort code per SDO variable.
+  // state slot, then value, status and abort code per SDO variable, then one
+  // slot per timeout bit.
   // Output snapshot layout: one slot per output binding, then value and
   // trigger edge count per SDO variable, then NMT byte, reset count and
   // reset code per node, then the scan count.

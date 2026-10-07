@@ -573,6 +573,27 @@
                  ["set", "nodes/0/rx_pdos", [{"entries": [{"index": "0x6040", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%QW100"}]}]],
                  ["set", "nodes/0/axis", {"scale_numerator": 1.5}] ],
       "schema": "invalid", "verdict": "reject",
-      "plugin_messages": [ "field 'scale_numerator' must be an integer" ], "tool_messages": [ "nodes[0].axis.scale_numerator" ] }
+      "plugin_messages": [ "field 'scale_numerator' must be an integer" ], "tool_messages": [ "nodes[0].axis.scale_numerator" ] },
+    { "name": "TPDO receive timeout", "patch": [ ["set", "nodes/0/tx_pdos/0/timeout_ms", 500], ["set", "nodes/0/tx_pdos/0/on_timeout", "zero"],
+                 ["set", "nodes/0/tx_pdos/0/timeout_location", "%IX10.1"] ],
+      "schema": "valid", "verdict": "accept" },
+    { "name": "automatic receive timeout from the event timer", "patch": [ ["set", "nodes/0/tx_pdos/0/timeout_ms", "auto"],
+                 ["set", "nodes/0/tx_pdos/0/event_timer_ms", 50] ],
+      "schema": "valid", "verdict": "accept" },
+    { "name": "automatic receive timeout without an event timer", "patch": [ ["set", "nodes/0/tx_pdos/0/timeout_ms", "auto"] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "node 2 (pingpong): TPDO 1: 'timeout_ms' \"auto\" needs the PDO's event timer, but its EDS value is 0; give the timeout in milliseconds instead" ] },
+    { "name": "receive timeout on an RPDO", "patch": [ ["set", "nodes/0/rx_pdos/0/timeout_ms", 100] ],
+      "schema": "invalid", "verdict": "reject", "messages": [ "RPDO 1: field 'timeout_ms' is only for tx_pdos (PDOs the node sends)" ] },
+    { "name": "receive timeout of 0", "patch": [ ["set", "nodes/0/tx_pdos/0/timeout_ms", 0] ],
+      "schema": "invalid", "verdict": "reject",
+      "messages": [ "TPDO 1: field 'timeout_ms' must be 1-65535 or \"auto\"; leave it out for no timeout" ] },
+    { "name": "timeout bit without a receive timeout", "patch": [ ["set", "nodes/0/tx_pdos/0/timeout_location", "%IX10.1"] ],
+      "schema": "invalid", "verdict": "reject", "messages": [ "TPDO 1: field 'timeout_location' needs 'timeout_ms'" ] },
+    { "name": "on_timeout not hold or zero", "patch": [ ["set", "nodes/0/tx_pdos/0/timeout_ms", 100], ["set", "nodes/0/tx_pdos/0/on_timeout", "last"] ],
+      "schema": "invalid", "verdict": "reject", "messages": [ "TPDO 1: field 'on_timeout' must be \"hold\" or \"zero\", not \"last\"" ] },
+    { "name": "timeout bit not a bit", "patch": [ ["set", "nodes/0/tx_pdos/0/timeout_ms", 100], ["set", "nodes/0/tx_pdos/0/timeout_location", "%IB10"] ],
+      "schema": "invalid", "verdict": "reject",
+      "messages": [ "TPDO 1: field 'timeout_location' must be an input bit (%IX...), not %IB10" ] }
   ]
 }

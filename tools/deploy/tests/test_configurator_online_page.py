@@ -177,14 +177,22 @@ class OnlinePage(OnlineBase):
             row = pg.inner_text('tr[data-online-node="23"]')
             self.assertIn("error J: the configuration download failed", row)
             self.assertIn("(retrying)", row)
+            self.assertIn("TPDO 1 timed out (2)", pg.inner_text('[data-online-status="23"]'))
+            self.assertNotIn("TPDO 2", pg.inner_text('[data-online-status="23"]'))
             self.assertIn("0x4210 temperature (3)", pg.inner_text('tr[data-online-node="2"]'))
             self.assertIn("(uptime) = 42", pg.inner_text('tr[data-online-node="2"]'))
             self.assertIn("error-active", pg.inner_text('[data-online="bus"]'))
             self.assertEqual(pg.inner_text('[data-online="sync"]'),
                              "PLC cycle, every 2 cycles, 500 sent, interval 10012 µs (min 9870, max 10240), "
                              "skipped 0, late PDOs 3")
+            pg.click('tr[data-online-node="23"]')
+            pg.wait_for_selector('[data-online="pdo-timeouts"] tr[data-pdo-timeout-row="1"]')
+            self.assertIn("timed out", pg.inner_text('[data-pdo-timeout-row="1"]'))
+            self.assertIn("1800 ms ago", pg.inner_text('[data-pdo-timeout-row="1"]'))
+            self.assertIn("never", pg.inner_text('[data-pdo-timeout-row="2"]'))
             pg.click('tr[data-online-node="2"]')
             pg.wait_for_selector('[data-online="emcy"] table')
+            self.assertEqual(pg.locator('[data-online="pdo-timeouts"]').count(), 0)
             self.assertIn("temperature", pg.inner_text('[data-online="emcy"]'))
             # SDO read through the EDS picker: 0x1018 sub 4 decodes as UNSIGNED32.
             pg.select_option('select[data-online="object"]', "0x1018:4")

@@ -25,7 +25,7 @@ from .iec import parse_location, element_str
 LOCATION_KEYS = ("iec_location", "status_location", "state_location", "boot_error_location", "bus_state_location",
                  "tx_error_count_location", "rx_error_count_location", "bus_off_count_location",
                  "emcy_code_location", "error_register_location", "nmt_command_location", "trigger_location",
-                 "abort_code_location", "comm_ok_location", "sync_count_location")
+                 "abort_code_location", "comm_ok_location", "sync_count_location", "timeout_location")
 
 
 class Use:

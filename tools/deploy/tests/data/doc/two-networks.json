@@ -1437,7 +1437,7 @@
  "title": "CANopen network documentation",
  "tool": {
   "name": "openplc-canopen-deploy",
-  "version": "0.31.1"
+  "version": "0.32.0"
  },
  "warnings": []
 }

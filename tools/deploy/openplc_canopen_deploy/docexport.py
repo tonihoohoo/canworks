@@ -476,6 +476,17 @@ def _pdos(n, eds, norm, cfg, names):
             if "inhibit_time_us" not in p and inhibit is not None:
                 inhibit *= 100
             timer, _ = comm_value("event_timer_ms", 5)
+            timeout = None
+            if tx and "timeout_ms" in p:
+                if p["timeout_ms"] == "auto":
+                    ms = min(2 * timer, 0xFFFF) if timer else None
+                    timeout = {"ms": ms, "auto": True}
+                else:
+                    timeout = {"ms": _u(p["timeout_ms"]), "auto": False}
+                timeout["on_timeout"] = p.get("on_timeout", "hold")
+                loc = parse_location(p["timeout_location"]) if p.get("timeout_location") else None
+                timeout["location"] = str(loc) if loc else p.get("timeout_location", "")
+                timeout["variables"] = _plc_names(names, timeout["location"]) if timeout["location"] else []
             entries, bit = [], 0
             for index, sub, length in layout:
                 if index < 0x0008:
@@ -502,6 +513,8 @@ def _pdos(n, eds, norm, cfg, names):
                         "sync_start": _u(p["sync_start"]) if "sync_start" in p else None,
                         "mapping": "device" if device_map else "config", "dlc": (bit + 7) // 8, "bits": bit,
                         "entries": entries})
+            if timeout:
+                out[-1]["timeout"] = timeout
     return out
 
 

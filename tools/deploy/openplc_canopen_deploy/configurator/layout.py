@@ -92,6 +92,10 @@ def _network_uses(master, nodes, at):
             loc = parse_location(n.get(key))
             if loc:
                 out.append(("%snodes[%d].%s" % (at, i, key), loc))
+        for j, p in enumerate(n.get("tx_pdos") or []):
+            loc = parse_location((p or {}).get("timeout_location"))
+            if loc:
+                out.append(("%snodes[%d].tx_pdos[%d].timeout_location" % (at, i, j), loc))
         for key in ("tx_pdos", "rx_pdos"):
             for j, p in enumerate(n.get(key) or []):
                 for k, e in enumerate((p or {}).get("entries") or []):

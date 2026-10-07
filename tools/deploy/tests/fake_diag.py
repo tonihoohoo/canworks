@@ -40,7 +40,9 @@ def status(config_sha256="0" * 64):
             {"node_id": 23, "name": "valve", "state": 0, "status": False, "booted": False, "boot_error": "J",
              "boot_error_text": "the configuration download failed (SDO abort 0x06010002 at 0x1400 sub 2)",
              "retry_pending": True, "hold": "none", "hold_by": None,
-             "emcy": {"code": 0, "error_register": 0, "count": 0}, "sdo_variables": []},
+             "emcy": {"code": 0, "error_register": 0, "count": 0}, "sdo_variables": [],
+             "pdo_timeouts": [{"tpdo": 1, "timeout_ms": 500, "timed_out": True, "count": 2, "since_ms": 1800},
+                              {"tpdo": 2, "timeout_ms": 200, "timed_out": False, "count": 0, "since_ms": None}]},
         ],
     }
 

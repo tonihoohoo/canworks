@@ -98,6 +98,8 @@ Under each PDO, **Mapping** says who sets its mapping. When the EDS makes it rea
 
 Under each PDO, **Timing** shows the communication settings the node's EDS defines for that PDO: for a TPDO the inhibit time (in ms, stored in µs), the event timer and, with a synchronous transmission type, the SYNC start value; for an RPDO the deadline (event timer). A setting the EDS does not define is not shown. One it marks read-only shows the EDS value and cannot be changed, and so does a read-only transmission type. Empty fields show the EDS value and write nothing.
 
+Under each input PDO (TPDO), **Timeout** sets its [receive timeout](config.md#receive-timeout): empty is off, a number is milliseconds, and **Auto** uses two times the PDO's event timer, shown next to the field (`auto (200 ms)`), or says that auto needs an event timer when there is none. With a timeout set, **On timeout** picks whether the PDO's inputs keep their last values or read 0 meanwhile, and **Timeout bit** takes an optional `%IX` address (**Suggest** picks a free one), which the generated declarations include. Emptying the timeout drops both.
+
 ## Startup SDO writes
 
 Each node has an ordered list of SDO writes that the plugin performs every time the node is configured at boot, after the PDO parameters. Pick an object from the node's writable EDS objects, or type its index and subindex.
@@ -170,7 +172,7 @@ On a PC without the host or token yet (a fresh install, another PC), **Online** 
 
 ## Online view
 
-**Online** connects to the runtime and refreshes about twice a second: the bus state and error counters, the master's state, and per node its NMT state, status bit, boot result (with the CiA 302 error letter and Lely's text, and whether a retry is pending), hold (STOPPED or PRE-OPERATIONAL, by the program or by an operator), last EMCY with its CiA 301 class, and SDO variable values. A connection problem is shown with its reason (host unreachable, port closed, wrong token) and retried. When the runtime runs another config than the saved `canopen.json` (saved but not uploaded yet), the view says so.
+**Online** connects to the runtime and refreshes about twice a second: the bus state and error counters, the master's state, and per node its NMT state, status bit, boot result (with the CiA 302 error letter and Lely's text, and whether a retry is pending), hold (STOPPED or PRE-OPERATIONAL, by the program or by an operator), last EMCY with its CiA 301 class, SDO variable values, and an input PDO that is timed out (`TPDO 1 timed out (2)`, with the number of timeouts so far). A node's overview lists its input PDOs with a receive timeout: the timeout, whether it is timed out now, the count and the time since the last PDO. A connection problem is shown with its reason (host unreachable, port closed, wrong token) and retried. When the runtime runs another config than the saved `canopen.json` (saved but not uploaded yet), the view says so.
 
 When the runtime runs several networks, **Online**, **Scan the bus** and **Trace** have a **Network** picker that starts on the open tab's network and lists the runtime's networks with their interfaces. Each view shows and acts on the picked network only: its bus state and nodes, and every SDO, NMT, LSS, object dictionary and parameter action goes to that network's nodes. Picking a network opens its tab, so a node a scan finds is added to that network, and a trace records that network's interface and decodes with its nodes (an opened trace file is decoded with the picked network's nodes too).
 

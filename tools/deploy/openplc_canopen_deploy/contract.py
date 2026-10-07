@@ -322,8 +322,23 @@ def _pdo_schema_message(cfg, path, e):
     kind = "TPDO" if key == "tx_pdos" else "RPDO"
     where = "nodes[%d]: %s[%d]" % (i, key, j)
     if len(path) == 4 and e.validator == "not" and key == "rx_pdos":
-        field = "inhibit_time_us" if "inhibit_time_us" in p else "sync_start"
+        field = next(f for f in ("inhibit_time_us", "sync_start", "timeout_ms", "on_timeout", "timeout_location")
+                     if f in p)
         return where, "%s %d: field '%s' is only for tx_pdos (PDOs the node sends)" % (kind, number, field)
+    if len(path) == 4 and e.validator == "dependentRequired":
+        field = next(f for f in ("on_timeout", "timeout_location") if f in p)
+        return where, "%s %d: field '%s' needs 'timeout_ms'" % (kind, number, field)
+    if len(path) == 5 and path[4] == "timeout_ms" and _uint(p["timeout_ms"]) == 0:
+        return where, "%s %d: field 'timeout_ms' must be 1-65535 or \"auto\"; leave it out for no timeout" % (
+            kind, number)
+    if len(path) == 5 and path[4] == "on_timeout" and e.validator == "enum":
+        return where, "%s %d: field 'on_timeout' must be \"hold\" or \"zero\", not \"%s\"" % (
+            kind, number, p["on_timeout"])
+    if len(path) == 5 and path[4] == "timeout_location" and e.validator == "pattern":
+        loc = parse_location(p["timeout_location"])
+        if loc is not None:
+            return where, "%s %d: field 'timeout_location' must be an input bit (%%IX...), not %s" % (
+                kind, number, loc)
     if len(path) == 5 and path[4] == "inhibit_time_us" and e.validator == "multipleOf":
         return where, "%s %d: field 'inhibit_time_us' must be a multiple of 100" % (kind, number)
     return None
@@ -732,6 +747,10 @@ def location_uses(net, prefix=""):
             for key in ("trigger_location", "status_location", "abort_code_location"):
                 if key in v:
                     add(v[key], who + " " + key, vw + "." + key)
+        for j, p in enumerate(n.get("tx_pdos", [])):
+            if "timeout_location" in p:
+                add(p["timeout_location"], "%s TPDO %s timeout_location" % (label, _uint(p.get("number", j + 1))),
+                    "%s.tx_pdos[%d].timeout_location" % (w, j))
         for key, kind in (("tx_pdos", "TPDO"), ("rx_pdos", "RPDO")):
             for j, p in enumerate(n.get(key, [])):
                 number = _uint(p.get("number", j + 1))
@@ -952,6 +971,8 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 for f in ("transmission", "inhibit_time_us", "event_timer_ms", "sync_start"):
                     if f in p:
                         pdo[f] = _uint(p[f])
+                if "timeout_ms" in p:
+                    pdo["timeout_ms"] = "auto" if p["timeout_ms"] == "auto" else _uint(p["timeout_ms"])
                 if "cob_id" in p:
                     pdo["cob_id"] = "auto" if p["cob_id"] == "auto" else _uint(p["cob_id"])
                 pdo["default_cob_id"] = default_cob_id(node["node_id"], pdo["number"], key == "tx_pdos")
