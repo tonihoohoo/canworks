@@ -3,12 +3,15 @@
 // - stored parameters: 0x1010 "save" keeps the selected dictionary ranges,
 //   0x1011 "load" drops them; they come back after every reset;
 // - an LSS-stored node ID, and LSS bit timing changes refused;
+// - waiting in PRE-OPERATIONAL for the master's start;
 // - TPDO events after a value changed (Changed());
 // - which objects the PDOs in force map;
 // - a guard that notices another device using the same node ID.
 // The object dictionary, NMT, heartbeat, guarding, SDO server, PDOs, SYNC
 // and EMCY all come from Lely, driven by the EDS. Everything runs on the
-// event loop thread the device was created on.
+// event loop thread the device was created on. The device simulator's
+// devices (plugin/sim) build on this class too, with Options to behave like
+// a free-standing device.
 
 #ifndef CANOPEN_SLAVE_DEVICE_H
 #define CANOPEN_SLAVE_DEVICE_H
@@ -30,9 +33,21 @@ namespace canopen_plugin {
 
 class SlaveDevice : public lely::canopen::BasicSlave {
  public:
+  struct Options {
+    // An EDS without 0x1F80 waits in PRE-OPERATIONAL for the master's start
+    // (false: Lely's own autostart).
+    bool wait_for_start = true;
+    // LSS bit timing requests answered "not supported" (false: Lely's own
+    // handling).
+    bool refuse_lss_bitrate = true;
+  };
+
   // `node_id` 1-127, or 0xFF for a device that waits for LSS.
   SlaveDevice(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::CanChannelBase& chan, const std::string& eds,
-              uint8_t node_id, std::shared_ptr<SlaveStore> store);
+              uint8_t node_id, std::shared_ptr<SlaveStore> store, Options options);
+  SlaveDevice(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::CanChannelBase& chan, const std::string& eds,
+              uint8_t node_id, std::shared_ptr<SlaveStore> store)
+      : SlaveDevice(exec, timer, chan, eds, node_id, std::move(store), Options()) {}
   ~SlaveDevice();
 
   __co_dev* od() const { return dev(); }
@@ -77,20 +92,21 @@ class SlaveDevice : public lely::canopen::BasicSlave {
   // After a reset restored the EDS values and the stored ones: the
   // dictionary is as it will be at the boot-up message.
   virtual void OnRestored() {}
+  __can_net* NetPtr();
   ev_exec_t* exec_;
+  std::shared_ptr<SlaveStore> store_;
+  // Expires with the device, for work posted to the loop.
+  std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
 
  private:
   void WaitForNmtStart();
   void ApplyStored(bool node);
   bool InPdo(uint16_t base, uint16_t index, uint8_t subindex) const;
-  __can_net* NetPtr();
+  Options options_;
   std::vector<__can_recv*> recvs_;
   std::function<void()> on_conflict_;
   bool conflict_posted_ = false;
-  std::shared_ptr<SlaveStore> store_;
   bool node_reset_ = true;
-  // Expires with the device, for work posted to the loop.
-  std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
 };
 
 }  // namespace canopen_plugin

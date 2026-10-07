@@ -85,10 +85,11 @@ void SlaveDevice::WaitForNmtStart() {
 }
 
 SlaveDevice::SlaveDevice(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::CanChannelBase& chan,
-                         const std::string& eds, uint8_t node_id, std::shared_ptr<SlaveStore> store)
-    : BasicSlave(timer, chan, eds, "", node_id), exec_(exec), store_(std::move(store)) {
+                         const std::string& eds, uint8_t node_id, std::shared_ptr<SlaveStore> store,
+                         Options options)
+    : BasicSlave(timer, chan, eds, "", node_id), exec_(exec), store_(std::move(store)), options_(options) {
   if (!store_) store_ = std::make_shared<SlaveStore>();
-  WaitForNmtStart();
+  if (options_.wait_for_start) WaitForNmtStart();
   const co_dev_t* d = D(dev());
   // Parameter save and load, as a device with non-volatile memory does; the
   // master asks for it explicitly, so this is never an automatic write.
@@ -216,8 +217,10 @@ void SlaveDevice::OnCommand(lely::canopen::NmtCommand cs) noexcept {
     node_reset_ = false;
     // The plugin owns the adapter's bit rate: an LSS bit timing request is
     // answered "not supported" (Lely does that without a rate indication).
-    co_lss_t* lss = co_nmt_get_lss(N(nmt()));
-    if (lss) co_lss_set_rate_ind(lss, nullptr, nullptr);
+    if (options_.refuse_lss_bitrate) {
+      co_lss_t* lss = co_nmt_get_lss(N(nmt()));
+      if (lss) co_lss_set_rate_ind(lss, nullptr, nullptr);
+    }
     OnRestored();
   }
 }
@@ -232,23 +235,37 @@ bool SlaveDevice::InRpdo(uint16_t index, uint8_t subindex) const { return InPdo(
 bool SlaveDevice::InTpdo(uint16_t index, uint8_t subindex) const { return InPdo(0x1800, index, subindex); }
 
 bool SlaveDevice::InPdo(uint16_t base, uint16_t index, uint8_t subindex) const {
-  for (const auto& p : Pdos(base == 0x1800))
-    for (uint32_t e : p.entries)
+  const co_dev_t* d = D(dev());
+  for (const co_obj_t* o = co_dev_first_obj(d); o; o = co_obj_next(o)) {
+    uint16_t comm = co_obj_get_idx(o);
+    if (comm < base) continue;
+    if (comm >= base + 0x200) break;
+    if (!co_dev_find_sub(d, comm, 1) || (u32(d, comm, 1) & 0x80000000u)) continue;
+    uint16_t map = static_cast<uint16_t>(comm + 0x200);
+    unsigned count = co_dev_find_sub(d, map, 0) ? u8(d, map, 0) : 0;
+    for (unsigned k = 1; k <= count && k <= 64; ++k) {
+      if (!co_dev_find_sub(d, map, static_cast<uint8_t>(k))) continue;
+      uint32_t e = u32(d, map, static_cast<uint8_t>(k));
       if ((e >> 16) == index && ((e >> 8) & 0xFF) == subindex) return true;
+    }
+  }
   return false;
 }
 
 std::vector<SlaveDevice::PdoMap> SlaveDevice::Pdos(bool tpdo) const {
   std::vector<PdoMap> out;
   const co_dev_t* d = D(dev());
-  uint16_t base = tpdo ? 0x1800 : 0x1400, map_base = tpdo ? 0x1A00 : 0x1600;
-  for (uint16_t n = 0; n < 512; ++n) {
-    uint16_t comm = static_cast<uint16_t>(base + n), map = static_cast<uint16_t>(map_base + n);
+  uint16_t base = tpdo ? 0x1800 : 0x1400;
+  for (const co_obj_t* o = co_dev_first_obj(d); o; o = co_obj_next(o)) {
+    uint16_t comm = co_obj_get_idx(o);
+    if (comm < base) continue;
+    if (comm >= base + 0x200) break;
     if (!co_dev_find_sub(d, comm, 1)) continue;
     uint32_t cob = u32(d, comm, 1);
     if (cob & 0x80000000u) continue;
+    uint16_t map = static_cast<uint16_t>(comm + 0x200);
     PdoMap p;
-    p.number = n + 1u;
+    p.number = comm - base + 1u;
     p.cob_id = cob & 0x1FFFFFFFu;
     p.transmission = co_dev_find_sub(d, comm, 2) ? u8(d, comm, 2) : 255;
     unsigned count = co_dev_find_sub(d, map, 0) ? u8(d, map, 0) : 0;

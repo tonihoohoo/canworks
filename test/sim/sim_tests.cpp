@@ -3303,7 +3303,7 @@ TEST(sim_simulated_store_power_cycle) {
   sim->net().Start();
   CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 2; }, seconds(10)));
   CHECK(logged("node 2 (pingpong): configuring ("));
-  CHECK(logged("sim: node 2: saved parameters (0x1010 sub 1)"));
+  CHECK(logged("sim: node 2: parameters saved by the master (0x1010 sub 1)"));
   clear_logs();
   cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"cycle","off_ms":300}})");
   cJSON_Delete(r);

@@ -8,7 +8,7 @@
 
 ## 2. Slave device in the plugin
 
-- [x] 2.1 Extract the `SlaveDevice` base from the simulator's `SimDevice` (EDS load, store image with a backend, LSS hooks, SDO indications, `Changed()`, conflict guard) and move `SimDevice` onto it; verify the simulator's sim tests still pass. (The simulator change has not landed, so per design D2 this change adds the base in `plugin/src/slave_device.*` and the simulator moves onto it.)
+- [x] 2.1 Extract the `SlaveDevice` base from the simulator's `SimDevice` (EDS load, store image with a backend, LSS hooks, SDO indications, `Changed()`, conflict guard) and move `SimDevice` onto it; verify the simulator's sim tests still pass. (Done in that order: the base landed in `plugin/src/slave_device.*` first, and once the simulator was on main its `SimDevice` moved onto it, with options for Lely's autostart and LSS bit timing so a simulated device still behaves like a free-standing one; all sim tests pass.)
 - [x] 2.2 Add `PlcSlave` and `SlaveImage`: input path from RPDO and SDO indications, output path every 1 ms and before SYNC sampling, TPDO events, `inputs_on_loss`; verify with sim tests where the plugin's own master runs against the plugin's slave on a virtual bus (RPDO -> %I, %Q -> event and synchronous TPDO, SDO to a bound object, master remaps a TPDO).
 - [x] 2.3 Run slave networks in their own bus session next to master networks, with start-up logging; verify a sim test with one master and one slave network in one config.
 - [x] 2.4 Status locations (state, comm OK, SYNC count) and EMCY from the program; verify lost master heartbeat, NMT stop and EMCY raise/clear in sim tests.
