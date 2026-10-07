@@ -423,8 +423,13 @@ def encode_export(ws, fmt, start_us, end_us, keys, base_name):
 
 
 def connector(hostname, port, token, timeout=3.0, network=None):
+    """`hostname` may be an online.AdapterTarget: the trace then records a USB
+    adapter on this PC."""
     def connect():
-        c = diag.Client(hostname, port, token, timeout, network=network)
+        if hasattr(hostname, "client"):
+            c = hostname.client(timeout)
+        else:
+            c = diag.Client(hostname, port, token, timeout, network=network)
         c.connect()
         return c
     return connect

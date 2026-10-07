@@ -613,7 +613,8 @@ function render() {
   $("#actions").hidden = false;
   const badge = $("#mode");
   badge.hidden = false;
-  badge.textContent = S.state.mode === "project" ? "project " + S.state.name : "standalone " + S.state.folder;
+  badge.textContent = S.state.commission ? "commissioning a device (nothing here is saved to a project)"
+    : S.state.mode === "project" ? "project " + S.state.name : "standalone " + S.state.folder;
   badge.title = S.state.config_path;
   $("#btn-move").hidden = S.state.mode !== "standalone";
   $("#btn-new-project").hidden = S.state.mode !== "standalone";
@@ -2623,7 +2624,9 @@ async function copyStCall(node, index, subindex, type, readable, writable) {
   banner(`Copied the ${stBlock(type, write)} call. Enable the openplc_canopen library in the editor project to use it.`);
 }
 const NO_ST_SLAVE = "The program's SDO blocks address nodes of a master network; on a slave network the program has the bound locations instead.";
-const NO_CHANGES = "Online changes are not allowed in this configuration (turn on \"Allow changes\" under Online access, then upload).";
+const RUNTIME_NO_CHANGES = "Online changes are not allowed in this configuration (turn on \"Allow changes\" under Online access, then upload).";
+const ADAPTER_NO_CHANGES = "Changes are off for this USB adapter connection (tick \"Allow changes\" in the connection banner).";
+let NO_CHANGES = RUNTIME_NO_CHANGES;
 
 function hex8(n) { return "0x" + (Number(n) >>> 0).toString(16).toUpperCase().padStart(8, "0"); }
 function stateName(s) { return NODE_STATES[s] || String(s); }
@@ -2808,9 +2811,80 @@ function stopOnline(keepConnection) {
   if (!keepConnection) S.onlineOpen = false;
 }
 
+// The online target in words, for the connection line.
+function targetLabel() {
+  return S.online.target === "adapter" ? `USB adapter ${S.online.adapter}` : S.online.host;
+}
+
+async function saveOnline(values) {
+  try {
+    S.online = Object.assign(S.online, await api("POST", "/api/online/settings", values));
+    banner("");
+    return true;
+  } catch (e) { banner(e.message, true); return false; }
+}
+
+// Runtime or USB adapter: the choice above the connect form.
+function targetChoice() {
+  const box = el("div", { class: "toolbar", role: "radiogroup", "aria-label": "Connect to" });
+  for (const [value, label] of [["runtime", "Runtime"], ["adapter", "USB adapter on this PC"]]) {
+    const r = el("input", { type: "radio", name: "online-target", value, dataset: { online: "target-" + value } });
+    r.checked = (S.online.target || "runtime") === value;
+    r.addEventListener("change", async () => { if (await saveOnline({ target: value })) { S.onlineForm = true; render(); } });
+    box.append(el("label", { class: "check" }, r, " " + label));
+  }
+  return box;
+}
+
+// The USB adapter form: adapter (found ones, or typed), bit rate, allow changes.
+function adapterForm(view) {
+  const list = el("select", { "aria-label": "Found adapters", dataset: { online: "adapter-list" } },
+    el("option", { value: "" }, "Looking for adapters…"));
+  const input = el("input", { type: "text", spellcheck: "false", placeholder: "slcan:COM5, slcan:/dev/tty.usbmodem14101, socketcan:can0",
+    "aria-label": "Adapter", dataset: { online: "adapter" } });
+  input.value = S.online.adapter || "";
+  list.addEventListener("change", () => { if (list.value) input.value = list.value; });
+  const fill = async () => {
+    try {
+      const r = await api("GET", "/api/online/adapters");
+      list.replaceChildren(el("option", { value: "" }, r.adapters.length ? "Pick a found adapter…" : "No adapter found"),
+        ...r.adapters.map((a) => el("option", { value: a.text }, `${a.text}  ${a.known || a.description || ""}`)));
+    } catch (e) { list.replaceChildren(el("option", { value: "" }, "Could not list adapters")); }
+  };
+  const refresh = el("button", { type: "button", class: "small", onclick: fill }, "Refresh");
+  fill();
+  const cfgKbit = num(getPath("adapter.bitrate")) ? num(getPath("adapter.bitrate")) / 1000 : null;
+  const rate = el("select", { "aria-label": "Bit rate", dataset: { online: "adapter-bitrate" } },
+    LSS_BITRATES.map((b) => el("option", { value: b }, `${b} kbit/s${b === cfgKbit ? " (this network)" : ""}`)));
+  rate.value = String(S.online.adapter_bitrate || cfgKbit || 250);
+  const allow = el("input", { type: "checkbox", dataset: { online: "adapter-allow" } });
+  const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } });
+  view.append(el("fieldset", null, el("legend", null, "Connect"), targetChoice(),
+    el("p", { class: "muted" }, "The PC talks to the bus itself through the adapter: no runtime is needed. It sends nothing until you act, never SYNC, heartbeat or NMT to all nodes, and warns when another master runs on the bus."),
+    el("div", { class: "grid" },
+      el("label", null, "Adapter", el("div", { class: "row" }, list, refresh), input,
+        hint("TYPE:CHANNEL. slcan (for example a CANable) on Windows, macOS and Linux, socketcan on Linux; other python-can types are passed through untested. Kept on this PC.")),
+      el("label", null, "Bit rate", rate, hint("The bus's bit rate. A wrong one disturbs the bus, so check it first.")),
+      el("div", { class: "check-field" }, el("label", { class: "check" }, allow, " Allow changes (SDO writes, NMT, LSS, restore)"),
+        hint("Off by default and for every new connection: read-only."))),
+    msg,
+    el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", dataset: { online: "connect" }, onclick: async () => {
+      if (!input.value.trim()) { msg.textContent = "Pick or type the adapter first."; input.focus(); return; }
+      if (!(await saveOnline({ adapter: input.value.trim(), adapter_bitrate: Number(rate.value) }))) return;
+      if (allow.checked && !(await saveOnline({ allow_changes: true }))) return;
+      S.onlineForm = false;
+      render();
+    } }, "Connect"))));
+}
+
 // What the online view and the scan page need before they can connect, or null.
 function onlineSetup(view) {
+  if (S.online.target === "adapter") {
+    if (S.onlineForm || !S.online.adapter) { adapterForm(view); return false; }
+    return true;
+  }
   if (!diagConfig()) {
+    view.append(el("fieldset", null, el("legend", null, "Connect"), targetChoice()));
     view.append(el("p", null, "Online access is off for this config. Turn it on under ",
       el("a", { href: "#", onclick: (e) => { e.preventDefault(); showView("bus"); } }, "Bus and master"),
       ", save, and upload the program to the runtime."));
@@ -2820,7 +2894,7 @@ function onlineSetup(view) {
     const host = hostField();
     const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } },
       S.online.token && !S.online.tokenOk ? "The token on this PC does not match the config." : "");
-    view.append(el("fieldset", null, el("legend", null, "Connect"),
+    view.append(el("fieldset", null, el("legend", null, "Connect"), targetChoice(),
       el("div", { class: "grid" }, host),
       msg,
       el("div", { class: "toolbar" },
@@ -2855,8 +2929,10 @@ function renderOnline(view) {
   view.append(el("h2", null, "Online"));
   if (!onlineSetup(view)) return;
   view.append(
-    el("div", { class: "toolbar" }, netPicker()),
-    el("div", { id: "online-conn", class: "online-conn" }, "Connecting to " + S.online.host + "…"),
+    el("div", { class: "toolbar" }, netPicker(),
+      el("button", { type: "button", class: "small", dataset: { online: "change-target" },
+        onclick: () => { S.onlineForm = true; render(); } }, "Connection…")),
+    el("div", { id: "online-conn", class: "online-conn" }, "Connecting to " + targetLabel() + "…"),
     el("div", { id: "online-live" }),
     el("div", { id: "online-lss" }),
     el("div", { id: "online-node" }));
@@ -2885,6 +2961,14 @@ async function pollOnline(seq) {
   S.onlineLast = r;
   runtimeNetworks(r);
   const st = r.status;
+  NO_CHANGES = st.local ? ADAPTER_NO_CHANGES : RUNTIME_NO_CHANGES;
+  if (st.local) {
+    localLive(r, conn);
+    if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
+    if (S.lssAllow !== r.hello.allow_changes) renderLss(r.hello.allow_changes);
+    S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
+    return;
+  }
   const notes = [];
   if (!st.session) notes.push(el("div", { class: "online-note error" }, `No CANopen session: the CAN interface ${st.bus.interface} is missing or down on the runtime.`));
   if (r.config === "different") notes.push(el("div", { class: "online-note warning", dataset: { online: "fingerprint" } },
@@ -3038,6 +3122,70 @@ function slaveLive(r) {
   }
 }
 
+// A USB adapter on this PC in the online view: what the bus showed since
+// connecting (heartbeats, EMCY), the adapter, and another master when one
+// runs on the bus. No boot results, holds or SDO variables: no master here.
+function localLive(r, conn) {
+  const st = r.status;
+  const kbit = Math.round((st.bitrate || 0) / 1000);
+  const cfgKbit = r.config_bitrate ? Math.round(r.config_bitrate / 1000) : null;
+  const notes = [];
+  if (cfgKbit && cfgKbit !== kbit) notes.push(el("div", { class: "online-note warning", dataset: { online: "bitrate-differs" } },
+    `The adapter runs at ${kbit} kbit/s; this network's config says ${cfgKbit} kbit/s.`));
+  if (st.other_master_seen) notes.push(el("div", { class: "online-note warning", dataset: { online: "other-master" } },
+    `Another master is active on this bus (${st.other_master_seen.what}, since ${st.other_master_seen.first_at.replace("T", " ").replace(/\.\d+Z$/, " UTC")}). ` +
+    "Keep to reading; LSS asks before it runs."));
+  if (st.untested_adapter) notes.push(el("div", { class: "online-note" }, "This adapter type is passed to python-can untested."));
+  const allowBtn = el("button", { type: "button", class: "small", dataset: { online: "adapter-allow-toggle" }, onclick: async () => {
+    if (!r.hello.allow_changes) {
+      const v = await modal("Allow changes on this adapter connection? SDO writes, NMT commands, LSS and restore then go to the bus. Saving to a device's non-volatile memory still asks each time.",
+        [["allow", "Allow changes", true], ["cancel", "Cancel"]]);
+      if (v !== "allow") return;
+    }
+    await saveOnline({ allow_changes: !r.hello.allow_changes });
+  } }, r.hello.allow_changes ? "Back to read-only" : "Allow changes…");
+  conn.className = "online-conn ok";
+  conn.replaceChildren(`Connected to USB adapter ${st.adapter}, ${kbit} kbit/s${cfgKbit && cfgKbit !== kbit ? ` (config: ${cfgKbit} kbit/s)` : ""}, ` +
+    (r.hello.allow_changes ? "changes allowed. " : "read-only. "), allowBtn, ...notes);
+  const rows = (st.nodes || []).map((n) => {
+    const em = n.emcy && n.emcy.count ? `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})` : "";
+    return el("tr", { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id },
+      onclick: () => { S.onlineNode = n.node_id; renderOnlineNode(); pollHighlight(); } },
+    el("td", null, String(n.node_id)), el("td", null, n.name || ""),
+    el("td", { class: n.state === null ? "muted" : "state-" + n.state }, n.state === null ? "not heard" : stateName(n.state)),
+    el("td", null, n.last_heard_s === null ? "-" : `${n.last_heard_s.toFixed(1)} s ago`), el("td", null, em));
+  });
+  $("#online-live").replaceChildren(
+    el("table", { class: "online-nodes", dataset: { online: "local-nodes" } },
+      el("thead", null, el("tr", null, ["Node", "Name", "State", "Heard", "Last EMCY"].map((h) => el("th", null, h)))),
+      el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 5, class: "muted" },
+        "No node heard yet. Nodes without a heartbeat show up in a scan (Scan the bus)."))])));
+}
+
+// An online request that LSS refuses while another master runs on the bus:
+// ask, then send it again with force.
+async function apiForce(path, body) {
+  try {
+    return await api("POST", path, body);
+  } catch (e) {
+    if (!/another master is active/.test(e.message)) throw e;
+    const v = await modal(e.message.replace(/; --force.*$/, "") + ". LSS switches every device's state. Run it anyway?",
+      [["force", "Run anyway", true], ["cancel", "Cancel"]]);
+    if (v !== "force") throw new Error("Not run: another master is active on this bus.");
+    return api("POST", path, Object.assign({}, body, { force: true }));
+  }
+}
+
+async function commissionDevice() {
+  try {
+    banner("");
+    await api("POST", "/api/commission", {});
+    S.view = "online";
+    S.onlineForm = true;
+    await loadState();
+  } catch (e) { banner(e.message, true); }
+}
+
 // The status answer's SYNC object as one line (as the CLI's status prints it).
 function syncText(sy) {
   if (sy.source === "none") return "off";
@@ -3078,7 +3226,8 @@ async function runLssFind(start) {
   const status = document.querySelector("[data-online=lss-status]");
   let r;
   try {
-    r = await api("POST", "/api/online/lss_find", { start, port: diagPort() });
+    r = start ? await apiForce("/api/online/lss_find", { start, port: diagPort() })
+      : await api("POST", "/api/online/lss_find", { start, port: diagPort() });
   } catch (e) {
     if (seq === S.onlineSeq && status) status.textContent = e.message;
     return;
@@ -3150,13 +3299,13 @@ async function lssSetId(d, match) {
   if (!(node >= 1 && node <= 127)) { banner("The node ID must be 1-127.", true); return; }
   let r;
   try {
-    r = await api("POST", "/api/online/lss_set_id", { address: lssAddress(d), node, store: store.querySelector("input").checked, port: diagPort() });
+    r = await apiForce("/api/online/lss_set_id", { address: lssAddress(d), node, store: store.querySelector("input").checked, port: diagPort() });
   } catch (e) { banner(e.message, true); return; }
   banner(`Node ID ${node} set${r.stored ? " and stored in the device" : ""}. ${r.note.charAt(0).toUpperCase() + r.note.slice(1)}.`);
   S.lssDevice = null;
   const box = document.querySelector("[data-online=lss-result]");
   if (box) box.replaceChildren();
-  if (configNode(node)) return;
+  if (configNode(node) || S.state.commission) return;
   const add = await modal(`Add the device to the configuration as node ${node}` + (match ? ` with ${match.name}` : "") +
     "? It gets the device's serial number and LSS assignment, so the master gives it this node ID at every start.",
     [["add", "Add as node", true], ["no", "Not now"]]);
@@ -3181,7 +3330,7 @@ async function lssSetBitrate(d) {
     el("div", null, el("label", { class: "inline" }, "Bit rate ", sel), el("div", null, store)));
   if (v !== "set") return;
   try {
-    const r = await api("POST", "/api/online/lss_set_bitrate", { address: lssAddress(d), bitrate_kbit: Number(sel.value),
+    const r = await apiForce("/api/online/lss_set_bitrate", { address: lssAddress(d), bitrate_kbit: Number(sel.value),
       store: store.querySelector("input").checked, port: diagPort() });
     banner(`Bit rate ${r.bitrate_kbit} kbit/s set${r.stored ? " and stored in the device" : ""}. ${r.note.charAt(0).toUpperCase() + r.note.slice(1)}.`);
   } catch (e) { banner(e.message, true); }
@@ -4407,7 +4556,7 @@ async function storeDialog(id, sub, what) {
 
 function renderScan(view) {
   view.append(el("h2", null, "Scan the bus"),
-    el("p", { class: "muted" }, "Asks every node ID 1-127 for its identity (0x1018), device type and name, through the runtime. Reads only; PDOs keep running. Devices that are STOPPED do not answer."));
+    el("p", { class: "muted" }, "Asks every node ID 1-127 for its identity (0x1018), device type and name, through the runtime or the USB adapter. Reads only; PDOs keep running. Devices that are STOPPED do not answer."));
   const lib = el("input", { type: "text", spellcheck: "false", class: "wide", placeholder: "a folder of vendor EDS files",
     "aria-label": "EDS library folder", dataset: { online: "library" } });
   lib.value = S.online.eds_library || "";
@@ -4492,6 +4641,11 @@ function scanAction(d) {
   if (d.match !== "not configured") return "";
   if (configNode(d.node_id)) return el("span", { class: "muted" }, "added (not saved yet)");
   const m = d.eds_matches || [];
+  if (S.state.commission) {  // no config to add to: only the object dictionary
+    if (!m.length) return el("span", { class: "muted" }, "No matching EDS in the EDS library.");
+    const pick = el("select", { "aria-label": "EDS file", dataset: { online: "eds-match" } }, m.map((x, k) => el("option", { value: k }, x.name)));
+    return el("div", null, pick, el("button", { type: "button", dataset: { online: "open-od" }, onclick: () => openScannedOd(d, m[Number(pick.value)]) }, "Object dictionary"));
+  }
   if (!m.length) {
     const input = el("input", { type: "file", accept: ".eds,.EDS" });
     input.addEventListener("change", () => { const f = input.files[0]; if (f) addScannedNode(d, null, f, false); });
@@ -5157,6 +5311,7 @@ function wire() {
   $("#start-project").onclick = () => { S.startMode = "project"; renderStart(); };
   $("#start-standalone").onclick = () => { S.startMode = "standalone"; renderStart(); };
   $("#start-new").onclick = () => { S.startMode = "new"; renderStart(); };
+  $("#start-commission").onclick = commissionDevice;
   $("#browser-go").onclick = () => browse($("#browser-path").value.trim());
   $("#browser-path").addEventListener("keydown", (e) => { if (e.key === "Enter") browse($("#browser-path").value.trim()); });
   $("#browser-open").onclick = startOpen;

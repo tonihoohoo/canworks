@@ -304,12 +304,18 @@ def _read(path):
 
 
 def _detected(interfaces):
+    import logging
     out = []
+    log = logging.getLogger("can")
+    level = log.level
+    log.setLevel(logging.CRITICAL)  # python-can logs every missing vendor driver while it looks
     try:
         import can
         configs = can.detect_available_configs(interfaces=list(interfaces))
     except Exception:
         return out
+    finally:
+        log.setLevel(level)
     for c in configs:
         kind, channel = c.get("interface"), c.get("channel")
         if kind and channel is not None and kind not in ("socketcan", "slcan", "virtual"):
