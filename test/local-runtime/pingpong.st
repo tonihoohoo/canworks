@@ -1,0 +1,15 @@
+PROGRAM main
+VAR
+  ok AT %IX10.0 : BOOL;
+  pong AT %ID100 : UDINT;
+  ping AT %QD100 : UDINT;
+END_VAR
+ping := pong + 1;
+END_PROGRAM
+
+CONFIGURATION config0
+  RESOURCE res0 ON PLC
+    TASK task0(INTERVAL := T#20ms, PRIORITY := 0);
+    PROGRAM instance0 WITH task0 : main;
+  END_RESOURCE
+END_CONFIGURATION

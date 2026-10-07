@@ -290,6 +290,9 @@ struct AdapterConfig {
   // and nothing above is opened (docs/simulator.md). The fields are still
   // checked, so switching back needs only this one.
   bool simulate = false;
+  // The runtime environment forced simulation (ImageLimits::force_simulate);
+  // `simulate` is then true whatever the file says.
+  bool simulation_forced = false;
 };
 
 // What a network is: the CANopen master of its nodes, or one CANopen device
@@ -426,7 +429,14 @@ struct ConfigSet {
 // Limits of the runtime's I/O image, from plugin_runtime_args_t.
 struct ImageLimits {
   unsigned buffer_size = 1024;
+  // Set from the runtime environment (CANOPEN_FORCE_SIMULATE=1, the local
+  // simulator runtime image): every network is parsed as a simulated network,
+  // whatever its adapter.simulate says (docs/local-runtime.md).
+  bool force_simulate = false;
 };
+
+// Whether the value of CANOPEN_FORCE_SIMULATE forces simulation: exactly "1".
+bool force_simulate_from_env(const char* value);
 
 // Where the stock runtime extracts an upload's conf/ tree:
 // $CANOPEN_GENERATED_CONF if set, else <working directory>/core/generated/conf

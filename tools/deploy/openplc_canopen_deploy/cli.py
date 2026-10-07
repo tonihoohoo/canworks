@@ -58,8 +58,8 @@ import shutil
 import subprocess
 import sys
 
-from . import (__version__, bundle, clash, contract, dbcexport, dcfexport, editorproject, project, runtime, sdolibrary,
-               simfile, slaveeds)
+from . import (__version__, bundle, clash, contract, dbcexport, dcfexport, editorproject, localruntime, project, runtime,
+               sdolibrary, simfile, slaveeds)
 
 EDITOR_WARNING = (
     "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canopen.json, so the "
@@ -119,10 +119,12 @@ def parser():
                    help="board target for --project (default: %(default)s)")
     p.add_argument("--config", required=True, metavar="FILE",
                    help="the CANopen config (canopen_config.json); EDS paths are relative to it")
-    p.add_argument("--runtime", metavar="HOST[:PORT]", help="the runtime to upload to (HTTPS, default port 8443)")
-    p.add_argument("--user", default=os.environ.get("OPENPLC_USER"),
-                   help="runtime user (default: $OPENPLC_USER); the password comes from $OPENPLC_PASSWORD or a "
-                        "prompt")
+    p.add_argument("--runtime", metavar="HOST[:PORT]",
+                   help="the runtime to upload to (HTTPS, default port 8443); `local` is the local simulator "
+                        "runtime of openplc-canopen-runtime, with its saved user, password and fingerprint")
+    p.add_argument("--user",
+                   help="runtime user (default: the local runtime's saved user with --runtime local, else "
+                        "$OPENPLC_USER); the password comes from $OPENPLC_PASSWORD or a prompt")
     p.add_argument("--allow-clash", action="store_true",
                    help="report input address clashes with other plugins as warnings instead of errors")
     tls = p.add_mutually_exclusive_group()
@@ -199,6 +201,12 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         raise Failure("--new-project only creates an editor project; leave out --runtime, --output and --check-only")
     if not into and not export_dir and not dbc_file and not new_project and not args.check_only and not args.runtime:
         raise Failure("give --runtime to upload, or --check-only")
+    local = None
+    if localruntime.is_local(getattr(args, "runtime", None)):
+        try:
+            local = localruntime.target()
+        except localruntime.LocalRuntimeError as e:
+            raise Failure(str(e))
 
     # 1. The config and its checks.
     try:
@@ -240,7 +248,9 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         if simulated:
             err("warning: this config simulates devices: %s. Outputs to a simulated device go nowhere; never leave "
                 "a machine's config simulated." % simulated)
-        if simulated and uploading and not (getattr(args, "yes", False) or getattr(args, "simulated", False)):
+        if local and uploading:
+            out("local simulator runtime: every network runs simulated there, whatever the config says")
+        if simulated and uploading and not local and not (getattr(args, "yes", False) or getattr(args, "simulated", False)):
             answer = (confirm_source or _ask)("Upload this config with simulated devices to %s?" % args.runtime)
             if answer is None:
                 raise Failure("not uploaded: %s. Pass --simulated (or --yes) to upload it anyway" % simulated)
@@ -347,18 +357,23 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         shutil.rmtree(work, ignore_errors=True)
 
     # 4. Upload.
-    if not args.user:
+    user = args.user or (local or {}).get("user") or os.environ.get("OPENPLC_USER")
+    if not user:
         raise Failure("give --user (or set $OPENPLC_USER)")
-    client = runtime.Client(args.runtime, ca=args.ca, fingerprint=args.fingerprint, insecure=args.insecure)
+    where = "127.0.0.1:%d" % local["port"] if local else args.runtime
+    fingerprint = args.fingerprint
+    if local and not (fingerprint or args.ca or args.insecure):
+        fingerprint = local.get("fingerprint")
+    client = runtime.Client(where, ca=args.ca, fingerprint=fingerprint, insecure=args.insecure)
     if args.insecure:
         err("warning: --insecure: the runtime's certificate is not checked")
     sent = False
     try:
         client._connect().close()  # certificate first, before any credentials
-        password = os.environ.get("OPENPLC_PASSWORD")
+        password = local["password"] if local and user == local.get("user") else os.environ.get("OPENPLC_PASSWORD")
         if password is None:
-            password = (password_source or getpass.getpass)("Password for %s on %s: " % (args.user, args.runtime))
-        client.login(args.user, password)
+            password = (password_source or getpass.getpass)("Password for %s on %s: " % (user, args.runtime))
+        client.login(user, password)
         out("uploading to %s:%d" % (client.host, client.port))
         client.upload(data)
         sent = True

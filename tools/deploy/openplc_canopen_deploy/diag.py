@@ -29,7 +29,7 @@ import struct
 import sys
 import time
 
-from . import __version__
+from . import __version__, localruntime
 
 DEFAULT_PORT = 7531
 PROTOCOL = 1
@@ -55,6 +55,13 @@ def parse_runtime(text):
     text = (text or "").strip()
     if not text:
         raise ValueError("no runtime host given")
+    if localruntime.is_local(text):
+        # The local simulator runtime (openplc-canopen-runtime): its published diagnostics port.
+        try:
+            saved = localruntime.load_settings() or {}
+        except localruntime.LocalRuntimeError:
+            saved = {}
+        return "127.0.0.1", int(saved.get("diag_port") or localruntime.DIAG_PORT)
     host, port = text, DEFAULT_PORT
     if text.startswith("["):
         host, _, rest = text[1:].partition("]")
@@ -519,7 +526,8 @@ def parser():
                     "(master.diagnostics in canopen.json), and, when the configuration allows changes, write "
                     "objects and send NMT commands.")
     p.add_argument("--runtime", metavar="HOST[:PORT]",
-                   help="the runtime host (diagnostics port, default %d)" % DEFAULT_PORT)
+                   help="the runtime host (diagnostics port, default %d); `local` is the local simulator runtime "
+                        "of openplc-canopen-runtime" % DEFAULT_PORT)
     p.add_argument("--sim", dest="sim_addr", metavar="HOST[:PORT]",
                    help="sim commands: a standalone simulator's control channel (default port 7532)")
     p.add_argument("--token", help="access token (default: $%s, else a prompt)" % TOKEN_ENV)
@@ -713,6 +721,8 @@ def _print_status(st, out):
     if sync_line:
         out.write(sync_line + "\n")
     sim_nodes = [str(nd.get("node_id")) for nd in st.get("nodes") or [] if nd.get("simulated")]
+    if st.get("simulation_forced"):
+        out.write("simulation forced by the runtime (local simulator runtime): every network runs simulated\n")
     if st.get("simulated_network"):
         out.write("simulated network: no CAN interface is used%s\n"
                   % ("; simulated nodes " + ", ".join(sim_nodes) if sim_nodes else "; no node is simulated"))

@@ -165,11 +165,13 @@ int main(int argc, char** argv) {
     std::ofstream out(sim_dir + "/cpp-slave.eds", std::ios::binary);
     out << in.rdbuf();
   }
-  auto run_simulated = [&](const std::string& node_extra, int seconds, unsigned& last) {
+  auto run_simulated = [&](const std::string& node_extra, int seconds, unsigned& last,
+                           const std::string& adapter_extra = R"(, "simulate": true)") {
     {
       std::ofstream f(sim_dir + "/canopen.json");
       f << R"({"schema_version": 1,
-               "adapter": {"type": "socketcan", "interface": "nonexistent0", "bitrate": 125000, "simulate": true},
+               "adapter": {"type": "socketcan", "interface": "nonexistent0", "bitrate": 125000)"
+        << adapter_extra << R"(},
                "master": {"node_id": 1, "sync_period_us": 20000},
                "nodes": [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 50,)"
         << node_extra << R"( "status_location": "%IX10.0",
@@ -209,6 +211,16 @@ int main(int argc, char** argv) {
   status = run_simulated(R"( "simulate": false,)", 2, last);
   expect(logged("no node is simulated"), "the warning says no node is simulated");
   expect(!status, "the node stays absent");
+
+  // The local simulator runtime image: a real-adapter config runs simulated.
+  std::printf("simulation forced by the environment:\n");
+  setenv("CANOPEN_FORCE_SIMULATE", "1", 1);
+  status = run_simulated("", 3, last, "");
+  unsetenv("CANOPEN_FORCE_SIMULATE");
+  expect(logged("WARN") && logged("simulation forced by the runtime environment"), "a warning says simulation is forced");
+  expect(logged("the CAN network is SIMULATED"), "the network is announced as simulated");
+  expect(status && last > 5, "the node is operational and the round trip runs");
+  expect(!logged("nonexistent0: ") && !logged("ERROR"), "no CAN interface touched, no error");
 
   std::printf(g_failures ? "%d failure(s)\n" : "OK\n", g_failures);
   return g_failures ? 1 : 0;
