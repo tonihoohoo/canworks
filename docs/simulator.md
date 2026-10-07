@@ -24,6 +24,10 @@ That gives four combinations:
 
 A config with anything simulated is announced everywhere: a warning at every PLC start naming what is simulated, `simulated_network` and per-node `simulated` in the diagnostics status, a banner in the configurator, and a question before the deploy tool uploads it. Outputs to a simulated device go nowhere, so never leave a machine's config simulated.
 
+### Forced by the runtime: `CANOPEN_FORCE_SIMULATE`
+
+A runtime started with the environment variable `CANOPEN_FORCE_SIMULATE=1` runs every network simulated, whatever its `adapter.simulate` and adapter settings say: no CAN interface or serial device is opened. The [local simulator runtime](local-runtime.md) image sets it. Nodes keep their own switches, so a node with `"simulate": false` stays absent, as on any simulated network. Only the exact value `1` forces; anything else (`0`, `true`, empty) changes nothing. The plugin logs `simulation forced by the runtime environment (CANOPEN_FORCE_SIMULATE=1)` for each network at every PLC start, the diagnostics status carries `simulation_forced`, and `openplc-canopen-diag status` and the configurator's online view say so.
+
 ### Several networks
 
 In a config with several networks ([version 2](config.md)), each network has its own switches: one network can be simulated while another runs on its real interface, and the simulated devices of each network are reached by its name (`--network NAME` on `openplc-canopen-diag sim`, the network picker in the configurator). The simulation file serves a config with one network only: with several networks the plugin and the deploy tool's check say it is not used, and the simulated devices run with their [default behaviour](#default-behaviour).

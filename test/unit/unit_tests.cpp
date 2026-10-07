@@ -2807,6 +2807,29 @@ TEST(config_simulate_switches) {
   CHECK(!parse(replace(kValid, "\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"simulate\": 1,"), cfg, errors));
 }
 
+TEST(config_force_simulate) {
+  // Only exactly "1" forces.
+  CHECK(force_simulate_from_env("1"));
+  CHECK(!force_simulate_from_env(nullptr) && !force_simulate_from_env("") && !force_simulate_from_env("0") &&
+        !force_simulate_from_env("true") && !force_simulate_from_env("1 "));
+  Config cfg;
+  std::vector<std::string> errors;
+  ImageLimits forced;
+  forced.force_simulate = true;
+  const std::string path = std::string(PINGPONG_DIR) + "/canopen_config.json";
+  // A real-adapter config runs simulated, every node with it; the file's adapter is kept.
+  CHECK(parse_config(kValid, path, forced, cfg, errors));
+  CHECK(cfg.adapter.simulate && cfg.adapter.simulation_forced && cfg.nodes[0].simulate);
+  CHECK(cfg.adapter.interface == "vcan0");
+  // A node switched off stays absent, as on any simulated network.
+  CHECK(parse_config(replace(kValid, "\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"simulate\": false,"), path,
+                     forced, cfg, errors));
+  CHECK(cfg.adapter.simulate && !cfg.nodes[0].simulate);
+  // Without the flag nothing changes.
+  CHECK(parse(kValid, cfg, errors));
+  CHECK(!cfg.adapter.simulate && !cfg.adapter.simulation_forced);
+}
+
 TEST(sim_trace_tap) {
   auto tap = std::make_shared<SimTraceTap>();
   auto src = make_sim_trace_source(tap);

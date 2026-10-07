@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Simulator runtime image
-The project SHALL publish a container image `ghcr.io/tonihoohoo/openplc-canopen-runtime` for `linux/amd64` and `linux/arm64`, built from the upstream runtime image of the version pinned in `docker/local-runtime/runtime-version`, with the CANopen plugin, `dcfgen`, the device simulator and the editor hook installed under `/opt/openplc-canopen` exactly as the in-image build of `scripts/install-stock.sh` installs them. The image SHALL change nothing in the upstream image other than adding these files and the environment entries `PYTHONPATH` (editor hook) and `CANOPEN_FORCE_SIMULATE=1`. The image SHALL carry the upstream runtime version and the PC tools version as labels.
+The project SHALL publish a container image `ghcr.io/tonihoohoo/openplc-canopen-runtime` for `linux/amd64` and `linux/arm64`, built from the upstream runtime image of the version pinned in `docker/local-runtime/runtime-version`, with the CANopen plugin, `dcfgen`, the device simulator and the editor hook installed under `/opt/openplc-canopen` exactly as the in-image build of `scripts/install-stock.sh` installs them. The image SHALL change nothing in the upstream image other than adding these files, the environment entries `PYTHONPATH` (editor hook) and `CANOPEN_FORCE_SIMULATE=1`, and links that keep the runtime's generated certificate and key in the data volume. The image SHALL carry the upstream runtime version and the PC tools version as labels.
 
 #### Scenario: Editor upload into the image
 - **WHEN** a container of the image runs and the editor's Build and Upload sends a project that has a `canopen/` folder
@@ -23,7 +23,7 @@ Each PC tools release `deploy-v<version>` SHALL be followed by a push of the ima
 - **THEN** the `0.30.0` image tag is left unchanged
 
 ### Requirement: Start the local runtime
-`openplc-canopen-runtime start` SHALL run the image with a container engine: the one given by `--engine`, else `$OPENPLC_CANOPEN_ENGINE`, else the first of `docker` and `podman` whose `info` succeeds, and on Windows then `docker` and `podman` inside the default WSL distribution (`wsl -e ...`). When none is usable it SHALL fail with a message that names what was looked for and points to the setup docs, without changing anything. By default it SHALL use the image tag equal to its own package version (`--image` overrides). It SHALL create a container named `openplc-canopen-runtime` that publishes the runtime's port 8443 on `127.0.0.1` only (host port 8443, `--port` to change), keeps runtime data in the named volume `openplc-canopen-runtime-data`, and restarts unless stopped. When the container exists and is stopped it SHALL start it; when it exists with another image it SHALL change nothing and name `update`. It SHALL NOT need administrator rights beyond what the engine itself needs.
+`openplc-canopen-runtime start` SHALL run the image with a container engine: the one given by `--engine`, else `$OPENPLC_CANOPEN_ENGINE`, else the first of `docker` and `podman` whose `info` succeeds, and on Windows then `docker` and `podman` inside the default WSL distribution (`wsl -e ...`). When none is usable it SHALL fail with a message that names what was looked for and points to the setup docs, without changing anything. By default it SHALL use the image tag equal to its own package version (`--image` overrides). It SHALL create a container named `openplc-canopen-runtime` that publishes the runtime's port 8443 (host port 8443, `--port` to change) and the plugin's diagnostics port 7531 (the same number on both sides, `--diag-port` to change) on `127.0.0.1` only, keeps runtime data in the named volume `openplc-canopen-runtime-data`, and restarts unless stopped. When the container exists and is stopped it SHALL start it. When it exists with another image than the default, it SHALL keep that image and say that `update` switches it; when `--image` names another image than the container's, it SHALL change nothing and name `update`. It SHALL NOT need administrator rights beyond what the engine itself needs.
 
 #### Scenario: First start with Podman only
 - **WHEN** a PC has `podman` working and no `docker`, and the user runs `openplc-canopen-runtime start`
@@ -41,11 +41,15 @@ Each PC tools release `deploy-v<version>` SHALL be followed by a push of the ima
 - **WHEN** host port 8443 is taken
 - **THEN** the command fails, says so and names `--port`, and leaves no half-created container
 
+#### Scenario: Engine refuses the real-time capabilities
+- **WHEN** the engine refuses the `SYS_NICE` and `SYS_RESOURCE` capabilities
+- **THEN** the command starts the container without them and says that only timing is affected
+
 ### Requirement: Local runtime credentials
-On a start that finds the runtime without users, the command SHALL create a runtime user `openplc` with a random password of at least 20 characters through the runtime's user API, read the runtime's certificate fingerprint, and save URL, user, password, fingerprint, engine, image and port in `local-runtime.json` in the PC tools' configuration directory, readable by the PC user only where the file system supports it. Later starts SHALL reuse the saved file. When the runtime has users but the file is missing, the command SHALL say that the password cannot be recovered and name `remove --data` to reset. `status --show-password` SHALL print the saved password.
+On a start that finds the runtime without users, the command SHALL create a runtime user `openplc` with a random password of at least 20 characters through the runtime's user API, read the runtime's certificate fingerprint, and save URL, user, password, fingerprint, engine, image, port and diagnostics port in `local-runtime.json` in the PC tools' configuration directory, readable by the PC user only where the file system supports it. Later starts SHALL reuse the saved file. When the runtime has users but the file is missing, the command SHALL say that the password cannot be recovered and name `remove --data` to reset. `status --show-password` SHALL print the saved password.
 
 #### Scenario: Restart keeps the certificate
-- **WHEN** the user runs `stop` and then `start`
+- **WHEN** the user runs `stop` and then `start`, or `update`
 - **THEN** the runtime's certificate fingerprint equals the saved one and the saved credentials still log in
 
 #### Scenario: Credentials file deleted
@@ -53,7 +57,7 @@ On a start that finds the runtime without users, the command SHALL create a runt
 - **THEN** `start` runs the container, reports that the credentials are lost and names `openplc-canopen-runtime remove --data`
 
 ### Requirement: Manage the local runtime
-The command SHALL offer `stop` (stop the container), `status` (engine, image, container state, whether the runtime answers, PLC state, and the CANopen state and simulated networks from the diagnostics status), `logs` (`-f` to follow), `update` (pull the image for its own version, recreate the container on the same volume and port with the same credentials) and `remove` (delete the container; with `--data` also the volume and `local-runtime.json`). Each subcommand SHALL say plainly when there is nothing to act on.
+The command SHALL offer `stop` (stop the container), `status` (engine, image, container state, the runtime's address, PLC state, and the last CANopen lines of the runtime log), `logs` (`-f` to follow), `update` (pull the image for its own version, or use a copy already on the PC when the pull fails, recreate the container on the same volume and ports with the same credentials, and say that the PLC program must be uploaded again) and `remove` (delete the container; with `--data` also the volume and `local-runtime.json`). Each subcommand SHALL say plainly when there is nothing to act on.
 
 #### Scenario: Update after upgrading the tools
 - **WHEN** the PC tools were upgraded from 0.30.0 to 0.31.0 and the user runs `update`
@@ -64,11 +68,15 @@ The command SHALL offer `stop` (stop the container), `status` (engine, image, co
 - **THEN** the container, the volume and `local-runtime.json` are gone, and a later `start` creates new credentials
 
 ### Requirement: Local runtime as a target
-`openplc-canopen-deploy --runtime local`, `openplc-canopen-diag --runtime local` and the configurator's local runtime connection SHALL take URL, user, password and fingerprint from `local-runtime.json`; options the user gives explicitly SHALL win. Without the file they SHALL fail with a message naming `openplc-canopen-runtime start`.
+`openplc-canopen-deploy --runtime local` SHALL take URL, user, password and fingerprint from `local-runtime.json`; options the user gives explicitly SHALL win. Without the file it SHALL fail with a message naming `openplc-canopen-runtime start`. `openplc-canopen-diag --runtime local` and the configurator's online access host `local` (set by its "Local simulator runtime" button) SHALL connect to `127.0.0.1` at the saved diagnostics port (7531 without a saved file), with the project's access token as for any runtime.
 
 #### Scenario: Deploy to the local runtime
 - **WHEN** the user runs `openplc-canopen-deploy --runtime local` with an editor project after `start`
 - **THEN** the bundle is uploaded to the local runtime with the saved credentials and pinned fingerprint, without asking for a password
+
+#### Scenario: Diagnostics of the local runtime
+- **WHEN** the deployed config has diagnostics on port 7531 and the user runs `openplc-canopen-diag --runtime local --token ... status`
+- **THEN** it connects through the published port and says that the runtime forces every network simulated
 
 ### Requirement: Local runtime documentation
 `docs/local-runtime.md` SHALL describe installing a free container engine on Windows (Docker Engine or Podman in WSL2), macOS (Colima or Podman) and Linux (Docker Engine or Podman), with no step that requires Docker Desktop, then `start`, connecting the editor, deploying, the configurator, `update`, `remove`, and the limits: everything runs simulated, timing is not real-time, and real CAN adapters are not reachable from the container on Windows and macOS.
@@ -78,7 +86,7 @@ The command SHALL offer `stop` (stop the container), `status` (engine, image, co
 - **THEN** the steps install Colima and the Docker CLI with Homebrew, and `openplc-canopen-runtime start` works afterwards
 
 ### Requirement: Local runtime tested in CI
-CI SHALL build the amd64 image and run a smoke test of the command with Docker on changes to the image, the plugin, the install script or the command: start, credentials file and login, an upload of `config/pingpong` with `--runtime local` that enables `canopen`, the plugin library loading in the container with forced simulation set, stop and start with the same fingerprint, and remove with data. CI SHALL also build the arm64 image on an arm64 runner.
+CI SHALL build the amd64 image and run an end-to-end test of the command with Docker on changes to the image, the plugin, the install script, the editor hook or the command: start, the credentials file, an upload of `config/pingpong` (real adapter in the config) with `--runtime local` and a PLC program compiled by STruC++, the forced-simulation warning, node 2 operational, diagnostics through the published port, PDO values moving, stop and start and update with the same fingerprint, and remove with data. CI SHALL also build the arm64 image on an arm64 runner and check that the plugin library resolves its libraries there.
 
 #### Scenario: Broken image
 - **WHEN** a change makes the plugin library fail to load in the image

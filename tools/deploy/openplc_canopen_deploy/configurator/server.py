@@ -34,6 +34,7 @@ from .. import eds as eds_mod
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES
+from ..userdirs import config_dir
 from . import cia402map, declare, layout, online, params, scan, simulation, tracing
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -119,17 +120,6 @@ def save_ui(changes):
         json.dump(ui, f, indent=2)
     os.replace(tmp, os.path.join(config_dir(), "ui.json"))
     return ui
-
-
-def config_dir():
-    env = os.environ.get("OPENPLC_CANOPEN_CONFIG_DIR")
-    if env:
-        return env
-    if sys.platform == "darwin":
-        return os.path.expanduser("~/Library/Application Support/openplc-canopen")
-    if os.name == "nt":
-        return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "openplc-canopen")
-    return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "openplc-canopen")
 
 
 def _ordered(obj, kind):
