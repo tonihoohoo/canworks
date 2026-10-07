@@ -178,14 +178,18 @@ class Core:
         return Core._Expect(self, cob)
 
     # -- transmit ---------------------------------------------------------------
-    def transmit(self, cob, data):
+    def transmit(self, cob, data, ext=False, rtr=False, dlc=None):
         """The one transmit path: waits until the adapter has listened, sends,
-        and records the frame (Tx) in the trace."""
+        and records the frame (Tx) in the trace. A remote frame (rtr) has no
+        data and `dlc`."""
         import can
         if self.error:
             raise adapter_mod.AdapterError("unreachable", self.error)
         self.wait_listened()
-        msg = can.Message(arbitration_id=cob, data=bytes(data), is_extended_id=False)
+        if rtr:
+            msg = can.Message(arbitration_id=cob, is_extended_id=bool(ext), is_remote_frame=True, dlc=dlc or 0)
+        else:
+            msg = can.Message(arbitration_id=cob, data=bytes(data), is_extended_id=bool(ext))
         with self.tx_lock:
             try:
                 self.bus.send(msg, timeout=0.5)
@@ -270,6 +274,23 @@ def acquire(spec, bitrate, listen_s=LISTEN_S):
                                                    "first" % (spec, core.bitrate // 1000))
         core.users += 1
         return core
+
+
+def take_alone(core, before_close=None):
+    """Closes `core` for a handle that needs the adapter to itself (bit rate
+    detection reopens it listen-only), so the next acquire() opens it again;
+    `before_close()` runs first. Raises AdapterError (busy) when other
+    handles of this process use it."""
+    with _cores_lock:
+        if core.users > 1:
+            raise adapter_mod.AdapterError("busy", "busy: adapter %s is used by another view or connection of this "
+                                                   "tool; bit rate detection needs it to itself" % core.spec)
+        if _cores.get(str(core.spec)) is core:
+            del _cores[str(core.spec)]
+        core.users = 0
+    if before_close is not None:
+        before_close()
+    core.close()
 
 
 def release(core):

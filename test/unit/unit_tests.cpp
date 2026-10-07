@@ -2,6 +2,7 @@
 // the canopen-master-bringup and canopen-pdo-io specs), EDS checks, dcfgen
 // generation and caching, and the PDO <-> PLC image binding.
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <chrono>
@@ -31,7 +32,9 @@
 #include "check.hpp"
 #include "config.h"
 #include "dcf_gen.h"
+#include "bitrate_sweep.h"
 #include "diag.h"
+#include "frame_tx.h"
 #include "sim_trace.h"
 
 #include <lely/can/msg.h>
@@ -947,6 +950,13 @@ struct MockLink : LinkOps {
   int set_txqlen(const std::string&, unsigned len) override {
     calls.push_back("txqlen " + std::to_string(len));
     return fail_set ? -fail_set : 0;
+  }
+  bool no_listen_only = false;  // the driver has no listen-only mode
+  int set_listen_only(const std::string& name, bool on) override {
+    calls.push_back(on ? "listen-only on" : "listen-only off");
+    if (no_listen_only) return -EOPNOTSUPP;
+    if (links[name].up) return -EBUSY;
+    return 0;
   }
 };
 
@@ -3985,4 +3995,445 @@ TEST(diag_server_tls_login) {
   }
   server.stop();
   set_log_sink(nullptr);
+}
+
+
+// ---------------------------------------------------------------------------
+// Raw frames and bit rate detection (canopen-online-diagnostics: "Send raw
+// frames", "Guards on raw frames", "Bit rate detection", "Guards on bit rate
+// detection")
+
+TEST(cob_id_use_names_the_network_frames) {
+  Config cfg;
+  std::vector<std::string> errors;
+  CHECK(parse(kValid, cfg, errors));
+  CHECK(cob_id_use(cfg, 0x000, false) == "NMT");
+  CHECK(cob_id_use(cfg, 0x080, false) == "SYNC");
+  CHECK(cob_id_use(cfg, 0x100, false) == "TIME");
+  CHECK(cob_id_use(cfg, 0x7E5, false) == "LSS");
+  CHECK(cob_id_use(cfg, 0x701, false) == "the master's heartbeat");
+  CHECK_MSG(cob_id_use(cfg, 0x182, false) == "TPDO1 of node 2 (pingpong)", cob_id_use(cfg, 0x182, false));
+  CHECK_MSG(cob_id_use(cfg, 0x202, false) == "RPDO1 of node 2 (pingpong)", cob_id_use(cfg, 0x202, false));
+  CHECK(cob_id_use(cfg, 0x282, false) == "TPDO2 of node 2 (pingpong) (predefined)");
+  CHECK(cob_id_use(cfg, 0x602, false) == "the SDO request channel of node 2 (pingpong)");
+  CHECK(cob_id_use(cfg, 0x702, false) == "the heartbeat of node 2 (pingpong)");
+  CHECK(cob_id_use(cfg, 0x082, false) == "EMCY of node 2 (pingpong)");
+  // Free: an unconfigured node's SDO channel, an extended identifier.
+  CHECK(cob_id_use(cfg, 0x60A, false).empty());
+  CHECK(cob_id_use(cfg, 0x182, true).empty());
+}
+
+TEST(sim_frame_injector_queues_and_wakes) {
+  // The bus thread's FdWake drains read_fd() as an eventfd; the frames must
+  // survive that and come out of drain() in order.
+  SimFrameInjector inj;
+  CHECK(inj.read_fd() >= 0);
+  RawFrame a, b;
+  a.id = 0x602;
+  a.dlc = 8;
+  a.data[0] = 0x40;
+  b.id = 0x123;
+  CHECK(inj.push(a) == 0);
+  CHECK(inj.push(b) == 0);
+  pollfd p{inj.read_fd(), POLLIN, 0};
+  CHECK(poll(&p, 1, 0) == 1);
+  uint64_t n = 0;
+  CHECK(read(inj.read_fd(), &n, sizeof n) == static_cast<ssize_t>(sizeof n));
+  std::vector<RawFrame> got;
+  inj.drain(got);
+  CHECK(got.size() == 2 && got[0].id == 0x602 && got[0].data[0] == 0x40 && got[1].id == 0x123);
+  for (size_t i = 0; i < SimFrameInjector::kMaxQueued; ++i) CHECK(inj.push(b) == 0);
+  CHECK(inj.push(b) == -ENOBUFS);
+}
+
+TEST(raw_frame_text_and_rate_limit) {
+  RawFrame f;
+  f.id = 0x60A;
+  f.dlc = 4;
+  f.data[0] = 0x40;
+  f.data[1] = 0x18;
+  f.data[2] = 0x10;
+  f.data[3] = 0x01;
+  CHECK_MSG(raw_frame_text(f) == "0x60A [4] 40 18 10 01", raw_frame_text(f));
+  f.ext = true;
+  f.rtr = true;
+  f.dlc = 2;
+  CHECK_MSG(raw_frame_text(f) == "0x0000060A RTR [2]", raw_frame_text(f));
+  RateLimit rl(50, 50);
+  auto t = std::chrono::steady_clock::now();
+  int ok = 0;
+  for (int i = 0; i < 60; ++i) ok += rl.take(t);
+  CHECK_MSG(ok == 50, std::to_string(ok));
+  CHECK(!rl.take(t));
+  CHECK(rl.take(t + std::chrono::milliseconds(40)));  // two tokens back after 40 ms
+}
+
+TEST(sweep_verdicts) {
+  auto make = [](std::vector<std::array<uint64_t, 3>> rows) {
+    SweepResult r;
+    for (auto& x : rows) {
+      SweepRate s;
+      s.bitrate_kbit = static_cast<unsigned>(x[0]);
+      s.frames = x[1];
+      s.error_frames = x[2];
+      r.results.push_back(s);
+    }
+    decide_sweep(r);
+    return r;
+  };
+  SweepResult r = make({{1000, 0, 40}, {500, 0, 12}, {250, 37, 0}, {125, 0, 9}});
+  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 250);
+  // Errors up to 1 % of the valid frames still match.
+  r = make({{500, 0, 3}, {250, 200, 2}});
+  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 250);
+  r = make({{500, 0, 0}, {250, 0, 0}});
+  CHECK(r.verdict == SweepVerdict::Silent);
+  r = make({{500, 20, 0}, {250, 10, 0}});
+  CHECK(r.verdict == SweepVerdict::Ambiguous && r.candidates.size() == 2);
+  r = make({{500, 5, 50}, {250, 10, 30}});
+  CHECK(r.verdict == SweepVerdict::Ambiguous && r.candidates.size() == 1 && r.candidates[0] == 250);
+}
+
+// The cases the PC tools' verdict (bitrate.decide) is tested against too.
+TEST(sweep_verdict_parity) {
+  cJSON* doc = cJSON_Parse(read(std::string(FIXTURES_DIR) + "/sweep_verdicts.json").c_str());
+  CHECK(doc != nullptr);
+  if (!doc) return;
+  int count = 0;
+  const cJSON* c;
+  cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(doc, "cases")) {
+    const std::string name = cJSON_GetObjectItemCaseSensitive(c, "name")->valuestring;
+    SweepResult r;
+    const cJSON* row;
+    cJSON_ArrayForEach(row, cJSON_GetObjectItemCaseSensitive(c, "results")) {
+      SweepRate s;
+      s.bitrate_kbit = static_cast<unsigned>(cJSON_GetArrayItem(row, 0)->valuedouble);
+      s.frames = static_cast<uint64_t>(cJSON_GetArrayItem(row, 1)->valuedouble);
+      s.error_frames = static_cast<uint64_t>(cJSON_GetArrayItem(row, 2)->valuedouble);
+      r.results.push_back(s);
+    }
+    decide_sweep(r);
+    CHECK_MSG(cJSON_GetObjectItemCaseSensitive(c, "verdict")->valuestring == std::string(sweep_verdict_name(r.verdict)),
+              name);
+    const cJSON* rate = cJSON_GetObjectItemCaseSensitive(c, "bitrate_kbit");
+    CHECK_MSG(cJSON_IsNull(rate) ? r.bitrate_kbit == 0 : r.bitrate_kbit == static_cast<unsigned>(rate->valuedouble),
+              name);
+    std::vector<unsigned> want;
+    const cJSON* k;
+    cJSON_ArrayForEach(k, cJSON_GetObjectItemCaseSensitive(c, "candidates")) want.push_back(static_cast<unsigned>(k->valuedouble));
+    CHECK_MSG(r.candidates == want, name);
+    ++count;
+  }
+  cJSON_Delete(doc);
+  CHECK(count >= 8);
+}
+
+namespace {
+
+// A bus that has traffic only at one bit rate.
+struct FakeSweepBus : SweepListener {
+  MockLink* link;
+  unsigned rate;  // bit/s of the traffic
+  std::vector<unsigned> heard;
+  int fail = 0;
+  int listen(const std::string& interface, unsigned, SweepRate& out, const std::function<bool()>&) override {
+    if (fail) return -fail;
+    unsigned at = link->links[interface].bitrate;
+    heard.push_back(at / 1000);
+    if (at == rate) {
+      out.frames += 10;
+      if (out.ids.empty()) out.ids.push_back(0x705);
+    } else {
+      out.error_frames += 3;
+    }
+    return 0;
+  }
+};
+
+std::string sweep_calls(const MockLink& l) {
+  std::string s;
+  for (const auto& c : l.calls) s += (s.empty() ? "" : ", ") + c;
+  return s;
+}
+
+}  // namespace
+
+TEST(sweep_listens_at_each_rate_and_restores) {
+  MockLink link;
+  link.links["can0"] = LinkInfo{true, "can", 500000};
+  FakeSweepBus bus;
+  bus.link = &link;
+  bus.rate = 250000;
+  SweepRequest req;
+  req.rates_kbit = {500, 250, 125};
+  std::vector<unsigned> seen;
+  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, 100, req,
+                                    [&](const SweepProgress& p) { seen.push_back(p.done); }, [] { return false; });
+  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 250);
+  CHECK(r.results.size() == 3 && r.results[1].frames == 10 && r.results[1].ids.size() == 1 && r.results[0].error_frames == 3);
+  CHECK_MSG(sweep_calls(link) ==
+                "down, bitrate 500000, listen-only on, up, down, bitrate 250000, listen-only on, up, down, bitrate 125000, "
+                "listen-only on, up, down, listen-only off, bitrate 500000 restart 100, up",
+            sweep_calls(link));
+  CHECK(link.links["can0"].up && link.links["can0"].bitrate == 500000);
+  CHECK(!seen.empty() && seen.back() == 3);
+}
+
+TEST(sweep_stops_after_a_clear_round) {
+  MockLink link;
+  link.links["can0"] = LinkInfo{true, "can", 500000};
+  FakeSweepBus bus;
+  bus.link = &link;
+  bus.rate = 125000;
+  SweepRequest req;
+  req.rates_kbit = {250, 125};
+  req.rounds = 5;
+  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 125);
+  CHECK_MSG(bus.heard.size() == 2, std::to_string(bus.heard.size()));
+  // Silent: every round runs.
+  bus.rate = 1;
+  bus.heard.clear();
+  req.rounds = 3;
+  r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+  CHECK(r.verdict == SweepVerdict::Ambiguous || r.verdict == SweepVerdict::Silent);
+  CHECK(bus.heard.size() == 6);
+}
+
+TEST(sweep_without_listen_only_restores_the_link) {
+  MockLink link;
+  link.links["can0"] = LinkInfo{true, "can", 500000};
+  link.no_listen_only = true;
+  FakeSweepBus bus;
+  bus.link = &link;
+  bus.rate = 500000;
+  SweepRequest req;
+  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+  CHECK(r.verdict == SweepVerdict::Failed && r.error == "the adapter's driver has no listen-only mode");
+  CHECK(bus.heard.empty());
+  CHECK_MSG(sweep_calls(link) == "down, bitrate 1000000, listen-only on, down, listen-only off, bitrate 500000, up",
+            sweep_calls(link));
+  CHECK(link.links["can0"].up && link.links["can0"].bitrate == 500000);
+}
+
+TEST(sweep_stopped_by_the_plc) {
+  MockLink link;
+  link.links["can0"] = LinkInfo{true, "can", 500000};
+  FakeSweepBus bus;
+  bus.link = &link;
+  bus.rate = 500000;
+  SweepRequest req;
+  int n = 0;
+  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {},
+                                    [&n] { return ++n > 2; });
+  CHECK(r.verdict == SweepVerdict::Failed && r.error.find("stopped") != std::string::npos);
+  CHECK(link.links["can0"].up && link.links["can0"].bitrate == 500000);
+}
+
+namespace {
+
+struct FakeFrameSink : FrameSink {
+  std::mutex* mu;
+  std::vector<RawFrame>* sent;
+  std::atomic<int>* fail;
+  bool open_ = false;
+  int open() override {
+    open_ = true;
+    return 0;
+  }
+  int send(const RawFrame& f) override {
+    if (*fail) return -*fail;
+    std::lock_guard<std::mutex> lock(*mu);
+    sent->push_back(f);
+    return 0;
+  }
+  void close() override { open_ = false; }
+  bool is_open() const override { return open_; }
+};
+
+struct TxFixture {
+  Config cfg;
+  std::unique_ptr<DiagHub> hub;
+  std::unique_ptr<DiagServer> server;
+  std::mutex mu;
+  std::vector<RawFrame> sent;
+  std::atomic<int> fail{0};
+  MockLink* link = new MockLink;
+  explicit TxFixture(bool allow = true, const std::string& kind = "can") {
+    {
+      std::lock_guard<std::mutex> lock(g_diag_log_mutex);
+      g_diag_log.clear();
+    }
+    set_log_sink(diag_capture);
+    cfg = diag_config(allow);
+    cfg.adapter.interface = "can0";
+    link->links["can0"] = LinkInfo{true, kind, kind == "can" ? 125000u : 0u};
+    hub.reset(new DiagHub(cfg, "test"));
+    server.reset(new DiagServer(*hub));
+    auto* sink = new FakeFrameSink;
+    sink->mu = &mu;
+    sink->sent = &sent;
+    sink->fail = &fail;
+    server->set_frame_sink(std::unique_ptr<FrameSink>(sink));
+    server->set_link_ops(std::unique_ptr<LinkOps>(link));
+    hub->attach();
+    server->start();
+  }
+  ~TxFixture() {
+    server->stop();
+    set_log_sink(nullptr);
+  }
+  size_t count() {
+    std::lock_guard<std::mutex> lock(mu);
+    return sent.size();
+  }
+};
+
+bool has(const std::string& s, const std::string& needle) { return s.find(needle) != std::string::npos; }
+
+}  // namespace
+
+TEST(diag_send_frame_single_and_guards) {
+  TxFixture f;
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  std::string a = c.ask(R"({"op":"send_frame","can_id":"0x60A","data":"40 18 10 01 00 00 00 00"})");
+  CHECK_MSG(has(a, R"("sent":true)"), a);
+  CHECK(f.count() == 1 && f.sent[0].id == 0x60A && f.sent[0].dlc == 8 && f.sent[0].data[0] == 0x40);
+  CHECK(diag_log_count("diagnostics: frame 0x60A [8] 40 18 10 01 00 00 00 00 sent by 127.0.0.1") == 1);
+  // An identifier the network uses needs force.
+  a = c.ask(R"({"op":"send_frame","can_id":"0x202","data":"01 00 00 00"})");
+  CHECK_MSG(has(a, "0x202 is RPDO1 of node 2 (pingpong) on network can0; force needed"), a);
+  CHECK(f.count() == 1);
+  a = c.ask(R"({"op":"send_frame","can_id":"0x202","data":"01 00 00 00","force":true})");
+  CHECK_MSG(has(a, R"("sent":true)"), a);
+  CHECK(diag_log_count("(forced: 0x202 is RPDO1") == 1);
+  // A running machine needs force for any frame.
+  f.hub->set_operational("node 2 (pingpong)");
+  a = c.ask(R"({"op":"send_frame","can_id":"0x60A","data":"40"})");
+  CHECK_MSG(has(a, "node 2 (pingpong) is OPERATIONAL; force needed"), a);
+  f.hub->set_operational("");
+  // Remote frame, extended identifier, bad fields.
+  a = c.ask(R"({"op":"send_frame","can_id":"0x18FF0001","ext":true,"rtr":true,"dlc":4})");
+  CHECK_MSG(has(a, R"("sent":true)"), a);
+  CHECK(f.count() == 3 && f.sent[2].ext && f.sent[2].rtr && f.sent[2].dlc == 4);
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x800"})"), "field 'can_id'"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"data":"00 01 02 03 04 05 06 07 08"})"), "at most 8 data bytes"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"rtr":true,"data":"00"})"), "a remote frame has no data"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"period_ms":2})"), "'period_ms' must be 0 (one frame) or 10-60000"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"count":3})"), "'count' needs 'period_ms'"));
+  // Rate limit: 50 single frames per second.
+  int limited = 0;
+  for (int i = 0; i < 60; ++i) limited += has(c.ask(R"({"op":"send_frame","can_id":"0x123"})"), "rate limit");
+  CHECK_MSG(limited >= 5, std::to_string(limited));
+  // Without a session.
+  f.hub->detach();
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x123"})"), "no bus"));
+}
+
+TEST(diag_send_frame_read_only) {
+  TxFixture f(false);
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x60A"})"), "changes not allowed"));
+  CHECK(has(c.ask(R"({"op":"detect_bitrate"})"), "changes not allowed"));
+  CHECK(f.count() == 0);
+}
+
+TEST(diag_send_frame_cyclic_jobs) {
+  TxFixture f;
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  std::string a = c.ask(R"({"op":"send_frame","can_id":"0x123","data":"AA","period_ms":10,"count":5})");
+  CHECK_MSG(has(a, R"("job":1)") && has(a, R"("count":5)"), a);
+  for (int i = 0; i < 100 && f.count() < 5; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  CHECK_MSG(f.count() == 5, std::to_string(f.count()));
+  a = c.ask(R"({"op":"send_frame_stop"})");
+  CHECK_MSG(has(a, R"("job":1)") && has(a, R"("sent":5)") && has(a, R"("reason":"count reached")"), a);
+  // An endless job shows in status and ends with its client.
+  a = c.ask(R"({"op":"send_frame","can_id":"0x124","period_ms":20})");
+  CHECK_MSG(has(a, R"("job":2)") && has(a, R"("count":null)"), a);
+  {
+    DiagClient other(f.server->port());
+    other.ask(R"({"op":"hello","token":"secret"})");
+    std::string st = other.ask(R"({"op":"send_frame","can_id":"0x125","period_ms":20})");
+    CHECK_MSG(has(st, R"("job":3)"), st);
+    // One client cannot stop another's job.
+    CHECK(has(other.ask(R"({"op":"send_frame_stop","job":2})"), "no job 2 of this connection"));
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  CHECK(diag_log_count("(job 3) of 127.0.0.1 ended: client disconnected") == 1);
+  // Status answers carry the network's jobs (status itself is answered by the bus thread).
+  cJSON* res = cJSON_CreateObject();
+  f.hub->add_tx_status(res);
+  char* t = cJSON_PrintUnformatted(res);
+  std::string st = t;
+  cJSON_free(t);
+  cJSON_Delete(res);
+  CHECK_MSG(has(st, R"("send_jobs":[{"job":2,"id":292)") && !has(st, R"("job":3)") &&
+                has(st, R"("bitrate_sweep":{"running":false})"),
+            st);
+  a = c.ask(R"({"op":"send_frame_stop","job":2})");
+  CHECK_MSG(has(a, R"("reason":"stopped")"), a);
+  // At most 8 jobs per network.
+  for (int i = 0; i < 8; ++i) c.ask(R"({"op":"send_frame","can_id":"0x130","period_ms":1000})");
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x130","period_ms":1000})"), "too many jobs"));
+  c.ask(R"({"op":"send_frame_stop"})");
+  // A transmit error ends the job.
+  f.fail = ENOBUFS;
+  c.ask(R"({"op":"send_frame","can_id":"0x131","period_ms":10})");
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  a = c.ask(R"({"op":"send_frame_stop"})");
+  CHECK_MSG(has(a, R"("reason":"transmit queue full")"), a);
+}
+
+TEST(diag_detect_bitrate_guards_and_request) {
+  {
+    TxFixture f(true, "vcan");
+    CHECK(wait_port(*f.server));
+    DiagClient c(f.server->port());
+    c.ask(R"({"op":"hello","token":"secret"})");
+    CHECK(has(c.ask(R"({"op":"detect_bitrate"})"), "no bit rate on a virtual bus"));
+    CHECK(!f.hub->sweep_busy());
+  }
+  TxFixture f;
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  std::string a = c.ask(R"({"op":"detect_bitrate_status"})");
+  CHECK_MSG(has(a, R"("running":false)") && has(a, R"("verdict":null)"), a);
+  CHECK(has(c.ask(R"({"op":"detect_bitrate","rates":[300]})"), "field 'rates' takes"));
+  CHECK(has(c.ask(R"({"op":"detect_bitrate","per_rate_ms":50})"), "'per_rate_ms' must be 100-10000"));
+  f.hub->set_operational("node 2 (pingpong)");
+  a = c.ask(R"({"op":"detect_bitrate"})");
+  CHECK_MSG(has(a, "node 2 (pingpong) is OPERATIONAL; CANopen on network can0 would stop for the sweep; force needed"), a);
+  a = c.ask(R"({"op":"detect_bitrate","rates":[250,125],"per_rate_ms":200,"force":true})");
+  CHECK_MSG(has(a, R"("running":true)") && has(a, R"("total":2)") && has(a, R"("configured_kbit":125)"), a);
+  CHECK(f.hub->sweep_pending());
+  // Asking again returns the running sweep; other requests see no bus once the session ends.
+  CHECK(has(c.ask(R"({"op":"detect_bitrate","force":true})"), R"("running":true)"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x60A"})"), "no bus"));
+  // The bus thread's side.
+  SweepRequest req;
+  CHECK(f.hub->take_sweep(req) && req.rates_kbit.size() == 2 && req.per_rate_ms == 200);
+  SweepResult r;
+  r.verdict = SweepVerdict::Detected;
+  r.bitrate_kbit = 250;
+  SweepRate s;
+  s.bitrate_kbit = 250;
+  s.frames = 12;
+  s.ids = {0x705};
+  r.results = {s};
+  f.hub->sweep_done(r);
+  a = c.ask(R"({"op":"detect_bitrate_status"})");
+  CHECK_MSG(has(a, R"("verdict":"detected")") && has(a, R"("bitrate_kbit":250,"matches_config":false)") &&
+                has(a, R"("ids":[1797])") && has(a, R"("finished_at":")"),
+            a);
+  // configure_link false: the plugin leaves the link alone.
+  f.cfg.adapter.configure_link = false;
+  CHECK(has(c.ask(R"({"op":"detect_bitrate"})"), "configure_link false"));
 }

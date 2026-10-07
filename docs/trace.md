@@ -16,6 +16,10 @@ Capture filters (ID and mask, up to 16) are applied on the runtime and limit wha
 
 When the CAN interface goes away (the adapter is unplugged) the trace keeps going and gets a gap mark where the capture restarted. A trace ends 10 seconds after the PC stops fetching.
 
+## Sending frames while recording
+
+With `allow_changes` on, the configurator's **Send** panel and `openplc-canopen-diag send` put frames on the bus by hand ([diagnostics.md](diagnostics.md#raw-frames-and-bit-rate)). They show in the trace marked Tx, followed by whatever the devices answer, so a hand-made SDO request and its response can be read side by side.
+
 ## Time stamps
 
 Time stamps are the Pi's kernel receive times in microseconds, shown relative to the start of the trace or as UTC clock time. With a USB slcan adapter (CANable) they jitter by about 1 ms, and frames the PLC sends are stamped when they are queued, not when they are on the wire. Cycle times of PDOs and SDO response times are accurate to about a millisecond; bit-level timing needs a dedicated analyzer. Bus load is estimated from the frames' lengths (with an allowance for stuff bits), not measured.

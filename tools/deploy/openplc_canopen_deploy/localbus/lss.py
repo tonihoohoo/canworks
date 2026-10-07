@@ -95,7 +95,9 @@ def fastscan(core, vendor_id=None, product_code=None, step_s=FASTSCAN_STEP_S, sh
             _send(core, 0x51, struct.pack("<IBBB", idn & 0xFFFFFFFF, bit, sub, nxt))
             return _wait(rx, 0x4F, step_s) is not None
 
-        if not probe(0, 0x80, 0, 0):  # anyone without a node ID?
+        # Anyone without a node ID? Asked up to three times: on a busy PC one
+        # answer can come later than a probe step.
+        if not any(probe(0, 0x80, 0, 0) for _ in range(3)):
             return None
         address = [0, 0, 0, 0]
         for sub in range(4):

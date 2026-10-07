@@ -55,6 +55,20 @@ class AdapterTarget(Online):
                 with open(os.path.join(root, name), "rb") as f:
                     self.assertNotIn(self.ch.encode(), f.read(), name)
 
+    def test_detect_in_the_connection_form(self):
+        self.assertEqual(self.ok("POST", "/api/online/adapter_detect_status", {})["verdict"], None)
+        status, data, _ = self.request("POST", "/api/online/adapter_detect", {"adapter": "nope"})
+        self.assertEqual(status, 422)
+        status, data, _ = self.request("POST", "/api/online/adapter_detect", {"adapter": "gs_usb:0"})
+        self.assertEqual(status, 422)
+        self.assertIn("no listen-only mode", data["error"])
+        r = self.ok("POST", "/api/online/adapter_detect", {"adapter": "virtual:" + self.ch, "adapter_bitrate": 250})
+        self.assertTrue(r["running"])
+        self.assertEqual((r["total"], r["configured_kbit"], r["adapter"]), (8, 250, "virtual:" + self.ch))
+        self.server.adapter_sweep.stop()
+        r = self.ok("POST", "/api/online/adapter_detect_status", {})
+        self.assertEqual((r["running"], r["verdict"], r["error"]), (False, "failed", "stopped"))
+
     def test_status_without_token_or_diagnostics(self):
         self.save(self.pingpong(diagnostics=False))
         self.device(2, heartbeat_s=0.05)

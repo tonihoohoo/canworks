@@ -174,7 +174,7 @@ On a PC without the host or token yet (a fresh install, another PC), **Online** 
 
 ## USB adapter on this PC
 
-The online view, **Scan the bus** and **Trace** can also reach the bus straight through a CAN adapter plugged into this PC, with no runtime and no online access in the config ([pc-adapter.md](pc-adapter.md)). In the **Connect** box pick **USB adapter on this PC**, choose a found adapter or type one (`slcan:COM5`, `slcan:/dev/tty.usbmodem14101`, `socketcan:can0`), and the bit rate (the network's own is marked), then **Connect**. **Connection…** in the view brings the box back to switch between the runtime and the adapter. The adapter and bit rate are kept on this PC per project (in `online.json`), never in the project.
+The online view, **Scan the bus** and **Trace** can also reach the bus straight through a CAN adapter plugged into this PC, with no runtime and no online access in the config ([pc-adapter.md](pc-adapter.md)). In the **Connect** box pick **USB adapter on this PC**, choose a found adapter or type one (`slcan:COM5`, `slcan:/dev/tty.usbmodem14101`, `socketcan:can0`), and the bit rate (the network's own is marked), then **Connect**. **Connection…** in the view brings the box back to switch between the runtime and the adapter. The adapter and bit rate are kept on this PC per project (in `online.json`), never in the project. When the bus's bit rate is unknown, **Detect** next to the bit rate listens at each CiA 301 rate in listen-only mode, sending nothing, and picks the rate it finds ([pc-adapter.md](pc-adapter.md)). On the adapter, **Detect bit rate** on the Scan page needs no **Allow changes** for the same reason.
 
 The connection is read-only to start with: **Allow changes…** in the connection banner (or **Allow changes** in the box) asks once and allows SDO writes, NMT, restore and LSS until you disconnect or change the target; it is never saved. Storing to a device's non-volatile memory still asks each time.
 
@@ -239,6 +239,8 @@ A found device with a serial number also offers **Use for node…**, listing the
 
 A config with no nodes and online access on is a valid scan-only config: upload it to see what is on a new bus before configuring anything.
 
+**Detect bit rate** finds the bit rate of the traffic on the picked network's bus ([diagnostics.md](diagnostics.md#finding-the-bit-rate)). It needs **Allow changes** and asks first, because CANopen on that network stops while the adapter listens at each rate and the nodes boot again afterwards; while a node is OPERATIONAL it asks a second time, quoting the runtime. The page shows the rate being listened to and, at the end, the verdict and a table of frames, error frames and identifiers per rate. When a rate is detected that differs from the network's bit rate, **Use N kbit/s** sets the network's bit rate on the page; save and upload to use it. A silent bus means no device sent anything: power-cycle one during the sweep, or run more rounds.
+
 ## Trace
 
 **Trace** records the bus through the runtime, or shows a trace file, decoded as CANopen ([trace.md](trace.md)). Opening, viewing and exporting files works without a runtime; recording needs [online access](#online-access) for the project, and the view says so when it is missing. Frames are decoded with the saved `canopen.json`: PDO signals by their names (in an editor project, the PLC variables at their locations), SDO objects by their EDS names.
@@ -252,6 +254,10 @@ A config with no nodes and online access on is a valid scan-only config: upload 
 - **Trigger** sets one condition, or two joined by AND or THEN, its count, single or normal mode, the pre- and post-trigger times, and auto-save of each hit's window ([trace.md](trace.md#triggers)). It applies to the next Start, and at once to a running recording. Hits are listed with buttons to show each in the frames or the graph.
 
 The trace is kept by the configurator, not the page: reloading the page or switching views keeps it, and a recording goes on until Stop. The recording uses one of the plugin's 4 diagnostics client slots.
+
+### Sending frames
+
+The **Send** panel under the trace sends CAN frames by hand through online access ([diagnostics.md](diagnostics.md#sending-frames-by-hand)): identifier in hex, **Extended**, **Remote** with its DLC, up to 8 data bytes, and **Single** or **Cyclic** with a period and an optional count. Running cyclic jobs are listed with how many frames they sent and a **Stop** each, and the last 20 frames sent are listed below. **Send this frame** on a selected trace row copies that frame into the panel. Sending needs **Allow changes**; without it the panel says so. When the runtime asks for force (the identifier is one the network uses, or a node is OPERATIONAL), the page shows its reason and sends only after you confirm. Cyclic jobs stop when you leave the Trace view or close the page. Sent frames show in a running trace as Tx.
 
 ## Simulation view
 

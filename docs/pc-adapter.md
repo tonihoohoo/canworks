@@ -58,4 +58,12 @@ The tools listen for a second before their first frame. A bus that carries NMT c
 - `status` shows only what the bus showed since connecting: node states from heartbeats, the last EMCY per node. No bus error counters; the adapter's own state (active, passive) shows when python-can reports it.
 - One tool per adapter: a second configurator or CLI on the same adapter gets "adapter ... in use". The configurator keeps the adapter open while its online view is open; the CLI for one command.
 - Types other than `slcan` and `socketcan` are untested.
-- Raw CAN frames and finding a bus's bit rate are not part of these commands.
+
+## Sending frames and finding the bit rate
+
+`send`, `send-stop` and `detect-bitrate` work on an adapter as on a runtime (see [diagnostics.md](diagnostics.md#raw-frames-and-bit-rate)), with these guards:
+
+- `send` needs `--allow-changes`. It needs `--force` for an identifier the bus uses: NMT, SYNC, TIME and LSS always, and with `--config` the predefined EMCY, PDO, SDO and heartbeat identifiers of the configured nodes. It also needs `--force` while another master is active or a node's heartbeat says OPERATIONAL. Single frames are limited to 50 per second, cyclic jobs to 8 per adapter (10-60000 ms, at most 10 minutes); a job ends when the command or the configurator connection that started it closes.
+- `detect-bitrate` opens the adapter in listen-only mode at each rate, so it sends nothing, not even an acknowledge, and needs neither `--allow-changes` nor `--force`. It needs the adapter to itself: another connection of the same tool on the adapter gets "busy", and in the configurator the Send panel's cyclic jobs end. Afterwards the adapter is opened again at the connection's bit rate. Listen-only works on slcan (the channel opened with `L`), PCAN and SocketCAN; on SocketCAN the tool sets the link listen-only with `ip`, which needs root (`sudo`) or CAP_NET_ADMIN, and sets it back afterwards. Other adapter types answer "the adapter's driver has no listen-only mode".
+
+In the configurator, **Detect** next to the bit rate in the USB adapter connect box runs the sweep before connecting and picks the rate it finds.

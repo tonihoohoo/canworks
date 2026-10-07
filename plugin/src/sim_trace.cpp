@@ -19,7 +19,7 @@ SimTraceTap::~SimTraceTap() {
     if (fd >= 0) ::close(fd);
 }
 
-void SimTraceTap::push(const can_msg& msg) {
+void SimTraceTap::push(const can_msg& msg, bool tx) {
   if (!on_.load(std::memory_order_acquire) || pipe_[1] < 0) return;
   TraceRecord r;
   timeval tv{};
@@ -29,6 +29,7 @@ void SimTraceTap::push(const can_msg& msg) {
   if (msg.flags & CAN_FLAG_IDE) r.id |= kCanEff;
   if (msg.flags & CAN_FLAG_RTR) r.id |= kCanRtr;
   r.dlc = msg.len > 8 ? 8 : msg.len;
+  if (tx) r.flags |= kTraceTx;
   std::memcpy(r.data, msg.data, r.dlc);
   // A record is far below PIPE_BUF, so it is written whole or not at all.
   if (write(pipe_[1], &r, sizeof r) != static_cast<ssize_t>(sizeof r)) drops_.fetch_add(1);

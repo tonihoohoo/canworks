@@ -59,6 +59,14 @@ void Network::ServiceDiag() {
   std::vector<DiagRequest> reqs;
   diag_->take(reqs);
   auto now = clock::now();
+  // For the guards of hand-sent frames and bit rate detection (diag.h).
+  std::string operational;
+  for (const auto& it : nodes_)
+    if (image_.node_state(it.first) == 5) {
+      operational = it.second.cfg->label();
+      break;
+    }
+  diag_->set_operational(operational);
   for (auto& r : reqs) {
     if (r.op == "status") {
       DiagStatus(r);
@@ -219,6 +227,7 @@ void Network::DiagStatus(const DiagRequest& r) {
     }
     cJSON_AddItemToArray(nodes, o);
   }
+  diag_->add_tx_status(res);
   diag_->answer(r.seq, diag_ok(r.id, res));
 }
 

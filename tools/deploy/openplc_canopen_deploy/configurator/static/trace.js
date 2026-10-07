@@ -102,6 +102,7 @@ function renderTrace(view) {
           title: "Download a file" }, "Export")),
       range),
     captureSettings(),
+    sendPanel(),
     el("div", { id: "trace-stats", class: "trace-stats", dataset: { trace: "stats" } }),
     el("div", { class: "segmented trace-tabs", role: "tablist" },
       [["frames", "Frames"], ["ids", "Identifiers"], ["graph", "Graph"], ["trigger", "Trigger"]].map(([v, l]) =>
@@ -461,6 +462,7 @@ function drawRows(r) {
 function selectRow(x) {
   T.selected = x.seq;
   T.selectedUs = x.t_us;
+  T.selectedRow = x;
   for (const r of document.querySelectorAll("#trace-rows .trace-row")) r.classList.toggle("selected", Number(r.dataset.seq) === x.seq);
   rowActions();
 }
@@ -479,6 +481,9 @@ function rowActions() {
         T.tab = "graph";
         renderTraceTab();
       } }, "Show in graph (cursor A)"));
+    const x = T.selectedRow;
+    if (x && x.seq === T.selected && !x.gap && !x.err) parts.push(el("button", { type: "button", dataset: { trace: "send-this" },
+      title: "Fill the Send panel with this frame", onclick: () => sendThisFrame(x) }, "Send this frame"));
   }
   bar.replaceChildren(...parts);
 }
@@ -889,3 +894,196 @@ async function removeTrigger() {
     showTraceHeader(T.st);
   } catch (e) { banner(e.message, true); }
 }
+
+// -- send -------------------------------------------------------------------
+// The Send panel (add-raw-frames-bitrate-detect): raw frames through online
+// access, once or as cyclic jobs. The jobs run on the local server's own
+// connection to the runtime; leaving the view or closing the page stops them.
+
+const SEND_LOG = 20;
+const SEND = {
+  open: false, id: "", ext: false, rtr: false, dlc: 0, data: "", mode: "single", period: "100", count: "",
+  jobs: [], log: [], timer: null, seq: 0,
+};
+
+function sendBlocked() {
+  if (!onlineReady()) return "Sending needs online access: set the runtime host and token in Online.";
+  if (!diagConfig().allow_changes) return "Sending needs Allow changes in Online access";
+  return null;
+}
+
+function sendFrameText(f) {
+  const id = String(f.id).replace(/^0x/i, "").toUpperCase();
+  if (f.rtr) return `${id} remote [${f.dlc || 0}]`;
+  const data = (f.data || "").trim().toUpperCase();
+  return `${id} [${data ? data.split(/\s+/).length : 0}] ${data}`.trim();
+}
+
+function sendPanel() {
+  const blocked = sendBlocked();
+  const d = el("details", { class: "advanced", dataset: { trace: "send-panel" }, open: SEND.open },
+    el("summary", null, "Send"));
+  d.addEventListener("toggle", () => { SEND.open = d.open; });
+  const input = (key, label, width, attrs) => {
+    const i = el("input", Object.assign({ type: "text", spellcheck: "false", "aria-label": label, placeholder: label,
+      dataset: { send: key } }, attrs || {}));
+    i.style.width = width;
+    i.value = SEND[key];
+    i.addEventListener("input", () => { SEND[key] = i.value.trim(); });
+    return i;
+  };
+  const check = (key, label) => {
+    const c = el("input", { type: "checkbox", checked: SEND[key], dataset: { send: key } });
+    c.onchange = () => { SEND[key] = c.checked; drawSendPanel(); };
+    return el("label", { class: "check inline" }, c, " " + label);
+  };
+  const mode = el("select", { "aria-label": "Single or cyclic", dataset: { send: "mode" } },
+    [["single", "Single"], ["cyclic", "Cyclic"]].map(([v, l]) => el("option", { value: v, selected: SEND.mode === v }, l)));
+  mode.onchange = () => { SEND.mode = mode.value; drawSendPanel(); };
+  const dlc = el("input", { type: "number", min: 0, max: 8, class: "short", "aria-label": "DLC", dataset: { send: "dlc" } });
+  dlc.value = SEND.dlc;
+  dlc.addEventListener("input", () => { SEND.dlc = Number(dlc.value); });
+  const fields = el("fieldset", { class: "send-fields", disabled: !!blocked },
+    el("div", { class: "row wrap" },
+      el("label", { class: "inline" }, "ID (hex)", input("id", "60A", "11ch")), check("ext", "Extended"), check("rtr", "Remote"),
+      SEND.rtr ? el("label", { class: "inline" }, "DLC", dlc)
+        : el("label", { class: "inline" }, "Data", input("data", "40 18 10 01 00 00 00 00", "26ch"))),
+    el("div", { class: "row wrap" }, mode,
+      SEND.mode === "cyclic" ? [el("label", { class: "inline" }, "every", input("period", "ms", "8ch"), "ms"),
+        el("label", { class: "inline" }, "count", input("count", "no limit", "10ch"))] : null,
+      el("button", { type: "button", class: "primary", dataset: { send: "send" }, onclick: () => sendFrame(false) }, "Send"),
+      el("button", { type: "button", dataset: { send: "stop" }, disabled: !SEND.jobs.length, onclick: () => sendStop(null) }, "Stop")));
+  d.append(
+    blocked ? el("p", { class: "field-msg warning", dataset: { send: "blocked" } }, blocked) : null,
+    el("p", { class: "hint" }, "Frames go onto the picked network through the runtime and show in a running trace as Tx. Identifiers the network uses, and any frame while a node is OPERATIONAL, need a confirmation."),
+    fields,
+    sendLists());
+  return d;
+}
+
+function sendLists() {
+  return el("div", { class: "send-lists", dataset: { send: "lists" } },
+    el("div", null, el("h4", null, "Running cyclic jobs"),
+      SEND.jobs.length ? el("ul", { dataset: { send: "jobs" } }, SEND.jobs.map((j) => el("li", { dataset: { sendJob: j.job } },
+        `Job ${j.job}: ${sendFrameText(j)} every ${j.period_ms} ms, ${j.sent} sent${j.count ? " of " + j.count : ""} `,
+        el("button", { type: "button", class: "small", dataset: { send: "stop-job" }, onclick: () => sendStop(j) }, "Stop"))))
+        : el("p", { class: "muted", dataset: { send: "jobs" } }, "None.")),
+    el("div", null, el("h4", null, `Sent (last ${SEND_LOG})`),
+      SEND.log.length ? el("ol", { class: "mono", dataset: { send: "sent" } }, SEND.log.map((x) => el("li", null, x)))
+        : el("p", { class: "muted", dataset: { send: "sent" } }, "Nothing sent yet.")));
+}
+
+function drawSendPanel() {
+  const old = document.querySelector("[data-trace=send-panel]");
+  if (!old) return;
+  SEND.open = old.open;  // its toggle event may not have fired yet
+  old.replaceWith(sendPanel());
+}
+
+// Only the lists, so a refresh does not take the focus from a field.
+function drawSendLists() {
+  const old = document.querySelector("[data-send=lists]");
+  if (old) old.replaceWith(sendLists());
+  const stop = document.querySelector("[data-send=stop]");
+  if (stop) stop.disabled = !SEND.jobs.length;
+}
+
+function sendBody(force) {
+  const body = { id: SEND.id, ext: SEND.ext, rtr: SEND.rtr, port: diagPort() };
+  if (SEND.rtr) body.dlc = SEND.dlc;
+  else body.data = SEND.data;
+  if (SEND.mode === "cyclic") {
+    body.period_ms = Number(SEND.period);
+    if (SEND.count) body.count = Number(SEND.count);
+  }
+  if (force) body.force = true;
+  return body;
+}
+
+async function sendFrame(force) {
+  if (!SEND.id) return banner("Enter the identifier in hex, for example 60A.", true);
+  if (SEND.mode === "cyclic" && !/^\d+$/.test(SEND.period)) return banner("Enter the period in ms (10-60000).", true);
+  if (SEND.mode === "cyclic" && SEND.count && !/^\d+$/.test(SEND.count)) return banner("The count is a number of frames, or empty.", true);
+  const body = sendBody(force);
+  let r;
+  try {
+    r = await api("POST", "/api/online/send_frame", body);
+  } catch (e) {
+    if (e.body && e.body.force && !force) {
+      const v = await modal(`The runtime refused this frame: "${e.message}". Send it anyway?`,
+        [["force", "Send anyway", true], ["cancel", "Cancel"]]);
+      if (v === "force") return sendFrame(true);
+      banner("Nothing was sent.");
+      return;
+    }
+    banner(`Not sent: ${e.message}`, true);
+    return;
+  }
+  const time = new Date().toLocaleTimeString();
+  const text = sendFrameText(body) + (force ? " (forced)" : "");
+  SEND.log.unshift(r.job !== undefined && r.job !== null ? `${time} ${text}, cyclic job ${r.job} every ${r.period_ms} ms` : `${time} ${text}`);
+  SEND.log.length = Math.min(SEND.log.length, SEND_LOG);
+  banner(r.job !== undefined && r.job !== null ? `Cyclic job ${r.job} started.` : "Frame sent.");
+  if (r.job !== undefined && r.job !== null) {
+    SEND.jobs.push({ job: r.job, id: body.id, ext: body.ext, rtr: body.rtr, dlc: body.dlc, data: body.data,
+      period_ms: r.period_ms, count: r.count, sent: 0, network: onlineNetwork() });
+    pollSendJobs(SEND.seq);
+  }
+  drawSendLists();
+}
+
+async function pollSendJobs(seq) {
+  clearTimeout(SEND.timer);
+  SEND.timer = null;
+  if (seq !== SEND.seq || !SEND.jobs.length) return;
+  SEND.timer = setTimeout(async () => {
+    if (seq !== SEND.seq) return;
+    let r;
+    try { r = await api("POST", "/api/online/send_jobs", { port: diagPort() }); } catch (e) { r = null; }
+    if (seq !== SEND.seq) return;
+    if (r) {
+      SEND.jobs = r.jobs;
+      for (const j of r.ended) {
+        if (j.reason !== "stopped") banner(`Cyclic job ${j.job} (${sendFrameText(j)}) ended: ${j.reason}, ${j.sent} sent.`, j.reason !== "count reached");
+      }
+      drawSendLists();
+    }
+    pollSendJobs(seq);
+  }, 1000);
+}
+
+async function sendStop(job) {
+  try {
+    const r = await api("POST", "/api/online/send_stop", job ? { job: job.job, network: job.network, port: diagPort() } : { port: diagPort() });
+    const stopped = r.stopped || [];
+    SEND.jobs = SEND.jobs.filter((j) => job ? j.job !== job.job : false);
+    banner(stopped.length ? stopped.map((s) => `Job ${s.job} stopped, ${s.sent} sent.`).join(" ") : "No job was running.");
+  } catch (e) { banner(e.message, true); }
+  drawSendLists();
+}
+
+// Leaving the Trace view stops the page's cyclic jobs.
+function sendLeave() {
+  SEND.seq++;
+  clearTimeout(SEND.timer);
+  SEND.timer = null;
+  if (!SEND.jobs.length) return;
+  SEND.jobs = [];
+  api("POST", "/api/online/send_stop", { port: diagPort() }).catch(() => {});
+}
+
+// "Send this frame" from a trace row: fills the panel.
+function sendThisFrame(x) {
+  Object.assign(SEND, { open: true, id: x.id, ext: !!x.ext, rtr: !!x.rtr, dlc: x.dlc || 0, data: x.rtr ? "" : x.data, mode: "single" });
+  drawSendPanel();
+  const panel = document.querySelector("[data-trace=send-panel]");
+  if (panel) panel.scrollIntoView({ block: "nearest" });
+}
+
+// Closing or reloading the page stops its jobs too (keepalive outlives the page).
+window.addEventListener("pagehide", () => {
+  if (!SEND.jobs.length) return;
+  SEND.jobs = [];
+  fetch("/api/online/send_stop", { method: "POST", keepalive: true,
+    headers: { "X-CANopen-Token": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ port: diagPort() }) });
+});

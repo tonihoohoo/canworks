@@ -32,6 +32,8 @@ add_library(canopen_core STATIC
     src/plc_api.cpp
     src/diag.cpp
     src/trace_capture.cpp
+    src/frame_tx.cpp
+    src/bitrate_sweep.cpp
     src/sha256.cpp
     src/secure_channel.cpp
     src/can_adapter.cpp

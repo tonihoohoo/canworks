@@ -1374,6 +1374,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         raise ApiError(422, str(e))
                 settings.update_project(folder, host=host or None)
                 conn.close()
+                self.server.sender.close()
             if "eds_library" in body:
                 lib = os.path.expanduser((body.get("eds_library") or "").strip())
                 if lib and not os.path.isdir(lib):
@@ -1401,15 +1402,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif action == "forget":
                 settings.update_project(folder, token=None)
                 conn.close()
+                self.server.sender.close()
                 return view()
             else:
                 raise ApiError(400, "action must be generate, set, check, verifier or forget")
             settings.update_project(folder, token=token)
             conn.close()
+            self.server.sender.close()
             return dict(view(), token_verifier=diag.token_verifier(token))
         if route == ("POST", "/api/online/close"):
             conn.close()
             return {"closed": True}
+        if route in (("POST", "/api/online/adapter_detect"), ("POST", "/api/online/adapter_detect_status")):
+            return self._adapter_detect(route, body)
         if route == ("POST", "/api/online/use_eds"):
             return self._use_eds(s, settings, canopen_dir, body.get("path"), body.get("eds_lint"))
         if route == ("POST", "/api/online/watch"):
@@ -1534,6 +1539,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if kbit not in diag.LSS_BITRATES:
                 raise ApiError(400, "bitrate_kbit must be one of " + ", ".join(str(b) for b in diag.LSS_BITRATES))
             return call(lambda c: c.lss_set_bitrate(address, kbit, store))
+        if route in SEND_ROUTES:
+            return self._send_frames(route, body, (hostname, port, token), network)
+        if route in (("POST", "/api/online/detect_bitrate"), ("POST", "/api/online/detect_bitrate_status")):
+            if local and not route[1].endswith("status"):
+                self.server.sender.close()  # the sweep needs the adapter to itself; the Send panel's jobs end
+            if route[1].endswith("status"):
+                fn = lambda c: c.detect_bitrate_status()  # noqa: E731
+            else:
+                rates = body.get("rates")
+                if rates is not None and (not isinstance(rates, list) or not rates or
+                                          any(r not in diag.DETECT_RATES for r in rates)):
+                    raise ApiError(400, "rates must be kbit/s out of " + ", ".join(str(r) for r in diag.DETECT_RATES))
+                rounds = body.get("rounds")
+                if rounds is not None and (isinstance(rounds, bool) or not isinstance(rounds, int) or
+                                           not 1 <= rounds <= 20):
+                    raise ApiError(400, "rounds must be 1-20")
+                fn = lambda c: c.detect_bitrate(rates, None, rounds, body.get("force") is True)  # noqa: E731
+            try:
+                return conn.call(hostname, port, token, fn, network)
+            except diag.DiagError as e:
+                raise frame_error(e)
         if route == ("POST", "/api/online/scan"):
             used, res = call(lambda c: (picked(c), c.scan(bool(body.get("start")))))
             res["networks"], res["network"] = (conn.info or {}).get("networks") or [], used
@@ -1584,6 +1610,55 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if ":" not in host.rsplit("]", 1)[-1] and isinstance(body.get("port"), int):
             port = body["port"]  # the diagnostics port of the config, when the host gives none
         return hostname, port, token
+
+    def _adapter_detect(self, route, body):
+        """/api/online/adapter_detect and _status: "Detect" next to the bit
+        rate in the USB adapter connection form. The adapter is opened
+        listen-only at each rate, so the online connections on this PC are
+        closed first; nothing is sent, so no allow-changes is needed."""
+        from .. import localbus
+        from ..localbus import sweep as sweep_mod
+        if route[1].endswith("status"):
+            job = self.server.adapter_sweep
+            if job is None:
+                return sweep_mod.idle_status(None)
+            return dict(job.status(), adapter=str(job.spec))
+        job = self.server.adapter_sweep
+        if job is not None and job.running:
+            return dict(job.status(), adapter=str(job.spec))
+        try:
+            spec = localbus.parse(body.get("adapter") or "")
+        except localbus.AdapterError as e:
+            raise ApiError(422, str(e))
+        rounds = body.get("rounds", 1)
+        if isinstance(rounds, bool) or not isinstance(rounds, int) or not 1 <= rounds <= 20:
+            raise ApiError(400, "rounds must be 1-20")
+        kbit = body.get("adapter_bitrate")
+        self.server.connection.close()
+        self.server.sender.close()
+        job = sweep_mod.Sweep(spec, rounds=rounds, configured_kbit=kbit if isinstance(kbit, int) else None)
+        try:
+            job.start()
+        except localbus.AdapterError as e:
+            raise ApiError(422, str(e), kind=e.kind)
+        self.server.adapter_sweep = job
+        return dict(job.status(), adapter=str(spec))
+
+    def _send_frames(self, route, body, where, network):
+        """/api/online/send_frame, send_stop and send_jobs: the Trace view's
+        Send panel, through the server's Sender."""
+        sender = self.server.sender
+        try:
+            if route[1].endswith("send_jobs"):
+                return sender.poll(where)
+            if route[1].endswith("send_stop"):
+                job = body.get("job")
+                if job is not None and (isinstance(job, bool) or not isinstance(job, int)):
+                    raise ApiError(400, "job must be a job number")
+                return {"stopped": sender.stop(where, network if job is not None else None, job)}
+            return sender.send(where, network, frame_from(body), body.get("force") is True)
+        except diag.DiagError as e:
+            raise frame_error(e)
 
     # -- simulation ---------------------------------------------------------
     def _sim(self, route, body):
@@ -1912,6 +1987,49 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return s.import_eds(os.path.basename(real), data, "keep_both", eds_lint)
 
 
+SEND_ROUTES = (("POST", "/api/online/send_frame"), ("POST", "/api/online/send_stop"),
+               ("POST", "/api/online/send_jobs"))
+TOO_OLD_FRAMES = ("the CANopen plugin on the runtime is too old for sending frames and bit rate detection; update "
+                  "it (install-stock.sh) and upload again")
+
+
+def frame_from(body):
+    """The Send panel's frame: the identifier as hex text ("60A", "0x60A") or
+    a number, the data as hex bytes."""
+    ext, rtr = body.get("ext") is True, body.get("rtr") is True
+    raw = body.get("id")
+    try:
+        if isinstance(raw, str):
+            text = raw.strip()
+            text = text[2:] if text.lower().startswith("0x") else text
+            raw = int(text, 16)
+        can_id = diag.parse_frame_id(raw, ext)
+        data = b"" if rtr else diag.parse_frame_data(body.get("data") or "")
+    except ValueError as e:
+        if "invalid literal" in str(e):
+            raise ApiError(422, "identifier %r is not hexadecimal" % body.get("id"))
+        raise ApiError(422, str(e))
+    dlc = body.get("dlc")
+    if rtr and (isinstance(dlc, bool) or not isinstance(dlc, int) or not 0 <= dlc <= 8):
+        raise ApiError(422, "a remote frame needs a DLC of 0-8")
+    period = body.get("period_ms") or None
+    if period is not None and (isinstance(period, bool) or not isinstance(period, int) or not 10 <= period <= 60000):
+        raise ApiError(422, "the period must be 10-60000 ms")
+    count = body.get("count") or None
+    if count is not None and (isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 1000000):
+        raise ApiError(422, "the count must be 1-1000000")
+    return {"can_id": can_id, "ext": ext, "rtr": rtr, "dlc": dlc if rtr else None, "data": data,
+            "period_ms": period, "count": count if period else None}
+
+
+def frame_error(e):
+    """The ApiError for a refused or failed send or sweep: `force` true when
+    the plugin's reason says the request may be repeated with force."""
+    if diag.too_old(e):
+        return ApiError(422, TOO_OLD_FRAMES, kind="too_old")
+    return ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e))
+
+
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
@@ -1922,6 +2040,8 @@ class Server(http.server.ThreadingHTTPServer):
         self.verbose = verbose
         self.connection = online.Connection()
         self.adapter_allow = False  # the USB adapter's allow-changes switch: this connection only, never saved
+        self.sender = online.Sender()
+        self.adapter_sweep = None  # the connection form's bit rate sweep on a USB adapter (localbus.sweep.Sweep)
         self.eds_index = online.EdsIndex()
         self.traces = tracing.Traces()
         self.jobs = params.Jobs()
@@ -1939,6 +2059,9 @@ class Server(http.server.ThreadingHTTPServer):
         super().server_close()
         self.traces.stop_all()
         self.connection.close()
+        self.sender.close()
+        if self.adapter_sweep is not None:
+            self.adapter_sweep.stop()
         shutil.rmtree(self.session.pending_dir, ignore_errors=True)
 
 

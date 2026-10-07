@@ -10,7 +10,14 @@ emcy), the others' are in `fp.network(name)`.
 
 With sim=FakeSim(...) (fake_sim.py) the first network simulates devices and
 answers the sim_ requests; without, every sim_ request answers "nothing
-simulated"."""
+simulated".
+
+send_frame, send_frame_stop, detect_bitrate and detect_bitrate_status follow
+the plugin's guards: allow_changes, then force for an identifier in `cob_ids`
+or while `operational` names a node. Cyclic jobs count their frames from the
+time they started and end with their connection; a sweep moves on
+`sweep_step` rates per detect_bitrate_status and hears what `sweep_hears`
+says per rate."""
 
 import base64
 import copy
@@ -178,6 +185,26 @@ class FakePlugin:
             if "drives" in self.others:
                 self.others["drives"].objects[(2, 0x1008, 0)] = b"drive"
                 self.others["drives"].present.add(2)
+        # Raw frames (send_frame): what was sent, the cyclic jobs by number, the
+        # identifiers the configured network uses (the plugin's COB-ID map) and
+        # a node that is OPERATIONAL (both need force).
+        self.send_supported = True
+        self.sent = []  # every frame request that was sent: {id, ext, rtr, dlc, data, forced}
+        self.jobs = {}  # job -> {job, id, ext, period_ms, count, sent, peer, conn, started, reason}
+        self.next_job = 1
+        self.job_failure = None  # a reason that ends every cyclic job after its first frame
+        self.cob_ids = {0x205: "RPDO1 of node 5", 0x185: "TPDO1 of node 5", 0x000: "NMT", 0x080: "SYNC"}
+        self.operational = None  # a node ID: refuses sends and sweeps without force
+        # Bit rate detection: per rate (kbit/s) what the sweep hears, how many
+        # rates each status poll moves on, and a refusal for the network.
+        self.detect_supported = True
+        self.detect_refusal = None
+        self.sweep_hears = {250: {"frames": 42, "error_frames": 0, "ids": [0x705, 0x185, 0x285]},
+                            500: {"frames": 0, "error_frames": 12, "ids": []}}
+        self.sweep_step = 2
+        self.sweep = None
+        self.sweeps = []  # the detect_bitrate requests that started a sweep
+        self.configured_kbit = 500
         self.configured = set()  # extra configured node IDs (NMT allowed)
         self.refuse_writes = {}
         self.delay = 0.0  # seconds before each SDO answer  # (node, index, sub): abort code for a write
@@ -226,7 +253,11 @@ class FakePlugin:
                     fake.requests.append(req)
                     if fake.delay and req.get("op") in ("sdo_read", "sdo_write"):
                         time.sleep(fake.delay)
-                    self._send(dict(fake.answer(req), id=req.get("id")))
+                    self._send(dict(fake.answer(req, self), id=req.get("id")))
+                # The plugin ends a client's cyclic jobs when it disconnects.
+                for j in fake.jobs.values():
+                    if j["conn"] is self and not j["reason"]:
+                        fake._end_job(j, "client disconnected")
 
             def _send(self, obj):
                 try:
@@ -309,7 +340,127 @@ class FakePlugin:
                        "kernel_drops": 0, "session": self.trace_session,
                        "frames": base64.b64encode(b"".join(b for _, b in recs)).decode()})
 
-    def answer(self, req):
+    # -- raw frames --------------------------------------------------------
+    def _job_sent(self, j):
+        if not j["reason"] and self.job_failure:
+            j["sent"], j["reason"] = 1, self.job_failure
+        if j["reason"]:
+            return j["sent"]
+        n = int((time.monotonic() - j["started"]) * 1000 // j["period_ms"]) + 1
+        if j["count"] and n >= j["count"]:
+            j["sent"] = j["count"]
+            j["reason"] = "count reached"
+            return j["sent"]
+        return n
+
+    def _running(self, j):
+        self._job_sent(j)
+        return not j["reason"]
+
+    def _end_job(self, j, reason):
+        if not j["reason"]:
+            j["sent"] = self._job_sent(j)
+            j["reason"] = j["reason"] or reason
+
+    def _job_row(self, j):
+        return {"job": j["job"], "id": j["id"], "ext": j["ext"], "period_ms": j["period_ms"], "sent": self._job_sent(j),
+                "count": j["count"], "peer": j["peer"]}
+
+    def _send_frame(self, req, ok, err, conn, net):
+        if not self.send_supported:
+            return err("unknown op '%s'" % req["op"])
+        if not self.allow_changes:
+            return err("changes not allowed")
+        if req["op"] == "send_frame_stop":
+            stopped = []
+            for j in self.jobs.values():
+                if j["conn"] is conn and j["net"] is net and req.get("job") in (None, j["job"]) and not j.get("collected"):
+                    self._end_job(j, "stopped")
+                    j["collected"] = True
+                    stopped.append(dict(self._job_row(j), reason=j["reason"]))
+            return ok({"stopped": stopped})
+        ext, rtr = bool(req.get("ext")), bool(req.get("rtr"))
+        try:
+            can_id = req["can_id"] if isinstance(req.get("can_id"), int) else int(str(req.get("can_id")), 0)
+        except ValueError:
+            return err("field 'can_id' must be a number")
+        if not 0 <= can_id <= (0x1FFFFFFF if ext else 0x7FF):
+            return err("field 'can_id' must be 0x0-0x%X" % (0x1FFFFFFF if ext else 0x7FF))
+        if rtr and "data" in req:
+            return err("a remote frame has no data")
+        data = diag.parse_hex(req["data"]) if req.get("data") else b""
+        if len(data) > 8:
+            return err("data must be 0-8 bytes")
+        period = req.get("period_ms") or 0
+        if period and not 10 <= period <= 60000:
+            return err("period_ms must be 10-60000")
+        if not req.get("force"):
+            if can_id in self.cob_ids and not ext:
+                return err("0x%X is %s; force needed" % (can_id, self.cob_ids[can_id]))
+            if self.operational:
+                return err("node %d is OPERATIONAL; force needed" % self.operational)
+        frame = {"id": can_id, "ext": ext, "rtr": rtr, "dlc": req.get("dlc") if rtr else len(data),
+                 "data": diag.hex_bytes(data), "forced": bool(req.get("force")), "network": req.get("network")}
+        if not period:
+            self.sent.append(frame)
+            return ok({"sent": True})
+        if sum(1 for j in self.jobs.values() if j["net"] is net and self._running(j)) >= 8:
+            return err("too many jobs")
+        job = self.next_job
+        self.next_job += 1
+        self.jobs[job] = {"job": job, "id": can_id, "ext": ext, "period_ms": period, "count": req.get("count"),
+                          "sent": 0, "peer": "127.0.0.1", "conn": conn, "net": net, "started": time.monotonic(),
+                          "reason": None, "frame": frame}
+        return ok({"job": job, "period_ms": period, "count": req.get("count")})
+
+    # -- bit rate detection -------------------------------------------------
+    def _sweep_result(self):
+        sw = self.sweep
+        if sw is None:
+            return {"running": False, "verdict": None}
+        done = min(sw["total"], sw["polls"] * self.sweep_step)
+        results = [dict({"bitrate_kbit": r, "frames": 0, "error_frames": 0, "ids": []}, **self.sweep_hears.get(r, {}))
+                   for r in sw["rates"][:done]]
+        n = len(sw["rates"])
+        res = {"running": done < sw["total"], "rate_kbit": sw["rates"][done % n] if done < sw["total"] else None,
+               "round": min(done // n + 1, sw["total"] // n), "done": done, "total": sw["total"], "results": results}
+        if res["running"]:
+            return res
+        heard = [r for r in results if r["frames"]]
+        matches = [r["bitrate_kbit"] for r in heard if r["error_frames"] * 100 <= r["frames"]]
+        res.update(configured_kbit=self.configured_kbit, finished_at="2026-10-07T12:00:00Z", bitrate_kbit=None)
+        if len(matches) == 1:
+            res.update(verdict="detected", bitrate_kbit=matches[0], matches_config=matches[0] == self.configured_kbit)
+        elif heard:
+            best = matches or [max(heard, key=lambda r: r["frames"])["bitrate_kbit"]]
+            res.update(verdict="ambiguous", candidates=best)
+        else:
+            res.update(verdict="silent")
+        return res
+
+    def _detect(self, req, ok, err, net):
+        if not self.detect_supported:
+            return err("unknown op '%s'" % req["op"])
+        if req["op"] == "detect_bitrate_status":
+            if self.sweep:
+                self.sweep["polls"] += 1
+            return ok(self._sweep_result())
+        if not self.allow_changes:
+            return err("changes not allowed")
+        if self.sweep and self._sweep_result()["running"]:
+            return ok(self._sweep_result())
+        if self.detect_refusal:
+            return err(self.detect_refusal)
+        if self.operational and not req.get("force"):
+            name = req.get("network") or (self.networks[0]["name"] if self.networks else "can0")
+            return err("node %d is OPERATIONAL; CANopen on network %s would stop for the sweep; force needed"
+                       % (self.operational, name))
+        rates = req.get("rates") or list(diag.DETECT_RATES)
+        self.sweeps.append(req)
+        self.sweep = {"rates": rates, "total": len(rates) * (req.get("rounds") or 1), "polls": 0}
+        return ok(self._sweep_result())
+
+    def answer(self, req, conn=None):
         op = req.get("op")
         ok = lambda result: {"ok": True, "result": result}  # noqa: E731
         err = lambda why: {"ok": False, "error": why}  # noqa: E731
@@ -318,6 +469,10 @@ class FakePlugin:
             return err(why)
         if op in ("trace_start", "trace_fetch", "trace_stop"):
             return self._trace(req, ok, err, net)
+        if op in ("send_frame", "send_frame_stop"):
+            return self._send_frame(req, ok, err, conn, net)
+        if op in ("detect_bitrate", "detect_bitrate_status"):
+            return self._detect(req, ok, err, net)
         info = net.info if net is not self else (self.networks[0] if self.networks else {})
         if info.get("role") == "slave":
             # A slave network serves its status and its own dictionary only.
@@ -340,6 +495,10 @@ class FakePlugin:
                 for n in st["nodes"]:
                     n["simulated"] = n["node_id"] in simulated
                     n["sim_conflict"] = n["node_id"] in conflicts
+            if self.send_supported:
+                st["send_jobs"] = [self._job_row(j) for j in self.jobs.values() if j["net"] is net and self._running(j)]
+            if self.detect_supported:
+                st["bitrate_sweep"] = {"running": bool(self.sweep and self._sweep_result()["running"])}
             return ok(st)
         if op == "emcy":
             return ok({"node_id": req["node"], "emcy": net.emcy.get(req["node"], [])})

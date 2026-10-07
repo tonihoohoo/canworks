@@ -567,6 +567,7 @@ void PlcSlave::ServiceDiag() {
   if (!diag_ || stopped_) return;
   std::vector<DiagRequest> reqs;
   diag_->take(reqs);
+  diag_->set_operational(nmt_state() == 5 ? "the plugin's own slave" : "");
   for (auto& r : reqs) {
     if (r.op == "status")
       DiagStatus(r);
@@ -620,6 +621,7 @@ void PlcSlave::DiagStatus(const DiagRequest& r) {
     cJSON_AddNumberToObject(g, "forwarded_errors", static_cast<double>(errors_.size()));
   }
   cJSON_AddArrayToObject(res, "nodes");
+  diag_->add_tx_status(res);
   diag_->answer(r.seq, diag_ok(r.id, res));
 }
 
