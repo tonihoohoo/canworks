@@ -4023,6 +4023,29 @@ TEST(cob_id_use_names_the_network_frames) {
   CHECK(cob_id_use(cfg, 0x182, true).empty());
 }
 
+TEST(sim_frame_injector_queues_and_wakes) {
+  // The bus thread's FdWake drains read_fd() as an eventfd; the frames must
+  // survive that and come out of drain() in order.
+  SimFrameInjector inj;
+  CHECK(inj.read_fd() >= 0);
+  RawFrame a, b;
+  a.id = 0x602;
+  a.dlc = 8;
+  a.data[0] = 0x40;
+  b.id = 0x123;
+  CHECK(inj.push(a) == 0);
+  CHECK(inj.push(b) == 0);
+  pollfd p{inj.read_fd(), POLLIN, 0};
+  CHECK(poll(&p, 1, 0) == 1);
+  uint64_t n = 0;
+  CHECK(read(inj.read_fd(), &n, sizeof n) == static_cast<ssize_t>(sizeof n));
+  std::vector<RawFrame> got;
+  inj.drain(got);
+  CHECK(got.size() == 2 && got[0].id == 0x602 && got[0].data[0] == 0x40 && got[1].id == 0x123);
+  for (size_t i = 0; i < SimFrameInjector::kMaxQueued; ++i) CHECK(inj.push(b) == 0);
+  CHECK(inj.push(b) == -ENOBUFS);
+}
+
 TEST(raw_frame_text_and_rate_limit) {
   RawFrame f;
   f.id = 0x60A;

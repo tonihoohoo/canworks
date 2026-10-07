@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -59,21 +60,24 @@ class FrameSink {
 
 std::unique_ptr<FrameSink> make_can_frame_sink(const std::string& interface);
 
-// The simulated network's side: the diagnostics thread writes frames into a
-// pipe; the bus thread reads them (FdWake on read_fd()) and writes them onto
-// the virtual bus.
+// The simulated network's side: the diagnostics thread queues frames and
+// wakes the bus thread through an eventfd (FdWake on read_fd(), which drains
+// it); the bus thread takes them and writes them onto the virtual bus.
 class SimFrameInjector {
  public:
+  static constexpr size_t kMaxQueued = 256;
   SimFrameInjector();
   ~SimFrameInjector();
-  // Server thread.
+  // Server thread; -ENOBUFS when kMaxQueued frames wait.
   int push(const RawFrame& f);
   // Bus thread: the frames waiting.
   void drain(std::vector<RawFrame>& out);
-  int read_fd() const { return pipe_[0]; }
+  int read_fd() const { return fd_; }
 
  private:
-  int pipe_[2] = {-1, -1};
+  int fd_ = -1;
+  std::mutex mutex_;
+  std::vector<RawFrame> queue_;
 };
 
 std::unique_ptr<FrameSink> make_sim_frame_sink(std::shared_ptr<SimFrameInjector> injector);

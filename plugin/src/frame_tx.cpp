@@ -8,6 +8,7 @@
 #include <linux/can.h>
 #include <linux/can/raw.h>
 #include <net/if.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -174,27 +175,28 @@ std::unique_ptr<FrameSink> make_sim_frame_sink(std::shared_ptr<SimFrameInjector>
 // ---------------------------------------------------------------------------
 // Simulated bus
 
-SimFrameInjector::SimFrameInjector() {
-  if (pipe2(pipe_, O_NONBLOCK | O_CLOEXEC) != 0) pipe_[0] = pipe_[1] = -1;
-}
+SimFrameInjector::SimFrameInjector() { fd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC); }
 
 SimFrameInjector::~SimFrameInjector() {
-  for (int fd : pipe_)
-    if (fd >= 0) ::close(fd);
+  if (fd_ >= 0) ::close(fd_);
 }
 
 int SimFrameInjector::push(const RawFrame& f) {
-  if (pipe_[1] < 0) return -EIO;
-  // Far below PIPE_BUF: written whole or not at all.
-  ssize_t n = write(pipe_[1], &f, sizeof f);
-  if (n == static_cast<ssize_t>(sizeof f)) return 0;
-  return n < 0 && errno == EAGAIN ? -ENOBUFS : -EIO;
+  if (fd_ < 0) return -EIO;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (queue_.size() >= kMaxQueued) return -ENOBUFS;
+    queue_.push_back(f);
+  }
+  uint64_t one = 1;
+  if (write(fd_, &one, sizeof one) < 0 && errno != EAGAIN) return -EIO;
+  return 0;
 }
 
 void SimFrameInjector::drain(std::vector<RawFrame>& out) {
-  if (pipe_[0] < 0) return;
-  RawFrame f;
-  while (read(pipe_[0], &f, sizeof f) == static_cast<ssize_t>(sizeof f)) out.push_back(f);
+  std::lock_guard<std::mutex> lock(mutex_);
+  out.insert(out.end(), queue_.begin(), queue_.end());
+  queue_.clear();
 }
 
 void raw_frame_to_msg(const RawFrame& f, can_msg& msg) {
