@@ -17,6 +17,6 @@ OpenPLC Editor 4.3.2 writes an empty `conf/ethercat.json` (zero bytes) into ever
 
 ## Impact
 
-- `tools/deploy/openplc_canopen_deploy/clash.py`, `tools/deploy/openplc_canopen_deploy/configurator/scan.py`, their tests.
+- `tools/deploy/openplc_canopen_deploy/clash.py`, `tools/deploy/openplc_canopen_deploy/configurator/scan.py`, their tests, docs/deploy.md.
 - Deploy tool patch version bump (next free version at apply time).
 - No config, plugin or runtime change. README not affected unless it mentions the warning.

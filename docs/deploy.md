@@ -175,6 +175,8 @@ Every string under a key named `iec_location` or `status_location` in any `conf/
 
 Overlaps inside `canopen.json` are errors, as in the plugin.
 
+An empty config, such as the zero-byte `conf/ethercat.json` the editor writes into every build, has no addresses and is skipped quietly. A config that is not valid JSON gets a warning that its addresses are not checked.
+
 ## The runtime's certificate
 
 The runtime serves HTTPS on port 8443 with a self-signed certificate. The tool checks it before it sends the password:
