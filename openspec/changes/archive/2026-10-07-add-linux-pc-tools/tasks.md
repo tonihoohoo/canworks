@@ -15,4 +15,5 @@
 
 ## 3. Hardware / desktop
 
-- [ ] 3.1 On a Linux desktop (x86_64 or a Raspberry Pi with a desktop): install uv and the release wheel as documented, start the configurator (browser opens), install the editor AppImage, run `openplc-cli install-cli`, then New editor project and Build only from the deploy tool. Verify: the commands are found and the build produces a program.
+- [x] 3.1 On a Linux desktop (x86_64 or a Raspberry Pi with a desktop): install uv and the release wheel as documented, start the configurator (browser opens), install the editor AppImage, run `openplc-cli install-cli`, then New editor project and Build only from the deploy tool. Verify: the commands are found and the build produces a program.
+  Result (2026-10-07, an ARM64 Debian 13 machine over SSH, no desktop): uv 0.12.23 + wheel 0.29.0 with uv's Python 3.12, `--version`, `diag --help`, configurator page (HTTP 200) and `smoke.py` ok; editor 4.3.2 ARM64 AppImage `--cli install-cli` put the shim in `~/.local/bin` and `openplc-cli` ran headless; `--new-project` from the RTD example (9 variables) and `openplc-cli compile` (34 files, no upload) ok; the deploy tool's `--project ... --check-only --output` bundle ok. Docs got the headless install-cli and FUSE 2 notes from this run.
