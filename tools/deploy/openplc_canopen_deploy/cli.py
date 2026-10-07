@@ -25,6 +25,12 @@ SDO frames) as a DBC file for CAN bus tools, and uploads nothing. With
 several networks it writes bus_<network>.dbc per network; --network NAME
 writes only that network to bus.dbc.
 
+  openplc-canopen-deploy --config canopen_config.json --export-html network.html [--doc-od all] [--doc-embed-eds]
+
+writes one HTML document of the networks for people: topology, settings,
+COB-ID map, bus-load estimate, every node's identity, PDO layouts, boot SDO
+writes and PLC addresses (docs/network-docs.md). Uploads nothing.
+
   openplc-canopen-deploy --config canopen_config.json --new-project <dir> [--task-interval T#10ms]
 
 creates an OpenPLC Editor project in <dir> with openplc-cli create: target
@@ -52,7 +58,7 @@ import shutil
 import subprocess
 import sys
 
-from . import __version__, bundle, clash, contract, dbcexport, dcfexport, editorproject, project, runtime, sdolibrary, simfile
+from . import __version__, bundle, clash, contract, dbcexport, dcfexport, docexport, editorproject, project, runtime, sdolibrary, simfile
 
 EDITOR_WARNING = (
     "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canopen.json, so the "
@@ -93,6 +99,9 @@ def parser():
     src.add_argument("--export-dbc", metavar="FILE",
                      help="write the network as a DBC file for CAN bus tools (PDOs, heartbeat, EMCY, NMT, SYNC) "
                           "instead of deploying; nothing is built or uploaded")
+    src.add_argument("--export-html", metavar="FILE",
+                     help="write an HTML document of the networks (topology, COB-ID map, bus load, nodes, PDOs, "
+                          "boot SDO writes, PLC I/O) instead of deploying; nothing is built or uploaded")
     src.add_argument("--new-project", metavar="DIR",
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
                           "and declares its I/O in the program main")
@@ -105,8 +114,18 @@ def parser():
                    help="with --export-dbc: SDO frames to include: none (default), config (the config's SDO "
                         "variables and startup SDOs) or all (every EDS object up to 32 bits)")
     p.add_argument("--network", metavar="NAME",
-                   help="with --export-dcf or --export-dbc and a config with several networks: export only this "
-                        "network (default: every network, DCFs in a folder per network, a DBC file per network)")
+                   help="with --export-dcf, --export-dbc or --export-html and a config with several networks: export "
+                        "only this network (default: every network, DCFs in a folder per network, a DBC file per "
+                        "network, one HTML document)")
+    p.add_argument("--doc-title", metavar="TEXT", help="with --export-html: the document's title")
+    p.add_argument("--doc-od", choices=docexport.OD_OPTIONS,
+                   help="with --export-html: the object dictionary extract per node: used (default: the objects "
+                        "the configuration writes or maps) or all")
+    p.add_argument("--doc-embed-eds", action="store_true",
+                   help="with --export-html: embed each node's EDS file so it can be saved from the document")
+    p.add_argument("--doc-cycle-ms", metavar="MS", type=float,
+                   help="with --export-html: the PLC task interval, for the bus-load estimate of a network whose "
+                        "SYNC follows the PLC cycle (default: the editor project's task interval)")
     p.add_argument("--force", action="store_true", help="with --into-project: replace an existing canopen/ folder")
     p.add_argument("--target", default=DEFAULT_TARGET,
                    help="board target for --project (default: %(default)s)")
@@ -178,9 +197,20 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         raise Failure("--dbc-sdo needs --export-dbc")
     if dbc_file and (args.runtime or args.output or args.check_only):
         raise Failure("--export-dbc only writes a DBC file; leave out --runtime, --output and --check-only")
+    html_file = getattr(args, "export_html", None)
+    for opt, given in (("--doc-title", getattr(args, "doc_title", None)), ("--doc-od", getattr(args, "doc_od", None)),
+                       ("--doc-embed-eds", getattr(args, "doc_embed_eds", False)),
+                       ("--doc-cycle-ms", getattr(args, "doc_cycle_ms", None))):
+        if given and not html_file:
+            raise Failure("%s needs --export-html" % opt)
+    if html_file and (args.runtime or args.output or args.check_only):
+        raise Failure("--export-html only writes an HTML document; leave out --runtime, --output and --check-only")
+    cycle = getattr(args, "doc_cycle_ms", None)
+    if cycle is not None and not cycle > 0:
+        raise Failure("--doc-cycle-ms must be a positive number of milliseconds")
     network = getattr(args, "network", None)
-    if network and not export_dir and not dbc_file:
-        raise Failure("--network needs --export-dcf or --export-dbc")
+    if network and not export_dir and not dbc_file and not html_file:
+        raise Failure("--network needs --export-dcf, --export-dbc or --export-html")
     new_project = getattr(args, "new_project", None)
     interval = getattr(args, "task_interval", None)
     if interval and not new_project:
@@ -190,7 +220,8 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         raise Failure("--sdo-blocks needs --new-project")
     if new_project and (args.runtime or args.output or args.check_only):
         raise Failure("--new-project only creates an editor project; leave out --runtime, --output and --check-only")
-    if not into and not export_dir and not dbc_file and not new_project and not args.check_only and not args.runtime:
+    if not into and not export_dir and not dbc_file and not html_file and not new_project and not args.check_only \
+            and not args.runtime:
         raise Failure("give --runtime to upload, or --check-only")
 
     # 1. The config and its checks.
@@ -215,7 +246,7 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     # The simulation file and what the config simulates (not for the exports).
     sim_path = None
     simulated = None
-    if not export_dir and not dbc_file:
+    if not export_dir and not dbc_file and not html_file:
         sim_path = getattr(args, "sim", None)
         if sim_path and not os.path.isfile(sim_path):
             raise Failure("simulation file %s not found" % sim_path)
@@ -262,6 +293,21 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         for name, text in files:
             path = dbcexport.network_file(dbc_file, name) if len(files) > 1 else dbc_file
             out("wrote %s" % dbcexport.write_file(text, path))
+        return 0
+
+    if html_file:
+        try:
+            text, warnings = docexport.export(
+                cfg, args.config, names=dbcexport.project_names(args.config), network=network,
+                title=getattr(args, "doc_title", None), od=getattr(args, "doc_od", None) or "used",
+                embed_eds=getattr(args, "doc_embed_eds", False),
+                plc_cycle_ms=cycle or docexport.project_cycle_ms(args.config))
+        except docexport.ExportFailed as e:
+            raise Failure("\n".join(m for m, _ in e.problems) + "\nno HTML document was written")
+        for w in warnings:
+            if w not in result.warnings:
+                err("warning: " + w)
+        out("wrote %s" % docexport.write_file(text, html_file))
         return 0
 
     if new_project:

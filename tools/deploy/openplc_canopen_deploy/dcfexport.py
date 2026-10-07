@@ -31,6 +31,18 @@ BAUDRATES = (10, 20, 50, 125, 250, 500, 800, 1000)
 # Objects whose writes are commands, not settings (store, restore): listed
 # as boot steps in the DCF's comment, never as ParameterValue.
 COMMAND_OBJECTS = (0x1010, 0x1011)
+# Where a boot write comes from (Download.sources).
+WRITE_SOURCES = {
+    "pdo": "PDO configuration",
+    "node": "node settings",
+    "startup_sdo": "startup SDO",
+    "config_check": "configuration check",
+}
+
+
+def _config_source(index):
+    """The source of a write dcfgen generates from the config."""
+    return "pdo" if 0x1400 <= index <= 0x1BFF else "node"
 
 
 class ExportFailed(Exception):
@@ -81,6 +93,7 @@ class Download:
     def __init__(self, node_id):
         self.node_id = node_id
         self.writes = []  # (index, sub-index, data bytes), in download order
+        self.sources = []  # what each write comes from, as WRITE_SOURCES names it, same order
         self.restore = None  # 0x1011 sub-index restored before the download
         self.firmware = None  # software_file, downloaded at boot
 
@@ -358,7 +371,7 @@ def plugin_downloads(cfg, config_path, eds_paths=None, software_paths=None, node
     for node in nodes:
         n = node.json
         d = Download(node.node_id)
-        sdos = [_concise(s) for s in slaves["node_%d" % node.node_id].sdo]
+        sdos = [_concise(s) + (_config_source(_concise(s)[0]),) for s in slaves["node_%d" % node.node_id].sdo]
         # dcfgen switches every configured PDO off and on again through its
         # COB-ID; the plugin drops writes to read-only PDO communication
         # sub-indices (generate_device_config).
@@ -372,7 +385,7 @@ def plugin_downloads(cfg, config_path, eds_paths=None, software_paths=None, node
         if "time_cob_id" in n:
             tcob = _u(n["time_cob_id"])
             if _eds_unsigned(node.dev, 0x1012, 0) not in (None, tcob):
-                sdos.append((0x1012, 0, tcob.to_bytes(4, "little")))
+                sdos.append((0x1012, 0, tcob.to_bytes(4, "little"), "node"))
         # RPDO event timers (deadlines), unless the EDS already has the value.
         for p, pn in zip(n.get("rx_pdos", []), node.norm["rx_pdos"]):
             if "event_timer_ms" not in p:
@@ -381,20 +394,21 @@ def plugin_downloads(cfg, config_path, eds_paths=None, software_paths=None, node
             ms = _u(p["event_timer_ms"])
             if _eds_unsigned(node.dev, idx, 5) == ms:
                 continue
-            sdos.append((idx, 5, ms.to_bytes(2, "little")))
+            sdos.append((idx, 5, ms.to_bytes(2, "little"), "pdo"))
         # Startup SDOs go last, in list order.
         for s in n.get("sdo", []):
             data, _ = contract.sdo_value(s["value"], s["type"])
-            sdos.append((_u(s["index"]), _u(s.get("subindex"), 0), data))
+            sdos.append((_u(s["index"]), _u(s.get("subindex"), 0), data, "startup_sdo"))
         # Configuration check: the stamp after everything else, then the save.
         if n.get("config_check") is True:
             store = _u(n.get("store_configuration"), 0)
-            date, time = config_stamp(sdos, store)
-            sdos.append((0x1020, 1, date.to_bytes(4, "little")))
-            sdos.append((0x1020, 2, time.to_bytes(4, "little")))
+            date, time = config_stamp([w[:3] for w in sdos], store)
+            sdos.append((0x1020, 1, date.to_bytes(4, "little"), "config_check"))
+            sdos.append((0x1020, 2, time.to_bytes(4, "little"), "config_check"))
             if store:
-                sdos.append((0x1010, store, b"save"))
-        d.writes = sdos
+                sdos.append((0x1010, store, b"save", "config_check"))
+        d.writes = [w[:3] for w in sdos]
+        d.sources = [w[3] for w in sdos]
         if "restore_configuration" in n:
             d.restore = _u(n["restore_configuration"])
         if n.get("software_file") and "software_version" in n:  # without a version Lely never downloads it

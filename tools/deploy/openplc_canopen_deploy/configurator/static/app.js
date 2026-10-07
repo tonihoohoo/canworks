@@ -4020,6 +4020,36 @@ async function exportDcf(nodeId, network) {
   }
 }
 
+// Exports the draft (saved or not) as one HTML document of every network.
+// Errors go to the Problems pane and nothing is downloaded; warnings go there
+// after the download.
+async function exportHtml() {
+  try {
+    const cfg = fileConfig();
+    const r = await api("POST", "/api/export_html", { config: cfg });
+    normCheck(r, fileVersion(cfg));
+    if (r.items.length) {
+      const prev = (S.check && S.check.items) || [];
+      S.check = Object.assign({}, S.check || {}, { items: r.items.concat(prev) });
+      applyCheck();
+    }
+    if (r.errors) {
+      banner(`Documentation export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"} (see Problems). Nothing was downloaded.`, true);
+      return;
+    }
+    const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: r.content_type }));
+    const a = el("a", { href: url, download: r.name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    banner(`Exported ${r.name}${r.items.length ? ` with ${r.items.length} warning${r.items.length === 1 ? "" : "s"} (see Problems)` : ""}.`);
+  } catch (e) {
+    banner(e.message, true);
+  }
+}
+
 // Exports the draft (saved or not) as a DBC file for CAN bus tools, with
 // the SDO frames chosen next to the button: the open tab's network. Errors go to the Problems pane
 // and nothing is downloaded; warnings go there after the download.
@@ -4354,6 +4384,7 @@ function wire() {
   $("#btn-save").onclick = () => save(false);
   $("#btn-export-all").onclick = () => exportDcf();
   $("#btn-export-dbc").onclick = exportDbc;
+  $("#btn-export-html").onclick = exportHtml;
   wireDbc();
   $("#btn-reload").onclick = () => reload(false);
   $("#btn-close").onclick = closeFolder;

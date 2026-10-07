@@ -1,0 +1,1261 @@
+{
+ "config": {
+  "file": "canopen_config.json",
+  "schema_version": 1,
+  "sha256": "adc5a764ebe5b4174330f144b85a2366f309abfc080938ffb40cd6a99dac6985",
+  "text": "{\n  \"schema_version\": 1,\n  \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n  \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n  \"nodes\": [\n    {\n      \"node_id\": 5,\n      \"name\": \"rtd\",\n      \"eds\": \"rtd8.eds\",\n      \"heartbeat_ms\": 100,\n      \"heartbeat_timeout_ms\": 300,\n      \"status_location\": \"%IX10.0\",\n      \"tx_pdos\": [\n        {\n          \"number\": 1,\n          \"transmission\": 1,\n          \"entries\": [\n            { \"index\": \"0x7130\", \"subindex\": 1, \"type\": \"INTEGER16\", \"iec_location\": \"%IW100\" },\n            { \"index\": \"0x7130\", \"subindex\": 2, \"type\": \"INTEGER16\", \"iec_location\": \"%IW101\" },\n            { \"index\": \"0x7130\", \"subindex\": 3, \"type\": \"INTEGER16\", \"iec_location\": \"%IW102\" },\n            { \"index\": \"0x7130\", \"subindex\": 4, \"type\": \"INTEGER16\", \"iec_location\": \"%IW103\" }\n          ]\n        },\n        {\n          \"number\": 2,\n          \"transmission\": 1,\n          \"entries\": [\n            { \"index\": \"0x6150\", \"subindex\": 1, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB100\" },\n            { \"index\": \"0x6150\", \"subindex\": 2, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB101\" },\n            { \"index\": \"0x6150\", \"subindex\": 3, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB102\" },\n            { \"index\": \"0x6150\", \"subindex\": 4, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB103\" }\n          ]\n        }\n      ],\n      \"sdo\": [\n        { \"index\": \"0x6110\", \"subindex\": 1, \"type\": \"UNSIGNED16\", \"value\": 30 },\n        { \"index\": \"0x6110\", \"subindex\": 2, \"type\": \"UNSIGNED16\", \"value\": 30 },\n        { \"index\": \"0x6110\", \"subindex\": 3, \"type\": \"UNSIGNED16\", \"value\": 30 },\n        { \"index\": \"0x6110\", \"subindex\": 4, \"type\": \"UNSIGNED16\", \"value\": 30 }\n      ]\n    }\n  ]\n}\n"
+ },
+ "doc_schema_version": 1,
+ "generated": "2026-01-02 03:04",
+ "io": [
+  {
+   "key": [
+    "I",
+    "B",
+    100
+   ],
+   "location": "%IB100",
+   "network": "",
+   "path": "nodes[0].tx_pdos[1].entries[0].iec_location",
+   "variables": [],
+   "who": "node 5 (rtd) TPDO 2 object 0x6150:1"
+  },
+  {
+   "key": [
+    "I",
+    "B",
+    101
+   ],
+   "location": "%IB101",
+   "network": "",
+   "path": "nodes[0].tx_pdos[1].entries[1].iec_location",
+   "variables": [],
+   "who": "node 5 (rtd) TPDO 2 object 0x6150:2"
+  },
+  {
+   "key": [
+    "I",
+    "B",
+    102
+   ],
+   "location": "%IB102",
+   "network": "",
+   "path": "nodes[0].tx_pdos[1].entries[2].iec_location",
+   "variables": [],
+   "who": "node 5 (rtd) TPDO 2 object 0x6150:3"
+  },
+  {
+   "key": [
+    "I",
+    "B",
+    103
+   ],
+   "location": "%IB103",
+   "network": "",
+   "path": "nodes[0].tx_pdos[1].entries[3].iec_location",
+   "variables": [],
+   "who": "node 5 (rtd) TPDO 2 object 0x6150:4"
+  },
+  {
+   "key": [
+    "I",
+    "W",
+    100
+   ],
+   "location": "%IW100",
+   "network": "",
+   "path": "nodes[0].tx_pdos[0].entries[0].iec_location",
+   "variables": [],
+   "who": "node 5 (rtd) TPDO 1 object 0x7130:1"
+  },
+  {
+   "key": [
+    "I",
+    "W",
+    101
+   ],
+   "location": "%IW101",
+   "network": "",
+   "path": "nodes[0].tx_pdos[0].entries[1].iec_location",
+   "variables": [],
+   "who": "node 5 (rtd) TPDO 1 object 0x7130:2"
+  },
+  {
+   "key": [
+    "I",
+    "W",
+    102
+   ],
+   "location": "%IW102",
+   "network": "",
+   "path": "nodes[0].tx_pdos[0].entries[2].iec_location",
+   "variables": [],
+   "who": "node 5 (rtd) TPDO 1 object 0x7130:3"
+  },
+  {
+   "key": [
+    "I",
+    "W",
+    103
+   ],
+   "location": "%IW103",
+   "network": "",
+   "path": "nodes[0].tx_pdos[0].entries[3].iec_location",
+   "variables": [],
+   "who": "node 5 (rtd) TPDO 1 object 0x7130:4"
+  },
+  {
+   "key": [
+    "I",
+    "X",
+    80
+   ],
+   "location": "%IX10.0",
+   "network": "",
+   "path": "nodes[0].status_location",
+   "variables": [],
+   "who": "node 5 (rtd) status_location"
+  }
+ ],
+ "networks": [
+  {
+   "anchor": "net-network",
+   "bitrate": 125000,
+   "bus_load": {
+    "cyclic": 2.8,
+    "notes": [],
+    "plc_cycle_ms": null,
+    "sync_ms": 100.0,
+    "unbounded": [],
+    "worst": 2.8
+   },
+   "frames": [
+    {
+     "bits": 75,
+     "cob_id": 0,
+     "consumers": [
+      "rtd"
+     ],
+     "dlc": 2,
+     "duplicate": false,
+     "kind": "nmt",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "NMT",
+     "notes": "NMT node control; Node_ID 0 addresses all nodes",
+     "producer": "Master",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on demand"
+    },
+    {
+     "bits": 55,
+     "cob_id": 128,
+     "consumers": [
+      "rtd"
+     ],
+     "dlc": 0,
+     "duplicate": false,
+     "kind": "sync",
+     "link": "",
+     "load_cyclic": 0.44,
+     "load_worst": 0.44,
+     "name": "SYNC",
+     "notes": "SYNC",
+     "producer": "Master",
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "every 100 ms"
+    },
+    {
+     "bits": 135,
+     "cob_id": 133,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "emcy",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "rtd_EMCY",
+     "notes": "node 5 emergency",
+     "producer": "rtd",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on error"
+    },
+    {
+     "bits": 135,
+     "cob_id": 389,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "tpdo",
+     "link": "pdo-5-tpdo1",
+     "load_cyclic": 1.08,
+     "load_worst": 1.08,
+     "name": "rtd_TPDO1",
+     "notes": "node 5 TPDO 1, transmission 1",
+     "producer": "rtd",
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "SYNC, 100 ms"
+    },
+    {
+     "bits": 95,
+     "cob_id": 645,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 4,
+     "duplicate": false,
+     "kind": "tpdo",
+     "link": "pdo-5-tpdo2",
+     "load_cyclic": 0.76,
+     "load_worst": 0.76,
+     "name": "rtd_TPDO2",
+     "notes": "node 5 TPDO 2, transmission 1",
+     "producer": "rtd",
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "SYNC, 100 ms"
+    },
+    {
+     "bits": 135,
+     "cob_id": 1413,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "sdo_response",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "rtd_SDO_Response",
+     "notes": "node 5 SDO server",
+     "producer": "rtd",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on demand (boot configuration, SDO variables, diagnostics)"
+    },
+    {
+     "bits": 135,
+     "cob_id": 1541,
+     "consumers": [
+      "rtd"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "sdo_request",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "rtd_SDO_Request",
+     "notes": "SDO client to node 5",
+     "producer": "Master",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on demand (boot configuration, SDO variables, diagnostics)"
+    },
+    {
+     "bits": 65,
+     "cob_id": 1797,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 1,
+     "duplicate": false,
+     "kind": "heartbeat",
+     "link": "",
+     "load_cyclic": 0.52,
+     "load_worst": 0.52,
+     "name": "rtd_Heartbeat",
+     "notes": "node 5 heartbeat",
+     "producer": "rtd",
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "every 100 ms"
+    }
+   ],
+   "interface": "vcan0",
+   "locations": [],
+   "master_node_id": 1,
+   "name": "",
+   "nodes": [
+    {
+     "anchor": "node-5",
+     "boot": {
+      "after": [
+       "NMT start (unless the master or the node is held)"
+      ],
+      "before": [],
+      "writes": [
+       {
+        "access": "rw",
+        "data": "6400",
+        "eds_default": "0x0",
+        "index": 4119,
+        "meaning": "heartbeat every 100 ms",
+        "name": "Producer heartbeat time",
+        "source": "node settings",
+        "subindex": 0,
+        "value": "100 (0x0064)"
+       },
+       {
+        "access": "rw",
+        "data": "85010080",
+        "eds_default": "$NODEID+0x180",
+        "index": 6144,
+        "meaning": "COB-ID 0x185, PDO switched off",
+        "name": "TPDO 1 communication parameter / COB-ID used by TPDO",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484037 (0x80000185)"
+       },
+       {
+        "access": "rw",
+        "data": "01",
+        "eds_default": "0xFF",
+        "index": 6144,
+        "meaning": "transmission type: synchronous, every SYNC",
+        "name": "TPDO 1 communication parameter / Transmission type",
+        "source": "PDO configuration",
+        "subindex": 2,
+        "value": "1 (0x01)"
+       },
+       {
+        "access": "rw",
+        "data": "00",
+        "eds_default": "0x4",
+        "index": 6656,
+        "meaning": "0 mapped objects",
+        "name": "TPDO 1 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "0 (0x00)"
+       },
+       {
+        "access": "rw",
+        "data": "10013071",
+        "eds_default": "0x71300110",
+        "index": 6656,
+        "meaning": "maps 0x7130:1, 16 bits (AI Input PV / AI0_Input_PV)",
+        "name": "TPDO 1 mapping parameter / Mapped object 1",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "1898971408 (0x71300110)"
+       },
+       {
+        "access": "rw",
+        "data": "10023071",
+        "eds_default": "0x61500108",
+        "index": 6656,
+        "meaning": "maps 0x7130:2, 16 bits (AI Input PV / AI1_Input_PV)",
+        "name": "TPDO 1 mapping parameter / Mapped object 2",
+        "source": "PDO configuration",
+        "subindex": 2,
+        "value": "1898971664 (0x71300210)"
+       },
+       {
+        "access": "rw",
+        "data": "10033071",
+        "eds_default": "0x71300210",
+        "index": 6656,
+        "meaning": "maps 0x7130:3, 16 bits (AI Input PV / AI2_Input_PV)",
+        "name": "TPDO 1 mapping parameter / Mapped object 3",
+        "source": "PDO configuration",
+        "subindex": 3,
+        "value": "1898971920 (0x71300310)"
+       },
+       {
+        "access": "rw",
+        "data": "10043071",
+        "eds_default": "0x61500208",
+        "index": 6656,
+        "meaning": "maps 0x7130:4, 16 bits (AI Input PV / AI3_Input_PV)",
+        "name": "TPDO 1 mapping parameter / Mapped object 4",
+        "source": "PDO configuration",
+        "subindex": 4,
+        "value": "1898972176 (0x71300410)"
+       },
+       {
+        "access": "rw",
+        "data": "04",
+        "eds_default": "0x4",
+        "index": 6656,
+        "meaning": "4 mapped objects",
+        "name": "TPDO 1 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "4 (0x04)"
+       },
+       {
+        "access": "rw",
+        "data": "85010000",
+        "eds_default": "$NODEID+0x180",
+        "index": 6144,
+        "meaning": "COB-ID 0x185, PDO valid",
+        "name": "TPDO 1 communication parameter / COB-ID used by TPDO",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "389 (0x00000185)"
+       },
+       {
+        "access": "rw",
+        "data": "85020080",
+        "eds_default": "$NODEID+0x280",
+        "index": 6145,
+        "meaning": "COB-ID 0x285, PDO switched off",
+        "name": "TPDO 2 communication parameter / COB-ID used by TPDO",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484293 (0x80000285)"
+       },
+       {
+        "access": "rw",
+        "data": "01",
+        "eds_default": "0xFF",
+        "index": 6145,
+        "meaning": "transmission type: synchronous, every SYNC",
+        "name": "TPDO 2 communication parameter / Transmission type",
+        "source": "PDO configuration",
+        "subindex": 2,
+        "value": "1 (0x01)"
+       },
+       {
+        "access": "rw",
+        "data": "00",
+        "eds_default": "0x4",
+        "index": 6657,
+        "meaning": "0 mapped objects",
+        "name": "TPDO 2 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "0 (0x00)"
+       },
+       {
+        "access": "rw",
+        "data": "08015061",
+        "eds_default": "0x71300310",
+        "index": 6657,
+        "meaning": "maps 0x6150:1, 8 bits (AI Status / AI0_Status)",
+        "name": "TPDO 2 mapping parameter / Mapped object 1",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "1632633096 (0x61500108)"
+       },
+       {
+        "access": "rw",
+        "data": "08025061",
+        "eds_default": "0x61500308",
+        "index": 6657,
+        "meaning": "maps 0x6150:2, 8 bits (AI Status / AI1_Status)",
+        "name": "TPDO 2 mapping parameter / Mapped object 2",
+        "source": "PDO configuration",
+        "subindex": 2,
+        "value": "1632633352 (0x61500208)"
+       },
+       {
+        "access": "rw",
+        "data": "08035061",
+        "eds_default": "0x71300410",
+        "index": 6657,
+        "meaning": "maps 0x6150:3, 8 bits (AI Status / AI2_Status)",
+        "name": "TPDO 2 mapping parameter / Mapped object 3",
+        "source": "PDO configuration",
+        "subindex": 3,
+        "value": "1632633608 (0x61500308)"
+       },
+       {
+        "access": "rw",
+        "data": "08045061",
+        "eds_default": "0x61500408",
+        "index": 6657,
+        "meaning": "maps 0x6150:4, 8 bits (AI Status / AI3_Status)",
+        "name": "TPDO 2 mapping parameter / Mapped object 4",
+        "source": "PDO configuration",
+        "subindex": 4,
+        "value": "1632633864 (0x61500408)"
+       },
+       {
+        "access": "rw",
+        "data": "04",
+        "eds_default": "0x4",
+        "index": 6657,
+        "meaning": "4 mapped objects",
+        "name": "TPDO 2 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "4 (0x04)"
+       },
+       {
+        "access": "rw",
+        "data": "85020000",
+        "eds_default": "$NODEID+0x280",
+        "index": 6145,
+        "meaning": "COB-ID 0x285, PDO valid",
+        "name": "TPDO 2 communication parameter / COB-ID used by TPDO",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "645 (0x00000285)"
+       },
+       {
+        "access": "rw",
+        "data": "85030080",
+        "eds_default": "$NODEID+0x380",
+        "index": 6146,
+        "meaning": "COB-ID 0x385, PDO switched off",
+        "name": "TPDO 3 communication parameter / COB-ID used by TPDO",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484549 (0x80000385)"
+       },
+       {
+        "access": "rw",
+        "data": "85040080",
+        "eds_default": "$NODEID+0x480",
+        "index": 6147,
+        "meaning": "COB-ID 0x485, PDO switched off",
+        "name": "TPDO 4 communication parameter / COB-ID used by TPDO",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484805 (0x80000485)"
+       },
+       {
+        "access": "rw",
+        "data": "1e00",
+        "eds_default": "0x1E",
+        "index": 24848,
+        "meaning": "",
+        "name": "AI Sensor Type / AI0_Sensor_Type",
+        "source": "startup SDO",
+        "subindex": 1,
+        "value": "30 (0x001E)"
+       },
+       {
+        "access": "rw",
+        "data": "1e00",
+        "eds_default": "0x1E",
+        "index": 24848,
+        "meaning": "",
+        "name": "AI Sensor Type / AI1_Sensor_Type",
+        "source": "startup SDO",
+        "subindex": 2,
+        "value": "30 (0x001E)"
+       },
+       {
+        "access": "rw",
+        "data": "1e00",
+        "eds_default": "0x1E",
+        "index": 24848,
+        "meaning": "",
+        "name": "AI Sensor Type / AI2_Sensor_Type",
+        "source": "startup SDO",
+        "subindex": 3,
+        "value": "30 (0x001E)"
+       },
+       {
+        "access": "rw",
+        "data": "1e00",
+        "eds_default": "0x1E",
+        "index": 24848,
+        "meaning": "",
+        "name": "AI Sensor Type / AI3_Sensor_Type",
+        "source": "startup SDO",
+        "subindex": 4,
+        "value": "30 (0x001E)"
+       }
+      ]
+     },
+     "eds": {
+      "file": "rtd8.eds",
+      "lss_supported": true,
+      "product_name": "RTD-8 temperature input module",
+      "sha256": "ca916dabe47765176f6d016d3fdef11c61c8d9a2c08613512db373a5a90f0975",
+      "vendor_name": "openplc-canopen test devices"
+     },
+     "ident": "rtd",
+     "identity": [
+      {
+       "checked": true,
+       "eds": 15790320,
+       "expected": 15790320,
+       "field": "Vendor ID"
+      },
+      {
+       "checked": true,
+       "eds": 1028,
+       "expected": 1028,
+       "field": "Product code"
+      },
+      {
+       "checked": true,
+       "eds": 65539,
+       "expected": 65539,
+       "field": "Revision"
+      },
+      {
+       "checked": false,
+       "eds": null,
+       "expected": null,
+       "field": "Serial number"
+      }
+     ],
+     "locations": [
+      {
+       "location": "%IX10.0",
+       "variables": [],
+       "what": "TRUE while the node and the master are OPERATIONAL"
+      }
+     ],
+     "name": "rtd",
+     "node_id": 5,
+     "od": [
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x40194",
+       "high": "",
+       "index": 4096,
+       "low": "",
+       "name": "Device type",
+       "subindex": 0,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "100 (0x0064)",
+       "default": "0x0",
+       "high": "",
+       "index": 4119,
+       "low": "",
+       "name": "Producer heartbeat time",
+       "subindex": 0,
+       "type": "UNSIGNED16"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x4",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Highest sub-index supported",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00F0F0F0",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Vendor-ID",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00000404",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Product code",
+       "subindex": 2,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00010003",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Revision number",
+       "subindex": 3,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Serial number",
+       "subindex": 4,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "389 (0x00000185)",
+       "default": "$NODEID+0x180",
+       "high": "",
+       "index": 6144,
+       "low": "",
+       "name": "TPDO 1 communication parameter / COB-ID used by TPDO",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1 (0x01)",
+       "default": "0xFF",
+       "high": "",
+       "index": 6144,
+       "low": "",
+       "name": "TPDO 1 communication parameter / Transmission type",
+       "subindex": 2,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "645 (0x00000285)",
+       "default": "$NODEID+0x280",
+       "high": "",
+       "index": 6145,
+       "low": "",
+       "name": "TPDO 2 communication parameter / COB-ID used by TPDO",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1 (0x01)",
+       "default": "0xFF",
+       "high": "",
+       "index": 6145,
+       "low": "",
+       "name": "TPDO 2 communication parameter / Transmission type",
+       "subindex": 2,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "2147484549 (0x80000385)",
+       "default": "$NODEID+0x380",
+       "high": "",
+       "index": 6146,
+       "low": "",
+       "name": "TPDO 3 communication parameter / COB-ID used by TPDO",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "2147484805 (0x80000485)",
+       "default": "$NODEID+0x480",
+       "high": "",
+       "index": 6147,
+       "low": "",
+       "name": "TPDO 4 communication parameter / COB-ID used by TPDO",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "4 (0x04)",
+       "default": "0x4",
+       "high": "",
+       "index": 6656,
+       "low": "",
+       "name": "TPDO 1 mapping parameter / Number of mapped objects",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "1898971408 (0x71300110)",
+       "default": "0x71300110",
+       "high": "",
+       "index": 6656,
+       "low": "",
+       "name": "TPDO 1 mapping parameter / Mapped object 1",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1898971664 (0x71300210)",
+       "default": "0x61500108",
+       "high": "",
+       "index": 6656,
+       "low": "",
+       "name": "TPDO 1 mapping parameter / Mapped object 2",
+       "subindex": 2,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1898971920 (0x71300310)",
+       "default": "0x71300210",
+       "high": "",
+       "index": 6656,
+       "low": "",
+       "name": "TPDO 1 mapping parameter / Mapped object 3",
+       "subindex": 3,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1898972176 (0x71300410)",
+       "default": "0x61500208",
+       "high": "",
+       "index": 6656,
+       "low": "",
+       "name": "TPDO 1 mapping parameter / Mapped object 4",
+       "subindex": 4,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "4 (0x04)",
+       "default": "0x4",
+       "high": "",
+       "index": 6657,
+       "low": "",
+       "name": "TPDO 2 mapping parameter / Number of mapped objects",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "1632633096 (0x61500108)",
+       "default": "0x71300310",
+       "high": "",
+       "index": 6657,
+       "low": "",
+       "name": "TPDO 2 mapping parameter / Mapped object 1",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1632633352 (0x61500208)",
+       "default": "0x61500308",
+       "high": "",
+       "index": 6657,
+       "low": "",
+       "name": "TPDO 2 mapping parameter / Mapped object 2",
+       "subindex": 2,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1632633608 (0x61500308)",
+       "default": "0x71300410",
+       "high": "",
+       "index": 6657,
+       "low": "",
+       "name": "TPDO 2 mapping parameter / Mapped object 3",
+       "subindex": 3,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1632633864 (0x61500408)",
+       "default": "0x61500408",
+       "high": "",
+       "index": 6657,
+       "low": "",
+       "name": "TPDO 2 mapping parameter / Mapped object 4",
+       "subindex": 4,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "30 (0x001E)",
+       "default": "0x1E",
+       "high": "0x21",
+       "index": 24848,
+       "low": "0x1E",
+       "name": "AI Sensor Type / AI0_Sensor_Type",
+       "subindex": 1,
+       "type": "UNSIGNED16"
+      },
+      {
+       "access": "rw",
+       "configured": "30 (0x001E)",
+       "default": "0x1E",
+       "high": "0x21",
+       "index": 24848,
+       "low": "0x1E",
+       "name": "AI Sensor Type / AI1_Sensor_Type",
+       "subindex": 2,
+       "type": "UNSIGNED16"
+      },
+      {
+       "access": "rw",
+       "configured": "30 (0x001E)",
+       "default": "0x1E",
+       "high": "0x21",
+       "index": 24848,
+       "low": "0x1E",
+       "name": "AI Sensor Type / AI2_Sensor_Type",
+       "subindex": 3,
+       "type": "UNSIGNED16"
+      },
+      {
+       "access": "rw",
+       "configured": "30 (0x001E)",
+       "default": "0x1E",
+       "high": "0x21",
+       "index": 24848,
+       "low": "0x1E",
+       "name": "AI Sensor Type / AI3_Sensor_Type",
+       "subindex": 4,
+       "type": "UNSIGNED16"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x0",
+       "high": "",
+       "index": 24912,
+       "low": "",
+       "name": "AI Status / AI0_Status",
+       "subindex": 1,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x0",
+       "high": "",
+       "index": 24912,
+       "low": "",
+       "name": "AI Status / AI1_Status",
+       "subindex": 2,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x0",
+       "high": "",
+       "index": 24912,
+       "low": "",
+       "name": "AI Status / AI2_Status",
+       "subindex": 3,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x0",
+       "high": "",
+       "index": 24912,
+       "low": "",
+       "name": "AI Status / AI3_Status",
+       "subindex": 4,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0",
+       "high": "",
+       "index": 28976,
+       "low": "",
+       "name": "AI Input PV / AI0_Input_PV",
+       "subindex": 1,
+       "type": "INTEGER16"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0",
+       "high": "",
+       "index": 28976,
+       "low": "",
+       "name": "AI Input PV / AI1_Input_PV",
+       "subindex": 2,
+       "type": "INTEGER16"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0",
+       "high": "",
+       "index": 28976,
+       "low": "",
+       "name": "AI Input PV / AI2_Input_PV",
+       "subindex": 3,
+       "type": "INTEGER16"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0",
+       "high": "",
+       "index": 28976,
+       "low": "",
+       "name": "AI Input PV / AI3_Input_PV",
+       "subindex": 4,
+       "type": "INTEGER16"
+      }
+     ],
+     "pdos": [
+      {
+       "anchor": "pdo-5-tpdo1",
+       "bits": 64,
+       "cob_id": 389,
+       "dlc": 8,
+       "entries": [
+        {
+         "bit": 0,
+         "dummy": false,
+         "index": 28976,
+         "length": 16,
+         "location": "%IW100",
+         "name": "AI Input PV / AI0_Input_PV",
+         "subindex": 1,
+         "type": "INTEGER16",
+         "used": true,
+         "variables": []
+        },
+        {
+         "bit": 16,
+         "dummy": false,
+         "index": 28976,
+         "length": 16,
+         "location": "%IW101",
+         "name": "AI Input PV / AI1_Input_PV",
+         "subindex": 2,
+         "type": "INTEGER16",
+         "used": true,
+         "variables": []
+        },
+        {
+         "bit": 32,
+         "dummy": false,
+         "index": 28976,
+         "length": 16,
+         "location": "%IW102",
+         "name": "AI Input PV / AI2_Input_PV",
+         "subindex": 3,
+         "type": "INTEGER16",
+         "used": true,
+         "variables": []
+        },
+        {
+         "bit": 48,
+         "dummy": false,
+         "index": 28976,
+         "length": 16,
+         "location": "%IW103",
+         "name": "AI Input PV / AI3_Input_PV",
+         "subindex": 4,
+         "type": "INTEGER16",
+         "used": true,
+         "variables": []
+        }
+       ],
+       "event_timer_ms": 0,
+       "inhibit_time_us": 50000,
+       "kind": "TPDO",
+       "mapping": "config",
+       "number": 1,
+       "sync_start": null,
+       "transmission": 1,
+       "transmission_from_eds": false,
+       "transmission_text": "synchronous, every SYNC",
+       "trigger": "SYNC, 100 ms"
+      },
+      {
+       "anchor": "pdo-5-tpdo2",
+       "bits": 32,
+       "cob_id": 645,
+       "dlc": 4,
+       "entries": [
+        {
+         "bit": 0,
+         "dummy": false,
+         "index": 24912,
+         "length": 8,
+         "location": "%IB100",
+         "name": "AI Status / AI0_Status",
+         "subindex": 1,
+         "type": "UNSIGNED8",
+         "used": true,
+         "variables": []
+        },
+        {
+         "bit": 8,
+         "dummy": false,
+         "index": 24912,
+         "length": 8,
+         "location": "%IB101",
+         "name": "AI Status / AI1_Status",
+         "subindex": 2,
+         "type": "UNSIGNED8",
+         "used": true,
+         "variables": []
+        },
+        {
+         "bit": 16,
+         "dummy": false,
+         "index": 24912,
+         "length": 8,
+         "location": "%IB102",
+         "name": "AI Status / AI2_Status",
+         "subindex": 3,
+         "type": "UNSIGNED8",
+         "used": true,
+         "variables": []
+        },
+        {
+         "bit": 24,
+         "dummy": false,
+         "index": 24912,
+         "length": 8,
+         "location": "%IB103",
+         "name": "AI Status / AI3_Status",
+         "subindex": 4,
+         "type": "UNSIGNED8",
+         "used": true,
+         "variables": []
+        }
+       ],
+       "event_timer_ms": 0,
+       "inhibit_time_us": 50000,
+       "kind": "TPDO",
+       "mapping": "config",
+       "number": 2,
+       "sync_start": null,
+       "transmission": 1,
+       "transmission_from_eds": false,
+       "transmission_text": "synchronous, every SYNC",
+       "trigger": "SYNC, 100 ms"
+      }
+     ],
+     "sdo_variables": [],
+     "settings": [
+      {
+       "label": "Heartbeat produced",
+       "object": "0x1017",
+       "value": "100 ms"
+      },
+      {
+       "label": "Heartbeat timeout in the master",
+       "object": "master 0x1016",
+       "value": "300 ms"
+      },
+      {
+       "label": "Mandatory",
+       "object": "master 0x1F81",
+       "value": "no"
+      },
+      {
+       "label": "Booted by the master",
+       "object": "master 0x1F81",
+       "value": "yes"
+      },
+      {
+       "label": "Reset communication before boot",
+       "object": "master 0x1F81",
+       "value": "yes"
+      },
+      {
+       "label": "Configuration check",
+       "object": "0x1020",
+       "value": "off"
+      }
+     ],
+     "startup_sdos": [
+      {
+       "index": 24848,
+       "name": "AI Sensor Type / AI0_Sensor_Type",
+       "subindex": 1,
+       "type": "UNSIGNED16",
+       "value": "30"
+      },
+      {
+       "index": 24848,
+       "name": "AI Sensor Type / AI1_Sensor_Type",
+       "subindex": 2,
+       "type": "UNSIGNED16",
+       "value": "30"
+      },
+      {
+       "index": 24848,
+       "name": "AI Sensor Type / AI2_Sensor_Type",
+       "subindex": 3,
+       "type": "UNSIGNED16",
+       "value": "30"
+      },
+      {
+       "index": 24848,
+       "name": "AI Sensor Type / AI3_Sensor_Type",
+       "subindex": 4,
+       "type": "UNSIGNED16",
+       "value": "30"
+      }
+     ]
+    }
+   ],
+   "role": "master",
+   "settings": [
+    {
+     "label": "Adapter",
+     "object": "",
+     "value": "socketcan vcan0"
+    },
+    {
+     "label": "Bitrate",
+     "object": "",
+     "value": "125 kbit/s"
+    },
+    {
+     "label": "Master node ID",
+     "object": "",
+     "value": "1"
+    },
+    {
+     "label": "SYNC",
+     "object": "0x1006",
+     "value": "every 100 ms (master timer)"
+    },
+    {
+     "label": "Master heartbeat",
+     "object": "0x1017",
+     "value": "off"
+    },
+    {
+     "label": "Watches node heartbeats",
+     "object": "0x1016",
+     "value": "yes"
+    },
+    {
+     "label": "SDO timeout while booting",
+     "object": "",
+     "value": "1000 ms"
+    },
+    {
+     "label": "EDS lint",
+     "object": "",
+     "value": "communication"
+    },
+    {
+     "label": "Diagnostics channel",
+     "object": "",
+     "value": "off"
+    }
+   ]
+  }
+ ],
+ "title": "CANopen network documentation",
+ "tool": {
+  "name": "openplc-canopen-deploy",
+  "version": "0.29.0"
+ },
+ "warnings": []
+}

@@ -43,7 +43,7 @@ Nothing is uploaded when a check fails.
 
 A config can simulate the network or some of its nodes (`adapter.simulate` and node `simulate`, see [simulator.md](simulator.md)), and a simulation file sets how the simulated devices behave.
 
-**The simulation file.** `simulation.json` next to the config is used when it exists; `--sim FILE` names another. Every mode except the DCF and DBC exports checks it after the config: the [simulation file schema](../schema/canopen-sim.v1.schema.json) and its `schema_version` (a newer one is refused, naming both versions), node keys that are neither configured nodes nor extra devices, objects that are not in the device's EDS (in sources, faults, scenario steps and conditions), value sources on objects the master writes (naming the RPDO, "startup SDO" or the SDO variable), extra devices (the EDS or DCF file exists, node 0 has a name, names are unique, node IDs are free), CSV files that do not exist, and every expression with the grammar of [Expressions](simulator.md#expressions), including reference cycles. A problem stops the deploy like a config problem, naming the file, the JSON path and, for an expression, the position in its text. The bundle gets:
+**The simulation file.** `simulation.json` next to the config is used when it exists; `--sim FILE` names another. Every mode except the DCF, DBC and HTML exports checks it after the config: the [simulation file schema](../schema/canopen-sim.v1.schema.json) and its `schema_version` (a newer one is refused, naming both versions), node keys that are neither configured nodes nor extra devices, objects that are not in the device's EDS (in sources, faults, scenario steps and conditions), value sources on objects the master writes (naming the RPDO, "startup SDO" or the SDO variable), extra devices (the EDS or DCF file exists, node 0 has a name, names are unique, node IDs are free), CSV files that do not exist, and every expression with the grammar of [Expressions](simulator.md#expressions), including reference cycles. A problem stops the deploy like a config problem, naming the file, the JSON path and, for an expression, the position in its text. The bundle gets:
 
 | File | In the bundle | Path in `simulation.json` |
 |---|---|---|
@@ -149,6 +149,14 @@ With several networks the tool writes one DBC per network next to the given file
 `--dbc-sdo` adds each node's SDO request (0x600 + node ID) and response (0x580 + node ID) frames: `none` (the default) adds none, `config` decodes the config's SDO variables and startup SDOs, `all` every EDS object of a numeric type up to 32 bits. The messages are multiplexed on `Object` (index + subindex * 65536, named `0x6110:1 AI_Sensor_Type_AI0_Sensor_Type` in the tool), so a frame shows as command, object and value. Only expedited transfers (up to 4 bytes) decode; on an abort the abort code shows as the object's raw data.
 
 The tool runs the deploy checks first and writes nothing if they fail. A startup SDO that rewrites a configured PDO's settings gets a warning: the DBC follows the config's PDO settings. Nothing is built or uploaded; `--runtime`, `--output` and `--check-only` are refused with it. The configurator exports the same file ([configurator.md](configurator.md#export-a-dbc-file)).
+
+## Export documentation of the network
+
+```sh
+openplc-canopen-deploy --config canopen_config.json --export-html network.html [--network NAME] [--doc-title TEXT] [--doc-od used|all] [--doc-embed-eds] [--doc-cycle-ms MS]
+```
+
+writes one self-contained HTML document of the configured networks for people: topology, master and bus settings, the COB-ID map with a bus load estimate, and per node its identity, settings, PDO layouts down to the PLC variables, every SDO write of its boot configuration and an object dictionary extract, plus a PLC I/O cross-reference. With several networks the one document has a section per network; `--network` limits it to one. When `--config` is the `canopen/canopen.json` of an editor project, PLC addresses show their located variables and the project's task interval is the PLC cycle. The tool runs the deploy checks first and writes nothing if they fail; nothing is built or uploaded. What the document holds, the bus load method and the options: [network-docs.md](network-docs.md). The configurator exports the same document ([configurator.md](configurator.md#export-documentation)).
 
 ## Address clashes with other plugins
 

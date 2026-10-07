@@ -75,7 +75,7 @@ Each network SHALL have a table of every frame the configured network puts on th
 - **THEN** the map has 0x605 (master to node 5) and 0x585 (node 5 to master), marked as on demand
 
 ### Requirement: Bus-load estimate
-For each network the document SHALL estimate bus load from the configured frames as frame bits (11-bit identifier, worst-case bit stuffing, interframe space) times frame rate divided by the bitrate, and show the figure per frame and in total, labelled as an estimate with its method. It SHALL give two totals: cyclic (SYNC, SYNC-driven PDOs, heartbeats and node guarding, the master heartbeat) and worst case (cyclic plus each event-driven PDO at its inhibit time, else at its event timer). An event-driven PDO with neither SHALL be listed as unbounded and add a warning. When SYNC follows the PLC cycle, the estimate SHALL use the PLC cycle given to the export, and without one SHALL show the SYNC-driven part as per PLC cycle and leave it out of the totals with a note. A worst-case total above 60 % SHALL be marked as a warning.
+For each network the document SHALL estimate bus load from the configured frames as frame bits (11-bit identifier, worst-case bit stuffing, interframe space) times frame rate divided by the bitrate, and show the figure per frame and in total, labelled as an estimate with its method. It SHALL give two totals: cyclic (SYNC, SYNC-driven PDOs, heartbeats and node guarding, the master heartbeat, TIME) and worst case (cyclic plus each event-driven PDO at its fastest: a TPDO at its inhibit time, else at its event timer; an RPDO at the SYNC rate, or at the master's 1 ms output check without SYNC; an acyclic synchronous PDO at the SYNC rate). An event-driven TPDO with neither inhibit time nor event timer SHALL be listed as unbounded and add a warning. When SYNC follows the PLC cycle, the estimate SHALL use the PLC cycle given to the export, and without one SHALL leave SYNC and the SYNC-driven PDOs out of the totals with a note. A worst-case total above 60 % SHALL be marked as a warning.
 
 #### Scenario: Cyclic PDOs
 - **WHEN** SYNC is every 100 ms and a TPDO with 8 data bytes has transmission type 1 on a 125 kbit/s bus
@@ -108,7 +108,7 @@ For each configured PDO the node sheet SHALL show its number and direction, COB-
 - **THEN** the PDO table shows `rtd_ch1` next to `%IW100`
 
 ### Requirement: Boot configuration
-For each node the document SHALL list, in the order the master performs them, every SDO write of the node's boot configuration with object index and sub-index, the object's name, the value written (as a number and, for known objects such as COB-IDs and transmission types, its meaning), the object's access and EDS default, and where the write comes from (PDO configuration, the plugin's own settings, a startup SDO, device parameters, identity or configuration check). It SHALL list the boot steps that are not settings (restore defaults, program download, store) in their place. The list SHALL match the DCF export's writes for the node.
+For each node the document SHALL list, in the order the master performs them, every SDO write of the node's boot configuration with object index and sub-index, the object's name, the value written (as a number and, for known objects such as COB-IDs and transmission types, its meaning), the object's access and EDS default, and where the write comes from (PDO configuration, node settings, startup SDO, configuration check). It SHALL list the boot steps that are not settings (restore defaults, program download, store) in their place. The list SHALL match the DCF export's writes for the node.
 
 #### Scenario: Startup SDO
 - **WHEN** node 5 has a startup SDO writing 30 to 0x6110 sub 1
@@ -126,7 +126,7 @@ The document SHALL have one table of every IEC location the config uses across a
 - **THEN** the cross-reference has `%IB10` as the master's bus state
 
 ### Requirement: Appendices
-The document SHALL end with an object dictionary extract per node and the config file. The extract SHALL by default list every object the config, the PDO configuration or the plugin writes or maps, with name, data type, access, limits, EDS default and configured value; with the "all" option it SHALL list every object of the EDS, collapsed by default on screen. The config file SHALL be included verbatim, collapsed by default on screen. With the embed option, each node's EDS file SHALL be downloadable from the document.
+The document SHALL end with an object dictionary extract per node and the config file. The extract SHALL by default list every object the config, the PDO configuration or the plugin writes or maps, with name, data type, access, limits, EDS default and configured value; with the "all" option it SHALL list every object of the EDS, collapsed by default on screen. The config file SHALL be included verbatim except for the diagnostics token hash, collapsed by default on screen. With the embed option, each node's EDS file SHALL be downloadable from the document.
 
 #### Scenario: Embedded EDS
 - **WHEN** the export runs with the embed option

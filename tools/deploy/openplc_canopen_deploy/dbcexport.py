@@ -192,7 +192,8 @@ def _normalized_pdos(cfg):
     return nodes
 
 
-def _node_identifiers(cfg):
+def node_identifiers(cfg):
+    """The DBC network node name of each configured node, in config order."""
     names = _Names([MASTER])
     out = []
     for n in cfg["nodes"]:
@@ -395,7 +396,7 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
         warnings = list(result.warnings)
     eds_list = _load_eds(cfg, config_path, paths)
     pdos = _normalized_pdos(cfg)
-    node_names = _node_identifiers(cfg)
+    node_names = node_identifiers(cfg)
     messages = []
     for n, eds, norm, node_name in zip(cfg["nodes"], eds_list, pdos, node_names):
         node_id = n_id(n)
@@ -420,6 +421,35 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
     comment = "CANopen network of %s, exported by openplc-canopen-deploy %s" % (
         os.path.basename(config_path), __version__)
     return Model([MASTER] + node_names, messages, comment, warnings)
+
+
+def frames(cfg, model):
+    """Every frame of a one-network config on the bus: the DBC model's
+    messages plus those a DBC leaves out (the master's heartbeat, TIME when
+    the master produces it, each node's SDO server channel), sorted by
+    COB-ID. Each added Message has `kind` "master_heartbeat", "time",
+    "sdo_request" or "sdo_response"; the model's messages are not changed."""
+    m = cfg["master"]
+    master_id = _u(m.get("node_id"), 1)
+    out = list(model.messages)
+    if _u(m.get("heartbeat_ms"), 0):
+        hb = Message(0x700 + master_id, "Master_Heartbeat", 1, MASTER, "master (node %d) heartbeat" % master_id,
+                     _u(m.get("heartbeat_ms")))
+        hb.kind = "master_heartbeat"
+        out.append(hb)
+    if "time_period_ms" in m:
+        cob = _u(m.get("time_cob_id"), 0x100) & 0x7FF or 0x100
+        t = Message(cob, "TIME", 6, MASTER, "TIME_OF_DAY from the runtime host's clock", _u(m["time_period_ms"]))
+        t.kind = "time"
+        out.append(t)
+    for n, name in zip(cfg["nodes"], node_identifiers(cfg)):
+        node_id = n_id(n)
+        req = Message(0x600 + node_id, "%s_SDO_Request" % name, 8, MASTER, "SDO client to node %d" % node_id)
+        req.kind = "sdo_request"
+        rsp = Message(0x580 + node_id, "%s_SDO_Response" % name, 8, name, "node %d SDO server" % node_id)
+        rsp.kind = "sdo_response"
+        out += [req, rsp]
+    return sorted(out, key=lambda x: (x.cob_id, x.name))
 
 
 # -- writing ------------------------------------------------------------------

@@ -31,14 +31,14 @@ A throwaway prototype (about 190 lines, outside the repo) built a usable documen
 
 ### D2. Reuse the export code, extend it in place
 - `dbcexport`: make the node identifier function public and add a `frames(cfg, ...)` helper returning every frame including master heartbeat (0x700 + master node ID, when `master.heartbeat_ms` is set), TIME (when produced) and each node's SDO server channel (0x600/0x580 + ID). The DBC output itself does not change.
-- `dcfexport.Download.writes` gains a source tag per write: `dcfgen` (communication and mapping from the config), `plugin` (the plugin's own additions such as 0x1012 or RPDO sub 5), `startup_sdo`, `device_parameters`, `identity` / `config_check`. The DCF output does not change.
+- `dcfexport.Download` gains `sources`, one tag per write: `pdo` (PDO communication and mapping, including the plugin's RPDO deadline), `node` (the node's other settings, including the plugin's 0x1012), `startup_sdo`, `config_check` (the 0x1020 stamp and the 0x1010 save). The DCF output does not change.
 Alternative: a separate resolver for the document; rejected, it would drift from the bus.
 
 ### D3. Bus-load estimate
 Per frame: bits = 47 + 8·DLC + worst-case stuff bits ⌊(34 + 8·DLC − 1) / 4⌋ (11-bit identifiers, interframe space included). Rates:
-- SYNC: 1 / sync period; SYNC-driven PDOs: 1 / (sync period × transmission type); acyclic SYNC PDOs (type 0) counted at the SYNC rate as the upper bound.
+- SYNC: 1 / sync period; SYNC-driven PDOs: 1 / (sync period × transmission type); acyclic SYNC PDOs (type 0) counted in the worst case at the SYNC rate.
 - Heartbeats (nodes and master): 1 / heartbeat period; node guarding: two frames per guard time.
-- Event-driven PDOs (254/255): typical = event timer rate if set; worst case = 1 / inhibit time if set, else 1 / event timer, else marked "unbounded" and listed as a warning.
+- Event-driven TPDOs (254/255): worst case = 1 / inhibit time if set, else 1 / event timer (noting that changes can go faster), else marked "unbounded" and listed as a warning. Event-driven RPDOs: the master sends changed outputs at the next SYNC, or checks them every 1 ms without SYNC; worst case at that rate.
 - PLC-cycle SYNC: the period is the PLC task's, which the config does not hold; the document asks for it with `--doc-cycle-ms` (configurator: the project's task interval in project mode) and otherwise shows the cyclic part as "per PLC cycle".
 - NMT, EMCY, SDO and LSS are not counted (event, start-up or on demand) and are labelled so.
 Two figures are shown: cyclic load and worst case, with a warning above 60 % worst case. This is an estimate, labelled as one.
@@ -50,7 +50,7 @@ Inline CSS, a small inline script (sorting, filtering, theme toggle, collapsing)
 Sticky contents sidebar (collapses on narrow screens), sections in a fixed order: Summary → per network (topology, settings, COB-ID map, bus load, nodes) → PLC I/O → Appendices. Per node: identity, settings, PDOs, boot configuration, SDO variables, object dictionary extract. Each PDO shows a byte grid (8 columns × DLC rows, each mapped object a coloured span labelled with its name) above the table. Ids are `net-<name>`, `node-<net>-<id>`, `pdo-<net>-<id>-tpdo<n>`, so links into the document stay stable between exports.
 
 ### D6. Print
-`@media print`: no sidebar and controls, collapsed sections expanded, one page break before each network and node, table headers repeated on each page, links followed by their target text where helpful, a running footer with config name and hash via `@page` where browsers support it. Tested by printing to PDF in headless Chromium in CI (page count > 0, no clipped tables at A4 width).
+`@media print`: no sidebar and controls, collapsed sections expanded, one page break before each network and node, table headers repeated on each page, links followed by their target text where helpful, a running footer with config name and hash via `@page` where browsers support it. Tested by printing to PDF in headless Chromium in CI (pages produced, no table wider than an A4 page in print media).
 
 ### D7. Determinism and privacy
 Order is by network order, node ID, PDO number and COB-ID; no dictionaries in iteration order. The generation date appears only in the header and in the JSON `generated` field, and `now` is injectable for tests. File references show file names relative to the config folder, never absolute paths. The `diagnostics` object is reduced to "enabled, port, changes allowed"; `token_sha256` never appears. A test greps the output of every example config for the token hash and the build directory.

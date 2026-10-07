@@ -459,6 +459,23 @@ class CheckAndSave(Running):
         self.assertNotIn("data", data)
         self.assertIn("is the master's node ID", "\n".join(i["message"] for i in data["items"]))
 
+    def test_export_html_unsaved(self):
+        before = self.snapshot()
+        data = self.ok("POST", "/api/export_html", {"config": self.cfg})
+        self.assertEqual((data["errors"], data["name"], data["content_type"]), (0, "rtd-monitor.html", "text/html"))
+        text = base64.b64decode(data["data"]).decode("utf-8")
+        self.assertIn('id="node-5"', text)
+        self.assertIn("0x185", text)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_export_html_problems(self):
+        self.cfg["nodes"][0]["node_id"] = 1  # the master's
+        data = self.ok("POST", "/api/export_html", {"config": self.cfg})
+        self.assertGreaterEqual(data["errors"], 1)
+        self.assertNotIn("data", data)
+        self.assertIn("is the master's node ID", "\n".join(i["message"] for i in data["items"]))
+        self.assertEqual(self.request("POST", "/api/export_html", {"config": []})[0], 400)
+
     def test_invalid_config_not_saved(self):
         self.cfg["nodes"].append(dict(rtd_node(), status_location="%IX10.1",
                                       tx_pdos=[{"entries": [dict(e, iec_location="%%IW%d" % (110 + k)) for k, e in
@@ -703,6 +720,12 @@ class Networks(Running):
         data = self.ok("POST", "/api/export_dcf", {"config": cfg, "network": "io", "node": 2})
         self.assertEqual(data["name"], "node_2.dcf")
         self.assertEqual(self.request("POST", "/api/export_dcf", {"config": cfg, "node": 2})[0], 400)
+        data = self.ok("POST", "/api/export_html", {"config": cfg})
+        self.assertEqual(data["name"], "plant.html")
+        text = base64.b64decode(data["data"]).decode("utf-8")
+        self.assertIn('id="net-io"', text)
+        self.assertIn('id="net-drives"', text)
+        self.assertNotIn("ab" * 32, text)
 
 
 class Standalone(Running):

@@ -128,7 +128,7 @@ class DbcExport(unittest.TestCase):
     def test_network_needs_an_export(self):
         code, _, err = deploy("--config", TWO_NETWORKS, "--into-project", "unused", "--network", "io")
         self.assertEqual(code, 1)
-        self.assertIn("--network needs --export-dcf or --export-dbc", err)
+        self.assertIn("--network needs --export-dcf, --export-dbc or --export-html", err)
 
 
 class Declarations(unittest.TestCase):
