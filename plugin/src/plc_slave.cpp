@@ -652,9 +652,14 @@ void PlcSlave::DiagSdo(const DiagRequest& r) {
       if (!n && !r.data.empty()) {
         abort = 0x06070010u;
       } else {
-        co_sub_set_val(sub, co_val_addressof(type, &val), co_val_sizeof(type, &val));
-        Changed(r.index, r.subindex);
-        log_info("own object 0x%04X sub %u written by diagnostics client %s", r.index, r.subindex, r.peer.c_str());
+        // Through the object's download indication, as an SDO write from the
+        // master: Lely's own handlers (heartbeat consumers, PDO parameters,
+        // store and restore) and its range checks then apply.
+        abort = co_sub_dn_ind_val(sub, type, &val);
+        if (!abort) {
+          Changed(r.index, r.subindex);
+          log_info("own object 0x%04X sub %u written by diagnostics client %s", r.index, r.subindex, r.peer.c_str());
+        }
       }
       co_val_fini(type, &val);
     }

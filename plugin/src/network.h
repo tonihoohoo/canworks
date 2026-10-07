@@ -177,6 +177,12 @@ class Network : public lely::canopen::BasicMaster {
     bool reset_on_retry = false;
     bool boot_waiting = false;    // a boot retry started and no answer yet
     clock::time_point boot_since;
+    // Started by the master, and its heartbeat has not said OPERATIONAL yet:
+    // Lely reports only a change of the heartbeat's state, so a node that
+    // falls back to PRE-OPERATIONAL before its first heartbeat after the
+    // start would never be reported (StartSent, the supervision tick).
+    bool start_unconfirmed = false;
+    clock::time_point start_confirm_by;
     bool warned_absent = false;   // "not answering" logged since last up
     std::string identity_logged;  // the wrong identity last logged
     std::vector<unsigned> tpdos;  // master TPDO numbers that feed this node
@@ -289,6 +295,11 @@ class Network : public lely::canopen::BasicMaster {
   void StartHeldMaster();
   void SetState(unsigned id, uint8_t state);
   void ScheduleRetry(NodeState& n, bool quiet = false);
+  // The master started node `id` from a state other than OPERATIONAL: its
+  // heartbeat must say so within two consumer periods.
+  void StartSent(unsigned id, NodeState& n);
+  // The heartbeat consumer time the master has for node `id` (0x1016), 0: none.
+  unsigned ConsumerMs(unsigned id);
   void ConfigNext(uint8_t id);
   void EnableTpdos(const NodeState& n, bool enable);
   void MapTpdos();

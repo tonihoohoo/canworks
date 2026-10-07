@@ -344,6 +344,24 @@ void Network::SetState(unsigned id, uint8_t state) {
   image_.commit_inputs();
 }
 
+unsigned Network::ConsumerMs(unsigned id) {
+  std::error_code ec;
+  uint8_t count = (*this)[0x1016][0].Read<uint8_t>(ec);
+  if (ec) return 0;
+  for (uint8_t k = 1; k <= count; ++k) {
+    uint32_t v = (*this)[0x1016][k].Read<uint32_t>(ec);
+    if (!ec && ((v >> 16) & 0x7F) == id && (v & 0xFFFF)) return v & 0xFFFF;
+  }
+  return 0;
+}
+
+void Network::StartSent(unsigned id, NodeState& n) {
+  unsigned ms = ConsumerMs(id);
+  if (!ms) return;  // no heartbeat to confirm the start with
+  n.start_unconfirmed = true;
+  n.start_confirm_by = clock::now() + std::chrono::milliseconds(2 * ms + 100);
+}
+
 void Network::ScheduleRetry(NodeState& n, bool quiet) {
   // A boot: false node is not the master's to boot; a STOPPED master boots
   // nothing until the plugin restarts.
@@ -370,6 +388,18 @@ void Network::OnTick() {
   for (auto& it : nodes_) {
     NodeState& n = it.second;
     FlushEmcySummary(n, now, false);
+    if (n.start_unconfirmed && now >= n.start_confirm_by) {
+      n.start_unconfirmed = false;
+      if (n.node_op && n.hold == Hold::None && master_state_ != kStateStopped) {
+        log_warn("%s did not report OPERATIONAL in its heartbeat after the start command; booting it again",
+                 n.cfg->label().c_str());
+        n.node_op = false;
+        n.booted = false;
+        SetState(it.first, kStatePreop);
+        Update(it.first, "no OPERATIONAL heartbeat after the start command");
+        ScheduleRetry(n);
+      }
+    }
     // Lely keeps re-trying the boot of a silent slave by itself (every second,
     // CiA 302 error status B) without reporting it, so say so once.
     if (n.cfg->boot && !n.up && !n.booted && !n.warned_absent && now - started_ >= kAbsentAfter) {
@@ -450,6 +480,7 @@ void Network::HandleBoot(uint8_t id, NmtState st, char es, const std::string& wh
     // nodes, or starts them all at once when it becomes OPERATIONAL itself.
     const MasterConfig& m = cfg_.master;
     n.node_op = configured_running || (m.start_nodes && (!m.start_all_nodes || master_op_));
+    if (n.node_op && (static_cast<uint8_t>(st) & 0x7F) != static_cast<uint8_t>(NmtState::START)) StartSent(id, n);
     SetState(id, n.node_op ? kStateOperational : kStatePreop);
     SetBootError(id, 0);
     Update(id, "");
@@ -561,6 +592,7 @@ void Network::HandleCommand(NmtCommand cs) {
       for (auto& it : nodes_)
         if (it.second.cfg->boot && it.second.booted && !it.second.node_op) {
           it.second.node_op = true;
+          StartSent(it.first, it.second);
           SetState(it.first, kStateOperational);
         }
   } else if (cs == NmtCommand::STOP) {
@@ -991,6 +1023,7 @@ void Network::HandleState(uint8_t id, NmtState st) {
   if (it == nodes_.end()) return;
   NodeState& n = it->second;
   st = static_cast<NmtState>(static_cast<uint8_t>(st) & 0x7F);  // drop the toggle bit
+  n.start_unconfirmed = false;
   SetState(id, state_code(st, true));
   switch (st) {
     case NmtState::BOOTUP:

@@ -791,6 +791,50 @@ TEST(slave_diag_status_and_local_od) {
   cJSON_Delete(a);
 }
 
+// A diagnostics write to the slave's own dictionary goes through Lely's
+// download handlers, as the master's SDO write does: writing the producer
+// heartbeat time 0x1017 to 0 stops the heartbeat, and the master loses the node.
+TEST(slave_diag_write_runs_handlers) {
+  clear_logs();
+  auto sim = start_slave_sim(slave_json(R"(, "heartbeat_ms": 50, "heartbeat_timeout_ms": 150, "status_location": "%IX10.0")"));
+  if (!sim->ok()) return;
+  sim->EnableDiag(1);
+  sim->Start();
+  CHECK(sim->RunUntil([&] { return slave_up(*sim) && sim->plc().bool_in[10][0]; }, seconds(5)));
+  DiagRequest w = diag_req("sdo_write", 10, 0x1017, 0);
+  w.data = {0, 0};
+  cJSON* a = sim->Ask(w);
+  CHECK_MSG(cJSON_IsTrue(field(field(a, "result"), "success")), text(a));
+  cJSON_Delete(a);
+  CHECK_MSG(sim->RunUntil([&] { return !sim->plc().bool_in[10][0]; }, seconds(2)),
+            "the slave kept sending its heartbeat after 0x1017 was written 0");
+}
+
+// A slave that falls back to PRE-OPERATIONAL right after the master's start,
+// before its first heartbeat says OPERATIONAL, leaves the heartbeat's state
+// unchanged, so Lely reports nothing. The master must not keep it as
+// operational: its heartbeat has to confirm the start, else it is booted again.
+TEST(slave_start_not_confirmed) {
+  clear_logs();
+  auto sim = start_slave_sim(
+      slave_json(R"(, "heartbeat_ms": 300, "heartbeat_timeout_ms": 900, "status_location": "%IX10.0")"));
+  if (!sim->ok()) return;
+  sim->EnableDiag(1);
+  sim->Start();
+  CHECK(sim->RunUntil([&] { return slave_up(*sim) && sim->plc().bool_in[10][0]; }, seconds(5)));
+  // The slave consumes the master's 50 ms heartbeat with a 30 ms timeout: it
+  // drops to PRE-OPERATIONAL (0x1029) within 30 ms of every start, long
+  // before its next 300 ms heartbeat.
+  DiagRequest w = diag_req("sdo_write", 10, 0x1016, 1);
+  w.data = {30, 0, 1, 0};
+  cJSON* a = sim->Ask(w);
+  CHECK_MSG(cJSON_IsTrue(field(field(a, "result"), "success")), text(a));
+  cJSON_Delete(a);
+  CHECK_MSG(sim->RunUntil([&] { return !sim->plc().bool_in[10][0]; }, seconds(5)),
+            "the master kept node 10 operational");
+  CHECK(logged("did not report OPERATIONAL in its heartbeat after the start command"));
+}
+
 // ---------------------------------------------------------------------------
 // Gateway: the other PLC ("plc" on top.m) is the upper master; the gateway
 // is a slave on top.s and the master of "field" (bus "field") with a

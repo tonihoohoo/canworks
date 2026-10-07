@@ -501,7 +501,7 @@ A startup SDO runs after everything the plugin writes from the node's settings, 
 
 A slave that aborts a startup SDO is handled like any configuration SDO: the plugin logs the node ID, index, subindex and abort code, and that node stays not operational while the others run.
 
-Many devices only accept some settings while PRE-OPERATIONAL. A node that comes back after a pulled cable or a lost heartbeat is often still OPERATIONAL, so when a configuration download fails (CiA 302 error status J) the master resets the node (NMT reset node) before the next retry and configures it again from PRE-OPERATIONAL. The retries back off up to 16 s, so a download that the device always refuses resets it at most that often.
+Many devices only accept some settings while PRE-OPERATIONAL. A node that comes back after a pulled cable or a lost heartbeat is often still OPERATIONAL, so when a configuration download fails (CiA 302 error status J) the master resets the node (NMT reset node) before the next retry and configures it again from PRE-OPERATIONAL. The retries back off up to 16 s, so a download that the device always refuses resets it at most that often. After the master starts a node, the node's heartbeat must say OPERATIONAL within two of the master's heartbeat consumer periods for it (plus 100 ms). A node that falls back to PRE-OPERATIONAL before its first heartbeat after the start is otherwise never noticed, because its heartbeat state does not change, so the master logs `node 10 (openplc) did not report OPERATIONAL in its heartbeat after the start command; booting it again` and boots it again.
 
 ## SDO variables
 

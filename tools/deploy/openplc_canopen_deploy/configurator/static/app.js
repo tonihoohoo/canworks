@@ -714,10 +714,16 @@ function netSimSummary(net) {
   const nodes = net.nodes || [];
   const sim = nodes.filter((n) => nodeSimulated(n, net));
   if (simNetwork(net)) {
-    const absent = nodes.filter((n) => !nodeSimulated(n, net));
+    // The plugin's own slave on the same simulated bus serves its node ID.
+    const iface = (net.adapter && net.adapter.interface) || "";
+    const slaveIds = ((S.model && S.model.networks) || []).filter((o) => isSlave(o) && simNetwork(o) && iface &&
+      o.adapter.interface === iface && o.slave && Number.isInteger(o.slave.node_id)).map((o) => o.slave.node_id);
+    const served = nodes.filter((n) => !nodeSimulated(n, net) && slaveIds.includes(n.node_id));
+    const absent = nodes.filter((n) => !nodeSimulated(n, net) && !served.includes(n));
     return "The network is simulated: the master runs on a virtual bus inside the plugin" +
       (sim.length ? `, with ${plural(sim, "node", "nodes")} ${nodeIds(sim)} simulated` : ", with no node simulated") +
-      (absent.length ? ` and ${plural(absent, "node", "nodes")} ${nodeIds(absent)} absent` : "") + ".";
+      (absent.length ? ` and ${plural(absent, "node", "nodes")} ${nodeIds(absent)} absent` : "") +
+      (served.length ? `; node ${nodeIds(served)} is the plugin's own slave on the same bus` : "") + ".";
   }
   if (!sim.length) return "";
   const iface = (net.adapter && net.adapter.interface) || "";
