@@ -43,7 +43,7 @@
 
 - [x] 8.1 `docs/cia402.md`: cyclic synchronous section (config, blocks and their names in other motion libraries, start sequence, fixed three-cycle loop and the following error window formula, `fCycleTime`, PLC stop faults the drive, `MC_ReadStatus` shows discrete motion, `InSync`), update "What works" and "Related work".
 - [x] 8.2 README: the CiA 402 line names CSP, CSV and CST.
-- [ ] 8.3 Deploy tool version bump.
+- [x] 8.3 Deploy tool version bump. 0.36.0 (chain step 5).
 
 ## 9. Hardware and editor (open in the PR when not available)
 
