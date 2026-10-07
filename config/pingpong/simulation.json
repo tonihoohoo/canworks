@@ -19,7 +19,7 @@
       ]
     },
     "device-hangs": {
-      "description": "The device stops its heartbeat for two seconds.",
+      "description": "The device stops its heartbeat for two seconds; the master boots it again and the round trip restarts from 0.",
       "steps": [
         { "node": 2, "fault": { "heartbeat": "stop" } },
         { "after_ms": 2000, "node": 2, "clear": "heartbeat" }

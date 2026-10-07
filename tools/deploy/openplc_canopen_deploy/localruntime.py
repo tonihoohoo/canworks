@@ -247,8 +247,9 @@ def _run_args(image, port, diag_port, caps=True, volume=VOLUME):
             "-v", "%s:%s" % (volume, DATA_PATH),
             "--restart", "unless-stopped"]
     if caps:
-        # Upstream's flags for its real-time scheduling; timing only.
-        args += ["--cap-add", "SYS_NICE", "--cap-add", "SYS_RESOURCE"]
+        # Upstream's flags for its real-time scheduling, and an unlimited
+        # memlock so the runtime's mlockall works; timing only.
+        args += ["--cap-add", "SYS_NICE", "--cap-add", "SYS_RESOURCE", "--ulimit", "memlock=-1:-1"]
     return args + [image]
 
 
@@ -259,7 +260,8 @@ def create(eng, image, port, diag_port, out, volume=VOLUME):
         msg = (r.stderr or r.stdout or "").strip()
         eng("rm", "-f", CONTAINER, timeout=60)
         low = msg.lower()
-        if "cap" in low and ("sys_nice" in low or "sys_resource" in low or "capabilit" in low):
+        if ("cap" in low and ("sys_nice" in low or "sys_resource" in low or "capabilit" in low)) or \
+                "memlock" in low or "rlimit" in low or "ulimit" in low:
             out("note: %s refused the real-time capabilities; starting without them (only timing is affected)"
                 % eng.name)
             r = eng(*_run_args(image, port, diag_port, caps=False, volume=volume), timeout=600)
