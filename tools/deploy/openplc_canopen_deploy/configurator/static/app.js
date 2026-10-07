@@ -5336,8 +5336,9 @@ async function save(overwrite) {
     setModel(S.state.config);
     S.dirty = false;
     await checkToken();
-    banner("Saved " + r.written.join(", "));
     render();
+    // After render: a test (or a quick user) acting on "Saved" acts on the new page.
+    banner("Saved " + r.written.join(", "));
     runCheck();
   } catch (e) {
     if (e.status === 409 && e.body.changed_on_disk) {
