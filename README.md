@@ -144,9 +144,9 @@ sudo test/docker/run.sh --image ghcr.io/autonomy-logic/openplc-runtime:latest   
 
 Use a development machine, not one running your PLC: the stock test installs into `/opt/openplc-canopen` and the runtime checkout, and the Docker test starts runtime containers on the host network.
 
-### PC tools on Windows and macOS
+### PC tools on Windows, macOS and Linux
 
-`.github/workflows/pc-tools.yml` installs the PC tools with uv on Windows and macOS on version bumps on `main` (the release waits for it), on `deploy-v<version>` tags and on "Run workflow" (start it on a pull request's branch when a change needs those systems checked). On your own PC, from a checkout (bash; Git Bash on Windows):
+`.github/workflows/pc-tools.yml` installs the PC tools with uv on Windows, macOS and Linux (x86_64 and ARM64) on version bumps on `main` (the release waits for it), on `deploy-v<version>` tags and on "Run workflow" (start it on a pull request's branch when a change needs those systems checked). On your own PC, from a checkout (bash; Git Bash on Windows):
 
 ```sh
 uv build --wheel --out-dir dist tools/deploy && uv tool install --force --python 3.12 dist/*.whl

@@ -2,7 +2,7 @@
 
 Adds a CANopen config and its EDS files to an OpenPLC editor build ("Build only" output or `openplc-cli compile`), checks them, and uploads the result to an OpenPLC Runtime v4. See [docs/deploy.md](../../docs/deploy.md).
 
-On Windows or macOS without Python: install [uv](https://docs.astral.sh/uv/), download the wheel from the newest `deploy-v<version>` release, and run `uv tool install --python 3.12 <wheel>` ([docs/install-pc.md](../../docs/install-pc.md)). With Python already installed:
+On Windows, macOS or Linux without Python: install [uv](https://docs.astral.sh/uv/), download the wheel from the newest `deploy-v<version>` release, and run `uv tool install --python 3.12 <wheel>` ([docs/install-pc.md](../../docs/install-pc.md)). With Python already installed:
 
 ```sh
 pipx install ./tools/deploy
