@@ -40,7 +40,7 @@ class TraceBase(OnlineBase):
         self.page.wait_for_function("n => document.querySelectorAll('#trace-rows .trace-row').length === n", arg=n)
 
     def live(self, fake):
-        self.write_config({"token_sha256": diag.hash_token(TOKEN)})
+        self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
         self.remember(fake.runtime)
         self.open()
         self.trace_view()

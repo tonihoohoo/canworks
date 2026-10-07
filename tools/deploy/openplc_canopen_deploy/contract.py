@@ -849,6 +849,18 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             continue
         if (where == "master" and e.validator == "not") or where == "master.eds_lint":
             continue  # reported above
+        if where.endswith("diagnostics.token_sha256"):
+            err(where, "the diagnostics channel is encrypted now and needs a 'token_verifier' instead: set the token "
+                       "again (configurator: Online access, Upgrade or New token; or openplc-canopen-diag hash-token)")
+            continue
+        if where.endswith("diagnostics") and e.validator == "required" and "token_verifier" in e.message:
+            d = cfg.get("diagnostics") if where == "diagnostics" else (cfg.get("master") or {}).get("diagnostics")
+            if isinstance(d, dict) and "token_sha256" in d:
+                continue  # reported as token_sha256
+        if where.endswith("diagnostics.token_verifier") and e.validator == "pattern":
+            err(where, "field 'token_verifier' must look like SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:"
+                       "<ServerKey> (openplc-canopen-diag hash-token prints it)")
+            continue
         if role == "slave" and where.split(".")[0].split("[")[0] in ("master", "nodes"):
             continue  # misplaced in a slave network, reported by _check_v2
         if (where == "master" and e.validator == "required" and "'diagnostics'" in e.message) or (
@@ -863,6 +875,15 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             continue
         err(where, e.message)
 
+    # The verifier's numbers, which the schema's pattern does not check.
+    d = cfg.get("diagnostics") if version > 1 else (cfg.get("master") or {}).get("diagnostics")
+    if isinstance(d, dict) and isinstance(d.get("token_verifier"), str) and re.match(
+            r"^SCRAM-SHA-256\$[0-9]{1,7}:", d["token_verifier"]):
+        from . import diag
+        if diag.parse_verifier(d["token_verifier"]) is None:
+            where = "diagnostics" if version > 1 else "master.diagnostics"
+            err(where, "field 'token_verifier' needs iterations 4096-1000000 and a salt of at least 16 bytes",
+                [where + ".token_verifier"])
 
     if len(r.errors) > before:
         return

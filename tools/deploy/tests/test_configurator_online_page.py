@@ -97,7 +97,7 @@ class OnlineBase(unittest.TestCase):
         self.page.wait_for_selector("#editor:not([hidden])")
 
     def online(self, fake, allow=False, **diag_fields):
-        self.write_config(dict({"token_sha256": diag.hash_token(TOKEN), "allow_changes": allow}, **diag_fields))
+        self.write_config(dict({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": allow}, **diag_fields))
         self.remember(fake.runtime if fake else "127.0.0.1:%d" % closed_port())
         self.open()
         self.page.click('button[data-view="online"]')
@@ -122,17 +122,34 @@ class OnlinePage(OnlineBase):
         pg.wait_for_selector("#banner:has-text('Saved')")
         saved = load(self.config_path)["master"]["diagnostics"]
         settings = load(os.path.join(self.cfg_dir, "online.json"))["projects"][self.project]
-        self.assertEqual(saved, {"token_sha256": hashlib.sha256(settings["token"].encode()).hexdigest(),
-                                 "allow_changes": True})
+        self.assertTrue(diag.token_matches(settings["token"], saved.pop("token_verifier")))
+        self.assertEqual(saved, {"allow_changes": True})
         self.assertEqual(settings["host"], "plc.local")
         with open(self.config_path, encoding="utf-8") as f:
             self.assertNotIn(settings["token"], f.read())
         pg.click("text=Copy token")
         self.assertEqual(pg.evaluate("navigator.clipboard.readText()"), settings["token"])
 
+    def test_upgrade_the_former_token_sha256(self):
+        # A config from before the encrypted channel, with this PC's token:
+        # Upgrade sets a verifier for the same token.
+        pg = self.page
+        self.write_config({"token_sha256": hashlib.sha256(TOKEN.encode()).hexdigest()})
+        self.remember("plc.local")
+        self.open()
+        self.assertIn("former unencrypted token", pg.inner_text('[data-online="token-state"]'))
+        pg.click('button[data-online="upgrade"]')
+        pg.wait_for_selector('[data-online="token-state"]:has-text("This PC has the token")')
+        pg.wait_for_function("() => document.body.dataset.checking === '0'")
+        pg.click("#btn-save")
+        pg.wait_for_selector("#banner:has-text('Saved')")
+        saved = load(self.config_path)["master"]["diagnostics"]
+        self.assertNotIn("token_sha256", saved)
+        self.assertTrue(diag.token_matches(TOKEN, saved["token_verifier"]))
+
     def test_token_from_another_pc(self):
         pg = self.page
-        self.write_config({"token_sha256": diag.hash_token(TOKEN)})
+        self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
         self.open()
         self.assertIn("no token", pg.inner_text('[data-online="token-state"]'))
         pg.click("text=Enter token…")
@@ -150,7 +167,7 @@ class OnlinePage(OnlineBase):
         # on this PC.
         pg = self.page
         with FakePlugin() as fp:
-            self.write_config({"token_sha256": diag.hash_token(TOKEN)})
+            self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
             self.open()
             pg.click('button[data-view="online"]')
             pg.click('button[data-online="connect"]')
@@ -218,7 +235,7 @@ class OnlinePage(OnlineBase):
     def test_same_config(self):
         pg = self.page
         with FakePlugin() as fp:
-            self.write_config({"token_sha256": diag.hash_token(TOKEN)})
+            self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
             with open(self.config_path, "rb") as f:
                 fp.status["config_sha256"] = hashlib.sha256(f.read()).hexdigest()
             self.remember(fp.runtime)
@@ -272,7 +289,7 @@ class OnlinePage(OnlineBase):
         with FakePlugin() as fp:
             fp.scan_nodes[0].update(product_code=5, match="configured, different device",
                                     differs="product code 0x00000005, expected 0x00000000")
-            self.write_config({"token_sha256": diag.hash_token(TOKEN)})
+            self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
             self.remember(fp.runtime, library=lib)
             self.open()
             pg.click('button[data-view="scan"]')
@@ -361,7 +378,7 @@ class OnlinePage(OnlineBase):
         with FakePlugin() as fp:
             fp.scan_nodes.append({"node_id": 5, "vendor_id": 0x360, "product_code": 0, "revision_number": 0,
                                   "serial_number": 0x5678, "match": "not configured"})
-            self.write_config({"token_sha256": diag.hash_token(TOKEN)})
+            self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
             self.remember(fp.runtime)
             self.open()
             pg.click('button[data-view="scan"]')

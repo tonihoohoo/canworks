@@ -60,11 +60,21 @@ trap cleanup EXIT
 
 CONFIG="$ROOT/config/pingpong"
 cp "$CONFIG/cpp-slave.eds" "$WORK/"
-HASH="$("$PY" -c 'import hashlib; print(hashlib.sha256(b"trace-test").hexdigest())')"
-sed -e "s/\"vcan0\"/\"$IFACE\"/" \
-    -e "s/\"sync_period_us\": 100000 }/\"sync_period_us\": 100000, \"diagnostics\": { \"token_sha256\": \"$HASH\", \"port\": 7539, \"bind\": \"127.0.0.1\" } }/" \
-    "$CONFIG/canopen_config.json" > "$WORK/canopen_config.json"
-grep -q token_sha256 "$WORK/canopen_config.json" || { echo "FAIL: could not add diagnostics to the config" >&2; exit 1; }
+python3 - "$CONFIG/canopen_config.json" "$WORK/canopen_config.json" "$IFACE" <<'PY'
+import json, sys
+def verifier(token):  # diag.token_verifier: SCRAM-SHA-256 (docs/diagnostics.md)
+    import base64, hashlib, hmac, os
+    salt = os.urandom(16)
+    sp = hashlib.pbkdf2_hmac("sha256", token.encode(), salt, 4096)
+    key = lambda name: hmac.new(sp, name, hashlib.sha256).digest()
+    b = lambda x: base64.b64encode(x).decode()
+    return "SCRAM-SHA-256$4096:%s$%s:%s" % (b(salt), b(hashlib.sha256(key(b"Client Key")).digest()), b(key(b"Server Key")))
+cfg = json.load(open(sys.argv[1]))
+cfg["adapter"]["interface"] = sys.argv[3]
+cfg["master"]["diagnostics"] = {"token_verifier": verifier("trace-test"), "port": 7539, "bind": "127.0.0.1"}
+json.dump(cfg, open(sys.argv[2], "w"), indent=2)
+PY
+grep -q token_verifier "$WORK/canopen_config.json" || { echo "FAIL: could not add diagnostics to the config" >&2; exit 1; }
 
 "$SLAVE" "$IFACE" "$WORK/cpp-slave.eds" 2 > "$WORK/slave.log" 2>&1 &
 PIDS+=($!)

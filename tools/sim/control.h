@@ -6,14 +6,19 @@
 // the engine on the loop's thread. ControlClient is the minimal client the
 // subcommands and the test mode use, against the standalone simulator (port
 // 7532) or the plugin's diagnostics channel (port 7531), which take the same
-// hello line and the same sim_ requests.
+// sim_ requests. With a token both use TLS and the SCRAM login of
+// secure_channel.h (the plugin always); a simulator without a token (on
+// loopback only) speaks plain lines and wants no hello.
 
 #ifndef OPENPLC_CANOPEN_SIM_CONTROL_H
 #define OPENPLC_CANOPEN_SIM_CONTROL_H
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
+
+#include "secure_channel.h"
 
 typedef struct cJSON cJSON;
 
@@ -21,7 +26,8 @@ namespace sim_tool {
 
 constexpr unsigned kControlPort = 7532;
 constexpr unsigned kDiagPort = 7531;
-constexpr unsigned kProtocol = 1;
+constexpr unsigned kProtocol = 1;     // plain, a simulator without a token
+constexpr unsigned kTlsProtocol = 2;  // TLS and SCRAM login
 
 // "HOST", "HOST:PORT", "[V6]:PORT" or "V6". False on a bad port.
 bool split_host_port(const std::string& text, unsigned default_port, std::string& host, unsigned& port);
@@ -54,16 +60,23 @@ class ControlServer {
   struct Client {
     int fd = -1;
     std::string peer;
-    std::string in, out;
+    std::string in, out;  // plaintext
     bool greeted = false;
     bool closing = false;
+    int mode = 0;  // 0 unknown, 1 plain, 2 TLS (from the first byte)
+    std::unique_ptr<canopen_plugin::TlsConn> tls;
+    std::string cnonce, snonce;
   };
   void accept_all();
+  void on_wire(Client& c, const char* data, size_t n);
+  void login(Client& c, const std::string& id, const std::string& op, const cJSON* req);
   void read_client(Client& c);
   void handle_line(Client& c, const std::string& line);
   void flush(Client& c);
 
   std::string version_, token_;
+  canopen_plugin::ScramVerifier verifier_;  // from token_, with a fresh salt
+  canopen_plugin::TlsIdentity tls_id_;
   Handler handler_;
   int fd_ = -1;
   std::string address_;
@@ -73,9 +86,9 @@ class ControlServer {
 class ControlClient {
  public:
   ~ControlClient();
-  // Connects and sends the hello line (with `token`, which may be empty).
-  // False with `err`; a closed connection after the hello means a wrong
-  // token.
+  // Connects and logs in: with a token over TLS (SCRAM, the server's
+  // signature checked), without one plain (a local simulator). False with
+  // `err`; a closed connection after the login means a wrong token.
   bool connect(const std::string& host, unsigned port, const std::string& token, std::string& err);
   // Sends `req` (an id is added) and returns the parsed answer, or nullptr
   // with `err` (transport error). The caller deletes the answer.
@@ -86,8 +99,11 @@ class ControlClient {
  private:
   bool send_line(const std::string& line, std::string& err);
   bool read_line(std::string& line, int timeout_ms, std::string& err);
+  bool send_wire(std::string& err);
+  bool login(const std::string& token, const std::string& where, std::string& err);
 
   int fd_ = -1;
+  std::unique_ptr<canopen_plugin::TlsConn> tls_;
   std::string buf_;
   unsigned next_id_ = 1;
   cJSON* hello_ = nullptr;

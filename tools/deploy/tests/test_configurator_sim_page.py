@@ -158,8 +158,8 @@ class Network(Base):
                          {"type": "socketcan", "simulate": True, "interface": "can0", "bitrate": 125000})
         self.assertTrue(all("simulate" not in n for n in saved["nodes"]))
         settings = load(os.path.join(self.cfg_dir, "online.json"))["projects"][self.project]
-        self.assertEqual(saved["master"]["diagnostics"], {"token_sha256": diag.hash_token(settings["token"]),
-                                                          "allow_changes": True})
+        self.assertTrue(diag.token_matches(settings["token"], saved["master"]["diagnostics"].pop("token_verifier")))
+        self.assertEqual(saved["master"]["diagnostics"], {"allow_changes": True})
         # Back to the real network: the adapter settings were kept.
         pg.select_option('select[data-path="adapter.simulate"]', "")
         self.assertEqual(self.banner_text(), "")
@@ -208,7 +208,7 @@ class Network(Base):
     def test_online_access_already_on_is_left_alone(self):
         pg = self.page
         cfg = three_nodes()
-        cfg["master"]["diagnostics"] = {"token_sha256": diag.hash_token(TOKEN)}
+        cfg["master"]["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN)}
         self.write_config(cfg)
         pg.click("#btn-reload")
         pg.wait_for_selector('input[data-online="enable"]:checked')
@@ -226,7 +226,7 @@ class View(Base):
         super().setUp()
         cfg = rtd_config()
         cfg["nodes"][0]["simulate"] = True
-        cfg["master"]["diagnostics"] = {"token_sha256": diag.hash_token(TOKEN), "allow_changes": self.allow}
+        cfg["master"]["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN), "allow_changes": self.allow}
         self.write_config(cfg)
         self.fake = FakeSim(allow_changes=self.allow).__enter__()
         self.addCleanup(self.fake.__exit__)

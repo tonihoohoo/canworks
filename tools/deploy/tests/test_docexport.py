@@ -334,12 +334,12 @@ class Privacy(unittest.TestCase):
         folder = os.path.join(tmp, "canopen")
         shutil.copytree(EDS_DIR, folder)
         cfg = base_config()
-        cfg["master"]["diagnostics"] = {"token_sha256": "c0ffee" * 10 + "abcd"}
+        cfg["master"]["diagnostics"] = {"token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="}
         path = os.path.join(folder, "canopen.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         text, _ = docexport.export(cfg, path, embed_eds=True, now=NOW)
-        self.assertNotIn("c0ffee" * 10, text)
+        self.assertNotIn("SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk", text)
         self.assertNotIn(tmp, text)
         self.assertNotIn("plantdocs-", text)
         self.assertIn("cpp-slave.eds", text)

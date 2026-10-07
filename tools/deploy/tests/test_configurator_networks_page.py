@@ -80,7 +80,7 @@ class NetworksPage(unittest.TestCase):
         cfg = load(os.path.join(TWO, "canopen_config.json"))
         cfg["networks"][1]["nodes"][0]["name"] = "drive"
         if diagnostics:
-            cfg["diagnostics"] = {"token_sha256": diag.hash_token(TOKEN), "allow_changes": True}
+            cfg["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True}
         return cfg
 
     def remember(self, host):

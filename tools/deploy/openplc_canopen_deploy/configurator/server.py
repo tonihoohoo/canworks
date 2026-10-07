@@ -73,7 +73,7 @@ ORDER = {
     "sdo": ["index", "subindex", "type", "value"],
     "sdo_variable": ["name", "index", "subindex", "type", "direction", "iec_location", "period_ms",
                      "trigger_location", "status_location", "abort_code_location", "timeout_ms"],
-    "diagnostics": ["token_sha256", "port", "bind", "allow_changes"],
+    "diagnostics": ["token_verifier", "token_sha256", "port", "bind", "allow_changes"],
     "lss": ["assign", "store"],
     "slave": ["node_id", "eds", "eds_lint", "inputs_on_loss", "state_location", "comm_ok_location",
               "sync_count_location", "emcy_code_location", "error_register_location", "objects"],
@@ -328,6 +328,21 @@ def sha256(path):
             h.update(chunk)
     return h.hexdigest()
 
+
+
+def _token_matches(token, body):
+    """Whether `token` is the one in body's token_verifier (or, for a config
+    from before the encrypted channel, its token_sha256). True when the body
+    gives neither."""
+    if not token:
+        return False
+    verifier = (body.get("token_verifier") or "").strip()
+    old = (body.get("token_sha256") or "").strip().lower()
+    if verifier:
+        return diag.token_matches(token, verifier)
+    if old:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest() == old
+    return True
 
 class ApiError(Exception):
     def __init__(self, status, message, **extra):
@@ -1319,20 +1334,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 token = diag.new_token()
             elif action == "set":
                 token = (body.get("token") or "").strip()
-                want = (body.get("token_sha256") or "").strip().lower()
                 if not token:
                     raise ApiError(422, "enter the token")
-                if want and diag.hash_token(token) != want:
-                    raise ApiError(422, "this token does not match token_sha256 in the configuration")
+                if not _token_matches(token, body):
+                    raise ApiError(422, "this token does not match the token in the configuration")
+            elif action == "check":
+                # Whether this PC's token is the config's (token_verifier, or the former token_sha256).
+                return dict(view(), match=_token_matches(proj.get("token"), body))
+            elif action == "verifier":
+                # A token_verifier for this PC's token: Upgrade of a config with the former token_sha256.
+                if not proj.get("token"):
+                    raise ApiError(409, "this PC has no token for this project", need="token")
+                return dict(view(), token_verifier=diag.token_verifier(proj["token"]))
             elif action == "forget":
                 settings.update_project(folder, token=None)
                 conn.close()
                 return view()
             else:
-                raise ApiError(400, "action must be generate, set or forget")
+                raise ApiError(400, "action must be generate, set, check, verifier or forget")
             settings.update_project(folder, token=token)
             conn.close()
-            return dict(view(), token_sha256=diag.hash_token(token))
+            return dict(view(), token_verifier=diag.token_verifier(token))
         if route == ("POST", "/api/online/close"):
             conn.close()
             return {"closed": True}
