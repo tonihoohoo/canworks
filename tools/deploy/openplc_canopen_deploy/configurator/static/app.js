@@ -155,10 +155,12 @@ function sameObject(a, ai, b, bi) { return num(a) === num(b) && num(ai || 0) ===
 
 // The object a page path starts in, and the path's parts: the open network,
 // or for "master.diagnostics…" the draft's one diagnostics object, which
-// every network shares (master.diagnostics in a version 1 file).
+// every network shares (master.diagnostics in a version 1 file), or for
+// "gateway…" the top of the draft.
 function pathRoot(path) {
   const parts = path.match(/[^.[\]]+/g);
   if (parts[0] === "master" && parts[1] === "diagnostics") return [S.model, parts.slice(1)];
+  if (parts[0] === "gateway") return [S.model.top, parts];
   return [S.config, parts];
 }
 
@@ -523,7 +525,7 @@ async function loadState() {
     await loadOnlineSettings();
     S.dirty = false;
     S.supervision = {};
-    if (S.view.startsWith("node:") && !S.config.nodes[Number(S.view.slice(5))]) S.view = "bus";
+    if (S.view.startsWith("node:") && !(S.config.nodes || [])[Number(S.view.slice(5))]) S.view = "bus";
     if (S.state.load_error) banner(S.state.load_error, true);
     else if (S.state.notices && S.state.notices.length) banner(S.state.notices.join(" "));
     else banner("");
@@ -622,6 +624,7 @@ function render() {
   else if (S.view === "online") renderOnline(view);
   else if (S.view === "scan") renderScan(view);
   else if (S.view === "trace") renderTrace(view);
+  else if (S.view === "gateway") renderGateway(view);
   else renderNode(view, Number(S.view.slice(5)));
   applyCheck();
 }
@@ -637,7 +640,13 @@ function renderSide() {
   el("button", { type: "button", class: "export-dcf", title: `Export DCF: node ${n.node_id ?? "?"} as a CiA 306 DCF file`,
     "aria-label": `Export DCF of node ${n.node_id ?? "?"}`,
     onclick: (ev) => { ev.stopPropagation(); exportDcf(n.node_id, tabNetwork()); } }, "Export DCF"))));
-  if (!(S.config.nodes || []).length) list.append(el("li", { class: "muted" }, "No nodes yet"));
+  if (isSlave(S.config)) {
+    const s = S.config.slave || {};
+    list.append(el("li", { class: S.view === "bus" ? "active" : null, dataset: { slave: "1" }, onclick: () => showView("bus") },
+      `${s.node_id === null ? "LSS" : s.node_id ?? "?"} slave device (this PLC)`));
+  } else if (!(S.config.nodes || []).length) list.append(el("li", { class: "muted" }, "No nodes yet"));
+  $("#eds-input").closest("label").hidden = isSlave(S.config);
+  $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
   const unused = S.state.unused_eds || [];
   $("#unused-eds").replaceChildren(...(unused.length ? [el("h3", null, "Unused EDS files"),
     el("p", { class: "muted" }, unused.join(", ") + " (left in place, never deleted)")] : []));
@@ -684,6 +693,7 @@ function renderBus(view) {
   const a = "adapter";
   const slcan = getPath("adapter.type") === "slcan";
   const plcCycle = getPath("master.sync_source") === "plc_cycle";
+  const slave = isSlave(S.config);
   const rateSel = el("select", { dataset: { path: "adapter.bitrate" }, "aria-label": "Bit rate" },
     BITRATES.map((r) => el("option", { value: r }, (r >= 1000000 ? r / 1000000 + " Mbit/s" : r / 1000 + " kbit/s"))));
   const rate = getPath("adapter.bitrate");
@@ -691,7 +701,8 @@ function renderBus(view) {
   rateSel.value = rate === undefined ? "" : String(rate);
   rateSel.addEventListener("change", () => setPath("adapter.bitrate", Number(rateSel.value)));
   view.append(
-    el("h2", null, several() ? `Bus and master: network ${netLabel(S.config, S.net)}` : "Bus and master"),
+    el("h2", null, (slave ? "Bus and slave device" : "Bus and master") + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
+    roleField(),
     el("fieldset", null, el("legend", null, "CAN adapter"),
       el("div", { class: "grid" },
         choice("Adapter type", a + ".type", [
@@ -716,7 +727,7 @@ function renderBus(view) {
         slcan ? null : field("Bus-off restart (ms)", a + ".restart_ms", "intstr", { placeholder: "not set",
           hint: "Empty: keep the interface's own setting. 0 turns automatic restart after bus-off off. Used only when the plugin sets up the link." })),
       el("datalist", { id: "ifaces" }, ["can0", "can1", "vcan0"].map((v) => el("option", { value: v })))),
-    el("fieldset", null, el("legend", null, "Master"),
+    ...(slave ? slaveFieldsets() : [el("fieldset", null, el("legend", null, "Master"),
       el("div", { class: "grid" },
         field("Node ID", "master.node_id", "intstr", { placeholder: "1",
           hint: "Required, 1 to 127, and not used by any slave. New configs start with 1." }),
@@ -758,9 +769,9 @@ function renderBus(view) {
           hint(help),
           el("span", { class: "field-msg", dataset: { for: path } }),
           declNote(path));
-      }))),
+      })))]),
     onlineAccessSettings(),
-    masterAdvanced());
+    ...(slave ? [] : [masterAdvanced()]));
 }
 
 // A collapsed section of rarely needed settings. It opens by itself when one
@@ -873,6 +884,470 @@ document.addEventListener("input", (ev) => {
   if (path === "master.time_period_ms" || path === "master.time_cob_id") showTimeCob();
   if (path === "adapter.interface" && several()) renderNetBar();  // the tab shows the interface's name
 });
+
+// ---------------------------------------------------------------------------
+// Slave networks (canopen-slave-device): OpenPLC as a node of a network
+// another master runs. The network's `slave` object takes the place of its
+// master and nodes; its EDS is picked or built here (canopen-slave-eds).
+
+const isSlave = (net) => !!net && net.role === "slave";
+const SLAVE_ID = 10;  // a new slave network's node ID
+const SLAVE_DIAG = [
+  ["state_location", "slave_state", "Own state", "%IB…",
+    "The slave's NMT state: 0 not started, 4 stopped, 5 operational, 127 pre-operational. Empty: none."],
+  ["comm_ok_location", "slave_comm_ok", "Communication OK", "%IX…",
+    "TRUE while operational with no heartbeat consumer or life guarding error. Empty: none."],
+  ["sync_count_location", "slave_sync_count", "SYNC count", "%IW…", "SYNCs received, wrapping at 65535. Empty: none."],
+  ["emcy_code_location", "slave_emcy", "EMCY code", "%QW…",
+    "Output: a change to a non-zero code sends one EMCY with it, a change to 0 the error reset. Empty: the program sends no EMCY."],
+  ["error_register_location", "slave_errreg", "Error register", "%QB…",
+    "Output: the 0x1001 bits sent with the EMCY. Empty: none."],
+];
+const BINDABLE = { rww: "input", rw: "input", ro: "output", rwr: "output" };
+
+// The network's role: switching to slave drops the master settings and the
+// nodes (asked first when there are any); back to master starts empty.
+function roleField() {
+  return el("fieldset", null, el("legend", null, "Role"),
+    el("div", { class: "grid" }, choice("This network", "role", [
+      { value: undefined, label: "Master", help: "Default. The plugin is the network's master: it boots and configures the nodes listed here." },
+      { value: "slave", label: "Slave", help: "Another master runs this network; the plugin is one of its nodes, with an EDS for that master's tool." },
+    ], { onChange: switchRole })));
+}
+
+async function switchRole(role) {
+  const net = S.config;
+  if ((role === "slave") === isSlave(net)) return;
+  if (role === "slave") {
+    const k = (net.nodes || []).length;
+    const settings = Object.keys(net.master || {}).filter((key) => !["node_id", "sync_period_us"].includes(key)).length;
+    if (k || settings) {
+      const v = await modal(`Make network ${netLabel(net, S.net)} a slave network? Its master settings` +
+        (k ? ` and its ${k} node${k === 1 ? "" : "s"}` : "") + " are dropped. Their EDS files stay in the folder.",
+        [["slave", "Make it a slave", true], ["cancel", "Cancel"]]);
+      if (v !== "slave") { render(); return; }
+    }
+    delete net.master;
+    delete net.nodes;
+    net.role = "slave";
+    net.slave = { node_id: SLAVE_ID, eds: "", objects: [] };
+  } else {
+    const s = net.slave || {};
+    if (s.eds || (s.objects || []).length) {
+      const v = await modal(`Make network ${netLabel(net, S.net)} a master network again? The slave settings and ` +
+        "bindings are dropped. The EDS file stays in the folder.", [["master", "Make it a master", true], ["cancel", "Cancel"]]);
+      if (v !== "master") { render(); return; }
+    }
+    delete net.role;
+    delete net.slave;
+    net.master = { node_id: 1, sync_period_us: 10000 };
+    net.nodes = [];
+  }
+  changed(true);
+}
+
+// The description the slave's EDS was built from (the server keeps it next
+// to the EDS as <name>.json), else a starting one.
+function slaveDesc() {
+  S.slaveDesc = S.slaveDesc || {};
+  const s = S.config.slave || {};
+  const key = `${S.net}|${s.eds || ""}`;
+  if (!S.slaveDesc[key]) {
+    const saved = (S.state.slave_descriptions || {})[s.eds];
+    S.slaveDesc[key] = saved ? JSON.parse(JSON.stringify(saved)) :
+      { device_name: "OpenPLC slave", vendor_id: 0, product_code: 1, heartbeat_ms: 1000, layout: "manufacturer", objects: [] };
+  }
+  return S.slaveDesc[key];
+}
+
+function slaveFieldsets() {
+  const base = "slave";
+  const s = S.config.slave || (S.config.slave = { eds: "", objects: [] });
+  const eds = s.eds ? (S.state.eds || {})[s.eds] || null : null;
+  const lss = s.node_id === null;
+  const lssBox = el("input", { type: "checkbox", dataset: { path: base + ".lss" } });
+  lssBox.checked = lss;
+  lssBox.addEventListener("change", () => { setPath(base + ".node_id", lssBox.checked ? null : SLAVE_ID); render(); });
+  const edsSel = el("select", { dataset: { path: base + ".eds" }, "aria-label": "Slave EDS file" },
+    el("option", { value: "" }, "(none yet)"),
+    Object.keys(S.state.eds || {}).map((name) => el("option", { value: name }, name)));
+  edsSel.value = s.eds || "";
+  edsSel.addEventListener("change", () => { setPath(base + ".eds", edsSel.value || ""); render(); });
+  const edsFile = el("input", { type: "file", accept: ".eds,.EDS" });
+  edsFile.addEventListener("change", () => { const f = edsFile.files[0]; edsFile.value = ""; if (f) useSlaveEdsFile(f); });
+  return [
+    el("fieldset", null, el("legend", null, "Slave device"),
+      el("div", { class: "grid" },
+        lss ? el("label", null, "Node ID", el("input", { type: "text", disabled: true, value: "assigned by LSS", "aria-label": "Node ID" }),
+          hint("The node starts without an ID and waits for the master's LSS to assign one."))
+          : field("Node ID", base + ".node_id", "intstr", { hint: "Required, 1 to 127: the ID the other master expects." }),
+        el("div", { class: "check-field" }, el("label", { class: "check" }, lssBox, " Node ID by LSS"),
+          hint("On: no node ID in the config; an LSS master assigns it at start. Default: off.")),
+        el("label", null, "EDS", el("span", { class: "row" }, edsSel,
+          el("button", { type: "button", dataset: { exportEds: "1" }, onclick: exportSlaveEds,
+            title: "The EDS the plugin runs, for import into the other master's configuration tool" }, "Export EDS")),
+          hint("The slave's object dictionary. Build one below, or use an EDS file."),
+          el("span", { class: "field-msg", dataset: { for: base + ".eds" } })),
+        el("label", { class: "file-button" }, "Use an EDS file… ", edsFile),
+        choice("Inputs when the master is lost", base + ".inputs_on_loss", [
+          { value: undefined, label: "Hold", help: "Default. Inputs keep their last value while the node is not operational or the master's heartbeat is lost." },
+          { value: "zero", label: "Zero", help: "Inputs read 0 while the node is not operational or the master's heartbeat is lost." },
+        ]),
+        choice("EDS lint (dcfgen)", base + ".eds_lint", [
+          { value: undefined, label: "Communication objects", help: "Default. The PLC stops only on lint findings in 0x1000-0x1FFF." },
+          { value: "all", label: "Every object", help: "The PLC stops on any lint finding. An EDS built here always passes it." },
+          { value: "off", label: "Off", help: "The PLC never stops on a lint finding." },
+        ]))),
+    slaveBuilder(),
+    slaveObjects(eds),
+    el("fieldset", null, el("legend", null, "Status and EMCY"),
+      el("p", { class: "muted" }, "Optional locations: the slave's own state for the program, and an EMCY the program sends."),
+      el("div", { class: "grid" }, SLAVE_DIAG.map(([key, direction, label, placeholder, help]) => {
+        const path = base + "." + key;
+        const btn = el("button", { type: "button", dataset: { suggest: direction },
+          onclick: async () => {
+            const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, direction });
+            setPath(path, r.location);
+            render();
+          } }, "Suggest");
+        return el("label", null, label, el("span", { class: "row" },
+          field("", path, "text", { placeholder }).querySelector("input"), btn),
+          hint(help), el("span", { class: "field-msg", dataset: { for: path } }), declNote(path));
+      }))),
+  ];
+}
+
+// The bound objects, from the EDS: direction from the access type, the PLC
+// area to match, and a picker of the objects not bound yet.
+function slaveObjects(eds) {
+  const fs = el("fieldset", { dataset: { slaveObjects: "1" } }, el("legend", null, "Objects"));
+  const s = S.config.slave;
+  const objects = s.objects || [];
+  if (!eds || !eds.objects) {
+    fs.append(el("p", { class: "muted" }, eds && eds.error ? eds.error : "Build or pick the slave's EDS first."));
+    return fs;
+  }
+  const rows = objects.map((o, j) => {
+    const info = objectInfo(eds, o.index, o.subindex);
+    const dir = info ? BINDABLE[info.access] : undefined;
+    const path = `slave.objects[${j}]`;
+    const suggest = el("button", { type: "button", dataset: { suggest: "slave_object" }, disabled: !info || !dir || !info.type,
+      onclick: async () => {
+        const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, direction: "slave_object",
+          type: info.type, access: info.access });
+        setPath(path + ".iec_location", r.location);
+        render();
+      } }, "Suggest");
+    return el("tr", { dataset: { object: `${o.index}:${o.subindex ?? 0}` } },
+      el("td", null, `${o.index}:${o.subindex ?? 0}`),
+      el("td", null, info ? info.name : el("span", { class: "field-msg" }, "not in the EDS")),
+      el("td", null, info ? info.type || "" : ""),
+      el("td", null, info ? `${info.access}: ` + (dir === "input" ? "master writes, PLC input (%I)" : dir === "output" ? "PLC writes, master reads (%Q)" : "cannot be bound") : ""),
+      el("td", null, el("span", { class: "row" }, field("", path + ".iec_location", "text",
+        { placeholder: dir === "output" ? "%Q…" : "%I…" }).querySelector("input"), suggest),
+        el("span", { class: "field-msg", dataset: { for: path + ".iec_location" } }),
+        el("span", { class: "field-msg", dataset: { for: path } }), declNote(path + ".iec_location")),
+      el("td", null, field("", path + ".name", "text", { placeholder: info ? info.name : "" }).querySelector("input")),
+      el("td", null, el("button", { type: "button", onclick: () => { objects.splice(j, 1); changed(true); } }, "Remove")));
+  });
+  const free = eds.objects.filter((o) => BINDABLE[o.access] && o.type && o.subindex !== undefined &&
+    !(o.subindex === 0 && eds.objects.some((x) => x.index === o.index && x.subindex > 0)) &&
+    !objects.some((b) => sameObject(b.index, b.subindex, o.index, o.subindex)) &&
+    num(o.index) >= 0x2000);
+  const pick = el("select", { "aria-label": "Object to bind" }, free.map((o, k) =>
+    el("option", { value: k }, `${o.index}:${o.subindex} ${o.name} (${o.type}, ${o.access})`)));
+  fs.append(el("p", { class: "muted" }, "Objects the master writes (AccessType rww or rw) are PLC inputs; objects the " +
+      "program writes (ro or rwr) are PLC outputs the master reads. The name is optional and names the variable."),
+    el("div", { class: "objects" }, el("table", null,
+      el("thead", null, el("tr", null, ["Object", "EDS name", "Type", "Direction", "PLC location", "Name", ""].map((h) => el("th", null, h)))),
+      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 7, class: "muted" }, "No objects bound yet."))))),
+    free.length ? el("div", { class: "toolbar" }, pick, el("button", { type: "button", dataset: { bind: "1" },
+      onclick: async () => {
+        const o = free[Number(pick.value)];
+        const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, direction: "slave_object",
+          type: o.type, access: o.access });
+        s.objects = s.objects || [];
+        s.objects.push({ index: o.index, subindex: o.subindex, iec_location: r.location });
+        changed(true);
+      } }, "Bind")) : null);
+  return fs;
+}
+
+// The object list editor: name, type, direction, default and limits, the
+// identity and the layout; Generate builds the EDS with slave-eds's generator.
+function slaveBuilder() {
+  const d = slaveDesc();
+  d.objects = d.objects || [];
+  const input = (obj, key, label, kind, opts) => {
+    const i = el("input", { type: "text", spellcheck: "false", "aria-label": label, placeholder: (opts || {}).placeholder, dataset: { desc: key } });
+    i.value = obj[key] === undefined || obj[key] === null ? "" : String(obj[key]);
+    i.addEventListener("input", () => {
+      const t = i.value.trim();
+      if (t === "") delete obj[key];
+      else obj[key] = kind === "num" && /^-?[0-9]+(\.[0-9]+)?$/.test(t) ? Number(t) : t;
+    });
+    return i;
+  };
+  const sel = (obj, key, label, values) => {
+    const e = el("select", { "aria-label": label, dataset: { desc: key } }, values.map(([v, t]) => el("option", { value: v }, t)));
+    e.value = obj[key] || values[0][0];
+    e.addEventListener("change", () => { obj[key] = e.value; });
+    return e;
+  };
+  const cia401 = d.layout === "cia401";
+  const rows = d.objects.map((o, k) => el("tr", { dataset: { descObject: k } },
+    el("td", null, input(o, "name", "Object name")),
+    el("td", null, sel(o, "type", "Type", (cia401 ? ["UNSIGNED8", "INTEGER16"] : TYPES).map((t) => [t, t]))),
+    el("td", null, sel(o, "direction", "Direction", [["from_master", "from the master (PLC input)"], ["to_master", "to the master (PLC output)"]])),
+    el("td", null, input(o, "default", "Default", "num", { placeholder: "0" })),
+    el("td", null, input(o, "low", "Low limit", "num")),
+    el("td", null, input(o, "high", "High limit", "num")),
+    el("td", null, el("button", { type: "button", onclick: () => { d.objects.splice(k, 1); render(); } }, "Remove"))));
+  const g = S.model.top.gateway;
+  const gatewayBox = el("input", { type: "checkbox", dataset: { desc: "gateway" } });
+  gatewayBox.checked = !!(g && g.upper === netName(S.config));
+  const layoutSel = sel(d, "layout", "Layout", [["manufacturer", "Manufacturer objects (0x2000/0x2100)"], ["cia401", "CiA 401 generic I/O"]]);
+  layoutSel.addEventListener("change", () => render());
+  // Open by itself while the slave has no EDS.
+  S.advOpen = S.advOpen || {};
+  if (!(S.config.slave || {}).eds && S.advOpen["slave-build"] === undefined) S.advOpen["slave-build"] = true;
+  return advanced("slave-build", "Build the EDS", "slave", [],
+    el("p", { class: "muted" }, "The objects of the slave's dictionary. Generate writes the EDS into the folder with the config " +
+      "(on Save), with the same generator as openplc-canopen-deploy slave-eds, and offers to bind every object."),
+    el("div", { class: "grid" },
+      el("label", null, "Device name", input(d, "device_name", "Device name"), hint("Also names the exported EDS.")),
+      el("label", null, "Vendor ID", input(d, "vendor_id", "Vendor ID", "num", { placeholder: "0" })),
+      el("label", null, "Product code", input(d, "product_code", "Product code", "num", { placeholder: "0" })),
+      el("label", null, "Revision number", input(d, "revision_number", "Revision number", "num", { placeholder: "from the content" }),
+        hint("Empty: derived from the objects, so a changed dictionary gets a new revision.")),
+      el("label", null, "Heartbeat (ms)", input(d, "heartbeat_ms", "Heartbeat", "num", { placeholder: "1000" })),
+      el("label", null, "Layout", layoutSel,
+        hint(cia401 ? "Device type 401: digital I/O as UNSIGNED8 (0x6000/0x6200), analog as INTEGER16 (0x6401/0x6411)."
+          : "From the master in 0x2000 and up, to the master in 0x2100 and up, one ARRAY per type."))),
+    el("div", { class: "objects" }, el("table", null,
+      el("thead", null, el("tr", null, ["Name", "Type", "Direction", "Default", "Low", "High", ""].map((h) => el("th", null, h)))),
+      el("tbody", null, rows))),
+    el("div", { class: "toolbar" },
+      el("button", { type: "button", dataset: { addDescObject: "1" }, onclick: () => {
+        d.objects.push({ name: `value${d.objects.length + 1}`, type: cia401 ? "UNSIGNED8" : "UNSIGNED16", direction: "from_master" });
+        render();
+      } }, "Add object"),
+      g ? el("label", { class: "check" }, gatewayBox, " With the gateway objects (routes, status, SDO bridge)") : null,
+      el("div", { class: "spacer" }),
+      el("button", { type: "button", class: "primary", dataset: { generate: "1" }, onclick: () => generateSlaveEds(gatewayBox.checked) }, "Generate EDS")));
+}
+
+async function generateSlaveEds(withGateway) {
+  const d = slaveDesc();
+  const s = S.config.slave;
+  const body = { config: fileConfig(), network: S.net, description: d, gateway: withGateway };
+  if (s.eds && (S.state.slave_descriptions || {})[s.eds]) body.name = s.eds;
+  let r;
+  try {
+    r = await api("POST", "/api/slave_eds", body);
+  } catch (e) {
+    if (e.status === 409 && e.body.conflict) {
+      const v = await modal(e.message + ". Replace it with the generated EDS?", [["replace", "Replace"], ["cancel", "Cancel", true]]);
+      if (v !== "replace") return;
+      r = await api("POST", "/api/slave_eds", Object.assign(body, { replace: true }));
+    } else {
+      banner(e.message, true);
+      return;
+    }
+  }
+  S.state.eds = S.state.eds || {};
+  S.state.eds[r.name] = r.summary;
+  S.state.slave_descriptions = S.state.slave_descriptions || {};
+  S.state.slave_descriptions[r.name] = JSON.parse(JSON.stringify(d));
+  S.slaveDesc[`${S.net}|${r.name}`] = d;
+  s.eds = r.name;
+  const g = S.model.top.gateway;
+  if (withGateway && g && Array.isArray(g.routes)) r.routes.forEach((place, j) => { if (g.routes[j]) g.routes[j].slave = place; });
+  const v = await modal(`Generated ${r.name}: ${r.objects.length} object${r.objects.length === 1 ? "" : "s"}, revision number ` +
+    `${hex8(r.revision_number)}. Bind ${r.bindings.length === 1 ? "the object" : `all ${r.bindings.length} objects`} to the suggested locations` +
+    ` (${r.bindings.map((b) => `${b.name} ${b.iec_location}`).join(", ")})?`,
+    [["bind", "Bind all", true], ["keep", "Keep the bindings"]]);
+  if (v === "bind") s.objects = r.bindings;
+  banner(`Generated ${r.name}; it is written with the config on Save.`);
+  changed(true);
+}
+
+async function useSlaveEdsFile(file) {
+  try {
+    const data = await fileBase64(file);
+    let res;
+    try {
+      res = await api("POST", "/api/eds", { name: file.name, data, eds_lint: (S.config.slave || {}).eds_lint });
+    } catch (e) {
+      if (!(e.status === 409 && e.body.conflict)) throw e;
+      const v = await modal(e.message + ". Replace it, or keep both under a new name?",
+        [["replace", "Replace"], ["keep_both", "Keep both", true], ["cancel", "Cancel"]]);
+      if (!v || v === "cancel") return;
+      res = await api("POST", "/api/eds", { name: file.name, data, on_conflict: v, eds_lint: (S.config.slave || {}).eds_lint });
+    }
+    S.state.eds = S.state.eds || {};
+    S.state.eds[res.name] = res.summary;
+    S.config.slave.eds = res.name;
+    banner(importReport(res));
+    changed(true);
+  } catch (e) {
+    banner(e.message, true);
+  }
+}
+
+// Export EDS: the exact file the plugin runs, named after its device name.
+async function exportSlaveEds() {
+  try {
+    const r = await api("POST", "/api/export_eds", { config: fileConfig(), network: S.net });
+    downloadBase64(r.data, r.name, r.content_type);
+    banner(`Exported ${r.name}: import it into the other master's configuration tool.`);
+  } catch (e) {
+    banner(e.message, true);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Gateway (canopen-gateway): routes between a slave network and the field
+// networks, status, EMCY forwarding, upper loss and the SDO bridge. Paths
+// "gateway…" live at the top of the draft.
+
+function renderGateway(view) {
+  const top = S.model.top;
+  const slaves = S.model.networks.filter(isSlave).map(netName).filter(Boolean);
+  const masters = S.model.networks.filter((n) => !isSlave(n));
+  view.append(el("h2", null, "Gateway"));
+  if (!top.gateway && (!slaves.length || !masters.length)) {
+    view.append(el("p", { class: "muted" }, "A gateway needs a slave network with a name (the upper network) and at least one " +
+      "master network (the field). Add a network and set its role to slave."));
+    return;
+  }
+  const on = el("input", { type: "checkbox", dataset: { path: "gateway" } });
+  on.checked = !!top.gateway;
+  on.addEventListener("change", async () => {
+    if (on.checked) top.gateway = { upper: slaves[0] || "", routes: [] };
+    else {
+      const k = ((top.gateway || {}).routes || []).length;
+      if (k && await modal(`Remove the gateway and its ${k} route${k === 1 ? "" : "s"}?`, [["remove", "Remove", true], ["cancel", "Cancel"]]) !== "remove") { render(); return; }
+      delete top.gateway;
+    }
+    changed(true);
+  });
+  view.append(el("fieldset", null, el("legend", null, "Gateway"),
+    el("div", { class: "check-field" }, el("label", { class: "check" }, on, " OpenPLC copies values between the upper network and the field"),
+      hint("The plugin moves routed values at bus speed, without the PLC program. Default: off."))));
+  const g = top.gateway;
+  if (!g) return;
+  const upperSlave = (S.model.networks.find((n) => isSlave(n) && netName(n) === g.upper) || {}).slave || {};
+  const upperEds = upperSlave.eds ? (S.state.eds || {})[upperSlave.eds] : null;
+  view.append(
+    el("fieldset", null, el("legend", null, "Networks"),
+      el("div", { class: "grid" }, choice("Upper network", "gateway.upper", slaves.map((n) => ({ value: n, label: n,
+        help: "The slave network the upper master runs." }))),
+      el("p", { class: "hint wide" }, "Build the upper network's EDS with \"With the gateway objects\" ticked, so it has an object per route, " +
+        "the status ARRAYs and the bridge record; generating again updates the routes' slave objects."))),
+    gatewayRoutes(g, masters, upperEds),
+    el("fieldset", null, el("legend", null, "Options"),
+      el("div", { class: "grid" },
+        gatewayCheck("Field node status", "gateway.status", !!g.status, (v) => { if (v) g.status = {}; else delete g.status; },
+          "Each field node's NMT state at 0x5E00 + k and its operational bit at 0x5E10 + k, for master network k (at most 4)."),
+        g.status ? field("Status index", "gateway.status.index", "text", { placeholder: "0x5E00" }) : null,
+        checkbox("Forward field EMCYs", "gateway.emcy_forward", false,
+          "A field node's EMCY goes out as the gateway's EMCY, with the network and node in the manufacturer bytes."),
+        choice("When the upper master is lost", "gateway.on_upper_loss", [
+          { value: undefined, label: "Hold", help: "Default. Routed field outputs keep their last values." },
+          { value: "zero", label: "Zero", help: "Routed field outputs are set to 0." },
+          { value: "stop_nodes", label: "Stop the field nodes", help: "Field nodes that receive routes get NMT stop, and start again when the upper master starts the gateway." },
+        ]),
+        checkbox("SDO bridge", "gateway.sdo_bridge", false,
+          "A record the upper master uses to read objects of up to 4 bytes on a field node."),
+        g.sdo_bridge ? field("Bridge index", "gateway.sdo_bridge_index", "text", { placeholder: "0x5F00" }) : null,
+        g.sdo_bridge ? checkbox("Bridge may write", "gateway.sdo_bridge_write", false, "On: the upper master may also write field node objects.") : null)));
+}
+
+function gatewayCheck(label, path, value, set, help) {
+  const input = el("input", { type: "checkbox", dataset: { path } });
+  input.checked = value;
+  input.addEventListener("change", () => { set(input.checked); changed(true); });
+  return el("div", { class: "check-field" }, el("label", { class: "check" }, input, " " + label), hint(help + " Default: off."));
+}
+
+// The PDO entries of a field node a route can use: TPDO entries go up,
+// RPDO entries come down.
+function fieldEntries(node) {
+  const out = [];
+  for (const [key, dir] of [["tx_pdos", "up"], ["rx_pdos", "down"]]) {
+    for (const [j, p] of (node[key] || []).entries()) {
+      for (const e of p.entries || []) {
+        out.push({ index: e.index, subindex: e.subindex ?? 0, type: e.type, dir,
+          label: `${key === "tx_pdos" ? "TPDO" : "RPDO"} ${p.number ?? j + 1} ${e.index}:${e.subindex ?? 0} ${e.type || ""}` });
+      }
+    }
+  }
+  return out;
+}
+
+function gatewayRoutes(g, masters, upperEds) {
+  g.routes = g.routes || [];
+  const slaveObjs = upperEds && upperEds.objects ? upperEds.objects.filter((o) => BINDABLE[o.access] && o.type && num(o.index) >= 0x2000) : [];
+  const rows = g.routes.map((rt, j) => {
+    const path = `gateway.routes[${j}]`;
+    rt.slave = rt.slave || {};
+    rt.field = rt.field || {};
+    const objSel = el("select", { dataset: { path: path + ".slave" }, "aria-label": "Slave object" },
+      el("option", { value: "" }, "(pick)"),
+      slaveObjs.map((o, k) => el("option", { value: k }, `${o.index}:${o.subindex} ${o.name} (${o.access})`)));
+    const cur = slaveObjs.findIndex((o) => sameObject(o.index, o.subindex, rt.slave.index, rt.slave.subindex));
+    if (cur < 0 && rt.slave.index !== undefined) objSel.prepend(el("option", { value: "keep" }, `${rt.slave.index}:${rt.slave.subindex ?? 0}`));
+    objSel.value = cur >= 0 ? String(cur) : rt.slave.index !== undefined ? "keep" : "";
+    objSel.addEventListener("change", () => {
+      if (objSel.value === "keep") return;
+      const o = slaveObjs[Number(objSel.value)];
+      rt.slave = o ? { index: o.index, subindex: o.subindex } : {};
+      changed();
+    });
+    const netSel = el("select", { dataset: { path: path + ".field.network" }, "aria-label": "Field network" },
+      el("option", { value: "" }, "(pick)"), masters.map((n) => el("option", { value: netName(n) }, netName(n))));
+    netSel.value = rt.field.network || "";
+    netSel.addEventListener("change", () => { rt.field = { network: netSel.value }; changed(true); });
+    const net = masters.find((n) => netName(n) === rt.field.network);
+    const nodes = net ? net.nodes || [] : [];
+    const nodeSel = el("select", { dataset: { path: path + ".field.node" }, "aria-label": "Field node" },
+      el("option", { value: "" }, "(pick)"), nodes.map((n) => el("option", { value: n.node_id }, `${n.node_id} ${n.name || ""}`)));
+    nodeSel.value = rt.field.node === undefined ? "" : String(rt.field.node);
+    nodeSel.addEventListener("change", () => {
+      rt.field = { network: rt.field.network, node: nodeSel.value === "" ? undefined : Number(nodeSel.value) };
+      changed(true);
+    });
+    const node = nodes.find((n) => num(n.node_id) === num(rt.field.node));
+    const entries = node ? fieldEntries(node) : [];
+    const entrySel = el("select", { dataset: { path: path + ".field" }, "aria-label": "Field PDO entry" },
+      el("option", { value: "" }, "(pick)"), entries.map((e, k) => el("option", { value: k }, e.label)));
+    const ce = entries.findIndex((e) => sameObject(e.index, e.subindex, rt.field.index, rt.field.subindex));
+    entrySel.value = ce >= 0 ? String(ce) : "";
+    entrySel.addEventListener("change", () => {
+      const e = entries[Number(entrySel.value)];
+      Object.assign(rt.field, e ? { index: e.index, subindex: e.subindex } : { index: undefined, subindex: undefined });
+      changed(true);
+    });
+    const e = ce >= 0 ? entries[ce] : null;
+    return el("tr", { dataset: { route: j } },
+      el("td", null, field("", path + ".name", "text", { placeholder: `route${j + 1}` }).querySelector("input")),
+      el("td", null, objSel), el("td", null, netSel), el("td", null, nodeSel), el("td", null, entrySel),
+      el("td", null, e ? (e.dir === "up" ? "up: node to upper master" : "down: upper master to node") : ""),
+      el("td", null, el("button", { type: "button", onclick: () => { g.routes.splice(j, 1); changed(true); } }, "Remove"),
+        el("span", { class: "field-msg", dataset: { for: path } })));
+  });
+  return el("fieldset", null, el("legend", null, "Routes"),
+    el("p", { class: "muted" }, "Each route copies one value: a field TPDO entry up to a slave object the upper master reads (ro), " +
+      "or a slave object the upper master writes (rww) down to a field RPDO entry, of the same type. An RPDO entry a route writes " +
+      "needs no PLC location: one writer per object."),
+    upperEds ? null : el("p", { class: "field-msg" }, "Build or pick the upper network's EDS to pick slave objects."),
+    el("div", { class: "objects" }, el("table", null,
+      el("thead", null, el("tr", null, ["Name", "Slave object", "Network", "Node", "PDO entry", "Direction", ""].map((h) => el("th", null, h)))),
+      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 7, class: "muted" }, "No routes yet."))))),
+    el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { addRoute: "1" },
+      onclick: () => { g.routes.push({ slave: {}, field: {} }); changed(true); } }, "Add route")));
+}
 
 function edsFor(n) { return (S.state.eds || {})[n.eds] || null; }
 
@@ -4010,7 +4485,17 @@ function placeOf(w) {
   const lead = several() && net ? [`Network ${netLabel(net, w.net)}`] : [];
   const path = w.path;
   if (path.startsWith("master.diagnostics")) return ["Online access"];
+  if (path.startsWith("gateway")) {
+    const r = /^gateway\.routes\[(\d+)\]/.exec(path);
+    const rt = r && ((S.model.top.gateway || {}).routes || [])[Number(r[1])];
+    return ["Gateway"].concat(rt ? [`route ${rt.name || Number(r[1]) + 1}`] : []);
+  }
   if (!net) return [];
+  if (path.startsWith("slave")) {
+    const o = /^slave\.objects\[(\d+)\]/.exec(path);
+    const b = o && ((net.slave || {}).objects || [])[Number(o[1])];
+    return lead.concat(["Slave device"], b ? [`${b.index}:${b.subindex ?? 0}`] : []);
+  }
   if (path.startsWith("adapter")) return lead.concat(["CAN adapter"]);
   if (path.startsWith("master")) return lead.concat(["Master"]);
   const m = /^nodes\[(\d+)\](?:\.(tx_pdos|rx_pdos|sdo|sdo_variables)\[(\d+)\](?:\.entries\[(\d+)\])?)?/.exec(path);
@@ -4038,7 +4523,8 @@ function focusPath(w) {
   if (w.net !== null && w.net !== S.net && S.model.networks[w.net]) switchNet(w.net);
   const path = w.path;
   const m = /^nodes\[(\d+)\]/.exec(path);
-  const want = m ? "node:" + m[1] : (path.startsWith("adapter") || path.startsWith("master") ? "bus" : S.view);
+  const want = m ? "node:" + m[1] : path.startsWith("gateway") ? "gateway"
+    : (path.startsWith("adapter") || path.startsWith("master") || path.startsWith("slave") || path === "role" ? "bus" : S.view);
   if (want !== S.view) showView(want);
   const target = document.querySelector(`[data-path="${CSS.escape(path)}"]`);
   if (target) { target.scrollIntoView({ block: "center" }); if (target.focus) target.focus(); }
