@@ -115,6 +115,41 @@ def fingerprints(config_path):
 # Connection to the plugin
 
 
+class AdapterTarget:
+    """A CAN adapter on this PC as the online target (canopen-local-bus), in
+    place of a runtime host: the adapter (TYPE:CHANNEL), the bit rate in
+    bit/s, the session's allow-changes switch and the configured nodes
+    ({node_id: {name, expect}}) for status and scan. Equal targets share the
+    kept-open connection."""
+
+    def __init__(self, adapter, bitrate, allow_changes=False, nodes=None, network=None):
+        self.adapter, self.bitrate, self.allow_changes = adapter, bitrate, bool(allow_changes)
+        self.nodes = nodes or {}
+        self.network = network
+
+    def _key(self):
+        return (self.adapter, self.bitrate, self.allow_changes, self.network,
+                json.dumps(self.nodes, sort_keys=True, default=str))
+
+    def __eq__(self, other):
+        return isinstance(other, AdapterTarget) and self._key() == other._key()
+
+    def __hash__(self):
+        return hash(self._key())
+
+    def __str__(self):
+        return "USB adapter %s" % self.adapter
+
+    def client(self, timeout):
+        from .. import localbus
+        try:
+            spec = localbus.parse(self.adapter)
+        except localbus.AdapterError as e:
+            raise diag.DiagError("usage", str(e))
+        return localbus.LocalBus(spec, self.bitrate, allow_changes=self.allow_changes, config=self.nodes,
+                                 network=self.network, timeout=timeout)
+
+
 class Connection:
     """One diagnostics connection, opened on the first request and closed
     after IDLE_CLOSE_S without one (or by close())."""
@@ -155,7 +190,10 @@ class Connection:
         return self.client.info if self.client else None
 
     def _open(self, key):
-        c = diag.Client(key[0], key[1], key[2], self.timeout)
+        if isinstance(key[0], AdapterTarget):
+            c = key[0].client(self.timeout)
+        else:
+            c = diag.Client(key[0], key[1], key[2], self.timeout)
         c.connect()
         self.client, self.key = c, key
 

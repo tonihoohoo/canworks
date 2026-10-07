@@ -132,7 +132,7 @@ jobs:
           python-version: "3.12"
 
       - name: Python dependencies of the vcan scripts (deploy tool modules, diagnostics, trace export)
-        run: python -m pip install -q jsonschema cantools python-can
+        run: python -m pip install -q jsonschema cantools python-can pyserial
 
       - name: Create vcan0 (down; the plugin's link setup brings it up)
         id: vcan
@@ -226,6 +226,10 @@ jobs:
         if: steps.vcan.outcome == 'success' && matrix.group == 2
         run: test/simulator/run.sh
 
+      - name: PC-direct commissioning through a CAN adapter on vcan0 (no runtime; then parity with the plugin)
+        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        run: test/localbus/run.sh
+
       - name: Report skipped vcan test
         if: steps.vcan.outcome != 'success'
         run: echo "::warning::vcan is not available on this runner; the ping-pong test was skipped"
@@ -259,8 +263,9 @@ jobs:
 
       - name: Install the deploy tool tests' Python dependencies
         # cantools: loads every exported DBC strictly (test_dbcexport); not a deploy tool dependency.
-        # python-can: reads back every exported trace format (test_bustrace); not a deploy tool dependency.
-        run: python -m pip install -q jsonschema cantools python-can
+        # python-can and pyserial: the local adapter backend (localbus); python-can also reads back every
+        # exported trace format (test_bustrace).
+        run: python -m pip install -q jsonschema cantools python-can pyserial
 
       - name: Deploy tool and configurator tests (shared fixtures, bundle, clash check, stub runtime, server, DCF export parity, DBC export)
         env:
@@ -306,7 +311,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install the page tests' Python dependencies
-        run: python -m pip install -q jsonschema playwright
+        run: python -m pip install -q jsonschema playwright python-can pyserial
 
       - name: Chromium for the configurator page tests
         run: python -m playwright install --with-deps chromium

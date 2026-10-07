@@ -24,6 +24,7 @@ The start page offers three ways in:
 - **Open editor project**: a folder with `project.json`. The config is `<project>/canopen/canopen.json`, and every address is checked against the rest of the project.
 - **Open standalone config**: a plain folder with `canopen.json` and its EDS files, for a bus set up before its editor project exists. The checks against a project are skipped, and the page says so.
 - **New standalone config**: an empty config in a new or empty folder, created when you first save.
+- **Commission a device**: no project at all. It opens the online view on a [USB adapter on this PC](#usb-adapter-on-this-pc), for a device on the bench: scan, object dictionary, parameters, LSS and trace. Nothing is added to a config, and the scratch folder it uses is not listed among the recent folders.
 
 The folder browser and the list of recent folders are on the same page. A path given on the command line opens directly: as a project when it has `project.json`, as a standalone config otherwise.
 
@@ -170,6 +171,14 @@ Save and upload the program as usual: the runtime opens the port when the PLC st
 With several networks there is still one Online access for the whole config, one port and one token for all networks: the section is the same on every tab and reads **Online access (all networks)**.
 
 On a PC without the host or token yet (a fresh install, another PC), **Online** and **Scan the bus** show a **Connect** box: enter the runtime host and press **Connect**. It asks for the token when this PC has none or one that does not match the config, and says what is missing instead of doing nothing.
+
+## USB adapter on this PC
+
+The online view, **Scan the bus** and **Trace** can also reach the bus straight through a CAN adapter plugged into this PC, with no runtime and no online access in the config ([pc-adapter.md](pc-adapter.md)). In the **Connect** box pick **USB adapter on this PC**, choose a found adapter or type one (`slcan:COM5`, `slcan:/dev/tty.usbmodem14101`, `socketcan:can0`), and the bit rate (the network's own is marked), then **Connect**. **Connection…** in the view brings the box back to switch between the runtime and the adapter. The adapter and bit rate are kept on this PC per project (in `online.json`), never in the project.
+
+The connection is read-only to start with: **Allow changes…** in the connection banner (or **Allow changes** in the box) asks once and allows SDO writes, NMT, restore and LSS until you disconnect or change the target; it is never saved. Storing to a device's non-volatile memory still asks each time.
+
+The view then shows what the bus showed since connecting: each node heard, by heartbeat, with its state and when it was last heard, and its last EMCY, with the configured nodes named. The node's **Overview**, **Object dictionary** and **Parameters** tabs work as with a runtime. Boot results, holds, SDO variables, the bus error counters and simulated devices need the runtime and are not shown. The banner warns when the adapter's bit rate differs from the network's and when another master is active on the bus (NMT, SYNC, TIME or SDO requests the PC did not send); LSS then asks before it runs, with **Run anyway**.
 
 ## Online view
 

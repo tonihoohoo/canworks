@@ -364,7 +364,8 @@ def handle(route, body, session, conn, jobs, client, node, library, host):
     if path == "backup":
         def backup(job):
             boot = None
-            for nd in client.status().get("nodes") or []:
+            st = client.status()
+            for nd in (st.get("nodes") or []) if not st.get("local") else ():
                 if nd.get("node_id") == node and not nd.get("booted"):
                     boot = "not booted"
             reading = P.read_all(client, node, ctx.eds, job.progress("reading"), lambda: job.cancel)

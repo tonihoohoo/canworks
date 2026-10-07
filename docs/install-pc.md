@@ -56,7 +56,15 @@ The OpenPLC Editor comes for Linux as an AppImage (x64 and ARM64) on its release
 
 ## CAN adapters
 
-The PC tools never open a CAN interface on the PC. Everything online (scan, object dictionary, parameters, trace, LSS, simulated devices) goes to the plugin on the runtime over the network. A CAN adapter plugged into the PC is used only when the runtime itself runs on that PC: install the runtime and the plugin there ([install-stock.md](install-stock.md), native or Docker) and set the network's `adapter` (`socketcan`, or `slcan` for serial adapters; see [config.md](config.md)). A Linux PC can so carry the whole bench: editor, PC tools, runtime with the plugin, and `vcan0` with simulated devices ([simulator.md](simulator.md)).
+The PC tools reach the CAN bus in one of two ways. Through a runtime: everything online (scan, object dictionary, parameters, trace, LSS, simulated devices) goes to the plugin on the runtime over the network. Or directly through a USB CAN adapter plugged into the PC, with no runtime: scan, object dictionary, parameters, LSS and trace, as a guest on the bus ([pc-adapter.md](pc-adapter.md)). The tools bring what an adapter needs (python-can and pyserial); an slcan adapter such as a CANable with stock firmware needs no driver:
+
+- **Windows 10 and 11:** the built-in USB serial driver; the adapter shows as `COM5` or similar (Device Manager, Ports).
+- **macOS:** `/dev/tty.usbmodem14101` or similar.
+- **Linux:** `/dev/ttyACM0` or similar; join the `dialout` group once to open serial ports (`sudo usermod -aG dialout $USER`, then log in again). SocketCAN interfaces (`can0`, `vcan0`) work too.
+
+`openplc-canopen-diag adapters` lists the adapters it finds.
+
+To run the plugin on the PC itself, install the runtime and the plugin there ([install-stock.md](install-stock.md), native or Docker) and set the network's `adapter` (`socketcan`, or `slcan` for serial adapters; see [config.md](config.md)). A Linux PC can so carry the whole bench: editor, PC tools, runtime with the plugin, and `vcan0` with simulated devices ([simulator.md](simulator.md)).
 
 ## Switching from pipx or a venv
 

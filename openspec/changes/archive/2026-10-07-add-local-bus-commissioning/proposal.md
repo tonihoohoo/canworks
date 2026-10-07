@@ -1,0 +1,29 @@
+## Why
+
+Every online function of the PC tools (status, SDO, NMT, scan, LSS, the object dictionary browser, parameter backup, compare and restore, and trace) goes through the plugin's diagnostics channel. Commissioning a single device therefore needs a running OpenPLC Runtime with the plugin: a Raspberry Pi on the bench, or the local simulator runtime, which has no real CAN. Standalone tools such as CANopen Magic, DeviceExplorer or the PCAN tools do the same jobs with a USB CAN adapter plugged into the PC. Today a user cannot set a new device's node ID with LSS, back up its parameters or try it out before a PLC exists. The configurator is the part a new user meets first, and every other PC-side gap is closed (research: `canopen-feature-gaps-2026-10-07`, item 4).
+
+## What Changes
+
+- **Local bus backend** in the PC tools package. A small CANopen client written in Python on top of [python-can](https://python-can.readthedocs.io/) talks to a USB CAN adapter on the PC and answers the same diagnostics operations, with the same result shapes, as the plugin's channel: `hello`, `status`, `emcy`, `sdo_read`, `sdo_write`, `nmt`, `scan`/`scan_status`, the `lss_` operations, and `trace_start`/`trace_fetch`/`trace_stop`. Everything built on those operations works unchanged on a local adapter: device parameters (`backup`, `compare`, `restore`, `store`), the object dictionary browser with watch, scan-to-node and trace export. The diagnostics protocol stays the single interface, so the configurator and CLI do not fork.
+- **Adapters**: `slcan` (CANable and other serial-line adapters with stock firmware) on Windows, macOS and Linux, and `socketcan` on Linux, are supported and tested. Any other python-can interface (`gs_usb`, `pcan`, `kvaser`, `ixxat`, `vector`, ...) can be named and is passed through, documented as untested. `openplc-canopen-diag adapters` lists the adapters it finds.
+- **The PC is a guest on the bus, not a master.** It sends nothing until asked: no NMT start on connect, no SYNC, heartbeat or TIME. It listens first. If it sees another master (NMT commands, SYNC, or SDO traffic to the node it wants to talk to), status says so and LSS is refused unless forced. Changes (`sdo_write`, `nmt`, LSS, `restore`, `store`) need an explicit allow-changes switch per session, as `allow_changes` does on the runtime. Storing to non-volatile memory (0x1010, LSS store) stays a separate action that asks first and never happens on its own.
+- **CLI**: `openplc-canopen-diag --adapter TYPE:CHANNEL --bitrate KBIT [--allow-changes] <command>`, for example `--adapter slcan:COM5`, `--adapter slcan:/dev/tty.usbmodem14101` or `--adapter socketcan:can0`. `--config canopen.json [--network NAME]` supplies the bit rate and EDS files as it does today. `--runtime` and `--adapter` are mutually exclusive. `sim` and slave-network commands answer that they need a runtime.
+- **Configurator**: the online connection gets a third target next to "Runtime" and "Local simulator runtime": **USB adapter on this PC** (adapter type, port picked from the found adapters, bit rate with the network's own as default, an allow-changes switch that starts off). The Online view, scan page, object dictionary view, Parameters actions and Trace view work as they do against a runtime. Runtime-only parts (boot results, holds, SDO variables, Simulation view, slave and gateway status) are hidden. It also works in a standalone config, or with no config at all ("Commission a device"), with EDS files matched from the project or the EDS library.
+- **Hook for raw frames and bit rate detection**: the adapter is opened through one function that takes a `listen_only` mode, every frame goes out through one transmit path that also feeds the trace, and operations are dispatched from one table. The parallel change for raw frame transmit and bit rate detection adds `send_frame` and `detect_bitrate` there without touching this change's code. This change does not implement either.
+- **Docs and README**: a new `docs/pc-adapter.md` (adapters and drivers per operating system, first steps, guest rules, limits) and updates to README, `docs/install-pc.md`, `docs/diagnostics.md`, `docs/configurator.md` and `docs/trace.md`.
+
+## Capabilities
+
+### New Capabilities
+- `canopen-local-bus`: the local adapter backend (adapters, opening and bit rate, guest behaviour on the bus, which operations it serves and how they differ from the plugin's, allow-changes and store rules, trace capture), its CLI options, and its tests.
+
+### Modified Capabilities
+- `canopen-configurator`: the "USB adapter on this PC" connection target and the device commissioning page without a config.
+- `canopen-pc-install`: the docs no longer say that the tools reach CAN only through the runtime. The adapter libraries are part of the package, and the per-OS adapter driver notes are added.
+
+## Impact
+
+- `tools/deploy`: new `openplc_canopen_deploy/localbus/` (adapter opening, SDO client, NMT, LSS master, scan, EMCY and heartbeat listener, trace ring) and a `diag.Client`-compatible `LocalBus` class. `diag.py` gets `--adapter`, `--bitrate`, `--allow-changes` and the `adapters` command, and the configurator's `online.py`/`server.py`/`app.js` get the new target. New dependencies `python-can>=4.3` and `pyserial` (both pure Python wheels). Version bump to the next free minor.
+- Tests: unit tests on python-can's `virtual` bus with an in-test fake device (run on all four PC tools runners), plus a Linux CI step on `vcan0` against the standalone simulator `openplc-canopen-sim` and `test/lss/lss_slave`, comparing results with the same commands through the plugin's channel.
+- No plugin (C++) change, no config schema change, no change to the diagnostics protocol.
+- Docs: new `docs/pc-adapter.md`; README, `docs/install-pc.md`, `docs/diagnostics.md`, `docs/configurator.md`, `docs/trace.md`.

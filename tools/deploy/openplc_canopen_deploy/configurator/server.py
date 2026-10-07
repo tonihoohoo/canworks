@@ -357,6 +357,7 @@ class Session:
     def __init__(self):
         self.lock = threading.RLock()
         self.mode = None  # "project" | "standalone"
+        self.commission = False  # "Commission a device": a scratch folder, online pages on a USB adapter
         self.folder = None
         self.loaded = None  # (mtime, sha256) of canopen.json as loaded, or None when there was none
         self.sim_loaded = None  # sha256 of simulation.json as loaded, or None when there was none
@@ -393,6 +394,8 @@ class Session:
             return []
 
     def remember(self):
+        if os.path.dirname(self.folder) == os.path.abspath(config_dir()):
+            return  # the "Commission a device" scratch folder
         items = [r for r in self.recent() if r["path"] != self.folder]
         items.insert(0, {"path": self.folder, "mode": self.mode})
         try:
@@ -424,12 +427,23 @@ class Session:
         else:
             raise ApiError(400, "unknown mode %r" % mode)
         self.mode, self.folder = mode, path
+        self.commission = False
         self.pending.clear()
         self.descriptions.clear()
         self.reload()
         self.remember()
 
+    def commission_device(self):
+        """"Commission a device": a scratch standalone folder in the settings
+        folder, with the online pages on a USB adapter and no config needed."""
+        folder = os.path.join(config_dir(), "commission")
+        os.makedirs(folder, exist_ok=True)
+        self.open(folder, "standalone")
+        self.commission = True
+        online.Settings(config_dir()).update_project(self.folder, target="adapter")
+
     def close(self):
+        self.commission = False
         self.mode = self.folder = self.loaded = self.sim_loaded = None
         self.pending.clear()
         self.descriptions.clear()
@@ -501,7 +515,7 @@ class Session:
     def state(self):
         base = {"version": __version__, "recent": self.recent(), "home": os.path.expanduser("~"),
                 "mode": self.mode, "type_bits": {k: v[1] for k, v in CO_TYPES.items()},
-                "default_start": layout.DEFAULT_START}
+                "default_start": layout.DEFAULT_START, "commission": self.commission}
         if not self.mode:
             return base
         cfg, notices, error = self.read_config()
@@ -1181,6 +1195,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/open"):
                     s.open(body.get("path"), body.get("mode", "auto"))
                     out = s.state()
+                elif route == ("POST", "/api/commission"):
+                    s.commission_device()
+                    self.server.adapter_allow = False
+                    self.server.connection.close()
+                    out = s.state()
                 elif route == ("POST", "/api/close"):
                     s.close()
                     out = s.state()
@@ -1308,11 +1327,44 @@ class Handler(http.server.BaseHTTPRequestHandler):
         def view():
             p = settings.project(folder)
             return {"token": p.get("token"), "host": p.get("host") or "", "eds_library": settings.eds_library,
-                    "connected": conn.connected}
+                    "connected": conn.connected, "target": p.get("target") or "runtime",
+                    "adapter": p.get("adapter") or "", "adapter_bitrate": p.get("adapter_bitrate"),
+                    "allow_changes": self.server.adapter_allow, "commission": bool(s.commission)}
 
         if route == ("GET", "/api/online/settings"):
             return view()
+        if route == ("GET", "/api/online/adapters"):
+            from .. import localbus
+            return {"adapters": localbus.list_adapters()}
         if route == ("POST", "/api/online/settings"):
+            if "target" in body:
+                target = body.get("target")
+                if target not in ("runtime", "adapter"):
+                    raise ApiError(422, "target must be runtime or adapter")
+                settings.update_project(folder, target=None if target == "runtime" else target)
+                self.server.adapter_allow = False
+                conn.close()
+            if "adapter" in body:
+                text = (body.get("adapter") or "").strip()
+                if text:
+                    from .. import localbus
+                    try:
+                        localbus.parse(text)
+                    except localbus.AdapterError as e:
+                        raise ApiError(422, str(e))
+                settings.update_project(folder, adapter=text or None)
+                self.server.adapter_allow = False
+                conn.close()
+            if "adapter_bitrate" in body:
+                kbit = body.get("adapter_bitrate")
+                if kbit is not None and (not isinstance(kbit, int) or isinstance(kbit, bool) or not 10 <= kbit <= 1000):
+                    raise ApiError(422, "the bit rate must be 10-1000 kbit/s")
+                settings.update_project(folder, adapter_bitrate=kbit)
+                conn.close()
+            if "allow_changes" in body:
+                # This connection only: never saved, off again after the next target change or restart.
+                self.server.adapter_allow = body.get("allow_changes") is True
+                conn.close()
             if "host" in body:
                 host = (body.get("host") or "").strip()
                 if host:
@@ -1363,25 +1415,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == ("POST", "/api/online/watch"):
             return self._watch(settings, folder, body)
 
-        host, token = proj.get("host"), proj.get("token")
-        if not host:
-            raise ApiError(409, "enter the runtime host for online access", need="host")
-        if not token:
-            raise ApiError(409, "enter the access token for online access", need="token")
-        try:
-            hostname, port = diag.parse_runtime(host)
-        except ValueError as e:
-            raise ApiError(422, str(e))
-        if ":" not in host.rsplit("]", 1)[-1] and isinstance(body.get("port"), int):
-            port = body["port"]  # the diagnostics port of the config, when the host gives none
         # The network the page picked; sent only to a plugin that runs several.
         network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
+        hostname, port, token = self._online_target(proj, config_path, network, body)
+        host = str(hostname) if isinstance(hostname, online.AdapterTarget) else proj.get("host")
+        local = isinstance(hostname, online.AdapterTarget)
 
         def call(fn):
+            def run(c):
+                if local:
+                    c.force = body.get("force") is True  # LSS while another master is active, after asking
+                return fn(c)
             try:
-                return conn.call(hostname, port, token, fn, network)
+                return conn.call(hostname, port, token, run, network)
             except diag.DiagError as e:
-                raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
+                raise ApiError(422 if e.kind in ("refused", "usage", "busy") else 502, str(e), kind=e.kind)
 
         def picked(c):
             """The page's network, or the first one when the runtime does not
@@ -1424,8 +1472,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             used, st = call(lambda c: (picked(c), c.status()))
             prints = online.fingerprints(config_path)
             same = st.get("config_sha256") in prints
-            return {"hello": conn.info, "status": st, "networks": (conn.info or {}).get("networks") or [],
-                    "network": used, "config": "none" if not prints else ("same" if same else "different")}
+            out = {"hello": conn.info, "status": st, "networks": (conn.info or {}).get("networks") or [],
+                   "network": used, "config": "none" if not prints else ("same" if same else "different")}
+            if local:
+                out["config"] = "local"
+                out["config_bitrate"] = self._config_bitrate(config_path, network)
+            return out
         if route == ("POST", "/api/online/emcy"):
             node = node_arg()
             res = call(lambda c: c.emcy(node))
@@ -1489,6 +1541,49 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._match_scan(s, settings, canopen_dir, res, body.get("config"), used)
             return res
         raise ApiError(404, "no such API: %s %s" % route)
+
+    def _config_bitrate(self, config_path, network):
+        """The saved config's bit rate of `network` in bit/s, or None."""
+        from ..localbus import configinfo
+        if not os.path.isfile(config_path):
+            return None
+        try:
+            return configinfo.load(config_path, network)[0]
+        except (OSError, ValueError):
+            return None
+
+    def _online_target(self, proj, config_path, network, body):
+        """(host, port, token) for the kept-open connection: the runtime of the
+        online access settings, or an online.AdapterTarget for a USB adapter on
+        this PC (no token; the bit rate from the settings, else the network's)."""
+        if proj.get("target") == "adapter":
+            from ..localbus import configinfo
+            adapter = proj.get("adapter")
+            if not adapter:
+                raise ApiError(409, "pick the USB adapter for online access", need="adapter")
+            nodes, cfg_bitrate = {}, None
+            if os.path.isfile(config_path):
+                try:
+                    cfg_bitrate, nodes = configinfo.load(config_path, network)
+                except (OSError, ValueError):
+                    pass
+            kbit = proj.get("adapter_bitrate")
+            bitrate = kbit * 1000 if isinstance(kbit, int) else cfg_bitrate
+            if not bitrate:
+                raise ApiError(409, "pick the bus's bit rate for the USB adapter", need="adapter")
+            return online.AdapterTarget(adapter, bitrate, self.server.adapter_allow, nodes, network), None, None
+        host, token = proj.get("host"), proj.get("token")
+        if not host:
+            raise ApiError(409, "enter the runtime host for online access", need="host")
+        if not token:
+            raise ApiError(409, "enter the access token for online access", need="token")
+        try:
+            hostname, port = diag.parse_runtime(host)
+        except ValueError as e:
+            raise ApiError(422, str(e))
+        if ":" not in host.rsplit("]", 1)[-1] and isinstance(body.get("port"), int):
+            port = body["port"]  # the diagnostics port of the config, when the host gives none
+        return hostname, port, token
 
     # -- simulation ---------------------------------------------------------
     def _sim(self, route, body):
@@ -1701,16 +1796,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if spec and spec.get("autosave") and spec["autosave"].get("folder"):
                     spec["autosave"]["folder"] = tracing.check_folder(spec["autosave"]["folder"], canopen_dir)
             proj = online.Settings(config_dir()).project(folder)
-            host, token = proj.get("host"), proj.get("token")
-            if not host or not token:
-                raise ApiError(409, "set up online access (runtime host and access token) in the Online view to "
-                                    "record a trace; opening trace files works without it", need="online")
-            try:
-                hostname, port = diag.parse_runtime(host)
-            except ValueError as e:
-                raise ApiError(422, str(e))
-            if ":" not in host.rsplit("]", 1)[-1] and isinstance(body.get("port"), int):
-                port = body["port"]
+            if proj.get("target") != "adapter" and (not proj.get("host") or not proj.get("token")):
+                raise ApiError(409, "set up online access (runtime host and access token, or a USB adapter) in the "
+                                    "Online view to record a trace; opening trace files works without it",
+                               need="online")
+            hostname, port, token = self._online_target(proj, s.config_path, network, body)
             connect = tracing.connector(hostname, port, token, network=network)
             try:  # a wrong host, token or an old plugin is said at once instead of retried
                 c = connect()
@@ -1831,6 +1921,7 @@ class Server(http.server.ThreadingHTTPServer):
         self.session = Session()
         self.verbose = verbose
         self.connection = online.Connection()
+        self.adapter_allow = False  # the USB adapter's allow-changes switch: this connection only, never saved
         self.eds_index = online.EdsIndex()
         self.traces = tracing.Traces()
         self.jobs = params.Jobs()
