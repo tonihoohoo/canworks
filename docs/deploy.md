@@ -70,7 +70,7 @@ PROGRAM main
   END_VAR
 ```
 
-Master diagnostics come first, then each node in config order: diagnostics, inputs, outputs and the NMT command byte. With [several networks](config.md#several-networks-schema_version-2) the networks follow each other in config order, every name starts with its network's name (`io_door_ok`, `drives_door_ok`) and every comment names the network. Everything is in `main` because Editor 4.3.2 accepts located variables only in a program's VAR block; put your own logic in function blocks called from `main` if you want to split it. The task interval defaults to `T#20ms`.
+Master diagnostics come first, then each node in config order: diagnostics, inputs, outputs and the NMT command byte. With [several networks](config.md#several-networks-schema_version-2) the networks follow each other in config order, every name starts with its network's name (`io_door_ok`, `drives_door_ok`) and every comment names the network. A [slave network](slave.md) comes last, and its names always start with the network's name: one variable per binding, named after its `name` or the object's EDS name (`line_speed_setpoint`), with the object's IEC type, and the status and EMCY locations (`line_state`, `line_comm_ok`, `line_sync_count`, `line_emcy`, `line_errreg`), inputs before outputs. Everything is in `main` because Editor 4.3.2 accepts located variables only in a program's VAR block; put your own logic in function blocks called from `main` if you want to split it. The task interval defaults to `T#20ms`.
 
 With `--sdo-blocks` the project also enables the `openplc_canopen` library (the SDO function blocks, [plc-sdo.md](plc-sdo.md)), and the library is installed into the editor on this PC if it is missing or older than the tools; if that cannot be done (the editor has never run here), the output says how to install it.
 
@@ -108,7 +108,7 @@ writes one CiA 306 Device Configuration File per node, `dcf/node_<id>.dcf`, for 
 - `[FileInfo]`: `FileName`, `LastEDS` (the EDS it came from), `ModifiedBy` and the modification date and time.
 - A leading `;` comment naming the boot steps that are not settings: restoring defaults (`restore_configuration`), the firmware download (`software_file`) and the "save" after a configuration check (`store_configuration`).
 
-With several networks each network's files go into a folder of their own, `dcf/<network>/node_<id>.dcf`, each with its own network's bit rate. `--network drives` exports only that network, into `dcf/node_<id>.dcf`.
+With several networks each network's files go into a folder of their own, `dcf/<network>/node_<id>.dcf`, each with its own network's bit rate. `--network drives` exports only that network, into `dcf/node_<id>.dcf`. [Slave networks](slave.md) have no nodes and are left out; `--network` naming one is refused.
 
 The tool runs the deploy checks first, then checks each finished DCF with Lely's CiA 306 lint and reader (the same code the plugin uses), that every value sits on a writable object or equals the EDS value, that `NodeID` is the node's ID and that the node's EDS supports the bit rate. If any check fails it prints every problem and writes no file. Nothing is built or uploaded; `--runtime`, `--output` and `--check-only` are refused with it.
 
@@ -128,11 +128,24 @@ writes the configured network as a DBC file, so CAN bus tools that do not read E
 
 Signals are named after the object in the EDS: a plain object by its `ParameterName`, a sub-object by its parent's name and its own (`AI_Sensor_Type_Output_1`), without repeating the parent when the sub-object's name already starts with it. When `--config` is the `canopen/canopen.json` of an editor project, a signal whose PLC address has exactly one located variable in the project is named after that variable.
 
-With several networks the tool writes one DBC per network next to the given file, `bus_io.dbc` and `bus_drives.dbc` for `--export-dbc bus.dbc`, each with only its own network's nodes, NMT and SYNC. `--network drives` writes only that network, to `bus.dbc`.
+With several networks the tool writes one DBC per network next to the given file, `bus_io.dbc` and `bus_drives.dbc` for `--export-dbc bus.dbc`, each with only its own network's nodes, NMT and SYNC. `--network drives` writes only that network, to `bus.dbc`. Slave networks are left out, as for DCF files.
 
 `--dbc-sdo` adds each node's SDO request (0x600 + node ID) and response (0x580 + node ID) frames: `none` (the default) adds none, `config` decodes the config's SDO variables and startup SDOs, `all` every EDS object of a numeric type up to 32 bits. The messages are multiplexed on `Object` (index + subindex * 65536, named `0x6110:1 AI_Sensor_Type_AI0_Sensor_Type` in the tool), so a frame shows as command, object and value. Only expedited transfers (up to 4 bytes) decode; on an abort the abort code shows as the object's raw data.
 
 The tool runs the deploy checks first and writes nothing if they fail. A startup SDO that rewrites a configured PDO's settings gets a warning: the DBC follows the config's PDO settings. Nothing is built or uploaded; `--runtime`, `--output` and `--check-only` are refused with it. The configurator exports the same file ([configurator.md](configurator.md#export-a-dbc-file)).
+
+## The slave EDS
+
+```sh
+openplc-canopen-deploy slave-eds slave_eds.json -o canopen/openplc-slave.eds
+openplc-canopen-deploy slave-eds gateway_eds.json -o canopen/openplc-gateway.eds --gateway canopen/canopen.json --update-config
+```
+
+writes the EDS of a [slave network](slave.md) from a short JSON description (identity, heartbeat, layout and objects; every field in [slave.md](slave.md#the-eds)). It prints each object with its index, type and access, the number of RPDOs and TPDOs and the revision number. The file passes the plugin's EDS lint with `eds_lint: "all"`, and the same description always gives the same bytes. Put it next to the config and name it in `slave.eds`; the deploy tool bundles it like any EDS, and the other master's tool imports the same file.
+
+With `--gateway <config>` the generator also adds the objects of that config's [gateway](gateway.md): one slave object per route (named after the route, with the field entry's type, from the master for a route down and to the master for a route up), the field node status ARRAYs and the SDO bridge record. The routes' `slave` ends must match: `--update-config` writes them into the config; without it the tool notes routes that name another object than the EDS gives.
+
+An invalid description or gateway section stops it with the reason (the object and the field) and exit status 1; nothing is written. The configurator builds the same file ([configurator.md](configurator.md#slave-networks)).
 
 ## Address clashes with other plugins
 

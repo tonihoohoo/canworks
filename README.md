@@ -2,7 +2,7 @@
 
 > **Experimental.** All code, tests and documentation in this repository were written by Claude (Anthropic's AI model), directed and tested by a person. Treat everything here as experimental: it has run on a test bench, not in production, and comes with no warranty (see [LICENSE](LICENSE)). Do not use it to control machinery where a fault could hurt people or damage equipment.
 
-A CANopen master plugin for the [OpenPLC Runtime v4](https://github.com/Autonomy-Logic/openplc-runtime), built on [Lely CANopen](https://gitlab.com/lely_industries/lely-core) over Linux SocketCAN.
+A CANopen master (and slave) plugin for the [OpenPLC Runtime v4](https://github.com/Autonomy-Logic/openplc-runtime), built on [Lely CANopen](https://gitlab.com/lely_industries/lely-core) over Linux SocketCAN.
 
 The plugin reads a JSON file that lists the slave nodes, their EDS files and PDO entries, and binds each PDO entry to an explicit PLC address (`%IX`, `%IB`, `%IW`, `%ID`, `%IL` and the `%Q` equivalents). At every PLC start it validates the file against the EDS files, generates the device configuration with Lely's `dcfgen`, boots and configures every slave over SDO, and exchanges PDOs with the PLC image once per scan. A slave that is missing or drops off the bus never stops the PLC; its status bit goes FALSE and the master keeps trying to bring it back.
 
@@ -21,19 +21,21 @@ The plugin's behaviour is set in the config file; [docs/config.md](docs/config.m
 - **From the program:** SDO variables (read and write node objects while running), NMT commands per node, and SDO function blocks (`CO_SDO_READ`, `CO_SDO_WRITE`, ... in the `openplc_canopen` editor library) that read or write any object of any node on any network when the program decides, including REAL, strings and byte blocks ([docs/plc-sdo.md](docs/plc-sdo.md)).
 - **CiA 402 drives as PLCopen axes:** a node marked as an axis is driven with the editor's built-in motion blocks (`MC_Power`, `MC_MoveAbsolute`, `MC_MoveVelocity`, `MC_Home`, ...) in profile position, profile velocity and homing mode; the generated program holds the glue ([docs/cia402.md](docs/cia402.md)).
 - **Everything `dcfgen` can set:** SYNC, heartbeat, error behaviour and the other master and slave options of Lely's dcf-tools, plus a TIME producer that sends the runtime host's clock (UTC).
+- **OpenPLC as a slave:** a network with `"role": "slave"` makes the PLC a node of a network another master runs, with the objects the master writes on `%I` locations and those it reads on `%Q`, the PDO mapping left to that master, store and restore, LSS, and the slave's own state and EMCY for the program ([docs/slave.md](docs/slave.md)). Its EDS is generated from a short object list and is the file the other master's tool imports.
+- **Gateway:** a slave network and master networks in one config, with routes that copy values between upper-network objects and field PDO entries in the plugin, without the PLC program, plus field node status, EMCY forwarding, behaviour on loss of the upper master and an SDO bridge ([docs/gateway.md](docs/gateway.md)).
 - **Online diagnostics** (opt-in, token protected): a TCP channel for the PC tools below. Nothing a client does touches the PLC scan.
 
 ## On the engineering PC
 
 Three commands in one package, for Windows, macOS and Linux. They install with uv without a Python on the PC: [docs/install-pc.md](docs/install-pc.md).
 
-- **`openplc-canopen-config`**, a configurator in a local web page ([docs/configurator.md](docs/configurator.md)): add nodes from their EDS, map PDO entries to PLC addresses, startup SDOs and SDO variables, with every address checked against the editor project, and one tab per CAN network. It writes the project's `canopen/` folder, exports DCF and DBC files, and creates a new editor project with the I/O already declared. Its **Online** view shows the live network: node and bus state, EMCY history, SDO read and write, NMT, a bus scan, LSS commissioning, an object dictionary browser with watch, and device parameter backup, compare and restore. Its **Trace** view records the bus with CANopen decoding, graphs and triggers ([docs/trace.md](docs/trace.md)).
-- **`openplc-canopen-deploy`** ([docs/deploy.md](docs/deploy.md)): adds the config to an editor build and uploads it to the runtime, checks a config without a runtime, puts the config into an editor project, creates a new editor project from a config (`--new-project`, with `--sdo-blocks` to enable the SDO function blocks), writes or installs the `openplc_canopen` editor library (`library`), and exports DCF (`--export-dcf`) and DBC (`--export-dbc`) files, per network or for one with `--network`.
+- **`openplc-canopen-config`**, a configurator in a local web page ([docs/configurator.md](docs/configurator.md)): add nodes from their EDS, map PDO entries to PLC addresses, startup SDOs and SDO variables, with every address checked against the editor project, and one tab per CAN network, each a master or a slave network, with the slave's EDS built and exported in the page and a gateway page for routes. It writes the project's `canopen/` folder, exports DCF and DBC files, and creates a new editor project with the I/O already declared. Its **Online** view shows the live network: node and bus state, EMCY history, SDO read and write, NMT, a bus scan, LSS commissioning, an object dictionary browser with watch, and device parameter backup, compare and restore. Its **Trace** view records the bus with CANopen decoding, graphs and triggers ([docs/trace.md](docs/trace.md)).
+- **`openplc-canopen-deploy`** ([docs/deploy.md](docs/deploy.md)): adds the config to an editor build and uploads it to the runtime, checks a config without a runtime, puts the config into an editor project, creates a new editor project from a config (`--new-project`, with `--sdo-blocks` to enable the SDO function blocks), writes or installs the `openplc_canopen` editor library (`library`), generates a slave's EDS (`slave-eds`), and exports DCF (`--export-dcf`) and DBC (`--export-dbc`) files, per network or for one with `--network`.
 - **`openplc-canopen-diag`** ([docs/diagnostics.md](docs/diagnostics.md)): the online functions from a terminal, including `backup`, `compare`, `restore` and `store` of device parameters (a CiA 306 DCF, so a replaced device gets its settings back), LSS commands, `--network` to pick one of several networks, and `trace` with export to pcapng, candump, ASC, BLF, TRC or CSV.
 
 ## Scope
 
-- Master role only. The slave role is out of scope for now.
+- Master and slave roles, one role per CAN interface; no flying master, MPDO or SRDO, and no program download into OpenPLC as a slave.
 - Linux with SocketCAN (`can0`, `vcan0`, ...; serial `slcan` adapters need Linux 6.0 or later), OpenPLC v4 native installs (`install.sh --native`) and upstream's managed Docker install ([docs/install-stock.md](docs/install-stock.md#docker-installs)).
 - Stock runtime only (unmodified upstream): `scripts/install-stock.sh` installs the plugin and an editor hook next to the runtime. A program then gets its CANopen config either from a `canopen/` folder in the editor project, carried by the editor's own **Build and upload**, or from `openplc-canopen-deploy`, which uploads an editor build together with the config. Either way the runtime switches the plugin on. See [docs/install-stock.md](docs/install-stock.md) and [docs/deploy.md](docs/deploy.md).
 
@@ -43,11 +45,13 @@ Three commands in one package, for Windows, macOS and Linux. They install with u
 CMakeLists.txt     builds libcanopen_plugin.so; the runtime's install.sh builds it from here
 plugin/            native plugin source
 schema/            the config contract (JSON Schema 2020-12): canopen.v1.schema.json (one network),
-                   canopen.v2.schema.json (several networks)
+                   canopen.v2.schema.json (several networks, slave networks, the gateway)
 config/            example configurations: config/pingpong/ (the ping-pong slave),
                    config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404),
                    config/two-networks/ (two ping-pong networks on vcan0 and vcan1),
-                   config/cia402-drive/ (a made-up CiA 402 drive as a PLCopen axis, with a demo program)
+                   config/cia402-drive/ (a made-up CiA 402 drive as a PLCopen axis, with a demo program),
+                   config/slave/ (OpenPLC as slave node 10, its EDS description and a demo program),
+                   config/gateway/ (the ping-pong node on a field network, OpenPLC as a gateway above it)
 tools/             canopen_check: validates a config and its EDS files without starting the PLC
 tools/deploy/      the PC tools (Python, one package): openplc-canopen-deploy, openplc-canopen-config
                    (the configurator), openplc-canopen-diag (online diagnostics, parameters, trace)
@@ -79,7 +83,7 @@ test/pc-tools/     the release tag check; test/ci/: the CI change classification
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
 docs/              config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
-                   install-pc.md, install-stock.md, plc-sdo.md,
+                   gateway.md, install-pc.md, install-stock.md, plc-sdo.md, slave.md,
                    trace.md
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
 ```
