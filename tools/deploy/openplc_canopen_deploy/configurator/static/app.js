@@ -2963,6 +2963,7 @@ async function adapterDetect(input, rate, button, msg) {
     } else {
       msg.textContent = `The sweep failed: ${r.error || "no reason given"}.`;
     }
+    msg.textContent += skippedText(r);
     return true;
   };
   try {
@@ -4692,7 +4693,12 @@ function renderScan(view) {
 // listen-only mode and starts CANopen again. S.detect keeps the last answer
 // per network for this page.
 
-const SILENT_TEXT = "The bus was silent. A device sends a boot-up message when it is powered on or reset: power-cycle one during the sweep, or run more rounds.";
+// The rates a sweep left out because the adapter cannot be set to them.
+function skippedText(r) {
+  const k = r.skipped_kbit || [];
+  return k.length ? ` Not tried: ${k.map(kbitText).join(", ")} (the adapter cannot be set to ${k.length === 1 ? "it" : "them"}).` : "";
+}
+const SILENT_TEXT = "The bus was silent. A listening adapter sends no acknowledge, so frames only count when another device acknowledges them: with one device on the bus, add a second device or a second adapter in normal mode. A device that only sends its boot-up message: power-cycle it during the sweep, or run more rounds.";
 
 function detectSection() {
   const local = S.online.target === "adapter";
@@ -4795,7 +4801,7 @@ function showDetect(r) {
     } else {
       text = `The sweep failed: ${r.error || "no reason given"}.`;
     }
-    parts.push(el("p", { class: cls, dataset: { online: "detect-verdict" } }, text));
+    parts.push(el("p", { class: cls, dataset: { online: "detect-verdict" } }, text + skippedText(r)));
     if (r.verdict === "detected" && net && r.bitrate_kbit * 1000 !== current) {
       parts.push(el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", dataset: { online: "use-bitrate" },
         onclick: () => {

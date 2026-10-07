@@ -26,7 +26,11 @@ def _iso(t):
 class Sweep:
     def __init__(self, spec, rates=None, per_rate_ms=1000, rounds=1, configured_kbit=None, opener=None):
         self.spec = spec
-        self.rates = list(rates or bitrate_mod.RATES)
+        rates = list(rates or bitrate_mod.RATES)
+        # Rates the adapter cannot be set to are left out and named in the
+        # result, not tried and failed.
+        self.skipped = adapter_mod.unsupported_rates(spec, rates)
+        self.rates = [k for k in rates if k not in self.skipped]
         self.per_rate_s = per_rate_ms / 1000.0
         self.rounds = max(1, rounds or 1)
         self.configured_kbit = configured_kbit
@@ -51,6 +55,9 @@ class Sweep:
         permission) raises AdapterError here, then listens in a thread.
         `on_end()` runs when the adapter is closed again, before the result
         shows; it returns '' or what failed."""
+        if not self.rates:
+            raise adapter_mod.AdapterError("usage", "adapter %s cannot be set to %s kbit/s" % (
+                self.spec, ", ".join(str(k) for k in self.skipped)))
         self._open(self.rates[0], first=True)
         self.running = True
         self._thread = threading.Thread(target=self._run, args=(on_end,), name="canopen-localbus-sweep",
@@ -151,6 +158,8 @@ class Sweep:
                    "rate_kbit": self.rate_kbit if self.running else None, "round": self.round,
                    "done": self.done, "total": self.total,
                    "results": [dict(r, ids=list(r["ids"])) for r in self.results]}
+            if self.skipped:
+                res["skipped_kbit"] = list(self.skipped)
             if self.running:
                 res["verdict"] = None
                 return res
