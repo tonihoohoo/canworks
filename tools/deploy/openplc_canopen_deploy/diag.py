@@ -3,6 +3,8 @@
   openplc-canopen-diag --runtime plc.local status
   openplc-canopen-diag --runtime plc.local sdo-read 23 0x1008 0 --type VISIBLE_STRING
   openplc-canopen-diag --runtime plc.local sdo-read 2 0x1018 1 --network drives
+  openplc-canopen-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"
+  openplc-canopen-diag --runtime plc.local detect-bitrate --rates 125,250,500
   openplc-canopen-diag hash-token
   openplc-canopen-diag --runtime plc.local sim fault 5 emcy 0x5000 --register 1
   openplc-canopen-diag sim --sim 127.0.0.1 status
@@ -47,6 +49,11 @@ MAX_LINE = 1024 * 1024
 NMT_COMMANDS = ("start", "stop", "preop", "reset", "reset-comm")
 LSS_BITRATES = (10, 20, 50, 125, 250, 500, 800, 1000)  # kbit/s, the CiA 305 bit timing table
 LSS_KEYS = ("vendor_id", "product_code", "revision_number", "serial_number")
+DETECT_RATES = (1000, 800, 500, 250, 125, 50, 20, 10)  # kbit/s, the order a bit rate sweep listens in
+FORCE_NEEDED = "force needed"  # the end of a refusal the request may be repeated with force: true
+TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
+SILENT_HINT = ("The bus was silent. A device sends a boot-up message when it is powered on or reset: power-cycle "
+               "one during the sweep, or run more rounds.")
 
 
 # ---------------------------------------------------------------------------
@@ -588,6 +595,112 @@ class Client:
     def trace_stop(self):
         return self.request("trace_stop")
 
+    # Raw frames and bit rate detection (allow_changes). A refusal that ends in
+    # "force needed" may be repeated with force=True once the user agrees.
+    def send_frame(self, can_id, data=b"", ext=False, rtr=False, dlc=None, period_ms=None, count=None, force=False):
+        """One frame, or with period_ms a cyclic job of this connection: the
+        result has "sent", or "job", "period_ms" and "count"."""
+        # The identifier is can_id: "id" is the request's own (echoed in the answer).
+        fields = {"can_id": can_id, "ext": bool(ext), "rtr": bool(rtr)}
+        if rtr:
+            fields["dlc"] = dlc or 0
+        elif data:
+            fields["data"] = hex_bytes(data)
+        if period_ms:
+            fields["period_ms"] = period_ms
+            if count:
+                fields["count"] = count
+        if force:
+            fields["force"] = True
+        return self.request("send_frame", **fields)
+
+    def send_frame_stop(self, job=None):
+        """Stops one cyclic job of this connection, or all of them: "stopped"
+        lists each with its "sent" count and "reason"."""
+        return self.request("send_frame_stop", **({} if job is None else {"job": job}))
+
+    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False):
+        """Starts a bit rate sweep (unless one runs) and returns its progress."""
+        fields = {}
+        if rates:
+            fields["rates"] = list(rates)
+        if per_rate_ms:
+            fields["per_rate_ms"] = per_rate_ms
+        if rounds:
+            fields["rounds"] = rounds
+        if force:
+            fields["force"] = True
+        return self.request("detect_bitrate", **fields)
+
+    def detect_bitrate_status(self):
+        return self.request("detect_bitrate_status")
+
+
+def too_old(e):
+    """The plugin does not know the op: it predates the command."""
+    return e.kind == "refused" and str(e).startswith("unknown op")
+
+
+def needs_force(e):
+    """A refusal the request may be repeated for with force: true."""
+    return e.kind == "refused" and str(e).rstrip().endswith(FORCE_NEEDED)
+
+
+def parse_frame_id(value, ext=False):
+    """A CAN identifier: an int, or text as 0x60A or decimal; 11 bits, or 29
+    with ext."""
+    if isinstance(value, bool):
+        raise ValueError("identifier %r is not a number" % value)
+    if not isinstance(value, int):
+        try:
+            value = int(str(value).strip(), 0)
+        except ValueError:
+            raise ValueError("identifier %r is not a number (write hex as 0x60A)" % value)
+    top = 0x1FFFFFFF if ext else 0x7FF
+    if not 0 <= value <= top:
+        raise ValueError("identifier 0x%X is out of range: 0x0-0x%X%s" % (value, top, "" if ext else
+                                                                          " (an extended identifier needs ext)"))
+    return value
+
+
+def parse_frame_data(parts):
+    """Up to 8 data bytes from "40 18 10 01", "40181001" or several pieces."""
+    if isinstance(parts, str):
+        parts = [parts]
+    digits = "".join("".join(parts or []).split())
+    if not digits:
+        return b""
+    data = parse_hex(digits)
+    if len(data) > 8:
+        raise ValueError("a CAN frame carries at most 8 data bytes, not %d" % len(data))
+    return data
+
+
+def frame_text(can_id, ext=False, rtr=False, dlc=None, data=b""):
+    """A frame as the CLI and the logs show it: "0x60A [4] 40 18 10 01"."""
+    ident = ("0x%08X" if ext else "0x%03X") % can_id
+    if rtr:
+        return "%s remote [%d]" % (ident, dlc or 0)
+    return "%s [%d] %s" % (ident, len(data), hex_bytes(data)) if data else "%s [0]" % ident
+
+
+def verdict_text(res):
+    """One line for a finished bit rate sweep."""
+    v = res.get("verdict")
+    if v == "detected":
+        rate, conf = res.get("bitrate_kbit"), res.get("configured_kbit")
+        if res.get("matches_config"):
+            return "%s kbit/s detected, as configured" % rate
+        return "%s kbit/s detected%s" % (rate, " (the configuration has %s kbit/s)" % conf if conf else "")
+    if v == "ambiguous":
+        cands = res.get("candidates") or []
+        return "ambiguous: frames at %s kbit/s" % ", ".join(str(c) for c in cands) if cands else "ambiguous"
+    if v == "silent":
+        return SILENT_HINT
+    if v == "failed":
+        return "the sweep failed: %s" % (res.get("error") or "no reason given")
+    return "no result"
+
 
 def lss_address_text(a):
     """An LSS address as the plugin logs it."""
@@ -647,7 +760,28 @@ def _network_arg(p, text="the network to talk to (needed when the runtime runs s
 # The commands that talk to one network of the plugin (status takes --network
 # too, but goes over every network without it).
 NETWORK_COMMANDS = ("emcy", "sdo-read", "sdo-write", "nmt", "scan", "lss-find", "lss-inquire", "lss-set-id",
-                    "lss-set-bitrate", "trace", "backup", "compare", "restore", "store")
+                    "lss-set-bitrate", "trace", "backup", "compare", "restore", "store", "send", "send-stop",
+                    "detect-bitrate")
+
+
+def _int_range(what, lo, hi):
+    def parse(t):
+        v = _uint(t, what, hi)
+        if v < lo:
+            raise argparse.ArgumentTypeError("%s must be %d-%d" % (what, lo, hi))
+        return v
+    return parse
+
+
+def _rates(text):
+    try:
+        rates = [int(r) for r in text.replace(" ", "").split(",") if r]
+    except ValueError:
+        raise argparse.ArgumentTypeError("--rates %r: write kbit/s separated by commas, e.g. 125,250,500" % text)
+    bad = [r for r in rates if r not in DETECT_RATES]
+    if bad or not rates:
+        raise argparse.ArgumentTypeError("--rates takes kbit/s out of %s" % ", ".join(str(r) for r in DETECT_RATES))
+    return rates
 
 
 def parser():
@@ -717,6 +851,37 @@ def parser():
     lb.add_argument("bitrate_kbit", type=int, choices=LSS_BITRATES, metavar="KBIT",
                     help="kbit/s: " + ", ".join(str(b) for b in LSS_BITRATES))
     lb.add_argument("--store", action="store_true", help="also store the bit rate in the device's memory")
+    sf = sub.add_parser("send", help="send a CAN frame, once or cyclically (needs allow_changes)",
+                        description="Sends one frame, or with --period-ms one every period until --count frames, "
+                                    "--duration seconds or Ctrl-C; the job is stopped on exit. Identifiers the "
+                                    "network uses, and any frame while a node is OPERATIONAL, need --force.")
+    sf.add_argument("id", metavar="ID", help="the identifier, e.g. 0x60A")
+    sf.add_argument("data", nargs="*", metavar="DATA",
+                    help='0-8 data bytes in hex: "40 18 10 01", 40181001 or 40 18 10 01')
+    sf.add_argument("--ext", action="store_true", help="extended (29-bit) identifier")
+    sf.add_argument("--rtr", action="store_true", help="a remote frame (no data; give --dlc)")
+    sf.add_argument("--dlc", type=_int_range("DLC", 0, 8), metavar="N", help="the remote frame's DLC, 0-8")
+    sf.add_argument("--period-ms", type=_int_range("period", 10, 60000), metavar="MS",
+                    help="send cyclically at this period (10-60000 ms)")
+    sf.add_argument("--count", type=_int_range("count", 1, 1000000), metavar="N",
+                    help="cyclic: stop after N frames")
+    sf.add_argument("--duration", type=float, metavar="S", help="cyclic: stop after S seconds (default: Ctrl-C)")
+    sf.add_argument("--force", action="store_true",
+                    help="send even when the network uses the identifier or a node is OPERATIONAL")
+    ss = sub.add_parser("send-stop", help="stop cyclic send jobs of this connection (for scripts that keep one)")
+    ss.add_argument("job", nargs="?", type=_int_range("job", 0, 0xFFFFFFFF), metavar="JOB",
+                    help="the job number (default: every job of this connection)")
+    db = sub.add_parser("detect-bitrate", help="find the bus's bit rate by listening (needs allow_changes)",
+                        description="Stops CANopen on the network, listens in listen-only mode at each bit rate "
+                                    "and starts CANopen again; nodes boot again afterwards. Nothing is sent. "
+                                    "Exits 0 only when one bit rate was detected.")
+    db.add_argument("--rates", type=_rates, metavar="KBIT,...",
+                    help="the rates to try, e.g. 125,250,500 (default %s)" % ",".join(str(r) for r in DETECT_RATES))
+    db.add_argument("--per-rate-ms", type=_int_range("per-rate time", 100, 10000), metavar="MS",
+                    help="how long to listen at each rate (100-10000, default 1000)")
+    db.add_argument("--rounds", type=_int_range("rounds", 1, 20), metavar="N",
+                    help="sweep N times, for devices that send rarely (1-20, default 1)")
+    db.add_argument("--force", action="store_true", help="sweep even while a node is OPERATIONAL")
     tr = sub.add_parser("trace", help="record the frames on the bus into a file (read-only)",
                         description="Records every CAN frame on the runtime's CANopen interface (with several "
                                     "networks, the one --network names) until --duration ends, a single-mode "
@@ -865,6 +1030,13 @@ def _print_status(st, out):
     sync_line = format_sync(st.get("sync"))
     if sync_line:
         out.write(sync_line + "\n")
+    if (st.get("bitrate_sweep") or {}).get("running"):
+        out.write("bit rate sweep running: CANopen on this network is paused until it ends\n")
+    for j in st.get("send_jobs") or []:
+        out.write("send job %s: %s every %s ms, %s sent%s%s\n" % (
+            j.get("job"), ("0x%08X" if j.get("ext") else "0x%03X") % (j.get("id") or 0), j.get("period_ms"),
+            j.get("sent", 0), " of %s" % j["count"] if j.get("count") else "",
+            ", by %s" % j["peer"] if j.get("peer") else ""))
     sim_nodes = [str(nd.get("node_id")) for nd in st.get("nodes") or [] if nd.get("simulated")]
     if st.get("simulation_forced"):
         out.write("simulation forced by the runtime (local simulator runtime): every network runs simulated\n")
@@ -1201,6 +1373,137 @@ def _print_local_status(st, out):
         out.write("  ".join(c.ljust(w) for c, w in zip(r, widths)) + "  " + r[-1] + "\n")
 
 
+def _stopped_text(s):
+    return "job %s: %d frame%s sent, %s" % (s.get("job"), s.get("sent") or 0, "" if s.get("sent") == 1 else "s",
+                                             s.get("reason") or "ended")
+
+
+def _send(client, args, out):
+    """send: one frame, or a cyclic job kept until --count, --duration or
+    Ctrl-C and always stopped on the way out."""
+    cyclic = args.period_ms is not None
+    if args.rtr and args.data:
+        raise DiagError("usage", "a remote frame (--rtr) carries no data; give its length with --dlc")
+    if args.dlc is not None and not args.rtr:
+        raise DiagError("usage", "--dlc is for remote frames (--rtr); a data frame's length is its data")
+    if not cyclic and (args.count is not None or args.duration is not None):
+        raise DiagError("usage", "--count and --duration are for cyclic sending (--period-ms)")
+    try:
+        can_id = parse_frame_id(args.id, args.ext)
+        data = parse_frame_data(args.data)
+    except ValueError as e:
+        raise DiagError("usage", str(e))
+    text = frame_text(can_id, args.ext, args.rtr, args.dlc, data)
+    try:
+        res = client.send_frame(can_id, data, args.ext, args.rtr, args.dlc, args.period_ms, args.count, args.force)
+    except DiagError as e:
+        if needs_force(e):
+            raise DiagError("refused", "%s; add --force to send it anyway" % e)
+        raise
+    if not cyclic:
+        if not args.json:
+            out.write("sent %s%s\n" % (text, " (forced)" if args.force else ""))
+        return res
+    job = res.get("job")
+    if not args.json:
+        out.write("job %s: sending %s every %d ms%s; Ctrl-C stops\n" % (
+            job, text, args.period_ms, ", %d frames" % args.count if args.count else ""))
+        out.flush()
+    started = time.monotonic()
+    # With a count the plugin ends the job itself; wait a little longer than it takes.
+    limit = args.duration
+    if args.count:
+        need = args.count * args.period_ms / 1000.0 + 2.0
+        limit = need if limit is None else min(limit, need)
+    sent = None
+    try:
+        while limit is None or time.monotonic() - started < limit:
+            time.sleep(0.5)
+            st = client.status()
+            if "send_jobs" not in st:
+                continue  # a plugin that does not list jobs: wait for the time
+            mine = [j for j in st["send_jobs"] if j.get("job") == job]
+            if not mine or mine[0].get("reason"):
+                break  # ended by the plugin (count reached, transmit error, time limit)
+            sent = mine[0].get("sent")
+            if not args.json and sys.stderr.isatty():
+                sys.stderr.write("\rjob %s: %s sent, %.0f s " % (job, sent, time.monotonic() - started))
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if not args.json and sys.stderr.isatty():
+            sys.stderr.write("\r" + " " * 40 + "\r")
+        stopped = client.send_frame_stop(job).get("stopped") or []
+    ended = next((s for s in stopped if s.get("job") == job), None) or {"job": job, "sent": sent, "reason": "ended"}
+    if not args.json:
+        out.write(_stopped_text(ended) + "\n")
+    if ended.get("reason") not in ("stopped", "count reached"):
+        if args.json:
+            out.write(json.dumps({"job": job, "stopped": stopped}, indent=2) + "\n")
+        raise DiagError("refused", "job %s ended early: %s" % (job, ended.get("reason") or "ended"))
+    return {"job": job, "stopped": stopped}
+
+
+def _send_stop(client, args, out):
+    res = client.send_frame_stop(args.job)
+    if not args.json:
+        stopped = res.get("stopped") or []
+        for s in stopped:
+            out.write(_stopped_text(s) + "\n")
+        if not stopped:
+            out.write("no job of this connection was running\n")
+    return res
+
+
+def _print_sweep(res, out):
+    rows = [("RATE", "FRAMES", "ERROR FRAMES", "IDENTIFIERS")]
+    for r in res.get("results") or []:
+        ids = r.get("ids") or []
+        text = " ".join("0x%X" % i for i in ids) + (" ..." if len(ids) >= 16 else "")
+        rows.append(("%s kbit/s" % r.get("bitrate_kbit"), str(r.get("frames", 0)), str(r.get("error_frames", 0)),
+                     text or "-"))
+    widths = [max(len(r[i]) for r in rows) for i in range(3)]
+    for r in rows:
+        out.write("  ".join(c.rjust(w) if i else c.ljust(w) for i, (c, w) in enumerate(zip(r, widths))) + "  " +
+                  r[3] + "\n")
+
+
+def _detect(client, args, out):
+    """detect-bitrate: starts the sweep, follows it, prints the table and the
+    verdict; exits 0 only when one rate was detected."""
+    try:
+        res = client.detect_bitrate(args.rates, args.per_rate_ms, args.rounds, args.force)
+    except DiagError as e:
+        if needs_force(e):
+            raise DiagError("refused", "%s; add --force to stop CANopen on this network for the sweep" % e)
+        raise
+    shown = 0
+    while True:
+        if not args.json and sys.stderr.isatty():
+            for r in (res.get("results") or [])[shown:]:
+                sys.stderr.write("\r%s kbit/s: %d frames, %d error frames%s\n" % (
+                    r.get("bitrate_kbit"), r.get("frames", 0), r.get("error_frames", 0), " " * 10))
+            shown = len(res.get("results") or [])
+            if res.get("running"):
+                sys.stderr.write("\rlistening at %s kbit/s (%s/%s)%s " % (
+                    res.get("rate_kbit"), res.get("done"), res.get("total"),
+                    ", round %s" % res["round"] if (args.rounds or 1) > 1 and res.get("round") else ""))
+        if not res.get("running"):
+            break
+        time.sleep(0.3)
+        res = client.detect_bitrate_status()
+    if not args.json and sys.stderr.isatty():
+        sys.stderr.write("\r" + " " * 50 + "\r")
+    if not args.json:
+        _print_sweep(res, out)
+        out.write(verdict_text(res) + "\n")
+    if res.get("verdict") != "detected":
+        if args.json:
+            out.write(json.dumps(res, indent=2) + "\n")
+        raise DiagError("refused", "no bit rate detected (%s)" % (res.get("verdict") or "no result"))
+    return res
+
+
 def run(args, out=sys.stdout):
     if args.command == "hash-token":
         token = args.value or args.token or os.environ.get(TOKEN_ENV)
@@ -1317,6 +1620,14 @@ def run(args, out=sys.stdout):
                                                                   res.get("note", "")))
         elif args.command in ("backup", "compare", "restore", "store"):
             res = _parameters(client, args, host, out)
+        elif args.command in ("send", "send-stop", "detect-bitrate"):
+            try:
+                res = {"send": _send, "send-stop": _send_stop, "detect-bitrate": _detect}[args.command](
+                    client, args, out)
+            except DiagError as e:
+                if too_old(e):
+                    raise DiagError("refused", TOO_OLD)
+                raise
         elif args.command == "nmt":
             res = client.nmt(args.node, args.nmt_command)
             if not args.json:

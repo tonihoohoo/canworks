@@ -625,6 +625,7 @@ function render() {
   stopOnline(keep);
   stopSim(keep);
   stopTrace();
+  if (S.view !== "trace" && typeof sendLeave === "function") sendLeave();
   const view = $("#view");
   view.replaceChildren();
   if (S.view === "bus") renderBus(view);
@@ -4577,9 +4578,137 @@ function renderScan(view) {
   view.append(el("div", { class: "toolbar" }, netPicker(),
     el("button", { type: "button", class: "primary", dataset: { online: "scan" }, onclick: () => runScan(true) }, "Scan the bus"), progress),
   el("div", { id: "scan-result" }));
+  view.append(detectSection());
   S.onlineOpen = true;
   if (S.scanResult) showScan(S.scanResult);
   else runScan(false);
+  const d = (S.detect || {})[onlineNetwork() ?? ""];
+  if (d) { showDetect(d); if (d.running) pollDetect(S.onlineSeq); }
+}
+
+// -- bit rate detection (add-raw-frames-bitrate-detect) ---------------------
+// The plugin stops CANopen on the network, listens at each bit rate in
+// listen-only mode and starts CANopen again. S.detect keeps the last answer
+// per network for this page.
+
+const SILENT_TEXT = "The bus was silent. A device sends a boot-up message when it is powered on or reset: power-cycle one during the sweep, or run more rounds.";
+
+function detectSection() {
+  const allow = !!(diagConfig() && diagConfig().allow_changes);
+  const rounds = el("select", { "aria-label": "Rounds", dataset: { online: "detect-rounds" } },
+    [1, 2, 3, 5, 10].map((n) => el("option", { value: n }, n === 1 ? "1 round" : `${n} rounds`)));
+  return el("fieldset", { dataset: { online: "detect-box" } }, el("legend", null, "Detect bit rate"),
+    el("p", { class: "muted" }, "Finds the bit rate of the traffic on this network's bus: the runtime stops CANopen on the network, listens at 1000, 800, 500, 250, 125, 50, 20 and 10 kbit/s for a second each without sending anything, then starts CANopen again. Other networks keep running."),
+    allow ? null : el("p", { class: "field-msg warning", dataset: { online: "detect-blocked" } }, "Detecting the bit rate needs Allow changes in Online access"),
+    el("div", { class: "toolbar" },
+      el("button", { type: "button", dataset: { online: "detect" }, disabled: !allow, onclick: () => runDetect(Number(rounds.value)) }, "Detect bit rate"),
+      rounds),
+    el("div", { id: "detect-result" }));
+}
+
+// The draft network the scan page acts on.
+function detectNet() {
+  const name = onlineNetwork();
+  if (name === null) return S.config;
+  return S.model.networks.find((n) => netName(n) === name) || null;
+}
+
+async function runDetect(rounds) {
+  const name = onlineNetwork();
+  const v = await modal(`Detect the bit rate${name ? " of network " + name : ""}? CANopen on that network stops during the sweep (about ${8 * rounds} s): the program's PDOs and SDOs on it stop, and the nodes boot again afterwards. The runtime only listens; nothing is sent on the bus.`,
+    [["detect", "Detect bit rate", true], ["cancel", "Cancel"]]);
+  if (v !== "detect") return;
+  await startDetect(rounds, false);
+}
+
+async function startDetect(rounds, force) {
+  const seq = S.onlineSeq;
+  const net = onlineNetwork() ?? "";
+  let r;
+  try {
+    r = await api("POST", "/api/online/detect_bitrate", Object.assign({ port: diagPort(), rounds }, force ? { force: true } : {}));
+  } catch (e) {
+    if (e.body && e.body.force && !force) {
+      const v = await modal(`The runtime says: "${e.message}". Stop CANopen on this network for the sweep anyway?`,
+        [["force", "Detect anyway", true], ["cancel", "Cancel"]]);
+      if (v === "force") return startDetect(rounds, true);
+      return;
+    }
+    const box = $("#detect-result");
+    if (box) box.replaceChildren(el("p", { class: "field-msg", dataset: { online: "detect-error" } }, `Not started: ${e.message}`));
+    return;
+  }
+  S.detect = Object.assign(S.detect || {}, { [net]: r });
+  if (seq !== S.onlineSeq || S.view !== "scan") return;
+  showDetect(r);
+  if (r.running) pollDetect(seq);
+}
+
+async function pollDetect(seq) {
+  clearTimeout(S.detectTimer);
+  S.detectTimer = setTimeout(async () => {
+    if (seq !== S.onlineSeq || S.view !== "scan") return;
+    const net = onlineNetwork() ?? "";
+    let r;
+    try { r = await api("POST", "/api/online/detect_bitrate_status", { port: diagPort() }); }
+    catch (e) {
+      if (seq === S.onlineSeq) banner(e.message, true);
+      return pollDetect(seq);
+    }
+    if (seq !== S.onlineSeq || S.view !== "scan") return;
+    S.detect = Object.assign(S.detect || {}, { [net]: r });
+    showDetect(r);
+    if (r.running) pollDetect(seq);
+  }, 300);
+}
+
+function kbitText(k) { return k >= 1000 ? `${k / 1000} Mbit/s` : `${k} kbit/s`; }
+
+function showDetect(r) {
+  const box = $("#detect-result");
+  if (!box) return;
+  const parts = [];
+  if (r.running) {
+    parts.push(el("p", { class: "sweep-progress", dataset: { online: "detect-progress" } },
+      `Listening at ${kbitText(r.rate_kbit)} (${r.done} of ${r.total}${r.total > 8 ? `, round ${r.round}` : ""})… CANopen on this network is stopped until the sweep ends.`));
+  } else if (r.verdict) {
+    const net = detectNet();
+    const current = net && net.adapter ? net.adapter.bitrate : undefined;
+    let text;
+    let cls = "bad";
+    if (r.verdict === "detected") {
+      cls = "ok-text";
+      text = `${kbitText(r.bitrate_kbit)} detected` + (r.matches_config ? ", the bit rate the runtime is configured for." :
+        r.configured_kbit ? `; the runtime is configured for ${kbitText(r.configured_kbit)}.` : ".");
+    } else if (r.verdict === "ambiguous") {
+      text = `Ambiguous: frames at ${(r.candidates || []).map(kbitText).join(", ")}. Run the sweep again, with more rounds.`;
+    } else if (r.verdict === "silent") {
+      text = SILENT_TEXT;
+      cls = "field-msg warning";
+    } else {
+      text = `The sweep failed: ${r.error || "no reason given"}.`;
+    }
+    parts.push(el("p", { class: cls, dataset: { online: "detect-verdict" } }, text));
+    if (r.verdict === "detected" && net && r.bitrate_kbit * 1000 !== current) {
+      parts.push(el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", dataset: { online: "use-bitrate" },
+        onclick: () => {
+          net.adapter = net.adapter || {};
+          net.adapter.bitrate = r.bitrate_kbit * 1000;
+          changed();
+          banner(`Bit rate set to ${kbitText(r.bitrate_kbit)}${several() ? " on network " + netName(net) : ""}. Save and upload to use it.`);
+          showDetect(r);
+        } }, `Use ${r.bitrate_kbit} kbit/s`)));
+    }
+  }
+  const rows = (r.results || []).map((x) => el("tr", { dataset: { detectRate: x.bitrate_kbit } },
+    el("td", null, kbitText(x.bitrate_kbit)), el("td", null, String(x.frames)), el("td", null, String(x.error_frames)),
+    el("td", { class: "mono" }, (x.ids || []).map((i) => "0x" + i.toString(16).toUpperCase()).join(" ") + ((x.ids || []).length >= 16 ? " …" : ""))));
+  if (rows.length) {
+    parts.push(el("table", { class: "scan", dataset: { online: "detect-table" } },
+      el("thead", null, el("tr", null, ["Bit rate", "Frames", "Error frames", "Identifiers"].map((h) => el("th", null, h)))),
+      el("tbody", null, rows)));
+  }
+  box.replaceChildren(...parts);
 }
 
 async function runScan(start) {
