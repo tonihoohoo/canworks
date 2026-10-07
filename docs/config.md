@@ -99,6 +99,7 @@ Files written before the contract have top-level `interface` and `bitrate` inste
 | `configure_link` | no | `socketcan` only. Default `true`: at PLC start the plugin sets the interface to `bitrate` and brings it up. A link that is already up at that rate is used as is; one up at another rate is taken down, set and brought up again, with a warning. A `vcan` link is only brought up. `false` leaves the link to the system, with a warning if its rate differs. |
 | `restart_ms` | no | `socketcan` only. Bus-off auto-restart delay in ms, set together with the bit rate (`ip link ... restart-ms`). |
 | `device` | `slcan` | `slcan` only. Absolute path of the serial device, such as `/dev/serial/by-id/usb-Openlight_Labs_CANable2_...-if00` (preferred: `/dev/ttyACM0` can change number when the adapter is plugged in again). |
+| `simulate` | no | Default `false`. `true`: the network is simulated. The master runs on an in-process virtual bus with simulated devices; no interface or serial device is opened and no link is changed, so it needs no CAN hardware and no privileges. The other fields are still checked, so switching back needs only this one. See [simulator.md](simulator.md#two-switches). |
 | `serial_baudrate` | no | `slcan` only. UART speed for adapters behind a real serial port, such as the FTDI-based Lawicel CANUSB. USB adapters such as the CANable ignore it; left out, the speed is not changed. |
 
 A field of the other type (`device` with `socketcan`, `configure_link` with `slcan`, ...) is an error, not ignored.
@@ -230,6 +231,10 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 
 The plugin listens while the PLC runs and closes the port when it stops. Everything a client sees and does is in [diagnostics.md](diagnostics.md), together with the security notes. With `"nodes": []` the plugin starts the master on the bus with no slaves, so the scan can find what is connected before any node is configured.
 
+### Simulated network and devices
+
+The two `simulate` switches give four combinations: everything simulated (`adapter.simulate: true`), a simulated network with some nodes absent (`"simulate": false` on them), some simulated devices next to real ones on a real network (`"simulate": true` on them), and every node simulated on a real interface. Behaviour of the simulated devices (moving values, faults, scenarios) comes from `simulation.json` next to the config. The plugin logs a warning naming what is simulated at every PLC start, and the diagnostics status reports `simulated_network` and each node's `simulated`. [simulator.md](simulator.md) has the details.
+
 ## `nodes[]`
 
 | Field | Required | Meaning |
@@ -250,6 +255,7 @@ The plugin listens while the PLC runs and closes the port when it stops. Everyth
 | `rx_pdos` | no* | PDOs the slave receives (its RPDOs). Their entries are fed from outputs (`%Q...`). |
 | `sdo` | no | Startup SDOs (below). |
 | `sdo_variables` | no | Objects read or written over SDO while the network runs (see [SDO variables](#sdo-variables)). |
+| `simulate` | no | `true`: the plugin runs a simulated device for this node, built from its EDS, node ID, identity and LSS settings. Default: `adapter.simulate`. With `true` on a real network the simulated device runs next to the real devices on the same interface; with `false` on a simulated network the node is absent. See [simulator.md](simulator.md#two-switches). |
 
 \* Both may be left out: a node with no PDOs is still booted, supervised and sent its startup SDOs, and all its PDOs are switched off. `tx_pdos` and `rx_pdos` are named from the slave's point of view, as in its EDS.
 

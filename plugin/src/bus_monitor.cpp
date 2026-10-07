@@ -56,6 +56,13 @@ bool BusMonitor::no_bus() {
   return true;
 }
 
+bool BusMonitor::simulated() {
+  if (state_ == kBusActive) return false;
+  state_ = kBusActive;
+  image_.set_bus_state(kBusActive);
+  return true;
+}
+
 bool BusMonitor::poll(clock::time_point now) {
   const char* name = cfg_.adapter.interface.c_str();
   LinkInfo li;

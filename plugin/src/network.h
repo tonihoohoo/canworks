@@ -99,6 +99,13 @@ class Network : public lely::canopen::BasicMaster {
   // Serves the diagnostics channel's requests from `hub` (call before
   // Start()); the caller attaches and detaches the hub.
   void SetDiag(DiagHub* hub) { diag_ = hub; }
+  // Answers the diagnostics channel's sim_* requests (the simulated devices
+  // of this session); none: "nothing simulated".
+  using SimHandler = std::function<std::string(const cJSON* req, const std::string& id, const std::string& peer)>;
+  void SetSimHandler(SimHandler h) { sim_handler_ = std::move(h); }
+  // Nodes marked simulated whose node ID a device on the wire already uses:
+  // they stay real, and the status says so.
+  void SetSimConflicts(std::set<unsigned> nodes) { sim_conflicts_ = std::move(nodes); }
 
   // Supervision period and retry backoff limits.
   static constexpr std::chrono::milliseconds kTick{100};
@@ -344,6 +351,8 @@ class Network : public lely::canopen::BasicMaster {
   lely::io::TimerBase& sup_timer_;
   ev_exec_t* exec_;
   std::function<bool()> tick_;
+  SimHandler sim_handler_;
+  std::set<unsigned> sim_conflicts_;
   std::map<unsigned, NodeState> nodes_;
   lely::io::TimerWait tick_wait_;
   lely::io::TimerBase* req_timer_;

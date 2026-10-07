@@ -54,6 +54,12 @@ VERSION=$(sed -n 1p "$PREFIX/lib/runtime-version")
 echo "2. the library loads in the image"
 out=$(docker run --rm -v "$BIND" --entrypoint ldd "$IMAGE" /opt/openplc-canopen/lib/libcanopen_plugin.so 2>&1)
 if [ $? -eq 0 ] && ! grep -q "not found" <<<"$out"; then ok "ldd: all libraries found"; else echo "$out"; fail "ldd"; fi
+sim=$(docker run --rm -v "$BIND" --entrypoint /opt/openplc-canopen/lib/openplc-canopen-sim "$IMAGE" --version 2>&1)
+if grep -q "^openplc-canopen-sim [^ ]" <<<"$sim"; then
+    ok "$sim runs in the image"
+else
+    fail "openplc-canopen-sim --version in the image: '$sim'"
+fi
 
 echo "3. ping-pong on $IFACE in a container with the managed flags"
 ip link set "$IFACE" up 2>/dev/null || true

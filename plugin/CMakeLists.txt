@@ -35,10 +35,21 @@ add_library(canopen_core STATIC
     src/bus.cpp
     src/bus_monitor.cpp
     src/runtime_version.cpp
+    src/sim_config.cpp
+    src/sim_trace.cpp
+    sim/sim_expr.cpp
+    sim/sim_od.cpp
+    sim/sim_source.cpp
+    sim/sim_device.cpp
+    sim/sim_file.cpp
+    sim/sim_drive.cpp
+    sim/sim_engine.cpp
+    sim/sim_host.cpp
     ${NATIVE_DIR}/cjson/cJSON.c
 )
 target_include_directories(canopen_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/sim
     ${NATIVE_DIR}/cjson
     ${OPENPLC_ROOT}/core/src/drivers
     ${OPENPLC_ROOT}/core/src/lib
@@ -78,3 +89,21 @@ set_target_properties(canopen_plugin PROPERTIES
     # name (dlopen RTLD_NOLOAD), wherever it is installed.
 )
 target_link_options(canopen_plugin PRIVATE -Wl,-soname,libcanopen_plugin.so)
+
+# openplc-canopen-sim, the standalone simulator (docs/simulator.md): the
+# simulator engine of canopen_core on a SocketCAN interface. It reports the
+# plugin's version.
+add_executable(openplc-canopen-sim
+    ${PROJECT_SOURCE_DIR}/tools/sim/main.cpp
+    ${PROJECT_SOURCE_DIR}/tools/sim/sim_run.cpp
+    ${PROJECT_SOURCE_DIR}/tools/sim/sim_commands.cpp
+    ${PROJECT_SOURCE_DIR}/tools/sim/control.cpp
+)
+target_compile_definitions(openplc-canopen-sim PRIVATE CANOPEN_PLUGIN_VERSION="${CANOPEN_PLUGIN_VERSION}")
+target_compile_options(openplc-canopen-sim PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_link_libraries(openplc-canopen-sim PRIVATE canopen_core)
+set_target_properties(openplc-canopen-sim PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    BUILD_RPATH "${LELY_LIBRARY_DIRS}"
+    INSTALL_RPATH "${LELY_LIBRARY_DIRS}"
+)

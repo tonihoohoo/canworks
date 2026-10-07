@@ -29,12 +29,12 @@ import urllib.parse
 import webbrowser
 import zipfile
 
-from .. import __version__, axis, contract, dbcexport, dcfexport, diag, editorproject, edslint, project as project_mod, sdolibrary
+from .. import __version__, axis, contract, dbcexport, dcfexport, diag, editorproject, edslint, parameters, project as project_mod, sdolibrary
 from .. import eds as eds_mod
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES
-from . import cia402map, declare, layout, online, params, scan, tracing
+from . import cia402map, declare, layout, online, params, scan, simulation, tracing
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 TOKEN_HEADER = "X-CANopen-Token"
@@ -48,7 +48,7 @@ RECENT_MAX = 10
 ORDER = {
     "": ["$schema", "schema_version", "adapter", "master", "nodes", "networks", "diagnostics"],
     "network": ["name", "adapter", "master", "nodes"],
-    "adapter": ["type", "interface", "bitrate", "configure_link", "restart_ms"],
+    "adapter": ["type", "simulate", "interface", "bitrate", "configure_link", "restart_ms"],
     "master": ["node_id", "sync_period_us", "heartbeat_ms", "eds_lint", "strict_eds", "bus_state_location",
                "tx_error_count_location", "rx_error_count_location", "bus_off_count_location", "state_location",
                "vendor_id", "product_code", "revision_number", "serial_number", "sync_window_us",
@@ -56,7 +56,8 @@ ORDER = {
                "heartbeat_multiplier", "error_behavior", "nmt_inhibit_time_us", "start", "start_nodes",
                "start_all_nodes", "reset_all_nodes", "stop_all_nodes", "boot_time_ms", "sdo_timeout_ms",
                "diagnostics"],
-    "node": ["node_id", "name", "eds", "heartbeat_ms", "heartbeat_timeout_ms", "guard_time_ms", "life_time_factor",
+    "node": ["node_id", "name", "eds", "simulate", "heartbeat_ms", "heartbeat_timeout_ms", "guard_time_ms",
+             "life_time_factor",
              "status_location", "state_location", "boot_error_location", "emcy_code_location",
              "error_register_location", "nmt_command_location", "mandatory", "boot",
              "reset_communication", "revision_number", "serial_number", "lss", "heartbeat_consumer", "retry_factor",
@@ -276,10 +277,16 @@ def migrate_adapter(cfg):
 def eds_summary(eds, path=None):
     objects = []
     for index, sub, o in eds.items():
-        objects.append({"index": "0x%04X" % index, "subindex": sub, "name": o.name, "type": o.type_name,
-                        "type_code": o.data_type,
-                        "access": o.access, "directions": list(o.directions) if o.type_name else [],
-                        "readable": o.access != "wo", "writable": o.writable, "default": o.default})
+        obj = {"index": "0x%04X" % index, "subindex": sub, "name": o.name, "type": o.type_name,
+               "type_code": o.data_type,
+               "access": o.access, "directions": list(o.directions) if o.type_name else [],
+               "readable": o.access != "wo", "writable": o.writable, "default": o.default}
+        # LowLimit/HighLimit as numbers (the Simulation view's sliders).
+        for key in ("low_limit", "high_limit"):
+            v = parameters.limit_number(getattr(o, key, ""), o.data_type, 0)
+            if v is not None:
+                obj[key] = v
+        objects.append(obj)
     # Each PDO's mapping object: whether the master can write it, and the
     # device's default mapping (for "Set by the device" and "Map all").
     pdo_maps = {}
@@ -324,6 +331,7 @@ class Session:
         self.mode = None  # "project" | "standalone"
         self.folder = None
         self.loaded = None  # (mtime, sha256) of canopen.json as loaded, or None when there was none
+        self.sim_loaded = None  # sha256 of simulation.json as loaded, or None when there was none
         self.pending = {}  # EDS name -> UTF-8 bytes imported but not yet saved
         self.pending_dir = tempfile.mkdtemp(prefix="canopen-config-")
         self.uses, self.scan_problems, self.scanned_at = [], [], None
@@ -336,6 +344,10 @@ class Session:
     @property
     def config_path(self):
         return os.path.join(self.canopen_dir, CONFIG)
+
+    @property
+    def sim_path(self):
+        return os.path.join(self.canopen_dir, simulation.SIM_FILE)
 
     def eds_path(self, value):
         if value in self.pending:
@@ -388,7 +400,7 @@ class Session:
         self.remember()
 
     def close(self):
-        self.mode = self.folder = self.loaded = None
+        self.mode = self.folder = self.loaded = self.sim_loaded = None
         self.pending.clear()
 
     def reload(self):
@@ -397,6 +409,7 @@ class Session:
             self.loaded = (os.path.getmtime(self.config_path), sha256(self.config_path))
         else:
             self.loaded = None
+        self.sim_loaded = sha256(self.sim_path) if os.path.isfile(self.sim_path) else None
         self.rescan()
 
     def rescan(self):
@@ -449,6 +462,7 @@ class Session:
         if os.path.isdir(self.canopen_dir):
             names += [f for f in sorted(os.listdir(self.canopen_dir)) if f.lower().endswith(".eds")]
         names += list(self.pending)
+        names += simulation.extra_eds(simulation.read(self.sim_path)["doc"])
         return list(dict.fromkeys(names))
 
     def state(self):
@@ -458,7 +472,10 @@ class Session:
         if not self.mode:
             return base
         cfg, notices, error = self.read_config()
+        sim = simulation.read(self.sim_path)
+        sim_eds = simulation.eds_files(self.canopen_dir)
         referenced = {n.get("eds") for n in contract.all_nodes(cfg)}
+        referenced.update(simulation.extra_eds(sim["doc"]))
         names = self.eds_names(cfg)
         base.update({
             "folder": self.folder, "name": os.path.basename(self.folder.rstrip(os.sep)) or self.folder,
@@ -468,6 +485,8 @@ class Session:
             "unused_eds": [n for n in names if n not in referenced and n not in self.pending],
             "project_uses": [u.as_dict() for u in self.uses], "scan_problems": self.scan_problems,
             "scanned_at": self.scanned_at,
+            "simulation": {k: sim[k] for k in ("path", "exists", "doc", "error")},
+            "sim_eds": sim_eds + [n for n in self.pending if n not in sim_eds],
         })
         return base
 
@@ -719,6 +738,38 @@ class Session:
         self.loaded = (os.path.getmtime(self.config_path), sha256(self.config_path))
         return {"written": written, "check": checked}
 
+    # -- the simulation file -------------------------------------------------
+    def sim_changed_on_disk(self):
+        exists = os.path.isfile(self.sim_path)
+        if self.sim_loaded is None:
+            return exists
+        return not exists or sha256(self.sim_path) != self.sim_loaded
+
+    def save_simulation(self, doc, overwrite=False):
+        """Writes canopen/simulation.json after the schema check, with the EDS
+        files its extra devices name that were imported but not saved yet.
+        Like canopen.json, only into the project's config folder."""
+        problems = simulation.check(doc)
+        if problems:
+            raise ApiError(422, "the simulation file has %d error%s; nothing was saved"
+                           % (len(problems), "" if len(problems) == 1 else "s"), problems=problems)
+        if not overwrite and self.sim_changed_on_disk():
+            raise ApiError(409, "%s changed on disk after it was loaded" % self.sim_path, changed_on_disk=True)
+        os.makedirs(self.canopen_dir, exist_ok=True)
+        written = []
+        wanted = set(simulation.extra_eds(doc))
+        for name in sorted(n for n in self.pending if n in wanted):
+            target = os.path.join(self.canopen_dir, name)
+            with open(target + ".tmp", "wb") as f:
+                f.write(self.pending[name])
+            os.replace(target + ".tmp", target)
+            written.append(target)
+            del self.pending[name]
+        simulation.write(self.sim_path, doc)
+        written.append(self.sim_path)
+        self.sim_loaded = sha256(self.sim_path)
+        return {"written": written}
+
     # -- move a standalone config into a project ---------------------------
     def move(self, target, replace=False):
         if self.mode != "standalone":
@@ -901,6 +952,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # Network calls: outside the session lock, so editing never waits on the runtime.
                 body = self._body() if method == "POST" else {}
                 return self._send(200, self._online((method, url.path), body))
+            if url.path.startswith("/api/sim/"):
+                body = self._body() if method == "POST" else {}
+                return self._send(200, self._sim((method, url.path), body))
             if url.path.startswith("/api/trace/"):
                 if (method, url.path) == ("POST", "/api/trace/open") and \
                         (self.headers.get("Content-Type") or "").startswith("application/octet-stream"):
@@ -1220,6 +1274,148 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._match_scan(s, settings, canopen_dir, res, body.get("config"), used)
             return res
         raise ApiError(404, "no such API: %s %s" % route)
+
+    # -- simulation ---------------------------------------------------------
+    def _sim(self, route, body):
+        """/api/sim/*: the Simulation view. The simulation file of this
+        project, and requests to the runtime's simulated devices (online
+        access settings) or to a standalone simulator (address and token kept
+        on this PC), through the online view's kept-open connection."""
+        s, conn = self.server.session, self.server.connection
+        settings = online.Settings(config_dir())
+        with s.lock:
+            self._need_open(s)
+            folder = s.folder
+
+        if route == ("GET", "/api/sim/settings"):
+            return simulation.settings_view(settings.project(folder))
+        if route == ("POST", "/api/sim/settings"):
+            try:
+                values = simulation.clean_settings(body)
+            except ValueError as e:
+                raise ApiError(422, str(e))
+            if any(k in values for k in ("sim_target", "sim_address", "sim_token")):
+                conn.close()
+            return simulation.settings_view(settings.update_project(folder, **values))
+        if route == ("POST", "/api/sim/close"):
+            conn.close()
+            return {"closed": True}
+        if route == ("POST", "/api/sim/check"):
+            return {"problems": simulation.check(body.get("doc"))}
+        if route == ("POST", "/api/sim/save"):
+            with s.lock:
+                out = s.save_simulation(body.get("doc"), bool(body.get("overwrite")))
+                out["state"] = s.state()
+            return out
+
+        proj = settings.project(folder)
+
+        def where():
+            try:
+                return simulation.target(proj, body.get("port"))
+            except LookupError as e:
+                need = str(e).strip("'")
+                raise ApiError(409, "enter the runtime host for online access" if need == "host"
+                               else "enter the access token for online access", need=need)
+            except ValueError as e:
+                raise ApiError(422, str(e))
+
+        # The network the page picked; sent only to a plugin that runs several.
+        network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
+
+        def call(fn):
+            host, port, token, kind = where()
+            try:
+                return conn.call(host, port, token, fn, network), kind
+            except diag.DiagError as e:
+                raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
+
+        def hello(kind):
+            info = dict(conn.info or {})
+            standalone = bool(info.get("simulator"))
+            # The standalone simulator takes changes from anyone with its token.
+            return {"hello": info, "target": kind, "standalone": standalone,
+                    "allow_changes": True if standalone else bool(info.get("allow_changes"))}
+
+        if route == ("POST", "/api/sim/check_expr"):
+            expr = body.get("expr")
+            if not isinstance(expr, str) or not expr.strip():
+                raise ApiError(400, "expr must be the expression text")
+            node = body.get("node")
+            if body.get("online"):
+                try:
+                    res, kind = call(lambda c: c.request("sim_check_expr", node=node, expr=expr))
+                    return simulation.remote_result(res, kind)
+                except ApiError:
+                    pass  # not reachable, or the node is not simulated there: checked here instead
+            return self._check_expr_offline(s, expr, node, body.get("doc"))
+        if route == ("POST", "/api/sim/poll"):
+            node = body.get("node")
+            objects = [o for o in body.get("objects") or [] if isinstance(o, str)]
+
+            def poll(c):
+                status = c.request("sim_status")
+                values, pdo_error = [], None
+                if node not in (None, ""):
+                    try:
+                        values = c.request("sim_get", node=node, pdo=True).get("values") or []
+                    except diag.DiagError as e:
+                        if e.kind != "refused":
+                            raise
+                        pdo_error = str(e)
+                    seen = {(v.get("object") or "").upper() for v in values if isinstance(v, dict)}
+                    items = [{"node": node, "object": o} for o in objects if o.upper() not in seen]
+                    if items:
+                        values += c.request("sim_get", items=items).get("values") or []
+                return {"status": status, "values": values, "pdo_error": pdo_error}
+
+            res, kind = call(poll)
+            return dict(hello(kind), **res)
+        if route == ("POST", "/api/sim/request"):
+            op = body.get("op")
+            if op not in simulation.OPS:
+                raise ApiError(400, "op must be one of " + ", ".join(simulation.OPS))
+            fields = {k: v for k, v in body.items() if k not in ("op", "port", "network")}
+            res, kind = call(lambda c: c.request(op, **fields))
+            return {"result": res, "target": kind}
+        raise ApiError(404, "no such API: %s %s" % route)
+
+    @staticmethod
+    def _check_expr_offline(s, expr, node, doc):
+        """An expression checked on this PC (simulation.check_offline), with
+        the devices of the config and of the draft simulation file."""
+        with s.lock:
+            cfg = s.read_config()[0]
+            if not isinstance(doc, dict):
+                doc = simulation.read(s.sim_path)["doc"]
+            devices = {}
+            for n in cfg.get("nodes") or []:
+                if isinstance(n, dict) and isinstance(n.get("eds"), str):
+                    try:
+                        devices[int(str(n.get("node_id")), 0)] = s.eds_path(n["eds"])
+                    except ValueError:
+                        pass
+            for d in doc.get("extra_devices") or []:
+                if isinstance(d, dict) and isinstance(d.get("eds"), str):
+                    key = d.get("name") if not d.get("node") else d.get("node")
+                    devices[key] = s.eds_path(d["eds"])
+            summaries = s.eds_info([p for p in devices.values()])
+        objects = {}
+        for dev, path in devices.items():
+            info = summaries.get(path) or {}
+            objects[dev] = {(int(o["index"], 16), o["subindex"]) for o in info.get("objects", [])}
+            objects[str(dev)] = objects[dev]
+
+        def has_object(device, obj):
+            """Whether a device (None: the expression's own) has an object
+            ("0xIIII:S" or (index, subindex))."""
+            dev = node if device is None else device
+            key = obj if isinstance(obj, tuple) else simulation.parse_object(obj)
+            known = objects.get(dev, objects.get(str(dev)))
+            return known is None or key in known
+
+        known = set(devices) | {str(d) for d in devices}
+        return simulation.check_offline(expr, known, has_object)
 
     # -- trace --------------------------------------------------------------
     def _trace(self, route, body):

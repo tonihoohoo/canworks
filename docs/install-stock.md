@@ -19,6 +19,7 @@ The script:
 - installs build dependencies (apt; `--no-deps` skips this), and builds Lely CANopen and `dcfgen` into `/opt/openplc-canopen` (`--prefix` changes it), at the Lely commit the deploy tool's copy of Lely's `dcf` package comes from (`--lely-ref` changes it);
 - installs the deploy tool into `/opt/openplc-canopen/venv`: the plugin runs its EDS lint at every load ([config.md](config.md#eds-lint));
 - builds `libcanopen_plugin.so` against the runtime checkout's headers and installs it to `/opt/openplc-canopen/lib/`, outside the runtime's `build/` tree, so rebuilding or reinstalling the runtime does not delete it;
+- builds the standalone device simulator `openplc-canopen-sim` ([simulator.md](simulator.md)) from the same sources, installs it to `/opt/openplc-canopen/lib/` and links it as `/usr/local/bin/openplc-canopen-sim`; `openplc-canopen-sim --version` prints the plugin's version;
 - adds one disabled line to the runtime's `plugins.conf`:
 
   ```
@@ -45,6 +46,7 @@ It:
 
 - builds Lely CANopen, `dcfgen`, the deploy tool, the plugin and the editor hook **inside the runtime image the bootloader runs**, in a throwaway container, into `/opt/openplc-canopen` on the host. A plugin built on the host would not load in the image (the image is Debian bookworm with its own C library and Python). On a Raspberry Pi this takes a while;
 - records the runtime version it built for in `/opt/openplc-canopen/lib/runtime-version`;
+- builds `openplc-canopen-sim` for the image too, to `/opt/openplc-canopen/lib/openplc-canopen-sim`, with no host link: it needs the image's libraries, so run it inside the container (`docker exec -it openplc-runtime /opt/openplc-canopen/lib/openplc-canopen-sim ...`);
 - adds two entries to the bootloader's runtime spec, through the same `extraBinds`/`extraEnv` keys upstream's installer writes for `--mount`/`--env`, and leaves every other entry as it was:
   - `extraBinds`: `/opt/openplc-canopen:/opt/openplc-canopen`
   - `extraEnv`: `PYTHONPATH=/opt/openplc-canopen/lib/sitecustomize` (loads the editor hook in the runtime's webserver)
@@ -97,7 +99,7 @@ The editor (4.3 and later) sends the whole project folder with every **Build and
 openplc-canopen-deploy --config config/rtd-sensor/canopen_config.json --into-project ~/Documents/workspace/rtd-monitor
 ```
 
-This runs the deploy tool's checks and writes `canopen/canopen.json` and the EDS files to the project (`--force` replaces an existing `canopen/`). EDS files are stored as UTF-8, because the editor sends project files as UTF-8 text; one in CP1252/Latin-1 is converted. Then press **Build and upload** in the editor as usual. After a successful build, before the runtime reports success, the hook copies the config to `core/generated/conf/` and the runtime enables `canopen` by its own rules. The build log says `CANopen: config taken from the project snapshot (canopen/canopen.json, 1 EDS file)`.
+This runs the deploy tool's checks and writes `canopen/canopen.json` and the EDS files to the project (`--force` replaces an existing `canopen/`). EDS files are stored as UTF-8, because the editor sends project files as UTF-8 text; one in CP1252/Latin-1 is converted. Then press **Build and upload** in the editor as usual. After a successful build, before the runtime reports success, the hook copies the config to `core/generated/conf/` and the runtime enables `canopen` by its own rules. The build log says `CANopen: config taken from the project snapshot (canopen/canopen.json, 1 EDS file)`. A [simulation file](simulator.md#the-simulation-file) `canopen/simulation.json` travels too, with its extra devices' EDS files and its CSV files, checked against the config and written in the deploy tool's layout; a bad one rejects the whole config like any other check, and the build log warns when the config simulates devices.
 
 - A project without `canopen/` switches CANopen off, as without the hook.
 - An upload made with `openplc-canopen-deploy` wins: its `conf/canopen.json` is used and the project's is ignored. The runtime then drops the project snapshot it kept from the editor's last upload, so the editor cannot read the project back from the device until its next **Build and upload**.
@@ -110,7 +112,7 @@ CI runs the hook against the upstream runtime's own `update_plugin_configuration
 ## Uninstall
 
 ```sh
-sudo scripts/install-stock.sh --uninstall           # removes the canopen line, the editor hook and /opt/openplc-canopen/lib
+sudo scripts/install-stock.sh --uninstall           # removes the canopen line, the editor hook, the simulator link and /opt/openplc-canopen/lib
 sudo scripts/install-stock.sh --uninstall --purge   # also removes Lely and dcfgen (all of /opt/openplc-canopen)
 sudo systemctl restart openplc-runtime
 ```

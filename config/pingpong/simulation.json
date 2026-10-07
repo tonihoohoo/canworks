@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "tick_ms": 10,
+  "nodes": {
+    "2": {
+      "sources": {
+        "0x4001": { "expr": "[0x4000]" }
+      }
+    }
+  },
+  "scenarios": {
+    "round-trip": {
+      "test": true,
+      "description": "The program answers the device's value plus one.",
+      "steps": [
+        { "wait": { "node": 2, "object": "0x4000", "gt": 10 }, "timeout_ms": 10000 },
+        { "expect": { "expr": "[2/0x4000] >= [2/0x4001]" }, "for_ms": 1000 },
+        { "log": "the counter runs" }
+      ]
+    },
+    "device-hangs": {
+      "description": "The device stops its heartbeat for two seconds.",
+      "steps": [
+        { "node": 2, "fault": { "heartbeat": "stop" } },
+        { "after_ms": 2000, "node": 2, "clear": "heartbeat" }
+      ]
+    }
+  }
+}

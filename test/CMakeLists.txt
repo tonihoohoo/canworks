@@ -125,6 +125,7 @@ target_link_libraries(canopen_host PRIVATE ${CMAKE_DL_LIBS})
 add_executable(plugin_lifecycle host/plugin_lifecycle.cpp)
 target_include_directories(plugin_lifecycle PRIVATE common ${OPENPLC_ROOT}/core/src/drivers)
 target_link_libraries(plugin_lifecycle PRIVATE ${CMAKE_DL_LIBS})
+target_compile_definitions(plugin_lifecycle PRIVATE PINGPONG_DIR="${PINGPONG_DIR}")
 add_test(NAME plugin_lifecycle
          COMMAND plugin_lifecycle $<TARGET_FILE:canopen_plugin> ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(plugin_lifecycle PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
@@ -133,6 +134,14 @@ set_tests_properties(plugin_lifecycle PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
 # user). Not a ctest: it needs an interface the test may change.
 add_executable(link_check link/link_check.cpp)
 target_link_libraries(link_check PRIVATE canopen_core)
+
+# The simulator engine's unit tests (expressions, sources, file, scenarios).
+add_executable(sim_unit_tests sim_unit/sim_unit_tests.cpp sim_unit/sim_drive_tests.cpp sim_unit/sim_file_tests.cpp)
+target_include_directories(sim_unit_tests PRIVATE common)
+target_compile_definitions(sim_unit_tests PRIVATE FIXTURES_DIR="${FIXTURES_DIR}" PINGPONG_DIR="${PINGPONG_DIR}" RTD_DIR="${RTD_DIR}")
+target_link_libraries(sim_unit_tests PRIVATE canopen_core)
+add_test(NAME sim_unit_tests COMMAND sim_unit_tests)
+set_tests_properties(sim_unit_tests PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
 
 # The SDO blocks find the loaded plugin by its SONAME (test/plc_sdo).
 add_library(sdo_program SHARED plc_sdo/program.cpp ${SDO_BLOCKS_DIR}/c_blocks_code.cpp)

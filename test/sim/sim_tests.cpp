@@ -48,6 +48,8 @@
 #include "cia402_slave.hpp"
 #include "pingpong_slave.hpp"
 #include "sensor_slave.hpp"
+#include "sim_engine.h"
+#include "sim_host.h"
 #include "plc_api.h"
 #ifdef CIA402_PROGRAM
 #include "program_host.h"
@@ -430,6 +432,7 @@ class Sim {
   ~Sim() {
     if (hub_) hub_->detach();
     slaves_.clear();
+    simulator_.reset();
     if (net_) net_->Stop();
     sync_wake_.reset();
     ctx_.shutdown();
@@ -460,6 +463,20 @@ class Sim {
 
   // Sends a diagnostics request and runs the loop until its answer arrives;
   // returns the parsed answer line (cJSON_Delete it), or null on timeout.
+  // The answer line exactly as the server would send it.
+  std::string AskLine(DiagRequest r, milliseconds timeout = milliseconds(5000)) {
+    uint64_t seq = hub_->submit(std::move(r));
+    std::string line;
+    RunUntil([&] {
+      std::vector<std::pair<uint64_t, std::string>> got;
+      hub_->take_answers(got);
+      for (auto& a : got)
+        if (a.first == seq) line = a.second;
+      return !line.empty();
+    }, timeout);
+    return line;
+  }
+
   cJSON* Ask(DiagRequest r, milliseconds timeout = milliseconds(5000)) {
     uint64_t seq = hub_->submit(std::move(r));
     std::string line;
@@ -693,6 +710,55 @@ class Sim {
   }
   int nmt(uint8_t id, uint8_t cs) { return nmt_[id * 256 + cs]; }
 
+  // Simulated devices (canopen_sim) on this bus. `specs` default to every
+  // node of the config.
+  bool StartSimulator(const std::string& sim_json, std::vector<canopen_sim::DeviceSpec> specs = {},
+                      canopen_sim::SimOptions opt = canopen_sim::SimOptions()) {
+    canopen_sim::SimFile file;
+    std::vector<std::string> errors;
+    if (!sim_json.empty() && !canopen_sim::parse_sim_file(sim_json, cfg_.config_dir + "/simulation.json", file, errors)) {
+      for (const auto& e : errors) std::printf("  simulation file: %s\n", e.c_str());
+      return false;
+    }
+    if (specs.empty()) {
+      for (const auto& n : cfg_.nodes) {
+        canopen_sim::DeviceSpec d;
+        d.node = n.node_id;
+        d.name = n.name;
+        d.eds_path = n.eds_path;
+        specs.push_back(d);
+      }
+    }
+    opt.simulated_network = true;
+    sim_host_.reset(new canopen_sim::LoopHost(ctx_, poll_, exec_, ctrl_, [](canopen_sim::Host::Level l, const std::string& m) {
+      if (l == canopen_sim::Host::Level::Info) log_info("sim: %s", m.c_str());
+      else if (l == canopen_sim::Host::Level::Warn) log_warn("sim: %s", m.c_str());
+      else log_error("sim: %s", m.c_str());
+    }));
+    simulator_.reset(new canopen_sim::Simulator(*sim_host_, specs, file, opt));
+    simulator_->on_scenario_end = [this](const canopen_sim::ScenarioResult& r) { results_.push_back(r); };
+    errors.clear();
+    bool ok = simulator_->Start(errors);
+    for (const auto& e : errors) std::printf("  simulator: %s\n", e.c_str());
+    return ok;
+  }
+  canopen_sim::Simulator& simulator() { return *simulator_; }
+  const std::vector<canopen_sim::ScenarioResult>& scenario_results() const { return results_; }
+  // A control request to the simulator; the parsed answer (cJSON_Delete it).
+  // Routes sim_ diagnostics requests to the simulator, as bus.cpp does.
+  void WireSimHandler() {
+    net().SetSimHandler([this](const cJSON* req, const std::string& id, const std::string& peer) {
+      return simulator_->Handle(req, id, peer);
+    });
+  }
+
+  cJSON* SimAsk(const std::string& json) {
+    cJSON* req = cJSON_Parse(json.c_str());
+    std::string line = simulator_->Handle(req, "", "test");
+    cJSON_Delete(req);
+    return cJSON_Parse(line.c_str());
+  }
+
   bool status() { return fake_.bool_in[10][0] != 0; }
   uint8_t state() { return static_cast<uint8_t>(fake_.byte_in[20]); }
   uint32_t in() { return fake_.dint_in[100]; }
@@ -760,6 +826,9 @@ class Sim {
   std::vector<Stamped> time_frames_;
   std::vector<SyncFrame> sync_frames_;
   std::map<uint8_t, std::unique_ptr<SlaveBox>> slaves_;
+  std::unique_ptr<canopen_sim::LoopHost> sim_host_;
+  std::unique_ptr<canopen_sim::Simulator> simulator_;
+  std::vector<canopen_sim::ScenarioResult> results_;
   Config cfg_;
   GeneratedConfig gen_;
   ProcessImage image_;
@@ -3097,6 +3166,374 @@ TEST(sim_lss_diag_read_only) {
   cJSON_Delete(a);
   sim->RunFor(milliseconds(200));
   CHECK(sim->lss_total() == 0);
+  delete sim;
+}
+
+// ---- simulated devices (canopen_sim) ----
+
+// The ping-pong node as a simulated device: its TPDO object follows the
+// RPDO object the program writes, so the counter runs as with the real slave.
+TEST(sim_simulated_pingpong) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 5; }, seconds(5)));
+  uint32_t a = sim->in();
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->in() >= a + 4, std::to_string(a) + " -> " + std::to_string(sim->in()));
+  CHECK(sim->simulator().AllOperational());
+  CHECK(logged("sim: node 2: OPERATIONAL"));
+
+  // A source on the object the master writes is refused.
+  cJSON* r = sim->SimAsk(R"({"op":"sim_source","node":2,"object":"0x4000","source":{"constant":5}})");
+  CHECK(!ok(r));
+  CHECK_MSG(str(r, "error").find("the master writes 0x4000:0") != std::string::npos, str(r, "error"));
+  cJSON_Delete(r);
+  // An override wins over the source; release gives it back.
+  r = sim->SimAsk(R"({"op":"sim_override","node":2,"values":{"0x4001":7}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  sim->RunFor(milliseconds(300));
+  CHECK_MSG(sim->in() == 7, std::to_string(sim->in()));
+  r = sim->SimAsk(R"({"op":"sim_get","items":[{"node":2,"object":"0x4001"}]})");
+  const cJSON* v = cJSON_GetArrayItem(field(result(r), "values"), 0);
+  CHECK(num(v, "value") == 7 && str(v, "writer") == "override" && str(v, "type") == "UNSIGNED32");
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_release","node":2,"objects":"all"})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->in() > 20; }, seconds(5)));
+  // Status lists the device.
+  r = sim->SimAsk(R"({"op":"sim_status"})");
+  const cJSON* d = cJSON_GetArrayItem(field(result(r), "devices"), 0);
+  CHECK(num(d, "node") == 2 && str(d, "power") == "on" && str(d, "nmt") == "operational");
+  CHECK(cJSON_IsTrue(field(result(r), "simulated_network")));
+  cJSON_Delete(r);
+  delete sim;
+}
+
+// Faults the master notices: heartbeat stop, power off/on, SDO abort rules.
+TEST(sim_simulated_faults) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->EnableDiag();
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+
+  // Through the diagnostics channel, as a client sends it: one whole line back.
+  sim->WireSimHandler();
+  DiagRequest dr = diag_req("sim_status");
+  dr.raw = R"({"op":"sim_status","id":7})";
+  dr.id = "7";
+  std::string line = sim->AskLine(std::move(dr));
+  CHECK_MSG(!line.empty() && line.back() == '\n' && line.find('\n') == line.size() - 1, line);
+  cJSON* sa = cJSON_Parse(line.c_str());
+  CHECK(ok(sa) && num(sa, "id") == 7);
+  cJSON_Delete(sa);
+
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"heartbeat":"stop"}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"heartbeat"})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+
+  // The ping-pong EDS has no 0x1014, so the device has no EMCY producer.
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"emcy":{"code":"0x5000"}}})");
+  CHECK(!ok(r));
+  CHECK_MSG(str(r, "error").find("cannot send EMCY") != std::string::npos, str(r, "error"));
+  cJSON_Delete(r);
+
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"cycle","off_ms":500}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(10)));
+  CHECK(logged("sim: node 2: powered off"));
+
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"sdo_abort":{"object":"0x1008","code":"0x08000020","count":1}}})");
+  CHECK(!ok(r) && str(r, "error") == "node 2 has no object 0x1008:0");
+  cJSON_Delete(r);
+  cJSON* a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 1));
+  CHECK(ok(a) && cJSON_IsTrue(field(result(a), "success")));
+  cJSON_Delete(a);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"sdo_abort":{"object":"0x1018:1","code":"0x08000020","count":1}}})");
+  cJSON_Delete(r);
+  a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 1));
+  CHECK_MSG(ok(a) && num(result(a), "abort_code") == 0x08000020, a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+  a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 1));  // count 1: the next one passes
+  CHECK(ok(a) && cJSON_IsTrue(field(result(a), "success")));
+  cJSON_Delete(a);
+
+  // Wrong identity: 0x1018 reads the override.
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"identity":{"serial_number":4660}}})");
+  cJSON_Delete(r);
+  a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 4));
+  CHECK_MSG(str(result(a), "data") == "34 12 00 00", str(result(a), "data"));
+  cJSON_Delete(a);
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"all"})");
+  cJSON_Delete(r);
+  a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 4));
+  CHECK_MSG(str(result(a), "data") == "00 00 00 00", str(result(a), "data"));
+  cJSON_Delete(a);
+  delete sim;
+}
+
+// Stored parameters: the master's configuration is saved (0x1010) and kept
+// across a power cycle, so the configuration check skips the download.
+TEST(sim_simulated_store_power_cycle) {
+  clear_logs();
+  std::string dir = make_dir(config_check_json(), {{"cpp-slave.eds", config_check_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 2; }, seconds(10)));
+  CHECK(logged("node 2 (pingpong): configuring ("));
+  CHECK(logged("sim: node 2: saved parameters (0x1010 sub 1)"));
+  clear_logs();
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"cycle","off_ms":300}})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return logged("configuration unchanged"); }, seconds(10)));
+  uint32_t c = sim->in();
+  CHECK(sim->RunUntil([&] { return sim->status() && sim->in() > c + 5; }, seconds(10)));
+  delete sim;
+}
+
+// A scenario drives a value and checks what the program answers.
+TEST(sim_simulated_scenario) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  // The program answers 2x its input.
+  sim->SetProgram([](fake_runtime::Image& io) { io.dint_out[100] = io.dint_in[100] * 2; });
+  CHECK(sim->StartSimulator(R"({"scenarios": {
+    "double": {"test": true, "steps": [
+      {"wait": {"node": 2, "object": "0x1001", "eq": 0}, "timeout_ms": 1000},
+      {"node": 2, "override": {"0x4001": 21}},
+      {"expect": {"node": 2, "object": "0x4000", "eq": 42}, "within_ms": 2000},
+      {"expect": {"expr": "[2/0x4000] == 2 * [2/0x4001]"}, "for_ms": 300},
+      {"log": "doubled"}]},
+    "wrong": {"steps": [
+      {"node": 2, "override": {"0x4001": 5}},
+      {"expect": {"node": 2, "object": "0x4000", "eq": 11}, "within_ms": 500}]}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  std::string err;
+  CHECK(sim->simulator().StartScenario("double", err));
+  CHECK(sim->RunUntil([] { return !sim->scenario_results().empty(); }, seconds(5)));
+  CHECK(!sim->scenario_results().empty() && sim->scenario_results()[0].passed);
+  CHECK(logged("scenario double: doubled"));
+  CHECK(sim->simulator().StartScenario("wrong", err));
+  CHECK(sim->RunUntil([] { return sim->scenario_results().size() == 2; }, seconds(5)));
+  if (sim->scenario_results().size() == 2) {
+    const auto& res = sim->scenario_results()[1];
+    CHECK(!res.passed);
+    CHECK_MSG(res.message.find("step 2: expected [2/0x4000:0] == 11 within 500 ms (value seen: 10)") != std::string::npos,
+              res.message);
+  }
+  delete sim;
+}
+
+// A node with simulate: false next to simulated ones stays absent.
+TEST(sim_simulated_subset) {
+  clear_logs();
+  std::string extra = R"(,
+    { "node_id": 3, "name": "other", "eds": "cpp-slave.eds", "heartbeat_ms": 50,
+      "status_location": "%IX10.1",
+      "tx_pdos": [ { "entries": [ { "index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID104" } ] } ],
+      "rx_pdos": [ { "entries": [ { "index": "0x4000", "type": "UNSIGNED32", "iec_location": "%QD104" } ] } ] })";
+  std::string dir = make_dir(pingpong_json(extra), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  canopen_sim::DeviceSpec d;
+  d.node = 2;
+  d.eds_path = dir + "/cpp-slave.eds";
+  CHECK(sim->StartSimulator(R"({"nodes": {"3": {"default_behaviour": false}}})", {d}));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(500));
+  CHECK(sim->plc().bool_in[10][1] == 0);
+  CHECK(!sim->simulator().Simulates(3));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_get","items":[{"node":3,"object":"0x1000"}]})");
+  CHECK(str(cJSON_GetArrayItem(field(result(r), "values"), 0), "error") == "node 3 is not simulated");
+  cJSON_Delete(r);
+  delete sim;
+}
+
+// CiA 401 default: outputs loop back to inputs; switched off per node.
+TEST(sim_simulated_io_loopback) {
+  for (int defaults = 1; defaults >= 0; --defaults) {
+    clear_logs();
+    std::string json = R"({
+  "schema_version": 1,
+  "adapter": { "type": "socketcan", "interface": "sim", "bitrate": 125000, "simulate": true },
+  "master": { "node_id": 1, "sync_period_us": 20000 },
+  "nodes": [ { "node_id": 4, "name": "io", "eds": "fixed-io.eds", "heartbeat_ms": 50, "status_location": "%IX10.0",
+      "tx_pdos": [ { "entries": [ { "index": "0x6000", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%IB40" } ] } ],
+      "rx_pdos": [ { "entries": [ { "index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB40" } ] } ] } ] })";
+    std::string dir = make_dir(json, {{"fixed-io.eds", read(std::string(FIXTURES_DIR) + "/eds/fixed-io.eds")}});
+    static Sim* sim;
+    sim = new Sim(dir);
+    CHECK(sim->ok());
+    if (!sim->ok()) return;
+    sim->SetProgram([](fake_runtime::Image& plc) { plc.byte_out[40] = 7; });
+    // The fixture says device type 0; the simulation file makes it a CiA 401 module.
+    CHECK(sim->StartSimulator(std::string(R"({"nodes": {"4": {"device_type": "0x00000191")") +
+                              (defaults ? "" : R"(, "default_behaviour": false)") + "}}}"));
+    sim->net().Start();
+    CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+    bool looped = sim->RunUntil([] {
+      cJSON* r = sim->SimAsk(R"({"op":"sim_get","items":[{"node":4,"object":"0x6000:1"}]})");
+      bool v = num(cJSON_GetArrayItem(field(result(r), "values"), 0), "value") == 7;
+      cJSON_Delete(r);
+      return v;
+    }, milliseconds(defaults ? 2000 : 500));
+    CHECK_MSG(looped == (defaults == 1), defaults ? "no loopback" : "loopback without defaults");
+    delete sim;
+  }
+}
+
+// CiA 404 default: the RTD module's mapped values move slowly by themselves.
+TEST(sim_simulated_rtd_defaults) {
+  clear_logs();
+  std::string eds = read(std::string(RTD_DIR) + "/rtd8.eds");
+  std::string cfg = read(std::string(RTD_DIR) + "/canopen_config.json");
+  cfg.replace(cfg.find("\"sync_period_us\": 100000"), 24, "\"sync_period_us\": 20000");
+  std::string dir = make_dir(cfg, {{"rtd8.eds", eds}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(""));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(300));
+  int16_t first = sim->iw(100);
+  CHECK_MSG(sim->RunUntil([&] { return sim->iw(100) != first; }, seconds(3)), std::to_string(first));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_status"})");
+  CHECK(num(cJSON_GetArrayItem(field(result(r), "devices"), 0), "profile") == 404);
+  cJSON_Delete(r);
+  delete sim;
+}
+
+// CiA 402: the drive model enables on the program's controlword and moves in
+// profile velocity mode.
+TEST(sim_simulated_drive) {
+  clear_logs();
+  std::string dir = make_dir(servo_json(), {{"servo-drive.eds", drive_eds(kServoEds)}, {"device.eds", servo_device_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->SetProgram([](fake_runtime::Image& plc) {
+    uint16_t sw = plc.int_in[40];
+    uint16_t cw = 0;
+    if ((sw & 0x4F) == 0x40) cw = 0x06;        // switch on disabled -> shutdown
+    else if ((sw & 0x6F) == 0x21) cw = 0x07;   // ready to switch on -> switch on
+    else if ((sw & 0x6F) == 0x23) cw = 0x0F;   // switched on -> enable operation
+    else if ((sw & 0x6F) == 0x27) cw = 0x0F;   // operation enabled
+    else if (sw & 0x08) cw = 0x80;             // fault -> fault reset
+    plc.int_out[40] = cw;
+  });
+  canopen_sim::DeviceSpec d;
+  d.node = 3;
+  d.eds_path = dir + "/device.eds";
+  CHECK(sim->StartSimulator("", {d}));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(10)));
+  CHECK_MSG(sim->RunUntil([] { return (sim->uw(40) & 0x6F) == 0x27; }, seconds(3)), std::to_string(sim->uw(40)));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_set","node":3,"values":{"0x6060":3,"0x60FF":20000}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  int32_t p0 = static_cast<int32_t>(sim->plc().dint_in[40]);
+  CHECK(sim->RunUntil([&] { return static_cast<int32_t>(sim->plc().dint_in[40]) > p0 + 5000; }, seconds(3)));
+  r = sim->SimAsk(R"({"op":"sim_status"})");
+  CHECK(cJSON_IsTrue(field(cJSON_GetArrayItem(field(result(r), "devices"), 0), "drive")));
+  cJSON_Delete(r);
+  // A blocked axis in profile position: following error, fault, EMCY 0x8611.
+  r = sim->SimAsk(R"({"op":"sim_fault","node":3,"fault":{"drive_input":{"blocked":true}}})");
+  cJSON_Delete(r);
+  delete sim;
+}
+
+// Extra devices: one more node, and one without a node ID waiting for LSS.
+TEST(sim_simulated_extra_devices) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()},
+                                               {"lss.eds", read(std::string(FIXTURES_DIR) + "/eds/lss-slave.eds")}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"extra_devices": [
+      {"node": 40, "name": "spare", "eds": "cpp-slave.eds"},
+      {"node": 0, "name": "fresh", "eds": "lss.eds", "identity": {"serial_number": 1234}}],
+    "nodes": {"2": {"sources": {"0x4001": {"expr": "[spare/0x4001] + 1"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  CHECK(sim->RunUntil([] { return sim->in() == 1; }, seconds(2)));
+  CHECK(sim->bootups(40) >= 1);
+  cJSON* r = sim->SimAsk(R"({"op":"sim_status"})");
+  const cJSON* devs = field(result(r), "devices");
+  CHECK(cJSON_GetArraySize(devs) == 3);
+  CHECK(str(cJSON_GetArrayItem(devs, 2), "name") == "fresh" && cJSON_IsString(field(cJSON_GetArrayItem(devs, 2), "node")));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_get","items":[{"node":"fresh","object":"0x1018:4"}]})");
+  CHECK(num(cJSON_GetArrayItem(field(result(r), "values"), 0), "value") == 1234);
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_check_expr","node":2,"expr":"[nobody/0x1000] + 1"})");
+  CHECK(!cJSON_IsTrue(field(result(r), "ok")) && num(result(r), "position") == 0);
+  cJSON_Delete(r);
+  delete sim;
+}
+
+// 32 simulated devices with a value source each stay within a small CPU budget.
+TEST(sim_simulated_cpu_budget) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  std::string extra;
+  for (int n = 10; n < 41; ++n)
+    extra += std::string(extra.empty() ? "" : ",") + R"({"node": )" + std::to_string(n) +
+             R"(, "eds": "cpp-slave.eds", "sources": {"0x4001": {"sine": {"min": 0, "max": 1000, "period_s": 2}}}})";
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}, "extra_devices": [)" +
+                            extra + "]}"));
+  CHECK(sim->simulator().DeviceCount() == 32);
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  auto cpu = [] {
+    timespec ts;
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+    return ts.tv_sec + ts.tv_nsec / 1e9;
+  };
+  double c0 = cpu();
+  auto t0 = steady_clock::now();
+  sim->RunFor(seconds(3));
+  double load = (cpu() - c0) / std::chrono::duration<double>(steady_clock::now() - t0).count();
+  std::printf("    CPU load with 32 simulated devices (and the master and fake PLC): %.1f %%\n", load * 100);
+  CHECK_MSG(load < 0.10, std::to_string(load));
   delete sim;
 }
 

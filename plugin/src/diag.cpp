@@ -1,5 +1,7 @@
 #include "diag.h"
 
+#include "sim_engine.h"
+
 #include <algorithm>
 #include <arpa/inet.h>
 #include <iterator>
@@ -218,8 +220,9 @@ std::string DiagHub::offline_answer(const DiagRequest& r) const {
   cJSON* m = cJSON_AddObjectToObject(res, "master");
   cJSON_AddNumberToObject(m, "node_id", cfg_.master.node_id);
   cJSON_AddNumberToObject(m, "state", 0);
+  cJSON_AddBoolToObject(res, "simulated_network", cfg_.adapter.simulate);
   cJSON* b = cJSON_AddObjectToObject(res, "bus");
-  cJSON_AddStringToObject(b, "interface", cfg_.adapter.interface.c_str());
+  cJSON_AddStringToObject(b, "interface", cfg_.adapter.simulate ? "simulated" : cfg_.adapter.interface.c_str());
   cJSON_AddNumberToObject(b, "state", 0);
   cJSON* nodes = cJSON_AddArrayToObject(res, "nodes");
   for (const auto& n : cfg_.nodes) {
@@ -228,6 +231,8 @@ std::string DiagHub::offline_answer(const DiagRequest& r) const {
     cJSON_AddStringToObject(o, "name", n.name.c_str());
     cJSON_AddNumberToObject(o, "state", 0);
     cJSON_AddBoolToObject(o, "status", false);
+    cJSON_AddBoolToObject(o, "simulated", n.simulate);
+    cJSON_AddBoolToObject(o, "sim_conflict", false);
     cJSON_AddItemToArray(nodes, o);
   }
   return diag_ok(r.id, res);
@@ -705,6 +710,16 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
       why = "node " + std::to_string(r.node) + " is not in the configuration";
       valid = false;
     }
+  } else if (r.op.compare(0, 4, "sim_") == 0) {
+    // The simulator checks the request itself (on the bus thread).
+    if (!simulates_anything(hub.config())) {
+      why = "nothing simulated";
+      valid = false;
+    } else if (!canopen_sim::Simulator::ReadOnlyOp(r.op) && !m.diag_allow_changes) {
+      why = "changes not allowed";
+      valid = false;
+    }
+    r.raw = line;
   } else if (r.op == "hello") {
     why = "already authenticated";
     valid = false;
@@ -896,7 +911,8 @@ bool DiagServer::handle_trace(Client& c, size_t net, const std::string& op, cons
     cJSON_AddNumberToObject(res, "buffer_frames", double(ch.ring.capacity()));
     cJSON_AddNumberToObject(res, "record_size", double(sizeof(TraceRecord)));
     cJSON_AddStringToObject(res, "network", ch.hub->config().network.c_str());
-    cJSON_AddStringToObject(res, "interface", ch.hub->config().adapter.interface.c_str());
+    cJSON_AddStringToObject(res, "interface",
+                            ch.hub->config().adapter.simulate ? "simulated" : ch.hub->config().adapter.interface.c_str());
     cJSON_AddNumberToObject(res, "bitrate", ch.hub->config().adapter.bitrate);
     c.out += diag_ok(id, res);
     return true;

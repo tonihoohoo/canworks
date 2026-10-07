@@ -57,6 +57,7 @@ struct DiagRequest {
   bool lss_known = false;
   unsigned bitrate_kbit = 0;  // lss_set_bitrate
   bool store = false;         // lss_set_id, lss_set_bitrate
+  std::string raw;            // sim_*: the request line, for the simulator
 };
 
 // Builds answer lines.

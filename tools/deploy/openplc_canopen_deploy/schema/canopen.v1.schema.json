@@ -228,6 +228,10 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 4000000
+        },
+        "simulate": {
+          "description": "true: the network is simulated (docs/simulator.md). No CAN interface or serial device is used; the other adapter fields are kept and checked.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -717,6 +721,10 @@
           "items": {
             "$ref": "#/$defs/sdo_variable"
           }
+        },
+        "simulate": {
+          "description": "true: this node is a simulated device run by the plugin (docs/simulator.md). Default: true on a simulated network (adapter.simulate), false on a real one.",
+          "type": "boolean"
         }
       },
       "required": [

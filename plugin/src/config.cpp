@@ -647,7 +647,9 @@ class Parser {
                      "boot", "reset_communication", "revision_number", "serial_number", "heartbeat_consumer",
                      "retry_factor", "time_cob_id", "error_behavior", "restore_configuration", "config_check",
                      "store_configuration", "lss", "axis", "software_file", "software_version", "tx_pdos",
-                     "rx_pdos", "sdo", "sdo_variables"});
+                     "rx_pdos", "sdo", "sdo_variables", "simulate"});
+        n.simulate = cfg.adapter.simulate;
+        get_bool(node, "simulate", w, n.simulate);
         if (get_uint(node, "node_id", w, true, 0xFFFF, v)) n.node_id = (unsigned)v;
         get_string(node, "name", w, false, n.name);
         if (get_string(node, "eds", w, true, n.eds)) resolve_eds(cfg, n);
@@ -949,7 +951,8 @@ class Parser {
         return;
       }
       check_known(adapter, w,
-                  {"type", "interface", "bitrate", "configure_link", "restart_ms", "device", "serial_baudrate"});
+                  {"type", "interface", "bitrate", "configure_link", "restart_ms", "device", "serial_baudrate", "simulate"});
+      get_bool(adapter, "simulate", w, a.simulate);
       if (!get_string(adapter, "type", w, true, a.type)) return;
       if (a.type != "socketcan" && a.type != "slcan") {
         error(w, "adapter type \"" + a.type + "\" is not supported (supported: socketcan, slcan)");
@@ -1560,6 +1563,13 @@ bool load_config(const std::string& path, const ImageLimits& limits,
   ConfigSet set;
   bool ok = load_config_set(path, limits, set, errors, eds_fallback_dir);
   return only_network(set, ok, out, errors);
+}
+
+bool simulates_anything(const Config& cfg) {
+  if (cfg.adapter.simulate) return true;
+  for (const auto& n : cfg.nodes)
+    if (n.simulate) return true;
+  return false;
 }
 
 }  // namespace canopen_plugin

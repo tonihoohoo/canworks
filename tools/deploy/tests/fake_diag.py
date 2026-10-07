@@ -5,7 +5,11 @@ By default it is a plugin that runs one network and, like a plugin from
 before several networks, lists none in the hello. FakePlugin(networks=...)
 lists them; with more than one, every request needs `network`. The first
 network's state is the FakePlugin's own attributes (status, objects, present,
-emcy), the others' are in `fp.network(name)`."""
+emcy), the others' are in `fp.network(name)`.
+
+With sim=FakeSim(...) (fake_sim.py) the first network simulates devices and
+answers the sim_ requests; without, every sim_ request answers "nothing
+simulated"."""
 
 import base64
 import copy
@@ -81,8 +85,9 @@ class FakeNetwork:
 
 
 class FakePlugin:
-    def __init__(self, token=TOKEN, allow_changes=False, scan_polls=2, networks=None):
+    def __init__(self, token=TOKEN, allow_changes=False, scan_polls=2, networks=None, sim=None):
         self.token = token
+        self.sim = sim
         # [{name, interface, bitrate, master_node_id}] for the hello; None: an
         # older plugin that lists no networks.
         self.networks = copy.deepcopy(networks) if networks is not None else None
@@ -245,8 +250,21 @@ class FakePlugin:
             return err(why)
         if op in ("trace_start", "trace_fetch", "trace_stop"):
             return self._trace(req, ok, err, net)
+        sim = self.sim if net is self else None
+        if isinstance(op, str) and op.startswith("sim_"):
+            if sim is None:
+                return err("nothing simulated")
+            return sim.handle(req, allow_changes=self.allow_changes)
         if op == "status":
-            return ok(copy.deepcopy(net.status))
+            st = copy.deepcopy(net.status)
+            if sim is not None:
+                st["simulated_network"] = sim.simulated_network
+                conflicts = {d["node"] for d in sim.devices if d["node"] and d.get("conflict")}
+                simulated = {d["node"] for d in sim.devices if d["node"]} - conflicts
+                for n in st["nodes"]:
+                    n["simulated"] = n["node_id"] in simulated
+                    n["sim_conflict"] = n["node_id"] in conflicts
+            return ok(st)
         if op == "emcy":
             return ok({"node_id": req["node"], "emcy": net.emcy.get(req["node"], [])})
         if op in ("sdo_write", "nmt") and not self.allow_changes:

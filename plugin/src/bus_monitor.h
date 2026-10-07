@@ -43,6 +43,8 @@ class BusMonitor {
   bool poll(clock::time_point now);
   // No session: state 0; the counters keep their last values.
   bool no_bus();
+  // A simulated network: error-active, no errors.
+  bool simulated();
 
   uint8_t state() const { return state_; }
 
