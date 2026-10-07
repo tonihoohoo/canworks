@@ -53,7 +53,7 @@ bool check_sim_file(const Config& cfg, const canopen_sim::SimFile& file, std::ve
   return ok;
 }
 
-std::string sim_summary(const Config& cfg, const canopen_sim::SimFile& file) {
+std::string sim_summary(const Config& cfg, const canopen_sim::SimFile& file, const std::string& slave_network) {
   std::string nodes;
   unsigned count = 0;
   for (const auto& n : cfg.nodes) {
@@ -65,11 +65,13 @@ std::string sim_summary(const Config& cfg, const canopen_sim::SimFile& file) {
   if (cfg.adapter.simulate) {
     s = "the CAN network is SIMULATED (adapter.simulate): no CAN interface is used";
     s += count ? "; simulated nodes: " + nodes : "; no node is simulated";
+    if (!slave_network.empty()) s += "; slave network \"" + slave_network + "\" shares the simulated bus";
   } else if (count) {
     s = "SIMULATED devices run on " + cfg.adapter.interface + " for node" + (count > 1 ? "s " : " ") + nodes;
   }
   if (!s.empty() && !file.extra.empty()) s += ", plus " + std::to_string(file.extra.size()) + " extra device(s)";
-  if (!s.empty()) s += "; outputs to simulated devices go nowhere";
+  if (!s.empty() && (count || file.extra.size() || slave_network.empty()))
+    s += "; outputs to simulated devices go nowhere";
   return s;
 }
 

@@ -4,7 +4,8 @@ import re
 
 from .. import contract
 from ..iec import parse_location
-from .layout import MASTER_LOCATIONS, NODE_LOCATIONS, SDO_VARIABLE_LOCATIONS
+from ..iec import CO_TYPES, type_fits
+from .layout import MASTER_LOCATIONS, NODE_LOCATIONS, SDO_VARIABLE_LOCATIONS, SIZE_TYPES, SLAVE_LOCATIONS
 
 IEC_TYPE = {
     "BOOLEAN": "BOOL",
@@ -38,7 +39,11 @@ NODE_TEXT = {
     "nmt_command_location": "NMT command",
 }
 SDO_TEXT = {"trigger_location": "trigger", "status_location": "status", "abort_code_location": "abort code"}
+SLAVE_TEXT = {"state_location": "own NMT state", "comm_ok_location": "communication OK",
+              "sync_count_location": "SYNC count", "emcy_code_location": "EMCY code to send",
+              "error_register_location": "error register to send"}
 # Order inside a node in a generated program: diagnostics, inputs, outputs, NMT command last.
+SLAVE_RANK = 1 << 30
 _RANK = {("diag", "I"): 0, ("pdo", "I"): 1, ("sdo", "I"): 2, ("pdo", "Q"): 3, ("sdo", "Q"): 4, ("nmt", "Q"): 5}
 
 
@@ -48,7 +53,7 @@ def comment_text(text):
     return text.strip()
 
 
-def declarations(cfg, object_name, declared):
+def declarations(cfg, object_name, declared, slave_object=None):
     """[{name, location, type, path, declared_as, node, kind, description}]
     for every mapped entry,
     node diagnostic input and NMT command byte, SDO variable (value, trigger,
@@ -58,7 +63,15 @@ def declarations(cfg, object_name, declared):
 
     With several networks (schema_version 2) every name starts with the
     network's name, every description names the network, paths start with
-    networks[i]. and node indexes count the nodes of all networks in order."""
+    networks[i]. and node indexes count the nodes of all networks in order.
+
+    A slave network adds one variable per bound object and per status
+    location (kind "slave", node None), always named after the network:
+    `<network>_<name>`, the name from the binding's `name`, else the
+    object's ParameterName, which `slave_object(eds value, index, subindex)`
+    gives together with its CANopen type as (name, type), or None. The IEC
+    type is the object's when it fits the location, else the location
+    size's."""
     out, names = [], set()
 
     def unique(base):
@@ -135,9 +148,45 @@ def declarations(cfg, object_name, declared):
                                     "type": iec_type, "path": path, "declared_as": declared.get(path), "node": i,
                                     "kind": "sdo", "description": "%s, %s" % (what, SDO_TEXT[key])})
 
+    def slave_network(n):
+        s = n["slave"]
+        net = identifier(n["name"] or "slave")
+        at = n["path"] + "." if n["path"] else ""
+        who = "network %s: slave node %s" % (n["name"], s.get("node_id") if s.get("node_id") is not None else "(LSS)")
+        objects = s.get("objects")
+        for j, o in enumerate(objects if isinstance(objects, list) else []):
+            loc = parse_location(o.get("iec_location") if isinstance(o, dict) else None)
+            if not loc:
+                continue
+            try:
+                index = o["index"] if isinstance(o["index"], int) else int(str(o["index"]), 0)
+                sub = o.get("subindex", 0)
+                sub = sub if isinstance(sub, int) else int(str(sub), 0)
+            except (KeyError, ValueError):
+                continue
+            eds_name, co_type = (slave_object(s.get("eds"), index, sub) if slave_object else None) or (None, None)
+            label = o.get("name") or eds_name or "x%04X_%d" % (index, sub)
+            iec_type = IEC_TYPE[co_type] if co_type in CO_TYPES and type_fits(co_type, loc.size) \
+                else SIZE_TYPES[loc.size]
+            path = at + "slave.objects[%d].iec_location" % j
+            text = "%s 0x%04X:%d %s, %s" % (who, index, sub, eds_name or "",
+                                            "from the master" if loc.area == "I" else "to the master")
+            out.append({"name": unique("%s_%s" % (net, identifier(label))), "location": o["iec_location"].strip(),
+                        "type": iec_type, "path": path, "declared_as": declared.get(path), "node": None,
+                        "kind": "slave", "description": re.sub(r"\s+", " ", text)})
+        for key, _, _, suffix, iec_type in SLAVE_LOCATIONS:
+            if parse_location(s.get(key)):
+                path = at + "slave." + key
+                out.append({"name": unique("%s_%s" % (net, suffix)), "location": s[key].strip(), "type": iec_type,
+                            "path": path, "declared_as": declared.get(path), "node": None, "kind": "slave",
+                            "description": "%s: %s" % (who, SLAVE_TEXT[key])})
+
     nets = contract.networks(cfg) if isinstance(cfg, dict) else []
     base = 0
     for n in nets:
+        if n["role"] == "slave":
+            slave_network(n)
+            continue
         several = len(nets) > 1 and n["name"]
         network(n["master"], [x for x in n["nodes"] if isinstance(x, dict)], n["path"] + "." if n["path"] else "",
                 identifier(n["name"]) + "_" if several else "", "network %s: " % n["name"] if several else "", base)
@@ -148,9 +197,12 @@ def declarations(cfg, object_name, declared):
 def program_order(decls):
     """The declarations in a generated program's order: master diagnostics,
     then node by node in config order with diagnostics, inputs (PDO, then
-    SDO), outputs (PDO, then SDO) and the NMT command byte last."""
+    SDO), outputs (PDO, then SDO) and the NMT command byte last, then the
+    slave networks' inputs and outputs."""
     def key(d):
         area = d["location"].strip()[1:2].upper()
+        if d.get("kind") == "slave":
+            return SLAVE_RANK, 0 if area == "I" else 1  # after every node, inputs first
         node = -1 if d.get("node") is None else d["node"]
         return node, _RANK.get((d.get("kind"), area), 0 if area == "I" else 4)
     return sorted(decls, key=key)

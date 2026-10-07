@@ -12,7 +12,7 @@ import unittest
 from openplc_canopen_deploy import diag
 from openplc_canopen_deploy.configurator import server as srv
 
-from .fake_diag import TOKEN, FakePlugin, closed_port
+from .fake_diag import SLAVE_NETWORK, TOKEN, TWO_NETWORKS, FakePlugin, closed_port, slave_status
 from .helpers import PINGPONG, REPO, tmpdir
 from .test_configurator_page import FIXTURE, REQUIRED, RTD, load, sync_playwright
 
@@ -368,6 +368,99 @@ class OnlinePage(OnlineBase):
             pg.wait_for_selector("#banner:has-text('Saved')")
         node = load(self.config_path)["nodes"][0]
         self.assertEqual((node["serial_number"], node["lss"]), (0x5678, {"assign": True}))
+
+
+class SlaveOnlinePage(OnlineBase):
+    """The online view on a slave network and a gateway's upper network
+    (add-canopen-slave tasks 4.2 and 6.8)."""
+
+    def use(self, name):
+        folder = os.path.join(REPO, "config", name)
+        self.cfg = load(os.path.join(folder, "canopen_config.json"))
+        for f in os.listdir(folder):
+            if f.endswith(".eds"):
+                shutil.copy(os.path.join(folder, f), os.path.join(self.project, "canopen"))
+
+    def write_config(self, diagnostics=None):
+        if self.cfg.get("schema_version") != 2:
+            return super().write_config(diagnostics)
+        cfg = json.loads(json.dumps(self.cfg))
+        if diagnostics:
+            cfg["diagnostics"] = diagnostics
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+
+    def test_slave_network(self):
+        pg = self.page
+        self.use("slave")
+        with FakePlugin(networks=[SLAVE_NETWORK], allow_changes=True) as fp:
+            self.online(fp, allow=True)
+            pg.wait_for_selector('[data-online="slave-state"]:has-text("OPERATIONAL")')
+            self.assertEqual(pg.inner_text('[data-online="slave-node"]'), "node 10")
+            self.assertEqual(pg.inner_text('[data-online="slave-comm"]'), "TRUE")
+            self.assertEqual(pg.inner_text('[data-online="slave-sync"]'), "42")
+            self.assertEqual(pg.inner_text('[data-online="slave-emcy"]'), "0x4210 temperature, error register 0x09")
+            self.assertIn("need a master network", pg.inner_text('[data-online="slave-note"]'))
+            # The mappings in force, with the objects the config binds.
+            tpdo = pg.inner_text('tr[data-slave-pdo="tx1"]')
+            self.assertIn("0x18A", tpdo)
+            self.assertIn("0x2100:2 (16 bits) %QW301", tpdo)
+            self.assertIn("0x28A (off)", pg.inner_text('tr[data-slave-pdo="tx2"]'))
+            rpdo = pg.inner_text('tr[data-slave-pdo="rx1"]')
+            self.assertIn("0x2000:1 (16 bits) %IW300 speed_setpoint", rpdo)
+            self.assertIn("0x2002:1 (1 bit) %IX300.0", rpdo)
+            # No master tools: node list, LSS, NMT, parameters.
+            self.assertEqual(pg.locator("table.online-nodes").count(), 0)
+            self.assertEqual(pg.locator('[data-online="lss"]').count(), 0)
+            self.assertEqual(pg.locator('[data-online="gateway"]').count(), 0)
+            pg.wait_for_selector('#online-node h2:has-text("Node 10 this PLC")')
+            self.assertEqual(pg.locator("button[data-nmt]").count(), 0)
+            self.assertEqual(pg.locator('button[data-online-tab="params"]').count(), 0)
+            # SDO on its own dictionary; a bound object asks first.
+            pg.select_option('select[data-online="object"]', "0x2000:1")
+            pg.click('button[data-online="read"]')
+            pg.wait_for_selector('[data-online="sdo-result"]:has-text("5")')
+            pg.fill('input[data-online="value"]', "9")
+            pg.click('button[data-online="write"]')
+            self.assertIn("bound to %IW300 speed_setpoint", pg.inner_text("#modal-text"))
+            pg.click('#modal button[data-value="write"]')
+            pg.wait_for_selector('[data-online="sdo-result"]:has-text("Written")')
+            self.assertEqual(fp.objects[(10, 0x2000, 1)], b"\x09\x00")
+            # The object dictionary of the slave's EDS, bound objects marked.
+            pg.click('button[data-online-tab="od"]')
+            pg.fill('input[data-online="od-filter"]', "0x2000")
+            row = 'tr[data-od-key="%d:1"]' % 0x2000
+            pg.wait_for_selector(row, state="visible")
+            self.assertIn("%IW300 speed_setpoint", pg.inner_text(row))
+            self.assertTrue(pg.is_disabled(row + ' button[data-online="od-st"]'))
+            pg.click(row + ' button[data-online="od-read"]')
+            pg.wait_for_selector(row + ' [data-online="od-shown"]:has-text("9")')
+            # Scanning needs a master network.
+            pg.click('button[data-view="scan"]')
+            pg.wait_for_selector('[data-online="scan-slave"]')
+            self.assertEqual(pg.locator('button[data-online="scan"]').count(), 0)
+        self.assertFalse([r for r in fp.requests if r["op"] not in ("status", "sdo_read", "sdo_write")])
+
+    def test_gateway_upper_network(self):
+        pg = self.page
+        self.use("gateway")
+        nets = [dict(TWO_NETWORKS[0], name="field"), dict(SLAVE_NETWORK, name="upper", node_id=20)]
+        with FakePlugin(networks=nets) as fp:
+            fp.network("upper").status.update(slave_status(gateway=True), network="upper")
+            self.online(fp)
+            # The field network first, as before.
+            pg.wait_for_selector('tr[data-online-node="2"]')
+            pg.select_option('select[data-online="network"]', "upper")
+            pg.wait_for_selector('[data-online="gateway"]')
+            self.assertEqual(pg.inner_text('[data-online="gw-routes"]'), "2")
+            self.assertIn("missing", pg.inner_text('[data-online="gw-upper"]'))
+            self.assertEqual(pg.inner_text('[data-online="gw-errors"]'), "1 active")
+            self.assertIn("0x2101:1 (16 bits) route pong", pg.inner_text('tr[data-slave-pdo="tx1"]'))
+            self.assertIn("0x2100:1 (16 bits) %QX300.0", pg.inner_text('tr[data-slave-pdo="tx1"]'))
+            # Back on the field network the node list returns.
+            pg.select_option('select[data-online="network"]', "field")
+            pg.wait_for_selector('tr[data-online-node="2"]')
+            self.assertEqual(pg.locator('[data-online="gateway"]').count(), 0)
 
 
 if __name__ == "__main__":

@@ -42,6 +42,12 @@ simulates the network or any node is uploaded only after a confirmation,
 writes the openplc_canopen editor library (SDO function blocks for the PLC
 program) as openplc_canopen.stlib into DIR, installs it into OpenPLC Editor
 on this computer, and/or enables it in an editor project. See docs/plc-sdo.md.
+
+  openplc-canopen-deploy slave-eds slave.json -o canopen/openplc-slave.eds [--gateway canopen.json [--update-config]]
+
+writes the EDS of OpenPLC as a CANopen slave from a description of its
+objects (docs/slave.md), checked with the plugin's EDS lint; with --gateway
+it adds the gateway's route, status and SDO bridge objects (docs/gateway.md).
 """
 
 import argparse
@@ -52,7 +58,8 @@ import shutil
 import subprocess
 import sys
 
-from . import __version__, bundle, clash, contract, dbcexport, dcfexport, editorproject, project, runtime, sdolibrary, simfile
+from . import (__version__, bundle, clash, contract, dbcexport, dcfexport, editorproject, project, runtime, sdolibrary,
+               simfile, slaveeds)
 
 EDITOR_WARNING = (
     "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canopen.json, so the "
@@ -421,11 +428,77 @@ def run_library(args, out=print, err=None):
     return 0
 
 
+def slave_eds_parser():
+    p = argparse.ArgumentParser(
+        prog="openplc-canopen-deploy slave-eds",
+        description="Write the EDS of OpenPLC as a CANopen slave from a JSON description of its objects (identity, "
+                    "heartbeat, layout and objects with name, type, direction and limits), checked with the plugin's "
+                    "EDS lint. See docs/slave.md.")
+    p.add_argument("description", help="the description (JSON)")
+    p.add_argument("-o", "--output", required=True, metavar="FILE.eds",
+                   help="the EDS to write, normally into the project's canopen/ folder")
+    p.add_argument("--gateway", metavar="CONFIG",
+                   help="a config with a 'gateway' section: add a slave object per route, the field node status "
+                        "objects and the SDO bridge record (docs/gateway.md)")
+    p.add_argument("--update-config", action="store_true",
+                   help="with --gateway: write the slave object of each route (index, subindex) into that config")
+    return p
+
+
+def run_slave_eds(args, out=print):
+    if args.update_config and not args.gateway:
+        raise Failure("--update-config needs --gateway")
+    try:
+        desc = slaveeds.load_json(args.description, "description")
+        cfg = slaveeds.load_json(args.gateway, "config") if args.gateway else None
+        text, info = slaveeds.generate(desc, cfg, os.path.basename(args.output))
+    except slaveeds.DescriptionError as e:
+        raise Failure("%s: %s" % (args.gateway if str(e).startswith("gateway") else args.description, e))
+    try:
+        slaveeds.write(text, args.output)
+    except OSError as e:
+        raise Failure("cannot write %s: %s" % (args.output, e.strerror or e))
+    objs = info["objects"]
+    n_in = sum(1 for o in objs if o["direction"] == "from_master")
+    out("wrote %s: %d object%s from the master, %d to the master, %d RPDO%s and %d TPDO%s, revision number 0x%08X"
+        % (args.output, n_in, "" if n_in == 1 else "s", len(objs) - n_in, info["pdos"]["rx"],
+           "" if info["pdos"]["rx"] == 1 else "s", info["pdos"]["tx"], "" if info["pdos"]["tx"] == 1 else "s",
+           info["revision_number"]))
+    for o in objs:
+        out("  0x%04X:%d %s %s %s" % (o["index"], o["subindex"], o["type"],
+                                      "rww (PLC input)" if o["direction"] == "from_master" else "ro (PLC output)",
+                                      o["name"]))
+    if args.update_config:
+        changed = slaveeds.update_routes(cfg, info)
+        tmp = args.gateway + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, args.gateway)
+        out("updated %s: %d route%s with a new slave object" % (args.gateway, changed, "" if changed == 1 else "s"))
+    elif cfg is not None:
+        stale = [j for j, (rt, place) in enumerate(zip(cfg["gateway"].get("routes") or [], info["routes"]))
+                 if not isinstance(rt.get("slave"), dict)
+                 or contract._uint(rt["slave"].get("index")) != place["index"]
+                 or contract._uint(rt["slave"].get("subindex", 0)) != place["subindex"]]
+        if stale:
+            out("note: %d route%s of %s name%s another slave object than the EDS gives %s; run again with "
+                "--update-config to write them" % (len(stale), "" if len(stale) == 1 else "s", args.gateway,
+                                                   "s" if len(stale) == 1 else "", "it" if len(stale) == 1 else "them"))
+    return 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["library"]:
         try:
             return run_library(library_parser().parse_args(argv[1:]))
+        except Failure as e:
+            print("error: " + str(e), file=sys.stderr)
+            return 1
+    if argv[:1] == ["slave-eds"]:
+        try:
+            return run_slave_eds(slave_eds_parser().parse_args(argv[1:]))
         except Failure as e:
             print("error: " + str(e), file=sys.stderr)
             return 1

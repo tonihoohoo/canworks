@@ -166,3 +166,23 @@ if(NPM_PROGRAM)
   set_tests_properties(plc_sdo_stlib_current PROPERTIES
     ENVIRONMENT "STRUCPP_TGZ=${CMAKE_BINARY_DIR}/strucpp-${STRUCPP_VERSION}.tgz")
 endif()
+
+# The slave role and the gateway (canopen-slave-device, canopen-gateway): the
+# plugin's master against the plugin's slave on virtual buses.
+add_executable(slave_tests slave/slave_tests.cpp)
+target_include_directories(slave_tests PRIVATE common pingpong)
+target_compile_definitions(slave_tests PRIVATE PINGPONG_DIR="${PINGPONG_DIR}"
+                           CONFIG_DIR="${PROJECT_SOURCE_DIR}/config")
+target_link_libraries(slave_tests PRIVATE canopen_core)
+file(STRINGS slave/slave_tests.cpp SLAVE_CASES REGEX "^TEST\\([a-z0-9_]+\\)")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS slave/slave_tests.cpp)
+foreach(line IN LISTS SLAVE_CASES)
+  string(REGEX REPLACE "^TEST\\(([a-z0-9_]+)\\).*" "\\1" name "${line}")
+  add_test(NAME slave_tests.${name} COMMAND slave_tests --exact ${name})
+  set_tests_properties(slave_tests.${name} PROPERTIES TIMEOUT 180 ENVIRONMENT "${EDSLINT_ENV}")
+endforeach()
+
+# The plugin's master and its own slave on one simulated bus (adapter.simulate
+# and the same interface on both networks), through the real plugin library.
+add_test(NAME slave_simulated_bus COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/slave/simulated.sh ${CMAKE_BINARY_DIR} 6)
+set_tests_properties(slave_simulated_bus PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")

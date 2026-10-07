@@ -25,7 +25,17 @@ namespace canopen_plugin {
 // sub-indices and kept PDOs (NodeConfig::ro_pdo_comm, kept_tpdos/rpdos),
 // adding notes and warnings to the config.
 // Returns false and appends one message per problem.
+// A slave network (canopen-slave-device spec) gets its own checks instead:
+// the slave EDS must parse and every bound object must be in it with a
+// bindable type; its access type sets the direction (SlaveObject::input) and
+// the location must be of that area and fit the type.
 bool check_eds_files(Config& cfg, std::vector<std::string>& errors);
+
+// The gateway section against the upper slave network's EDS (canopen-gateway
+// spec): each route's slave object exists, its access type matches the
+// route's direction and its type the field entry's; the status and SDO bridge
+// objects exist. Run after check_eds_files on every network.
+bool check_gateway_eds(ConfigSet& set, std::vector<std::string>& errors);
 
 // The value the node's EDS gives an unsigned sub-object (ParameterValue, else
 // DefaultValue, $NODEID resolved). False if the EDS or the sub-object is

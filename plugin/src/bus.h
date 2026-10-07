@@ -18,11 +18,25 @@
 #include "config.h"
 #include "dcf_gen.h"
 #include "diag.h"
+#include "gateway.h"
 #include "process_image.h"
 #include "sim_engine.h"
 #include "sim_trace.h"
 
+namespace lely {
+namespace io {
+class VirtualCanController;
+}
+}  // namespace lely
+
 namespace canopen_plugin {
+
+// The in-process CAN bus of simulated networks with this interface name: a
+// master network and a slave network that both have adapter.simulate and the
+// same interface share it, so the plugin's master sees the plugin's own
+// slave. It lives while a session holds it. Without an interface name, a
+// bus of its own.
+std::shared_ptr<lely::io::VirtualCanController> shared_virtual_bus(const std::string& interface);
 
 enum class IfaceState { Missing, Down, Up };
 
@@ -39,8 +53,9 @@ class Bus {
  public:
   // `hub`, when given, is served by each bus session's Network (the
   // diagnostics channel); between sessions it answers "no bus".
+  // `gw`, when given, links the network into a gateway (canopen-gateway spec).
   Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub = nullptr,
-      std::shared_ptr<const SimSetup> sim = nullptr);
+      std::shared_ptr<const SimSetup> sim = nullptr, GatewayLink* gw = nullptr);
   ~Bus();
 
   void start();
@@ -67,6 +82,7 @@ class Bus {
   ProcessImage& image_;
   DiagHub* hub_;
   std::shared_ptr<const SimSetup> sim_;
+  GatewayLink* gw_;
   std::unique_ptr<CanAdapter> adapter_;
   BusMonitor monitor_;
   std::thread thread_;

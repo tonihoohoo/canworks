@@ -1,6 +1,6 @@
 # canopen_config.json
 
-The CANopen plugin reads one JSON file, the config path given for the `canopen` entry in the runtime's `plugins.conf`. It describes the CAN adapter, the master, and every slave node with its EDS file, PDO entries and startup SDOs. Each PDO entry is bound to one explicit PLC address; nothing is assigned automatically.
+The CANopen plugin reads one JSON file, the config path given for the `canopen` entry in the runtime's `plugins.conf`. It describes the CAN adapter, the master, and every slave node with its EDS file, PDO entries and startup SDOs; a version 2 file can also make the PLC itself a [slave](#slave-networks) or a [gateway](#gateway). Each PDO entry is bound to one explicit PLC address; nothing is assigned automatically.
 
 The format is a versioned contract: [`schema/canopen.v1.schema.json`](../schema/canopen.v1.schema.json) (JSON Schema 2020-12) describes `schema_version` 1, the file with one CAN network, and [`schema/canopen.v2.schema.json`](../schema/canopen.v2.schema.json) describes `schema_version` 2, the file with [several networks](#several-networks-schema_version-2). The plugin, the deploy tool ([docs/deploy.md](deploy.md)) and any future editor GUI read and write the same file. The deploy tool and the editor hook deliver it with each upload as `conf/canopen.json`, and the runtime points `plugins.conf` at it.
 
@@ -77,9 +77,11 @@ One PLC can drive up to 8 CAN networks, each on its own adapter, with its own ma
 
 | Field | Required | Meaning |
 |---|---|---|
-| `networks` | yes | 1 to 8 networks. Each has `adapter`, `master` and `nodes` exactly as a version 1 file has them at the top level, and an optional `name`. |
+| `networks` | yes | 1 to 8 networks. Each has `adapter`, `master` and `nodes` exactly as a version 1 file has them at the top level, and an optional `name`; a [slave network](#slave-networks) has `"role": "slave"` and `slave` instead of `master` and `nodes`. |
+| `networks[].role` | no | `"master"` (default) or `"slave"`. |
 | `networks[].name` | no | A letter, then letters, digits and `_`, at most 16 characters; names differ, ignoring case. Default: the adapter's `interface`, which then must be usable as a name. |
 | `diagnostics` | no | [Online diagnostics](#online-diagnostics) for all networks together: one port and one token. In version 2 it sits at the top level, not in a network's `master`. |
+| `gateway` | no | Routes between a slave network and the master networks ([gateway](#gateway)). |
 
 Each network is checked as a version 1 file is: node IDs and COB-IDs need only be unique inside their network, so node 2 can exist on two networks. Across networks, two networks may not use the same `interface` or the same `slcan` `device`, and no two locations may overlap: all networks share the PLC's one I/O image. Messages name the network: `networks[1]: nodes[0]: ...`, and an overlap names both sides with their networks.
 
@@ -88,6 +90,47 @@ An error in any network rejects the whole file and no interface is opened. Once 
 A version 2 file needs the plugin and the deploy tool from the same release or later; an older plugin rejects it as a newer `schema_version`. Version 1 files load unchanged, and the configurator saves a config with one network as version 1.
 
 Files written before the contract have top-level `interface` and `bitrate` instead of `adapter`. They still load, with the same meaning as before: a `socketcan` adapter with `configure_link: false`, so the plugin leaves the link as it finds it. The plugin logs a deprecation warning. A file with both `adapter` and a top-level `interface` or `bitrate` is rejected.
+
+## Slave networks
+
+A network with `"role": "slave"` makes the PLC a node of a network another master runs ([slave.md](slave.md)); [`config/slave`](../config/slave/canopen_config.json) is an example. It has `adapter` as any network, and a `slave` object instead of `master` and `nodes`:
+
+```json
+{ "name": "line", "role": "slave",
+  "adapter": { "type": "socketcan", "interface": "can1", "bitrate": 250000 },
+  "slave": { "node_id": 10, "eds": "openplc-slave.eds",
+             "objects": [ { "index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed_setpoint" } ] } }
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `node_id` | yes | The slave's own node ID, 1-127, or `null` to start without one and wait for an LSS master to assign it. |
+| `eds` | yes | The slave's EDS, relative to the config file: written by `openplc-canopen-deploy slave-eds` ([deploy.md](deploy.md#the-slave-eds)) or by hand. The other master imports the same file. |
+| `eds_lint` | no | As [`master.eds_lint`](#eds-lint), for this EDS. A generated EDS passes `"all"`. |
+| `objects[]` | no | Bindings: `index`, `subindex` and `iec_location` of an object of the EDS, and an optional `name` for its variable. The direction comes from the object's `AccessType`: `rww` and `rw` (the master writes) need an `%I` location, `ro` and `rwr` (the program writes) a `%Q` location; `const` and `wo` objects cannot be bound. The location's size must fit the object's type, as for PDO entries. |
+| `inputs_on_loss` | no | `"hold"` (default): inputs keep their last value while the slave is not OPERATIONAL or the master's heartbeat is lost. `"zero"`: they read 0 then. |
+| `state_location` | no | `%IB`: own NMT state (0 not started, 4 stopped, 5 operational, 127 pre-operational). |
+| `comm_ok_location` | no | `%IX`: TRUE while OPERATIONAL with no heartbeat consumer or life guarding error. |
+| `sync_count_location` | no | `%IW`: SYNCs received, wrapping at 65535. |
+| `emcy_code_location` | no | `%QW`: a change to a non-zero code sends an EMCY with it, a change to 0 the error reset. |
+| `error_register_location` | no | `%QB`: the error register sent with that EMCY. |
+
+Everything else (PDO mapping, heartbeat, guarding, SYNC consumer, error behaviour) comes from the EDS, and the other master may change it over SDO. A slave network needs `schema_version` 2; a version 1 file with `role`, `slave` or `gateway` is rejected with a message that says so. Slave networks follow the rules of every network: their own interface, a name, and locations that overlap no other network's. With the device simulator's `"simulate": true` adapters, one master network and one slave network may share a simulated bus (the same `interface`).
+
+## Gateway
+
+A top-level `gateway` connects a slave network (the upper network) with the master networks of the same file: each route copies one value between a slave object and a field node's PDO entry, in the plugin, without the PLC program. Field node states, EMCYs and SDO access can be passed up too. Every field and the runtime behaviour: [gateway.md](gateway.md); [`config/gateway`](../config/gateway/canopen_config.json) is an example.
+
+```json
+"gateway": {
+  "upper": "upper",
+  "routes": [ { "name": "ping", "slave": { "index": "0x2000", "subindex": 1 },
+                "field": { "network": "field", "node": 2, "index": "0x4000", "subindex": 0 } } ],
+  "status": {}, "emcy_forward": true, "on_upper_loss": "zero", "sdo_bridge": true
+}
+```
+
+A PDO entry that a route writes (an RPDO entry fed from the upper master) may leave out `iec_location`; every other PDO entry needs one. A route's target may not also have an output location: one writer per object.
 
 ## `adapter`
 
@@ -458,7 +501,7 @@ A startup SDO runs after everything the plugin writes from the node's settings, 
 
 A slave that aborts a startup SDO is handled like any configuration SDO: the plugin logs the node ID, index, subindex and abort code, and that node stays not operational while the others run.
 
-Many devices only accept some settings while PRE-OPERATIONAL. A node that comes back after a pulled cable or a lost heartbeat is often still OPERATIONAL, so when a configuration download fails (CiA 302 error status J) the master resets the node (NMT reset node) before the next retry and configures it again from PRE-OPERATIONAL. The retries back off up to 16 s, so a download that the device always refuses resets it at most that often.
+Many devices only accept some settings while PRE-OPERATIONAL. A node that comes back after a pulled cable or a lost heartbeat is often still OPERATIONAL, so when a configuration download fails (CiA 302 error status J) the master resets the node (NMT reset node) before the next retry and configures it again from PRE-OPERATIONAL. The retries back off up to 16 s, so a download that the device always refuses resets it at most that often. After the master starts a node, the node's heartbeat must say OPERATIONAL within two of the master's heartbeat consumer periods for it (plus 100 ms). A node that falls back to PRE-OPERATIONAL before its first heartbeat after the start is otherwise never noticed, because its heartbeat state does not change, so the master logs `node 10 (openplc) did not report OPERATIONAL in its heartbeat after the start command; booting it again` and boots it again.
 
 ## SDO variables
 
@@ -606,7 +649,11 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a node sets `heartbeat_consumer: true` while `master.heartbeat_ms` is 0, sets `software_version` without `software_file`, or names a `software_file` that does not exist;
 - a location lies outside the runtime's I/O image (index 1024 and up on a default runtime).
 - in a version 2 file: `networks` is missing, empty or longer than 8, a network name is invalid or used twice, two networks use the same interface or serial device, a field of a network (`adapter`, `master`, `nodes`) sits at the top level, or `diagnostics` sits in a network's `master`;
-- `nodes` is empty without `master.diagnostics` (in version 2, without the top-level `diagnostics`), or `master.diagnostics` has a `token_sha256` that is not 64 hex digits, a `port` outside 1024-65535 or a `bind` that is not an IPv4 address.
+- `nodes` is empty without `master.diagnostics` (in version 2, without the top-level `diagnostics`), or `master.diagnostics` has a `token_sha256` that is not 64 hex digits, a `port` outside 1024-65535 or a `bind` that is not an IPv4 address;
+- a slave network has `master` or `nodes`, a master network has `slave`, a version 1 file has `role`, `slave` or `gateway`, or two master networks (or two slave networks) share a simulated bus;
+- a slave's `node_id` is outside 1-127 and not `null`, its EDS is missing or fails the lint, or a binding names an object the EDS does not define, an object bound twice, a `const` or `wo` object, a location of the wrong area for the object's access type or of a size that does not fit its type; a slave status location has the wrong type (`%IB` state, `%IX` communication OK, `%IW` SYNC count, `%QW` EMCY code, `%QB` error register);
+- a PDO entry has no `iec_location` and no gateway route writes it;
+- the `gateway` names an `upper` network that is missing or not a slave network, there is no master network, a route names a network, node, PDO entry or slave object that does not exist, its direction does not fit the slave object's access type, its two ends differ in type, its target has a second writer, `status` covers more than 4 master networks, or `status` or `sdo_bridge` is set while the slave's EDS lacks their objects.
 
 In every case the PLC starts and runs normally; fix the file and restart the PLC to activate the plugin.
 

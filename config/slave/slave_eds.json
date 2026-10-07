@@ -1,0 +1,15 @@
+{
+  "device_name": "OpenPLC slave example",
+  "vendor_id": 0,
+  "product_code": 1,
+  "heartbeat_ms": 500,
+  "layout": "manufacturer",
+  "objects": [
+    { "name": "speed_setpoint", "type": "UNSIGNED16", "direction": "from_master", "default": 0, "high": 3000 },
+    { "name": "mode", "type": "UNSIGNED8", "direction": "from_master", "default": 0, "high": 3 },
+    { "name": "run", "type": "BOOLEAN", "direction": "from_master" },
+    { "name": "actual_speed", "type": "UNSIGNED16", "direction": "to_master" },
+    { "name": "status_word", "type": "UNSIGNED16", "direction": "to_master" },
+    { "name": "temperature", "type": "INTEGER16", "direction": "to_master" }
+  ]
+}

@@ -73,6 +73,39 @@ def drives_status(config_sha256="0" * 64):
     }
 
 
+# A slave network (config/slave) as the hello lists it.
+SLAVE_NETWORK = {"name": "line", "interface": "vcan1", "bitrate": 250000, "role": "slave", "node_id": 10}
+
+
+def slave_status(config_sha256="0" * 64, gateway=False):
+    """Status of a slave network (plc_slave.cpp DiagStatus): node 10 of
+    config/slave with its default PDO mappings, TPDO2 switched off; with
+    `gateway`, the upper network of a gateway."""
+    st = {
+        "version": "v-test", "uptime_s": 12, "config_sha256": config_sha256, "network": "line", "role": "slave",
+        "session": True,
+        "slave": {"node_id": 10, "state": 5, "comm_ok": True, "sync_count": 42, "emcy_code": 0x4210,
+                  "error_register": 0x09,
+                  "tpdos": [{"number": 1, "cob_id": 0x18A, "transmission": 255, "entries": [
+                      {"index": 0x2100, "subindex": 1, "bits": 16}, {"index": 0x2100, "subindex": 2, "bits": 16},
+                      {"index": 0x2101, "subindex": 1, "bits": 16}]},
+                      {"number": 2, "cob_id": 0x8000028A, "transmission": 1, "entries": []}],
+                  "rpdos": [{"number": 1, "cob_id": 0x20A, "transmission": 255, "entries": [
+                      {"index": 0x2000, "subindex": 1, "bits": 16}, {"index": 0x2001, "subindex": 1, "bits": 8},
+                      {"index": 0x2002, "subindex": 1, "bits": 1}]}]},
+        "bus": {"interface": "vcan1"},
+        "nodes": [],
+    }
+    if gateway:
+        st["gateway"] = {"routes": 2, "upper_ok": False, "forwarded_errors": 1}
+    return st
+
+
+def slave_objects(node=10):
+    return {(node, 0x1008, 0): b"OpenPLC slave example", (node, 0x2000, 1): b"\x05\x00",
+            (node, 0x2100, 1): b"\x07\x00"}
+
+
 class FakeNetwork:
     """The state of a network other than the first."""
 
@@ -120,13 +153,21 @@ class FakePlugin:
         self.trace_lock = threading.Lock()
         self.present = {2, 23, 40}  # node IDs that answer SDO
         if self.networks:
+            if self.networks[0].get("role") == "slave":
+                self.status = slave_status()
+                self.objects = slave_objects(self.networks[0]["node_id"])
+                self.present = {self.networks[0]["node_id"]}
             self.status["network"] = self.networks[0]["name"]
             self.status["bus"]["interface"] = self.networks[0]["interface"]
             for info in self.networks[1:]:
-                st = drives_status() if info["name"] == "drives" else dict(status(), nodes=[])
+                slave = info.get("role") == "slave"
+                st = drives_status() if info["name"] == "drives" else slave_status() if slave else dict(status(), nodes=[])
                 st["network"] = info["name"]
                 st["bus"]["interface"] = info["interface"]
                 self.others[info["name"]] = FakeNetwork(info, st)
+                if slave:
+                    self.others[info["name"]].objects = slave_objects(info["node_id"])
+                    self.others[info["name"]].present = {info["node_id"]}
             if "drives" in self.others:
                 self.others["drives"].objects[(2, 0x1008, 0)] = b"drive"
                 self.others["drives"].present.add(2)
@@ -250,6 +291,14 @@ class FakePlugin:
             return err(why)
         if op in ("trace_start", "trace_fetch", "trace_stop"):
             return self._trace(req, ok, err, net)
+        info = net.info if net is not self else (self.networks[0] if self.networks else {})
+        if info.get("role") == "slave":
+            # A slave network serves its status and its own dictionary only.
+            if op not in ("status", "sdo_read", "sdo_write"):
+                return err("network \"%s\" is a slave network; %s needs a master network" % (info["name"], op))
+            if op != "status" and req.get("node") != info["node_id"]:
+                return err("node %s is not this slave (node ID %d); a slave network reads and writes only its own "
+                           "dictionary" % (req.get("node"), info["node_id"]))
         sim = self.sim if net is self else None
         if isinstance(op, str) and op.startswith("sim_"):
             if sim is None:

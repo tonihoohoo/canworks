@@ -22,6 +22,12 @@
 // status bits %IX10.0 and %IX10.1 are TRUE at the end and both counters rose
 // by at least 5 during the last half of the run.
 //
+// slave: test/slave/run.sh, a master network and the plugin's own slave
+// network joined by cangw; the master computes `%QW10 := %IW10 + 1` and the
+// slave echoes `%QW300 := %IW300`. Exits 0 if the master's status bit
+// %IX10.0 and the slave's comm OK bit %IX300.0 are TRUE at the end and %IW10
+// rose by at least 5 during the last half of the run.
+//
 // fixed: the fixed-mapping I/O module of test/fixed/run.sh; computes
 // `%QB40 := %IB40`. Exits 0 if the status bit is TRUE at the end and, during
 // the last half of the run, %IB40 stayed in 10-50 and changed.
@@ -69,7 +75,7 @@ F sym(void* h, const char* name) {
 
 int main(int argc, char** argv) {
   if (argc < 3) {
-    std::fprintf(stderr, "usage: %s <libcanopen_plugin.so> <canopen_config.json> [seconds] [pingpong|rtd|bus|fixed]\n",
+    std::fprintf(stderr, "usage: %s <libcanopen_plugin.so> <canopen_config.json> [seconds] [pingpong|rtd|bus|fixed|two|slave]\n",
                  argv[0]);
     return 2;
   }
@@ -80,9 +86,10 @@ int main(int argc, char** argv) {
   const bool bus = argc > 4 && std::strcmp(argv[4], "bus") == 0;
   const bool fixed = argc > 4 && std::strcmp(argv[4], "fixed") == 0;
   const bool two = argc > 4 && std::strcmp(argv[4], "two") == 0;
+  const bool slave = argc > 4 && std::strcmp(argv[4], "slave") == 0;
   bool fixed_in_range = true, fixed_moved = false;
   uint8_t fixed_first = 0;
-  if (argc > 4 && !rtd && !bus && !fixed && !two && std::strcmp(argv[4], "pingpong") != 0) {
+  if (argc > 4 && !rtd && !bus && !fixed && !two && !slave && std::strcmp(argv[4], "pingpong") != 0) {
     std::fprintf(stderr, "canopen_host: unknown program '%s'\n", argv[4]);
     return 2;
   }
@@ -144,7 +151,10 @@ int main(int argc, char** argv) {
       img->bool_out[100][0] = ai(0) > 250;  // %QX100.0 := AI0 > 25.0 degC
     else if (fixed)
       img->byte_out[40] = img->byte_in[40];  // %QB40 := %IB40
-    else
+    else if (slave) {
+      img->int_out[10] = static_cast<IEC_UINT>(img->int_in[10] + 1);  // master: %QW10 := %IW10 + 1
+      img->int_out[300] = img->int_in[300];                            // slave: %QW300 := %IW300
+    } else
       img->dint_out[100] = img->dint_in[100] + 1;  // %QD100 := %ID100 + 1
     if (two) img->dint_out[101] = img->dint_in[101] + 1;  // %QD101 := %ID101 + 1
     cycle_end();
@@ -158,7 +168,7 @@ int main(int argc, char** argv) {
     }
     if (!have_mid && clock::now() >= half) {
       mid = img->dint_in[100];
-      mid2 = img->dint_in[101];
+      mid2 = slave ? img->int_in[10] : img->dint_in[101];
       rtd_first = ai(0);
       fixed_first = img->byte_in[40];
       have_mid = true;
@@ -179,6 +189,9 @@ int main(int argc, char** argv) {
       else if (rtd)
         std::printf("t=%2lds  AI0..AI3=%.1f %.1f %.1f %.1f degC  alarm=%d  %%IX10.0=%d\n", t, ai(0) / 10.0,
                     ai(1) / 10.0, ai(2) / 10.0, ai(3) / 10.0, img->bool_out[100][0], img->bool_in[10][0]);
+      else if (slave)
+        std::printf("t=%2lds  %%IW10=%u  %%IX10.0=%d  %%IW300=%u  %%IX300.0=%d\n", t, (unsigned)img->int_in[10],
+                    img->bool_in[10][0], (unsigned)img->int_in[300], img->bool_in[300][0]);
       else if (two)
         std::printf("t=%2lds  %%ID100=%u  %%IX10.0=%d  %%ID101=%u  %%IX10.1=%d\n", t, (unsigned)img->dint_in[100],
                     img->bool_in[10][0], (unsigned)img->dint_in[101], img->bool_in[10][1]);
@@ -191,7 +204,8 @@ int main(int argc, char** argv) {
     std::this_thread::sleep_until(next);
   }
 
-  const IEC_UDINT last = img->dint_in[100], last2 = img->dint_in[101];
+  const IEC_UDINT last = img->dint_in[100], last2 = slave ? img->int_in[10] : img->dint_in[101];
+  const bool slave_ok = img->bool_in[300][0] != 0;
   const bool up = img->bool_in[10][0] != 0, up2 = img->bool_in[10][1] != 0;
   stop_loop();
   cleanup();
@@ -213,6 +227,13 @@ int main(int argc, char** argv) {
     std::printf("%s: status bit %s, temperatures %s their simulated ranges, AI0 %s, alarm %s\n",
                 ok ? "PASS" : "FAIL", up ? "TRUE" : "FALSE", rtd_in_range ? "stayed in" : "left",
                 rtd_moved ? "changed" : "did not change", rtd_alarm_seen ? "seen" : "not seen");
+    return ok ? 0 : 1;
+  }
+  if (slave) {
+    const bool ok = up && slave_ok && have_mid && last2 >= mid2 + 5;
+    std::printf("%s: master status bit %s, slave comm OK %s, %%IW10 went from %u to %u in the last half\n",
+                ok ? "PASS" : "FAIL", up ? "TRUE" : "FALSE", slave_ok ? "TRUE" : "FALSE", (unsigned)mid2,
+                (unsigned)last2);
     return ok ? 0 : 1;
   }
   if (two) {

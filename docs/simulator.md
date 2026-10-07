@@ -28,6 +28,8 @@ A config with anything simulated is announced everywhere: a warning at every PLC
 
 In a config with several networks ([version 2](config.md)), each network has its own switches: one network can be simulated while another runs on its real interface, and the simulated devices of each network are reached by its name (`--network NAME` on `openplc-canopen-diag sim`, the network picker in the configurator). The simulation file serves a config with one network only: with several networks the plugin and the deploy tool's check say it is not used, and the simulated devices run with their [default behaviour](#default-behaviour).
 
+A simulated master network and a simulated [slave network](slave.md#simulated-bus) with the same `interface` name share one simulated bus: the plugin's master then reaches the plugin's own slave. A simulated bus takes one master network and one slave network.
+
 ### Simulated devices on a real network
 
 Before a simulated device starts on a real interface, the plugin listens for 1 second. A node ID that sends heartbeats, boot-up messages, EMCY or SDO answers there belongs to a real device: its simulated device is not started, the log names the conflict, the node's boot error says so, and the master goes on with the real device. While a simulated device runs, a heartbeat, boot-up or EMCY with its node ID that it did not send makes it power off at once, with a log line. A real device that stays silent during that first second and never sends a heartbeat can still go unnoticed; give real devices a heartbeat.

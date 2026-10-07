@@ -19,6 +19,7 @@ import io
 import json
 import mimetypes
 import os
+import re
 import secrets
 import shutil
 import sys
@@ -30,10 +31,11 @@ import webbrowser
 import zipfile
 
 from .. import __version__, axis, contract, dbcexport, dcfexport, diag, editorproject, edslint, parameters, project as project_mod, sdolibrary
+from .. import slaveeds
 from .. import eds as eds_mod
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
-from ..iec import CO_TYPES
+from ..iec import CO_TYPES, parse_location
 from . import cia402map, declare, layout, online, params, scan, simulation, tracing
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -46,8 +48,8 @@ RECENT_MAX = 10
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
-    "": ["$schema", "schema_version", "adapter", "master", "nodes", "networks", "diagnostics"],
-    "network": ["name", "adapter", "master", "nodes"],
+    "": ["$schema", "schema_version", "adapter", "master", "nodes", "networks", "gateway", "diagnostics"],
+    "network": ["name", "role", "adapter", "master", "nodes", "slave"],
     "adapter": ["type", "simulate", "interface", "bitrate", "configure_link", "restart_ms"],
     "master": ["node_id", "sync_period_us", "heartbeat_ms", "eds_lint", "strict_eds", "bus_state_location",
                "tx_error_count_location", "rx_error_count_location", "bus_off_count_location", "state_location",
@@ -71,6 +73,13 @@ ORDER = {
                      "trigger_location", "status_location", "abort_code_location", "timeout_ms"],
     "diagnostics": ["token_sha256", "port", "bind", "allow_changes"],
     "lss": ["assign", "store"],
+    "slave": ["node_id", "eds", "eds_lint", "inputs_on_loss", "state_location", "comm_ok_location",
+              "sync_count_location", "emcy_code_location", "error_register_location", "objects"],
+    "slave_object": ["index", "subindex", "name", "iec_location"],
+    "gateway": ["upper", "routes", "status", "emcy_forward", "on_upper_loss", "sdo_bridge", "sdo_bridge_index",
+                "sdo_bridge_write"],
+    "route": ["name", "slave", "field"],
+    "route_field": ["network", "node", "index", "subindex"],
 }
 
 
@@ -145,6 +154,15 @@ def canonical(cfg):
     """The config with its keys in a fixed order (unknown keys kept): the
     top level of version 1, or of each network of version 2."""
     cfg = _canonical_network(_ordered(cfg, ""))
+    if isinstance(cfg.get("gateway"), dict):
+        g = cfg["gateway"] = _ordered(cfg["gateway"], "gateway")
+        if isinstance(g.get("routes"), list):
+            g["routes"] = [_ordered(rt, "route") for rt in g["routes"]]
+            for rt in g["routes"]:
+                if isinstance(rt, dict):
+                    for key, kind in (("slave", "entry"), ("field", "route_field")):
+                        if isinstance(rt.get(key), dict):
+                            rt[key] = _ordered(rt[key], kind)
     if isinstance(cfg.get("diagnostics"), dict):
         cfg["diagnostics"] = _ordered(cfg["diagnostics"], "diagnostics")
     if isinstance(cfg.get("networks"), list):
@@ -160,6 +178,10 @@ def _canonical_network(cfg):
         cfg["master"] = _ordered(cfg["master"], "master")
         if isinstance(cfg["master"].get("diagnostics"), dict):
             cfg["master"]["diagnostics"] = _ordered(cfg["master"]["diagnostics"], "diagnostics")
+    if isinstance(cfg.get("slave"), dict):
+        cfg["slave"] = _ordered(cfg["slave"], "slave")
+        if isinstance(cfg["slave"].get("objects"), list):
+            cfg["slave"]["objects"] = [_ordered(o, "slave_object") for o in cfg["slave"]["objects"]]
     nodes = []
     for n in cfg.get("nodes") or []:
         n = _ordered(n, "node")
@@ -333,6 +355,7 @@ class Session:
         self.loaded = None  # (mtime, sha256) of canopen.json as loaded, or None when there was none
         self.sim_loaded = None  # sha256 of simulation.json as loaded, or None when there was none
         self.pending = {}  # EDS name -> UTF-8 bytes imported but not yet saved
+        self.descriptions = {}  # EDS name -> slave EDS description built but not yet saved
         self.pending_dir = tempfile.mkdtemp(prefix="canopen-config-")
         self.uses, self.scan_problems, self.scanned_at = [], [], None
 
@@ -396,15 +419,18 @@ class Session:
             raise ApiError(400, "unknown mode %r" % mode)
         self.mode, self.folder = mode, path
         self.pending.clear()
+        self.descriptions.clear()
         self.reload()
         self.remember()
 
     def close(self):
         self.mode = self.folder = self.loaded = self.sim_loaded = None
         self.pending.clear()
+        self.descriptions.clear()
 
     def reload(self):
         self.pending.clear()
+        self.descriptions.clear()
         if os.path.isfile(self.config_path):
             self.loaded = (os.path.getmtime(self.config_path), sha256(self.config_path))
         else:
@@ -452,12 +478,13 @@ class Session:
         return out
 
     def eds_paths(self, cfg):
-        """{eds value: path} of every node of every network."""
-        return {n.get("eds"): self.eds_path(n.get("eds")) for n in contract.all_nodes(cfg)
+        """{eds value: path} of every node of every network, and of every
+        slave network's own EDS."""
+        return {n.get("eds"): self.eds_path(n.get("eds")) for n in contract.eds_users(cfg)
                 if isinstance(n.get("eds"), str) and n.get("eds")}
 
     def eds_names(self, cfg):
-        names = [n.get("eds") for n in contract.all_nodes(cfg)]
+        names = [n.get("eds") for n in contract.eds_users(cfg)]
         names = [n for n in names if isinstance(n, str) and n]
         if os.path.isdir(self.canopen_dir):
             names += [f for f in sorted(os.listdir(self.canopen_dir)) if f.lower().endswith(".eds")]
@@ -474,7 +501,7 @@ class Session:
         cfg, notices, error = self.read_config()
         sim = simulation.read(self.sim_path)
         sim_eds = simulation.eds_files(self.canopen_dir)
-        referenced = {n.get("eds") for n in contract.all_nodes(cfg)}
+        referenced = {n.get("eds") for n in contract.eds_users(cfg)}
         referenced.update(simulation.extra_eds(sim["doc"]))
         names = self.eds_names(cfg)
         base.update({
@@ -483,6 +510,7 @@ class Session:
             "config_exists": os.path.isfile(self.config_path), "config": cfg, "notices": notices,
             "load_error": error, "eds": self.eds_info(names),
             "unused_eds": [n for n in names if n not in referenced and n not in self.pending],
+            "slave_descriptions": self.slave_descriptions(names),
             "project_uses": [u.as_dict() for u in self.uses], "scan_problems": self.scan_problems,
             "scanned_at": self.scanned_at,
             "simulation": {k: sim[k] for k in ("path", "exists", "doc", "error")},
@@ -553,9 +581,17 @@ class Session:
             for name, info in summaries.items():
                 for o in info.get("objects", []):
                     names[(name, int(o["index"], 16), o["subindex"])] = o["name"]
+            types = {}
+            for name, info in summaries.items():
+                for o in info.get("objects", []):
+                    types[(name, int(o["index"], 16), o["subindex"])] = o["type"]
             nodes = contract.all_nodes(cfg)  # declare's node index runs over every network
+
+            def slave_object(value, ix, sub):
+                return (names[(value, ix, sub)], types[(value, ix, sub)]) if (value, ix, sub) in names else None
+
             decls = declare.declarations(
-                cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), declared)
+                cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), declared, slave_object)
             block = declare.st_block(decls)
             axes = axis.text_block(cfg, decls)
             if axes:
@@ -642,7 +678,7 @@ class Session:
         return network
 
     # -- where a new entry or status bit goes ------------------------------
-    def place(self, cfg, node, direction, type_name, start=None, network=0):
+    def place(self, cfg, node, direction, type_name, start=None, network=0, access=None):
         """Suggested location (and PDO, for an entry) for something new in
         node `node`: direction "input"/"output" with a CANopen type, or
         direction "status" for the node's status bit, "state" for its
@@ -651,13 +687,25 @@ class Session:
         NMT command byte, "sdo_read"/"sdo_write" with a CANopen type for an
         SDO variable's value, "sdo_trigger", "sdo_status" or "sdo_abort" for
         an SDO variable's other locations, or a master diagnostic key (no
-        node needed). `network` is the index of the node's network; the
-        suggestion skips the locations of every network."""
+        node needed). For a slave network: "slave_object" with the object's
+        CANopen type and EDS `access`, or "slave_state", "slave_comm_ok",
+        "slave_sync_count", "slave_emcy", "slave_errreg" (no node needed).
+        `network` is the index of the node's network; the suggestion skips
+        the locations of every network."""
         used = layout.taken(cfg, self.uses) if isinstance(cfg, dict) else set()
         start = layout.DEFAULT_START if start in (None, "") else int(start)
         for key, size, _, _ in layout.MASTER_LOCATIONS:
             if direction == key:
                 return {"location": layout.suggest("I", size, used, start)}
+        for _, area, size, suffix, _ in layout.SLAVE_LOCATIONS:
+            if direction == "slave_" + suffix:
+                return {"location": layout.suggest(area, size, used, start)}
+        if direction == "slave_object":
+            side = contract.slave_direction(access)
+            if side is None or type_name not in CO_TYPES:
+                raise ApiError(400, "a slave object needs a CANopen type and AccessType rww, rw, ro or rwr "
+                                    "(const and wo cannot be bound)")
+            return {"location": layout.suggest(*layout.area_size(side, type_name), used, start)}
         try:
             n = contract.networks(cfg)[int(network or 0)]["nodes"][int(node)]
         except (KeyError, IndexError, TypeError, ValueError, AttributeError):
@@ -686,6 +734,107 @@ class Session:
         pdos = n.get("tx_pdos" if direction == "input" else "rx_pdos") or []
         pdo, reason = layout.pack(pdos, type_name, count)
         return {"location": layout.suggest(area, size, used, start), "pdo": pdo, "reason": reason}
+
+    # -- slave EDS (canopen-slave-eds) --------------------------------------
+    def _slave_network(self, cfg, network):
+        try:
+            net = contract.networks(cfg)[int(network or 0)]
+        except (IndexError, TypeError, ValueError):
+            raise ApiError(400, "no network %r in the config" % network)
+        if net["role"] != "slave":
+            raise ApiError(400, "network %s is not a slave network" % (net["name"] or int(network or 0) + 1))
+        return net
+
+    def slave_descriptions(self, names):
+        """{EDS name: the description it was built from} for the EDS files
+        that have one: built in this session, or saved next to the EDS as
+        `<name>.json`."""
+        out = {}
+        for name in names:
+            if name in self.descriptions:
+                out[name] = self.descriptions[name]
+                continue
+            path = os.path.join(self.canopen_dir, description_name(name))
+            try:
+                with open(path, encoding="utf-8") as f:
+                    desc = json.load(f)
+            except (OSError, ValueError):
+                continue
+            if isinstance(desc, dict):
+                out[name] = desc
+        return out
+
+    def build_slave_eds(self, cfg, network, desc, name=None, gateway=False, start=None, replace=False):
+        """Builds a slave network's EDS from a description with the
+        generator `slave-eds` uses, as a pending EDS saved with the config
+        (and its description next to it). With `gateway` the config's gateway
+        routes, status and SDO bridge go in too. Returns {name, summary,
+        objects, bindings, routes}: bindings the generated objects (route
+        objects left out) with the location each has now or a suggested
+        free one, routes the slave end of each gateway route."""
+        if not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        net = self._slave_network(cfg, network)
+        if not isinstance(desc, dict):
+            raise ApiError(400, "description must be a JSON object")
+        name = os.path.basename(name or "").strip() or slave_eds_name(desc.get("device_name"))
+        if not name.lower().endswith(".eds") or name in (".eds",):
+            raise ApiError(422, "the EDS file name must end in .eds")
+        try:
+            text, info = slaveeds.generate(desc, cfg if gateway else None, name)
+        except slaveeds.DescriptionError as e:
+            raise ApiError(422, str(e))
+        data = text.encode("utf-8")
+        target = os.path.join(self.canopen_dir, name)
+        built = name in self.descriptions or os.path.isfile(os.path.join(self.canopen_dir, description_name(name)))
+        if not replace and not built and name not in self.pending and os.path.isfile(target):
+            with open(target, "rb") as f:
+                if f.read() != data:
+                    raise ApiError(409, "a different EDS named %s is already in %s" % (name, self.canopen_dir),
+                                   conflict=name)
+        self.pending[name] = data
+        self.descriptions[name] = desc
+        with open(os.path.join(self.pending_dir, name), "wb") as f:
+            f.write(data)
+        start = layout.DEFAULT_START if start in (None, "") else int(start)
+        used = layout.taken(cfg, self.uses)
+        have = {}
+        for o in net["slave"].get("objects") or []:
+            if isinstance(o, dict) and isinstance(o.get("iec_location"), str):
+                have[(contract._uint(o.get("index")), contract._uint(o.get("subindex", 0)))] = o["iec_location"]
+        bindings = []
+        own = info["objects"][:len(info["objects"]) - len(info["routes"])]
+        for o in own:
+            loc = have.get((o["index"], o["subindex"]))
+            if loc is None:
+                area, size = layout.area_size("input" if o["direction"] == "from_master" else "output", o["type"])
+                loc = layout.suggest(area, size, used, start)
+                parsed = parse_location(loc)
+                used.add((parsed.area, parsed.size, parsed.element))
+            bindings.append({"index": "0x%04X" % o["index"], "subindex": o["subindex"], "name": o["name"],
+                             "iec_location": loc})
+        objects = [dict(o, index="0x%04X" % o["index"]) for o in info["objects"]]
+        return {"name": name, "summary": eds_summary(Eds.read(os.path.join(self.pending_dir, name), text),
+                                                     os.path.join(self.pending_dir, name)),
+                "objects": objects, "bindings": bindings, "revision_number": info["revision_number"],
+                "routes": [{"index": "0x%04X" % r["index"], "subindex": r["subindex"]} for r in info["routes"]]}
+
+    def export_eds(self, cfg, network):
+        """A slave network's EDS as the plugin runs it, for the other
+        master's tool: the exact bytes, named after its device name."""
+        net = self._slave_network(cfg, network)
+        value = net["slave"].get("eds")
+        if not isinstance(value, str) or not value:
+            raise ApiError(422, "the slave network has no EDS yet")
+        path = self.eds_path(value)
+        if not os.path.isfile(path):
+            raise ApiError(422, "EDS file %s not found" % path)
+        with open(path, "rb") as f:
+            data = f.read()
+        device = eds_mod.device_info(path) or {}
+        name = slave_eds_name(device.get("product_name")) if device.get("product_name") else os.path.basename(value)
+        return {"name": name, "content_type": "application/octet-stream",
+                "data": base64.b64encode(data).decode("ascii")}
 
     # -- CiA 402 axis -------------------------------------------------------
     def map_cia402(self, cfg, node, start=None, network=0):
@@ -717,7 +866,7 @@ class Session:
             raise ApiError(409, "%s changed on disk after it was loaded" % self.config_path, changed_on_disk=True)
         os.makedirs(self.canopen_dir, exist_ok=True)
         written = []
-        referenced = {n["eds"] for n in contract.all_nodes(cfg)}
+        referenced = {n["eds"] for n in contract.eds_users(cfg)}
         for name, data in sorted(self.pending.items()):
             if name not in referenced:
                 continue
@@ -727,6 +876,13 @@ class Session:
                 f.write(data)
             os.replace(tmp, target)
             written.append(target)
+            if name in self.descriptions:
+                target = os.path.join(self.canopen_dir, description_name(name))
+                with open(target + ".tmp", "w", encoding="utf-8") as f:
+                    json.dump(self.descriptions[name], f, indent=2, ensure_ascii=False)
+                    f.write("\n")
+                os.replace(target + ".tmp", target)
+                written.append(target)
         tmp = self.config_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(canonical(cfg), f, indent=2, ensure_ascii=False)
@@ -735,6 +891,7 @@ class Session:
         written.append(self.config_path)
         for name in [n for n in self.pending if n in referenced]:
             del self.pending[name]
+            self.descriptions.pop(name, None)
         self.loaded = (os.path.getmtime(self.config_path), sha256(self.config_path))
         return {"written": written, "check": checked}
 
@@ -832,6 +989,17 @@ class Session:
         if sdo_blocks:
             out["library_ok"], out["library"] = sdolibrary.ensure_installed()
         return out
+
+
+def description_name(eds_name):
+    """The file a configurator-built slave EDS keeps its description in."""
+    return eds_name + ".json"
+
+
+def slave_eds_name(device_name):
+    """An EDS file name from a device name: "OpenPLC slave" -> openplc-slave.eds."""
+    stem = re.sub(r"[^a-z0-9]+", "-", str(device_name or "").lower()).strip("-")
+    return (stem or "openplc-slave") + ".eds"
 
 
 def list_folders(path):
@@ -1014,7 +1182,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/place"):
                     self._need_open(s)
                     out = s.place(body.get("config"), body.get("node"), body.get("direction"), body.get("type"),
-                                  body.get("start"), body.get("network", 0))
+                                  body.get("start"), body.get("network", 0), body.get("access"))
+                elif route == ("POST", "/api/slave_eds"):
+                    self._need_open(s)
+                    out = s.build_slave_eds(body.get("config"), body.get("network", 0), body.get("description"),
+                                            body.get("name"), bool(body.get("gateway")), body.get("start"),
+                                            bool(body.get("replace")))
+                elif route == ("POST", "/api/export_eds"):
+                    self._need_open(s)
+                    out = s.export_eds(body.get("config"), body.get("network", 0))
                 elif route == ("POST", "/api/map_cia402"):
                     self._need_open(s)
                     out = s.map_cia402(body.get("config"), body.get("node"), body.get("start"),
