@@ -19,7 +19,7 @@
 
 ## 4. CI
 
-- [ ] 4.1 Add `test/virtual-example/run.sh`: check and exports (HTML, DCF, DBC), STruC++ compile, deploy with `--runtime local` to the image, every configured node OPERATIONAL incl. node 20 on `host`, gateway status, `openplc-canopen-diag sim test --network` per network with JUnit; run it as a step of the amd64 job in `local-runtime.yml` (which builds the image) with `examples/**` in its path filter.
+- [x] 4.1 Add `test/virtual-example/run.sh`: check and exports (HTML, DCF, DBC), STruC++ compile, deploy with `--runtime local` to the image, every configured node OPERATIONAL incl. node 20 on `host`, gateway status, `openplc-canopen-diag sim test --network` per network with JUnit; run it as a step of the amd64 job in `local-runtime.yml` (which builds the image) with `examples/**` in its path filter.
 
 ## 5. Docs
 
