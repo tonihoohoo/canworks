@@ -64,12 +64,12 @@ trap cleanup EXIT
 
 CONFIG="$ROOT/config/pingpong"
 cp "$CONFIG/cpp-slave.eds" "$WORK/"
-HASH="$("$PY" -c 'import hashlib; print(hashlib.sha256(b"raw-test").hexdigest())')"
-DIAGCFG="\"diagnostics\": { \"token_sha256\": \"$HASH\", \"port\": $PORT, \"bind\": \"127.0.0.1\", \"allow_changes\": true }"
+VERIFIER="$("$PY" -c 'from openplc_canopen_deploy.diag import token_verifier; print(token_verifier("raw-test"))')"
+DIAGCFG="\"diagnostics\": { \"token_verifier\": \"$VERIFIER\", \"port\": $PORT, \"bind\": \"127.0.0.1\", \"allow_changes\": true }"
 sed -e "s/\"vcan0\"/\"$IFACE\"/" \
-    -e "s/\"sync_period_us\": 100000 }/\"sync_period_us\": 100000, $DIAGCFG }/" \
+    -e "s|\"sync_period_us\": 100000 }|\"sync_period_us\": 100000, $DIAGCFG }|" \
     "$CONFIG/canopen_config.json" > "$WORK/canopen_config.json"
-grep -q token_sha256 "$WORK/canopen_config.json" || { echo "FAIL: could not add diagnostics to the config" >&2; exit 1; }
+grep -q token_verifier "$WORK/canopen_config.json" || { echo "FAIL: could not add diagnostics to the config" >&2; exit 1; }
 
 "$SLAVE" "$IFACE" "$WORK/cpp-slave.eds" 2 > "$WORK/slave.log" 2>&1 &
 PIDS+=($!)
