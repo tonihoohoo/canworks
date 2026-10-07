@@ -274,7 +274,7 @@ When a client asks for error frames, the plugin SHALL also record the CAN error 
 - **THEN** the trace contains error frames for the missing acknowledgement as far as the driver reports them
 
 ### Requirement: Trace in the command-line client
-`openplc-canopen-diag trace` SHALL record a trace from the runtime into a file, with options for the output file and format, duration, capture filters, error frames and a trigger with pre- and post-trigger time. It SHALL print the frame count, the frame rate and any lost or dropped frames when it ends, and SHALL stop on Ctrl-C and still write the file. `openplc-canopen-diag convert IN OUT` SHALL convert a trace file between the supported formats.
+`openplc-canopen-diag trace` SHALL record a trace from the runtime into a file, with options for the output file and format, duration, capture filters, error frames and a trigger with pre- and post-trigger time. It SHALL print the frame count, the frame rate and any lost or dropped frames when it ends, and SHALL stop on Ctrl-C and still write the file. `openplc-canopen-diag convert IN OUT` SHALL convert a trace file between the supported formats. `openplc-canopen-diag explain --trace FILE --index N` SHALL explain one frame of a trace file as the `canopen-frame-explain` capability describes.
 
 #### Scenario: Record to ASC for ten seconds
 - **WHEN** a user runs `openplc-canopen-diag --runtime plc.local trace --duration 10 -o run.asc`
@@ -287,6 +287,10 @@ When a client asks for error frames, the plugin SHALL also record the CAN error 
 #### Scenario: Convert
 - **WHEN** a user runs `openplc-canopen-diag convert run.log run.blf`
 - **THEN** a BLF file with the same frames, times and directions is written
+
+#### Scenario: Explain a frame of a trace file
+- **WHEN** a user runs `openplc-canopen-diag explain --trace run.pcapng --index 120 --config canopen.json`
+- **THEN** frame 120 of the file is explained with the SDO context of the trace and the bit rate from the file
 
 ### Requirement: Simulator operations
 When the plugin simulates at least one device, the diagnostics channel SHALL offer the simulator's live control for those devices as `sim_` operations: `sim_status`, `sim_get` and `sim_scenario_list` with the token alone, and the operations that change values, sources, faults or scenarios only with `allow_changes: true`. When the plugin simulates no device every `sim_` operation SHALL answer `nothing simulated`, and an operation naming a node that is not simulated SHALL answer `node N is not simulated`. The `status` answer SHALL carry `simulated_network` and, per node, `simulated`.
