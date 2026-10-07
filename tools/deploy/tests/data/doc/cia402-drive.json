@@ -818,7 +818,7 @@
       "file": "servo402.eds",
       "lss_supported": false,
       "product_name": "Example servo drive SD-402",
-      "sha256": "09662558445ad7e7ccc2bdcfd3ad82cc0e1033dbcb77f5f01d2491f34c0edc09",
+      "sha256": "7c22fb4770778236c28328f2ce78a32e1f346300ab6f744f9c182fdfe1bb7b96",
       "vendor_name": "openplc-canopen example devices"
      },
      "ident": "drive",

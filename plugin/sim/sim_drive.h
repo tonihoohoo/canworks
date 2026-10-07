@@ -23,6 +23,8 @@ struct DriveSettings {
   double max_acceleration = 1000000; // counts/s²
   double lag_ms = 5;                 // first-order lag of the actual values
   double start_position = 0;         // actual position at power on
+  double torque_accel = 10000;       // counts/s² per per mille of target torque (CST)
+  bool sync_watchdog = true;         // cyclic modes: fault when SYNC stops
 };
 
 // Parses the simulation file's "drive" object; unknown keys are errors
@@ -69,8 +71,13 @@ class DriveModel {
   void step(double dt);
   // A SYNC came: the cyclic synchronous modes take their target now.
   void sync();
-  // Whether any SYNC came (else CSP/CSV follow their target every tick).
+  // Whether any SYNC came (else CSP/CSV/CST follow their target every tick).
   bool has_sync_seen() const { return sync_seen_; }
+  // CSP set-points that moved more than the maximum velocity allows in one
+  // interpolation period (0x60C2).
+  uint64_t oversized_steps() const { return oversized_steps_; }
+  // The interpolation time period in seconds: 0x60C2, or 10 ms without it.
+  double interpolation_period() const;
 
   DriveInputs inputs;
 
@@ -104,7 +111,7 @@ class DriveModel {
 
   void reset_motion();
   void enter_enabled();
-  void enter_fault();
+  void enter_fault(uint16_t code = 0x8611);
   void update_state(uint16_t cw, bool edge7);
   void update_mode();
   void run_mode(uint16_t cw, bool edge4, bool fall4, double dt);
@@ -113,6 +120,8 @@ class DriveModel {
   void run_homing(uint16_t cw, bool edge4, bool fall4, double dt);
   void run_csp(double dt);
   void run_csv();
+  void run_cst(double dt);
+  bool cyclic_mode() const { return mode_ >= 8 && mode_ <= 10; }
   void take_setpoint(double target);
   bool move_to(double target, double v, double a, double d, double dt);
   void ramp_velocity(double target, double a, double d, double dt);
@@ -143,7 +152,11 @@ class DriveModel {
   double fe_time_ = 0;
   // Cyclic synchronous.
   bool sync_seen_ = false;
-  double cs_pos_ = 0, cs_vel_ = 0;
+  double cs_pos_ = 0, cs_vel_ = 0, cs_torque_ = 0;
+  bool cs_armed_ = false;     // a SYNC came in this cyclic mode with operation enabled
+  double since_sync_ = 0;     // seconds since that SYNC, counted from the tick after it
+  bool sync_new_ = false;     // a SYNC came since the last tick
+  uint64_t oversized_steps_ = 0;
   // Homing.
   Homing hm_ = Homing::Idle;
   double hm_dir_ = 0;

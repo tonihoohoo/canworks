@@ -11,7 +11,8 @@ from openplc_canopen_deploy import __version__, editorproject, sdolibrary
 from .helpers import fake_editor_cli, pingpong_config, tmpdir
 from .test_deploy import deploy
 
-BLOCKS = ["CO_SDO_READ", "CO_SDO_READ_BYTES", "CO_SDO_READ_REAL", "CO_SDO_READ_STRING", "CO_SDO_WRITE",
+BLOCKS = ["CO402_CYCLICMOVEABSOLUTE", "CO402_CYCLICPOSITION", "CO402_CYCLICTORQUE", "CO402_CYCLICVELOCITY",
+          "CO_SDO_READ", "CO_SDO_READ_BYTES", "CO_SDO_READ_REAL", "CO_SDO_READ_STRING", "CO_SDO_WRITE",
           "CO_SDO_WRITE_BYTES", "CO_SDO_WRITE_REAL", "CO_SDO_WRITE_STRING"]
 
 
@@ -27,8 +28,11 @@ class Archive(unittest.TestCase):
         self.assertEqual(data["manifest"]["version"], __version__)
         self.assertEqual(sorted(sdolibrary.block_names()), BLOCKS)
         # Every block's source travels in the archive (the editor shows it and
-        # compiles it into the program).
-        self.assertEqual(sorted(s["fileName"] for s in data["sources"]), [b + ".cpp" for b in BLOCKS])
+        # compiles it into the program): C++ for the SDO blocks, ST for the
+        # cyclic CiA 402 blocks.
+        self.assertEqual(sorted(s["fileName"] for s in data["sources"]),
+                         ["CO402_CyclicMoveAbsolute.st", "CO402_CyclicPosition.st", "CO402_CyclicTorque.st",
+                          "CO402_CyclicVelocity.st"] + [b + ".cpp" for b in BLOCKS if b.startswith("CO_SDO")])
 
     def test_write(self):
         d = tmpdir(self)

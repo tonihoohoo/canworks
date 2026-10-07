@@ -253,3 +253,162 @@ class MapObjects(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+CYCLIC = os.path.join(EXAMPLE, "canopen_config_cyclic.json")
+
+
+def contract_messages(cfg, path=CYCLIC):
+    r = contract.check_config(cfg, path)
+    return [m for m in r.errors], [m for m in r.warnings]
+
+
+class Cyclic(unittest.TestCase):
+    """Cyclic synchronous axes (add-cia402-cyclic-modes)."""
+
+    def setUp(self):
+        self.cfg = load(CYCLIC)
+
+    def test_example_is_clean(self):
+        self.assertEqual(contract_messages(self.cfg), ([], []))
+
+    def test_interpolation_code(self):
+        self.assertEqual(axis.interpolation_code(10000), (10, -3))
+        self.assertEqual(axis.interpolation_code(2500), (25, -4))
+        self.assertEqual(axis.interpolation_code(1000), (1, -3))
+        self.assertEqual(axis.interpolation_code(125), (125, -6))
+        self.assertIsNone(axis.interpolation_code(333))
+        self.assertIsNone(axis.interpolation_code(0))
+
+    def test_needs_plc_cycle_sync(self):
+        self.cfg["master"]["sync_source"] = "timer"
+        self.cfg["master"]["sync_period_us"] = 10000
+        errors, _ = run_check(self.cfg)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("needs SYNC from the PLC cycle", errors[0])
+        del self.cfg["master"]["sync_source"]
+        errors, _ = run_check(self.cfg)
+        self.assertIn("needs SYNC from the PLC cycle", errors[0])
+
+    def test_needs_one_sync_per_cycle(self):
+        self.cfg["master"]["sync_cycles"] = 2
+        errors, _ = run_check(self.cfg)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("'sync_cycles' 1, not 2", errors[0])
+
+    def test_needs_mode_and_set_point(self):
+        drop(self.cfg, "0x6060")
+        errors, _ = run_check(self.cfg)
+        self.assertTrue(any("needs 0x6060 (modes of operation) in an RPDO" in e for e in errors), errors)
+        cfg = load(CYCLIC)
+        for index in ("0x607A", "0x60FF", "0x6071"):
+            drop(cfg, index)
+        errors, _ = run_check(cfg)
+        self.assertTrue(any("needs a set-point in an RPDO" in e for e in errors), errors)
+
+    def test_bad_interpolation_period(self):
+        self.cfg["nodes"][0]["axis"]["interpolation_period_us"] = 333
+        errors, _ = run_check(self.cfg)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("'interpolation_period_us' 333 cannot be written to 0x60C2", errors[0])
+        self.cfg["nodes"][0]["axis"]["interpolation_period_us"] = 2500
+        self.assertEqual(run_check(self.cfg), ([], []))
+
+    def test_schema_range(self):
+        for bad in (50, 255001):
+            cfg = load(CYCLIC)
+            cfg["nodes"][0]["axis"]["interpolation_period_us"] = bad
+            errors, _ = contract_messages(cfg)
+            self.assertTrue(errors, bad)
+
+    def test_rpdo_must_be_synchronous(self):
+        self.cfg["nodes"][0]["rx_pdos"][1]["transmission"] = 255
+        errors, _ = contract_messages(self.cfg)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("RPDO 2 (0x60FF, 0x6071) has transmission type 255", errors[0])
+
+    def test_tpdo_feedback_warning(self):
+        self.cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 255
+        errors, warnings = contract_messages(self.cfg)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertIn("TPDO 1 (0x6064) has transmission type 255", warnings[0])
+
+    def test_eds_warnings(self):
+        # servo402.eds has 0x60C2, 0x6065 and every mode; the wrapper below
+        # takes 0x60C2 and 0x6065 away and lists only modes 1, 3 and 6.
+        eds = Eds.read(os.path.join(EXAMPLE, "servo402.eds"))
+        cfg_node = self.cfg["nodes"][0]
+        parsed = {"node_id": 4, "rx_pdos": [], "tx_pdos": []}
+        self.assertEqual(axis.cyclic_eds_check(cfg_node, parsed, eds), ([], []))
+
+        class Without:
+            def __init__(self, eds, gone, modes=None):
+                self.eds, self.gone, self.modes = eds, gone, modes
+
+            def has(self, index, sub=None):
+                return index not in self.gone and self.eds.has(index)
+
+            def find(self, index, sub):
+                if index == 0x6502 and self.modes is not None:
+                    class O:
+                        def value(_, node_id):
+                            return self.modes
+                    return O()
+                return None if index in self.gone else self.eds.find(index, sub)
+
+        _, warnings = axis.cyclic_eds_check(cfg_node, parsed, Without(eds, (0x60C2, 0x6065), 0x25))
+        text = " | ".join(m for m, _ in warnings)
+        self.assertIn("no 0x60C2 (interpolation time period)", text)
+        self.assertIn("no 0x6065 (following error window)", text)
+        self.assertIn("does not list cyclic synchronous position (mode 8)", text)
+        self.assertIn("does not list cyclic synchronous torque (mode 10)", text)
+
+    def test_not_cyclic_no_checks(self):
+        del self.cfg["nodes"][0]["axis"]["cyclic"]
+        self.cfg["master"]["sync_source"] = "timer"
+        self.cfg["master"]["sync_period_us"] = 10000
+        self.assertEqual(run_check(self.cfg), ([], []))
+
+    def test_two_networks(self):
+        drive = load(CYCLIC)
+        io = load(CYCLIC)
+        del io["nodes"][0]["axis"]["cyclic"]
+        io["master"] = {"node_id": 1, "sync_period_us": 10000}
+        cfg = {"schema_version": 2,
+               "networks": [dict(name="io", adapter=dict(io["adapter"], interface="can1"), master=io["master"],
+                                 nodes=io["nodes"]),
+                            dict(name="drives", adapter=drive["adapter"], master=drive["master"],
+                                 nodes=drive["nodes"])]}
+        for n in cfg["networks"][0]["nodes"]:
+            for key in ("status_location",):
+                n[key] = "%IX20.0"
+            for p in n["tx_pdos"] + n["rx_pdos"]:
+                for e in p["entries"]:
+                    e["iec_location"] = e["iec_location"].replace("10", "20", 1)
+        errors, _ = contract_messages(cfg)
+        self.assertEqual(errors, [])
+        # The cyclic axis on the timer network is refused there.
+        cfg["networks"][0]["nodes"][0]["axis"]["cyclic"] = True
+        errors, _ = contract_messages(cfg)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn(": networks[0]: nodes[0]: ", errors[0])
+        self.assertIn("needs SYNC from the PLC cycle", errors[0])
+
+
+class CyclicGlue(unittest.TestCase):
+    def test_cycle_time_from_the_interval(self):
+        cfg = load(CYCLIC)
+        _, body = editorproject.with_axes(cfg, editorproject.declarations(cfg, CYCLIC), "T#2ms")
+        self.assertIn("drive.fCycleTime := LREAL#0.002; (* the task interval: change it with the interval *)", body)
+        _, body = editorproject.with_axes(cfg, editorproject.declarations(cfg, CYCLIC), "T#10ms")
+        self.assertIn("drive.fCycleTime := LREAL#0.01; (* the task interval: change it with the interval *)", body)
+
+    def test_profile_axis_has_no_cycle_time(self):
+        cfg = load(CONFIG)
+        _, body = editorproject.with_axes(cfg, editorproject.declarations(cfg, CONFIG), "T#2ms")
+        self.assertFalse(any("fCycleTime" in b for b in body))
+
+    def test_uses_library(self):
+        self.assertTrue(editorproject.uses_library(load(CYCLIC)))
+        self.assertFalse(editorproject.uses_library(load(CONFIG)))

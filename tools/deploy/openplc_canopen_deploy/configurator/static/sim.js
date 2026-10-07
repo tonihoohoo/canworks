@@ -42,7 +42,8 @@ const IDENTITY_KEYS = [["vendor_id", "Vendor ID"], ["product_code", "Product cod
 const DRIVE_INPUTS = [["blocked", "Blocked"], ["positive_limit", "Positive limit"], ["negative_limit", "Negative limit"],
   ["home_switch", "Home switch"]];
 const DRIVE_FIELDS = [["max_velocity", "Max velocity (counts/s)", "100000"], ["max_acceleration", "Max acceleration (counts/s²)", "1000000"],
-  ["lag_ms", "Lag (ms)", "5"], ["start_position", "Start position", "0"]];
+  ["lag_ms", "Lag (ms)", "5"], ["start_position", "Start position", "0"],
+  ["torque_accel", "Torque gain (counts/s² per ‰)", "10000"]];
 const STEP_ACTIONS = [["set", "Set"], ["override", "Override"], ["release", "Release"], ["source", "Source"], ["fault", "Fault"],
   ["clear", "Clear"], ["wait", "Wait"], ["expect", "Expect"], ["log", "Log"], ["repeat", "Repeat"]];
 const NODE_ACTIONS = ["set", "override", "release", "source", "fault", "clear"];
@@ -1213,7 +1214,21 @@ function simDriveFields(ref) {
       simChanged();
     });
     return l;
-  })));
+  }), simWatchdogField(ref, cur)));
+}
+
+// "sync_watchdog": false switches the drive's SYNC watchdog off (cyclic modes).
+function simWatchdogField(ref, cur) {
+  const box = el("input", { type: "checkbox", dataset: { sim: "drive-sync_watchdog" } });
+  box.checked = cur.sync_watchdog !== false;
+  box.addEventListener("change", () => {
+    const entry = simEntry(ref, true);
+    entry.drive = entry.drive || {};
+    if (box.checked) delete entry.drive.sync_watchdog; else entry.drive.sync_watchdog = false;
+    simTidy(ref);
+    simChanged();
+  });
+  return el("label", null, box, " SYNC watchdog (cyclic modes)");
 }
 
 function simExtraDevices() {

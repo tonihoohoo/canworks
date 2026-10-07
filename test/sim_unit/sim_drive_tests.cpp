@@ -345,7 +345,9 @@ TEST(drive_mode_not_listed) {
 
 TEST(drive_csp_sync) {
   FakeIo io;
-  DriveModel m(io, DriveSettings());
+  DriveSettings ds;
+  ds.sync_watchdog = false;  // the gaps between SYNCs below are longer than 30 ms
+  DriveModel m(io, ds);
   m.power_on();
   enable(io, m, 8);
   CHECK(io.get(0x6061) == 8);
@@ -383,4 +385,132 @@ TEST(drive_parse_settings) {
   cJSON_Delete(j);
   CHECK(parse_drive_settings(nullptr, s, err));
   CHECK(s.max_velocity == 100000 && s.lag_ms == 5);
+  CHECK(s.torque_accel == 10000 && s.sync_watchdog);
+  j = cJSON_Parse("{\"torque_accel\": 500, \"sync_watchdog\": false}");
+  CHECK(parse_drive_settings(j, s, err));
+  CHECK(s.torque_accel == 500 && !s.sync_watchdog);
+  cJSON_Delete(j);
+  j = cJSON_Parse("{\"sync_watchdog\": 0}");
+  CHECK(!parse_drive_settings(j, s, err));
+  CHECK_MSG(err == "drive: \"sync_watchdog\" must be true or false", err);
+  cJSON_Delete(j);
+}
+
+namespace {
+
+// A drive with the cyclic modes and a 10 ms interpolation time period.
+void cyclic_io(FakeIo& io) {
+  io.set(0x6502, 0x01 | 0x04 | 0x20 | 0x80 | 0x100 | 0x200);
+  io.set(0x6071, 0);
+  io.set(0x6077, 0);
+  io.set(0x60C2, 1, 10);
+  io.set(0x60C2, 2, -3);
+}
+
+// `seconds` of 1 ms ticks with a SYNC every `period` seconds.
+void run_synced(DriveModel& m, double seconds, double period = 0.01) {
+  int n = static_cast<int>(std::lround(seconds / 0.001));
+  int every = static_cast<int>(std::lround(period / 0.001));
+  for (int i = 0; i < n; ++i) {
+    if (i % every == 0) m.sync();
+    m.step(0.001);
+  }
+}
+
+}  // namespace
+
+TEST(drive_cst_torque_accelerates) {
+  FakeIo io;
+  cyclic_io(io);
+  DriveSettings ds;
+  ds.lag_ms = 0;
+  DriveModel m(io, ds);
+  m.power_on();
+  enable(io, m, 10);
+  CHECK(io.get(0x6061) == 10);
+  CHECK(is_enabled(io) && (io.sw() & 0x1000));
+  io.set(0x6071, 100);  // 100 per mille x 10000 = 1e6 counts/s²
+  run_synced(m, 0.05);
+  double v = io.get(0x606C);
+  CHECK_MSG(std::fabs(v - 50000) < 2000, std::to_string(v));
+  CHECK(io.get(0x6077) == 100);
+  run_synced(m, 0.2);
+  CHECK(io.get(0x606C) == 100000);  // held at the maximum velocity
+  io.set(0x6071, -100);
+  run_synced(m, 0.1);
+  CHECK(io.get(0x606C) == 0);
+  CHECK(is_enabled(io) && io.emcys.empty());
+}
+
+TEST(drive_cst_not_listed) {
+  FakeIo io;  // 0x6502 without mode 10
+  DriveModel m(io, DriveSettings());
+  m.power_on();
+  enable(io, m, 10);
+  CHECK(io.get(0x6061) == 0);
+}
+
+TEST(drive_sync_watchdog) {
+  FakeIo io;
+  cyclic_io(io);
+  DriveModel m(io, DriveSettings());
+  m.power_on();
+  enable(io, m, 8);
+  // Without any SYNC in the mode the watchdog is not armed.
+  run(m, 0.1);
+  CHECK(is_enabled(io));
+  run_synced(m, 0.1);
+  CHECK(is_enabled(io));
+  // SYNC stops (the last one came 9 ms ago, counted from the tick after
+  // it): fault three periods (30 ms) after it.
+  run(m, 0.018);
+  CHECK(is_enabled(io));
+  run(m, 0.003);
+  CHECK(!is_enabled(io));
+  run(m, 0.1);
+  CHECK(is_fault(io));
+  CHECK(io.emcys.size() == 1 && io.emcys[0].first == 0x8700);
+  CHECK(io.get(0x603F) == 0x8700);
+  // Fault reset and enable again; SYNC back, no new fault.
+  cw(io, m, 0x80);
+  enable(io, m, 8);
+  run_synced(m, 0.2);
+  CHECK(is_enabled(io) && io.emcys.size() == 1);
+  // A 2.5 ms period: 7.5 ms.
+  io.set(0x60C2, 1, 25);
+  io.set(0x60C2, 2, -4);
+  run_synced(m, 0.05, 0.0025);  // SYNC every 3rd 1 ms tick, the last 1 ms ago
+  run(m, 0.006);
+  CHECK(is_enabled(io));
+  run(m, 0.001);
+  CHECK(is_fault(io) || !is_enabled(io));
+}
+
+TEST(drive_sync_watchdog_off) {
+  FakeIo io;
+  cyclic_io(io);
+  DriveSettings ds;
+  ds.sync_watchdog = false;
+  DriveModel m(io, ds);
+  m.power_on();
+  enable(io, m, 9);
+  run_synced(m, 0.1);
+  run(m, 0.5);
+  CHECK(is_enabled(io) && io.emcys.empty());
+}
+
+TEST(drive_csp_oversized_steps) {
+  FakeIo io;
+  cyclic_io(io);
+  DriveModel m(io, DriveSettings());  // 100000 counts/s: 1000 counts per 10 ms
+  m.power_on();
+  enable(io, m, 8);
+  for (int i = 1; i <= 20; ++i) {
+    io.set(0x607A, i * 900);
+    run_synced(m, 0.01);
+  }
+  CHECK(m.oversized_steps() == 0);
+  io.set(0x607A, 18000 + 5000);
+  run_synced(m, 0.01);
+  CHECK(m.oversized_steps() == 1);
 }

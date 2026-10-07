@@ -879,6 +879,11 @@ void Network::CountSync() {
   }
   ++st.count;
   last_sync_ = now;
+  if (st.count == 1) first_sync_ = now;
+  if (st.count == 101 && !interp_checked_) {
+    interp_checked_ = true;
+    CheckInterpolationPeriods(now);
+  }
   for (auto& it : sync_rpdos_) {
     SyncRpdo& r = it.second;
     auto n = nodes_.find(r.node_id);
@@ -897,6 +902,21 @@ void Network::CountSync() {
       }
     }
     ++r.since;
+  }
+}
+
+// After 100 SYNC intervals: the measured mean against the interpolation
+// time period written to each cyclic axis (0x60C2), warned once per node.
+void Network::CheckInterpolationPeriods(clock::time_point now) {
+  double mean_us =
+      std::chrono::duration_cast<std::chrono::microseconds>(now - first_sync_).count() / 100.0;
+  for (const NodeConfig& n : cfg_.nodes) {
+    if (!n.interpolation_write_us) continue;
+    double w = n.interpolation_write_us;
+    if (mean_us > w * 1.1 || mean_us < w * 0.9)
+      log_warn("%s: cyclic axis: interpolation time period %u us, but the measured SYNC interval is %.0f us; "
+               "the drive interpolates with the wrong period",
+               n.label().c_str(), n.interpolation_write_us, mean_us);
   }
 }
 

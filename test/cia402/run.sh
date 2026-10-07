@@ -74,4 +74,5 @@ run "$WORK/main.st" "$HERE/test_axis.st"
 run "$WORK/main_scaled.st" "$HERE/test_scaling.st"
 run "$REPO/config/cia402-drive/drive_demo.st" "$HERE/test_demo.st"
 run "$WORK/main_cyclic.st" "$HERE/test_cyclic.st" "${LIBRARY[@]}"
+run "$REPO/config/cia402-drive/drive_cyclic_demo.st" "$HERE/test_cyclic_demo.st" "${LIBRARY[@]}"
 exit $status

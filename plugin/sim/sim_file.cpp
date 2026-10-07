@@ -372,11 +372,20 @@ bool parse_behaviour(const cJSON* o, NodeBehaviour& b, const std::string& dir, b
   if (drive) {
     // The engine reads the settings (sim_drive.h); the keys are checked here.
     std::string e;
-    if (!cJSON_IsObject(drive) || !known_keys(drive, {"max_velocity", "max_acceleration", "lag_ms", "start_position"}, e)) {
+    if (!cJSON_IsObject(drive) ||
+        !known_keys(drive, {"max_velocity", "max_acceleration", "lag_ms", "start_position", "torque_accel",
+                            "sync_watchdog"}, e)) {
       err = "drive: " + (e.empty() ? std::string("must be an object") : e);
       return false;
     }
     for (const cJSON* c = drive->child; c; c = c->next) {
+      if (std::string(c->string) == "sync_watchdog") {
+        if (!cJSON_IsBool(c)) {
+          err = "drive: \"sync_watchdog\" must be true or false";
+          return false;
+        }
+        continue;
+      }
       if (!cJSON_IsNumber(c)) {
         err = std::string("drive: \"") + c->string + "\" must be a number";
         return false;

@@ -6,7 +6,8 @@ set(RTD_DIR ${PROJECT_SOURCE_DIR}/config/rtd-sensor)
 
 add_executable(unit_tests unit/unit_tests.cpp)
 target_include_directories(unit_tests PRIVATE common)
-target_compile_definitions(unit_tests PRIVATE PINGPONG_DIR="${PINGPONG_DIR}" FIXTURES_DIR="${FIXTURES_DIR}")
+target_compile_definitions(unit_tests PRIVATE PINGPONG_DIR="${PINGPONG_DIR}" FIXTURES_DIR="${FIXTURES_DIR}"
+                           CIA402_DIR="${PROJECT_SOURCE_DIR}/config/cia402-drive")
 target_link_libraries(unit_tests PRIVATE canopen_core)
 add_test(NAME unit_tests COMMAND unit_tests)
 # The plugin's EDS lint runs this checkout's deploy tool module (stdlib only).
@@ -51,10 +52,11 @@ add_dependencies(sim_tests sdo_blocks)
 target_compile_definitions(sim_tests PRIVATE PINGPONG_DIR="${PINGPONG_DIR}" RTD_DIR="${RTD_DIR}" FIXTURES_DIR="${FIXTURES_DIR}")
 target_link_libraries(sim_tests PRIVATE canopen_core)
 
-# The CiA 402 example's PLC program (config/cia402-drive/drive_demo.st) runs
-# in sim_cia402_demo when STruC++, the editor's compiler, is given:
-# -DSTRUCPP=$(scripts/fetch-strucpp.sh). Without it that case says it was not
-# built, and fails when CANOPEN_REQUIRE_STRUCPP=1 (CI).
+# The CiA 402 example's PLC programs (config/cia402-drive/drive_demo.st and
+# drive_cyclic_demo.st) run in sim_cia402_demo and sim_cia402_cyclic when
+# STruC++, the editor's compiler, is given: -DSTRUCPP=$(scripts/fetch-strucpp.sh).
+# Without it those cases say they were not built, and fail when
+# CANOPEN_REQUIRE_STRUCPP=1 (CI).
 set(STRUCPP "" CACHE FILEPATH "strucpp command (scripts/fetch-strucpp.sh), for the CiA 402 simulation test")
 set(CIA402_DIR ${PROJECT_SOURCE_DIR}/config/cia402-drive)
 target_include_directories(sim_tests PRIVATE drive cia402)
@@ -79,6 +81,25 @@ if(STRUCPP)
   target_include_directories(cia402_program PRIVATE ${CIA402_GEN} ${STRUCPP_RUNTIME} cia402)
   target_compile_options(cia402_program PRIVATE -w)
   target_link_libraries(sim_tests PRIVATE cia402_program)
+  # The cyclic synchronous demo (sim_cia402_cyclic), with the CO402_Cyclic*
+  # blocks of the packaged openplc_canopen library. Its runtime namespace and
+  # C entry points are renamed so that it links next to drive_demo.
+  set(CANOPEN_STLIB_DIR ${PROJECT_SOURCE_DIR}/tools/deploy/openplc_canopen_deploy/library)
+  add_custom_command(
+    OUTPUT ${CIA402_GEN}/drive_cyclic_demo.cpp ${CIA402_GEN}/drive_cyclic_demo.hpp
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CIA402_GEN}
+    COMMAND ${STRUCPP} ${CIA402_DIR}/drive_cyclic_demo.st -L ${CANOPEN_STLIB_DIR} -o ${CIA402_GEN}/drive_cyclic_demo.cpp
+    DEPENDS ${CIA402_DIR}/drive_cyclic_demo.st ${CANOPEN_STLIB_DIR}/openplc_canopen.stlib
+    COMMENT "STruC++: config/cia402-drive/drive_cyclic_demo.st")
+  add_library(cia402_cyclic_program STATIC cia402/program_host.cpp ${CIA402_GEN}/drive_cyclic_demo.cpp)
+  set_target_properties(cia402_cyclic_program PROPERTIES CXX_STANDARD 17)
+  target_include_directories(cia402_cyclic_program PRIVATE ${CIA402_GEN} ${STRUCPP_RUNTIME} cia402)
+  target_compile_definitions(cia402_cyclic_program PRIVATE strucpp=strucpp_cyclic program_host=program_host_cyclic
+                             strucpp_get_located_globals=strucpp_cyclic_get_located_globals
+                             strucpp_get_located_global_count=strucpp_cyclic_get_located_global_count
+                             PROGRAM_HOST_HEADER="drive_cyclic_demo.hpp")
+  target_compile_options(cia402_cyclic_program PRIVATE -w)
+  target_link_libraries(sim_tests PRIVATE cia402_cyclic_program)
   target_compile_definitions(sim_tests PRIVATE CIA402_PROGRAM=1)
 endif()
 # One ctest test per TEST() case, so `ctest -j` overlaps their real-time waits.

@@ -308,6 +308,7 @@ class Network : public lely::canopen::BasicMaster {
   // inputs reach the image as they arrive.
   void MapSyncRpdos();
   void CountSync();
+  void CheckInterpolationPeriods(clock::time_point now);
   void SendSync();
   void ArmTick();
   void OnTick();
@@ -398,6 +399,8 @@ class Network : public lely::canopen::BasicMaster {
   std::map<unsigned, SyncRpdo> sync_rpdos_;  // master RPDO number ->
   SyncStats sync_stats_;
   clock::time_point last_sync_{};
+  clock::time_point first_sync_{};
+  bool interp_checked_ = false;  // cyclic axis period vs measured SYNC
   clock::time_point skip_warned_{};
   uint64_t sync_seen_ = 0;    // ProcessImage::sync_requests() handled
   uint8_t sync_cnt_ = 1;      // next SYNC counter value (with 0x1019 > 1)

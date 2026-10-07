@@ -10,7 +10,7 @@ This module then changes only what `create` cannot set:
                                  and for each CiA 402 axis node the axis, its
                                  drive bridge and the bridge call
     canopen/                     the config and its files (project.write())
-    project.json                 with sdo_blocks: the openplc_canopen library
+    project.json                 with sdo_blocks or a cyclic CiA 402 axis: the openplc_canopen library
                                  enabled (sdolibrary.enable_in_project())
 
 The project is created in place (the editor records its path), so a failure

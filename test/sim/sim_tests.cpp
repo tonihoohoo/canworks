@@ -53,6 +53,12 @@
 #include "plc_api.h"
 #ifdef CIA402_PROGRAM
 #include "program_host.h"
+// The cyclic demo's host: the same interface in namespace program_host_cyclic
+// (test/CMakeLists.txt compiles it with the namespaces renamed).
+#undef CIA402_PROGRAM_HOST_H
+#define program_host program_host_cyclic
+#include "program_host.h"
+#undef program_host
 #endif
 #include "process_image.h"
 
@@ -398,7 +404,9 @@ class FixedIoSlave : public lely::canopen::BasicSlave {
 // PLC scanning every 10 ms.
 class Sim {
  public:
-  explicit Sim(const std::string& dir)
+  // `base_tick_us`: the runtime's base tick, as the plugin gives it to
+  // resolve_interpolation_periods (0: not called).
+  explicit Sim(const std::string& dir, unsigned long long base_tick_us = 0)
       : poll_(ctx_), loop_(poll_.get_poll()), exec_(loop_.get_executor()),
         timer_(poll_, exec_, CLOCK_MONOTONIC), sup_timer_(poll_, exec_, CLOCK_MONOTONIC),
         req_timer_(poll_, exec_, CLOCK_MONOTONIC), out_timer_(poll_, exec_, CLOCK_MONOTONIC),
@@ -409,7 +417,9 @@ class Sim {
     // As the plugin's start: config, EDS lint (prepared copies), EDS checks, dcfgen.
     ok_ = load_config(dir + "/canopen_config.json", ImageLimits(), cfg_, errors) &&
           run_eds_lint(cfg_, default_edslint_python(), cfg_.config_dir + "/.canopen", errors) &&
-          check_eds_files(cfg_, errors) && generate_device_config(cfg_, default_dcfgen(), gen_, errors);
+          check_eds_files(cfg_, errors);
+    if (ok_ && base_tick_us) resolve_interpolation_periods(cfg_, base_tick_us);
+    ok_ = ok_ && generate_device_config(cfg_, default_dcfgen(), gen_, errors);
     for (const auto& w : cfg_.warnings) log_warn("%s", w.c_str());
     for (const auto& e : errors) {
       std::printf("  setup: %s\n", e.c_str());
@@ -677,6 +687,9 @@ class Sim {
     RunUntil([] { return false; }, d);
   }
 
+  // The PLC stops (no scans, so no PLC-cycle SYNC) and starts again.
+  void StopPlc(bool stop) { plc_stopped_ = stop; }
+
   // Replaces the PLC program (default: %QD100 := %ID100 + 1).
   void SetProgram(std::function<void(fake_runtime::Image&)> program) { program_ = std::move(program); }
 
@@ -789,6 +802,12 @@ class Sim {
   }
 
   void Scan() {
+    if (plc_stopped_) {
+      scan_timer_.submit_wait(exec_, [this](int, std::error_code ec) {
+        if (!ec) Scan();
+      });
+      return;
+    }
     // cycle_start (with its PLC-cycle SYNC request), program, cycle_end
     image_.copy_to_plc(rt_);
     image_.request_sync();
@@ -838,6 +857,7 @@ class Sim {
   std::unique_ptr<SyncWake> sync_wake_;
   std::unique_ptr<DiagHub> hub_;
   std::function<void(fake_runtime::Image&)> program_;
+  bool plc_stopped_ = false;
   bool ok_ = false;
   long scans_ = 0;
 };
@@ -3900,6 +3920,103 @@ TEST(sim_cia402_demo) {
   sim->KillSlave(4);
   CHECK_MSG(sim->RunUntil([&] { return !sim->status() && step() == 90; }, seconds(3)), where());
   CHECK(!logged("boot failed"));
+  delete sim;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Cyclic synchronous CiA 402 (add-cia402-cyclic-modes): the cyclic demo
+// (config/cia402-drive/drive_cyclic_demo.st with the CO402_Cyclic* blocks of
+// the openplc_canopen library) as the PLC program, SYNC from the PLC cycle,
+// against the in-plugin simulated drive: 0x60C2 written from the base tick,
+// the sequence ends without a fault and without an oversized CSP step; the
+// PLC stops, the drive's SYNC watchdog faults it, and after the restart the
+// program's fault reset brings it back.
+
+TEST(sim_cia402_cyclic) {
+#ifndef CIA402_PROGRAM
+  const char* need = std::getenv("CANOPEN_REQUIRE_STRUCPP");
+  std::printf("    not built: configure with -DSTRUCPP=$(scripts/fetch-strucpp.sh) to run the cyclic demo program\n");
+  CHECK_MSG(!(need && std::string(need) == "1"), "CANOPEN_REQUIRE_STRUCPP=1 but the cyclic program was not built");
+#else
+  clear_logs();
+  std::string dir = make_dir(read(std::string(CIA402_DIR) + "/canopen_config_cyclic.json"),
+                             {{"servo402.eds", read(std::string(CIA402_DIR) + "/servo402.eds")}});
+  static Sim* sim;
+  sim = new Sim(dir, 10000);  // 10 ms task: the Sim scans every 10 ms
+  if (!sim->ok()) {
+    CHECK(sim->ok());
+    return;
+  }
+  CHECK(sim->cfg().nodes[0].interpolation_write_us == 10000);
+  program_host_cyclic::Reset();
+  CHECK(program_host_cyclic::LocatedCount() == 11);
+  auto t0 = steady_clock::now();
+  sim->SetProgram([t0](fake_runtime::Image& plc) {
+    program_host_cyclic::Image img{plc.bool_in, plc.bool_out, plc.byte_in, plc.byte_out, plc.int_in,
+                                   plc.int_out, plc.dint_in, plc.dint_out, fake_runtime::kSize};
+    program_host_cyclic::Scan(img,
+                              std::chrono::duration_cast<std::chrono::nanoseconds>(steady_clock::now() - t0).count());
+  });
+  // max_velocity 600 counts/s: a CSP set-point step above 6 counts per SYNC
+  // is counted; the torque gain of the ST drive model (test/cia402).
+  if (!sim->StartSimulator(R"({"nodes": {"4": {"drive": {"max_velocity": 600, "torque_accel": 10}}}})")) {
+    CHECK(!"simulator started");
+    delete sim;
+    return;
+  }
+  sim->net().Start();
+  auto step = [] { return program_host_cyclic::Step(); };
+  auto get = [](const char* object) {
+    cJSON* r = sim->SimAsk(std::string(R"({"op":"sim_get","items":[{"node":4,"object":")") + object + "\"}]}");
+    double v = num(cJSON_GetArrayItem(field(result(r), "values"), 0), "value");
+    cJSON_Delete(r);
+    return v;
+  };
+  auto oversized = [] {
+    cJSON* r = sim->SimAsk(R"({"op":"sim_status"})");
+    double v = num(cJSON_GetArrayItem(field(result(r), "devices"), 0), "oversized_steps");
+    cJSON_Delete(r);
+    return v;
+  };
+  auto where = [&] {
+    return "step " + std::to_string(step()) + ", statusword " + std::to_string(sim->uw(100)) + ", mode " +
+           std::to_string(static_cast<int8_t>(sim->ib(100))) + ", position " +
+           std::to_string(static_cast<int32_t>(sim->plc().dint_in[100]));
+  };
+
+  // Power on, home, CSP move, CSV run, CST step, standstill in CSV.
+  CHECK_MSG(sim->RunUntil([&] { return step() == 20; }, seconds(20)), where());
+  CHECK(get("0x60C2:1") == 10 && get("0x60C2:2") == -3);
+  CHECK_MSG(sim->RunUntil([&] { return step() == 30; }, seconds(20)), where());
+  CHECK_MSG(std::abs(static_cast<int32_t>(sim->plc().dint_in[100]) - 1000) <= 1, where());
+  CHECK_MSG(sim->RunUntil([&] { return step() == 50; }, seconds(30)), where());
+  sim->RunFor(milliseconds(300));
+  CHECK_MSG(step() == 50 && (sim->uw(100) & 0x6F) == 0x27 && static_cast<int8_t>(sim->ib(100)) == 9, where());
+  CHECK_MSG(oversized() == 0, std::to_string(oversized()));
+  // No EMCY from the drive (the master's own boot-time PDO length EMCY, from
+  // the simulated device's PDOs before its configuration, does not count).
+  // On a loaded machine a scan can come 30 ms late; then the drive's SYNC
+  // watchdog is right to fault it, and the program has reset it.
+  uint64_t max_us = sim->net().sync_stats().max_us;
+  if (logged("(drive): EMCY 0x8700") && max_us >= 30000)
+    std::printf("    a %llu us SYNC gap faulted the drive during the demo (machine under load)\n",
+                static_cast<unsigned long long>(max_us));
+  else
+    CHECK_MSG(!logged("(drive): EMCY 0x"), "max SYNC interval " + std::to_string(max_us) + " us");
+  CHECK(!logged("the drive interpolates with the wrong period"));
+  std::printf("    demo done: %s\n", where().c_str());
+
+  // The PLC stops: no SYNC, the drive faults by its watchdog (EMCY 0x8700).
+  clear_logs();
+  sim->StopPlc(true);
+  CHECK_MSG(sim->RunUntil([&] { return get("0x603F") == 0x8700; }, seconds(2)), where());
+  CHECK_MSG(sim->RunUntil([] { return logged("(drive): EMCY 0x8700"); }, seconds(2)), "no EMCY 0x8700 logged");
+  // The PLC starts again: the program sees the fault, resets it and runs the sequence again.
+  sim->StopPlc(false);
+  CHECK_MSG(sim->RunUntil([&] { return step() == 90; }, seconds(2)), where());
+  CHECK_MSG(sim->RunUntil([&] { return step() == 30; }, seconds(30)), where());
+  CHECK(oversized() == 0);
   delete sim;
 #endif
 }

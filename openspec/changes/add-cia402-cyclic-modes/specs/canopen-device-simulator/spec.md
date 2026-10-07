@@ -21,4 +21,4 @@ A simulated device whose profile is CiA 402 SHALL run a drive model: the power d
 
 #### Scenario: SYNC stops in CSP
 - **WHEN** the drive runs mode 8 with operation enabled, 0x60C2 is 10 ms, and SYNC stops
-- **THEN** within 30 ms of the last SYNC the drive goes to FAULT and sends EMCY 0x8700
+- **THEN** at the first simulator tick 30 ms or more after the last SYNC the drive goes to FAULT and sends EMCY 0x8700, and not before
