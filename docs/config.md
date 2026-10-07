@@ -396,8 +396,12 @@ Without any node with `lss` and without diagnostics changes the master sends no 
 | `scale_numerator` | Drive increments for `scale_denominator` position units, -2147483648 to 2147483647. Default 1. |
 | `scale_denominator` | 1 to 4294967295. Default 1. |
 | `scale_factor` | The library's extra factor, any number but 0. Default 1.0. |
+| `cyclic` | `true`: the program drives the axis in the cyclic synchronous modes (CSP 8, CSV 9, CST 10) with the `CO402_Cyclic*` blocks. Default `false`. |
+| `interpolation_period_us` | With `cyclic`: the interpolation time period the plugin writes to the drive's 0x60C2 instead of the SYNC period, 100 to 255000. It must be 1-255 times 1 ms, 100 us, 10 us or 1 us. |
 
 An axis node needs `status_location` and 0x6040 in an RPDO and 0x6041 in a TPDO, each with a location; the deploy tool and the configurator check this and the other standard objects' directions and types. See [cia402.md](cia402.md).
+
+A **cyclic** axis also needs SYNC from the PLC cycle with one SYNC per cycle (`"sync_source": "plc_cycle"`, `sync_cycles` 1), 0x6060 and at least one set-point (0x607A, 0x60FF or 0x6071) mapped, and synchronous RPDOs (transmission type 0-240, the config's or else the EDS's) for the controlword, the mode and the set-points. The checks warn when the position or velocity feedback comes in a TPDO that is not synchronous, when the EDS has no 0x60C2 or 0x6065, and when its 0x6502 does not list the mode a mapped set-point needs. During node configuration the plugin writes 0x60C2 (sub 1 the value, sub 2 the exponent) from `interpolation_period_us` or the SYNC period, unless a startup SDO writes 0x60C2 or the EDS has none. See [cia402.md](cia402.md#cyclic-synchronous-modes).
 
 ### Mandatory nodes
 

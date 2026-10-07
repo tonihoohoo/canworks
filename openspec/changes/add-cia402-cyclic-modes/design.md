@@ -57,7 +57,7 @@ Alternative considered: the names other SoftMotion products use (`SMC_FollowPosi
 ```json
 "axis": { "cyclic": true, "interpolation_period_us": 10000 }
 ```
-`cyclic` (default false) says the axis is used in modes 8-10, so the checks know. `interpolation_period_us` (optional, 100-1000000) overrides what the plugin writes to 0x60C2. Additive in schema 1 (and 2 through its `$ref`).
+`cyclic` (default false) says the axis is used in modes 8-10, so the checks know. `interpolation_period_us` (optional, 100-255000) overrides what the plugin writes to 0x60C2. Additive in schema 1 (and 2 through its `$ref`).
 
 ### 3. Checks
 In the deploy tool's `axis.py` (so deploy, configurator and generator agree) and, for the bus-relevant ones, in the plugin's config parser:

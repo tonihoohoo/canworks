@@ -260,6 +260,7 @@ void prepare() {
       continue;
     }
     size_t failed = errors.size();
+    resolve_interpolation_periods(cfg, g_rt.base_tick_ns / 1000);
     if (!generate_device_config(cfg, default_dcfgen(), net->gen, errors)) {
       for (size_t i = failed; i < errors.size(); ++i) log_error("%s", errors[i].c_str());
       log_error("could not generate the device configuration; CANopen inactive, CAN interface not opened");

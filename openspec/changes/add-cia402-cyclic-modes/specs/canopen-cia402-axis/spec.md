@@ -14,7 +14,7 @@ The plugin SHALL accept a node's `axis` object without an unknown-field warning.
 ## ADDED Requirements
 
 ### Requirement: Cyclic axis in the config
-An axis object MAY have `cyclic` (boolean, default false), meaning the program drives the axis in cyclic synchronous position (8), velocity (9) or torque (10) mode, and `interpolation_period_us` (100 to 1000000), the interpolation time period to write to the drive instead of the SYNC period. Both SHALL be part of the axis object in the JSON Schema of every schema version that has `axis`.
+An axis object MAY have `cyclic` (boolean, default false), meaning the program drives the axis in cyclic synchronous position (8), velocity (9) or torque (10) mode, and `interpolation_period_us` (100 to 255000), the interpolation time period to write to the drive instead of the SYNC period. Both SHALL be part of the axis object in the JSON Schema of every schema version that has `axis`.
 
 #### Scenario: Minimal cyclic axis
 - **WHEN** node `drive` has `"axis": {"cyclic": true}` and its checks pass

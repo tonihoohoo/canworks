@@ -1,7 +1,7 @@
 #!/bin/sh
-# Builds the openplc_canopen editor library (spec canopen-plc-sdo) into the
-# deploy tool's package, from the sources in library/openplc_canopen, with
-# strucpp (the compiler OpenPLC Editor uses).
+# Builds the openplc_canopen editor library (specs canopen-plc-sdo and
+# canopen-cia402-axis) into the deploy tool's package, from the sources in
+# library/openplc_canopen, with strucpp (the compiler OpenPLC Editor uses).
 #
 #   library/build.sh           write tools/deploy/openplc_canopen_deploy/library/openplc_canopen.stlib
 #   library/build.sh --check   fail if that file is not what the sources build
@@ -35,8 +35,11 @@ echo "$STRUCPP_SHA256  $tgz" | sha256sum -c --quiet -
 python3 "$here/generate.py" --check
 mkdir "$work/strucpp" "$work/out"
 (cd "$work/strucpp" && npm install --silent --no-save --no-audit --no-fund "$tgz" >/dev/null)
+# -L: the ST blocks (CO402_Cyclic*) use the bundled PLCopen SoftMotion
+# library's AXIS_REF_SM3, so the archive depends on it (every editor project
+# has it).
 node "$work/strucpp/node_modules/strucpp/dist/node/cli.js" --compile-lib "$here/openplc_canopen" \
-  -o "$work/out" --lib-name openplc_canopen --lib-version 0.0.0 >/dev/null
+  -o "$work/out" --lib-name openplc_canopen --lib-version 0.0.0 -L "$work/strucpp/node_modules/strucpp/libs" >/dev/null
 
 if [ "$check" = 1 ]; then
   if ! cmp -s "$work/out/openplc_canopen.stlib" "$out"; then

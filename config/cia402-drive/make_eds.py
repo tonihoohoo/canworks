@@ -4,8 +4,11 @@
 A single-axis drive (device type 0x00020192: profile 402, servo drive) with
 the objects the editor's PLCopen motion blocks use, writable PDO mapping on
 four RPDOs and four TPDOs, a heartbeat producer, error code 0x603F, ramps
-(0x6083, 0x6084) and homing (0x6098, 0x6099, 0x609A). Its default mapping is
-the one the example config uses:
+(0x6083, 0x6084), homing (0x6098, 0x6099, 0x609A), the following error window
+(0x6065, 0x6066) and the interpolation time period 0x60C2 of the cyclic
+synchronous modes. Modes (0x6502): profile position, profile velocity,
+homing, cyclic synchronous position, velocity and torque. Its default
+mapping is the one the profile-mode example config uses:
 
     RPDO 1  controlword 0x6040, modes of operation 0x6060
     RPDO 2  target position 0x607A, profile velocity 0x6081
@@ -96,8 +99,8 @@ def servo402():
     w("Lines=1")
     w("Line1=Made-up example device, see config/cia402-drive/make_eds.py")
     w()
-    drive = [0x603F, 0x6040, 0x6041, 0x6060, 0x6061, 0x6064, 0x606C, 0x6071, 0x6077, 0x607A, 0x6081, 0x6083,
-             0x6084, 0x6098, 0x6099, 0x609A, 0x60FF, 0x6502]
+    drive = [0x603F, 0x6040, 0x6041, 0x6060, 0x6061, 0x6064, 0x6065, 0x6066, 0x606C, 0x6071, 0x6077, 0x607A,
+             0x6081, 0x6083, 0x6084, 0x6098, 0x6099, 0x609A, 0x60C2, 0x60FF, 0x6502]
     optional = ([0x1005, 0x1008, 0x1014, 0x1017, 0x1200] + list(range(0x1400, 0x1404)) + list(range(0x1600, 0x1604))
                 + list(range(0x1800, 0x1804)) + list(range(0x1A00, 0x1A04)) + drive)
     for title, lst in (("MandatoryObjects", [0x1000, 0x1001, 0x1018]), ("OptionalObjects", optional),
@@ -157,6 +160,8 @@ def servo402():
     e.var("6060", "Modes of operation", I8, "rww", "0", pdo=1)
     e.var("6061", "Modes of operation display", I8, "ro", "0", pdo=1)
     e.var("6064", "Position actual value", I32, "ro", "0", pdo=1)
+    e.var("6065", "Following error window", U32, "rw", "10000")
+    e.var("6066", "Following error time out", U16, "rw", "10")
     e.var("606C", "Velocity actual value", I32, "ro", "0", pdo=1)
     e.var("6071", "Target torque", I16, "rww", "0", pdo=1)
     e.var("6077", "Torque actual value", I16, "ro", "0", pdo=1)
@@ -171,9 +176,15 @@ def servo402():
         2: ("Speed during search for zero", U32, "rw", "100"),
     })
     e.var("609A", "Homing acceleration", U32, "rw", "10000")
+    e.obj(0x60C2, "Interpolation time period", 0x9, {
+        0: ("Highest sub-index supported", U8, "ro", "2"),
+        1: ("Interpolation time period value", U8, "rw", "1"),
+        2: ("Interpolation time index", I8, "rw", "-3", 0, "-128", "63"),
+    })
     e.var("60FF", "Target velocity", I32, "rww", "0", pdo=1)
-    # Profile position (bit 0), profile velocity (bit 2), homing (bit 5).
-    e.var("6502", "Supported drive modes", U32, "ro", "0x00000025")
+    # Profile position (bit 0), profile velocity (bit 2), homing (bit 5),
+    # cyclic synchronous position, velocity and torque (bits 7, 8, 9).
+    e.var("6502", "Supported drive modes", U32, "ro", "0x000003A5")
     return e.text()
 
 

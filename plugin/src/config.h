@@ -103,6 +103,11 @@ struct SdoVariable {
 // startup SDO or SDO variable that writes one of them overrides the plugin.
 const char* plugin_owned_object(uint16_t index);
 
+// 0x60C2 for an interpolation period: sub 1 `value` (1-255) and sub 2
+// `exponent`, the largest of -3 to -6 that gives the period exactly. False
+// when none does.
+bool interpolation_code(unsigned period_us, uint8_t& value, int8_t& exponent);
+
 struct NodeConfig {
   unsigned node_id = 0;
   std::string name;
@@ -198,6 +203,14 @@ struct NodeConfig {
   // A simulated device runs this node (docs/simulator.md); defaults to
   // adapter.simulate.
   bool simulate = false;
+  // A CiA 402 axis driven in the cyclic synchronous modes (axis.cyclic):
+  // the master writes the drive's interpolation time period 0x60C2 from
+  // interpolation_period_us or, when 0, the SYNC period.
+  bool axis_cyclic = false;
+  unsigned interpolation_period_us = 0;
+  // The period the master writes to 0x60C2 (resolve_interpolation_periods),
+  // 0 when it writes none.
+  unsigned interpolation_write_us = 0;
 
   // COB-ID a PDO uses on the bus (explicit or the CiA 301 default).
   uint32_t tpdo_cob_id(const PdoConfig& pdo) const;

@@ -195,7 +195,47 @@ std::string startup_sdo_key(const Config& cfg) {
       for (uint8_t b : s.data) key += hex(b, 2);
       key += ";";
     }
+  for (const auto& n : cfg.nodes)
+    if (n.interpolation_write_us)
+      key += std::to_string(n.node_id) + ":60C2=" + std::to_string(n.interpolation_write_us) + ";";
   return key;
+}
+
+void resolve_interpolation_periods(Config& cfg, unsigned long long base_tick_us) {
+  for (auto& n : cfg.nodes) {
+    n.interpolation_write_us = 0;
+    if (!n.axis_cyclic) continue;
+    bool own = false;
+    for (const auto& s : n.sdos) own |= s.index == 0x60C2;
+    if (own) {
+      log_info("%s: cyclic axis: the startup SDOs write the interpolation time period 0x60C2", n.label().c_str());
+      continue;
+    }
+    uint16_t type;
+    if (!eds_sub_type(n, 0x60C2, 1, type) || !eds_sub_type(n, 0x60C2, 2, type)) {
+      log_warn("%s: cyclic axis: the EDS (%s) has no 0x60C2 sub 1 and 2; the interpolation time period is not "
+               "written", n.label().c_str(), n.eds_path.c_str());
+      continue;
+    }
+    unsigned long long period = n.interpolation_period_us
+                                    ? n.interpolation_period_us
+                                    : base_tick_us * (cfg.master.sync_cycles ? cfg.master.sync_cycles : 1);
+    uint8_t value;
+    int8_t exponent;
+    if (!period) {
+      log_warn("%s: cyclic axis: the runtime does not report its base tick, so the interpolation time period 0x60C2 "
+               "is not written; set axis.interpolation_period_us", n.label().c_str());
+      continue;
+    }
+    if (period > 255000 || !interpolation_code(static_cast<unsigned>(period), value, exponent)) {
+      log_warn("%s: cyclic axis: the SYNC period of %llu us cannot be written to 0x60C2 (1-255 times 1 ms, 100 us, "
+               "10 us or 1 us); set axis.interpolation_period_us or a startup SDO", n.label().c_str(), period);
+      continue;
+    }
+    n.interpolation_write_us = static_cast<unsigned>(period);
+    log_info("%s: cyclic axis: interpolation time period %llu us (0x60C2 sub 1 = %u, sub 2 = %d)", n.label().c_str(),
+             period, value, exponent);
+  }
 }
 
 std::string make_dcfgen_yaml(const Config& cfg, const std::string& work_dir) {
@@ -701,6 +741,19 @@ bool generate_device_config(const Config& cfg, const std::string& dcfgen, Genera
       w.subindex = 5;
       w.data = {static_cast<uint8_t>(p.event_timer_ms & 0xFF), static_cast<uint8_t>(p.event_timer_ms >> 8)};
       sdos.push_back(std::move(w));
+    }
+    // A cyclic axis's interpolation time period, before the startup SDOs
+    // (canopen-cia402-axis "Interpolation time period").
+    uint8_t ip_value;
+    int8_t ip_exponent;
+    if (n.interpolation_write_us && interpolation_code(n.interpolation_write_us, ip_value, ip_exponent)) {
+      for (uint8_t sub : {1, 2}) {
+        SdoWrite w;
+        w.index = 0x60C2;
+        w.subindex = sub;
+        w.data = {sub == 1 ? ip_value : static_cast<uint8_t>(ip_exponent)};
+        sdos.push_back(std::move(w));
+      }
     }
     // Startup SDOs go last: after the PDO parameters dcfgen wrote, before the
     // NMT start that follows the configuration downloads (design D7).
