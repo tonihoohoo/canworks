@@ -6,7 +6,7 @@ It runs on the engineering PC, next to the editor, and needs Python 3.8 or newer
 
 ## Install
 
-It comes with the deploy tool, in the same package. Install it without Python using uv (Windows and macOS steps in [install-pc.md](install-pc.md)), or with `pipx install ./tools/deploy`.
+It comes with the deploy tool, in the same package. Install it without Python using uv (Windows, macOS and Linux steps in [install-pc.md](install-pc.md)), or with `pipx install ./tools/deploy`.
 
 Without installing: `PYTHONPATH=tools/deploy python3 -m openplc_canopen_deploy.configurator.server --help` (needs `python3 -m pip install jsonschema`).
 

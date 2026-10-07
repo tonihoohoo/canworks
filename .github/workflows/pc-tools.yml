@@ -1,13 +1,13 @@
-name: PC tools (Windows, macOS)
+name: PC tools (Windows, macOS, Linux)
 
 # The configurator, deploy tool and diagnostics as a developer installs them on
-# a Windows PC or Mac (canopen-pc-install): the wheel installed with uv and a
-# uv-managed Python, no Python on the runner needed. Slow (macOS and Windows
-# runners), so it runs where a release can follow: a push to main that changes
-# the package's pyproject.toml (a version bump; the automatic release waits for
-# this run), a release tag, or "Run workflow" (on a pull request's branch when a
-# change needs Windows or macOS checked before merging). Pull requests do not
-# run it; the Linux tests in CI cover the same code.
+# a Windows PC, Mac or Linux desktop (canopen-pc-install): the wheel installed
+# with uv and a uv-managed Python, no Python on the runner needed. Slow (macOS
+# and Windows runners), so it runs where a release can follow: a push to main
+# that changes the package's pyproject.toml (a version bump; the automatic
+# release waits for this run), a release tag, or "Run workflow" (on a pull
+# request's branch when a change needs these systems checked before merging).
+# Pull requests do not run it; the Linux tests in CI cover the same code.
 on:
   push:
     branches: [main]
@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-14]
+        os: [windows-latest, macos-14, ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     defaults:
