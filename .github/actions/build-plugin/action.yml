@@ -32,19 +32,33 @@ runs:
         ref: development
         path: upstream-runtime
 
+    - name: Package cache key (runner image, kernel, package set)
+      id: apt-key
+      shell: bash
+      env:
+        KERNEL_MODULES: ${{ inputs.kernel-modules }}
+      run: echo "key=apt-build-${ImageOS:-os}-${ImageVersion:-image}-$(uname -r)-modules-${KERNEL_MODULES}-${{ hashFiles('.github/actions/build-plugin/action.yml') }}" >> "$GITHUB_OUTPUT"
+
+    - name: Cache the build dependency packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/openplc-canopen/apt-build
+        key: ${{ steps.apt-key.outputs.key }}
+
     - name: Install build dependencies
-      # Skips what the runner image already has, and bounds a stalled package
-      # mirror to a few minutes with one retry (.github/scripts/apt_install.py).
+      # Skips what the runner image already has, installs the cached .deb files
+      # without the network, and bounds a stalled package mirror with retries
+      # (.github/scripts/apt_install.py).
       shell: bash
       env:
         KERNEL_MODULES: ${{ inputs.kernel-modules }}
       run: |
         pkgs="build-essential cmake pkg-config autoconf automake libtool python3-venv can-utils libssl-dev"
         if [ "$KERNEL_MODULES" = true ] && ! modinfo vcan >/dev/null 2>&1; then
-          python3 .github/scripts/apt_install.py $pkgs "linux-modules-extra-$(uname -r)" || \
-          python3 .github/scripts/apt_install.py $pkgs
+          python3 .github/scripts/apt_install.py --debs ~/.cache/openplc-canopen/apt-build $pkgs "linux-modules-extra-$(uname -r)" || \
+          python3 .github/scripts/apt_install.py --debs ~/.cache/openplc-canopen/apt-build $pkgs
         else
-          python3 .github/scripts/apt_install.py $pkgs
+          python3 .github/scripts/apt_install.py --debs ~/.cache/openplc-canopen/apt-build $pkgs
         fi
 
     - name: Prepare /opt/openplc-canopen

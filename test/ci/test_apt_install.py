@@ -5,6 +5,7 @@ import importlib.util
 import io
 import os
 import subprocess
+import tempfile
 import unittest
 
 _path = os.path.join(os.path.dirname(__file__), "..", "..", ".github", "scripts", "apt_install.py")
@@ -16,9 +17,11 @@ _spec.loader.exec_module(apt)
 class FakeRunner:
     """Answers dpkg-query from a set of installed packages; apt-get from a list of return codes."""
 
-    def __init__(self, installed=(), apt_rcs=()):
+    def __init__(self, installed=(), apt_rcs=(), dpkg_rc=0, debs_provide=()):
         self.installed = set(installed)
         self.apt_rcs = list(apt_rcs)
+        self.dpkg_rc = dpkg_rc
+        self.debs_provide = set(debs_provide)
         self.calls = []
 
     def __call__(self, cmd, **kw):
@@ -26,6 +29,10 @@ class FakeRunner:
         if cmd[0] == "dpkg-query":
             ok = cmd[-1] in self.installed
             return subprocess.CompletedProcess(cmd, 0 if ok else 1, "install ok installed" if ok else "", "")
+        if "dpkg" in cmd and "-i" in cmd:
+            if self.dpkg_rc == 0:
+                self.installed |= self.debs_provide
+            return subprocess.CompletedProcess(cmd, self.dpkg_rc)
         if "apt-get" in cmd:
             return subprocess.CompletedProcess(cmd, self.apt_rcs.pop(0) if self.apt_rcs else 0)
         return subprocess.CompletedProcess(cmd, 0)
@@ -67,6 +74,28 @@ class Install(unittest.TestCase):
         r = FakeRunner(apt_rcs=[124, 0, 0])
         self.assertEqual(install(r, ["tshark"]), 0)
         self.assertEqual([("update" in c) for c in r.apt_calls()], [True, True, False])
+
+    def test_cached_debs_installed_without_apt(self):
+        with tempfile.TemporaryDirectory() as d:
+            open(os.path.join(d, "tshark_1_amd64.deb"), "w").close()
+            r = FakeRunner(debs_provide={"tshark"})
+            self.assertEqual(install(r, ["tshark"], debs=d), 0)
+            self.assertEqual(r.apt_calls(), [])
+            self.assertTrue(any("dpkg" in c and os.path.join(d, "tshark_1_amd64.deb") in c for c in r.calls))
+
+    def test_empty_cache_fills_it_through_apt(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = FakeRunner()
+            self.assertEqual(install(r, ["tshark"], debs=d), 0)
+            self.assertIn(f"Dir::Cache::Archives={d}", r.apt_calls()[1])
+            self.assertTrue(os.path.isdir(os.path.join(d, "partial")))
+
+    def test_broken_cache_falls_back_to_apt(self):
+        with tempfile.TemporaryDirectory() as d:
+            open(os.path.join(d, "tshark_1_amd64.deb"), "w").close()
+            r = FakeRunner(dpkg_rc=1)
+            self.assertEqual(install(r, ["tshark"], debs=d), 0)
+            self.assertEqual(len(r.apt_calls()), 2)
 
     def test_every_attempt_failing_fails(self):
         r = FakeRunner(apt_rcs=[100] * 10)

@@ -2,10 +2,11 @@
 
 ## 1. Package installs
 
-- [x] 1.1 Add an install helper (skip installed packages, no `apt-get update` when nothing is missing, `Acquire::http::Timeout=20`, `Acquire::Retries=3`, `timeout 180` with one retry) with tests in `test/ci/`. Verify: a call with only installed packages makes no network request.
+- [x] 1.1 Add an install helper (skip installed packages, no `apt-get update` when nothing is missing, `Acquire::http::Timeout=20`, `Acquire::Retries=3`, `timeout 120` per call with up to two retries) with tests in `test/ci/`. Verify: a call with only installed packages makes no network request.
 - [x] 1.2 Use it in the build action, the `tshark` step, the `can-utils` install in the slave test step and for the page tests' Chromium libraries; give each install step `timeout-minutes`.
 - [x] 1.3 Install `tshark` only on the `tools` shard that runs `test_bustrace` (found with `test_shard.py`); set `CANOPEN_REQUIRE_TSHARK=1` there and make the decode test fail without `tshark` when it is set.
 - [x] 1.4 Cache `~/.cache/ms-playwright` keyed by the Playwright version.
+- [x] 1.5 Cache the downloaded .deb files per runner image (build action, `tshark`, Chromium libraries) and install them with `dpkg -i` before trying apt. Verify: a second run on the same image logs the cached files installed and no apt attempt.
 
 ## 2. Builds
 

@@ -37,10 +37,11 @@ The groups stay written out per step (`matrix.group == N`), as now: a script-dri
 One helper, used by the build action, the `tshark` step and the page tests' system libraries:
 
 - Skip packages that `dpkg -s` reports installed; with nothing missing, exit without `apt-get update`.
-- `apt-get` with `-o Acquire::http::Timeout=20 -o Acquire::Retries=3`, and the whole update plus install under `timeout 180`, retried once.
+- `apt-get` with `-o Acquire::http::Timeout=20 -o Acquire::Retries=3`, each `apt-get` call under `timeout 120`, retried up to twice.
+- The .deb files apt downloads are kept in a directory that `actions/cache` saves, keyed by runner image (`ImageOS`, `ImageVersion`), kernel and package set. A later job with the same key installs them with `dpkg -i` and never contacts the mirror; if that fails it falls back to apt.
 - The step also gets `timeout-minutes`, so a hang that slips past both still ends the job in minutes rather than at the 20-minute job limit.
 
-The stalls are on the mirror connection (no output, then everything unpacks in seconds), so a retry with a fresh connection is what helps; larger timeouts would not.
+The stalls are on the mirror connection (no output, then everything unpacks in seconds), so a retry with a fresh connection is what helps; larger timeouts would not. The first run of this change confirmed it: one vcan job's install hit the limit, and the retry finished in 65 s. Retrying still costs the time limit, which is why the cache matters: a warm run skips the mirror entirely, and the image changes about weekly.
 
 ### `tshark` only where it is used
 

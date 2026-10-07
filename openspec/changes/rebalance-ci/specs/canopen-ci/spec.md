@@ -32,15 +32,19 @@ The test work SHALL be split into jobs that run at the same time, and the C++ si
 
 ### Requirement: Bounded package installs
 
-Every step that installs system packages or a browser SHALL skip what the runner already has, SHALL NOT refresh the package lists when nothing is missing, and SHALL limit how long one attempt may wait on the network and retry once, so that a stalled package mirror delays the job by about a minute rather than several. A package install SHALL run only in the jobs whose tests use the package, and a test that needs an optional tool SHALL fail instead of skipping in the job that installs it.
+Every step that installs system packages or a browser SHALL skip what the runner already has, SHALL NOT refresh the package lists when nothing is missing, and SHALL install packages downloaded by an earlier run on the same runner image from a cache without the network, and SHALL limit how long one attempt may wait on the network and retry, so that a stalled package mirror delays the job by about a minute rather than several. A package install SHALL run only in the jobs whose tests use the package, and a test that needs an optional tool SHALL fail instead of skipping in the job that installs it.
 
 #### Scenario: Stalled mirror
 - **WHEN** the package mirror stops answering during an install
-- **THEN** the attempt ends within about three minutes and is retried once, and the step fails if the retry fails too
+- **THEN** the attempt ends within about two minutes and is retried, and the step fails if every retry fails too
 
 #### Scenario: Nothing missing
 - **WHEN** every package a step asks for is already installed
 - **THEN** the step installs nothing and does not refresh the package lists
+
+#### Scenario: Warm package cache
+- **WHEN** a job installs the same packages as an earlier run on the same runner image
+- **THEN** it installs them from the cache and does not contact the package mirror
 
 #### Scenario: Wireshark decode test
 - **WHEN** the deploy tool tests are sharded
