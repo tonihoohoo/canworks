@@ -49,6 +49,38 @@ openplc-canopen-diag --runtime plc.local trace -o drives.pcapng --network drives
 
 `--runtime` takes `HOST` or `HOST:PORT` (default port 7531), or `local` for the [local simulator runtime](local-runtime.md) on this PC (`localhost` and the diagnostics port it publishes; the token comes from the project as for any runtime). `status` says when the runtime forces every network simulated (`simulation forced by the runtime`). Types are the CiA 301 names (`UNSIGNED16`, `INTEGER32`, `REAL32`, `VISIBLE_STRING`, `OCTET_STRING`, ...); `sdo-read` without `--type` prints hex bytes, and `sdo-write` takes hex bytes for `OCTET_STRING` and `DOMAIN`.
 
+### Through a USB adapter on this PC: `--adapter`
+
+With `--adapter TYPE:CHANNEL` in place of `--runtime` the commands go straight to the bus through a CAN adapter on the PC, with no runtime and no token ([pc-adapter.md](pc-adapter.md)):
+
+```sh
+openplc-canopen-diag adapters                                                      # what is plugged in
+openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 status
+openplc-canopen-diag --adapter slcan:/dev/tty.usbmodem14101 --bitrate 250 scan --config canopen/canopen.json
+openplc-canopen-diag --adapter socketcan:can0 --bitrate 500 --allow-changes sdo-write 5 0x2000 2 1000 --type UNSIGNED16
+openplc-canopen-diag --adapter slcan:COM5 --config canopen/canopen.json --network io backup 5
+```
+
+| Option | |
+|---|---|
+| `--adapter TYPE:CHANNEL` | `slcan:PORT` (Windows, macOS, Linux) or `socketcan:IFACE` (Linux); other python-can types are passed through untested. Not together with `--runtime`. |
+| `--bitrate KBIT` | the bus's bit rate; without it, the network's `adapter.bitrate` from `--config`. There is no default. |
+| `--adapter-option KEY=VALUE` | passed to python-can when opening the adapter, repeatable. |
+| `--allow-changes` | allows SDO writes, NMT, restore and LSS for this command; without it the adapter only reads. `store` still asks. |
+| `--force` | runs LSS, and `lss-set-id` with a node ID the bus already shows, while another master is active. |
+
+What differs from a runtime:
+
+| Command | Through a runtime | Through an adapter |
+|---|---|---|
+| `status` | master, bus state and counters, boot results, SDO variables | what the bus showed since connecting: node states from heartbeats, the last EMCY per node, the configured nodes from `--config`, and another master when one is active |
+| `emcy` | the plugin's history since the PLC started | the EMCY messages seen since connecting |
+| `nmt` | configured nodes | any node ID, one at a time |
+| `scan`, `sdo-read`, `sdo-write`, `backup`, `compare`, `restore`, `store` | as described above | the same; `backup` does not ask whether the node has booted |
+| `lss-*` | the plugin runs them | the PC runs them; refused while another master is active unless `--force` |
+| `trace` | the runtime's interface | the adapter |
+| `sim` | the plugin's simulated devices | not available |
+
 ### Simulated devices: `sim`
 
 `openplc-canopen-diag sim ...` controls [simulated devices](simulator.md): the plugin's, with `--runtime HOST` (token as above; everything but `status`, `get` and `scenario list` needs `allow_changes`), or a standalone `openplc-canopen-sim`, with `--sim HOST[:PORT]` (default port 7532; token only when the simulator has one, from `--token` or `--token-file`). Without either it talks to the standalone simulator on `127.0.0.1:7532`. With several networks, `--network NAME` after `sim` picks the network whose simulated devices to talk to. These options may also follow the subcommand.
