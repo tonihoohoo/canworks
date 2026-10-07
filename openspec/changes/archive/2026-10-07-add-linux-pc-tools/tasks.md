@@ -10,7 +10,8 @@
 
 - [x] 2.1 `pc-tools.yml`: add `ubuntu-24.04` and `ubuntu-24.04-arm` to the matrix, rename the workflow to "PC tools (Windows, macOS, Linux)" and update its header comment. Verify: the existing steps run unchanged on Linux (bash default shell, `uv tool dir --bin` on PATH) and the page/parity tests skip there with their reason, as on Windows and macOS.
 - [x] 2.2 `release-deploy.yml`: the `workflow_run` list names the renamed workflow. Verify: `test/pc-tools` tests that read the workflow names (if any) still pass, and a release still waits for the PC tools run.
-- [ ] 2.3 Run the PC tools workflow by hand on this branch. Verify: all four jobs green; record the Linux job times in the PR.
+- [x] 2.3 Run the PC tools workflow by hand on this branch. Verify: all four jobs green; record the Linux job times in the PR.
+  Result: run 37581633712 on fb1cf85, all four green: ubuntu-24.04 2 min 41 s, ubuntu-24.04-arm 2 min 40 s, macos-14 2 min 49 s, windows-latest 3 min 42 s.
 
 ## 3. Hardware / desktop
 
