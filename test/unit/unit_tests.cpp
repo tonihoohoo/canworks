@@ -36,6 +36,7 @@
 #include "diag.h"
 #include "frame_tx.h"
 #include "sim_trace.h"
+#include "slcan_sweep.h"
 
 #include <lely/can/msg.h>
 #include "eds_check.h"
@@ -55,6 +56,9 @@
 #include <mutex>
 #include <netinet/in.h>
 #include <poll.h>
+#include <pty.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 #include <sys/socket.h>
 #include <thread>
 
@@ -4333,6 +4337,168 @@ TEST(sweep_stopped_by_the_plc) {
                                     [&n] { return ++n > 2; });
   CHECK(r.verdict == SweepVerdict::Failed && r.error.find("stopped") != std::string::npos);
   CHECK(link.links["can0"].up && link.links["can0"].bitrate == 500000);
+}
+
+namespace {
+
+// slcan firmware on the other end of a pty: answers commands, and while the
+// channel is open at `rate_code` and receiving, sends a frame every 20 ms.
+struct FakeSlcanFirmware {
+  int master = -1, slave = -1;
+  bool knows_m1 = true;
+  bool l_receives = false;  // firmware whose 'L' really opens the channel
+  char rate_code = '6';
+  std::vector<std::string> cmds;
+  std::mutex mu;
+  std::atomic<bool> running{true};
+  std::thread th;
+
+  FakeSlcanFirmware() {
+    ::openpty(&master, &slave, nullptr, nullptr, nullptr);
+    termios t;
+    tcgetattr(slave, &t);
+    cfmakeraw(&t);
+    tcsetattr(slave, TCSANOW, &t);
+    tcgetattr(master, &t);
+    cfmakeraw(&t);
+    tcsetattr(master, TCSANOW, &t);
+  }
+  ~FakeSlcanFirmware() {
+    running = false;
+    if (th.joinable()) th.join();
+    ::close(master);
+    ::close(slave);
+  }
+  void start() {
+    th = std::thread([this] { run(); });
+  }
+  // The commands so far, once the firmware has read all that was sent.
+  std::string log() {
+    for (int i = 0; i < 100; ++i) {
+      int queued = 0;
+      if (ioctl(master, FIONREAD, &queued) == 0 && queued == 0) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    std::lock_guard<std::mutex> g(mu);
+    std::string s;
+    for (const auto& c : cmds) s += (s.empty() ? "" : " ") + c;
+    return s;
+  }
+  void run() {
+    std::string line;
+    char rate = 0;
+    bool receiving = false, silent = false;
+    auto last = std::chrono::steady_clock::now();
+    while (running) {
+      pollfd p{master, POLLIN, 0};
+      if (::poll(&p, 1, 5) > 0) {
+        char buf[64];
+        ssize_t n = ::read(master, buf, sizeof buf);
+        for (ssize_t i = 0; i < n; ++i) {
+          if (buf[i] != '\r') {
+            line += buf[i];
+            continue;
+          }
+          {
+            std::lock_guard<std::mutex> g(mu);
+            cmds.push_back(line);
+          }
+          const char* reply = "\r";
+          if (line == "m1" || line == "m0") {
+            if (knows_m1)
+              silent = line == "m1";
+            else
+              reply = "\a";
+          } else if (line.size() == 2 && line[0] == 'S') {
+            rate = line[1];
+          } else if (line == "O") {
+            receiving = true;
+          } else if (line == "L") {
+            receiving = l_receives;
+          } else if (line == "C") {
+            receiving = false;
+          }
+          (void)silent;
+          ssize_t w = ::write(master, reply, 1);
+          (void)w;
+          line.clear();
+        }
+      }
+      auto now = std::chrono::steady_clock::now();
+      if (receiving && rate == rate_code && now - last > std::chrono::milliseconds(20)) {
+        last = now;
+        ssize_t w = ::write(master, "t717105\r", 8);
+        (void)w;
+      }
+    }
+  }
+};
+
+}  // namespace
+
+TEST(slcan_sweep_uses_silent_mode) {
+  FakeSlcanFirmware fw;  // its 'L' receives nothing, as on the bench
+  fw.start();
+  SweepRequest req;
+  req.rates_kbit = {1000, 500, 250};
+  req.per_rate_ms = 200;
+  bool used = false;
+  SweepResult r;
+  {
+    SlcanSweepPort port(fw.slave);
+    r = run_bitrate_sweep(port, port, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+    used = port.used_silent();
+  }
+  CHECK_MSG(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 500, sweep_verdict_name(r.verdict));
+  CHECK(r.results[1].frames > 3 && r.results[1].ids.size() == 1 && r.results[1].ids[0] == 0x717);
+  CHECK(r.results[0].frames == 0 && r.results[2].frames == 0);
+  CHECK(used);
+  std::string log = fw.log();
+  // Per rate: close, rate, silent mode, open; at the end close, normal mode,
+  // the configured rate; the kernel driver opens the channel again.
+  CHECK_MSG(log.find("C S8 m1 O C m0 S6 m1 O C m0 S5 m1 O C m0") == 0, log);
+  CHECK_MSG(log.find("C m0 S6") != std::string::npos && log.find("L") == std::string::npos, log);
+  CHECK_MSG(log.substr(log.size() - 2) != " O", log);
+}
+
+TEST(slcan_sweep_without_silent_mode_uses_L) {
+  FakeSlcanFirmware fw;
+  fw.knows_m1 = false;
+  fw.l_receives = true;
+  fw.rate_code = '5';
+  fw.start();
+  SweepRequest req;
+  req.rates_kbit = {500, 250};
+  req.per_rate_ms = 200;
+  SweepResult r;
+  {
+    SlcanSweepPort port(fw.slave);
+    r = run_bitrate_sweep(port, port, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+    CHECK(!port.used_silent());
+  }
+  CHECK_MSG(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 250, sweep_verdict_name(r.verdict));
+  std::string log = fw.log();
+  CHECK_MSG(log.find("C S6 m1 L C S5 m1 L C") == 0, log);
+  CHECK_MSG(log.find(" O") == std::string::npos, log);
+}
+
+TEST(slcan_sweep_rate_without_a_code) {
+  FakeSlcanFirmware fw;
+  fw.start();
+  SlcanSweepPort port(fw.slave);
+  CHECK(port.set_bitrate("can0", 83300, -1) == -EINVAL);
+  CHECK(port.set_bitrate("can0", 800000, -1) == 0);
+}
+
+TEST(socketcan_sweeps_over_the_link) {
+  LinkFixture f;
+  f.link->links["can0"] = LinkInfo{false, "can", 0};
+  CHECK(f.prepare() == AdapterState::Ready);
+  std::string err;
+  bool ran = false;
+  CHECK(!f.adapter->sweep_on_device([&](LinkOps&, SweepListener&) { ran = true; }, err));
+  CHECK(!ran);
 }
 
 namespace {

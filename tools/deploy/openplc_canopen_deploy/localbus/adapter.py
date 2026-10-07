@@ -7,7 +7,8 @@ in-process bus, for tests.
 
 open() is the one place an adapter is opened. With `listen_only` the
 adapter receives without acknowledging or sending anything (bit rate
-detection): slcan opens the channel with 'L' instead of 'O', PCAN gets its
+detection): slcan opens the channel in silent mode ('m1', then 'O') where
+the firmware takes 'm1', else with 'L' instead of 'O', PCAN gets its
 listen-only parameter, and a SocketCAN link is set listen-only with `ip`
 (root or CAP_NET_ADMIN) and set back when the adapter is closed. Other
 adapter types have no listen-only mode here.
@@ -19,6 +20,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 SUPPORTED = ("slcan", "socketcan")  # tested; anything else python-can knows is passed through
 TEST_ONLY = ("virtual",)
@@ -252,17 +254,51 @@ def _socketcan_listen_only(interface, bitrate):
                        % (interface, bitrate // 1000, err))
 
 
-def _slcan_listen_only():
-    """python-can's slcan bus that opens the channel with 'L' (listen-only)
-    instead of 'O', also when it reopens it to change the bit rate. Older
-    python-can versions have no listen-only flag for slcan."""
+def _slcan_bus(listen_only):
+    """python-can's slcan bus, opening the channel the way bit rate detection
+    needs, also when it reopens it to change the bit rate.
+
+    Listen-only: some slcan firmware takes 'L' and then receives nothing, so
+    silent mode is asked for first: 'm1' (receive without acknowledging or
+    sending), then 'O'. Firmware without 'm1' answers with an error (BEL) and
+    gets 'L'. Closing sets the mode back with 'm0'. A normal open sends 'm0'
+    before 'O' too, so a sweep that died in silent mode cannot leave the
+    adapter mute."""
     from can.interfaces.slcan import slcanBus
 
-    class ListenOnlySlcan(slcanBus):
-        def open(self):
-            self._write("L")
+    class Slcan(slcanBus):
+        _silent = False
 
-    return ListenOnlySlcan
+        def _ask(self, cmd):
+            # Answers to the commands before (close, bit rate) are not
+            # this one's: let them arrive and drop them first.
+            while self._read(0.05) is not None:
+                pass
+            self._write(cmd)
+            deadline = time.monotonic() + 0.2
+            while True:
+                reply = self._read(max(0.0, deadline - time.monotonic()))
+                if reply is None:
+                    return False
+                if len(reply) > 1 and reply[0] in "tTrR":
+                    continue  # a received frame, not the answer
+                return reply.endswith("\r")
+
+        def open(self):
+            if listen_only:
+                self._silent = self._ask("m1")
+                self._write("O" if self._silent else "L")
+            else:
+                self._ask("m0")
+                self._write("O")
+
+        def close(self):
+            super().close()
+            if self._silent:
+                self._write("m0")
+                self._silent = False
+
+    return Slcan
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +382,8 @@ def open(spec, bitrate, listen_only=False, options=None):  # noqa: A001 - the mo
             kwargs.setdefault("receive_own_messages", False)  # no listen-only on the in-process bus: tests
         else:
             kwargs["bitrate"] = bitrate
-        if listen_only and spec.kind == "slcan":
-            bus = _slcan_listen_only()(channel=spec.channel, **kwargs)
+        if spec.kind == "slcan":
+            bus = _slcan_bus(listen_only)(channel=spec.channel, **kwargs)
         else:
             if listen_only and spec.kind == "pcan":
                 kwargs["state"] = can.BusState.PASSIVE  # PCAN_LISTEN_ONLY on
