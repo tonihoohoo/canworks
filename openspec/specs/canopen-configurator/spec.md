@@ -1000,4 +1000,4 @@ The Scan the bus page SHALL have a "Detect bit rate" action for the picked netwo
 
 #### Scenario: Silent bus
 - **WHEN** the sweep finds no frames
-- **THEN** the page says the bus was silent and suggests powering a device on or resetting it during the sweep
+- **THEN** the page says the bus was silent, that a single device on the bus needs a second device or adapter that acknowledges its frames, and suggests powering a device on or resetting it during the sweep

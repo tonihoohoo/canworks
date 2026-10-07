@@ -33,7 +33,11 @@
 
 ## 7. Hardware check
 
-- [ ] 7.1 On the bench (Pi, CANable slcan, one real node): send an SDO upload request for 0x1018:1 by hand to the node with nothing OPERATIONAL and see the answer in a configurator trace; check that a frame on the node's RPDO COB-ID needs force; run a 100 ms cyclic frame for 10 s and stop it.
+- [x] 7.1 On the bench (Pi, CANable slcan, one real node): send an SDO upload request for 0x1018:1 by hand to the node with nothing OPERATIONAL and see the answer in a configurator trace; check that a frame on the node's RPDO COB-ID needs force; run a 100 ms cyclic frame for 10 s and stop it.
+  - Passed 2026-10-07 with `openplc-canopen-diag` (the configurator needs a new token there): the SDO request and its answer in the trace, refusal of the RPDO COB-ID and of any ID while a node is OPERATIONAL, forced send logged, 100 ms cyclic frame for 10 s (104 frames, 99.95-100.05 ms) stopped cleanly.
 - [ ] 7.2 Set `adapter.bitrate` to a wrong rate, upload, and run Detect bit rate from the configurator: the node's real rate is detected (power-cycle the node during the sweep if it is silent while unconfigured), "Use N kbit/s", save and upload boots the node. Confirm that slcan accepts listen-only on the Pi's kernel and that the sweep sends nothing (trace from a second adapter if available).
-- [ ] 7.3 Put the bench config back and check the node boots.
+  - 2026-10-07: listen-only on slcan works on the Pi's kernel and the configured rate comes back afterwards. Detection stays open: with one device on the bus nothing acknowledges its frames in listen-only, so every sweep is `silent`, even at the right rate. Needs a second device or adapter in normal mode on the bench. The silent hint and docs now say so.
+- [x] 7.3 Put the bench config back and check the node boots.
+  - Passed 2026-10-07: the node booted to OPERATIONAL after the bench config was back.
 - [ ] 7.4 When section 6 is in: run 7.1 and 7.2 again from the PC with the USB adapter directly (no runtime).
+  - Open: needs a USB adapter on the PC.
