@@ -55,7 +55,7 @@ The container restarts with the engine (unless stopped) and listens only on this
 
 ## Use it
 
-- **Editor:** connect to `localhost:8443` with the printed user and password, then **Build and Upload** a project with a `canopen/` folder ([install-stock.md](install-stock.md)). The runtime log shows the CANopen start, and the debugger shows the values of the simulated devices. Simulated values follow the project's simulation file ([simulator.md](simulator.md)).
+- **Editor:** type the address `localhost:8443` with the printed user and password (the device settings' search does not list the local runtime, since it scans the network rather than this PC; typing the address connects), then **Build and Upload** a project with a `canopen/` folder ([install-stock.md](install-stock.md)). The runtime log shows the CANopen start, and the debugger shows the values of the simulated devices. Simulated values follow the project's simulation file ([simulator.md](simulator.md)).
 - **Deploy tool:** `openplc-canopen-deploy --runtime local --config canopen/canopen.json --project .` reads the address, user, password and fingerprint from `local-runtime.json`; `--user`/`--password` still win. It skips the question about uploading a non-simulated config, since nothing real is driven here.
 - **Diagnostics and configurator:** `openplc-canopen-diag --runtime local status`, and in the configurator's online access the **Local simulator runtime** button (host `local`). The project's config needs `master.diagnostics` with a token as for any runtime ([diagnostics.md](diagnostics.md)); the plugin's default `bind` (`0.0.0.0`) and port (7531) fit the container.
 
@@ -78,6 +78,7 @@ Tools 0.30.x called the command, image, container and volume `openplc-canopen-ru
 ## Limits
 
 - Every CANopen network runs simulated, whatever `adapter.simulate` and the adapter settings say: the image sets `CANOPEN_FORCE_SIMULATE=1`, and the runtime log, `openplc-canopen-diag status` and the configurator's online view say so. A real CAN adapter cannot be reached from a container on Windows or macOS anyway.
+- A simulated device behaves like a real one when it fails: a fault that stops its heartbeat (the ping-pong example's `device-hangs` scenario) makes the master report the node lost and boot it again, which resets the device's objects to their EDS defaults. A program that feeds a device's value back to it, like the ping-pong program, can then carry two counts at once (the value seems to jump between them) until the PLC is stopped and started.
 - No real-time timing: the PLC cycle and the simulated bus run at the speed of a PC container, which is fine for logic and I/O but says nothing about jitter on the real target.
 - On a Linux PC with a SocketCAN interface, experts can run the image with `-e CANOPEN_FORCE_SIMULATE=0 --network host` and the interface's capabilities; `openplc-canopen-sim-runtime` does not do this.
 
