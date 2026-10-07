@@ -18,6 +18,7 @@
 #ifndef CANOPEN_CAN_ADAPTER_H
 #define CANOPEN_CAN_ADAPTER_H
 
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -60,6 +61,13 @@ class LinkOps {
   // The link must be down.
   virtual int rename(const std::string& name, const std::string& new_name) = 0;
   virtual int set_txqlen(const std::string& name, unsigned len) = 0;
+  // Sets or clears listen-only mode (CAN_CTRLMODE_LISTENONLY). The link must
+  // be down. -EOPNOTSUPP when the driver has no such mode.
+  virtual int set_listen_only(const std::string& name, bool on) {
+    (void)name;
+    (void)on;
+    return -EOPNOTSUPP;
+  }
 };
 
 // The serial side of the slcan backend, behind an interface so tests can mock
@@ -93,6 +101,8 @@ class CanAdapter {
   // Gives back what prepare() acquired (the slcan device, and with it the
   // interface). Called when the bus thread ends.
   virtual void release() {}
+  // The link operations the backend uses (bit rate detection), or nullptr.
+  virtual LinkOps* link_ops() { return nullptr; }
 };
 
 // The backend for adapter.type (the config parser accepts only known types).

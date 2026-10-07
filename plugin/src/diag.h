@@ -33,7 +33,9 @@
 #include <thread>
 #include <vector>
 
+#include "bitrate_sweep.h"
 #include "config.h"
+#include "frame_tx.h"
 #include "secure_channel.h"
 #include "trace_capture.h"
 
@@ -105,6 +107,32 @@ class DiagHub {
   // at 0, every other request refused with "no bus".
   std::string offline_answer(const DiagRequest& r) const;
 
+  // ---- what the server thread needs to know about the running network ----
+  // Bus thread: the first node (or the plugin's own slave) that is
+  // OPERATIONAL, as "node 5 (pingpong)", or "" when none is. Cleared by
+  // detach().
+  void set_operational(const std::string& label);
+  std::string operational() const;
+  // Server thread: the network's cyclic send jobs as a JSON array, for
+  // status answers.
+  void set_send_jobs(const std::string& json_array);
+  // Adds "send_jobs" and "bitrate_sweep" to a status result (either thread).
+  void add_tx_status(cJSON* res) const;
+
+  // ---- bit rate detection (bitrate_sweep.h) ----
+  // Server thread: asks the bus thread for a sweep; false when one is already
+  // pending or running.
+  bool request_sweep(const SweepRequest& req);
+  // Bus thread: whether a sweep waits for the session to end; take_sweep()
+  // moves it to running.
+  bool sweep_pending() const;
+  bool take_sweep(SweepRequest& out);
+  void sweep_progress(const SweepProgress& p);
+  void sweep_done(const SweepResult& r);
+  bool sweep_busy() const;  // pending or running
+  // The detect_bitrate_status result.
+  cJSON* sweep_status() const;
+
  private:
   void wake();
 
@@ -118,6 +146,17 @@ class DiagHub {
   std::map<uint64_t, DiagRequest> taken_;  // taken by the bus thread, not answered
   std::vector<std::pair<uint64_t, std::string>> answers_;
   int pipe_[2] = {-1, -1};
+
+  // Guarded by state_mutex_ (never held together with mutex_).
+  mutable std::mutex state_mutex_;
+  std::string operational_;
+  std::string send_jobs_ = "[]";
+  bool sweep_pending_ = false, sweep_running_ = false, sweep_ever_ = false;
+  SweepRequest sweep_req_;
+  SweepProgress sweep_pg_;
+  std::vector<SweepRate> sweep_partial_;
+  SweepResult sweep_result_;
+  std::string sweep_finished_at_;
 };
 
 class DiagServer {
@@ -151,6 +190,22 @@ class DiagServer {
     for (auto& ch : chans_) ch.ring = TraceRing(capacity);
   }
   void set_trace_idle(std::chrono::milliseconds idle) { trace_idle_ = idle; }
+  // Where a network's hand-sent frames go (default: a CAN_RAW socket on the
+  // interface; a simulated network needs the injector the bus thread reads).
+  void set_frame_sink(std::unique_ptr<FrameSink> sink, size_t network = 0) {
+    chans_[network].sink = std::move(sink);
+  }
+  void set_frame_injector(std::shared_ptr<SimFrameInjector> injector, size_t network = 0) {
+    chans_[network].sink = make_sim_frame_sink(std::move(injector));
+  }
+  // For tests: how the server reads a link (bit rate detection refusals).
+  void set_link_ops(std::unique_ptr<LinkOps> ops) { link_ops_ = std::move(ops); }
+
+  static constexpr unsigned kMaxJobsPerNetwork = 8;
+  static constexpr unsigned kMinPeriodMs = 10;
+  static constexpr unsigned kMaxPeriodMs = 60000;
+  static constexpr std::chrono::minutes kJobTimeLimit{10};
+  static constexpr double kSingleFramesPerSecond = 50;
 
  private:
   enum class Mode { unknown, plain, tls };
@@ -174,6 +229,25 @@ class DiagServer {
     bool trace_errors = false;
     size_t trace_net = 0;  // the network traced
     std::chrono::steady_clock::time_point trace_fetched;
+    uint64_t serial = 0;  // identifies the connection's send jobs
+    RateLimit tx_limit{kSingleFramesPerSecond, kSingleFramesPerSecond};
+  };
+
+  // A cyclic send job (send_frame with period_ms).
+  struct TxJob {
+    uint64_t job = 0;
+    size_t net = 0;
+    uint64_t client = 0;
+    std::string peer;
+    RawFrame frame;
+    unsigned period_ms = 0;
+    uint64_t count = 0;  // 0: until stopped
+    uint64_t sent = 0;
+    bool forced = false;
+    std::chrono::steady_clock::time_point started, next;
+    // Set when it ended; kept kEndedKeep for send_frame_stop and status.
+    std::string reason;
+    std::chrono::steady_clock::time_point ended;
   };
 
   // A network's hub and frame capture.
@@ -189,6 +263,7 @@ class DiagServer {
     uint64_t kernel_drops_sock = 0;  // the open socket's count
     std::chrono::steady_clock::time_point next_try{};
     bool warned = false;
+    std::unique_ptr<FrameSink> sink;  // hand-sent frames
   };
 
   void run();
@@ -223,6 +298,19 @@ class DiagServer {
   void close_capture(size_t net, bool gap);
   bool any_trace(size_t net) const;
   bool any_trace() const;
+  // send_frame, send_frame_stop, detect_bitrate, detect_bitrate_status,
+  // answered here without the bus thread.
+  void handle_tx(Client& c, size_t net, const std::string& op, const std::string& id, const cJSON* req);
+  void handle_send(Client& c, size_t net, const std::string& id, const cJSON* req);
+  void handle_detect(Client& c, size_t net, const std::string& id, const cJSON* req);
+  // Why `force` is needed for frame `f` on `net`, or "".
+  std::string force_reason(size_t net, const RawFrame& f) const;
+  int send_now(size_t net, const RawFrame& f);
+  // Sends what is due; returns the time until the next job is due.
+  std::chrono::milliseconds service_jobs(std::chrono::steady_clock::time_point now);
+  void end_job(size_t i, const std::string& reason, std::chrono::steady_clock::time_point now);
+  void end_client_jobs(uint64_t client, const std::string& reason);
+  void publish_jobs(size_t net);
   const MasterConfig& settings() const { return chans_[0].hub->config().master; }
 
   std::vector<Channel> chans_;
@@ -240,6 +328,12 @@ class DiagServer {
   bool warned_listen_ = false;
 
   std::chrono::milliseconds trace_idle_{10000};
+
+  std::vector<TxJob> jobs_;   // running
+  std::vector<TxJob> ended_;  // ended in the last kEndedKeep
+  uint64_t next_job_ = 1;
+  uint64_t next_client_ = 1;
+  std::unique_ptr<LinkOps> link_ops_;
 };
 
 }  // namespace canopen_plugin

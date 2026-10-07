@@ -74,6 +74,7 @@ void SlaveBus::thread_main() {
     last = AdapterState::Ready;
     last_problem.clear();
     run_session();
+    if (run_requested_sweep(hub_, adapter_.get(), cfg_, stop_)) continue;
     if (!stop_ && !wait_for(std::chrono::milliseconds(1000))) break;
   }
   if (adapter_) adapter_->release();
@@ -142,6 +143,10 @@ void SlaveBus::run_session() {
       if (loop.stopped()) break;
       if (!shut_down && (stop_ || iface_down())) {
         if (!stop_) iface_lost = true;
+        slave.Stop();
+        end_session();
+      } else if (!shut_down && hub_ && hub_->sweep_pending()) {
+        log_info("bit rate detection requested: ending the CANopen session on %s", where.c_str());
         slave.Stop();
         end_session();
       } else if (shut_down && ++slices_after_shutdown >= kShutdownSlices) {

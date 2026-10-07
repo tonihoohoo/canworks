@@ -297,7 +297,10 @@ void prepare() {
           if (other.is_slave() && other.adapter.simulate && other.adapter.interface == cfg.adapter.interface)
             shared = other.network.empty() ? other.adapter.interface : other.network;
       log_warn("%s", sim_summary(cfg, sim->file, shared).c_str());
-      if (cfg.adapter.simulate) sim->tap = std::make_shared<SimTraceTap>();
+      if (cfg.adapter.simulate) {
+        sim->tap = std::make_shared<SimTraceTap>();
+        sim->injector = std::make_shared<SimFrameInjector>();
+      }
     }
     net->sim = sim;
     if (cfg.master.has_diagnostics) net->hub.reset(new DiagHub(cfg, CANOPEN_PLUGIN_VERSION));
@@ -311,8 +314,10 @@ void prepare() {
     for (auto& n : st->nets) hubs.push_back(n->hub.get());
     st->server.reset(new DiagServer(hubs));
     for (size_t i = 0; i < st->nets.size(); ++i)
-      if (st->nets[i]->sim && st->nets[i]->sim->tap)
+      if (st->nets[i]->sim && st->nets[i]->sim->tap) {
         st->server->set_trace_source(make_sim_trace_source(st->nets[i]->sim->tap), i);
+        if (st->nets[i]->sim->injector) st->server->set_frame_injector(st->nets[i]->sim->injector, i);
+      }
   }
   g_state = std::move(st);
 }

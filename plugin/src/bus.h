@@ -46,7 +46,13 @@ struct SimSetup {
   canopen_sim::SimFile file;
   std::shared_ptr<canopen_sim::StoreMap> store;
   std::shared_ptr<SimTraceTap> tap;
+  // Frames sent by hand through the diagnostics channel (frame_tx.h).
+  std::shared_ptr<SimFrameInjector> injector;
 };
+
+// Bus thread, between two sessions: runs the bit rate sweep the diagnostics
+// channel asked for, if any (bitrate_sweep.h). Returns whether one ran.
+bool run_requested_sweep(DiagHub* hub, CanAdapter* adapter, const Config& cfg, const std::atomic<bool>& stop);
 IfaceState iface_state(const std::string& name);
 
 class Bus {

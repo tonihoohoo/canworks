@@ -182,6 +182,10 @@ jobs:
         if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: test/trace/run.sh
 
+      - name: Raw frames and bit rate detection on vcan0 and the simulated bus
+        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        run: test/rawframes/run.sh
+
       - name: Bus state byte on vcan0 (interface taken down and up)
         if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: test/bus/run.sh

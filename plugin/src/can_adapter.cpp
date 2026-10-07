@@ -209,6 +209,24 @@ class NetlinkOps : public LinkOps {
     req.add(IFLA_TXQLEN, &v, sizeof(v));
     return transact(req, nullptr);
   }
+
+  int set_listen_only(const std::string& name, bool on) override {
+    unsigned index = if_nametoindex(name.c_str());
+    if (!index) return -ENODEV;
+    // What `ip link set <name> type can listen-only on|off` sends.
+    NlRequest req(RTM_NEWLINK, NLM_F_ACK);
+    req.ifi()->ifi_index = static_cast<int>(index);
+    rtattr* linkinfo = req.begin_nest(IFLA_LINKINFO);
+    req.add(IFLA_INFO_KIND, "can", 3);
+    rtattr* data = req.begin_nest(IFLA_INFO_DATA);
+    can_ctrlmode cm{};
+    cm.mask = CAN_CTRLMODE_LISTENONLY;
+    cm.flags = on ? CAN_CTRLMODE_LISTENONLY : 0;
+    req.add(IFLA_CAN_CTRLMODE, &cm, sizeof(cm));
+    req.end_nest(data);
+    req.end_nest(linkinfo);
+    return transact(req, nullptr);
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -294,6 +312,7 @@ class SocketCanAdapter : public CanAdapter {
 
   const std::string& interface() const override { return cfg_.interface; }
   std::string problem() const override { return problem_; }
+  LinkOps* link_ops() override { return ops_.get(); }
 
   AdapterState prepare() override {
     const char* name = cfg_.interface.c_str();
@@ -379,6 +398,7 @@ class SlcanAdapter : public CanAdapter {
 
   const std::string& interface() const override { return cfg_.interface; }
   std::string problem() const override { return problem_; }
+  LinkOps* link_ops() override { return ops_.get(); }
 
   AdapterState prepare() override {
     LinkInfo li;

@@ -16,6 +16,7 @@
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "cJSON.h"
@@ -151,6 +152,7 @@ void DiagHub::wake() {
 void DiagHub::attach() { attached_.store(true, std::memory_order_release); }
 
 void DiagHub::detach() {
+  set_operational("");
   {
     std::lock_guard<std::mutex> lock(mutex_);
     attached_.store(false, std::memory_order_release);
@@ -209,6 +211,139 @@ void DiagHub::take_answers(std::vector<std::pair<uint64_t, std::string>>& out) {
   answers_.clear();
 }
 
+void DiagHub::set_operational(const std::string& label) {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  if (operational_ != label) operational_ = label;
+}
+
+std::string DiagHub::operational() const {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  return operational_;
+}
+
+void DiagHub::set_send_jobs(const std::string& json_array) {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  send_jobs_ = json_array;
+}
+
+void DiagHub::add_tx_status(cJSON* res) const {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  cJSON* jobs = cJSON_Parse(send_jobs_.c_str());
+  cJSON_AddItemToObject(res, "send_jobs", jobs ? jobs : cJSON_CreateArray());
+  cJSON* sw = cJSON_AddObjectToObject(res, "bitrate_sweep");
+  cJSON_AddBoolToObject(sw, "running", sweep_pending_ || sweep_running_);
+}
+
+bool DiagHub::request_sweep(const SweepRequest& req) {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  if (sweep_pending_ || sweep_running_) return false;
+  sweep_pending_ = true;
+  sweep_ever_ = true;
+  sweep_req_ = req;
+  sweep_pg_ = SweepProgress();
+  std::vector<unsigned> rates = req.rates_kbit;
+  if (rates.empty()) rates.assign(std::begin(kSweepRates), std::end(kSweepRates));
+  sweep_pg_.total = static_cast<unsigned>(rates.size()) * std::max(1u, req.rounds);
+  sweep_partial_.clear();
+  for (unsigned k : rates) {
+    SweepRate r;
+    r.bitrate_kbit = k;
+    sweep_partial_.push_back(r);
+  }
+  sweep_result_ = SweepResult();
+  sweep_finished_at_.clear();
+  return true;
+}
+
+bool DiagHub::sweep_pending() const {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  return sweep_pending_;
+}
+
+bool DiagHub::sweep_busy() const {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  return sweep_pending_ || sweep_running_;
+}
+
+bool DiagHub::take_sweep(SweepRequest& out) {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  if (!sweep_pending_) return false;
+  sweep_pending_ = false;
+  sweep_running_ = true;
+  out = sweep_req_;
+  return true;
+}
+
+void DiagHub::sweep_progress(const SweepProgress& p) {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  sweep_pg_.rate_kbit = p.rate_kbit;
+  sweep_pg_.round = p.round;
+  sweep_pg_.done = p.done;
+  sweep_pg_.total = p.total;
+  if (p.results) sweep_partial_ = *p.results;
+}
+
+void DiagHub::sweep_done(const SweepResult& r) {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  sweep_running_ = false;
+  sweep_result_ = r;
+  sweep_partial_ = r.results;
+  sweep_pg_.rate_kbit = 0;
+  sweep_pg_.done = sweep_pg_.total;
+  time_t t = time(nullptr);
+  struct tm tm;
+  gmtime_r(&t, &tm);
+  char buf[32];
+  strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%SZ", &tm);
+  sweep_finished_at_ = buf;
+}
+
+cJSON* DiagHub::sweep_status() const {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  cJSON* res = cJSON_CreateObject();
+  const bool running = sweep_pending_ || sweep_running_;
+  cJSON_AddBoolToObject(res, "running", running);
+  cJSON_AddNumberToObject(res, "configured_kbit", cfg_.adapter.bitrate / 1000);
+  if (!sweep_ever_) {
+    cJSON_AddNullToObject(res, "verdict");
+    return res;
+  }
+  if (running && sweep_pg_.rate_kbit)
+    cJSON_AddNumberToObject(res, "rate_kbit", sweep_pg_.rate_kbit);
+  else
+    cJSON_AddNullToObject(res, "rate_kbit");
+  cJSON_AddNumberToObject(res, "round", sweep_pg_.round);
+  cJSON_AddNumberToObject(res, "done", sweep_pg_.done);
+  cJSON_AddNumberToObject(res, "total", sweep_pg_.total);
+  cJSON* list = cJSON_AddArrayToObject(res, "results");
+  for (const auto& r : sweep_partial_) {
+    cJSON* o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "bitrate_kbit", r.bitrate_kbit);
+    cJSON_AddNumberToObject(o, "frames", double(r.frames));
+    cJSON_AddNumberToObject(o, "error_frames", double(r.error_frames));
+    cJSON* ids = cJSON_AddArrayToObject(o, "ids");
+    for (uint32_t id : r.ids) cJSON_AddItemToArray(ids, cJSON_CreateNumber(id));
+    cJSON_AddItemToArray(list, o);
+  }
+  if (running) {
+    cJSON_AddNullToObject(res, "verdict");
+    return res;
+  }
+  const SweepResult& sr = sweep_result_;
+  cJSON_AddStringToObject(res, "verdict", sweep_verdict_name(sr.verdict));
+  if (sr.verdict == SweepVerdict::Detected) {
+    cJSON_AddNumberToObject(res, "bitrate_kbit", sr.bitrate_kbit);
+    cJSON_AddBoolToObject(res, "matches_config", sr.bitrate_kbit * 1000 == cfg_.adapter.bitrate);
+  } else {
+    cJSON_AddNullToObject(res, "bitrate_kbit");
+  }
+  cJSON* cand = cJSON_AddArrayToObject(res, "candidates");
+  for (unsigned k : sr.candidates) cJSON_AddItemToArray(cand, cJSON_CreateNumber(k));
+  if (sr.verdict == SweepVerdict::Failed) cJSON_AddStringToObject(res, "error", sr.error.c_str());
+  cJSON_AddStringToObject(res, "finished_at", sweep_finished_at_.c_str());
+  return res;
+}
+
 std::string DiagHub::offline_answer(const DiagRequest& r) const {
   if (r.op != "status") return diag_error(r.id, "no bus");
   cJSON* res = cJSON_CreateObject();
@@ -226,6 +361,7 @@ std::string DiagHub::offline_answer(const DiagRequest& r) const {
     cJSON* b = cJSON_AddObjectToObject(res, "bus");
     cJSON_AddStringToObject(b, "interface", cfg_.adapter.interface.c_str());
     cJSON_AddNumberToObject(b, "state", 0);
+    add_tx_status(res);
     return diag_ok(r.id, res);
   }
   cJSON* m = cJSON_AddObjectToObject(res, "master");
@@ -247,6 +383,7 @@ std::string DiagHub::offline_answer(const DiagRequest& r) const {
     cJSON_AddBoolToObject(o, "sim_conflict", false);
     cJSON_AddItemToArray(nodes, o);
   }
+  add_tx_status(res);
   return diag_ok(r.id, res);
 }
 
@@ -261,6 +398,11 @@ constexpr std::chrono::seconds DiagServer::kRetryListen;
 constexpr std::chrono::seconds DiagServer::kLoginBackoff;
 constexpr size_t DiagServer::kTraceFetchDefault;
 constexpr size_t DiagServer::kTraceFetchMax;
+constexpr unsigned DiagServer::kMaxJobsPerNetwork;
+constexpr unsigned DiagServer::kMinPeriodMs;
+constexpr unsigned DiagServer::kMaxPeriodMs;
+constexpr std::chrono::minutes DiagServer::kJobTimeLimit;
+constexpr double DiagServer::kSingleFramesPerSecond;
 
 DiagServer::DiagServer(DiagHub& hub) : DiagServer(std::vector<DiagHub*>{&hub}) {}
 
@@ -310,8 +452,11 @@ void DiagServer::start() {
     log_error("diagnostics: cannot create a pipe: %s; diagnostics are off", std::strerror(errno));
     return;
   }
-  for (auto& ch : chans_)
+  for (auto& ch : chans_) {
     if (!ch.source) ch.source = make_can_trace_source();
+    if (!ch.sink && !ch.hub->config().adapter.simulate) ch.sink = make_can_frame_sink(ch.hub->config().adapter.interface);
+  }
+  if (!link_ops_) link_ops_ = make_netlink_ops();
   thread_ = std::thread([this] { run(); });
 }
 
@@ -326,7 +471,9 @@ void DiagServer::stop() {
   for (auto& ch : chans_) {
     if (ch.source) ch.source->close();
     ch.open = false;
+    if (ch.sink) ch.sink->close();
   }
+  jobs_.clear();
   if (listen_fd_ >= 0) close(listen_fd_);
   listen_fd_ = -1;
   port_ = 0;
@@ -408,8 +555,11 @@ void DiagServer::run() {
       if (!c.closing) ev |= POLLIN;
       fds.push_back({c.fd, ev, 0});
     }
-    // A trace waiting for its capture to open retries often.
-    int r = poll(fds.data(), fds.size(), waiting_capture ? 200 : 1000);
+    // A trace waiting for its capture to open retries often; a send job
+    // wakes the loop when it is due.
+    int timeout = waiting_capture ? 200 : 1000;
+    if (!jobs_.empty()) timeout = std::min<int>(timeout, static_cast<int>(service_jobs(clock::now()).count()));
+    int r = poll(fds.data(), fds.size(), timeout);
     if (r < 0 && errno != EINTR) {
       log_error("diagnostics: poll failed: %s; diagnostics stop", std::strerror(errno));
       return;
@@ -472,6 +622,7 @@ void DiagServer::run() {
     }
     if (listen_fd_ >= 0 && (fds[1].revents & POLLIN)) accept_clients();
     update_capture(clock::now());
+    if (!jobs_.empty() || !ended_.empty()) service_jobs(clock::now());
   }
 }
 
@@ -495,6 +646,7 @@ void DiagServer::accept_clients() {
     Client c;
     c.fd = fd;
     c.peer = addr;
+    c.serial = next_client_++;
     c.since = std::chrono::steady_clock::now();
     // Told "too many clients" in its own mode (plain or TLS) once that is known.
     c.refusing = refusing;
@@ -503,6 +655,7 @@ void DiagServer::accept_clients() {
 }
 
 void DiagServer::close_client(size_t i) {
+  end_client_jobs(clients_[i].serial, "client disconnected");
   if (clients_[i].fd >= 0) close(clients_[i].fd);
   clients_.erase(clients_.begin() + static_cast<long>(i));
 }
@@ -724,6 +877,12 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
 
   if (c.authed && r.op.compare(0, 6, "trace_") == 0) {
     handle_trace(c, net, r.op, r.id, req);
+    cJSON_Delete(req);
+    return;
+  }
+  if (c.authed && (r.op == "send_frame" || r.op == "send_frame_stop" || r.op == "detect_bitrate" ||
+                   r.op == "detect_bitrate_status")) {
+    handle_tx(c, net, r.op, r.id, req);
     cJSON_Delete(req);
     return;
   }
@@ -1106,6 +1265,406 @@ bool DiagServer::handle_trace(Client& c, size_t net, const std::string& op, cons
   }
   c.out += diag_error(id, "unknown op '" + op + "'");
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Raw frames and bit rate detection
+
+namespace {
+
+constexpr std::chrono::seconds kEndedKeep{60};
+
+bool get_bool(const cJSON* req, const char* key, bool& out, std::string& why) {
+  const cJSON* v = cJSON_GetObjectItemCaseSensitive(req, key);
+  if (v && !cJSON_IsBool(v)) {
+    why = std::string("field '") + key + "' must be true or false";
+    return false;
+  }
+  out = cJSON_IsTrue(v);
+  return true;
+}
+
+std::string id_text(const RawFrame& f) {
+  char buf[16];
+  std::snprintf(buf, sizeof buf, f.ext ? "0x%08X" : "0x%03X", f.id);
+  return buf;
+}
+
+std::string errno_text(int rc) { return std::strerror(-rc); }
+
+}  // namespace
+
+void DiagServer::handle_tx(Client& c, size_t net, const std::string& op, const std::string& id, const cJSON* req) {
+  if (op == "send_frame") return handle_send(c, net, id, req);
+  if (op == "detect_bitrate_status") {
+    c.out += diag_ok(id, chans_[net].hub->sweep_status());
+    return;
+  }
+  if (op == "detect_bitrate") return handle_detect(c, net, id, req);
+  // send_frame_stop: one of this connection's jobs, or all of them; ended
+  // jobs are reported too, so a client learns why its job stopped.
+  uint64_t job = 0, v = 0;
+  std::string why;
+  if (cJSON_GetObjectItemCaseSensitive(req, "job")) {
+    if (!get_uint(req, "job", uint64_t(1) << 53, v, why)) {
+      c.out += diag_error(id, why);
+      return;
+    }
+    job = v;
+  }
+  auto now = std::chrono::steady_clock::now();
+  bool found = false;
+  for (size_t i = jobs_.size(); i-- > 0;)
+    if (jobs_[i].client == c.serial && (!job || jobs_[i].job == job)) {
+      end_job(i, "stopped", now);
+      found = true;
+    }
+  cJSON* res = cJSON_CreateObject();
+  cJSON* list = cJSON_AddArrayToObject(res, "stopped");
+  for (size_t i = ended_.size(); i-- > 0;) {
+    const TxJob& j = ended_[i];
+    if (j.client != c.serial || (job && j.job != job)) continue;
+    found = true;
+    cJSON* o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "job", double(j.job));
+    cJSON_AddNumberToObject(o, "id", j.frame.id);
+    cJSON_AddNumberToObject(o, "period_ms", j.period_ms);
+    cJSON_AddNumberToObject(o, "sent", double(j.sent));
+    cJSON_AddStringToObject(o, "reason", j.reason.c_str());
+    cJSON_AddItemToArray(list, o);
+    ended_.erase(ended_.begin() + static_cast<long>(i));
+  }
+  if (job && !found) {
+    cJSON_Delete(res);
+    c.out += diag_error(id, "no job " + std::to_string(job) + " of this connection");
+    return;
+  }
+  c.out += diag_ok(id, res);
+}
+
+std::string DiagServer::force_reason(size_t net, const RawFrame& f) const {
+  const DiagHub& hub = *chans_[net].hub;
+  std::string use = cob_id_use(hub.config(), f.id, f.ext);
+  if (!use.empty()) return id_text(f) + " is " + use + " on network " + (hub.config().network.empty() ? hub.config().adapter.interface : hub.config().network);
+  std::string op = hub.operational();
+  if (!op.empty()) return op + " is OPERATIONAL";
+  return "";
+}
+
+int DiagServer::send_now(size_t net, const RawFrame& f) {
+  Channel& ch = chans_[net];
+  if (!ch.sink) return -EOPNOTSUPP;
+  if (!ch.sink->is_open()) {
+    int rc = ch.sink->open();
+    if (rc < 0) return rc;
+  }
+  return ch.sink->send(f);
+}
+
+void DiagServer::handle_send(Client& c, size_t net, const std::string& id, const cJSON* req) {
+  DiagHub& hub = *chans_[net].hub;
+  const Config& cfg = hub.config();
+  std::string why;
+  uint64_t v = 0;
+  RawFrame f;
+  bool force = false;
+  if (!get_bool(req, "ext", f.ext, why) || !get_bool(req, "rtr", f.rtr, why) || !get_bool(req, "force", force, why) ||
+      !get_uint(req, "id", f.ext ? 0x1FFFFFFF : 0x7FF, v, why)) {
+    c.out += diag_error(id, why);
+    return;
+  }
+  f.id = static_cast<uint32_t>(v);
+  const cJSON* data = cJSON_GetObjectItemCaseSensitive(req, "data");
+  if (f.rtr) {
+    if (data) {
+      c.out += diag_error(id, "a remote frame has no data (give 'dlc')");
+      return;
+    }
+    if (cJSON_GetObjectItemCaseSensitive(req, "dlc")) {
+      if (!get_uint(req, "dlc", 8, v, why)) {
+        c.out += diag_error(id, why);
+        return;
+      }
+      f.dlc = static_cast<uint8_t>(v);
+    }
+  } else {
+    std::vector<uint8_t> bytes;
+    if (data && (!cJSON_IsString(data) || !parse_hex(data->valuestring, bytes))) {
+      c.out += diag_error(id, "field 'data' must be hexadecimal bytes such as \"40 18 10 01\"");
+      return;
+    }
+    if (bytes.size() > 8) {
+      c.out += diag_error(id, "a CAN frame carries at most 8 data bytes");
+      return;
+    }
+    f.dlc = static_cast<uint8_t>(bytes.size());
+    std::copy(bytes.begin(), bytes.end(), f.data);
+  }
+  unsigned period = 0;
+  uint64_t count = 0;
+  if (cJSON_GetObjectItemCaseSensitive(req, "period_ms")) {
+    if (!get_uint(req, "period_ms", kMaxPeriodMs, v, why)) {
+      c.out += diag_error(id, "field 'period_ms' must be 0 (one frame) or " + std::to_string(kMinPeriodMs) + "-" +
+                                  std::to_string(kMaxPeriodMs));
+      return;
+    }
+    period = static_cast<unsigned>(v);
+    if (period && period < kMinPeriodMs) {
+      c.out += diag_error(id, "field 'period_ms' must be 0 (one frame) or " + std::to_string(kMinPeriodMs) + "-" +
+                                  std::to_string(kMaxPeriodMs));
+      return;
+    }
+  }
+  if (cJSON_GetObjectItemCaseSensitive(req, "count")) {
+    if (!period) {
+      c.out += diag_error(id, "field 'count' needs 'period_ms'");
+      return;
+    }
+    if (!get_uint(req, "count", 1000000, v, why) || v < 1) {
+      c.out += diag_error(id, why.empty() ? "field 'count' must be 1-1000000" : why);
+      return;
+    }
+    count = v;
+  }
+  if (!settings().diag_allow_changes) {
+    c.out += diag_error(id, "changes not allowed");
+    return;
+  }
+  if (cfg.adapter.simulate && !chans_[net].sink) {
+    c.out += diag_error(id, "sending frames is not available on this simulated network");
+    return;
+  }
+  if (!hub.attached() || hub.sweep_busy()) {
+    c.out += diag_error(id, "no bus");
+    return;
+  }
+  std::string reason = force_reason(net, f);
+  if (!reason.empty() && !force) {
+    c.out += diag_error(id, reason + "; force needed");
+    return;
+  }
+  auto now = std::chrono::steady_clock::now();
+  const std::string forced = reason.empty() ? "" : " (forced: " + reason + ")";
+  if (!period) {
+    if (!c.tx_limit.take(now)) {
+      c.out += diag_error(id, "rate limit");
+      return;
+    }
+    int rc = send_now(net, f);
+    if (rc < 0) {
+      c.out += diag_error(id, rc == -ENOBUFS ? "transmit queue full" : "cannot send: " + errno_text(rc));
+      return;
+    }
+    log_info("%sdiagnostics: frame %s sent by %s%s", net_prefix(net).c_str(), raw_frame_text(f).c_str(),
+             c.peer.c_str(), forced.c_str());
+    cJSON* res = cJSON_CreateObject();
+    cJSON_AddBoolToObject(res, "sent", true);
+    c.out += diag_ok(id, res);
+    return;
+  }
+  unsigned on_net = 0;
+  for (const auto& j : jobs_)
+    if (j.net == net) ++on_net;
+  if (on_net >= kMaxJobsPerNetwork) {
+    c.out += diag_error(id, "too many jobs (at most " + std::to_string(kMaxJobsPerNetwork) + " per network)");
+    return;
+  }
+  TxJob j;
+  j.job = next_job_++;
+  j.net = net;
+  j.client = c.serial;
+  j.peer = c.peer;
+  j.frame = f;
+  j.period_ms = period;
+  j.count = count;
+  j.forced = !reason.empty();
+  j.started = j.next = now;
+  log_info("%sdiagnostics: cyclic frame %s every %u ms (job %llu%s) started by %s%s", net_prefix(net).c_str(),
+           raw_frame_text(f).c_str(), period, (unsigned long long)j.job,
+           count ? (", " + std::to_string(count) + " frames").c_str() : "", c.peer.c_str(), forced.c_str());
+  jobs_.push_back(j);
+  cJSON* res = cJSON_CreateObject();
+  cJSON_AddNumberToObject(res, "job", double(j.job));
+  cJSON_AddNumberToObject(res, "period_ms", period);
+  if (count)
+    cJSON_AddNumberToObject(res, "count", double(count));
+  else
+    cJSON_AddNullToObject(res, "count");
+  c.out += diag_ok(id, res);
+  // The first frame goes out now.
+  service_jobs(now);
+}
+
+std::chrono::milliseconds DiagServer::service_jobs(std::chrono::steady_clock::time_point now) {
+  using std::chrono::milliseconds;
+  std::vector<bool> changed(chans_.size(), false);
+  for (size_t i = jobs_.size(); i-- > 0;) {
+    TxJob& j = jobs_[i];
+    if (now < j.next) continue;
+    changed[j.net] = true;
+    if (now - j.started >= kJobTimeLimit) {
+      end_job(i, "time limit", now);
+      continue;
+    }
+    if (!chans_[j.net].hub->attached() || chans_[j.net].hub->sweep_busy()) {
+      end_job(i, "no bus", now);
+      continue;
+    }
+    int rc = send_now(j.net, j.frame);
+    if (rc < 0) {
+      end_job(i, rc == -ENOBUFS ? "transmit queue full" : "cannot send: " + errno_text(rc), now);
+      continue;
+    }
+    ++j.sent;
+    if (j.count && j.sent >= j.count) {
+      end_job(i, "count reached", now);
+      continue;
+    }
+    j.next += milliseconds(j.period_ms);
+    // Behind by more than a period (the thread was busy): no burst to catch up.
+    if (j.next < now) j.next = now + milliseconds(j.period_ms);
+  }
+  for (size_t i = ended_.size(); i-- > 0;)
+    if (now - ended_[i].ended >= kEndedKeep) {
+      changed[ended_[i].net] = true;
+      ended_.erase(ended_.begin() + static_cast<long>(i));
+    }
+  for (size_t n = 0; n < chans_.size(); ++n)
+    if (changed[n]) publish_jobs(n);
+  milliseconds wait(1000);
+  for (const auto& j : jobs_) {
+    auto d = std::chrono::duration_cast<milliseconds>(j.next - now);
+    if (d < wait) wait = d;
+  }
+  return wait < milliseconds(0) ? milliseconds(0) : wait;
+}
+
+void DiagServer::end_job(size_t i, const std::string& reason, std::chrono::steady_clock::time_point now) {
+  TxJob j = jobs_[i];
+  jobs_.erase(jobs_.begin() + static_cast<long>(i));
+  j.reason = reason;
+  j.ended = now;
+  log_info("%sdiagnostics: cyclic frame %s (job %llu) of %s ended: %s, %llu sent", net_prefix(j.net).c_str(),
+           raw_frame_text(j.frame).c_str(), (unsigned long long)j.job, j.peer.c_str(), reason.c_str(),
+           (unsigned long long)j.sent);
+  // Nobody can ask about a disconnected client's jobs.
+  if (reason != "client disconnected") ended_.push_back(j);
+  publish_jobs(j.net);
+}
+
+void DiagServer::end_client_jobs(uint64_t client, const std::string& reason) {
+  auto now = std::chrono::steady_clock::now();
+  for (size_t i = jobs_.size(); i-- > 0;)
+    if (jobs_[i].client == client) end_job(i, reason, now);
+  for (size_t i = ended_.size(); i-- > 0;)
+    if (ended_[i].client == client) ended_.erase(ended_.begin() + static_cast<long>(i));
+}
+
+void DiagServer::publish_jobs(size_t net) {
+  cJSON* list = cJSON_CreateArray();
+  for (const auto& j : jobs_) {
+    if (j.net != net) continue;
+    cJSON* o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "job", double(j.job));
+    cJSON_AddNumberToObject(o, "id", j.frame.id);
+    cJSON_AddBoolToObject(o, "ext", j.frame.ext);
+    cJSON_AddNumberToObject(o, "period_ms", j.period_ms);
+    cJSON_AddNumberToObject(o, "sent", double(j.sent));
+    if (j.count)
+      cJSON_AddNumberToObject(o, "count", double(j.count));
+    else
+      cJSON_AddNullToObject(o, "count");
+    cJSON_AddStringToObject(o, "peer", j.peer.c_str());
+    cJSON_AddItemToArray(list, o);
+  }
+  char* t = cJSON_PrintUnformatted(list);
+  chans_[net].hub->set_send_jobs(t ? t : "[]");
+  cJSON_free(t);
+  cJSON_Delete(list);
+}
+
+void DiagServer::handle_detect(Client& c, size_t net, const std::string& id, const cJSON* req) {
+  DiagHub& hub = *chans_[net].hub;
+  auto status = [&]() { c.out += diag_ok(id, hub.sweep_status()); };
+  const Config& cfg = hub.config();
+  std::string why;
+  uint64_t v = 0;
+  SweepRequest sr;
+  sr.peer = c.peer;
+  bool force = false;
+  if (!get_bool(req, "force", force, why)) {
+    c.out += diag_error(id, why);
+    return;
+  }
+  const cJSON* rates = cJSON_GetObjectItemCaseSensitive(req, "rates");
+  if (rates) {
+    if (!cJSON_IsArray(rates) || cJSON_GetArraySize(rates) < 1) {
+      c.out += diag_error(id, "field 'rates' must be a list of bit rates in kbit/s");
+      return;
+    }
+    const cJSON* r = nullptr;
+    cJSON_ArrayForEach(r, rates) {
+      unsigned k = cJSON_IsNumber(r) ? static_cast<unsigned>(r->valuedouble) : 0;
+      if (!cJSON_IsNumber(r) || r->valuedouble != k ||
+          std::find(std::begin(kSweepRates), std::end(kSweepRates), k) == std::end(kSweepRates)) {
+        c.out += diag_error(id, "field 'rates' takes 1000, 800, 500, 250, 125, 50, 20 and 10");
+        return;
+      }
+      if (std::find(sr.rates_kbit.begin(), sr.rates_kbit.end(), k) == sr.rates_kbit.end()) sr.rates_kbit.push_back(k);
+    }
+  }
+  if (cJSON_GetObjectItemCaseSensitive(req, "per_rate_ms")) {
+    if (!get_uint(req, "per_rate_ms", 10000, v, why) || v < 100) {
+      c.out += diag_error(id, "field 'per_rate_ms' must be 100-10000");
+      return;
+    }
+    sr.per_rate_ms = static_cast<unsigned>(v);
+  }
+  if (cJSON_GetObjectItemCaseSensitive(req, "rounds")) {
+    if (!get_uint(req, "rounds", 20, v, why) || v < 1) {
+      c.out += diag_error(id, "field 'rounds' must be 1-20");
+      return;
+    }
+    sr.rounds = static_cast<unsigned>(v);
+  }
+  if (!settings().diag_allow_changes) {
+    c.out += diag_error(id, "changes not allowed");
+    return;
+  }
+  if (hub.sweep_busy()) return status();  // the running sweep's progress
+  if (cfg.adapter.simulate) {
+    c.out += diag_error(id, "no bit rate on a virtual bus");
+    return;
+  }
+  if (cfg.adapter.type == "socketcan" && !cfg.adapter.configure_link) {
+    c.out += diag_error(id, "the link is configured by the system (configure_link false)");
+    return;
+  }
+  LinkInfo li;
+  int rc = link_ops_ ? link_ops_->get(cfg.adapter.interface, li) : -ENODEV;
+  if (rc == -ENODEV || !hub.attached()) {
+    c.out += diag_error(id, "no bus");
+    return;
+  }
+  if (rc == 0 && li.kind != "can") {
+    c.out += diag_error(id, "no bit rate on a virtual bus");
+    return;
+  }
+  std::string op = hub.operational();
+  const std::string netname = cfg.network.empty() ? cfg.adapter.interface : cfg.network;
+  if (!op.empty() && !force) {
+    c.out += diag_error(id, op + " is OPERATIONAL; CANopen on network " + netname + " would stop for the sweep; force needed");
+    return;
+  }
+  // Hand-sent frames stop with the session.
+  auto now = std::chrono::steady_clock::now();
+  for (size_t i = jobs_.size(); i-- > 0;)
+    if (jobs_[i].net == net) end_job(i, "bit rate detection", now);
+  hub.request_sweep(sr);
+  log_info("%sdiagnostics: bit rate detection on %s started by %s%s; CANopen on this network stops until it ends",
+           net_prefix(net).c_str(), cfg.adapter.interface.c_str(), c.peer.c_str(),
+           op.empty() ? "" : (" (forced: " + op + " was OPERATIONAL)").c_str());
+  status();
 }
 
 }  // namespace canopen_plugin
