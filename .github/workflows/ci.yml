@@ -112,7 +112,14 @@ jobs:
           test/cia402/run.sh --strucpp "${{ steps.strucpp.outputs.cli }}"
 
   vcan:
-    # The plugin on vcan, split over two runners (each has its own vcan0).
+    # The plugin on vcan, split over three runners (each has its own vcan0) so
+    # each runs about the same test time. Test step times (main, 2026-10-07):
+    #   group 1: link setup 2 s, ping-pong 16, two networks 21, PLC-cycle SYNC 7,
+    #            LSS 11, bus state 10, RTD module 18, parameters 10, fixed PDOs 9 = ~105 s
+    #   group 2: raw frames and bit rate 53, standalone device simulator 60 = ~115 s
+    #   group 3: bus trace 30, slcan 30, master and its own slave 29,
+    #            PLC SDO blocks 5, PC-direct commissioning 32 = ~125 s
+    # A new vcan test goes into the group with the least time; update the table.
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
@@ -120,8 +127,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [1, 2]
-    name: vcan (${{ matrix.group }}/2)
+        group: [1, 2, 3]
+    name: vcan (${{ matrix.group }}/3)
     steps:
       - uses: actions/checkout@v4
 
@@ -141,8 +148,8 @@ jobs:
           sudo modprobe vcan
           sudo ip link add dev vcan0 type vcan
 
-      - name: Bring vcan0 up (group 2; in group 1 the link setup test leaves it up)
-        if: steps.vcan.outcome == 'success' && matrix.group == 2
+      - name: Bring vcan0 up (groups 2 and 3; in group 1 the link setup test leaves it up)
+        if: steps.vcan.outcome == 'success' && matrix.group != 1
         run: sudo ip link set vcan0 up
 
       - name: Link setup on vcan0 (as root, then without CAP_NET_ADMIN)
@@ -179,7 +186,7 @@ jobs:
         run: test/lss/run.sh --seconds 10
 
       - name: Bus trace on vcan0 (capture, directions, filter, formats, idle trace)
-        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        if: steps.vcan.outcome == 'success' && matrix.group == 3
         run: test/trace/run.sh
 
       - name: Raw frames and bit rate detection on vcan0 and the simulated bus
@@ -191,34 +198,34 @@ jobs:
         run: test/bus/run.sh
 
       - name: slcan adapter (fake CANable on a pty, bridged to vcan1)
-        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        if: steps.vcan.outcome == 'success' && matrix.group == 3
         run: test/slcan/run.sh
 
       - name: RTD temperature module on vcan0
-        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: |
           test/sensor/run.sh --seconds 10
           test/sensor/run.sh --seconds 6 --keep-vendor-pdos
 
       - name: Device parameter backup, compare and restore on vcan0 (RTD module)
-        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: test/params/run.sh
 
       - name: Fixed PDO mapping (read-only mapping and COB-IDs) on vcan0
-        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: test/fixed/run.sh
 
       - name: The plugin's master and its own slave (vcan0 and vcan1 joined by cangw)
-        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        if: steps.vcan.outcome == 'success' && matrix.group == 3
         run: |
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq can-utils
+          python3 .github/scripts/apt_install.py can-utils
           sudo modprobe can-gw
           ip link show vcan1 >/dev/null 2>&1 || sudo ip link add dev vcan1 type vcan
           sudo ip link set vcan1 up
           sudo --preserve-env=PATH test/slave/run.sh
 
       - name: PLC program SDO blocks on vcan0 (a PLC stop cancels a transfer in flight)
-        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        if: steps.vcan.outcome == 'success' && matrix.group == 3
         env:
           CANOPEN_EDSLINT: python3
           PYTHONPATH: tools/deploy
@@ -231,7 +238,7 @@ jobs:
         run: test/simulator/run.sh
 
       - name: PC-direct commissioning through a CAN adapter on vcan0 (no runtime; then parity with the plugin)
-        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        if: steps.vcan.outcome == 'success' && matrix.group == 3
         run: test/localbus/run.sh
 
       - name: Report skipped vcan test
@@ -257,13 +264,11 @@ jobs:
       - uses: ./.github/actions/build-plugin
         with:
           kernel-modules: "false"
+          targets: canopen_check  # the DCF parity check; the tests use nothing else from the build
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: tshark (test_bustrace checks that Wireshark decodes the exported pcapng as CANopen)
-        run: sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tshark
 
       - name: Install the deploy tool tests' Python dependencies
         # cantools: loads every exported DBC strictly (test_dbcexport); not a deploy tool dependency.
@@ -271,9 +276,23 @@ jobs:
         # exported trace format (test_bustrace).
         run: python -m pip install -q jsonschema cantools python-can pyserial
 
+      - name: Does this shard run the Wireshark decode test (test_bustrace)?
+        id: bustrace
+        run: |
+          if python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3 --start tools/deploy/tests \
+              --top tools/deploy --exclude 'test_configurator_(.*page|layout)$' --contains '\.test_bustrace\..*\.test_wireshark_decodes_canopen$'; then
+            echo "here=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: tshark (test_bustrace checks that Wireshark decodes the exported pcapng as CANopen)
+        if: steps.bustrace.outputs.here == 'true'
+        timeout-minutes: 8
+        run: python3 .github/scripts/apt_install.py tshark
+
       - name: Deploy tool and configurator tests (shared fixtures, bundle, clash check, stub runtime, server, DCF export parity, DBC export)
         env:
           CANOPEN_REQUIRE_PARITY: "1"  # the DCF export is compared with build/canopen_check --dump-writes
+          CANOPEN_REQUIRE_TSHARK: ${{ steps.bustrace.outputs.here == 'true' && '1' || '' }}
         run: >
           python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3
           --start tools/deploy/tests --top tools/deploy --exclude 'test_configurator_(.*page|layout)$'
@@ -317,8 +336,25 @@ jobs:
       - name: Install the page tests' Python dependencies
         run: python -m pip install -q jsonschema playwright python-can pyserial
 
+      - name: Playwright version (the Chromium cache key)
+        id: playwright
+        run: echo "version=$(python -c 'import importlib.metadata as m; print(m.version("playwright"))')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
       - name: Chromium for the configurator page tests
-        run: python -m playwright install --with-deps chromium
+        # The browser from the cache (or downloaded); its system libraries through
+        # the bounded install, which skips the ones the runner already has.
+        timeout-minutes: 8
+        run: |
+          python -m playwright install chromium
+          deps=$(python -m playwright install-deps --dry-run chromium | sed -n 's/.*--no-install-recommends //p' | tr -d '"')
+          test -n "$deps" || { echo "no package list from playwright install-deps --dry-run" >&2; exit 1; }
+          python3 .github/scripts/apt_install.py --no-install-recommends $deps
 
       - name: Configurator page and layout tests
         env:

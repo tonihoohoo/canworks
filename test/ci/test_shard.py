@@ -78,6 +78,15 @@ class Run(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("empty shard", log)
 
+    def test_contains_names_one_shard_and_runs_nothing(self):
+        hits = []
+        for k in (1, 2):
+            rc, log = self.run_shard("--shard", f"{k}/2", "--exclude", "test_bad$", "--contains", r"\.test_two\.B\.test_c$")
+            self.assertNotIn("ok", log)
+            if rc == 0:
+                hits.append(k)
+        self.assertEqual(len(hits), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

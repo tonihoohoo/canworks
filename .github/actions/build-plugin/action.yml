@@ -2,7 +2,8 @@ name: Build the plugin
 description: >
   Upstream runtime checkout (plugin headers, stock install test), build
   dependencies, Lely CANopen from the cache (or built), the deploy tool in the
-  plugin venv (the plugin's EDS lint) and the cmake build in ./build.
+  plugin venv (the plugin's EDS lint) and the cmake build in ./build (every
+  target, or the ones named in `targets`).
 
 inputs:
   kernel-modules:
@@ -14,6 +15,11 @@ inputs:
     description: >
       Path of the STruC++ command (scripts/fetch-strucpp.sh). Set: the build
       also compiles the CiA 402 demo program into sim_tests.
+    default: ""
+  targets:
+    description: >
+      CMake targets to build, space separated. Empty: every target (the plugin,
+      the simulator and every test binary).
     default: ""
 
 runs:
@@ -27,17 +33,18 @@ runs:
         path: upstream-runtime
 
     - name: Install build dependencies
+      # Skips what the runner image already has, and bounds a stalled package
+      # mirror to a few minutes with one retry (.github/scripts/apt_install.py).
       shell: bash
       env:
         KERNEL_MODULES: ${{ inputs.kernel-modules }}
       run: |
-        sudo apt-get update -qq
         pkgs="build-essential cmake pkg-config autoconf automake libtool python3-venv can-utils libssl-dev"
-        if [ "$KERNEL_MODULES" = true ]; then
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkgs "linux-modules-extra-$(uname -r)" || \
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkgs
+        if [ "$KERNEL_MODULES" = true ] && ! modinfo vcan >/dev/null 2>&1; then
+          python3 .github/scripts/apt_install.py $pkgs "linux-modules-extra-$(uname -r)" || \
+          python3 .github/scripts/apt_install.py $pkgs
         else
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkgs
+          python3 .github/scripts/apt_install.py $pkgs
         fi
 
     - name: Prepare /opt/openplc-canopen
@@ -68,6 +75,7 @@ runs:
       shell: bash
       env:
         STRUCPP: ${{ inputs.strucpp }}
+        TARGETS: ${{ inputs.targets }}
       run: |
         cmake -B build -DOPENPLC_ROOT="$PWD/upstream-runtime" ${STRUCPP:+-DSTRUCPP="$STRUCPP"}
-        cmake --build build -j"$(nproc)"
+        cmake --build build -j"$(nproc)" ${TARGETS:+--target $TARGETS}
