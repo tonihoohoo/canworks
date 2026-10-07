@@ -217,6 +217,17 @@ std::string DiagHub::offline_answer(const DiagRequest& r) const {
   cJSON_AddStringToObject(res, "config_sha256", cfg_.file_sha256.c_str());
   cJSON_AddStringToObject(res, "network", cfg_.network.c_str());
   cJSON_AddBoolToObject(res, "session", false);
+  if (cfg_.is_slave()) {
+    cJSON_AddStringToObject(res, "role", "slave");
+    cJSON* s = cJSON_AddObjectToObject(res, "slave");
+    cJSON_AddNumberToObject(s, "node_id", cfg_.slave.lss ? 0 : cfg_.slave.node_id);
+    cJSON_AddNumberToObject(s, "state", 0);
+    cJSON_AddBoolToObject(s, "comm_ok", false);
+    cJSON* b = cJSON_AddObjectToObject(res, "bus");
+    cJSON_AddStringToObject(b, "interface", cfg_.adapter.interface.c_str());
+    cJSON_AddNumberToObject(b, "state", 0);
+    return diag_ok(r.id, res);
+  }
   cJSON* m = cJSON_AddObjectToObject(res, "master");
   cJSON_AddNumberToObject(m, "node_id", cfg_.master.node_id);
   cJSON_AddNumberToObject(m, "state", 0);
@@ -590,10 +601,28 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
       cJSON_AddStringToObject(o, "name", nc.network.c_str());
       cJSON_AddStringToObject(o, "interface", nc.adapter.interface.c_str());
       cJSON_AddNumberToObject(o, "bitrate", nc.adapter.bitrate);
-      cJSON_AddNumberToObject(o, "master_node_id", nc.master.node_id);
+      if (nc.is_slave()) {
+        cJSON_AddStringToObject(o, "role", "slave");
+        if (nc.slave.lss)
+          cJSON_AddNullToObject(o, "node_id");
+        else
+          cJSON_AddNumberToObject(o, "node_id", nc.slave.node_id);
+      } else {
+        cJSON_AddStringToObject(o, "role", "master");
+        cJSON_AddNumberToObject(o, "master_node_id", nc.master.node_id);
+      }
       cJSON_AddItemToArray(list, o);
     }
     c.out += diag_ok(r.id, res);
+    return;
+  }
+
+  // A slave network serves its status and its own dictionary; everything
+  // else needs a master network, refused before the fields are checked.
+  if (hub.config().is_slave() && r.op != "status" && r.op != "sdo_read" && r.op != "sdo_write" && r.op != "hello") {
+    cJSON_Delete(req);
+    c.out += diag_error(r.id, "network \"" + hub.config().network + "\" is a slave network; " + r.op +
+                                  " needs a master network");
     return;
   }
 
@@ -606,7 +635,7 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
       return false;
     }
     r.node = static_cast<unsigned>(v);
-    if (any_id && r.node == hub.config().master.node_id) {
+    if (any_id && !hub.config().is_slave() && r.node == hub.config().master.node_id) {
       why = "node " + std::to_string(r.node) + " is the master itself";
       return false;
     }

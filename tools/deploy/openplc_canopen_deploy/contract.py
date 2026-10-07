@@ -66,14 +66,16 @@ def version_of(cfg):
 def networks(cfg):
     """The config's networks, for both versions: a list of dicts with `name`
     ("" for a version 1 file), `index`, `path` (the JSON path prefix of the
-    network's fields, "" for version 1), `adapter`, `master` and `nodes`.
-    A version 2 network without a name is named after its interface."""
+    network's fields, "" for version 1), `role` ("master" or "slave"),
+    `adapter`, `master` and `nodes` (empty for a slave network) and `slave`
+    (the slave object, empty for a master network). A version 2 network
+    without a name is named after its interface."""
     if version_of(cfg) == 1 or not isinstance(cfg.get("networks"), list):
         adapter = cfg.get("adapter")
         if adapter is None and "interface" in cfg:
             adapter = {"type": "socketcan", "interface": cfg.get("interface"), "bitrate": cfg.get("bitrate")}
-        return [{"name": "", "index": 0, "path": "", "adapter": adapter or {}, "master": cfg.get("master") or {},
-                 "nodes": cfg.get("nodes") or [], "json": cfg}]
+        return [{"name": "", "index": 0, "path": "", "role": "master", "adapter": adapter or {},
+                 "master": cfg.get("master") or {}, "nodes": cfg.get("nodes") or [], "slave": {}, "json": cfg}]
     out = []
     for i, net in enumerate(cfg["networks"]):
         if not isinstance(net, dict):
@@ -83,8 +85,12 @@ def networks(cfg):
         if not isinstance(name, str) or not name:
             iface = adapter.get("interface")
             name = iface if isinstance(iface, str) and NETWORK_NAME.match(iface) else ""
-        out.append({"name": name, "index": i, "path": "networks[%d]" % i, "adapter": adapter,
-                    "master": net.get("master") or {}, "nodes": net.get("nodes") or [], "json": net})
+        slave = net.get("role") == "slave"
+        out.append({"name": name, "index": i, "path": "networks[%d]" % i, "role": "slave" if slave else "master",
+                    "adapter": adapter, "master": {} if slave else net.get("master") or {},
+                    "nodes": [] if slave else net.get("nodes") or [],
+                    "slave": (net.get("slave") if isinstance(net.get("slave"), dict) else {}) if slave else {},
+                    "json": net})
     return out
 
 
@@ -94,11 +100,38 @@ def all_nodes(cfg):
     return [n for net in networks(cfg) for n in net["nodes"] if isinstance(n, dict)]
 
 
+def slave_networks(cfg):
+    """The slave networks of the config (networks() entries with role
+    "slave"); none in a version 1 file."""
+    return [n for n in networks(cfg) if n["role"] == "slave"] if isinstance(cfg, dict) else []
+
+
+def eds_users(cfg):
+    """Every object of the config that names an EDS file with `eds`: the
+    nodes of every master network, then each slave network's slave object
+    (the dicts themselves, so changes land in `cfg`)."""
+    return all_nodes(cfg) + [n["slave"] for n in slave_networks(cfg) if n["slave"]]
+
+
+def slave_direction(access):
+    """Who writes an object of a slave's dictionary, from its EDS AccessType
+    (canopen-slave-device D3): "input" for rww and rw (the master writes it,
+    the PLC reads it from an %I location), "output" for ro and rwr (the PLC
+    writes it from a %Q location, the master reads it), None for const and
+    wo, which cannot be bound."""
+    if access in ("rww", "rw"):
+        return "input"
+    if access in ("ro", "rwr"):
+        return "output"
+    return None
+
+
 def network_config(cfg, name=None):
     """A version 1 style config (adapter, master, nodes) of one network, for
     the code that works on one network at a time. `name` picks the network;
     without it the config must have exactly one. Raises ValueError naming the
-    networks otherwise. Version 2 diagnostics go into the master."""
+    networks otherwise. Version 2 diagnostics go into the master. A slave
+    network comes back with an empty master and no nodes."""
     nets = networks(cfg)
     if name is None:
         if len(nets) != 1:
@@ -472,22 +505,33 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
     args = dict(path=path, base=base, eds_paths=eds_paths, sw_paths=sw_paths)
 
     if version == 1:
+        # Slave networks and the gateway exist only in version 2 (canopen-
+        # config-contract: "Slave network role").
+        for key in V2_ONLY_KEYS:
+            if key in cfg:
+                err("", "field '%s' needs schema_version 2: slave networks are entries of 'networks' with "
+                        "\"role\": \"slave\"" % key, [key])
+        found = [(where, key) for where, key in found if where not in V2_ONLY_KEYS]
         _check_network(r, cfg, "", 1, [(list(e.absolute_path), e) for e in schema_errors], **args)
     else:
-        _check_v2(r, cfg, schema_errors, err, args)
+        _check_v2(r, cfg, schema_errors, err, warn, args)
     for where, key in found:
         parent = where[: -len(key)].rstrip(".")
         warn(parent, "unknown field '%s' (%s) ignored" % (key, where), [where])
     return r
 
 
+# Top-level keys a version 1 file may not have.
+V2_ONLY_KEYS = ("role", "slave", "gateway")
+
 MOVED_V1_KEYS = (("adapter", "networks[].adapter"), ("master", "networks[].master"), ("nodes", "networks[].nodes"),
                  ("interface", "networks[].adapter.interface"), ("bitrate", "networks[].adapter.bitrate"))
 
 
-def _check_v2(r, cfg, schema_errors, err, args):
-    """A version 2 file: the top level, each network, then the checks across
-    networks (canopen-networks spec)."""
+def _check_v2(r, cfg, schema_errors, err, warn, args):
+    """A version 2 file: the top level, each network (master or slave), then
+    the checks across networks (canopen-networks spec) and the gateway
+    (canopen-gateway spec)."""
     for key, where in MOVED_V1_KEYS:
         if key in cfg:
             err("", "field '%s' belongs in %s in schema_version 2" % (key, where), [key])
@@ -516,12 +560,23 @@ def _check_v2(r, cfg, schema_errors, err, args):
             continue
         err(where, e.message)
     diag = isinstance(cfg.get("diagnostics"), dict)
+    routed = routed_entries(cfg)
+    slaves = {}
     for i, net in enumerate(nets):
         prefix = "networks[%d]" % i
         if not isinstance(net, dict):
             err(prefix, "must be an object", [prefix])
             continue
         before = len(r.errors)
+        role = "slave" if net.get("role") == "slave" else "master"
+        if role == "slave":
+            for key in ("master", "nodes"):
+                if key in net:
+                    err(prefix, "field '%s' belongs to a master network; a slave network (\"role\": \"slave\") has "
+                                "'slave' instead" % key, [prefix + "." + key])
+        elif "slave" in net:
+            err(prefix, "field 'slave' belongs to a slave network: give the network \"role\": \"slave\" (a master "
+                        "network has 'master' and 'nodes')", [prefix + ".slave"])
         for key in ("interface", "bitrate"):
             if key in net:
                 err(prefix, "field '%s' belongs in 'adapter' in schema_version 2" % key, [prefix + "." + key])
@@ -537,18 +592,36 @@ def _check_v2(r, cfg, schema_errors, err, args):
             (p == ["name"] and e.validator == "pattern") or
             (p == [] and e.validator == "not") or
             (p == ["master"] and e.validator == "not"))]
-        _check_network(r, net, prefix, 2, errors, diag=diag, before=before, **args)
         adapter = net.get("adapter") if isinstance(net.get("adapter"), dict) else {}
+        name = net.get("name") if isinstance(net.get("name"), str) and net.get("name") else adapter.get("interface")
+        _check_network(r, net, prefix, 2, errors, diag=diag, before=before, role=role, routed=routed,
+                       net_name=name if isinstance(name, str) else "", slaves=slaves, net_index=i, **args)
         iface = adapter.get("interface")
         if "name" not in net and isinstance(iface, str) and iface and not NETWORK_NAME.match(iface):
             err(prefix, 'interface "%s" is not usable as a network name; give the network a \'name\'' % iface,
                 [prefix + ".adapter.interface"])
     _check_across_networks(r, cfg, err)
+    # The gateway's own checks read the section's fields, so they run only
+    # once its shape is right (the schema errors above say what is not).
+    if "gateway" in cfg and not any(list(e.absolute_path)[:1] == ["gateway"] for e in schema_errors):
+        _check_gateway(cfg, err, warn, slaves)
+
+
+def routed_entries(cfg):
+    """{(network name, node ID, index, subindex)} of every field PDO entry a
+    gateway route names: only these may leave out iec_location."""
+    out = set()
+    g = cfg.get("gateway") if isinstance(cfg, dict) else None
+    for rt in (g.get("routes") if isinstance(g, dict) and isinstance(g.get("routes"), list) else []):
+        f = rt.get("field") if isinstance(rt, dict) else None
+        if isinstance(f, dict):
+            out.add((f.get("network"), _uint(f.get("node")), _uint(f.get("index")), _uint(f.get("subindex", 0))))
+    return out
 
 
 def _check_across_networks(r, cfg, err):
     nets = networks(cfg)
-    names, ifaces, devices = {}, {}, {}
+    names, ifaces, devices, simulated = {}, {}, {}, {}
     label = {n["index"]: "networks[%d]" % n["index"] + (" (%s)" % n["name"] if n["name"] else "") for n in nets}
     for n in nets:
         me = "networks[%d]" % n["index"]
@@ -561,7 +634,18 @@ def _check_across_networks(r, cfg, err):
                 names[key] = n["index"]
         a = n["adapter"]
         iface = a.get("interface")
-        if isinstance(iface, str) and iface:
+        if isinstance(iface, str) and iface and a.get("simulate") is True:
+            # Simulated networks with one interface name share one in-process
+            # bus: one master network and one slave network at most.
+            bus = simulated.setdefault(iface, {})
+            if n["role"] in bus:
+                err("networks", "%s and %s are both %s networks on simulated bus %s (a simulated bus takes one master "
+                                "network and one slave network)"
+                    % (label[bus[n["role"]]], label[n["index"]], n["role"], iface),
+                    ["networks[%d].adapter.interface" % bus[n["role"]], me + ".adapter.interface"])
+            else:
+                bus[n["role"]] = n["index"]
+        elif isinstance(iface, str) and iface:
             if iface in ifaces:
                 err("networks", "%s and %s both use interface %s" % (label[ifaces[iface]], label[n["index"]], iface),
                     ["networks[%d].adapter.interface" % ifaces[iface], me + ".adapter.interface"])
@@ -574,6 +658,27 @@ def _check_across_networks(r, cfg, err):
                     ["networks[%d].adapter.device" % devices[dev], me + ".adapter.device"])
             else:
                 devices[dev] = n["index"]
+    # On a shared simulated bus the master's node for the slave network is the
+    # plugin's own slave: a simulated device with that node ID would answer
+    # next to it.
+    for sl in nets:
+        sa, ss = sl["adapter"], sl["slave"]
+        iface = sa.get("interface")
+        nid = ss.get("node_id")
+        if sl["role"] != "slave" or sa.get("simulate") is not True or not isinstance(iface, str) or not iface \
+                or isinstance(nid, bool) or not isinstance(nid, int):
+            continue
+        for m in nets:
+            ma = m["adapter"]
+            if m["role"] != "master" or ma.get("simulate") is not True or ma.get("interface") != iface:
+                continue
+            for j, node in enumerate(m["nodes"]):
+                if not isinstance(node, dict) or _uint(node.get("node_id")) != nid:
+                    continue
+                if node.get("simulate", True) is not False:
+                    err("networks", '%s node %d is %s on simulated bus %s; set "simulate": false on the node, or the '
+                                    'simulator answers in its place' % (label[m["index"]], nid, label[sl["index"]], iface),
+                        ["networks[%d].nodes[%d].simulate" % (m["index"], j)])
     uses = []
     for n in nets:
         who = "networks[%d]" % n["index"] + (" (%s)" % n["name"] if n["name"] else "")
@@ -595,6 +700,15 @@ def location_uses(net, prefix=""):
         if loc is not None:
             out.append(((loc.area, loc.size, loc.element), prefix + who, base + at, str(loc)))
 
+    s = net.get("slave") or {}
+    for key in SLAVE_LOCATION_KEYS:
+        if key in s:
+            add(s[key], "slave " + key, "slave." + key)
+    for j, o in enumerate(s.get("objects") if isinstance(s.get("objects"), list) else []):
+        if isinstance(o, dict):
+            add(o.get("iec_location"), "slave object %s" % object_text(_uint(o.get("index")) or 0,
+                                                                     _uint(o.get("subindex")) or 0)
+                + (" (%s)" % o["name"] if o.get("name") else ""), "slave.objects[%d].iec_location" % j)
     m = net["master"]
     for key in ("bus_state_location", "tx_error_count_location", "rx_error_count_location", "bus_off_count_location",
                 "state_location"):
@@ -628,11 +742,15 @@ def location_uses(net, prefix=""):
     return out
 
 
-def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths, sw_paths, diag=False, before=None):
+def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths, sw_paths, diag=False, before=None,
+                   role="master", routed=(), net_name="", slaves=None, net_index=0):
     """One network: the version 1 top level, or one networks[] entry of a
     version 2 file (`prefix` "networks[i]", in front of every message's
     place and every path). `schema_errors`: (path inside the network,
-    error)."""
+    error). A slave network (`role` "slave") gets the slave checks, and its
+    EDS and bindings go into `slaves` under `net_index` for the gateway
+    check. `routed` holds the field entries gateway routes name
+    (routed_entries()), which may leave out iec_location."""
     if before is None:
         before = len(r.errors)
 
@@ -712,6 +830,8 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             continue
         if (where == "master" and e.validator == "not") or where == "master.eds_lint":
             continue  # reported above
+        if role == "slave" and where.split(".")[0].split("[")[0] in ("master", "nodes"):
+            continue  # misplaced in a slave network, reported by _check_v2
         if (where == "master" and e.validator == "required" and "'diagnostics'" in e.message) or (
                 version > 1 and where == "nodes" and e.validator == "minItems"):
             # The schema's rule for an empty node list, in the plugin's words.
@@ -726,6 +846,12 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
 
 
     if len(r.errors) > before:
+        return
+
+    if role == "slave":
+        got = _check_slave(cfg["slave"], err, add, base, eds_paths)
+        if got is not None and len(r.errors) == before and slaves is not None:
+            slaves[net_index] = got
         return
 
     # Schema-valid from here on: normalise numbers and run the plugin's
@@ -846,8 +972,14 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 bits = 0
                 for k, e in enumerate(p["entries"]):
                     entry = {"index": _uint(e["index"]), "subindex": _uint(e.get("subindex", 0)), "type": e["type"]}
-                    loc = parse_location(e["iec_location"])
-                    if not type_fits(e["type"], loc.size):
+                    loc = parse_location(e.get("iec_location"))
+                    if loc is None:
+                        if (net_name, node["node_id"], entry["index"], entry["subindex"]) not in routed:
+                            err("%s: entries[%d]" % (pw, k),
+                                "%s, object 0x%04X:%d: missing 'iec_location' (only an entry a gateway route uses "
+                                "may leave it out)" % (label, entry["index"], entry["subindex"]),
+                                ["%s.%s[%d].entries[%d]" % (w, key, j, k)])
+                    elif not type_fits(e["type"], loc.size):
                         err("%s: entries[%d]" % (pw, k),
                             "%s, object 0x%04X:%d: type %s (%d bit) does not fit location %s (%d bit)"
                             % (label, entry["index"], entry["subindex"], e["type"], CO_TYPES[e["type"]][1],
@@ -954,3 +1086,230 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
     if len(r.errors) == before:
         for msg, at in eds_warnings:
             add("warning", msg, [at])
+
+
+# ---------------------------------------------------------------------------
+# Slave networks (canopen-slave-device) and the gateway (canopen-gateway)
+
+# A slave's status and EMCY locations: (key, area, size letter).
+SLAVE_LOCATIONS = (("state_location", "I", "B"), ("comm_ok_location", "I", "X"), ("sync_count_location", "I", "W"),
+                   ("emcy_code_location", "Q", "W"), ("error_register_location", "Q", "B"))
+SLAVE_LOCATION_KEYS = tuple(k for k, _, _ in SLAVE_LOCATIONS)
+DEFAULT_STATUS_INDEX = 0x5E00
+DEFAULT_BRIDGE_INDEX = 0x5F00
+MAX_STATUS_NETWORKS = 4
+
+
+def object_text(index, sub):
+    return "0x%04X:%d" % (index, sub)
+
+
+def _check_slave(s, err, add, base, eds_paths):
+    """The plugin's checks of one schema-valid slave object: node ID, the
+    EDS (found, lint, readable) and every binding against it. Returns
+    (Eds, eds value, {(index, subindex): (objects position, location)}), or
+    None when the EDS cannot be used."""
+    nid = s.get("node_id")
+    node_id = None
+    if nid is not None:
+        node_id = _uint(nid)
+        if node_id is None or not 1 <= node_id <= 127:
+            err("slave", "field 'node_id' must be 1-127, or null for LSS: %s" % _value_text(nid), ["slave.node_id"])
+            node_id = None
+    value = s["eds"]
+    file = (eds_paths or {}).get(value) or os.path.join(base, value)
+    if not os.path.isfile(file):
+        add("error", "slave: EDS file %s not found" % file, ["slave.eds"])
+        return None
+    with open(file, "rb") as f:
+        text, corrections, lint = edslint.check(f.read(), node_id or 1)
+    mode = s.get("eds_lint") if s.get("eds_lint") in edslint.MODES else edslint.DEFAULT_MODE
+    lint_error, lint_warning, _ = edslint.verdict("slave", value, corrections, lint, mode)
+    if lint_error:
+        add("error", lint_error, ["slave.eds"])
+        return None
+    try:
+        eds = eds_mod.Eds.read(file, text)
+    except eds_mod.EdsError as e:
+        add("error", "slave: EDS file %s cannot be parsed: %s" % (file, e), ["slave.eds"])
+        return None
+    if lint_warning:
+        add("warning", "slave: " + lint_warning, ["slave.eds"])
+    bound = {}
+    for j, o in enumerate(s.get("objects", [])):
+        index, sub = _uint(o["index"]), _uint(o["subindex"])
+        at = "slave: objects[%d]" % j
+        if index > 0xFFFF or sub > 0xFF:
+            err(at, "object index must be 0x0000-0xFFFF and subindex 0-255", ["slave.objects[%d]" % j])
+            continue
+        what = "slave object %s" % object_text(index, sub) + (" (%s)" % o["name"] if o.get("name") else "")
+        loc = parse_location(o["iec_location"])
+        if (index, sub) in bound:
+            err(at, "%s is bound twice (objects[%d] and objects[%d])" % (what, bound[(index, sub)][0], j),
+                ["slave.objects[%d]" % bound[(index, sub)][0], "slave.objects[%d]" % j])
+            continue
+        bound[(index, sub)] = (j, str(loc))
+        so = eds.find(index, sub)
+        if so is None:
+            err(at, "%s is not defined in %s" % (what, value), ["slave.objects[%d]" % j])
+            continue
+        direction = slave_direction(so.access)
+        if direction is None:
+            err(at, "%s has AccessType %s in %s and cannot be bound: the PLC binds objects the master writes (rww, "
+                    "rw) to inputs and objects the master reads (ro, rwr) to outputs" % (what, so.access, value),
+                ["slave.objects[%d]" % j])
+            continue
+        if not so.type_name:
+            err(at, "%s has data type %s, which no PLC location holds (supported: %s)"
+                % (what, eds_mod.data_type_name(so.data_type), ", ".join(CO_TYPES)), ["slave.objects[%d]" % j])
+            continue
+        want = "I" if direction == "input" else "Q"
+        if loc.area != want:
+            if direction == "input":
+                msg = "the master writes %s (AccessType %s), so it needs an %%I location, not %s" % (
+                    object_text(index, sub), so.access, loc)
+                if so.access == "rw":
+                    msg += "; an object the PLC writes needs AccessType ro or rwr in the EDS"
+            else:
+                msg = "the master reads %s (AccessType %s), so it needs a %%Q location, not %s" % (
+                    object_text(index, sub), so.access, loc)
+            err(at, msg, ["slave.objects[%d].iec_location" % j])
+        elif not type_fits(so.type_name, loc.size):
+            err(at, "%s: type %s (%d bit) does not fit location %s (%d bit)"
+                % (what, so.type_name, CO_TYPES[so.type_name][1], loc, SIZE_BITS[loc.size]),
+                ["slave.objects[%d].iec_location" % j])
+    return eds, value, bound
+
+
+def _check_gateway(cfg, err, warn, slaves):
+    """The plugin's checks of the gateway section (canopen-gateway): the
+    upper network, the field networks, and each route's two ends, their
+    direction, type and single writer. `slaves`: what _check_slave()
+    returned per network index, for the slave networks that passed."""
+    g = cfg["gateway"]
+    if not isinstance(g, dict):
+        return
+    nets = networks(cfg)
+    by_name = {n["name"]: n for n in nets if n["name"]}
+    upper_name = g.get("upper")
+    upper = by_name.get(upper_name)
+    if upper is None:
+        err("gateway", "upper network '%s' is not in the config (networks: %s)"
+            % (upper_name, ", ".join(n["name"] or "unnamed" for n in nets)), ["gateway.upper"])
+    elif upper["role"] != "slave":
+        err("gateway", "the upper network '%s' must be a slave network (\"role\": \"slave\"), not a master network"
+            % upper_name, ["gateway.upper"])
+    masters = [n for n in nets if n["role"] == "master"]
+    if not masters:
+        err("gateway", "a gateway needs at least one master network (a field network) besides the slave network",
+            ["gateway"])
+    slave = slaves.get(upper["index"]) if upper is not None and upper["role"] == "slave" else None
+    eds, eds_name, bound = slave if slave else (None, None, {})
+    if isinstance(g.get("status"), dict):
+        if len(masters) > MAX_STATUS_NETWORKS:
+            warn("gateway", "gateway status: only the first %d master networks are published; network \"%s\" is not"
+                 % (MAX_STATUS_NETWORKS, masters[MAX_STATUS_NETWORKS]["name"]), ["gateway.status"])
+        if eds is not None:
+            base_index = _uint(g["status"].get("index", DEFAULT_STATUS_INDEX))
+            for k, m in enumerate(masters[:MAX_STATUS_NETWORKS]):
+                rec, bits = base_index + k, base_index + 0x10 + k
+                # The first master network's records are required; a later
+                # network whose records are both missing (an EDS generated
+                # for fewer networks) is left out with a warning, as the
+                # plugin does.
+                if k > 0 and not eds.has(rec) and not eds.has(bits):
+                    warn("gateway", "gateway status of network \"%s\" is not published: objects 0x%04X and 0x%04X are "
+                                    "not in the EDS %s" % (m["name"], rec, bits, eds_name), ["gateway.status"])
+                    continue
+                for index in (rec, bits):
+                    if not eds.has(index):
+                        err("gateway", "gateway status of network \"%s\" needs object 0x%04X in the EDS %s (generate "
+                                       "the slave EDS with the gateway section: openplc-canopen-deploy slave-eds "
+                                       "--gateway)" % (m["name"], index, eds_name), ["gateway.status"])
+    if g.get("sdo_bridge") is True and eds is not None:
+        index = _uint(g.get("sdo_bridge_index", DEFAULT_BRIDGE_INDEX))
+        if not eds.has(index) or eds.find(index, 9) is None:
+            err("gateway", "'sdo_bridge' needs the SDO bridge record 0x%04X (sub-indices 1-9) in the slave's EDS %s; "
+                           "generate the EDS with openplc-canopen-deploy slave-eds --gateway" % (index, eds_name),
+                ["gateway.sdo_bridge"])
+    if g.get("sdo_bridge_write") is True and g.get("sdo_bridge") is not True:
+        warn("gateway", "'sdo_bridge_write' has no effect without 'sdo_bridge'", ["gateway.sdo_bridge_write"])
+    writers = {}
+    for j, rt in enumerate(g.get("routes") or []):
+        at = "gateway: routes[%d]" % j
+        pj = "gateway.routes[%d]" % j
+        f = rt["field"]
+        fnet = by_name.get(f["network"])
+        node_id = _uint(f["node"])
+        index, sub = _uint(f["index"]), _uint(f.get("subindex", 0))
+        s_index, s_sub = _uint(rt["slave"]["index"]), _uint(rt["slave"].get("subindex", 0))
+        if fnet is None:
+            err(at, "field network '%s' is not in the config" % f["network"], [pj + ".field.network"])
+            continue
+        if fnet["role"] != "master":
+            err(at, "field network '%s' is a slave network; a route's field end is a PDO entry of a node on a master "
+                    "network" % f["network"], [pj + ".field.network"])
+            continue
+        node_i = next((i for i, n in enumerate(fnet["nodes"])
+                       if isinstance(n, dict) and _uint(n.get("node_id")) == node_id), None)
+        field_text = "network %s node %d %s" % (f["network"], node_id, object_text(index, sub))
+        if node_i is None:
+            err(at, "network %s has no node %d" % (f["network"], node_id), [pj + ".field.node"])
+            continue
+        found = {}
+        for key in ("tx_pdos", "rx_pdos"):
+            for pi, p in enumerate(fnet["nodes"][node_i].get(key) or []):
+                for k, e in enumerate(p.get("entries") or []):
+                    if _uint(e.get("index")) == index and _uint(e.get("subindex", 0)) == sub:
+                        found.setdefault(key, ("%s.nodes[%d].%s[%d].entries[%d]" % (fnet["path"], node_i, key, pi, k),
+                                               e))
+        if not found:
+            err(at, "%s is not an entry of the node's tx_pdos or rx_pdos; a route's field end is a PDO entry"
+                % field_text, [pj + ".field"])
+            continue
+        if eds is None:
+            continue  # the slave network's own errors say why
+        slave_text = "slave object %s" % object_text(s_index, s_sub)
+        so = eds.find(s_index, s_sub)
+        if so is None:
+            err(at, "%s is not defined in %s" % (slave_text, eds_name), [pj + ".slave"])
+            continue
+        direction = slave_direction(so.access)
+        if direction is None:
+            err(at, "%s has AccessType %s and cannot be routed: a route up needs ro or rwr, a route down rww or rw"
+                % (slave_text, so.access), [pj + ".slave"])
+            continue
+        up = direction == "output"
+        key = "tx_pdos" if up else "rx_pdos"
+        if key not in found:
+            other = found["rx_pdos" if up else "tx_pdos"][0]
+            if up:
+                err(at, "the upper master cannot write %s (AccessType %s), so it cannot feed the RPDO entry %s; route "
+                        "an rww or rw object down" % (slave_text, so.access, field_text), [pj + ".slave", other])
+            else:
+                err(at, "the upper master writes %s (AccessType %s), so the TPDO entry %s cannot write it; route an "
+                        "ro or rwr object up" % (slave_text, so.access, field_text), [pj + ".slave", other])
+            continue
+        entry_path, entry = found[key]
+        if entry.get("type") != so.type_name:
+            err(at, "%s (%s) and %s (%s) need the same data type" % (
+                field_text, entry.get("type"), slave_text, so.type_name or eds_mod.data_type_name(so.data_type)),
+                [pj, entry_path + ".type"])
+            continue
+        # One writer per target: the route, not the PLC or another route.
+        if up:
+            target, target_text = ("slave", s_index, s_sub), slave_text
+            plc = bound.get((s_index, s_sub))
+            plc_loc = plc[1] if plc else None
+            plc_path = "%s.slave.objects[%d].iec_location" % (upper["path"], plc[0]) if plc else None
+        else:
+            target, target_text = (f["network"], node_id, index, sub), "the RPDO entry " + field_text
+            plc_loc, plc_path = entry.get("iec_location"), entry_path + ".iec_location"
+        if plc_loc:
+            err(at, "%s is written by routes[%d] and by %s; give it one writer (leave out its location)"
+                % (target_text, j, plc_loc), [pj, plc_path])
+        if target in writers:
+            err(at, "%s is written by routes[%d] and routes[%d]; give it one writer"
+                % (target_text, writers[target], j), ["gateway.routes[%d]" % writers[target], pj])
+        else:
+            writers[target] = j

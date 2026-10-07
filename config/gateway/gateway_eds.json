@@ -1,0 +1,10 @@
+{
+  "device_name": "OpenPLC gateway example",
+  "vendor_id": 0,
+  "product_code": 2,
+  "heartbeat_ms": 500,
+  "layout": "manufacturer",
+  "objects": [
+    { "name": "field_ok", "type": "BOOLEAN", "direction": "to_master" }
+  ]
+}

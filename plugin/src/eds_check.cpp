@@ -2,6 +2,8 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <fstream>
+#include <sstream>
 #include <sys/stat.h>
 
 #include <lely/co/dcf.h>
@@ -9,6 +11,8 @@
 #include <lely/co/obj.h>
 #include <lely/co/type.h>
 #include <lely/util/diag.h>
+
+#include "sha256.h"
 
 namespace canopen_plugin {
 
@@ -482,7 +486,194 @@ void check_lss_addresses(const Config& cfg, std::vector<std::string>& errors) {
   }
 }
 
+// Whether the EDS data type is one a PLC location can hold.
+bool bindable_type(co_unsigned16_t type) {
+  return lely_type_bits(type) && type != CO_DEFTYPE_INTEGER24 && type != CO_DEFTYPE_UNSIGNED24;
+}
+
+std::string hex_object(uint16_t index, uint8_t subindex) {
+  char buf[16];
+  std::snprintf(buf, sizeof(buf), "0x%04X:%u", index, subindex);
+  return buf;
+}
+
+std::string file_sha256(const std::string& path) {
+  std::ifstream in(path, std::ios::binary);
+  std::ostringstream ss;
+  ss << in.rdbuf();
+  return sha256_hex(ss.str());
+}
+
+// A slave network (canopen-slave-device spec): the EDS must parse, each bound
+// object must be in it with a type a location holds, and its access type sets
+// the direction.
+void check_slave(Config& cfg, std::vector<std::string>& errors) {
+  SlaveConfig& s = cfg.slave;
+  std::string net = cfg.network.empty() ? "" : "network \"" + cfg.network + "\", ";
+  struct stat st;
+  if (stat(s.eds_path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+    std::string looked;
+    for (size_t i = 1; i < s.eds_candidates.size(); ++i)
+      looked += (i == 1 ? " (also looked for " : ", ") + s.eds_candidates[i];
+    if (!looked.empty()) looked += ")";
+    errors.push_back(net + s.label() + ": EDS file " + s.eds_path + " not found" + looked);
+    return;
+  }
+  std::string why;
+  co_dev_t* dev = parse_eds(s.eds_path, why);
+  if (!dev) {
+    errors.push_back(net + s.label() + ": EDS file " + s.eds_path + " cannot be parsed: " + why);
+    return;
+  }
+  s.eds_sha256 = file_sha256(s.eds_path);
+  for (auto& o : s.objects) {
+    std::string who = net + "slave " + o.label() + ": ";
+    const co_sub_t* sub = co_dev_find_sub(dev, o.index, o.subindex);
+    if (!sub) {
+      errors.push_back(who + "not in the EDS " + s.eds);
+      continue;
+    }
+    co_unsigned16_t type = co_sub_get_type(sub);
+    if (!bindable_type(type)) {
+      errors.push_back(who + "data type " + data_type_name(type) + " cannot be bound to a PLC location");
+      continue;
+    }
+    o.type = static_cast<CoType>(type);
+    unsigned access = co_sub_get_access(sub) & 0x1F;
+    std::string obj = hex_object(o.index, o.subindex);
+    if (access == CO_ACCESS_CONST || access == CO_ACCESS_WO) {
+      errors.push_back(who + "its access type is " + access_name(access) + " in the EDS, so it cannot be bound (use "
+                             "rww for a value from the master, ro or rwr for a value to the master)");
+      continue;
+    }
+    o.input = access == CO_ACCESS_RWW || access == CO_ACCESS_RW;
+    if (o.input && o.location.area != IecArea::Input) {
+      errors.push_back(who + "the master writes " + obj + " (access " + access_name(access) +
+                       "), so it needs an %I location, not " + o.location.str() +
+                       (access == CO_ACCESS_RW ? " (make it rwr in the EDS for a value the PLC sends)" : ""));
+      continue;
+    }
+    if (!o.input && o.location.area != IecArea::Output) {
+      errors.push_back(who + "the master reads " + obj + " (access " + access_name(access) +
+                       "), so the PLC writes it and it needs a %Q location, not " + o.location.str());
+      continue;
+    }
+    if (!co_type_fits(o.type, o.location.size))
+      errors.push_back(who + "type " + co_type_name(o.type) + " (" + std::to_string(co_type_bits(o.type)) +
+                       " bit) does not fit location " + o.location.str() + " (" +
+                       std::to_string(iec_size_bits(o.location.size)) + " bit)");
+  }
+  if ((s.has_emcy_code_location || s.has_error_register_location) && !co_dev_find_obj(dev, 0x1014))
+    errors.push_back(net + s.label() + ": emcy_code_location needs the EMCY object 0x1014 in the EDS " + s.eds);
+  if (s.lss && !co_dev_get_lss(dev))
+    cfg.warnings.push_back(s.label() + ": its EDS does not say LSS_Supported=1; LSS masters may not look for it");
+  co_dev_destroy(dev);
+}
+
 }  // namespace
+
+bool check_gateway_eds(ConfigSet& set, std::vector<std::string>& errors) {
+  GatewayConfig& g = set.gateway;
+  if (!g.enabled) return true;
+  size_t before = errors.size();
+  Config& upper = set.networks[g.upper];
+  std::string why;
+  co_dev_t* dev = parse_eds(upper.slave.eds_path, why);
+  if (!dev) return true;  // check_eds_files said why
+  const std::string eds = upper.slave.eds;
+  for (auto& r : g.routes) {
+    const Config& field = set.networks[r.field_network];
+    std::string sobj = hex_object(r.slave_index, r.slave_subindex), fobj = hex_object(r.index, r.subindex);
+    std::string fend = "node " + std::to_string(r.node) + (r.up ? " TPDO" : " RPDO") + " entry " + fobj +
+                       " on network \"" + field.network + "\"";
+    std::string who = "gateway " + r.label() + ": ";
+    const co_sub_t* sub = co_dev_find_sub(dev, r.slave_index, r.slave_subindex);
+    if (!sub) {
+      errors.push_back(who + "slave object " + sobj + " is not in the EDS " + eds);
+      continue;
+    }
+    unsigned access = co_sub_get_access(sub) & 0x1F;
+    if (access == CO_ACCESS_CONST || access == CO_ACCESS_WO) {
+      errors.push_back(who + "slave object " + sobj + " has access type " + access_name(access) +
+                       "; a route needs ro or rwr (up) or rww or rw (down)");
+      continue;
+    }
+    bool master_writes = access == CO_ACCESS_RWW || access == CO_ACCESS_RW;
+    if (!r.up && !master_writes) {
+      errors.push_back(who + "the upper master cannot write slave object " + sobj + " (access " +
+                       access_name(access) + "), so it cannot feed " + fend);
+      continue;
+    }
+    if (r.up && master_writes) {
+      errors.push_back(who + "the upper master writes slave object " + sobj + " (access " + access_name(access) +
+                       "), so it cannot take the value of " + fend + " (use an ro or rwr object)");
+      continue;
+    }
+    co_unsigned16_t type = co_sub_get_type(sub);
+    if (type != static_cast<co_unsigned16_t>(r.type)) {
+      errors.push_back(who + fend + " is " + co_type_name(r.type) + " but slave object " + sobj + " is " +
+                       data_type_name(type) + "; both ends need the same type");
+      continue;
+    }
+    if (r.up)
+      for (const auto& o : upper.slave.objects)
+        if (o.index == r.slave_index && o.subindex == r.slave_subindex)
+          errors.push_back(who + "writes slave object " + sobj + ", which is also bound to " + o.location.str() +
+                           "; only one of them may write it");
+  }
+  auto need = [&](uint16_t index, uint8_t subindex, co_unsigned16_t type, const std::string& what) {
+    const co_sub_t* sub = co_dev_find_sub(dev, index, subindex);
+    if (!sub) {
+      errors.push_back("gateway " + what + " needs object " + hex_object(index, subindex) + " in the EDS " + eds +
+                       " (generate the slave EDS with the gateway section)");
+      return false;
+    }
+    if (co_sub_get_type(sub) != type) {
+      errors.push_back("gateway " + what + ": object " + hex_object(index, subindex) + " must be " +
+                       data_type_name(type) + ", not " + data_type_name(co_sub_get_type(sub)));
+      return false;
+    }
+    return true;
+  };
+  if (g.has_status) {
+    unsigned k = 0;
+    for (const auto& c : set.networks) {
+      if (c.is_slave()) continue;
+      if (k >= 4) {
+        set.warnings.push_back("gateway status: only the first 4 master networks are published; network \"" +
+                               c.network + "\" is not");
+        break;
+      }
+      uint16_t rec = static_cast<uint16_t>(g.status_index + k), bits = static_cast<uint16_t>(g.status_index + 0x10 + k);
+      // The first master network's records are required; a later network
+      // whose records are both missing (EDS generated for fewer networks)
+      // is left out with a warning.
+      if (k > 0 && !co_dev_find_obj(dev, rec) && !co_dev_find_obj(dev, bits)) {
+        set.warnings.push_back("gateway status of network \"" + c.network + "\" is not published: objects " +
+                               hex_object(rec, 0).substr(0, 6) + " and " + hex_object(bits, 0).substr(0, 6) +
+                               " are not in the EDS " + eds);
+        ++k;
+        continue;
+      }
+      bool ok = true;
+      for (const auto& n : c.nodes)
+        ok = ok && need(rec, static_cast<uint8_t>(n.node_id), CO_DEFTYPE_UNSIGNED8,
+                        "status of network \"" + c.network + "\"");
+      for (uint8_t i = 1; ok && i <= 4; ++i)
+        ok = need(bits, i, CO_DEFTYPE_UNSIGNED32, "status of network \"" + c.network + "\"");
+      ++k;
+    }
+  }
+  if (g.sdo_bridge) {
+    static const co_unsigned16_t types[] = {CO_DEFTYPE_UNSIGNED8,  CO_DEFTYPE_UNSIGNED8, CO_DEFTYPE_UNSIGNED16,
+                                            CO_DEFTYPE_UNSIGNED8,  CO_DEFTYPE_UNSIGNED32, CO_DEFTYPE_UNSIGNED8,
+                                            CO_DEFTYPE_UNSIGNED8,  CO_DEFTYPE_UNSIGNED8, CO_DEFTYPE_UNSIGNED32};
+    for (uint8_t i = 1; i <= 9; ++i)
+      if (!need(g.sdo_bridge_index, i, types[i - 1], "sdo_bridge")) break;
+  }
+  co_dev_destroy(dev);
+  return errors.size() == before;
+}
 
 bool eds_sub_value(const NodeConfig& n, uint16_t index, uint8_t subindex, uint64_t& value) {
   std::string why;
@@ -544,6 +735,10 @@ bool eds_identity(const NodeConfig& n, uint32_t& vendor_id, uint32_t& product_co
 
 bool check_eds_files(Config& cfg, std::vector<std::string>& errors) {
   size_t before = errors.size();
+  if (cfg.is_slave()) {
+    check_slave(cfg, errors);
+    return errors.size() == before;
+  }
   for (auto& n : cfg.nodes) {
     struct stat st;
     if (stat(n.eds_path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {

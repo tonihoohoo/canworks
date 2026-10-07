@@ -878,6 +878,9 @@ int run_fixture_file(const std::string& file) {
       }
       warnings.insert(warnings.end(), cfg.warnings.begin(), cfg.warnings.end());
     }
+    if (ok) ok = check_gateway_eds(set, errors);
+    warnings.insert(warnings.end(), set.warnings.begin() + static_cast<long>(std::min(warnings.size(), set.warnings.size())),
+                    set.warnings.end());
     std::free(text);
     cJSON_Delete(cfg_json);
     bool want = std::string(cJSON_GetObjectItemCaseSensitive(c, "verdict")->valuestring) == "accept";
@@ -1710,6 +1713,54 @@ TEST(dcfgen_device_pdo_mapping) {
             join(errors));
   for (const auto& w : gen.slave_sdos[4])
     CHECK_MSG(w.index < 0x1400 || w.index > 0x1BFF, "write to " + std::to_string(w.index));
+  set_log_sink(nullptr);
+}
+
+// A PDO parameter set explicitly to the EDS default is written: dcfgen
+// leaves it out, but the node's real value can differ. The write comes after
+// the one that switches the PDO off, and a value dcfgen writes is not doubled.
+TEST(dcfgen_explicit_pdo_values_equal_to_eds_default) {
+  set_log_sink(silent);
+  std::string fixtures = FIXTURES_DIR;
+  std::string dir = tmpdir();
+  write(dir + "/cpp-slave.eds", read(fixtures + "/eds/cpp-slave.eds"));
+  // cpp-slave.eds: TPDO 1 and RPDO 1 transmission 1, inhibit time 0, event timer 0.
+  std::string json = replace(kValid, "\"tx_pdos\": [ { \"entries\"",
+                             "\"tx_pdos\": [ { \"transmission\": 1, \"inhibit_time_us\": 0, \"event_timer_ms\": 0, \"entries\"");
+  json = replace(json, "\"rx_pdos\": [ { \"entries\"", "\"rx_pdos\": [ { \"transmission\": 1, \"entries\"");
+  write(dir + "/canopen.json", json);
+  Config cfg;
+  GeneratedConfig gen;
+  std::vector<std::string> errors;
+  CHECK_MSG(load_config(dir + "/canopen.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors) &&
+                generate_device_config(cfg, default_dcfgen(), gen, errors),
+            join(errors));
+  const auto& w = gen.slave_sdos[2];
+  struct Want {
+    uint16_t index;
+    uint8_t sub;
+    std::vector<uint8_t> data;
+  };
+  for (const Want& x : {Want{0x1800, 2, {1}}, Want{0x1800, 3, {0, 0}}, Want{0x1800, 5, {0, 0}}, Want{0x1400, 2, {1}}}) {
+    int count = 0, at = -1, off = -1, on = -1;
+    for (int i = 0; i < static_cast<int>(w.size()); ++i) {
+      if (w[i].index == x.index && w[i].subindex == x.sub) {
+        ++count;
+        at = i;
+        CHECK(w[i].data == x.data);
+      }
+      if (w[i].index == x.index && w[i].subindex == 1 && w[i].data.size() == 4) {
+        if (w[i].data[3] & 0x80) {
+          if (off < 0) off = i;
+        } else {
+          on = i;
+        }
+      }
+    }
+    CHECK_MSG(count == 1 && off >= 0 && off < at && at < on,
+              std::to_string(x.index) + " sub " + std::to_string(x.sub) + ": count " + std::to_string(count) +
+                  " at " + std::to_string(at) + " off " + std::to_string(off) + " on " + std::to_string(on));
+  }
   set_log_sink(nullptr);
 }
 
@@ -2828,6 +2879,15 @@ TEST(config_force_simulate) {
   // Without the flag nothing changes.
   CHECK(parse(kValid, cfg, errors));
   CHECK(!cfg.adapter.simulate && !cfg.adapter.simulation_forced);
+  // Slave networks are forced too, next to master networks.
+  ConfigSet set;
+  const std::string two = R"({ "schema_version": 2, "networks": [
+    { "name": "line", "role": "slave", "adapter": { "type": "socketcan", "interface": "can0", "bitrate": 250000 },
+      "slave": { "node_id": 10, "eds": "openplc-slave.eds" } },
+    { "name": "field", "adapter": { "type": "socketcan", "interface": "can1", "bitrate": 500000 },
+      "master": { "node_id": 1 }, "nodes": [ { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds" } ] } ] })";
+  CHECK_MSG(parse_config_set(two, std::string(PINGPONG_DIR) + "/c.json", forced, set, errors), join(errors));
+  for (const auto& n : set.networks) CHECK(n.adapter.simulate && n.adapter.simulation_forced);
 }
 
 TEST(sim_trace_tap) {
@@ -3489,8 +3549,9 @@ TEST(diag_server_two_networks) {
   DiagClient c(server.port());
   std::string hello = c.ask(R"({"op":"hello","token":"secret"})");
   CHECK_MSG(hello.find(R"("protocol":1)") != std::string::npos &&
-                hello.find(R"("networks":[{"name":"io","interface":"vcan0","bitrate":125000,"master_node_id":1},)"
-                           R"({"name":"vcan1","interface":"vcan1","bitrate":500000,"master_node_id":3}])") !=
+                hello.find(R"("networks":[{"name":"io","interface":"vcan0","bitrate":125000,"role":"master","master_node_id":1},)"
+                           R"({"name":"vcan1","interface":"vcan1","bitrate":500000,"role":"master",)"
+                           R"("master_node_id":3}])") !=
                     std::string::npos,
             hello);
   std::string st = c.ask(R"({"op":"status"})");
@@ -3518,6 +3579,45 @@ TEST(diag_server_two_networks) {
   CHECK(c.ask(R"({"op":"trace_fetch","network":"vcan1","after":0})").find(R"("ok":true)") != std::string::npos);
   CHECK(c.ask(R"({"op":"trace_stop","network":"vcan1"})").find(R"("ok":true)") != std::string::npos);
   drives.detach();
+  server.stop();
+  set_log_sink(nullptr);
+}
+
+// A slave network in the diagnostics channel (canopen-slave-device): the
+// hello names its role and node ID, the offline status has the slave's
+// shape, and master-only operations are refused before their fields are read.
+TEST(diag_server_slave_network) {
+  set_log_sink(diag_capture);
+  std::string json = R"({ "schema_version": 2, "diagnostics": { "token_sha256": ")" + sha256_hex("secret") +
+                     R"(", "port": 1024, "bind": "127.0.0.1", "allow_changes": true }, "networks": [
+    { "name": "line", "role": "slave", "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 250000 },
+      "slave": { "node_id": 10, "eds": "openplc-slave.eds" } },
+    { "name": "field", "adapter": { "type": "socketcan", "interface": "vcan1", "bitrate": 500000 },
+      "master": { "node_id": 1 }, "nodes": [ { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds" } ] } ] })";
+  ConfigSet set;
+  std::vector<std::string> errors;
+  CHECK_MSG(parse_config_set(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors), join(errors));
+  if (set.networks.size() != 2) return;
+  for (auto& cfg : set.networks) cfg.master.diag_port = 0;
+  DiagHub line(set.networks[0], "test"), field(set.networks[1], "test");
+  DiagServer server(std::vector<DiagHub*>{&line, &field});
+  server.start();
+  CHECK(wait_port(server));
+  DiagClient c(server.port());
+  std::string hello = c.ask(R"({"op":"hello","token":"secret"})");
+  CHECK_MSG(hello.find(R"({"name":"line","interface":"vcan0","bitrate":250000,"role":"slave","node_id":10})") !=
+                std::string::npos,
+            hello);
+  std::string st = c.ask(R"({"op":"status","network":"line"})");
+  CHECK_MSG(st.find(R"("role":"slave")") != std::string::npos && st.find(R"("slave":{"node_id":10)") != std::string::npos,
+            st);
+  st = c.ask(R"({"op":"nmt","network":"line","node":10})");
+  CHECK_MSG(st.find("is a slave network; nmt needs a master network") != std::string::npos, st);
+  st = c.ask(R"({"op":"scan","network":"line"})");
+  CHECK_MSG(st.find("is a slave network") != std::string::npos, st);
+  // Its own node ID is not "the master itself"; without a session: no bus.
+  st = c.ask(R"({"op":"sdo_read","network":"line","node":1,"index":4096,"subindex":0})");
+  CHECK_MSG(st.find("no bus") != std::string::npos, st);
   server.stop();
   set_log_sink(nullptr);
 }

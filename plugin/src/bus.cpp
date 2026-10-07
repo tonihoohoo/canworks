@@ -3,12 +3,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <net/if.h>
 #include <pthread.h>
 
 #include <lely/ev/loop.hpp>
 #include <lely/io2/linux/can.hpp>
 #include <lely/io2/posix/poll.hpp>
+#include <lely/io2/sys/clock.hpp>
 #include <lely/io2/sys/io.hpp>
 #include <lely/io2/sys/timer.hpp>
 #include <lely/io2/vcan.hpp>
@@ -25,6 +27,22 @@ constexpr std::chrono::milliseconds Bus::kLoopSlice;
 constexpr int Bus::kShutdownSlices;
 constexpr int Bus::kSyncPriority;
 
+std::shared_ptr<lely::io::VirtualCanController> shared_virtual_bus(const std::string& interface) {
+  if (interface.empty()) return std::make_shared<lely::io::VirtualCanController>(lely::io::clock_monotonic);
+  static std::mutex mutex;
+  static std::map<std::string, std::weak_ptr<lely::io::VirtualCanController>> buses;
+  std::lock_guard<std::mutex> lock(mutex);
+  auto& slot = buses[interface];
+  std::shared_ptr<lely::io::VirtualCanController> bus = slot.lock();
+  if (!bus) {
+    // Lely's virtual controller is thread-safe: each channel reads on its own
+    // event loop, so the master's and the slave's bus threads can share it.
+    bus = std::make_shared<lely::io::VirtualCanController>(lely::io::clock_monotonic);
+    slot = bus;
+  }
+  return bus;
+}
+
 IfaceState iface_state(const std::string& name) {
   std::ifstream in("/sys/class/net/" + name + "/flags");
   if (!in) return IfaceState::Missing;
@@ -34,8 +52,8 @@ IfaceState iface_state(const std::string& name) {
 }
 
 Bus::Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub,
-         std::shared_ptr<const SimSetup> sim)
-    : cfg_(cfg), gen_(gen), image_(image), hub_(hub), sim_(std::move(sim)),
+         std::shared_ptr<const SimSetup> sim, GatewayLink* gw)
+    : cfg_(cfg), gen_(gen), image_(image), hub_(hub), sim_(std::move(sim)), gw_(gw),
       adapter_(cfg.adapter.simulate ? nullptr : make_adapter(cfg.adapter)), monitor_(cfg, image) {}
 
 Bus::~Bus() { stop(); }
@@ -134,11 +152,11 @@ void Bus::run_session() {
     const bool virt = cfg_.adapter.simulate;
     const std::string where = virt ? std::string("the simulated network") : cfg_.adapter.interface;
     // The master's channel: on the in-process virtual bus, or on the interface.
-    std::unique_ptr<lely::io::VirtualCanController> vbus;
+    std::shared_ptr<lely::io::VirtualCanController> vbus;
     std::unique_ptr<lely::io::CanController> ctrl;
     std::unique_ptr<lely::io::CanChannelBase> chan;
     if (virt) {
-      vbus.reset(new lely::io::VirtualCanController(timer.get_clock()));
+      vbus = shared_virtual_bus(cfg_.adapter.interface);
       auto* c = new lely::io::VirtualCanChannel(ctx, exec);
       chan.reset(c);
       c->open(*vbus);
@@ -171,6 +189,7 @@ void Bus::run_session() {
     }, &req_timer, &out_timer);
     log_info("opened %s, starting the CANopen master (node ID %u)", where.c_str(), cfg_.master.node_id);
     net.SetDiag(hub_);
+    net.SetGateway(gw_);
 
     // Simulated devices, on the virtual bus or on their own sockets on the
     // interface; they boot before the master starts.
@@ -238,6 +257,7 @@ void Bus::run_session() {
     }
     net.Start();
     SyncWake sync_wake(poll, image_.sync_fd(), net);
+    FdWake gw_wake(poll, gw_ ? gw_->fd(cfg_.network_index) : -1, [&net] { net.ServiceGateway(); });
     if (hub_) hub_->attach();
     // The loop runs in slices so that a stop or a lost interface ends the
     // session even when no supervision tick comes: when an slcan adapter is

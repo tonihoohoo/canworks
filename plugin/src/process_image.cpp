@@ -92,9 +92,11 @@ void ProcessImage::build(const Config& cfg) {
     node_has_errreg_.push_back(n.has_error_register_location);
     node_errreg_loc_.push_back(n.error_register_location);
     for (const auto& p : n.tx_pdos)
-      for (const auto& e : p.entries) inputs_.push_back({n.node_id, e.index, e.subindex, e.type, e.location});
+      for (const auto& e : p.entries)
+        if (e.has_location) inputs_.push_back({n.node_id, e.index, e.subindex, e.type, e.location});
     for (const auto& p : n.rx_pdos)
-      for (const auto& e : p.entries) outputs_.push_back({n.node_id, e.index, e.subindex, e.type, e.location});
+      for (const auto& e : p.entries)
+        if (e.has_location) outputs_.push_back({n.node_id, e.index, e.subindex, e.type, e.location});
   }
   const MasterConfig& m = cfg.master;
   bus_has_[0] = m.has_bus_state_location;
@@ -245,6 +247,12 @@ inline uint64_t read_output(const plugin_runtime_args_t& rt, const IecLocation& 
 }
 
 }  // namespace
+
+void image_write_input(const plugin_runtime_args_t& rt, const IecLocation& loc, uint64_t raw) {
+  write_input(rt, loc, raw);
+}
+
+uint64_t image_read_output(const plugin_runtime_args_t& rt, const IecLocation& loc) { return read_output(rt, loc); }
 
 void ProcessImage::copy_to_plc(const plugin_runtime_args_t& rt) {
   const uint64_t* snap = in_.latest();

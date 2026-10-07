@@ -111,6 +111,28 @@ class Downloads(unittest.TestCase):
         values = dcfexport.plugin_downloads(cfg, FIXTURE_CONFIG)[2].final_values()
         self.assertNotIn((0x1012, 0), values)
 
+    def test_explicit_pdo_values_equal_to_the_eds_default(self):
+        # dcfgen leaves these out (the EDS default); the node's real value
+        # may differ, so they are written, right after the PDO is switched off.
+        cfg = base_config()
+        node = cfg["nodes"][0]
+        node["tx_pdos"][0].update(transmission=1, inhibit_time_us=0, event_timer_ms=0)
+        node["rx_pdos"][0]["transmission"] = 1
+        w = dcfexport.plugin_downloads(cfg, FIXTURE_CONFIG)[2].writes
+        keys = [(i, s) for i, s, _ in w]
+        for key, data in (((0x1800, 2), b"\x01"), ((0x1800, 3), b"\x00\x00"), ((0x1800, 5), b"\x00\x00"),
+                          ((0x1400, 2), b"\x01")):
+            self.assertEqual(keys.count(key), 1, key)
+            i = keys.index(key)
+            self.assertEqual(w[i][2], data)
+            off = [j for j, (x, s, d) in enumerate(w) if (x, s) == (key[0], 1) and d[3] & 0x80]
+            on = [j for j, (x, s, d) in enumerate(w) if (x, s) == (key[0], 1) and not d[3] & 0x80]
+            self.assertTrue(off and off[0] < i < on[-1], (key, off, i, on))
+        # A value other than the default is dcfgen's own write, once.
+        node["tx_pdos"][0]["transmission"] = 254
+        w = dcfexport.plugin_downloads(cfg, FIXTURE_CONFIG)[2].writes
+        self.assertEqual([d for i, s, d in w if (i, s) == (0x1800, 2)], [b"\xfe"])
+
     def test_firmware_step_needs_a_version(self):
         cfg = base_config()
         cfg["nodes"][0]["software_file"] = "fw/node2.bin"

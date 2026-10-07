@@ -578,7 +578,20 @@ def describe_simulated(cfg):
         return _describe_one(cfg)
     parts = []
     for net in nets:
-        text = _describe_one({"adapter": net["adapter"], "nodes": net["nodes"]})
+        iface = net["adapter"].get("interface")
+        if net["role"] == "slave":
+            text = ("the slave runs on simulated bus %s" % iface) if net["adapter"].get("simulate") is True else None
+        else:
+            # The plugin's own slave on the same simulated bus serves its node ID.
+            served = {}
+            if net["adapter"].get("simulate") is True and isinstance(iface, str) and iface:
+                for other in nets:
+                    nid = (other["slave"] or {}).get("node_id")
+                    if other["role"] == "slave" and other["adapter"].get("simulate") is True \
+                            and other["adapter"].get("interface") == iface and isinstance(nid, int) \
+                            and not isinstance(nid, bool):
+                        served[nid] = other["name"]
+            text = _describe_one({"adapter": net["adapter"], "nodes": net["nodes"]}, served)
         if text:
             parts.append("network %s: %s" % (net["name"], text))
     return "; ".join(parts) or None
@@ -589,15 +602,23 @@ def several_networks(cfg):
     return isinstance(cfg, dict) and len(contract.networks(cfg)) > 1
 
 
-def _describe_one(cfg):
+def _describe_one(cfg, served=None):
+    served = served or {}
     network, nodes = simulated(cfg)
     ids = ", ".join(str(n) for n in nodes)
     if network:
         all_nodes = [contract._uint(n.get("node_id")) for n in cfg.get("nodes") or [] if isinstance(n, dict)]
         text = "the network is simulated; no CAN interface is used"
+        for nid in sorted(n for n in all_nodes if n in served):
+            text += "; node %d is slave network %s on the same simulated bus" % (nid, served[nid])
+        absent = [str(n) for n in all_nodes if n not in nodes and n not in served]
         if not nodes:
-            return text + " (no node is simulated: every configured node stays absent)"
-        absent = [str(n) for n in all_nodes if n not in nodes]
+            if not served:
+                return text + " (no node is simulated: every configured node stays absent)"
+            if absent:
+                text += " (no node is simulated: node%s %s stay%s absent)" % (
+                    "s" if len(absent) > 1 else "", ", ".join(absent), "" if len(absent) > 1 else "s")
+            return text
         if absent:
             text += "; node%s %s %s simulated, node%s %s stay%s absent" % (
                 "s" if len(nodes) > 1 else "", ids, "are" if len(nodes) > 1 else "is",

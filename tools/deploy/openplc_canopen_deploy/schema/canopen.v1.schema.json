@@ -230,7 +230,7 @@
           "maximum": 4000000
         },
         "simulate": {
-          "description": "true: the network is simulated (docs/simulator.md). No CAN interface or serial device is used; the other adapter fields are kept and checked.",
+          "description": "true: the network is simulated (docs/simulator.md). No CAN interface or serial device is used; the other adapter fields are kept and checked. A master network and a slave network with the same interface name share one simulated bus (docs/slave.md, Simulated bus).",
           "type": "boolean"
         }
       },

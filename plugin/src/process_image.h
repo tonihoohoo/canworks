@@ -63,6 +63,11 @@ struct SdoVarSlot {
   SdoVariable var;
 };
 
+// One input location written through the runtime's journal (cycle_start),
+// and one output location read (cycle_end, with the image lock held).
+void image_write_input(const plugin_runtime_args_t& rt, const IecLocation& loc, uint64_t raw);
+uint64_t image_read_output(const plugin_runtime_args_t& rt, const IecLocation& loc);
+
 class ProcessImage {
  public:
   ProcessImage() = default;

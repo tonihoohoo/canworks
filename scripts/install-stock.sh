@@ -103,6 +103,9 @@ build_in_image() {
     fi
     image_id=$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null || echo unknown)
     mkdir -p "$PREFIX"
+    # Slave networks keep what their master saves (0x1010, LSS) here, outside
+    # the uploaded project; an uninstall without --purge keeps it.
+    mkdir -p "$PREFIX/state"
     # A writable copy of this checkout: pip builds the tools in their source tree.
     SRC_COPY=$(mktemp -d)
     trap 'rm -rf "${SRC_COPY:?}"' EXIT
@@ -284,7 +287,7 @@ if [ "$DEPS" -eq 1 ]; then
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
         build-essential cmake pkg-config autoconf automake libtool git curl python3 python3-venv >/dev/null
 fi
-mkdir -p "$PREFIX"
+mkdir -p "$PREFIX" "$PREFIX/state"  # state: slave networks' saved parameters
 "$REPO/scripts/build-lely.sh" --prefix "$PREFIX" --ref "$LELY_REF"
 say "Installing the deploy tool into $PREFIX/venv (EDS lint)"
 "$PREFIX/venv/bin/python" -m pip install -q "$REPO/tools/deploy"

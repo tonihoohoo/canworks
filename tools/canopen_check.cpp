@@ -16,6 +16,9 @@
 //
 // A file with several networks (schema_version 2) is checked network by
 // network; its output then puts "network <name>" before each network's lines.
+// A slave network (canopen-slave-device spec) runs no dcfgen; its line says
+// "slave node ID <n>" (or "LSS") and lists the bound objects. A gateway
+// section is checked against the upper network's EDS.
 
 #include <cstdio>
 #include <cstdlib>
@@ -62,18 +65,35 @@ int main(int argc, char** argv) {
     for (const auto& m : cfg.notes) std::printf("note: %s%s\n", set.several() ? (cfg.network + ": ").c_str() : "", m.c_str());
     checked = checked && ok;
   }
+  if (checked) {
+    checked = check_gateway_eds(set, errors);
+    for (const auto& w : set.warnings) std::printf("warning: %s\n", w.c_str());
+  }
   if (!checked) {
     for (const auto& e : errors) std::printf("error: %s\n", e.c_str());
     return 1;
   }
   for (const auto& cfg : set.networks) {
     if (set.several()) std::printf("network %s\n", cfg.network.c_str());
+    if (cfg.is_slave()) {
+      std::string id = cfg.slave.lss ? std::string("LSS") : std::to_string(cfg.slave.node_id);
+      std::printf("ok: %s adapter %s, %u bit/s, slave node ID %s, %zu bound object(s)\n", cfg.adapter.type.c_str(),
+                  cfg.adapter.interface.c_str(), cfg.adapter.bitrate, id.c_str(), cfg.slave.objects.size());
+      std::printf("    slave: EDS %s\n", cfg.slave.eds_path.c_str());
+      for (const auto& o : cfg.slave.objects)
+        std::printf("    %s %s %s\n", o.label().c_str(), o.input ? "->" : "<-", o.location.str().c_str());
+      continue;
+    }
     std::printf("ok: %s adapter %s, %u bit/s, master node ID %u, %zu slave(s)\n", cfg.adapter.type.c_str(),
                 cfg.adapter.interface.c_str(), cfg.adapter.bitrate, cfg.master.node_id, cfg.nodes.size());
     for (const auto& n : cfg.nodes) std::printf("    %s: EDS %s\n", n.label().c_str(), n.eds_path.c_str());
   }
+  if (set.gateway.enabled)
+    std::printf("ok: gateway, upper network %s, %zu route(s)\n", set.networks[set.gateway.upper].network.c_str(),
+                set.gateway.routes.size());
   if (!run_dcfgen) return 0;
   for (const auto& cfg : set.networks) {
+    if (cfg.is_slave()) continue;  // the slave runs its EDS as it is
     if (set.several()) std::printf("network %s\n", cfg.network.c_str());
     GeneratedConfig gen;
     if (!generate_device_config(cfg, default_dcfgen(), gen, errors)) {
