@@ -14,7 +14,7 @@
 - [x] 2.4 Status locations (state, comm OK, SYNC count) and EMCY from the program; verify lost master heartbeat, NMT stop and EMCY raise/clear in sim tests.
 - [x] 2.5 State file for 0x1010/0x1011, 0x1020 and LSS store, keyed by network and EDS hash; verify save, PLC restart, load, changed EDS and LSS assignment in sim tests.
 - [x] 2.6 Shared simulated bus: a master network and a slave network with `adapter.simulate` and the same `interface` run on one virtual bus; verify with a sim test of the plugin's own master booting its own slave there, and the two-masters rejection in config tests. (One process-wide `VirtualCanController` per interface name; `test/slave/simulated.sh` runs the real plugin library with both networks on `sim0` as a ctest; the config cases also refuse the master's node for the slave left simulated. The configurator's slave page has the Real/Simulated switch.)
-- [ ] 2.7 vcan test: master network on `vcan0`, slave network on `vcan1`, the two joined with a `cangw` route, in one config (`test/slave/run.sh`) in CI.
+- [x] 2.7 vcan test: master network on `vcan0`, slave network on `vcan1`, the two joined with a `cangw` route, in one config (`test/slave/run.sh`) in CI.
 
 ## 3. EDS generator and deploy tool
 
