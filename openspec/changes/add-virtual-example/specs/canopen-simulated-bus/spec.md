@@ -22,3 +22,12 @@ In a config with several networks (version 2), `adapter.simulate` and each node'
 #### Scenario: Simulation file with two networks
 - **WHEN** a project with two networks has a version 1 `simulation.json`
 - **THEN** the plugin logs that the file is not used and that version 2 has per-network sections, and the simulated devices run with their defaults
+
+## ADDED Requirements
+
+### Requirement: Fastscan finds only devices without a node ID
+A simulated device that has a node ID SHALL NOT answer LSS Fastscan (CiA 305); a device without one SHALL answer it by its 0x1018 identity. The plugin's own slave SHALL behave the same.
+
+#### Scenario: Search on a bus with configured LSS devices
+- **WHEN** a simulated network has configured DIO-16 modules with node IDs and serial number 0, and an extra device without a node ID with serial number 7099, and a client runs the LSS search
+- **THEN** the search finds the extra device, serial number 7099, without a node ID
