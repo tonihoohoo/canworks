@@ -23,7 +23,7 @@
 ## 4. CI
 
 - [x] 4.1 Run the virtual-bus tests in CI and in the PC tools job on all four runners.
-- [ ] 4.2 Add `test/localbus/run.sh` to the Linux vcan job: the simulated RTD module (`test/sensor_slave`, node 5) and `test/lss/lss_slave` on `vcan0`; status, scan, sdo-read and sdo-write, backup and compare, lss-find and lss-set-id, and a trace with pcapng export through `--adapter socketcan:vcan0`; then the parity step against the plugin's diagnostics channel on the same bus, and with the plugin running as master, `status` showing another master and `lss-find` refused without `--force`; verify green on the PR.
+- [x] 4.2 Add `test/localbus/run.sh` to the Linux vcan job: the simulated RTD module (`test/sensor_slave`, node 5) and `test/lss/lss_slave` on `vcan0`; status, scan, sdo-read and sdo-write, backup and compare, lss-find and lss-set-id, and a trace with pcapng export through `--adapter socketcan:vcan0`; then the parity step against the plugin's diagnostics channel on the same bus, and with the plugin running as master, `status` showing another master and `lss-find` refused without `--force`; verify green on the PR.
 
 ## 5. Docs and version
 
