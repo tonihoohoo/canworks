@@ -975,7 +975,9 @@ function sendLists() {
 
 function drawSendPanel() {
   const old = document.querySelector("[data-trace=send-panel]");
-  if (old) old.replaceWith(sendPanel());
+  if (!old) return;
+  SEND.open = old.open;  // its toggle event may not have fired yet
+  old.replaceWith(sendPanel());
 }
 
 // Only the lists, so a refresh does not take the focus from a field.

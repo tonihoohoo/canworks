@@ -24,6 +24,7 @@ class Base(TraceBase):
         self.open()
         self.trace_view()
         self.page.click("[data-trace=send-panel] > summary")
+        self.page.wait_for_selector('[data-send="id"]')
 
     def scan(self, allow=True):
         self.online(self.fake, allow=allow)
