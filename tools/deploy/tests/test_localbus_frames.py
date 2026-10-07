@@ -335,6 +335,21 @@ class Send(Base):
         self.assertEqual(got.count(0x60B), 4)
         self.assertEqual(got.count(0x60A), 1)
 
+    def test_cli_config_and_force_before_the_command(self):
+        from .test_localbus import cli
+        adapter = ["--adapter", "virtual:" + self.ch, "--bitrate", "250", "--allow-changes"]
+        cfg = os.path.join(REPO, "config", "pingpong", "canopen_config.json")  # node 2
+        code, out, err = cli(*adapter, "send", "--config", cfg, "0x202", "01")
+        self.assertEqual(code, 1)
+        self.assertIn("0x202 is RPDO1 of node 2", err)
+        code, out, err = cli(*adapter, "send", "0x202", "01")  # without the config node 2 is unknown
+        self.assertEqual(code, 0, err)
+        # --force counts before the command as after it.
+        code, out, err = cli(*adapter, "--force", "send", "--config", cfg, "0x202", "01")
+        self.assertEqual(code, 0, err)
+        self.assertIn("(forced)", out)
+        self.assertEqual([m.arbitration_id for m in self.heard()].count(0x202), 2)
+
 
 # ---------------------------------------------------------------------------
 # detect_bitrate on the virtual bus: the "bus" carries traffic at 250 kbit/s
@@ -456,6 +471,32 @@ class StandaloneSweep(unittest.TestCase):
         self.assertNotIn("matches_config", res)
         # The adapter is free again.
         adapter_mod.open(spec, 250000).close()
+
+
+    def test_rates_the_adapter_cannot_set_are_left_out(self):
+        virt = parse("virtual:" + channel())
+        opened = []
+
+        def opener(spec, bitrate, listen_only=False, options=None):
+            opened.append(bitrate // 1000)
+            return adapter_mod.open(virt, bitrate, listen_only, options)
+
+        s = sweep_mod.Sweep(parse("slcan:/dev/ttyACM0"), [1000, 800, 500], 100, opener=opener)
+        self.assertEqual(s.total, 2)
+        s.start()
+        while s.status()["running"]:
+            time.sleep(0.05)
+        res = s.status()
+        self.assertEqual((res["verdict"], res.get("error")), ("silent", None))
+        self.assertEqual([r["bitrate_kbit"] for r in res["results"]], [1000, 500])
+        self.assertEqual(res["skipped_kbit"], [800])
+        self.assertEqual(opened, [1000, 500])
+        self.assertEqual(diag.skipped_text(res), "not tried: 800 kbit/s (the adapter cannot be set to it)")
+        self.assertEqual(diag.skipped_text({"results": []}), "")
+        self.assertEqual(adapter_mod.unsupported_rates(parse("socketcan:can0"), list(bitrate_mod.RATES)), [])
+        with self.assertRaises(AdapterError) as e:
+            sweep_mod.Sweep(parse("slcan:/dev/ttyACM0"), [800], 100, opener=opener).start()
+        self.assertIn("cannot be set to 800 kbit/s", str(e.exception))
 
 
 if __name__ == "__main__":
