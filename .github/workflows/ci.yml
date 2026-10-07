@@ -352,8 +352,10 @@ jobs:
         timeout-minutes: 8
         run: |
           python -m playwright install chromium
-          deps=$(python -m playwright install-deps --dry-run chromium | sed -n 's/.*--no-install-recommends //p' | tr -d '"')
-          test -n "$deps" || { echo "no package list from playwright install-deps --dry-run" >&2; exit 1; }
+          plan=$(python -m playwright install-deps --dry-run chromium)
+          if grep -q "dependencies are installed" <<<"$plan"; then echo "$plan"; exit 0; fi
+          deps=$(sed -n 's/.*--no-install-recommends //p' <<<"$plan" | tr -d '"')
+          test -n "$deps" || { echo "no package list in: $plan" >&2; exit 1; }
           python3 .github/scripts/apt_install.py --no-install-recommends $deps
 
       - name: Configurator page and layout tests
