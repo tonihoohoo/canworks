@@ -16,7 +16,7 @@ The master settings SHALL have an "Online access" section that turns `master.dia
 - **THEN** `canopen.json` has a `token_verifier` for the same token and no `token_sha256`, and the copied token still works after the next upload
 
 ### Requirement: Online view
-With online access set up, the configurator SHALL offer an online view that connects to the runtime over the encrypted channel, refreshes about twice a second, and shows the bus state and counters, the master state, and for each node its state, status bit, boot result with error text, retry and hold state, last EMCY with class, and SDO variable values and status, using the node names from the config. Opening a node SHALL show its EMCY history with times and CiA 301 error classes. When the runtime's config fingerprint differs from the saved `canopen.json`, the view SHALL say that the runtime runs a different configuration. Connection failures SHALL be shown with the reason (host unreachable, port closed, wrong token, runtime could not prove the token, plugin too old for encryption, no CANopen session) and retried.
+With online access set up, the configurator SHALL offer an online view that connects to the runtime over the encrypted channel, refreshes about twice a second, and shows the bus state and counters, the master state, and for each node its state, status bit, boot result with error text, retry and hold state, last EMCY with class, SDO variable values and status, and a mark on each monitored TPDO that is timed out with its timeout count, using the node names from the config. Opening a node SHALL show its EMCY history with times and CiA 301 error classes, and for each monitored TPDO its timeout, count and time since its last PDO. When the runtime's config fingerprint differs from the saved `canopen.json`, the view SHALL say that the runtime runs a different configuration. Connection failures SHALL be shown with the reason (host unreachable, port closed, wrong token, runtime could not prove the token, plugin too old for encryption, no CANopen session) and retried.
 
 #### Scenario: Watch a node come back
 - **WHEN** the online view is open and node 23's cable is plugged back in
@@ -25,6 +25,10 @@ With online access set up, the configurator SHALL offer an online view that conn
 #### Scenario: Different config on the runtime
 - **WHEN** the user saved a change but has not uploaded it yet
 - **THEN** the online view shows that the runtime runs a different configuration
+
+#### Scenario: Timed-out PDO
+- **WHEN** node 23 is OPERATIONAL and its monitored TPDO 1 has timed out
+- **THEN** node 23's row stays green for its state and shows "TPDO 1 timed out" with the count
 
 #### Scenario: Plugin too old
 - **WHEN** the runtime's plugin does not complete a TLS handshake
