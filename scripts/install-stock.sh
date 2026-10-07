@@ -285,8 +285,11 @@ if [ "$DEPS" -eq 1 ]; then
     say "Installing build dependencies"
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        build-essential cmake pkg-config autoconf automake libtool git curl python3 python3-venv >/dev/null
+        build-essential cmake pkg-config autoconf automake libtool git curl python3 python3-venv libssl-dev >/dev/null
 fi
+# The diagnostics channel's TLS (plugin/src/secure_channel.cpp) needs OpenSSL 3.
+pkg-config --atleast-version=3 openssl 2>/dev/null ||
+    die "OpenSSL 3 development files are missing: apt-get install libssl-dev (Debian 12 or newer, Raspberry Pi OS bookworm or newer, Ubuntu 22.04 or newer)"
 mkdir -p "$PREFIX" "$PREFIX/state"  # state: slave networks' saved parameters
 "$REPO/scripts/build-lely.sh" --prefix "$PREFIX" --ref "$LELY_REF"
 say "Installing the deploy tool into $PREFIX/venv (EDS lint)"

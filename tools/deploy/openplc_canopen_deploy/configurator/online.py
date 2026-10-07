@@ -3,7 +3,7 @@ kept on this PC, the connection to the plugin's diagnostics channel, config
 fingerprints, and EDS matching for scan results.
 
 The token is never written to the project: canopen.json holds only its
-SHA-256 (master.diagnostics.token_sha256). The plain token and the runtime
+SCRAM verifier (master.diagnostics.token_verifier). The plain token and the runtime
 host live in online.json in the configurator's settings folder, per project
 folder.
 """

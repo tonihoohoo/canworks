@@ -11,7 +11,9 @@
 --runtime, or a standalone openplc-canopen-sim's, with --sim HOST[:PORT].
 
 The channel is opt-in (master.diagnostics in canopen.json) and speaks
-line-delimited JSON over TCP, port 7531 by default; see docs/diagnostics.md.
+line-delimited JSON over TLS, port 7531 by default, after a SCRAM-SHA-256
+login bound to the server's certificate, so the token never crosses the
+network; see docs/diagnostics.md.
 With several CAN networks every command but status needs --network NAME;
 status then prints every network.
 The token comes from --token, $OPENPLC_CANOPEN_TOKEN or a prompt. The
@@ -19,12 +21,15 @@ configurator's online view uses the Client class of this module.
 """
 
 import argparse
+import base64
 import getpass
 import hashlib
+import hmac
 import json
 import os
 import secrets
 import socket
+import ssl
 import struct
 import sys
 import time
@@ -32,7 +37,11 @@ import time
 from . import __version__, localruntime
 
 DEFAULT_PORT = 7531
-PROTOCOL = 1
+PROTOCOL = 2        # TLS and the SCRAM login
+PLAIN_PROTOCOL = 1  # a standalone simulator without a token, on loopback
+SCRAM_MECH = "SCRAM-SHA-256-PLUS"
+SCRAM_ITERATIONS = 4096
+SCRAM_MIN_ITERATIONS, SCRAM_MAX_ITERATIONS = 4096, 1000000
 TOKEN_ENV = "OPENPLC_CANOPEN_TOKEN"
 MAX_LINE = 1024 * 1024
 NMT_COMMANDS = ("start", "stop", "preop", "reset", "reset-comm")
@@ -40,9 +49,80 @@ LSS_BITRATES = (10, 20, 50, 125, 250, 500, 800, 1000)  # kbit/s, the CiA 305 bit
 LSS_KEYS = ("vendor_id", "product_code", "revision_number", "serial_number")
 
 
-def hash_token(token):
-    """What goes in master.diagnostics.token_sha256."""
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+# ---------------------------------------------------------------------------
+# The SCRAM-SHA-256 login (plugin/src/secure_channel.h has the same math).
+
+
+def _b64(data):
+    return base64.b64encode(data).decode("ascii")
+
+
+def _salted(token, salt, iterations):
+    return hashlib.pbkdf2_hmac("sha256", token.encode("utf-8"), salt, iterations)
+
+
+def _hmac(key, data):
+    return hmac.new(key, data if isinstance(data, bytes) else data.encode("utf-8"), hashlib.sha256).digest()
+
+
+def token_verifier(token, salt=None, iterations=SCRAM_ITERATIONS):
+    """What goes in master.diagnostics.token_verifier: SCRAM-SHA-256 with a
+    fresh random salt. It does not let anyone log in."""
+    salt = salt if salt is not None else secrets.token_bytes(16)
+    sp = _salted(token, salt, iterations)
+    stored = hashlib.sha256(_hmac(sp, "Client Key")).digest()
+    return "SCRAM-SHA-256$%d:%s$%s:%s" % (iterations, _b64(salt), _b64(stored), _b64(_hmac(sp, "Server Key")))
+
+
+def parse_verifier(text):
+    """(iterations, salt, stored_key, server_key), or None when `text` is not
+    a valid token_verifier."""
+    try:
+        if not isinstance(text, str) or not text.startswith("SCRAM-SHA-256$"):
+            return None
+        params, keys = text[len("SCRAM-SHA-256$"):].split("$")
+        it, salt = params.split(":")
+        stored, server = keys.split(":")
+        it = int(it)
+        salt, stored, server = (base64.b64decode(x, validate=True) for x in (salt, stored, server))
+    except (ValueError, TypeError):
+        return None
+    if not SCRAM_MIN_ITERATIONS <= it <= SCRAM_MAX_ITERATIONS or len(salt) < 16 or len(stored) != 32 or len(server) != 32:
+        return None
+    return it, salt, stored, server
+
+
+def token_matches(token, verifier):
+    """Whether `token` is the token of `verifier`."""
+    v = parse_verifier(verifier)
+    if not v or not token:
+        return False
+    it, salt, stored, _ = v
+    return hmac.compare_digest(hashlib.sha256(_hmac(_salted(token, salt, it), "Client Key")).digest(), stored)
+
+
+def scram_auth_message(cnonce, snonce, salt_b64, iterations, cbind):
+    return "openplc-canopen-diag/2,%s,%s,%s,%d,%s" % (cnonce, snonce, salt_b64, iterations, _b64(cbind))
+
+
+def scram_client(token, salt, iterations, auth_message):
+    """(ClientProof, the ServerSignature the server must send back)."""
+    sp = _salted(token, salt, iterations)
+    client_key = _hmac(sp, "Client Key")
+    sig = _hmac(hashlib.sha256(client_key).digest(), auth_message)
+    proof = bytes(a ^ b for a, b in zip(client_key, sig))
+    return proof, _hmac(_hmac(sp, "Server Key"), auth_message)
+
+
+def _client_context():
+    # The login checks the server (channel binding to its certificate), so
+    # the chain is not checked: the plugin makes a new self-signed
+    # certificate whenever it starts.
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
 
 
 def new_token():
@@ -275,8 +355,9 @@ def state_name(state):
 
 
 class DiagError(Exception):
-    """kind: unreachable, closed (port closed), token, timeout, protocol, or
-    refused (the plugin answered with an error)."""
+    """kind: unreachable, closed (port closed), token, timeout, protocol,
+    old (no TLS: the plugin is too old), impostor (the server could not prove
+    it knows the token), or refused (the plugin answered with an error)."""
 
     def __init__(self, kind, message):
         super().__init__(message)
@@ -286,7 +367,11 @@ class DiagError(Exception):
 class Client:
     """One connection to the plugin. `network` names the network every
     request after the hello is for; it is sent only when the plugin runs
-    several networks (an older plugin knows no networks)."""
+    several networks (an older plugin knows no networks).
+
+    With a token the connection is TLS with the SCRAM login (the plugin
+    always; a standalone simulator with a token); without one it is plain,
+    for a local simulator without a token."""
 
     def __init__(self, host, port=DEFAULT_PORT, token="", timeout=5.0, network=None):
         self.host, self.port, self.token, self.timeout = host, port, token, timeout
@@ -327,19 +412,65 @@ class Client:
         except OSError as e:
             raise DiagError("unreachable", "host %s is unreachable: %s" % (self.host, e.strerror or e))
         self.buf = b""
+        if not self.token:
+            try:
+                self.info = self.request("hello")
+            except DiagError:
+                self.close()
+                raise
+            want = PLAIN_PROTOCOL
+        else:
+            self._login()
+            want = PROTOCOL
+        if self.info.get("protocol") != want:
+            proto = self.info.get("protocol")
+            self.close()
+            raise DiagError("protocol", "%s speaks diagnostics protocol %s; this tool speaks %d"
+                            % (self.where, proto, want))
+        return self.info
+
+    def _login(self):
+        old = DiagError("old", "%s does not speak encrypted diagnostics: the plugin (or simulator) there is too old; "
+                               "update it" % self.where)
         try:
-            self.info = self.request("hello", token=self.token)
+            self.sock = _client_context().wrap_socket(self.sock, server_hostname=None)
+        except socket.timeout:
+            self.close()
+            raise old
+        except (ssl.SSLError, OSError):
+            self.close()
+            raise old
+        cbind = hashlib.sha256(self.sock.getpeercert(binary_form=True) or b"").digest()
+        cnonce = _b64(secrets.token_bytes(18))
+        try:
+            first = self.request("hello", mech=SCRAM_MECH, nonce=cnonce)
+            salt_b64, snonce, it = first.get("salt"), first.get("nonce"), first.get("iterations")
+            try:
+                salt = base64.b64decode(salt_b64, validate=True)
+            except (ValueError, TypeError):
+                salt = None
+            if (not isinstance(snonce, str) or salt is None or not isinstance(it, int)
+                    or not SCRAM_MIN_ITERATIONS <= it <= SCRAM_MAX_ITERATIONS):
+                raise DiagError("protocol", "%s sent an unexpected login answer" % self.where)
+            auth = scram_auth_message(cnonce, snonce, salt_b64, it, cbind)
+            proof, want = scram_client(self.token, salt, it, auth)
+            info = self.request("login", proof=_b64(proof))
         except DiagError as e:
             self.close()
             if e.kind == "eof":
                 raise DiagError("token", "%s refused the token (wrong token for this configuration)" % self.where)
             raise
-        if self.info.get("protocol") != PROTOCOL:
-            proto = self.info.get("protocol")
+        sig = info.pop("signature", None)
+        try:
+            got = base64.b64decode(sig or "", validate=True)
+        except (ValueError, TypeError):
+            got = b""
+        if not hmac.compare_digest(got, want):
             self.close()
-            raise DiagError("protocol", "%s speaks diagnostics protocol %s; this tool speaks %d"
-                            % (self.where, proto, PROTOCOL))
-        return self.info
+            raise DiagError("impostor", "%s could not prove it knows this project's token (a machine in the "
+                                        "middle?); nothing was sent" % self.where)
+        self.info = info
+        self.next_id = 2  # requests are numbered from 2 after the login, as after a plain hello
 
     def close(self):
         if self.sock:
@@ -638,7 +769,7 @@ def parser():
     _source(st)
     for name in NETWORK_COMMANDS:
         _network_arg(sub.choices[name])
-    h = sub.add_parser("hash-token", help="print token_sha256 for a token (no connection)")
+    h = sub.add_parser("hash-token", help="print the token_verifier for a token (no connection)")
     h.add_argument("value", nargs="?", help="the token (default: --token, $%s or a prompt)" % TOKEN_ENV)
     _sim_parser(sub)
     return p
@@ -983,7 +1114,7 @@ def run(args, out=sys.stdout):
         token = args.value or args.token or os.environ.get(TOKEN_ENV)
         if not token:
             token = getpass.getpass("Token: ")
-        out.write(hash_token(token) + "\n")
+        out.write(token_verifier(token) + "\n")
         return 0
     if args.command == "convert":
         return _convert(args, out)

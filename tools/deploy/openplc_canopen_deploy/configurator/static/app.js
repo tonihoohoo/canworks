@@ -758,7 +758,7 @@ async function simulationNeedsOnline() {
       const r = await api("POST", "/api/online/token", { action: "generate" });
       S.online = Object.assign(S.online, r);
     }
-    S.model.diagnostics = { token_sha256: await sha256Hex(S.online.token), allow_changes: true };
+    S.model.diagnostics = { token_verifier: await verifierForToken(), allow_changes: true };
     await checkToken();
     banner("Online access is now on with Allow changes, so the Simulation view can control the simulated devices. Save and upload to use it.");
   } catch (e) { banner(e.message, true); }
@@ -2630,9 +2630,15 @@ function stateName(s) { return NODE_STATES[s] || String(s); }
 function diagConfig() { return S.model ? S.model.diagnostics : undefined; }
 function diagPort() { const d = diagConfig(); return d && Number.isInteger(d.port) ? d.port : DIAG_PORT; }
 
-async function sha256Hex(text) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+// A token_verifier (SCRAM-SHA-256, a fresh salt) for this PC's token.
+async function verifierForToken() {
+  return (await api("POST", "/api/online/token", { action: "verifier" })).token_verifier;
+}
+
+// The config's token as the server checks it: token_verifier, or the former token_sha256.
+function configToken(d) {
+  return { token_verifier: d && typeof d.token_verifier === "string" ? d.token_verifier : "",
+    token_sha256: d && typeof d.token_sha256 === "string" ? d.token_sha256 : "" };
 }
 
 // S.online: { token, host, eds_library, tokenOk } from /api/online/settings.
@@ -2647,8 +2653,24 @@ async function loadOnlineSettings() {
 
 async function checkToken() {
   const d = diagConfig();
-  S.online.tokenOk = !!(S.online.token && d && typeof d.token_sha256 === "string" &&
-    (await sha256Hex(S.online.token)) === d.token_sha256.toLowerCase());
+  S.online.tokenOk = false;
+  if (!S.online.token || !d || (!d.token_verifier && !d.token_sha256)) return;
+  try {
+    S.online.tokenOk = !!(await api("POST", "/api/online/token", Object.assign({ action: "check" }, configToken(d)))).match;
+  } catch (e) { /* shown as "does not match" */ }
+}
+
+// A config from before the encrypted channel (token_sha256): a token_verifier
+// for the same token, so tokens copied to other PCs keep working.
+async function upgradeToken() {
+  try {
+    const v = await verifierForToken();
+    delete S.model.diagnostics.token_sha256;
+    S.model.diagnostics.token_verifier = v;
+    await checkToken();
+    banner("The token is set for the encrypted channel. Save and upload to use it.");
+    changed(true);
+  } catch (e) { banner(e.message, true); }
 }
 
 async function enableOnline(on) {
@@ -2660,11 +2682,11 @@ async function enableOnline(on) {
     return changed(true);
   }
   if (S.online.token) {
-    S.model.diagnostics = { token_sha256: await sha256Hex(S.online.token) };
+    S.model.diagnostics = { token_verifier: await verifierForToken() };
   } else {
     const r = await api("POST", "/api/online/token", { action: "generate" });
     S.online = Object.assign(S.online, r);
-    S.model.diagnostics = { token_sha256: r.token_sha256 };
+    S.model.diagnostics = { token_verifier: r.token_verifier };
   }
   await checkToken();
   changed(true);
@@ -2676,7 +2698,8 @@ async function newToken() {
   if (v !== "new") return;
   const r = await api("POST", "/api/online/token", { action: "generate" });
   S.online = Object.assign(S.online, r);
-  S.model.diagnostics.token_sha256 = r.token_sha256;
+  delete S.model.diagnostics.token_sha256;
+  S.model.diagnostics.token_verifier = r.token_verifier;
   await checkToken();
   changed(true);
 }
@@ -2688,8 +2711,8 @@ async function enterToken() {
   if (v !== "set") return false;
   try {
     const d = diagConfig();
-    const r = await api("POST", "/api/online/token", { action: "set", token: input.value.trim(),
-      token_sha256: d ? d.token_sha256 : "" });
+    const r = await api("POST", "/api/online/token", Object.assign({ action: "set", token: input.value.trim() },
+      configToken(d)));
     S.online = Object.assign(S.online, r);
     await checkToken();
     banner("");
@@ -2739,16 +2762,20 @@ function onlineAccessSettings() {
   allow.checked = !!d.allow_changes;
   allow.addEventListener("change", async () => {
     if (allow.checked) {
-      const v = await modal("Allow changes? Anyone on the network with the token can then write any object of any node and stop or reset nodes. The token travels unencrypted.",
+      const v = await modal("Allow changes? Anyone with the token can then write any object of any node and stop or reset nodes.",
         [["allow", "Allow changes", true], ["cancel", "Cancel"]]);
       if (v !== "allow") { allow.checked = false; return; }
     }
     setPath("master.diagnostics.allow_changes", allow.checked ? true : undefined);
     render();
   });
-  const tokenState = !S.online.token ? "This PC has no token for this project."
-    : S.online.tokenOk ? "This PC has the token (it matches token_sha256)."
-      : "The token on this PC does not match token_sha256 in the config.";
+  const old = typeof d.token_sha256 === "string" && !d.token_verifier;
+  const tokenState = old
+    ? "This config has the former unencrypted token (token_sha256), which the plugin no longer accepts: " +
+      (S.online.tokenOk ? "press Upgrade to set the same token for the encrypted channel." : "enter the token or make a new one.")
+    : !S.online.token ? "This PC has no token for this project."
+      : S.online.tokenOk ? "This PC has the token (it matches the config)."
+        : "The token on this PC does not match the token in the config.";
   fs.append(el("div", { class: "grid" },
     field("Port", "master.diagnostics.port", "intstr", { placeholder: String(DIAG_PORT),
       hint: "TCP port on the PLC, 1024-65535. Default: 7531." }),
@@ -2759,7 +2786,8 @@ function onlineAccessSettings() {
       d.allow_changes ? el("span", { class: "field-msg warning" }, "Changes are allowed: keep the token secret and the port on a trusted network.") : null),
     hostField()),
   el("div", { class: "toolbar" },
-    el("span", { class: S.online.tokenOk ? "ok-text" : "field-msg warning", dataset: { online: "token-state" } }, tokenState),
+    el("span", { class: S.online.tokenOk && !old ? "ok-text" : "field-msg warning", dataset: { online: "token-state" } }, tokenState),
+    old && S.online.tokenOk ? el("button", { type: "button", class: "primary", dataset: { online: "upgrade" }, onclick: upgradeToken }, "Upgrade") : null,
     S.online.token ? el("button", { type: "button", onclick: copyToken }, "Copy token") : null,
     el("button", { type: "button", onclick: enterToken }, "Enter token…"),
     el("button", { type: "button", onclick: newToken }, "New token")),

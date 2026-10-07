@@ -1,13 +1,13 @@
 # Online diagnostics
 
-The plugin can open a small TCP channel that shows the live CANopen network to the engineering PC: node states, boot results and errors, emergency history, SDO variable values, the bus state. With permission it also reads and writes any object by SDO, sends NMT commands, scans the bus for devices, and sets node IDs and bit rates of devices with LSS. The configurator's [online view and scan page](configurator.md#online-view) and the `openplc-canopen-diag` command use it.
+The plugin can open a small encrypted channel (TLS) that shows the live CANopen network to the engineering PC: node states, boot results and errors, emergency history, SDO variable values, the bus state. With permission it also reads and writes any object by SDO, sends NMT commands, scans the bus for devices, and sets node IDs and bit rates of devices with LSS. The configurator's [online view and scan page](configurator.md#online-view) and the `openplc-canopen-diag` command use it.
 
 It is off unless the config has `master.diagnostics` ([config.md](config.md#online-diagnostics)). The plugin listens only while the PLC runs, and nothing a client does touches the PLC scan: every request is served by the CAN thread between its own work (trace requests by the diagnostics thread), and a slow or stalled client is cut off instead of waited for.
 
 ## Setting it up
 
-1. In the configurator, turn on **Online access** under **Bus and master**, save, and upload the program as usual. Or, by hand: choose a token, run `openplc-canopen-diag hash-token` and put the printed hash in `master.diagnostics.token_sha256`.
-2. The runtime log shows `diagnostics listen on 0.0.0.0:7531, read-only` when the PLC starts.
+1. In the configurator, turn on **Online access** under **Bus and master**, save, and upload the program as usual. Or, by hand: choose a token, run `openplc-canopen-diag hash-token` and put the printed verifier in `master.diagnostics.token_verifier`.
+2. The runtime log shows `diagnostics listen on 0.0.0.0:7531, read-only, encrypted (TLS)` when the PLC starts.
 3. Open **Online** in the configurator, or run `openplc-canopen-diag --runtime plc.local status`.
 
 ## `openplc-canopen-diag`
@@ -32,7 +32,7 @@ openplc-canopen-diag --runtime plc.local backup 23 [-o node23.dcf]              
 openplc-canopen-diag --runtime plc.local compare 23 --with node23.dcf            # or --with-config, --with-eds-defaults
 openplc-canopen-diag --runtime plc.local restore 23 node23.dcf [--dry-run]       # needs allow_changes; never stores
 openplc-canopen-diag --runtime plc.local store 23 [--subindex 1]                 # writes "save" to 0x1010; asks first
-openplc-canopen-diag hash-token                                                       # prints token_sha256
+openplc-canopen-diag hash-token                                                       # prints a token_verifier
 ```
 
 With several CAN networks ([config.md](config.md), `schema_version: 2`) every command that talks to the plugin takes `--network NAME`. `status` without it prints every network one after another, each headed by its name and interface; every other command without it exits with status 1 naming the networks. With one network `--network` may be left out, and an older plugin, which knows no networks, ignores it.
@@ -128,15 +128,30 @@ After swapping the device (same node ID, set by its switches or by LSS):
 
 ## Protocol
 
-TCP, one JSON object per line (UTF-8, newline-terminated, at most 16 KiB) each way. Every request may carry an `id` (any JSON value), which its answer echoes. Answers are `{"id": ..., "ok": true, "result": {...}}` or `{"id": ..., "ok": false, "error": "reason"}`, in request order.
+TLS 1.2 or newer, then one JSON object per line (UTF-8, newline-terminated, at most 16 KiB) each way. Every request may carry an `id` (any JSON value), which its answer echoes. Answers are `{"id": ..., "ok": true, "result": {...}}` or `{"id": ..., "ok": false, "error": "reason"}`, in request order.
 
-The first line must be the hello:
+The plugin makes a new key and self-signed certificate in memory each time it opens the port. Clients do not check the certificate chain and pin nothing; instead the login is bound to the certificate the client received (`tls-server-end-point`, RFC 5929), so a machine in the middle with its own certificate fails the login on both sides. The login is SCRAM-SHA-256 (RFC 5802/7677 math, JSON framing), and the token never crosses the network:
 
-```json
-{"op": "hello", "token": "the token", "id": 1}
+```text
+SaltedPassword  = PBKDF2-HMAC-SHA-256(token, salt, iterations)
+ClientKey       = HMAC(SaltedPassword, "Client Key")     StoredKey = SHA-256(ClientKey)
+ServerKey       = HMAC(SaltedPassword, "Server Key")
+AuthMessage     = "openplc-canopen-diag/2," cnonce "," snonce "," salt "," iterations "," cbind
+                  (nonces, salt and cbind in base64; cbind = SHA-256 of the server certificate's DER)
+ClientProof     = ClientKey XOR HMAC(StoredKey, AuthMessage)
+ServerSignature = HMAC(ServerKey, AuthMessage)
 ```
 
-A wrong token closes the connection without an answer. The answer carries `protocol` (1), `version`, `allow_changes`, `master_node_id` (the first network's) and `networks`: the networks in config order, each `{"name", "interface", "bitrate", "role", "master_node_id"}` (a slave network has `"role": "slave"` and `node_id`, null while it waits for LSS, instead of `master_node_id`; see [slave.md](slave.md#diagnostics)), the name empty for a version 1 config. A plugin from before several networks sends no `networks`.
+```json
+{"op": "hello", "mech": "SCRAM-SHA-256-PLUS", "nonce": "<18 random bytes, base64>", "id": 1}
+{"id": 1, "ok": true, "result": {"protocol": 2, "nonce": "<server nonce>", "salt": "...", "iterations": 4096}}
+{"op": "login", "proof": "<ClientProof, base64>", "id": 2}
+{"id": 2, "ok": true, "result": {"protocol": 2, "signature": "<ServerSignature, base64>", "version": "...", ...}}
+```
+
+A wrong proof closes the connection without an answer; the next login from that address is answered a second later at the earliest. The client checks `signature` before it uses anything else; `openplc-canopen-diag` and the configurator drop a connection whose signature is wrong ("could not prove it knows this project's token"). A connection that does not start with a TLS handshake (a client from before the encrypted channel) gets one line, `this runtime needs an encrypted connection; update openplc-canopen-diag`, and is closed.
+
+The login answer carries `protocol` (2), `version`, `allow_changes`, `master_node_id` (the first network's) and `networks`: the networks in config order, each `{"name", "interface", "bitrate", "role", "master_node_id"}` (a slave network has `"role": "slave"` and `node_id`, null while it waits for LSS, instead of `master_node_id`; see [slave.md](slave.md#diagnostics)), the name empty for a version 1 config.
 
 Every request after the hello may carry `network`, the name of the network it is for. With one network it may be left out. With several, a request without it answers `network required (io, drives)` and one with a name the plugin does not run `unknown network 'x' (io, drives)`. A client sends `network` only when the hello lists more than one network, so it also talks to an older plugin. Then:
 
@@ -181,10 +196,11 @@ A trace ends when its client sends `trace_stop`, disconnects, or sends no `trace
 
 ## Security
 
-- The channel is plain TCP: anyone who can watch the network can read the token. Use it on a trusted plant or lab network, not across the internet.
+- The channel is encrypted (TLS) and the login is SCRAM-SHA-256 bound to the TLS certificate: the token never crosses the network, a captured login cannot be replayed, and a machine in the middle can neither read nor change requests. Clients never fall back to an unencrypted connection.
+- `canopen.json` holds only the token's verifier (`token_verifier`), which travels with the project. It does not let anyone log in, but like any password hash it lets a short, guessable token be found by trying words; use a random token (the configurator makes one of 192 bits).
+- A config from before the encrypted channel has `token_sha256` instead; the plugin refuses it with a message saying to set the token again. In the configurator, **Online access** offers **Upgrade**, which keeps the token when this PC knows it; otherwise use **New token** or **Enter token…**. By hand: `openplc-canopen-diag hash-token` prints a `token_verifier` for a token. An older `openplc-canopen-diag` cannot connect to an updated plugin, and an updated one cannot connect to an older plugin ("too old for encrypted diagnostics"); update both.
 - Read-only is the default. With `allow_changes`, anyone with the token can write any object of any node, stop or reset configured nodes, and change any LSS device's node ID or bit rate; leave it off outside commissioning.
 - Set `bind` to the PLC's address on the network the engineering PC uses, so the port is not open on other networks the PLC is connected to, or firewall port 7531 so only the engineering PCs reach it.
-- The token's hash is in `canopen.json`, which travels with the project; the token is not. Use a random token (the configurator makes one of 192 bits); a short word can be found from its hash.
 - A trace shows every frame on the bus, the same kind of data `status` and SDO reads already give a token holder. A capture filter limits bandwidth; it is not access control.
-- At most 4 clients at a time; a fifth gets `too many clients`. A tracing configurator or CLI uses one of them. A client must send its hello within 10 seconds, and one that stops reading its answers is disconnected. Wrong tokens are logged, at most once a minute per address.
+- At most 4 clients at a time; a fifth gets `too many clients`. A tracing configurator or CLI uses one of them. A client must finish its TLS handshake and login within 10 seconds, and one that stops reading its answers is disconnected. Wrong tokens are logged, at most once a minute per address.
 - A port that is in use is logged and retried every 10 seconds; CANopen runs regardless.

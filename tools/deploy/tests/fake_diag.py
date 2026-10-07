@@ -1,5 +1,6 @@
 """A stand-in for the plugin's diagnostics channel (plugin/src/diag.cpp), for
-the CLI and configurator tests. Speaks protocol 1 on 127.0.0.1.
+the CLI and configurator tests. Speaks protocol 2 (TLS and the SCRAM login,
+fake_tls.py) on 127.0.0.1, and tells a plain client to update.
 
 By default it is a plugin that runs one network and, like a plugin from
 before several networks, lists none in the hello. FakePlugin(networks=...)
@@ -20,6 +21,8 @@ import socketserver
 import threading
 
 from openplc_canopen_deploy import diag
+
+from . import fake_tls
 
 TOKEN = "test-token"
 
@@ -120,8 +123,10 @@ class FakeNetwork:
 
 
 class FakePlugin:
-    def __init__(self, token=TOKEN, allow_changes=False, scan_polls=2, networks=None, sim=None):
+    def __init__(self, token=TOKEN, allow_changes=False, scan_polls=2, networks=None, sim=None, bad_signature=False):
         self.token = token
+        self.bad_signature = bad_signature  # an impostor: a wrong login signature
+        self.logins = []  # the login requests, as received
         self.sim = sim
         # [{name, interface, bitrate, master_node_id}] for the hello; None: an
         # older plugin that lists no networks.
@@ -179,8 +184,18 @@ class FakePlugin:
         fake = self
 
         class Handler(socketserver.StreamRequestHandler):
+            def setup(self):
+                self.mode = fake_tls.accept(self)
+                super().setup()
+
             def handle(self):
                 fake.connections += 1
+                if self.mode != "tls":
+                    if self.mode == "plain":
+                        self._send({"ok": False,
+                                    "error": "this runtime needs an encrypted connection; update openplc-canopen-diag"})
+                    return
+                login = fake_tls.Login(fake.token)
                 authed = False
                 for raw in self.rfile:
                     try:
@@ -189,11 +204,21 @@ class FakePlugin:
                         self._send({"ok": False, "error": "not a JSON object"})
                         continue
                     if not authed:
-                        if req.get("op") != "hello" or req.get("token") != fake.token:
+                        fake.logins.append(req)
+                        if login.snonce is None:
+                            first = login.hello(req)
+                            if first is None:
+                                return
+                            self._send({"id": req.get("id"), "ok": True, "result": first})
+                            continue
+                        sig = login.login(req)
+                        if sig is None:
                             return  # the plugin closes without an answer
+                        if fake.bad_signature:
+                            sig = base64.b64encode(bytes(32)).decode()
                         authed = True
-                        hello = {"protocol": 1, "version": "v-test", "allow_changes": fake.allow_changes,
-                                 "master_node_id": 1}
+                        hello = {"protocol": 2, "version": "v-test", "allow_changes": fake.allow_changes,
+                                 "master_node_id": 1, "signature": sig}
                         if fake.networks is not None:
                             hello["networks"] = copy.deepcopy(fake.networks)
                         self._send({"id": req.get("id"), "ok": True, "result": hello})

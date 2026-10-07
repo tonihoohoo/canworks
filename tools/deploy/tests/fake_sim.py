@@ -18,6 +18,8 @@ import threading
 from openplc_canopen_deploy import simfile
 from openplc_canopen_deploy.simclient import READ_OPS
 
+from . import fake_tls
+
 FAULT_KINDS = ("emcy", "heartbeat", "power", "reset", "nmt_state", "sdo_abort", "sdo_delay",
                "refuse_write_operational", "tpdo_stop", "identity", "device_type", "forget_node_id", "drive_input")
 CLEARABLE = ("emcy", "heartbeat", "power", "sdo_abort", "sdo_delay", "refuse_write_operational", "tpdo_stop",
@@ -335,7 +337,19 @@ class FakeSimServer:
         fake = self
 
         class Handler(socketserver.StreamRequestHandler):
+            def setup(self):
+                self.mode = fake_tls.accept(self)
+                super().setup()
+
             def handle(self):
+                # With a token: TLS and the SCRAM login; without: plain.
+                if self.mode is None:
+                    return
+                if fake.token and self.mode != "tls":
+                    self._send({"ok": False, "error": "this simulator needs an encrypted connection; "
+                                                      "update openplc-canopen-diag"})
+                    return
+                login = fake_tls.Login(fake.token) if fake.token else None
                 authed = not fake.token
                 for raw in self.rfile:
                     try:
@@ -343,15 +357,25 @@ class FakeSimServer:
                     except ValueError:
                         self._send({"ok": False, "error": "not a JSON object"})
                         continue
-                    if req.get("op") == "hello":
-                        if fake.token and req.get("token") != fake.token:
+                    if not authed:
+                        if login.snonce is None:
+                            first = login.hello(req)
+                            if first is None:
+                                return
+                            self._send({"id": req.get("id"), "ok": True, "result": first})
+                            continue
+                        sig = login.login(req)
+                        if sig is None:
                             return
                         authed = True
                         self._send({"id": req.get("id"), "ok": True,
+                                    "result": {"protocol": 2, "version": "v-test", "simulator": True,
+                                               "signature": sig}})
+                        continue
+                    if req.get("op") == "hello":
+                        self._send({"id": req.get("id"), "ok": True,
                                     "result": {"protocol": 1, "version": "v-test", "simulator": True}})
                         continue
-                    if not authed:
-                        return
                     self._send(dict(fake.sim.handle(req, allow_changes=True), id=req.get("id")))
 
             def _send(self, obj):

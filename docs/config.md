@@ -65,7 +65,7 @@ One PLC can drive up to 8 CAN networks, each on its own adapter, with its own ma
 ```json
 {
   "schema_version": 2,
-  "diagnostics": { "token_sha256": "..." },
+  "diagnostics": { "token_verifier": "SCRAM-SHA-256$4096:..." },
   "networks": [
     { "name": "io", "adapter": { "type": "socketcan", "interface": "can0", "bitrate": 125000 },
       "master": { "node_id": 1, "sync_period_us": 10000 }, "nodes": [ ... ] },
@@ -262,12 +262,12 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 ### Online diagnostics
 
 ```json
-"diagnostics": { "token_sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "allow_changes": false }
+"diagnostics": { "token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg=", "allow_changes": false }
 ```
 
 | Field | Required | Meaning |
 |---|---|---|
-| `token_sha256` | yes | The SHA-256 of the access token, 64 hex digits. The token itself never goes in the file: the configurator generates it and keeps it on the PC, and `openplc-canopen-diag hash-token` prints the hash of a token you choose. |
+| `token_verifier` | yes | The access token's SCRAM-SHA-256 verifier, `SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>` (iterations 4096-1000000, a salt of at least 16 bytes). The token itself never goes in the file, and the verifier does not let anyone log in: the configurator generates the token and keeps it on the PC, and `openplc-canopen-diag hash-token` prints the verifier of a token you choose. The former `token_sha256` is refused: set the token again ([diagnostics.md](diagnostics.md#security)). |
 | `port` | no | TCP port the plugin listens on, 1024-65535, default 7531. |
 | `bind` | no | IPv4 address to listen on, default `0.0.0.0` (every interface). |
 | `allow_changes` | no | Default `false`: read-only. `true` also allows SDO writes and NMT commands from a client with the token. |
@@ -678,7 +678,7 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a node sets `heartbeat_consumer: true` while `master.heartbeat_ms` is 0, sets `software_version` without `software_file`, or names a `software_file` that does not exist;
 - a location lies outside the runtime's I/O image (index 1024 and up on a default runtime).
 - in a version 2 file: `networks` is missing, empty or longer than 8, a network name is invalid or used twice, two networks use the same interface or serial device, a field of a network (`adapter`, `master`, `nodes`) sits at the top level, or `diagnostics` sits in a network's `master`;
-- `nodes` is empty without `master.diagnostics` (in version 2, without the top-level `diagnostics`), or `master.diagnostics` has a `token_sha256` that is not 64 hex digits, a `port` outside 1024-65535 or a `bind` that is not an IPv4 address;
+- `nodes` is empty without `master.diagnostics` (in version 2, without the top-level `diagnostics`), or `master.diagnostics` has the former `token_sha256` or a `token_verifier` that is not a valid verifier, a `port` outside 1024-65535 or a `bind` that is not an IPv4 address;
 - a slave network has `master` or `nodes`, a master network has `slave`, a version 1 file has `role`, `slave` or `gateway`, or two master networks (or two slave networks) share a simulated bus;
 - a slave's `node_id` is outside 1-127 and not `null`, its EDS is missing or fails the lint, or a binding names an object the EDS does not define, an object bound twice, a `const` or `wo` object, a location of the wrong area for the object's access type or of a size that does not fit its type; a slave status location has the wrong type (`%IB` state, `%IX` communication OK, `%IW` SYNC count, `%QW` EMCY code, `%QB` error register);
 - a PDO entry has no `iec_location` and no gateway route writes it;

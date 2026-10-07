@@ -606,7 +606,8 @@ class Parser {
 
   static void copy_diagnostics(const MasterConfig& from, MasterConfig& to) {
     to.has_diagnostics = from.has_diagnostics;
-    to.diag_token_sha256 = from.diag_token_sha256;
+    to.diag_token_verifier = from.diag_token_verifier;
+    to.diag_scram = from.diag_scram;
     to.diag_port = from.diag_port;
     to.diag_bind = from.diag_bind;
     to.diag_allow_changes = from.diag_allow_changes;
@@ -943,21 +944,21 @@ class Parser {
       error(parent_where, "field 'diagnostics' must be an object");
       return;
     }
-    check_known(d, w, {"token_sha256", "port", "bind", "allow_changes"});
     // Set even when a field is wrong, so the empty-node-list check adds no
     // second error.
     m.has_diagnostics = true;
-    std::string hash;
-    if (get_string(d, "token_sha256", w, true, hash)) {
-      bool hex = hash.size() == 64;
-      for (char& c : hash) {
-        hex = hex && std::isxdigit(static_cast<unsigned char>(c));
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-      }
-      if (!hex)
-        error(w, "field 'token_sha256' must be 64 hexadecimal characters (the SHA-256 of the access token; "
-                 "openplc-canopen-diag hash-token prints it)");
-      m.diag_token_sha256 = hash;
+    if (cJSON_GetObjectItemCaseSensitive(d, "token_sha256")) {
+      error(w + ".token_sha256",
+            "the diagnostics channel is encrypted now and needs a 'token_verifier' instead: set the token again "
+            "(configurator: Online access, Upgrade or New token; or openplc-canopen-diag hash-token)");
+      return;
+    }
+    check_known(d, w, {"token_verifier", "port", "bind", "allow_changes"});
+    std::string text;
+    if (get_string(d, "token_verifier", w, true, text)) {
+      std::string why;
+      if (!parse_scram_verifier(text, m.diag_scram, why)) error(w, "field 'token_verifier' " + why);
+      m.diag_token_verifier = text;
     }
     uint64_t v;
     if (get_uint(d, "port", w, false, 65535, v)) {

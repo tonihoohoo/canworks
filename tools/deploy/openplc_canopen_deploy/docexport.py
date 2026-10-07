@@ -1081,11 +1081,12 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
 
 
 def _without_token(text, cfg):
-    """The config text with every diagnostics token hash replaced."""
+    """The config text with every diagnostics token verifier (or former hash) replaced."""
     for net in contract.networks(cfg):
         for d in (net["master"].get("diagnostics"), net["json"].get("diagnostics"), cfg.get("diagnostics")):
-            if isinstance(d, dict) and isinstance(d.get("token_sha256"), str) and d["token_sha256"]:
-                text = text.replace(d["token_sha256"], "(removed)")
+            for key in ("token_verifier", "token_sha256"):
+                if isinstance(d, dict) and isinstance(d.get(key), str) and d[key]:
+                    text = text.replace(d[key], "(removed)")
     return text
 
 

@@ -2,12 +2,15 @@
 "Control protocol") for the configurator's Simulation view tests: either the
 plugin's diagnostics channel with its simulated devices (hello with
 allow_changes) or a standalone openplc-canopen-sim (hello with simulator:
-true). Speaks protocol 1 on 127.0.0.1 and records every request."""
+true). With a token it speaks TLS and the SCRAM login (fake_tls.py), without
+one plain lines, on 127.0.0.1, and records every request."""
 
 import copy
 import json
 import socketserver
 import threading
+
+from . import fake_tls
 
 TOKEN = "test-token"
 CHANGE_OPS = ("sim_set", "sim_override", "sim_release", "sim_source", "sim_fault", "sim_clear", "sim_scenario_start",
@@ -36,7 +39,14 @@ class FakeSim:
         fake = self
 
         class Handler(socketserver.StreamRequestHandler):
+            def setup(self):
+                self.mode = fake_tls.accept(self)
+                super().setup()
+
             def handle(self):
+                if self.mode is None or (fake.token and self.mode != "tls"):
+                    return
+                login = fake_tls.Login(fake.token) if fake.token else None
                 authed = False
                 for raw in self.rfile:
                     try:
@@ -44,10 +54,21 @@ class FakeSim:
                     except ValueError:
                         continue
                     if not authed:
-                        if req.get("op") != "hello" or (fake.token and req.get("token") != fake.token):
+                        hello = {"protocol": 1, "version": "v-test"}
+                        if login:
+                            if login.snonce is None:
+                                first = login.hello(req)
+                                if first is None:
+                                    return
+                                self._send({"id": req.get("id"), "ok": True, "result": first})
+                                continue
+                            sig = login.login(req)
+                            if sig is None:
+                                return
+                            hello = {"protocol": 2, "version": "v-test", "signature": sig}
+                        elif req.get("op") != "hello":
                             return
                         authed = True
-                        hello = {"protocol": 1, "version": "v-test"}
                         if fake.standalone:
                             hello["simulator"] = True
                         else:

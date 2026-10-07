@@ -258,6 +258,7 @@ constexpr size_t DiagServer::kMaxLine;
 constexpr size_t DiagServer::kMaxSendBuffer;
 constexpr std::chrono::seconds DiagServer::kHelloTimeout;
 constexpr std::chrono::seconds DiagServer::kRetryListen;
+constexpr std::chrono::seconds DiagServer::kLoginBackoff;
 constexpr size_t DiagServer::kTraceFetchDefault;
 constexpr size_t DiagServer::kTraceFetchMax;
 
@@ -337,6 +338,16 @@ void DiagServer::stop() {
 
 bool DiagServer::open_listener() {
   const MasterConfig& m = settings();
+  // A new key and certificate each time the listener opens.
+  if (!tls_id_.ready()) {
+    std::string why;
+    if (!tls_id_.create(why)) {
+      if (!warned_listen_) log_warn("diagnostics: cannot make the TLS key: %s; retrying every %lld s", why.c_str(),
+                                    (long long)kRetryListen.count());
+      warned_listen_ = true;
+      return false;
+    }
+  }
   int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
   std::string why;
   if (fd < 0) {
@@ -366,7 +377,7 @@ bool DiagServer::open_listener() {
   getsockname(fd, reinterpret_cast<sockaddr*>(&got), &len);
   listen_fd_ = fd;
   port_ = ntohs(got.sin_port);
-  log_info("diagnostics listen on %s:%u, %s", m.diag_bind.c_str(), port_.load(),
+  log_info("diagnostics listen on %s:%u, %s, encrypted (TLS)", m.diag_bind.c_str(), port_.load(),
            m.diag_allow_changes ? "changes allowed (SDO writes and NMT commands)" : "read-only");
   return true;
 }
@@ -393,7 +404,7 @@ void DiagServer::run() {
     }
     for (size_t n = 0; n < nets; ++n) waiting_capture = waiting_capture || (any_trace(n) && !chans_[n].open);
     for (const auto& c : clients_) {
-      short ev = c.out.empty() ? 0 : POLLOUT;
+      short ev = pending(c) ? POLLOUT : 0;
       if (!c.closing) ev |= POLLIN;
       fds.push_back({c.fd, ev, 0});
     }
@@ -428,17 +439,17 @@ void DiagServer::run() {
       short re = fds[first_client + i].revents;
       if (re & (POLLERR | POLLNVAL)) {
         c.closing = true;
-        c.out.clear();
+        drop_output(c);
         continue;
       }
       if (re & (POLLIN | POLLHUP)) {
         char buf[4096];
         ssize_t n = recv(c.fd, buf, sizeof buf, 0);
         if (n > 0) {
-          c.in.append(buf, static_cast<size_t>(n));
+          on_wire(c, buf, static_cast<size_t>(n));
         } else if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           c.closing = true;
-          c.out.clear();
+          drop_output(c);
         }
       }
     }
@@ -446,18 +457,18 @@ void DiagServer::run() {
       if (!c.closing) process_input(c);
       if (!c.authed && !c.closing && now - c.since >= kHelloTimeout) {
         c.closing = true;
-        c.out.clear();
+        drop_output(c);
       }
-      if (c.out.size() > kMaxSendBuffer) {
+      if (pending(c) > kMaxSendBuffer) {
         log_warn("diagnostics: client %s does not read its answers; closing the connection", c.peer.c_str());
         c.closing = true;
-        c.out.clear();
+        drop_output(c);
       }
     }
     for (size_t i = clients_.size(); i-- > 0;) {
       Client& c = clients_[i];
       bool alive = flush(c);
-      if (!alive || (c.closing && c.out.empty())) close_client(i);
+      if (!alive || (c.closing && !pending(c))) close_client(i);
     }
     if (listen_fd_ >= 0 && (fds[1].revents & POLLIN)) accept_clients();
     update_capture(clock::now());
@@ -472,10 +483,10 @@ void DiagServer::accept_clients() {
     if (fd < 0) return;
     char addr[INET_ADDRSTRLEN] = "?";
     inet_ntop(AF_INET, &a.sin_addr, addr, sizeof addr);
-    if (clients_.size() >= kMaxClients) {
-      std::string line = diag_error("", "too many clients");
-      ssize_t r = send(fd, line.data(), line.size(), MSG_NOSIGNAL);
-      (void)r;
+    size_t serving = 0;
+    for (const auto& c : clients_) serving += !c.refusing;
+    bool refusing = serving >= kMaxClients;
+    if (refusing && clients_.size() >= 2 * kMaxClients) {
       close(fd);
       continue;
     }
@@ -485,6 +496,8 @@ void DiagServer::accept_clients() {
     c.fd = fd;
     c.peer = addr;
     c.since = std::chrono::steady_clock::now();
+    // Told "too many clients" in its own mode (plain or TLS) once that is known.
+    c.refusing = refusing;
     clients_.push_back(std::move(c));
   }
 }
@@ -494,11 +507,60 @@ void DiagServer::close_client(size_t i) {
   clients_.erase(clients_.begin() + static_cast<long>(i));
 }
 
+size_t DiagServer::pending(const Client& c) const {
+  return c.out.size() + (c.tls ? c.tls->wire().size() : 0);
+}
+
+void DiagServer::drop_output(Client& c) {
+  c.out.clear();
+  if (c.tls) c.tls->wire().clear();
+}
+
+void DiagServer::on_wire(Client& c, const char* data, size_t n) {
+  if (c.mode == Mode::unknown && n) {
+    if (static_cast<unsigned char>(data[0]) == kTlsHandshakeByte) {
+      std::string why;
+      c.tls = TlsConn::server(tls_id_, why);
+      if (!c.tls) {
+        log_warn("diagnostics: TLS for %s failed: %s", c.peer.c_str(), why.c_str());
+        c.closing = true;
+        drop_output(c);
+        return;
+      }
+      c.mode = Mode::tls;
+    } else {
+      c.mode = Mode::plain;
+    }
+  }
+  if (c.mode == Mode::tls) {
+    std::string plain, why;
+    if (!c.tls->feed(data, n, plain, why)) {
+      c.closing = true;  // a TLS alert in wire() still goes out
+      c.out.clear();
+      return;
+    }
+    c.in += plain;
+  } else {
+    c.in.append(data, n);
+  }
+  if (c.refusing && !c.closing && (c.mode == Mode::plain || c.tls->established())) {
+    c.out += diag_error("", "too many clients");
+    c.closing = true;
+  }
+}
+
 bool DiagServer::flush(Client& c) {
-  while (!c.out.empty()) {
-    ssize_t n = send(c.fd, c.out.data(), c.out.size(), MSG_NOSIGNAL);
+  std::string* buf = &c.out;
+  if (c.tls) {
+    std::string why;
+    if (!c.tls->write(c.out, why)) return false;
+    c.out.clear();
+    buf = &c.tls->wire();
+  }
+  while (!buf->empty()) {
+    ssize_t n = send(c.fd, buf->data(), buf->size(), MSG_NOSIGNAL);
     if (n > 0) {
-      c.out.erase(0, static_cast<size_t>(n));
+      buf->erase(0, static_cast<size_t>(n));
       continue;
     }
     if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return true;
@@ -508,6 +570,12 @@ bool DiagServer::flush(Client& c) {
 }
 
 void DiagServer::process_input(Client& c) {
+  if (c.refusing) return;
+  // After a failed login from this address, its next login waits a moment.
+  if (!c.authed) {
+    auto it = auth_failed_.find(c.peer);
+    if (it != auth_failed_.end() && std::chrono::steady_clock::now() < it->second + kLoginBackoff) return;
+  }
   // One request at a time per connection keeps the answers in order.
   while (!c.closing && !c.waiting) {
     size_t nl = c.in.find('\n');
@@ -537,6 +605,90 @@ void DiagServer::log_auth_failure(const std::string& peer) {
   if (it != auth_logged_.end() && now - it->second < std::chrono::minutes(1)) return;
   auth_logged_[peer] = now;
   log_warn("diagnostics: connection from %s refused: wrong token", peer.c_str());
+}
+
+void DiagServer::refuse_login(Client& c) {
+  log_auth_failure(c.peer);
+  auth_failed_[c.peer] = std::chrono::steady_clock::now();
+  c.closing = true;
+  drop_output(c);
+}
+
+cJSON* DiagServer::hello_info() const {
+  const MasterConfig& m = settings();
+  cJSON* res = cJSON_CreateObject();
+  cJSON_AddNumberToObject(res, "protocol", kDiagProtocol);
+  cJSON_AddStringToObject(res, "version", chans_[0].hub->version().c_str());
+  cJSON_AddBoolToObject(res, "allow_changes", m.diag_allow_changes);
+  cJSON_AddNumberToObject(res, "master_node_id", m.node_id);
+  cJSON* list = cJSON_AddArrayToObject(res, "networks");
+  for (const auto& ch : chans_) {
+    const Config& nc = ch.hub->config();
+    cJSON* o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "name", nc.network.c_str());
+    cJSON_AddStringToObject(o, "interface", nc.adapter.interface.c_str());
+    cJSON_AddNumberToObject(o, "bitrate", nc.adapter.bitrate);
+    if (nc.is_slave()) {
+      cJSON_AddStringToObject(o, "role", "slave");
+      if (nc.slave.lss)
+        cJSON_AddNullToObject(o, "node_id");
+      else
+        cJSON_AddNumberToObject(o, "node_id", nc.slave.node_id);
+    } else {
+      cJSON_AddStringToObject(o, "role", "master");
+      cJSON_AddNumberToObject(o, "master_node_id", nc.master.node_id);
+    }
+    cJSON_AddItemToArray(list, o);
+  }
+  return res;
+}
+
+void DiagServer::handle_login(Client& c, const std::string& id, const std::string& op, const cJSON* req) {
+  const MasterConfig& m = settings();
+  if (c.mode == Mode::plain) {
+    // An older client: tell it why, then close.
+    c.out += diag_error(id, "this runtime needs an encrypted connection; update openplc-canopen-diag");
+    c.closing = true;
+    return;
+  }
+  const ScramVerifier& v = m.diag_scram;
+  const std::string salt = b64_encode(v.salt);
+  if (op == "hello" && c.snonce.empty()) {
+    const cJSON* mech = cJSON_GetObjectItemCaseSensitive(req, "mech");
+    const cJSON* nonce = cJSON_GetObjectItemCaseSensitive(req, "nonce");
+    Bytes raw;
+    if (!cJSON_IsString(mech) || std::string(mech->valuestring) != kScramMechanism || !cJSON_IsString(nonce) ||
+        !b64_decode(nonce->valuestring, raw) || raw.size() < 16 || raw.size() > 64) {
+      c.out += diag_error(id, std::string("log in with {\"op\": \"hello\", \"mech\": \"") + kScramMechanism +
+                                  "\", \"nonce\": ...}");
+      c.closing = true;
+      return;
+    }
+    c.cnonce = nonce->valuestring;
+    c.snonce = b64_encode(random_bytes(kScramNonceBytes));
+    cJSON* res = cJSON_CreateObject();
+    cJSON_AddNumberToObject(res, "protocol", kDiagProtocol);
+    cJSON_AddStringToObject(res, "nonce", c.snonce.c_str());
+    cJSON_AddStringToObject(res, "salt", salt.c_str());
+    cJSON_AddNumberToObject(res, "iterations", v.iterations);
+    c.out += diag_ok(id, res);
+    return;
+  }
+  const cJSON* proof = cJSON_GetObjectItemCaseSensitive(req, "proof");
+  Bytes p;
+  if (op != "login" || c.snonce.empty() || !cJSON_IsString(proof) || !b64_decode(proof->valuestring, p)) {
+    refuse_login(c);
+    return;
+  }
+  std::string auth = scram_auth_message(c.cnonce, c.snonce, salt, v.iterations, tls_id_.cert_hash());
+  if (!scram_check_proof(v, auth, p)) {
+    refuse_login(c);
+    return;
+  }
+  c.authed = true;
+  cJSON* res = hello_info();
+  cJSON_AddStringToObject(res, "signature", b64_encode(scram_server_signature(v, auth)).c_str());
+  c.out += diag_ok(id, res);
 }
 
 void DiagServer::handle_line(Client& c, const std::string& line) {
@@ -577,43 +729,9 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
   }
 
   if (!c.authed) {
-    // Nothing but a matching hello is answered before authentication.
-    const cJSON* tok = cJSON_GetObjectItemCaseSensitive(req, "token");
-    bool ok = r.op == "hello" && cJSON_IsString(tok) &&
-              equal_constant_time(sha256_hex(tok->valuestring), m.diag_token_sha256);
+    // Nothing but the login is answered before authentication.
+    handle_login(c, r.id, r.op, req);
     cJSON_Delete(req);
-    if (!ok) {
-      log_auth_failure(c.peer);
-      c.closing = true;
-      c.out.clear();
-      return;
-    }
-    c.authed = true;
-    cJSON* res = cJSON_CreateObject();
-    cJSON_AddNumberToObject(res, "protocol", kDiagProtocol);
-    cJSON_AddStringToObject(res, "version", hub.version().c_str());
-    cJSON_AddBoolToObject(res, "allow_changes", m.diag_allow_changes);
-    cJSON_AddNumberToObject(res, "master_node_id", m.node_id);
-    cJSON* list = cJSON_AddArrayToObject(res, "networks");
-    for (const auto& ch : chans_) {
-      const Config& nc = ch.hub->config();
-      cJSON* o = cJSON_CreateObject();
-      cJSON_AddStringToObject(o, "name", nc.network.c_str());
-      cJSON_AddStringToObject(o, "interface", nc.adapter.interface.c_str());
-      cJSON_AddNumberToObject(o, "bitrate", nc.adapter.bitrate);
-      if (nc.is_slave()) {
-        cJSON_AddStringToObject(o, "role", "slave");
-        if (nc.slave.lss)
-          cJSON_AddNullToObject(o, "node_id");
-        else
-          cJSON_AddNumberToObject(o, "node_id", nc.slave.node_id);
-      } else {
-        cJSON_AddStringToObject(o, "role", "master");
-        cJSON_AddNumberToObject(o, "master_node_id", nc.master.node_id);
-      }
-      cJSON_AddItemToArray(list, o);
-    }
-    c.out += diag_ok(r.id, res);
     return;
   }
 

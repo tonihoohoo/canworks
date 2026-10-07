@@ -92,7 +92,7 @@ class Layout(OnlineBase):
     def test_every_view_fits(self):
         pg = self.page
         with FakePlugin(allow_changes=True) as fp:
-            self.write_config({"token_sha256": diag.hash_token(TOKEN), "allow_changes": True})
+            self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
             self.remember(fp.runtime)
             for width in (1000, 1280, 1440):
                 pg.set_viewport_size({"width": width, "height": 800})
@@ -310,7 +310,7 @@ class Layout(OnlineBase):
         node.update(node_id=NODE, name="rtd", booted=True, emcy={"code": 0, "error_register": 0, "count": 0}, sdo_variables=[])
         fp.status["nodes"].insert(0, node)
         with fp:
-            self.write_config({"token_sha256": diag.hash_token(TOKEN), "allow_changes": True})
+            self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
             self.remember(fp.runtime)
             self.open()
             for width in (1000, 1280, 1440):

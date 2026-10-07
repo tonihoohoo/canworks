@@ -17,7 +17,7 @@ from .fake_diag import SLAVE_NETWORK, TOKEN, TWO_NETWORKS, FakePlugin, closed_po
 from .helpers import PINGPONG, REPO, tmpdir
 from .test_configurator_server import RTD, Running, read, rtd_node
 
-DIAG = {"token_sha256": diag.hash_token(TOKEN)}
+DIAG = {"token_verifier": diag.token_verifier(TOKEN)}
 
 
 class Online(Running):
@@ -49,12 +49,12 @@ class Settings(Online):
     def test_generate_keeps_token_out_of_the_project(self):
         r = self.ok("POST", "/api/online/token", {"action": "generate"})
         self.assertGreaterEqual(len(r["token"]), 32)
-        self.assertEqual(r["token_sha256"], hashlib.sha256(r["token"].encode()).hexdigest())
+        self.assertTrue(diag.token_matches(r["token"], r["token_verifier"]))
         cfg = self.pingpong(diagnostics=False)
-        cfg["master"]["diagnostics"] = {"token_sha256": r["token_sha256"]}
+        cfg["master"]["diagnostics"] = {"token_verifier": r["token_verifier"]}
         self.save(cfg)
         saved = read(os.path.join(self.canopen, "canopen.json"), "r")
-        self.assertIn(r["token_sha256"], saved)
+        self.assertIn(r["token_verifier"], saved)
         for root, _, names in os.walk(self.project):
             for name in names:
                 self.assertNotIn(r["token"].encode(), read(os.path.join(root, name)), name)
@@ -64,14 +64,25 @@ class Settings(Online):
             self.assertEqual(stat.S_IMODE(os.stat(settings).st_mode), 0o600)
         self.assertEqual(self.ok("GET", "/api/online/settings")["token"], r["token"])
 
-    def test_token_from_another_pc_checked_against_the_hash(self):
+    def test_token_from_another_pc_checked_against_the_verifier(self):
         status, data, _ = self.request("POST", "/api/online/token",
-                                       {"action": "set", "token": "wrong", "token_sha256": DIAG["token_sha256"]})
+                                       {"action": "set", "token": "wrong", "token_verifier": DIAG["token_verifier"]})
         self.assertEqual(status, 422)
         self.assertIn("does not match", data["error"])
         self.assertIsNone(self.ok("GET", "/api/online/settings")["token"])
-        self.ok("POST", "/api/online/token", {"action": "set", "token": TOKEN, "token_sha256": DIAG["token_sha256"]})
+        self.ok("POST", "/api/online/token", {"action": "set", "token": TOKEN, "token_verifier": DIAG["token_verifier"]})
         self.assertEqual(self.ok("GET", "/api/online/settings")["token"], TOKEN)
+        self.assertTrue(self.ok("POST", "/api/online/token", {"action": "check", "token_verifier": DIAG["token_verifier"]})["match"])
+        self.assertFalse(self.ok("POST", "/api/online/token",
+                                 {"action": "check", "token_verifier": diag.token_verifier("other")})["match"])
+
+    def test_upgrade_of_the_former_token_sha256(self):
+        # A config from before the encrypted channel: the same token gets a verifier.
+        old = hashlib.sha256(TOKEN.encode()).hexdigest()
+        self.ok("POST", "/api/online/token", {"action": "set", "token": TOKEN, "token_sha256": old})
+        self.assertTrue(self.ok("POST", "/api/online/token", {"action": "check", "token_sha256": old})["match"])
+        v = self.ok("POST", "/api/online/token", {"action": "verifier"})["token_verifier"]
+        self.assertTrue(diag.token_matches(TOKEN, v))
         self.ok("POST", "/api/online/token", {"action": "forget"})
         self.assertIsNone(self.ok("GET", "/api/online/settings")["token"])
 

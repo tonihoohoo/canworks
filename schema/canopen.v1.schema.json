@@ -493,10 +493,14 @@
           "description": "The diagnostics channel: the plugin listens on TCP for the configurator's online view, manual SDO/NMT and network scan (docs/diagnostics.md). Absent = no network listener.",
           "type": "object",
           "properties": {
-            "token_sha256": {
-              "description": "SHA-256 of the access token, as 64 hexadecimal characters (openplc-canopen-diag hash-token prints it). The token itself is never stored in the config.",
+            "token_verifier": {
+              "description": "SCRAM-SHA-256 verifier of the access token, SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey> in base64 (openplc-canopen-diag hash-token prints it; iterations 4096-1000000, salt at least 16 bytes). The token itself is never stored in the config, and the verifier does not let anyone log in.",
               "type": "string",
-              "pattern": "^[0-9A-Fa-f]{64}$"
+              "pattern": "^SCRAM-SHA-256\\$[0-9]{1,7}:[A-Za-z0-9+/]+={0,2}\\$[A-Za-z0-9+/]{43}=:[A-Za-z0-9+/]{43}=$"
+            },
+            "token_sha256": {
+              "description": "No longer accepted: the diagnostics channel is encrypted and needs token_verifier (set the token again in the configurator).",
+              "not": {}
             },
             "port": {
               "description": "TCP port (default 7531).",
@@ -515,7 +519,7 @@
             }
           },
           "required": [
-            "token_sha256"
+            "token_verifier"
           ]
         }
       },

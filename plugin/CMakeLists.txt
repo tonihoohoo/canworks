@@ -10,6 +10,8 @@ set(CANOPEN_PREFIX "/opt/openplc-canopen" CACHE PATH "Install prefix of Lely and
 find_package(PkgConfig REQUIRED)
 set(ENV{PKG_CONFIG_PATH} "${LELY_PREFIX}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
 pkg_check_modules(LELY REQUIRED liblely-coapp liblely-co liblely-io2 liblely-ev liblely-util liblely-libc)
+# TLS and the SCRAM login of the diagnostics channel (secure_channel.cpp).
+find_package(OpenSSL 3 REQUIRED COMPONENTS SSL Crypto)
 message(STATUS "CANopen plugin - Lely CANopen ${LELY_liblely-coapp_VERSION} in ${LELY_LIBRARY_DIRS}")
 
 set(NATIVE_DIR ${OPENPLC_ROOT}/core/src/drivers/plugins/native)
@@ -31,6 +33,7 @@ add_library(canopen_core STATIC
     src/diag.cpp
     src/trace_capture.cpp
     src/sha256.cpp
+    src/secure_channel.cpp
     src/can_adapter.cpp
     src/bus.cpp
     src/bus_monitor.cpp
@@ -63,7 +66,7 @@ target_include_directories(canopen_core PUBLIC
 target_compile_options(canopen_core PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_compile_definitions(canopen_core PRIVATE CANOPEN_PREFIX="${CANOPEN_PREFIX}")
 target_link_directories(canopen_core PUBLIC ${LELY_LIBRARY_DIRS})
-target_link_libraries(canopen_core PUBLIC ${LELY_LIBRARIES} pthread)
+target_link_libraries(canopen_core PUBLIC ${LELY_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto pthread)
 
 # The plugin version the diagnostics channel reports: $CANOPEN_PLUGIN_VERSION
 # when set (the local simulator runtime image, built without .git), else git.
