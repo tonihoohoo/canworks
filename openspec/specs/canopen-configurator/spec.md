@@ -789,7 +789,7 @@ The object dictionary tab SHALL offer "Copy as ST call" for a selected entry. It
 - **THEN** the clipboard declares `rd_drives_n2_1017_0 : CO_SDO_READ;` and calls it with `NETWORK := 1 (* drives *), NODE := 2, INDEX := 16#1017`
 
 ### Requirement: CiA 402 axis setting
-The node settings SHALL offer a "CiA 402 axis" switch with the three scaling fields, writing the node's `axis` object, and SHALL show the axis checks' errors and warnings with the node. The switch SHALL be offered for every node and SHALL say when the EDS does not report device profile 402. Turning it on SHALL require a status bit and SHALL suggest one when the node has none.
+The node settings SHALL offer a "CiA 402 axis" switch with the three scaling fields and a "Cyclic synchronous" switch with an optional interpolation period, writing the node's `axis` object, and SHALL show the axis checks' errors and warnings with the node. The switch SHALL be offered for every node and SHALL say when the EDS does not report device profile 402. Turning it on SHALL require a status bit and SHALL suggest one when the node has none.
 
 #### Scenario: Turn on
 - **WHEN** the user turns on "CiA 402 axis" for node `drive`, which has a status bit, and saves
@@ -799,8 +799,12 @@ The node settings SHALL offer a "CiA 402 axis" switch with the three scaling fie
 - **WHEN** the axis node does not map 0x6041
 - **THEN** the node shows the error and the config is not saved
 
+#### Scenario: Cyclic on a timer network
+- **WHEN** the user turns on "Cyclic synchronous" for axis `drive` on a network whose SYNC comes from the master's timer
+- **THEN** the node shows the error that a cyclic axis needs SYNC from the PLC cycle, with a button that sets `"sync_source": "plc_cycle"` on that network (removing `sync_period_us`), and the config is not saved until it is fixed
+
 ### Requirement: Map CiA 402 objects
-For an axis node the configurator SHALL offer "Map CiA 402 objects", which adds each standard axis object that the EDS has as PDO-mappable and that is not yet mapped to a free entry of an RPDO (outputs) or TPDO (inputs) the device lets the master map, with suggested locations of the bridge's IEC types, and leaves PDO communication settings at the EDS's values. Objects that do not fit SHALL be listed by name and nothing already mapped SHALL change.
+For an axis node the configurator SHALL offer "Map CiA 402 objects", which adds each standard axis object that the EDS has as PDO-mappable and that is not yet mapped to a free entry of an RPDO (outputs) or TPDO (inputs) the device lets the master map, with suggested locations of the bridge's IEC types, and leaves PDO communication settings at the EDS's values. For a cyclic axis it SHALL put 0x6040, 0x6060 and 0x607A together in one RPDO and the other set-points in the next, and 0x6041, 0x6061 and 0x6064 together in one TPDO, and SHALL set transmission type 1 on the PDOs it fills whose effective type is not synchronous, listing each such change in its result. Objects that do not fit SHALL be listed by name and nothing already mapped SHALL change.
 
 #### Scenario: Servo drive
 - **WHEN** the user runs "Map CiA 402 objects" on an axis node whose EDS has all eleven standard objects, writable mapping and four RPDOs and TPDOs, with nothing mapped
@@ -810,6 +814,10 @@ For an axis node the configurator SHALL offer "Map CiA 402 objects", which adds 
 - **WHEN** the EDS has no 0x6077 object
 - **THEN** the action maps the others and says 0x6077 is not in the EDS
 
+#### Scenario: Cyclic layout
+- **WHEN** the user runs "Map CiA 402 objects" on a cyclic axis whose EDS has writable mapping and event-driven (255) default PDOs
+- **THEN** RPDO 1 holds 0x6040, 0x6060 and 0x607A, TPDO 1 holds 0x6041, 0x6061 and 0x6064, the PDOs it filled have transmission type 1 in the config, the result lists those type changes, and the cyclic axis check passes
+
 ### Requirement: Map CiA 402 objects on a fixed-mapping device
 For a device whose PDO mapping the master cannot change, "Map CiA 402 objects" SHALL only give suggested locations to the standard objects already in the device's mapping and SHALL list the missing ones.
 
@@ -818,7 +826,7 @@ For a device whose PDO mapping the master cannot change, "Map CiA 402 objects" S
 - **THEN** both get locations and the other standard outputs are listed as not in the device's mapping
 
 ### Requirement: Axis lines in the declarations
-For an axis node the located variable declarations SHALL also offer the axis and bridge declarations and the bridge call lines the project generator writes, ready to copy into an existing project.
+For an axis node the located variable declarations SHALL also offer the axis and bridge declarations and the bridge call lines the project generator writes, including the cycle time line of a cyclic axis from a task interval the user can enter (default T#20ms, the generator's default), ready to copy into an existing project.
 
 #### Scenario: Copy axis lines
 - **WHEN** node `drive` is an axis
