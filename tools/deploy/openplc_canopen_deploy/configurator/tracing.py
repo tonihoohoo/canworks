@@ -17,7 +17,7 @@ import os
 import threading
 from array import array
 
-from .. import dbcexport, diag
+from .. import contract, dbcexport, diag
 from ..bustrace import formats, triggers
 from ..bustrace.decode import KINDS, Decoder
 from ..bustrace.recorder import Recorder, Session
@@ -161,6 +161,7 @@ class Workspace:
         self.session = Session(Decoder(), limit=limit)
         self.recorder = None
         self.source = None  # None, "live" or the opened file's name
+        self.network = None  # the network recorded or decoded, with several
         self.trigger = None  # the checked trigger spec for the next start
         self.filters, self.error_frames = [], False
         self.warnings = []
@@ -173,11 +174,11 @@ class Workspace:
         self.generation += 1
 
     # -- recording ----------------------------------------------------------
-    def start(self, connect, decoder, filters, error_frames, trigger, autosave_dir, name_prefix):
+    def start(self, connect, decoder, filters, error_frames, trigger, autosave_dir, name_prefix, network=None):
         with self.lock:
             if self.recorder and self.recorder.running:
                 raise Refused(409, "a trace is already recording")
-            self.filters, self.error_frames = filters, error_frames
+            self.filters, self.error_frames, self.network = filters, error_frames, network
             if trigger is not None:
                 self.trigger = trigger or None
             self._replace(Session(decoder, limit=self.limit), "live", decoder.warnings)
@@ -217,7 +218,7 @@ class Workspace:
                 rec.stop_at_us = None
                 rec.pending_saves = []
 
-    def open(self, trace, name, decoder):
+    def open(self, trace, name, decoder, network=None):
         with self.lock:
             if self.recorder and self.recorder.running:
                 raise Refused(409, "stop the recording before opening a file")
@@ -226,6 +227,7 @@ class Workspace:
             if self.recorder and self.recorder.running:
                 raise Refused(409, "stop the recording before opening a file")
             self.recorder = None
+            self.network = network
             self._replace(session, name, decoder.warnings)
 
     # -- what the page reads ------------------------------------------------
@@ -235,7 +237,7 @@ class Workspace:
             info = rec.info() if rec else None
         with s.lock:
             t = s.trace
-            out = {"source": self.source, "generation": self.generation, "frames": len(t),
+            out = {"source": self.source, "network": self.network, "generation": self.generation, "frames": len(t),
                    "dropped": t.dropped, "limit": t.limit, "start_us": t.start_us, "end_us": t.end_us,
                    "markers": list(t.markers), "meta": {k: v for k, v in t.meta.items() if isinstance(v, (str, int))},
                    "summary": s.analysis.summary(sum(n for _, n in t.lost), t.kernel_drops),
@@ -373,10 +375,15 @@ class Traces:
             ws.stop()
 
 
-def decoder_for(cfg, config_path, eds_paths, names):
-    if not isinstance(cfg, dict) or not cfg.get("nodes"):
+def decoder_for(cfg, config_path, eds_paths, names, network=None):
+    """A decoder with the nodes of one network: the one `network` names in
+    a version 2 config, or the only one (without it, a config with several
+    decodes without nodes and says so in the warnings)."""
+    if not isinstance(cfg, dict) or not contract.all_nodes(cfg):
         return Decoder()
-    return Decoder.from_config(cfg, config_path, eds_paths=eds_paths, names=names)
+    if contract.version_of(cfg) == 1:
+        network = None
+    return Decoder.from_config(cfg, config_path, eds_paths=eds_paths, names=names, network=network)
 
 
 def check_trigger(spec):
@@ -415,9 +422,9 @@ def encode_export(ws, fmt, start_us, end_us, keys, base_name):
             "size": len(data), "data": base64.b64encode(data).decode("ascii")}
 
 
-def connector(hostname, port, token, timeout=3.0):
+def connector(hostname, port, token, timeout=3.0, network=None):
     def connect():
-        c = diag.Client(hostname, port, token, timeout)
+        c = diag.Client(hostname, port, token, timeout, network=network)
         c.connect()
         return c
     return connect

@@ -147,41 +147,58 @@ def glue(cfg, decls):
 
     `decls` are the program's located variable declarations
     (configurator.declare), whose names the bridge call uses. Declarations
-    are {name, type, node, kind: "axis", description} without a location."""
+    are {name, type, node, kind: "axis", description} without a location.
+    With several networks (as in declare) names start with the network's
+    name, paths with networks[i]. and `node` counts the nodes of all
+    networks."""
+    from . import contract  # contract imports this module
     by_path = {d["path"]: d["name"] for d in decls}
     out, body = [], []
-    for i, n in enumerate(cfg.get("nodes", [])):
-        if not is_axis(n):
-            continue
-        name, bridge = axis_name(n), bridge_name(n)
-        who = "node %s (%s)" % (n.get("name"), n.get("node_id")) if n.get("name") else "node %s" % n.get("node_id")
-        out.append({"name": name, "type": AXIS_TYPE, "location": None, "node": i, "kind": "axis",
-                    "path": "nodes[%d].axis" % i, "declared_as": None,
-                    "description": "%s: CiA 402 axis" % who})
-        out.append({"name": bridge, "type": BRIDGE_TYPE, "location": None, "node": i, "kind": "axis",
-                    "path": "nodes[%d].axis.bridge" % i, "declared_as": None,
-                    "description": "%s: drive bridge of axis %s" % (who, name)})
-        if not body:
-            body.append(BODY_HEAD)
-        a = n["axis"]
-        for field, member, type_name, default in SCALING:
-            body.append("%s.%s := %s;" % (name, member, _literal(type_name, a.get(field, default))))
-        binds = ["Axis := %s" % name]
-        found = mapped(n, i)
-        status = by_path.get("nodes[%d].status_location" % i)
-        outputs = []
-        for index in PIN_ORDER:
-            pin, key, _, _, _ = OBJECTS[index]
-            for pkey, j, k, e in found.get(index, []):
-                var = by_path.get("nodes[%d].%s[%d].entries[%d].iec_location" % (i, pkey, j, k))
-                if var and pkey == key:
-                    (binds if key == "tx_pdos" else outputs).append(
-                        ("%s := %s" if key == "tx_pdos" else "%s => %s") % (pin, var))
-                    break
-        binds.append("bOnline := %s" % (status or "TRUE"))
-        binds += outputs
-        body.append("%s(%s);" % (bridge, (",\n" + " " * (len(bridge) + 1)).join(binds)))
+    nets = contract.networks(cfg) if isinstance(cfg, dict) else []
+    first = 0
+    for net in nets:
+        nodes = [x for x in net["nodes"] if isinstance(x, dict)]
+        several = len(nets) > 1 and net["name"]
+        at = net["path"] + "." if net["path"] else ""
+        prefix = identifier(net["name"]) + "_" if several else ""
+        desc = "network %s: " % net["name"] if several else ""
+        for i, n in enumerate(nodes):
+            if is_axis(n):
+                _axis_glue(n, first + i, at + "nodes[%d]" % i, prefix, desc, by_path, out, body)
+        first += len(nodes)
     return out, body
+
+
+def _axis_glue(n, flat, w, prefix, desc, by_path, out, body):
+    name, bridge = prefix + axis_name(n), prefix + bridge_name(n)
+    who = desc + ("node %s (%s)" % (n.get("name"), n.get("node_id")) if n.get("name")
+                  else "node %s" % n.get("node_id"))
+    out.append({"name": name, "type": AXIS_TYPE, "location": None, "node": flat, "kind": "axis",
+                "path": w + ".axis", "declared_as": None,
+                "description": "%s: CiA 402 axis" % who})
+    out.append({"name": bridge, "type": BRIDGE_TYPE, "location": None, "node": flat, "kind": "axis",
+                "path": w + ".axis.bridge", "declared_as": None,
+                "description": "%s: drive bridge of axis %s" % (who, name)})
+    if not body:
+        body.append(BODY_HEAD)
+    a = n["axis"]
+    for field, member, type_name, default in SCALING:
+        body.append("%s.%s := %s;" % (name, member, _literal(type_name, a.get(field, default))))
+    binds = ["Axis := %s" % name]
+    found = mapped(n, 0)
+    status = by_path.get(w + ".status_location")
+    outputs = []
+    for index in PIN_ORDER:
+        pin, key, _, _, _ = OBJECTS[index]
+        for pkey, j, k, e in found.get(index, []):
+            var = by_path.get("%s.%s[%d].entries[%d].iec_location" % (w, pkey, j, k))
+            if var and pkey == key:
+                (binds if key == "tx_pdos" else outputs).append(
+                    ("%s := %s" if key == "tx_pdos" else "%s => %s") % (pin, var))
+                break
+    binds.append("bOnline := %s" % (status or "TRUE"))
+    binds += outputs
+    body.append("%s(%s);" % (bridge, (",\n" + " " * (len(bridge) + 1)).join(binds)))
 
 
 def text_block(cfg, decls):

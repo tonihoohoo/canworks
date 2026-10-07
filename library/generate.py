@@ -23,6 +23,7 @@ COMMON = (HERE / "src" / "common.inc").read_text()
 
 INPUTS = """\
   EXECUTE : BOOL;
+  NETWORK : USINT;
   NODE : USINT;
   INDEX : UINT;
   SUBINDEX : USINT;
@@ -181,6 +182,7 @@ void loop() {{
     {clear}
     unsigned short err = 0;
     co_sdo::request req = {{}};
+    req.network = NETWORK;
     req.node = NODE;
     req.index = INDEX;
     req.subindex = SUBINDEX;

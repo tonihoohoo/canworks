@@ -49,7 +49,7 @@ enum {
 #define CANOPEN_PLC_SLOTS 64u
 
 typedef struct {
-  uint8_t network;   /* 0 (the only network for now) */
+  uint8_t network;   /* 0.. : the config's networks in order (0 for a version 1 config) */
   uint8_t node;      /* 1..127 */
   uint16_t index;
   uint8_t subindex;

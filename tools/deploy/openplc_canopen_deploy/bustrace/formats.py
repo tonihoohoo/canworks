@@ -395,7 +395,7 @@ def read_pcapng(data):
     if ifaces:
         t.meta["interface"] = ifaces[0][2] or None
     if meta:
-        for k in ("interface", "bitrate", "config_sha256", "source", "trigger", "started_utc", "runtime"):
+        for k in ("network", "interface", "bitrate", "config_sha256", "source", "trigger", "started_utc", "runtime"):
             if meta.get(k) is not None:
                 t.meta[k] = meta[k]
         for m in meta.get("markers") or []:

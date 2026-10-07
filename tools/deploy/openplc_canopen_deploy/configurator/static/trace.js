@@ -89,7 +89,7 @@ function renderTrace(view) {
   view.append(
     el("h2", null, "Trace"),
     el("div", { id: "trace-source", class: "online-conn" }, "Loading…"),
-    el("div", { class: "toolbar" },
+    el("div", { class: "toolbar" }, netPicker(),
       el("button", { type: "button", class: "primary", dataset: { trace: "start" }, onclick: traceStart }, "Start"),
       el("button", { type: "button", dataset: { trace: "stop" }, onclick: traceStop }, "Stop"),
       el("button", { type: "button", dataset: { trace: "clear" }, onclick: traceClear }, "Clear"),
@@ -174,11 +174,11 @@ function showTraceHeader(st) {
   let text;
   let cls = "online-conn ok";
   if (st.source === "live") {
-    text = `Live trace from ${S.online.host || "the runtime"}: ${TRACE_STATES[rec.state] || rec.state}`;
+    text = `Live trace from ${S.online.host || "the runtime"}${st.network ? ", network " + st.network : ""}: ${TRACE_STATES[rec.state] || rec.state}`;
     if (rec.message) text += ` (${rec.message})`;
     if (rec.state === "error") cls = "online-conn error";
   } else if (st.source) {
-    text = `File ${st.source}`;
+    text = `File ${st.source}` + (st.network ? `, decoded with network ${st.network}` : "");
   } else {
     text = "No trace yet.";
   }
@@ -271,7 +271,9 @@ async function traceOpen(file) {
   banner(`Opening ${file.name}…`);
   try {
     // The file as it is (traces can be hundreds of MB); decoded with the saved canopen.json.
-    const res = await fetch("/api/trace/open?name=" + encodeURIComponent(file.name), {
+    const net = onlineNetwork();  // the network whose nodes decode it
+    const res = await fetch("/api/trace/open?name=" + encodeURIComponent(file.name) +
+      (net !== null ? "&network=" + encodeURIComponent(net) : ""), {
       method: "POST", headers: { "X-CANopen-Token": TOKEN, "Content-Type": "application/octet-stream" }, body: file });
     if (!res.ok) {
       let msg = res.statusText;

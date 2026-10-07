@@ -175,7 +175,7 @@ Network::~Network() {
   if (req_timer_) req_timer_->cancel_wait(req_wait_);
   if (out_timer_) out_timer_->cancel_wait(out_wait_);
   // Program transfers this session took never finish now.
-  PlcRequests::instance().cancel_taken();
+  PlcRequests::instance().cancel_taken(cfg_.network_index);
 }
 
 void Network::Start() {
@@ -1109,6 +1109,7 @@ void Network::ApplyNmtCommand(unsigned id, NodeState& n, uint8_t level, uint64_t
 void Network::ServiceRequests() {
   if (stopped_) return;
   auto now = clock::now();
+  // The program's SDO blocks name network 0, the first network.
   ServiceProgram(now);
   if (!has_requests_ && prog_.empty()) return;
   const uint64_t* snap = image_.latest_outputs();

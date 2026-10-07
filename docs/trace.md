@@ -4,6 +4,8 @@ A bus trace records every CAN frame on the runtime's CANopen interface, received
 
 Record from the configurator's [Trace view](configurator.md#trace), or with `openplc-canopen-diag trace` on any PC with the deploy tool ([install-pc.md](install-pc.md)).
 
+A trace records one network. With several CAN networks in the config (`schema_version: 2`) pick it in the trace view or with `--network NAME`; the trace command without it exits naming the networks. The frames are decoded with that network's nodes from the config, so node 2 on `io` and node 2 on `drives` each get their own PDO mapping and object names. To watch two networks, record two traces.
+
 ## Recording
 
 The plugin keeps the newest 65536 frames in memory while a client traces, and the PC fetches what is new every 100 ms. If the PC falls behind by more than that (a network hiccup on a busy bus), the frames it missed are counted as lost and marked in the trace. Frames the Pi's kernel dropped before the plugin read them are counted separately ("dropped by the PLC's kernel"). A trace on the PC holds up to 2 million frames (about 70 MB of memory); past that the oldest are dropped and the view says so.
@@ -20,7 +22,7 @@ Time stamps are the Pi's kernel receive times in microseconds, shown relative to
 
 | Format | Extension | Opens in | Notes |
 |---|---|---|---|
-| pcapng | `.pcapng` | Wireshark (with a CANopen dissector), tshark, scapy; the configurator and `convert` open it again | The native format: keeps direction per frame, markers, lost-frame notes, gaps, the bit rate and the trigger. |
+| pcapng | `.pcapng` | Wireshark (with a CANopen dissector), tshark, scapy; the configurator and `convert` open it again | The native format: keeps direction per frame, markers, lost-frame notes, gaps, the network name, interface and bit rate, and the trigger. |
 | candump log | `.log` | can-utils (`canplayer`, `log2asc`), SavvyCAN, python-can, cantools | Plain text, one frame per line with `T`/`R` for the direction; opened again by the configurator. |
 | Vector ASC | `.asc` | CANalyzer, CANoe, SavvyCAN, python-can | Plain text; opened again by the configurator. |
 | Vector BLF | `.blf` | CANalyzer, CANoe, python-can | Binary, compressed; written only. |
@@ -32,7 +34,7 @@ Files are checked against python-can and Wireshark in the tests; the hardware ch
 
 ### Wireshark: decode as CANopen
 
-Wireshark shows the frames as plain CAN until told the bus is CANopen: **Analyze → Decode As…**, add a row, set the field to **CAN next level dissector** and the value to **CANopen**. tshark: `tshark -r run.pcapng -d can.subdissector,canopen`. The pcapng's section comment (**Statistics → Capture File Properties**) holds the trace's metadata as JSON: markers, lost frames, the bit rate and the trigger.
+Wireshark shows the frames as plain CAN until told the bus is CANopen: **Analyze → Decode As…**, add a row, set the field to **CAN next level dissector** and the value to **CANopen**. tshark: `tshark -r run.pcapng -d can.subdissector,canopen`. The pcapng's section comment (**Statistics → Capture File Properties**) holds the trace's metadata as JSON: markers, lost frames, the network name (with several networks), the interface, the bit rate and the trigger.
 
 ## Triggers
 
@@ -69,8 +71,13 @@ openplc-canopen-diag --runtime plc.local trace -o tpdo.log --filter 0x180/0x780 
 openplc-canopen-diag --runtime plc.local trace -o emcy.blf --trigger "emcy node=23" --pre 5 --post 2
 # Mark every heartbeat loss of node 23 and save each window as candump log next to the output
 openplc-canopen-diag --runtime plc.local trace -o long.pcapng --trigger "heartbeat_lost node=23" --mode normal --autosave log
+# With several networks: trace one of them, decoded with its nodes
+openplc-canopen-diag --runtime plc.local trace -o drives.pcapng --network drives --config canopen/canopen.json
 # Convert between formats (reads .pcapng, .pcap, .log and .asc)
 openplc-canopen-diag convert run.pcapng run.asc
+# Decode with a config of several networks: the network the pcapng names, or --network
+openplc-canopen-diag convert drives.pcapng drives.csv --config canopen/canopen.json
+openplc-canopen-diag convert drives.log drives.csv --config canopen/canopen.json --network drives
 ```
 
 `trace` prints how many frames it recorded, the rate, and any lost or dropped frames when it ends. Ctrl-C ends a recording and still writes the file.

@@ -182,3 +182,36 @@ class Live(Trace):
         # Changing the trigger while recording.
         st = self.ok("POST", "/api/trace/trigger", {"trigger": None})
         self.assertEqual(st["trigger"], None)
+
+
+class TwoNetworks(Trace):
+    """A trace records the picked network and decodes with its nodes
+    (add-several-can-networks task 6.4)."""
+
+    def test_record_and_open_with_the_picked_network(self):
+        from .fake_diag import TWO_NETWORKS
+        from .test_configurator_online import TwoNetworks as Online2
+        cfg = Online2.two(self)
+        with FakePlugin(networks=TWO_NETWORKS) as fake:
+            self.connect(fake)
+            self.save(cfg)
+            self.addCleanup(lambda: self.request("POST", "/api/trace/stop", {}))
+            st = self.ok("POST", "/api/trace/start", {"network": "drives"})
+            self.assertEqual(st["network"], "drives")
+            self.assertTrue(self.wait_for(lambda: self.state()["recording"]["state"] == "recording"))
+            self.assertEqual(fake.trace_starts[-1]["network"], "drives")
+            self.assertIn("drive_TPDO1.UNSIGNED32_sent_from_slave", [s["key"] for s in self.state()["series"]])
+            self.ok("POST", "/api/trace/stop", {})
+            status, data, _ = self.request("POST", "/api/trace/start", {})
+            self.assertEqual(status, 422)
+            self.assertIn("io, drives", data["error"])
+        # A file decodes with one network's nodes: the page names it; without
+        # it the file opens without the nodes, and says why.
+        status, data, _ = self.request("POST", "/api/trace/open", {"name": "sample.log", "config": cfg,
+                                                                   "data": b64(written(sample_trace(), "candump"))})
+        self.assertEqual(status, 200)
+        self.assertIn("name one", " ".join(data["warnings"]))
+        st = self.ok("POST", "/api/trace/open", {"name": "sample.log", "network": "io", "config": cfg,
+                                                  "data": b64(written(sample_trace(), "candump"))})
+        self.assertEqual(st["network"], "io")
+        self.assertIn("pingpong_TPDO1.UNSIGNED32_sent_from_slave", [s["key"] for s in st["series"]])

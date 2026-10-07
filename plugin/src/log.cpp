@@ -2,6 +2,7 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <string>
 
 #include <lely/util/diag.h>
 #include <lely/util/errnum.h>
@@ -16,10 +17,12 @@ void stderr_sink(LogLevel level, const char* msg) {
 }
 
 LogSink g_sink = stderr_sink;
+thread_local std::string t_prefix;
 
 void vlog(LogLevel level, const char* fmt, va_list ap) {
   char buf[1024];
-  int n = std::snprintf(buf, sizeof(buf), "[CANOPEN] ");
+  int n = std::snprintf(buf, sizeof(buf), "[CANOPEN] %s", t_prefix.c_str());
+  if (n < 0 || n >= (int)sizeof(buf)) n = 0;
   std::vsnprintf(buf + n, sizeof(buf) - n, fmt, ap);
   g_sink(level, buf);
 }
@@ -27,6 +30,9 @@ void vlog(LogLevel level, const char* fmt, va_list ap) {
 }  // namespace
 
 void set_log_sink(LogSink sink) { g_sink = sink ? sink : stderr_sink; }
+
+void set_thread_log_prefix(const std::string& prefix) { t_prefix = prefix; }
+const std::string& thread_log_prefix() { return t_prefix; }
 
 namespace {
 
@@ -44,9 +50,9 @@ void lely_diag(void*, diag_severity severity, int errc, const char* format, va_l
   std::vsnprintf(msg, sizeof(msg), format, ap);
   char buf[1024];
   if (errc)
-    std::snprintf(buf, sizeof(buf), "[CANOPEN] lely: %s: %s", msg, errc2str(errc));
+    std::snprintf(buf, sizeof(buf), "[CANOPEN] %slely: %s: %s", t_prefix.c_str(), msg, errc2str(errc));
   else
-    std::snprintf(buf, sizeof(buf), "[CANOPEN] lely: %s", msg);
+    std::snprintf(buf, sizeof(buf), "[CANOPEN] %slely: %s", t_prefix.c_str(), msg);
   g_sink(from_severity(severity), buf);
 }
 
@@ -56,9 +62,10 @@ void lely_diag_at(void*, diag_severity severity, int errc, const floc* at, const
   std::vsnprintf(msg, sizeof(msg), format, ap);
   char buf[1024];
   if (at && at->filename)
-    std::snprintf(buf, sizeof(buf), "[CANOPEN] lely: %s:%d:%d: %s", at->filename, at->line, at->column, msg);
+    std::snprintf(buf, sizeof(buf), "[CANOPEN] %slely: %s:%d:%d: %s", t_prefix.c_str(), at->filename, at->line,
+                  at->column, msg);
   else
-    std::snprintf(buf, sizeof(buf), "[CANOPEN] lely: %s", msg);
+    std::snprintf(buf, sizeof(buf), "[CANOPEN] %slely: %s", t_prefix.c_str(), msg);
   (void)errc;
   g_sink(from_severity(severity), buf);
 }

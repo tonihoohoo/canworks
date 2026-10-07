@@ -14,7 +14,7 @@ import os
 import threading
 import time
 
-from .. import dbcexport, diag
+from .. import contract, dbcexport, diag
 from .. import parameters as P
 
 KEEP = 10  # finished jobs kept
@@ -36,11 +36,11 @@ class Client:
     configurator's kept-open connection (so the page's status polling and a
     job share it, one request at a time)."""
 
-    def __init__(self, conn, host, port, token):
-        self.conn, self.key = conn, (host, port, token)
+    def __init__(self, conn, host, port, token, network=None):
+        self.conn, self.key, self.network = conn, (host, port, token), network
 
     def _call(self, fn):
-        return self.conn.call(*self.key, fn)
+        return self.conn.call(*self.key, fn, self.network)
 
     def sdo_read(self, node, index, sub, timeout_ms=None):
         return self._call(lambda c: c.sdo_read(node, index, sub, timeout_ms))
@@ -133,11 +133,20 @@ class Jobs:
 
 def context(session, body, node, library=""):
     """A parameters.NodeContext for a request: from the draft config the page
-    sends when the node is in it, else from `eds_path` (an EDS file in the
-    project's canopen folder or the EDS library, for a scanned node)."""
+    sends when the node is in it (in the network the request names, with
+    several), else from `eds_path` (an EDS file in the project's canopen
+    folder or the EDS library, for a scanned node)."""
     cfg = body.get("config")
+    network = None
+    nodes = []
     if isinstance(cfg, dict):
-        for n in cfg.get("nodes") or []:
+        network = (body.get("network") or None) if contract.version_of(cfg) == 2 else None
+        try:
+            nodes = contract.network_config(cfg, network)["nodes"] or []
+        except ValueError:
+            pass  # not in the draft: the scanned node's EDS below
+    if nodes:
+        for n in nodes:
             if not isinstance(n, dict) or not isinstance(n.get("eds"), str) or not n.get("eds"):
                 continue
             try:
@@ -146,11 +155,10 @@ def context(session, body, node, library=""):
                 continue
             if nid == node:
                 with session.lock:
-                    eds_paths = {x.get("eds"): session.eds_path(x.get("eds")) for x in cfg.get("nodes") or []
-                                 if isinstance(x, dict) and isinstance(x.get("eds"), str) and x.get("eds")}
+                    eds_paths = session.eds_paths(cfg)
                     config_path = session.config_path
                 try:
-                    return P.node_context(node, config_path, cfg=cfg, eds_paths=eds_paths)
+                    return P.node_context(node, config_path, cfg=cfg, eds_paths=eds_paths, network=network)
                 except (OSError, P.ParameterError) as e:
                     raise Refused(422, str(e))
     path = body.get("eds_path")

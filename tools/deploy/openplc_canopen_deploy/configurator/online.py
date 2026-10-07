@@ -14,7 +14,7 @@ import os
 import threading
 import time
 
-from .. import diag
+from .. import contract, diag
 from .. import eds as eds_mod
 
 SETTINGS = "online.json"
@@ -99,7 +99,7 @@ def fingerprints(config_path):
     out = {hashlib.sha256(raw).hexdigest()}
     try:
         cfg = json.loads(raw.decode("utf-8"))
-        for n in cfg.get("nodes") or []:
+        for n in contract.all_nodes(cfg):
             if isinstance(n.get("eds"), str):
                 n["eds"] = "%s/%s" % (DEPLOYED_EDS_DIR, os.path.basename(n["eds"].replace("\\", "/")))
             if n.get("software_file"):
@@ -127,21 +127,24 @@ class Connection:
         self.last = 0.0
         self.timer = None
 
-    def call(self, host, port, token, fn):
-        """fn(client) on a connected client; a lost connection is reopened
-        once. Raises diag.DiagError."""
+    def call(self, host, port, token, fn, network=None):
+        """fn(client) on a connected client whose requests go to `network`
+        (when the plugin runs several); a lost connection is reopened once.
+        Raises diag.DiagError."""
         with self.lock:
             key = (host, port, token)
             if self.client is None or self.key != key:
                 self._close()
                 self._open(key)
             try:
+                self.client.network = network
                 result = fn(self.client)
             except diag.DiagError as e:
                 if e.kind not in ("eof", "timeout"):
                     raise
                 self._close()
                 self._open(key)
+                self.client.network = network
                 result = fn(self.client)
             self.last = time.monotonic()
             self._arm()

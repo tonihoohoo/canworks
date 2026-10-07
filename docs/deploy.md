@@ -70,7 +70,7 @@ PROGRAM main
   END_VAR
 ```
 
-Master diagnostics come first, then each node in config order: diagnostics, inputs, outputs and the NMT command byte. Everything is in `main` because Editor 4.3.2 accepts located variables only in a program's VAR block; put your own logic in function blocks called from `main` if you want to split it. The task interval defaults to `T#20ms`.
+Master diagnostics come first, then each node in config order: diagnostics, inputs, outputs and the NMT command byte. With [several networks](config.md#several-networks-schema_version-2) the networks follow each other in config order, every name starts with its network's name (`io_door_ok`, `drives_door_ok`) and every comment names the network. Everything is in `main` because Editor 4.3.2 accepts located variables only in a program's VAR block; put your own logic in function blocks called from `main` if you want to split it. The task interval defaults to `T#20ms`.
 
 With `--sdo-blocks` the project also enables the `openplc_canopen` library (the SDO function blocks, [plc-sdo.md](plc-sdo.md)), and the library is installed into the editor on this PC if it is missing or older than the tools; if that cannot be done (the editor has never run here), the output says how to install it.
 
@@ -108,6 +108,8 @@ writes one CiA 306 Device Configuration File per node, `dcf/node_<id>.dcf`, for 
 - `[FileInfo]`: `FileName`, `LastEDS` (the EDS it came from), `ModifiedBy` and the modification date and time.
 - A leading `;` comment naming the boot steps that are not settings: restoring defaults (`restore_configuration`), the firmware download (`software_file`) and the "save" after a configuration check (`store_configuration`).
 
+With several networks each network's files go into a folder of their own, `dcf/<network>/node_<id>.dcf`, each with its own network's bit rate. `--network drives` exports only that network, into `dcf/node_<id>.dcf`.
+
 The tool runs the deploy checks first, then checks each finished DCF with Lely's CiA 306 lint and reader (the same code the plugin uses), that every value sits on a writable object or equals the EDS value, that `NodeID` is the node's ID and that the node's EDS supports the bit rate. If any check fails it prints every problem and writes no file. Nothing is built or uploaded; `--runtime`, `--output` and `--check-only` are refused with it.
 
 The values come from the same steps the plugin runs on the PLC (Lely's dcfgen, then the plugin's own additions); CI compares them with `canopen_check --dump-writes` ([config.md](config.md)) for every test config. The configurator exports the same files ([configurator.md](configurator.md#export-dcf-files)).
@@ -125,6 +127,8 @@ writes the configured network as a DBC file, so CAN bus tools that do not read E
 - comments naming each signal's object, type and PLC address, each PDO's transmission type, and a `GenMsgCycleTime` for synchronous PDOs (SYNC period times the transmission type).
 
 Signals are named after the object in the EDS: a plain object by its `ParameterName`, a sub-object by its parent's name and its own (`AI_Sensor_Type_Output_1`), without repeating the parent when the sub-object's name already starts with it. When `--config` is the `canopen/canopen.json` of an editor project, a signal whose PLC address has exactly one located variable in the project is named after that variable.
+
+With several networks the tool writes one DBC per network next to the given file, `bus_io.dbc` and `bus_drives.dbc` for `--export-dbc bus.dbc`, each with only its own network's nodes, NMT and SYNC. `--network drives` writes only that network, to `bus.dbc`.
 
 `--dbc-sdo` adds each node's SDO request (0x600 + node ID) and response (0x580 + node ID) frames: `none` (the default) adds none, `config` decodes the config's SDO variables and startup SDOs, `all` every EDS object of a numeric type up to 32 bits. The messages are multiplexed on `Object` (index + subindex * 65536, named `0x6110:1 AI_Sensor_Type_AI0_Sensor_Type` in the tool), so a frame shows as command, object and value. Only expedited transfers (up to 4 bytes) decode; on an abort the abort code shows as the object's raw data.
 

@@ -575,6 +575,136 @@ class CheckAndSave(Running):
         self.assertEqual(data["location"], "%IB101")
 
 
+TWO = os.path.join(REPO, "config", "two-networks")
+
+
+class Networks(Running):
+    """Several networks (add-several-can-networks task 6.1): the lowest
+    schema version on save, exports and suggestions per network."""
+
+    def setUp(self):
+        super().setUp()
+        self.folder = os.path.join(self.dir, "plant")
+        os.makedirs(self.folder)
+        shutil.copy(os.path.join(TWO, "cpp-slave.eds"), self.folder)
+        self.path = os.path.join(self.folder, "canopen.json")
+        self.two = json.loads(read(os.path.join(TWO, "canopen_config.json")))
+        self.two["diagnostics"] = {"token_sha256": "ab" * 32, "port": 7600}
+
+    def open(self, cfg):
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+        return self.ok("POST", "/api/open", {"path": self.folder, "mode": "standalone"})
+
+    def saved(self):
+        return json.loads(read(self.path))
+
+    def one(self):
+        """The two-network config's io network as a version 1 file."""
+        net = self.two["networks"][0]
+        master = dict(net["master"], diagnostics=self.two["diagnostics"])
+        return {"schema_version": 1, "adapter": net["adapter"], "master": master, "nodes": net["nodes"]}
+
+    def test_one_network_round_trip_is_byte_identical(self):
+        state = self.open(self.one())
+        self.ok("POST", "/api/save", {"config": state["config"]})
+        before = read(self.path)
+        # Saved again as loaded, and as the page's network list sends it
+        # (version 2, one network named after its interface): the same bytes.
+        state = self.ok("POST", "/api/reload")
+        self.ok("POST", "/api/save", {"config": state["config"]})
+        self.assertEqual(read(self.path), before)
+        cfg = state["config"]
+        master = {k: v for k, v in cfg["master"].items() if k != "diagnostics"}
+        v2 = {"schema_version": 2, "networks": [{"name": "vcan0", "adapter": cfg["adapter"], "master": master,
+                                                  "nodes": cfg["nodes"]}],
+              "diagnostics": cfg["master"]["diagnostics"]}
+        self.ok("POST", "/api/save", {"config": v2})
+        self.assertEqual(read(self.path), before)
+        self.assertEqual(list(self.saved()), ["schema_version", "adapter", "master", "nodes"])
+        self.assertEqual(self.saved()["master"]["diagnostics"]["port"], 7600)
+
+    def test_second_network_saves_version_2(self):
+        self.open(self.one())
+        cfg = self.two
+        data = self.ok("POST", "/api/check", {"config": cfg})
+        self.assertEqual(data["errors"], 0, data["items"])
+        self.ok("POST", "/api/save", {"config": cfg})
+        saved = self.saved()
+        self.assertEqual(list(saved), ["schema_version", "networks", "diagnostics"])
+        self.assertEqual(saved["schema_version"], 2)
+        self.assertEqual([n["name"] for n in saved["networks"]], ["io", "drives"])
+        self.assertEqual(list(saved["networks"][0]), ["name", "adapter", "master", "nodes"])
+        self.assertNotIn("diagnostics", saved["networks"][0]["master"])
+        self.assertEqual(saved["diagnostics"], {"token_sha256": "ab" * 32, "port": 7600})
+        state = self.ok("POST", "/api/reload")
+        self.assertEqual(state["config"]["schema_version"], 2)
+        self.assertEqual(state["unused_eds"], [])
+
+    def test_back_to_one_network_saves_version_1(self):
+        self.open(self.two)
+        cfg = json.loads(json.dumps(self.two))
+        del cfg["networks"][1]
+        del cfg["networks"][0]["name"]
+        self.ok("POST", "/api/save", {"config": cfg})
+        saved = self.saved()
+        self.assertEqual(saved["schema_version"], 1)
+        self.assertEqual(list(saved), ["schema_version", "adapter", "master", "nodes"])
+        self.assertEqual(saved["master"]["diagnostics"]["port"], 7600)
+        # A name of its own needs version 2.
+        cfg["networks"][0]["name"] = "io"
+        self.ok("POST", "/api/save", {"config": cfg})
+        self.assertEqual(self.saved()["schema_version"], 2)
+
+    def test_check_names_the_network(self):
+        cfg = self.two
+        cfg["networks"][1]["nodes"][0]["status_location"] = "%IX10.0"  # io's node uses it
+        cfg["networks"][1]["adapter"]["interface"] = "vcan0"
+        self.open(self.one())
+        data = self.ok("POST", "/api/check", {"config": cfg})
+        paths = [p for i in data["items"] if i["level"] == "error" for p in i["paths"]]
+        self.assertIn("networks[1].nodes[0].status_location", paths)
+        self.assertIn("networks[1].adapter.interface", paths)
+        text = "\n".join(i["message"] for i in data["items"])
+        self.assertIn("drives", text)
+
+    def test_place_skips_every_network(self):
+        self.open(self.two)
+        cfg = self.two
+        cfg["networks"][1]["nodes"][0]["tx_pdos"] = []
+        # io uses %IW100: a 16-bit input of drives goes elsewhere.
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0].update(type="UNSIGNED16", iec_location="%IW100")
+        got = self.ok("POST", "/api/place", {"config": cfg, "network": 1, "node": 0, "direction": "input",
+                                             "type": "UNSIGNED16"})
+        self.assertEqual(got["location"], "%IW101")
+        got = self.ok("POST", "/api/place", {"config": cfg, "network": 1, "node": 0, "direction": "state"})
+        self.assertEqual(got["location"], "%IB100")
+        cfg["networks"][0]["nodes"][0]["state_location"] = "%IB100"
+        got = self.ok("POST", "/api/place", {"config": cfg, "network": 1, "node": 0, "direction": "state"})
+        self.assertEqual(got["location"], "%IB101")
+        self.assertEqual(self.request("POST", "/api/place", {"config": cfg, "network": 2, "node": 0,
+                                                             "direction": "state"})[0], 400)
+
+    def test_exports_per_network(self):
+        import io
+        import zipfile
+        self.open(self.two)
+        cfg = self.two
+        data = self.ok("POST", "/api/export_dbc", {"config": cfg, "network": "drives"})
+        self.assertEqual((data["errors"], data["name"]), (0, "plant_drives.dbc"))
+        self.assertIn("drives", base64.b64decode(data["data"]).decode("ascii"))
+        self.assertEqual(self.request("POST", "/api/export_dbc", {"config": cfg})[0], 400)
+        data = self.ok("POST", "/api/export_dcf", {"config": cfg})
+        self.assertEqual(data["name"], "plant_dcf.zip")
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(data["data"]))) as z:
+            self.assertEqual(sorted(z.namelist()), ["drives/node_2.dcf", "io/node_2.dcf"])
+        data = self.ok("POST", "/api/export_dcf", {"config": cfg, "network": "drives"})
+        self.assertEqual((data["name"], data["files"]), ("plant_drives_dcf.zip", ["node_2.dcf"]))
+        data = self.ok("POST", "/api/export_dcf", {"config": cfg, "network": "io", "node": 2})
+        self.assertEqual(data["name"], "node_2.dcf")
+        self.assertEqual(self.request("POST", "/api/export_dcf", {"config": cfg, "node": 2})[0], 400)
+
+
 class Standalone(Running):
     def test_save_then_move_into_project(self):
         folder = os.path.join(self.dir, "canopen-rtd")

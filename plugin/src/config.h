@@ -282,14 +282,29 @@ struct AdapterConfig {
   unsigned serial_baudrate = 0;  // 0 = leave the UART speed as it is
 };
 
-// Highest config schema_version this plugin reads.
-constexpr unsigned kSchemaVersion = 1;
+// Highest config schema_version this plugin reads. Version 2 holds a list of
+// networks (canopen-networks spec); version 1 is one network.
+constexpr unsigned kSchemaVersion = 2;
+constexpr unsigned kMaxNetworks = 8;
 
+// One CANopen network: its adapter, master and nodes. A version 1 file is one
+// network with an empty name. The diagnostics settings, which are one for the
+// whole file, are copied into every network's master.
 struct Config {
   std::string path;        // the JSON file
   std::string config_dir;  // its directory
   std::string file_sha256;  // SHA-256 of the file's bytes (lower-case hex)
   unsigned schema_version = 1;
+  // The network's name: "" for a version 1 file, else `name` or the
+  // adapter's interface name.
+  std::string network;
+  unsigned network_index = 0;
+  // Where dcfgen's output and the prepared EDS copies go: <config dir>/.canopen
+  // for a version 1 file, <config dir>/.canopen/<network> for version 2.
+  std::string work_dir;
+  // Put in front of the network's log lines ("drives"), empty when the file
+  // has one network.
+  std::string log_prefix;
   AdapterConfig adapter;
   MasterConfig master;
   std::vector<NodeConfig> nodes;
@@ -298,6 +313,19 @@ struct Config {
   std::vector<std::string> warnings;
   // Facts worth logging at start (automatic COB-IDs), logged as info.
   std::vector<std::string> notes;
+};
+
+// The whole file: one Config per network.
+struct ConfigSet {
+  std::string path;
+  std::string config_dir;
+  std::string file_sha256;
+  unsigned schema_version = 1;
+  std::vector<Config> networks;
+  // Findings of the parser (each names the file and JSON path).
+  std::vector<std::string> warnings;
+  std::vector<std::string> notes;
+  bool several() const { return networks.size() > 1; }
 };
 
 // Limits of the runtime's I/O image, from plugin_runtime_args_t.
@@ -316,6 +344,19 @@ std::string sync_needed_message(unsigned transmission, bool from_eds);
 
 std::string default_eds_fallback_dir();
 
+// Parses and validates `path`, any schema version. On failure returns false
+// and fills `errors` with one message per problem, each naming the file and
+// the offending field, node, object or location.
+bool load_config_set(const std::string& path, const ImageLimits& limits, ConfigSet& out,
+                     std::vector<std::string>& errors,
+                     const std::string& eds_fallback_dir = default_eds_fallback_dir());
+bool parse_config_set(const std::string& json, const std::string& path, const ImageLimits& limits,
+                      ConfigSet& out, std::vector<std::string>& errors,
+                      const std::string& eds_fallback_dir = default_eds_fallback_dir());
+
+// The one-network form, for tools and tests: as above, then the only network
+// into `out` (with the parser's warnings and notes); a file with several
+// networks is refused.
 // Parses and validates `path`. On failure returns false and fills `errors`
 // with one message per problem, each naming the file and the offending field,
 // node, object or location. Does not touch the EDS files (see eds_check.h).

@@ -664,10 +664,13 @@ def dcf_name(node_id):
     return "node_%d.dcf" % node_id
 
 
-def export(cfg, config_path, eds_paths=None, software_paths=None, node_id=None, now=None):
+def export(cfg, config_path, eds_paths=None, software_paths=None, node_id=None, now=None, network=None):
     """{file name: DCF text} for every node (or the one with `node_id`), and
     the config checks' warnings. Raises ExportFailed with every problem and
-    builds nothing when the config or any DCF fails."""
+    builds nothing when the config or any DCF fails.
+
+    With several networks the names are <network>/node_<id>.dcf, unless
+    `network` picks one network: then its files are named as with one."""
     result = contract.check_config(cfg, config_path,
                                    eds_paths=eds_paths if eds_paths is not None
                                    else bundle.eds_files(cfg, config_path),
@@ -675,6 +678,32 @@ def export(cfg, config_path, eds_paths=None, software_paths=None, node_id=None, 
     if not result.ok:
         raise ExportFailed([(i["message"], i["paths"]) for i in result.items if i["level"] == "error"])
     now = now or datetime.datetime.now()
+    nets = contract.networks(cfg)
+    if network is not None:
+        nets = [n for n in nets if n["name"] == network]
+        if not nets:
+            raise ExportFailed([("no network '%s' in the config (%s)" % (
+                network, ", ".join(n["name"] for n in contract.networks(cfg))), ["networks"])])
+    several = len(nets) > 1
+    files, problems = {}, []
+    for net in nets:
+        one = contract.network_config(cfg, net["name"] if net["path"] else None)
+        folder = net["name"] + "/" if several else ""
+        at = net["path"] + "." if net["path"] else ""
+        got, failed = _export_network(one, config_path, eds_paths, software_paths, node_id, now)
+        files.update((folder + name, text) for name, text in got.items())
+        problems += [((net["name"] + ": " if several else "") + msg, [at + p for p in paths])
+                     for msg, paths in failed]
+    if node_id is not None and not files:
+        raise ExportFailed([("no node with node ID %d in the config" % node_id, ["nodes"])])
+    if problems:
+        raise ExportFailed(problems)
+    return files, list(result.warnings)
+
+
+def _export_network(cfg, config_path, eds_paths, software_paths, node_id, now):
+    """export() of one network's version 1 style config: ({name: text},
+    problems)."""
     nodes = _load_nodes(cfg, config_path, eds_paths)
     downloads = plugin_downloads(cfg, config_path, eds_paths, software_paths, nodes)
     files, problems = {}, []
@@ -690,21 +719,19 @@ def export(cfg, config_path, eds_paths=None, software_paths=None, node_id=None, 
             where = "[%s]%s" % (section, " " + key if key else "") if section else ""
             problems.append(("%s: %s%s: %s" % (label, name, " " + where if where else "", msg), ["nodes[%d]" % i]))
         files[name] = text
-    if node_id is not None and not files:
-        raise ExportFailed([("no node with node ID %d in the config" % node_id, ["nodes"])])
-    if problems:
-        raise ExportFailed(problems)
-    return files, list(result.warnings)
+    return files, problems
 
 
 def write_files(files, out_dir):
-    """Writes {name: text} into out_dir (created if missing), each through a
-    temporary file and a rename. Returns the written paths."""
-    os.makedirs(out_dir, exist_ok=True)
+    """Writes {name: text} into out_dir (created if missing, and a name's
+    network folder too), each through a temporary file and a rename. Returns
+    the written paths."""
     written = []
     for name, text in sorted(files.items()):
-        path = os.path.join(out_dir, name)
-        fd, tmp = tempfile.mkstemp(prefix="." + name + ".", dir=out_dir)
+        path = os.path.join(out_dir, *name.split("/"))
+        folder = os.path.dirname(path)
+        os.makedirs(folder, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", dir=folder)
         try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
                 f.write(text)

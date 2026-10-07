@@ -162,6 +162,14 @@ jobs:
             echo "run.sh passed without the slave" >&2; exit 1
           fi
 
+      - name: Two networks on vcan0 and vcan1 (one master per interface, one lost node)
+        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        run: |
+          sudo ip link add dev vcan1 type vcan
+          sudo ip link set vcan1 up
+          test/networks/run.sh
+          sudo ip link del vcan1
+
       - name: PLC-cycle SYNC on vcan0
         if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: test/pingpong/run.sh --seconds 6 --plc-cycle

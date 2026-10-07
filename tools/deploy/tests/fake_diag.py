@@ -1,5 +1,11 @@
 """A stand-in for the plugin's diagnostics channel (plugin/src/diag.cpp), for
-the CLI and configurator tests. Speaks protocol 1 on 127.0.0.1."""
+the CLI and configurator tests. Speaks protocol 1 on 127.0.0.1.
+
+By default it is a plugin that runs one network and, like a plugin from
+before several networks, lists none in the hello. FakePlugin(networks=...)
+lists them; with more than one, every request needs `network`. The first
+network's state is the FakePlugin's own attributes (status, objects, present,
+emcy), the others' are in `fp.network(name)`."""
 
 import base64
 import copy
@@ -44,9 +50,43 @@ SCAN_RESULT = [
 ]
 
 
+# The networks of a two-network plugin, as the hello lists them.
+TWO_NETWORKS = [{"name": "io", "interface": "vcan0", "bitrate": 125000, "master_node_id": 1},
+                {"name": "drives", "interface": "vcan1", "bitrate": 500000, "master_node_id": 1}]
+
+
+def drives_status(config_sha256="0" * 64):
+    """Status of the second network of TWO_NETWORKS: another node 2."""
+    return {
+        "version": "v-test", "uptime_s": 12, "config_sha256": config_sha256, "network": "drives", "session": True,
+        "master": {"node_id": 1, "state": 5},
+        "bus": {"interface": "vcan1", "state": 1, "tx_errors": 0, "rx_errors": 0, "bus_off_count": 0},
+        "nodes": [
+            {"node_id": 2, "name": "drive", "state": 127, "status": True, "booted": True, "boot_error": None,
+             "retry_pending": False, "hold": "none", "hold_by": None,
+             "emcy": {"code": 0, "error_register": 0, "count": 0}, "sdo_variables": []},
+        ],
+    }
+
+
+class FakeNetwork:
+    """The state of a network other than the first."""
+
+    def __init__(self, info, status):
+        self.info = info
+        self.status = status
+        self.objects = {}
+        self.present = set()
+        self.emcy = {}
+
+
 class FakePlugin:
-    def __init__(self, token=TOKEN, allow_changes=False, scan_polls=2):
+    def __init__(self, token=TOKEN, allow_changes=False, scan_polls=2, networks=None):
         self.token = token
+        # [{name, interface, bitrate, master_node_id}] for the hello; None: an
+        # older plugin that lists no networks.
+        self.networks = copy.deepcopy(networks) if networks is not None else None
+        self.others = {}
         self.allow_changes = allow_changes
         self.status = status()
         self.objects = {(2, 0x1008, 0): b"pingpong", (2, 0x1018, 4): (305419896).to_bytes(4, "little"),
@@ -74,6 +114,17 @@ class FakePlugin:
         self.trace_starts = []
         self.trace_lock = threading.Lock()
         self.present = {2, 23, 40}  # node IDs that answer SDO
+        if self.networks:
+            self.status["network"] = self.networks[0]["name"]
+            self.status["bus"]["interface"] = self.networks[0]["interface"]
+            for info in self.networks[1:]:
+                st = drives_status() if info["name"] == "drives" else dict(status(), nodes=[])
+                st["network"] = info["name"]
+                st["bus"]["interface"] = info["interface"]
+                self.others[info["name"]] = FakeNetwork(info, st)
+            if "drives" in self.others:
+                self.others["drives"].objects[(2, 0x1008, 0)] = b"drive"
+                self.others["drives"].present.add(2)
         self.configured = set()  # extra configured node IDs (NMT allowed)
         self.refuse_writes = {}
         self.delay = 0.0  # seconds before each SDO answer  # (node, index, sub): abort code for a write
@@ -93,9 +144,11 @@ class FakePlugin:
                         if req.get("op") != "hello" or req.get("token") != fake.token:
                             return  # the plugin closes without an answer
                         authed = True
-                        self._send({"id": req.get("id"), "ok": True,
-                                    "result": {"protocol": 1, "version": "v-test",
-                                               "allow_changes": fake.allow_changes, "master_node_id": 1}})
+                        hello = {"protocol": 1, "version": "v-test", "allow_changes": fake.allow_changes,
+                                 "master_node_id": 1}
+                        if fake.networks is not None:
+                            hello["networks"] = copy.deepcopy(fake.networks)
+                        self._send({"id": req.get("id"), "ok": True, "result": hello})
                         continue
                     fake.requests.append(req)
                     if fake.delay and req.get("op") in ("sdo_read", "sdo_write"):
@@ -124,6 +177,27 @@ class FakePlugin:
         self.server.shutdown()
         self.server.server_close()
 
+    def network(self, name):
+        """A network's state: the FakePlugin itself for the first one."""
+        if self.networks and name != self.networks[0]["name"]:
+            return self.others[name]
+        return self
+
+    def _pick(self, req):
+        """(network state, None) for a request, or (None, error) as the plugin
+        answers a missing or unknown network."""
+        if not self.networks:
+            return self, None
+        names = ", ".join(n["name"] for n in self.networks)
+        name = req.get("network")
+        if name is None:
+            if len(self.networks) == 1:
+                return self, None
+            return None, "network required (%s)" % names
+        if name not in [n["name"] for n in self.networks]:
+            return None, "unknown network '%s' (%s)" % (name, names)
+        return self.network(name), None
+
     @property
     def runtime(self):
         return "127.0.0.1:%d" % self.port
@@ -136,7 +210,7 @@ class FakePlugin:
                 self.trace_records.append((self.trace_seq, f.pack()))
             del self.trace_records[:-self.trace_ring]
 
-    def _trace(self, req, ok, err):
+    def _trace(self, req, ok, err, net):
         op = req["op"]
         if not self.trace_supported:
             return err("unknown op '%s'" % op)
@@ -144,8 +218,12 @@ class FakePlugin:
             if not self.trace_session:
                 return err("no bus")
             self.trace_starts.append(req)
-            return ok({"next": self.trace_seq, "buffer_frames": self.trace_ring, "record_size": 24,
-                       "interface": "vcan0", "bitrate": 125000})
+            res = {"next": self.trace_seq, "buffer_frames": self.trace_ring, "record_size": 24,
+                   "interface": "vcan0", "bitrate": 125000}
+            if self.networks:
+                info = net.info if net is not self else self.networks[0]
+                res.update(network=info["name"], interface=info["interface"], bitrate=info["bitrate"])
+            return ok(res)
         if op == "trace_stop":
             return ok({})
         with self.trace_lock:
@@ -160,37 +238,40 @@ class FakePlugin:
 
     def answer(self, req):
         op = req.get("op")
-        if op in ("trace_start", "trace_fetch", "trace_stop"):
-            return self._trace(req, lambda r: {"ok": True, "result": r}, lambda w: {"ok": False, "error": w})
         ok = lambda result: {"ok": True, "result": result}  # noqa: E731
         err = lambda why: {"ok": False, "error": why}  # noqa: E731
+        net, why = self._pick(req)
+        if why:
+            return err(why)
+        if op in ("trace_start", "trace_fetch", "trace_stop"):
+            return self._trace(req, ok, err, net)
         if op == "status":
-            return ok(copy.deepcopy(self.status))
+            return ok(copy.deepcopy(net.status))
         if op == "emcy":
-            return ok({"node_id": req["node"], "emcy": self.emcy.get(req["node"], [])})
+            return ok({"node_id": req["node"], "emcy": net.emcy.get(req["node"], [])})
         if op in ("sdo_write", "nmt") and not self.allow_changes:
             return err("changes not allowed")
         if op in ("sdo_read", "sdo_write"):
             node, index, sub = req["node"], req["index"], req["subindex"]
             base = {"node": node, "index": index, "subindex": sub}
-            if node not in self.present:
+            if node not in net.present:
                 return ok(dict(base, success=False, error="timeout"))
             if op == "sdo_write" and (node, index, sub) in self.refuse_writes:
                 code = self.refuse_writes[(node, index, sub)]
                 return ok(dict(base, success=False, abort_code=code, abort_code_hex="0x%08X" % code,
                                error=diag.abort_text(code)))
-            if (node, index, sub) not in self.objects:
+            if (node, index, sub) not in net.objects:
                 return ok(dict(base, success=False, abort_code=0x06020000, abort_code_hex="0x06020000",
                                error="object does not exist"))
             if op == "sdo_write":
-                self.objects[(node, index, sub)] = diag.parse_hex(req["data"])
+                net.objects[(node, index, sub)] = diag.parse_hex(req["data"])
                 return ok(dict(base, success=True))
-            data = self.objects[(node, index, sub)]
+            data = net.objects[(node, index, sub)]
             return ok(dict(base, success=True, data=diag.hex_bytes(data), size=len(data)))
         if op == "nmt":
             if req["node"] not in (2, 23) and req["node"] not in self.configured:
                 return err("node %d is not in the configuration" % req["node"])
-            for n in self.status["nodes"]:
+            for n in net.status["nodes"]:
                 if n["node_id"] == req["node"]:
                     if req["command"] in ("stop", "preop"):
                         n["hold"], n["hold_by"] = ("stopped" if req["command"] == "stop" else "preop"), "operator"

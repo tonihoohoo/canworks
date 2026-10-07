@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tonihoohoo/openplc-canopen/schema/canopen.v2.schema.json",
+  "title": "OpenPLC CANopen configuration, schema_version 2 (several networks)",
+  "description": "The CANopen plugin's JSON config with a list of networks, one CANopen master per CAN interface (docs/config.md#several-networks). Each network's adapter, master and nodes are the version 1 definitions, referenced from canopen.v1.schema.json. Unknown fields are allowed: the plugin and the deploy tool ignore them with a warning. Checks this schema cannot express (unique names, interfaces and serial devices, IEC locations across networks) are listed in docs/config.md.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": {
+      "description": "Config format version: 2 for a file with a networks list.",
+      "anyOf": [ { "const": 2 }, { "const": "2" } ]
+    },
+    "diagnostics": {
+      "description": "The diagnostics channel for all networks: one port, one token. In version 1 this is master.diagnostics.",
+      "$ref": "canopen.v1.schema.json#/$defs/master/properties/diagnostics"
+    },
+    "networks": {
+      "description": "The CANopen networks, one master per CAN interface.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/network" }
+    }
+  },
+  "required": [ "schema_version", "networks" ],
+  "not": {
+    "description": "Version 1 keys belong inside a network in version 2.",
+    "anyOf": [
+      { "required": [ "adapter" ] },
+      { "required": [ "master" ] },
+      { "required": [ "nodes" ] },
+      { "required": [ "interface" ] },
+      { "required": [ "bitrate" ] }
+    ]
+  },
+  "if": { "not": { "required": [ "diagnostics" ] } },
+  "then": {
+    "description": "A network may list no nodes (scan only) only when the diagnostics channel is configured.",
+    "properties": { "networks": { "items": { "properties": { "nodes": { "minItems": 1 } } } } }
+  },
+  "$defs": {
+    "network": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The network's name in logs, diagnostics, exports and variable names. Default: the adapter's interface name.",
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,15}$"
+        },
+        "adapter": { "$ref": "canopen.v1.schema.json#/$defs/adapter" },
+        "master": {
+          "allOf": [
+            { "$ref": "canopen.v1.schema.json#/$defs/master" },
+            { "not": { "required": [ "diagnostics" ] } }
+          ]
+        },
+        "nodes": {
+          "description": "The network's slave nodes.",
+          "type": "array",
+          "items": { "$ref": "canopen.v1.schema.json#/$defs/node" }
+        }
+      },
+      "required": [ "adapter", "master", "nodes" ],
+      "not": { "anyOf": [ { "required": [ "interface" ] }, { "required": [ "bitrate" ] } ] }
+    }
+  }
+}

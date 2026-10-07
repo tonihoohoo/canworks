@@ -3472,3 +3472,217 @@ int main(int argc, char** argv) {
   route_lely_diagnostics();
   return check::run_all(argc, argv);
 }
+
+// ---------------------------------------------------------------------------
+// Several networks (canopen-networks spec): two masters, each on its own
+// virtual bus, with the same node ID on both and one PLC scan for both.
+
+namespace {
+
+std::string two_networks_json() {
+  auto net = [](const char* name, const char* iface, int n) {
+    std::string s = std::to_string(n);
+    return std::string(R"({ "name": ")") + name + R"(", "adapter": { "type": "socketcan", "interface": ")" + iface +
+           R"(", "bitrate": 125000 }, "master": { "node_id": 1, "sync_period_us": 20000 },
+      "nodes": [ { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 50, "heartbeat_timeout_ms": 200,
+        "status_location": "%IX10.)" + s + R"(",
+        "tx_pdos": [ { "entries": [ { "index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID10)" + s + R"(" } ] } ],
+        "rx_pdos": [ { "entries": [ { "index": "0x4000", "type": "UNSIGNED32", "iec_location": "%QD10)" + s + R"(" } ] } ] } ] })";
+  };
+  return R"({ "schema_version": 2, "networks": [ )" + net("io", "sim0", 0) + ", " + net("drives", "sim1", 1) + " ] }";
+}
+
+class TwoNetSim {
+ public:
+  struct Net {
+    Net(io::Poll& poll, ev::Executor& exec, io::Context& ctx)
+        : timer(poll, exec, CLOCK_MONOTONIC), sup(poll, exec, CLOCK_MONOTONIC), req(poll, exec, CLOCK_MONOTONIC),
+          out(poll, exec, CLOCK_MONOTONIC), ctrl(timer.get_clock()), chan(ctx, exec) {}
+    io::Timer timer, sup, req, out;
+    io::VirtualCanController ctrl;
+    io::VirtualCanChannel chan;
+    GeneratedConfig gen;
+    ProcessImage image;
+    std::unique_ptr<Network> net;
+    std::unique_ptr<Sim::SlaveBox> slave;
+  };
+
+  explicit TwoNetSim(const std::string& dir)
+      : poll_(ctx_), loop_(poll_.get_poll()), exec_(loop_.get_executor()), scan_timer_(poll_, exec_, CLOCK_MONOTONIC) {
+    std::vector<std::string> errors;
+    ok_ = load_config_set(dir + "/canopen_config.json", ImageLimits(), set_, errors);
+    for (auto& cfg : set_.networks) {
+      nets_.emplace_back(new Net(poll_, exec_, ctx_));
+      Net& n = *nets_.back();
+      ok_ = ok_ && run_eds_lint(cfg, default_edslint_python(), cfg.work_dir, errors) && check_eds_files(cfg, errors) &&
+            generate_device_config(cfg, default_dcfgen(), n.gen, errors);
+    }
+    for (const auto& e : errors) std::printf("  setup: %s\n", e.c_str());
+    if (!ok_ || set_.networks.size() != 2) {
+      ok_ = false;
+      return;
+    }
+    fake_runtime::attach(fake_, rt_);
+    for (size_t i = 0; i < 2; ++i) {
+      Net& n = *nets_[i];
+      n.image.build(set_.networks[i]);
+      n.chan.open(n.ctrl);
+      n.net.reset(new Network(exec_, n.timer, n.sup, n.chan, set_.networks[i], n.gen, n.image, nullptr, &n.req, &n.out));
+    }
+    scan_timer_.settime(milliseconds(10), milliseconds(10));
+    scan_timer_.submit_wait(exec_, [this](int, std::error_code ec) {
+      if (!ec) Scan();
+    });
+  }
+
+  ~TwoNetSim() {
+    for (auto& n : nets_) n->slave.reset();
+    for (auto& n : nets_)
+      if (n->net) n->net->Stop();
+    ctx_.shutdown();
+    loop_.restart();
+    for (int i = 0; i < 20 && !loop_.stopped(); ++i) loop_.run_for(milliseconds(100));
+    if (!loop_.stopped()) loop_.stop();
+    for (auto& n : nets_) n->net.reset();
+  }
+
+  bool ok() const { return ok_; }
+  const ConfigSet& set() const { return set_; }
+  Net& net(size_t i) { return *nets_[i]; }
+
+  void StartSlave(size_t i, const std::string& eds) {
+    nets_[i]->slave.reset(new Sim::SlaveBox(nets_[i]->ctrl, [=](io::TimerBase& t, io::CanChannelBase& c) {
+      return new PingPongSlave(t, c, eds, "", 2);
+    }));
+  }
+  void Unplug(size_t i) { nets_[i]->slave->Unplug(); }
+  void Replug(size_t i) { nets_[i]->slave->Replug(nets_[i]->ctrl); }
+
+  template <class F>
+  bool RunUntil(F pred, milliseconds timeout) {
+    auto end = steady_clock::now() + timeout;
+    while (steady_clock::now() < end) {
+      loop_.run_for(milliseconds(5));
+      loop_.restart();
+      if (pred()) return true;
+    }
+    return pred();
+  }
+  void RunFor(milliseconds d) {
+    RunUntil([] { return false; }, d);
+  }
+
+  bool status(int i) { return fake_.bool_in[10][i] != 0; }
+  uint32_t in(int i) { return fake_.dint_in[100 + i]; }
+  void SetProgram(std::function<void()> program) { program_ = std::move(program); }
+  // Scans in which both inputs had changed since the scan before.
+  long both_new() const { return both_new_; }
+
+ private:
+  void Scan() {
+    // cycle_start for every network, the program, cycle_end for every network
+    for (auto& n : nets_) n->image.copy_to_plc(rt_);
+    uint32_t a = fake_.dint_in[100], b = fake_.dint_in[101];
+    if (a != last_[0] && b != last_[1]) ++both_new_;
+    last_[0] = a;
+    last_[1] = b;
+    fake_.dint_out[100] = a + 1;
+    fake_.dint_out[101] = b + 1000;
+    if (program_) program_();
+    for (auto& n : nets_) n->image.copy_from_plc(rt_);
+    scan_timer_.submit_wait(exec_, [this](int, std::error_code ec) {
+      if (!ec) Scan();
+    });
+  }
+
+  io::IoGuard io_guard_;
+  io::Context ctx_;
+  io::Poll poll_;
+  ev::Loop loop_;
+  ev::Executor exec_;
+  io::Timer scan_timer_;
+  ConfigSet set_;
+  std::vector<std::unique_ptr<Net>> nets_;
+  fake_runtime::Image fake_;
+  plugin_runtime_args_t rt_;
+  std::function<void()> program_;
+  uint32_t last_[2] = {0, 0};
+  long both_new_ = 0;
+  bool ok_ = false;
+};
+
+}  // namespace
+
+TEST(sim_two_networks) {
+  clear_logs();
+  std::string dir = make_dir(two_networks_json(), {{"cpp-slave.eds", slave_eds()}});
+  static TwoNetSim* sim;
+  sim = new TwoNetSim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) {
+    delete sim;
+    return;
+  }
+  // Each network generates into its own folder.
+  struct stat st;
+  CHECK(stat((dir + "/.canopen/io/master.dcf").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canopen/drives/master.dcf").c_str(), &st) == 0);
+  // Node 2 on both buses, each with its own master.
+  sim->StartSlave(0, dir + "/cpp-slave.eds");
+  sim->StartSlave(1, dir + "/cpp-slave.eds");
+  sim->net(0).net->Start();
+  sim->net(1).net->Start();
+  CHECK(sim->RunUntil([] { return sim->status(0) && sim->status(1); }, seconds(5)));
+  // Both counters run: io adds 1, drives adds 1000 per round trip.
+  uint32_t a0 = sim->in(0), a1 = sim->in(1);
+  CHECK(sim->RunUntil([&] { return sim->in(0) >= a0 + 10 && sim->in(1) >= a1 + 10000; }, seconds(5)));
+  CHECK_MSG(sim->in(1) % 1000 == 0, std::to_string(sim->in(1)));
+  // Values from both networks arrive in the same scans.
+  CHECK(sim->both_new() > 0);
+
+  // The SDO blocks reach each network by its NETWORK number.
+  static CO_SDO_READ_INST rd[3];
+  PlcRequests::instance().open(2);
+  sim->SetProgram([] {
+    for (auto& b : rd) co_sdo_read_call(&b);
+  });
+  auto read = [](unsigned i, unsigned network) {
+    rd[i].NETWORK = static_cast<uint8_t>(network);
+    target(rd[i], 2, 0x1017, 0);
+    rd[i].EXECUTE = true;
+  };
+  auto ended = [](unsigned i) { return static_cast<bool>(rd[i].DONE) || static_cast<bool>(rd[i].ERROR); };
+  read(0, 0);
+  read(1, 1);
+  read(2, 2);
+  CHECK(sim->RunUntil([&] { return ended(0) && ended(1) && ended(2); }, seconds(3)));
+  CHECK_MSG(rd[0].DONE && rd[0].DATA.get() == 50, std::to_string(rd[0].ERROR_ID.get()));
+  CHECK_MSG(rd[1].DONE && rd[1].DATA.get() == 50, std::to_string(rd[1].ERROR_ID.get()));
+  CHECK(rd[2].ERROR && rd[2].ERROR_ID.get() == CANOPEN_PLC_ERR_INPUT);
+  for (auto& b : rd) b.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+
+  // The drives bus loses its node; io keeps exchanging.
+  sim->Unplug(1);
+  CHECK(sim->RunUntil([] { return !sim->status(1); }, seconds(3)));
+  CHECK(sim->status(0));
+  // A read on drives ends as unavailable; the same read on io still works.
+  read(0, 0);
+  read(1, 1);
+  CHECK(sim->RunUntil([&] { return ended(0) && ended(1); }, seconds(3)));
+  CHECK_MSG(rd[0].DONE, std::to_string(rd[0].ERROR_ID.get()));
+  CHECK_MSG(rd[1].ERROR && rd[1].ERROR_ID.get() == CANOPEN_PLC_ERR_UNAVAILABLE, std::to_string(rd[1].ERROR_ID.get()));
+  for (auto& b : rd) b.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+  sim->SetProgram(nullptr);
+  uint32_t held = sim->in(1), b0 = sim->in(0);
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->in(0) > b0 + 1, "io counter " + std::to_string(b0) + " -> " + std::to_string(sim->in(0)));
+  CHECK(sim->in(1) == held);  // inputs hold
+  // Back on the bus: drives comes back without disturbing io.
+  sim->Replug(1);
+  CHECK(sim->RunUntil([] { return sim->status(1); }, seconds(10)));
+  CHECK(sim->status(0));
+  delete sim;
+  PlcRequests::instance().close();
+}
