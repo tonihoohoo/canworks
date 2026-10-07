@@ -31,4 +31,4 @@
 
 ## 6. Hardware check
 
-- [ ] 6.1 Export the document of the hardware bench config and compare the boot list and COB-ID map with a bus trace of a boot; the identity and EDS hash must match the device.
+- [x] 6.1 Export the document of the hardware bench config and compare the boot list and COB-ID map with a bus trace of a boot; the identity and EDS hash must match the device.

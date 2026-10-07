@@ -630,8 +630,11 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
         link = ""
         note = msg.comment
         if kind == "master_heartbeat":
-            cyc = worst = _per(msg.cycle_ms)
-            trigger = "every %d ms" % msg.cycle_ms
+            if msg.cycle_ms:
+                cyc = worst = _per(msg.cycle_ms)
+                trigger = "every %d ms" % msg.cycle_ms
+            else:
+                trigger = "off (boot-up message only)"
             consumers = [i for i, n in zip(idents, cfg["nodes"]) if n.get("heartbeat_consumer") is True]
         elif kind == "time":
             cyc = worst = _per(msg.cycle_ms)

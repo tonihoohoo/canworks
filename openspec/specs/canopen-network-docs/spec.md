@@ -69,11 +69,15 @@ Each network SHALL have: a topology diagram showing the master and every node on
 - **THEN** the diagram shows the master and three nodes in node ID order on one bus line
 
 ### Requirement: COB-ID map
-Each network SHALL have a table of every frame the configured network puts on the bus, sorted by COB-ID: NMT, SYNC (when produced), TIME (when produced), each node's EMCY, each configured TPDO and RPDO, each node's SDO request and response channel, each node's heartbeat or node guarding, and the master's heartbeat (when produced). Each row SHALL give COB-ID, frame name, producer, consumers, data length, period or trigger, frame bits and load share. Two frames of one network with the same COB-ID SHALL be flagged in the table.
+Each network SHALL have a table of every frame the configured network puts on the bus, sorted by COB-ID: NMT, SYNC (when produced), TIME (when produced), each node's EMCY, each configured TPDO and RPDO, each node's SDO request and response channel, each node's heartbeat or node guarding, and the master's heartbeat, or its boot-up message alone when the master heartbeat is off. Each row SHALL give COB-ID, frame name, producer, consumers, data length, period or trigger, frame bits and load share. Two frames of one network with the same COB-ID SHALL be flagged in the table.
 
 #### Scenario: Master heartbeat
 - **WHEN** master node 1 has `heartbeat_ms` 100
 - **THEN** the map has a 0x701 frame from the master with period 100 ms
+
+#### Scenario: Master boot-up without heartbeat
+- **WHEN** master node 1 has no heartbeat
+- **THEN** the map still has the 0x701 frame from the master, marked as its boot-up message only, and it adds nothing to the bus load
 
 #### Scenario: SDO channels
 - **WHEN** node 5 is configured

@@ -19,7 +19,7 @@ Every value comes from the code the deploy tool, the DCF export and the DBC expo
   - a topology diagram of the master and the nodes on the bus line (each links to its section);
   - the master and bus settings: adapter, bit rate, master node ID, SYNC (timer, PLC cycle or off; window, counter), master heartbeat and heartbeat consumers, TIME, NMT start options, boot time, SDO timeout, error behaviour, EDS lint, and whether diagnostics are on (port and read-only or not; never the token);
   - the master's status addresses in the PLC (bus state, error counters, master state);
-  - the **COB-ID map**: every frame on the bus sorted by COB-ID (NMT, SYNC, TIME, EMCY, each PDO, each node's SDO channels, heartbeats or node guarding, the master heartbeat), with producer, consumers, data length, period or trigger, frame bits and load share; a COB-ID used twice is flagged;
+  - the **COB-ID map**: every frame on the bus sorted by COB-ID (NMT, SYNC, TIME, EMCY, each PDO, each node's SDO channels, heartbeats or node guarding, the master heartbeat or, with the heartbeat off, its boot-up message), with producer, consumers, data length, period or trigger, frame bits and load share; a COB-ID used twice is flagged;
   - the **bus load estimate** (below).
 - **Per node:**
   - identity: vendor and product name from the EDS, vendor ID, product code and revision from the EDS next to what the master expects at boot and whether each is checked, the EDS file name and its SHA-256;

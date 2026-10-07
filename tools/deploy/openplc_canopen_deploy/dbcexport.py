@@ -425,18 +425,18 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
 
 def frames(cfg, model):
     """Every frame of a one-network config on the bus: the DBC model's
-    messages plus those a DBC leaves out (the master's heartbeat, TIME when
-    the master produces it, each node's SDO server channel), sorted by
+    messages plus those a DBC leaves out (the master's heartbeat, or its
+    boot-up message alone when the heartbeat is off, TIME when the master
+    produces it, each node's SDO server channel), sorted by
     COB-ID. Each added Message has `kind` "master_heartbeat", "time",
     "sdo_request" or "sdo_response"; the model's messages are not changed."""
     m = cfg["master"]
     master_id = _u(m.get("node_id"), 1)
     out = list(model.messages)
-    if _u(m.get("heartbeat_ms"), 0):
-        hb = Message(0x700 + master_id, "Master_Heartbeat", 1, MASTER, "master (node %d) heartbeat" % master_id,
-                     _u(m.get("heartbeat_ms")))
-        hb.kind = "master_heartbeat"
-        out.append(hb)
+    hb = Message(0x700 + master_id, "Master_Heartbeat", 1, MASTER, "master (node %d) heartbeat" % master_id,
+                 _u(m.get("heartbeat_ms"), 0) or None)
+    hb.kind = "master_heartbeat"
+    out.append(hb)
     if "time_period_ms" in m:
         cob = _u(m.get("time_cob_id"), 0x100) & 0x7FF or 0x100
         t = Message(cob, "TIME", 6, MASTER, "TIME_OF_DAY from the runtime host's clock", _u(m["time_period_ms"]))

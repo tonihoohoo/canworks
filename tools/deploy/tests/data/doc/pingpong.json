@@ -193,6 +193,23 @@
     },
     {
      "bits": 65,
+     "cob_id": 1793,
+     "consumers": [],
+     "dlc": 1,
+     "duplicate": false,
+     "kind": "master_heartbeat",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "Master_Heartbeat",
+     "notes": "master (node 1) heartbeat",
+     "producer": "Master",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "off (boot-up message only)"
+    },
+    {
+     "bits": 65,
      "cob_id": 1794,
      "consumers": [
       "Master"

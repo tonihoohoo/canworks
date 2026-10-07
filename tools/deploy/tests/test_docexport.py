@@ -191,6 +191,11 @@ class Model(unittest.TestCase):
         self.assertIn("on demand", req["trigger"])
         self.assertEqual([f["cob_id"] for f in net["frames"]], sorted(f["cob_id"] for f in net["frames"]))
 
+    def test_master_bootup_without_heartbeat(self):
+        [net] = build(base_config())["networks"]
+        hb = frame(net, "Master_Heartbeat")
+        self.assertEqual((hb["cob_id"], hb["trigger"], hb["rate_worst"]), (0x701, "off (boot-up message only)", 0))
+
     def test_sync_off(self):
         cfg = base_config()
         del cfg["master"]["sync_period_us"]
