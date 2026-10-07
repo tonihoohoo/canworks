@@ -85,7 +85,7 @@ A **Commission a device** entry on the start page opens the online view on an ad
 These hooks exist so the parallel change can plug in without restructuring this one:
 - `localbus.adapter.open(spec, bitrate, listen_only=False)`: the single place an adapter is opened. This change always passes `False`, and the raw-frames change implements listen-only per adapter.
 - `LocalBus._transmit(msg)`: the single transmit path, which records Tx in the trace ring and the other-master bookkeeping.
-- The op table in `LocalBus`: `send_frame` and `detect_bitrate` are added there, and in the plugin, by that change.
+- The op table in `LocalBus`: that change (add-raw-frames-bitrate-detect) defines `send_frame`, `send_frame_stop`, `detect_bitrate` and `detect_bitrate_status` in the plugin's protocol, and the local backend implements them under the same names and fields in that change or a follow-up. This change neither defines nor implements them.
 - The 1 s listen-before-transmit in Decision 4 is where a bit rate sanity check goes.
 
 ### 9. Testing
