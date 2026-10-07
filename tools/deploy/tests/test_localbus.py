@@ -2,17 +2,25 @@
 against fake devices. Runs on every PC tools runner: no CAN hardware."""
 
 import base64
+import io
 import itertools
+import json
+import os
+import tempfile
 import struct
 import time
 import unittest
+from contextlib import redirect_stderr
+from unittest import mock
 
 from openplc_canopen_deploy import diag
 from openplc_canopen_deploy.bustrace.model import RECORD_SIZE, Frame
 from openplc_canopen_deploy.localbus import AdapterError, LocalBus, parse
 from openplc_canopen_deploy.localbus import client as client_mod
+from openplc_canopen_deploy.localbus import core as core_mod
 
 from .fake_canopen import FakeDevice, Peer
+from .helpers import REPO
 
 _n = itertools.count(1)
 
@@ -296,6 +304,94 @@ class Trace(Base):
         with self.assertRaises(diag.DiagError):
             c.trace_fetch(0)
         del d
+
+
+def cli(*argv):
+    """openplc-canopen-diag with its exit status, stdout and stderr."""
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stderr(err), mock.patch.object(core_mod, "LISTEN_S", 0.05):
+        try:
+            args = diag.parser().parse_args(list(argv))
+            code = diag.run(args, out)
+        except diag.DiagError as e:
+            err.write("openplc-canopen-diag: %s\n" % e)
+            code = 2 if e.kind == "usage" else 1
+        except SystemExit as e:
+            code = e.code
+    return code, out.getvalue(), err.getvalue()
+
+
+class Cli(Base):
+    def adapter(self):
+        return ["--adapter", "virtual:" + self.ch]
+
+    def test_status_and_sdo(self):
+        self.device(5, heartbeat_s=0.05)
+        code, out, err = cli(*self.adapter(), "--bitrate", "250", "sdo-read", "5", "0x1018", "1",
+                             "--type", "UNSIGNED32")
+        self.assertEqual(code, 0, err)
+        self.assertIn("864", out)  # 0x360
+        code, out, err = cli(*self.adapter(), "--bitrate", "250", "status")
+        self.assertEqual(code, 0, err)
+        self.assertIn("read-only", out)
+
+    def test_no_bitrate(self):
+        code, out, err = cli(*self.adapter(), "scan")
+        self.assertEqual(code, 2)
+        self.assertIn("--bitrate", err)
+
+    def test_both_targets(self):
+        code, out, err = cli(*self.adapter(), "--runtime", "plc.local", "--bitrate", "250", "status")
+        self.assertEqual(code, 2)
+        self.assertIn("not both", err)
+
+    def test_sim_needs_runtime(self):
+        code, out, err = cli(*self.adapter(), "sim", "status")
+        self.assertEqual(code, 2)
+        self.assertIn("need a runtime", err)
+
+    def test_changes_need_switch(self):
+        d = self.device(5)
+        code, out, err = cli(*self.adapter(), "--bitrate", "250", "nmt", "5", "stop")
+        self.assertEqual(code, 1)
+        self.assertIn("--allow-changes", err)
+        code, out, err = cli(*self.adapter(), "--bitrate", "250", "--allow-changes", "nmt", "5", "stop")
+        self.assertEqual(code, 0, err)
+        time.sleep(0.1)
+        self.assertEqual(d.nmt_log, [2])
+
+    def test_bitrate_from_config(self):
+        self.device(2, identity=(0x360, 0x1, 0, 0))
+        cfg = os.path.join(REPO, "config", "pingpong", "canopen_config.json")
+        code, out, err = cli(*self.adapter(), "scan", "--config", cfg)
+        self.assertEqual(code, 0, err)
+        self.assertIn("node   2", out)
+
+    def test_backup(self):
+        self.device(2, od={(0x1017, 0): b"\x00\x00"})
+        eds = os.path.join(REPO, "config", "pingpong", "cpp-slave.eds")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "n2.dcf")
+            code, out, err = cli(*self.adapter(), "--bitrate", "250", "backup", "2", "--eds", eds, "-o", path)
+            self.assertEqual(code, 0, err)
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        self.assertIn("[DeviceComissioning]", text)
+        self.assertIn("NodeID=2", text)
+
+    def test_trace(self):
+        self.device(5, heartbeat_s=0.05)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "t.log")
+            code, out, err = cli(*self.adapter(), "--bitrate", "250", "trace", "-o", path, "--duration", "0.6")
+            self.assertEqual(code, 0, err)
+            with open(path, encoding="utf-8") as f:
+                self.assertIn("705#7F", f.read())
+
+    def test_adapters(self):
+        code, out, err = cli("--json", "adapters")
+        self.assertEqual(code, 0, err)
+        self.assertIsInstance(json.loads(out), list)
 
 
 if __name__ == "__main__":

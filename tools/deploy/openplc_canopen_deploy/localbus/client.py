@@ -65,7 +65,7 @@ class LocalBus:
     master is active."""
 
     def __init__(self, spec, bitrate, allow_changes=False, force=False, config=None, network=None,
-                 timeout=5.0, listen_s=core_mod.LISTEN_S):
+                 timeout=5.0, listen_s=None):
         self.spec, self.bitrate = spec, bitrate
         self.allow_changes, self.force = bool(allow_changes), bool(force)
         self.config = dict(config or {})
@@ -93,7 +93,8 @@ class LocalBus:
     def connect(self):
         self.close()
         try:
-            self.core = core_mod.acquire(self.spec, self.bitrate, self.listen_s)
+            self.core = core_mod.acquire(self.spec, self.bitrate,
+                                         core_mod.LISTEN_S if self.listen_s is None else self.listen_s)
         except adapter_mod.AdapterError as e:
             raise DiagError("usage" if e.kind == "usage" else e.kind, str(e))
         self.info = self.request("hello")

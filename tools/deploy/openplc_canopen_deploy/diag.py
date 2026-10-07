@@ -659,6 +659,17 @@ def parser():
     p.add_argument("--runtime", metavar="HOST[:PORT]",
                    help="the runtime host (diagnostics port, default %d); `local` is the local simulator runtime "
                         "of openplc-canopen-sim-runtime" % DEFAULT_PORT)
+    p.add_argument("--adapter", metavar="TYPE:CHANNEL",
+                   help="talk to the bus through a CAN adapter on this PC instead of a runtime: slcan:COM5, "
+                        "slcan:/dev/tty.usbmodem14101, socketcan:can0, ... (see 'adapters' and docs/pc-adapter.md)")
+    p.add_argument("--bitrate", type=int, metavar="KBIT",
+                   help="--adapter: the bus's bit rate in kbit/s (default: the network's adapter.bitrate from --config)")
+    p.add_argument("--adapter-option", action="append", default=[], metavar="KEY=VALUE",
+                   help="--adapter: an option passed to python-can (repeatable), e.g. tty_baudrate=115200")
+    p.add_argument("--allow-changes", action="store_true",
+                   help="--adapter: allow SDO writes, NMT, LSS, restore and store in this session")
+    p.add_argument("--force", action="store_true",
+                   help="--adapter: run LSS even while another master is active on the bus")
     p.add_argument("--sim", dest="sim_addr", metavar="HOST[:PORT]",
                    help="sim commands: a standalone simulator's control channel (default port 7532)")
     p.add_argument("--token", help="access token (default: $%s, else a prompt)" % TOKEN_ENV)
@@ -670,6 +681,7 @@ def parser():
     sub.required = True
     s = sub.add_parser("status", help="master, bus and node states")
     _network_arg(s, "the network to show (default: every network)")
+    s.add_argument("--config", metavar="canopen.json", help="--adapter: name the network's nodes from this config")
     e = sub.add_parser("emcy", help="a node's emergency history, newest first")
     e.add_argument("node", type=_node)
     r = sub.add_parser("sdo-read", help="read an object")
@@ -688,7 +700,8 @@ def parser():
     n = sub.add_parser("nmt", help="send an NMT command to a configured node (needs allow_changes)")
     n.add_argument("node", type=_node)
     n.add_argument("nmt_command", choices=NMT_COMMANDS, metavar="|".join(NMT_COMMANDS))
-    sub.add_parser("scan", help="find the devices on the bus (node IDs 1-127)")
+    sc = sub.add_parser("scan", help="find the devices on the bus (node IDs 1-127)")
+    sc.add_argument("--config", metavar="canopen.json", help="--adapter: compare the devices with this config")
     lf = sub.add_parser("lss-find", help="find a device without a node ID with LSS fastscan (needs allow_changes)")
     lf.add_argument("--vendor", type=_u32("vendor ID"), help="only devices with this vendor ID (needs --product)")
     lf.add_argument("--product", type=_u32("product code"), help="only devices with this product code")
@@ -769,6 +782,7 @@ def parser():
     _source(st)
     for name in NETWORK_COMMANDS:
         _network_arg(sub.choices[name])
+    sub.add_parser("adapters", help="list the CAN adapters on this PC (for --adapter; no connection)")
     h = sub.add_parser("hash-token", help="print the token_verifier for a token (no connection)")
     h.add_argument("value", nargs="?", help="the token (default: --token, $%s or a prompt)" % TOKEN_ENV)
     _sim_parser(sub)
@@ -993,7 +1007,8 @@ def _parameters(client, args, host, out):
     node = args.node
     if args.command == "backup":
         boot = None
-        for nd in (client.status().get("nodes") or []):
+        st = client.status()
+        for nd in (st.get("nodes") or []) if not st.get("local") else ():
             if nd.get("node_id") == node and not nd.get("booted"):
                 boot = "not booted"
         reading = P.read_all(client, node, ctx.eds, _progress("reading"))
@@ -1109,6 +1124,83 @@ def _parameters(client, args, host, out):
     return res
 
 
+def _local_client(args):
+    """A localbus.LocalBus for --adapter: the bit rate from --bitrate or the
+    network of --config, the configured nodes' names from --config."""
+    from . import localbus
+    from .localbus import configinfo
+    try:
+        spec = localbus.parse(args.adapter, args.adapter_option)
+    except localbus.AdapterError as e:
+        raise DiagError("usage", str(e))
+    bitrate = args.bitrate * 1000 if args.bitrate else None
+    nodes = {}
+    config = getattr(args, "config", None)
+    if config:
+        try:
+            cfg_bitrate, nodes = configinfo.load(config, args.network)
+        except (OSError, ValueError) as e:
+            raise DiagError("usage", "cannot use %s: %s" % (config, e))
+        bitrate = bitrate or cfg_bitrate
+    if not bitrate:
+        raise DiagError("usage", "give the bus's bit rate with --bitrate KBIT (or --config with the network's "
+                                 "adapter.bitrate); a wrong bit rate disturbs the bus, so there is no default")
+    if localbus.untested(spec):
+        print("openplc-canopen-diag: adapter type %s is passed to python-can untested" % spec.kind, file=sys.stderr)
+    return localbus.LocalBus(spec, bitrate, allow_changes=args.allow_changes, force=args.force, config=nodes,
+                             network=args.network, timeout=args.timeout)
+
+
+def _adapters(args, out):
+    from . import localbus
+    found = localbus.list_adapters()
+    if args.json:
+        out.write(json.dumps(found, indent=2) + "\n")
+        return 0
+    if not found:
+        out.write("no CAN adapter found (plug one in; an slcan adapter shows as a serial port)\n")
+    for a in found:
+        line = "--adapter %s" % a["text"]
+        if a.get("known"):
+            line += "  %s" % a["known"]
+        elif a.get("description"):
+            line += "  %s" % a["description"]
+        if a.get("usb_id"):
+            line += " [USB %s]" % a["usb_id"]
+        out.write(line + "\n")
+    return 0
+
+
+def _print_local_status(st, out):
+    """The status of a local adapter: what the bus showed since connecting."""
+    out.write("adapter %s, %d kbit/s, %s, connected %d s\n" % (
+        st.get("adapter"), (st.get("bitrate") or 0) // 1000,
+        "changes allowed" if st.get("allow_changes") else "read-only", int(st.get("uptime_s") or 0)))
+    if st.get("untested_adapter"):
+        out.write("note: this adapter type is untested\n")
+    other = st.get("other_master_seen")
+    if other:
+        out.write("another master is active on this bus: %s (since %s, last %s)\n"
+                  % (other.get("what"), other.get("first_at"), other.get("last_at")))
+    nodes = st.get("nodes") or []
+    if not nodes:
+        out.write("no node heard yet (a node without heartbeat shows up in a scan)\n")
+        return
+    rows = [("NODE", "NAME", "STATE", "HEARD", "LAST EMCY")]
+    for nd in nodes:
+        heard = "-" if nd.get("last_heard_s") is None else "%.1f s ago" % nd["last_heard_s"]
+        em = nd.get("emcy") or {}
+        emcy = "-"
+        if em.get("count"):
+            emcy = "0x%04X %s, reg 0x%02X (%d total)" % (em.get("code", 0), emcy_class(em.get("code", 0)),
+                                                        em.get("error_register", 0), em["count"])
+        state = "-" if nd.get("state") is None else state_name(nd.get("state"))
+        rows.append((str(nd.get("node_id")), nd.get("name") or "", state, heard, emcy))
+    widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]) - 1)]
+    for r in rows:
+        out.write("  ".join(c.ljust(w) for c, w in zip(r, widths)) + "  " + r[-1] + "\n")
+
+
 def run(args, out=sys.stdout):
     if args.command == "hash-token":
         token = args.value or args.token or os.environ.get(TOKEN_ENV)
@@ -1118,18 +1210,27 @@ def run(args, out=sys.stdout):
         return 0
     if args.command == "convert":
         return _convert(args, out)
+    if args.command == "adapters":
+        return _adapters(args, out)
+    if getattr(args, "adapter", None) and (args.runtime or args.command == "sim"):
+        raise DiagError("usage", "--adapter talks to the bus directly; give either --adapter or --runtime, not both"
+                        if args.runtime else "sim commands need a runtime or a standalone simulator, not --adapter")
     if args.command == "sim":
         from . import simcli
         return simcli.run(args, out)
-    if not args.runtime:
-        raise DiagError("usage", "give --runtime HOST[:PORT]")
+    if not args.runtime and not getattr(args, "adapter", None):
+        raise DiagError("usage", "give --runtime HOST[:PORT], or --adapter TYPE:CHANNEL for a CAN adapter on this PC")
     if args.command == "trace":
         return _trace(args, out)
-    try:
-        host, port = parse_runtime(args.runtime)
-    except ValueError as e:
-        raise DiagError("usage", str(e))
-    client = Client(host, port, _token(args), args.timeout, network=args.network)
+    if args.adapter:
+        client = _local_client(args)
+        host = str(client.spec)
+    else:
+        try:
+            host, port = parse_runtime(args.runtime)
+        except ValueError as e:
+            raise DiagError("usage", str(e))
+        client = Client(host, port, _token(args), args.timeout, network=args.network)
     client.connect()
     try:
         all_networks = args.command == "status" and not args.network and client.several()
@@ -1150,7 +1251,7 @@ def run(args, out=sys.stdout):
         elif args.command == "status":
             res = client.status()
             if not args.json:
-                _print_status(res, out)
+                (_print_local_status if res.get("local") else _print_status)(res, out)
         elif args.command == "emcy":
             res = client.emcy(args.node)
             if not args.json:
@@ -1297,7 +1398,6 @@ def _convert(args, out):
 
 def _trace(args, out):
     from .bustrace import formats, triggers
-    from .bustrace.recorder import Recorder, Session
     try:
         fmt = formats.format_of(args.output, args.format)
     except formats.FormatError as e:
@@ -1317,21 +1417,43 @@ def _trace(args, out):
                                   autosave=autosave)
         except triggers.TriggerError as e:
             raise DiagError("usage", "--trigger: %s" % e)
-    host, port = parse_runtime(args.runtime)
-    token = _token(args)
+    if args.adapter:
+        # The adapter stays open for the whole recording: the recorder's
+        # connections are handles on it, and reopening an slcan port is slow.
+        first = _local_client(args)
+        first.connect()
 
-    def connect():
-        c = Client(host, port, token, args.timeout, network=args.network)
-        c.connect()
-        return c
-
-    # Fail early on a wrong host, token or network instead of retrying.
-    first = connect()
-    try:
-        check_network(first, args.network)
+        def connect():
+            c = _local_client(args)
+            c.connect()
+            return c
         names = network_names(first)
+    else:
+        host, port = parse_runtime(args.runtime)
+        token = _token(args)
+
+        def connect():
+            c = Client(host, port, token, args.timeout, network=args.network)
+            c.connect()
+            return c
+
+        # Fail early on a wrong host, token or network instead of retrying.
+        first = connect()
+        try:
+            check_network(first, args.network)
+            names = network_names(first)
+        finally:
+            first.close()
+    try:
+        return _record(args, out, fmt, filters, spec, connect, names)
     finally:
-        first.close()
+        if args.adapter:
+            first.close()
+
+
+def _record(args, out, fmt, filters, spec, connect, names):
+    from .bustrace import formats, triggers
+    from .bustrace.recorder import Recorder, Session
     # The traced network's nodes decode its frames; without --network that is
     # the plugin's only network.
     network = args.network or (names[0] if len(names) == 1 and names[0] else None)
@@ -1342,7 +1464,7 @@ def _trace(args, out):
         except triggers.TriggerError as e:
             raise DiagError("usage", "--trigger: %s" % e)
     session = Session(decoder)
-    session.trace.meta["runtime"] = args.runtime
+    session.trace.meta["runtime"] = args.runtime or args.adapter
     if network:
         session.trace.meta["network"] = network
     prefix = os.path.splitext(os.path.basename(args.output))[0]
