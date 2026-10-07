@@ -231,6 +231,7 @@ std::string DiagHub::offline_answer(const DiagRequest& r) const {
     cJSON_AddNumberToObject(o, "state", 0);
     cJSON_AddBoolToObject(o, "status", false);
     cJSON_AddBoolToObject(o, "simulated", n.simulate);
+    cJSON_AddBoolToObject(o, "sim_conflict", false);
     cJSON_AddItemToArray(nodes, o);
   }
   return diag_ok(r.id, res);

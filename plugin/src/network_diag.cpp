@@ -76,8 +76,11 @@ void Network::ServiceDiag() {
         continue;
       }
       cJSON* req = cJSON_Parse(r.raw.c_str());
-      diag_->answer(r.seq, req ? sim_handler_(req, r.id, r.peer) : diag_error(r.id, "not a JSON object"));
+      std::string line = req ? sim_handler_(req, r.id, r.peer) : diag_error(r.id, "not a JSON object");
       cJSON_Delete(req);
+      // The engine answers without the line end the diagnostics protocol needs.
+      if (line.empty() || line.back() != '\n') line += '\n';
+      diag_->answer(r.seq, line);
     } else if (r.op == "sdo_read" || r.op == "sdo_write") {
       ManualSdo m;
       m.deadline = now + std::chrono::milliseconds(r.timeout_ms);
@@ -154,7 +157,9 @@ void Network::DiagStatus(const DiagRequest& r) {
     cJSON_AddNumberToObject(o, "state", image_.node_state(id));
     cJSON_AddBoolToObject(o, "status", n.up);
     cJSON_AddBoolToObject(o, "booted", n.booted);
-    cJSON_AddBoolToObject(o, "simulated", n.cfg->simulate);
+    const bool conflict = sim_conflicts_.count(id) > 0;
+    cJSON_AddBoolToObject(o, "simulated", n.cfg->simulate && !conflict);
+    cJSON_AddBoolToObject(o, "sim_conflict", conflict);
     uint8_t letter = image_.node_boot_error(id);
     if (letter) {
       char es[2] = {static_cast<char>(letter), 0};

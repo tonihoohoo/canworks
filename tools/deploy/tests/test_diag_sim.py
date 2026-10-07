@@ -117,6 +117,18 @@ class Runtime(unittest.TestCase):
             nodes = {n["node_id"]: n["simulated"] for n in json.loads(out)["nodes"]}
             self.assertEqual(nodes, {2: True, 23: False})
 
+    def test_status_with_a_node_id_conflict(self):
+        # Node 23 is marked simulated, but a real node 23 is on the bus.
+        sim = FakeSim(simulated_network=False, interface="vcan0")
+        sim.add_device(23, "io", "cpp-slave.eds", 0, {"0x2000:0": (0, "UNSIGNED32")})
+        sim.devices[-1]["conflict"] = True
+        with FakePlugin(sim=sim) as fp:
+            code, out, err = run("--runtime", fp.runtime, "status")
+            self.assertIn("node 23: marked simulated, but a device on the bus already uses node ID 23", out)
+            code, out, err = run("--runtime", fp.runtime, "--json", "status")
+            n23 = [n for n in json.loads(out)["nodes"] if n["node_id"] == 23][0]
+            self.assertEqual((n23["simulated"], n23["sim_conflict"]), (False, True))
+
     def test_nothing_simulated(self):
         with FakePlugin() as fp:
             code, out, err = run("sim", "status", "--runtime", fp.runtime)

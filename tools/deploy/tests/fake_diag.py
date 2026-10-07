@@ -175,9 +175,11 @@ class FakePlugin:
             st = copy.deepcopy(self.status)
             if self.sim is not None:
                 st["simulated_network"] = self.sim.simulated_network
-                simulated = {d["node"] for d in self.sim.devices if d["node"]}
+                conflicts = {d["node"] for d in self.sim.devices if d["node"] and d.get("conflict")}
+                simulated = {d["node"] for d in self.sim.devices if d["node"]} - conflicts
                 for n in st["nodes"]:
                     n["simulated"] = n["node_id"] in simulated
+                    n["sim_conflict"] = n["node_id"] in conflicts
             return ok(st)
         if op == "emcy":
             return ok({"node_id": req["node"], "emcy": self.emcy.get(req["node"], [])})

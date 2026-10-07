@@ -463,6 +463,20 @@ class Sim {
 
   // Sends a diagnostics request and runs the loop until its answer arrives;
   // returns the parsed answer line (cJSON_Delete it), or null on timeout.
+  // The answer line exactly as the server would send it.
+  std::string AskLine(DiagRequest r, milliseconds timeout = milliseconds(5000)) {
+    uint64_t seq = hub_->submit(std::move(r));
+    std::string line;
+    RunUntil([&] {
+      std::vector<std::pair<uint64_t, std::string>> got;
+      hub_->take_answers(got);
+      for (auto& a : got)
+        if (a.first == seq) line = a.second;
+      return !line.empty();
+    }, timeout);
+    return line;
+  }
+
   cJSON* Ask(DiagRequest r, milliseconds timeout = milliseconds(5000)) {
     uint64_t seq = hub_->submit(std::move(r));
     std::string line;
@@ -731,6 +745,13 @@ class Sim {
   canopen_sim::Simulator& simulator() { return *simulator_; }
   const std::vector<canopen_sim::ScenarioResult>& scenario_results() const { return results_; }
   // A control request to the simulator; the parsed answer (cJSON_Delete it).
+  // Routes sim_ diagnostics requests to the simulator, as bus.cpp does.
+  void WireSimHandler() {
+    net().SetSimHandler([this](const cJSON* req, const std::string& id, const std::string& peer) {
+      return simulator_->Handle(req, id, peer);
+    });
+  }
+
   cJSON* SimAsk(const std::string& json) {
     cJSON* req = cJSON_Parse(json.c_str());
     std::string line = simulator_->Handle(req, "", "test");
@@ -3207,6 +3228,17 @@ TEST(sim_simulated_faults) {
   CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
   sim->net().Start();
   CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+
+  // Through the diagnostics channel, as a client sends it: one whole line back.
+  sim->WireSimHandler();
+  DiagRequest dr = diag_req("sim_status");
+  dr.raw = R"({"op":"sim_status","id":7})";
+  dr.id = "7";
+  std::string line = sim->AskLine(std::move(dr));
+  CHECK_MSG(!line.empty() && line.back() == '\n' && line.find('\n') == line.size() - 1, line);
+  cJSON* sa = cJSON_Parse(line.c_str());
+  CHECK(ok(sa) && num(sa, "id") == 7);
+  cJSON_Delete(sa);
 
   cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"heartbeat":"stop"}})");
   CHECK(ok(r));

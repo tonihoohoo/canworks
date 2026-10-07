@@ -661,6 +661,10 @@ def _print_status(st, out):
     elif sim_nodes:
         out.write("simulated devices on this network: node%s %s\n" % ("s" if len(sim_nodes) > 1 else "",
                                                                      ", ".join(sim_nodes)))
+    for nd in st.get("nodes") or []:
+        if nd.get("sim_conflict"):
+            out.write("node %s: marked simulated, but a device on the bus already uses node ID %s; "
+                      "the real device is used\n" % (nd.get("node_id"), nd.get("node_id")))
     rows = [("NODE", "NAME", "STATE", "OK", "BOOT", "HOLD", "LAST EMCY")]
     for nd in st.get("nodes") or []:
         if nd.get("boot_error"):

@@ -197,7 +197,12 @@ void Bus::run_session() {
           std::set<unsigned> seen;
           std::string err;
           if (!listen_node_ids(cfg_.adapter.interface, 1000, seen, err)) log_warn("%s", err.c_str());
-          for (auto& d : specs) d.conflict = seen.count(d.node) > 0;
+          std::set<unsigned> conflicts;
+          for (auto& d : specs) {
+            d.conflict = seen.count(d.node) > 0;
+            if (d.conflict && !d.extra) conflicts.insert(d.node);
+          }
+          net.SetSimConflicts(std::move(conflicts));
         }
       }
       canopen_sim::SimOptions opt;

@@ -38,11 +38,11 @@ Each node SHALL have an optional `simulate`. On a simulated network a node SHALL
 - **THEN** every node is simulated on `can0` and its frames go out on the wire
 
 ### Requirement: Simulated devices on a real network need a free node ID
-Before it starts a simulated device on a real network, the plugin SHALL listen on the interface for 1 second and SHALL NOT start a simulated device whose node ID sends heartbeats, boot-up messages, EMCY or SDO answers there; it SHALL log an error naming the node ID and report the node's boot error as a node ID conflict. While a simulated device runs on a real network, a heartbeat, boot-up or EMCY with its node ID that it did not send itself SHALL make it power off and log the conflict, so it never competes with a real device.
+Before it starts a simulated device on a real network, the plugin SHALL listen on the interface for 1 second and SHALL NOT start a simulated device whose node ID sends heartbeats, boot-up messages, EMCY or SDO answers there; it SHALL log an error naming the node ID, leave the node to the real device, and report the node in the diagnostics status as not simulated with `sim_conflict` true. While a simulated device runs on a real network, a heartbeat, boot-up or EMCY with its node ID that it did not send itself SHALL make it power off and log the conflict, so it never competes with a real device.
 
 #### Scenario: Real device already there
 - **WHEN** node 23 has `simulate: true` on `can0` and a real node 23 sends heartbeats
-- **THEN** the simulated node 23 is not started, the log names the conflict, and the master treats the real device as node 23
+- **THEN** the simulated node 23 is not started, the log names the conflict, the master treats the real device as node 23, and the diagnostics status shows node 23 with `simulated` false and `sim_conflict` true
 
 #### Scenario: Real device plugged in later
 - **WHEN** a simulated node 5 runs on `can0` and a real device with node ID 5 is plugged in and sends its boot-up

@@ -72,5 +72,5 @@
 - [x] 10.1 Add the simulator unit tests, sim tests and `test/simulator/run.sh` to CI; verify `ci-ok` is green on the PR.
 - [x] 10.2 Update the README (feature list, layout, development build lines); verify the banned-word check passes.
 - [ ] 10.3 Hardware: on the bench runtime (Docker install), switch the editor template project to a **Simulated** network, upload it with the editor's Build and upload, and confirm boot, online view, Simulation view, a scenario and trace from the PC; record the CPU load of the plugin.
-- [ ] 10.4 Hardware: on the real bench network, mark one extra node `simulate: true` next to the real device, confirm the plugin boots both and the trace shows both; mark the real device's node `simulate: true` and confirm the conflict is reported and the real device keeps working.
-- [ ] 10.5 Hardware: run `openplc-canopen-sim --real-bus --nodes N` for one node on the bench bus next to the plugin, confirm the plugin boots it, and confirm the simulator refuses the real device's node ID.
+- [x] 10.4 Hardware: on the real bench network, mark one extra node `simulate: true` next to the real device, confirm the plugin boots both and the trace shows both; mark the real device's node `simulate: true` and confirm the conflict is reported and the real device keeps working.
+- [x] 10.5 Hardware: run `openplc-canopen-sim --real-bus --nodes N` for one node on the bench bus next to the plugin, confirm the plugin boots it, and confirm the simulator refuses the real device's node ID.
