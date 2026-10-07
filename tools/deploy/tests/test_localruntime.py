@@ -185,6 +185,7 @@ class Start(WithRuntime):
         self.assertIn("openplc-canopen-sim-runtime-data:/var/run/runtime", run)
         self.assertIn("unless-stopped", run)
         self.assertIn("SYS_NICE", run)
+        self.assertIn("memlock=-1:-1", run)
         saved = localruntime.load_settings()
         self.assertEqual(saved["user"], "openplc")
         self.assertGreaterEqual(len(saved["password"]), 20)
@@ -231,6 +232,14 @@ class Start(WithRuntime):
         runs = self.engine.runs()
         self.assertEqual(len(runs), 2)
         self.assertNotIn("SYS_NICE", runs[1])
+        self.assertNotIn("memlock=-1:-1", runs[1])
+
+    def test_memlock_refused(self):
+        self.engine.run_errors = ["Error: crun: setrlimit `RLIMIT_MEMLOCK`: Operation not permitted"]
+        code, out, err = self.start()
+        self.assertEqual(code, 0, err)
+        self.assertIn("refused the real-time capabilities", out)
+        self.assertNotIn("memlock=-1:-1", self.engine.runs()[1])
 
     def test_port_in_use(self):
         self.engine.run_errors = ["Bind for 127.0.0.1:8443 failed: port is already allocated"]

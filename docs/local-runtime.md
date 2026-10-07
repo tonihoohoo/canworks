@@ -89,6 +89,7 @@ Tools 0.30.x called the command, image, container and volume `openplc-canopen-ru
 - **Lost credentials** (`local-runtime.json` deleted, or another PC user): they cannot be recovered. `openplc-canopen-sim-runtime remove --data` and `start` again create new ones; the uploaded program goes with the data.
 - **Windows: localhost does not reach the runtime**: WSL2's localhost forwarding is off in `%USERPROFILE%\.wslconfig` (`localhostForwarding=false`); remove that line, or use `networkingMode=mirrored`, and run `wsl --shutdown`.
 - **The engine refuses the extra capabilities** (some rootless setups): the runtime then starts without them, with a note; it works, with less precise PLC timing.
+- **`mlockall failed: Cannot allocate memory`** in the runtime log at each PLC start: the runtime could not lock its memory. The container is started with an unlimited memlock limit, which rootless Podman cannot grant beyond the host user's own limit; the PLC runs normally, with less precise timing. A container made by tools before 0.31.1 has no such limit: `openplc-canopen-sim-runtime update` recreates it.
 
 ## Building the image from a checkout
 
