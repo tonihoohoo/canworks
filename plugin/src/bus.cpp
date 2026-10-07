@@ -146,11 +146,23 @@ bool run_requested_sweep(DiagHub* hub, CanAdapter* adapter, const Config& cfg, c
     for (unsigned k : req.rates_kbit) rates += (rates.empty() ? "" : ", ") + std::to_string(k);
     log_info("bit rate detection on %s: listening %u ms per rate (%s), %u round(s)", cfg.adapter.interface.c_str(),
              req.per_rate_ms, rates.empty() ? "all CiA 301 rates" : rates.c_str(), req.rounds);
-    auto listener = make_can_sweep_listener();
-    res = run_bitrate_sweep(*ops, *listener, cfg.adapter.interface, cfg.adapter.bitrate,
-                            cfg.adapter.has_restart_ms ? static_cast<long>(cfg.adapter.restart_ms) : -1, req,
-                            [hub](const SweepProgress& p) { hub->sweep_progress(p); },
-                            [&stop] { return stop.load(); });
+    const long restart_ms = cfg.adapter.has_restart_ms ? static_cast<long>(cfg.adapter.restart_ms) : -1;
+    auto sweep = [&](LinkOps& link, SweepListener& listener) {
+      res = run_bitrate_sweep(link, listener, cfg.adapter.interface, cfg.adapter.bitrate, restart_ms, req,
+                              [hub](const SweepProgress& p) { hub->sweep_progress(p); },
+                              [&stop] { return stop.load(); });
+    };
+    // slcan sweeps over its serial device (slcan_sweep.h), the rest over the link.
+    std::string device_error;
+    if (adapter->sweep_on_device(sweep, device_error)) {
+      if (!device_error.empty()) {
+        res.verdict = SweepVerdict::Failed;
+        res.error = device_error;
+      }
+    } else {
+      auto listener = make_can_sweep_listener();
+      sweep(*ops, *listener);
+    }
   }
   std::string what = sweep_verdict_name(res.verdict);
   if (res.verdict == SweepVerdict::Detected)
