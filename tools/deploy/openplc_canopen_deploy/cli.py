@@ -140,7 +140,7 @@ def parser():
                    help="the CANopen config (canopen_config.json); EDS paths are relative to it")
     p.add_argument("--runtime", metavar="HOST[:PORT]",
                    help="the runtime to upload to (HTTPS, default port 8443); `local` is the local simulator "
-                        "runtime of openplc-canopen-runtime, with its saved user, password and fingerprint")
+                        "runtime of openplc-canopen-sim-runtime, with its saved user, password and fingerprint")
     p.add_argument("--user",
                    help="runtime user (default: the local runtime's saved user with --runtime local, else "
                         "$OPENPLC_USER); the password comes from $OPENPLC_PASSWORD or a prompt")

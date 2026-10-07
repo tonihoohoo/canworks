@@ -21,7 +21,7 @@
 
 - [x] 4.1 Add `test/local-runtime/run.sh` (start with `--image` of the fresh build, credentials, deploy `config/pingpong` with `--runtime local` and a PLC program compiled by STruC++, forced-simulation log, node 2 operational, diagnostics through the published port, values moving, stop/start and update with the same fingerprint, remove `--data`) and a path-filtered workflow `local-runtime.yml` running it with Docker on `ubuntu-24.04`, plus an arm64 build-only job on `ubuntu-24.04-arm`; verify both green on the PR.
 - [x] 4.2 Extend `release-deploy.yml`: after the wheel release, build amd64 and arm64 on native runners, push by digest, create the `:<version>` and `:latest` manifest with `GITHUB_TOKEN` (`packages: write`), never overwrite an existing `:<version>`; verify the build without push on the PR (`local-runtime.yml` builds both architectures with the same Dockerfile) and document the gates in the workflow header.
-- [ ] 4.3 After the first release with this change: set the GHCR package `openplc-canopen-runtime` to public (one-time manual setting) and check an anonymous `docker pull`.
+- [x] 4.3 After the first release with this change: set the GHCR package `openplc-canopen-runtime` to public (one-time manual setting) and check an anonymous `docker pull`.
 
 ## 5. Docs
 
@@ -30,7 +30,9 @@
 
 ## 6. Hardware and platform checks (manual)
 
-- [ ] 6.1 macOS on an M-series Mac with Colima (no Docker Desktop): `start`, editor Build and Upload of a CANopen project to `localhost`, debugger shows moving values from simulated nodes, configurator online view and Simulation view with `local`, `update`, `remove --data`.
-- [ ] 6.2 macOS with Podman machine: `start`, deploy with `--runtime local`, `status`.
+- [x] 6.1 macOS on an M-series Mac with Colima (no Docker Desktop): `start`, editor Build and Upload of a CANopen project to `localhost`, debugger shows moving values from simulated nodes, configurator online view and Simulation view with `local`, `update`, `remove --data`.
+- [x] 6.2 macOS with Podman machine: `start`, deploy with `--runtime local`, `status`.
 - [ ] 6.3 Windows with Docker Engine in WSL2 (no Docker Desktop), tools and editor on Windows: `start` from PowerShell through `wsl -e docker`, editor Build and Upload to `localhost`, configurator with `local`.
-- [ ] 6.4 Linux PC with rootless Podman: `start` (cap-add fallback message if it applies), deploy with `--runtime local`.
+- [x] 6.4 Linux PC with rootless Podman: `start` (cap-add fallback message if it applies), deploy with `--runtime local`.
+
+Results (2026-10-07, M-series Mac, tools 0.30.1): 4.3 no setting needed, the package was pullable anonymously after the first release. 6.1 passed with Colima (arm64 image 363 MB download, runtime ready in 68 s; deploy with `--runtime local` from an editor project made with `--new-project`, node 2 operational, diagnostics and the configurator's online view with host `local`; stop/start and update kept the fingerprint; remove --data left nothing). The editor GUI's Build and Upload was not driven remotely. 6.2 passed with Podman machine (picked automatically with Colima stopped; no capabilities note). 6.4 passed on a Raspberry Pi 5 (Linux arm64, rootless Podman 5.4.2, cgroup v2, ports 8444/7532 next to another runtime): ready in 96 s, the extra capabilities were accepted (no fallback note), deploy with `--runtime local` ran the ping-pong program with node 2 operational and diagnostics on 7532, stop/start and update kept the fingerprint, remove --data left nothing. 6.3 not run. Found: plugin version "unknown" in the image, fixed in rename-sim-runtime.

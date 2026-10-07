@@ -13,6 +13,6 @@ openplc-canopen-deploy --help
 
 `openplc-canopen-deploy --config canopen_config.json --export-dbc bus.dbc` writes the network as a DBC file for CAN bus tools; `--dbc-sdo config` or `all` adds the SDO frames ([docs/deploy.md](../../docs/deploy.md#export-the-network-as-a-dbc-file)).
 
-The package also installs `openplc-canopen-config` ([docs/configurator.md](../../docs/configurator.md)), `openplc-canopen-diag` ([docs/diagnostics.md](../../docs/diagnostics.md)) and `openplc-canopen-runtime`, the local simulator runtime ([docs/local-runtime.md](../../docs/local-runtime.md)).
+The package also installs `openplc-canopen-config` ([docs/configurator.md](../../docs/configurator.md)), `openplc-canopen-diag` ([docs/diagnostics.md](../../docs/diagnostics.md)) and `openplc-canopen-sim-runtime`, the local simulator runtime ([docs/local-runtime.md](../../docs/local-runtime.md)).
 
 Tests: `python3 -m unittest discover -s tools/deploy/tests -t tools/deploy` from the repository root.

@@ -1,10 +1,4 @@
-# canopen-local-runtime Specification
-
-## Purpose
-A local OpenPLC Runtime v4 with the CANopen plugin on the engineering PC (Windows, macOS, Linux), run in a container by `openplc-canopen-sim-runtime` with every network simulated, so a CANopen project can be uploaded, debugged and diagnosed without a Linux device, CAN adapter or real devices. The editor's own simulator cannot run runtime plugins.
-
-## Requirements
-
+## MODIFIED Requirements
 ### Requirement: Simulator runtime image
 The project SHALL publish a container image `ghcr.io/tonihoohoo/openplc-canopen-sim-runtime` for `linux/amd64` and `linux/arm64`, built from the upstream runtime image of the version pinned in `docker/local-runtime/runtime-version`, with the CANopen plugin, `dcfgen`, the device simulator and the editor hook installed under `/opt/openplc-canopen` exactly as the in-image build of `scripts/install-stock.sh` installs them. The image SHALL change nothing in the upstream image other than adding these files, the environment entries `PYTHONPATH` (editor hook) and `CANOPEN_FORCE_SIMULATE=1`, and links that keep the runtime's generated certificate and key in the data volume. The image SHALL carry the upstream runtime version and the PC tools version as labels, and the plugin in it SHALL report the PC tools version as its version in the diagnostics status.
 
@@ -90,12 +84,7 @@ The command SHALL offer `stop` (stop the container), `status` (engine, image, co
 - **WHEN** a user follows the macOS section on an M-series Mac without Docker Desktop
 - **THEN** the steps install Colima and the Docker CLI with Homebrew, and `openplc-canopen-sim-runtime start` works afterwards
 
-### Requirement: Local runtime tested in CI
-CI SHALL build the amd64 image and run an end-to-end test of the command with Docker on changes to the image, the plugin, the install script, the editor hook or the command: start, the credentials file, an upload of `config/pingpong` (real adapter in the config) with `--runtime local` and a PLC program compiled by STruC++, the forced-simulation warning, node 2 operational, diagnostics through the published port, PDO values moving, stop and start and update with the same fingerprint, and remove with data. CI SHALL also build the arm64 image on an arm64 runner and check that the plugin library resolves its libraries there.
-
-#### Scenario: Broken image
-- **WHEN** a change makes the plugin library fail to load in the image
-- **THEN** the local runtime CI job fails
+## ADDED Requirements
 
 ### Requirement: Taking over a local runtime from the earlier name
 When `start` or `update` finds no container named `openplc-canopen-sim-runtime` but one named `openplc-canopen-runtime` (created by PC tools 0.30.x), it SHALL stop and remove that container, create `openplc-canopen-sim-runtime` on the old container's data volume, save that volume's name in `local-runtime.json`, and say so in one line. The saved user, password and certificate fingerprint SHALL keep working. When both containers exist, the command SHALL use `openplc-canopen-sim-runtime`, leave the old container untouched and name the command that removes it.

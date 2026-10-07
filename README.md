@@ -33,7 +33,7 @@ Four commands in one package, for Windows, macOS and Linux. They install with uv
 - **`openplc-canopen-config`**, a configurator in a local web page ([docs/configurator.md](docs/configurator.md)): add nodes from their EDS, map PDO entries to PLC addresses, startup SDOs and SDO variables, with every address checked against the editor project, and one tab per CAN network, each a master or a slave network, with the slave's EDS built and exported in the page and a gateway page for routes. It writes the project's `canopen/` folder, exports DCF and DBC files and an HTML documentation of the network, and creates a new editor project with the I/O already declared. Its **Online** view shows the live network: node and bus state, EMCY history, SDO read and write, NMT, a bus scan, LSS commissioning, an object dictionary browser with watch, and device parameter backup, compare and restore; on a slave network, the plugin's own device, its PDO mappings and the gateway's status. Its **Trace** view records the bus with CANopen decoding, graphs and triggers ([docs/trace.md](docs/trace.md)).
 - **`openplc-canopen-deploy`** ([docs/deploy.md](docs/deploy.md)): adds the config to an editor build and uploads it to the runtime, checks a config without a runtime, puts the config into an editor project, creates a new editor project from a config (`--new-project`, with `--sdo-blocks` to enable the SDO function blocks), writes or installs the `openplc_canopen` editor library (`library`), generates a slave's EDS (`slave-eds`), exports DCF (`--export-dcf`) and DBC (`--export-dbc`) files, per network or for one with `--network`, and writes an HTML documentation of the networks (`--export-html`, [docs/network-docs.md](docs/network-docs.md)): topology, COB-ID map, bus load estimate, and per node its identity, PDO layouts, boot SDO writes and PLC addresses, in one offline, printable file.
 - **`openplc-canopen-diag`** ([docs/diagnostics.md](docs/diagnostics.md)): the online functions from a terminal, including `backup`, `compare`, `restore` and `store` of device parameters (a CiA 306 DCF, so a replaced device gets its settings back), LSS commands, `--network` to pick one of several networks, `trace` with export to pcapng, candump, ASC, BLF, TRC or CSV, and `sim` to drive simulated devices and run scenarios as tests.
-- **`openplc-canopen-runtime`** ([docs/local-runtime.md](docs/local-runtime.md)): try a project without any hardware. It runs the stock OpenPLC Runtime v4 with the CANopen plugin in a container on the PC (Docker Engine, Podman or Colima; no Docker Desktop needed; amd64 and arm64, so M-series Macs too), with every network simulated. The editor uploads to `localhost` and debugs the program there, and the other tools reach it as `--runtime local`. The editor's own OpenPLC Simulator cannot run runtime plugins, so this takes its place for CANopen projects.
+- **`openplc-canopen-sim-runtime`** ([docs/local-runtime.md](docs/local-runtime.md)): try a project without any hardware. It runs the stock OpenPLC Runtime v4 with the CANopen plugin in a container on the PC (Docker Engine, Podman or Colima; no Docker Desktop needed; amd64 and arm64, so M-series Macs too), with every network simulated. The editor uploads to `localhost` and debugs the program there, and the other tools reach it as `--runtime local`. The editor's own OpenPLC Simulator cannot run runtime plugins, so this takes its place for CANopen projects.
 
 The configurator's **Simulated** switches and **Simulation** view set up and drive simulated devices. On the runtime host, `openplc-canopen-sim` runs simulated devices on a SocketCAN interface for any CANopen master, with a `test` mode that runs scenarios and writes a JUnit report ([docs/simulator.md](docs/simulator.md#openplc-canopen-sim)).
 
@@ -93,7 +93,7 @@ test/fixtures/     config and EDS fixtures shared by the plugin's and the deploy
                    (test/fixtures/eds/drives/: two made-up CiA 402 drives)
 test/stock/        install-stock.sh, the editor hook and the upstream runtime's upload rules, end to end
 test/docker/       install-stock.sh in Docker mode and the runtime spec edits
-test/local-runtime/ openplc-canopen-runtime against the image with a compiled PLC program (run.sh)
+test/local-runtime/ openplc-canopen-sim-runtime against the image with a compiled PLC program (run.sh)
 test/pc-tools/     the release tag check; test/ci/: the CI change classification
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
@@ -150,11 +150,11 @@ Use a development machine, not one running your PLC: the stock test installs int
 
 ### Local simulator runtime image
 
-`.github/workflows/local-runtime.yml` builds the image of [docs/local-runtime.md](docs/local-runtime.md) from the pinned upstream runtime (`docker/local-runtime/runtime-version`) and runs `openplc-canopen-runtime` against it with a PLC program compiled by STruC++, on pull requests that change the image, the plugin or the command, weekly and on "Run workflow"; an arm64 runner builds the arm64 image. Locally (needs Docker and Node 22):
+`.github/workflows/local-runtime.yml` builds the image of [docs/local-runtime.md](docs/local-runtime.md) from the pinned upstream runtime (`docker/local-runtime/runtime-version`) and runs `openplc-canopen-sim-runtime` against it with a PLC program compiled by STruC++, on pull requests that change the image, the plugin or the command, weekly and on "Run workflow"; an arm64 runner builds the arm64 image. Locally (needs Docker and Node 22):
 
 ```sh
-docker build -f docker/local-runtime/Dockerfile --build-arg RUNTIME_IMAGE=ghcr.io/autonomy-logic/openplc-runtime:$(cat docker/local-runtime/runtime-version) -t openplc-canopen-runtime:dev .
-test/local-runtime/run.sh --image openplc-canopen-runtime:dev --strucpp "$(scripts/fetch-strucpp.sh)"
+docker build -f docker/local-runtime/Dockerfile --build-arg RUNTIME_IMAGE=ghcr.io/autonomy-logic/openplc-runtime:$(cat docker/local-runtime/runtime-version) -t openplc-canopen-sim-runtime:dev .
+test/local-runtime/run.sh --image openplc-canopen-sim-runtime:dev --strucpp "$(scripts/fetch-strucpp.sh)"
 ```
 
 ### PC tools on Windows, macOS and Linux
@@ -167,7 +167,7 @@ uv run --no-project --python 3.12 --with jsonschema --with cantools python -m un
 uv run --no-project --python 3.12 python test/pc-tools/smoke.py "$(sed -n 's/^version = "\(.*\)"/\1/p' tools/deploy/pyproject.toml)"
 ```
 
-A `deploy-v<version>` release publishes the tools as a wheel on GitHub and the local simulator runtime image `ghcr.io/tonihoohoo/openplc-canopen-runtime:<version>` (`release-deploy.yml`).
+A `deploy-v<version>` release publishes the tools as a wheel on GitHub and the local simulator runtime image `ghcr.io/tonihoohoo/openplc-canopen-sim-runtime:<version>` (`release-deploy.yml`).
 
 ## Installing it
 

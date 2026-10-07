@@ -56,7 +56,7 @@ def parse_runtime(text):
     if not text:
         raise ValueError("no runtime host given")
     if localruntime.is_local(text):
-        # The local simulator runtime (openplc-canopen-runtime): its published diagnostics port.
+        # The local simulator runtime (openplc-canopen-sim-runtime): its published diagnostics port.
         try:
             saved = localruntime.load_settings() or {}
         except localruntime.LocalRuntimeError:
@@ -527,7 +527,7 @@ def parser():
                     "objects and send NMT commands.")
     p.add_argument("--runtime", metavar="HOST[:PORT]",
                    help="the runtime host (diagnostics port, default %d); `local` is the local simulator runtime "
-                        "of openplc-canopen-runtime" % DEFAULT_PORT)
+                        "of openplc-canopen-sim-runtime" % DEFAULT_PORT)
     p.add_argument("--sim", dest="sim_addr", metavar="HOST[:PORT]",
                    help="sim commands: a standalone simulator's control channel (default port 7532)")
     p.add_argument("--token", help="access token (default: $%s, else a prompt)" % TOKEN_ENV)

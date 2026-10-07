@@ -10,7 +10,7 @@ name: Release PC tools
 # release never re-triggers itself through the tag trigger.
 #
 # Each release also publishes the local simulator runtime image
-# (canopen-local-runtime) ghcr.io/<owner>/openplc-canopen-runtime: the jobs
+# (canopen-local-runtime) ghcr.io/<owner>/openplc-canopen-sim-runtime: the jobs
 # image (amd64 and arm64 on native runners, pushed by digest) and manifest
 # (:<version> and :latest) run only when the release job released (go=true),
 # and an existing :<version> is never overwritten. The image build itself is
@@ -135,7 +135,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           previous=$(git tag --list 'deploy-v*' | python3 scripts/release_version.py --previous-tag "$VERSION")
-          notes="Install on Windows, macOS or Linux without Python: see docs/install-pc.md. Download the wheel below, then run: uv tool install --python 3.12 openplc_canopen_deploy-$VERSION-py3-none-any.whl. openplc_canopen.stlib is the SDO function block library for OpenPLC Editor (docs/plc-sdo.md). Local simulator runtime (no hardware needed, docs/local-runtime.md): openplc-canopen-runtime start pulls ghcr.io/${{ github.repository_owner }}/openplc-canopen-runtime:$VERSION (amd64 and arm64)."
+          notes="Install on Windows, macOS or Linux without Python: see docs/install-pc.md. Download the wheel below, then run: uv tool install --python 3.12 openplc_canopen_deploy-$VERSION-py3-none-any.whl. openplc_canopen.stlib is the SDO function block library for OpenPLC Editor (docs/plc-sdo.md). Local simulator runtime (no hardware needed, docs/local-runtime.md): openplc-canopen-sim-runtime start pulls ghcr.io/${{ github.repository_owner }}/openplc-canopen-sim-runtime:$VERSION (amd64 and arm64)."
           gh release create "$TAG" dist/*.whl dist/openplc_canopen.stlib \
             --target "$SHA" \
             --title "PC tools $VERSION" \
@@ -170,7 +170,7 @@ jobs:
       - name: Build and push by digest
         id: push
         run: |
-          repo="ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/openplc-canopen-runtime"
+          repo="ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/openplc-canopen-sim-runtime"
           runtime=$(cat docker/local-runtime/runtime-version)
           docker build -f docker/local-runtime/Dockerfile \
             --build-arg RUNTIME_IMAGE="ghcr.io/autonomy-logic/openplc-runtime:$runtime" \
@@ -206,7 +206,7 @@ jobs:
 
       - name: Create :<version> and :latest
         run: |
-          repo="ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/openplc-canopen-runtime"
+          repo="ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/openplc-canopen-sim-runtime"
           if docker manifest inspect "$repo:$VERSION" > /dev/null 2>&1; then
             echo "::error::$repo:$VERSION exists already; a released image is never overwritten"
             exit 1

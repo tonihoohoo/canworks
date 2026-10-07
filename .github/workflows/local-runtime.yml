@@ -2,7 +2,7 @@ name: Local simulator runtime
 
 # The image of the local simulator runtime (canopen-local-runtime,
 # docker/local-runtime/Dockerfile) built from the pinned upstream runtime
-# image, and openplc-canopen-runtime run against it with a real PLC program
+# image, and openplc-canopen-sim-runtime run against it with a real PLC program
 # (test/local-runtime/run.sh). Pull requests run it when they touch what goes
 # into the image or the command; it also runs weekly (upstream drift) and by
 # hand. The arm64 image is built (not run) on an arm64 runner. Publishing is
@@ -45,8 +45,8 @@ jobs:
           runtime=$(cat docker/local-runtime/runtime-version)
           docker build -f docker/local-runtime/Dockerfile \
             --build-arg RUNTIME_IMAGE="ghcr.io/autonomy-logic/openplc-runtime:$runtime" \
-            --build-arg TOOLS_VERSION=ci -t openplc-canopen-runtime:ci .
-          size=$(docker image inspect openplc-canopen-runtime:ci --format '{{.Size}}')
+            --build-arg TOOLS_VERSION=ci -t openplc-canopen-sim-runtime:ci .
+          size=$(docker image inspect openplc-canopen-sim-runtime:ci --format '{{.Size}}')
           echo "image size: $((size / 1000000)) MB"
           if [ "$size" -gt 1600000000 ]; then echo "::warning::the image is $((size / 1000000)) MB"; fi
 
@@ -71,8 +71,8 @@ jobs:
         id: strucpp
         run: echo "cli=$(scripts/fetch-strucpp.sh)" >> "$GITHUB_OUTPUT"
 
-      - name: openplc-canopen-runtime with the image and a PLC program
-        run: test/local-runtime/run.sh --image openplc-canopen-runtime:ci --strucpp "${{ steps.strucpp.outputs.cli }}"
+      - name: openplc-canopen-sim-runtime with the image and a PLC program
+        run: test/local-runtime/run.sh --image openplc-canopen-sim-runtime:ci --strucpp "${{ steps.strucpp.outputs.cli }}"
 
   arm64:
     runs-on: ubuntu-24.04-arm
@@ -85,7 +85,7 @@ jobs:
           runtime=$(cat docker/local-runtime/runtime-version)
           docker build -f docker/local-runtime/Dockerfile \
             --build-arg RUNTIME_IMAGE="ghcr.io/autonomy-logic/openplc-runtime:$runtime" \
-            --build-arg TOOLS_VERSION=ci -t openplc-canopen-runtime:ci .
-          docker run --rm --entrypoint ldd openplc-canopen-runtime:ci /opt/openplc-canopen/lib/libcanopen_plugin.so |
+            --build-arg TOOLS_VERSION=ci -t openplc-canopen-sim-runtime:ci .
+          docker run --rm --entrypoint ldd openplc-canopen-sim-runtime:ci /opt/openplc-canopen/lib/libcanopen_plugin.so |
             tee ldd.txt
           ! grep -q "not found" ldd.txt
