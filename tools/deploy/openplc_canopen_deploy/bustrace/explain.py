@@ -538,7 +538,7 @@ def _pdo(F, f, dec, p):
             obj_text(idx, sub, oname) if idx is not None else name, tname or "unknown type", start,
             start + length - 1, where)
         F.add(variables[0] if variables else (oname or name), start, length, value, text,
-              how=le_how(F.data, start, length) if length > 8 or start % 8 else None,
+              how=le_how(F.data, start, length) if length > 8 or start % 8 or length % 8 else None,
               object=obj_text(idx, sub) if idx is not None else None, object_name=oname, type=tname,
               location=loc, variables=variables or None, signal=name)
         shown.append("%s = %s" % (variables[0] if variables else (loc or name), value.split(" ")[0]))

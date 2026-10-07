@@ -38,7 +38,7 @@ Base and extended frames, data and remote frames: SOF, identifier (and SRR, IDE,
 `sequences.py` works on the decoded trace in the recorder (server side, so 2 million frames are not sent to the browser):
 - SDO conversation: from an initiate request to the final response or abort per node and SDO channel; segmented and block transfers collected; latency per step.
 - SYNC cycle: frames between two SYNCs with their offsets from the SYNC, grouped by synchronous TPDO, other PDOs, SDO and the rest; each PDO's configured transmission type and the SYNC window shown next to it.
-- Boot story: per node from a boot-up (or the master's reset command) to the first PDO after NMT start, with the master's SDO writes matched to the expected boot writes from `dcfexport.plugin_downloads` (same list the network document shows), so missing, extra or failed writes stand out.
+- Boot story: per node from a boot-up (or the master's reset command) to the first PDO after NMT start (or the first OPERATIONAL heartbeat when the node sends no PDO), with the master's SDO writes before the NMT start matched to the expected boot writes from `dcfexport.plugin_downloads` (same list the network document shows), so missing, extra or failed writes stand out.
 Endpoint `POST /api/trace/sequence {kind, seq}` returns the sequence around a selected frame; the list of SDO conversations and boot stories is a filterable table.
 
 ### D6. Frame lab and builder

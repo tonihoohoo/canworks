@@ -26,7 +26,7 @@ For a trace with SYNC, the trace SHALL show one SYNC cycle at a time as a timeli
 - **THEN** that cycle's timeline marks the TPDO as outside the SYNC window
 
 ### Requirement: Boot story
-For each boot of a node found in a trace (a boot-up message, or an NMT reset command to it), the trace SHALL show the steps until the node's first PDO after the NMT start: boot-up, each SDO the master reads and writes with its object name and value, the NMT start, the first heartbeat in Operational and the first PDOs, with their times. The master's writes SHALL be compared with the writes the configuration makes at boot (the same list as the network document's boot configuration), and missing, extra, different and refused writes SHALL be marked.
+For each boot of a node found in a trace (a boot-up message, or an NMT reset command to it), the trace SHALL show the steps until the node's first PDO after the NMT start (or, when it sends none, its first heartbeat in Operational): boot-up, each SDO the master reads and writes with its object name and value, the NMT start, the first heartbeat in Operational and the first PDOs, with their times. The master's writes before the NMT start SHALL be compared with the writes the configuration makes at boot (the same list as the network document's boot configuration), and missing, extra, different and refused writes SHALL be marked.
 
 #### Scenario: Refused write in a boot
 - **WHEN** the device refuses the write of 1400h:02 during a boot in the trace

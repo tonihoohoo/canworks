@@ -377,24 +377,16 @@ def boot_stories(trace, kinds, dec, expected=None, base=0, convs=None):
 def _story(trace, kinds, dec, nid, i, end, how, nmt_start, convs, expected, base):
     t0 = trace.times[i]
     steps = [{"seq": i + base, "t_us": t0, "dt_us": 0, "what": how, "text": "%s: %s" % (dec.node_label(nid), how)}]
-    my_convs = [c for c in convs if c["node"] == nid and i + base <= c["seq"] < end + base]
     started = None
     for j, target in nmt_start:
         if i < j < end and target in (0, nid):
             started = j
             break
-    for c in my_convs:
-        steps.append({"seq": c["seq"], "t_us": c["start_us"], "what": "sdo", "conversation": c["seq"],
-                      "text": "%s %s%s: %s" % (
-                          c["op"], c["object"], " " + c["object_name"] if c["object_name"] else "",
-                          c["value"] if c["result"] == "done" else (c["abort_text"] or c["result"]))})
     result = "not started"
     end_j = end
+    hb = pdo = None
     if started is not None:
-        steps.append({"seq": started + base, "t_us": trace.times[started], "what": "nmt",
-                      "text": "NMT start %s" % ("all nodes" if trace.frame(started).data[1] == 0 else "node %d" % nid)})
         result = "started"
-        hb = pdo = None
         for j in range(started + 1, end):
             if kinds[j] == HEARTBEAT and hb is None:
                 f = trace.frame(j)
@@ -407,6 +399,22 @@ def _story(trace, kinds, dec, nid, i, end, how, nmt_start, convs, expected, base
                     pdo = j
             if pdo is not None and hb is not None:
                 break
+        # The boot ends at its first PDO, else at the first heartbeat in
+        # OPERATIONAL: later SDO traffic (SDO variables, the program) is
+        # not part of it.
+        if pdo is not None:
+            end_j = pdo + 1
+        elif hb is not None:
+            end_j = hb + 1
+    my_convs = [c for c in convs if c["node"] == nid and i + base <= c["seq"] < end_j + base]
+    for c in my_convs:
+        steps.append({"seq": c["seq"], "t_us": c["start_us"], "what": "sdo", "conversation": c["seq"],
+                      "text": "%s %s%s: %s" % (
+                          c["op"], c["object"], " " + c["object_name"] if c["object_name"] else "",
+                          c["value"] if c["result"] == "done" else (c["abort_text"] or c["result"]))})
+    if started is not None:
+        steps.append({"seq": started + base, "t_us": trace.times[started], "what": "nmt",
+                      "text": "NMT start %s" % ("all nodes" if trace.frame(started).data[1] == 0 else "node %d" % nid)})
         if hb is not None:
             steps.append({"seq": hb + base, "t_us": trace.times[hb], "what": "heartbeat",
                           "text": "first heartbeat in OPERATIONAL"})
@@ -416,18 +424,16 @@ def _story(trace, kinds, dec, nid, i, end, how, nmt_start, convs, expected, base
             steps.append({"seq": pdo + base, "t_us": f.time_us, "what": "pdo",
                           "text": "first PDO: %s" % dec.pdos[f.can_id].name})
             result = "running"
-            end_j = pdo + 1
     steps.sort(key=lambda s: s["seq"])
     prev = t0
     for s in steps:
         s["offset_us"] = s["t_us"] - t0
         s["dt_us"] = s["t_us"] - prev
         prev = s["t_us"]
-    writes = _compare(dec, nid, [c for c in my_convs if c["op"] == "write"],
-                      (expected or {}).get(nid)) if expected is not None else None
-    if writes is not None and any(w["status"] in ("refused", "missing", "different") for w in writes):
-        if result in ("not started",):
-            result = "not started"
+    # The configuration's boot writes come before the NMT start; writes after
+    # it come from SDO variables or the program, so they are not compared.
+    boot_writes = [c for c in my_convs if c["op"] == "write" and (started is None or c["seq"] < started + base)]
+    writes = _compare(dec, nid, boot_writes, (expected or {}).get(nid)) if expected is not None else None
     return {"node": nid, "node_label": dec.node_label(nid), "seq": i + base, "start_us": t0, "how": how,
             "result": result, "end_seq": end_j - 1 + base, "duration_us": trace.times[max(i, end_j - 1)] - t0,
             "steps": steps, "writes": writes,

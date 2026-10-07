@@ -478,6 +478,38 @@ class Sequences(unittest.TestCase):
         self.assertEqual(status["%04Xh:%02X" % (index, sub)], "different")
         self.assertEqual(status["2000h:01"], "missing")
 
+    def test_boot_story_without_pdos_ends_at_operational(self):
+        """A node without PDOs: the boot ends at its first OPERATIONAL
+        heartbeat; an SDO variable write after the NMT start is a step but
+        not compared, and later periodic SDO reads are not part of the boot."""
+        t = Trace()
+        now = [1_000_000]
+
+        def add(f, dt=500):
+            f.time_us = now[0]
+            now[0] += dt
+            t.append(f)
+
+        add(framebuild.heartbeat(5, "boot-up")[0]["frame"])
+        for index, sub, data, _src in self.expected[5]:
+            for x in framebuild.sdo(self.dec, 5, index, sub, "write", data.hex(), type_name="OCTET_STRING"):
+                add(x["frame"])
+        add(framebuild.nmt("start", 0)[0]["frame"])
+        for x in framebuild.sdo(self.dec, 5, 0x2054, 1, "write", "01", type_name="OCTET_STRING"):
+            add(x["frame"])
+        add(framebuild.heartbeat(5)[0]["frame"], 1_000_000)
+        for _ in range(20):
+            for x in framebuild.sdo(self.dec, 5, 0x1018, 4, "read"):
+                add(x["frame"], 1_000_000)
+        s = self.session(t)
+        st = sequences.boot_stories(t, s.analysis.kinds, self.dec, self.expected)[0]
+        self.assertEqual(st["result"], "operational")
+        self.assertEqual(st["steps"][-1]["what"], "heartbeat")
+        self.assertLess(st["duration_us"], 1_000_000)
+        self.assertEqual(st["summary"], {"ok": len(self.expected[5])})
+        self.assertIn("2054h:01", " ".join(x["text"] for x in st["steps"]))
+        self.assertNotIn("1018h:04", " ".join(x["text"] for x in st["steps"]))
+
 
 class Cli(unittest.TestCase):
     def run_cli(self, argv):

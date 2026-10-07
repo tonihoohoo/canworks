@@ -518,7 +518,11 @@ function fxDiagram(steps, left, right) {
       g.append(fxSvg("line", { x1: a, y1: y, x2: b + dir * 2, y2: y }),
         fxSvg("path", { d: `M ${b} ${y} l ${dir * 9} -5 l 0 10 z` }));
     }
-    g.append(fxSvg("text", { x: (x1 + x2) / 2, y: y - 6, "text-anchor": "middle" }, st.text),
+    // Labels stay between the lifelines; a long one is cut, the whole text is its tooltip.
+    const fit = Math.floor((x2 - x1 - 16) / 6.6);
+    const label = st.text.length > fit ? st.text.slice(0, fit - 1) + "\u2026" : st.text;
+    g.append(fxSvg("title", null, st.text),
+      fxSvg("text", { x: (x1 + x2) / 2, y: y - 6, "text-anchor": "middle" }, label),
       fxSvg("text", { x: 4, y: y + 4, class: "fx-axis" }, k ? "+" + fxUs(st.dt) : "0"));
     const open = () => {
       for (const o of svg.querySelectorAll(".fx-arrow")) o.classList.toggle("picked", o === g);
