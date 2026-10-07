@@ -4241,38 +4241,38 @@ TEST(diag_send_frame_single_and_guards) {
   CHECK(wait_port(*f.server));
   DiagClient c(f.server->port());
   c.ask(R"({"op":"hello","token":"secret"})");
-  std::string a = c.ask(R"({"op":"send_frame","id":"0x60A","data":"40 18 10 01 00 00 00 00"})");
+  std::string a = c.ask(R"({"op":"send_frame","can_id":"0x60A","data":"40 18 10 01 00 00 00 00"})");
   CHECK_MSG(has(a, R"("sent":true)"), a);
   CHECK(f.count() == 1 && f.sent[0].id == 0x60A && f.sent[0].dlc == 8 && f.sent[0].data[0] == 0x40);
   CHECK(diag_log_count("diagnostics: frame 0x60A [8] 40 18 10 01 00 00 00 00 sent by 127.0.0.1") == 1);
   // An identifier the network uses needs force.
-  a = c.ask(R"({"op":"send_frame","id":"0x202","data":"01 00 00 00"})");
+  a = c.ask(R"({"op":"send_frame","can_id":"0x202","data":"01 00 00 00"})");
   CHECK_MSG(has(a, "0x202 is RPDO1 of node 2 (pingpong) on network can0; force needed"), a);
   CHECK(f.count() == 1);
-  a = c.ask(R"({"op":"send_frame","id":"0x202","data":"01 00 00 00","force":true})");
+  a = c.ask(R"({"op":"send_frame","can_id":"0x202","data":"01 00 00 00","force":true})");
   CHECK_MSG(has(a, R"("sent":true)"), a);
   CHECK(diag_log_count("(forced: 0x202 is RPDO1") == 1);
   // A running machine needs force for any frame.
   f.hub->set_operational("node 2 (pingpong)");
-  a = c.ask(R"({"op":"send_frame","id":"0x60A","data":"40"})");
+  a = c.ask(R"({"op":"send_frame","can_id":"0x60A","data":"40"})");
   CHECK_MSG(has(a, "node 2 (pingpong) is OPERATIONAL; force needed"), a);
   f.hub->set_operational("");
   // Remote frame, extended identifier, bad fields.
-  a = c.ask(R"({"op":"send_frame","id":"0x18FF0001","ext":true,"rtr":true,"dlc":4})");
+  a = c.ask(R"({"op":"send_frame","can_id":"0x18FF0001","ext":true,"rtr":true,"dlc":4})");
   CHECK_MSG(has(a, R"("sent":true)"), a);
   CHECK(f.count() == 3 && f.sent[2].ext && f.sent[2].rtr && f.sent[2].dlc == 4);
-  CHECK(has(c.ask(R"({"op":"send_frame","id":"0x800"})"), "field 'id'"));
-  CHECK(has(c.ask(R"({"op":"send_frame","id":1,"data":"00 01 02 03 04 05 06 07 08"})"), "at most 8 data bytes"));
-  CHECK(has(c.ask(R"({"op":"send_frame","id":1,"rtr":true,"data":"00"})"), "a remote frame has no data"));
-  CHECK(has(c.ask(R"({"op":"send_frame","id":1,"period_ms":2})"), "'period_ms' must be 0 (one frame) or 10-60000"));
-  CHECK(has(c.ask(R"({"op":"send_frame","id":1,"count":3})"), "'count' needs 'period_ms'"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x800"})"), "field 'can_id'"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"data":"00 01 02 03 04 05 06 07 08"})"), "at most 8 data bytes"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"rtr":true,"data":"00"})"), "a remote frame has no data"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"period_ms":2})"), "'period_ms' must be 0 (one frame) or 10-60000"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":1,"count":3})"), "'count' needs 'period_ms'"));
   // Rate limit: 50 single frames per second.
   int limited = 0;
-  for (int i = 0; i < 60; ++i) limited += has(c.ask(R"({"op":"send_frame","id":"0x123"})"), "rate limit");
+  for (int i = 0; i < 60; ++i) limited += has(c.ask(R"({"op":"send_frame","can_id":"0x123"})"), "rate limit");
   CHECK_MSG(limited >= 5, std::to_string(limited));
   // Without a session.
   f.hub->detach();
-  CHECK(has(c.ask(R"({"op":"send_frame","id":"0x123"})"), "no bus"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x123"})"), "no bus"));
 }
 
 TEST(diag_send_frame_read_only) {
@@ -4280,7 +4280,7 @@ TEST(diag_send_frame_read_only) {
   CHECK(wait_port(*f.server));
   DiagClient c(f.server->port());
   c.ask(R"({"op":"hello","token":"secret"})");
-  CHECK(has(c.ask(R"({"op":"send_frame","id":"0x60A"})"), "changes not allowed"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x60A"})"), "changes not allowed"));
   CHECK(has(c.ask(R"({"op":"detect_bitrate"})"), "changes not allowed"));
   CHECK(f.count() == 0);
 }
@@ -4290,7 +4290,7 @@ TEST(diag_send_frame_cyclic_jobs) {
   CHECK(wait_port(*f.server));
   DiagClient c(f.server->port());
   c.ask(R"({"op":"hello","token":"secret"})");
-  std::string a = c.ask(R"({"op":"send_frame","id":"0x123","data":"AA","period_ms":10,"count":5})");
+  std::string a = c.ask(R"({"op":"send_frame","can_id":"0x123","data":"AA","period_ms":10,"count":5})");
   CHECK_MSG(has(a, R"("job":1)") && has(a, R"("count":5)"), a);
   for (int i = 0; i < 100 && f.count() < 5; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -4298,12 +4298,12 @@ TEST(diag_send_frame_cyclic_jobs) {
   a = c.ask(R"({"op":"send_frame_stop"})");
   CHECK_MSG(has(a, R"("job":1)") && has(a, R"("sent":5)") && has(a, R"("reason":"count reached")"), a);
   // An endless job shows in status and ends with its client.
-  a = c.ask(R"({"op":"send_frame","id":"0x124","period_ms":20})");
+  a = c.ask(R"({"op":"send_frame","can_id":"0x124","period_ms":20})");
   CHECK_MSG(has(a, R"("job":2)") && has(a, R"("count":null)"), a);
   {
     DiagClient other(f.server->port());
     other.ask(R"({"op":"hello","token":"secret"})");
-    std::string st = other.ask(R"({"op":"send_frame","id":"0x125","period_ms":20})");
+    std::string st = other.ask(R"({"op":"send_frame","can_id":"0x125","period_ms":20})");
     CHECK_MSG(has(st, R"("job":3)"), st);
     // One client cannot stop another's job.
     CHECK(has(other.ask(R"({"op":"send_frame_stop","job":2})"), "no job 2 of this connection"));
@@ -4323,12 +4323,12 @@ TEST(diag_send_frame_cyclic_jobs) {
   a = c.ask(R"({"op":"send_frame_stop","job":2})");
   CHECK_MSG(has(a, R"("reason":"stopped")"), a);
   // At most 8 jobs per network.
-  for (int i = 0; i < 8; ++i) c.ask(R"({"op":"send_frame","id":"0x130","period_ms":1000})");
-  CHECK(has(c.ask(R"({"op":"send_frame","id":"0x130","period_ms":1000})"), "too many jobs"));
+  for (int i = 0; i < 8; ++i) c.ask(R"({"op":"send_frame","can_id":"0x130","period_ms":1000})");
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x130","period_ms":1000})"), "too many jobs"));
   c.ask(R"({"op":"send_frame_stop"})");
   // A transmit error ends the job.
   f.fail = ENOBUFS;
-  c.ask(R"({"op":"send_frame","id":"0x131","period_ms":10})");
+  c.ask(R"({"op":"send_frame","can_id":"0x131","period_ms":10})");
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
   a = c.ask(R"({"op":"send_frame_stop"})");
   CHECK_MSG(has(a, R"("reason":"transmit queue full")"), a);
@@ -4359,7 +4359,7 @@ TEST(diag_detect_bitrate_guards_and_request) {
   CHECK(f.hub->sweep_pending());
   // Asking again returns the running sweep; other requests see no bus once the session ends.
   CHECK(has(c.ask(R"({"op":"detect_bitrate","force":true})"), R"("running":true)"));
-  CHECK(has(c.ask(R"({"op":"send_frame","id":"0x60A"})"), "no bus"));
+  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x60A"})"), "no bus"));
   // The bus thread's side.
   SweepRequest req;
   CHECK(f.hub->take_sweep(req) && req.rates_kbit.size() == 2 && req.per_rate_ms == 200);

@@ -122,9 +122,9 @@ t = c.trace_start()
 drain(0.2)
 
 # Node 2 runs: every frame needs force; 0x202 is its RPDO1 anyway.
-refused(c, "is OPERATIONAL; force needed", id=0x60A, data="40 18 10 01 00 00 00 00")
-refused(c, "0x202 is RPDO1 of node 2", id=0x202, data="01 00 00 00")
-assert c.request("send_frame", id=0x60A, data="40 18 10 01 00 00 00 00", force=True) == {"sent": True}
+refused(c, "is OPERATIONAL; force needed", can_id=0x60A, data="40 18 10 01 00 00 00 00")
+refused(c, "0x202 is RPDO1 of node 2", can_id=0x202, data="01 00 00 00")
+assert c.request("send_frame", can_id=0x60A, data="40 18 10 01 00 00 00 00", force=True) == {"sent": True}
 got = [f for f in drain(0.3) if f[0] == 0x60A]
 assert got == [(0x60A, bytes.fromhex("4018100100000000"))], got
 print("    single frame: received on a second socket")
@@ -138,7 +138,7 @@ assert tx and all(r[13] & 1 for r in tx), "0x60A not in the trace as Tx"
 c.trace_stop()
 print("    single frame: in the trace, marked Tx")
 
-job = c.request("send_frame", id=0x123, data="AA 55", period_ms=20, count=5, force=True)["job"]
+job = c.request("send_frame", can_id=0x123, data="AA 55", period_ms=20, count=5, force=True)["job"]
 got = [x for x in drain(0.6) if x[0] == 0x123]
 assert len(got) == 5, "cyclic job with count 5 sent %d frames" % len(got)
 stopped = c.request("send_frame_stop")["stopped"]
@@ -147,7 +147,7 @@ print("    cyclic job: exactly 5 frames")
 
 other = diag.Client("127.0.0.1", port, "raw-test")
 other.connect()
-other.request("send_frame", id=0x124, period_ms=20, force=True)
+other.request("send_frame", can_id=0x124, period_ms=20, force=True)
 assert [x for x in drain(0.3) if x[0] == 0x124], "endless job sends nothing"
 other.close()
 time.sleep(0.2)
@@ -195,7 +195,7 @@ from openplc_canopen_deploy import diag
 c = diag.Client("127.0.0.1", int(sys.argv[1]), "raw-test")
 c.connect()
 t = c.trace_start()
-c.request("send_frame", id=0x602, data="40 18 10 01 00 00 00 00", force=True)
+c.request("send_frame", can_id=0x602, data="40 18 10 01 00 00 00 00", force=True)
 time.sleep(0.5)
 f = c.trace_fetch(t["next"], 4000)
 raw = base64.b64decode(f["frames"])

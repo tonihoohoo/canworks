@@ -57,7 +57,7 @@ A listen-only controller does not acknowledge; on a bus where the only other dev
 
 ### D7. Protocol and clients
 New ops in protocol version 1; a client that gets `unknown op 'send_frame'` reports that the runtime's plugin is older than the tool. Fields:
-- `send_frame`: `id`, `ext` (default false), `rtr` (default false), `dlc` (with `rtr`), `data` (hex bytes, 0-8), `period_ms` (0 or absent: one frame), `count`, `force`. Result: `sent` (single) or `job`.
+- `send_frame`: `can_id` (not `id`, which every request uses for matching its answer), `ext` (default false), `rtr` (default false), `dlc` (with `rtr`), `data` (hex bytes, 0-8), `period_ms` (0 or absent: one frame), `count`, `force`. Result: `sent` (single) or `job`.
 - `send_frame_stop`: `job` (absent: all of this client's jobs). Result: `stopped` with each job's `sent` count and `reason`.
 - `detect_bitrate`: `rates` (list of kbit/s), `per_rate_ms`, `rounds` (1-20, default 1), `force`. Result: as `detect_bitrate_status`.
 - `detect_bitrate_status`: `running`, `rate_kbit` (current), `done`, `total`, and when finished `results` (per rate `bitrate_kbit`, `frames`, `error_frames`, `ids`), `verdict` (`detected`, `ambiguous`, `silent`, `failed`), `bitrate_kbit`, `matches_config`, `error`.

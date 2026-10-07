@@ -1369,7 +1369,7 @@ void DiagServer::handle_send(Client& c, size_t net, const std::string& id, const
   RawFrame f;
   bool force = false;
   if (!get_bool(req, "ext", f.ext, why) || !get_bool(req, "rtr", f.rtr, why) || !get_bool(req, "force", force, why) ||
-      !get_uint(req, "id", f.ext ? 0x1FFFFFFF : 0x7FF, v, why)) {
+      !get_uint(req, "can_id", f.ext ? 0x1FFFFFFF : 0x7FF, v, why)) {
     c.out += diag_error(id, why);
     return;
   }
