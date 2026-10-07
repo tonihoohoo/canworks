@@ -176,8 +176,10 @@ bool ControlServer::listen(const std::string& bind_addr, unsigned port, std::str
     if (::bind(fd, ai->ai_addr, ai->ai_addrlen) == 0 && ::listen(fd, 8) == 0) {
       set_nonblock(fd);
       fd_ = fd;
+      // The bound address, with the port the system chose for port 0.
       sockaddr_storage ss;
-      std::memcpy(&ss, ai->ai_addr, ai->ai_addrlen);
+      socklen_t len = sizeof ss;
+      if (getsockname(fd, reinterpret_cast<sockaddr*>(&ss), &len) != 0) std::memcpy(&ss, ai->ai_addr, ai->ai_addrlen);
       address_ = peer_name(ss);
       break;
     }
