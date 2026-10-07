@@ -217,8 +217,11 @@ class Formats(unittest.TestCase):
                 self.assertEqual(bytes(m.data), f.data, (ext, f))
                 self.assertEqual(not m.is_rx, f.tx, (ext, f))
 
-    @unittest.skipIf(not shutil.which("tshark"), "tshark is not installed")
     def test_wireshark_decodes_canopen(self):
+        if not shutil.which("tshark"):
+            if os.environ.get("CANOPEN_REQUIRE_TSHARK") == "1":
+                self.fail("tshark is not installed (CANOPEN_REQUIRE_TSHARK=1)")
+            self.skipTest("tshark is not installed")
         d = self.tmp()
         path = os.path.join(d, "x.pcapng")
         formats.write_file(sample_trace(), path)

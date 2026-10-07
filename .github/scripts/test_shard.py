@@ -2,6 +2,7 @@
 """Run one shard of a unittest suite, so CI can spread it over parallel jobs.
 
   test_shard.py --shard K/N --start DIR --top DIR [--pattern P ...] [--exclude REGEX]
+                [--contains REGEX]
 
 Discovers the tests like `python -m unittest discover -s DIR -t DIR -p P`
 (once per --pattern, default test*.py), drops modules whose name matches
@@ -9,6 +10,10 @@ Discovers the tests like `python -m unittest discover -s DIR -t DIR -p P`
 setUpClass runs once), largest first onto the shard with the fewest tests, so
 the split is the same on every runner. Runs shard K (1-based) verbosely and
 exits non-zero on a failure or error, or when the shard is empty.
+
+With --contains, runs nothing: exits 0 when shard K has a test whose id
+(module.Class.test_name) matches REGEX, 1 otherwise (CI installs a tool only
+on the shard whose tests use it).
 """
 
 import argparse
@@ -60,6 +65,7 @@ def main(argv=None):
     p.add_argument("--top", required=True)
     p.add_argument("--pattern", action="append")
     p.add_argument("--exclude", help="skip test modules whose name matches this regex")
+    p.add_argument("--contains", help="run nothing; exit 0 when the shard has a test id matching this regex")
     a = p.parse_args(argv)
     k, n = (int(x) for x in a.shard.split("/"))
     if not 1 <= k <= n:
@@ -68,6 +74,10 @@ def main(argv=None):
         sys.path.insert(0, a.top)
     found = classes(a.start, a.top, a.pattern or ["test*.py"], a.exclude)
     mine = split({key: len(tests) for key, tests in found.items()}, n)[k - 1]
+    if a.contains:
+        hit = [t.id() for key in mine for t in found[key] if re.search(a.contains, t.id())]
+        print(f"shard {k}/{n}: {', '.join(hit) if hit else 'no test'} matching {a.contains!r}", flush=True)
+        return 0 if hit else 1
     total = sum(len(v) for v in found.values())
     count = sum(len(found[key]) for key in mine)
     print(f"shard {k}/{n}: {count} of {total} tests in {len(mine)} classes", flush=True)
