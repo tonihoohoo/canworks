@@ -1843,16 +1843,26 @@ function stBlock(type, write) {
     : type === "OCTET_STRING" || type === "DOMAIN" ? "_BYTES" : "";
   return (write ? "CO_SDO_WRITE" : "CO_SDO_READ") + kind;
 }
-function stCall(node, index, subindex, type, write) {
+// With several networks: the online network's number (its place in the
+// runtime's list, which is the config's order) and name; null with one.
+function stNetwork() {
+  const name = onlineNetwork();
+  if (name === null) return null;
+  const runtime = S.runtimeNets || [];
+  let i = runtime.findIndex((n) => n.name === name);
+  if (i < 0) i = S.model.networks.findIndex((n) => netName(n) === name);
+  return i < 0 ? null : { index: i, name };
+}
+function stCall(node, index, subindex, type, write, net = stNetwork()) {
   const block = stBlock(type, write);
   const ix = index.toString(16).toUpperCase().padStart(4, "0");
-  const inst = `${write ? "wr" : "rd"}_n${node}_${ix}_${subindex}`;
+  const inst = `${write ? "wr" : "rd"}_${net ? net.name + "_" : ""}n${node}_${ix}_${subindex}`;
   const iec = ST_INT_TYPES[type];
   const lines = [`VAR`, `  ${inst} : ${block};`];
   if (block.endsWith("_BYTES")) lines.push(`  ${inst}_buf : ARRAY[0..1023] OF BYTE;`);
   lines.push(`END_VAR`, ``);
   lines.push(`(* EXECUTE: a rising edge starts the transfer; FALSE clears DONE and ERROR. *)`);
-  const args = [`EXECUTE := ${inst}_go`, `NODE := ${node}`, `INDEX := 16#${ix}`, `SUBINDEX := ${subindex}`];
+  const args = [`EXECUTE := ${inst}_go`, ...(net ? [`NETWORK := ${net.index} (* ${net.name} *)`] : []), `NODE := ${node}`, `INDEX := 16#${ix}`, `SUBINDEX := ${subindex}`];
   if (block === "CO_SDO_WRITE") args.push(`DATA := ${iec ? `${iec}_TO_LWORD(value)` : "value"}`, `SIZE := 0`);
   if (block === "CO_SDO_WRITE_REAL") args.push(`VALUE := value`, `SIZE := 0`);
   if (block === "CO_SDO_WRITE_STRING") args.push(`VALUE := text`);

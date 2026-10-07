@@ -246,6 +246,19 @@ class NetworksPage(unittest.TestCase):
             # The object dictionary of drives' node 2 (its EDS from the draft).
             pg.click('button[data-online-tab="od"]')
             pg.wait_for_selector('details[data-od-group="communication"]')
+            # Copy as ST call names the network: its number for the block and
+            # its name in the instance.
+            pg.evaluate("() => { window.__copied = []; navigator.clipboard.writeText = async (t) => { "
+                        "window.__copied.push(t); }; }")
+            pg.click('details[data-online="od-any"] > summary')
+            pg.fill('input[data-online="od-any-index"]', "0x1017")
+            pg.fill('input[data-online="od-any-sub"]', "0")
+            pg.click('button[data-online="od-any-st"]')
+            pg.click('#modal button[data-value="read"]')
+            pg.wait_for_function("() => window.__copied.length === 1")
+            text = pg.evaluate("() => window.__copied[0]")
+            self.assertIn("rd_drives_n2_1017_0 : CO_SDO_READ;", text)
+            self.assertIn("NETWORK := 1 (* drives *), NODE := 2, INDEX := 16#1017", text)
             # Picking io shows io and opens its tab.
             pg.select_option('select[data-online="network"]', "io")
             pg.wait_for_selector('td[data-online="bus"]:has-text("vcan0")')

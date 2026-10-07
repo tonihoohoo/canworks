@@ -3574,6 +3574,7 @@ class TwoNetSim {
 
   bool status(int i) { return fake_.bool_in[10][i] != 0; }
   uint32_t in(int i) { return fake_.dint_in[100 + i]; }
+  void SetProgram(std::function<void()> program) { program_ = std::move(program); }
   // Scans in which both inputs had changed since the scan before.
   long both_new() const { return both_new_; }
 
@@ -3587,6 +3588,7 @@ class TwoNetSim {
     last_[1] = b;
     fake_.dint_out[100] = a + 1;
     fake_.dint_out[101] = b + 1000;
+    if (program_) program_();
     for (auto& n : nets_) n->image.copy_from_plc(rt_);
     scan_timer_.submit_wait(exec_, [this](int, std::error_code ec) {
       if (!ec) Scan();
@@ -3603,6 +3605,7 @@ class TwoNetSim {
   std::vector<std::unique_ptr<Net>> nets_;
   fake_runtime::Image fake_;
   plugin_runtime_args_t rt_;
+  std::function<void()> program_;
   uint32_t last_[2] = {0, 0};
   long both_new_ = 0;
   bool ok_ = false;
@@ -3637,10 +3640,41 @@ TEST(sim_two_networks) {
   // Values from both networks arrive in the same scans.
   CHECK(sim->both_new() > 0);
 
+  // The SDO blocks reach each network by its NETWORK number.
+  static CO_SDO_READ_INST rd[3];
+  PlcRequests::instance().open(2);
+  sim->SetProgram([] {
+    for (auto& b : rd) co_sdo_read_call(&b);
+  });
+  auto read = [](unsigned i, unsigned network) {
+    rd[i].NETWORK = static_cast<uint8_t>(network);
+    target(rd[i], 2, 0x1017, 0);
+    rd[i].EXECUTE = true;
+  };
+  auto ended = [](unsigned i) { return static_cast<bool>(rd[i].DONE) || static_cast<bool>(rd[i].ERROR); };
+  read(0, 0);
+  read(1, 1);
+  read(2, 2);
+  CHECK(sim->RunUntil([&] { return ended(0) && ended(1) && ended(2); }, seconds(3)));
+  CHECK_MSG(rd[0].DONE && rd[0].DATA.get() == 50, std::to_string(rd[0].ERROR_ID.get()));
+  CHECK_MSG(rd[1].DONE && rd[1].DATA.get() == 50, std::to_string(rd[1].ERROR_ID.get()));
+  CHECK(rd[2].ERROR && rd[2].ERROR_ID.get() == CANOPEN_PLC_ERR_INPUT);
+  for (auto& b : rd) b.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+
   // The drives bus loses its node; io keeps exchanging.
   sim->Unplug(1);
   CHECK(sim->RunUntil([] { return !sim->status(1); }, seconds(3)));
   CHECK(sim->status(0));
+  // A read on drives ends as unavailable; the same read on io still works.
+  read(0, 0);
+  read(1, 1);
+  CHECK(sim->RunUntil([&] { return ended(0) && ended(1); }, seconds(3)));
+  CHECK_MSG(rd[0].DONE, std::to_string(rd[0].ERROR_ID.get()));
+  CHECK_MSG(rd[1].ERROR && rd[1].ERROR_ID.get() == CANOPEN_PLC_ERR_UNAVAILABLE, std::to_string(rd[1].ERROR_ID.get()));
+  for (auto& b : rd) b.EXECUTE = false;
+  sim->RunFor(milliseconds(30));
+  sim->SetProgram(nullptr);
   uint32_t held = sim->in(1), b0 = sim->in(0);
   sim->RunFor(milliseconds(500));
   CHECK_MSG(sim->in(0) > b0 + 1, "io counter " + std::to_string(b0) + " -> " + std::to_string(sim->in(0)));
@@ -3650,4 +3684,5 @@ TEST(sim_two_networks) {
   CHECK(sim->RunUntil([] { return sim->status(1); }, seconds(10)));
   CHECK(sim->status(0));
   delete sim;
+  PlcRequests::instance().close();
 }

@@ -224,7 +224,7 @@ PLUGIN_API int start_loop(void) {
   for (auto& n : g_state->nets) n->bus->start();
   if (g_state->server) g_state->server->start();
   g_exchange.store(true, std::memory_order_release);
-  PlcRequests::instance().open();
+  PlcRequests::instance().open(static_cast<unsigned>(g_state->nets.size()));
   return 0;
 }
 

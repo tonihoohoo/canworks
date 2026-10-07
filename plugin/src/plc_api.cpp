@@ -23,8 +23,8 @@ PlcRequests& PlcRequests::instance() {
   return requests;
 }
 
-uint16_t PlcRequests::validate(const canopen_plc_request& r) {
-  if (r.network != 0 || r.node < 1 || r.node > 127) return CANOPEN_PLC_ERR_INPUT;
+uint16_t PlcRequests::validate(const canopen_plc_request& r) const {
+  if (r.network >= networks_.load(std::memory_order_acquire) || r.node < 1 || r.node > 127) return CANOPEN_PLC_ERR_INPUT;
   if (r.kind > CANOPEN_PLC_BYTES) return CANOPEN_PLC_ERR_INPUT;
   if (!r.write) return 0;
   if (r.length > CANOPEN_PLC_MAX_DATA || (r.length && !r.data)) return CANOPEN_PLC_ERR_INPUT;
@@ -101,9 +101,10 @@ int PlcRequests::poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, u
   return s->res.error_id ? 2 : 1;
 }
 
-void PlcRequests::open() {
+void PlcRequests::open(unsigned networks) {
   std::lock_guard<std::mutex> lock(mutex_);
   for (auto& s : slots_) s.state = State::Free;
+  networks_.store(networks ? networks : 1, std::memory_order_release);
   running_.store(true, std::memory_order_release);
 }
 
@@ -113,12 +114,12 @@ void PlcRequests::close() {
   for (auto& s : slots_) s.state = State::Free;
 }
 
-void PlcRequests::take(std::vector<Job>& out) {
+void PlcRequests::take(unsigned network, std::vector<Job>& out) {
   std::lock_guard<std::mutex> lock(mutex_);
   size_t first = out.size();
   for (uint32_t i = 0; i < CANOPEN_PLC_SLOTS; ++i) {
     Slot& s = slots_[i];
-    if (s.state != State::Queued) continue;
+    if (s.state != State::Queued || s.req.network != network) continue;
     s.state = State::Taken;
     Job j;
     j.handle = (s.seq << kIndexBits) | i;
@@ -155,10 +156,10 @@ void PlcRequests::expire(clock::time_point now) {
     if (s.state == State::Done && now - s.done_at >= kKeepResult) s.state = State::Free;
 }
 
-void PlcRequests::cancel_taken() {
+void PlcRequests::cancel_taken(unsigned network) {
   std::lock_guard<std::mutex> lock(mutex_);
   for (auto& s : slots_)
-    if (s.state == State::Taken) s.state = State::Free;
+    if (s.state == State::Taken && s.req.network == network) s.state = State::Free;
 }
 
 void PlcRequests::note_unknown_version(uint32_t version) {

@@ -3130,7 +3130,7 @@ TEST(plc_requests_slots_and_handles) {
   canopen_plc_result res{};
   CHECK(q.poll(h, &res, nullptr, 0) == 0);
   std::vector<PlcRequests::Job> jobs;
-  q.take(jobs);
+  q.take(0, jobs);
   CHECK(jobs.size() == 1 && jobs[0].handle == h && jobs[0].req.timeout_ms == PlcRequests::kDefaultTimeoutMs);
   uint8_t reply[4] = {0x78, 0x56, 0x34, 0x12};
   q.finish(h, 0, 0, reply, sizeof reply);
@@ -3144,7 +3144,7 @@ TEST(plc_requests_slots_and_handles) {
   CHECK(q.poll(h, &res, nullptr, 0) == 2);
   // An abort keeps its code; the reply data is not copied.
   jobs.clear();
-  q.take(jobs);
+  q.take(0, jobs);
   q.finish(h2, CANOPEN_PLC_ERR_ABORT, 0x06020000u, nullptr, 0);
   CHECK(q.poll(h2, &res, got, sizeof got) == 2 && res.error_id == CANOPEN_PLC_ERR_ABORT && res.abort_code == 0x06020000u);
   // 64 slots, then BUSY; oldest first when taken.
@@ -3155,7 +3155,7 @@ TEST(plc_requests_slots_and_handles) {
   }
   CHECK(q.start(r, err) == 0 && err == CANOPEN_PLC_ERR_BUSY);
   jobs.clear();
-  q.take(jobs);
+  q.take(0, jobs);
   CHECK(jobs.size() == CANOPEN_PLC_SLOTS);
   bool ordered = true;
   for (unsigned i = 0; i < jobs.size(); ++i) ordered = ordered && jobs[i].handle == handles[i];
@@ -3165,7 +3165,7 @@ TEST(plc_requests_slots_and_handles) {
   q.expire(PlcRequests::clock::now() + PlcRequests::kKeepResult);
   CHECK(q.poll(handles[0], &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_CANCELLED);
   // Taken requests of a network that went away end as cancelled.
-  q.cancel_taken();
+  q.cancel_taken(0);
   CHECK(q.poll(handles[1], &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_CANCELLED);
   // A queued request no network takes times out.
   canopen_plc_request quick = r;
@@ -3182,6 +3182,45 @@ TEST(plc_requests_slots_and_handles) {
   CHECK(canopen_plugin::plc_api_table(7) == nullptr);
   CHECK(q.take_unknown_version() == 7);
   CHECK(q.take_unknown_version() == 0);
+}
+
+// Several networks: a request names its network; each network takes and
+// cancels only its own (add-several-can-networks, SDO blocks on every network).
+TEST(plc_requests_per_network) {
+  using canopen_plugin::PlcRequests;
+  PlcRequests& q = PlcRequests::instance();
+  canopen_plc_request r{};
+  r.node = 2;
+  r.index = 0x1018;
+  r.subindex = 1;
+  uint16_t err = 0;
+  q.open(2);
+  canopen_plc_request second = r;
+  second.network = 1;
+  canopen_plc_request third = r;
+  third.network = 2;
+  CHECK(q.start(third, err) == 0 && err == CANOPEN_PLC_ERR_INPUT);
+  uint32_t h0 = q.start(r, err);
+  uint32_t h1 = q.start(second, err);
+  CHECK(h0 && h1);
+  std::vector<PlcRequests::Job> jobs;
+  q.take(1, jobs);
+  CHECK(jobs.size() == 1 && jobs[0].handle == h1 && jobs[0].req.network == 1);
+  // The second network going away cancels only its own transfer.
+  q.cancel_taken(0);
+  canopen_plc_result res{};
+  CHECK(q.poll(h1, &res, nullptr, 0) == 0);
+  q.cancel_taken(1);
+  CHECK(q.poll(h1, &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_CANCELLED);
+  jobs.clear();
+  q.take(0, jobs);
+  CHECK(jobs.size() == 1 && jobs[0].handle == h0);
+  q.finish(h0, 0, 0, nullptr, 0);
+  CHECK(q.poll(h0, &res, nullptr, 0) == 1);
+  // One network again: network 1 is refused.
+  q.open(1);
+  CHECK(q.start(second, err) == 0 && err == CANOPEN_PLC_ERR_INPUT);
+  q.close();
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }
