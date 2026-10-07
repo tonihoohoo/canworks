@@ -45,7 +45,7 @@
 
 ## 7. Hardware (Pi via Remote Control)
 
-- [ ] 7.1 Pi: install the updated plugin; the template project with `token_sha256` is rejected with the set-the-token-again message
-- [ ] 7.2 Upgrade the project's token, upload; online view connects, SDO read and NMT work, an old CLI is refused with the update message
-- [ ] 7.3 Trace at full bus load for 60 s over TLS: no lost frames, PLC scan unchanged
-- [ ] 7.4 Put Toni's template project back on the Pi
+- [x] 7.1 Pi: install the updated plugin; the template project with `token_sha256` is rejected with the set-the-token-again message (passed 2026-10-07: the deploy tool refuses it before upload with the plugin's message)
+- [x] 7.2 Upgrade the project's token, upload; online view connects, SDO read and NMT work, an old CLI is refused with the update message (passed 2026-10-07 on a copy with a new token: status, SDO read 0x1018:1, NMT reset; 0.32.0 CLI and a wrong token refused)
+- [x] 7.3 Trace at full bus load for 60 s over TLS: no lost frames, PLC scan unchanged (passed 2026-10-07: about 7900 frames/s seen by the plugin, 0 lost, scan avg 1-2 us and max 6 us as before)
+- [x] 7.4 Put Toni's template project back on the Pi (main plugin reinstalled, original project redeployed, node 23 operational)
