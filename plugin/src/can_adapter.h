@@ -21,12 +21,15 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
 #include "config.h"
 
 namespace canopen_plugin {
+
+class SweepListener;  // bitrate_sweep.h
 
 // What rtnetlink says about a link.
 struct LinkInfo {
@@ -103,6 +106,16 @@ class CanAdapter {
   virtual void release() {}
   // The link operations the backend uses (bit rate detection), or nullptr.
   virtual LinkOps* link_ops() { return nullptr; }
+  // Bit rate detection on the backend's own device rather than the kernel
+  // link (slcan, slcan_sweep.h): releases the interface, calls `run` with the
+  // device's link operations and listener, and gives the device back;
+  // prepare() makes the interface again. False: sweep over link_ops().
+  // `error` says why the device could not be opened.
+  virtual bool sweep_on_device(const std::function<void(LinkOps&, SweepListener&)>& run, std::string& error) {
+    (void)run;
+    (void)error;
+    return false;
+  }
 };
 
 // The backend for adapter.type (the config parser accepts only known types).

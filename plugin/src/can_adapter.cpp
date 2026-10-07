@@ -16,6 +16,7 @@
 #include <unistd.h>
 
 #include "log.h"
+#include "slcan_sweep.h"
 
 namespace canopen_plugin {
 
@@ -450,6 +451,24 @@ class SlcanAdapter : public CanAdapter {
     ops_->set_up(cfg_.interface, false);  // sends "C" so the adapter leaves the bus cleanly
     close_device();
     log_info("released %s; CAN interface %s removed", cfg_.device.c_str(), cfg_.interface.c_str());
+  }
+
+  bool sweep_on_device(const std::function<void(LinkOps&, SweepListener&)>& run, std::string& error) override {
+    release();
+    int fd = -1;
+    int rc = serial_->open(cfg_.device, cfg_.serial_baudrate, fd);
+    if (rc < 0) {
+      open_failed(rc);
+      error = problem_;
+      return true;
+    }
+    {
+      SlcanSweepPort port(fd);
+      run(port, port);
+      if (port.used_silent()) log_info("bit rate detection on %s used the adapter's silent mode", cfg_.device.c_str());
+    }
+    serial_->close(fd);
+    return true;
   }
 
  private:

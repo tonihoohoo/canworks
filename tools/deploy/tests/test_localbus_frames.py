@@ -82,17 +82,30 @@ class FakeBus:
 
 
 class ListenOnly(unittest.TestCase):
-    def test_slcan_opens_with_L(self):
+    def _slcan(self, knows_m1):
+        """A fake slcan serial port; firmware that knows the 'm' (mode)
+        command answers it with CR, other firmware with BEL."""
         from can.interfaces import slcan
         ports = []
 
         class Port:
             def __init__(self, url, **kw):
-                self.written = b""
+                self.written, self.inbuf = b"", bytearray()
                 ports.append(self)
 
             def write(self, b):
                 self.written += b
+                if b[:1] == b"m":
+                    self.inbuf += b"\r" if knows_m1 else b"\x07"
+
+            @property
+            def in_waiting(self):
+                return len(self.inbuf)
+
+            def read(self, n):
+                out = bytes(self.inbuf[:n])
+                del self.inbuf[:n]
+                return out
 
             def flush(self):
                 pass
@@ -100,23 +113,45 @@ class ListenOnly(unittest.TestCase):
             def close(self):
                 pass
 
-        fake = mock.Mock(serial_for_url=Port)
-        with mock.patch.object(slcan, "serial", fake):
-            opened = adapter_mod.open(parse("slcan:COM9"), 250000, listen_only=True, options={"sleep_after_open": 0})
-            sent = ports[-1].written
-            self.assertIn(b"S5\r", sent)
-            self.assertTrue(sent.endswith(b"L\r"))
-            self.assertNotIn(b"O\r", sent)
-            # Another rate on the same serial connection, still listen-only.
-            ports[-1].written = b""
-            self.assertTrue(opened.retune(500000))
-            self.assertEqual(ports[-1].written.split(b"\r")[:2], [b"C", b"S6"])
-            self.assertTrue(ports[-1].written.endswith(b"L\r"))
-            self.assertNotIn(b"O\r", ports[-1].written)
-            opened.close()
-            opened = adapter_mod.open(parse("slcan:COM9"), 250000, options={"sleep_after_open": 0})
-            self.assertTrue(ports[-1].written.endswith(b"O\r"))
-            opened.close()
+        p = mock.patch.object(slcan, "serial", mock.Mock(serial_for_url=Port))
+        p.start()
+        self.addCleanup(p.stop)
+        return ports
+
+    def test_slcan_silent_mode(self):
+        ports = self._slcan(knows_m1=True)
+        opened = adapter_mod.open(parse("slcan:COM9"), 250000, listen_only=True, options={"sleep_after_open": 0})
+        sent = ports[-1].written
+        self.assertIn(b"S5\r", sent)
+        self.assertTrue(sent.endswith(b"m1\rO\r"), sent)
+        self.assertNotIn(b"L\r", sent)
+        # Another rate on the same serial connection: closed, mode back, silent again.
+        ports[-1].written = b""
+        self.assertTrue(opened.retune(500000))
+        self.assertEqual([c for c in ports[-1].written.split(b"\r") if c], [b"C", b"m0", b"S6", b"m1", b"O"])
+        ports[-1].written = b""
+        opened.close()
+        self.assertTrue(ports[-1].written.endswith(b"C\rm0\r"), ports[-1].written)
+        # A normal open sets normal mode before opening.
+        opened = adapter_mod.open(parse("slcan:COM9"), 250000, options={"sleep_after_open": 0})
+        self.assertTrue(ports[-1].written.endswith(b"m0\rO\r"))
+        opened.close()
+
+    def test_slcan_without_silent_mode_opens_with_L(self):
+        ports = self._slcan(knows_m1=False)
+        opened = adapter_mod.open(parse("slcan:COM9"), 250000, listen_only=True, options={"sleep_after_open": 0})
+        sent = ports[-1].written
+        self.assertTrue(sent.endswith(b"m1\rL\r"), sent)
+        self.assertNotIn(b"O\r", sent)
+        ports[-1].written = b""
+        self.assertTrue(opened.retune(500000))
+        self.assertEqual(ports[-1].written.split(b"\r")[:2], [b"C", b"S6"])
+        self.assertTrue(ports[-1].written.endswith(b"L\r"))
+        self.assertNotIn(b"O\r", ports[-1].written)
+        opened.close()
+        opened = adapter_mod.open(parse("slcan:COM9"), 250000, options={"sleep_after_open": 0})
+        self.assertTrue(ports[-1].written.endswith(b"O\r"))
+        opened.close()
 
     def test_pcan_passive(self):
         with mock.patch.object(can, "Bus", side_effect=lambda **kw: FakeBus(**kw)):
