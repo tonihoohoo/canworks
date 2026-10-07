@@ -6,6 +6,7 @@ dark themes, and the model itself as JSON in the page."""
 import html
 import json
 
+from .bustrace.explain import pdo_bit_text
 from .docexport import hx
 
 E = html.escape
@@ -215,9 +216,35 @@ def _byte_bar(p):
     if p["bits"] < total:
         segs.append('<span class="seg pad" style="flex:%d"></span>' % (total - p["bits"]))
     ticks = "".join('<span>%d</span>' % b for b in range(p["dlc"] or 1))
-    return ('<div class="bytebar" role="img" aria-label="%s">%s</div><div class="byteticks" style="--n:%d">%s</div>'
+    return ('<div class="bytebar" role="img" aria-label="%s">%s</div><div class="byteticks" style="--n:%d">%s</div>%s'
             % (_attr("Layout of %s %d, %d bytes" % (p["kind"], p["number"], p["dlc"])), "".join(segs),
-               p["dlc"] or 1, ticks))
+               p["dlc"] or 1, ticks, _bit_grid(p)))
+
+
+def _bit_grid(p):
+    """Every bit of the PDO, most significant bit of each byte first; the
+    explanation is each bit's title (shown by the script in a box too)."""
+    if not p["dlc"]:
+        return ""
+    owner, colour = {}, 0
+    for e in p["entries"]:
+        cls = "dummy" if e["dummy"] else "unused" if not e["used"] else "c%d" % (colour % SEGMENT_COLOURS)
+        if e["used"] and not e["dummy"]:
+            colour += 1
+        for b in range(e["bit"], e["bit"] + e["length"]):
+            owner[b] = (e, cls)
+    rows = []
+    for by in range(p["dlc"]):
+        cells = []
+        for i in range(7, -1, -1):
+            pb = by * 8 + i
+            e, cls = owner.get(pb, (None, "pad"))
+            cells.append('<span class="bit %s" tabindex="0" title="%s">%d</span>' % (
+                cls, _attr(pdo_bit_text(pb, e, p["kind"])), pb))
+        rows.append('<div class="bitrow"><span class="muted">byte %d</span>%s</div>' % (by, "".join(cells)))
+    return ('<details class="bits"><summary>Every bit</summary><p class="muted">Point at or tab to a bit: the '
+            'number is its CANopen bit number, most significant bit of each byte on the left.</p>%s'
+            '<p class="bitex" aria-live="polite"></p></details>' % "".join(rows))
 
 
 def _pdo(p):
@@ -510,6 +537,13 @@ figcaption{color:var(--muted);font-size:12.5px}
 .seg.c4{background:var(--c4)}.seg.c5{background:var(--c5)}.seg.c6{background:var(--c6)}.seg.c7{background:var(--c7)}
 .seg.unused{background:var(--line);color:var(--muted)}.seg.dummy{background:repeating-linear-gradient(45deg,var(--line) 0 4px,transparent 4px 8px);color:var(--muted)}
 .seg.pad{background:transparent}
+.bitrow{display:flex;gap:3px;align-items:center;margin:3px 0}.bitrow>.muted{width:52px;font-size:11.5px}
+.bit{width:30px;height:24px;display:inline-grid;place-items:center;font-size:11px;border-radius:3px;color:#fff;cursor:help}
+.bit.c0{background:var(--c0)}.bit.c1{background:var(--c1)}.bit.c2{background:var(--c2)}.bit.c3{background:var(--c3)}
+.bit.c4{background:var(--c4)}.bit.c5{background:var(--c5)}.bit.c6{background:var(--c6)}.bit.c7{background:var(--c7)}
+.bit.unused,.bit.pad{background:var(--line);color:var(--muted)}.bit.dummy{background:repeating-linear-gradient(45deg,var(--line) 0 4px,transparent 4px 8px);color:var(--muted)}
+.bit:hover,.bit:focus,.bit.on{outline:2px solid var(--fg);outline-offset:1px}
+.bitex{min-height:2.6em;font-size:13px}
 .byteticks{display:grid;grid-template-columns:repeat(var(--n),1fr);font-size:11px;color:var(--muted);margin:2px 0 8px}
 .byteticks span{border-left:1px solid var(--line);padding-left:4px}.byteticks span::before{content:"byte "}
 .var{display:inline-block;font-size:12px;padding:0 6px;border-radius:4px;background:var(--acc-bg);color:var(--acc);margin:1px 2px}
@@ -540,6 +574,9 @@ var saved=store();if(saved)root.setAttribute('data-theme',saved);
 var t=document.querySelector('[data-theme-toggle]');
 if(t)t.addEventListener('click',function(){var dark=root.getAttribute('data-theme')?root.getAttribute('data-theme')==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
 var v=dark?'light':'dark';root.setAttribute('data-theme',v);store(v)});
+document.querySelectorAll('details.bits').forEach(function(d){var ex=d.querySelector('.bitex');
+d.querySelectorAll('.bit').forEach(function(b){function show(){d.querySelectorAll('.bit.on').forEach(function(o){o.classList.remove('on')});
+b.classList.add('on');ex.textContent=b.getAttribute('title')}b.addEventListener('mouseenter',show);b.addEventListener('focus',show)})});
 var p=document.querySelector('[data-print]');if(p)p.addEventListener('click',function(){window.print()});
 window.addEventListener('beforeprint',function(){document.querySelectorAll('details').forEach(function(d){if(!d.open){d.open=true;d.dataset.closed='1'}})});
 window.addEventListener('afterprint',function(){document.querySelectorAll('details[data-closed]').forEach(function(d){d.open=false;delete d.dataset.closed})});

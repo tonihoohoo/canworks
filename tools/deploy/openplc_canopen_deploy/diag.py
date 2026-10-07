@@ -926,6 +926,20 @@ def parser():
     cv.add_argument("--format", help="the output format when the extension does not say it")
     cv.add_argument("--config", metavar="canopen.json", help="decode with this config (CSV)")
     _network_arg(cv, "decode with this network of --config (default: the one the trace file names)")
+    ex = sub.add_parser("explain", help="explain frames bit by bit (no connection)",
+                        description="Explains CAN frames layer by layer: what the frame means, the identifier "
+                                    "split into function code and node ID, every data bit by field, and the frame "
+                                    "rebuilt as it goes on the wire. Frames in candump syntax: 185#2500EA00, "
+                                    "705#05, 705#R (remote request), 18FF0017#0102 (8 digits: extended).")
+    ex.add_argument("frames", nargs="*", metavar="FRAME", help="frames as ID#DATA")
+    ex.add_argument("--trace", metavar="FILE", help="explain a frame of this trace file (with --index)")
+    ex.add_argument("--index", type=int, metavar="N", help="the frame number in --trace, from 0")
+    ex.add_argument("--config", metavar="canopen.json", help="explain with this configuration's nodes and PDOs")
+    _network_arg(ex, "use this network of --config (default: the one the trace file names, else the only one)")
+    ex.add_argument("--bitrate", type=int, metavar="BIT/S",
+                    help="bit rate for the timing (default: --config's or the trace file's, else 500000)")
+    ex.add_argument("--format", choices=("text", "json"), default="text", help="output (default %(default)s)")
+
     def _source(q):
         q.add_argument("--config", metavar="FILE", help="canopen.json naming the node's EDS (default %s when "
                                                         "present)" % os.path.join("canopen", "canopen.json"))
@@ -1534,6 +1548,8 @@ def run(args, out=sys.stdout):
         return 0
     if args.command == "convert":
         return _convert(args, out)
+    if args.command == "explain":
+        return _explain(args, out)
     if args.command == "adapters":
         return _adapters(args, out)
     if getattr(args, "adapter", None) and (args.runtime or args.command == "sim"):
@@ -1725,6 +1741,59 @@ def _convert(args, out):
     except (OSError, formats.FormatError) as e:
         raise DiagError("usage", str(e))
     out.write("%d frames written to %s (%s)\n" % (sum(1 for f in trace if not f.gap), args.output, fmt))
+    return 0
+
+
+def _explain(args, out):
+    from .bustrace import explain, formats
+    if not args.frames and not args.trace:
+        raise DiagError("usage", "give frames such as 185#2500EA00, or --trace FILE --index N")
+    if args.frames and args.trace:
+        raise DiagError("usage", "give either frames or --trace, not both")
+    if args.trace and args.index is None:
+        raise DiagError("usage", "--trace needs --index N")
+    if args.index is not None and not args.trace:
+        raise DiagError("usage", "--index needs --trace FILE")
+    trace = None
+    if args.trace:
+        try:
+            trace = formats.read_file(args.trace)
+        except (OSError, formats.FormatError) as e:
+            raise DiagError("usage", str(e))
+    decoder = _decoder(args.config, args.network, trace.meta.get("network") if trace is not None else None)
+    bitrate = args.bitrate
+    if bitrate is None and args.config:
+        try:
+            with open(args.config, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except (OSError, ValueError):
+            cfg = None
+        net = args.network or (trace.meta.get("network") if trace is not None else None)
+        bitrate = explain.bitrate_of(cfg, net) or explain.bitrate_of(cfg, None)
+    if bitrate is None and trace is not None and trace.meta.get("bitrate"):
+        bitrate = int(trace.meta["bitrate"])
+    models = []
+    if trace is not None:
+        if not 0 <= args.index < len(trace):
+            raise DiagError("usage", "--index %d: the trace has frames 0-%d" % (args.index, len(trace) - 1))
+        f = trace.frame(args.index)
+        if f.gap:
+            raise DiagError("usage", "--index %d is a gap in the trace, not a frame" % args.index)
+        try:
+            models.append(explain.explain(f, decoder, bitrate, explain.context_for(trace, args.index, decoder)))
+        except ValueError as e:
+            raise DiagError("usage", str(e))
+    else:
+        for text in args.frames:
+            try:
+                f = explain.parse_frame(text)
+                models.append(explain.explain(f, decoder, bitrate))
+            except ValueError as e:
+                raise DiagError("usage", "%s: %s" % (text, e))
+    if args.format == "json":
+        out.write(json.dumps(models if len(models) > 1 else models[0], indent=2) + "\n")
+    else:
+        out.write("\n".join(explain.format_text(m) for m in models))
     return 0
 
 

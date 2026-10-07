@@ -94,6 +94,19 @@ class Document(Browser):
         self.assertIn("0x185", pg.inner_text("#net-network"))
         self.assertIn("%IW100", pg.inner_text("#io"))
 
+    def test_point_at_a_bit(self):
+        url = export_example("rtd-sensor", self.dir)
+        pg = self.page()
+        pg.goto(url)
+        grid = "#node-5 details.bits >> nth=0"
+        pg.click(grid + " >> summary")
+        pg.hover(grid + " >> .bit >> text='18'")
+        text = pg.inner_text(grid + " >> .bitex")
+        for part in ("Bit 18 (byte 2, bit 2 of the byte)", "7130h:02", "bit 2 of 16 (weight 4)", "bit 2 of %IW101"):
+            self.assertIn(part, text)
+        pg.focus(grid + " >> .bit >> text='0'")
+        self.assertIn("Bit 0 (byte 0", pg.inner_text(grid + " >> .bitex"))
+
     def test_sort_and_filter(self):
         url = export_example("rtd-sensor", self.dir)
         pg = self.page()
