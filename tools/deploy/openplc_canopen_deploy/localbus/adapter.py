@@ -270,6 +270,8 @@ def _serial_ports():
         return out
     for p in list_ports.comports():
         vid, pid = getattr(p, "vid", None), getattr(p, "pid", None)
+        if vid is None or pid is None:
+            continue  # built-in serial ports (ttyS*); USB adapters have USB IDs
         entry = {"type": "slcan", "channel": p.device, "description": p.description or "",
                  "usb_id": "%04X:%04X" % (vid, pid) if vid is not None and pid is not None else None,
                  "known": None}

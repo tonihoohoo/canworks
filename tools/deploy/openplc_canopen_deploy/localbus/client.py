@@ -180,6 +180,7 @@ class LocalBus:
         return self.force or fields.get("force") is True
 
     def _check_master(self, fields):
+        self.core.wait_listened()
         other = self.core.other_master()
         if other and not self._force(fields):
             raise DiagError("refused", "another master is active on this bus (%s, last at %s); --force runs LSS "
@@ -198,6 +199,7 @@ def _hello(c, f):
 
 def _status(c, f):
     core = c.core
+    core.wait_listened()
     now = time.monotonic()
     with core.lock:
         heard = dict(core.heard)

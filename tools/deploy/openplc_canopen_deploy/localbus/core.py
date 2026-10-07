@@ -184,9 +184,7 @@ class Core:
         import can
         if self.error:
             raise adapter_mod.AdapterError("unreachable", self.error)
-        wait = self.listen_until - time.monotonic()
-        if wait > 0:
-            time.sleep(wait)
+        self.wait_listened()
         msg = can.Message(arbitration_id=cob, data=bytes(data), is_extended_id=False)
         with self.tx_lock:
             try:
@@ -195,6 +193,13 @@ class Core:
                 raise adapter_mod.AdapterError("unreachable", "adapter %s could not send: %s" % (self.spec, e))
         msg.timestamp = time.time()
         self._record(msg, True)
+
+    def wait_listened(self):
+        """Until the adapter has listened LISTEN_S: what the bus shows (another
+        master, heartbeats) is known only then."""
+        wait = self.listen_until - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
 
     def wait_foreign_sdo(self, node):
         """Let another client's SDO transfer to `node` end before ours starts."""
