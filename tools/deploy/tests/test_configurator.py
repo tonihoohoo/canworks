@@ -150,6 +150,13 @@ class ProjectScan(unittest.TestCase):
         self.assertEqual(uses, [])
         self.assertIn("project.json: not readable JSON", problems[0])
 
+    def test_empty_json_is_skipped_quietly(self):
+        d = tmpdir(self)
+        for name, text in (("empty.json", ""), ("blank.json", " \n")):
+            with open(os.path.join(d, name), "w") as f:
+                f.write(text)
+        self.assertEqual(scan.scan(d), ([], []))
+
 
 class Layout(unittest.TestCase):
     def test_next_free_word_skips_project_and_config(self):

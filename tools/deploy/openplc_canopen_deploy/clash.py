@@ -77,7 +77,10 @@ def bundle_uses(bundle_dir):
         rel = "conf/" + os.path.basename(path)
         try:
             with open(path, encoding="utf-8") as f:
-                doc = json.load(f)
+                text = f.read()
+            if not text.strip():
+                continue  # the editor writes an empty ethercat.json into every build
+            doc = json.loads(text)
         except (OSError, ValueError) as e:
             problems.append("%s: not readable JSON (%s); its locations are not checked" % (rel, e))
             continue
