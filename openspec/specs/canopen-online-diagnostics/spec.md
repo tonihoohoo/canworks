@@ -462,7 +462,7 @@ The channel SHALL offer `detect_bitrate` to find the bit rate of the traffic on 
 
 #### Scenario: Silent bus
 - **WHEN** the devices on the bus send nothing during the sweep
-- **THEN** the result is `silent` and says that a device powered on or reset during the sweep sends a boot-up message that is enough
+- **THEN** the result is `silent` and says that a device powered on or reset during the sweep sends a boot-up message that is enough, and that a single device on the bus needs a second device or adapter that acknowledges its frames
 
 #### Scenario: Nothing is sent
 - **WHEN** a sweep runs while a second analyser records the bus
