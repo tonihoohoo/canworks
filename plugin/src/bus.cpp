@@ -236,7 +236,9 @@ void Bus::run_session() {
     }, &req_timer, &out_timer);
     log_info("opened %s, starting the CANopen master (node ID %u)", where.c_str(), cfg_.master.node_id);
     net.SetDiag(hub_);
-    net.SetGateway(gw_);
+    // The upper master's stand-in on a simulated bus is not a field network:
+    // its node states and EMCYs (the gateway's own) must not go back up.
+    if (gw_ && gw_->field_position(cfg_.network_index) >= 0) net.SetGateway(gw_);
 
     // Simulated devices, on the virtual bus or on their own sockets on the
     // interface; they boot before the master starts.

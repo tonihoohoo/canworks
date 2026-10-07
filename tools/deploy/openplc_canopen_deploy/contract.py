@@ -1227,6 +1227,31 @@ def _check_slave(s, err, add, base, eds_paths):
     return eds, value, bound
 
 
+def upper_master_stand_in(cfg):
+    """The name of the master network that shares the gateway's upper
+    network's simulated bus (it stands in for the upper master and is not a
+    field network), or None."""
+    g = cfg.get("gateway") if isinstance(cfg, dict) else None
+    if not isinstance(g, dict):
+        return None
+    nets = networks(cfg)
+    upper = next((n for n in nets if n["name"] and n["name"] == g.get("upper") and n["role"] == "slave"), None)
+    if upper is None or upper["adapter"].get("simulate") is not True:
+        return None
+    for n in nets:
+        if n["role"] == "master" and n["adapter"].get("simulate") is True \
+                and n["adapter"].get("interface") == upper["adapter"].get("interface"):
+            return n["name"]
+    return None
+
+
+def field_networks(cfg):
+    """The gateway's field networks: the master networks except the upper
+    master's stand-in."""
+    stand_in = upper_master_stand_in(cfg)
+    return [n for n in networks(cfg) if n["role"] == "master" and not (stand_in and n["name"] == stand_in)]
+
+
 def _check_gateway(cfg, err, warn, slaves):
     """The plugin's checks of the gateway section (canopen-gateway): the
     upper network, the field networks, and each route's two ends, their
@@ -1245,10 +1270,11 @@ def _check_gateway(cfg, err, warn, slaves):
     elif upper["role"] != "slave":
         err("gateway", "the upper network '%s' must be a slave network (\"role\": \"slave\"), not a master network"
             % upper_name, ["gateway.upper"])
-    masters = [n for n in nets if n["role"] == "master"]
+    stand_in = upper_master_stand_in(cfg)
+    masters = field_networks(cfg)
     if not masters:
-        err("gateway", "a gateway needs at least one master network (a field network) besides the slave network",
-            ["gateway"])
+        err("gateway", "a gateway needs at least one master network (a field network) besides the slave network"
+            + (" and the upper master's stand-in '%s'" % stand_in if stand_in else ""), ["gateway"])
     slave = slaves.get(upper["index"]) if upper is not None and upper["role"] == "slave" else None
     eds, eds_name, bound = slave if slave else (None, None, {})
     if isinstance(g.get("status"), dict):
@@ -1295,6 +1321,10 @@ def _check_gateway(cfg, err, warn, slaves):
         if fnet["role"] != "master":
             err(at, "field network '%s' is a slave network; a route's field end is a PDO entry of a node on a master "
                     "network" % f["network"], [pj + ".field.network"])
+            continue
+        if stand_in and fnet["name"] == stand_in:
+            err(at, "field network '%s' shares the upper network's simulated bus: it stands in for the upper master "
+                    "and is not a field network" % f["network"], [pj + ".field.network"])
             continue
         node_i = next((i for i, n in enumerate(fnet["nodes"])
                        if isinstance(n, dict) and _uint(n.get("node_id")) == node_id), None)

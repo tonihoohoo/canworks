@@ -11,7 +11,7 @@ GatewayLink::GatewayLink(const ConfigSet& set)
   for (size_t i = 0; i < set.networks.size() * 128; ++i) states_[i].store(0, std::memory_order_relaxed);
   int k = 0;
   for (const auto& c : set.networks) {
-    if (c.is_slave()) continue;
+    if (!cfg_.is_field(c)) continue;  // slave networks, and the upper master's stand-in
     positions_[c.network_index] = k++;
     by_position_.push_back(static_cast<int>(c.network_index));
   }
@@ -19,7 +19,7 @@ GatewayLink::GatewayLink(const ConfigSet& set)
   // The upper network and every master network: field networks read routes
   // down and the upper state.
   for (const auto& c : set.networks)
-    if (!c.is_slave() || c.network_index == cfg_.upper)
+    if (cfg_.is_field(c) || c.network_index == cfg_.upper)
       fds_[c.network_index] = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
 }
 

@@ -294,6 +294,92 @@ int main(int argc, char** argv) {
          "a warning says the version 1 file is not used and names version 2");
   expect(img->dint_in[101] != 777, "the devices run with their default behaviour");
 
+  // A gateway with the upper master as a network of the same config on the
+  // upper network's simulated bus (the virtual example's "host"): routes
+  // run both ways, field status goes up, and the stand-in is not a field
+  // network, so nothing echoes back up.
+  std::printf("gateway with the upper master's stand-in on its simulated bus:\n");
+  {
+    {
+      std::ifstream in(std::string(PINGPONG_DIR) + "/../gateway/openplc-gateway.eds", std::ios::binary);
+      std::ofstream out(sim_dir + "/openplc-gateway.eds", std::ios::binary);
+      out << in.rdbuf();
+    }
+    std::ofstream f(sim_dir + "/canopen.json");
+    f << R"({"schema_version": 2, "networks": [
+      {"name": "field", "adapter": {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true},
+       "master": {"node_id": 1, "sync_period_us": 20000},
+       "nodes": [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 50, "state_location": "%IB40",
+                  "tx_pdos": [{"entries": [{"index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID40"}]}],
+                  "rx_pdos": [{"entries": [{"index": "0x4000", "type": "UNSIGNED32"}]}]}]},
+      {"name": "top", "role": "slave", "adapter": {"type": "socketcan", "interface": "sim1", "bitrate": 250000, "simulate": true},
+       "slave": {"node_id": 20, "eds": "openplc-gateway.eds",
+                 "objects": [{"index": "0x2100", "subindex": 1, "iec_location": "%QX300.0"}],
+                 "comm_ok_location": "%IX300.1", "emcy_code_location": "%QW300", "error_register_location": "%QB300"}},
+      {"name": "host", "adapter": {"type": "socketcan", "interface": "sim1", "bitrate": 250000, "simulate": true},
+       "master": {"node_id": 1, "heartbeat_ms": 50},
+       "nodes": [{"node_id": 20, "name": "gateway", "eds": "openplc-gateway.eds", "simulate": false, "state_location": "%IB41",
+                  "tx_pdos": [{"number": 1, "entries": [
+                                 {"index": "0x2100", "subindex": 1, "type": "BOOLEAN", "iec_location": "%IX20.0"},
+                                 {"index": "0x2101", "subindex": 1, "type": "UNSIGNED32", "iec_location": "%ID20"}]},
+                              {"number": 2, "entries": [
+                                 {"index": "0x5E10", "subindex": 1, "type": "UNSIGNED32", "iec_location": "%ID21"}]}],
+                  "rx_pdos": [{"number": 1, "entries": [
+                                 {"index": "0x2000", "subindex": 1, "type": "UNSIGNED32", "iec_location": "%QD20"}]}]}]}],
+      "gateway": {"upper": "top",
+        "routes": [
+          {"slave": {"index": "0x2101", "subindex": 1}, "field": {"network": "field", "node": 2, "index": "0x4001"}, "name": "pong"},
+          {"slave": {"index": "0x2000", "subindex": 1}, "field": {"network": "field", "node": 2, "index": "0x4000"}, "name": "ping"}],
+        "status": {"index": "0x5E00"}, "emcy_forward": true, "sdo_bridge": true}})";
+    f.close();
+    {
+      // The simulated ping-pong device answers like the Lely slave: 0x4001 follows 0x4000.
+      std::ofstream sf(sim_dir + "/simulation.json");
+      sf << R"({"schema_version": 2, "networks": {"field": {"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}}}})";
+    }
+    g_logs.clear();
+    img.reset(new fake_runtime::Image);
+    rt = args(sim_dir + "/canopen.json");
+    expect(init(rt.get()) == 0, "init returns 0");
+    rt.reset();
+    bool started = start_loop() == 0;
+    expect(started, "start_loop starts CANopen");
+    bool routed = false, status = false;
+    for (int i = 0; started && i < 800 && !(routed && status); ++i) {
+      cycle_start();
+      img->dint_out[20] = 4242;
+      cycle_end();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      routed = img->dint_in[20] == 4242 && img->dint_in[40] == 4242;
+      status = (img->dint_in[21] & 0x4) != 0;
+    }
+    expect(img->byte_in[41] == 5, "the stand-in master has the gateway (its own slave) operational");
+    expect(routed, "the stand-in's output goes down the ping route to node 2 and back up the pong route");
+    expect(status, "node 2's operational bit reaches the stand-in through the gateway status");
+    // The program's EMCY on the slave reaches the stand-in once; a stand-in
+    // fed back into the gateway would forward it up again and again.
+    size_t before = g_logs.size();
+    for (int i = 0; started && i < 100; ++i) {
+      cycle_start();
+      img->int_out[300] = 0x6000;
+      img->byte_out[300] = 0x04;
+      cycle_end();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    int emcys = 0;
+    for (size_t i = before; i < g_logs.size(); ++i)
+      if (g_logs[i].find("host: node 20") != std::string::npos && g_logs[i].find("EMCY 0x6000") != std::string::npos) {
+        ++emcys;
+        if (emcys < 4) std::printf("  log: %s\n", g_logs[i].c_str());
+      }
+    expect(emcys == 1, ("the stand-in sees the gateway's EMCY once, not echoed back up (" + std::to_string(emcys) +
+                        " EMCY log lines on host)").c_str());
+    if (started) stop_loop();
+    cleanup();
+    expect(!logged("ERROR"), "no error");
+    std::remove((sim_dir + "/simulation.json").c_str());
+  }
+
   // The first init() after an upload carries the runtime's 20 ms default
   // tick; the program's tasks are read before start_loop().
   std::printf("PLC-cycle SYNC, base tick read at start_loop:\n");
