@@ -261,7 +261,8 @@ def _slcan_bus(listen_only):
     Listen-only: some slcan firmware takes 'L' and then receives nothing, so
     silent mode is asked for first: 'm1' (receive without acknowledging or
     sending), then 'O'. Firmware without 'm1' answers with an error (BEL) and
-    gets 'L'. Closing sets the mode back with 'm0'. A normal open sends 'm0'
+    gets 'L'; no answer at all counts as taken, since some firmware answers
+    no command. Closing sets the mode back with 'm0'. A normal open sends 'm0'
     before 'O' too, so a sweep that died in silent mode cannot leave the
     adapter mute."""
     from can.interfaces.slcan import slcanBus
@@ -279,10 +280,10 @@ def _slcan_bus(listen_only):
             while True:
                 reply = self._read(max(0.0, deadline - time.monotonic()))
                 if reply is None:
-                    return False
+                    return True  # some firmware answers nothing; only BEL refuses
                 if len(reply) > 1 and reply[0] in "tTrR":
                     continue  # a received frame, not the answer
-                return reply.endswith("\r")
+                return not reply.endswith("\a")
 
         def open(self):
             if listen_only:

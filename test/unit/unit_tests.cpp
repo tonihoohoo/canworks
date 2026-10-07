@@ -4347,6 +4347,7 @@ struct FakeSlcanFirmware {
   int master = -1, slave = -1;
   bool knows_m1 = true;
   bool l_receives = false;  // firmware whose 'L' really opens the channel
+  bool answers = true;      // false: firmware that answers no command at all
   char rate_code = '6';
   std::vector<std::string> cmds;
   std::mutex mu;
@@ -4420,8 +4421,10 @@ struct FakeSlcanFirmware {
             receiving = false;
           }
           (void)silent;
-          ssize_t w = ::write(master, reply, 1);
-          (void)w;
+          if (answers) {
+            ssize_t w = ::write(master, reply, 1);
+            (void)w;
+          }
           line.clear();
         }
       }
@@ -4481,6 +4484,26 @@ TEST(slcan_sweep_without_silent_mode_uses_L) {
   std::string log = fw.log();
   CHECK_MSG(log.find("C S6 m1 L C S5 m1 L C") == 0, log);
   CHECK_MSG(log.find(" O") == std::string::npos, log);
+}
+
+TEST(slcan_sweep_silent_mode_on_firmware_that_never_answers) {
+  FakeSlcanFirmware fw;  // as on the bench: no CR or BEL to any command
+  fw.answers = false;
+  fw.start();
+  SweepRequest req;
+  req.rates_kbit = {1000, 500};
+  req.per_rate_ms = 300;
+  SweepResult r;
+  bool used = false;
+  {
+    SlcanSweepPort port(fw.slave);
+    r = run_bitrate_sweep(port, port, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+    used = port.used_silent();
+  }
+  CHECK_MSG(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 500, sweep_verdict_name(r.verdict));
+  CHECK(used);
+  std::string log = fw.log();
+  CHECK_MSG(log.find("C S8 m1 O C m0 S6 m1 O C m0") == 0 && log.find("L") == std::string::npos, log);
 }
 
 TEST(slcan_sweep_rate_without_a_code) {
