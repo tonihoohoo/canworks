@@ -52,7 +52,7 @@ A listen-only controller does not acknowledge; on a bus where the only other dev
 ### D6. Where detection is refused
 - vcan (no bit rate) and simulated networks: `no bit rate on a virtual bus`.
 - `socketcan` with `configure_link: false`: `the link is configured by the system (configure_link false)`; the plugin must not change a link it was told to leave alone.
-- A driver without listen-only (`EOPNOTSUPP` from rtnetlink): the sweep stops before listening, restores the link and answers `the adapter's driver has no listen-only mode`. slcan on Linux 6.1+ opens the channel with `L` when listen-only is set; to be confirmed on the bench (task 6.2). candleLight/gs_usb, mcp251x and mcp251xfd support it.
+- A driver without listen-only (`EOPNOTSUPP` from rtnetlink): the sweep stops before listening, restores the link and answers `the adapter's driver has no listen-only mode`. slcan on Linux 6.1+ opens the channel with `L` when listen-only is set; to be confirmed on the bench (task 7.2). candleLight/gs_usb, mcp251x and mcp251xfd support it.
 - No interface (adapter unplugged): `no bus`.
 
 ### D7. Protocol and clients
@@ -62,11 +62,16 @@ New ops in protocol version 1; a client that gets `unknown op 'send_frame'` repo
 - `detect_bitrate`: `rates` (list of kbit/s), `per_rate_ms`, `rounds` (1-20, default 1), `force`. Result: as `detect_bitrate_status`.
 - `detect_bitrate_status`: `running`, `rate_kbit` (current), `done`, `total`, and when finished `results` (per rate `bitrate_kbit`, `frames`, `error_frames`, `ids`), `verdict` (`detected`, `ambiguous`, `silent`, `failed`), `bitrate_kbit`, `matches_config`, `error`.
 - `status` gains `send_jobs` (this network's cyclic jobs: id, period, sent, client) and `bitrate_sweep` (running or not).
-The PC-direct backend will serve the same ops; its plan decides how (python-can with listen-only on SocketCAN, `L` on slcan).
-
 ### D8. Configurator
 - Trace view, **Send** panel (folded by default; disabled with the reason when online access has no `allow_changes`): identifier (hex), Extended, Remote with DLC, data bytes, Single or Cyclic with period and count, **Send** / **Stop**, running jobs with their counts and a Stop each, the last 20 frames sent. A trace row's context menu has **Send this frame** which fills the panel. A refusal that needs `force` opens a confirmation that quotes the reason; confirming resends with `force`. The panel works without a running trace; when one runs the sent frames show as Tx.
 - Scan the bus page, **Detect bit rate**: a warning that CANopen on that network stops for the sweep and nodes boot again after it, then progress per rate and the result table. On `detected` with a rate different from the tab's `adapter.bitrate`, a **Use N kbit/s** button sets the field on the page (unsaved; saving and uploading is the user's step, as for any change). The button is not shown for `silent` or `ambiguous`.
+
+### D9. The PC-direct backend
+`add-local-bus-commissioning` (the USB-adapter backend in the PC tools) leaves three hooks: `localbus.adapter.open(spec, bitrate, listen_only=False)`, the single transmit path `LocalBus._transmit(msg)` that feeds its trace, and its op table. This change adds there:
+- `send_frame`/`send_frame_stop` through `_transmit`, with the same guards: `allow_changes` of the connection, `force` for identifiers of the open config's COB-ID map (when a config is open) and while another master or a node is seen OPERATIONAL on the bus, the same rate limits.
+- `detect_bitrate`/`_status`: close the adapter, reopen it listen-only at each rate, count frames and error frames, reopen at the connection's rate. Listen-only per adapter type: slcan by opening the channel with `L` instead of `O`; PCAN with its listen-only parameter; SocketCAN on Linux by setting the link (`ip link set ... listen-only on`), which needs CAP_NET_ADMIN, so without it the op answers what is missing; gs_usb and other python-can interfaces without a listen-only mode answer `the adapter has no listen-only mode`. The connection dialog's bit rate field gets "Detect".
+The guards and verdict code are shared Python on the PC side; the plugin has its own C++ copy, and a parity test runs the same verdict cases on both.
+If this change is applied before `add-local-bus-commissioning` merges, section 7 of the tasks waits and moves to a follow-up change.
 
 ## Risks / Trade-offs
 

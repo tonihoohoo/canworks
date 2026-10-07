@@ -25,8 +25,15 @@
 - [ ] 5.1 `docs/diagnostics.md`: the new ops, fields and refusals in the protocol table, the commands, the guards in Security, and how detection works (listen-only, what the nodes see, `silent` and the power-cycle hint, drivers without listen-only).
 - [ ] 5.2 `docs/trace.md` (sending frames while recording), `docs/configurator.md` (Send panel, Detect bit rate), README (Online features and `openplc-canopen-diag` commands).
 
-## 6. Hardware check
+## 6. PC-direct backend (needs add-local-bus-commissioning merged; otherwise moved to a follow-up)
 
-- [ ] 6.1 On the bench (Pi, CANable slcan, one real node): send an SDO upload request for 0x1018:1 by hand to the node with nothing OPERATIONAL and see the answer in a configurator trace; check that a frame on the node's RPDO COB-ID needs force; run a 100 ms cyclic frame for 10 s and stop it.
-- [ ] 6.2 Set `adapter.bitrate` to a wrong rate, upload, and run Detect bit rate from the configurator: the node's real rate is detected (power-cycle the node during the sweep if it is silent while unconfigured), "Use N kbit/s", save and upload boots the node. Confirm that slcan accepts listen-only on the Pi's kernel and that the sweep sends nothing (trace from a second adapter if available).
-- [ ] 6.3 Put the bench config back and check the node boots.
+- [ ] 6.1 Implement `listen_only` in `localbus.adapter.open` for slcan (`L`), PCAN and SocketCAN (link setting, clear refusal without CAP_NET_ADMIN), refusing for adapters without it; verify with unit tests on fakes per adapter type.
+- [ ] 6.2 Add `send_frame`, `send_frame_stop`, `detect_bitrate`, `detect_bitrate_status` to the `LocalBus` op table through `_transmit`, with the guards of design D9 and the shared verdict; verify on python-can's `virtual` bus and with a verdict parity test against the plugin's cases.
+- [ ] 6.3 "Detect" next to the bit rate in the configurator's adapter connection dialog; verify with a page test against a fake local bus.
+
+## 7. Hardware check
+
+- [ ] 7.1 On the bench (Pi, CANable slcan, one real node): send an SDO upload request for 0x1018:1 by hand to the node with nothing OPERATIONAL and see the answer in a configurator trace; check that a frame on the node's RPDO COB-ID needs force; run a 100 ms cyclic frame for 10 s and stop it.
+- [ ] 7.2 Set `adapter.bitrate` to a wrong rate, upload, and run Detect bit rate from the configurator: the node's real rate is detected (power-cycle the node during the sweep if it is silent while unconfigured), "Use N kbit/s", save and upload boots the node. Confirm that slcan accepts listen-only on the Pi's kernel and that the sweep sends nothing (trace from a second adapter if available).
+- [ ] 7.3 Put the bench config back and check the node boots.
+- [ ] 7.4 When section 6 is in: run 7.1 and 7.2 again from the PC with the USB adapter directly (no runtime).

@@ -17,7 +17,7 @@ Both are small on the plugin side: it already owns the CAN interface, its link s
 - **Detect the bit rate** (ops `detect_bitrate`, `detect_bitrate_status`): the plugin pauses CANopen on that network, sets the interface listen-only and listens at each CiA 301 rate (1000, 800, 500, 250, 125, 50, 20, 10 kbit/s, or a chosen subset) for a set time, counting valid frames, error frames and distinct identifiers, then restores the configured rate and resumes CANopen (nodes boot again as after an adapter loss). The result names the rate where frames arrived without errors, says when the bus was silent or the result is ambiguous, and whether it differs from `adapter.bitrate`. Never transmits: listen-only, no acknowledge, no error frames. Needs `allow_changes`; refused without `force` while a node is OPERATIONAL; refused on vcan, simulated networks and links the plugin does not configure (`configure_link: false`).
 - **`openplc-canopen-diag`**: `send ID [DATA]` (`--ext`, `--rtr --dlc N`, `--period-ms`, `--count`, `--duration`, `--force`), `send-stop`, `detect-bitrate` (`--rates`, `--per-rate-ms`, `--rounds`, `--force`).
 - **Configurator**: a **Send** panel in the Trace view (single or cyclic, list of running jobs with Stop, "send again" from a selected trace row, a confirmation naming why `force` is needed), and **Detect bit rate** on the Scan the bus page with per-rate progress and a "Use N kbit/s" button that sets the network's bit rate on the page (unsaved).
-- **Works with PC-direct later**: the four ops are defined on the diagnostics protocol only, so the planned PC-direct backend (thread "PC-direct commissioning plan") can serve them from a USB adapter with the same CLI and configurator.
+- **PC-direct too**: the four ops are defined on the diagnostics protocol, so the same CLI commands and configurator panels work against the runtime now and against the USB-adapter backend of `add-local-bus-commissioning` once it lands. That change leaves hooks for exactly this (one adapter-open function with a listen-only flag, one transmit path, one op table); this change fills them: `send_frame`/`detect_bitrate` in its op table and listen-only per adapter type. If this change is applied first, those tasks wait for it.
 
 ## Capabilities
 
@@ -31,7 +31,7 @@ None.
 ## Impact
 
 - Plugin: `diag.cpp` (ops, guards, rate limit), new `frame_tx.{h,cpp}` (raw send socket and cyclic jobs in the diagnostics thread; on a simulated network the virtual bus), `bus.cpp` (pause a session for a bit-rate sweep between sessions), `can_adapter.{h,cpp}` (`LinkOps::set_listen_only`, sweep helper), a COB-ID map of the running network for the guard.
-- PC tools: `openplc-canopen-diag` commands; configurator endpoints and UI in the Trace and Scan pages.
+- PC tools: `openplc-canopen-diag` commands; configurator endpoints and UI in the Trace and Scan pages; once `add-local-bus-commissioning` is in, its `localbus` op table and `adapter.open(..., listen_only)`.
 - No config, schema or PLC-side change; no change for users who leave `allow_changes` off. Protocol stays version 1: an older plugin answers `unknown op`, which the tools report as "the runtime's plugin is too old for this".
 - Tests: unit tests for the guard, rate limit, sweep decision and link sequence (mocked `LinkOps`); vcan CI test for send/cyclic/stop and the vcan refusal of detection; configurator page tests.
 - Docs: `docs/diagnostics.md`, `docs/trace.md`, `docs/configurator.md`, README (PC tools and Online features). Deploy tool minor version bump.
