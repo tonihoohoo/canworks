@@ -2753,7 +2753,7 @@ TEST(sim_diag_scan_only) {
   "schema_version": 1,
   "adapter": { "type": "socketcan", "interface": "sim", "bitrate": 125000 },
   "master": { "node_id": 1, "sync_period_us": 20000,
-              "diagnostics": { "token_sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" } },
+              "diagnostics": { "token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg=" } },
   "nodes": []
 })";
   std::string dir = make_dir(json, {{"cpp-slave.eds", slave_eds()}});
@@ -3000,8 +3000,8 @@ TEST(sim_lss_device_with_old_id_at_retry) {
 
 std::string lss_diag_json(bool allow_changes) {
   return lss_json(R"("boot": true,)", "",
-                  std::string(R"(, "diagnostics": { "token_sha256": )"
-                              R"("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "allow_changes": )") +
+                  std::string(R"(, "diagnostics": { "token_verifier": )"
+                              R"("SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg=", "allow_changes": )") +
                       (allow_changes ? "true" : "false") + " }");
 }
 

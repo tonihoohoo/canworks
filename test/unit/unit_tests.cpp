@@ -66,6 +66,12 @@ using namespace canopen_plugin;
 
 namespace {
 
+// A token_verifier for the token "secret" (one salt for the whole run).
+const std::string& test_verifier() {
+  static const std::string v = format_scram_verifier(make_scram_verifier("secret", random_bytes(16), 4096));
+  return v;
+}
+
 std::string read(const std::string& path) {
   std::ifstream in(path);
   std::stringstream ss;
@@ -2754,23 +2760,34 @@ TEST(sha256_vectors) {
 TEST(config_diagnostics_defaults_and_fields) {
   Config cfg;
   std::vector<std::string> errors;
-  std::string h = sha256_hex("secret");
-  CHECK(parse(replace(kValid, "\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"diagnostics\": { \"token_sha256\": \"" + h + "\" }"),
+  std::string v = format_scram_verifier(make_scram_verifier("secret", random_bytes(16), 4096));
+  CHECK(parse(replace(kValid, "\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"diagnostics\": { \"token_verifier\": \"" + v + "\" }"),
               cfg, errors));
-  CHECK(cfg.master.has_diagnostics && cfg.master.diag_token_sha256 == h);
+  CHECK(cfg.master.has_diagnostics && cfg.master.diag_token_verifier == v && cfg.master.diag_scram.iterations == 4096);
   CHECK(cfg.master.diag_port == 7531 && cfg.master.diag_bind == "0.0.0.0" && !cfg.master.diag_allow_changes);
   Config cfg2;
   CHECK(parse(replace(kValid, "\"sync_period_us\": 10000",
-                      "\"sync_period_us\": 10000, \"diagnostics\": { \"token_sha256\": \"" + sha256_hex("x").substr(0, 0) +
-                          "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08\", \"port\": 9000, \"bind\": "
-                          "\"127.0.0.1\", \"allow_changes\": true }"),
+                      "\"sync_period_us\": 10000, \"diagnostics\": { \"token_verifier\": \"" + v +
+                          "\", \"port\": 9000, \"bind\": \"127.0.0.1\", \"allow_changes\": true }"),
               cfg2, errors));
-  CHECK(cfg2.master.diag_token_sha256 == "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
   CHECK(cfg2.master.diag_port == 9000 && cfg2.master.diag_bind == "127.0.0.1" && cfg2.master.diag_allow_changes);
   Config cfg3;
   CHECK(!parse(replace(kValid, "\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"diagnostics\": true"), cfg3,
                errors));
   CHECK(has_error(errors, "master: field 'diagnostics' must be an object"));
+  // The former token_sha256: set the token again.
+  Config cfg4;
+  errors.clear();
+  CHECK(!parse(replace(kValid, "\"sync_period_us\": 10000",
+                       "\"sync_period_us\": 10000, \"diagnostics\": { \"token_sha256\": \"" + sha256_hex("secret") + "\" }"),
+               cfg4, errors));
+  CHECK(has_error(errors, "master.diagnostics.token_sha256: the diagnostics channel is encrypted now"));
+  Config cfg5;
+  errors.clear();
+  CHECK(!parse(replace(kValid, "\"sync_period_us\": 10000",
+                       "\"sync_period_us\": 10000, \"diagnostics\": { \"token_verifier\": \"secret\" }"),
+               cfg5, errors));
+  CHECK(has_error(errors, "master.diagnostics: field 'token_verifier' must look like SCRAM-SHA-256$"));
 }
 
 TEST(config_file_fingerprint) {
@@ -2786,11 +2803,11 @@ TEST(config_file_fingerprint) {
 
 namespace {
 
-// A blocking test client for the diagnostics server.
-struct DiagClient {
+// A blocking plain-TCP test client (an older, protocol 1 client).
+struct PlainClient {
   int fd = -1;
   std::string buf;
-  explicit DiagClient(unsigned port, int rcvbuf = 0) {
+  explicit PlainClient(unsigned port, int rcvbuf = 0) {
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (rcvbuf) setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof rcvbuf);
     sockaddr_in a{};
@@ -2802,7 +2819,7 @@ struct DiagClient {
       fd = -1;
     }
   }
-  ~DiagClient() {
+  ~PlainClient() {
     if (fd >= 0) close(fd);
   }
   bool send_line(const std::string& line) {
@@ -2836,6 +2853,123 @@ struct DiagClient {
   }
 };
 
+// A blocking TLS test client for the diagnostics server. A hello line with a
+// "token" (the protocol 1 form the tests were written in) is turned into the
+// SCRAM login with that token; its answer is the login's.
+struct DiagClient {
+  PlainClient raw;
+  std::unique_ptr<TlsConn> tls;
+  std::string plain;
+  std::vector<std::string> queued;  // answers produced by the login
+  bool failed = false;
+  bool logged_in = false;
+  Bytes expected_signature;
+  explicit DiagClient(unsigned port, int rcvbuf = 0) : raw(port, rcvbuf) {
+    std::string why;
+    tls = TlsConn::client(why);
+    tls->start(why);
+    flush();
+  }
+  void flush() {
+    std::string& w = tls->wire();
+    if (!w.empty() && raw.fd >= 0) ::send(raw.fd, w.data(), w.size(), MSG_NOSIGNAL);
+    w.clear();
+  }
+  void pump(int ms) {
+    pollfd p{raw.fd, POLLIN, 0};
+    if (poll(&p, 1, ms) <= 0) return;
+    char tmp[4096];
+    ssize_t n = recv(raw.fd, tmp, sizeof tmp, 0);
+    std::string why;
+    if (n <= 0 || !tls->feed(tmp, static_cast<size_t>(n), plain, why)) failed = true;
+    flush();
+  }
+  bool handshake(int timeout_ms = 3000) {
+    auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (!tls->established() && !failed && std::chrono::steady_clock::now() < end) pump(50);
+    return tls->established();
+  }
+  bool write(const std::string& line) {
+    std::string why;
+    bool ok = tls->write(line + "\n", why);
+    flush();
+    return ok;
+  }
+  bool send_line(const std::string& line) {
+    if (!logged_in) {
+      cJSON* j = cJSON_Parse(line.c_str());
+      const cJSON* op = cJSON_GetObjectItemCaseSensitive(j, "op");
+      const cJSON* tok = cJSON_GetObjectItemCaseSensitive(j, "token");
+      if (cJSON_IsString(op) && std::string(op->valuestring) == "hello" && cJSON_IsString(tok)) {
+        std::string token = tok->valuestring;
+        const cJSON* id = cJSON_GetObjectItemCaseSensitive(j, "id");
+        std::string id_text;
+        if (id) {
+          char* t = cJSON_PrintUnformatted(id);
+          id_text = t;
+          cJSON_free(t);
+        }
+        cJSON_Delete(j);
+        queued.push_back(login(token, {}, id_text));
+        return true;
+      }
+      cJSON_Delete(j);
+    }
+    return write(line);
+  }
+  // The next line, "" on timeout, "<closed>" when the server closed.
+  std::string line(int timeout_ms = 3000) {
+    if (!queued.empty()) {
+      std::string l = queued.front();
+      queued.erase(queued.begin());
+      return l;
+    }
+    auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    for (;;) {
+      size_t nl = plain.find('\n');
+      if (nl != std::string::npos) {
+        std::string l = plain.substr(0, nl);
+        plain.erase(0, nl + 1);
+        return l;
+      }
+      if (failed) return "<closed>";
+      if (std::chrono::steady_clock::now() >= end) return "";
+      pump(50);
+    }
+  }
+  std::string ask(const std::string& req) {
+    send_line(req);
+    return line();
+  }
+  // The SCRAM login with `token`, bound to `cbind` (default: the certificate
+  // this connection received). The login answer, or "<closed>".
+  std::string login(const std::string& token, Bytes cbind = {}, const std::string& id = "") {
+    if (!handshake()) return failed ? "<closed>" : "<no handshake>";
+    if (cbind.empty()) cbind = tls->peer_cert_hash();
+    std::string cnonce = b64_encode(random_bytes(18));
+    write(R"({"op":"hello","mech":"SCRAM-SHA-256-PLUS","nonce":")" + cnonce + "\"}");
+    std::string h = line();
+    cJSON* a = cJSON_Parse(h.c_str());
+    const cJSON* r = cJSON_GetObjectItemCaseSensitive(a, "result");
+    if (!r) {
+      cJSON_Delete(a);
+      return h;
+    }
+    std::string snonce = cJSON_GetObjectItemCaseSensitive(r, "nonce")->valuestring;
+    std::string salt_b64 = cJSON_GetObjectItemCaseSensitive(r, "salt")->valuestring;
+    unsigned iter = static_cast<unsigned>(cJSON_GetObjectItemCaseSensitive(r, "iterations")->valuedouble);
+    cJSON_Delete(a);
+    Bytes salt, proof;
+    b64_decode(salt_b64, salt);
+    std::string auth = scram_auth_message(cnonce, snonce, salt_b64, iter, cbind);
+    scram_client(token, salt, iter, auth, proof, expected_signature);
+    write(R"({"op":"login","proof":")" + b64_encode(proof) + "\"" + (id.empty() ? "" : ",\"id\":" + id) + "}");
+    std::string answer = line();
+    logged_in = answer.find("\"ok\":true") != std::string::npos;
+    return answer;
+  }
+};
+
 std::vector<std::string> g_diag_log;
 std::mutex g_diag_log_mutex;
 void diag_capture(LogLevel, const char* msg) {
@@ -2855,7 +2989,9 @@ Config diag_config(bool allow_changes) {
   parse(kValid, cfg, errors);
   cfg.file_sha256 = sha256_hex("config");
   cfg.master.has_diagnostics = true;
-  cfg.master.diag_token_sha256 = sha256_hex("secret");
+  cfg.master.diag_token_verifier = test_verifier();
+  std::string why;
+  parse_scram_verifier(cfg.master.diag_token_verifier, cfg.master.diag_scram, why);
   cfg.master.diag_port = 0;  // any free port
   cfg.master.diag_bind = "127.0.0.1";
   cfg.master.diag_allow_changes = allow_changes;
@@ -2897,7 +3033,7 @@ TEST(diag_server_token_and_offline_answers) {
 
   DiagClient c(server.port());
   std::string hello = c.ask(R"({"op":"hello","token":"secret","id":1})");
-  CHECK_MSG(hello.find("\"ok\":true") != std::string::npos && hello.find("\"protocol\":1") != std::string::npos &&
+  CHECK_MSG(hello.find("\"ok\":true") != std::string::npos && hello.find("\"protocol\":2") != std::string::npos &&
                 hello.find("\"allow_changes\":false") != std::string::npos && hello.find("\"id\":1") != std::string::npos,
             hello);
   // No bus session: status says so, the rest is refused.
@@ -3080,7 +3216,9 @@ TEST(diag_server_client_limit_and_stalled_client) {
           std::string::npos);
   }
   {
+    // Answered in the client's own mode (here TLS), once that is known.
     DiagClient fifth(server.port());
+    fifth.send_line(R"({"op":"hello","token":"secret"})");
     CHECK(fifth.line().find("too many clients") != std::string::npos);
     CHECK(fifth.line() == "<closed>");
   }
@@ -3097,10 +3235,13 @@ TEST(diag_server_client_limit_and_stalled_client) {
   stalled.send_line(R"({"op":"hello","token":"secret"})");
   std::string many;
   for (int i = 0; i < 40000; ++i) many += "{\"op\":\"status\"}\n";
+  std::string why;
+  stalled.tls->write(many, why);
+  many.swap(stalled.tls->wire());  // the encrypted bytes, sent without reading
   for (size_t off = 0; off < many.size();) {
-    pollfd p{stalled.fd, POLLOUT, 0};
+    pollfd p{stalled.raw.fd, POLLOUT, 0};
     if (poll(&p, 1, 2000) <= 0) break;
-    ssize_t n = ::send(stalled.fd, many.data() + off, many.size() - off, MSG_NOSIGNAL | MSG_DONTWAIT);
+    ssize_t n = ::send(stalled.raw.fd, many.data() + off, many.size() - off, MSG_NOSIGNAL | MSG_DONTWAIT);
     if (n <= 0) break;
     off += static_cast<size_t>(n);
   }
@@ -3534,8 +3675,8 @@ std::string two_networks_json(const std::string& diagnostics = "") {
 
 TEST(config_v2_networks) {
   std::string path = std::string(PINGPONG_DIR) + "/canopen_config.json";
-  std::string h = sha256_hex("secret");
-  std::string json = two_networks_json("{ \"token_sha256\": \"" + h + "\", \"port\": 9000 }");
+  std::string h = test_verifier();
+  std::string json = two_networks_json("{ \"token_verifier\": \"" + h + "\", \"port\": 9000 }");
   ConfigSet set;
   std::vector<std::string> errors;
   CHECK_MSG(parse_config_set(json, path, ImageLimits(), set, errors), join(errors));
@@ -3551,7 +3692,7 @@ TEST(config_v2_networks) {
   CHECK(io.master.node_id == 1 && drives.master.node_id == 3 && drives.adapter.bitrate == 500000);
   // The one diagnostics object reaches every network's master.
   for (const auto& cfg : set.networks)
-    CHECK(cfg.master.has_diagnostics && cfg.master.diag_token_sha256 == h && cfg.master.diag_port == 9000);
+    CHECK(cfg.master.has_diagnostics && cfg.master.diag_token_verifier == h && cfg.master.diag_port == 9000);
   CHECK(io.file_sha256 == sha256_hex(json) && set.file_sha256 == io.file_sha256);
 
   // The one-network form refuses a file with two.
@@ -3638,7 +3779,7 @@ TEST(diag_server_two_networks) {
   set_log_sink(diag_capture);
   ConfigSet set;
   std::vector<std::string> errors;
-  CHECK(parse_config_set(two_networks_json("{ \"token_sha256\": \"" + sha256_hex("secret") +
+  CHECK(parse_config_set(two_networks_json("{ \"token_verifier\": \"" + test_verifier() +
                                            "\", \"port\": 1024, \"bind\": \"127.0.0.1\" }"),
                          std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors));
   if (set.networks.size() != 2) return;
@@ -3654,7 +3795,7 @@ TEST(diag_server_two_networks) {
   CHECK(wait_port(server));
   DiagClient c(server.port());
   std::string hello = c.ask(R"({"op":"hello","token":"secret"})");
-  CHECK_MSG(hello.find(R"("protocol":1)") != std::string::npos &&
+  CHECK_MSG(hello.find(R"("protocol":2)") != std::string::npos &&
                 hello.find(R"("networks":[{"name":"io","interface":"vcan0","bitrate":125000,"role":"master","master_node_id":1},)"
                            R"({"name":"vcan1","interface":"vcan1","bitrate":500000,"role":"master",)"
                            R"("master_node_id":3}])") !=
@@ -3694,7 +3835,7 @@ TEST(diag_server_two_networks) {
 // shape, and master-only operations are refused before their fields are read.
 TEST(diag_server_slave_network) {
   set_log_sink(diag_capture);
-  std::string json = R"({ "schema_version": 2, "diagnostics": { "token_sha256": ")" + sha256_hex("secret") +
+  std::string json = R"({ "schema_version": 2, "diagnostics": { "token_verifier": ")" + test_verifier() +
                      R"(", "port": 1024, "bind": "127.0.0.1", "allow_changes": true }, "networks": [
     { "name": "line", "role": "slave", "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 250000 },
       "slave": { "node_id": 10, "eds": "openplc-slave.eds" } },
@@ -3724,6 +3865,124 @@ TEST(diag_server_slave_network) {
   // Its own node ID is not "the master itself"; without a session: no bus.
   st = c.ask(R"({"op":"sdo_read","network":"line","node":1,"index":4096,"subindex":0})");
   CHECK_MSG(st.find("no bus") != std::string::npos, st);
+  server.stop();
+  set_log_sink(nullptr);
+}
+
+// ---------------------------------------------------------------------------
+// Encrypted diagnostics: TLS and the SCRAM login (secure_channel.h).
+
+TEST(scram_rfc7677_vector) {
+  // RFC 7677 section 3: user "user", password "pencil".
+  Bytes salt;
+  CHECK(b64_decode("W22ZaJ0SNY7soEsUEjb6gQ==", salt));
+  const std::string auth =
+      "n=user,r=rOprNGfwEbeRWgbNEkqO,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,"
+      "s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096,c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0";
+  Bytes proof, sig;
+  scram_client("pencil", salt, 4096, auth, proof, sig);
+  CHECK(b64_encode(proof) == "dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=");
+  CHECK(b64_encode(sig) == "6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=");
+  ScramVerifier v = make_scram_verifier("pencil", salt, 4096);
+  CHECK(scram_check_proof(v, auth, proof));
+  CHECK(bytes_equal(scram_server_signature(v, auth), sig));
+  proof[0] ^= 1;
+  CHECK(!scram_check_proof(v, auth, proof));
+}
+
+TEST(scram_verifier_format) {
+  ScramVerifier v = make_scram_verifier("secret", random_bytes(16), 4096);
+  std::string text = format_scram_verifier(v), why;
+  CHECK(text.compare(0, 19, "SCRAM-SHA-256$4096:") == 0);
+  ScramVerifier back;
+  CHECK_MSG(parse_scram_verifier(text, back, why), why);
+  CHECK(bytes_equal(back.stored_key, v.stored_key) && bytes_equal(back.salt, v.salt) && back.iterations == 4096);
+  CHECK(!parse_scram_verifier("secret", back, why));
+  CHECK(!parse_scram_verifier(format_scram_verifier(make_scram_verifier("x", random_bytes(8), 4096)), back, why));
+  CHECK(why.find("salt") != std::string::npos);
+  CHECK(!parse_scram_verifier(format_scram_verifier(make_scram_verifier("x", random_bytes(16), 1000)), back, why));
+  CHECK(why.find("iterations") != std::string::npos);
+}
+
+namespace {
+
+}  // namespace
+
+TEST(diag_server_tls_login) {
+  {
+    std::lock_guard<std::mutex> lock(g_diag_log_mutex);
+    g_diag_log.clear();
+  }
+  set_log_sink(diag_capture);
+  Config cfg = diag_config(false);
+  DiagHub hub(cfg, "test-1");
+  DiagServer server(hub);
+  server.start();
+  CHECK(wait_port(server));
+  CHECK(diag_log_count("read-only, encrypted (TLS)") == 1);
+
+  // The right token: the login answer carries the hello information and a
+  // signature that proves the server knows the verifier.
+  {
+    DiagClient c(server.port());
+    std::string a = c.login("secret");
+    CHECK_MSG(a.find("\"ok\":true") != std::string::npos && a.find("\"protocol\":2") != std::string::npos,
+              a);
+    cJSON* j = cJSON_Parse(a.c_str());
+    const cJSON* sig = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "result"), "signature");
+    Bytes got;
+    CHECK(cJSON_IsString(sig) && b64_decode(sig->valuestring, got) && bytes_equal(got, c.expected_signature));
+    cJSON_Delete(j);
+    std::string st = c.ask(R"({"op":"status","id":7})");
+    CHECK_MSG(st.find("\"session\":false") != std::string::npos && st.find("\"id\":7") != std::string::npos, st);
+  }
+  // A wrong token: closed without an answer, logged.
+  {
+    DiagClient c(server.port());
+    CHECK(c.login("guess") == "<closed>");
+  }
+  CHECK(diag_log_count("refused: wrong token") == 1);
+  // The next login from the same address waits about a second.
+  {
+    auto t0 = std::chrono::steady_clock::now();
+    DiagClient c(server.port());
+    CHECK(c.login("secret").find("\"ok\":true") != std::string::npos);
+    CHECK(std::chrono::steady_clock::now() - t0 >= std::chrono::milliseconds(500));
+  }
+  // A machine in the middle: the client bound itself to another certificate.
+  {
+    DiagClient c(server.port());
+    CHECK(c.login("secret", sha256(Bytes{1, 2, 3})) == "<closed>");
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  // A replayed login: the proof belongs to the first connection's nonces.
+  {
+    DiagClient first(server.port());
+    CHECK(first.handshake());
+    std::string cnonce = b64_encode(random_bytes(18));
+    std::string h = first.ask(R"({"op":"hello","mech":"SCRAM-SHA-256-PLUS","nonce":")" + cnonce + "\"}");
+    cJSON* a = cJSON_Parse(h.c_str());
+    const cJSON* r = cJSON_GetObjectItemCaseSensitive(a, "result");
+    std::string snonce = cJSON_GetObjectItemCaseSensitive(r, "nonce")->valuestring;
+    std::string salt_b64 = cJSON_GetObjectItemCaseSensitive(r, "salt")->valuestring;
+    cJSON_Delete(a);
+    Bytes salt, proof, sig;
+    b64_decode(salt_b64, salt);
+    scram_client("secret", salt, 4096, scram_auth_message(cnonce, snonce, salt_b64, 4096, first.tls->peer_cert_hash()),
+                 proof, sig);
+    DiagClient second(server.port());
+    CHECK(second.handshake());
+    second.ask(R"({"op":"hello","mech":"SCRAM-SHA-256-PLUS","nonce":")" + cnonce + "\"}");
+    CHECK(second.ask(R"({"op":"login","proof":")" + b64_encode(proof) + "\"}") == "<closed>");
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  // A plain (protocol 1) client is told to update.
+  {
+    PlainClient c(server.port());
+    std::string a = c.ask(R"({"op":"hello","token":"secret"})");
+    CHECK_MSG(a.find("this runtime needs an encrypted connection; update openplc-canopen-diag") != std::string::npos, a);
+    CHECK(c.line() == "<closed>");
+  }
   server.stop();
   set_log_sink(nullptr);
 }

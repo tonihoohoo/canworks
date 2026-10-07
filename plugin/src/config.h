@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "iec_location.h"
+#include "secure_channel.h"
 
 namespace canopen_plugin {
 
@@ -279,7 +280,9 @@ struct MasterConfig {
   // Diagnostics channel (canopen-online-diagnostics spec); off without
   // `diagnostics`.
   bool has_diagnostics = false;
-  std::string diag_token_sha256;  // lower-case hex
+  // The access token's SCRAM verifier (TLS and login, secure_channel.h).
+  std::string diag_token_verifier;  // as given; parsed into diag_scram
+  ScramVerifier diag_scram;
   unsigned diag_port = 7531;
   std::string diag_bind = "0.0.0.0";
   bool diag_allow_changes = false;

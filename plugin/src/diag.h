@@ -7,7 +7,12 @@
 // thread never touches the Network, and the bus thread never blocks on a
 // socket.
 //
-// Protocol 1: the client's first line is {"op":"hello","token":"..."}. Every
+// Protocol 2: TLS, then the SCRAM login of secure_channel.h:
+// {"op":"hello","mech":"SCRAM-SHA-256-PLUS","nonce":...}, answered with the
+// server nonce, salt and iterations, then {"op":"login","proof":...},
+// answered with the server signature and the hello information. A connection
+// that does not start with a TLS handshake (a protocol 1 client) is told to
+// update and closed. Every
 // request may carry an "id", echoed in its answer. Answers are
 // {"id":...,"ok":true,"result":{...}} or {"id":...,"ok":false,"error":"..."}.
 // Each connection gets its answers in the order it sent the requests.
@@ -29,13 +34,14 @@
 #include <vector>
 
 #include "config.h"
+#include "secure_channel.h"
 #include "trace_capture.h"
 
 typedef struct cJSON cJSON;
 
 namespace canopen_plugin {
 
-constexpr unsigned kDiagProtocol = 1;
+constexpr unsigned kDiagProtocol = 2;  // TLS and SCRAM login
 constexpr size_t kDiagMaxSdoBytes = 4096;
 
 // One request for the bus thread, already checked by the server.
@@ -147,11 +153,16 @@ class DiagServer {
   void set_trace_idle(std::chrono::milliseconds idle) { trace_idle_ = idle; }
 
  private:
+  enum class Mode { unknown, plain, tls };
   struct Client {
     int fd = -1;
     std::string peer;  // address only
-    std::string in;
-    std::string out;
+    std::string in;    // plaintext received
+    std::string out;   // plaintext to send (through `tls` in TLS mode)
+    Mode mode = Mode::unknown;  // from the connection's first byte
+    std::unique_ptr<TlsConn> tls;
+    std::string cnonce, snonce;  // the SCRAM login, after its hello
+    bool refusing = false;  // over the client limit: told "too many clients", then closed
     bool authed = false;
     uint64_t waiting = 0;  // seq of the request on the bus thread, 0 = none
     size_t waiting_net = 0;  // the network whose hub has it
@@ -188,6 +199,16 @@ class DiagServer {
   bool flush(Client& c);  // false: connection lost
   void close_client(size_t i);
   void log_auth_failure(const std::string& peer);
+  // Bytes from the socket: picks plain or TLS on the first byte.
+  void on_wire(Client& c, const char* data, size_t n);
+  // Requests before the login is done (hello, login).
+  void handle_login(Client& c, const std::string& id, const std::string& op, const cJSON* req);
+  void refuse_login(Client& c);
+  // What the login answers besides the signature.
+  cJSON* hello_info() const;
+  // Bytes still to send: plaintext plus encrypted bytes not sent yet.
+  size_t pending(const Client& c) const;
+  void drop_output(Client& c);
   // Trace ops, answered here without the bus thread.
   bool handle_trace(Client& c, size_t net, const std::string& op, const std::string& id, const cJSON* req);
   // The network a request names ("network"), or why not.
@@ -211,6 +232,10 @@ class DiagServer {
   std::atomic<unsigned> port_{0};
   std::vector<Client> clients_;
   std::map<std::string, std::chrono::steady_clock::time_point> auth_logged_;
+  // Last failed login per address: the next one is answered 1 s later at the earliest.
+  std::map<std::string, std::chrono::steady_clock::time_point> auth_failed_;
+  static constexpr std::chrono::seconds kLoginBackoff{1};
+  TlsIdentity tls_id_;
   std::chrono::steady_clock::time_point next_listen_try_{};
   bool warned_listen_ = false;
 
