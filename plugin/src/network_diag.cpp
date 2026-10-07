@@ -129,6 +129,7 @@ void Network::DiagStatus(const DiagRequest& r) {
   cJSON_AddNumberToObject(m, "node_id", cfg_.master.node_id);
   cJSON_AddNumberToObject(m, "state", master_state_);
   cJSON_AddBoolToObject(res, "simulated_network", cfg_.adapter.simulate);
+  cJSON_AddBoolToObject(res, "simulation_forced", cfg_.adapter.simulation_forced);
   cJSON* b = cJSON_AddObjectToObject(res, "bus");
   cJSON_AddStringToObject(b, "interface", cfg_.adapter.simulate ? "simulated" : cfg_.adapter.interface.c_str());
   cJSON_AddNumberToObject(b, "state", image_.bus_state());

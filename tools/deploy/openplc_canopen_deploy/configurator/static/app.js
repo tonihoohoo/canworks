@@ -2653,8 +2653,11 @@ function hostField() {
     dataset: { online: "host" } });
   input.value = S.online.host || "";
   input.addEventListener("change", () => saveHost(input.value.trim()));
-  return el("label", null, "Runtime host", input,
-    hint(`The PLC running this config, as HOST or HOST:PORT (port ${diagPort()} when not given). Kept on this PC, not in the project.`));
+  const local = el("button", { type: "button", class: "small", dataset: { online: "local" },
+    title: "The local simulator runtime started with openplc-canopen-runtime start" }, "Local simulator runtime");
+  local.addEventListener("click", () => { input.value = "local"; saveHost("local"); });
+  return el("label", null, "Runtime host", input, local,
+    hint(`The PLC running this config, as HOST or HOST:PORT (port ${diagPort()} when not given), or "local" for the local simulator runtime (openplc-canopen-runtime). Kept on this PC, not in the project.`));
 }
 
 function onlineAccessSettings() {
@@ -2793,6 +2796,8 @@ async function pollOnline(seq) {
   if (r.config === "different") notes.push(el("div", { class: "online-note warning", dataset: { online: "fingerprint" } },
     "The runtime runs a different configuration than the saved canopen.json (saved changes not uploaded yet, or another project)."));
   if (S.dirty) notes.push(el("div", { class: "online-note" }, "This page has unsaved changes; the runtime runs what was uploaded."));
+  if (st.simulation_forced) notes.push(el("div", { class: "online-note warning", dataset: { online: "forced" } },
+    "This runtime simulates every network (the local simulator runtime): no CAN interface is used, whatever the adapter settings say."));
   conn.className = "online-conn ok";
   conn.replaceChildren(`Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version}, CANopen session up ${Math.floor(st.uptime_s)} s, ` +
     (r.hello.allow_changes ? "changes allowed." : "read-only."), ...notes);

@@ -146,6 +146,7 @@ void prepare() {
   auto st = std::unique_ptr<PluginState>(new PluginState);
   ImageLimits limits;
   limits.buffer_size = g_rt.buffer_size > 0 ? static_cast<unsigned>(g_rt.buffer_size) : 1024;
+  limits.force_simulate = force_simulate_from_env(getenv("CANOPEN_FORCE_SIMULATE"));
 
   std::vector<std::string> errors;
   bool loaded = load_config_set(path, limits, st->set, errors);
@@ -160,6 +161,9 @@ void prepare() {
     for (const auto& m : cfg.notes) log_info("%s", m.c_str());
     if (!loaded) continue;
     if (cfg.is_slave()) log_info("%s: EDS %s", cfg.slave.label().c_str(), cfg.slave.eds_path.c_str());
+    if (cfg.adapter.simulation_forced)
+      log_warn("simulation forced by the runtime environment (CANOPEN_FORCE_SIMULATE=1): this network runs "
+               "simulated, whatever its adapter settings say; no CAN interface is opened");
     for (const auto& n : cfg.nodes) log_info("%s: EDS %s", n.label().c_str(), n.eds_path.c_str());
     size_t warned = cfg.warnings.size(), noted = cfg.notes.size(), failed = errors.size();
     // dcfgen's EDS lint and the prepared copies, then the EDS checks on them.

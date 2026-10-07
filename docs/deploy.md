@@ -177,6 +177,10 @@ Overlaps inside `canopen.json` are errors, as in the plugin.
 
 An empty config, such as the zero-byte `conf/ethercat.json` the editor writes into every build, has no addresses and is skipped quietly. A config that is not valid JSON gets a warning that its addresses are not checked.
 
+## The local simulator runtime
+
+`--runtime local` deploys to the [local simulator runtime](local-runtime.md) on this PC (`openplc-canopen-runtime start`): the tool takes its address, user, password and certificate fingerprint from the saved `local-runtime.json`, so no `--fingerprint` or password is needed (`--user`, `$OPENPLC_PASSWORD` and the certificate options still win when given). Every network runs simulated there, so the tool says so and does not ask the [simulated-config question](#simulated-devices). Without a local runtime it stops with `no local runtime: run openplc-canopen-runtime start first`.
+
 ## The runtime's certificate
 
 The runtime serves HTTPS on port 8443 with a self-signed certificate. The tool checks it before it sends the password:

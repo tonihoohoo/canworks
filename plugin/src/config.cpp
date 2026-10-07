@@ -648,6 +648,11 @@ class Parser {
   void parse_network(const cJSON* root, Config& cfg) {
     uint64_t v;
     parse_adapter(root, cfg.adapter);
+    if (limits_.force_simulate) {
+      // Before the nodes: they take the simulated-network default from it.
+      cfg.adapter.simulate = true;
+      cfg.adapter.simulation_forced = true;
+    }
 
     const cJSON* master = cJSON_GetObjectItemCaseSensitive(root, "master");
     if (!master || !cJSON_IsObject(master)) {
@@ -1341,6 +1346,10 @@ class Parser {
   // A version 2 network with "role": "slave" (canopen-slave-device spec).
   void parse_slave_network(const cJSON* net, Config& cfg) {
     parse_adapter(net, cfg.adapter);
+    if (limits_.force_simulate) {
+      cfg.adapter.simulate = true;
+      cfg.adapter.simulation_forced = true;
+    }
     for (const char* key : {"master", "nodes"})
       if (cJSON_GetObjectItemCaseSensitive(net, key))
         error("", std::string("field '") + key +
@@ -1940,6 +1949,8 @@ bool load_config(const std::string& path, const ImageLimits& limits,
   bool ok = load_config_set(path, limits, set, errors, eds_fallback_dir);
   return only_network(set, ok, out, errors);
 }
+
+bool force_simulate_from_env(const char* value) { return value && std::strcmp(value, "1") == 0; }
 
 bool simulates_anything(const Config& cfg) {
   if (cfg.adapter.simulate) return true;

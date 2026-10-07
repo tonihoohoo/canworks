@@ -47,7 +47,7 @@ openplc-canopen-diag --runtime plc.local backup 2 --network drives              
 openplc-canopen-diag --runtime plc.local trace -o drives.pcapng --network drives --config canopen/canopen.json
 ```
 
-`--runtime` takes `HOST` or `HOST:PORT` (default port 7531). Types are the CiA 301 names (`UNSIGNED16`, `INTEGER32`, `REAL32`, `VISIBLE_STRING`, `OCTET_STRING`, ...); `sdo-read` without `--type` prints hex bytes, and `sdo-write` takes hex bytes for `OCTET_STRING` and `DOMAIN`.
+`--runtime` takes `HOST` or `HOST:PORT` (default port 7531), or `local` for the [local simulator runtime](local-runtime.md) on this PC (`localhost` and the diagnostics port it publishes; the token comes from the project as for any runtime). `status` says when the runtime forces every network simulated (`simulation forced by the runtime`). Types are the CiA 301 names (`UNSIGNED16`, `INTEGER32`, `REAL32`, `VISIBLE_STRING`, `OCTET_STRING`, ...); `sdo-read` without `--type` prints hex bytes, and `sdo-write` takes hex bytes for `OCTET_STRING` and `DOMAIN`.
 
 ### Simulated devices: `sim`
 

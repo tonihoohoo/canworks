@@ -1,0 +1,6 @@
+# The image build context (docker/local-runtime/Dockerfile): the sources only.
+.git
+build/
+**/.canopen/
+**/__pycache__/
+**/*.egg-info/

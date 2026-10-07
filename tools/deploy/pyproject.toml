@@ -15,6 +15,7 @@ dependencies = ["jsonschema>=4.0"]
 openplc-canopen-deploy = "openplc_canopen_deploy.cli:main"
 openplc-canopen-config = "openplc_canopen_deploy.configurator.server:main"
 openplc-canopen-diag = "openplc_canopen_deploy.diag:main"
+openplc-canopen-runtime = "openplc_canopen_deploy.localruntime:main"
 
 [tool.setuptools]
 packages = ["openplc_canopen_deploy", "openplc_canopen_deploy.bustrace", "openplc_canopen_deploy.configurator", "openplc_canopen_deploy._lely_dcf"]
