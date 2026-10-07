@@ -38,7 +38,7 @@ def sim_setup(dir_, **cfg_changes):
         write_json(config, cfg)
     os.makedirs(os.path.join(dir_, "data"))
     os.makedirs(os.path.join(dir_, "extra"))
-    with open(os.path.join(dir_, "data", "count.csv"), "w") as f:
+    with open(os.path.join(dir_, "data", "count.csv"), "w", newline="") as f:  # LF on Windows too
         f.write("t,v\n0,1\n1,2\n")
     shutil.copy(os.path.join(EDS, "lss-slave.eds"), os.path.join(dir_, "extra"))
     sim = {"schema_version": 1,

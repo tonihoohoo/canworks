@@ -41,11 +41,13 @@ class Archive(unittest.TestCase):
 
 class UserData(unittest.TestCase):
     def test_paths(self):
+        # Joined with this computer's separator, whichever platform is named.
         self.assertEqual(sdolibrary.editor_user_data({}, "darwin", "/home/dev"),
-                         "/home/dev/Library/Application Support/open-plc-editor")
+                         os.path.join("/home/dev", "Library", "Application Support", "open-plc-editor"))
         self.assertEqual(sdolibrary.editor_user_data({"APPDATA": r"C:\\R"}, "win32", "/h"),
                          os.path.join(r"C:\\R", "open-plc-editor"))
-        self.assertEqual(sdolibrary.editor_user_data({}, "linux", "/home/a"), "/home/a/.config/open-plc-editor")
+        self.assertEqual(sdolibrary.editor_user_data({}, "linux", "/home/a"),
+                         os.path.join("/home/a", ".config", "open-plc-editor"))
         self.assertEqual(sdolibrary.editor_user_data({"OPENPLC_EDITOR_USER_DATA": "/x"}, "linux", "/h"), "/x")
 
 
