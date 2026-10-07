@@ -2,7 +2,7 @@
 
 The plugin runs one Lely `BasicMaster` per network (`Bus` thread, Lely loop, `Network`, `ProcessImage`), with schema version 2 for several networks (merged). The device simulator change (branch `propose/add-device-simulator`, implemented, not on main yet) adds `plugin/sim/` with `SimDevice`, a Lely `BasicSlave` built from an EDS that already has the store image (0x1010/0x1011), LSS-stored node ID, SDO indications in front of Lely's, TPDO event signalling after a value change, a node ID conflict guard, and runs on the bus thread's loop on a virtual bus or a real interface.  
 
-This change covers OpenPLC as a slave under another PLC. A master on one interface and a slave on another in the same file comes with it from the version 2 layout, but no gateway features are added.
+This change covers OpenPLC as a slave under another PLC, and as a gateway: a slave on an upper network and the master of field networks in the same config, with routes, status, EMCY and SDO access passed through by the plugin.
 
 ## Goals / Non-Goals
 
@@ -16,7 +16,8 @@ This change covers OpenPLC as a slave under another PLC. A master on one interfa
 - Master and slave on one interface; flying master.
 - LSS bit rate change; changing the adapter from a bus message.
 - MPDO, SRDO, CANopen FD, program download (0x1F50) into OpenPLC, an SDO client on a slave network.
-- Gateway helpers that copy values between networks (the PLC program does that).
+- CiA 302-7 multi-level SDO routing and network management across levels; the SDO bridge record is the simpler, explicit form.
+- Unit conversion or scaling on routes (the PLC program does that).
 - Strings and domains as bound objects (PLC locations are 1-64 bit).
 
 ## Decisions
@@ -64,6 +65,19 @@ The Lely slave is built with LSS. `node_id: null` starts with 0xFF; an LSS store
 The simulator change gives each simulated network its own in-process virtual bus. Here simulated networks with the same `interface` name share one `VirtualCanController`, at most one master and one slave, so one config can run the plugin's master against the plugin's slave with no adapter, vcan or privileges, including the Docker install. It is how the tests and the Pi check work without a second master. Real interfaces keep the one-network-per-interface rule.
 *Alternative:* allow master and slave on one real interface (two sockets, kernel loopback). Rejected: on a real bus that is a second device of the same controller on the wire, which users would mistake for a supported layout; vcan plus `cangw` covers the socket path in tests.
 
+### D11. Gateway as a config section, routes in the bus threads
+A top-level `gateway` names the upper slave network and lists routes between slave objects and field PDO entries. Each master network's `Network` and the slave's `PlcSlave` run on their own bus thread and Lely loop (several-networks D2), so a route crosses threads through a lock-free single-writer slot per route (a seqlock of up to 8 bytes): the receiving side's RPDO indication writes the slot and wakes the other loop with an eventfd; that loop writes the object and signals the TPDO event or marks the RPDO for the next SYNC. Nothing goes through the PLC scan, so routes work at bus speed and keep working with a slow program. A routed entry may also have a PLC input location; an output location on a route target is refused so each object has one writer.
+*Alternative:* do routing in the PLC program with generated ST. Rejected: latency of one or two scans each way, and a gateway would stop when the program is stopped for an edit.
+
+### D12. Status, EMCY and loss behaviour
+Field node states come from the master's existing per-node state (the state byte the plugin already reports); the gateway mirrors them into a status record (sub n = node n's state) and a 128-bit operational bit field as four UNSIGNED32 sub-objects. EMCY forwarding uses the slave's `Error()` with the field code and register; active forwarded errors are tracked per field node, so 0x1001 is the OR of all of them and the program's own. `on_upper_loss` acts in the master networks' loops when the slave's comm-OK bit drops.
+
+### D13. SDO bridge record
+A record (default 0x5F00) with subs: network, node, index, subindex, value (UNSIGNED32), length, command, status, abort code. A command write queues one expedited SDO on the field network's master through the existing PLC SDO request path (the one the SDO function blocks use), so per-node serialisation and timeouts are shared. Reads are always allowed with `sdo_bridge: true`; writes need `sdo_bridge_write: true`. Segmented transfers and strings are out of scope.
+
+### D14. Gateway objects in the EDS
+The generator takes the gateway section as input and allocates the slave side of each route in the manufacturer layout (0x2000/0x2100 by direction), the status record at 0x5E00 and the bridge at 0x5F00, so a gateway user never writes an EDS by hand. With a user EDS, routes name existing objects and the checks in D3 apply.
+
 ## Risks / Trade-offs
 
 - [The master writes inputs at bus speed while the scan reads them once per cycle] -> the newest value wins, as for master-side RPDOs; documented.
@@ -75,6 +89,9 @@ The simulator change gives each simulated network its own in-process virtual bus
 ## Migration Plan
 
 Additive: no existing field changes meaning; `role` defaults to `"master"`. Rollback is removing the slave network from the config.
+
+- [Gateway hides field node failures from the upper master] -> status record and EMCY forwarding, and `on_upper_loss` for the other direction.
+- [Route latency across two loops] -> one eventfd wake per route update; a test measures upper RPDO to field RPDO within 2 ms on the virtual bus.
 
 ## Open Questions
 

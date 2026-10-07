@@ -10,13 +10,15 @@ The plugin can only be the CANopen master. A common plant layout has a larger PL
 - **Full CiA 301 slave behaviour**: NMT slave with boot-up, heartbeat producer and consumer, node and life guarding, SDO server, RPDO/TPDO with mapping changeable by the master, SYNC and TIME consumer, error behaviour (0x1029), store and restore (0x1010/0x1011) kept across uploads and restarts, configuration date (0x1020), and LSS slave (node ID assignment and store; bit rate change answered as not supported).
 - **Status and EMCY for the program**: optional locations for the own NMT state, a communication OK bit, a SYNC counter, and an EMCY code plus error register that the program sets to send emergency messages.
 - **EDS generator on the PC**: `openplc-canopen-deploy slave-eds` and the configurator build an EDS from an object list (name, data type, direction, default, limits) and identity, in a manufacturer-area layout (default) or a CiA 401 generic I/O layout, with default PDOs that carry every object. The configurator exports the same file for the other master's tool.
-- **Tools**: configurator role switch and slave device page, deploy checks and bundle for slave networks, located variable declarations and editor project for slave bindings, slave status in the diagnostics channel and online view.
+- **Gateway**: a top-level `gateway` section makes OpenPLC a slave on an upper network and master of field networks in one config: routes between slave objects and field PDO entries copied by the plugin at bus speed without the PLC program, field node status and forwarded EMCYs for the upper master, a choice of what routed outputs do when the upper master is lost, and an opt-in SDO bridge record for reading and writing field node objects from above. The EDS generator adds the gateway objects.
+- **Tools**: configurator role switch, slave device page and gateway routes page, deploy checks and bundle for slave networks, located variable declarations and editor project for slave bindings, slave status in the diagnostics channel and online view.
 
 ## Capabilities
 
 ### New Capabilities
 - `canopen-slave-device`: the plugin's slave network at run time: start-up from the EDS, NMT/heartbeat/SDO/PDO/SYNC/EMCY/LSS behaviour, object bindings to the PLC image, status locations, stored parameters, and what happens on communication loss.
 - `canopen-slave-eds`: generating a slave EDS on the PC from an object list, its layouts, default PDOs and identity, and exporting it.
+- `canopen-gateway`: routes, field node status, EMCY forwarding, upper-loss behaviour and the SDO bridge between a slave network and master networks.
 
 ### Modified Capabilities
 - `canopen-config-contract`: `role` and `slave` in a version 2 network; simulated master and slave networks sharing one simulated bus; a config with a slave network is always written as version 2.

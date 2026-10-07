@@ -33,8 +33,20 @@
 - [ ] 5.2 State directory in `install-stock.sh` for native and Docker installs; verify with the Docker install test.
 - [ ] 5.3 Deploy tool minor version bump.
 
-## 6. Hardware (the current Pi setup, vcan and simulation)
+## 6. Gateway
 
-- [ ] 6.1 On the Pi with its current setup (CAN adapter on `can0`, the template project's network and its real node), deploy a config that keeps that network and adds a master network on `vcan0` and a slave network on `vcan1` joined by `cangw`, with a PLC program that loops values through both; check slave boot, remap by the master, PDOs both ways, heartbeat loss (route removed and restored), store across a PLC restart, and that the template's node stays operational throughout.
-- [ ] 6.2 Same on the Pi with the master and slave networks simulated on one bus (`adapter.simulate`, shared `interface`), plus a simulated device from the simulator on the master network; check the same points and the PLC scan time against the template project alone.
-- [ ] 6.3 Put the template project back on the Pi and check its node is operational.
+- [ ] 6.1 Parse and check the `gateway` section (upper slave network, route ends exist, direction, types, one writer, at least one field network); verify each error in config tests and add `config/gateway/` with a schema-valid example.
+- [ ] 6.2 Route slots between the bus threads with eventfd wakes; verify with a sim test (upper master, gateway slave + field master, simulated field device on separate simulated buses) that values go up and down within 2 ms and keep flowing while the test program blocks one scan for 100 ms.
+- [ ] 6.3 Field node status record and operational bit field; verify node loss and recovery in the sim test.
+- [ ] 6.4 EMCY forwarding with combined 0x1001; verify forward, field reset and the program's own EMCY together.
+- [ ] 6.5 `on_upper_loss` hold, zero and stop_nodes; verify each in sim tests.
+- [ ] 6.6 SDO bridge record (read, write with opt-in, abort, busy) on the PLC SDO request path; verify in sim tests including a write refused without `sdo_bridge_write`.
+- [ ] 6.7 EDS generator input from the gateway section, `slave-eds --gateway`; verify with unit tests and lint.
+- [ ] 6.8 Configurator gateway page (routes table picking slave objects and field PDO entries, status, EMCY, loss and bridge options) and gateway status in the diagnostics channel (route counts, last update age); verify with server and diag tests. Document in `docs/gateway.md` and the README.
+
+## 7. Hardware (the current Pi setup, vcan and simulation)
+
+- [ ] 7.1 On the Pi with its current setup (CAN adapter on `can0`, the template project's network and its real node), deploy a config that keeps that network and adds a master network on `vcan0` and a slave network on `vcan1` joined by `cangw`, with a PLC program that loops values through both; check slave boot, remap by the master, PDOs both ways, heartbeat loss (route removed and restored), store across a PLC restart, and that the template's node stays operational throughout.
+- [ ] 7.2 Same on the Pi with the master and slave networks simulated on one bus (`adapter.simulate`, shared `interface`), plus a simulated device from the simulator on the master network; check the same points and the PLC scan time against the template project alone.
+- [ ] 7.3 Gateway on the Pi: the template's network on `can0` as the field network with its real node, the gateway slave on `vcan1`, and an upper master network on `vcan0` joined by `cangw`; route the real node's values up and a value down, check status and EMCY forwarding (EMCY from the real node or a simulated device) and `on_upper_loss`, and an SDO bridge read of the real node's identity.
+- [ ] 7.4 Put the template project back on the Pi and check its node is operational.

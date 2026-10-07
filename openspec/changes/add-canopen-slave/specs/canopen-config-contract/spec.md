@@ -39,3 +39,10 @@ Tools that write a config SHALL write version 2 whenever any network is a slave 
 #### Scenario: Only a slave
 - **WHEN** the configurator saves a config whose one network is a slave
 - **THEN** the file has `schema_version: 2` and that network has `"role": "slave"`
+
+### Requirement: Gateway section in the schema
+`schema/canopen.v2.schema.json` SHALL describe the top-level `gateway` object (`upper`, `routes`, `status`, `emcy_forward`, `on_upper_loss`, `sdo_bridge`, `sdo_bridge_write`), and a version 1 file SHALL NOT have `gateway`.
+
+#### Scenario: Gateway example validates
+- **WHEN** `config/gateway/canopen_config.json` is checked against the version 2 schema
+- **THEN** it validates
