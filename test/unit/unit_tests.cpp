@@ -1716,6 +1716,54 @@ TEST(dcfgen_device_pdo_mapping) {
   set_log_sink(nullptr);
 }
 
+// A PDO parameter set explicitly to the EDS default is written: dcfgen
+// leaves it out, but the node's real value can differ. The write comes after
+// the one that switches the PDO off, and a value dcfgen writes is not doubled.
+TEST(dcfgen_explicit_pdo_values_equal_to_eds_default) {
+  set_log_sink(silent);
+  std::string fixtures = FIXTURES_DIR;
+  std::string dir = tmpdir();
+  write(dir + "/cpp-slave.eds", read(fixtures + "/eds/cpp-slave.eds"));
+  // cpp-slave.eds: TPDO 1 and RPDO 1 transmission 1, inhibit time 0, event timer 0.
+  std::string json = replace(kValid, "\"tx_pdos\": [ { \"entries\"",
+                             "\"tx_pdos\": [ { \"transmission\": 1, \"inhibit_time_us\": 0, \"event_timer_ms\": 0, \"entries\"");
+  json = replace(json, "\"rx_pdos\": [ { \"entries\"", "\"rx_pdos\": [ { \"transmission\": 1, \"entries\"");
+  write(dir + "/canopen.json", json);
+  Config cfg;
+  GeneratedConfig gen;
+  std::vector<std::string> errors;
+  CHECK_MSG(load_config(dir + "/canopen.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors) &&
+                generate_device_config(cfg, default_dcfgen(), gen, errors),
+            join(errors));
+  const auto& w = gen.slave_sdos[2];
+  struct Want {
+    uint16_t index;
+    uint8_t sub;
+    std::vector<uint8_t> data;
+  };
+  for (const Want& x : {Want{0x1800, 2, {1}}, Want{0x1800, 3, {0, 0}}, Want{0x1800, 5, {0, 0}}, Want{0x1400, 2, {1}}}) {
+    int count = 0, at = -1, off = -1, on = -1;
+    for (int i = 0; i < static_cast<int>(w.size()); ++i) {
+      if (w[i].index == x.index && w[i].subindex == x.sub) {
+        ++count;
+        at = i;
+        CHECK(w[i].data == x.data);
+      }
+      if (w[i].index == x.index && w[i].subindex == 1 && w[i].data.size() == 4) {
+        if (w[i].data[3] & 0x80) {
+          if (off < 0) off = i;
+        } else {
+          on = i;
+        }
+      }
+    }
+    CHECK_MSG(count == 1 && off >= 0 && off < at && at < on,
+              std::to_string(x.index) + " sub " + std::to_string(x.sub) + ": count " + std::to_string(count) +
+                  " at " + std::to_string(at) + " off " + std::to_string(off) + " on " + std::to_string(on));
+  }
+  set_log_sink(nullptr);
+}
+
 // A writable count (sub 0) with read-only entries is still a fixed mapping:
 // dcfgen's entry writes would be refused.
 TEST(eds_fixed_entries_writable_count) {
