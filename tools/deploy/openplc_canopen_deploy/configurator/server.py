@@ -30,7 +30,7 @@ import urllib.parse
 import webbrowser
 import zipfile
 
-from .. import __version__, axis, contract, dbcexport, dcfexport, diag, editorproject, edslint, parameters, project as project_mod, sdolibrary
+from .. import __version__, axis, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, parameters, project as project_mod, sdolibrary
 from .. import slaveeds
 from .. import eds as eds_mod
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, triggers as triggers_mod
@@ -657,6 +657,29 @@ class Session:
                 "name": name, "content_type": "application/octet-stream",
                 "data": base64.b64encode(text.encode("ascii")).decode("ascii")}
 
+    # -- network documentation ---------------------------------------------
+    def export_html(self, cfg):
+        """The draft as an HTML document of every network
+        (canopen-network-docs): `<folder>.html`, base64 in `data`, with the
+        export's warnings as items. PLC variable names and the PLC cycle come
+        from the project in project mode. On a problem: the /api/check shape,
+        and no file. Nothing is written to the folder."""
+        if not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        project = self.mode == "project"
+        try:
+            text, warnings = docexport.export(
+                cfg, self.config_path, eds_paths=self.eds_paths(cfg),
+                names=dbcexport.plc_names(self.uses) if project else None,
+                plc_cycle_ms=docexport.project_cycle_ms(self.config_path) if project else None)
+        except docexport.ExportFailed as e:
+            items = [{"level": "error", "message": m, "paths": p} for m, p in e.problems]
+            return {"items": items, "errors": len(items)}
+        folder = os.path.basename(self.folder.rstrip(os.sep)) or "canopen"
+        return {"items": [{"level": "warning", "message": w, "paths": []} for w in warnings], "errors": 0,
+                "name": folder + ".html", "content_type": "text/html",
+                "data": base64.b64encode(text.encode("utf-8")).decode("ascii")}
+
     @staticmethod
     def _network_arg(cfg, network):
         """The network name a request gives, or None for a version 1 file
@@ -1166,6 +1189,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/export_dbc"):
                     self._need_open(s)
                     out = s.export_dbc(body.get("config"), body.get("sdo", "none"), body.get("network"))
+                elif route == ("POST", "/api/export_html"):
+                    self._need_open(s)
+                    out = s.export_html(body.get("config"))
                 elif route == ("POST", "/api/export_dcf"):
                     self._need_open(s)
                     out = s.export_dcf(body.get("config"), body.get("node"), body.get("network"))

@@ -1,0 +1,1663 @@
+{
+ "config": {
+  "file": "canopen_config.json",
+  "schema_version": 1,
+  "sha256": "d5aa87c3caba4f7e80adb1d0af187a409297860d662b7b4649397d7489c8eb45",
+  "text": "{\n  \"schema_version\": 1,\n  \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 500000 },\n  \"master\": { \"node_id\": 1, \"heartbeat_ms\": 100 },\n  \"nodes\": [\n    {\n      \"node_id\": 4,\n      \"name\": \"drive\",\n      \"eds\": \"servo402.eds\",\n      \"heartbeat_ms\": 50,\n      \"heartbeat_timeout_ms\": 200,\n      \"status_location\": \"%IX10.0\",\n      \"axis\": { \"scale_numerator\": 1, \"scale_denominator\": 1, \"scale_factor\": 1.0 },\n      \"rx_pdos\": [\n        {\n          \"number\": 1,\n          \"entries\": [\n            { \"index\": \"0x6040\", \"subindex\": 0, \"type\": \"UNSIGNED16\", \"iec_location\": \"%QW100\" },\n            { \"index\": \"0x6060\", \"subindex\": 0, \"type\": \"INTEGER8\", \"iec_location\": \"%QB100\" }\n          ]\n        },\n        {\n          \"number\": 2,\n          \"entries\": [\n            { \"index\": \"0x607A\", \"subindex\": 0, \"type\": \"INTEGER32\", \"iec_location\": \"%QD100\" },\n            { \"index\": \"0x6081\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%QD101\" }\n          ]\n        },\n        {\n          \"number\": 3,\n          \"entries\": [\n            { \"index\": \"0x60FF\", \"subindex\": 0, \"type\": \"INTEGER32\", \"iec_location\": \"%QD102\" }\n          ]\n        }\n      ],\n      \"tx_pdos\": [\n        {\n          \"number\": 1,\n          \"entries\": [\n            { \"index\": \"0x6041\", \"subindex\": 0, \"type\": \"UNSIGNED16\", \"iec_location\": \"%IW100\" },\n            { \"index\": \"0x6061\", \"subindex\": 0, \"type\": \"INTEGER8\", \"iec_location\": \"%IB100\" }\n          ]\n        },\n        {\n          \"number\": 2,\n          \"entries\": [\n            { \"index\": \"0x6064\", \"subindex\": 0, \"type\": \"INTEGER32\", \"iec_location\": \"%ID100\" }\n          ]\n        },\n        {\n          \"number\": 3,\n          \"entries\": [\n            { \"index\": \"0x606C\", \"subindex\": 0, \"type\": \"INTEGER32\", \"iec_location\": \"%ID101\" }\n          ]\n        }\n      ],\n      \"sdo\": [\n        { \"index\": \"0x6083\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"value\": 20000 },\n        { \"index\": \"0x6084\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"value\": 20000 },\n        { \"index\": \"0x6098\", \"subindex\": 0, \"type\": \"INTEGER8\", \"value\": 35 }\n      ]\n    }\n  ]\n}\n"
+ },
+ "doc_schema_version": 1,
+ "gateway": null,
+ "generated": "2026-01-02 03:04",
+ "io": [
+  {
+   "key": [
+    "I",
+    "B",
+    100
+   ],
+   "location": "%IB100",
+   "network": "",
+   "path": "nodes[0].tx_pdos[0].entries[1].iec_location",
+   "variables": [],
+   "who": "node 4 (drive) TPDO 1 object 0x6061:0"
+  },
+  {
+   "key": [
+    "I",
+    "D",
+    100
+   ],
+   "location": "%ID100",
+   "network": "",
+   "path": "nodes[0].tx_pdos[1].entries[0].iec_location",
+   "variables": [],
+   "who": "node 4 (drive) TPDO 2 object 0x6064:0"
+  },
+  {
+   "key": [
+    "I",
+    "D",
+    101
+   ],
+   "location": "%ID101",
+   "network": "",
+   "path": "nodes[0].tx_pdos[2].entries[0].iec_location",
+   "variables": [],
+   "who": "node 4 (drive) TPDO 3 object 0x606C:0"
+  },
+  {
+   "key": [
+    "I",
+    "W",
+    100
+   ],
+   "location": "%IW100",
+   "network": "",
+   "path": "nodes[0].tx_pdos[0].entries[0].iec_location",
+   "variables": [],
+   "who": "node 4 (drive) TPDO 1 object 0x6041:0"
+  },
+  {
+   "key": [
+    "I",
+    "X",
+    80
+   ],
+   "location": "%IX10.0",
+   "network": "",
+   "path": "nodes[0].status_location",
+   "variables": [],
+   "who": "node 4 (drive) status_location"
+  },
+  {
+   "key": [
+    "Q",
+    "B",
+    100
+   ],
+   "location": "%QB100",
+   "network": "",
+   "path": "nodes[0].rx_pdos[0].entries[1].iec_location",
+   "variables": [],
+   "who": "node 4 (drive) RPDO 1 object 0x6060:0"
+  },
+  {
+   "key": [
+    "Q",
+    "D",
+    100
+   ],
+   "location": "%QD100",
+   "network": "",
+   "path": "nodes[0].rx_pdos[1].entries[0].iec_location",
+   "variables": [],
+   "who": "node 4 (drive) RPDO 2 object 0x607A:0"
+  },
+  {
+   "key": [
+    "Q",
+    "D",
+    101
+   ],
+   "location": "%QD101",
+   "network": "",
+   "path": "nodes[0].rx_pdos[1].entries[1].iec_location",
+   "variables": [],
+   "who": "node 4 (drive) RPDO 2 object 0x6081:0"
+  },
+  {
+   "key": [
+    "Q",
+    "D",
+    102
+   ],
+   "location": "%QD102",
+   "network": "",
+   "path": "nodes[0].rx_pdos[2].entries[0].iec_location",
+   "variables": [],
+   "who": "node 4 (drive) RPDO 3 object 0x60FF:0"
+  },
+  {
+   "key": [
+    "Q",
+    "W",
+    100
+   ],
+   "location": "%QW100",
+   "network": "",
+   "path": "nodes[0].rx_pdos[0].entries[0].iec_location",
+   "variables": [],
+   "who": "node 4 (drive) RPDO 1 object 0x6040:0"
+  }
+ ],
+ "networks": [
+  {
+   "anchor": "net-network",
+   "bitrate": 500000,
+   "bus_load": {
+    "cyclic": 0.39,
+    "notes": [],
+    "plc_cycle_ms": null,
+    "sync_ms": null,
+    "unbounded": [],
+    "worst": 64.49
+   },
+   "frames": [
+    {
+     "bits": 75,
+     "cob_id": 0,
+     "consumers": [
+      "drive"
+     ],
+     "dlc": 2,
+     "duplicate": false,
+     "kind": "nmt",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "NMT",
+     "notes": "NMT node control; Node_ID 0 addresses all nodes",
+     "producer": "Master",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on demand"
+    },
+    {
+     "bits": 135,
+     "cob_id": 132,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "emcy",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "drive_EMCY",
+     "notes": "node 4 emergency",
+     "producer": "drive",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on error"
+    },
+    {
+     "bits": 85,
+     "cob_id": 388,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 3,
+     "duplicate": false,
+     "kind": "tpdo",
+     "link": "pdo-4-tpdo1",
+     "load_cyclic": 0.0,
+     "load_worst": 0.34,
+     "name": "drive_TPDO1",
+     "notes": "node 4 TPDO 1, transmission 255 from EDS",
+     "producer": "drive",
+     "rate_cyclic": 0.0,
+     "rate_worst": 20.0,
+     "trigger": "event timer 50 ms; no inhibit time, changes can be sent faster"
+    },
+    {
+     "bits": 85,
+     "cob_id": 516,
+     "consumers": [
+      "drive"
+     ],
+     "dlc": 3,
+     "duplicate": false,
+     "kind": "rpdo",
+     "link": "pdo-4-rpdo1",
+     "load_cyclic": 0.0,
+     "load_worst": 17.0,
+     "name": "drive_RPDO1",
+     "notes": "node 4 RPDO 1, transmission 255 from EDS",
+     "producer": "Master",
+     "rate_cyclic": 0.0,
+     "rate_worst": 1000.0,
+     "trigger": "on change, at most every 1 ms (the master's output check)"
+    },
+    {
+     "bits": 95,
+     "cob_id": 644,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 4,
+     "duplicate": false,
+     "kind": "tpdo",
+     "link": "pdo-4-tpdo2",
+     "load_cyclic": 0.0,
+     "load_worst": 0.38,
+     "name": "drive_TPDO2",
+     "notes": "node 4 TPDO 2, transmission 255 from EDS",
+     "producer": "drive",
+     "rate_cyclic": 0.0,
+     "rate_worst": 20.0,
+     "trigger": "event timer 50 ms; no inhibit time, changes can be sent faster"
+    },
+    {
+     "bits": 135,
+     "cob_id": 772,
+     "consumers": [
+      "drive"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "rpdo",
+     "link": "pdo-4-rpdo2",
+     "load_cyclic": 0.0,
+     "load_worst": 27.0,
+     "name": "drive_RPDO2",
+     "notes": "node 4 RPDO 2, transmission 255 from EDS",
+     "producer": "Master",
+     "rate_cyclic": 0.0,
+     "rate_worst": 1000.0,
+     "trigger": "on change, at most every 1 ms (the master's output check)"
+    },
+    {
+     "bits": 95,
+     "cob_id": 900,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 4,
+     "duplicate": false,
+     "kind": "tpdo",
+     "link": "pdo-4-tpdo3",
+     "load_cyclic": 0.0,
+     "load_worst": 0.38,
+     "name": "drive_TPDO3",
+     "notes": "node 4 TPDO 3, transmission 255 from EDS",
+     "producer": "drive",
+     "rate_cyclic": 0.0,
+     "rate_worst": 20.0,
+     "trigger": "event timer 50 ms; no inhibit time, changes can be sent faster"
+    },
+    {
+     "bits": 95,
+     "cob_id": 1028,
+     "consumers": [
+      "drive"
+     ],
+     "dlc": 4,
+     "duplicate": false,
+     "kind": "rpdo",
+     "link": "pdo-4-rpdo3",
+     "load_cyclic": 0.0,
+     "load_worst": 19.0,
+     "name": "drive_RPDO3",
+     "notes": "node 4 RPDO 3, transmission 255 from EDS",
+     "producer": "Master",
+     "rate_cyclic": 0.0,
+     "rate_worst": 1000.0,
+     "trigger": "on change, at most every 1 ms (the master's output check)"
+    },
+    {
+     "bits": 135,
+     "cob_id": 1412,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "sdo_response",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "drive_SDO_Response",
+     "notes": "node 4 SDO server",
+     "producer": "drive",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on demand (boot configuration, SDO variables, diagnostics)"
+    },
+    {
+     "bits": 135,
+     "cob_id": 1540,
+     "consumers": [
+      "drive"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "sdo_request",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "drive_SDO_Request",
+     "notes": "SDO client to node 4",
+     "producer": "Master",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on demand (boot configuration, SDO variables, diagnostics)"
+    },
+    {
+     "bits": 65,
+     "cob_id": 1793,
+     "consumers": [],
+     "dlc": 1,
+     "duplicate": false,
+     "kind": "master_heartbeat",
+     "link": "",
+     "load_cyclic": 0.13,
+     "load_worst": 0.13,
+     "name": "Master_Heartbeat",
+     "notes": "master (node 1) heartbeat",
+     "producer": "Master",
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "every 100 ms"
+    },
+    {
+     "bits": 65,
+     "cob_id": 1796,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 1,
+     "duplicate": false,
+     "kind": "heartbeat",
+     "link": "",
+     "load_cyclic": 0.26,
+     "load_worst": 0.26,
+     "name": "drive_Heartbeat",
+     "notes": "node 4 heartbeat",
+     "producer": "drive",
+     "rate_cyclic": 20.0,
+     "rate_worst": 20.0,
+     "trigger": "every 50 ms"
+    }
+   ],
+   "interface": "vcan0",
+   "locations": [],
+   "master_node_id": 1,
+   "name": "",
+   "nodes": [
+    {
+     "anchor": "node-4",
+     "boot": {
+      "after": [
+       "NMT start (unless the master or the node is held)"
+      ],
+      "before": [],
+      "writes": [
+       {
+        "access": "rw",
+        "data": "3200",
+        "eds_default": "0",
+        "index": 4119,
+        "meaning": "heartbeat every 50 ms",
+        "name": "Producer heartbeat time",
+        "source": "node settings",
+        "subindex": 0,
+        "value": "50 (0x0032)"
+       },
+       {
+        "access": "rw",
+        "data": "04020080",
+        "eds_default": "$NODEID+0x200",
+        "index": 5120,
+        "meaning": "COB-ID 0x204, PDO switched off",
+        "name": "RPDO 1 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484164 (0x80000204)"
+       },
+       {
+        "access": "rw",
+        "data": "00",
+        "eds_default": "2",
+        "index": 5632,
+        "meaning": "0 mapped objects",
+        "name": "RPDO 1 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "0 (0x00)"
+       },
+       {
+        "access": "rw",
+        "data": "10004060",
+        "eds_default": "0x60400010",
+        "index": 5632,
+        "meaning": "maps 0x6040:0, 16 bits (Controlword)",
+        "name": "RPDO 1 mapping parameter / Mapped object 1",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "1614807056 (0x60400010)"
+       },
+       {
+        "access": "rw",
+        "data": "08006060",
+        "eds_default": "0x60600008",
+        "index": 5632,
+        "meaning": "maps 0x6060:0, 8 bits (Modes of operation)",
+        "name": "RPDO 1 mapping parameter / Mapped object 2",
+        "source": "PDO configuration",
+        "subindex": 2,
+        "value": "1616904200 (0x60600008)"
+       },
+       {
+        "access": "rw",
+        "data": "02",
+        "eds_default": "2",
+        "index": 5632,
+        "meaning": "2 mapped objects",
+        "name": "RPDO 1 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "2 (0x02)"
+       },
+       {
+        "access": "rw",
+        "data": "04020000",
+        "eds_default": "$NODEID+0x200",
+        "index": 5120,
+        "meaning": "COB-ID 0x204, PDO valid",
+        "name": "RPDO 1 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "516 (0x00000204)"
+       },
+       {
+        "access": "rw",
+        "data": "04030080",
+        "eds_default": "$NODEID+0x300",
+        "index": 5121,
+        "meaning": "COB-ID 0x304, PDO switched off",
+        "name": "RPDO 2 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484420 (0x80000304)"
+       },
+       {
+        "access": "rw",
+        "data": "00",
+        "eds_default": "2",
+        "index": 5633,
+        "meaning": "0 mapped objects",
+        "name": "RPDO 2 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "0 (0x00)"
+       },
+       {
+        "access": "rw",
+        "data": "20007a60",
+        "eds_default": "0x607A0020",
+        "index": 5633,
+        "meaning": "maps 0x607A:0, 32 bits (Target position)",
+        "name": "RPDO 2 mapping parameter / Mapped object 1",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "1618608160 (0x607A0020)"
+       },
+       {
+        "access": "rw",
+        "data": "20008160",
+        "eds_default": "0x60810020",
+        "index": 5633,
+        "meaning": "maps 0x6081:0, 32 bits (Profile velocity)",
+        "name": "RPDO 2 mapping parameter / Mapped object 2",
+        "source": "PDO configuration",
+        "subindex": 2,
+        "value": "1619066912 (0x60810020)"
+       },
+       {
+        "access": "rw",
+        "data": "02",
+        "eds_default": "2",
+        "index": 5633,
+        "meaning": "2 mapped objects",
+        "name": "RPDO 2 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "2 (0x02)"
+       },
+       {
+        "access": "rw",
+        "data": "04030000",
+        "eds_default": "$NODEID+0x300",
+        "index": 5121,
+        "meaning": "COB-ID 0x304, PDO valid",
+        "name": "RPDO 2 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "772 (0x00000304)"
+       },
+       {
+        "access": "rw",
+        "data": "04040080",
+        "eds_default": "$NODEID+0x400",
+        "index": 5122,
+        "meaning": "COB-ID 0x404, PDO switched off",
+        "name": "RPDO 3 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484676 (0x80000404)"
+       },
+       {
+        "access": "rw",
+        "data": "00",
+        "eds_default": "1",
+        "index": 5634,
+        "meaning": "0 mapped objects",
+        "name": "RPDO 3 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "0 (0x00)"
+       },
+       {
+        "access": "rw",
+        "data": "2000ff60",
+        "eds_default": "0x60FF0020",
+        "index": 5634,
+        "meaning": "maps 0x60FF:0, 32 bits (Target velocity)",
+        "name": "RPDO 3 mapping parameter / Mapped object 1",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "1627324448 (0x60FF0020)"
+       },
+       {
+        "access": "rw",
+        "data": "01",
+        "eds_default": "1",
+        "index": 5634,
+        "meaning": "1 mapped object",
+        "name": "RPDO 3 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "1 (0x01)"
+       },
+       {
+        "access": "rw",
+        "data": "04040000",
+        "eds_default": "$NODEID+0x400",
+        "index": 5122,
+        "meaning": "COB-ID 0x404, PDO valid",
+        "name": "RPDO 3 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "1028 (0x00000404)"
+       },
+       {
+        "access": "rw",
+        "data": "04050080",
+        "eds_default": "$NODEID+0x500",
+        "index": 5123,
+        "meaning": "COB-ID 0x504, PDO switched off",
+        "name": "RPDO 4 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484932 (0x80000504)"
+       },
+       {
+        "access": "rw",
+        "data": "84010080",
+        "eds_default": "$NODEID+0x180",
+        "index": 6144,
+        "meaning": "COB-ID 0x184, PDO switched off",
+        "name": "TPDO 1 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484036 (0x80000184)"
+       },
+       {
+        "access": "rw",
+        "data": "00",
+        "eds_default": "2",
+        "index": 6656,
+        "meaning": "0 mapped objects",
+        "name": "TPDO 1 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "0 (0x00)"
+       },
+       {
+        "access": "rw",
+        "data": "10004160",
+        "eds_default": "0x60410010",
+        "index": 6656,
+        "meaning": "maps 0x6041:0, 16 bits (Statusword)",
+        "name": "TPDO 1 mapping parameter / Mapped object 1",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "1614872592 (0x60410010)"
+       },
+       {
+        "access": "rw",
+        "data": "08006160",
+        "eds_default": "0x60610008",
+        "index": 6656,
+        "meaning": "maps 0x6061:0, 8 bits (Modes of operation display)",
+        "name": "TPDO 1 mapping parameter / Mapped object 2",
+        "source": "PDO configuration",
+        "subindex": 2,
+        "value": "1616969736 (0x60610008)"
+       },
+       {
+        "access": "rw",
+        "data": "02",
+        "eds_default": "2",
+        "index": 6656,
+        "meaning": "2 mapped objects",
+        "name": "TPDO 1 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "2 (0x02)"
+       },
+       {
+        "access": "rw",
+        "data": "84010000",
+        "eds_default": "$NODEID+0x180",
+        "index": 6144,
+        "meaning": "COB-ID 0x184, PDO valid",
+        "name": "TPDO 1 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "388 (0x00000184)"
+       },
+       {
+        "access": "rw",
+        "data": "84020080",
+        "eds_default": "$NODEID+0x280",
+        "index": 6145,
+        "meaning": "COB-ID 0x284, PDO switched off",
+        "name": "TPDO 2 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484292 (0x80000284)"
+       },
+       {
+        "access": "rw",
+        "data": "00",
+        "eds_default": "1",
+        "index": 6657,
+        "meaning": "0 mapped objects",
+        "name": "TPDO 2 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "0 (0x00)"
+       },
+       {
+        "access": "rw",
+        "data": "20006460",
+        "eds_default": "0x60640020",
+        "index": 6657,
+        "meaning": "maps 0x6064:0, 32 bits (Position actual value)",
+        "name": "TPDO 2 mapping parameter / Mapped object 1",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "1617166368 (0x60640020)"
+       },
+       {
+        "access": "rw",
+        "data": "01",
+        "eds_default": "1",
+        "index": 6657,
+        "meaning": "1 mapped object",
+        "name": "TPDO 2 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "1 (0x01)"
+       },
+       {
+        "access": "rw",
+        "data": "84020000",
+        "eds_default": "$NODEID+0x280",
+        "index": 6145,
+        "meaning": "COB-ID 0x284, PDO valid",
+        "name": "TPDO 2 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "644 (0x00000284)"
+       },
+       {
+        "access": "rw",
+        "data": "84030080",
+        "eds_default": "$NODEID+0x380",
+        "index": 6146,
+        "meaning": "COB-ID 0x384, PDO switched off",
+        "name": "TPDO 3 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484548 (0x80000384)"
+       },
+       {
+        "access": "rw",
+        "data": "00",
+        "eds_default": "1",
+        "index": 6658,
+        "meaning": "0 mapped objects",
+        "name": "TPDO 3 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "0 (0x00)"
+       },
+       {
+        "access": "rw",
+        "data": "20006c60",
+        "eds_default": "0x606C0020",
+        "index": 6658,
+        "meaning": "maps 0x606C:0, 32 bits (Velocity actual value)",
+        "name": "TPDO 3 mapping parameter / Mapped object 1",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "1617690656 (0x606C0020)"
+       },
+       {
+        "access": "rw",
+        "data": "01",
+        "eds_default": "1",
+        "index": 6658,
+        "meaning": "1 mapped object",
+        "name": "TPDO 3 mapping parameter / Number of mapped objects",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "1 (0x01)"
+       },
+       {
+        "access": "rw",
+        "data": "84030000",
+        "eds_default": "$NODEID+0x380",
+        "index": 6146,
+        "meaning": "COB-ID 0x384, PDO valid",
+        "name": "TPDO 3 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "900 (0x00000384)"
+       },
+       {
+        "access": "rw",
+        "data": "84040080",
+        "eds_default": "$NODEID+0x480",
+        "index": 6147,
+        "meaning": "COB-ID 0x484, PDO switched off",
+        "name": "TPDO 4 communication parameter / COB-ID",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484804 (0x80000484)"
+       },
+       {
+        "access": "rw",
+        "data": "204e0000",
+        "eds_default": "10000",
+        "index": 24707,
+        "meaning": "",
+        "name": "Profile acceleration",
+        "source": "startup SDO",
+        "subindex": 0,
+        "value": "20000 (0x00004E20)"
+       },
+       {
+        "access": "rw",
+        "data": "204e0000",
+        "eds_default": "10000",
+        "index": 24708,
+        "meaning": "",
+        "name": "Profile deceleration",
+        "source": "startup SDO",
+        "subindex": 0,
+        "value": "20000 (0x00004E20)"
+       },
+       {
+        "access": "rw",
+        "data": "23",
+        "eds_default": "35",
+        "index": 24728,
+        "meaning": "",
+        "name": "Homing method",
+        "source": "startup SDO",
+        "subindex": 0,
+        "value": "35 (0x23)"
+       }
+      ]
+     },
+     "eds": {
+      "file": "servo402.eds",
+      "lss_supported": false,
+      "product_name": "Example servo drive SD-402",
+      "sha256": "09662558445ad7e7ccc2bdcfd3ad82cc0e1033dbcb77f5f01d2491f34c0edc09",
+      "vendor_name": "openplc-canopen example devices"
+     },
+     "ident": "drive",
+     "identity": [
+      {
+       "checked": true,
+       "eds": 15791106,
+       "expected": 15791106,
+       "field": "Vendor ID"
+      },
+      {
+       "checked": true,
+       "eds": 1026,
+       "expected": 1026,
+       "field": "Product code"
+      },
+      {
+       "checked": true,
+       "eds": 65536,
+       "expected": 65536,
+       "field": "Revision"
+      },
+      {
+       "checked": false,
+       "eds": null,
+       "expected": null,
+       "field": "Serial number"
+      }
+     ],
+     "locations": [
+      {
+       "location": "%IX10.0",
+       "variables": [],
+       "what": "TRUE while the node and the master are OPERATIONAL"
+      }
+     ],
+     "name": "drive",
+     "node_id": 4,
+     "od": [
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00020192",
+       "high": "",
+       "index": 4096,
+       "low": "",
+       "name": "Device type",
+       "subindex": 0,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "50 (0x0032)",
+       "default": "0",
+       "high": "",
+       "index": 4119,
+       "low": "",
+       "name": "Producer heartbeat time",
+       "subindex": 0,
+       "type": "UNSIGNED16"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "4",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Highest sub-index supported",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00F0F402",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Vendor-ID",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00000402",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Product code",
+       "subindex": 2,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00010000",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Revision number",
+       "subindex": 3,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Serial number",
+       "subindex": 4,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "516 (0x00000204)",
+       "default": "$NODEID+0x200",
+       "high": "",
+       "index": 5120,
+       "low": "",
+       "name": "RPDO 1 communication parameter / COB-ID",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "772 (0x00000304)",
+       "default": "$NODEID+0x300",
+       "high": "",
+       "index": 5121,
+       "low": "",
+       "name": "RPDO 2 communication parameter / COB-ID",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1028 (0x00000404)",
+       "default": "$NODEID+0x400",
+       "high": "",
+       "index": 5122,
+       "low": "",
+       "name": "RPDO 3 communication parameter / COB-ID",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "2147484932 (0x80000504)",
+       "default": "$NODEID+0x500",
+       "high": "",
+       "index": 5123,
+       "low": "",
+       "name": "RPDO 4 communication parameter / COB-ID",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "2 (0x02)",
+       "default": "2",
+       "high": "8",
+       "index": 5632,
+       "low": "0",
+       "name": "RPDO 1 mapping parameter / Number of mapped objects",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "1614807056 (0x60400010)",
+       "default": "0x60400010",
+       "high": "",
+       "index": 5632,
+       "low": "",
+       "name": "RPDO 1 mapping parameter / Mapped object 1",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1616904200 (0x60600008)",
+       "default": "0x60600008",
+       "high": "",
+       "index": 5632,
+       "low": "",
+       "name": "RPDO 1 mapping parameter / Mapped object 2",
+       "subindex": 2,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "2 (0x02)",
+       "default": "2",
+       "high": "8",
+       "index": 5633,
+       "low": "0",
+       "name": "RPDO 2 mapping parameter / Number of mapped objects",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "1618608160 (0x607A0020)",
+       "default": "0x607A0020",
+       "high": "",
+       "index": 5633,
+       "low": "",
+       "name": "RPDO 2 mapping parameter / Mapped object 1",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1619066912 (0x60810020)",
+       "default": "0x60810020",
+       "high": "",
+       "index": 5633,
+       "low": "",
+       "name": "RPDO 2 mapping parameter / Mapped object 2",
+       "subindex": 2,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1 (0x01)",
+       "default": "1",
+       "high": "8",
+       "index": 5634,
+       "low": "0",
+       "name": "RPDO 3 mapping parameter / Number of mapped objects",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "1627324448 (0x60FF0020)",
+       "default": "0x60FF0020",
+       "high": "",
+       "index": 5634,
+       "low": "",
+       "name": "RPDO 3 mapping parameter / Mapped object 1",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "388 (0x00000184)",
+       "default": "$NODEID+0x180",
+       "high": "",
+       "index": 6144,
+       "low": "",
+       "name": "TPDO 1 communication parameter / COB-ID",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "644 (0x00000284)",
+       "default": "$NODEID+0x280",
+       "high": "",
+       "index": 6145,
+       "low": "",
+       "name": "TPDO 2 communication parameter / COB-ID",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "900 (0x00000384)",
+       "default": "$NODEID+0x380",
+       "high": "",
+       "index": 6146,
+       "low": "",
+       "name": "TPDO 3 communication parameter / COB-ID",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "2147484804 (0x80000484)",
+       "default": "$NODEID+0x480",
+       "high": "",
+       "index": 6147,
+       "low": "",
+       "name": "TPDO 4 communication parameter / COB-ID",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "2 (0x02)",
+       "default": "2",
+       "high": "8",
+       "index": 6656,
+       "low": "0",
+       "name": "TPDO 1 mapping parameter / Number of mapped objects",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "1614872592 (0x60410010)",
+       "default": "0x60410010",
+       "high": "",
+       "index": 6656,
+       "low": "",
+       "name": "TPDO 1 mapping parameter / Mapped object 1",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1616969736 (0x60610008)",
+       "default": "0x60610008",
+       "high": "",
+       "index": 6656,
+       "low": "",
+       "name": "TPDO 1 mapping parameter / Mapped object 2",
+       "subindex": 2,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1 (0x01)",
+       "default": "1",
+       "high": "8",
+       "index": 6657,
+       "low": "0",
+       "name": "TPDO 2 mapping parameter / Number of mapped objects",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "1617166368 (0x60640020)",
+       "default": "0x60640020",
+       "high": "",
+       "index": 6657,
+       "low": "",
+       "name": "TPDO 2 mapping parameter / Mapped object 1",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1 (0x01)",
+       "default": "1",
+       "high": "8",
+       "index": 6658,
+       "low": "0",
+       "name": "TPDO 3 mapping parameter / Number of mapped objects",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "1617690656 (0x606C0020)",
+       "default": "0x606C0020",
+       "high": "",
+       "index": 6658,
+       "low": "",
+       "name": "TPDO 3 mapping parameter / Mapped object 1",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rww",
+       "configured": "",
+       "default": "0x0000",
+       "high": "",
+       "index": 24640,
+       "low": "",
+       "name": "Controlword",
+       "subindex": 0,
+       "type": "UNSIGNED16"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x0000",
+       "high": "",
+       "index": 24641,
+       "low": "",
+       "name": "Statusword",
+       "subindex": 0,
+       "type": "UNSIGNED16"
+      },
+      {
+       "access": "rww",
+       "configured": "",
+       "default": "0",
+       "high": "",
+       "index": 24672,
+       "low": "",
+       "name": "Modes of operation",
+       "subindex": 0,
+       "type": "INTEGER8"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0",
+       "high": "",
+       "index": 24673,
+       "low": "",
+       "name": "Modes of operation display",
+       "subindex": 0,
+       "type": "INTEGER8"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0",
+       "high": "",
+       "index": 24676,
+       "low": "",
+       "name": "Position actual value",
+       "subindex": 0,
+       "type": "INTEGER32"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0",
+       "high": "",
+       "index": 24684,
+       "low": "",
+       "name": "Velocity actual value",
+       "subindex": 0,
+       "type": "INTEGER32"
+      },
+      {
+       "access": "rww",
+       "configured": "",
+       "default": "0",
+       "high": "",
+       "index": 24698,
+       "low": "",
+       "name": "Target position",
+       "subindex": 0,
+       "type": "INTEGER32"
+      },
+      {
+       "access": "rww",
+       "configured": "",
+       "default": "1000",
+       "high": "",
+       "index": 24705,
+       "low": "",
+       "name": "Profile velocity",
+       "subindex": 0,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "20000 (0x00004E20)",
+       "default": "10000",
+       "high": "",
+       "index": 24707,
+       "low": "",
+       "name": "Profile acceleration",
+       "subindex": 0,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "20000 (0x00004E20)",
+       "default": "10000",
+       "high": "",
+       "index": 24708,
+       "low": "",
+       "name": "Profile deceleration",
+       "subindex": 0,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "35 (0x23)",
+       "default": "35",
+       "high": "",
+       "index": 24728,
+       "low": "",
+       "name": "Homing method",
+       "subindex": 0,
+       "type": "INTEGER8"
+      },
+      {
+       "access": "rww",
+       "configured": "",
+       "default": "0",
+       "high": "",
+       "index": 24831,
+       "low": "",
+       "name": "Target velocity",
+       "subindex": 0,
+       "type": "INTEGER32"
+      }
+     ],
+     "pdos": [
+      {
+       "anchor": "pdo-4-tpdo1",
+       "bits": 24,
+       "cob_id": 388,
+       "dlc": 3,
+       "entries": [
+        {
+         "bit": 0,
+         "dummy": false,
+         "index": 24641,
+         "length": 16,
+         "location": "%IW100",
+         "name": "Statusword",
+         "subindex": 0,
+         "type": "UNSIGNED16",
+         "used": true,
+         "variables": []
+        },
+        {
+         "bit": 16,
+         "dummy": false,
+         "index": 24673,
+         "length": 8,
+         "location": "%IB100",
+         "name": "Modes of operation display",
+         "subindex": 0,
+         "type": "INTEGER8",
+         "used": true,
+         "variables": []
+        }
+       ],
+       "event_timer_ms": 50,
+       "inhibit_time_us": 0,
+       "kind": "TPDO",
+       "mapping": "config",
+       "number": 1,
+       "sync_start": null,
+       "transmission": 255,
+       "transmission_from_eds": true,
+       "transmission_text": "event-driven",
+       "trigger": "event timer 50 ms; no inhibit time, changes can be sent faster"
+      },
+      {
+       "anchor": "pdo-4-tpdo2",
+       "bits": 32,
+       "cob_id": 644,
+       "dlc": 4,
+       "entries": [
+        {
+         "bit": 0,
+         "dummy": false,
+         "index": 24676,
+         "length": 32,
+         "location": "%ID100",
+         "name": "Position actual value",
+         "subindex": 0,
+         "type": "INTEGER32",
+         "used": true,
+         "variables": []
+        }
+       ],
+       "event_timer_ms": 50,
+       "inhibit_time_us": 0,
+       "kind": "TPDO",
+       "mapping": "config",
+       "number": 2,
+       "sync_start": null,
+       "transmission": 255,
+       "transmission_from_eds": true,
+       "transmission_text": "event-driven",
+       "trigger": "event timer 50 ms; no inhibit time, changes can be sent faster"
+      },
+      {
+       "anchor": "pdo-4-tpdo3",
+       "bits": 32,
+       "cob_id": 900,
+       "dlc": 4,
+       "entries": [
+        {
+         "bit": 0,
+         "dummy": false,
+         "index": 24684,
+         "length": 32,
+         "location": "%ID101",
+         "name": "Velocity actual value",
+         "subindex": 0,
+         "type": "INTEGER32",
+         "used": true,
+         "variables": []
+        }
+       ],
+       "event_timer_ms": 50,
+       "inhibit_time_us": 0,
+       "kind": "TPDO",
+       "mapping": "config",
+       "number": 3,
+       "sync_start": null,
+       "transmission": 255,
+       "transmission_from_eds": true,
+       "transmission_text": "event-driven",
+       "trigger": "event timer 50 ms; no inhibit time, changes can be sent faster"
+      },
+      {
+       "anchor": "pdo-4-rpdo1",
+       "bits": 24,
+       "cob_id": 516,
+       "dlc": 3,
+       "entries": [
+        {
+         "bit": 0,
+         "dummy": false,
+         "index": 24640,
+         "length": 16,
+         "location": "%QW100",
+         "name": "Controlword",
+         "subindex": 0,
+         "type": "UNSIGNED16",
+         "used": true,
+         "variables": []
+        },
+        {
+         "bit": 16,
+         "dummy": false,
+         "index": 24672,
+         "length": 8,
+         "location": "%QB100",
+         "name": "Modes of operation",
+         "subindex": 0,
+         "type": "INTEGER8",
+         "used": true,
+         "variables": []
+        }
+       ],
+       "event_timer_ms": null,
+       "inhibit_time_us": null,
+       "kind": "RPDO",
+       "mapping": "config",
+       "number": 1,
+       "sync_start": null,
+       "transmission": 255,
+       "transmission_from_eds": true,
+       "transmission_text": "event-driven",
+       "trigger": "on change, at most every 1 ms (the master's output check)"
+      },
+      {
+       "anchor": "pdo-4-rpdo2",
+       "bits": 64,
+       "cob_id": 772,
+       "dlc": 8,
+       "entries": [
+        {
+         "bit": 0,
+         "dummy": false,
+         "index": 24698,
+         "length": 32,
+         "location": "%QD100",
+         "name": "Target position",
+         "subindex": 0,
+         "type": "INTEGER32",
+         "used": true,
+         "variables": []
+        },
+        {
+         "bit": 32,
+         "dummy": false,
+         "index": 24705,
+         "length": 32,
+         "location": "%QD101",
+         "name": "Profile velocity",
+         "subindex": 0,
+         "type": "UNSIGNED32",
+         "used": true,
+         "variables": []
+        }
+       ],
+       "event_timer_ms": null,
+       "inhibit_time_us": null,
+       "kind": "RPDO",
+       "mapping": "config",
+       "number": 2,
+       "sync_start": null,
+       "transmission": 255,
+       "transmission_from_eds": true,
+       "transmission_text": "event-driven",
+       "trigger": "on change, at most every 1 ms (the master's output check)"
+      },
+      {
+       "anchor": "pdo-4-rpdo3",
+       "bits": 32,
+       "cob_id": 1028,
+       "dlc": 4,
+       "entries": [
+        {
+         "bit": 0,
+         "dummy": false,
+         "index": 24831,
+         "length": 32,
+         "location": "%QD102",
+         "name": "Target velocity",
+         "subindex": 0,
+         "type": "INTEGER32",
+         "used": true,
+         "variables": []
+        }
+       ],
+       "event_timer_ms": null,
+       "inhibit_time_us": null,
+       "kind": "RPDO",
+       "mapping": "config",
+       "number": 3,
+       "sync_start": null,
+       "transmission": 255,
+       "transmission_from_eds": true,
+       "transmission_text": "event-driven",
+       "trigger": "on change, at most every 1 ms (the master's output check)"
+      }
+     ],
+     "sdo_variables": [],
+     "settings": [
+      {
+       "label": "Heartbeat produced",
+       "object": "0x1017",
+       "value": "50 ms"
+      },
+      {
+       "label": "Heartbeat timeout in the master",
+       "object": "master 0x1016",
+       "value": "200 ms"
+      },
+      {
+       "label": "Mandatory",
+       "object": "master 0x1F81",
+       "value": "no"
+      },
+      {
+       "label": "Booted by the master",
+       "object": "master 0x1F81",
+       "value": "yes"
+      },
+      {
+       "label": "Reset communication before boot",
+       "object": "master 0x1F81",
+       "value": "yes"
+      },
+      {
+       "label": "Configuration check",
+       "object": "0x1020",
+       "value": "off"
+      },
+      {
+       "label": "CiA 402 axis",
+       "object": "",
+       "value": "scale 1/1 × 1.0"
+      }
+     ],
+     "startup_sdos": [
+      {
+       "index": 24707,
+       "name": "Profile acceleration",
+       "subindex": 0,
+       "type": "UNSIGNED32",
+       "value": "20000"
+      },
+      {
+       "index": 24708,
+       "name": "Profile deceleration",
+       "subindex": 0,
+       "type": "UNSIGNED32",
+       "value": "20000"
+      },
+      {
+       "index": 24728,
+       "name": "Homing method",
+       "subindex": 0,
+       "type": "INTEGER8",
+       "value": "35"
+      }
+     ]
+    }
+   ],
+   "role": "master",
+   "settings": [
+    {
+     "label": "Adapter",
+     "object": "",
+     "value": "socketcan vcan0"
+    },
+    {
+     "label": "Bitrate",
+     "object": "",
+     "value": "500 kbit/s"
+    },
+    {
+     "label": "Master node ID",
+     "object": "",
+     "value": "1"
+    },
+    {
+     "label": "SYNC",
+     "object": "0x1005",
+     "value": "off"
+    },
+    {
+     "label": "Master heartbeat",
+     "object": "0x1017",
+     "value": "100 ms"
+    },
+    {
+     "label": "Watches node heartbeats",
+     "object": "0x1016",
+     "value": "yes"
+    },
+    {
+     "label": "SDO timeout while booting",
+     "object": "",
+     "value": "1000 ms"
+    },
+    {
+     "label": "EDS lint",
+     "object": "",
+     "value": "communication"
+    },
+    {
+     "label": "Diagnostics channel",
+     "object": "",
+     "value": "off"
+    }
+   ]
+  }
+ ],
+ "title": "CANopen network documentation",
+ "tool": {
+  "name": "openplc-canopen-deploy",
+  "version": "0.31.0"
+ },
+ "warnings": [
+  "estimated worst-case bus load 64.5 % is above 60 %"
+ ]
+}

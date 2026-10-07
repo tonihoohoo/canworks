@@ -1,0 +1,751 @@
+{
+ "config": {
+  "file": "canopen_config.json",
+  "schema_version": 1,
+  "sha256": "978c4f06c3e49fa5deff7a1b0639ea918175104f2393dc8f91e71cc3d485d1a3",
+  "text": "{\n  \"schema_version\": 1,\n  \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n  \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n  \"nodes\": [\n    {\n      \"node_id\": 2,\n      \"name\": \"pingpong\",\n      \"eds\": \"cpp-slave.eds\",\n      \"heartbeat_ms\": 100,\n      \"heartbeat_timeout_ms\": 300,\n      \"status_location\": \"%IX10.0\",\n      \"tx_pdos\": [\n        { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID100\" } ] }\n      ],\n      \"rx_pdos\": [\n        { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%QD100\" } ] }\n      ],\n      \"sdo\": [\n        { \"index\": \"0x1017\", \"subindex\": 0, \"type\": \"UNSIGNED16\", \"value\": 100 }\n      ]\n    }\n  ]\n}\n"
+ },
+ "doc_schema_version": 1,
+ "gateway": null,
+ "generated": "2026-01-02 03:04",
+ "io": [
+  {
+   "key": [
+    "I",
+    "D",
+    100
+   ],
+   "location": "%ID100",
+   "network": "",
+   "path": "nodes[0].tx_pdos[0].entries[0].iec_location",
+   "variables": [],
+   "who": "node 2 (pingpong) TPDO 1 object 0x4001:0"
+  },
+  {
+   "key": [
+    "I",
+    "X",
+    80
+   ],
+   "location": "%IX10.0",
+   "network": "",
+   "path": "nodes[0].status_location",
+   "variables": [],
+   "who": "node 2 (pingpong) status_location"
+  },
+  {
+   "key": [
+    "Q",
+    "D",
+    100
+   ],
+   "location": "%QD100",
+   "network": "",
+   "path": "nodes[0].rx_pdos[0].entries[0].iec_location",
+   "variables": [],
+   "who": "node 2 (pingpong) RPDO 1 object 0x4000:0"
+  }
+ ],
+ "networks": [
+  {
+   "anchor": "net-network",
+   "bitrate": 125000,
+   "bus_load": {
+    "cyclic": 2.48,
+    "notes": [],
+    "plc_cycle_ms": null,
+    "sync_ms": 100.0,
+    "unbounded": [],
+    "worst": 2.48
+   },
+   "frames": [
+    {
+     "bits": 75,
+     "cob_id": 0,
+     "consumers": [
+      "pingpong"
+     ],
+     "dlc": 2,
+     "duplicate": false,
+     "kind": "nmt",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "NMT",
+     "notes": "NMT node control; Node_ID 0 addresses all nodes",
+     "producer": "Master",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on demand"
+    },
+    {
+     "bits": 55,
+     "cob_id": 128,
+     "consumers": [
+      "pingpong"
+     ],
+     "dlc": 0,
+     "duplicate": false,
+     "kind": "sync",
+     "link": "",
+     "load_cyclic": 0.44,
+     "load_worst": 0.44,
+     "name": "SYNC",
+     "notes": "SYNC",
+     "producer": "Master",
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "every 100 ms"
+    },
+    {
+     "bits": 135,
+     "cob_id": 130,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "emcy",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "pingpong_EMCY",
+     "notes": "node 2 emergency",
+     "producer": "pingpong",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on error"
+    },
+    {
+     "bits": 95,
+     "cob_id": 386,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 4,
+     "duplicate": false,
+     "kind": "tpdo",
+     "link": "pdo-2-tpdo1",
+     "load_cyclic": 0.76,
+     "load_worst": 0.76,
+     "name": "pingpong_TPDO1",
+     "notes": "node 2 TPDO 1, transmission 1 from EDS",
+     "producer": "pingpong",
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "SYNC, 100 ms"
+    },
+    {
+     "bits": 95,
+     "cob_id": 514,
+     "consumers": [
+      "pingpong"
+     ],
+     "dlc": 4,
+     "duplicate": false,
+     "kind": "rpdo",
+     "link": "pdo-2-rpdo1",
+     "load_cyclic": 0.76,
+     "load_worst": 0.76,
+     "name": "pingpong_RPDO1",
+     "notes": "node 2 RPDO 1, transmission 1 from EDS",
+     "producer": "Master",
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "SYNC, 100 ms"
+    },
+    {
+     "bits": 135,
+     "cob_id": 1410,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "sdo_response",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "pingpong_SDO_Response",
+     "notes": "node 2 SDO server",
+     "producer": "pingpong",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on demand (boot configuration, SDO variables, diagnostics)"
+    },
+    {
+     "bits": 135,
+     "cob_id": 1538,
+     "consumers": [
+      "pingpong"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "sdo_request",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "pingpong_SDO_Request",
+     "notes": "SDO client to node 2",
+     "producer": "Master",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "on demand (boot configuration, SDO variables, diagnostics)"
+    },
+    {
+     "bits": 65,
+     "cob_id": 1793,
+     "consumers": [],
+     "dlc": 1,
+     "duplicate": false,
+     "kind": "master_heartbeat",
+     "link": "",
+     "load_cyclic": 0.0,
+     "load_worst": 0.0,
+     "name": "Master_Heartbeat",
+     "notes": "master (node 1) heartbeat",
+     "producer": "Master",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "off (boot-up message only)"
+    },
+    {
+     "bits": 65,
+     "cob_id": 1794,
+     "consumers": [
+      "Master"
+     ],
+     "dlc": 1,
+     "duplicate": false,
+     "kind": "heartbeat",
+     "link": "",
+     "load_cyclic": 0.52,
+     "load_worst": 0.52,
+     "name": "pingpong_Heartbeat",
+     "notes": "node 2 heartbeat",
+     "producer": "pingpong",
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "every 100 ms"
+    }
+   ],
+   "interface": "vcan0",
+   "locations": [],
+   "master_node_id": 1,
+   "name": "",
+   "nodes": [
+    {
+     "anchor": "node-2",
+     "boot": {
+      "after": [
+       "NMT start (unless the master or the node is held)"
+      ],
+      "before": [],
+      "writes": [
+       {
+        "access": "rw",
+        "data": "6400",
+        "eds_default": "0",
+        "index": 4119,
+        "meaning": "heartbeat every 100 ms",
+        "name": "Producer heartbeat time",
+        "source": "node settings",
+        "subindex": 0,
+        "value": "100 (0x0064)"
+       },
+       {
+        "access": "rw",
+        "data": "02020080",
+        "eds_default": "$NODEID+0x200",
+        "index": 5120,
+        "meaning": "COB-ID 0x202, PDO switched off",
+        "name": "RPDO communication parameter / COB-ID used by RPDO",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484162 (0x80000202)"
+       },
+       {
+        "access": "rw",
+        "data": "00",
+        "eds_default": "1",
+        "index": 5632,
+        "meaning": "0 mapped objects",
+        "name": "RPDO mapping parameter / Number of mapped application objects in PDO",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "0 (0x00)"
+       },
+       {
+        "access": "rw",
+        "data": "20000040",
+        "eds_default": "0x40000020",
+        "index": 5632,
+        "meaning": "maps 0x4000:0, 32 bits (UNSIGNED32 received by slave)",
+        "name": "RPDO mapping parameter / Application object 1",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "1073741856 (0x40000020)"
+       },
+       {
+        "access": "rw",
+        "data": "01",
+        "eds_default": "1",
+        "index": 5632,
+        "meaning": "1 mapped object",
+        "name": "RPDO mapping parameter / Number of mapped application objects in PDO",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "1 (0x01)"
+       },
+       {
+        "access": "rw",
+        "data": "02020000",
+        "eds_default": "$NODEID+0x200",
+        "index": 5120,
+        "meaning": "COB-ID 0x202, PDO valid",
+        "name": "RPDO communication parameter / COB-ID used by RPDO",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "514 (0x00000202)"
+       },
+       {
+        "access": "rw",
+        "data": "82010080",
+        "eds_default": "$NODEID+0x180",
+        "index": 6144,
+        "meaning": "COB-ID 0x182, PDO switched off",
+        "name": "TPDO communication parameter / COB-ID used by TPDO",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "2147484034 (0x80000182)"
+       },
+       {
+        "access": "rw",
+        "data": "00",
+        "eds_default": "1",
+        "index": 6656,
+        "meaning": "0 mapped objects",
+        "name": "TPDO mapping parameter / Number of mapped application objects in PDO",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "0 (0x00)"
+       },
+       {
+        "access": "rw",
+        "data": "20000140",
+        "eds_default": "0x40010020",
+        "index": 6656,
+        "meaning": "maps 0x4001:0, 32 bits (UNSIGNED32 sent from slave)",
+        "name": "TPDO mapping parameter / Application object 1",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "1073807392 (0x40010020)"
+       },
+       {
+        "access": "rw",
+        "data": "01",
+        "eds_default": "1",
+        "index": 6656,
+        "meaning": "1 mapped object",
+        "name": "TPDO mapping parameter / Number of mapped application objects in PDO",
+        "source": "PDO configuration",
+        "subindex": 0,
+        "value": "1 (0x01)"
+       },
+       {
+        "access": "rw",
+        "data": "82010000",
+        "eds_default": "$NODEID+0x180",
+        "index": 6144,
+        "meaning": "COB-ID 0x182, PDO valid",
+        "name": "TPDO communication parameter / COB-ID used by TPDO",
+        "source": "PDO configuration",
+        "subindex": 1,
+        "value": "386 (0x00000182)"
+       },
+       {
+        "access": "rw",
+        "data": "6400",
+        "eds_default": "0",
+        "index": 4119,
+        "meaning": "heartbeat every 100 ms",
+        "name": "Producer heartbeat time",
+        "source": "startup SDO",
+        "subindex": 0,
+        "value": "100 (0x0064)"
+       }
+      ]
+     },
+     "eds": {
+      "file": "cpp-slave.eds",
+      "lss_supported": false,
+      "product_name": "cpp-slave",
+      "sha256": "9a37938e19d64c4492222b5ee613a6a5eb33435cb439ab7864eab4a2d9e92f59",
+      "vendor_name": "Lely Industries N.V."
+     },
+     "ident": "pingpong",
+     "identity": [
+      {
+       "checked": true,
+       "eds": 864,
+       "expected": 864,
+       "field": "Vendor ID"
+      },
+      {
+       "checked": true,
+       "eds": 0,
+       "expected": 0,
+       "field": "Product code"
+      },
+      {
+       "checked": true,
+       "eds": 0,
+       "expected": 0,
+       "field": "Revision"
+      },
+      {
+       "checked": false,
+       "eds": null,
+       "expected": null,
+       "field": "Serial number"
+      }
+     ],
+     "locations": [
+      {
+       "location": "%IX10.0",
+       "variables": [],
+       "what": "TRUE while the node and the master are OPERATIONAL"
+      }
+     ],
+     "name": "pingpong",
+     "node_id": 2,
+     "od": [
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00000000",
+       "high": "",
+       "index": 4096,
+       "low": "",
+       "name": "Device type",
+       "subindex": 0,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "100 (0x0064)",
+       "default": "0",
+       "high": "",
+       "index": 4119,
+       "low": "",
+       "name": "Producer heartbeat time",
+       "subindex": 0,
+       "type": "UNSIGNED16"
+      },
+      {
+       "access": "const",
+       "configured": "",
+       "default": "4",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Highest sub-index supported",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00000360",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Vendor-ID",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00000000",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Product code",
+       "subindex": 2,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00000000",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Revision number",
+       "subindex": 3,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "ro",
+       "configured": "",
+       "default": "0x00000000",
+       "high": "",
+       "index": 4120,
+       "low": "",
+       "name": "Identity object / Serial number",
+       "subindex": 4,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "514 (0x00000202)",
+       "default": "$NODEID+0x200",
+       "high": "",
+       "index": 5120,
+       "low": "",
+       "name": "RPDO communication parameter / COB-ID used by RPDO",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1 (0x01)",
+       "default": "1",
+       "high": "",
+       "index": 5632,
+       "low": "",
+       "name": "RPDO mapping parameter / Number of mapped application objects in PDO",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "1073741856 (0x40000020)",
+       "default": "0x40000020",
+       "high": "",
+       "index": 5632,
+       "low": "",
+       "name": "RPDO mapping parameter / Application object 1",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "386 (0x00000182)",
+       "default": "$NODEID+0x180",
+       "high": "",
+       "index": 6144,
+       "low": "",
+       "name": "TPDO communication parameter / COB-ID used by TPDO",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "1 (0x01)",
+       "default": "1",
+       "high": "",
+       "index": 6656,
+       "low": "",
+       "name": "TPDO mapping parameter / Number of mapped application objects in PDO",
+       "subindex": 0,
+       "type": "UNSIGNED8"
+      },
+      {
+       "access": "rw",
+       "configured": "1073807392 (0x40010020)",
+       "default": "0x40010020",
+       "high": "",
+       "index": 6656,
+       "low": "",
+       "name": "TPDO mapping parameter / Application object 1",
+       "subindex": 1,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rww",
+       "configured": "",
+       "default": "0x00000000",
+       "high": "",
+       "index": 16384,
+       "low": "",
+       "name": "UNSIGNED32 received by slave",
+       "subindex": 0,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rwr",
+       "configured": "",
+       "default": "0x00000000",
+       "high": "",
+       "index": 16385,
+       "low": "",
+       "name": "UNSIGNED32 sent from slave",
+       "subindex": 0,
+       "type": "UNSIGNED32"
+      }
+     ],
+     "pdos": [
+      {
+       "anchor": "pdo-2-tpdo1",
+       "bits": 32,
+       "cob_id": 386,
+       "dlc": 4,
+       "entries": [
+        {
+         "bit": 0,
+         "dummy": false,
+         "index": 16385,
+         "length": 32,
+         "location": "%ID100",
+         "name": "UNSIGNED32 sent from slave",
+         "subindex": 0,
+         "type": "UNSIGNED32",
+         "used": true,
+         "variables": []
+        }
+       ],
+       "event_timer_ms": 0,
+       "inhibit_time_us": 0,
+       "kind": "TPDO",
+       "mapping": "config",
+       "number": 1,
+       "sync_start": null,
+       "transmission": 1,
+       "transmission_from_eds": true,
+       "transmission_text": "synchronous, every SYNC",
+       "trigger": "SYNC, 100 ms"
+      },
+      {
+       "anchor": "pdo-2-rpdo1",
+       "bits": 32,
+       "cob_id": 514,
+       "dlc": 4,
+       "entries": [
+        {
+         "bit": 0,
+         "dummy": false,
+         "index": 16384,
+         "length": 32,
+         "location": "%QD100",
+         "name": "UNSIGNED32 received by slave",
+         "subindex": 0,
+         "type": "UNSIGNED32",
+         "used": true,
+         "variables": []
+        }
+       ],
+       "event_timer_ms": null,
+       "inhibit_time_us": null,
+       "kind": "RPDO",
+       "mapping": "config",
+       "number": 1,
+       "sync_start": null,
+       "transmission": 1,
+       "transmission_from_eds": true,
+       "transmission_text": "synchronous, every SYNC",
+       "trigger": "SYNC, 100 ms"
+      }
+     ],
+     "sdo_variables": [],
+     "settings": [
+      {
+       "label": "Heartbeat produced",
+       "object": "0x1017",
+       "value": "100 ms"
+      },
+      {
+       "label": "Heartbeat timeout in the master",
+       "object": "master 0x1016",
+       "value": "300 ms"
+      },
+      {
+       "label": "Mandatory",
+       "object": "master 0x1F81",
+       "value": "no"
+      },
+      {
+       "label": "Booted by the master",
+       "object": "master 0x1F81",
+       "value": "yes"
+      },
+      {
+       "label": "Reset communication before boot",
+       "object": "master 0x1F81",
+       "value": "yes"
+      },
+      {
+       "label": "Configuration check",
+       "object": "0x1020",
+       "value": "off"
+      }
+     ],
+     "startup_sdos": [
+      {
+       "index": 4119,
+       "name": "Producer heartbeat time",
+       "subindex": 0,
+       "type": "UNSIGNED16",
+       "value": "100"
+      }
+     ]
+    }
+   ],
+   "role": "master",
+   "settings": [
+    {
+     "label": "Adapter",
+     "object": "",
+     "value": "socketcan vcan0"
+    },
+    {
+     "label": "Bitrate",
+     "object": "",
+     "value": "125 kbit/s"
+    },
+    {
+     "label": "Master node ID",
+     "object": "",
+     "value": "1"
+    },
+    {
+     "label": "SYNC",
+     "object": "0x1006",
+     "value": "every 100 ms (master timer)"
+    },
+    {
+     "label": "Master heartbeat",
+     "object": "0x1017",
+     "value": "off"
+    },
+    {
+     "label": "Watches node heartbeats",
+     "object": "0x1016",
+     "value": "yes"
+    },
+    {
+     "label": "SDO timeout while booting",
+     "object": "",
+     "value": "1000 ms"
+    },
+    {
+     "label": "EDS lint",
+     "object": "",
+     "value": "communication"
+    },
+    {
+     "label": "Diagnostics channel",
+     "object": "",
+     "value": "off"
+    }
+   ]
+  }
+ ],
+ "title": "CANopen network documentation",
+ "tool": {
+  "name": "openplc-canopen-deploy",
+  "version": "0.31.0"
+ },
+ "warnings": []
+}

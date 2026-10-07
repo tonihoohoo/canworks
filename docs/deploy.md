@@ -43,7 +43,7 @@ Nothing is uploaded when a check fails.
 
 A config can simulate the network or some of its nodes (`adapter.simulate` and node `simulate`, see [simulator.md](simulator.md)), and a simulation file sets how the simulated devices behave.
 
-**The simulation file.** `simulation.json` next to the config is used when it exists; `--sim FILE` names another. Every mode except the DCF and DBC exports checks it after the config: the [simulation file schema](../schema/canopen-sim.v1.schema.json) and its `schema_version` (a newer one is refused, naming both versions), node keys that are neither configured nodes nor extra devices, objects that are not in the device's EDS (in sources, faults, scenario steps and conditions), value sources on objects the master writes (naming the RPDO, "startup SDO" or the SDO variable), extra devices (the EDS or DCF file exists, node 0 has a name, names are unique, node IDs are free), CSV files that do not exist, and every expression with the grammar of [Expressions](simulator.md#expressions), including reference cycles. A problem stops the deploy like a config problem, naming the file, the JSON path and, for an expression, the position in its text. The bundle gets:
+**The simulation file.** `simulation.json` next to the config is used when it exists; `--sim FILE` names another. Every mode except the DCF, DBC and HTML exports checks it after the config: the [simulation file schema](../schema/canopen-sim.v1.schema.json) and its `schema_version` (a newer one is refused, naming both versions), node keys that are neither configured nodes nor extra devices, objects that are not in the device's EDS (in sources, faults, scenario steps and conditions), value sources on objects the master writes (naming the RPDO, "startup SDO" or the SDO variable), extra devices (the EDS or DCF file exists, node 0 has a name, names are unique, node IDs are free), CSV files that do not exist, and every expression with the grammar of [Expressions](simulator.md#expressions), including reference cycles. A problem stops the deploy like a config problem, naming the file, the JSON path and, for an expression, the position in its text. The bundle gets:
 
 | File | In the bundle | Path in `simulation.json` |
 |---|---|---|
@@ -162,6 +162,14 @@ writes the EDS of a [slave network](slave.md) from a short JSON description (ide
 With `--gateway <config>` the generator also adds the objects of that config's [gateway](gateway.md): one slave object per route (named after the route, with the field entry's type, from the master for a route down and to the master for a route up), the field node status ARRAYs and the SDO bridge record. The routes' `slave` ends must match: `--update-config` writes them into the config; without it the tool notes routes that name another object than the EDS gives.
 
 An invalid description or gateway section stops it with the reason (the object and the field) and exit status 1; nothing is written. The configurator builds the same file ([configurator.md](configurator.md#slave-networks)).
+
+## Export documentation of the network
+
+```sh
+openplc-canopen-deploy --config canopen_config.json --export-html network.html [--network NAME] [--doc-title TEXT] [--doc-od used|all] [--doc-embed-eds] [--doc-cycle-ms MS]
+```
+
+writes one self-contained HTML document of the configured networks for people: topology, master and bus settings, the COB-ID map with a bus load estimate, and per node its identity, settings, PDO layouts down to the PLC variables, every SDO write of its boot configuration and an object dictionary extract, plus a PLC I/O cross-reference. With several networks the one document has a section per network; `--network` limits it to one. When `--config` is the `canopen/canopen.json` of an editor project, PLC addresses show their located variables and the project's task interval is the PLC cycle. The tool runs the deploy checks first and writes nothing if they fail; nothing is built or uploaded. What the document holds, the bus load method and the options: [network-docs.md](network-docs.md). The configurator exports the same document ([configurator.md](configurator.md#export-documentation)).
 
 ## Address clashes with other plugins
 
