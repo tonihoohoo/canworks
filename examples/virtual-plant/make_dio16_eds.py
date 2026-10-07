@@ -4,7 +4,7 @@
 DIO-16 is made up for this repository: a compact I/O module following the
 CiA 401 generic I/O profile with 16 digital inputs and outputs (two bytes
 each), two analogue inputs and outputs, two RPDOs and two TPDOs with writable
-mapping, store and restore (0x1010, 0x1011), an EMCY producer, the
+mapping that is blank by default (the master writes it), store and restore (0x1010, 0x1011), an EMCY producer, the
 configuration date and time (0x1020), a TIME consumer entry (0x1012) and LSS.
 Two manufacturer objects give the guide something to read and write over SDO.
 Its vendor ID is not one CiA assigns.
@@ -171,19 +171,19 @@ obj(0x1200, "SDO server parameter", 0x9, [
     ("COB-ID client to server", U32, "ro", "$NODEID+0x600"),
     ("COB-ID server to client", U32, "ro", "$NODEID+0x580"),
 ])
-# RPDO 1: the outputs, RPDO 2: the analogue outputs; TPDO 1: the inputs,
-# TPDO 2: the analogue inputs.
-for n, (cob, maps) in enumerate(((0x200, [0x62000108, 0x62000208]), (0x300, [0x64110110, 0x64110210]))):
+# Two RPDOs and two TPDOs with the CiA default COB-IDs and no mapped
+# objects: like a module whose mapping was never configured, it sends and
+# takes nothing until the master writes a mapping.
+for n, cob in enumerate((0x200, 0x300)):
     obj(0x1400 + n, "RPDO %d communication parameter" % (n + 1), 0x9, [
         ("Highest sub-index supported", U8, "const", 2),
         ("COB-ID used by RPDO", U32, "rw", "$NODEID+0x%X" % cob),
         ("Transmission type", U8, "rw", 0xFF),
     ])
-    subs = [("Number of mapped objects", U8, "rw", len(maps))]
-    subs += [("Mapped object %d" % (k + 1), U32, "rw", m) for k, m in enumerate(maps)]
-    subs += [("Mapped object %d" % (k + 1), U32, "rw", 0) for k in range(len(maps), 8)]
+    subs = [("Number of mapped objects", U8, "rw", 0)]
+    subs += [("Mapped object %d" % (k + 1), U32, "rw", 0) for k in range(8)]
     obj(0x1600 + n, "RPDO %d mapping parameter" % (n + 1), 0x9, subs)
-for n, (cob, maps) in enumerate(((0x180, [0x60000108, 0x60000208]), (0x280, [0x64010110, 0x64010210]))):
+for n, cob in enumerate((0x180, 0x280)):
     obj(0x1800 + n, "TPDO %d communication parameter" % (n + 1), 0x9, [
         ("Highest sub-index supported", U8, "const", 5),
         ("COB-ID used by TPDO", U32, "rw", "$NODEID+0x%X" % cob),
@@ -191,9 +191,8 @@ for n, (cob, maps) in enumerate(((0x180, [0x60000108, 0x60000208]), (0x280, [0x6
         ("Inhibit time", U16, "rw", 100),
         ("Event timer", U16, "rw", 0),
     ], numbers=[0, 1, 2, 3, 5])  # sub 4 is reserved
-    subs = [("Number of mapped objects", U8, "rw", len(maps))]
-    subs += [("Mapped object %d" % (k + 1), U32, "rw", m) for k, m in enumerate(maps)]
-    subs += [("Mapped object %d" % (k + 1), U32, "rw", 0) for k in range(len(maps), 8)]
+    subs = [("Number of mapped objects", U8, "rw", 0)]
+    subs += [("Mapped object %d" % (k + 1), U32, "rw", 0) for k in range(8)]
     obj(0x1A00 + n, "TPDO %d mapping parameter" % (n + 1), 0x9, subs)
 
 # Manufacturer objects.

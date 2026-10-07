@@ -739,7 +739,7 @@ function simSummary() {
   const parts = S.model.networks.map((net, i) => [net, i]).filter(([net]) => netSimulates(net))
     .map(([net, i]) => `Network ${netLabel(net, i)}: ${netSimSummary(net)}`);
   if (!parts.length) return "";
-  return parts.join(" ") + " With several networks the simulation file is not used: simulated devices run with their default behaviour.";
+  return parts.join(" ");
 }
 
 // The banner on every page while anything is simulated.

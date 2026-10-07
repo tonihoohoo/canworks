@@ -7,7 +7,7 @@ Almost all of it can already run on a PC: the local simulator runtime runs the s
 ## What Changes
 
 - **Example project** `examples/virtual-plant/`: an OpenPLC Editor 4.3.2 project with a `canopen/` folder, made by the project generator and extended with a demo program. All networks have `adapter.simulate: true`, so the project runs the same in the local simulator runtime and on any runtime without CAN hardware. Only made-up devices:
-  - `io` (simulated bus `sim0`, master, SYNC from a timer, TIME producer): RTD-8 temperature module (node 5, blank default mapping, startup SDOs, input PDO receive timeout), a new made-up CiA 401 I/O module DIO-16 (node 6: identity check, mandatory, EMCY, configuration check 0x1020, opt-in store 0x1010, SDO variables), and an extra simulated device without a node ID for LSS assignment.
+  - `io` (simulated bus `sim0`, master, SYNC from a timer, TIME producer): RTD-8 temperature module (node 5: mandatory, startup SDOs, input PDO receive timeout), a new made-up CiA 401 I/O module DIO-16 (node 6: blank default mapping written from the config, EMCY, configuration check 0x1020, opt-in store 0x1010, TIME consumer, NMT command byte, SDO variables), a second DIO-16 that gets its node ID by LSS (node 7), and an extra simulated device without a node ID for LSS by hand. Every node has the identity check.
   - `motion` (`sim1`, master, SYNC from the PLC cycle): the SD-402 drive as a cyclic synchronous axis (CSP, CSV, CST).
   - `cell` (`sim2`, slave, node ID 20): OpenPLC as a slave with its own objects and the gateway's upper network (routes from `io`, field node status, EMCY forwarding, SDO bridge, behaviour on upper loss).
   - `host` (`sim2`, master): a stand-in for the machine controller above the gateway, so the slave and gateway have a master in a container with nothing else on its bus.
@@ -16,7 +16,7 @@ Almost all of it can already run on a PC: the local simulator runtime runs the s
 - **Guide** `docs/tour.md`: a step-by-step tour of the example, one chapter per feature group (install, configurator and checks, exports, editor upload and debugger, online diagnostics and parameters, simulation and faults, LSS, motion, slave and gateway, trace and frame inspector, raw frames, automated scenario tests), each saying what to do, what to see and which doc has the details. A closing section lists what needs hardware: bit rate detection, slcan adapters and hot-plug, bus error states, commissioning straight from the PC through a USB adapter, program download, real-time timing, and the install on a Pi.
 - **Simulation file per network**: simulation file `schema_version` 2 with a `networks` object keyed by network name, each holding what a version 1 file holds (`nodes`, `extra_devices`, `scenarios`), plus a shared `tick_ms`. The plugin, the deploy tool's check and the configurator's Simulation view read and write it; a version 1 file keeps working for a config with one network. A several-network project's simulation file is then used instead of ignored.
 - **Gateway self-loop**: a test that a gateway's upper slave network and a master network of the same config share one simulated bus, with the gateway status and routes working; any fix it needs.
-- **CI**: the example is checked, its program compiled with STruC++ and run in the local simulator runtime image, and its `test` scenarios run with `openplc-canopen-diag sim test`, so the example and the guide's commands stay in step with the code.
+- **CI**: the example is checked (a step of the `local-runtime.yml` job that builds the image), its program compiled with STruC++ and run in the local simulator runtime image, and its `test` scenarios run with `openplc-canopen-diag sim test`, so the example and the guide's commands stay in step with the code.
 - README: the example and the guide at the top of the documentation list.
 
 ## Capabilities
@@ -25,6 +25,7 @@ Almost all of it can already run on a PC: the local simulator runtime runs the s
 - `canopen-virtual-example`: the example project, what it must show, that it runs fully virtual, the guide and its hardware section, and the CI check that keeps it working.
 
 ### Modified Capabilities
+- `canopen-gateway`: a master network on the upper slave network's simulated bus stands in for the upper master and is not a field network.
 - `canopen-simulated-bus`: the simulation file serves configs with several networks, one section per network.
 - `canopen-config-contract`: simulation file version 2 and its checks.
 - `canopen-configurator`: the Simulation view edits and saves the section of the network it shows.

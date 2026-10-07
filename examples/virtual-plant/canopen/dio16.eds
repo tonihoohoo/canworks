@@ -501,7 +501,7 @@ ParameterName=Number of mapped objects
 ObjectType=0x7
 DataType=0x0005
 AccessType=rw
-DefaultValue=0x2
+DefaultValue=0x0
 PDOMapping=0
 
 [1600sub1]
@@ -509,7 +509,7 @@ ParameterName=Mapped object 1
 ObjectType=0x7
 DataType=0x0007
 AccessType=rw
-DefaultValue=0x62000108
+DefaultValue=0x0
 PDOMapping=0
 
 [1600sub2]
@@ -517,7 +517,7 @@ ParameterName=Mapped object 2
 ObjectType=0x7
 DataType=0x0007
 AccessType=rw
-DefaultValue=0x62000208
+DefaultValue=0x0
 PDOMapping=0
 
 [1600sub3]
@@ -607,7 +607,7 @@ ParameterName=Number of mapped objects
 ObjectType=0x7
 DataType=0x0005
 AccessType=rw
-DefaultValue=0x2
+DefaultValue=0x0
 PDOMapping=0
 
 [1601sub1]
@@ -615,7 +615,7 @@ ParameterName=Mapped object 1
 ObjectType=0x7
 DataType=0x0007
 AccessType=rw
-DefaultValue=0x64110110
+DefaultValue=0x0
 PDOMapping=0
 
 [1601sub2]
@@ -623,7 +623,7 @@ ParameterName=Mapped object 2
 ObjectType=0x7
 DataType=0x0007
 AccessType=rw
-DefaultValue=0x64110210
+DefaultValue=0x0
 PDOMapping=0
 
 [1601sub3]
@@ -729,7 +729,7 @@ ParameterName=Number of mapped objects
 ObjectType=0x7
 DataType=0x0005
 AccessType=rw
-DefaultValue=0x2
+DefaultValue=0x0
 PDOMapping=0
 
 [1A00sub1]
@@ -737,7 +737,7 @@ ParameterName=Mapped object 1
 ObjectType=0x7
 DataType=0x0007
 AccessType=rw
-DefaultValue=0x60000108
+DefaultValue=0x0
 PDOMapping=0
 
 [1A00sub2]
@@ -745,7 +745,7 @@ ParameterName=Mapped object 2
 ObjectType=0x7
 DataType=0x0007
 AccessType=rw
-DefaultValue=0x60000208
+DefaultValue=0x0
 PDOMapping=0
 
 [1A00sub3]
@@ -851,7 +851,7 @@ ParameterName=Number of mapped objects
 ObjectType=0x7
 DataType=0x0005
 AccessType=rw
-DefaultValue=0x2
+DefaultValue=0x0
 PDOMapping=0
 
 [1A01sub1]
@@ -859,7 +859,7 @@ ParameterName=Mapped object 1
 ObjectType=0x7
 DataType=0x0007
 AccessType=rw
-DefaultValue=0x64010110
+DefaultValue=0x0
 PDOMapping=0
 
 [1A01sub2]
@@ -867,7 +867,7 @@ ParameterName=Mapped object 2
 ObjectType=0x7
 DataType=0x0007
 AccessType=rw
-DefaultValue=0x64010210
+DefaultValue=0x0
 PDOMapping=0
 
 [1A01sub3]
