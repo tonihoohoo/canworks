@@ -82,9 +82,10 @@ class FakeBus:
 
 
 class ListenOnly(unittest.TestCase):
-    def _slcan(self, knows_m1):
+    def _slcan(self, knows_m1, answers=True):
         """A fake slcan serial port; firmware that knows the 'm' (mode)
-        command answers it with CR, other firmware with BEL."""
+        command answers it with CR, other firmware with BEL. With `answers`
+        false it answers nothing, as some firmware does."""
         from can.interfaces import slcan
         ports = []
 
@@ -95,7 +96,7 @@ class ListenOnly(unittest.TestCase):
 
             def write(self, b):
                 self.written += b
-                if b[:1] == b"m":
+                if b[:1] == b"m" and answers:
                     self.inbuf += b"\r" if knows_m1 else b"\x07"
 
             @property
@@ -136,6 +137,16 @@ class ListenOnly(unittest.TestCase):
         opened = adapter_mod.open(parse("slcan:COM9"), 250000, options={"sleep_after_open": 0})
         self.assertTrue(ports[-1].written.endswith(b"m0\rO\r"))
         opened.close()
+
+    def test_slcan_silent_mode_on_firmware_that_never_answers(self):
+        ports = self._slcan(knows_m1=True, answers=False)
+        opened = adapter_mod.open(parse("slcan:COM9"), 250000, listen_only=True, options={"sleep_after_open": 0})
+        sent = ports[-1].written
+        self.assertTrue(sent.endswith(b"m1\rO\r"), sent)
+        self.assertNotIn(b"L\r", sent)
+        ports[-1].written = b""
+        opened.close()
+        self.assertTrue(ports[-1].written.endswith(b"C\rm0\r"), ports[-1].written)
 
     def test_slcan_without_silent_mode_opens_with_L(self):
         ports = self._slcan(knows_m1=False)

@@ -45,20 +45,23 @@ int SlcanSweepPort::send(const std::string& cmd) {
 }
 
 bool SlcanSweepPort::ask(const std::string& cmd) {
-  // The firmware answers every command with CR or BEL, in order: the answer
-  // to `cmd` is the one after those to the commands sent before it. Frame
-  // lines received in between are no answers.
+  // Firmware that answers commands answers with CR or BEL, in order: the
+  // answer to `cmd` is the one after those to the commands sent before it.
+  // Frame lines received in between are no answers. Some firmware answers
+  // nothing at all, so only a BEL refuses: with no answer in time, `cmd`
+  // counts as taken unless the last answer that came was a BEL.
   const unsigned want = unanswered_ + 1;
   if (send(cmd) < 0) return false;
   unanswered_ = 0;
   using clock = std::chrono::steady_clock;
   const auto end = clock::now() + std::chrono::milliseconds(kReplyMs);
   unsigned got = 0;
+  bool last_bel = false;
   std::string line;
   char buf[256];
   for (;;) {
     auto left = std::chrono::duration_cast<std::chrono::milliseconds>(end - clock::now()).count();
-    if (left <= 0 || wait_readable(fd_, static_cast<int>(left)) <= 0) return false;
+    if (left <= 0 || wait_readable(fd_, static_cast<int>(left)) <= 0) return !last_bel;
     ssize_t n = ::read(fd_, buf, sizeof buf);
     if (n <= 0) return false;
     for (ssize_t i = 0; i < n; ++i) {
@@ -70,7 +73,8 @@ bool SlcanSweepPort::ask(const std::string& cmd) {
       const bool frame = c == '\r' && !line.empty();
       line.clear();
       if (frame) continue;
-      if (++got == want) return c == '\r';
+      last_bel = c == '\a';
+      if (++got == want) return !last_bel;
     }
   }
 }
