@@ -40,7 +40,7 @@ Before uploading, the deploy tool SHALL validate the config against the publishe
 - **THEN** the tool exits non-zero with the same lint error the plugin would log, and uploads nothing
 
 ### Requirement: Address clash check across plugins
-Before uploading, the deploy tool SHALL collect the IEC locations used by every plugin config in the bundle's `conf/*.json` (CANopen `iec_location` and `status_location`, and `iec_location` fields in other plugins' configs), and compare their ranges. Since each size letter is a separate table in the OpenPLC image, only locations of the same area and size can overlap. Two plugins mapping overlapping input locations (`%I`) SHALL be an error, since both would write the same input. Two plugins mapping overlapping output locations (`%Q`) SHALL be a warning, since both only read it. An `--allow-clash` option SHALL turn the errors into warnings.
+Before uploading, the deploy tool SHALL collect the IEC locations used by every plugin config in the bundle's `conf/*.json` (CANopen `iec_location` and `status_location`, and `iec_location` fields in other plugins' configs), and compare their ranges. Since each size letter is a separate table in the OpenPLC image, only locations of the same area and size can overlap. Two plugins mapping overlapping input locations (`%I`) SHALL be an error, since both would write the same input. Two plugins mapping overlapping output locations (`%Q`) SHALL be a warning, since both only read it. An `--allow-clash` option SHALL turn the errors into warnings. A plugin config that is empty or holds only whitespace SHALL count as a config with no locations and SHALL be skipped without a warning; a config with other content that is not valid JSON SHALL be reported as a warning saying its locations are not checked.
 
 #### Scenario: Input clash with EtherCAT
 - **WHEN** `conf/ethercat.json` maps `%ID100` and `conf/canopen.json` maps `%ID100`
@@ -57,6 +57,14 @@ Before uploading, the deploy tool SHALL collect the IEC locations used by every 
 #### Scenario: Clash allowed
 - **WHEN** the input clash above is deployed with `--allow-clash`
 - **THEN** the tool prints it as a warning and uploads
+
+#### Scenario: Empty plugin config from the editor
+- **WHEN** the editor's build contains a zero-byte `conf/ethercat.json`
+- **THEN** the tool prints nothing about that file and checks the other configs as usual
+
+#### Scenario: Broken plugin config
+- **WHEN** `conf/ethercat.json` holds text that is not valid JSON
+- **THEN** the tool prints a warning that the file is not readable JSON and its locations are not checked, and continues
 
 ### Requirement: Upload through the runtime API
 The deploy tool SHALL log in with `POST /api/login`, upload the zip with `POST /api/upload-file`, and follow `compilation-status` until the build ends, printing the runtime's build log. After a successful build it SHALL start the PLC with `/api/start-plc` and wait until `/api/status` reports it running, unless the user passes `--no-start`. It SHALL exit zero only when the runtime reports a successful build and the PLC runs (or `--no-start` was given). It SHALL read the password from an environment variable or an interactive prompt, never from the command line or the config, and SHALL verify the runtime's TLS certificate against a CA file or a pinned SHA-256 fingerprint unless the user passes an explicit `--insecure`.
