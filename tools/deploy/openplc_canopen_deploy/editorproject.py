@@ -96,17 +96,23 @@ def declarations(cfg, config_path):
     nodes = contract.all_nodes(cfg)
     eds = {}
 
-    def object_name(i, index, sub):
-        value = nodes[i].get("eds")
+    def find(value, index, sub):
         if value not in eds:
             try:
                 eds[value] = Eds.read(files[value])
             except (KeyError, OSError, EdsError):
                 eds[value] = None
-        o = eds[value].find(index, sub) if eds[value] else None
+        return eds[value].find(index, sub) if eds[value] else None
+
+    def object_name(i, index, sub):
+        o = find(nodes[i].get("eds"), index, sub)
         return o.name if o else None
 
-    return declare.program_order(declare.declarations(cfg, object_name, {}))
+    def slave_object(value, index, sub):
+        o = find(value, index, sub)
+        return (o.name, o.type_name) if o else None
+
+    return declare.program_order(declare.declarations(cfg, object_name, {}, slave_object))
 
 
 def with_axes(cfg, decls):

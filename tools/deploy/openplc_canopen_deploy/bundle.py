@@ -15,7 +15,7 @@ import shutil
 import tempfile
 import zipfile
 
-from .contract import all_nodes
+from .contract import all_nodes, eds_users
 from .eds import to_utf8
 
 EDS_DIR = "canopen/eds"  # under conf/, and as the rewritten `eds` value prefix
@@ -38,11 +38,12 @@ def check_editor_bundle(path):
 
 
 def eds_files(cfg, config_path):
-    """{eds value: absolute path on this PC} for every node, relative values
-    resolved against the config file's directory."""
+    """{eds value: absolute path on this PC} for every node and every slave
+    network's own EDS, relative values resolved against the config file's
+    directory."""
     base = os.path.dirname(os.path.abspath(config_path))
     out = {}
-    for n in all_nodes(cfg):
+    for n in eds_users(cfg):
         value = n.get("eds")
         if isinstance(value, str) and value:
             out[value] = value if os.path.isabs(value) else os.path.join(base, value)
@@ -50,14 +51,17 @@ def eds_files(cfg, config_path):
 
 
 def missing_eds(cfg, config_path):
-    """Messages for EDS files that do not exist, naming node ID and file."""
+    """Messages for EDS files that do not exist, naming node ID (or the
+    slave) and file."""
     files = eds_files(cfg, config_path)
+    nodes = all_nodes(cfg)
     problems = []
-    for n in all_nodes(cfg):
+    for n in eds_users(cfg):
         value = n.get("eds")
         if isinstance(value, str) and value and not os.path.isfile(files[value]):
-            problems.append("node %s: EDS file %s not found (eds: \"%s\" in %s)"
-                            % (n.get("node_id"), files[value], value, config_path))
+            problems.append("%s: EDS file %s not found (eds: \"%s\" in %s)"
+                            % ("node %s" % n.get("node_id") if any(n is x for x in nodes) else "slave", files[value],
+                               value, config_path))
     return problems
 
 
@@ -90,14 +94,14 @@ def software_by_name(cfg, config_path):
 
 def rewrite(cfg, config_path):
     """Returns (deployed config, {name under conf/canopen/eds: source path}).
-    Each node's `eds` becomes canopen/eds/<file name>, and a `software_file`
-    canopen/fw/<file name> (see software_by_name())."""
+    Each node's and slave's `eds` becomes canopen/eds/<file name>, and a
+    `software_file` canopen/fw/<file name> (see software_by_name())."""
     files = eds_files(cfg, config_path)
     by_name = _by_name(files, "EDS files")
     software = software_files(cfg, config_path)
     _by_name(software, "program files")
     out = json.loads(json.dumps(cfg))
-    for n in all_nodes(out):
+    for n in eds_users(out):
         n["eds"] = "%s/%s" % (EDS_DIR, os.path.basename(files[n["eds"]]))
         if n.get("software_file"):
             n["software_file"] = "%s/%s" % (FW_DIR, os.path.basename(software[n["software_file"]]))

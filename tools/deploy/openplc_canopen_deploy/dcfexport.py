@@ -686,7 +686,7 @@ def export(cfg, config_path, eds_paths=None, software_paths=None, node_id=None, 
                 network, ", ".join(n["name"] for n in contract.networks(cfg))), ["networks"])])
     several = len(nets) > 1
     files, problems = {}, []
-    for net in nets:
+    for net in _no_slave(nets, network, "DCF files"):
         one = contract.network_config(cfg, net["name"] if net["path"] else None)
         folder = net["name"] + "/" if several else ""
         at = net["path"] + "." if net["path"] else ""
@@ -699,6 +699,20 @@ def export(cfg, config_path, eds_paths=None, software_paths=None, node_id=None, 
     if problems:
         raise ExportFailed(problems)
     return files, list(result.warnings)
+
+
+def _no_slave(nets, network, what):
+    """The master networks of `nets`; ExportFailed when `network` names a
+    slave network or none is left (a slave network has no nodes to export:
+    its own EDS is the file for the other master's tool)."""
+    if network is not None and nets and nets[0]["role"] == "slave":
+        raise ExportFailed([("network '%s' is a slave network; it has no nodes to export as %s (its EDS, %s, is "
+                             "the file for the other master's tool)" % (network, what, nets[0]["slave"].get("eds")),
+                             [nets[0]["path"]])])
+    masters = [n for n in nets if n["role"] == "master"]
+    if not masters:
+        raise ExportFailed([("the config has no master network, so no nodes to export as %s" % what, ["networks"])])
+    return masters
 
 
 def _export_network(cfg, config_path, eds_paths, software_paths, node_id, now):

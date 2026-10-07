@@ -2,7 +2,7 @@
 canopen/ folder, where the editor's project snapshot carries them to the
 runtime's editor hook (tools/editor-hook):
 
-    <project>/canopen/canopen.json    (each node's eds -> "<name>")
+    <project>/canopen/canopen.json    (each node's and slave's eds -> "<name>")
     <project>/canopen/<name>.eds
     <project>/canopen/<name>          (a node's software_file, if any)
 
@@ -49,7 +49,7 @@ def write(cfg, config_path, project_dir, force=False):
         raise ProjectError(str(e))
     software = bundle.software_files(cfg, config_path)
     out = json.loads(json.dumps(cfg))
-    for n in contract.all_nodes(out):
+    for n in contract.eds_users(out):
         n["eds"] = os.path.basename(files[n["eds"]])
         if n.get("software_file"):
             n["software_file"] = os.path.basename(software[n["software_file"]])
