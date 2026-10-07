@@ -1592,7 +1592,7 @@ void DiagServer::handle_detect(Client& c, size_t net, const std::string& id, con
   SweepRequest sr;
   sr.peer = c.peer;
   bool force = false;
-  if (!get_bool(req, "force", force, why)) {
+  if (!get_bool(req, "force", force, why) || !get_bool(req, "disturb_bus", sr.disturb_bus, why)) {
     c.out += diag_error(id, why);
     return;
   }

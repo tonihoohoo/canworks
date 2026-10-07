@@ -2945,7 +2945,15 @@ function adapterForm(view) {
 
 // "Detect" in the USB adapter form: a bit rate sweep on the picked adapter
 // (listen-only, nothing sent); on "detected" it picks that rate.
-async function adapterDetect(input, rate, button, msg) {
+// An adapter that does not confirm listen-only (slcan firmware that answers
+// nothing to its silent mode command) is only swept after this question.
+const DISTURB_TEXT = "The adapter did not confirm that it only listens: at a wrong bit rate it may send error frames that disturb the devices on the bus, which can make them error passive or bus-off for a moment.";
+async function askDisturb() {
+  return await modal(`${DISTURB_TEXT} Sweep anyway?`, [["go", "Sweep anyway", true], ["cancel", "Cancel"]]) === "go";
+}
+function needsDisturb(text) { return /disturb_bus needed\s*$/.test(text || ""); }
+
+async function adapterDetect(input, rate, button, msg, disturb) {
   if (!input.value.trim()) { msg.textContent = "Pick or type the adapter first."; input.focus(); return; }
   button.disabled = true;
   const show = (r) => {
@@ -2967,13 +2975,21 @@ async function adapterDetect(input, rate, button, msg) {
     return true;
   };
   try {
-    let r = await api("POST", "/api/online/adapter_detect", { adapter: input.value.trim(), adapter_bitrate: Number(rate.value) });
+    let r = await api("POST", "/api/online/adapter_detect", Object.assign({ adapter: input.value.trim(), adapter_bitrate: Number(rate.value) },
+      disturb ? { disturb_bus: true } : {}));
     while (!show(r)) {
       await new Promise((ok) => setTimeout(ok, 300));
       if (!button.isConnected) return;  // the form went away
       r = await api("POST", "/api/online/adapter_detect_status", {});
     }
   } catch (e) {
+    if (e.body && e.body.disturb_bus && !disturb) {
+      msg.textContent = "";
+      button.disabled = false;
+      if (await askDisturb()) return adapterDetect(input, rate, button, msg, true);
+      msg.textContent = `Not started: ${DISTURB_TEXT}`;
+      return;
+    }
     msg.textContent = `Not started: ${e.message}`;
   } finally {
     button.disabled = false;
@@ -4733,17 +4749,23 @@ async function runDetect(rounds) {
   await startDetect(rounds, false);
 }
 
-async function startDetect(rounds, force) {
+async function startDetect(rounds, force, disturb) {
   const seq = S.onlineSeq;
   const net = onlineNetwork() ?? "";
+  S.detectArgs = { rounds, force };
   let r;
   try {
-    r = await api("POST", "/api/online/detect_bitrate", Object.assign({ port: diagPort(), rounds }, force ? { force: true } : {}));
+    r = await api("POST", "/api/online/detect_bitrate", Object.assign({ port: diagPort(), rounds }, force ? { force: true } : {},
+      disturb ? { disturb_bus: true } : {}));
   } catch (e) {
     if (e.body && e.body.force && !force) {
       const v = await modal(`The runtime says: "${e.message}". Stop CANopen on this network for the sweep anyway?`,
         [["force", "Detect anyway", true], ["cancel", "Cancel"]]);
-      if (v === "force") return startDetect(rounds, true);
+      if (v === "force") return startDetect(rounds, true, disturb);
+      return;
+    }
+    if (e.body && e.body.disturb_bus && !disturb) {
+      if (await askDisturb()) return startDetect(rounds, force, true);
       return;
     }
     const box = $("#detect-result");
@@ -4798,10 +4820,20 @@ function showDetect(r) {
     } else if (r.verdict === "silent") {
       text = SILENT_TEXT;
       cls = "field-msg warning";
+    } else if (needsDisturb(r.error)) {
+      text = `The sweep stopped before listening. ${DISTURB_TEXT}`;
+      cls = "field-msg warning";
     } else {
       text = `The sweep failed: ${r.error || "no reason given"}.`;
     }
     parts.push(el("p", { class: cls, dataset: { online: "detect-verdict" } }, text + skippedText(r)));
+    if (r.verdict === "failed" && needsDisturb(r.error)) {
+      parts.push(el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { online: "detect-disturb" },
+        onclick: async () => {
+          const a = S.detectArgs || { rounds: 1, force: false };
+          if (await askDisturb()) startDetect(a.rounds, a.force, true);
+        } }, "Sweep anyway")));
+    }
     if (r.verdict === "detected" && net && r.bitrate_kbit * 1000 !== current) {
       parts.push(el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", dataset: { online: "use-bitrate" },
         onclick: () => {

@@ -15,6 +15,10 @@
 
 namespace canopen_plugin {
 
+const char* const kUnconfirmedListenOnly =
+    "the adapter did not answer its silent mode command, so it may not only listen: at a wrong bit rate it can "
+    "send error frames that disturb the devices on the bus; disturb_bus needed";
+
 const unsigned kSweepRates[8] = {1000, 800, 500, 250, 125, 50, 20, 10};
 
 const char* sweep_verdict_name(SweepVerdict v) {

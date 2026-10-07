@@ -51,6 +51,7 @@ LSS_BITRATES = (10, 20, 50, 125, 250, 500, 800, 1000)  # kbit/s, the CiA 305 bit
 LSS_KEYS = ("vendor_id", "product_code", "revision_number", "serial_number")
 DETECT_RATES = (1000, 800, 500, 250, 125, 50, 20, 10)  # kbit/s, the order a bit rate sweep listens in
 FORCE_NEEDED = "force needed"  # the end of a refusal the request may be repeated with force: true
+DISTURB_NEEDED = "disturb_bus needed"  # ... with disturb_bus: true (an adapter that does not confirm listen-only)
 TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
 SILENT_HINT = ("The bus was silent. A listening adapter sends no acknowledge, so frames only count when "
                "another device acknowledges them: with one device on the bus, add a second device or a second "
@@ -621,7 +622,7 @@ class Client:
         lists each with its "sent" count and "reason"."""
         return self.request("send_frame_stop", **({} if job is None else {"job": job}))
 
-    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False):
+    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False, disturb_bus=False):
         """Starts a bit rate sweep (unless one runs) and returns its progress."""
         fields = {}
         if rates:
@@ -632,6 +633,8 @@ class Client:
             fields["rounds"] = rounds
         if force:
             fields["force"] = True
+        if disturb_bus:
+            fields["disturb_bus"] = True
         return self.request("detect_bitrate", **fields)
 
     def detect_bitrate_status(self):
@@ -641,6 +644,12 @@ class Client:
 def too_old(e):
     """The plugin does not know the op: it predates the command."""
     return e.kind == "refused" and str(e).startswith("unknown op")
+
+
+def needs_disturb(e):
+    """A refusal or failed sweep the request may be repeated for with
+    disturb_bus: true (an adapter that does not confirm listen-only)."""
+    return str(e).rstrip().endswith(DISTURB_NEEDED)
 
 
 def needs_force(e):
@@ -897,6 +906,9 @@ def parser():
                     help="sweep N times, for devices that send rarely (1-20, default 1)")
     db.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
                     help="sweep even while a node is OPERATIONAL")
+    db.add_argument("--disturb-bus", action="store_true", dest="disturb_bus",
+                    help="sweep even on an adapter that does not confirm listen-only (slcan firmware that answers "
+                         "nothing): at a wrong bit rate it may send error frames that disturb the bus")
     tr = sub.add_parser("trace", help="record the frames on the bus into a file (read-only)",
                         description="Records every CAN frame on the runtime's CANopen interface (with several "
                                     "networks, the one --network names) until --duration ends, a single-mode "
@@ -1505,10 +1517,12 @@ def _detect(client, args, out):
     """detect-bitrate: starts the sweep, follows it, prints the table and the
     verdict; exits 0 only when one rate was detected."""
     try:
-        res = client.detect_bitrate(args.rates, args.per_rate_ms, args.rounds, args.force)
+        res = client.detect_bitrate(args.rates, args.per_rate_ms, args.rounds, args.force, args.disturb_bus)
     except DiagError as e:
         if needs_force(e):
             raise DiagError("refused", "%s; add --force to stop CANopen on this network for the sweep" % e)
+        if needs_disturb(e):
+            raise DiagError("refused", "%s; add --disturb-bus to sweep anyway" % e)
         raise
     shown = 0
     while True:
@@ -1535,6 +1549,8 @@ def _detect(client, args, out):
     if res.get("verdict") != "detected":
         if args.json:
             out.write(json.dumps(res, indent=2) + "\n")
+        if needs_disturb(res.get("error") or ""):
+            raise DiagError("refused", "no bit rate detected; add --disturb-bus to sweep anyway")
         raise DiagError("refused", "no bit rate detected (%s)" % (res.get("verdict") or "no result"))
     return res
 

@@ -154,7 +154,7 @@ bool run_requested_sweep(DiagHub* hub, CanAdapter* adapter, const Config& cfg, c
     };
     // slcan sweeps over its serial device (slcan_sweep.h), the rest over the link.
     std::string device_error;
-    if (adapter->sweep_on_device(sweep, device_error)) {
+    if (adapter->sweep_on_device(sweep, req.disturb_bus, device_error)) {
       if (!device_error.empty()) {
         res.verdict = SweepVerdict::Failed;
         res.error = device_error;

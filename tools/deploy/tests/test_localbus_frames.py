@@ -138,15 +138,44 @@ class ListenOnly(unittest.TestCase):
         self.assertTrue(ports[-1].written.endswith(b"m0\rO\r"))
         opened.close()
 
-    def test_slcan_silent_mode_on_firmware_that_never_answers(self):
+    def test_slcan_unconfirmed_silent_mode_is_refused(self):
         ports = self._slcan(knows_m1=True, answers=False)
-        opened = adapter_mod.open(parse("slcan:COM9"), 250000, listen_only=True, options={"sleep_after_open": 0})
+        with self.assertRaises(adapter_mod.AdapterError) as cm:
+            adapter_mod.open(parse("slcan:COM9"), 250000, listen_only=True, options={"sleep_after_open": 0})
+        self.assertEqual(cm.exception.kind, "unconfirmed")
+        self.assertTrue(str(cm.exception).endswith("disturb_bus needed"))
+        sent = ports[-1].written
+        self.assertIn(b"m1\r", sent)
+        self.assertNotIn(b"O\r", sent)
+        self.assertNotIn(b"L\r", sent)
+        self.assertTrue(sent.endswith(b"C\rm0\r"), sent)  # closed, mode set back
+        # The lock is free again.
+        opened = adapter_mod.open(parse("slcan:COM9"), 250000, options={"sleep_after_open": 0})
+        opened.close()
+
+    def test_slcan_unconfirmed_silent_mode_with_disturb_bus(self):
+        ports = self._slcan(knows_m1=True, answers=False)
+        opened = adapter_mod.open(parse("slcan:COM9"), 250000, listen_only=True, options={"sleep_after_open": 0},
+                                  disturb_bus=True)
         sent = ports[-1].written
         self.assertTrue(sent.endswith(b"m1\rO\r"), sent)
         self.assertNotIn(b"L\r", sent)
         ports[-1].written = b""
         opened.close()
         self.assertTrue(ports[-1].written.endswith(b"C\rm0\r"), ports[-1].written)
+
+    def test_sweep_passes_disturb_bus(self):
+        seen = []
+
+        def opener(spec, bitrate, listen_only=False, options=None, **kw):
+            seen.append(kw)
+            raise adapter_mod.AdapterError("unconfirmed", adapter_mod.UNCONFIRMED)
+
+        with self.assertRaises(adapter_mod.AdapterError):
+            sweep_mod.Sweep(parse("slcan:COM9"), [500], 100, opener=opener).start()
+        with self.assertRaises(adapter_mod.AdapterError):
+            sweep_mod.Sweep(parse("slcan:COM9"), [500], 100, opener=opener, disturb_bus=True).start()
+        self.assertEqual(seen, [{}, {"disturb_bus": True}])
 
     def test_slcan_without_silent_mode_opens_with_L(self):
         ports = self._slcan(knows_m1=False)

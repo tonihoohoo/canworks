@@ -110,9 +110,12 @@ class CanAdapter {
   // link (slcan, slcan_sweep.h): releases the interface, calls `run` with the
   // device's link operations and listener, and gives the device back;
   // prepare() makes the interface again. False: sweep over link_ops().
-  // `error` says why the device could not be opened.
-  virtual bool sweep_on_device(const std::function<void(LinkOps&, SweepListener&)>& run, std::string& error) {
+  // `error` says why the device could not be opened, or that it does not
+  // confirm listen-only (kUnconfirmedListenOnly) unless `disturb_bus`.
+  virtual bool sweep_on_device(const std::function<void(LinkOps&, SweepListener&)>& run, bool disturb_bus,
+                               std::string& error) {
     (void)run;
+    (void)disturb_bus;
     (void)error;
     return false;
   }
