@@ -39,5 +39,5 @@
   - 2026-10-07: listen-only on slcan works on the Pi's kernel and the configured rate comes back afterwards. Detection stays open: with one device on the bus nothing acknowledges its frames in listen-only, so every sweep is `silent`, even at the right rate. Needs a second device or adapter in normal mode on the bench. The silent hint and docs now say so.
 - [x] 7.3 Put the bench config back and check the node boots.
   - Passed 2026-10-07: the node booted to OPERATIONAL after the bench config was back.
-- [ ] 7.4 When section 6 is in: run 7.1 and 7.2 again from the PC with the USB adapter directly (no runtime).
-  - Open: needs a USB adapter on the PC.
+- [x] 7.4 When section 6 is in: run 7.1 and 7.2 again from the PC with the USB adapter directly (no runtime).
+  - Passed 2026-10-07 with the Pi as the PC (its USB adapter, runtime's PLC stopped): SDO request and answer traced, configured node's RPDO1 refused without force, 100 ms cyclic frame for 10 s stopped cleanly, listen-only sweep silent as expected and the adapter back at its bit rate after it. Found and fixed: an slcan sweep failed at 800 kbit/s (now left out and named), `send` had no `--config`, and `--force` before the command was ignored.

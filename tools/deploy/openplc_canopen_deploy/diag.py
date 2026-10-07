@@ -704,6 +704,16 @@ def verdict_text(res):
     return "no result"
 
 
+def skipped_text(res):
+    """The rates a sweep left out because the adapter cannot be set to them,
+    or ''."""
+    skipped = res.get("skipped_kbit") or []
+    if not skipped:
+        return ""
+    return "not tried: %s kbit/s (the adapter cannot be set to %s)" % (
+        ", ".join(str(k) for k in skipped), "it" if len(skipped) == 1 else "them")
+
+
 def lss_address_text(a):
     """An LSS address as the plugin logs it."""
     return "vendor 0x%08X, product 0x%08X, revision 0x%08X, serial 0x%08X" % tuple(
@@ -868,8 +878,10 @@ def parser():
     sf.add_argument("--count", type=_int_range("count", 1, 1000000), metavar="N",
                     help="cyclic: stop after N frames")
     sf.add_argument("--duration", type=float, metavar="S", help="cyclic: stop after S seconds (default: Ctrl-C)")
-    sf.add_argument("--force", action="store_true",
+    sf.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
                     help="send even when the network uses the identifier or a node is OPERATIONAL")
+    sf.add_argument("--config", metavar="canopen.json",
+                    help="--adapter: the configured nodes' EMCY, PDO, SDO and heartbeat identifiers need --force")
     ss = sub.add_parser("send-stop", help="stop cyclic send jobs of this connection (for scripts that keep one)")
     ss.add_argument("job", nargs="?", type=_int_range("job", 0, 0xFFFFFFFF), metavar="JOB",
                     help="the job number (default: every job of this connection)")
@@ -883,7 +895,8 @@ def parser():
                     help="how long to listen at each rate (100-10000, default 1000)")
     db.add_argument("--rounds", type=_int_range("rounds", 1, 20), metavar="N",
                     help="sweep N times, for devices that send rarely (1-20, default 1)")
-    db.add_argument("--force", action="store_true", help="sweep even while a node is OPERATIONAL")
+    db.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
+                    help="sweep even while a node is OPERATIONAL")
     tr = sub.add_parser("trace", help="record the frames on the bus into a file (read-only)",
                         description="Records every CAN frame on the runtime's CANopen interface (with several "
                                     "networks, the one --network names) until --duration ends, a single-mode "
@@ -1498,6 +1511,8 @@ def _detect(client, args, out):
         sys.stderr.write("\r" + " " * 50 + "\r")
     if not args.json:
         _print_sweep(res, out)
+        if skipped_text(res):
+            out.write(skipped_text(res) + "\n")
         out.write(verdict_text(res) + "\n")
     if res.get("verdict") != "detected":
         if args.json:

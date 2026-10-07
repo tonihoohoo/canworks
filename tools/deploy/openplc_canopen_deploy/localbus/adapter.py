@@ -23,6 +23,7 @@ import tempfile
 SUPPORTED = ("slcan", "socketcan")  # tested; anything else python-can knows is passed through
 TEST_ONLY = ("virtual",)
 LISTEN_ONLY = ("slcan", "pcan", "socketcan", "virtual")  # the types open(listen_only=True) takes
+SLCAN_KBIT = (10, 20, 50, 100, 125, 250, 500, 750, 1000)  # the rates python-can sets on slcan (S0-S8)
 NO_LISTEN_ONLY = "the adapter's driver has no listen-only mode"
 
 # USB IDs of adapters that run slcan firmware out of the box.
@@ -304,6 +305,14 @@ class Opened:
             self.restore = None
         self._lock.release()
         return err
+
+
+def unsupported_rates(spec, rates_kbit):
+    """The rates (kbit/s) of `rates_kbit` this adapter type cannot be set to:
+    python-can's slcan driver has no 800 kbit/s, for one."""
+    if spec.kind == "slcan":
+        return [k for k in rates_kbit if k not in SLCAN_KBIT]
+    return []
 
 
 def open(spec, bitrate, listen_only=False, options=None):  # noqa: A001 - the module's one entry point
