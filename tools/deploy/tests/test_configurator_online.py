@@ -13,7 +13,7 @@ import unittest
 from openplc_canopen_deploy import diag
 from openplc_canopen_deploy.configurator import online
 
-from .fake_diag import TOKEN, TWO_NETWORKS, FakePlugin, closed_port
+from .fake_diag import SLAVE_NETWORK, TOKEN, TWO_NETWORKS, FakePlugin, closed_port, slave_status
 from .helpers import PINGPONG, REPO, tmpdir
 from .test_configurator_server import RTD, Running, read, rtd_node
 
@@ -361,6 +361,81 @@ class TwoNetworks(Online):
             self.assertEqual(self.ok("POST", "/api/online/watch", {"node": 2, "network": "io"})["keys"], [])
             self.assertEqual(self.ok("POST", "/api/online/watch", {"node": 2, "network": "drives"})["keys"],
                              [[0x1008, 0]])
+
+
+class SlaveNetwork(Online):
+    """A slave network in the online view (add-canopen-slave tasks 4.2 and
+    6.8): its status, its own dictionary, and the master's routes refused."""
+
+    def config(self, name):
+        folder = os.path.join(REPO, "config", name)
+        with open(os.path.join(folder, "canopen_config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        os.makedirs(self.canopen, exist_ok=True)
+        for f in os.listdir(folder):
+            if f.endswith(".eds"):
+                shutil.copy(os.path.join(folder, f), self.canopen)
+        cfg["diagnostics"] = dict(DIAG)
+        return cfg
+
+    def test_status_and_own_dictionary(self):
+        with FakePlugin(networks=[SLAVE_NETWORK]) as fp:
+            self.connect(fp)
+            r = self.ok("POST", "/api/online/status", {})
+            self.assertEqual((r["networks"][0]["role"], r["networks"][0]["node_id"]), ("slave", 10))
+            st = r["status"]
+            self.assertEqual((st["role"], st["slave"]["node_id"], st["slave"]["sync_count"]), ("slave", 10, 42))
+            self.assertEqual([p["number"] for p in st["slave"]["tpdos"]], [1, 2])
+            r = self.ok("POST", "/api/online/sdo_read", {"node": 10, "index": "0x1008", "type": "VISIBLE_STRING"})
+            self.assertEqual(r["decoded"]["text"], "OpenPLC slave example")
+            status, data, _ = self.request("POST", "/api/online/sdo_read", {"node": 2, "index": "0x1008"})
+            self.assertEqual((status, data["kind"]), (422, "refused"))
+            self.assertIn("node 2 is not this slave (node ID 10)", data["error"])
+            for path, body in (("nmt", {"node": 10, "command": "stop"}), ("emcy", {"node": 10}),
+                               ("scan", {"start": True}), ("lss_find", {"start": True})):
+                status, data, _ = self.request("POST", "/api/online/" + path, body)
+                self.assertEqual(status, 422, path)
+                self.assertIn('network "line" is a slave network; %s needs a master network' % path, data["error"])
+
+    def test_object_dictionary_of_the_slave(self):
+        cfg = self.config("slave")
+        with FakePlugin(networks=[SLAVE_NETWORK]) as fp:
+            self.connect(fp)
+            r = self.ok("POST", "/api/online/od_entries", {"node": 10, "config": cfg})
+            self.assertEqual((r["slave"], r["configured"], r["eds"]), (True, False, "openplc-slave.eds"))
+            by_key = {(e["index"], e["subindex"]): e for e in r["entries"]}
+            self.assertEqual(by_key[(0x2000, 1)]["slave_bind"], {"iec_location": "%IW300", "name": "speed_setpoint"})
+            self.assertEqual(by_key[(0x2100, 2)]["slave_bind"], {"iec_location": "%QW301", "name": ""})
+            self.assertNotIn("slave_bind", by_key[(0x1008, 0)])
+            r = self.ok("POST", "/api/online/od_read", {"node": 10, "config": cfg, "keys": [[0x2000, 1], [0x1008, 0]]})
+            self.assertEqual(sorted(v["index"] for v in r["values"]), [0x1008, 0x2000])
+            # Backup, compare, restore and store are for a master network's nodes.
+            status, data, _ = self.request("POST", "/api/online/backup", {"node": 10, "config": cfg})
+            self.assertEqual(status, 409)
+            self.assertIn("backup needs a master network", data["error"])
+            cfg["networks"][0]["slave"]["eds"] = ""
+            status, data, _ = self.request("POST", "/api/online/od_entries", {"node": 10, "config": cfg})
+            self.assertEqual(status, 422)
+            self.assertIn("has no EDS yet", data["error"])
+            # A master network's node is still looked up as before.
+            self.assertEqual(self.request("POST", "/api/online/od_entries",
+                                          {"node": 2, "config": self.pingpong()})[1]["configured"], True)
+
+    def test_gateway_upper_network(self):
+        cfg = self.config("gateway")
+        nets = [dict(TWO_NETWORKS[0], name="field"), dict(SLAVE_NETWORK, name="upper", node_id=20)]
+        with FakePlugin(networks=nets) as fp:
+            fp.network("upper").status.update(slave_status(gateway=True), network="upper")
+            self.connect(fp)
+            r = self.ok("POST", "/api/online/status", {"network": "upper"})
+            self.assertEqual(r["status"]["gateway"], {"routes": 2, "upper_ok": False, "forwarded_errors": 1})
+            r = self.ok("POST", "/api/online/od_entries", {"node": 20, "config": cfg, "network": "upper"})
+            by_key = {(e["index"], e["subindex"]): e for e in r["entries"]}
+            self.assertEqual(by_key[(0x2101, 1)]["slave_bind"], {"route": "pong"})
+            self.assertEqual(by_key[(0x2100, 1)]["slave_bind"], {"iec_location": "%QX300.0", "name": ""})
+            # The field network's nodes are master nodes as before.
+            r = self.ok("POST", "/api/online/od_entries", {"node": 2, "config": cfg, "network": "field"})
+            self.assertEqual((r["slave"], r["configured"]), (False, True))
 
 
 class Helpers(unittest.TestCase):

@@ -25,7 +25,7 @@
 ## 4. Configurator and diagnostics
 
 - [x] 4.1 Role switch, slave device page, object list editor with generate and bind, Export EDS; verify with the configurator's server tests.
-- [ ] 4.2 Slave status in the diagnostics channel and the online view, local OD reads, master-only ops refused; verify with diag tests against the sim slave.
+- [x] 4.2 Slave status in the diagnostics channel and the online view, local OD reads, master-only ops refused; verify with diag tests against the sim slave.
 
 ## 5. Docs, install, release
 
@@ -42,7 +42,7 @@
 - [x] 6.5 `on_upper_loss` hold, zero and stop_nodes; verify each in sim tests.
 - [x] 6.6 SDO bridge record (read, write with opt-in, abort, busy) on the PLC SDO request path; verify in sim tests including a write refused without `sdo_bridge_write`.
 - [x] 6.7 EDS generator input from the gateway section, `slave-eds --gateway`; verify with unit tests and lint.
-- [ ] 6.8 Configurator gateway page (routes table picking slave objects and field PDO entries, status, EMCY, loss and bridge options) and gateway status in the diagnostics channel (route counts, last update age); verify with server and diag tests. Document in `docs/gateway.md` and the README.
+- [x] 6.8 Configurator gateway page (routes table picking slave objects and field PDO entries, status, EMCY, loss and bridge options) and gateway status in the diagnostics channel and the online view (route count, upper master present, active forwarded errors; the last update age is dropped: the plugin does not report one); verify with server and diag tests. Document in `docs/gateway.md` and the README.
 
 ## 7. Hardware (the current Pi setup, vcan and simulation)
 

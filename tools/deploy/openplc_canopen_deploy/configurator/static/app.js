@@ -378,7 +378,7 @@ function renderNetBar() {
   const bar = $("#net-bar");
   if (!bar || !S.model) return;
   const nets = S.model.networks;
-  bar.replaceChildren(
+  put(bar,
     several() ? el("div", { class: "net-tabs", role: "tablist", "aria-label": "Networks" }, nets.map((n, i) =>
       el("button", { type: "button", role: "tab", class: "net-tab" + (i === S.net ? " active" : ""),
         "aria-selected": String(i === S.net), dataset: { net: i }, title: n.adapter && n.adapter.interface ? "Interface " + n.adapter.interface : null,
@@ -2398,6 +2398,21 @@ function renderSdoVars(i, eds) {
 
 // Communication objects the plugin writes itself from the node's settings
 // (SYNC, guarding, heartbeat, PDOs, NMT startup).
+// What to say before an online write to an object: the plugin's own
+// objects on a master network; on a slave network the objects its master
+// configures and the objects bound in the draft.
+function ownWriteWarnings(index, sub) {
+  const out = [];
+  if (onlineIsSlave()) {
+    if (pluginObject(index)) out.push(`The network's master may write ${hex4(index)} when it configures this device; your value lasts until then.`);
+    const bound = slaveBindText(index, sub);
+    if (bound) out.push(`${hex4(index)}:${sub} is bound to ${bound}; whatever writes it there (the program, the master's PDOs or the gateway) overwrites your value.`);
+  } else if (pluginObject(index)) {
+    out.push(`The plugin configures ${hex4(index)} itself when the node boots; your value lasts until the next boot.`);
+  }
+  return out;
+}
+
 function pluginObject(index) {
   const ix = num(index);
   return (ix >= 0x1005 && ix <= 0x1007) || ix === 0x100C || ix === 0x100D || (ix >= 0x1014 && ix <= 0x1017) ||
@@ -2514,6 +2529,7 @@ async function copyStCall(node, index, subindex, type, readable, writable) {
   await copyText(text);
   banner(`Copied the ${stBlock(type, write)} call. Enable the openplc_canopen library in the editor project to use it.`);
 }
+const NO_ST_SLAVE = "The program's SDO blocks address nodes of a master network; on a slave network the program has the bound locations instead.";
 const NO_CHANGES = "Online changes are not allowed in this configuration (turn on \"Allow changes\" under Online access, then upload).";
 
 function hex8(n) { return "0x" + (Number(n) >>> 0).toString(16).toUpperCase().padStart(8, "0"); }
@@ -2753,6 +2769,11 @@ async function pollOnline(seq) {
   conn.className = "online-conn ok";
   conn.replaceChildren(`Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version}, CANopen session up ${Math.floor(st.uptime_s)} s, ` +
     (r.hello.allow_changes ? "changes allowed." : "read-only."), ...notes);
+  if (st.role === "slave") {
+    slaveLive(r);
+    S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
+    return;
+  }
   const nodeName = (id, fallback) => {
     const n = (onlineConfig().nodes || []).find((x) => num(x.node_id) === id);
     return n && n.name ? n.name : fallback;
@@ -2783,6 +2804,107 @@ async function pollOnline(seq) {
   if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
   if (S.lssAllow !== r.hello.allow_changes) renderLss(r.hello.allow_changes);
   S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
+}
+
+// ---------------------------------------------------------------------------
+// A slave network in the online view: the plugin's own device, the PDO
+// mappings in force and, on a gateway's upper network, the gateway. Its
+// own dictionary opens below; the master's tools (node list, NMT, LSS, scan,
+// parameter backup) need a master network.
+
+const SLAVE_MASTER_ONLY = "This is a slave network: the plugin is a node of another master. The node list, NMT, LSS, " +
+  "the bus scan and parameter backup need a master network; here you read and write the plugin's own dictionary.";
+
+// The slave object of the online network's draft when that is a slave network, else null.
+function onlineSlaveCfg() {
+  const net = onlineConfig();
+  return isSlave(net) ? net.slave || {} : null;
+}
+
+// Whether the online network is a slave network: as the runtime's hello says, else as the draft says.
+function onlineIsSlave() {
+  const nets = S.runtimeNets || [];
+  const name = onlineNetwork();
+  const rt = name === null ? (nets.length === 1 ? nets[0] : null) : nets.find((n) => n.name === name);
+  if (rt && rt.role) return rt.role === "slave";
+  return !!onlineSlaveCfg();
+}
+
+function slaveStateName(s) { return s ? stateName(s) : "not started"; }
+
+function transmissionText(t) {
+  if (t === 0) return "synchronous (acyclic)";
+  if (t >= 1 && t <= 240) return t === 1 ? "every SYNC" : `every ${t} SYNCs`;
+  if (t === 254 || t === 255) return `event (${t})`;
+  return `type ${t}`;
+}
+
+// What the draft binds an object of the slave to: "%IW300 speed_setpoint", "route pong", or "".
+function slaveBindText(index, sub) {
+  const s = onlineSlaveCfg();
+  if (!s) return "";
+  const o = (s.objects || []).find((x) => sameObject(x.index, x.subindex, index, sub));
+  if (o) return [o.iec_location, o.name].filter(Boolean).join(" ");
+  const g = S.model.top.gateway;
+  if (g && g.upper === netName(onlineConfig())) {
+    const k = (g.routes || []).findIndex((r) => r && r.slave && sameObject(r.slave.index, r.slave.subindex, index, sub));
+    if (k >= 0) return "route " + (g.routes[k].name || k + 1);
+  }
+  return "";
+}
+
+function slavePdoTable(list, dir) {
+  const title = dir === "tx" ? "TPDOs (sent by this device)" : "RPDOs (received from the master)";
+  const rows = (list || []).map((p) => {
+    const cob = Number(p.cob_id) >>> 0;
+    const off = (cob & 0x80000000) !== 0;
+    const entries = (p.entries || []).map((e) => {
+      const bound = slaveBindText(e.index, e.subindex);
+      return el("div", null, `${hex4(e.index)}:${e.subindex} (${e.bits} bit${e.bits === 1 ? "" : "s"})`, bound ? el("span", { class: "muted" }, "  " + bound) : null);
+    });
+    return el("tr", { class: off ? "muted" : null, dataset: { slavePdo: `${dir}${p.number}` } },
+      el("td", null, `${dir === "tx" ? "TPDO" : "RPDO"}${p.number}`),
+      el("td", { class: "mono" }, "0x" + (cob & 0x1FFFFFFF).toString(16).toUpperCase().padStart(3, "0") + (off ? " (off)" : "")),
+      el("td", null, transmissionText(p.transmission)),
+      el("td", null, entries.length ? entries : el("span", { class: "muted" }, "nothing mapped")));
+  });
+  return el("fieldset", { dataset: { online: dir === "tx" ? "slave-tpdos" : "slave-rpdos" } }, el("legend", null, title),
+    el("table", null, el("thead", null, el("tr", null, ["PDO", "COB-ID", "Transmission", "Mapped objects"].map((h) => el("th", null, h)))),
+      el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 4, class: "muted" },
+        list ? "None in the dictionary." : "Not known while there is no CANopen session."))])));
+}
+
+function slaveLive(r) {
+  const st = r.status;
+  const s = st.slave || {};
+  const id = s.node_id || null;
+  const em = s.emcy_code ? `${hex4(s.emcy_code)} ${emcyClass(s.emcy_code)}` : "none";
+  const g = st.gateway;
+  $("#online-live").replaceChildren(
+    el("p", { class: "muted", dataset: { online: "slave-note" } }, SLAVE_MASTER_ONLY),
+    el("table", { class: "online-bus" }, el("tbody", null,
+      el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, st.bus.interface),
+        el("th", null, "This device"), el("td", { dataset: { online: "slave-node" } }, id ? `node ${id}` : "waiting for a node ID (LSS)"),
+        el("th", null, "State"), el("td", { class: "state-" + s.state, dataset: { online: "slave-state" } }, slaveStateName(s.state))),
+      el("tr", null, el("th", null, "Communication OK"), el("td", { class: s.comm_ok ? null : "bad", dataset: { online: "slave-comm" } }, s.comm_ok ? "TRUE" : "FALSE"),
+        el("th", null, "SYNC count"), el("td", { dataset: { online: "slave-sync" } }, String(s.sync_count ?? "-")),
+        el("th", null, "EMCY"), el("td", { dataset: { online: "slave-emcy" } },
+          `${em}, error register 0x${Number(s.error_register || 0).toString(16).toUpperCase().padStart(2, "0")}`)),
+      g ? el("tr", { dataset: { online: "gateway" } }, el("th", null, "Gateway routes"), el("td", { dataset: { online: "gw-routes" } }, String(g.routes)),
+        el("th", null, "Upper master"), el("td", { class: g.upper_ok ? "state-5" : "bad", dataset: { online: "gw-upper" } },
+          g.upper_ok ? "present" : "missing (no heartbeat, or not started)"),
+        el("th", null, "Forwarded errors"), el("td", { dataset: { online: "gw-errors" } }, `${g.forwarded_errors} active`)) : null)),
+    slavePdoTable(s.tpdos, "tx"), slavePdoTable(s.rpdos, "rx"));
+  $("#online-lss").replaceChildren();
+  S.lssAllow = undefined;
+  const allow = r.hello.allow_changes;
+  if (!id) {
+    S.onlineNode = null;
+    $("#online-node").replaceChildren();
+  } else if (S.onlineNode !== id || S.onlineNodeAllow !== allow || !$("#online-node").childNodes.length) {
+    S.onlineNode = id;
+    renderOnlineNode();
+  }
 }
 
 // The status answer's SYNC object as one line (as the CLI's status prints it).
@@ -2960,18 +3082,23 @@ async function renderOnlineNode() {
   const box = $("#online-node");
   if (!box || S.onlineNode === undefined || S.onlineNode === null) return;
   const id = S.onlineNode;
-  const n = configNode(id);
+  const slave = onlineIsSlave() ? onlineSlaveCfg() || {} : null;
+  // The slave's own device: its EDS stands in for a configured node's.
+  const n = slave ? { node_id: id, name: "this PLC (slave device)", eds: slave.eds } : configNode(id);
   const allow = S.onlineLast ? S.onlineLast.hello.allow_changes : false;
   S.onlineNodeAllow = S.onlineLast ? allow : undefined;
-  const tab = S.onlineTab || "overview";
-  const tabs = el("div", { class: "tabs", role: "tablist" }, [["overview", "Overview"], ["od", "Object dictionary"], ["params", "Parameters"]].map(([k, label]) =>
-    el("button", { type: "button", role: "tab", class: "tab" + (k === tab ? " active" : ""), "aria-selected": String(k === tab), dataset: { onlineTab: k },
-      onclick: () => { S.onlineTab = k; renderOnlineNode(); } }, label)));
+  let tab = S.onlineTab || "overview";
+  if (slave && tab === "params") tab = "overview";
+  const tabs = el("div", { class: "tabs", role: "tablist" }, [["overview", "Overview"], ["od", "Object dictionary"], ["params", "Parameters"]]
+    .filter(([k]) => !slave || k !== "params").map(([k, label]) =>
+      el("button", { type: "button", role: "tab", class: "tab" + (k === tab ? " active" : ""), "aria-selected": String(k === tab), dataset: { onlineTab: k },
+        onclick: () => { S.onlineTab = k; renderOnlineNode(); } }, label)));
   const title = el("h2", null, `Node ${id} ${n && n.name ? n.name : (S.onlineEdsName || {})[id] || ""}`);
   // The object dictionary tab takes the problems pane's room, as the trace does.
   $("#editor").classList.toggle("wide-view", tab === "od");
   if (tab === "od") { box.replaceChildren(title, tabs, odPanel(id, n, allow)); return; }
   if (tab === "params") { box.replaceChildren(title, tabs, paramsPanel(id, n, allow)); return; }
+  if (slave) { box.replaceChildren(title, tabs, sdoPanel(id, n, allow)); return; }
   const emcy = el("div", { dataset: { online: "emcy" } }, el("span", { class: "muted" }, "Loading…"));
   box.replaceChildren(title, tabs,
     el("fieldset", null, el("legend", null, "NMT"), nmtButtons(id, allow)),
@@ -3069,7 +3196,7 @@ function sdoPanel(id, n, allow) {
     const t = target();
     if (!t) return;
     const warn = [];
-    if (pluginObject(t.index)) warn.push(`The plugin configures ${hex4(t.index)} itself when the node boots; your value lasts until the next boot.`);
+    warn.push(...ownWriteWarnings(t.index, t.subindex));
     const owner = n && (n.sdo_variables || []).find((v) => (v.direction || "read") === "write" && sameObject(v.index, v.subindex, t.index, t.subindex));
     if (owner) warn.push(`SDO variable ${owner.name || hex4(owner.index)} writes this object from the program; the program's value wins at its next write.`);
     const startup = n && (n.sdo || []).find((s) => sameObject(s.index, s.subindex, t.index, t.subindex));
@@ -3112,6 +3239,10 @@ const JOB_NAMES = { read: "Reading all", backup: "Backing up", compare: "Compari
 // Where the server gets a node's EDS: the draft config for a configured
 // node, else the EDS a scan row opened it with.
 function nodeSource(id) {
+  if (onlineIsSlave()) {
+    const s = onlineSlaveCfg();
+    return s && s.eds ? { node: id, config: fileConfig(), port: diagPort() } : null;
+  }
   const n = configNode(id);
   if (n && n.eds) return { node: id, config: fileConfig(), port: diagPort() };
   const p = (S.onlineEds || {})[id];
@@ -3125,8 +3256,9 @@ function noEds(id) {
 
 async function odEntries(id) {
   const src = nodeSource(id);
-  const key = JSON.stringify([src.config ? configNode(id).eds : src.eds_path, src.config ? configNode(id).sdo : null,
-    src.config ? configNode(id).sdo_variables : null]);
+  const own = src.config ? onlineSlaveCfg() || configNode(id) : null;
+  const key = JSON.stringify([src.config ? own.eds : src.eds_path, own ? own.sdo || own.objects : null,
+    own ? own.sdo_variables || (onlineSlaveCfg() ? S.model.top.gateway : null) : null]);
   S.odEntries = S.odEntries || {};
   const cached = S.odEntries[id];
   if (cached && cached.key === key) return cached.data;
@@ -3414,6 +3546,10 @@ function odBuild(box, id, n, allow, data) {
     if (e.config) out.push(["set by config", "The configuration writes this entry when the node boots.", "mark-config"]);
     if (e.sdo_variable) out.push(["SDO variable" + (typeof e.sdo_variable === "string" ? " " + e.sdo_variable : ""), "An SDO variable of the program writes this entry.", "mark-sdo-var"]);
     for (const m of e.pdo || []) out.push([odPdoText(m), "Carried in this PDO; values shown here are read over SDO.", "mark-pdo"]);
+    if (e.slave_bind) {
+      out.push(e.slave_bind.route ? ["route " + e.slave_bind.route, "A gateway route's object on this slave.", "mark-slave-bind"]
+        : [[e.slave_bind.iec_location, e.slave_bind.name].filter(Boolean).join(" "), "Bound to this PLC location in the configuration.", "mark-slave-bind"]);
+    }
     if (v && !v.error && e.default_data !== null && e.default_data !== undefined && !sameValue(v.data, e.default_data, e.type))
       out.push(["≠ default", "The EDS default is " + e.default, "differs", true]);
     const c = st.compare && st.compare.rows[key];
@@ -3429,7 +3565,7 @@ function odBuild(box, id, n, allow, data) {
     const v = st.values[key];
     if (f === "changed") return !!(v && !v.error && e.default_data != null && !sameValue(v.data, e.default_data, e.type));
     if (f === "writable") return !!e.writable;
-    if (f === "owned") return !!(e.config || e.sdo_variable);
+    if (f === "owned") return !!(e.config || e.sdo_variable || e.slave_bind);
     if (f === "pdo") return !!(e.pdo && e.pdo.length);
     if (f === "failed") return !!(v && v.error);
     if (f === "compare") return !!(st.compare && st.compare.rows[key] && st.compare.rows[key].result !== "equal");
@@ -3472,7 +3608,7 @@ function odBuild(box, id, n, allow, data) {
       c.value.append(el("div", { class: "od-bits", dataset: { online: "od-bit-list" } },
         bits.length ? bits.map((b) => el("span", { class: "tag" }, b)) : el("span", { class: "muted" }, "no bit set")));
     }
-    if (st.keep[key] && n) {
+    if (st.keep[key] && n && !data.slave) {
       const why = keepReason(e, n);
       c.value.append(el("div", { class: "od-keep" }, why
         ? el("span", { class: "muted", dataset: { online: "od-keep-reason" } }, "Not kept in the configuration: " + why)
@@ -3676,7 +3812,8 @@ function odBuild(box, id, n, allow, data) {
       el("td", { class: "od-type" }, e.type || "?", " ", el("span", { class: "muted" }, e.access),
         e.default ? el("div", { class: "muted", title: "EDS default" }, "default " + e.default) : null),
       value, el("td", { class: "actions" }, read, edit,
-        el("button", { type: "button", class: "small", disabled: !e.readable && !e.writable, title: "Copy as ST call (CO_SDO_* block)",
+        el("button", { type: "button", class: "small", disabled: data.slave || (!e.readable && !e.writable),
+          title: data.slave ? NO_ST_SLAVE : "Copy as ST call (CO_SDO_* block)",
           dataset: { online: "od-st" }, onclick: () => copyStCall(id, e.index, e.subindex, e.type, e.readable, e.writable) }, "ST")),
       el("td", { class: "od-watch" }, watch));
     cells[key] = { tr, value, marks, watch, text: `${hex4(e.index)}:${e.subindex} ${e.index.toString(16)} ${e.name}`.toLowerCase() };
@@ -3862,7 +3999,7 @@ function odBuild(box, id, n, allow, data) {
         el("button", { type: "button", dataset: { online: "od-any-read" }, onclick: anyRead }, "Read"),
         el("label", { class: "inline" }, "Value ", anyValue),
         el("button", { type: "button", disabled: !allow, title: allow ? null : NO_CHANGES, dataset: { online: "od-any-write" }, onclick: anyWrite }, "Write"),
-        el("button", { type: "button", title: "Copy as ST call (CO_SDO_* block)", dataset: { online: "od-any-st" }, onclick: () => {
+        el("button", { type: "button", disabled: data.slave, title: data.slave ? NO_ST_SLAVE : "Copy as ST call (CO_SDO_* block)", dataset: { online: "od-any-st" }, onclick: () => {
           const t = anyTarget();
           if (t) copyStCall(id, t.index, t.subindex, t.type || "", true, true);
         } }, "Copy as ST call"),
@@ -3903,7 +4040,7 @@ function odEdit(id, n, e, cell, readKeys, done) {
   const msg = el("span", { class: "field-msg" });
   const write = async () => {
     const warn = [];
-    if (pluginObject(e.index)) warn.push(`The plugin configures ${hex4(e.index)} itself when the node boots; your value lasts until the next boot.`);
+    warn.push(...ownWriteWarnings(e.index, e.subindex));
     if (e.sdo_variable) warn.push(`SDO variable ${typeof e.sdo_variable === "string" ? e.sdo_variable : ""} writes this entry from the program; the program's value wins at its next write.`);
     if (e.config && !pluginObject(e.index)) warn.push("The configuration writes this entry at every boot; your value lasts until the next boot.");
     const x = Number(input.value.trim());
@@ -4131,6 +4268,12 @@ function renderScan(view) {
   view.append(el("div", { class: "grid" }, el("label", null, "EDS library folder", lib,
     hint("Optional. Found devices are matched against the EDS files here (and its subfolders) and in the project's canopen folder. Kept on this PC."))));
   if (!onlineSetup(view)) return;
+  if (onlineIsSlave()) {
+    view.append(el("div", { class: "toolbar" }, netPicker()),
+      el("p", { class: "field-msg warning", dataset: { online: "scan-slave" } }, "Scanning needs a master network: on a slave network the plugin is one of the nodes. " +
+        "Pick a master network, or see this device in the Online view."));
+    return;
+  }
   const progress = el("span", { class: "muted", dataset: { online: "scan-progress" } });
   view.append(el("div", { class: "toolbar" }, netPicker(),
     el("button", { type: "button", class: "primary", dataset: { online: "scan" }, onclick: () => runScan(true) }, "Scan the bus"), progress),
