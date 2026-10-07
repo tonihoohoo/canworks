@@ -673,7 +673,7 @@ bool check_gateway_eds(ConfigSet& set, std::vector<std::string>& errors) {
   if (g.has_status) {
     unsigned k = 0;
     for (const auto& c : set.networks) {
-      if (c.is_slave()) continue;
+      if (!g.is_field(c)) continue;  // slave networks and the upper master's stand-in
       if (k >= 4) {
         set.warnings.push_back("gateway status: only the first 4 master networks are published; network \"" +
                                c.network + "\" is not");

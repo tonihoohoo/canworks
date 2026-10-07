@@ -598,6 +598,10 @@
       "schema": "invalid", "verdict": "reject", "messages": [ "TPDO 1: field 'on_timeout' must be \"hold\" or \"zero\", not \"last\"" ] },
     { "name": "timeout bit not a bit", "patch": [ ["set", "nodes/0/tx_pdos/0/timeout_ms", 100], ["set", "nodes/0/tx_pdos/0/timeout_location", "%IB10"] ],
       "schema": "invalid", "verdict": "reject",
-      "messages": [ "TPDO 1: field 'timeout_location' must be an input bit (%IX...), not %IB10" ] }
+      "messages": [ "TPDO 1: field 'timeout_location' must be an input bit (%IX...), not %IB10" ] },
+    { "name": "TPDO above 4 without cob_id",
+      "patch": [ [ "set", "nodes/0/tx_pdos/0/number", 5 ] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "TPDO 5 has no default COB-ID; set 'cob_id' (or \"auto\")" ] }
   ]
 }

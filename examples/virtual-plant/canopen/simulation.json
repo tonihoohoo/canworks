@@ -1,0 +1,82 @@
+{
+  "schema_version": 2,
+  "tick_ms": 10,
+  "networks": {
+    "io": {
+      "nodes": {
+        "5": {
+          "sources": {
+            "0x7130:1": { "sine": { "min": 200, "max": 260, "period_s": 30 }, "noise": 1 },
+            "0x7130:2": { "random_walk": { "min": 300, "max": 360, "max_step": 2 } },
+            "0x7130:3": { "ramp": { "from": 400, "to": 460, "duration_s": 30, "then": "reverse" } },
+            "0x7130:4": { "expr": "[0x7130:1] - 150 + 20 * sin(2 * pi * t / 10)" }
+          }
+        }
+      },
+      "extra_devices": [
+        { "node": 0, "name": "spare_io", "eds": "dio16.eds", "identity": { "serial_number": 7099 } }
+      ],
+      "scenarios": {
+        "wire-break": {
+          "autostart": true,
+          "description": "Every 60 s RTD channel 3 reports a wire break (0x7FFF) with an EMCY for 5 s.",
+          "steps": [
+            { "repeat": { "count": 0, "steps": [
+              { "after_ms": 60000, "node": 5, "override": { "0x7130:3": 32767 } },
+              { "node": 5, "fault": { "emcy": { "code": "0x5000", "register": 1 } } },
+              { "after_ms": 5000, "node": 5, "release": ["0x7130:3"] },
+              { "node": 5, "clear": "emcy" }
+            ] } }
+          ]
+        },
+        "alarm": {
+          "test": true,
+          "description": "RTD channel 0 above the 25.0 degC limit: the program switches DIO-16 output 0.0 on.",
+          "steps": [
+            { "node": 5, "override": { "0x7130:1": 300 } },
+            { "expect": { "node": 6, "object": "0x6200:1", "bit": 0, "eq": 1 }, "within_ms": 3000 },
+            { "node": 5, "override": { "0x7130:1": 200 } },
+            { "expect": { "node": 6, "object": "0x6200:1", "bit": 0, "eq": 0 }, "within_ms": 3000 },
+            { "node": 5, "release": ["0x7130:1"] }
+          ]
+        },
+        "gateway-route": {
+          "test": true,
+          "description": "RTD channel 0 goes up the gateway to the host, which sends it back down to DIO-16 analogue output 1.",
+          "steps": [
+            { "node": 5, "override": { "0x7130:1": 222 } },
+            { "expect": { "node": 6, "object": "0x6411:1", "eq": 222 }, "within_ms": 3000 },
+            { "expect": { "node": 6, "object": "0x6401:1", "eq": 222 }, "within_ms": 3000 },
+            { "node": 5, "release": ["0x7130:1"] }
+          ]
+        },
+        "dio-lost": {
+          "test": true,
+          "description": "DIO-16 stops its heartbeat: the program's fault output on new_io comes on, and so does the host's field-lost output from the gateway status.",
+          "steps": [
+            { "node": 6, "fault": { "heartbeat": "stop" } },
+            { "expect": { "node": 7, "object": "0x6200:1", "bit": 0, "eq": 1 }, "within_ms": 3000 },
+            { "expect": { "node": 7, "object": "0x6200:1", "bit": 1, "eq": 1 }, "within_ms": 3000 },
+            { "node": 6, "clear": "heartbeat" },
+            { "wait": { "node": 7, "object": "0x6200:1", "bit": 1, "eq": 0 }, "timeout_ms": 20000 }
+          ]
+        }
+      }
+    },
+    "motion": {
+      "nodes": {
+        "4": { "drive": { "max_velocity": 50000, "lag_ms": 20 } }
+      },
+      "scenarios": {
+        "drive-moves": {
+          "test": true,
+          "description": "The program homes the drive and moves it between 0 and 1000 while the host runs the line.",
+          "steps": [
+            { "wait": { "node": 4, "object": "0x6064", "ge": 999 }, "timeout_ms": 30000 },
+            { "wait": { "node": 4, "object": "0x6064", "le": 1 }, "timeout_ms": 30000 }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -997,6 +997,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 if "cob_id" in p:
                     pdo["cob_id"] = "auto" if p["cob_id"] == "auto" else _uint(p["cob_id"])
                 pdo["default_cob_id"] = default_cob_id(node["node_id"], pdo["number"], key == "tx_pdos")
+                if pdo["default_cob_id"] is None and "cob_id" not in p:
+                    err(pw, "%s %d has no default COB-ID; set 'cob_id' (or \"auto\")" % (kind, pdo["number"]),
+                        ["%s.%s[%d].cob_id" % (w, key, j)])
                 if "mapping" in p:
                     pdo["mapping"] = p["mapping"]
                 if pdo.get("sync_start") is not None and pdo.get("transmission") is not None \

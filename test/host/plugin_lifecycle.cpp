@@ -374,6 +374,7 @@ int main(int argc, char** argv) {
       }
     expect(emcys == 1, ("the stand-in sees the gateway's EMCY once, not echoed back up (" + std::to_string(emcys) +
                         " EMCY log lines on host)").c_str());
+    expect(!logged("gateway status of network \"host\""), "the stand-in has no place in the gateway status");
     if (started) stop_loop();
     cleanup();
     expect(!logged("ERROR"), "no error");

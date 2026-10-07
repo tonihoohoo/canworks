@@ -4,27 +4,43 @@
 // compiled TUs, generated.hpp, generated_debug.cpp, debug-map.json, the
 // STruC++ runtime headers under strucpp_runtime/include, defines.h and an
 // empty c_blocks.h. Enough for test/local-runtime/run.sh to run a real PLC
-// program; projects with libraries or C blocks need the editor itself.
+// program. `--lib DIR` adds the ST libraries in DIR (*.stlib) and the
+// compiler's bundled ones (PLCopen SoftMotion), as the editor does for a
+// project with libraries; C/C++ blocks (the SDO blocks) need the editor's
+// own glue and are not supported.
 //
-//   node build_program.mjs <strucpp command> <program.st> <bundle dir>
+//   node build_program.mjs <strucpp command> <program.st> <bundle dir> [--lib DIR]...
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const [cli, stFile, out] = process.argv.slice(2);
+const [cli, stFile, out, ...rest] = process.argv.slice(2);
+const libDirs = [];
+for (let i = 0; i < rest.length; i += 2) {
+  if (rest[i] !== "--lib" || !rest[i + 1]) {
+    console.error(`unknown option: ${rest[i]}`);
+    process.exit(2);
+  }
+  libDirs.push(rest[i + 1]);
+}
 if (!cli || !stFile || !out) {
-  console.error("usage: node build_program.mjs <strucpp command> <program.st> <bundle dir>");
+  console.error("usage: node build_program.mjs <strucpp command> <program.st> <bundle dir> [--lib DIR]...");
   process.exit(2);
 }
 // The package of the command behind node_modules/.bin/strucpp.
 let pkg = dirname(realpathSync(cli));
 while (!existsSync(join(pkg, "package.json")) && dirname(pkg) !== pkg) pkg = dirname(pkg);
 const { compile } = await import(pathToFileURL(join(pkg, "dist", "index.js")).href);
+let libraries;
+if (libDirs.length) {
+  const { discoverStlibs } = await import(pathToFileURL(join(pkg, "dist", "node", "index.js")).href);
+  libraries = [join(pkg, "libs"), ...libDirs].flatMap((d) => discoverStlibs(d));
+}
 
 const source = readFileSync(stFile, "utf8");
 const md5 = createHash("md5").update(source).digest("hex");
-const r = compile(source, { debug: true, lineMapping: false, fileName: "program.st", md5 });
+const r = compile(source, { debug: true, lineMapping: false, fileName: "program.st", md5, ...(libraries ? { libraries } : {}) });
 if (!r.success) {
   for (const e of r.errors) console.error(`program.st:${e.line}: ${e.message}`);
   process.exit(1);

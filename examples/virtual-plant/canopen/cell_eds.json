@@ -1,0 +1,14 @@
+{
+  "device_name": "Virtual plant cell gateway",
+  "vendor_id": 0,
+  "product_code": 3,
+  "heartbeat_ms": 200,
+  "layout": "manufacturer",
+  "objects": [
+    { "name": "line_run", "type": "BOOLEAN", "direction": "from_master" },
+    { "name": "temp_limit", "type": "INTEGER16", "direction": "from_master", "default": 250, "low": -500, "high": 1500 },
+    { "name": "alarm", "type": "BOOLEAN", "direction": "to_master" },
+    { "name": "axis_position", "type": "INTEGER32", "direction": "to_master" },
+    { "name": "cycle_count", "type": "UNSIGNED32", "direction": "to_master" }
+  ]
+}
