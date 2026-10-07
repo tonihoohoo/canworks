@@ -5,7 +5,8 @@
 // slcan firmware takes 'L' and then receives nothing. So for a sweep the
 // slcan backend gives up the kernel driver and talks to the adapter itself:
 // per rate "C", "S<n>", then silent mode ("m1", then "O": receive without
-// acknowledging or sending) where the firmware takes "m1", else "L". Closing
+// acknowledging or sending) unless the firmware refuses "m1" with a BEL
+// (some firmware answers no command at all), else "L". Closing
 // sets the mode back with "m0", so the kernel driver's "O" opens a normal
 // channel again when CANopen restarts.
 
@@ -44,7 +45,7 @@ class SlcanSweepPort : public LinkOps, public SweepListener {
 
  private:
   int send(const std::string& cmd);  // cmd + CR
-  bool ask(const std::string& cmd);  // true: the firmware answered CR, not BEL
+  bool ask(const std::string& cmd);  // false: the firmware refused it with BEL
   void count(const std::string& line, SweepRate& out);
 
   int fd_;
