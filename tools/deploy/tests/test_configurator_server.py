@@ -911,6 +911,33 @@ class Cia402(Running):
         self.assertIn("  drive        : AXIS_REF_SM3;", checked["block"])
         self.assertIn("drive_bridge(Axis := drive,", checked["block"])
 
+    def test_cyclic_map_and_declarations(self):
+        # add-cia402-cyclic-modes: the cyclic layout with transmission type 1,
+        # the SYNC check, and the cycle time line from the task interval.
+        self.cfg["nodes"][0]["axis"] = {"cyclic": True}
+        data = self.ok("POST", "/api/map_cia402", {"config": self.cfg, "node": 0})
+        node = data["node"]
+        self.assertEqual([e["index"] for e in node["rx_pdos"][0]["entries"]], ["0x6040", "0x6060", "0x607A"])
+        self.assertEqual([e["index"] for e in node["tx_pdos"][0]["entries"]], ["0x6041", "0x6061", "0x6064"])
+        self.assertEqual([c["pdo"] for c in data["changes"]], ["RPDO1", "RPDO2", "TPDO1", "TPDO2", "RPDO3"])
+        self.assertEqual({c["was"] for c in data["changes"]}, {255})
+        self.assertTrue(all(p["transmission"] == 1 for p in node["rx_pdos"] + node["tx_pdos"]))
+        self.cfg["nodes"][0] = node
+        self.cfg["nodes"][0]["heartbeat_ms"] = 50
+        checked = self.ok("POST", "/api/check", {"config": self.cfg})
+        messages = [i["message"] for i in checked["items"] if i["level"] == "error"]
+        self.assertEqual(len(messages), 1, messages)
+        self.assertIn("needs SYNC from the PLC cycle", messages[0])
+        self.cfg["master"] = {"node_id": 1, "sync_source": "plc_cycle"}
+        checked = self.ok("POST", "/api/check", {"config": self.cfg})
+        self.assertEqual(checked["errors"], 0, checked["items"])
+        self.assertIn("drive.fCycleTime := LREAL#0.02;", checked["block"])
+        checked = self.ok("POST", "/api/check", {"config": self.cfg, "task_interval": "T#2ms"})
+        self.assertIn("drive.fCycleTime := LREAL#0.002;", checked["block"])
+        checked = self.ok("POST", "/api/check", {"config": self.cfg, "task_interval": "fast"})
+        self.assertEqual(checked["errors"], 0)
+        self.assertTrue(any(i["paths"] == ["task_interval"] for i in checked["items"]))
+
     def test_map_refused(self):
         status, data, _ = self.request("POST", "/api/map_cia402", {"config": self.cfg, "node": 3})
         self.assertEqual(status, 400)

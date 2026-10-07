@@ -556,7 +556,7 @@ class Session:
                          "accepted": [f.to_json() for f in lint.accepted(mode)]}}
 
     # -- checks -------------------------------------------------------------
-    def check(self, cfg, allow_overlap=False):
+    def check(self, cfg, allow_overlap=False, task_interval=None):
         if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
         eds_paths = self.eds_paths(cfg)
@@ -564,6 +564,13 @@ class Session:
         items = list(result.items)
         extra, declared = layout.project_checks(cfg, self.uses, allow_overlap)
         items += extra
+        # A cyclic axis's fCycleTime line: the task interval the page gives.
+        cycle_s = editorproject.interval_seconds(editorproject.DEFAULT_INTERVAL)
+        if task_interval:
+            try:
+                cycle_s = editorproject.interval_seconds(task_interval)
+            except editorproject.NewProjectError as e:
+                items.append({"level": "warning", "message": str(e), "paths": ["task_interval"]})
         decls, block = [], ""
         try:
             summaries = self.eds_info(list(eds_paths))
@@ -583,7 +590,7 @@ class Session:
             decls = declare.declarations(
                 cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), declared, slave_object)
             block = declare.st_block(decls)
-            axes = axis.text_block(cfg, decls)
+            axes = axis.text_block(cfg, decls, cycle_s)
             if axes:
                 block = (block + "\n" if block else "") + axes
         except (KeyError, TypeError, ValueError, AttributeError):
@@ -853,7 +860,7 @@ class Session:
     def map_cia402(self, cfg, node, start=None, network=0):
         """Node `node` of network `network` (an index) of the draft with the
         standard CiA 402 objects its EDS has put into PDOs (cia402map), and
-        its status bit when it has none: {node, mapped, missing}. Suggested
+        its status bit when it has none: {node, mapped, missing, changes}. Suggested
         locations skip those of every network. Nothing is saved."""
         if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
@@ -865,8 +872,9 @@ class Session:
         if not info or info.get("error"):
             raise ApiError(400, info.get("error") or "the node has no EDS file")
         start = layout.DEFAULT_START if start in (None, "") else int(start)
-        new, mapped, missing = cia402map.map_objects(n, info, layout.taken(cfg, self.uses), start)
-        return {"node": new, "mapped": mapped, "missing": missing}
+        changes = []
+        new, mapped, missing = cia402map.map_objects(n, info, layout.taken(cfg, self.uses), start, changes)
+        return {"node": new, "mapped": mapped, "missing": missing, "changes": changes}
 
     # -- save ---------------------------------------------------------------
     def save(self, cfg, allow_overlap=False, overwrite=False):
@@ -1185,7 +1193,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = s.import_eds(body.get("name"), data, body.get("on_conflict"), body.get("eds_lint"))
                 elif route == ("POST", "/api/check"):
                     self._need_open(s)
-                    out = s.check(body.get("config"), bool(body.get("allow_overlap")))
+                    out = s.check(body.get("config"), bool(body.get("allow_overlap")), body.get("task_interval"))
                 elif route == ("POST", "/api/export_dbc"):
                     self._need_open(s)
                     out = s.export_dbc(body.get("config"), body.get("sdo", "none"), body.get("network"))

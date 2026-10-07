@@ -199,8 +199,9 @@ def cyclic_eds_check(cfg_node, node, eds):
         warnings.append(("%s: its EDS has no 0x60C2 (interpolation time period); set the drive's cycle time some other "
                          "way" % who, ".axis.cyclic"))
     if not eds.has(0x6065):
-        warnings.append(("%s: its EDS has no 0x6065 (following error window); check that the drive's own window "
-                         "allows the fixed delay of about three PLC cycles (docs/cia402.md)" % who, ".axis.cyclic"))
+        warnings.append(("%s: its EDS has no 0x6065 (following error window), so the config cannot set it; check "
+                         "that the drive's own window suits the cyclic set-points (docs/cia402.md)" % who,
+                         ".axis.cyclic"))
     o = eds.find(0x6502, 0)
     try:
         modes = o.value(node_id) if o is not None else None

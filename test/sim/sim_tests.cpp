@@ -4021,6 +4021,37 @@ TEST(sim_cia402_cyclic) {
 #endif
 }
 
+// A cyclic axis whose 0x60C2 period (here from a 5 ms base tick) is not the
+// measured SYNC interval (a 10 ms scan): one warning after 100 SYNCs.
+TEST(sim_cia402_cyclic_period_warning) {
+  clear_logs();
+  std::string dir = make_dir(read(std::string(CIA402_DIR) + "/canopen_config_cyclic.json"),
+                             {{"servo402.eds", read(std::string(CIA402_DIR) + "/servo402.eds")}});
+  static Sim* sim;
+  sim = new Sim(dir, 5000);
+  if (!sim->ok()) {
+    CHECK(sim->ok());
+    return;
+  }
+  CHECK(sim->cfg().nodes[0].interpolation_write_us == 5000);
+  sim->SetProgram([](fake_runtime::Image&) {});
+  if (!sim->StartSimulator("")) {
+    CHECK(!"simulator started");
+    delete sim;
+    return;
+  }
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(10)));
+  CHECK_MSG(sim->RunUntil([] { return logged("the drive interpolates with the wrong period"); }, seconds(5)),
+            std::to_string(sim->net().sync_stats().count) + " SYNCs");
+  CHECK(logged("node 4 (drive): cyclic axis: interpolation time period 5000 us, but the measured SYNC interval is"));
+  sim->RunFor(milliseconds(1500));
+  size_t n = 0;
+  for (const auto& l : logs()) n += l.find("the drive interpolates with the wrong period") != std::string::npos;
+  CHECK(n == 1);
+  delete sim;
+}
+
 int main(int argc, char** argv) {
   set_log_sink(capture);
   route_lely_diagnostics();

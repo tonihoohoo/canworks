@@ -33,5 +33,5 @@ None.
 - Deploy tool: `axis.py` checks and generated lines, `editorproject.py`, configurator page, the `openplc_canopen` library (ST blocks next to the SDO blocks, built with `library/build.sh`), version bump.
 - `plugin/sim/sim_drive.cpp` (CST, 0x60C2, SYNC watchdog), `docs/simulator.md`.
 - `config/cia402-drive/` (EDS 0x6502 and 0x60C2, CSP config and demo), `test/cia402/` (drive model modes 8-10, block tests), a new `sim_tests` case.
-- Depends on the editor's built-in library (`AXIS_REF_SM3`, `FB_S7RTT_OTG`) in OpenPLC Editor 4.3.2 / STruC++ 0.7.0; the library dependency of `openplc_canopen.stlib` is checked first (task 1.1).
+- Depends on the editor's built-in library (`AXIS_REF_SM3`, `FB_S7RTT_Plan`) in OpenPLC Editor 4.3.2 / STruC++ 0.7.0; the library dependency of `openplc_canopen.stlib` is checked first (task 1.1).
 - No real CiA 402 drive is available: verification is the simulator and ST tests; the hardware task stays open.

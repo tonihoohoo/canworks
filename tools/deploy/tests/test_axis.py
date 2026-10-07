@@ -234,6 +234,27 @@ class MapObjects(unittest.TestCase):
         self.assertNotIn("0x6041", [m["index"] for m in mapped])
         self.assertEqual(new["status_location"], "%IX10.0")
 
+    def test_cyclic_layout(self):
+        node = {"node_id": 4, "name": "drive", "eds": "servo402.eds", "axis": {"cyclic": True}, "heartbeat_ms": 100}
+        changes = []
+        new, _, missing = cia402map.map_objects(node, self.info(os.path.join(EXAMPLE, "servo402.eds")), set(),
+                                                changes=changes)
+        layout_of = {k: [(p["number"], p.get("transmission"), [e["index"] for e in p["entries"]]) for p in new[k]]
+                     for k in ("tx_pdos", "rx_pdos")}
+        self.assertEqual(layout_of, {
+            "tx_pdos": [(1, 1, ["0x6041", "0x6061", "0x6064"]), (2, 1, ["0x606C", "0x6077"])],
+            "rx_pdos": [(1, 1, ["0x6040", "0x6060", "0x607A"]), (2, 1, ["0x60FF", "0x6071"]), (3, 1, ["0x6081"])]})
+        self.assertEqual(missing, [])
+        self.assertEqual(sorted(c["pdo"] for c in changes), ["RPDO1", "RPDO2", "RPDO3", "TPDO1", "TPDO2"])
+        cfg = load(CYCLIC)
+        cfg["nodes"] = [new]
+        self.assertEqual(contract_messages(cfg), ([], []))
+        # A PDO already synchronous in the config is not changed again.
+        changes = []
+        again, mapped, _ = cia402map.map_objects(new, self.info(os.path.join(EXAMPLE, "servo402.eds")), set(),
+                                                 changes=changes)
+        self.assertEqual((again, mapped, changes), (new, [], []))
+
     def test_fixed_mapping_device(self):
         node = {"node_id": 4, "eds": "fixed-drive.eds", "axis": {}}
         new, _, missing = cia402map.map_objects(node, self.info(os.path.join(DRIVES, "fixed-drive.eds")), set())
