@@ -205,6 +205,18 @@ class Bundle(unittest.TestCase):
         self.assertEqual(errors, ["conf/canopen.json: networks[0].nodes[0].tx_pdos[0].entries[0].iec_location and "
                                   "networks[1].nodes[0].tx_pdos[0].entries[0].iec_location both map %ID100"])
 
+    def test_empty_plugin_config_is_skipped_quietly(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        os.makedirs(os.path.join(tmp, "conf"))
+        for name, text in (("ethercat.json", ""), ("modbus_master.json", " \n"), ("broken.json", "{")):
+            with open(os.path.join(tmp, "conf", name), "w", encoding="utf-8") as f:
+                f.write(text)
+        uses, problems = clash.bundle_uses(tmp)
+        self.assertEqual(uses, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("conf/broken.json: not readable JSON", problems[0])
+
 
 if __name__ == "__main__":
     unittest.main()
