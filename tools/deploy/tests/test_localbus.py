@@ -14,6 +14,8 @@ import unittest
 from contextlib import redirect_stderr
 from unittest import mock
 
+import can
+
 from openplc_canopen_deploy import diag
 from openplc_canopen_deploy.bustrace.model import RECORD_SIZE, Frame
 from openplc_canopen_deploy.localbus import AdapterError, LocalBus, parse
@@ -105,6 +107,25 @@ class Sdo(Base):
         long = bytes(range(100, 130))
         self.assertTrue(c.sdo_write(5, 0x2001, 0, long)["success"])
         self.assertEqual(self.devices[0].od[(0x2001, 0)], long)
+
+    def test_expedited_write_is_one_request(self):
+        self.device(5, od={(0x2000, 1): b"\x11\x22"})
+        c = self.client(allow_changes=True)
+        c.sdo_read(5, 0x1018, 1)  # past the listen window
+        watch = can.Bus(interface="virtual", channel=self.ch, receive_own_messages=False)
+        try:
+            self.assertTrue(c.sdo_write(5, 0x2000, 1, b"\x33\x44")["success"])
+            time.sleep(0.2)
+            sent = []
+            while True:
+                m = watch.recv(0)
+                if m is None:
+                    break
+                if m.arbitration_id == 0x605:
+                    sent.append(bytes(m.data))
+        finally:
+            watch.shutdown()
+        self.assertEqual([d[0] for d in sent], [0x2B])  # expedited, 2 bytes; no segmented download after it
 
     def test_abort_and_timeout(self):
         self.device(5)

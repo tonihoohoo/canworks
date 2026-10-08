@@ -121,7 +121,7 @@ def download(core, node, index, sub, payload, timeout_s):
                 if data[0] != 0x60:
                     _abort(core, node, index, sub, ABORT_BAD_COMMAND)
                     raise SdoAbort(ABORT_BAD_COMMAND, "unexpected answer 0x%02X" % data[0])
-                    return
+                return
             core.transmit(0x600 + node, struct.pack("<BHBI", 0x21, index, sub, len(payload)))
             data = _initiate_answer(rx, timeout_s, node, index, sub, core)
             if data[0] != 0x60:
