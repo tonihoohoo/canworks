@@ -20,7 +20,7 @@ A SocketCAN interface that is already up is used at its own bit rate. One that i
 
 ## The bit rate
 
-There is no default: a wrong bit rate disturbs every device on the bus. Give `--bitrate KBIT`, or `--config` with a `canopen.json`, whose network's `adapter.bitrate` is then used (`--network` picks one of several networks). The configurator starts with the config's bit rate and says when the chosen one differs.
+There is no default: a wrong bit rate disturbs every device on the bus. Give `--bitrate KBIT`, or `--config` with a `canopen.json`, whose network's `adapter.bitrate` is then used (`--network` picks one of several networks). The configurator starts with the config's bit rate and says when the chosen one differs; under **Commission a device**, which has no config, no rate is picked until you pick one or press **Detect**.
 
 ## First steps
 

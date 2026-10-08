@@ -3172,10 +3172,13 @@ function adapterForm(view) {
   };
   const refresh = el("button", { type: "button", class: "small", onclick: fill }, "Refresh");
   fill();
-  const cfgKbit = num(getPath("adapter.bitrate")) ? num(getPath("adapter.bitrate")) / 1000 : null;
+  // Commissioning has no network of its own (its placeholder config's rate
+  // is nobody's), and a guessed rate disturbs the bus: the user picks one.
+  const cfgKbit = !S.state.commission && num(getPath("adapter.bitrate")) ? num(getPath("adapter.bitrate")) / 1000 : null;
   const rate = el("select", { "aria-label": "Bit rate", dataset: { online: "adapter-bitrate" } },
+    el("option", { value: "" }, "Pick the bus's bit rate…"),
     LSS_BITRATES.map((b) => el("option", { value: b }, `${b} kbit/s${b === cfgKbit ? " (this network)" : ""}`)));
-  rate.value = String(S.online.adapter_bitrate || cfgKbit || 250);
+  rate.value = String(S.online.adapter_bitrate || cfgKbit || "");
   const allow = el("input", { type: "checkbox", dataset: { online: "adapter-allow" } });
   const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } });
   const detectMsg = el("p", { class: "muted", dataset: { online: "adapter-detect-msg" } });
@@ -3194,6 +3197,7 @@ function adapterForm(view) {
     msg,
     el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", dataset: { online: "connect" }, onclick: async () => {
       if (!input.value.trim()) { msg.textContent = "Pick or type the adapter first."; input.focus(); return; }
+      if (!rate.value) { msg.textContent = "Pick the bus's bit rate first, or press Detect."; rate.focus(); return; }
       if (!(await saveOnline({ adapter: input.value.trim(), adapter_bitrate: Number(rate.value) }))) return;
       if (allow.checked && !(await saveOnline({ allow_changes: true }))) return;
       S.onlineForm = false;

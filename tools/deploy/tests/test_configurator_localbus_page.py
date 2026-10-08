@@ -93,6 +93,12 @@ class AdapterPage(OnlineBase):
         pg.wait_for_selector('input[data-online="adapter"]')
         self.assertIn("commissioning a device", pg.inner_text("#mode"))
         pg.fill('input[data-online="adapter"]', "virtual:" + self.ch)
+        # No network here, so no bit rate is picked for the user.
+        self.assertEqual(pg.input_value('select[data-online="adapter-bitrate"]'), "")
+        self.assertNotIn("(this network)", pg.inner_text('select[data-online="adapter-bitrate"]'))
+        pg.click('button[data-online="connect"]')
+        self.assertIn("Pick the bus's bit rate", pg.inner_text('[data-online="connect-msg"]'))
+        pg.select_option('select[data-online="adapter-bitrate"]', "250")
         pg.click('button[data-online="connect"]')
         pg.wait_for_selector("text=Connected to USB adapter")
         pg.click('button[data-view="scan"]')
