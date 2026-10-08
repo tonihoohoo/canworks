@@ -55,8 +55,9 @@ DISTURB_NEEDED = "disturb_bus needed"  # ... with disturb_bus: true (an adapter 
 TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
 SILENT_HINT = ("The bus was silent. A listening adapter sends no acknowledge, so frames only count when "
                "another device acknowledges them: with one device on the bus, add a second device or a second "
-               "adapter in normal mode. A device that only sends its boot-up message: power-cycle it during the "
-               "sweep, or run more rounds.")
+               "adapter in normal mode, or, with a USB adapter on the PC and nothing else on the bus, run the "
+               "lone-device sweep (--lone-device). A device that only sends its boot-up message: power-cycle it "
+               "during the sweep, or run more rounds.")
 
 
 # ---------------------------------------------------------------------------
@@ -622,8 +623,12 @@ class Client:
         lists each with its "sent" count and "reason"."""
         return self.request("send_frame_stop", **({} if job is None else {"job": job}))
 
-    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False, disturb_bus=False):
+    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False, disturb_bus=False,
+                       lone_device=False, probe=None):
         """Starts a bit rate sweep (unless one runs) and returns its progress."""
+        if lone_device or probe:
+            raise DiagError("refused", "the lone-device sweep is only on a USB adapter (--adapter): the plugin's "
+                                       "sweep only listens")
         fields = {}
         if rates:
             fields["rates"] = list(rates)
@@ -782,7 +787,7 @@ def _network_arg(p, text="the network to talk to (needed when the runtime runs s
 # too, but goes over every network without it).
 NETWORK_COMMANDS = ("emcy", "sdo-read", "sdo-write", "nmt", "scan", "lss-find", "lss-inquire", "lss-set-id",
                     "lss-set-bitrate", "trace", "backup", "compare", "restore", "store", "send", "send-stop",
-                    "detect-bitrate")
+                    "detect-bitrate", "configure", "restore-defaults", "pdo-test")
 
 
 def _int_range(what, lo, hi):
@@ -792,6 +797,15 @@ def _int_range(what, lo, hi):
             raise argparse.ArgumentTypeError("%s must be %d-%d" % (what, lo, hi))
         return v
     return parse
+
+
+def _probe(text):
+    t = text.strip().lower()
+    if t == "lss":
+        return "lss"
+    if t.startswith("sdo:"):
+        return {"sdo": _node(t[4:])}
+    raise argparse.ArgumentTypeError("write lss or sdo:NODE")
 
 
 def _rates(text):
@@ -909,6 +923,13 @@ def parser():
     db.add_argument("--disturb-bus", action="store_true", dest="disturb_bus",
                     help="sweep even on an adapter that does not confirm listen-only (slcan firmware that answers "
                          "nothing): at a wrong bit rate it may send error frames that disturb the bus")
+    db.add_argument("--lone-device", action="store_true", dest="lone_device",
+                    help="--adapter, bench only: join the bus at each rate in normal mode so the adapter "
+                         "acknowledges a device that is alone on the bus (needs --allow-changes; at wrong rates "
+                         "the adapter's error frames reach the device)")
+    db.add_argument("--probe", type=_probe, metavar="lss|sdo:NODE",
+                    help="--lone-device: make a quiet device answer, with LSS (no node ID needed) or an SDO "
+                         "request to NODE")
     tr = sub.add_parser("trace", help="record the frames on the bus into a file (read-only)",
                         description="Records every CAN frame on the runtime's CANopen interface (with several "
                                     "networks, the one --network names) until --duration ends, a single-mode "
@@ -986,6 +1007,56 @@ def parser():
                     help="0x1010 sub-index (default 1: all parameters)")
     st.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     _source(st)
+    cf = sub.add_parser("configure", help="write a node's configuration to the device (needs allow_changes; "
+                                          "stores only with --store)",
+                        description="Writes the configuration a node of --config gets at boot (--from-node), or "
+                                    "the writable values of a DCF (--dcf), to the device over SDO: PDOs in CiA 301 "
+                                    "order, only what differs, the node held in PRE-OPERATIONAL meanwhile; then "
+                                    "reads everything back. 0x1010 and 0x1011 are never part of it.")
+    cf.add_argument("node", type=_node)
+    what = cf.add_mutually_exclusive_group(required=True)
+    what.add_argument("--from-node", type=_node, metavar="N", help="the node of --config whose configuration to write")
+    what.add_argument("--dcf", metavar="FILE", help="a CiA 306 DCF (a node DCF export, a backup, another tool's)")
+    cf.add_argument("--config", metavar="canopen.json", help="the configuration --from-node names a node of")
+    cf.add_argument("--dry-run", action="store_true", help="show the plan and write nothing")
+    cf.add_argument("--verify-only", action="store_true",
+                    help="compare the device with the source and write nothing (exit 1 when it differs)")
+    cf.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    cf.add_argument("--no-hold", action="store_true", help="do not put the node in PRE-OPERATIONAL while writing")
+    cf.add_argument("--ignore-identity", action="store_true",
+                    help="write even when the vendor ID or product code differs from the source's")
+    cf.add_argument("--restore-defaults", action="store_true",
+                    help="first write \"load\" to 0x1011 sub 1 and reset the node")
+    cf.add_argument("--store", action="store_true",
+                    help="afterwards store in the device's non-volatile memory (0x1010), only when nothing failed")
+    cf.add_argument("--store-subindex", type=lambda t: _uint(t, "subindex", 0xFE), default=1, metavar="N",
+                    help="0x1010 sub-index for --store (default 1: all parameters)")
+    rd = sub.add_parser("restore-defaults", help="restore a node's default parameters, 0x1011 (needs allow_changes)")
+    rd.add_argument("node", type=_node)
+    rd.add_argument("--subindex", type=lambda t: _uint(t, "subindex", 0xFE), default=1,
+                    help="0x1011 sub-index (default 1: all parameters)")
+    rd.add_argument("--reset", action="store_true", help="then send NMT reset node, so the defaults take effect")
+    rd.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    _source(rd)
+    pt = sub.add_parser("pdo-test", help="--adapter: watch a node's TPDOs and send its RPDOs (needs allow_changes)",
+                        description="Takes the node's PDOs from --config (a configured node) or reads them from "
+                                    "the device, shows the TPDO values as they come, sends the RPDO values --set "
+                                    "gives, and with --sync sends SYNC, until --duration ends or Ctrl-C. Only on "
+                                    "a USB adapter: on a runtime the PLC runs the PDOs.")
+    pt.add_argument("node", type=_node)
+    pt.add_argument("--set", action="append", default=[], metavar="ENTRY=VALUE",
+                    help="an RPDO entry's value (repeatable): its name, 0xIIII:SS or RPDO1.name, e.g. 0x6200:1=0x0F")
+    pt.add_argument("--repeat-ms", type=_int_range("repeat", 10, 60000), metavar="MS",
+                    help="send event-driven RPDOs again every MS (default: once per --set)")
+    pt.add_argument("--sync", type=_int_range("SYNC period", 1, 10000), metavar="MS",
+                    help="send SYNC every MS (synchronous TPDOs answer it, synchronous RPDOs go with it)")
+    pt.add_argument("--sync-counter", type=_int_range("SYNC counter", 0, 240), default=0, metavar="N",
+                    help="SYNC counter overflow value (2-240; default 0: no counter)")
+    pt.add_argument("--start", action="store_true", help="send NMT start to the node first")
+    pt.add_argument("--duration", type=float, metavar="S", help="stop after S seconds (default: Ctrl-C)")
+    pt.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
+                    help="run even while another master is active on the bus")
+    _source(pt)
     for name in NETWORK_COMMANDS:
         _network_arg(sub.choices[name])
     sub.add_parser("adapters", help="list the CAN adapters on this PC (for --adapter; no connection)")
@@ -1341,6 +1412,251 @@ def _parameters(client, args, host, out):
     return res
 
 
+def _print_plan(plan, out):
+    for i in plan.identity:
+        out.write("%s: %s\n" % (i["level"], i["text"]))
+    for w in plan.warnings:
+        out.write("warning: %s\n" % w)
+    for st in plan.steps:
+        if not st["send"]:
+            continue
+        verb = {"off": "off", "clear": "clear", "on": "on"}.get(st["role"], "write")
+        out.write("%-5s 0x%04X sub %-3d %s%s: %s (device %s)\n" % (
+            verb, st["index"], st["subindex"], "[%s] " % st["group"] if st["group"] else "", st["name"],
+            st["value"], st["device"] if st["device"] is not None else "not readable"))
+    for sk in plan.skipped:
+        out.write("skip  0x%04X sub %-3d %s: %s\n" % (sk["index"], sk["subindex"], sk["name"], sk["reason"]))
+    out.write("%d to write, %d the same, %d left out\n" % (len(plan.writes), len(plan.same), len(plan.skipped)))
+
+
+def _print_differences(diffs, out):
+    for d in diffs:
+        out.write("0x%04X sub %-3d %s: wanted %s, device %s\n" % (
+            d["index"], d["subindex"], d["name"], d["value"],
+            d["device"] if d.get("device") is not None else "not readable (%s)" % d.get("error")))
+
+
+def _commissioning(client, args, out):
+    """configure and restore-defaults (canopen-device-commissioning)."""
+    from . import commissioning as C
+    from . import parameters as P
+    node = args.node
+    if args.command == "restore-defaults":
+        try:
+            ctx = P.node_context(node, args.config, args.eds, network=args.network)
+        except P.ParameterError as e:
+            raise DiagError("usage", str(e))
+        if not args.yes and not _confirm("restore node %d's default parameters (0x1011 sub %d)%s?" % (
+                node, args.subindex, " and reset it" if args.reset else ""), out):
+            raise DiagError("refused", "not confirmed; nothing written")
+        try:
+            res = C.restore_defaults(client, node, ctx.eds, args.subindex, args.reset)
+        except C.CommissioningError as e:
+            raise DiagError("refused", str(e))
+        if not res["restored"]:
+            raise DiagError("refused", "node %d did not restore its defaults: %s" % (node, res["error"]))
+        if not args.json:
+            out.write("node %d: defaults restored (0x1011 sub %d); %s\n" % (node, args.subindex, res["note"]))
+        return res
+    try:
+        if args.dcf:
+            with open(args.dcf, "rb") as f:
+                src = C.dcf_source(f.read(), args.dcf, node)
+        else:
+            if not args.config:
+                raise DiagError("usage", "--from-node needs --config with that node")
+            ctx = P.node_context(args.from_node, args.config, network=args.network)
+            src = C.config_source(ctx, args.from_node)
+    except OSError as e:
+        raise DiagError("usage", str(e))
+    except (P.ParameterError, C.CommissioningError) as e:
+        raise DiagError("usage", str(e))
+    if args.verify_only:
+        plan = C.build_plan(src, node, P.Reading(node))
+        res = C.verify(client, node, plan, _progress("reading"))
+        if not args.json:
+            _print_differences(res["differences"], out)
+            out.write("%d entries checked, %s\n" % (res["checked"], "%d differ" % len(res["differences"])
+                                                    if res["differences"] else "no difference"))
+        if res["stopped"]:
+            raise DiagError("refused", res["stopped"])
+        if res["differences"]:
+            raise DiagError("refused", "%d entries differ from %s" % (len(res["differences"]), src.name))
+        return res
+    try:
+        was = C.check_target(client, node)
+    except C.CommissioningError as e:
+        raise DiagError("refused", str(e))
+    if args.restore_defaults and not args.dry_run:
+        if not client.info.get("allow_changes", True):
+            raise DiagError("refused", "changes not allowed")
+        if not args.yes and not _confirm("restore node %d's default parameters and reset it first?" % node, out):
+            raise DiagError("refused", "not confirmed; nothing written")
+        try:
+            res = C.restore_defaults(client, node, src.eds, 1, reset=True)
+        except C.CommissioningError as e:
+            raise DiagError("refused", str(e))
+        if not res["restored"]:
+            raise DiagError("refused", "node %d did not restore its defaults: %s" % (node, res["error"]))
+        if not C.wait_ready(client, node):
+            raise DiagError("refused", "node %d did not answer after its reset" % node)
+    live = P.read_entries(client, node, C.plan_keys(src), _progress("reading"))
+    if live.stopped:
+        raise DiagError("refused", live.stopped)
+    plan = C.build_plan(src, node, live, args.ignore_identity)
+    if not args.json or args.dry_run:
+        _print_plan(plan, out)
+    if plan.refused:
+        raise DiagError("refused", "configuration refused: %s" % plan.refused)
+    if args.dry_run:
+        return plan.to_json()
+    if not plan.writes:
+        if not args.json:
+            out.write("nothing to write\n")
+        res = {"written": [], "failed": [], "verified": True}
+    else:
+        if not client.info.get("allow_changes", True):
+            raise DiagError("refused", "changes not allowed")
+        if not args.yes and not _confirm("write %d values to node %d%s?" % (
+                len(plan.writes), node, "" if args.no_hold else ", holding it in PRE-OPERATIONAL"), out):
+            raise DiagError("refused", "not confirmed; nothing written")
+        res = C.configure(client, node, plan, not args.no_hold, was, _progress("writing"))
+        if not args.json:
+            for fl in res["failed"]:
+                out.write("failed 0x%04X sub %d %s: %s\n" % (fl["index"], fl["subindex"], fl["name"], fl["error"]))
+            for sk in res["skipped"]:
+                if "stays switched off" in sk["reason"]:
+                    out.write("not written 0x%04X sub %d: %s\n" % (sk["index"], sk["subindex"], sk["reason"]))
+            _print_differences(res["readback"], out)
+            for note in res["notes"]:
+                out.write("note: %s\n" % note)
+            out.write("%d written, %d failed, %s\n" % (len(res["written"]), len(res["failed"]),
+                                                       "verified" if res["verified"] else "NOT verified"))
+    if args.store:
+        if res["failed"] or not res["verified"]:
+            if not args.json:
+                out.write("store skipped: the configuration was not written completely\n")
+        else:
+            try:
+                st = P.store(client, node, src.eds, args.store_subindex)
+            except P.ParameterError as e:
+                raise DiagError("refused", str(e))
+            res["store"] = st
+            if not st["stored"]:
+                raise DiagError("refused", "node %d did not store: %s" % (node, st["error"]))
+            if not args.json:
+                out.write("node %d: stored (0x1010 sub %d)\n" % (node, args.store_subindex))
+    elif not args.json and plan.writes:
+        out.write("the values are not stored on the device: they are lost at power off until Store on device "
+                  "(0x1010) is used\n")
+    if res["failed"]:
+        raise DiagError("refused", "%d values could not be written" % len(res["failed"]))
+    if not res.get("verified", True):
+        raise DiagError("refused", "the read-back differs from the source")
+    return res
+
+
+def _pdo_lines(st):
+    lines = []
+    for p in st.get("tpdos") or []:
+        head = "%s 0x%03X" % (p["name"], p["cob_id"])
+        if not p.get("count"):
+            lines.append("%s: nothing received yet" % head)
+            continue
+        lines.append("%s: %d received%s, %s" % (head, p["count"], ", every %.0f ms" % p["period_ms"]
+                                                if p.get("period_ms") else "",
+                                                ", ".join("%s = %s" % (v["name"], v["value"]) for v in p["values"])))
+    for p in st.get("rpdos") or []:
+        set_ = [v for v in p["values"] if v["value"] is not None]
+        lines.append("%s 0x%03X: %d sent%s%s" % (p["name"], p["cob_id"], p.get("sent", 0),
+                                                 ", " + ", ".join("%s = %s" % (v["name"], v["value"]) for v in set_)
+                                                 if set_ else ", no value set",
+                                                 " (%s)" % p["note"] if p.get("note") else ""))
+    sy = st.get("sync") or {}
+    if sy.get("running"):
+        lines.append("SYNC every %d ms: %d sent" % (sy["period_ms"], sy["sent"]))
+    return lines
+
+
+def _pdo_test(client, args, out):
+    """pdo-test: a PDO test on a local adapter, until --duration or Ctrl-C."""
+    from . import commissioning as C
+    from . import parameters as P
+    from . import pdotest
+    if not client.info.get("local"):
+        raise DiagError("usage", "the PDO test is only on a USB adapter (--adapter): on a runtime the PLC runs "
+                                 "the PDOs")
+    try:
+        ctx = P.node_context(args.node, args.config, args.eds, network=args.network)
+    except P.ParameterError as e:
+        raise DiagError("usage", str(e))
+    if ctx.configured:
+        try:
+            src = C.config_source(ctx, args.node)
+        except C.CommissioningError as e:
+            raise DiagError("usage", str(e))
+        layout = pdotest.from_values(src.values, client, args.node, ctx.eds)
+    else:
+        layout = pdotest.from_device(client, args.node, ctx.eds)
+    if not layout["tpdos"] and not layout["rpdos"]:
+        raise DiagError("refused", "node %d has no valid PDO" % args.node)
+    sets = {}
+    for item in args.set:
+        key, eq, value = item.partition("=")
+        if not eq:
+            raise DiagError("usage", "--set %r: write ENTRY=VALUE" % item)
+        try:
+            pdo, e = pdotest.find_entry(layout["rpdos"], key)
+        except ValueError as e:
+            raise DiagError("usage", str(e))
+        sets.setdefault(pdo["number"], {})[pdotest.entry_key(e)] = value.strip()
+    force = getattr(args, "force", False)
+    try:
+        if args.start:
+            client.nmt(args.node, "start")
+        client.pdo_test_start(args.node, layout, force)
+        if args.sync:
+            client.sync_start(args.sync, args.sync_counter, force=force)
+        for number, values in sets.items():
+            client.pdo_test_set(args.node, number, values, args.repeat_ms)
+    except DiagError as e:
+        if needs_force(e):
+            raise DiagError("refused", "%s; add --force to run anyway" % e)
+        raise
+    if not args.json:
+        out.write("PDO test of node %d (%s): %s\n" % (args.node, "configuration" if ctx.configured else "read from "
+                                                     "the device", ", ".join(p["name"] for p in
+                                                                             layout["tpdos"] + layout["rpdos"])))
+        out.flush()
+    started = time.monotonic()
+    st = {}
+    try:
+        while args.duration is None or time.monotonic() - started < args.duration:
+            time.sleep(0.5)
+            st = client.pdo_test_status(args.node)
+            if not st.get("running"):
+                break
+            if not args.json and sys.stderr.isatty():
+                sys.stderr.write("\x1b[2K\r" + " | ".join(_pdo_lines(st))[:200])
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if not args.json and sys.stderr.isatty():
+            sys.stderr.write("\x1b[2K\r")
+        final = client.pdo_test_status(args.node)
+        if final.get("running"):
+            st = final
+        client.pdo_test_stop(args.node)
+        if args.sync:
+            client.sync_stop()
+    if not args.json:
+        for line in _pdo_lines(st):
+            out.write(line + "\n")
+    if st.get("ended") or not st.get("running", False):
+        raise DiagError("refused", "the PDO test ended: %s" % (st.get("ended") or "stopped"))
+    return st
+
+
 def _local_client(args):
     """A localbus.LocalBus for --adapter: the bit rate from --bitrate or the
     network of --config, the configured nodes' names from --config."""
@@ -1517,7 +1833,10 @@ def _detect(client, args, out):
     """detect-bitrate: starts the sweep, follows it, prints the table and the
     verdict; exits 0 only when one rate was detected."""
     try:
-        res = client.detect_bitrate(args.rates, args.per_rate_ms, args.rounds, args.force, args.disturb_bus)
+        if args.probe and not args.lone_device:
+            raise DiagError("usage", "--probe is for the lone-device sweep (--lone-device)")
+        res = client.detect_bitrate(args.rates, args.per_rate_ms, args.rounds, args.force, args.disturb_bus,
+                                    args.lone_device, args.probe)
     except DiagError as e:
         if needs_force(e):
             raise DiagError("refused", "%s; add --force to stop CANopen on this network for the sweep" % e)
@@ -1546,6 +1865,8 @@ def _detect(client, args, out):
         if skipped_text(res):
             out.write(skipped_text(res) + "\n")
         out.write(verdict_text(res) + "\n")
+        if res.get("warning"):
+            out.write("warning: %s\n" % res["warning"])
     if res.get("verdict") != "detected":
         if args.json:
             out.write(json.dumps(res, indent=2) + "\n")
@@ -1673,6 +1994,10 @@ def run(args, out=sys.stdout):
                                                                   res.get("note", "")))
         elif args.command in ("backup", "compare", "restore", "store"):
             res = _parameters(client, args, host, out)
+        elif args.command in ("configure", "restore-defaults"):
+            res = _commissioning(client, args, out)
+        elif args.command == "pdo-test":
+            res = _pdo_test(client, args, out)
         elif args.command in ("send", "send-stop", "detect-bitrate"):
             try:
                 res = {"send": _send, "send-stop": _send_stop, "detect-bitrate": _detect}[args.command](

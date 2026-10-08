@@ -217,16 +217,24 @@ def device_info(path):
     lss_supported (LSS_Supported is set and not 0)}, or
     None when the file cannot be read as an INI file. Reads only that section,
     so it is cheap enough to run over an EDS library folder."""
-    parser = configparser.ConfigParser(strict=False, interpolation=None, comment_prefixes=(";", "#"))
     try:
         with open(path, "rb") as f:
             data = f.read()
-        try:
-            text = data.decode("utf-8")
-        except UnicodeDecodeError:
-            text = data.decode("latin-1")
-        parser.read_string(text, path)
-    except (OSError, configparser.Error):
+    except OSError:
+        return None
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        text = data.decode("latin-1")
+    return device_info_text(text, path)
+
+
+def device_info_text(text, name="EDS"):
+    """device_info() of an EDS or DCF already read as text."""
+    parser = configparser.ConfigParser(strict=False, interpolation=None, comment_prefixes=(";", "#"))
+    try:
+        parser.read_string(text, name)
+    except configparser.Error:
         return None
     section = next((parser[s] for s in parser.sections() if s.lower() == "deviceinfo"), None)
     if section is None:

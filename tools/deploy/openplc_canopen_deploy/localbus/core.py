@@ -44,6 +44,7 @@ class Core:
         self.lock = threading.Lock()
         self.tx_lock = threading.Lock()
         self.waiters = collections.defaultdict(list)  # COB-ID -> [Queue]
+        self.listeners = collections.defaultdict(list)  # COB-ID -> [fn(data, monotonic, wall)] (PDO test)
         self.heard = {}  # node -> {"state", "at", "at_wall"}
         self.emcy = {}  # node -> {"history": deque, "count"}
         self.other = None  # {"what", "first_at", "last", "last_at"}
@@ -108,6 +109,8 @@ class Core:
         now, wall = time.monotonic(), time.time()
         for q in list(self.waiters.get(cob, ())):
             q.put(data)
+        for fn in list(self.listeners.get(cob, ())):
+            fn(data, now, wall)
         if cob == NMT_COB and len(data) >= 2:
             self._other_master("NMT command 0x%02X to %s" % (data[0], "all nodes" if data[1] == 0
                                                                else "node %d" % data[1]), now, wall)
@@ -175,6 +178,17 @@ class Core:
         def drain(self):
             while not self.q.empty():
                 self.q.get_nowait()
+
+    def listen(self, cob, fn):
+        """Calls fn(data, monotonic time, wall time) for each frame on `cob`
+        until unlisten(cob, fn); fn runs in the receive thread."""
+        with self.lock:
+            self.listeners[cob].append(fn)
+
+    def unlisten(self, cob, fn):
+        with self.lock:
+            if fn in self.listeners.get(cob, ()):
+                self.listeners[cob].remove(fn)
 
     def expect(self, cob):
         """with core.expect(0x585) as rx: ... rx.get(timeout)"""
