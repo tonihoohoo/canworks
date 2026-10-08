@@ -5838,6 +5838,14 @@ async function closeFolder() {
   stopSim(false);
   await api("POST", "/api/close");
   S.browserPath = null;
+  // The closed folder's scan and online picks are not the next one's: a
+  // device commissioned next showed the project's nodes as configured.
+  S.scanResult = null;
+  S.onlineNet = null;
+  S.onlineNode = null;
+  S.onlineEds = null;
+  S.onlineEdsName = null;
+  S.lssDevice = null;
   await loadState();
 }
 

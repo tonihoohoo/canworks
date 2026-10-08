@@ -84,6 +84,19 @@ class Running(unittest.TestCase):
         return self.ok("POST", "/api/open", {"path": self.project, "mode": "project"})
 
 
+
+class PortInUse(unittest.TestCase):
+    def test_message(self):
+        import contextlib
+        import socket
+        with socket.socket() as taken:
+            taken.bind(("127.0.0.1", 0))
+            taken.listen(1)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(srv.main(["--no-browser", "--port", str(taken.getsockname()[1])]), 2)
+        self.assertIn("cannot listen on 127.0.0.1:", err.getvalue())
+
 class Access(Running):
     def test_api_needs_the_token(self):
         status, data, _ = self.request("GET", "/api/state", token=False)

@@ -318,6 +318,42 @@ def _slcan_bus(listen_only, disturb_bus=False):
 # Opening
 
 
+def _gs_usb_options(spec, kwargs):
+    """gs_usb outside Linux. The gs_usb package resets the USB device and
+    then detaches a kernel driver when libusb reports one; on macOS libusb
+    reports one after the reset and detaching needs root ("Access denied"),
+    though there is no driver to detach. And python-can's gs_usb opened by
+    number opens and starts the adapter once more when it closes it, after
+    which some adapters receive nothing until they are plugged in again. So
+    the detach is skipped (macOS and Windows have no gs_usb kernel driver)
+    and the adapter numbered CHANNEL is opened by its USB bus and address."""
+    from gs_usb.gs_usb import GsUsb
+    if not getattr(GsUsb, "_openplc_no_detach", False):
+        start = GsUsb.start
+
+        def start_without_detach(self, *args, **kw):
+            dev = self.gs_usb
+            dev.is_kernel_driver_active = lambda interface: False
+            try:
+                return start(self, *args, **kw)
+            finally:
+                del dev.is_kernel_driver_active
+
+        GsUsb.start = start_without_detach
+        GsUsb._openplc_no_detach = True
+    if "index" in kwargs or "bus" in kwargs or "address" in kwargs:
+        return
+    try:
+        index = int(spec.channel)
+    except ValueError:
+        raise AdapterError("usage", "write a gs_usb adapter as gs_usb:N, N its number from 'adapters' (0 for the "
+                                    "first)")
+    devices = GsUsb.scan()
+    if index >= len(devices):
+        raise AdapterError("unreachable", "no gs_usb adapter %d on this PC (%d found)" % (index, len(devices)))
+    kwargs["bus"], kwargs["address"] = devices[index].bus, devices[index].address
+
+
 class Opened:
     """An open adapter: `bus` (a python-can Bus), the bit rate in use, and the
     lock that keeps other tools off it."""
@@ -405,6 +441,8 @@ def open(spec, bitrate, listen_only=False, options=None, disturb_bus=False):  # 
         else:
             if listen_only and spec.kind == "pcan":
                 kwargs["state"] = can.BusState.PASSIVE  # PCAN_LISTEN_ONLY on
+            if spec.kind == "gs_usb" and not sys.platform.startswith("linux"):
+                _gs_usb_options(spec, kwargs)
             bus = can.Bus(interface=spec.kind, channel=spec.channel, **kwargs)
     except AdapterError:
         if restore:
@@ -465,6 +503,29 @@ def _socketcan_links():
     return out
 
 
+def _usb_adapters():
+    """gs_usb adapters by USB ID, numbered as python-can's gs_usb driver
+    numbers them (its channel), which cannot list them itself. On Linux they
+    are SocketCAN links instead. Needs pyusb and libusb."""
+    out = []
+    if sys.platform.startswith("linux"):
+        return out
+    try:
+        import usb.core
+        devices = list(usb.core.find(find_all=True))
+    except Exception:  # no pyusb, or no libusb backend
+        return out
+    index = 0
+    for d in devices:
+        kind = OTHER_USB_IDS.get((d.idVendor, d.idProduct))
+        if not kind or kind[0] != "gs_usb":
+            continue
+        out.append({"type": "gs_usb", "channel": str(index), "description": "USB device",
+                    "usb_id": "%04X:%04X" % (d.idVendor, d.idProduct), "known": kind[1]})
+        index += 1
+    return out
+
+
 def _read(path):
     import builtins
     return builtins.open(path, encoding="utf-8")
@@ -493,11 +554,11 @@ def _detected(interfaces):
 
 def list_adapters(probe=("pcan", "kvaser", "ixxat", "vector", "gs_usb")):
     """The adapters this PC has: serial ports (slcan candidates, known USB IDs
-    marked), SocketCAN links on Linux, and what python-can finds for the
-    other interfaces it has drivers for. Each: type, channel, description,
+    marked), SocketCAN links on Linux, gs_usb adapters by USB ID elsewhere,
+    and what python-can finds for the other interfaces it has drivers for. Each: type, channel, description,
     usb_id, known (a name when the adapter is recognised), text (the
     --adapter value)."""
-    out = _socketcan_links() + _serial_ports() + _detected(probe)
+    out = _socketcan_links() + _serial_ports() + _usb_adapters() + _detected(probe)
     for a in out:
         a["text"] = "%s:%s" % (a["type"], a["channel"])
     return out

@@ -10,10 +10,11 @@ The PC is a guest on the bus, not its master. It sends nothing until you act, an
 |---|---|---|---|---|
 | slcan adapters (CANable and CANable 2.0 with stock firmware, and other USB serial adapters that speak slcan) | `slcan:PORT` | `COM5`; the built-in USB serial driver, nothing to install | `/dev/tty.usbmodem14101`; nothing to install | `/dev/ttyACM0`; join the `dialout` group once (`sudo usermod -aG dialout $USER`, then log in again) |
 | SocketCAN interfaces (CAN HATs, candleLight firmware, PEAK USB on Linux, `vcan0`) | `socketcan:can0` | - | - | built into the kernel |
+| gs_usb adapters (candleLight firmware and compatible adapters, USB ID 1D50:606F) | `gs_usb:0` (the first) | untested | `brew install libusb` once; the tools bring the Python driver | use `socketcan:can0`: the kernel driver makes them a SocketCAN interface |
 
-Other interfaces python-can knows (`gs_usb`, `pcan`, `kvaser`, `ixxat`, `vector`, ...) are passed through untested: `--adapter pcan:PCAN_USBBUS1` works when python-can and the vendor's driver do, and the tools say the type is untested. Their options go in `--adapter-option KEY=VALUE` (repeatable).
+Other interfaces python-can knows (`pcan`, `kvaser`, `ixxat`, `vector`, ...) are passed through untested: `--adapter pcan:PCAN_USBBUS1` works when python-can and the vendor's driver do, and the tools say the type is untested. Their options go in `--adapter-option KEY=VALUE` (repeatable).
 
-`openplc-canopen-diag adapters` lists what is plugged in: serial ports with USB IDs (recognised slcan adapters named), SocketCAN interfaces on Linux, and what python-can finds for the other types. Each line starts with the `--adapter` value to use.
+`openplc-canopen-diag adapters` lists what is plugged in: serial ports with USB IDs (recognised slcan adapters named), SocketCAN interfaces on Linux, gs_usb adapters by USB ID on macOS and Windows (numbered from 0 in USB order), and what python-can finds for the other types. Each line starts with the `--adapter` value to use.
 
 A SocketCAN interface that is already up is used at its own bit rate. One that is down is brought up at the given bit rate when the user may; otherwise the message gives the `sudo ip link set ...` command to run first.
 
@@ -57,7 +58,7 @@ The tools listen for a second before their first frame. A bus that carries NMT c
 - No simulated devices, no CiA 402 axes, no PLC values: those need the runtime.
 - `status` shows only what the bus showed since connecting: node states from heartbeats, the last EMCY per node. No bus error counters; the adapter's own state (active, passive) shows when python-can reports it.
 - One tool per adapter: a second configurator or CLI on the same adapter gets "adapter ... in use". The configurator keeps the adapter open while its online view is open; the CLI for one command.
-- Types other than `slcan` and `socketcan` are untested.
+- Types other than `slcan` and `socketcan` are untested, except `gs_usb` on macOS (scan, object dictionary, watch and backup read-only on one adapter). gs_usb has no listen-only mode here, so `detect-bitrate` does not take it.
 
 ## Sending frames and finding the bit rate
 
