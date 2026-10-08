@@ -525,3 +525,55 @@ details.steps > summary { cursor: pointer; font-weight: 600; min-height: 24px; l
 .steps-table th { text-align: left; font-weight: 500; padding-right: 12px; }
 .steps-table td { padding: 2px 8px 2px 0; }
 tr.group-row th { text-align: left; font-weight: 600; padding-top: 6px; }
+
+/* Machine view (machine_view.js): the 3D stage and the panel beside it */
+#machine-view .toolbar > button[aria-pressed="true"] { background: var(--hover); font-weight: 600; }
+.machine-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; align-items: start; }
+@media (max-width: 1280px) { .machine-main { grid-template-columns: minmax(0, 1fr); } }
+.machine-stage { position: relative; width: 100%; aspect-ratio: 16 / 10; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #0b0e11; }
+.machine-stage.no-webgl { aspect-ratio: auto; min-height: 120px; background: var(--panel); display: grid; place-items: center; padding: 16px; }
+.machine-stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.machine-nowebgl { margin: 0; max-width: 60ch; text-align: center; }
+.machine-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.machine-tag { font: 11px/1.3 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; color: #e6eaee; background: rgba(13, 17, 20, .8); border: 1px solid #3a444d;
+  border-left: 2px solid #f2a93b; padding: 3px 6px; border-radius: 3px; white-space: nowrap; transform: translateY(-14px); }
+.machine-tag b { color: #f2a93b; font-weight: 600; }
+.machine-tag.bad { border-left-color: #ff5a4f; }
+.machine-tag.bad b { color: #ff7a70; }
+.machine-tag.clickable { pointer-events: auto; cursor: pointer; }
+.machine-notice, .machine-nodata { position: absolute; left: 50%; transform: translateX(-50%); margin: 0; padding: 6px 10px; border-radius: 6px; max-width: calc(100% - 24px); }
+.machine-notice { top: 10px; background: var(--warn-bg); color: var(--text); border: 1px solid var(--warn); }
+.machine-nodata { bottom: 12px; background: var(--error-bg); color: var(--text); border: 1px solid var(--error); font-weight: 600; }
+.machine-fps { position: absolute; right: 10px; bottom: 8px; font: 11px ui-monospace, Menlo, Consolas, monospace; color: #9aa4ad; pointer-events: none; }
+.machine-panel { display: grid; gap: 4px; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 12px 10px; }
+.machine-panel h3 { margin: 10px 0 4px; }
+.machine-state { margin: 8px 0 0; font-weight: 600; }
+.machine-state.offline { color: var(--muted); }
+.machine-state.nodata { color: var(--error); }
+.machine-state.live { color: var(--ok); }
+.machine-axes { display: grid; gap: 4px; }
+.machine-axis { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); cursor: pointer; }
+.machine-axis:hover { background: var(--hover); }
+.machine-axis.fault { border-color: var(--error); background: var(--error-bg); }
+.machine-axis-head { display: flex; gap: 8px; align-items: baseline; }
+.machine-axis-head b { font-size: 16px; }
+.machine-axis-head .pill { margin-left: auto; }
+.pill { font-size: 12px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); white-space: nowrap; }
+.pill.ok { color: var(--ok); border-color: var(--ok); }
+.pill.warn { color: var(--warn); border-color: var(--warn); }
+.pill.bad { color: var(--error); border-color: var(--error); }
+.machine-pos { font: 14px ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.machine-meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.machine-meta.bad { color: var(--error); }
+.machine-io, .machine-list, .machine-faults { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.machine-io li { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.machine-io code { font-size: 11px; color: var(--muted); margin-left: auto; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; border: 1px solid var(--muted); background: none; }
+.dot.on { background: var(--ok); border-color: var(--ok); }
+.machine-counters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 8px; margin: 0; }
+.machine-counters dt { font-size: 12px; color: var(--muted); }
+.machine-counters dd { margin: 0 0 4px; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.machine-list li { font-size: 12px; }
+.machine-faults li { display: flex; gap: 4px 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.machine-faults li > span:first-child { flex: 1 1 120px; }
+.machine-mm { width: 64px; }

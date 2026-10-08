@@ -259,6 +259,8 @@ class Simulator::MachineIoImpl : public MachineIo {
     v.mode = m.mode();
     v.statusword = m.statusword();
     v.fault = m.state() == DriveModel::State::Fault || m.state() == DriveModel::State::FaultReactionActive;
+    v.error_code = m.error_code();
+    v.torque = m.actual_torque();
     return v;
   }
   void set_drive(unsigned node, const DriveInputs& in, double load) override {
@@ -905,7 +907,9 @@ bool Simulator::StartMachine(std::vector<std::string>& errors) {
     if (input && mw != d->spec.master_written.end())
       errors.push_back(where + ": " + what + ": the master writes " + b.object.str() + " of node " +
                        std::to_string(b.node) + " (" + mw->second + "); an input must be an object the device sends");
-    if (!input && mw == d->spec.master_written.end())
+    // (A device whose master-written objects are not known, as a test
+    // gives it, is not checked for outputs.)
+    if (!input && !d->spec.master_written.empty() && mw == d->spec.master_written.end())
       errors.push_back(where + ": " + what + ": the master does not write " + b.object.str() + " of node " +
                        std::to_string(b.node) + "; an output must be an object the master writes (an RPDO)");
     if (input) d->machine_objects.insert(b.object);

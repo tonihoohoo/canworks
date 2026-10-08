@@ -320,6 +320,55 @@ class Simulation(Base):
         self.assertFalse([t for _, t in messages if "simulat" in t], messages)
 
 
+class MachineFile(Base):
+    """A machine file the simulation file's section names travels next to
+    it (examples/gantry-cell's network as a version 1 config, whose section
+    is its interface)."""
+
+    def project(self, sim=None, machine=None):
+        gantry = os.path.join(REPO, "examples", "gantry-cell", "canopen")
+        project = {"canopen/" + n: read(os.path.join(gantry, n)) for n in ("servo402.eds", "dio16.eds", "machine.json")}
+        with open(os.path.join(gantry, "canopen.json"), encoding="utf-8") as f:
+            net = json.load(f)["networks"][0]
+        cfg = {"schema_version": 1, "adapter": net["adapter"], "master": net["master"], "nodes": net["nodes"]}
+        project["canopen/canopen.json"] = json.dumps(cfg).encode()
+        if machine is not None:
+            project["canopen/machine.json"] = json.dumps(machine).encode()
+        sim = sim or {"schema_version": 2, "networks": {"sim1": {"machine": "machine.json"}}}
+        project["canopen/simulation.json"] = json.dumps(sim).encode()
+        return project
+
+    def test_carried(self):
+        project = self.project()
+        applied, messages = snapshot.materialize(self.snapshot(project), self.conf)
+        self.assertTrue(applied, messages)
+        self.assertIn("canopen/machine.json", self.conf_files())
+        self.assertEqual(read(os.path.join(self.conf, "canopen", "machine.json")), project["canopen/machine.json"])
+        with open(os.path.join(self.conf, "canopen", "simulation.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["networks"]["sim1"]["machine"], "machine.json")
+        self.assertIn(("INFO", "CANopen: simulation file carried (canopen/simulation.json, 0 extra device EDS "
+                               "files, 0 CSV files, machine file machine.json)"), messages)
+
+    def test_in_a_subfolder(self):
+        project = self.project({"schema_version": 2, "networks": {"sim1": {"machine": "cells/gantry.json"}}})
+        project["canopen/cells/gantry.json"] = project.pop("canopen/machine.json")
+        applied, messages = snapshot.materialize(self.snapshot(project), self.conf)
+        self.assertTrue(applied, messages)
+        self.assertIn("canopen/cells/gantry.json", self.conf_files())
+
+    def test_missing_bad_or_outside(self):
+        project = self.project()
+        del project["canopen/machine.json"]
+        self.assertIgnored(project, "canopen/machine.json is missing from the project "
+                                    "(named by canopen/simulation.json)")
+        self.assertIgnored(self.project({"schema_version": 2, "networks": {"sim1": {"machine": "../m.json"}}}),
+                           "canopen/simulation.json: invalid machine file path")
+        with open(os.path.join(REPO, "examples", "gantry-cell", "canopen", "machine.json"), encoding="utf-8") as f:
+            machine = json.load(f)
+        machine["joints"]["x"]["node"] = 10
+        self.assertIgnored(self.project(machine=machine), "joint x: node 10 (io) has no `axis`")
+
+
 class IntoProject(Base):
     def test_into_project_output_is_applied(self):
         # What openplc-canopen-deploy --into-project writes, as the editor zips it.

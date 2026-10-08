@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openplc-canopen-deploy"
-version = "0.40.0"
+version = "0.41.0"
 description = "Configures CANopen for OpenPLC (openplc-canopen-config), deploys it to an OpenPLC Runtime v4 (openplc-canopen-deploy) and reads the live network (openplc-canopen-diag)"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -23,5 +23,5 @@ packages = ["openplc_canopen_deploy", "openplc_canopen_deploy.bustrace", "openpl
 
 [tool.setuptools.package-data]
 openplc_canopen_deploy = ["schema/*.json", "library/*.stlib"]
-"openplc_canopen_deploy.configurator" = ["static/*", "static/uplot/*"]
+"openplc_canopen_deploy.configurator" = ["static/*", "static/uplot/*", "static/three/*", "static/three/build/*", "static/three/addons/*/*"]
 "openplc_canopen_deploy._lely_dcf" = ["LICENSE", "NOTICE", "VERSION", "README.md"]

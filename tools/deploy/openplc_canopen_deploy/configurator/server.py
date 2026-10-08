@@ -1188,7 +1188,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 body = self._body() if method == "POST" else {}
                 return self._send(200, self._online((method, url.path), body))
             if url.path.startswith("/api/sim/"):
-                body = self._body() if method == "POST" else {}
+                body = self._body() if method == "POST" else {k: v[0] for k, v in query.items() if v}
                 return self._send(200, self._sim((method, url.path), body))
             if url.path.startswith("/api/trace/"):
                 if (method, url.path) == ("POST", "/api/trace/open") and \
@@ -1720,7 +1720,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             conn.close()
             return {"closed": True}
         if route == ("POST", "/api/sim/check"):
-            return {"problems": simulation.check(body.get("doc"))}
+            problems = simulation.check(body.get("doc"))
+            if not problems:
+                with s.lock:
+                    problems = self._machine_problems(s, body.get("doc"))
+            return {"problems": problems}
+        if route == ("GET", "/api/sim/machine"):
+            # The machine file of the network's section, for the Machine view offline.
+            name = body.get("network") or ""
+            with s.lock:
+                doc = simulation.read(s.sim_path)["doc"]
+                out = simulation.read_machine(doc, s.sim_path, name)
+                problems = []
+                if out["file"] and not simulation.check(doc):
+                    problems = [{"path": p["path"], "message": p["message"]}
+                                for p in self._machine_problems(s, doc, name)]
+            error = out.pop("error", None)
+            if error and not problems:
+                problems = [{"path": "networks.%s.machine" % name, "message": error}]
+            return dict(out, problems=problems)
         if route == ("POST", "/api/sim/save"):
             with s.lock:
                 out = s.save_simulation(body.get("doc"), bool(body.get("overwrite")))
@@ -1790,6 +1808,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             res, kind = call(poll)
             return dict(hello(kind), **res)
+        if route == ("POST", "/api/sim/machine"):
+            # One sim_machine answer per page poll, on the kept-open connection.
+            res, kind = call(lambda c: c.request("sim_machine"))
+            return dict(hello(kind), machine=res)
         if route == ("POST", "/api/sim/request"):
             op = body.get("op")
             if op not in simulation.OPS:
@@ -1798,6 +1820,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             res, kind = call(lambda c: c.request(op, **fields))
             return {"result": res, "target": kind}
         raise ApiError(404, "no such API: %s %s" % route)
+
+    @staticmethod
+    def _machine_problems(s, doc, network=None):
+        """The machine file problems of a schema-valid simulation file
+        (simulation.machine_problems) against the saved config; the caller
+        holds s.lock."""
+        cfg = s.read_config()[0]
+        try:
+            return simulation.machine_problems(doc, s.sim_path, cfg, s.config_path,
+                                               s.eds_paths(cfg) if isinstance(cfg, dict) else {}, network)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return []  # a config the contract check refuses: its problems show there
 
     @staticmethod
     def _check_expr_offline(s, expr, node, doc, network=None):

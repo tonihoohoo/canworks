@@ -100,6 +100,9 @@ class DriveModel {
   double actual_velocity() const { return va_; }
   double demand_position() const { return pd_; }
   double demand_velocity() const { return vd_; }
+  // 0x603F (the last fault's EMCY code, 0 after a reset) and 0x6077, as the OD has them.
+  uint16_t error_code() const { return static_cast<uint16_t>(rd(0x603F, 0, 0)); }
+  double actual_torque() const { return rd(0x6077, 0, 0); }
 
   const DriveSettings& settings() const { return s_; }
 

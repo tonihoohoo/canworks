@@ -155,6 +155,8 @@ class MachineIo {
     int mode = 0;
     uint16_t statusword = 0;
     bool fault = false;
+    uint16_t error_code = 0;  // 0x603F
+    double torque = 0;        // 0x6077, per mille
   };
   virtual ~MachineIo() = default;
   virtual Drive drive(unsigned node) = 0;

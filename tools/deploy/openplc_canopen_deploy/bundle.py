@@ -3,8 +3,9 @@ files under conf/canopen/eds/ and any program files (`software_file`) under
 conf/canopen/fw/, zipped the way the runtime's upload expects. A simulation
 file goes to conf/canopen/simulation.json; the EDS/DCF files of its extra
 devices join the node EDS files in conf/canopen/eds/ (its `eds` values become
-eds/<file>, relative to the simulation file) and its CSV files go to
-conf/canopen/sim/ (`file` values sim/<file>).
+eds/<file>, relative to the simulation file), its CSV files go to
+conf/canopen/sim/ (`file` values sim/<file>) and the machine files its
+sections name go next to it under their relative names (machine.json).
 
 The editor's "Build only" (and `openplc-cli compile`) writes the runtime v4
 bundle to <project>/build/<target>/src/: generated.hpp, the generated *.cpp,
@@ -125,26 +126,44 @@ def merge_by_name(by_name, more, what):
     return by_name
 
 
+def machine_name(value, src):
+    """The name under conf/canopen/ of a machine file the simulation file
+    names `value`: the value itself when it is a plain relative path that
+    stays out of the folders the bundle fills, else the file's name."""
+    parts = value.replace("\\", "/").split("/")
+    reserved = {EDS_DIR.split("/", 1)[1], FW_DIR.split("/", 1)[1], SIM_CSV_DIR.split("/", 1)[1]}
+    if os.path.isabs(value) or any(p in ("", ".", "..") for p in parts) or ":" in value or \
+            (len(parts) > 1 and parts[0] in reserved):
+        return os.path.basename(src)
+    return "/".join(parts)
+
+
 def sim_rewrite(sim_data, sim_path):
     """Returns (deployed simulation file, {name under conf/canopen/eds: source}
     for its extra devices, {name under conf/canopen/sim: source} for its CSV
-    files)."""
+    files, {name under conf/canopen: source} for its machine files)."""
     from . import simfile
     files = simfile.referenced_files(sim_data, sim_path)
     eds_by = _by_name(files["eds"], "EDS files of extra devices")
     csv_by = _by_name(files["csv"], "CSV files")
+    machine_by = {}
+    for value, src in sorted(files["machine"].items()):
+        name = machine_name(value, src)
+        if name == SIM_FILE.split("/", 1)[1] or name == "canopen.json":
+            raise BundleError("a machine file may not be named %s" % name)
+        merge_by_name(machine_by, {name: src}, "machine files")
     eds_rel = EDS_DIR.split("/", 1)[1]
     csv_rel = SIM_CSV_DIR.split("/", 1)[1]
     out = simfile.rewrite(sim_data, sim_path, lambda p: "%s/%s" % (eds_rel, os.path.basename(p)),
-                          lambda p: "%s/%s" % (csv_rel, os.path.basename(p)))
-    return out, eds_by, csv_by
+                          lambda p: "%s/%s" % (csv_rel, os.path.basename(p)), machine_name)
+    return out, eds_by, csv_by, machine_by
 
 
 def assemble(bundle_dir, deployed_cfg, eds_by_name, work_dir, fw_by_name=None, sim=None):
     """Copies the bundle to work_dir/bundle and adds the CANopen files, each
     EDS as UTF-8 (see eds.to_utf8). Every other file is copied unchanged.
-    sim: (deployed simulation file, {CSV name: source}), whose extra devices'
-    EDS files are already in eds_by_name.
+    sim: (deployed simulation file, {CSV name: source}[, {machine file name:
+    source}]), whose extra devices' EDS files are already in eds_by_name.
     Returns (staged directory, names of the EDS files converted to UTF-8)."""
     staged = os.path.join(work_dir, "bundle")
     shutil.copytree(bundle_dir, staged, symlinks=False)
@@ -167,7 +186,11 @@ def assemble(bundle_dir, deployed_cfg, eds_by_name, work_dir, fw_by_name=None, s
         for name, src in sorted(fw_by_name.items()):
             shutil.copyfile(src, os.path.join(fw_dir, name))
     if sim is not None:
-        sim_data, csv_by_name = sim
+        sim_data, csv_by_name = sim[:2]
+        for name, src in sorted((sim[2] if len(sim) > 2 else {}).items()):
+            dst = os.path.join(conf, "canopen", *name.split("/"))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(src, dst)
         if csv_by_name:
             csv_dir = os.path.join(conf, *SIM_CSV_DIR.split("/"))
             os.makedirs(csv_dir)

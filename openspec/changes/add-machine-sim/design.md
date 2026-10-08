@@ -75,7 +75,7 @@ Deterministic for a given input sequence, cheap (tens of µs per step for 50 par
   "fixtures": [ { "name": "pallet", "slots": { "origin": [640, 280], "pitch": [120, 120], "count": [3, 3] }, "place_tolerance_mm": 12,
                   "change": { "request": { "node": 10, "object": "0x6200:1", "bit": 2 },
                               "ready": { "node": 10, "object": "0x6000:1", "bit": 5 }, "time_s": 3.3 } } ],
-  "visual": { "frame": [1100, 900], "table_height": 800, "colors": { "carriage": "#d9951f" } } }
+  "visual": { "frame": { "origin": [-60, -60], "size": [1020, 720], "height": 700 }, "table": { "height": 760 }, "colors": { "carriage": "#d9951f" } } }
 ```
 
 `kind` selects the built-in kinematics and the built-in drawing. `gantry_xyz` is the only kind in this change. The feeder's random intervals use a seeded generator (seed in the file, default fixed) so runs repeat.
@@ -101,7 +101,7 @@ Read-only, token only, served on the bus loop like the other `sim_` requests. Ab
 `sim_fault` and `sim_clear` take `"machine": "<element>"` instead of `node`, for example `{"machine": "z", "fault": {"jam": true}}`. Scenario steps carry the same objects. Conditions take `{"machine": "placed", "ge": 9}` or `{"machine": "part_at_pick", "eq": 1}`. `sim_status` lists active machine faults under `machine`.
 
 ### Example: one network, short start-up
-`examples/gantry-cell/` rather than more networks in `virtual-plant`. The gantry is a whole topic, one network keeps the example readable, and the tour links it. Network `motion` on `sim1`, SYNC from the PLC cycle (task 4 ms), device `tick_ms` 1. Drive start positions are set close to home in the simulation file and the home speed is high, so the first part is placed about 8 s after PLC start. That keeps the CI case short.
+`examples/gantry-cell/` rather than more networks in `virtual-plant`. The gantry is a whole topic, one network keeps the example readable, and the tour links it. Network `motion` on `sim1`, SYNC from the PLC cycle (task 10 ms, the interval the `sim_tests` harness scans at; a real runtime can run it faster), device `tick_ms` 1. Drive start positions are set close to home in the simulation file and the home speed is high, so the first part is placed about 7 s after PLC start. That keeps the CI case short.
 
 ### CI: add little, save more, measure
 Added test time (estimated, summed over jobs):
@@ -119,7 +119,7 @@ Saved:
 
 | Saving | How | Saved |
 |---|---|---|
-| compiler cache | `ccache` through `CMAKE_CXX_COMPILER_LAUNCHER` in the build action; cache restored by prefix, saved only by `main` runs (key: runner image, compiler and the CMake files' hash, plus the commit), size cap 300 MB | ~35-45 s on each of 4 full builds when sources barely change: ~150 s summed, ~40 s wall on plugin and vcan |
+| compiler cache | `ccache` through `CMAKE_CXX_COMPILER_LAUNCHER` in the build action; cache restored by prefix; `main` saves one per commit, a pull request saves its own once so its later pushes hit (key: runner image, compiler and the built targets with the STruC++ version, plus the commit or the pull request number), size cap 300 MB | ~35-45 s on each of 4 full builds when sources barely change: ~150 s summed, ~40 s wall on plugin and vcan |
 | vcan jobs build only their targets (`canopen_plugin`, `openplc-canopen-sim`, the slaves and helpers the steps start) | `targets` input already exists; listed per vcan job | the unit and simulation test binaries on a cold cache, ~15-20 s ×3 |
 | page shards split by recorded time | `test_shard.py --timings .github/ci/page-test-times.json`; unknown classes count as the median; times refreshed when a shard drifts | no summed change; the slowest page shard ~237 s → ~195 s wall |
 | **net** | | **about −120 s summed, −30 to −40 s wall** |
@@ -129,7 +129,7 @@ The PR shows both numbers against the median of the five last green `main` runs.
 ## Risks / Trade-offs
 
 - [ccache restores a cache from another compiler or flags] → the key includes the runner image and the CMake files' hash; ccache's own hashing of the compiler and the arguments catches the rest. A stale cache can only miss.
-- [Actions cache space (10 GB per repo)] → saved only from `main` and capped at 300 MB; older keys age out.
+- [Actions cache space (10 GB per repo)] → saved from `main` and once per pull request, capped at 300 MB; older keys age out.
 - [Bus thread load from the machine model] → measured in `sim_gantry_demo` (step time in the log) and on the Pi as a hardware task; with 50 parts it must stay under 5 % of a 2 ms step.
 - [No CI test renders] → `machine_scene.js` is tested without WebGL; a manual check on a real GPU (Windows, macOS) is a task; the prototype page already shows the pipeline works in today's browsers.
 - [0.9 MB more in the PC tools] → accepted; the view is the feature.

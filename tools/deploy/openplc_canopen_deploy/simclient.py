@@ -11,7 +11,7 @@ from . import diag
 SIM_PORT = 7532
 
 # Requests that only read; the rest need allow_changes on the plugin.
-READ_OPS = ("sim_status", "sim_get", "sim_scenario_list", "sim_check_expr")
+READ_OPS = ("sim_status", "sim_get", "sim_scenario_list", "sim_check_expr", "sim_machine")
 
 
 def parse_sim(text):

@@ -1,0 +1,468 @@
+{
+  "schema_version": 2,
+  "networks": [
+    {
+      "name": "motion",
+      "adapter": {
+        "type": "socketcan",
+        "interface": "sim1",
+        "bitrate": 500000,
+        "simulate": true
+      },
+      "master": {
+        "node_id": 1,
+        "heartbeat_ms": 100,
+        "sync_source": "plc_cycle",
+        "state_location": "%IB20"
+      },
+      "nodes": [
+        {
+          "node_id": 4,
+          "name": "x",
+          "eds": "servo402.eds",
+          "mandatory": true,
+          "heartbeat_ms": 50,
+          "heartbeat_timeout_ms": 200,
+          "status_location": "%IX10.0",
+          "emcy_code_location": "%IW105",
+          "axis": {
+            "cyclic": true,
+            "scale_numerator": 1000,
+            "scale_denominator": 1
+          },
+          "rx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x6040",
+                  "subindex": 0,
+                  "type": "UNSIGNED16",
+                  "iec_location": "%QW100"
+                },
+                {
+                  "index": "0x6060",
+                  "subindex": 0,
+                  "type": "INTEGER8",
+                  "iec_location": "%QB100"
+                },
+                {
+                  "index": "0x607A",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%QD100"
+                }
+              ]
+            },
+            {
+              "number": 2,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x60FF",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%QD101"
+                },
+                {
+                  "index": "0x6071",
+                  "subindex": 0,
+                  "type": "INTEGER16",
+                  "iec_location": "%QW101"
+                }
+              ]
+            }
+          ],
+          "tx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x6041",
+                  "subindex": 0,
+                  "type": "UNSIGNED16",
+                  "iec_location": "%IW100"
+                },
+                {
+                  "index": "0x6061",
+                  "subindex": 0,
+                  "type": "INTEGER8",
+                  "iec_location": "%IB100"
+                },
+                {
+                  "index": "0x6064",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%ID100"
+                }
+              ]
+            },
+            {
+              "number": 2,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x606C",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%ID101"
+                },
+                {
+                  "index": "0x6077",
+                  "subindex": 0,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW101"
+                }
+              ]
+            }
+          ],
+          "sdo": [
+            {
+              "index": "0x6065",
+              "subindex": 0,
+              "type": "UNSIGNED32",
+              "value": 20000
+            },
+            {
+              "index": "0x6098",
+              "subindex": 0,
+              "type": "INTEGER8",
+              "value": 21
+            },
+            {
+              "index": "0x6099",
+              "subindex": 1,
+              "type": "UNSIGNED32",
+              "value": 60000
+            },
+            {
+              "index": "0x6099",
+              "subindex": 2,
+              "type": "UNSIGNED32",
+              "value": 5000
+            },
+            {
+              "index": "0x609A",
+              "subindex": 0,
+              "type": "UNSIGNED32",
+              "value": 1000000
+            }
+          ]
+        },
+        {
+          "node_id": 5,
+          "name": "y",
+          "eds": "servo402.eds",
+          "mandatory": true,
+          "heartbeat_ms": 50,
+          "heartbeat_timeout_ms": 200,
+          "status_location": "%IX10.1",
+          "emcy_code_location": "%IW115",
+          "axis": {
+            "cyclic": true,
+            "scale_numerator": 1000,
+            "scale_denominator": 1
+          },
+          "rx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x6040",
+                  "subindex": 0,
+                  "type": "UNSIGNED16",
+                  "iec_location": "%QW110"
+                },
+                {
+                  "index": "0x6060",
+                  "subindex": 0,
+                  "type": "INTEGER8",
+                  "iec_location": "%QB110"
+                },
+                {
+                  "index": "0x607A",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%QD110"
+                }
+              ]
+            },
+            {
+              "number": 2,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x60FF",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%QD111"
+                },
+                {
+                  "index": "0x6071",
+                  "subindex": 0,
+                  "type": "INTEGER16",
+                  "iec_location": "%QW111"
+                }
+              ]
+            }
+          ],
+          "tx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x6041",
+                  "subindex": 0,
+                  "type": "UNSIGNED16",
+                  "iec_location": "%IW110"
+                },
+                {
+                  "index": "0x6061",
+                  "subindex": 0,
+                  "type": "INTEGER8",
+                  "iec_location": "%IB110"
+                },
+                {
+                  "index": "0x6064",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%ID110"
+                }
+              ]
+            },
+            {
+              "number": 2,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x606C",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%ID111"
+                },
+                {
+                  "index": "0x6077",
+                  "subindex": 0,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW111"
+                }
+              ]
+            }
+          ],
+          "sdo": [
+            {
+              "index": "0x6065",
+              "subindex": 0,
+              "type": "UNSIGNED32",
+              "value": 20000
+            },
+            {
+              "index": "0x6098",
+              "subindex": 0,
+              "type": "INTEGER8",
+              "value": 21
+            },
+            {
+              "index": "0x6099",
+              "subindex": 1,
+              "type": "UNSIGNED32",
+              "value": 60000
+            },
+            {
+              "index": "0x6099",
+              "subindex": 2,
+              "type": "UNSIGNED32",
+              "value": 5000
+            },
+            {
+              "index": "0x609A",
+              "subindex": 0,
+              "type": "UNSIGNED32",
+              "value": 1000000
+            }
+          ]
+        },
+        {
+          "node_id": 6,
+          "name": "z",
+          "eds": "servo402.eds",
+          "mandatory": true,
+          "heartbeat_ms": 50,
+          "heartbeat_timeout_ms": 200,
+          "status_location": "%IX10.2",
+          "emcy_code_location": "%IW125",
+          "axis": {
+            "cyclic": true,
+            "scale_numerator": 1000,
+            "scale_denominator": 1
+          },
+          "rx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x6040",
+                  "subindex": 0,
+                  "type": "UNSIGNED16",
+                  "iec_location": "%QW120"
+                },
+                {
+                  "index": "0x6060",
+                  "subindex": 0,
+                  "type": "INTEGER8",
+                  "iec_location": "%QB120"
+                },
+                {
+                  "index": "0x607A",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%QD120"
+                }
+              ]
+            },
+            {
+              "number": 2,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x60FF",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%QD121"
+                },
+                {
+                  "index": "0x6071",
+                  "subindex": 0,
+                  "type": "INTEGER16",
+                  "iec_location": "%QW121"
+                }
+              ]
+            }
+          ],
+          "tx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x6041",
+                  "subindex": 0,
+                  "type": "UNSIGNED16",
+                  "iec_location": "%IW120"
+                },
+                {
+                  "index": "0x6061",
+                  "subindex": 0,
+                  "type": "INTEGER8",
+                  "iec_location": "%IB120"
+                },
+                {
+                  "index": "0x6064",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%ID120"
+                }
+              ]
+            },
+            {
+              "number": 2,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x606C",
+                  "subindex": 0,
+                  "type": "INTEGER32",
+                  "iec_location": "%ID121"
+                },
+                {
+                  "index": "0x6077",
+                  "subindex": 0,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW121"
+                }
+              ]
+            }
+          ],
+          "sdo": [
+            {
+              "index": "0x6065",
+              "subindex": 0,
+              "type": "UNSIGNED32",
+              "value": 20000
+            },
+            {
+              "index": "0x6098",
+              "subindex": 0,
+              "type": "INTEGER8",
+              "value": 21
+            },
+            {
+              "index": "0x6099",
+              "subindex": 1,
+              "type": "UNSIGNED32",
+              "value": 60000
+            },
+            {
+              "index": "0x6099",
+              "subindex": 2,
+              "type": "UNSIGNED32",
+              "value": 5000
+            },
+            {
+              "index": "0x609A",
+              "subindex": 0,
+              "type": "UNSIGNED32",
+              "value": 1000000
+            }
+          ]
+        },
+        {
+          "node_id": 10,
+          "name": "io",
+          "eds": "dio16.eds",
+          "mandatory": true,
+          "heartbeat_ms": 100,
+          "heartbeat_timeout_ms": 300,
+          "status_location": "%IX10.3",
+          "tx_pdos": [
+            {
+              "number": 1,
+              "transmission": 255,
+              "entries": [
+                {
+                  "index": "0x6000",
+                  "subindex": 1,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%IB130"
+                }
+              ]
+            }
+          ],
+          "rx_pdos": [
+            {
+              "number": 1,
+              "transmission": 255,
+              "entries": [
+                {
+                  "index": "0x6200",
+                  "subindex": 1,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%QB130"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "diagnostics": {
+    "token_verifier": "SCRAM-SHA-256$4096:oT01WTwrBkgtyPJzbVdb5g==$xzgdUqEcL4OH2F2VhrFS9VLzKSX8VsYBUVkKkFevxKU=:v5KfG3P2R2M/5ZnIl4OGZt4C1uEUpEMoLoZZN8VD/a8=",
+    "allow_changes": true
+  }
+}

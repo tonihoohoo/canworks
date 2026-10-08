@@ -157,6 +157,18 @@ openplc-canopen-diag --runtime local sim test --network motion --scenario drive-
 
 Each prints PASS or FAIL with the step and value that failed, and `--junit` writes a report for a CI system ([diagnostics.md](diagnostics.md#simulated-devices-sim)). Change the alarm limit in the program to 30.0 °C, upload, and `alarm` fails. CI runs the same tests on every change to the plugin or the example ([`test/virtual-example/run.sh`](../test/virtual-example/run.sh)).
 
+## 15. Machine
+
+A second project, [`examples/gantry-cell`](../examples/gantry-cell/README.md), puts a machine on a simulated network: an XYZ gantry with three CiA 402 axes picks boxes from a conveyor and places them on a 3 × 3 pallet ([machine.md](machine.md)). Copy it next to the virtual plant and open it in the editor and the configurator. Its token is `gantry-cell-demo` (`export OPENPLC_CANOPEN_TOKEN=gantry-cell-demo`).
+
+1. **Build and Upload** as in chapter 4, or **Build only** and `openplc-canopen-deploy --runtime local --config canopen/canopen.json --project .`. The upload carries `canopen/machine.json` with the simulation file, and `openplc-canopen-sim-runtime logs` shows `network motion: machine "Gantry cell" (machine.json): 3 joints, 1 conveyors, 1 sensors, 1 fixtures`.
+2. **Machine** in the configurator's sidebar: the axes start close to home. Z homes first, X and Y follow, and the first box is on the pallet a few seconds later. After nine boxes the pallet changer swaps the pallet. **Follow tool** keeps the camera on the gripper; **Tool path** shows the straight XY lines and Z starting down before XY arrives.
+3. **Jam** on the Z axis while it goes down: the axis stops, its drive faults with EMCY 0x8611 and turns red, the stack light goes red. **Clear** the jam: the program has reset the drive, lifts Z and goes on with the part in hand.
+4. Stop the PLC from the editor: SYNC stops and every drive faults on its SYNC watchdog (EMCY 0x8700). Start it again and the program resets the drives and carries on.
+5. **Stuck off** on sensor `part_at_pick`: the gantry waits at home while boxes queue on the belt. Clear it and it picks again. **Feeder empty** on `infeed` stops new boxes.
+
+The same faults run as scenarios: `openplc-canopen-diag --runtime local sim test --network motion --scenario fill-a-pallet --scenario z-jam`. They are in `canopen/simulation.json` with two more to start by hand from **Simulation** (`sensor-stuck-off`, `feeder-empty`).
+
 When you are done: `openplc-canopen-sim-runtime stop`, or `remove --data` to delete it.
 
 ## What needs hardware

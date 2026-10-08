@@ -308,6 +308,10 @@ The view has three tabs.
 
 With several networks the view works on the section of the network picked at the top: sources, faults at start, extra devices and scenarios go into that network's section, the other sections are kept as they are, and a note over the editor names the section. A version 1 file opened with a config of several networks is put in the first network's section and saved as version 2; **Save to simulation file** asks before converting it ([simulator.md](simulator.md#version-2-a-section-per-network)).
 
+## Machine view
+
+On a network whose simulation section names a [machine file](machine.md), **Machine** appears in the sidebar under Runtime, after **Simulation**. It draws the machine in 3D from the file: offline at its home positions, online moving as the runtime's simulator reports it, smoothed between answers. Beside the scene, a panel shows each axis (state, mode, statusword, position, following error, torque), the machine's I/O bits, counters and last faults, with buttons to inject and clear machine faults when **Allow changes** is on. Click a drive in the scene or the panel to open its node in **Online**. Quality presets High and Low, labels, tool path and camera presets are in the toolbar; [machine.md](machine.md#the-machine-view) has the details.
+
 ## From standalone to project
 
 In a standalone config, **Move into project…** in the Project menu copies the saved config and its EDS files into an editor project's `canopen/` folder, after the same checks as `openplc-canopen-deploy --into-project`. It asks before replacing an existing `canopen/` folder. The page then switches to the project, and the address checks run against it.

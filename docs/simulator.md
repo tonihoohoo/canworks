@@ -185,6 +185,8 @@ A config with several networks takes a version 2 file ([`schema/canopen-sim.v2.s
 
 A section works as a version 1 file does for its own network: node keys, expressions (`[5/0x7130:1]`) and scenario steps refer to the devices of that network only. A section for a network that is not in the config is an error naming the networks there are; a network without a section runs with default behaviour. A version 1 file stays valid for a config with one network. The configurator's Simulation view edits the section of the network picked at the top and writes version 2 when the config has several networks ([configurator.md](configurator.md#simulation-view)). [`examples/virtual-plant`](../examples/virtual-plant/README.md) has a complete one.
 
+A section can also name a machine file, `"machine": "machine.json"`: a gantry, conveyor, sensors and pallet on top of the network's simulated drives and I/O, stepped with the devices ([machine.md](machine.md)). Machine faults and machine conditions then work in that section's scenarios.
+
 A node (or extra device) can have:
 
 | Field | Meaning |
@@ -197,7 +199,7 @@ A node (or extra device) can have:
 | `identity` | Overrides 0x1018: `vendor_id`, `product_code`, `revision_number`, `serial_number`. |
 | `device_type` | Overrides 0x1000. |
 
-Paths in the file (EDS, DCF, CSV) are relative to the file. The deploy tool copies them into the upload with it.
+Paths in the file (EDS, DCF, CSV, the machine file) are relative to the file. The deploy tool copies them into the upload with it.
 
 ## Value sources
 
@@ -264,7 +266,7 @@ A device whose profile is CiA 402 runs a drive model on the objects its EDS has:
 - cyclic synchronous modes: follow the target position 0x607A or velocity 0x60FF at every SYNC (or every tick when there is no SYNC); in torque mode the target torque 0x6071 (per mille) accelerates the axis by `torque_accel` per per mille, up to `max_velocity`, and 0x6077 shows it;
 - SYNC watchdog: once a SYNC has come in a cyclic synchronous mode with operation enabled, the drive faults with EMCY 0x8700 when no SYNC comes for three interpolation periods (0x60C2, or 10 ms when the EDS has none), as a real drive does when the PLC stops; `"sync_watchdog": false` switches it off;
 - set-point step counter: CSP set-points that move more than `max_velocity` times the interpolation period from one SYNC to the next are counted in `oversized_steps` of `sim_status`, so a test can show that a program's motion is smooth;
-- homing methods 17, 18 (limit switches), 33, 34, 35 and 37 (current position), with the homing speed 0x6099 and offset 0x607C; any other method ends with the homing error bit;
+- homing methods 17, 18 (limit switches), 19 to 22 (home switch: 19 and 20 search in the positive direction, 21 and 22 in the negative), 33, 34, 35 and 37 (current position), with the homing speeds 0x6099 and offset 0x607C; any other method ends with the homing error bit;
 - the actual position 0x6064 and velocity 0x606C follow the demand through a first-order lag, limited by `max_velocity` and `max_acceleration`;
 - the software position limits 0x607D stop a move at the limit and set the warning bit; the following error window 0x6065 (and time 0x6066) faults the drive with EMCY 0x8611 when exceeded.
 

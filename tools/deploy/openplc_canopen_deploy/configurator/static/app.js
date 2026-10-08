@@ -802,6 +802,7 @@ function render() {
   const keep = ["online", "scan", "simulation"].includes(S.view);
   stopOnline(keep);
   stopSim(keep);
+  stopMachine();
   stopTrace();
   if (S.view !== "trace" && typeof sendLeave === "function") sendLeave();
   const view = $("#view");
@@ -814,6 +815,7 @@ function render() {
   else if (S.view === "trace") renderTrace(view);
   else if (S.view === "gateway") renderGateway(view);
   else if (S.view === "simulation") renderSimulation(view);
+  else if (S.view === "machine") renderMachine(view);
   else if (S.view === "framelab") renderFrameLab(view);
   else renderNode(view, Number(S.view.slice(5)));
   applyCheck();
@@ -837,6 +839,7 @@ function renderSide() {
   } else if (!(S.config.nodes || []).length) list.append(el("li", { class: "muted" }, "No nodes yet"));
   fillCounts(countProblems());
   $("#eds-input").closest("label").hidden = isSlave(S.config);
+  $("#nav-machine").hidden = !machineName();
   $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
   const unused = S.state.unused_eds || [];
   $("#unused-eds").replaceChildren(...(unused.length ? [el("h2", { class: "side-caption" }, "Unused EDS files"),

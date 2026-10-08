@@ -1166,6 +1166,8 @@ cJSON* MachineModel::Snapshot() const {
     cJSON_AddNumberToObject(x, "mode", d.mode);
     cJSON_AddNumberToObject(x, "statusword", d.statusword);
     cJSON_AddBoolToObject(x, "fault", d.fault);
+    if (d.error_code) cJSON_AddNumberToObject(x, "error_code", d.error_code);
+    cJSON_AddNumberToObject(x, "torque", std::round(d.torque));
   }
   cJSON* t = cJSON_AddObjectToObject(o, "tool");
   cJSON* tp = cJSON_AddArrayToObject(t, "position");

@@ -1,0 +1,36 @@
+{
+  "meta": {
+    "name": "gantry-cell",
+    "type": "plc-project"
+  },
+  "data": {
+    "pous": [],
+    "dataTypes": [],
+    "libraries": [
+      {
+        "name": "openplc_canopen",
+        "version": "0.38.0"
+      }
+    ],
+    "configuration": {
+      "resource": {
+        "tasks": [
+          {
+            "name": "task0",
+            "triggering": "Cyclic",
+            "interval": "T#10ms",
+            "priority": 1
+          }
+        ],
+        "instances": [
+          {
+            "name": "instance0",
+            "program": "main",
+            "task": "task0"
+          }
+        ],
+        "globalVariables": []
+      }
+    }
+  }
+}
