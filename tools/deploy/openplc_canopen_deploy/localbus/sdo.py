@@ -4,6 +4,7 @@ segmented upload and download, enough for the diagnostics channel's limit of
 
 import struct
 import threading
+import time
 
 ABORT_TIMEOUT = 0x05040000
 ABORT_BAD_COMMAND = 0x05040001
@@ -47,11 +48,22 @@ def _answer(rx, timeout_s, node, index, sub, core):
     return data
 
 
-def _check_mux(data, index, sub, core, node):
-    i, s = struct.unpack_from("<HB", data, 1)
-    if (i, s) != (index, sub):
-        _abort(core, node, index, sub, ABORT_BAD_COMMAND)
-        raise SdoAbort(ABORT_BAD_COMMAND, "answer for 0x%04X:%d, not 0x%04X:%d" % (i, s, index, sub))
+def _initiate_answer(rx, timeout_s, node, index, sub, core):
+    """The answer to our initiate request. An answer or abort for another index
+    or subindex belongs to another client's transfer to the same node (a master
+    on the bus) and is skipped, not aborted."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        data = rx.get(deadline - time.monotonic())
+        if data is None:
+            _abort(core, node, index, sub, ABORT_TIMEOUT)
+            raise SdoTimeout()
+        data = bytes(data).ljust(8, b"\0")
+        if struct.unpack_from("<HB", data, 1) != (index, sub):
+            continue
+        if data[0] == 0x80:
+            raise SdoAbort(struct.unpack_from("<I", data, 4)[0])
+        return data
 
 
 def upload(core, node, index, sub, timeout_s):
@@ -60,11 +72,10 @@ def upload(core, node, index, sub, timeout_s):
         core.wait_foreign_sdo(node)
         with core.expect(0x580 + node) as rx:
             core.transmit(0x600 + node, struct.pack("<BHB4x", 0x40, index, sub))
-            data = _answer(rx, timeout_s, node, index, sub, core)
+            data = _initiate_answer(rx, timeout_s, node, index, sub, core)
             if data[0] >> 5 != 2:
                 _abort(core, node, index, sub, ABORT_BAD_COMMAND)
                 raise SdoAbort(ABORT_BAD_COMMAND, "unexpected answer 0x%02X" % data[0])
-            _check_mux(data, index, sub, core, node)
             expedited, sized = data[0] & 0x02, data[0] & 0x01
             if expedited:
                 n = (data[0] >> 2) & 0x03 if sized else 0
@@ -106,18 +117,16 @@ def download(core, node, index, sub, payload, timeout_s):
             if 0 < len(payload) <= 4:
                 n = 4 - len(payload)
                 core.transmit(0x600 + node, struct.pack("<BHB", 0x23 | n << 2, index, sub) + payload.ljust(4, b"\0"))
-                data = _answer(rx, timeout_s, node, index, sub, core)
+                data = _initiate_answer(rx, timeout_s, node, index, sub, core)
                 if data[0] != 0x60:
                     _abort(core, node, index, sub, ABORT_BAD_COMMAND)
                     raise SdoAbort(ABORT_BAD_COMMAND, "unexpected answer 0x%02X" % data[0])
-                _check_mux(data, index, sub, core, node)
                 return
             core.transmit(0x600 + node, struct.pack("<BHBI", 0x21, index, sub, len(payload)))
-            data = _answer(rx, timeout_s, node, index, sub, core)
+            data = _initiate_answer(rx, timeout_s, node, index, sub, core)
             if data[0] != 0x60:
                 _abort(core, node, index, sub, ABORT_BAD_COMMAND)
                 raise SdoAbort(ABORT_BAD_COMMAND, "unexpected answer 0x%02X" % data[0])
-            _check_mux(data, index, sub, core, node)
             toggle, pos = 0, 0
             while True:
                 chunk = payload[pos:pos + 7]
