@@ -83,6 +83,8 @@ class Base(unittest.TestCase):
         cls.page.set_default_timeout(10000)
         cls.errors = []
         cls.page.on("pageerror", lambda e: cls.errors.append(str(e)))
+        cls.console = []
+        cls.page.on("console", lambda m: cls.console.append(m.text) if m.type == "error" else None)
         pg = cls.page
         pg.goto(cls.server.url)
         pg.click("#start-project")
@@ -90,7 +92,14 @@ class Base(unittest.TestCase):
         pg.click("#browser-open")
         pg.wait_for_selector("#editor:not([hidden])")
         pg.click('button[data-view="machine"]')
-        pg.wait_for_selector('[data-machine="state"]')
+        try:
+            pg.wait_for_selector('[data-machine="state"]')
+        except Exception:
+            # Say what the page showed, and leave no browser running for the next class.
+            shown = pg.evaluate("document.querySelector('#machine-view, #view')?.innerText || ''")
+            cls.tearDownClass()
+            raise AssertionError("the Machine view did not open: %r; page errors: %s; console: %s"
+                                 % (shown[:500], cls.errors, cls.console[:10]))
 
     @classmethod
     def tearDownClass(cls):
