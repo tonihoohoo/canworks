@@ -38,5 +38,5 @@ The new name is **opencan-plc**. The rename happens once, before the first J1939
 - Every PC tools module (package directory move), `tools/deploy/pyproject.toml`, `tools/editor-hook/pyproject.toml` (dependency name), `tools/deploy/tests/`, `.github/workflows/` (wheel name, image name, package paths), `.github/scripts/test_shard.py` paths, `docker/local-runtime/Dockerfile` labels, `schema/*.json` `$id`, `scripts/install-stock.sh` (only the wheel/package it pip-installs; the on-device paths stay), README and `docs/`.
 - No plugin (C++) behaviour change. No config format change. No change on an installed PLC beyond the newer tools version.
 - **When it lands**: when no other pull request is open, or right after the open ones merge (today #39 and `propose/add-machine-sim`). Branches started later begin from the renamed `main`.
-- **After the merge**, Toni renames the repository in GitHub Settings. Until then, the new URLs in the docs do not resolve.
+- **After the merge**, the owner renames the repository in GitHub Settings. Until then, the new URLs in the docs do not resolve.
 - Licence stays Apache-2.0.

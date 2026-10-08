@@ -24,10 +24,10 @@
 
 ## 5. After merge
 
-- [ ] 5.1 Toni renames the repository to `opencan-plc` in GitHub Settings; then verify that the old clone URL redirects and the new docs links resolve.
+- [ ] 5.1 The owner renames the repository to `opencan-plc` in GitHub Settings; then verify that the old clone URL redirects and the new docs links resolve.
 - [ ] 5.2 After `deploy-v0.41.0` publishes, set the `opencan-plc-sim-runtime` package public; verify an anonymous `docker pull`.
 - [ ] 5.3 Post the in-flight branch recipe (design Decision 6) in the project chat once, and update project memory with the new names.
 
 ## 6. Hardware check
 
-- [ ] 6.1 On Toni's Mac: upgrade the tools from 0.40.0, check that `openplc-canopen-diag status` prints the hint and works against the Pi, the saved runtime and token are carried over, and `opencan-sim-runtime update` takes over the old local runtime with the same login.
+- [ ] 6.1 On the engineering PC: upgrade the tools from 0.40.0, check that `openplc-canopen-diag status` prints the hint and works against the bench PLC, the saved runtime and token are carried over, and `opencan-sim-runtime update` takes over the old local runtime with the same login.

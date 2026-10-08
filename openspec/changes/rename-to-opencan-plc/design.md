@@ -7,7 +7,7 @@ The project is one public repository (`tonihoohoo/openplc-canopen`, Apache-2.0) 
 3. **On-device contracts:** the plugin name in `plugins.conf`, `libcanopen_plugin.so`, `/opt/openplc-canopen`, `conf/canopen.json`, the editor project's `canopen/` folder, the editor hook module the runtime spec starts, and diag port 7531.
 4. **History:** archived OpenSpec changes, release tags, and the private repo.
 
-Toni chose the name `opencan-plc` (2026-10-08). There is one user today (Toni), so a hard cut would be possible. Aliases are cheap, though, and Toni's own scripts and venvs on the Mac use the old command names.
+The name `opencan-plc` was chosen on 2026-10-08. There is one user today, so a hard cut would be possible. Aliases are cheap, though, and existing scripts and venvs use the old command names.
 
 ## Goals / Non-Goals
 
@@ -20,7 +20,7 @@ Toni chose the name `opencan-plc` (2026-10-08). There is one user today (Toni), 
 - Renaming on-device contracts (kind 3 above).
 - Renaming spec capabilities `canopen-*` (they really are CANopen).
 - Splitting the repository or the plugin.
-- Removing the aliases. A later change does that if Toni wants it.
+- Removing the aliases. A later change can do that.
 
 ## Decisions
 
@@ -50,7 +50,7 @@ Each old command is a console-script entry point to a small wrapper. The wrapper
 
 ### 3. Settings: copy, don't move
 
-`config_dir()` returns the new folder. When the new folder does not exist and the old one does, it copies the old tree (tokens, saved runtimes, local-runtime.json, recent files) and logs one line. Moving would break an older tools version still installed in another venv (Toni has one on the Pi and one on the Mac).
+`config_dir()` returns the new folder. When the new folder does not exist and the old one does, it copies the old tree (tokens, saved runtimes, local-runtime.json, recent files) and logs one line. Moving would break an older tools version still installed in another venv (the bench has one on the PLC and one on the engineering PC).
 
 ### 4. Simulator container takeover reuses the 0.30 logic
 
@@ -73,9 +73,9 @@ The change merges when no other PR is open, or right after the open ones merge. 
 
 The PR's tasks include posting this recipe once in the project, so other threads pick it up.
 
-### 7. The GitHub repository rename is the last step, done by Toni
+### 7. The GitHub repository rename is the last step, done by the owner
 
-The PR merges first, while `main` still lives at the old URL (the new links resolve after step 2). Then Toni renames the repository in Settings → General. Until then GitHub would not redirect, so the PR body says the docs links resolve only after the rename. The first release from the renamed repo publishes the new image name. The workflow's `${{ github.repository_owner }}` is unchanged.
+The PR merges first, while `main` still lives at the old URL (the new links resolve after step 2). Then the owner renames the repository in Settings → General. Until then GitHub would not redirect, so the PR body says the docs links resolve only after the rename. The first release from the renamed repo publishes the new image name. The workflow's `${{ github.repository_owner }}` is unchanged.
 
 ## Risks / Trade-offs
 
@@ -87,12 +87,12 @@ The PR merges first, while `main` still lives at the old URL (the new links reso
 ## Migration Plan
 
 1. Merge this PR (version 0.41.0).
-2. Toni renames the repository on GitHub.
+2. The owner renames the repository on GitHub.
 3. The release workflow publishes `deploy-v0.41.0` with the new wheel and image. Set the image package public.
-4. Run a HW check on Toni's Mac: upgrade the tools, check that the old commands print the hint, the settings carry over, and the local sim runtime is taken over.
+4. Run a HW check on the engineering PC: upgrade the tools, check that the old commands print the hint, the settings carry over, and the local sim runtime is taken over.
 
 Rollback: revert the merge commit. GitHub repo rename can be undone in Settings. The old image tags are untouched.
 
 ## Open Questions
 
-- None blocking. The aliases stay until Toni removes them.
+- None blocking. The aliases stay until a later change removes them.
