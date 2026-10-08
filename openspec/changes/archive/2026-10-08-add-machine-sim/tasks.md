@@ -4,9 +4,9 @@
 
 ## 1. CI savings first (so the new tests land on a faster base)
 
-- [ ] 1.1 Build action: install `ccache`, restore and save its directory (`main` saves one per commit, a pull request saves its own once), set `CMAKE_CXX_COMPILER_LAUNCHER` and `CMAKE_C_COMPILER_LAUNCHER`, print `ccache -s` after the build, cap 300 MB; verify a second push to the branch shows cache hits and a shorter build step.
+- [x] 1.1 Build action: install `ccache`, restore and save its directory (`main` saves one per commit, a pull request saves its own once), set `CMAKE_CXX_COMPILER_LAUNCHER` and `CMAKE_C_COMPILER_LAUNCHER`, print `ccache -s` after the build, cap 300 MB; verify a second push to the branch shows cache hits and a shorter build step.
 - [x] 1.2 vcan jobs: pass `targets` with the plugin, the standalone simulator and the helper programs the vcan steps start; verify every vcan step still passes and `unit_tests`, `sim_tests`, `sim_unit_tests` are not built there.
-- [ ] 1.3 `test_shard.py --timings FILE`: split whole classes by recorded seconds (largest first onto the lightest shard, unknown classes as the median); add `.github/ci/page-test-times.json` from a run's per-class times; use it for the `configurator-page` shards; add unit tests for the split; verify every page test runs once and the shards are within about a third of each other.
+- [x] 1.3 `test_shard.py --timings FILE`: split whole classes by recorded seconds (largest first onto the lightest shard, unknown classes as the median); add `.github/ci/page-test-times.json` from a run's per-class times; use it for the `configurator-page` shards; add unit tests for the split; verify every page test runs once and the shards are within about a third of each other.
 
 ## 2. Machine model (plugin)
 
@@ -38,7 +38,7 @@
 
 ## 6. CI time check
 
-- [ ] 6.1 Compare the PR's green CI run with the baseline from 0.1: wall time and summed job time both equal or lower; put the numbers and where the time was saved in the PR description. If not, trim per the design before asking for merge.
+- [x] 6.1 Compare the PR's green CI run with the baseline from 0.1: wall time and summed job time both equal or lower; put the numbers and where the time was saved in the PR description. If not, trim per the design before asking for merge.
 
 ## 7. Checks by hand
 
