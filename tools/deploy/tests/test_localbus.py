@@ -7,6 +7,7 @@ import itertools
 import json
 import os
 import tempfile
+import threading
 import struct
 import time
 import unittest
@@ -142,6 +143,63 @@ class Sdo(Base):
             self.assertGreaterEqual(time.monotonic() - t, 0.1)
         finally:
             peer.close()
+
+
+    def test_foreign_answer_while_listening(self):
+        # Another master reads the node while the tool still listens: its
+        # answer must not be taken for the answer to the tool's first request.
+        self.device(5)
+        peer = Peer(self.ch)
+        try:
+            c = LocalBus(parse("virtual:" + self.ch), 250000, listen_s=0.4)
+            c.connect()
+            self.clients.append(c)
+            out = {}
+            t = threading.Thread(target=lambda: out.update(r=c.sdo_read(5, 0x1018, 1)))
+            t.start()
+            time.sleep(0.1)
+            peer.send(0x605, b"\x40\x18\x10\x04\0\0\0\0")
+            t.join(5)
+            self.assertTrue(out["r"]["success"], out["r"])
+            self.assertEqual(diag.parse_hex(out["r"]["data"]), struct.pack("<I", 0x360))
+        finally:
+            peer.close()
+
+    def test_foreign_answer_during_request(self):
+        # Another master's transfer to the same node is answered while the
+        # tool waits: the tool skips that answer (and an abort for it) and
+        # takes its own, without aborting anything.
+        import can
+        bus = can.Bus(interface="virtual", channel=self.ch, receive_own_messages=False)
+        seen = []
+
+        def node():
+            while True:
+                msg = bus.recv(2)
+                if msg is None:
+                    return
+                seen.append(bytes(msg.data))
+                if msg.arbitration_id == 0x605 and msg.data[0] == 0x40:
+                    bus.send(can.Message(arbitration_id=0x585, data=b"\x43\x18\x10\x04\x34\x12\0\0",
+                                         is_extended_id=False))
+                    bus.send(can.Message(arbitration_id=0x585, data=b"\x80\x00\x10\x00\x00\x00\x02\x06",
+                                         is_extended_id=False))
+                    bus.send(can.Message(arbitration_id=0x585, data=b"\x43" + bytes(msg.data[1:4]) + b"\x60\x03\0\0",
+                                         is_extended_id=False))
+                    return
+
+        t = threading.Thread(target=node)
+        t.start()
+        try:
+            c = self.client()
+            r = c.sdo_read(5, 0x1018, 1)
+            t.join(5)
+            self.assertTrue(r["success"], r)
+            self.assertEqual(diag.parse_hex(r["data"]), struct.pack("<I", 0x360))
+            time.sleep(0.1)
+            self.assertEqual([d for d in seen if d[0] == 0x80], [])
+        finally:
+            bus.shutdown()
 
 
 class StatusAndEmcy(Base):

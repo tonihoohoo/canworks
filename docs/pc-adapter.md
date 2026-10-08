@@ -46,7 +46,7 @@ Saving to a device's non-volatile memory (0x1010, `store`, and LSS **Store in th
 
 The tools listen for a second before their first frame. A bus that carries NMT commands, SYNC, TIME or SDO requests the PC did not send has another master; `status` and the configurator say so ("another master is active on this bus") for 30 seconds after the last such frame.
 
-- SDO requests to a node wait while that master is talking to the same node.
+- SDO requests to a node wait while that master is talking to the same node. An answer the node gives that master meanwhile is not taken for the tool's own and does not abort the transfer.
 - LSS commands are refused while another master is active, because LSS addresses every device at once and the master may be using LSS itself. `--force` (in the configurator, **Run anyway** in the question) runs them anyway.
 - `lss-set-id` refuses a node ID the bus already shows (by heartbeat) unless forced.
 - NMT goes to one node at a time; the other master may start the node again.

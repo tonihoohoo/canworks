@@ -46,7 +46,7 @@ The backend SHALL send nothing on connect and SHALL listen for at least one seco
 - **THEN** a trace on another device shows no frame from the PC
 
 ### Requirement: Another master on the bus
-The backend SHALL detect another master from NMT command frames, SYNC frames, or SDO requests to a node that it did not send itself. `status` SHALL then report `other_master: true` with what was seen and when. While another master is detected, the `lss_` operations except `lss_find_status` SHALL answer `another master is active on this bus` unless the request has `force: true` (CLI `--force`). Before an SDO request to a node that had a foreign SDO request within the last 200 ms, it SHALL wait until 200 ms have passed.
+The backend SHALL detect another master from NMT command frames, SYNC frames, or SDO requests to a node that it did not send itself. `status` SHALL then report `other_master: true` with what was seen and when. While another master is detected, the `lss_` operations except `lss_find_status` SHALL answer `another master is active on this bus` unless the request has `force: true` (CLI `--force`). Before an SDO request to a node that had a foreign SDO request within the last 200 ms, it SHALL wait until 200 ms have passed. Frames heard during the listen window before the first transmit SHALL NOT be taken as answers to a later request, and an answer or abort from the node for another index or subindex than the backend's own initiate request SHALL be skipped, not aborted.
 
 #### Scenario: PLC running on the same bus
 - **WHEN** a PLC with the plugin runs SYNC on the bus and the user runs `lss-find --allow-changes` from the PC without `--force`

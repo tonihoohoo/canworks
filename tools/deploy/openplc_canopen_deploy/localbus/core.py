@@ -154,6 +154,9 @@ class Core:
             self.core, self.cob, self.q = core, cob, queue.Queue()
 
         def __enter__(self):
+            # Frames heard while the adapter still listens are another client's
+            # (no transmit before then): waiting first keeps them out of the queue.
+            self.core.wait_listened()
             with self.core.lock:
                 self.core.waiters[self.cob].append(self.q)
             return self
@@ -207,6 +210,7 @@ class Core:
 
     def wait_foreign_sdo(self, node):
         """Let another client's SDO transfer to `node` end before ours starts."""
+        self.wait_listened()
         with self.lock:
             t = self.foreign_sdo.get(node)
         if t is not None:
