@@ -5006,7 +5006,7 @@ function skippedText(r) {
   const k = r.skipped_kbit || [];
   return k.length ? ` Not tried: ${k.map(kbitText).join(", ")} (the adapter cannot be set to ${k.length === 1 ? "it" : "them"}).` : "";
 }
-const SILENT_TEXT = "The bus was silent. A listening adapter sends no acknowledge, so frames only count when another device acknowledges them: with one device on the bus, tick \"Only this device is on the bus\" (on a USB adapter), or add a second device or a second adapter in normal mode. A device that only sends its boot-up message: power-cycle it during the sweep, or run more rounds.";
+const SILENT_TEXT = "The bus was silent. A listening adapter sends no acknowledge, so frames only count when another device acknowledges them: with one device on the bus, add a second device or a second adapter in normal mode, or, with a USB adapter on the PC and nothing else on the bus, use the lone-device sweep (\"Only this device is on the bus\", --lone-device). A device that only sends its boot-up message: power-cycle it during the sweep, or run more rounds.";
 
 function detectSection() {
   const local = S.online.target === "adapter";

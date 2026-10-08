@@ -55,9 +55,9 @@ DISTURB_NEEDED = "disturb_bus needed"  # ... with disturb_bus: true (an adapter 
 TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
 SILENT_HINT = ("The bus was silent. A listening adapter sends no acknowledge, so frames only count when "
                "another device acknowledges them: with one device on the bus, add a second device or a second "
-               "adapter in normal mode, or, with a USB adapter on the PC and nothing else on the bus, run the "
-               "lone-device sweep (--lone-device). A device that only sends its boot-up message: power-cycle it "
-               "during the sweep, or run more rounds.")
+               "adapter in normal mode, or, with a USB adapter on the PC and nothing else on the bus, use the "
+               "lone-device sweep (\"Only this device is on the bus\", --lone-device). A device that only sends "
+               "its boot-up message: power-cycle it during the sweep, or run more rounds.")
 
 
 # ---------------------------------------------------------------------------

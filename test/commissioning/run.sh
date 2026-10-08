@@ -65,7 +65,6 @@ SIMPORT=7544
 LOCAL=(python3 -m openplc_canopen_deploy.diag --adapter "socketcan:$IFACE" --bitrate 125)
 CHANGE=(python3 -m openplc_canopen_deploy.diag --adapter "socketcan:$IFACE" --bitrate 125 --allow-changes)
 REMOTE=(python3 -m openplc_canopen_deploy.diag --runtime "127.0.0.1:$PORT")
-SIMCMD=("$SIM")
 
 fail() {
     echo "FAIL: $*" >&2
@@ -98,7 +97,7 @@ DCF="$WORK/dcf/node_5.dcf"
 "$SIM" --eds "$WORK/rtd8.eds" --node 5 --name rtd --no-sim-file --iface "$IFACE" --state-dir "$WORK/state" \
     --port "$SIMPORT" > "$WORK/sim.log" 2>&1 &
 PIDS+=($!)
-SIMCMD=("$SIM" --sim "127.0.0.1:$SIMPORT")
+simcmd() { "$SIM" "$@" --sim "127.0.0.1:$SIMPORT"; }
 cd "$WORK" || exit 2
 
 ready() {
@@ -109,7 +108,7 @@ ready() {
     fail "node 5 does not answer"
 }
 power_cycle() {
-    "${SIMCMD[@]}" fault 5 power cycle --off-ms 300 > /dev/null || fail "power cycle"
+    simcmd fault 5 power cycle --off-ms 300 > /dev/null || fail "power cycle"
     sleep 0.6
     ready
 }
@@ -169,7 +168,7 @@ grep -Eq "TPDO1 0x185: [1-9][0-9]* received" pdo.txt || fail "no TPDO1 in the PD
 grep -q "SYNC every 50 ms" pdo.txt || fail "no SYNC in the PDO test"
 
 echo "==> 2. With the plugin as master: refused, the plugin configures node 5"
-"${SIMCMD[@]}" fault 5 reset node > /dev/null 2>&1
+simcmd fault 5 reset node > /dev/null 2>&1
 "$HOST" "$PLUGIN" "$WORK/canopen_config.json" 60 rtd > "$WORK/host.log" 2>&1 &
 PIDS+=($!)
 for _ in $(seq 1 40); do
