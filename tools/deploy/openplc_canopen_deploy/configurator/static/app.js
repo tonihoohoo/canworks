@@ -5956,7 +5956,8 @@ function wire() {
   $("#browser-go").onclick = () => browse($("#browser-path").value.trim());
   $("#browser-path").addEventListener("keydown", (e) => { if (e.key === "Enter") browse($("#browser-path").value.trim()); });
   $("#browser-open").onclick = startOpen;
-  $("#btn-save").onclick = () => busy($("#btn-save"), "Saving…", () => save(false));
+  // busy() restores the caption it found ("Save"); the button's real state follows the save.
+  $("#btn-save").onclick = () => busy($("#btn-save"), "Saving…", () => save(false)).then(updateSave);
   const exporting = (id, fn) => { $(id).onclick = () => busy($(id), "Exporting…", fn); };
   exporting("#btn-export-all", () => exportDcf());
   exporting("#btn-export-node", () => {
