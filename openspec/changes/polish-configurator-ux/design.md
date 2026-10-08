@@ -58,7 +58,7 @@ The node view renders a sticky bar under the heading with anchors to its section
 The empty-config check message is rewritten on the server (`canopen_check` keeps the deploy CLI text; the configurator maps the `nodes` empty-list error to "No nodes yet. Add a node from its EDS, or turn on Online access for a scan-only configuration."). The trace and Frame lab "decoding without the config's PDOs" notes pass through the same `humanise()` that the Problems pane uses. Unhandled exceptions in the server become `{"error": "The configurator hit an error; see its terminal."}` with the traceback logged to the terminal.
 
 ### D12. Automated check
-`tests/data/axe.min.js` (axe-core 4.10, MPL-2.0, noted in `_lely_dcf`-style NOTICE) is injected after each `fits()` in the layout test; the test fails on any violation of impact critical or serious, listing rule, node and view. Moderate and minor findings are reported but do not fail, so a new view cannot regress silently while style nits do not block CI.
+`tests/data/axe.min.js` (axe-core 4.10, MPL-2.0, noted in `_lely_dcf`-style NOTICE) is injected after each `fits()` in the layout test; the test fails on any violation of impact critical or serious, listing rule, node and view. Moderate and minor findings are reported but do not fail, so a new view cannot regress silently while style nits do not block CI. There is no hand check: the end-to-end walk (keyboard-only navigation, undo, every export, a dropped connection, both themes) is a page test that runs in CI with the fake plugin.
 
 ## Risks / Trade-offs
 

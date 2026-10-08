@@ -37,6 +37,6 @@
 - [ ] 6.1 Vendor `tests/data/axe.min.js` with its licence notice; run it after every `fits()` in `tests/test_configurator_layout.py`, fail on critical and serious, report the rest; add `tests/test_configurator_ux_page.py` for the probes above.
 - [ ] 6.2 Update `docs/configurator.md` (menus, undo, keyboard, commissioning header) and README; bump the deploy tool minor version.
 
-## 7. Hand check
+## 7. End-to-end browser test
 
-- [ ] 7.1 With the local simulator runtime and the virtual example: open each view with the keyboard only, remove and undo a PDO entry, run every export from the menu, drop the runtime and watch the stale state, and check both themes with the OS in dark mode.
+- [ ] 7.1 Add `tests/test_configurator_e2e_page.py`: one browser run against the fake plugin and the virtual example config that opens every view with the keyboard only (Tab and Enter from the start page through nodes, declarations, online, scan, trace, simulation, frame lab), removes and undoes a PDO entry, runs every export from the Export menu and checks a download for each, stops the fake plugin mid-session and asserts the greyed table and the data age, then resumes it, and repeats the walk in the dark theme with the OS set to dark through `emulate_media`, with the axe audit after each view. Runs in CI with the other page tests; no hand check remains.
