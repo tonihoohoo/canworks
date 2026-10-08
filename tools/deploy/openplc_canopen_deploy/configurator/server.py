@@ -2207,6 +2207,8 @@ class Server(http.server.ThreadingHTTPServer):
 
     def server_close(self):
         super().server_close()
+        if not hasattr(self, "jobs"):
+            return  # binding the port failed: __init__ stopped before setting up the rest
         self.traces.stop_all()
         self.connection.close()
         self.sender.close()
@@ -2230,7 +2232,12 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
-    server = Server(args.port, verbose=args.verbose)
+    try:
+        server = Server(args.port, verbose=args.verbose)
+    except OSError as e:
+        print("openplc-canopen-config: cannot listen on 127.0.0.1:%d: %s" % (args.port, e.strerror or e),
+              file=sys.stderr)
+        return 2
     if args.path:
         try:
             server.session.open(args.path)

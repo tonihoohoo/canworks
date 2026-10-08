@@ -473,5 +473,75 @@ class Cli(Base):
         self.assertIsInstance(json.loads(out), list)
 
 
+
+class AdapterList(unittest.TestCase):
+    def _usb(self, ids, platform="darwin"):
+        from types import SimpleNamespace
+        from openplc_canopen_deploy.localbus import adapter as adapter_mod
+        devices = [SimpleNamespace(idVendor=v, idProduct=p) for v, p in ids]
+        usb = SimpleNamespace(core=SimpleNamespace(find=lambda find_all: iter(devices)))
+        with mock.patch.dict("sys.modules", {"usb": usb, "usb.core": usb.core}), \
+                mock.patch.object(adapter_mod.sys, "platform", platform):
+            return adapter_mod._usb_adapters()
+
+    def test_gs_usb_by_usb_id(self):
+        # python-can's gs_usb driver cannot list its adapters: they are found
+        # by USB ID and numbered as the driver numbers them.
+        found = self._usb([(0x1D50, 0x606F), (0x05E3, 0x0610), (0x1D50, 0x606F)])
+        self.assertEqual([(a["type"], a["channel"], a["usb_id"]) for a in found],
+                         [("gs_usb", "0", "1D50:606F"), ("gs_usb", "1", "1D50:606F")])
+        self.assertIn("candleLight", found[0]["known"])
+
+    def test_gs_usb_not_on_linux(self):
+        self.assertEqual(self._usb([(0x1D50, 0x606F)], platform="linux"), [])  # a SocketCAN link there
+
+    def test_no_pyusb(self):
+        from openplc_canopen_deploy.localbus import adapter as adapter_mod
+        with mock.patch.dict("sys.modules", {"usb": None, "usb.core": None}), \
+                mock.patch.object(adapter_mod.sys, "platform", "win32"):
+            self.assertEqual(adapter_mod._usb_adapters(), [])
+
+    def test_gs_usb_open_outside_linux(self):
+        # Opened by USB bus and address (so closing does not start the adapter
+        # again), and its start does not try to detach a kernel driver.
+        from types import ModuleType, SimpleNamespace
+        from openplc_canopen_deploy.localbus import adapter as adapter_mod
+
+        class Dev:
+            def is_kernel_driver_active(self, interface):
+                return True  # what macOS libusb says after the USB reset
+
+            def detach_kernel_driver(self, interface):
+                raise OSError("Access denied")
+
+        class GsUsb:
+            def __init__(self, bus, address):
+                self.bus, self.address, self.gs_usb = bus, address, Dev()
+
+            @classmethod
+            def scan(cls):
+                return [GsUsb(1, 4), GsUsb(2, 7)]
+
+            def start(self, flags=0):
+                if self.gs_usb.is_kernel_driver_active(0):
+                    self.gs_usb.detach_kernel_driver(0)
+                return "started"
+
+        pkg, mod = ModuleType("gs_usb"), ModuleType("gs_usb.gs_usb")
+        mod.GsUsb = pkg.gs_usb = GsUsb
+        with mock.patch.dict("sys.modules", {"gs_usb": pkg, "gs_usb.gs_usb": mod}):
+            kwargs = {}
+            adapter_mod._gs_usb_options(parse("gs_usb:1"), kwargs)
+            self.assertEqual(kwargs, {"bus": 2, "address": 7})
+            dev = GsUsb(1, 4)
+            self.assertEqual(dev.start(), "started")
+            self.assertTrue(dev.gs_usb.is_kernel_driver_active(0))  # put back after the start
+            with self.assertRaises(AdapterError) as e:
+                adapter_mod._gs_usb_options(parse("gs_usb:2"), {})
+            self.assertEqual(e.exception.kind, "unreachable")
+            with self.assertRaises(AdapterError) as e:
+                adapter_mod._gs_usb_options(parse("gs_usb:first"), {})
+            self.assertEqual(e.exception.kind, "usage")
+
 if __name__ == "__main__":
     unittest.main()
