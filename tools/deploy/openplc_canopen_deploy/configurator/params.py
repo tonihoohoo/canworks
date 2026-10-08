@@ -14,7 +14,8 @@ import os
 import threading
 import time
 
-from .. import contract, dbcexport, diag
+from .. import commissioning as C
+from .. import contract, dbcexport, diag, pdotest
 from .. import parameters as P
 
 KEEP = 10  # finished jobs kept
@@ -53,6 +54,17 @@ class Client:
 
     def status(self):
         return self._call(lambda c: c.status())
+
+    def local(self, fn, force=False):
+        """fn(adapter client) for the PDO test and SYNC ops (a USB adapter
+        only); `force` after the page asked about another master."""
+        if not self.info.get("local"):
+            raise Refused(409, "the PDO test is only on a USB adapter: on a runtime the PLC runs the PDOs")
+
+        def run(c):
+            c.force = force is True
+            return fn(c)
+        return self._call(run)
 
     @property
     def info(self):
@@ -106,7 +118,7 @@ class Jobs:
             try:
                 job.result = fn(job)
                 job.state = "cancelled" if job.cancel else "done"
-            except (diag.DiagError, P.ParameterError, Refused) as e:
+            except (diag.DiagError, P.ParameterError, C.CommissioningError, Refused) as e:
                 job.error, job.state = str(e), "failed"
             except Exception as e:  # pragma: no cover - shown in the page
                 job.error, job.state = "%s: %s" % (type(e).__name__, e), "failed"
@@ -297,6 +309,8 @@ def entries_json(ctx):
     return {"node": ctx.node_id, "eds": ctx.eds_name, "configured": ctx.configured, "slave": binds is not None,
             "has_store": ctx.eds.has(0x1010), "store_subindices": [s for s in range(1, 128)
                                                                     if ctx.eds.find(0x1010, s) is not None],
+            "has_restore": ctx.eds.has(0x1011), "restore_subindices": [s for s in range(1, 128)
+                                                                        if ctx.eds.find(0x1011, s) is not None],
             "entries": out, "note": note}
 
 
@@ -314,6 +328,58 @@ def keys_arg(body):
             raise Refused(400, "index must be 0x0000-0xFFFF and subindex 0-255")
         out.append((index, sub))
     return out
+
+
+def _file_bytes(body, what):
+    data = body.get("file")
+    if not isinstance(data, str) or not data:
+        raise Refused(400, "choose a %s" % what)
+    try:
+        return base64.b64decode(data, validate=True)
+    except ValueError:
+        raise Refused(400, "file must be base64")
+
+
+def source_arg(session, body, node, library):
+    """A commissioning.Source from the request: "dcf" with the file, or
+    "config" with `from_node`, a node of the draft config the page sends."""
+    kind = body.get("source")
+    try:
+        if kind == "dcf":
+            return C.dcf_source(_file_bytes(body, "DCF file"), body.get("file_name") or "device.dcf", node)
+        if kind == "config":
+            from_node = body.get("from_node", node)
+            if isinstance(from_node, bool) or not isinstance(from_node, int) or not 1 <= from_node <= 127:
+                raise Refused(400, "from_node must be a node ID")
+            folder = body.get("config_path")
+            if isinstance(folder, str) and folder.strip():
+                ctx = P.node_context(from_node, config_file(folder.strip()), network=body.get("config_network") or None)
+            else:
+                ctx = context(session, body, from_node, library)
+            if not ctx.configured or getattr(ctx, "slave", None) is not None:
+                raise Refused(422, "node %d is not a node of the configuration's master network" % from_node)
+            return C.config_source(ctx, from_node)
+    except (P.ParameterError, C.CommissioningError) as e:
+        raise Refused(422, str(e))
+    raise Refused(400, "source must be dcf or config")
+
+
+def config_file(path):
+    """The canopen.json of a config folder the page names on this PC: an
+    editor project (its canopen folder), a standalone config folder, or the
+    file itself."""
+    path = os.path.expanduser(path)
+    for p in (os.path.join(path, "canopen", "canopen.json"), os.path.join(path, "canopen.json"), path):
+        if os.path.isfile(p) and p.endswith(".json"):
+            return p
+    raise Refused(422, "no canopen.json in %s" % path)
+
+
+def _sub_arg(body, key, default=1):
+    sub = body.get(key, default)
+    if isinstance(sub, bool) or not isinstance(sub, int) or not 1 <= sub <= 127:
+        raise Refused(400, "%s must be 1-127" % key)
+    return sub
 
 
 def file_arg(body, node):
@@ -345,6 +411,11 @@ def handle(route, body, session, conn, jobs, client, node, library, host):
         if body.get("cancel") and job.state == "running":
             job.cancel = True
         return {"job": job.to_json()}
+
+    if path in COMMISSIONING:
+        return commissioning(path, body, session, jobs, client, node, library)
+    if path in PDO_TEST:
+        return pdo_test(path, body, session, client, node, library)
 
     ctx = context(session, body, node, library)
     if getattr(ctx, "slave", None) is not None and path not in ("od_entries", "od_read"):
@@ -449,5 +520,163 @@ def handle(route, body, session, conn, jobs, client, node, library, host):
     raise Refused(404, "no such API: %s %s" % route)
 
 
+# -- writing a configuration to a device (canopen-device-commissioning) ----------------------
+
+COMMISSIONING = ("configure_plan", "configure", "configure_verify", "restore_defaults")
+
+
+def commissioning(path, body, session, jobs, client, node, library):
+    if path == "restore_defaults":
+        ctx = context(session, body, node, library)
+        if not client.info.get("allow_changes"):
+            raise Refused(422, "changes not allowed")
+        try:
+            return C.restore_defaults(client, node, ctx.eds, _sub_arg(body, "subindex"), body.get("reset") is True)
+        except C.CommissioningError as e:
+            raise Refused(422, str(e))
+    if path == "configure_verify":
+        src = source_arg(session, body, node, library)
+        plan = C.build_plan(src, node, P.Reading(node))
+
+        def check(job):
+            res = C.verify(client, node, plan, job.progress("reading"), lambda: job.cancel)
+            res["source"] = src.to_json()
+            return res
+        return {"job": jobs.start("configure_verify", node, check).to_json()}
+    if path == "configure_plan":
+        src = source_arg(session, body, node, library)
+        try:
+            was = C.check_target(client, node)
+        except C.CommissioningError as e:
+            raise Refused(409, str(e))
+        ignore = body.get("ignore_identity") is True
+
+        def plan(job):
+            live = P.read_entries(client, node, C.plan_keys(src), job.progress("reading"), lambda: job.cancel)
+            if live.stopped:
+                raise P.ParameterError(live.stopped)
+            if job.cancel:
+                return None
+            job.plan = C.build_plan(src, node, live, ignore)
+            job.was_operational = was
+            res = job.plan.to_json()
+            res.update(allow_changes=bool(client.info.get("allow_changes")), local=bool(client.info.get("local")),
+                       was_operational=was, has_restore=src.eds.has(0x1011), has_store=src.eds.has(0x1010),
+                       store_subindices=[s for s in range(1, 128) if src.eds.find(0x1010, s) is not None])
+            return res
+        return {"job": jobs.start("configure_plan", node, plan).to_json()}
+    # configure: the plan of the preview the page shows, written once
+    planned = jobs.get(body.get("plan") if isinstance(body.get("plan"), int) else -1)
+    if planned is None or planned.kind != "configure_plan" or planned.plan is None or planned.node != node:
+        raise Refused(409, "make the preview for node %d again" % node)
+    if not client.info.get("allow_changes"):
+        raise Refused(422, "changes not allowed")
+    plan = planned.plan
+    if plan.refused:
+        # The identity check may be overridden; a source for another node ID may not.
+        if body.get("ignore_identity") is not True or plan.source.node_id not in (None, node):
+            raise Refused(422, "configuration refused: %s" % plan.refused)
+        plan.refused = None
+    planned.plan = None  # one write per preview
+    hold, store, restore = body.get("hold") is not False, body.get("store") is True, body.get("restore_defaults") is True
+    store_sub = _sub_arg(body, "store_subindex")
+    ignore = body.get("ignore_identity") is True
+    was = getattr(planned, "was_operational", False)
+
+    def write(job):
+        nonlocal plan
+        out = {"restored": None, "store": None}
+        if restore:
+            job.phase = "restoring defaults"
+            res = C.restore_defaults(client, node, plan.source.eds, 1, reset=True)
+            out["restored"] = res
+            if not res["restored"]:
+                raise C.CommissioningError("node %d did not restore its defaults: %s" % (node, res["error"]))
+            if not C.wait_ready(client, node):
+                raise C.CommissioningError("node %d did not answer after its reset" % node)
+            live = P.read_entries(client, node, C.plan_keys(plan.source), job.progress("reading"))
+            if live.stopped:
+                raise P.ParameterError(live.stopped)
+            plan = C.build_plan(plan.source, node, live, ignore)
+            if plan.refused:
+                raise C.CommissioningError("configuration refused: %s" % plan.refused)
+        res = C.configure(client, node, plan, hold, was, job.progress("writing"), lambda: job.cancel)
+        res.update(out, plan=plan.to_json())
+        if store:
+            if res["failed"] or not res["verified"]:
+                res["store"] = {"stored": False, "skipped": True,
+                                "error": "the configuration was not written completely"}
+            else:
+                try:
+                    res["store"] = P.store(client, node, plan.source.eds, store_sub)
+                except P.ParameterError as e:
+                    res["store"] = {"stored": False, "error": str(e)}
+        return res
+    return {"job": jobs.start("configure", node, write).to_json()}
+
+
+# -- the PDO test on a USB adapter --------------------------------------------------------------
+
+PDO_TEST = ("pdo_test_start", "pdo_test_status", "pdo_test_set", "pdo_test_stop", "sync_start", "sync_stop")
+
+
+def pdo_layout(session, body, client, node, library):
+    """The node's PDO layout: the draft configuration's when the node is in
+    it (the device fills in what it leaves out), else read from the device."""
+    ctx = context(session, body, node, library)
+    if getattr(ctx, "slave", None) is not None:
+        raise Refused(409, "the PDO test needs a master network")
+    try:
+        if ctx.configured:
+            src = C.config_source(ctx, node)
+            lay = pdotest.from_values(src.values, client, node, ctx.eds)
+            lay["source"] = "configuration"
+        else:
+            lay = pdotest.from_device(client, node, ctx.eds)
+            lay["source"] = "device"
+    except C.CommissioningError as e:
+        raise Refused(422, str(e))
+    if not lay["tpdos"] and not lay["rpdos"]:
+        raise Refused(422, "node %d has no valid PDO" % node)
+    return lay
+
+
+def pdo_test(path, body, session, client, node, library):
+    force = body.get("force") is True
+    if path == "pdo_test_start":
+        if not client.info.get("local"):
+            raise Refused(409, "the PDO test is only on a USB adapter: on a runtime the PLC runs the PDOs")
+        lay = pdo_layout(session, body, client, node, library)
+        source = lay.pop("source")
+        if body.get("start") is True:
+            client.nmt(node, "start")
+        res = client.local(lambda c: c.pdo_test_start(node, lay, force), force)
+        res["source"] = source
+        return res
+    if path == "pdo_test_status":
+        return client.local(lambda c: c.pdo_test_status(node))
+    if path == "pdo_test_set":
+        rpdo, values = body.get("rpdo"), body.get("values")
+        if isinstance(rpdo, bool) or not isinstance(rpdo, int):
+            raise Refused(400, "rpdo must be an RPDO number")
+        if not isinstance(values, dict) or not values:
+            raise Refused(400, "values must be {entry: value}")
+        rep = body.get("repeat_ms")
+        if rep is not None and (isinstance(rep, bool) or not isinstance(rep, int)):
+            raise Refused(400, "repeat_ms must be a number of milliseconds")
+        return client.local(lambda c: c.pdo_test_set(node, rpdo, {str(k): str(v) for k, v in values.items()}, rep))
+    if path == "pdo_test_stop":
+        return client.local(lambda c: c.pdo_test_stop(node))
+    if path == "sync_start":
+        period, counter = body.get("period_ms"), body.get("counter", 0)
+        if isinstance(period, bool) or not isinstance(period, int):
+            raise Refused(400, "period_ms must be a number of milliseconds")
+        if isinstance(counter, bool) or not isinstance(counter, int):
+            raise Refused(400, "counter must be 0 or 2-240")
+        return client.local(lambda c: c.sync_start(period, counter, force=force), force)
+    return client.local(lambda c: c.sync_stop())
+
+
 ROUTES = tuple(("POST", "/api/online/" + p) for p in
-               ("od_entries", "od_read", "backup", "compare", "restore_plan", "restore", "store", "job"))
+               ("od_entries", "od_read", "backup", "compare", "restore_plan", "restore", "store", "job")
+               + COMMISSIONING + PDO_TEST)

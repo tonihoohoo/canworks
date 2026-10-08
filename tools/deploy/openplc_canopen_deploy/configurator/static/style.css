@@ -518,3 +518,10 @@ button.fx-bit:hover { background: color-mix(in srgb, var(--c) calc(var(--fx-tint
 button.fx-bit.on:hover { background: var(--c); }
 .fx-bit.hl-soft { outline: 1px dashed var(--fx-sel); outline-offset: 1px; }
 .fx-wbit.hl-soft rect { stroke: var(--fx-sel); stroke-width: 1; stroke-dasharray: 2 2; }
+
+/* Commission a device: the Steps panel; Write configuration's plan groups */
+details.steps { margin: 0 0 12px; }
+details.steps > summary { cursor: pointer; font-weight: 600; min-height: 24px; line-height: 24px; }
+.steps-table th { text-align: left; font-weight: 500; padding-right: 12px; }
+.steps-table td { padding: 2px 8px 2px 0; }
+tr.group-row th { text-align: left; font-weight: 600; padding-top: 6px; }
