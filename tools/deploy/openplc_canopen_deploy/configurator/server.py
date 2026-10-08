@@ -26,6 +26,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import urllib.parse
 import webbrowser
 import zipfile
@@ -47,6 +48,7 @@ CONFIG = "canopen.json"
 MAX_BODY = 32 * 1024 * 1024
 MAX_TRACE_FILE = 1024 * 1024 * 1024
 RECENT_MAX = 10
+UNEXPECTED_ERROR = "The configurator hit an error; see its terminal."
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
@@ -1296,8 +1298,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
         except ApiError as e:
             self._send(e.status, e.body)
-        except Exception as e:  # pragma: no cover - shown in the page instead of a dropped connection
-            self._send(500, {"error": "%s: %s" % (type(e).__name__, e)})
+        except Exception:  # pragma: no cover - the page gets one sentence, the terminal the details
+            traceback.print_exc()
+            self._send(500, {"error": UNEXPECTED_ERROR})
 
     @staticmethod
     def _need_open(s):

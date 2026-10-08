@@ -6,7 +6,7 @@ The DCF and DBC exports are for other tools. The network documentation is for th
 openplc-canopen-deploy --config canopen_config.json --export-html network.html
 ```
 
-In the configurator, **Export documentation** in the header downloads the same document for the config as the page shows it, saved or not ([configurator.md](configurator.md#export-documentation)).
+In the configurator, **Documentation** in the header's Export menu downloads the same document for the config as the page shows it, saved or not ([configurator.md](configurator.md#export-documentation)).
 
 ![The document of the CiA 402 example: summary, topology and settings](images/network-docs.png)
 

@@ -347,16 +347,15 @@ async function renderSimulation(view) {
   const seq = SIM.seq;
   if (!SIM.settings) await loadSimSettings();
   if (seq !== SIM.seq || S.view !== "simulation") return;
-  const tabs = el("div", { class: "tabs", role: "tablist" }, [["live", "Live values"], ["file", "Simulation file"], ["scenarios", "Scenarios"]].map(([k, label]) =>
-    el("button", { type: "button", role: "tab", class: "tab" + (k === SIM.tab ? " active" : ""), "aria-selected": String(k === SIM.tab), dataset: { simTab: k },
-      onclick: () => { SIM.tab = k; SIM.rowKeys = ""; SIM.scenSig = ""; render(); } }, label)));
+  const tabList = tabs([["live", "Live values"], ["file", "Simulation file"], ["scenarios", "Scenarios"]], SIM.tab,
+    (k) => { SIM.tab = k; SIM.rowKeys = ""; SIM.scenSig = ""; render(); }, { dataset: "simTab", panel: "sim-body", label: "Simulation pages" });
   view.append(
     el("div", { class: "toolbar" }, el("h2", null, "Simulation"), el("div", { class: "spacer" }), simSaveBar()),
     simConnectBox(),
     el("div", { id: "sim-conn", class: "online-conn" }, "Not connected."),
     el("p", { id: "sim-readonly", class: "field-msg warning", hidden: true, dataset: { sim: "readonly" } }),
-    tabs,
-    el("div", { id: "sim-body" }));
+    tabList,
+    el("div", { id: "sim-body", role: "tabpanel", "aria-labelledby": "sim-body-tab-" + SIM.tab }));
   simRenderTab();
   if (simCanConnect()) {
     SIM.open = true;
@@ -462,7 +461,7 @@ async function simPoll(seq) {
   const st = r.status || {};
   const devices = st.devices || [];
   if (SIM.node === null && devices.length) SIM.node = simRef(devices[0]);
-  const where = r.target === "simulator" ? `the simulator at ${SIM.settings.address}` : S.online.host;
+  const where = r.target === "simulator" ? `the simulator at ${(SIM.settings && SIM.settings.address) || "its address"}` : S.online.host;
   conn.className = "online-conn ok";
   conn.replaceChildren(`Connected to ${where}: ` +
     (st.simulated_network ? "simulated network" : `real network ${st.interface || ""}`.trim()) +
@@ -538,7 +537,7 @@ function simLiveTab() {
   }
   return el("div", null,
     el("table", { class: "online-nodes", dataset: { sim: "devices" } },
-      el("thead", null, el("tr", null, ["Device", "Name", "Network", "NMT", "Power", "Conflict", "Faults", "Sources / overrides"].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Device", "Name", "Network", "NMT", "Power", "Conflict", "Faults", "Sources / overrides"]))),
       el("tbody", { id: "sim-devices" })),
     el("div", { id: "sim-device" }));
 }
@@ -550,8 +549,8 @@ function simUpdateDevices() {
   const devices = st.devices || [];
   tb.replaceChildren(...(devices.length ? devices.map((d) => {
     const ref = simRef(d);
-    return el("tr", { class: "clickable" + (String(ref) === String(SIM.node) ? " active" : ""), dataset: { simDevice: String(ref) },
-      onclick: () => { SIM.node = ref; SIM.editing = null; simUpdateDevices(); simDevicePanel(); } },
+    return el("tr", rowAttrs(() => { SIM.node = ref; SIM.editing = null; simUpdateDevices(); simDevicePanel(); },
+      { class: "clickable" + (String(ref) === String(SIM.node) ? " active" : ""), dataset: { simDevice: String(ref) }, "aria-label": `Open device ${d.node || ref}` }),
     el("td", null, d.node ? String(d.node) : "none"), el("td", null, simDeviceName(ref) || d.name || ""),
     el("td", null, st.simulated_network ? "simulated" : `real ${st.interface || ""}`.trim()),
     el("td", null, d.nmt || ""), el("td", { class: d.power === "off" ? "bad" : null }, d.power || ""),
@@ -585,7 +584,7 @@ function simDevicePanel() {
     el("p", { class: "muted", dataset: { sim: "device-state" } }, simDeviceState(ref)),
     el("fieldset", null, el("legend", null, "Values"),
       el("div", { class: "table-scroll" }, el("table", { class: "od sim-values", dataset: { sim: "values" } },
-        el("thead", null, el("tr", null, ["Object", "Name", "Value", "Control", ""].map((h) => el("th", null, h)))),
+        el("thead", null, el("tr", null, thCells(["Object", "Name", "Value", "Control", ""]))),
         el("tbody", { id: "sim-rows" }))),
       simPinPicker(ref),
       hint("Objects in the device's PDOs, and those with a source, an override or a pin. A slider, switch or bit holds its value as an override until Release; Set writes it once (a source moves it again).")),
@@ -1146,7 +1145,7 @@ async function simSave(overwrite) {
   } catch (e) {
     if (e.status === 409 && e.body.changed_on_disk) {
       const v = await modal("simulation.json changed on disk after it was loaded here (edited elsewhere?).",
-        [["reload", "Reload from disk"], ["overwrite", "Overwrite it"], ["cancel", "Cancel", true]]);
+        [["cancel", "Cancel"], ["reload", "Reload from disk"], ["overwrite", "Overwrite it", { danger: true }]]);
       if (v === "overwrite") return simSave(true);
       if (v === "reload") return reload(true);
     } else if (e.status === 422 && e.body.problems) {
@@ -1345,7 +1344,7 @@ function simExtraDevices() {
   };
   return el("fieldset", { dataset: { sim: "extra-devices" } }, el("legend", null, "Extra devices"),
     el("p", { class: "muted" }, "Devices simulated without being in the configuration: to try a bus scan, LSS commissioning or an identity check. They are saved to the simulation file and take effect at the next start of the simulation."),
-    list.length ? el("table", { class: "od" }, el("thead", null, el("tr", null, ["Node ID", "Name", "EDS", ""].map((h) => el("th", null, h)))),
+    list.length ? el("table", { class: "od" }, el("thead", null, el("tr", null, thCells(["Node ID", "Name", "EDS", ""]))),
       el("tbody", null, list.map((d, k) => el("tr", { dataset: { simExtra: String(k) } }, el("td", null, d.node ? String(d.node) : "none"),
         el("td", null, d.name || ""), el("td", null, d.eds || ""),
         el("td", null, el("button", { type: "button", class: "small", dataset: { sim: "remove-extra" }, onclick: () => {
@@ -1384,7 +1383,7 @@ function simScenariosTab() {
   };
   return el("div", null,
     el("table", { class: "online-nodes", dataset: { sim: "scenarios" } },
-      el("thead", null, el("tr", null, ["Scenario", "In file", "State", "Step", "Time", "Result", ""].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Scenario", "In file", "State", "Step", "Time", "Result", ""]))),
       el("tbody", { id: "sim-scenario-rows" })),
     el("div", { class: "toolbar" }, nameIn, el("button", { type: "button", dataset: { sim: "create-scenario" }, onclick: create }, "New scenario")),
     el("div", { id: "sim-scenario-editor" }, SIM.scenario && simScenarios()[SIM.scenario] ? simScenarioEditor(SIM.scenario) : null));
@@ -1444,7 +1443,7 @@ function simUpdateScenarios() {
       el("button", { type: "button", class: "small", disabled: off || !r.running, title: off ? why : null, dataset: { sim: "stop-scenario" },
         onclick: () => simRequest("sim_scenario_stop", { name: r.name }, `Scenario ${r.name} stopped.`) }, "Stop"), " ",
       r.draft ? el("button", { type: "button", class: "small", dataset: { sim: "delete-scenario" }, onclick: async () => {
-        const v = await modal(`Delete the scenario ${r.name} from the simulation file? It is gone once you save.`, [["delete", "Delete", true], ["cancel", "Cancel"]]);
+        const v = await modal(`Delete the scenario ${r.name} from the simulation file? It is gone once you save.`, [["cancel", "Keep the scenario"], ["delete", "Delete", { danger: true }]]);
         if (v !== "delete") return;
         delete SIM.doc.scenarios[r.name];
         if (!Object.keys(SIM.doc.scenarios).length) delete SIM.doc.scenarios;

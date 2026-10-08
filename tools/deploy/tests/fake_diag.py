@@ -151,6 +151,7 @@ class FakePlugin:
         self.scan_nodes = copy.deepcopy(SCAN_RESULT)
         self.scan_left = None
         self.requests = []
+        self.conns = set()  # the handlers of the open connections
         # LSS: devices by address (vendor, product, revision, serial) -> node ID (255: none).
         self.lss_devices = {(0x360, 0, 0, 0x42): 255, (0x360, 0, 0, 0x1234): 12}
         self.lss_polls = scan_polls
@@ -217,6 +218,13 @@ class FakePlugin:
 
             def handle(self):
                 fake.connections += 1
+                fake.conns.add(self)
+                try:
+                    self._serve()
+                finally:
+                    fake.conns.discard(self)
+
+            def _serve(self):
                 if self.mode != "tls":
                     if self.mode == "plain":
                         self._send({"ok": False,
@@ -280,6 +288,24 @@ class FakePlugin:
     def __exit__(self, *exc):
         self.server.shutdown()
         self.server.server_close()
+
+    def outage(self):
+        """The runtime goes away: no new connections, and every open one is
+        cut. Serve again on the same port with `restart()`."""
+        self.server.shutdown()
+        self.server.server_close()
+        for h in list(self.conns):
+            try:
+                h.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    def restart(self):
+        """Serves again on the same port after `outage()`."""
+        self.server = type(self.server)(("127.0.0.1", self.port), self.server.RequestHandlerClass)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        return self.server
 
     def network(self, name):
         """A network's state: the FakePlugin itself for the first one."""

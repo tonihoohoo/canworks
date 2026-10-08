@@ -25,6 +25,11 @@ const S = {
   varDirection: "read",  // the SDO variable picker: "read" or "write"
   checkTimer: null,
   checkSeq: 0,
+  undo: [],         // draft snapshots before each edit (see changed), newest last
+  redo: [],
+  lastClean: null,  // the draft as it was after the last edit (the next snapshot)
+  sectionOpen: {},  // node page sections the user opened or closed by hand
+  pickerOpen: {},   // "input" / "output": the object picker of a PDO direction is open
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -69,6 +74,13 @@ async function api(method, path, body) {
   return data;
 }
 
+// A confirmation. buttons: [value, label, options] where options is true
+// (the primary button) or { primary, danger }. The safe choice, the button
+// with value "cancel", is always drawn first and gets focus, so Enter never
+// removes, discards or overwrites anything; a dialog with a form focuses
+// its first field instead. Escape resolves null. One cancel listener is
+// wired in wire().
+let modalResolve = null;
 function modal(text, buttons, extra) {
   const dlg = $("#modal");
   $("#modal-text").textContent = text;
@@ -76,19 +88,99 @@ function modal(text, buttons, extra) {
   ex.replaceChildren(...(extra ? [extra] : []));
   const menu = $("#modal-buttons");
   menu.replaceChildren();
+  if (modalResolve) modalResolve(null);
+  const order = buttons.filter(([v]) => v === "cancel").concat(buttons.filter(([v]) => v !== "cancel"));
   return new Promise((resolve) => {
-    for (const [value, label, primary] of buttons) {
-      menu.append(el("button", { type: "button", class: primary ? "primary" : null, dataset: { value },
-        onclick: () => { dlg.close(); resolve(value); } }, label));
+    modalResolve = resolve;
+    const done = (v) => { modalResolve = null; dlg.close(); resolve(v); };
+    for (const [value, label, opts] of order) {
+      const o = opts === true ? { primary: true } : opts || {};
+      menu.append(el("button", { type: "button", class: [o.primary ? "primary" : "", o.danger ? "danger" : ""].join(" ").trim() || null,
+        dataset: { value }, onclick: () => done(value) }, label));
     }
-    dlg.addEventListener("cancel", () => resolve(null), { once: true });
     dlg.showModal();
+    const field = extra && extra.querySelector ? extra.querySelector("input:not([type=checkbox]), select, textarea") : null;
+    (field || menu.firstElementChild).focus();
   });
+}
+
+// A control that runs a request: disabled with a busy label until the
+// request settles, so a second click meanwhile does nothing.
+async function busy(button, label, fn) {
+  if (!button || button.dataset.busy) return undefined;
+  // Only the caption changes: a file button keeps its input.
+  const node = [...button.childNodes].find((c) => c.nodeType === Node.TEXT_NODE && c.textContent.trim()) || button;
+  const text = node.textContent;
+  const wasDisabled = button.disabled;
+  button.dataset.busy = "1";
+  button.disabled = true;
+  button.classList.add("busy");
+  button.setAttribute("aria-busy", "true");
+  node.textContent = label;
+  try { return await fn(); } finally {
+    delete button.dataset.busy;
+    node.textContent = text;
+    button.disabled = wasDisabled;
+    button.classList.remove("busy");
+    button.removeAttribute("aria-busy");
+  }
+}
+
+// A tab list: items [key, label], Left/Right/Home/End move the selection,
+// each tab names the panel it controls (`panel` is the content host's id).
+function tabs(items, active, onPick, opts) {
+  opts = opts || {};
+  const list = el("div", { class: opts.class || "tabs", role: "tablist", "aria-label": opts.label || null });
+  const buttons = items.map(([key, label]) => el("button", {
+    type: "button", role: "tab", id: opts.panel ? `${opts.panel}-tab-${key}` : null, class: (opts.tab || "tab") + (key === active ? " active" : ""),
+    "aria-selected": String(key === active), "aria-controls": opts.panel || null, tabindex: key === active ? "0" : "-1",
+    dataset: Object.assign({}, opts.dataset ? { [opts.dataset]: key } : {}),
+    onclick: () => onPick(key),
+  }, label));
+  list.append(...buttons);
+  list.addEventListener("keydown", (e) => {
+    const k = buttons.indexOf(document.activeElement);
+    if (k < 0) return;
+    const next = { ArrowRight: k + 1, ArrowLeft: k - 1, Home: 0, End: buttons.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    const b = buttons[(next + buttons.length) % buttons.length];
+    b.focus();
+    onPick(items[buttons.indexOf(b)][0]);
+    // A pick that re-renders the list keeps the focus on the picked tab.
+    if (b.id && !b.isConnected) { const fresh = document.getElementById(b.id); if (fresh) fresh.focus(); }
+  });
+  return list;
+}
+
+// Marks the tab list's selected tab and its panel after a pick without a re-render.
+function selectTab(list, key, dataset) {
+  for (const b of list.querySelectorAll("[role=tab]")) {
+    const on = b.dataset[dataset] === key;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+}
+
+// Attributes of a table row that opens something: in the tab order, a
+// button for assistive technology, Enter and Space act as a click.
+function rowAttrs(onPick, attrs) {
+  return Object.assign({ tabindex: "0", role: "button", onclick: onPick,
+    onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(e); } } }, attrs || {});
+}
+
+// Table header cells; a column with no caption holds buttons, and says so
+// to assistive technology.
+function thCells(headers) {
+  return headers.map((h) => el("th", null, h === "" ? el("span", { class: "visually-hidden" }, "Actions") : h));
 }
 
 // The message bar. text: a string, or an element (the EDS import report).
 // A string closes by itself after BANNER_MS; errors and reports stay until
-// closed, replaced, or the user switches view.
+// closed, replaced, or the user switches view. An element with
+// data-timed closes like a string. Information is a status, an error an
+// alert, so assistive technology reads both.
 const BANNER_MS = 6000;
 function banner(text, isError) {
   const b = $("#banner");
@@ -97,7 +189,15 @@ function banner(text, isError) {
   if (text instanceof Node) $("#banner-text").replaceChildren(text);
   else $("#banner-text").textContent = text || "";
   b.className = isError ? "error" : "";
-  if (typeof text === "string" && text && !isError) S.bannerTimer = setTimeout(() => banner(""), BANNER_MS);
+  b.setAttribute("role", isError ? "alert" : "status");
+  const timed = typeof text === "string" ? !!text : !!(text && text.dataset && text.dataset.timed);
+  if (timed && !isError) S.bannerTimer = setTimeout(() => banner(""), BANNER_MS);
+}
+
+// "Removed 0x6150:1 from TPDO 2." with an Undo action, shown for BANNER_MS.
+function removedBanner(what) {
+  banner(el("span", { dataset: { timed: "1", removed: "1" } }, `Removed ${what}. `,
+    el("button", { type: "button", class: "link", dataset: { undo: "1" }, onclick: () => undo(false) }, "Undo")));
 }
 
 // Switches view on the user's request; a message about the last view goes.
@@ -176,7 +276,7 @@ function setPath(path, value) {
   const last = parts[parts.length - 1];
   if (value === undefined || value === "") delete obj[last];
   else obj[last] = value;
-  changed();
+  changed(false, path);
 }
 
 function getPath(path) {
@@ -188,11 +288,81 @@ function getPath(path) {
   return obj;
 }
 
-function changed(rerender) {
+// Every edit of the draft ends here. The draft as it was before the edit
+// (kept since the last call) goes onto the undo stack; edits of one field
+// within a second are one step, so typing undoes as a whole. `path` names
+// the edited field, when there is one.
+const UNDO_MAX = 50;
+function changed(rerender, path) {
+  const now = Date.now();
+  if (S.lastClean) {
+    const same = path && S.undoPath === path && now - S.undoAt < 1000 && S.undo.length;
+    if (!same) {
+      // The snapshot's draft is from before the edit; its place is where the edit was made.
+      S.undo.push({ model: S.lastClean.model, net: S.net, view: S.view });
+      if (S.undo.length > UNDO_MAX) S.undo.shift();
+    }
+    S.redo = [];
+  }
+  S.undoPath = path || null;
+  S.undoAt = now;
+  undoBase();
   S.dirty = true;
   if (rerender) render();
-  else updateSimBanner();
+  else {
+    updateSimBanner();
+    if (path && /^nodes\[\d+\]\.(name|node_id)$/.test(path)) renderSide();
+  }
   scheduleCheck();
+}
+
+// The draft as it is now, kept as the snapshot of the next edit.
+function undoBase() {
+  S.lastClean = { model: structuredClone(S.model), net: S.net, view: S.view };
+}
+
+// Forgets the undo history: the draft was loaded, saved or closed.
+function resetUndo() {
+  S.undo = [];
+  S.redo = [];
+  S.undoPath = null;
+  S.savedJson = S.model ? JSON.stringify(S.model) : null;
+  if (S.model) undoBase();
+}
+
+// Ctrl+Z (Cmd+Z) and Ctrl+Shift+Z: the draft one step back or forward,
+// across views. Returns false when there is nothing to do.
+function undo(redo) {
+  const from = redo ? S.redo : S.undo;
+  const to = redo ? S.undo : S.redo;
+  if (!from.length || !S.model) return false;
+  const snap = from.pop();
+  to.push({ model: structuredClone(S.model), net: S.net, view: S.view });
+  S.model = snap.model;
+  openNet(Math.min(snap.net, S.model.networks.length - 1));
+  S.view = snap.view;
+  if (S.view.startsWith("node:") && !(S.config.nodes || [])[Number(S.view.slice(5))]) S.view = "bus";
+  S.undoPath = null;
+  S.supervision = {};
+  undoBase();
+  S.dirty = JSON.stringify(S.model) !== S.savedJson;
+  banner("");
+  render();
+  scheduleCheck();
+  return true;
+}
+
+// The undo keys. A field bound to the draft undoes through the draft (its
+// typed value is already in the draft); any other field (a filter, a
+// dialog) keeps the browser's own undo.
+function undoKeys(e) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== "z") return;
+  if ($("#modal").open || !S.state || !S.state.mode) return;
+  const a = document.activeElement;
+  const field = a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT");
+  if (field && !a.dataset.path) return;
+  e.preventDefault();
+  undo(e.shiftKey);
 }
 
 // An input bound to a JSON path. kind: "text" | "int" | "intstr" (keeps "0x.." text)
@@ -295,6 +465,7 @@ function toModel(cfg) {
 function setModel(cfg) {
   S.model = toModel(cfg);
   openNet(Math.min(S.net || 0, S.model.networks.length - 1));
+  resetUndo();
 }
 
 function openNet(i) {
@@ -442,7 +613,7 @@ async function removeNetwork() {
   const label = netLabel(S.config, S.net);
   const k = (S.config.nodes || []).length;
   const v = await modal(`Remove network ${label}` + (k ? ` and its ${k} node${k === 1 ? "" : "s"}` : "") +
-    "? Its EDS files stay in the folder.", [["remove", "Remove network", true], ["cancel", "Cancel"]]);
+    "? Its EDS files stay in the folder.", [["cancel", "Keep the network"], ["remove", "Remove network", { danger: true }]]);
   if (v !== "remove") return;
   S.model.networks.splice(S.net, 1);
   openNet(Math.min(S.net, S.model.networks.length - 1));
@@ -524,7 +695,8 @@ async function loadState() {
   if (S.state.mode) {
     setModel(S.state.config);
     await loadOnlineSettings();
-    S.dirty = false;
+    // A migrated file (an old setting rewritten on load) differs from the draft: there is something to save.
+    S.dirty = !!(S.state.notices && S.state.notices.length);
     S.supervision = {};
     if (S.view.startsWith("node:") && !(S.config.nodes || [])[Number(S.view.slice(5))]) S.view = "bus";
     if (typeof simLoad === "function") simLoad();
@@ -616,8 +788,13 @@ function render() {
   badge.textContent = S.state.commission ? "commissioning a device (nothing here is saved to a project)"
     : S.state.mode === "project" ? "project " + S.state.name : "standalone " + S.state.folder;
   badge.title = S.state.config_path;
-  $("#btn-move").hidden = S.state.mode !== "standalone";
-  $("#btn-new-project").hidden = S.state.mode !== "standalone";
+  // Commissioning a device: no config, so nothing that edits, saves or checks one.
+  const commission = !!S.state.commission;
+  document.body.classList.toggle("commission", commission);
+  $("#editor").classList.toggle("commission", commission);
+  $("#menu-project").hidden = S.state.mode !== "standalone" || commission;
+  $("#btn-export-node").disabled = !S.view.startsWith("node:");
+  if (commission && !["online", "scan", "trace", "framelab"].includes(S.view)) S.view = "online";
   renderSide();
   updateSimBanner();
   // The online view, the scan page and the simulation view share one connection.
@@ -628,6 +805,7 @@ function render() {
   if (S.view !== "trace" && typeof sendLeave === "function") sendLeave();
   const view = $("#view");
   view.replaceChildren();
+  view.classList.toggle("indexed", S.view.startsWith("node:"));
   if (S.view === "bus") renderBus(view);
   else if (S.view === "declarations") renderDeclarations(view);
   else if (S.view === "online") renderOnline(view);
@@ -643,23 +821,24 @@ function render() {
 function renderSide() {
   renderNetBar();
   for (const b of document.querySelectorAll(".nav-item")) b.classList.toggle("active", b.dataset.view === S.view);
+  // The node list: one button per node (name and error count, nothing
+  // else), the open node marked as current.
   const list = $("#node-list");
-  list.replaceChildren(...(S.config.nodes || []).map((n, i) => el("li", {
-    class: S.view === "node:" + i ? "active" : null, dataset: { node: i },
-    onclick: () => showView("node:" + i),
-  }, `${n.node_id ?? "?"} ${n.name || ""}`, simBadge(n), el("span", { class: "count" }),
-  el("button", { type: "button", class: "export-dcf", title: `Export DCF: node ${n.node_id ?? "?"} as a CiA 306 DCF file`,
-    "aria-label": `Export DCF of node ${n.node_id ?? "?"}`,
-    onclick: (ev) => { ev.stopPropagation(); exportDcf(n.node_id, tabNetwork()); } }, "Export DCF"))));
+  const item = (active, attrs, ...kids) => el("li", null, el("button", Object.assign({ type: "button",
+    class: "nav-item" + (active ? " active" : ""), "aria-current": active ? "true" : null }, attrs), ...kids));
+  list.replaceChildren(...(S.config.nodes || []).map((n, i) => item(S.view === "node:" + i,
+    { dataset: { node: i }, onclick: () => showView("node:" + i) },
+    el("span", { class: "name" }, `${n.node_id ?? "?"} ${n.name || ""}`), simBadge(n), el("span", { class: "count" }))));
   if (isSlave(S.config)) {
     const s = S.config.slave || {};
-    list.append(el("li", { class: S.view === "bus" ? "active" : null, dataset: { slave: "1" }, onclick: () => showView("bus") },
-      `${s.node_id === null ? "LSS" : s.node_id ?? "?"} slave device (this PLC)`));
+    list.append(item(S.view === "bus", { dataset: { slave: "1" }, onclick: () => showView("bus") },
+      el("span", { class: "name" }, `${s.node_id === null ? "LSS" : s.node_id ?? "?"} slave device (this PLC)`)));
   } else if (!(S.config.nodes || []).length) list.append(el("li", { class: "muted" }, "No nodes yet"));
+  fillCounts(countProblems());
   $("#eds-input").closest("label").hidden = isSlave(S.config);
   $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
   const unused = S.state.unused_eds || [];
-  $("#unused-eds").replaceChildren(...(unused.length ? [el("h3", null, "Unused EDS files"),
+  $("#unused-eds").replaceChildren(...(unused.length ? [el("h2", { class: "side-caption" }, "Unused EDS files"),
     el("p", { class: "muted" }, unused.join(", ") + " (left in place, never deleted)")] : []));
   $("#scan-info").textContent = S.state.mode === "project"
     ? `Project addresses scanned ${S.state.scanned_at}: ${S.state.project_uses.length} in use.`
@@ -1224,7 +1403,7 @@ function slaveObjects(eds) {
   fs.append(el("p", { class: "muted" }, "Objects the master writes (AccessType rww or rw) are PLC inputs; objects the " +
       "program writes (ro or rwr) are PLC outputs the master reads. The name is optional and names the variable."),
     el("div", { class: "objects" }, el("table", null,
-      el("thead", null, el("tr", null, ["Object", "EDS name", "Type", "Direction", "PLC location", "Name", ""].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Object", "EDS name", "Type", "Direction", "PLC location", "Name", ""]))),
       el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 7, class: "muted" }, "No objects bound yet."))))),
     free.length ? el("div", { class: "toolbar" }, pick, el("button", { type: "button", dataset: { bind: "1" },
       onclick: async () => {
@@ -1290,7 +1469,7 @@ function slaveBuilder() {
         hint(cia401 ? "Device type 401: digital I/O as UNSIGNED8 (0x6000/0x6200), analog as INTEGER16 (0x6401/0x6411)."
           : "From the master in 0x2000 and up, to the master in 0x2100 and up, one ARRAY per type."))),
     el("div", { class: "objects" }, el("table", null,
-      el("thead", null, el("tr", null, ["Name", "Type", "Direction", "Default", "Low", "High", ""].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Name", "Type", "Direction", "Default", "Low", "High", ""]))),
       el("tbody", null, rows))),
     el("div", { class: "toolbar" },
       el("button", { type: "button", dataset: { addDescObject: "1" }, onclick: () => {
@@ -1312,7 +1491,7 @@ async function generateSlaveEds(withGateway) {
     r = await api("POST", "/api/slave_eds", body);
   } catch (e) {
     if (e.status === 409 && e.body.conflict) {
-      const v = await modal(e.message + ". Replace it with the generated EDS?", [["replace", "Replace"], ["cancel", "Cancel", true]]);
+      const v = await modal(e.message + ". Replace it with the generated EDS?", [["cancel", "Cancel"], ["replace", "Replace", { danger: true }]]);
       if (v !== "replace") return;
       r = await api("POST", "/api/slave_eds", Object.assign(body, { replace: true }));
     } else {
@@ -1392,7 +1571,7 @@ function renderGateway(view) {
     if (on.checked) top.gateway = { upper: slaves[0] || "", routes: [] };
     else {
       const k = ((top.gateway || {}).routes || []).length;
-      if (k && await modal(`Remove the gateway and its ${k} route${k === 1 ? "" : "s"}?`, [["remove", "Remove", true], ["cancel", "Cancel"]]) !== "remove") { render(); return; }
+      if (k && await modal(`Remove the gateway and its ${k} route${k === 1 ? "" : "s"}?`, [["cancel", "Keep the gateway"], ["remove", "Remove the gateway", { danger: true }]]) !== "remove") { render(); return; }
       delete top.gateway;
     }
     changed(true);
@@ -1508,7 +1687,7 @@ function gatewayRoutes(g, masters, upperEds) {
       "needs no PLC location: one writer per object."),
     upperEds ? null : el("p", { class: "field-msg" }, "Build or pick the upper network's EDS to pick slave objects."),
     el("div", { class: "objects" }, el("table", null,
-      el("thead", null, el("tr", null, ["Name", "Slave object", "Network", "Node", "PDO entry", "Direction", ""].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Name", "Slave object", "Network", "Node", "PDO entry", "Direction", ""]))),
       el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 7, class: "muted" }, "No routes yet."))))),
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { addRoute: "1" },
       onclick: () => { g.routes.push({ slave: {}, field: {} }); changed(true); } }, "Add route")));
@@ -1546,17 +1725,23 @@ function renderNode(view, i) {
       hint(help),
       el("span", { class: "field-msg", dataset: { for: base + "." + key } }),
       declNote(base + "." + key));
+  const exportBtn = el("button", { type: "button", dataset: { exportDcf: i }, title: "This node as a CiA 306 DCF file, checked",
+    onclick: () => busy(exportBtn, "Exporting…", () => exportDcf(n.node_id, tabNetwork())) }, "Export DCF");
+  const sections = [];  // [id, label, element]: the section index, in page order
+  const section = (id, label, element) => { if (element) { element.id = "sec-" + id; sections.push([element.id, label]); } return element; };
+  const index = el("nav", { class: "section-index", "aria-label": "Sections of this node" });
   view.append(
     el("div", { class: "toolbar" }, el("h2", null, `Node ${n.node_id ?? "?"} ${n.name || ""}`),
-      el("div", { class: "spacer" }),
-      el("button", { type: "button", onclick: () => removeNode(i) }, "Remove node")),
-    el("fieldset", null, el("legend", null, "Node"),
+      el("div", { class: "spacer" }), exportBtn,
+      el("button", { type: "button", dataset: { removeNode: i }, onclick: () => removeNode(i) }, "Remove node")),
+    index,
+    section("node", "Node", el("fieldset", null, el("legend", null, "Node"),
       el("div", { class: "grid" },
         field("Node ID", base + ".node_id", "intstr"),
         field("Name", base + ".name", "text"),
         el("label", null, "EDS", edsSel, el("span", { class: "field-msg", dataset: { for: base + ".eds" } })),
-        simSwitch(i))),
-    el("fieldset", null, el("legend", null, "Supervision"),
+        simSwitch(i)))),
+    section("supervision", "Supervision", el("fieldset", null, el("legend", null, "Supervision"),
       el("div", { class: "grid" }, supervisionFields(i),
         el("label", null, "Status bit", el("span", { class: "row" },
           field("", base + ".status_location", "text", { placeholder: "%IX…" }).querySelector("input"), statusBtn),
@@ -1574,21 +1759,61 @@ function renderNode(view, i) {
           field("", base + ".boot_error_location", "text", { placeholder: "%IB…" }).querySelector("input"), bootErrBtn),
           hint("Optional. Why the last boot failed, as a CiA 302 letter code (66 B no answer, 77 M wrong product code, 74 J configuration refused, ...); 0 once the node boots. Empty: none."),
           el("span", { class: "field-msg", dataset: { for: base + ".boot_error_location" } }),
-          declNote(base + ".boot_error_location")))),
-    el("fieldset", null, el("legend", null, "Emergency (EMCY)"),
+          declNote(base + ".boot_error_location"))))),
+    section("emcy", "Emergency", el("fieldset", null, el("legend", null, "Emergency (EMCY)"),
       el("div", { class: "grid" },
         nodeInput("EMCY code", "emcy", "emcy_code_location", "%IW…",
           "Optional. Error code of the node's latest emergency message, 0 when no error is active (after its error reset or a restart). Every EMCY is also logged. Empty: not mapped."),
         nodeInput("Error register", "errreg", "error_register_location", "%IB…",
-          "Optional. Error register (object 0x1001 bits) from the latest emergency message, 0 after a restart. Empty: not mapped."))),
-    axisFields(i, eds),
-    nodeAdvanced(i, eds));
+          "Optional. Error register (object 0x1001 bits) from the latest emergency message, 0 after a restart. Empty: not mapped.")))),
+    section("axis", "Axis", axisFields(i, eds)),
+    section("advanced", "Advanced", nodeAdvanced(i, eds)));
   if (eds && eds.error) view.append(el("p", { class: "field-msg" }, eds.error));
-  for (const [key, dir, title] of [["tx_pdos", "input", "Inputs (TPDOs, slave to PLC)"],
-    ["rx_pdos", "output", "Outputs (RPDOs, PLC to slave)"]]) {
-    view.append(renderPdos(i, key, dir, title, eds));
+  for (const [key, dir, title, id] of [["tx_pdos", "input", "Inputs (TPDOs, slave to PLC)", "inputs"],
+    ["rx_pdos", "output", "Outputs (RPDOs, PLC to slave)", "outputs"]]) {
+    view.append(section(id, id === "inputs" ? "Inputs" : "Outputs", renderPdos(i, key, dir, title, eds)));
   }
-  view.append(renderObjects(i, eds), renderSdos(i, eds), renderSdoVars(i, eds));
+  view.append(section("sdo", "Startup SDO writes", renderSdos(i, eds)), section("vars", "SDO variables", renderSdoVars(i, eds)));
+  // The section index: an entry per section, the one in view marked as the page scrolls.
+  const links = sections.map(([id, label]) => el("a", { href: "#" + id, dataset: { section: id },
+    onclick: (e) => { e.preventDefault(); const t = document.getElementById(id); if (t) { t.scrollIntoView({ block: "start" }); markSection(id); } } }, label));
+  index.append(...links);
+  if (S.sectionObserver) S.sectionObserver.disconnect();
+  if (typeof IntersectionObserver === "function") {
+    const seen = new Map();
+    S.sectionObserver = new IntersectionObserver((entries) => {
+      for (const e of entries) seen.set(e.target.id, e.isIntersecting ? e.boundingClientRect.top : null);
+      let best = null;
+      for (const [id] of sections) if (seen.get(id) !== null && seen.get(id) !== undefined && (best === null || seen.get(id) < seen.get(best))) best = id;
+      if (best) markSection(best);
+    }, { rootMargin: `-${$("#top").offsetHeight + 40}px 0px -55% 0px`, threshold: 0 });
+    for (const [id] of sections) S.sectionObserver.observe(document.getElementById(id));
+  }
+  // A node just added from an EDS gets its name field.
+  if (S.focusName === i) { S.focusName = null; const name = view.querySelector(`input[data-path="${base}.name"]`); if (name) name.focus(); }
+}
+
+function markSection(id) {
+  for (const a of document.querySelectorAll(".section-index a")) a.setAttribute("aria-current", a.dataset.section === id ? "true" : "false");
+}
+
+// A section of the node page that can be empty: collapsed when it is, with
+// its count and its add action in the summary, open when it has entries
+// or a problem; the user's own open or close wins for the open node.
+function collapsible(key, i, label, count, body, summaryExtra) {
+  const k = `node${i}.${key}`;
+  const path = `nodes[${i}].${key}`;
+  const problem = ((S.check && S.check.items) || []).some((it) =>
+    (it.where || []).some((w) => (w.net === null || w.net === S.net) && typeof w.path === "string" && w.path.startsWith(path)));
+  const open = S.sectionOpen[k] !== undefined ? S.sectionOpen[k] : count > 0 || problem;
+  const d = el("details", { class: "section", open: open || null, dataset: { section: key } },
+    el("summary", null, label, el("span", { class: "muted" }, count ? `${count} ${count === 1 ? "entry" : "entries"}` : "none")),
+    body);
+  d.addEventListener("toggle", () => { S.sectionOpen[k] = d.open; });
+  if (!summaryExtra) return d;
+  // The "Add…" button shows on the summary line but lives outside the
+  // details: not a control nested in a control, and visible while folded.
+  return el("div", { class: "section-wrap" }, d, el("div", { class: "section-tools" }, summaryExtra));
 }
 
 // The node as a CiA 402 axis for the editor's PLCopen motion blocks: the
@@ -1911,15 +2136,19 @@ function renderPdos(i, key, dir, title, eds) {
   const pdos = n[key] || [];
   const fs = el("fieldset", { dataset: { path: `nodes[${i}].${key}` } }, el("legend", null, title));
   const count = eds && eds.pdo_count ? eds.pdo_count[dir] : 0;
-  fs.append(el("p", { class: "muted" }, `${pdos.length} of ${count} PDOs defined in the EDS used. Add entries from the object list below.`));
+  fs.append(el("p", { class: "muted" }, `${pdos.length} of ${count} PDOs defined in the EDS used. Add entries with "Add entry…" (a new PDO is started when the open ones are full).`));
   pdos.forEach((p, j) => {
     const pb = `nodes[${i}].${key}[${j}]`;
     const bits = (p.entries || []).reduce((s, e) => s + (S.state.type_bits[e.type] || 0), 0);
+    const number = num(p.number) || j + 1;
     const box = el("div", { class: "pdo", dataset: { path: pb } },
       el("div", { class: "pdo-title" },
         el("strong", null, `${dir === "input" ? "TPDO" : "RPDO"} ${p.number ?? j + 1}`),
         el("span", { class: "muted" }, `${(p.entries || []).length}/8 entries, ${bits}/64 bits`),
-        el("span", { class: "field-msg", dataset: { for: pb } })),
+        el("span", { class: "field-msg", dataset: { for: pb } }),
+        eds && eds.objects ? el("button", { type: "button", class: "small", dataset: { addEntry: pb },
+          title: `Pick an object for ${dir === "input" ? "TPDO" : "RPDO"} ${number}`,
+          onclick: () => { S.pickerTarget = { dir, number }; S.pickerOpen[dir] = true; render(); focusPicker(dir); } }, "Add entry…") : null),
       el("div", { class: "pdo-grid" },
         pdoField("Number", pb + ".number", String(j + 1)),
         cobIdField(pb, n, dir, p, j),
@@ -1945,13 +2174,20 @@ function renderPdos(i, key, dir, title, eds) {
           el("span", { class: "field-msg", dataset: { for: ep } }), el("span", { class: "field-msg", dataset: { for: ep + ".type" } }),
           declNote(ep + ".iec_location")),
         el("td", null, move),
-        el("td", null, el("button", { type: "button", title: "Remove", onclick: () => removeEntry(i, key, j, k) }, "✕")));
+        el("td", null, el("button", { type: "button", title: "Remove", "aria-label": `Remove ${e.index}:${e.subindex ?? 0} from the PDO`,
+          onclick: () => removeEntry(i, key, j, k) }, "✕")));
     });
-    box.append(el("table", null, el("thead", null, el("tr", null, ["Object", "Name", "Type", "PLC location", "PDO", ""].map((h) => el("th", null, h)))),
+    box.append(el("table", null, el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "PLC location", "PDO", ""]))),
       el("tbody", null, rows)));
     fs.append(box);
   });
+  fs.append(objectPicker(i, eds, dir));
   return fs;
+}
+
+function focusPicker(dir) {
+  const f = document.querySelector(`details[data-picker="${dir}"] input[type=text]`);
+  if (f) f.focus();
 }
 
 // A PDO's mapping object from the EDS: { writable, has_default, defaults:
@@ -2266,34 +2502,41 @@ function transmissionField(pb, dir, p, eds) {
   return c;
 }
 
-function renderObjects(i, eds) {
-  const fs = el("fieldset", null, el("legend", null, "Map an object"));
-  if (!eds || !eds.objects) { fs.append(el("p", { class: "muted" }, "Pick an EDS for this node first.")); return fs; }
-  const filter = el("input", { type: "text", placeholder: "Filter by index or name", "aria-label": "Filter objects" });
+// The object picker of one PDO direction, at the end of its fieldset:
+// "Add entry…" opens the list of that direction's mappable objects. An
+// object goes into the PDO whose "Add entry…" opened the picker, else
+// into the first PDO with room (a new one when none has).
+function objectPicker(i, eds, dir) {
+  if (!eds || !eds.objects) return el("p", { class: "muted" }, "Pick an EDS for this node first.");
+  const label = dir === "input" ? "TPDO" : "RPDO";
+  const target = S.pickerTarget && S.pickerTarget.dir === dir ? S.pickerTarget.number : null;
+  const objects = eds.objects.map((o) => Object.assign({}, o, { directions: pickable(eds, o) })).filter((o) => o.directions.includes(dir));
+  const d = el("details", { class: "picker", open: S.pickerOpen[dir] || null, dataset: { picker: dir } },
+    el("summary", null, "Add entry…"));
+  d.addEventListener("toggle", () => { S.pickerOpen[dir] = d.open; if (!d.open) S.pickerTarget = null; });
+  const filter = el("input", { type: "text", placeholder: "Filter by index or name", "aria-label": `Filter ${dir} objects` });
   filter.value = S.objectFilter;
   const body = el("tbody");
   const fill = () => {
     const f = S.objectFilter.toLowerCase();
-    body.replaceChildren(...eds.objects.map((o) => Object.assign({}, o, { directions: pickable(eds, o) }))
-      .filter((o) => o.directions.length)
+    body.replaceChildren(...objects
       .filter((o) => !f || o.index.toLowerCase().includes(f) || (o.name || "").toLowerCase().includes(f))
-      .map((o) => {
-        const dirSel = o.directions.length > 1
-          ? el("select", { "aria-label": "Direction" }, o.directions.map((d) => el("option", { value: d }, d)))
-          : null;
-        return el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name), el("td", null, o.type),
-          el("td", null, o.access), el("td", null, dirSel || o.directions[0]),
-          el("td", null, isMapped(i, o) ? el("span", { class: "muted" }, "mapped") :
-            el("button", { type: "button", dataset: { add: `${o.index}:${o.subindex}` },
-              onclick: () => addEntry(i, o, dirSel ? dirSel.value : o.directions[0]) }, "Add")));
-      }));
+      .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name), el("td", null, o.type),
+        el("td", null, o.access),
+        el("td", null, isMapped(i, o) ? el("span", { class: "muted" }, "mapped") :
+          el("button", { type: "button", dataset: { add: `${o.index}:${o.subindex}` }, "aria-label": `Add ${o.index}:${o.subindex} ${o.name || ""}`,
+            onclick: (e) => busy(e.currentTarget, "Adding…", () => addEntry(i, o, dir, target)) }, "Add")))));
   };
   filter.addEventListener("input", () => { S.objectFilter = filter.value; fill(); });
   fill();
-  fs.append(el("div", { class: "toolbar" }, filter, el("span", { class: "muted" }, "Only PDO-mappable objects are listed.")),
+  d.append(el("div", null,
+    el("div", { class: "toolbar" }, filter,
+      el("span", { class: "muted", dataset: { pickerTarget: dir } }, target !== null
+        ? `Adding to ${label} ${target}. ` : `${objects.length} ${dir}-direction object${objects.length === 1 ? "" : "s"} the EDS lets a ${label} carry. `),
+      target !== null ? el("button", { type: "button", class: "small", onclick: () => { S.pickerTarget = null; render(); } }, "Any PDO") : null),
     el("div", { class: "objects" }, el("table", null,
-      el("thead", null, el("tr", null, ["Object", "Name", "Type", "Access", "Direction", ""].map((h) => el("th", null, h)))), body)));
-  return fs;
+      el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Access", ""]))), body))));
+  return d;
 }
 
 // The directions an object can be added in: when every PDO of a direction
@@ -2396,11 +2639,12 @@ function renderSdos(i, eds) {
         el("span", { class: "field-msg", dataset: { for: sp } }), el("span", { class: "field-msg", dataset: { for: sp + ".type" } }),
         info && info.default ? el("span", { class: "muted" }, " EDS default " + info.default) : null),
       el("td", null, el("span", { class: "btn-group" },
-        el("button", { type: "button", title: "Up", disabled: j === 0, onclick: () => moveSdo(i, j, -1) }, "↑"),
-        el("button", { type: "button", title: "Down", disabled: j === list.length - 1, onclick: () => moveSdo(i, j, 1) }, "↓"),
-        el("button", { type: "button", title: "Remove", onclick: () => { list.splice(j, 1); changed(true); } }, "✕"))));
+        el("button", { type: "button", title: "Up", "aria-label": `Move ${s.index}:${s.subindex ?? 0} up`, disabled: j === 0, onclick: () => moveSdo(i, j, -1) }, "↑"),
+        el("button", { type: "button", title: "Down", "aria-label": `Move ${s.index}:${s.subindex ?? 0} down`, disabled: j === list.length - 1, onclick: () => moveSdo(i, j, 1) }, "↓"),
+        el("button", { type: "button", title: "Remove", "aria-label": `Remove the write of ${s.index}:${s.subindex ?? 0}`,
+          onclick: () => { list.splice(j, 1); changed(true); removedBanner(`the startup write of ${s.index}:${s.subindex ?? 0}`); } }, "✕"))));
   });
-  fs.append(el("table", null, el("thead", null, el("tr", null, ["Object", "Name", "Type", "Value", ""].map((h) => el("th", null, h)))),
+  fs.append(el("table", null, el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Value", ""]))),
     el("tbody", null, rows)));
   // Picker: settings from the EDS (or every writable object), or an index
   // typed by hand.
@@ -2441,8 +2685,17 @@ function renderSdos(i, eds) {
     byHand(idx, sub, el("button", { type: "button", onclick: () => addSdo(i, idx.value.trim(), sub.value.trim() || "0") }, "Add write"))),
   hidden,
   el("div", { class: "objects" }, el("table", null,
-    el("thead", null, el("tr", null, ["Object", "Name", "Type", "Access", "Default", ""].map((h) => el("th", null, h)))), body)));
-  return fs;
+    el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Access", "Default", ""]))), body)));
+  return collapsible("sdo", i, "Startup SDO writes", list.length, fs, summaryAdd("sdo", filter));
+}
+
+// The add action in a collapsed section's summary: opens it on the picker.
+function summaryAdd(key, filter) {
+  return el("button", { type: "button", class: "small", dataset: { sectionAdd: key }, onclick: (e) => {
+    e.preventDefault();
+    e.currentTarget.closest(".section-wrap").querySelector("details.section").open = true;
+    filter.focus();
+  } }, "Add…");
 }
 
 // An object picker's "or by hand" index, subindex and button, kept together.
@@ -2491,8 +2744,13 @@ function renderSdoVars(i, eds) {
         el("span", null, v.type || "?"),
         el("span", { class: "tag" }, read ? "read" : "write"),
         el("span", { class: "spacer" }),
-        el("button", { type: "button", title: "Remove",
-          onclick: () => { list.splice(j, 1); if (!list.length) delete n.sdo_variables; changed(true); } }, "✕")),
+        el("button", { type: "button", title: "Remove", "aria-label": `Remove the SDO variable ${v.name || `${v.index}:${v.subindex ?? 0}`}`,
+          onclick: () => {
+            list.splice(j, 1);
+            if (!list.length) delete n.sdo_variables;
+            changed(true);
+            removedBanner(`the SDO variable ${v.name || `${v.index}:${v.subindex ?? 0}`}`);
+          } }, "✕")),
       el("div", { class: "sdo-var-fields" },
         loc(vp, "Value", "iec_location", read ? "sdo_read" : "sdo_write", v.type, read ? "%I…" : "%Q…"),
         read ? numField(vp, "Period (ms)", "period_ms", "none") : el("label", { class: "num" }, "Period", el("span", { class: "muted" }, "on change")),
@@ -2532,8 +2790,8 @@ function renderSdoVars(i, eds) {
     el("button", { type: "button", onclick: () => addSdoVar(i, idx.value.trim(), sub.value.trim() || "0", S.varDirection) },
       "Add variable"))),
   el("div", { class: "objects" }, el("table", null,
-    el("thead", null, el("tr", null, ["Object", "Name", "Type", "Access", "", ""].map((h) => el("th", null, h)))), body)));
-  return fs;
+    el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Access", "Note", ""]))), body)));
+  return collapsible("sdo_variables", i, "SDO variables", list.length, fs, summaryAdd("sdo_variables", filter));
 }
 
 // Communication objects the plugin writes itself from the node's settings
@@ -2593,9 +2851,9 @@ function renderDeclarations(view) {
       try { await navigator.clipboard.writeText(block); banner("Copied the declarations block."); }
       catch (e) { ta.select(); document.execCommand("copy"); banner("Copied the declarations block."); }
     } }, "Copy block")),
-    cyclicInterval(),
+    cyclicInterval() || "",
     ta,
-    el("table", null, el("thead", null, el("tr", null, ["Name", "Location", "Type", "In the project"].map((h) => el("th", null, h)))),
+    el("table", null, el("thead", null, el("tr", null, thCells(["Name", "Location", "Type", "In the project"]))),
       el("tbody", null, decls.map((d) => el("tr", null, el("td", null, d.name), el("td", null, d.location), el("td", null, d.type),
         el("td", null, d.declared_as ? "declared as " + d.declared_as : "not yet"))))));
 }
@@ -2740,7 +2998,7 @@ async function upgradeToken() {
 async function enableOnline(on) {
   if (!on) {
     const v = await modal("Turn online access off? The runtime closes the diagnostics port after the next upload.",
-      [["off", "Turn off", true], ["cancel", "Cancel"]]);
+      [["cancel", "Keep it on"], ["off", "Turn off", { danger: true }]]);
     if (v !== "off") return render();
     delete S.model.diagnostics;
     return changed(true);
@@ -2758,7 +3016,7 @@ async function enableOnline(on) {
 
 async function newToken() {
   const v = await modal("Make a new access token? The old token stops working once this config is saved and uploaded.",
-    [["new", "New token", true], ["cancel", "Cancel"]]);
+    [["cancel", "Keep the token"], ["new", "New token", { danger: true }]]);
   if (v !== "new") return;
   const r = await api("POST", "/api/online/token", { action: "generate" });
   S.online = Object.assign(S.online, r);
@@ -3069,15 +3327,27 @@ async function pollOnline(seq) {
   } catch (e) { err = e; }
   if (seq !== S.onlineSeq || S.view !== "online") return;
   const conn = $("#online-conn");
+  conn.setAttribute("aria-live", "polite");
+  const live = $("#online-live");
   if (err) {
     const why = { closed: "port closed", unreachable: "host unreachable", token: "wrong token", timeout: "no answer",
       protocol: "not a CANopen diagnostics port", refused: "refused" }[err.body && err.body.kind] || "error";
     conn.className = "online-conn error";
-    conn.textContent = `Not connected (${why}): ${err.message}. Retrying…`;
+    // Values from before the failure stay, greyed, with their age.
+    const age = S.onlineLastAt ? Math.max(0, Math.round((Date.now() - S.onlineLastAt) / 1000)) : null;
+    const text = `Not connected (${why}): ${err.message}. Retrying…`;
+    delete conn.dataset.html;  // the next good poll rewrites the line
+    put(conn, text, age !== null && live.childElementCount ? el("div", { class: "online-note", dataset: { online: "stale-age" } }, `Last data ${age} s ago; the values below are not live.`) : null);
+    live.classList.toggle("stale", !!live.childElementCount);
+    clearTimeout(S.onlineAgeTimer);
+    if (age !== null) S.onlineAgeTimer = setTimeout(() => { if (seq === S.onlineSeq && S.view === "online") { const a = document.querySelector("[data-online=stale-age]"); if (a) a.textContent = `Last data ${age + 1} s ago; the values below are not live.`; } }, 1000);
     S.onlineTimer = setTimeout(() => pollOnline(seq), 2000);
     return;
   }
   S.onlineLast = r;
+  S.onlineLastAt = Date.now();
+  clearTimeout(S.onlineAgeTimer);
+  live.classList.remove("stale");
   runtimeNetworks(r);
   const st = r.status;
   NO_CHANGES = st.local ? ADAPTER_NO_CHANGES : RUNTIME_NO_CHANGES;
@@ -3089,15 +3359,19 @@ async function pollOnline(seq) {
     return;
   }
   const notes = [];
-  if (!st.session) notes.push(el("div", { class: "online-note error" }, `No CANopen session: the CAN interface ${st.bus.interface} is missing or down on the runtime.`));
+  const bus = st.bus || {};
+  if (!st.session) notes.push(el("div", { class: "online-note error" }, `No CANopen session: the CAN interface ${bus.interface || "of this network"} is missing or down on the runtime.`));
   if (r.config === "different") notes.push(el("div", { class: "online-note warning", dataset: { online: "fingerprint" } },
-    "The runtime runs a different configuration than the saved canopen.json (saved changes not uploaded yet, or another project)."));
+    "The runtime runs a different configuration than the saved canopen.json (saved changes not uploaded yet, or another project). " +
+    "Upload the saved config with the deploy tool (openplc-canopen deploy) or the editor's Build and upload with the CANopen hook."));
   if (S.dirty) notes.push(el("div", { class: "online-note" }, "This page has unsaved changes; the runtime runs what was uploaded."));
   if (st.simulation_forced) notes.push(el("div", { class: "online-note warning", dataset: { online: "forced" } },
     "This runtime simulates every network (the local simulator runtime): no CAN interface is used, whatever the adapter settings say."));
   conn.className = "online-conn ok";
-  conn.replaceChildren(`Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version}, CANopen session up ${Math.floor(st.uptime_s)} s, ` +
+  // The connection line is a live region: it is rewritten only when it changes.
+  const line = el("div", null, `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, CANopen session up ${Math.floor(st.uptime_s || 0)} s, ` +
     (r.hello.allow_changes ? "changes allowed." : "read-only."), ...notes);
+  if (conn.dataset.html !== line.innerHTML) { conn.dataset.html = line.innerHTML; conn.replaceChildren(...line.childNodes); }
   if (st.role === "slave") {
     slaveLive(r);
     S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
@@ -3113,8 +3387,8 @@ async function pollOnline(seq) {
     const em = n.emcy && n.emcy.count ? `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})` : "";
     const vars = (n.sdo_variables || []).map((v) => `${v.name} = ${v.raw}${v.status > 1 ? " (" + sdoStatus(v) + ")" : ""}`).join(", ");
     const stale = (n.pdo_timeouts || []).filter((t) => t.timed_out).map((t) => `TPDO ${t.tpdo} timed out (${t.count})`);
-    return el("tr", { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id },
-      onclick: () => { S.onlineNode = n.node_id; renderOnlineNode(); pollHighlight(); } },
+    return el("tr", rowAttrs(() => { S.onlineNode = n.node_id; renderOnlineNode(); pollHighlight(); },
+      { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id }, "aria-label": `Open node ${n.node_id}` }),
     el("td", null, String(n.node_id)), el("td", null, nodeName(n.node_id, n.name)),
     el("td", { class: "state-" + n.state }, stateName(n.state)),
     el("td", { dataset: { onlineStatus: n.node_id } }, n.status ? "TRUE" : "FALSE",
@@ -3124,14 +3398,14 @@ async function pollOnline(seq) {
   });
   $("#online-live").replaceChildren(
     el("table", { class: "online-bus" }, el("tbody", null,
-      el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, `${st.bus.interface}: ${BUS_STATES[st.bus.state] || st.bus.state}`),
-        el("th", null, "TX / RX errors"), el("td", null, `${st.bus.tx_errors ?? "-"} / ${st.bus.rx_errors ?? "-"}`),
-        el("th", null, "Bus-off"), el("td", null, String(st.bus.bus_off_count ?? "-")),
-        el("th", null, "Master"), el("td", null, `node ${st.master.node_id}, ${stateName(st.master.state)}`)),
+      el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, `${bus.interface || "?"}: ${BUS_STATES[bus.state] || bus.state || "?"}`),
+        el("th", null, "TX / RX errors"), el("td", null, `${bus.tx_errors ?? "-"} / ${bus.rx_errors ?? "-"}`),
+        el("th", null, "Bus-off"), el("td", null, String(bus.bus_off_count ?? "-")),
+        el("th", null, "Master"), el("td", null, `node ${(st.master || {}).node_id ?? "?"}, ${stateName((st.master || {}).state)}`)),
       st.sync ? el("tr", null, el("th", null, "SYNC"),
         el("td", { colspan: 7, dataset: { online: "sync" } }, syncText(st.sync))) : null)),
     el("table", { class: "online-nodes" },
-      el("thead", null, el("tr", null, ["Node", "Name", "State", "Status bit", "Boot", "Hold", "Last EMCY", "SDO variables"].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Node", "Name", "State", "Status bit", "Boot", "Hold", "Last EMCY", "SDO variables"]))),
       el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No nodes in the configuration the runtime runs."))])));
   const tbox = document.querySelector("[data-online='pdo-timeouts']");
   if (tbox) tbox.replaceChildren(pdoTimeoutTable((st.nodes || []).find((n) => n.node_id === S.onlineNode)));
@@ -3203,7 +3477,7 @@ function slavePdoTable(list, dir) {
       el("td", null, entries.length ? entries : el("span", { class: "muted" }, "nothing mapped")));
   });
   return el("fieldset", { dataset: { online: dir === "tx" ? "slave-tpdos" : "slave-rpdos" } }, el("legend", null, title),
-    el("table", null, el("thead", null, el("tr", null, ["PDO", "COB-ID", "Transmission", "Mapped objects"].map((h) => el("th", null, h)))),
+    el("table", null, el("thead", null, el("tr", null, thCells(["PDO", "COB-ID", "Transmission", "Mapped objects"]))),
       el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 4, class: "muted" },
         list ? "None in the dictionary." : "Not known while there is no CANopen session."))])));
 }
@@ -3268,15 +3542,15 @@ function localLive(r, conn) {
     (r.hello.allow_changes ? "changes allowed. " : "read-only. "), allowBtn, ...notes);
   const rows = (st.nodes || []).map((n) => {
     const em = n.emcy && n.emcy.count ? `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})` : "";
-    return el("tr", { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id },
-      onclick: () => { S.onlineNode = n.node_id; renderOnlineNode(); pollHighlight(); } },
+    return el("tr", rowAttrs(() => { S.onlineNode = n.node_id; renderOnlineNode(); pollHighlight(); },
+      { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id }, "aria-label": `Open node ${n.node_id}` }),
     el("td", null, String(n.node_id)), el("td", null, n.name || ""),
     el("td", { class: n.state === null ? "muted" : "state-" + n.state }, n.state === null ? "not heard" : stateName(n.state)),
     el("td", null, n.last_heard_s === null ? "-" : `${n.last_heard_s.toFixed(1)} s ago`), el("td", null, em));
   });
   $("#online-live").replaceChildren(
     el("table", { class: "online-nodes", dataset: { online: "local-nodes" } },
-      el("thead", null, el("tr", null, ["Node", "Name", "State", "Heard", "Last EMCY"].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Node", "Name", "State", "Heard", "Last EMCY"]))),
       el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 5, class: "muted" },
         "No node heard yet. Nodes without a heartbeat show up in a scan (Scan the bus)."))])));
 }
@@ -3380,7 +3654,7 @@ function showLssDevice(d) {
     el("option", { value: k }, `${x.name} (${x.where === "project" ? "project" : "library"}${x.revision_match ? ", exact revision" : ""})`)))
     : el("span", { class: "muted" }, "No matching EDS");
   box.replaceChildren(el("table", { class: "scan" },
-    el("thead", null, el("tr", null, ["Vendor", "Product", "Revision", "Serial number", "Node ID", "EDS", ""].map((h) => el("th", null, h)))),
+    el("thead", null, el("tr", null, thCells(["Vendor", "Product", "Revision", "Serial number", "Node ID", "EDS", ""]))),
     el("tbody", null, el("tr", { dataset: { lssDevice: d.serial_number } },
       el("td", null, hex8(d.vendor_id) + (vendorName ? " " + vendorName : "")), el("td", null, hex8(d.product_code)),
       el("td", null, hex8(d.revision_number)), el("td", null, `${d.serial_number} (${hex8(d.serial_number)})`),
@@ -3488,31 +3762,30 @@ async function renderOnlineNode() {
   S.onlineNodeAllow = S.onlineLast ? allow : undefined;
   let tab = S.onlineTab || "overview";
   if (slave && tab === "params") tab = "overview";
-  const tabs = el("div", { class: "tabs", role: "tablist" }, [["overview", "Overview"], ["od", "Object dictionary"], ["params", "Parameters"]]
-    .filter(([k]) => !slave || k !== "params").map(([k, label]) =>
-      el("button", { type: "button", role: "tab", class: "tab" + (k === tab ? " active" : ""), "aria-selected": String(k === tab), dataset: { onlineTab: k },
-        onclick: () => { S.onlineTab = k; renderOnlineNode(); } }, label)));
+  const tabList = tabs([["overview", "Overview"], ["od", "Object dictionary"], ["params", "Parameters"]].filter(([k]) => !slave || k !== "params"),
+    tab, (k) => { S.onlineTab = k; renderOnlineNode(); }, { dataset: "onlineTab", panel: "online-node-panel", label: "Node pages" });
   const title = el("h2", null, `Node ${id} ${n && n.name ? n.name : (S.onlineEdsName || {})[id] || ""}`);
+  const panel = (...kids) => el("div", { id: "online-node-panel", role: "tabpanel", "aria-labelledby": `online-node-panel-tab-${tab}` }, ...kids);
   // The object dictionary tab takes the problems pane's room, as the trace does.
   $("#editor").classList.toggle("wide-view", tab === "od");
-  if (tab === "od") { box.replaceChildren(title, tabs, odPanel(id, n, allow)); return; }
-  if (tab === "params") { box.replaceChildren(title, tabs, paramsPanel(id, n, allow)); return; }
-  if (slave) { box.replaceChildren(title, tabs, sdoPanel(id, n, allow)); return; }
+  if (tab === "od") { put(box, title, tabList, panel(odPanel(id, n, allow))); return; }
+  if (tab === "params") { put(box, title, tabList, panel(paramsPanel(id, n, allow))); return; }
+  if (slave) { put(box, title, tabList, panel(sdoPanel(id, n, allow))); return; }
   const emcy = el("div", { dataset: { online: "emcy" } }, el("span", { class: "muted" }, "Loading…"));
   const last = S.onlineLast && S.onlineLast.status ? (S.onlineLast.status.nodes || []).find((x) => x.node_id === id) : null;
   const timeouts = last && (last.pdo_timeouts || []).length
     ? el("fieldset", null, el("legend", null, "Input PDO timeouts"), el("div", { dataset: { online: "pdo-timeouts" } }, pdoTimeoutTable(last)))
     : null;
-  box.replaceChildren(title, tabs,
+  put(box, title, tabList, panel(
     el("fieldset", null, el("legend", null, "NMT"), nmtButtons(id, allow)),
     timeouts,
     sdoPanel(id, n, allow),
     el("fieldset", null, el("legend", null, "Emergency history (newest first)"), emcy,
-      el("button", { type: "button", onclick: () => renderOnlineNode() }, "Refresh")));
+      el("button", { type: "button", onclick: () => renderOnlineNode() }, "Refresh"))));
   try {
     const r = await api("POST", "/api/online/emcy", { node: id, port: diagPort() });
     emcy.replaceChildren(r.emcy.length ? el("table", null,
-      el("thead", null, el("tr", null, ["Time (UTC)", "Code", "Class", "Error register", "Manufacturer data"].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Time (UTC)", "Code", "Class", "Error register", "Manufacturer data"]))),
       el("tbody", null, r.emcy.map((e) => el("tr", null, el("td", null, e.time.replace("T", " ").replace("Z", "")),
         el("td", null, hex4(e.code)), el("td", null, e.class), el("td", null, "0x" + e.error_register.toString(16).toUpperCase().padStart(2, "0")),
         el("td", null, e.manufacturer))))) : el("p", { class: "muted" }, "No EMCY from this node since the CANopen session started."));
@@ -3527,7 +3800,7 @@ function pdoTimeoutTable(n) {
   const list = (n && n.pdo_timeouts) || [];
   if (!list.length) return el("p", { class: "muted" }, "No TPDO of this node has a receive timeout.");
   return el("table", null,
-    el("thead", null, el("tr", null, ["TPDO", "Timeout", "Now", "Timeouts", "Last PDO"].map((h) => el("th", null, h)))),
+    el("thead", null, el("tr", null, thCells(["TPDO", "Timeout", "Now", "Timeouts", "Last PDO"]))),
     el("tbody", null, list.map((t) => el("tr", { dataset: { pdoTimeoutRow: t.tpdo } },
       el("td", null, String(t.tpdo)), el("td", null, `${t.timeout_ms} ms`),
       el("td", { class: t.timed_out ? "bad" : null }, t.timed_out ? "timed out" : "receiving"),
@@ -3551,7 +3824,7 @@ function nmtButtons(id, allow) {
   return el("div", null, el("div", { class: "toolbar" },
     btn("start", "Start"),
     btn("stop", "Stop", `Stop node ${id}? Its PDOs stop and it stays STOPPED, also after a reboot, until you start it or the program changes its NMT command byte.`),
-    btn("preop", "Pre-operational"),
+    btn("preop", "Pre-operational", `Set node ${id} pre-operational? Its PDOs stop until it is started again, by you or by the program's NMT command byte.`),
     btn("reset", "Reset node", `Reset node ${id}? It reboots and the master configures it again.`),
     btn("reset-comm", "Reset communication", `Reset node ${id}'s communication? It comes back pre-operational and the master configures it again.`)),
   allow ? hint("Stop and pre-operational hold the node until you start it, or until the program changes the node's NMT command byte.")
@@ -3718,8 +3991,8 @@ function sameValue(a, b, type) {
 // Follows a job until it ends, with progress and Cancel in `status`.
 // onDone(job, resumed) gets the finished job (also a cancelled one).
 async function followJob(j, status, onDone, resumed) {
-  const text = el("span", { class: "muted", dataset: { online: "job-progress" } });
-  const bar = el("progress", { max: 1, value: 0 });
+  const text = el("span", { class: "muted", dataset: { online: "job-progress" }, "aria-live": "polite" });
+  const bar = el("progress", { max: 1, value: 0, "aria-label": JOB_NAMES[j.kind] || j.kind });
   const cancel = el("button", { type: "button", dataset: { online: "job-cancel" }, onclick: async () => {
     cancel.disabled = true;
     try { await api("POST", "/api/online/job", { id: j.id, cancel: true, port: diagPort() }); } catch (e) { /* shown by the next poll */ }
@@ -4108,7 +4381,7 @@ function odBuild(box, id, n, allow, data) {
     }
     const now = Date.now();
     put(watchBox, el("table", { class: "od watch" },
-      el("thead", null, el("tr", null, ["Entry", "Name", "Value", "Age", "Min", "Max", ""].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Entry", "Name", "Value", "Age", "Min", "Max", ""]))),
       el("tbody", null, st.watch.map((key) => {
         const e = byKey[key];
         const v = st.values[key];
@@ -4268,7 +4541,7 @@ function odBuild(box, id, n, allow, data) {
     const det = el("details", { dataset: { odGroup: g } }, el("summary", null, `${title} (${list.length} objects)`),
       el("div", { class: "table-scroll" }, el("table", { class: "od od-tree" },
         el("colgroup", null, ["c-entry", "c-name", "c-type", "c-value", "c-actions", "c-watch"].map((c) => el("col", { class: c }))),
-        el("thead", null, el("tr", null, ["Entry", "Name", "Type", "Value", "", "Watch"].map((h) => el("th", null, h)))),
+        el("thead", null, el("tr", null, thCells(["Entry", "Name", "Type", "Value", "", "Watch"]))),
         el("tbody", null, rows))));
     det.open = st.openGroups.includes(g);
     det.addEventListener("toggle", () => {
@@ -4532,7 +4805,7 @@ function paramsPanel(id, n, allow) {
       `${s.different} different, ${s["not readable"]} not readable, ${s.equal} equal, ${s["no reference"]} without a reference.`),
     r.stopped ? el("p", { class: "field-msg" }, "Stopped: " + r.stopped) : null,
     rows.length ? el("table", { class: "od compare-rows" },
-      el("thead", null, el("tr", null, ["Entry", "Name", "Result", r.reference === "file" ? "Backup" : r.reference === "config" ? "Configuration" : "EDS default", "Device"].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Entry", "Name", "Result", r.reference === "file" ? "Backup" : r.reference === "config" ? "Configuration" : "EDS default", "Device"]))),
       el("tbody", null, rows.map((x) => el("tr", { class: x.result === "different" ? "bad" : x.result === "equal" ? "muted" : null },
         el("td", { class: "mono" }, `${hex4(x.index)}:${x.subindex}`), el("td", null, x.name), el("td", null, x.result),
         el("td", null, x.reference ?? ""), el("td", null, x.device ?? (x.error || "")))))) : null);
@@ -4621,7 +4894,7 @@ async function restoreDialog(id, j, status, out) {
   const hold = el("input", { type: "checkbox", dataset: { online: "restore-hold" } });
   const other = el("input", { type: "checkbox", dataset: { online: "restore-other" } });
   const writes = p.writes.length ? el("table", { class: "od" },
-    el("thead", null, el("tr", null, ["Entry", "Name", "Backup", "Device now"].map((h) => el("th", null, h)))),
+    el("thead", null, el("tr", null, thCells(["Entry", "Name", "Backup", "Device now"]))),
     el("tbody", null, p.writes.map((w) => el("tr", null, el("td", { class: "mono" }, `${hex4(w.index)}:${w.subindex}`), el("td", null, w.name),
       el("td", null, w.backup), el("td", null, w.device ?? "not readable"))))) : el("p", { class: "muted" }, "Nothing to write: the device already has the backup's values.");
   const skipped = p.skipped.length ? el("details", null, el("summary", null, `${p.skipped.length} entries left out`),
@@ -4638,7 +4911,7 @@ async function restoreDialog(id, j, status, out) {
     p.allow_changes ? null : el("p", { class: "field-msg warning" }, NO_CHANGES));
   const can = p.writes.length && p.allow_changes;
   const go = modal(`Restore ${p.writes.length} value${p.writes.length === 1 ? "" : "s"} to node ${id}?`,
-    can ? [["restore", "Restore", true], ["cancel", "Cancel"]] : [["cancel", "Close"]], extra);
+    can ? [["cancel", "Cancel"], ["restore", "Restore", { danger: true }]] : [["cancel", "Close"]], extra);
   const btn = document.querySelector('#modal-buttons button[data-value="restore"]');
   if (btn && refuse.length) {
     btn.disabled = true;
@@ -4661,7 +4934,7 @@ function showRestore(r, out) {
 async function storeDialog(id, sub, what) {
   const v = await modal(`Store node ${id}'s current ${what || "values"} in its non-volatile memory (write "save" to 0x1010 sub ${sub})? ` +
     "The device then keeps these values over a power cycle. Each store wears the device's flash memory.",
-  [["store", "Store on device", true], ["cancel", "Cancel"]]);
+  [["cancel", "Cancel"], ["store", "Store on device", { danger: true }]]);
   if (v !== "store") return;
   try {
     const r = await api("POST", "/api/online/store", Object.assign(nodeSource(id), { subindex: sub }));
@@ -4692,7 +4965,7 @@ function renderScan(view) {
         "Pick a master network, or see this device in the Online view."));
     return;
   }
-  const progress = el("span", { class: "muted", dataset: { online: "scan-progress" } });
+  const progress = el("span", { class: "muted", dataset: { online: "scan-progress" }, "aria-live": "polite" });
   view.append(el("div", { class: "toolbar" }, netPicker(),
     el("button", { type: "button", class: "primary", dataset: { online: "scan" }, onclick: () => runScan(true) }, "Scan the bus"), progress),
   el("div", { id: "scan-result" }));
@@ -4850,7 +5123,7 @@ function showDetect(r) {
     el("td", { class: "mono" }, (x.ids || []).map((i) => "0x" + i.toString(16).toUpperCase()).join(" ") + ((x.ids || []).length >= 16 ? " …" : ""))));
   if (rows.length) {
     parts.push(el("table", { class: "scan", dataset: { online: "detect-table" } },
-      el("thead", null, el("tr", null, ["Bit rate", "Frames", "Error frames", "Identifiers"].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Bit rate", "Frames", "Error frames", "Identifiers"]))),
       el("tbody", null, rows)));
   }
   box.replaceChildren(...parts);
@@ -4874,7 +5147,8 @@ async function runScan(start) {
     return;
   }
   if (!r.nodes) { progress.textContent = "No scan has run on this runtime yet."; return; }
-  progress.textContent = `Scanned ${r.finished_at.replace("T", " ").replace(/\.\d+Z$/, " UTC")} in ${r.seconds.toFixed(1)} s. ${r.note.charAt(0).toUpperCase() + r.note.slice(1)}.`;
+  const note = r.note ? ` ${r.note.charAt(0).toUpperCase() + r.note.slice(1)}.` : "";
+  progress.textContent = `Scanned ${String(r.finished_at || "").replace("T", " ").replace(/\.\d+Z$/, " UTC")} in ${Number(r.seconds || 0).toFixed(1)} s.${note}`;
   S.scanResult = r;
   showScan(r);
 }
@@ -4898,7 +5172,7 @@ function showScan(r) {
       el("td", null, scanAction(d), useForNode(d))));
   }
   box.replaceChildren(el("table", { class: "scan" },
-    el("thead", null, el("tr", null, ["Node", "Vendor", "Product", "Revision", "Serial number", "Device name", "Match", ""].map((h) => el("th", null, h)))),
+    el("thead", null, el("tr", null, thCells(["Node", "Vendor", "Product", "Revision", "Serial number", "Device name", "Match", ""]))),
     el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No device answered."))])));
 }
 
@@ -4973,11 +5247,13 @@ async function addScannedNode(d, match, file, identity, lss) {
   }
   S.config.nodes = S.config.nodes || [];
   S.config.nodes.push(node);
-  banner(el("div", null, el("div", null, `Added node ${d.node_id} (${res.name}). Map its PDOs on the node's page, then save.`),
-    importReport(res)));
-  changed(false);
-  renderSide();
-  if (S.scanResult) showScan(S.scanResult);
+  // The new node's page opens, with a way back to the scan (its results stay).
+  S.view = "node:" + (S.config.nodes.length - 1);
+  S.focusName = S.config.nodes.length - 1;
+  banner(el("div", null, el("div", null, `Added node ${d.node_id} (${res.name}). Map its PDOs here, then save. `,
+    el("button", { type: "button", class: "link", dataset: { online: "back-to-scan" }, onclick: () => showView("scan") }, "Back to the scan")),
+  importReport(res)));
+  changed(true);
 }
 
 // "Use for node…": a scanned device with a serial number replaces the device
@@ -5027,7 +5303,7 @@ async function addNodeFromEds(file) {
   } catch (e) {
     if (e.status === 409 && e.body.conflict) {
       const v = await modal(e.message + ". Replace it, or keep both under a new name?",
-        [["replace", "Replace"], ["keep_both", "Keep both", true], ["cancel", "Cancel"]]);
+        [["cancel", "Cancel"], ["replace", "Replace", { danger: true }], ["keep_both", "Keep both", true]]);
       if (!v || v === "cancel") return;
       res = await api("POST", "/api/eds", { name: file.name, data, on_conflict: v, eds_lint: edsLint() });
     } else {
@@ -5044,15 +5320,17 @@ async function addNodeFromEds(file) {
   S.config.nodes = S.config.nodes || [];
   S.config.nodes.push({ node_id: id, name: stem, eds: res.name });
   S.view = "node:" + (S.config.nodes.length - 1);
+  S.focusName = S.config.nodes.length - 1;
   banner(importReport(res));
   changed(true);
 }
 
-async function addEntry(i, o, dir) {
+async function addEntry(i, o, dir, into) {
   const n = S.config.nodes[i];
   const key = dir === "input" ? "tx_pdos" : "rx_pdos";
-  // An object of a device mapping goes into that PDO.
-  const number = devicePdoFor(i, dir, o);
+  // An object of a device mapping goes into that PDO; else into the PDO
+  // whose "Add entry…" opened the picker.
+  const number = devicePdoFor(i, dir, o) ?? into ?? null;
   if (number !== null) {
     await addToPdo(i, dir, number, o);
     changed(true);
@@ -5069,9 +5347,10 @@ async function addEntry(i, o, dir) {
 
 function removeEntry(i, key, j, k) {
   const pdos = S.config.nodes[i][key];
-  pdos[j].entries.splice(k, 1);
+  const [e] = pdos[j].entries.splice(k, 1);
   if (!pdos[j].entries.length && j === pdos.length - 1) pdos.pop();
   changed(true);
+  removedBanner(`${e.index}:${e.subindex ?? 0} from ${key === "tx_pdos" ? "TPDO" : "RPDO"} ${pdos[j] ? pdos[j].number ?? j + 1 : j + 1}`);
 }
 
 function moveEntry(i, key, j, k, to) {
@@ -5085,12 +5364,13 @@ function moveEntry(i, key, j, k, to) {
 async function removeNode(i) {
   const n = S.config.nodes[i];
   const v = await modal(`Remove node ${n.node_id} ${n.name || ""}? Its EDS file stays in the folder.`,
-    [["remove", "Remove", true], ["cancel", "Cancel"]]);
+    [["cancel", "Keep the node"], ["remove", "Remove node", { danger: true }]]);
   if (v !== "remove") return;
   S.config.nodes.splice(i, 1);
   S.supervision = {};
   S.view = "bus";
   changed(true);
+  removedBanner(`node ${n.node_id} ${n.name || ""}`.trim());
 }
 
 async function addSdo(i, index, subindex) {
@@ -5197,9 +5477,7 @@ async function exportDcf(nodeId, network) {
     if (network) body.network = network;
     const r = await api("POST", "/api/export_dcf", body);
     if (r.errors) {
-      const prev = (S.check && S.check.items) || [];
-      normCheck(r, fileVersion(cfg));
-      S.check = Object.assign({}, S.check || {}, { items: r.items.concat(prev) });
+      S.check = exportProblems(r, cfg);
       applyCheck();
       banner(`DCF export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"} (see Problems). Nothing was downloaded.`, true);
       return;
@@ -5224,12 +5502,7 @@ async function exportHtml() {
   try {
     const cfg = fileConfig();
     const r = await api("POST", "/api/export_html", { config: cfg });
-    normCheck(r, fileVersion(cfg));
-    if (r.items.length) {
-      const prev = (S.check && S.check.items) || [];
-      S.check = Object.assign({}, S.check || {}, { items: r.items.concat(prev) });
-      applyCheck();
-    }
+    exportCheck(r, cfg);
     if (r.errors) {
       banner(`Documentation export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"} (see Problems). Nothing was downloaded.`, true);
       return;
@@ -5256,12 +5529,7 @@ async function exportDbc() {
     const body = { config: cfg, sdo: $("#dbc-sdo").value };
     if (several()) body.network = netName(S.config);
     const r = await api("POST", "/api/export_dbc", body);
-    normCheck(r, fileVersion(cfg));
-    if (r.items.length) {
-      const prev = (S.check && S.check.items) || [];
-      S.check = Object.assign({}, S.check || {}, { items: r.items.concat(prev) });
-      applyCheck();
-    }
+    exportCheck(r, cfg);
     if (r.errors) {
       banner(`DBC export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"} (see Problems). Nothing was downloaded.`, true);
       return;
@@ -5276,6 +5544,38 @@ async function exportDbc() {
     banner(`Exported ${r.name}${r.items.length ? ` with ${r.items.length} warning${r.items.length === 1 ? "" : "s"} (see Problems)` : ""}.`);
   } catch (e) {
     banner(e.message, true);
+  }
+}
+
+// An export's check result replaces the Problems pane (it includes the
+// config check), so the count stays the number of distinct problems; the
+// next edit-time check restores the usual list.
+// An export's check in the Problems pane: the config check's items stay as
+// they are (the export repeats them, without the warnings) and the export's
+// own findings join them, so the count does not jump; the previous check's
+// declarations stay too, so the declarations page and the "declared as"
+// hints do not go blank.
+function exportProblems(r, cfg) {
+  const fresh = normCheck(r, fileVersion(cfg));
+  const prev = S.check || {};
+  const key = (it) => readable(it.message) + "|" + JSON.stringify(it.paths || []);
+  if (prev.items) {
+    const seen = new Set(prev.items.map(key));
+    fresh.items = prev.items.concat((fresh.items || []).filter((it) => !seen.has(key(it))));
+    fresh.errors = fresh.items.filter((it) => it.level === "error").length;
+  }
+  for (const k of ["declared", "declarations", "block"]) if (fresh[k] === undefined && prev[k] !== undefined) fresh[k] = prev[k];
+  return fresh;
+}
+
+function exportCheck(r, cfg) {
+  const prevErrors = S.check ? S.check.errors : 0;
+  const items = r.items || [];
+  if (items.length || r.errors) {
+    S.check = exportProblems(r, cfg);
+    applyCheck();
+  } else if (prevErrors) {
+    scheduleCheck();
   }
 }
 
@@ -5296,22 +5596,19 @@ function applyCheck() {
     x.textContent = name ? ` declared as ${name}` : "";
   }
   const list = $("#problem-list");
+  const focused = document.activeElement && document.activeElement.closest("#problem-list li");
+  const focusedAt = focused ? [...list.children].indexOf(focused) : -1;
   list.replaceChildren();
-  const counts = {};
   const items = (S.check && S.check.items) || [];
-  const netErrors = {};
   for (const it of items) {
     const where = it.where || (it.paths || []).map((p) => ({ net: S.net, path: p }));
-    const li = el("li", { class: it.level, title: it.message }, problemText(it, where[0]));
-    li.addEventListener("click", () => focusPath(where[0]));
+    const li = el("li", { class: it.level }, el("button", { type: "button", title: it.message,
+      onclick: () => focusPath(where[0]) }, problemText(it, where[0])));
     list.append(li);
-    if (it.level === "error") for (const k of new Set(where.map((w) => w.net))) if (k !== null) netErrors[k] = (netErrors[k] || 0) + 1;
     for (const w of where) {
       // Fields of another network's tab are not on the page.
       if (w.net !== null && w.net !== S.net) continue;
       const p = w.path;
-      const m = /^nodes\[(\d+)\]/.exec(p);
-      if (m && it.level === "error") counts[m[1]] = (counts[m[1]] || 0) + 1;
       const input = document.querySelector(`[data-path="${CSS.escape(p)}"]`);
       if (input && (input.tagName === "INPUT" || input.tagName === "SELECT")) input.classList.add(it.level === "error" ? "invalid" : "warned");
       const msg = document.querySelector(`.field-msg[data-for="${CSS.escape(p)}"]`);
@@ -5322,22 +5619,46 @@ function applyCheck() {
     }
   }
   if (!items.length && S.check) list.append(el("li", { class: "ok" }, "No problems."));
-  const n = items.length;
-  $("#problem-count").textContent = S.check ? (n ? `${n} problem${n === 1 ? "" : "s"}` : "none") : "";
+  if (focusedAt >= 0) { const b = list.children[Math.min(focusedAt, list.children.length - 1)]; if (b && b.firstChild && b.firstChild.focus) b.firstChild.focus(); }
   // The overlap override goes with the overlap errors, and stays while ticked.
   const overlaps = items.some((it) => it.overlap || it.overlap_allowed);
   $("#overlap-box").hidden = !(S.state && S.state.mode === "project" && (overlaps || $("#allow-overlap").checked));
-  for (const li of document.querySelectorAll("#node-list li[data-node]")) {
-    const c = counts[li.dataset.node];
-    const span = li.querySelector(".count");
-    if (span) span.textContent = c ? `${c} error${c === 1 ? "" : "s"}` : "";
+  fillCounts(countProblems());
+  updateSave();
+}
+
+// The problem counts from the last check, in one place: all, errors, per
+// node of the open network and errors per network.
+function countProblems() {
+  const items = (S.check && S.check.items) || [];
+  const counts = {};
+  const netErrors = {};
+  let errors = 0;
+  for (const it of items) {
+    if (it.level === "error") errors++;
+    const where = it.where || (it.paths || []).map((p) => ({ net: S.net, path: p }));
+    if (it.level === "error") for (const k of new Set(where.map((w) => w.net))) if (k !== null) netErrors[k] = (netErrors[k] || 0) + 1;
+    for (const w of where) {
+      if (w.net !== null && w.net !== S.net) continue;
+      const m = /^nodes\[(\d+)\]/.exec(w.path);
+      if (m && it.level === "error") counts[m[1]] = (counts[m[1]] || 0) + 1;
+    }
+  }
+  return { n: items.length, errors, counts, netErrors, checked: !!S.check };
+}
+
+function fillCounts(c) {
+  $("#problem-count").textContent = c.checked ? (c.n ? `${c.n} problem${c.n === 1 ? "" : "s"}` : "none") : "";
+  for (const b of document.querySelectorAll("#node-list [data-node]")) {
+    const k = c.counts[b.dataset.node];
+    const span = b.querySelector(".count");
+    if (span) span.textContent = k ? `${k} error${k === 1 ? "" : "s"}` : "";
   }
   for (const tab of document.querySelectorAll("#net-bar [data-net]")) {
-    const c = netErrors[tab.dataset.net];
+    const k = c.netErrors[tab.dataset.net];
     const span = tab.querySelector(".count");
-    if (span) span.textContent = c ? String(c) : "";
+    if (span) span.textContent = k ? String(k) : "";
   }
-  updateSave();
 }
 
 // A check message without the parts meant for the command line: the file
@@ -5351,10 +5672,35 @@ function readable(m) {
   return t;
 }
 
+// A check message from somewhere else on the page (a trace or Frame lab
+// note, a dialog) in the Problems pane's words: the config path it starts
+// with ("nodes[2]: tx_pdos[1]: entries[0]: ") becomes the place, and a
+// "decoding without …:" lead stays in front.
+function humanise(m) {
+  if (typeof m !== "string") return m;
+  const lead = /^(decoding without the config's (?:PDOs|nodes)|the configuration cannot be read for names and PDO mappings): ([\s\S]*)$/.exec(m);
+  const head = lead ? lead[1].charAt(0).toUpperCase() + lead[1].slice(1) + ": " : "";
+  let rest = lead ? lead[2] : m;
+  if (/field 'nodes' lists no slave nodes/.test(rest)) return head + NO_NODES_TEXT;
+  rest = rest.replace(/^[^:\s]*canopen\.json: /, "");
+  const segs = [];
+  let mm;
+  while ((mm = /^([a-z_]+(?:\[\d+\])?): /.exec(rest))) { segs.push(mm[1]); rest = rest.slice(mm[0].length); }
+  const path = segs.join(".");
+  const place = path && S.model ? placeOf({ net: S.net, path }) : [];
+  let text = readable(rest);
+  const obj = /^(0x[0-9A-Fa-f]+:\d+): /.exec(text);
+  if (obj && place.length && place[place.length - 1] === obj[1]) text = text.slice(obj[0].length);
+  return head + (place.length ? `${place.join(", ")}: ${text}` : text);
+}
+
 // "Node 5 rtd, TPDO 2, 0x6150:1: type UNSIGNED8 ...", with the network first
 // when the draft has several.
+const NO_NODES_TEXT = "No nodes yet. Add a node from its EDS, or turn on Online access for a scan-only configuration.";
+
 function problemText(it, w) {
   const where = placeOf(w);
+  if (/field 'nodes' lists no slave nodes/.test(it.message)) return where.length ? `${where.join(", ")}: ${NO_NODES_TEXT}` : NO_NODES_TEXT;
   let text = readable(it.message);
   if (!where.length) return text;
   const obj = /^(0x[0-9A-Fa-f]+:\d+): /.exec(text);
@@ -5415,16 +5761,26 @@ function focusPath(w) {
     : (path.startsWith("adapter") || path.startsWith("master") || path.startsWith("slave") || path === "role" ? "bus" : S.view);
   if (want !== S.view) showView(want);
   const target = document.querySelector(`[data-path="${CSS.escape(path)}"]`);
-  if (target) { target.scrollIntoView({ block: "center" }); if (target.focus) target.focus(); }
+  if (!target) return;
+  // A folded section opens for its field.
+  for (let d = target.closest("details"); d; d = d.parentElement && d.parentElement.closest("details")) d.open = true;
+  target.scrollIntoView({ block: "center" });
+  // A field takes the focus; a block (an SDO variable, a PDO) hands it to its first field.
+  const field = target.matches("input, select, textarea, button") ? target : target.querySelector("input:not([type=hidden]), select, textarea, button");
+  (field || target).focus();
 }
 
+// The Save button: "Saved" and disabled when the draft equals the file,
+// "Save" when it is dirty, disabled with the error count in its tooltip
+// when the draft has errors (the count itself is in the Problems pane).
 function updateSave() {
   const btn = $("#btn-save");
+  if (btn.dataset.busy) return;
   const errors = S.check ? S.check.errors : 0;
-  btn.disabled = errors > 0;
   const allowed = !$("#overlap-box").hidden && $("#allow-overlap").checked;
-  btn.textContent = errors ? `Save (${errors} error${errors === 1 ? "" : "s"})`
-    : allowed && S.dirty ? "Save (overlaps allowed)" : (S.dirty ? "Save" : "Saved");
+  btn.disabled = errors > 0 || !S.dirty;
+  btn.title = errors ? `${errors} error${errors === 1 ? "" : "s"} in Problems` : S.dirty ? "" : "No unsaved changes";
+  btn.textContent = allowed && S.dirty ? "Save (overlaps allowed)" : (S.dirty ? "Save" : "Saved");
 }
 
 async function save(overwrite) {
@@ -5442,11 +5798,11 @@ async function save(overwrite) {
   } catch (e) {
     if (e.status === 409 && e.body.changed_on_disk) {
       const v = await modal("canopen.json changed on disk after it was loaded here (edited elsewhere?).",
-        [["reload", "Reload from disk"], ["overwrite", "Overwrite it"], ["cancel", "Cancel", true]]);
+        [["cancel", "Cancel"], ["reload", "Reload from disk"], ["overwrite", "Overwrite it", { danger: true }]]);
       if (v === "overwrite") return save(true);
       if (v === "reload") return reload(true);
     } else if (e.status === 422 && e.body.check) {
-      S.check = normCheck(e.body.check, fileVersion(cfg));
+      S.check = exportProblems(e.body.check, cfg);
       applyCheck();
       banner(e.message, true);
     } else {
@@ -5455,9 +5811,15 @@ async function save(overwrite) {
   }
 }
 
+// Whether anything on the page would be lost: draft edits, the simulation
+// file, or a recording that was neither saved nor downloaded.
+function unsavedWork() {
+  return S.dirty || (typeof simDirty === "function" && simDirty()) || (typeof traceUnsaved === "function" && traceUnsaved());
+}
+
 async function reload(force) {
-  if ((S.dirty || simDirty()) && !force) {
-    const v = await modal("Discard the unsaved changes and reload from disk?", [["reload", "Reload", true], ["cancel", "Cancel"]]);
+  if (unsavedWork() && !force) {
+    const v = await modal("Discard the unsaved changes and reload from disk?", [["cancel", "Keep editing"], ["reload", "Discard and reload", { danger: true }]]);
     if (v !== "reload") return;
   }
   await api("POST", "/api/reload");
@@ -5465,8 +5827,11 @@ async function reload(force) {
 }
 
 async function closeFolder() {
-  if (S.dirty || simDirty()) {
-    const v = await modal("Close without saving?", [["close", "Close", true], ["cancel", "Cancel"]]);
+  if (unsavedWork()) {
+    const what = typeof traceUnsaved === "function" && traceUnsaved() && !S.dirty && !simDirty()
+      ? "Close? The recording was neither saved to the traces folder nor downloaded, and is lost."
+      : "Close without saving? The unsaved changes are lost.";
+    const v = await modal(what, [["cancel", "Cancel"], ["close", "Close without saving", { danger: true }]]);
     if (v !== "close") return;
   }
   stopOnline(false);
@@ -5489,7 +5854,7 @@ async function moveIntoProject() {
     r = await api("POST", "/api/move", { project });
   } catch (e) {
     if (e.status === 409 && e.body.exists) {
-      const w = await modal(`${project} already has a canopen folder. Replace it?`, [["replace", "Replace", true], ["cancel", "Cancel"]]);
+      const w = await modal(`${project} already has a canopen folder. Replace it?`, [["cancel", "Cancel"], ["replace", "Replace", { danger: true }]]);
       if (w !== "replace") return;
       try { r = await api("POST", "/api/move", { project, replace: true }); } catch (e2) { banner(e2.message, true); return; }
     } else { banner(e.message, true); return; }
@@ -5591,27 +5956,61 @@ function wire() {
   $("#browser-go").onclick = () => browse($("#browser-path").value.trim());
   $("#browser-path").addEventListener("keydown", (e) => { if (e.key === "Enter") browse($("#browser-path").value.trim()); });
   $("#browser-open").onclick = startOpen;
-  $("#btn-save").onclick = () => save(false);
-  $("#btn-export-all").onclick = () => exportDcf();
-  $("#btn-export-dbc").onclick = exportDbc;
-  $("#btn-export-html").onclick = exportHtml;
+  // busy() restores the caption it found ("Save"); the button's real state follows the save.
+  $("#btn-save").onclick = () => busy($("#btn-save"), "Saving…", () => save(false)).then(updateSave);
+  const exporting = (id, fn) => { $(id).onclick = () => busy($(id), "Exporting…", fn); };
+  exporting("#btn-export-all", () => exportDcf());
+  exporting("#btn-export-node", () => {
+    const n = S.view.startsWith("node:") ? S.config.nodes[Number(S.view.slice(5))] : null;
+    return n ? exportDcf(n.node_id, tabNetwork()) : undefined;
+  });
+  exporting("#btn-export-dbc", exportDbc);
+  exporting("#btn-export-html", exportHtml);
   wireDbc();
+  wireMenus();
   $("#btn-reload").onclick = () => reload(false);
   $("#btn-close").onclick = closeFolder;
-  $("#btn-move").onclick = moveIntoProject;
-  $("#btn-new-project").onclick = newEditorProject;
+  $("#btn-move").onclick = () => busy($("#btn-move"), "Moving…", moveIntoProject);
+  $("#btn-new-project").onclick = () => busy($("#btn-new-project"), "Creating…", newEditorProject);
   $("#allow-overlap").onchange = runCheck;
   $("#eds-input").addEventListener("change", (e) => {
     const f = e.target.files[0];
     e.target.value = "";
-    if (f) addNodeFromEds(f);
+    if (f) busy($("#eds-input").closest("label"), "Adding…", () => addNodeFromEds(f));
   });
-  for (const b of document.querySelectorAll(".nav-item")) b.onclick = () => showView(b.dataset.view);
+  for (const b of document.querySelectorAll("#side .nav-item")) b.onclick = () => showView(b.dataset.view);
   $("#banner-close").onclick = () => banner("");
+  $("#modal").addEventListener("cancel", () => { const r = modalResolve; modalResolve = null; if (r) r(null); });
+  document.addEventListener("keydown", undoKeys);
   wireTheme();
   wireProblems();
   window.addEventListener("beforeunload", (e) => {
-    if (S.dirty || (typeof simDirty === "function" && simDirty())) { e.preventDefault(); e.returnValue = ""; }
+    if (unsavedWork()) { e.preventDefault(); e.returnValue = ""; }
+  });
+}
+
+// The header's Project and Export menus: native details elements, one
+// open at a time, closed by Escape, a pick or a click elsewhere, the
+// arrow keys moving between the items.
+function wireMenus() {
+  const menus = [...document.querySelectorAll("details.menu")];
+  const close = (m) => { m.open = false; };
+  for (const m of menus) {
+    m.addEventListener("toggle", () => {
+      m.querySelector("summary").setAttribute("aria-expanded", String(m.open));
+      if (m.open) for (const o of menus) if (o !== m) close(o);
+    });
+    m.addEventListener("keydown", (e) => {
+      const items = [...m.querySelectorAll(".item")].filter((b) => !b.disabled && b.offsetParent !== null);
+      const k = items.indexOf(document.activeElement);
+      if (e.key === "Escape") { e.preventDefault(); close(m); m.querySelector("summary").focus(); }
+      else if (e.key === "ArrowDown" || (e.key === "ArrowUp" && k < 0)) { e.preventDefault(); if (!m.open) m.open = true; (items[k + 1] || items[0]).focus(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); (items[k - 1] || items[items.length - 1]).focus(); }
+    });
+    for (const b of m.querySelectorAll(".item")) b.addEventListener("click", () => close(m));
+  }
+  document.addEventListener("click", (e) => {
+    for (const m of menus) if (m.open && !m.contains(e.target)) close(m);
   });
 }
 
