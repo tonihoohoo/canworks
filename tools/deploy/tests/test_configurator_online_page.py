@@ -305,6 +305,10 @@ class OnlinePage(OnlineBase):
             self.assertIn("Pick EDS file", pg.inner_text('tr[data-scan-node="41"]'))
             pg.check('tr[data-scan-node="40"] input[type="checkbox"]')
             pg.click('tr[data-scan-node="40"] button[data-online="add-node"]')
+            # The new node's page opens with its name focused; the message leads back to the scan.
+            pg.wait_for_selector('#view h2:has-text("Node 40")')
+            self.assertEqual(pg.evaluate("() => document.activeElement.dataset.path"), "nodes[1].name")
+            pg.click('[data-online="back-to-scan"]')
             pg.wait_for_selector('tr[data-scan-node="40"]:has-text("added")')
             self.assertFalse(os.path.exists(os.path.join(self.project, "canopen", "rtd.eds")))
             self.assertEqual(len(load(self.config_path)["nodes"]), 1)

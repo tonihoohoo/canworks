@@ -17,16 +17,27 @@
     <button type="button" data-theme-choice="light">Light</button><button type="button" data-theme-choice="dark">Dark</button><button type="button" data-theme-choice="auto">Auto</button>
   </div>
   <div id="actions" hidden>
-    <button id="btn-move" type="button" hidden>Move into project…</button>
-    <button id="btn-new-project" type="button" hidden title="Create an OpenPLC Editor project with this config and its I/O declared in the program main">New editor project…</button>
-    <button id="btn-reload" type="button">Reload from disk</button>
+    <button id="btn-reload" type="button" data-config="1">Reload from disk</button>
     <button id="btn-close" type="button">Close</button>
-    <button id="btn-export-all" type="button" title="Every node as a CiA 306 DCF file, checked, in one zip">Export all DCFs</button>
-    <span id="dbc-export" class="joined"><select id="dbc-sdo" aria-label="SDO frames in the DBC file" title="SDO frames in the DBC file">
-      <option value="none">No SDO frames</option><option value="config">SDO: configured objects</option><option value="all">SDO: all EDS objects</option>
-    </select><button id="btn-export-dbc" type="button" title="The network as a DBC file for CAN bus tools (PDOs, heartbeat, EMCY, NMT, SYNC)">Export DBC</button></span>
-    <button id="btn-export-html" type="button" title="One HTML document of every network for people: topology, COB-ID map, bus load, nodes, PDO layouts, boot SDO writes and PLC I/O">Export documentation</button>
-    <button id="btn-save" type="button" class="primary">Save</button>
+    <details id="menu-project" class="menu" hidden>
+      <summary aria-haspopup="menu">Project</summary>
+      <div role="menu" aria-label="Project">
+        <button id="btn-move" type="button" class="item" role="menuitem">Move into project…</button>
+        <button id="btn-new-project" type="button" class="item" role="menuitem" title="Create an OpenPLC Editor project with this config and its I/O declared in the program main">New editor project…</button>
+      </div>
+    </details>
+    <details id="menu-export" class="menu" data-config="1">
+      <summary aria-haspopup="true">Export</summary>
+      <div class="menu-panel" role="group" aria-label="Export">
+        <button id="btn-export-all" type="button" class="item" title="Every node as a CiA 306 DCF file, checked, in one zip">All DCFs</button>
+        <button id="btn-export-node" type="button" class="item" title="The open node as a CiA 306 DCF file, checked">This node's DCF</button>
+        <div class="menu-row"><select id="dbc-sdo" aria-label="SDO frames in the DBC file" title="SDO frames in the DBC file">
+          <option value="none">No SDO frames</option><option value="config">SDO: configured objects</option><option value="all">SDO: all EDS objects</option>
+        </select><button id="btn-export-dbc" type="button" class="item" title="The network as a DBC file for CAN bus tools (PDOs, heartbeat, EMCY, NMT, SYNC)">DBC</button></div>
+        <button id="btn-export-html" type="button" class="item" title="One HTML document of every network for people: topology, COB-ID map, bus load, nodes, PDO layouts, boot SDO writes and PLC I/O">Documentation</button>
+      </div>
+    </details>
+    <button id="btn-save" type="button" class="primary" data-config="1">Save</button>
   </div>
 </header>
 <div id="sim-banner" role="note" hidden></div>
@@ -41,7 +52,7 @@
   <section class="browser">
     <h2 id="browser-title">Choose a folder</h2>
     <div class="row">
-      <button id="browser-up" type="button" title="Parent folder">↑</button>
+      <button id="browser-up" type="button" title="Parent folder" aria-label="Parent folder">↑</button>
       <input id="browser-path" type="text" spellcheck="false" aria-label="Folder path">
       <button id="browser-go" type="button">Go</button>
       <button id="browser-open" type="button" class="primary">Open this folder</button>
@@ -54,30 +65,30 @@
   </section>
 </main>
 <main id="editor" hidden>
-  <nav id="side">
-    <div id="net-bar"></div>
-    <button type="button" data-view="bus" class="nav-item">Bus and master</button>
-    <h3>Nodes</h3>
-    <ul id="node-list"></ul>
-    <label class="file-button">Add node from EDS… <input id="eds-input" type="file" accept=".eds,.EDS"></label>
+  <nav id="side" aria-label="Pages">
+    <div id="net-bar" data-config="1"></div>
+    <button type="button" data-view="bus" class="nav-item" data-config="1">Bus and master</button>
+    <h2 class="side-caption" data-config="1">Nodes</h2>
+    <ul id="node-list" data-config="1"></ul>
+    <label class="file-button" data-config="1">Add node from EDS… <input id="eds-input" type="file" accept=".eds,.EDS"></label>
     <button id="nav-gateway" type="button" data-view="gateway" class="nav-item" hidden>Gateway</button>
-    <button type="button" data-view="declarations" class="nav-item">Variable declarations</button>
-    <h3>Runtime</h3>
+    <button type="button" data-view="declarations" class="nav-item" data-config="1">Variable declarations</button>
+    <h2 class="side-caption">Runtime</h2>
     <button type="button" data-view="online" class="nav-item">Online</button>
     <button type="button" data-view="scan" class="nav-item">Scan the bus</button>
     <button type="button" data-view="trace" class="nav-item">Trace</button>
-    <button type="button" data-view="simulation" class="nav-item">Simulation</button>
+    <button type="button" data-view="simulation" class="nav-item" data-config="1">Simulation</button>
     <button type="button" data-view="framelab" class="nav-item">Frame lab</button>
-    <div id="unused-eds"></div>
-    <p id="scan-info" class="muted"></p>
+    <div id="unused-eds" data-config="1"></div>
+    <p id="scan-info" class="muted" data-config="1"></p>
   </nav>
-  <section id="view"></section>
-  <aside id="problems"><details id="problems-box" open>
-    <summary><h3>Problems</h3> <span id="problem-count" class="muted"></span></summary>
+  <section id="view" aria-label="Page"></section>
+  <section id="problems" aria-label="Problems"><details id="problems-box" open>
+    <summary><h2 class="side-caption">Problems</h2> <span id="problem-count" class="muted" aria-live="polite"></span></summary>
     <div id="overlap-box" hidden><label class="check" title="Save even if a CANopen location overlaps one the editor project uses"><input id="allow-overlap" type="checkbox"> Allow overlap</label>
       <span class="hint">Save even though these locations overlap the editor project, like the deploy tool's --allow-clash.</span></div>
     <ul id="problem-list"></ul>
-  </details></aside>
+  </details></section>
 </main>
 <dialog id="modal"><form method="dialog"><p id="modal-text"></p><div id="modal-extra"></div><menu id="modal-buttons"></menu></form></dialog>
 <script src="uplot/uPlot.iife.min.js"></script>

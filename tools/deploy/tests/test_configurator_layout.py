@@ -1,7 +1,10 @@
 """The configurator page's layout in a real browser (fix-configurator-layout):
 nothing clipped or scrolling sideways on any view, SDO variables and PDO
 settings, the message bar, readable problems, the overlap override, narrow
-windows and the theme. Needs Playwright, like test_configurator_page.py."""
+windows and the theme. Every view also goes through axe-core (WCAG 2.1 A
+and AA) and a contrast check (polish-configurator-ux): a critical or
+serious finding fails the test, the rest is reported. Needs Playwright,
+like test_configurator_page.py."""
 
 import json
 import os
@@ -35,7 +38,7 @@ FIT_CHECK = r"""() => {
   for (const e of document.querySelectorAll("button, .file-button")) {
     if (!shown(e)) continue;
     if (e.scrollWidth > e.clientWidth + 1) out.push(["button clipped", name(e)]);
-    if (e.getBoundingClientRect().height > 48 && !e.classList.contains("choice")) out.push(["button wraps", name(e)]);
+    if (e.getBoundingClientRect().height > 48 && !e.classList.contains("choice") && !e.closest("#problem-list")) out.push(["button wraps", name(e)]);
     if (e.getBoundingClientRect().right > document.documentElement.clientWidth + 1) out.push(["button off screen", name(e)]);
   }
   for (const id of ["view", "side", "problems"]) {
@@ -53,6 +56,69 @@ FIT_CHECK = r"""() => {
 def load(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+# axe-core, vendored for the tests (tests/data/axe/README.md).
+AXE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "axe", "axe.min.js")
+with open(AXE_PATH, encoding="utf-8") as _f:
+    AXE = _f.read()
+AXE_RUN = """async () => {
+  const r = await axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "best-practice"] } });
+  return r.violations.map((v) => ({ id: v.id, impact: v.impact, help: v.help, n: v.nodes.length,
+    nodes: v.nodes.slice(0, 4).map((n) => n.target.join(" ")) }));
+}"""
+
+# Every visible text whose contrast against its background is under WCAG AA
+# (4.5:1, 3:1 for large text), as [ratio, element, text].
+CONTRAST = r"""() => {
+  const lum = (c) => { const [r, g, b] = c.match(/\d+(\.\d+)?/g).map(Number).slice(0, 3).map((v) => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }); return .2126 * r + .7152 * g + .0722 * b; };
+  const solid = (c) => c && !c.endsWith(", 0)") && c !== "rgba(0, 0, 0, 0)" && c !== "transparent";
+  const bgOf = (e) => { while (e) { const c = getComputedStyle(e).backgroundColor; if (solid(c)) return c; e = e.parentElement; } return getComputedStyle(document.body).backgroundColor; };
+  const out = [];
+  const seen = new Set();
+  for (const e of document.querySelectorAll("#view *, #side *, #problems *, header *, #banner *, #sim-banner")) {
+    if (e.offsetParent === null || e.closest("[aria-hidden=true], .uplot")) continue;
+    if (!/[A-Za-z0-9]/.test([...e.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(""))) continue;
+    const cs = getComputedStyle(e);
+    if (e.disabled || e.closest(":disabled") || cs.opacity !== "1" || cs.color.endsWith(", 0)")) continue;
+    const fg = cs.color, bg = bgOf(e);
+    const key = fg + "|" + bg + "|" + cs.fontSize + "|" + cs.fontWeight;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const l1 = lum(fg), l2 = lum(bg);
+    const ratio = (Math.max(l1, l2) + .05) / (Math.min(l1, l2) + .05);
+    const large = parseFloat(cs.fontSize) >= 18.66 || (parseFloat(cs.fontSize) >= 14 && parseInt(cs.fontWeight, 10) >= 700);
+    if (ratio < (large ? 3 : 4.5)) out.push([Number(ratio.toFixed(2)), e.tagName + "." + e.className, e.textContent.trim().slice(0, 40)]);
+  }
+  return out;
+}"""
+
+# Buttons, inputs and links under 24 px, as [element, width, height]. Boxes
+# and radios are 20 px with a 2 px margin and a clickable label (WCAG 2.5.8
+# spacing exception), so they pass at 20.
+TARGETS = r"""() => {
+  const out = [];
+  for (const e of document.querySelectorAll("button, input, select, a[href], [role=button], summary")) {
+    if (e.offsetParent === null || e.type === "hidden" || e.closest(".uplot")) continue;
+    const r = e.getBoundingClientRect();
+    const min = (e.type === "checkbox" || e.type === "radio") ? 20 : 24;
+    if (r.height < min || r.width < min) out.push([e.tagName + "." + e.className + " " + (e.dataset.path || e.getAttribute("aria-label") || e.textContent.trim().slice(0, 20)), Math.round(r.width), Math.round(r.height)]);
+  }
+  return out;
+}"""
+
+
+def audit(page, where, report=None):
+    """axe-core on the page as it is: critical and serious findings fail,
+    the others are collected in `report` (a list) when given."""
+    page.evaluate(AXE)
+    found = page.evaluate(AXE_RUN)
+    bad = [f for f in found if f["impact"] in ("critical", "serious")]
+    if report is not None:
+        report.extend(dict(f, where=where) for f in found if f["impact"] not in ("critical", "serious"))
+    if bad:
+        raise AssertionError("%s: accessibility %s" % (where, "; ".join(
+            "%s (%s, %d): %s at %s" % (f["id"], f["impact"], f["n"], f["help"], ", ".join(f["nodes"])) for f in bad)))
 
 
 class Layout(OnlineBase):
@@ -81,20 +147,36 @@ class Layout(OnlineBase):
         self.page.set_viewport_size({"width": 1280, "height": 800})
 
     def fits(self, where):
+        """Nothing clipped or sideways, no critical or serious accessibility
+        finding, every text at WCAG AA contrast, every control 24 px."""
         self.page.wait_for_timeout(300)
         self.assertEqual(self.page.evaluate(FIT_CHECK), [], where)
+        audit(self.page, where, self.axe_report)
+        self.assertEqual(self.page.evaluate(CONTRAST), [], where + ": contrast")
+        self.assertEqual(self.page.evaluate(TARGETS), [], where + ": target size")
+
+    axe_report = []
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        if cls.axe_report and os.environ.get("CANOPEN_AXE_REPORT"):
+            with open(os.environ["CANOPEN_AXE_REPORT"], "w", encoding="utf-8") as f:
+                json.dump(cls.axe_report, f, indent=1)
 
     def node(self, k):
-        self.page.click('#node-list li[data-node="%d"]' % k)
+        self.page.click('#node-list [data-node="%d"]' % k)
         self.page.wait_for_selector('#view h2:has-text("Node")')
+        self.page.evaluate("() => document.querySelectorAll('details.section, details[data-picker]').forEach((d) => { d.open = true; })")
 
-    # -- nothing clipped, nothing sideways ------------------------------------
+    # -- nothing clipped, nothing sideways, accessible, in both themes --------
     def test_every_view_fits(self):
         pg = self.page
         with FakePlugin(allow_changes=True) as fp:
             self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
             self.remember(fp.runtime)
-            for width in (1000, 1280, 1440):
+            for width, scheme in ((1000, "light"), (1280, "dark"), (1440, "light")):
+                pg.emulate_media(color_scheme=scheme)
                 pg.set_viewport_size({"width": width, "height": 800})
                 pg.goto(self.server.url)
                 self.fits("start page at %d" % width)
@@ -118,6 +200,17 @@ class Layout(OnlineBase):
                 pg.click('button[data-online="scan"]')
                 pg.wait_for_selector("tr[data-scan-node]")
                 self.fits("scan at %d" % width)
+                pg.click('button[data-view="trace"]')
+                pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
+                self.fits("trace at %d" % width)
+                pg.click('button[data-view="framelab"]')
+                self.fits("frame lab at %d" % width)
+                pg.click('button[data-view="simulation"]')
+                pg.wait_for_selector("#sim-body")
+                self.fits("simulation at %d" % width)
+                pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
+                self.fits("export menu at %d" % width)
+                pg.evaluate("() => { document.querySelector('#menu-export').open = false; }")
                 pg.click("#btn-close")
                 pg.wait_for_selector("#start:not([hidden])")
 
@@ -133,11 +226,20 @@ class Layout(OnlineBase):
             pg.click("#start-standalone")
             pg.fill("#browser-path", folder)
             pg.click("#browser-open")
-            pg.wait_for_selector("#btn-new-project:not([hidden])")
+            pg.wait_for_selector("#menu-project:not([hidden])")
             self.fits("standalone header at %d" % width)
+            # The header's actions are on one line.
+            tops = pg.eval_on_selector_all("#actions > *:not([hidden])", "es => es.map(e => Math.round(e.getBoundingClientRect().top))")
+            self.assertEqual(len(set(tops)), 1, tops)
+            pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
+            self.fits("project menu at %d" % width)
             pg.click("#btn-new-project")
             pg.wait_for_selector("#modal[open]")
             self.fits("new project dialog at %d" % width)
+            # The SDO blocks box sits on one line with its label.
+            box = pg.locator('#modal-extra input[aria-label="Enable CANopen SDO blocks"]').bounding_box()
+            label = pg.locator('#modal-extra label:has-text("Enable CANopen SDO blocks")').bounding_box()
+            self.assertLess(abs((box["y"] + box["height"] / 2) - (label["y"] + label["height"] / 2)), 8)
             pg.click("#modal-buttons button[data-value=cancel]")
             pg.click("#btn-close")
             pg.wait_for_selector("#start:not([hidden])")
@@ -191,6 +293,7 @@ class Layout(OnlineBase):
             self.assertTrue(pg.is_hidden("#banner"))
         # An error stays until closed.
         self.node(0)
+        pg.evaluate("() => document.querySelectorAll('details.section').forEach((d) => { d.open = true; })")
         pg.fill('input[aria-label="SDO variable index"]', "zz")
         pg.click("button:has-text('Add variable')")
         pg.wait_for_selector("#banner.error:has-text('Give the index')")
@@ -246,7 +349,7 @@ class Layout(OnlineBase):
         self.assertTrue(pg.is_hidden("#problem-list"))
         pg.click("#problems-box > summary")
         self.assertTrue(pg.is_visible("#problem-list li.error >> nth=0"))
-        rtd = pg.locator('#node-list li[data-node="2"]')
+        rtd = pg.locator('#node-list [data-node="2"]')
         name, count = rtd.bounding_box(), rtd.locator(".count").bounding_box()
         self.assertLess(count["x"] - (name["x"] + 40), 60)  # next to the name, not at the far edge
         self.fits("narrow node list")

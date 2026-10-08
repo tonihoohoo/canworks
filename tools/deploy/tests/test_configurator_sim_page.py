@@ -111,7 +111,7 @@ class Base(unittest.TestCase):
         return load(self.config_path)
 
     def badges(self):
-        return self.page.eval_on_selector_all("#node-list li[data-node]",
+        return self.page.eval_on_selector_all("#node-list [data-node]",
                                               "els => els.map(e => { const b = e.querySelector('[data-sim-badge]');"
                                               " return b ? b.dataset.simBadge : ''; })")
 
@@ -128,7 +128,7 @@ class Network(Base):
         self.open()
 
     def node_switch(self, i, on):
-        self.page.click('#node-list li[data-node="%d"]' % i)
+        self.page.click('#node-list [data-node="%d"]' % i)
         box = self.page.locator('input[data-sim="node"]')
         if on:
             box.check()
@@ -148,7 +148,7 @@ class Network(Base):
         self.assertIn("nodes 5, 6, 7 simulated", text)
         self.assertIn(BANNER_END, text)
         # The banner is on every page.
-        for view in ('#node-list li[data-node="1"]', 'button[data-view="declarations"]', 'button[data-view="trace"]'):
+        for view in ('#node-list [data-node="1"]', 'button[data-view="declarations"]', 'button[data-view="trace"]'):
             pg.click(view)
             self.assertIn("The network is simulated", self.banner_text())
         pg.click('button[data-view="bus"]')

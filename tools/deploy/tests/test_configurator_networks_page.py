@@ -133,9 +133,10 @@ class NetworksPage(unittest.TestCase):
         self.assertEqual(self.tabs(), [])
         self.assertEqual(pg.locator("#net-bar button").all_inner_texts(), ["Add network"])
         self.assertEqual(pg.inner_text("#view h2"), "Bus and master")
-        # Saved unchanged: version 1, the same content.
-        self.save()
-        self.assertEqual(load(self.config_path), srv.canonical(cfg))
+        # Nothing to save yet: the button says so and is disabled.
+        self.settled()
+        self.assertEqual(pg.inner_text("#btn-save"), "Saved")
+        self.assertTrue(pg.is_disabled("#btn-save"))
         pg.click('#net-bar button[data-net-action="add"]')
         self.assertEqual(self.tabs(), ["vcan0", "network 2"])
         self.assertEqual(pg.input_value('input[data-path="adapter.interface"]'), "")
@@ -154,7 +155,7 @@ class NetworksPage(unittest.TestCase):
         self.assertEqual(self.tabs(), ["vcan0", "drives"])
         # A node on drives, and online access once for both networks.
         pg.set_input_files("#eds-input", os.path.join(PINGPONG, "cpp-slave.eds"))
-        pg.wait_for_selector('#node-list li[data-node="0"]')
+        pg.wait_for_selector('#node-list [data-node="0"]')
         pg.click('button[data-view="bus"]')
         self.assertEqual(pg.locator('[data-section="online"] legend').inner_text(), "Online access (all networks)")
         pg.check('input[data-online="enable"]')
@@ -162,7 +163,7 @@ class NetworksPage(unittest.TestCase):
         pg.fill('input[data-path="master.diagnostics.port"]', "7600")
         pg.click('#net-bar [data-net="0"]')
         self.assertEqual(pg.input_value('input[data-path="master.diagnostics.port"]'), "7600")
-        self.assertEqual(pg.inner_text('#node-list li[data-node="0"]').split()[0], "2")
+        self.assertEqual(pg.inner_text('#node-list [data-node="0"]').split()[0], "2")
         self.shot("networks-bar")
         self.save()
         saved = load(self.config_path)
@@ -194,7 +195,7 @@ class NetworksPage(unittest.TestCase):
         self.assertEqual(self.tabs(), ["io", "drives"])
         self.assertEqual(pg.inner_text("#view h2"), "Bus and master: network io")
         pg.click('#net-bar [data-net="1"]')
-        pg.click('#node-list li[data-node="0"]')
+        pg.click('#node-list [data-node="0"]')
         pg.click('button[data-suggest="emcy"]')
         pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].emcy_code_location\"]').value")
         self.assertEqual(pg.input_value('input[data-path="nodes[0].emcy_code_location"]'), "%IW101")
@@ -216,7 +217,7 @@ class NetworksPage(unittest.TestCase):
         # A problem of the other tab opens it.
         pg.click("#problem-list li:has-text('Network io, Node 2 pingpong')")
         pg.wait_for_selector('#net-bar [data-net="0"].active')
-        pg.wait_for_selector('#node-list li[data-node="0"].active')
+        pg.wait_for_selector('#node-list [data-node="0"].active')
 
     # -- network picker (6.4) -----------------------------------------------
     def test_online_scan_and_trace_on_the_picked_network(self):
@@ -238,6 +239,7 @@ class NetworksPage(unittest.TestCase):
             pg.click('button[data-online="read"]')
             pg.wait_for_selector('[data-online="sdo-result"]:has-text("drive")')
             pg.click('button[data-nmt="preop"]')
+            pg.click('#modal-buttons button[data-value="go"]')
             pg.wait_for_selector("#banner:has-text('Pre-operational sent')")
             self.assertEqual(fp.network("drives").status["nodes"][0]["state"], 127)
             self.assertEqual(fp.status["nodes"][0]["hold"], "none")
@@ -271,6 +273,8 @@ class NetworksPage(unittest.TestCase):
             pg.wait_for_selector('tr[data-scan-node="41"]')
             self.assertEqual([q.get("network") for q in fp.requests if q["op"] == "scan"][-1], "drives")
             pg.set_input_files('tr[data-scan-node="41"] input[type="file"]', os.path.join(RTD, "rtd8.eds"))
+            pg.wait_for_selector('#view h2:has-text("Node 41")')
+            pg.click('[data-online="back-to-scan"]')
             pg.wait_for_selector('tr[data-scan-node="41"]:has-text("added")')
             self.assertEqual(pg.evaluate("() => S.model.networks.map((n) => n.nodes.map((x) => x.node_id))"),
                              [[2], [2, 41]])
@@ -294,18 +298,20 @@ class NetworksPage(unittest.TestCase):
         self.open()
         pg.click('#net-bar [data-net="1"]')
         with pg.expect_download() as dl:
+            pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
             pg.click("#btn-export-dbc")
         self.assertEqual(dl.value.suggested_filename, "plant_drives.dbc")
         with open(dl.value.path(), encoding="ascii") as f:
             text = f.read()
         self.assertIn("drive", text)
         self.assertNotIn("pingpong", text)
-        pg.click('#node-list li[data-node="0"]')
+        pg.click('#node-list [data-node="0"]')
         with pg.expect_download() as dl:
-            pg.click('#node-list li[data-node="0"] button.export-dcf')
+            pg.click('button[data-export-dcf="0"]')
         self.assertEqual(dl.value.suggested_filename, "node_2.dcf")
         with open(dl.value.path(), encoding="utf-8") as f:
             self.assertIn("NodeName=drive", f.read())
+        pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
         pg.click("#btn-export-all")
         self.assertIn("network drives, or of every network", pg.inner_text("#modal-text"))
         with pg.expect_download() as dl:
@@ -313,6 +319,7 @@ class NetworksPage(unittest.TestCase):
         self.assertEqual(dl.value.suggested_filename, "plant_dcf.zip")
         with zipfile.ZipFile(dl.value.path()) as z:
             self.assertEqual(sorted(z.namelist()), ["drives/node_2.dcf", "io/node_2.dcf"])
+        pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
         pg.click("#btn-export-all")
         with pg.expect_download() as dl:
             self.answer("tab")

@@ -3,6 +3,7 @@
 
 import base64
 import http.client
+import io
 import json
 import os
 import shutil
@@ -96,6 +97,17 @@ class Access(Running):
         status, _, _ = self.request("POST", "/api/save", {"config": srv.empty_config()}, token=False)
         self.assertEqual(status, 403)
         self.assertFalse(os.path.exists(os.path.join(self.project, "canopen")))
+
+    def test_unexpected_error_is_one_sentence(self):
+        """A bug in a handler answers 500 with one plain sentence; the
+        traceback goes to the terminal, not to the page."""
+        from unittest import mock
+        with mock.patch.object(srv, "list_folders", side_effect=RuntimeError("boom")), \
+                mock.patch("sys.stderr", new=io.StringIO()) as err:
+            status, data, _ = self.request("GET", "/api/folders")
+        self.assertEqual(status, 500)
+        self.assertEqual(data, {"error": srv.UNEXPECTED_ERROR})
+        self.assertIn("RuntimeError: boom", err.getvalue())
 
     def test_host_must_be_loopback(self):
         status, data, _ = self.request("GET", "/api/state", host="evil.example:%d" % self.server.server_port)

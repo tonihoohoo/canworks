@@ -83,11 +83,22 @@ class Page(unittest.TestCase):
 
     def add_node(self, eds):
         self.page.set_input_files("#eds-input", eds)
-        self.page.wait_for_selector("text=Map an object")
+        self.page.wait_for_selector("details[data-picker]")
 
     def settled(self):
         """Waits for the debounced check to finish."""
         self.page.wait_for_function("() => document.body.dataset.checking === '0'")
+
+    def open_sections(self):
+        """Opens the node page's collapsed sections and object pickers (they
+        are collapsed while empty), as a user does with a click."""
+        self.page.evaluate("() => document.querySelectorAll('details.section, details[data-picker]').forEach((d) => { d.open = true; })")
+        self.page.wait_for_timeout(50)
+
+    def pick(self, obj):
+        """Adds an object (index:subindex) to a PDO through the object picker."""
+        self.open_sections()
+        self.page.click('button[data-add="%s"]' % obj)
 
     def fill(self, path, value):
         self.page.fill('input[data-path="%s"]' % path, value)
@@ -128,7 +139,7 @@ class Page(unittest.TestCase):
         pg.click('button[data-suggest="state"]')
         pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].state_location\"]').value === '%IB100'")
         for sub in range(1, 5):
-            pg.click('button[data-add="0x7130:%d"]' % sub)
+            self.pick("0x7130:%d" % sub)
             pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[%d].iec_location"]' % (sub - 1))
         # EMCY inputs: the next free word after the four temperatures, the
         # next free byte after the state byte.
@@ -147,6 +158,7 @@ class Page(unittest.TestCase):
         # Startup SDO: sensor type of channel 0, moved to the top of the list.
         # 0x1017 is a communication object the plugin sets, so the picker
         # lists it only with "Show all writable objects".
+        self.open_sections()
         self.assertEqual(pg.locator('button[data-sdo="0x1017:0"]').count(), 0)
         pg.check('input[aria-label="Show all writable objects"]')
         pg.click('button[data-sdo="0x1017:0"]')
@@ -194,7 +206,7 @@ class Page(unittest.TestCase):
         self.settled()
         # One node, unsaved: the download is the draft's DCF.
         with pg.expect_download() as dl:
-            pg.click('#node-list li[data-node="0"] button.export-dcf')
+            pg.click('button[data-export-dcf="0"]')
         self.assertEqual(dl.value.suggested_filename, "node_5.dcf")
         with open(dl.value.path(), encoding="utf-8") as f:
             text = f.read()
@@ -204,6 +216,7 @@ class Page(unittest.TestCase):
         pg.wait_for_selector("#banner:has-text('Exported node_5.dcf')")
         # All nodes: one zip.
         with pg.expect_download() as dl:
+            pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
             pg.click("#btn-export-all")
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor_dcf.zip")
         # A problem: nothing downloads, the Problems pane says why.
@@ -211,7 +224,7 @@ class Page(unittest.TestCase):
         self.settled()
         downloads = []
         pg.on("download", lambda d: downloads.append(d))
-        pg.click('#node-list li[data-node="0"] button.export-dcf')
+        pg.click('button[data-export-dcf="0"]')
         pg.wait_for_selector("#banner.error:has-text('DCF export stopped')")
         self.assertIn("master's node ID", pg.inner_text("#problem-list"))
         self.assertEqual(downloads, [])
@@ -226,6 +239,7 @@ class Page(unittest.TestCase):
         # Unsaved draft, no SDO frames by default.
         self.assertEqual(pg.input_value("#dbc-sdo"), "none")
         with pg.expect_download() as dl:
+            pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
             pg.click("#btn-export-dbc")
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor.dbc")
         with open(dl.value.path(), encoding="ascii") as f:
@@ -236,9 +250,11 @@ class Page(unittest.TestCase):
         pg.wait_for_selector("#banner:has-text('Exported rtd-monitor.dbc')")
         # The SDO choice applies and is stored with the page settings.
         with pg.expect_response(lambda r: r.url.endswith("/api/ui") and r.request.method == "POST") as resp:
+            pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
             pg.select_option("#dbc-sdo", "all")
         self.assertEqual(resp.value.json()["dbc_sdo"], "all")
         with pg.expect_download() as dl:
+            pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
             pg.click("#btn-export-dbc")
         with open(dl.value.path(), encoding="ascii") as f:
             self.assertIn("BO_ 1541 rtd_SDO_Rx: 8 Master", f.read())
@@ -247,6 +263,7 @@ class Page(unittest.TestCase):
         self.settled()
         downloads = []
         pg.on("download", lambda d: downloads.append(d))
+        pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
         pg.click("#btn-export-dbc")
         pg.wait_for_selector("#banner.error:has-text('DBC export stopped')")
         self.assertIn("master's node ID", pg.inner_text("#problem-list"))
@@ -385,7 +402,7 @@ class Page(unittest.TestCase):
         pg.uncheck('input[data-path="adapter.configure_link"]')
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(PINGPONG, "cpp-slave.eds"))
-        pg.click('button[data-add="0x4001:0"]')
+        self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
         pg.click('button[data-view="bus"]')
@@ -600,7 +617,7 @@ class Page(unittest.TestCase):
         self.assertIn("drive.fScalefactor := LREAL#2.5;", block)
         self.assertIn("bOnline := drive_ok", block)
         # A device that is not a CiA 402 drive: the profile warning.
-        pg.click('#node-list li[data-node="0"]')
+        pg.click('#node-list [data-node="0"]')
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
         pg.check('input[data-path="nodes[1].axis"]')
         self.assertEqual(pg.locator("[data-axis-profile]").count(), 1)
@@ -658,8 +675,8 @@ class Page(unittest.TestCase):
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "pdo-comm.eds"))
         self.fill("nodes[0].node_id", "2")
-        pg.click('button[data-add="0x4001:0"]')
-        pg.click('button[data-add="0x4000:0"]')
+        self.pick("0x4001:0")
+        self.pick("0x4000:0")
         pg.wait_for_selector('input[data-path="nodes[0].rx_pdos[0].entries[0].iec_location"]')
         self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
         self.fill("nodes[0].rx_pdos[0].entries[0].iec_location", "%QD300")
@@ -677,6 +694,7 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].tx_pdos[0].cob_id", "auto")
         pg.wait_for_selector("text=auto = 0x182")
         # The SDO picker hides process signals and plugin objects.
+        self.open_sections()
         self.assertEqual(pg.locator('button[data-sdo="0x4000:0"]').count(), 0)
         self.assertEqual(pg.locator('button[data-sdo="0x1400:5"]').count(), 0)
         self.assertIn("Hidden:", pg.inner_text('fieldset[data-path="nodes[0].sdo"]'))
@@ -697,7 +715,7 @@ class Page(unittest.TestCase):
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "pdo-comm.eds"))
         self.fill("nodes[0].node_id", "2")
-        pg.click('button[data-add="0x4001:0"]')
+        self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
         # Off by default. The EDS event timer is 0, so auto has nothing to use.
@@ -738,11 +756,11 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].node_id", "2")
         # Every TPDO of fixed-io.eds is fixed: 0x6000:3 is in none of them.
         self.assertEqual(pg.locator('button[data-add="0x6000:3"]').count(), 0)
-        pg.click('button[data-add="0x6000:2"]')
+        self.pick("0x6000:2")
         pg.wait_for_selector('[data-mapping="nodes[0].tx_pdos[0]"]:has-text("Set by the device")')
         pg.click('button[data-map-all="nodes[0].tx_pdos[0]"]')
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[1].iec_location"]')
-        pg.click('button[data-add="0x6200:1"]')
+        self.pick("0x6200:1")
         pg.wait_for_selector('input[data-path="nodes[0].rx_pdos[0].entries[0].iec_location"]')
         self.save()
         node = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]
@@ -759,7 +777,7 @@ class Page(unittest.TestCase):
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
         self.fill("nodes[0].node_id", "2")
-        pg.click('button[data-add="0x4001:0"]')
+        self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
         pg.select_option('select[data-path="nodes[0].tx_pdos[0].mapping"]', "device")
@@ -775,7 +793,7 @@ class Page(unittest.TestCase):
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
         self.fill("nodes[0].node_id", "2")
-        pg.click('button[data-add="0x4001:0"]')
+        self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
         self.fill("nodes[0].tx_pdos[0].inhibit_time_us", "2.5")
@@ -788,6 +806,7 @@ class Page(unittest.TestCase):
         pg = self.page
         self.open_from_start("#start-project", self.project)
         self.add_node(os.path.join(RTD, "rtd8.eds"))
+        self.open_sections()
         self.assertEqual(pg.locator('button[data-sdo="0x1018:1"]').count(), 0)
         pg.fill('input[aria-label="SDO index"]', "0x1018")
         pg.fill('input[aria-label="SDO subindex"]', "1")
@@ -805,6 +824,7 @@ class Page(unittest.TestCase):
         nmt = self.filled("nodes[0].nmt_command_location")
         self.assertTrue(nmt.startswith("%QB"), nmt)
         # Read the serial number (0x1018:4, const).
+        self.open_sections()
         pg.fill('input[aria-label="Filter SDO variable objects"]', "0x1018")
         pg.click('button[data-sdo-var="0x1018:4"]')
         pg.wait_for_selector('input[data-path="nodes[0].sdo_variables[0].iec_location"]')
@@ -849,7 +869,7 @@ class Page(unittest.TestCase):
         self.assertEqual(pg.locator('input[data-path="nodes[0].heartbeat_ms"]').count(), 0)
         self.fill("nodes[0].guard_time_ms", "100")
         self.fill("nodes[0].life_time_factor", "3")
-        pg.click('button[data-add="0x7130:1"]')
+        self.pick("0x7130:1")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.save()
         node = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]
@@ -860,14 +880,14 @@ class Page(unittest.TestCase):
         pg = self.page
         self.open_from_start("#start-project", self.project)
         self.add_node(os.path.join(PINGPONG, "cpp-slave.eds"))
-        pg.click('button[data-add="0x4001:0"]')
+        self.pick("0x4001:0")
         loc = 'input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]'
         pg.wait_for_selector(loc)
         pg.fill(loc, "%ID100")
         pg.wait_for_selector("#problem-list li.error:has-text('ecat-bus.json')")
         pg.wait_for_selector(loc + ".invalid")
         self.assertTrue(pg.is_disabled("#btn-save"))
-        self.assertIn("1 error", pg.inner_text("#btn-save"))
+        self.assertIn("1 error", pg.get_attribute("#btn-save", "title"))
         pg.check("#allow-overlap")
         pg.wait_for_selector("#btn-save:not([disabled])")
         self.save()
@@ -881,10 +901,11 @@ class Page(unittest.TestCase):
         self.assertIn("standalone", pg.inner_text("#mode"))
         self.assertIn("skipped", pg.inner_text("#scan-info"))
         self.add_node(os.path.join(RTD, "rtd8.eds"))
-        pg.click('button[data-add="0x7130:1"]')
+        self.pick("0x7130:1")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.save()
         self.assertTrue(os.path.isfile(os.path.join(folder, "canopen.json")))
+        pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
         pg.click("#btn-move")
         pg.fill("#modal-extra input", self.project)
         pg.click("#modal-buttons button[data-value=move]")
@@ -902,13 +923,15 @@ class Page(unittest.TestCase):
         work = os.path.join(self.dir, "work")
         os.makedirs(os.path.join(work, "taken"))
         self.open_from_start("#start-new", folder)
-        self.assertTrue(pg.is_visible("#btn-new-project"))
+        self.assertTrue(pg.is_visible("#menu-project"))
         self.add_node(os.path.join(RTD, "rtd8.eds"))
-        pg.click('button[data-add="0x7130:1"]')
+        self.pick("0x7130:1")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
+        pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
         pg.click("#btn-new-project")
         self.assertIn("Save the config", pg.inner_text("#banner"))
         self.save()
+        pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
         pg.click("#btn-new-project")
         pg.fill('#modal-extra input[aria-label="Parent folder"]', work)
         pg.fill('#modal-extra input[aria-label="Project name"]', "taken")
@@ -931,7 +954,7 @@ class Page(unittest.TestCase):
         self.assertEqual(load(os.path.join(work, "rtd-monitor", "project.json"))["data"]["libraries"][0]["name"],
                          "openplc_canopen")
         self.assertTrue(os.path.isfile(os.path.join(user_data, "libraries", "registry.json")))
-        self.assertTrue(pg.is_hidden("#btn-new-project"))
+        self.assertTrue(pg.is_hidden("#menu-project"))
         main = os.path.join(work, "rtd-monitor", "pous", "programs", "main.st")
         with open(main, encoding="utf-8") as f:
             self.assertIn(" : INT AT %IW", f.read())
@@ -941,7 +964,7 @@ class Page(unittest.TestCase):
         pg = self.page
         self.open_from_start("#start-project", self.project)
         self.add_node(os.path.join(PINGPONG, "cpp-slave.eds"))
-        pg.click('button[data-add="0x4001:0"]')
+        self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.save()
         path = os.path.join(self.project, "canopen", "canopen.json")

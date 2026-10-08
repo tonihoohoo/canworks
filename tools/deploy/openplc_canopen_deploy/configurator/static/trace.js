@@ -18,8 +18,19 @@ const COND_TYPES = [["frame", "Frame"], ["emcy", "EMCY"], ["state", "Node state"
   ["boot_error", "Boot error"], ["sdo_abort", "SDO abort"], ["signal", "Signal value"], ["bus", "Bus state"],
   ["error_frame", "Error frame"]];
 const SIGNAL_OPS = [">", "<", "=", "!=", "cross_up", "cross_down", "rising", "falling"];
-const SERIES_COLORS = ["#1f77b4", "#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#17becf", "#8c564b", "#e377c2",
-  "#7f7f7f", "#bcbd22"];
+// Graph series colours, one set per theme (readable on the panel of each).
+const SERIES_COLORS = {
+  light: ["#1f5fbf", "#b3261e", "#256b2a", "#b25a00", "#6f42c1", "#0b7285", "#7a4a2a", "#b0287a", "#5a5a55", "#6c7a1e"],
+  dark: ["#8ab4f8", "#ff8a80", "#81c784", "#ffb74d", "#c7a4ff", "#4dd0e1", "#d7a98c", "#f48fb1", "#b0b0a8", "#d4e157"],
+};
+function seriesColors() {
+  const t = document.documentElement.dataset.theme;
+  const dark = t === "dark" || (t !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  return SERIES_COLORS[dark ? "dark" : "light"];
+}
+
+// Whether a recording is on the page that was neither saved nor downloaded.
+function traceUnsaved() { return !!(T.st && T.st.frames && T.st.source === "live" && !T.kept); }
 
 // The view's choices; the trace itself is on the server.
 const T = {
@@ -77,7 +88,7 @@ function renderTrace(view) {
     if (f) traceOpen(f);
   });
   const fmtSelect = (key, list, data) => {
-    const s = el("select", { dataset: { trace: data }, "aria-label": "Format" },
+    const s = el("select", { dataset: { trace: data }, "aria-label": data === "save-format" ? "Format of the saved file" : "Format of the downloaded file" },
       list.map(([v, l]) => el("option", { value: v, selected: T[key] === v }, l)));
     s.onchange = () => { T[key] = s.value; };
     return s;
@@ -96,19 +107,17 @@ function renderTrace(view) {
       el("label", { class: "file-button", title: "Open a pcapng, candump log or Vector ASC file" }, "Open file…", fileInput),
       el("span", { class: "joined" }, fmtSelect("saveFormat", TRACE_FORMATS, "save-format"),
         el("button", { type: "button", dataset: { trace: "save" }, onclick: traceSave,
-          title: "Save to the traces folder on this PC" }, "Save")),
+          title: "Save the trace in the traces folder on this PC" }, "Save to traces folder")),
       el("span", { class: "joined" }, fmtSelect("exportFormat", TRACE_FORMATS.concat([["signals", "Signals CSV"]]), "export-format"),
         el("button", { type: "button", dataset: { trace: "export" }, onclick: traceExport,
-          title: "Download a file" }, "Export")),
+          title: "Download the trace as a file in the chosen format" }, "Download")),
       range),
     captureSettings(),
     sendPanel(),
     el("div", { id: "trace-stats", class: "trace-stats", dataset: { trace: "stats" } }),
-    el("div", { class: "segmented trace-tabs", role: "tablist" },
-      [["frames", "Frames"], ["ids", "Identifiers"], ["graph", "Graph"], ["sequences", "Sequences"], ["trigger", "Trigger"]].map(([v, l]) =>
-        el("button", { type: "button", role: "tab", "aria-pressed": String(T.tab === v), dataset: { traceTab: v },
-          onclick: () => { T.tab = v; renderTraceTab(); } }, l))),
-    el("div", { id: "trace-tab" }));
+    tabs([["frames", "Frames"], ["ids", "Identifiers"], ["graph", "Graph"], ["sequences", "Sequences"], ["trigger", "Trigger"]],
+      T.tab, (v) => { T.tab = v; renderTraceTab(); }, { class: "segmented trace-tabs", tab: "", dataset: "traceTab", panel: "trace-tab", label: "Trace pages" }),
+    el("div", { id: "trace-tab", role: "tabpanel", "aria-labelledby": "trace-tab-tab-" + T.tab }));
   T.lastFrames = -1;
   T.lastGeneration = -1;
   const seq = T.seq;
@@ -190,9 +199,9 @@ function showTraceHeader(st) {
       el("a", { href: "#", onclick: (e) => { e.preventDefault(); showView("online"); } }, "Online"),
       ". Opening, viewing and exporting trace files works without it."));
   }
-  for (const w of st.warnings || []) parts.push(el("div", { class: "online-note warning" }, w));
+  for (const w of st.warnings || []) parts.push(el("div", { class: "online-note warning", dataset: { trace: "warning" } }, humanise(w)));
   if (st.dropped) parts.push(el("div", { class: "online-note warning" },
-    `The trace holds the newest ${st.limit.toLocaleString()} frames; ${st.dropped.toLocaleString()} older frames were dropped.`));
+    `The trace holds the newest ${Number(st.limit || 0).toLocaleString()} frames; ${Number(st.dropped).toLocaleString()} older frames were dropped.`));
   src.className = cls;
   src.replaceChildren(...parts);
   const sm = st.summary;
@@ -213,9 +222,11 @@ function showTraceHeader(st) {
 }
 
 function renderTraceTab() {
-  for (const b of document.querySelectorAll("[data-trace-tab]")) b.setAttribute("aria-pressed", String(b.dataset.traceTab === T.tab));
+  const list = document.querySelector(".trace-tabs");
+  if (list) selectTab(list, T.tab, "traceTab");
   const box = $("#trace-tab");
   if (!box) return;
+  box.setAttribute("aria-labelledby", "trace-tab-tab-" + T.tab);
   for (const p of T.plots) p.destroy();
   T.plots = [];
   box.replaceChildren();
@@ -230,9 +241,10 @@ function renderTraceTab() {
 
 async function traceStart() {
   if (T.st && T.st.frames) {
-    const v = await modal(`Start a new trace? The current trace (${T.st.frames.toLocaleString()} frames) is replaced; save or export it first if you need it.`,
-      [["start", "Start", true], ["cancel", "Cancel"]]);
+    const v = await modal(`Start a new trace? The current recording (${T.st.frames.toLocaleString()} frames) is lost unless it was saved to the traces folder or downloaded.`,
+      [["cancel", "Keep the recording"], ["start", "Start a new trace", { danger: true }]]);
     if (v !== "start") return;
+    T.kept = false;
   }
   try {
     T.st = await api("POST", "/api/trace/start", { filters: T.capFilters.map((f) => ({ id: f.id, mask: f.mask })),
@@ -256,8 +268,10 @@ async function traceStop() {
 
 async function traceClear() {
   if (T.st && T.st.frames) {
-    const v = await modal(`Clear the trace (${T.st.frames.toLocaleString()} frames)?`, [["clear", "Clear", true], ["cancel", "Cancel"]]);
+    const v = await modal(`Clear the trace? The recording (${T.st.frames.toLocaleString()} frames) is lost unless it was saved to the traces folder or downloaded.`,
+      [["cancel", "Keep the recording"], ["clear", "Clear the trace", { danger: true }]]);
     if (v !== "clear") return;
+    T.kept = false;
   }
   try { await api("POST", "/api/trace/clear", {}); } catch (e) { banner(e.message, true); }
   restartPoll();
@@ -307,6 +321,7 @@ function traceRange() {
 async function traceSave() {
   try {
     const r = await api("POST", "/api/trace/save", Object.assign({ format: T.saveFormat }, traceRange()));
+    T.kept = true;
     banner(`Saved ${r.frames.toLocaleString()} frames to ${r.path}.`);
   } catch (e) { banner(e.message, true); }
 }
@@ -316,7 +331,8 @@ async function traceExport() {
     const body = Object.assign({ format: T.exportFormat, keys: T.chosen }, traceRange());
     const r = await api("POST", "/api/trace/export", body);
     download(r);
-    banner(`Exported ${r.name}.`);
+    T.kept = true;
+    banner(`Downloaded ${r.name}.`);
   } catch (e) { banner(e.message, true); }
 }
 
@@ -367,13 +383,15 @@ function renderFrames(box) {
     list,
     el("div", { class: "toolbar", id: "trace-row-actions" }),
     el("div", { id: "trace-inspector", class: "fx-host", dataset: { trace: "inspector" } },
-      el("p", { class: "muted" }, "Select a frame to see what every bit of it means. Up and down arrows move through the list.")));
+      el("p", { class: "muted" }, "Select a frame to see what every bit of it means. Up and down arrows, Page Up, Page Down, Home and End move through the list.")));
   list.addEventListener("keydown", (e) => {
-    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const page = Math.max(1, Math.floor(list.clientHeight / ROW_H) - 1);
+    const step = { ArrowDown: 1, ArrowUp: -1, PageDown: page, PageUp: -page, Home: -Infinity, End: Infinity }[e.key];
+    if (step === undefined) return;
     e.preventDefault();
     T.follow = false;
     follow.checked = false;
-    fxMoveSelection(e.key === "ArrowDown" ? 1 : -1);
+    fxMoveSelection(step);
   });
   refreshRows(T.follow && T.st && T.st.recording.running, true);
 }
@@ -524,7 +542,7 @@ async function loadIds() {
   if (!box) return;
   const ms = (v) => (v == null ? "" : v.toFixed(v < 10 ? 2 : 1));
   box.replaceChildren(el("table", { class: "trace-ids" },
-    el("thead", null, el("tr", null, ["ID", "Name", "Node", "Dir", "Count", "Cycle min ms", "avg ms", "max ms", "Last data"].map((h) => el("th", null, h)))),
+    el("thead", null, el("tr", null, thCells(["ID", "Name", "Node", "Dir", "Count", "Cycle min ms", "avg ms", "max ms", "Last data"]))),
     el("tbody", null, r.ids.length ? r.ids.map((x) => el("tr", { dataset: { traceId: x.id_text } },
       el("td", { class: "mono" }, x.id_text), el("td", null, x.name), el("td", null, x.node == null ? "" : String(x.node)),
       el("td", null, x.dir), el("td", null, x.count.toLocaleString()), el("td", null, ms(x.cycle_min_ms)),
@@ -665,7 +683,8 @@ function drawPlots(width) {
     });
     const data = [x.map((t) => (t - t0) / 1e6), ...ys];
     const series = [{ label: "t (s)" }].concat(keys.map((k, i) => {
-      const color = SERIES_COLORS[T.chosen.indexOf(k) % SERIES_COLORS.length];
+      const colors = seriesColors();
+      const color = colors[T.chosen.indexOf(k) % colors.length];
       const ev = k.startsWith("emcy.") || k.startsWith("sdo_abort.");
       return { label: seriesLabel(k), stroke: color, width: 1.5, spanGaps: true,
         paths: ev ? () => null : uPlot.paths.stepped({ align: 1 }),
@@ -770,7 +789,7 @@ function showCursors() {
       T.a != null ? el("button", { type: "button", dataset: { trace: "to-frames" }, onclick: () => jumpToFrame(T.a, "graph") }, "Show A in frames") : null,
       T.jumpedFrom === "frames" ? el("button", { type: "button", dataset: { trace: "back-to-frames" },
         onclick: () => { T.jumpedFrom = null; jumpToFrame(T.selectedUs != null ? T.selectedUs : T.a, null); } }, "Back to frames") : null),
-    rows.length ? el("table", { class: "compare" }, el("thead", null, el("tr", null, ["Series", "A", "B", "Δ (B − A)"].map((h) => el("th", null, h)))),
+    rows.length ? el("table", { class: "compare" }, el("thead", null, el("tr", null, thCells(["Series", "A", "B", "Δ (B − A)"]))),
       el("tbody", null, rows)) : null].filter(Boolean));
 }
 
@@ -970,8 +989,8 @@ function sendPanel() {
         el("label", { class: "inline" }, "count", input("count", "no limit", "10ch"))] : null,
       el("button", { type: "button", class: "primary", dataset: { send: "send" }, onclick: () => sendFrame(false) }, "Send"),
       el("button", { type: "button", dataset: { send: "stop" }, disabled: !SEND.jobs.length, onclick: () => sendStop(null) }, "Stop")));
+  if (blocked) d.append(el("p", { class: "field-msg warning", dataset: { send: "blocked" } }, blocked));
   d.append(
-    blocked ? el("p", { class: "field-msg warning", dataset: { send: "blocked" } }, blocked) : null,
     el("p", { class: "hint" }, "Frames go onto the picked network through the runtime and show in a running trace as Tx. Identifiers the network uses, and any frame while a node is OPERATIONAL, need a confirmation."),
     fields,
     sendLists());

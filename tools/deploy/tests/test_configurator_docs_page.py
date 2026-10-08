@@ -185,11 +185,12 @@ class Configurator(Browser):
         pg.click("#browser-open")
         pg.wait_for_selector("#editor:not([hidden])")
         pg.set_input_files("#eds-input", os.path.join(RTD, "rtd8.eds"))
-        pg.wait_for_selector("text=Map an object")
+        pg.wait_for_selector("details[data-picker]")
         pg.fill('input[data-path="nodes[0].node_id"]', "5")
         pg.fill('input[data-path="nodes[0].name"]', "rtd")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         with pg.expect_download() as dl:
+            pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
             pg.click("#btn-export-html")
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor.html")
         with open(dl.value.path(), encoding="utf-8") as f:
@@ -202,6 +203,7 @@ class Configurator(Browser):
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         downloads = []
         pg.on("download", lambda d: downloads.append(d))
+        pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
         pg.click("#btn-export-html")
         pg.wait_for_selector("#banner.error:has-text('Documentation export stopped')")
         self.assertIn("master's node ID", pg.inner_text("#problem-list"))

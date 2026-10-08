@@ -67,7 +67,7 @@ function fxInspector(m, opts) {
   m.fields.forEach((f, k) => { for (let b = f.start; b < f.start + f.length && b < total; b++) if (I.owner[b] < 0) I.owner[b] = k; });
   if (m.wire) m.wire.bits.forEach((b) => { if (b.ref !== "stuff" && !I.wireAt.has(b.ref)) I.wireAt.set(b.ref, b.n); });
 
-  const box = el("aside", { class: "fx-box", "aria-live": "polite", dataset: { fx: "box" } });
+  const box = el("section", { class: "fx-box", "aria-live": "polite", "aria-label": "Selected field", dataset: { fx: "box" } });
   I.box = box;
   const main = el("div", { class: "fx-main" },
     fxMeaning(I, opts),
@@ -88,7 +88,7 @@ function fxMeaning(I, opts) {
     el("div", { class: "fx-title" }, el("strong", null, m.title || "Frame"),
       el("span", { class: "mono muted" }, f.candump + (f.time_us && opts.time ? "  ·  " + opts.time : ""))),
     el("p", { class: "fx-says", dataset: { fx: "meaning" } }, m.meaning),
-    m.notes && m.notes.length ? el("ul", { class: "fx-notes" }, m.notes.map((n) => el("li", null, n))) : null,
+    m.notes && m.notes.length ? el("ul", { class: "fx-notes" }, m.notes.map((n) => el("li", null, humanise(n)))) : null,
     m.about ? el("details", { class: "fx-about" }, el("summary", null, "About this kind of message"), el("p", null, m.about)) : null,
     opts.actions && opts.actions.length ? el("div", { class: "toolbar" }, opts.actions) : null);
 }
@@ -397,9 +397,17 @@ function fxMoveSelection(step) {
   const rows = [...document.querySelectorAll("#trace-rows .trace-row[data-seq]")];
   if (!rows.length) return;
   let k = rows.findIndex((r) => Number(r.dataset.seq) === T.selected);
-  const next = k < 0 ? (step > 0 ? 0 : rows.length - 1) : k + step;
   const visible = Math.max(1, Math.floor((list.clientHeight - 2) / ROW_H));
   const first = firstRow();
+  // Home and End: the top or the bottom of the whole trace, then its first or last row.
+  if (!Number.isFinite(step)) {
+    const before = list.scrollTop;
+    list.scrollTop = step < 0 ? 0 : list.scrollHeight;
+    T.selected = null;
+    if (list.scrollTop !== before) { T.pendingStep = step < 0 ? 1 : -1; requestRows(); } else fxMoveSelection(step < 0 ? 1 : -1);
+    return;
+  }
+  const next = k < 0 ? (step > 0 ? 0 : rows.length - 1) : Math.max(-1, Math.min(rows.length, k + step));
   if (next < 0 || next >= rows.length) {
     const before = list.scrollTop;
     list.scrollTop += step * ROW_H;
@@ -479,7 +487,7 @@ function fxDrawConversations(body, r) {
     el("p", { class: "muted" }, `${r.total} SDO conversation${r.total === 1 ? "" : "s"}` +
       (r.total > r.conversations.length ? `, the newest ${r.conversations.length} listed` : "") + "."),
     shown.length ? el("div", { class: "fx-list" }, el("table", { class: "fx-table" },
-      el("thead", null, el("tr", null, ["Time", "Node", "Operation", "Object", "Result", "Value", "Frames", "Took"].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Time", "Node", "Operation", "Object", "Result", "Value", "Frames", "Took"]))),
       el("tbody", null, shown.map((c) => el("tr", { class: (c.seq === s.picked ? "selected " : "") + "r-" + c.result, tabindex: "0",
         dataset: { seq: c.seq }, onclick: () => { s.picked = c.seq; fxDrawSequences(); },
         onkeydown: (e) => { if (e.key === "Enter") { s.picked = c.seq; fxDrawSequences(); } } },
@@ -548,7 +556,7 @@ function fxDrawBoots(body, r) {
     el("p", { class: "muted" }, `${r.total} boot${r.total === 1 ? "" : "s"} found.` +
       (r.compared ? " The master's writes are compared with what the configuration writes at boot." : " The configuration's boot writes could not be computed, so writes are not compared.")),
     shown.length ? el("div", { class: "fx-list" }, el("table", { class: "fx-table" },
-      el("thead", null, el("tr", null, ["Time", "Node", "Began with", "Result", "Writes", "Took"].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Time", "Node", "Began with", "Result", "Writes", "Took"]))),
       el("tbody", null, shown.map((b) => el("tr", { class: (b.seq === s.picked ? "selected " : "") + (bad(b) ? "r-aborted" : ""), tabindex: "0",
         dataset: { seq: b.seq }, onclick: () => { s.picked = b.seq; fxDrawSequences(); },
         onkeydown: (e) => { if (e.key === "Enter") { s.picked = b.seq; fxDrawSequences(); } } },
@@ -563,7 +571,7 @@ function fxDrawBoots(body, r) {
     fxDiagram(b.steps.map((st) => ({ seq: st.seq, from: from[st.what] || "right", mid: st.what.startsWith("reset") && false,
       text: st.text, dt: st.dt_us, bad: / refused|abort|unanswered/.test(st.text) })), "PLC (master)", b.node_label),
     b.writes ? el("div", { class: "fx-list" }, el("table", { class: "fx-table", dataset: { fx: "writes" } },
-      el("thead", null, el("tr", null, ["Object", "Name", "Expected", "Written", "Result"].map((h) => el("th", null, h)))),
+      el("thead", null, el("tr", null, thCells(["Object", "Name", "Expected", "Written", "Result"]))),
       el("tbody", null, b.writes.map((w) => el("tr", { class: "w-" + w.status, tabindex: w.seq != null ? "0" : null,
         onclick: w.seq != null ? () => fxInspectSeq(w.seq, $("#fx-seq-inspector"), { noLinks: true }) : null },
       el("td", null, w.object), el("td", null, w.object_name || ""),
@@ -844,7 +852,7 @@ function fxArbitrationForm() {
   return el("div", null,
     el("p", { class: "muted" }, "When two nodes start sending at the same moment, both send their identifiers bit by bit and read the bus back. A dominant 0 overwrites a recessive 1, so the sender of a 1 that reads a 0 knows it has lost, stops and tries again after the other frame. Write two frames (ID# is enough) and see which wins."),
     el("div", { class: "fx-form" }, inp("arbA", "Frame A"), inp("arbB", "Frame B"),
-      el("button", { type: "button", class: "primary", dataset: { fxArb: "go" }, onclick: fxArbitrate }, "Send both")),
+      el("button", { type: "button", class: "primary", dataset: { fxArb: "go" }, onclick: fxArbitrate }, "Run both")),
     el("div", { id: "fx-arb", dataset: { fx: "arbitration" } }));
 }
 
