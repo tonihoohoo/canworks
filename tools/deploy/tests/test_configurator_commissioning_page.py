@@ -192,6 +192,7 @@ class StepsPage(Page):
         self.assertEqual(len(pg.query_selector_all("#comm-steps tr")), 9)
         audit(pg, "commissioning steps")
         pg.fill('input[data-online="adapter"]', "virtual:" + self.ch)
+        pg.select_option('select[data-online="adapter-bitrate"]', "250")  # commissioning picks none
         pg.check('input[data-online="adapter-allow"]')
         pg.click('button[data-online="connect"]')
         pg.wait_for_selector("text=Connected to USB adapter")

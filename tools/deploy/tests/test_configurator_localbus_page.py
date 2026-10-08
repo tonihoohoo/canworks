@@ -93,6 +93,12 @@ class AdapterPage(OnlineBase):
         pg.wait_for_selector('input[data-online="adapter"]')
         self.assertIn("commissioning a device", pg.inner_text("#mode"))
         pg.fill('input[data-online="adapter"]', "virtual:" + self.ch)
+        # No network here, so no bit rate is picked for the user.
+        self.assertEqual(pg.input_value('select[data-online="adapter-bitrate"]'), "")
+        self.assertNotIn("(this network)", pg.inner_text('select[data-online="adapter-bitrate"]'))
+        pg.click('button[data-online="connect"]')
+        self.assertIn("Pick the bus's bit rate", pg.inner_text('[data-online="connect-msg"]'))
+        pg.select_option('select[data-online="adapter-bitrate"]', "250")
         pg.click('button[data-online="connect"]')
         pg.wait_for_selector("text=Connected to USB adapter")
         pg.click('button[data-view="scan"]')
@@ -101,6 +107,30 @@ class AdapterPage(OnlineBase):
         self.assertEqual(pg.query_selector_all('button[data-online="add-node"]'), [])
         time.sleep(0.1)
 
+
+    def test_commission_after_a_project_starts_empty(self):
+        # The project's scan (its nodes matched as configured) is not shown
+        # for the device commissioned after closing it.
+        pg = self.page
+        self.device(7, identity=(0x360, 0x1, 0, 0x5))
+        self.open()
+        pg.click('button[data-view="online"]')
+        self.connect_adapter()
+        pg.click('button[data-view="scan"]')
+        pg.click('button[data-online="scan"]')
+        pg.wait_for_selector('tr[data-scan-node="7"]', timeout=20000)
+        pg.click("#btn-close")
+        pg.click("#start-commission")
+        pg.wait_for_selector('button[data-online="connect"]')
+        self.assertIn("commissioning a device", pg.inner_text("#mode"))
+        pg.fill('input[data-online="adapter"]', "virtual:" + self.ch)
+        pg.select_option('select[data-online="adapter-bitrate"]', "250")
+        pg.click('button[data-online="connect"]')
+        pg.wait_for_selector("text=Connected to USB adapter")
+        pg.click('button[data-view="scan"]')
+        pg.wait_for_selector('button[data-online="scan"]')
+        self.assertEqual(pg.query_selector_all("tr[data-scan-node]"), [])
+        time.sleep(0.1)
 
 class FastSweep(sweep_mod.Sweep):
     def __init__(self, spec, rates=None, per_rate_ms=1000, *args, **kw):
