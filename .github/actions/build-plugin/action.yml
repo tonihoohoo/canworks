@@ -3,7 +3,10 @@ description: >
   Upstream runtime checkout (plugin headers, stock install test), build
   dependencies, Lely CANopen from the cache (or built), the deploy tool in the
   plugin venv (the plugin's EDS lint) and the cmake build in ./build (every
-  target, or the ones named in `targets`).
+  target, or the ones named in `targets`) through ccache. The compiler cache is
+  restored from the newest run with the same targets; `main` runs save one per
+  commit and a pull request saves one for itself on its first run (a pull
+  request's cache is only visible to that pull request).
 
 inputs:
   kernel-modules:
@@ -53,7 +56,7 @@ runs:
       env:
         KERNEL_MODULES: ${{ inputs.kernel-modules }}
       run: |
-        pkgs="build-essential cmake pkg-config autoconf automake libtool python3-venv can-utils libssl-dev"
+        pkgs="build-essential cmake pkg-config autoconf automake libtool python3-venv can-utils libssl-dev ccache"
         if [ "$KERNEL_MODULES" = true ] && ! modinfo vcan >/dev/null 2>&1; then
           python3 .github/scripts/apt_install.py --debs ~/.cache/openplc-canopen/apt-build $pkgs "linux-modules-extra-$(uname -r)" || \
           python3 .github/scripts/apt_install.py --debs ~/.cache/openplc-canopen/apt-build $pkgs
@@ -85,11 +88,47 @@ runs:
       shell: bash
       run: /opt/openplc-canopen/venv/bin/python -m pip install -q ./tools/deploy
 
+    - name: Compiler cache key (runner image, compiler, target set; ccache itself hashes each compile's inputs)
+      id: ccache-key
+      shell: bash
+      env:
+        STRUCPP: ${{ inputs.strucpp }}
+        TARGETS: ${{ inputs.targets }}
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        set_id=$(printf '%s|%s' "${TARGETS:-all}" "${STRUCPP:+strucpp}" | sha1sum | cut -c1-8)
+        prefix="ccache-${ImageOS:-os}-${ImageVersion:-image}-gcc$(gcc -dumpfullversion)-${set_id}-"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        if [ -n "$PR" ]; then echo "key=${prefix}pr${PR}" >> "$GITHUB_OUTPUT"; else echo "key=${prefix}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"; fi
+
+    - name: Restore the compiler cache (this pull request's, else the newest with this key prefix)
+      id: ccache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/openplc-canopen/ccache
+        key: ${{ steps.ccache-key.outputs.key }}
+        restore-keys: ${{ steps.ccache-key.outputs.prefix }}
+
     - name: Build
       shell: bash
       env:
         STRUCPP: ${{ inputs.strucpp }}
         TARGETS: ${{ inputs.targets }}
+        CCACHE_BASEDIR: ${{ github.workspace }}
+        CCACHE_NOHASHDIR: "true"
+        CCACHE_COMPILERCHECK: content
+        CCACHE_MAXSIZE: 300M
       run: |
-        cmake -B build -DOPENPLC_ROOT="$PWD/upstream-runtime" ${STRUCPP:+-DSTRUCPP="$STRUCPP"}
+        export CCACHE_DIR="$HOME/.cache/openplc-canopen/ccache"
+        ccache -z >/dev/null
+        cmake -B build -DOPENPLC_ROOT="$PWD/upstream-runtime" ${STRUCPP:+-DSTRUCPP="$STRUCPP"} \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         cmake --build build -j"$(nproc)" ${TARGETS:+--target $TARGETS}
+        ccache -s
+
+    - name: Save the compiler cache (each main commit; a pull request once)
+      if: steps.ccache.outputs.cache-hit != 'true' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/openplc-canopen/ccache
+        key: ${{ steps.ccache-key.outputs.key }}

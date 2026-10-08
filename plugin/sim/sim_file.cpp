@@ -10,6 +10,7 @@
 
 #include "cJSON.h"
 #include "sim_expr.h"
+#include "sim_machine.h"
 #include "sim_source.h"
 
 namespace canopen_sim {
@@ -86,7 +87,7 @@ bool parse_condition(const cJSON* o, Condition& c, std::string& err) {
     err = "a condition must be an object";
     return false;
   }
-  if (!known_keys(o, {"node", "object", "bit", "eq", "ne", "lt", "le", "gt", "ge", "expr"}, err)) return false;
+  if (!known_keys(o, {"node", "object", "bit", "eq", "ne", "lt", "le", "gt", "ge", "expr", "machine"}, err)) return false;
   const cJSON* e = cJSON_GetObjectItemCaseSensitive(o, "expr");
   if (e) {
     if (!cJSON_IsString(e) || !*e->valuestring) {
@@ -103,15 +104,26 @@ bool parse_condition(const cJSON* o, Condition& c, std::string& err) {
   }
   const cJSON* n = cJSON_GetObjectItemCaseSensitive(o, "node");
   const cJSON* ob = cJSON_GetObjectItemCaseSensitive(o, "object");
-  if (!n || !ob) {
+  const cJSON* m = cJSON_GetObjectItemCaseSensitive(o, "machine");
+  if (m) {
+    if (!cJSON_IsString(m) || !*m->valuestring) {
+      err = "\"machine\" must name a machine counter, sensor, fixture or joint";
+      return false;
+    }
+    if (n || ob || cJSON_GetObjectItemCaseSensitive(o, "bit")) {
+      err = "a machine condition has \"machine\" and a comparison, no node, object or bit";
+      return false;
+    }
+    c.machine = m->valuestring;
+  } else if (!n || !ob) {
     err = "a condition needs \"node\" and \"object\" (or \"expr\")";
     return false;
   }
-  if (!parse_device_ref(n, c.node)) {
+  if (!m && !parse_device_ref(n, c.node)) {
     err = "\"node\" must be a node ID 1-127 or a device name";
     return false;
   }
-  if (!cJSON_IsString(ob) || !parse_obj_key(ob->valuestring, c.object)) {
+  if (!m && (!cJSON_IsString(ob) || !parse_obj_key(ob->valuestring, c.object))) {
     err = "\"object\" must be \"0xIIII:S\"";
     return false;
   }
@@ -124,7 +136,7 @@ bool parse_condition(const cJSON* o, Condition& c, std::string& err) {
     if (!v) continue;
     ++ops;
     c.op = op;
-    bool string_ok = c.op == "eq" || c.op == "ne";
+    bool string_ok = (c.op == "eq" || c.op == "ne") && !m;
     if (!parse_value(v, c.value) || (c.value.is_string && !string_ok)) {
       err = std::string("\"") + op + "\" must be a number" + (string_ok ? ", string or boolean" : "");
       return false;
@@ -165,8 +177,8 @@ bool parse_step(const cJSON* o, Step& s, std::string& err) {
     err = "must be an object";
     return false;
   }
-  if (!known_keys(o, {"node", "at_ms", "after_ms", "set", "override", "release", "source", "fault", "clear", "wait",
-                      "expect", "timeout_ms", "within_ms", "for_ms", "log", "repeat"},
+  if (!known_keys(o, {"node", "machine", "at_ms", "after_ms", "set", "override", "release", "source", "fault", "clear",
+                      "wait", "expect", "timeout_ms", "within_ms", "for_ms", "log", "repeat"},
                   err))
     return false;
   const cJSON* n = cJSON_GetObjectItemCaseSensitive(o, "node");
@@ -197,6 +209,37 @@ bool parse_step(const cJSON* o, Step& s, std::string& err) {
     return false;
   }
   const cJSON* a = cJSON_GetObjectItemCaseSensitive(o, s.action.c_str());
+  const cJSON* mj = cJSON_GetObjectItemCaseSensitive(o, "machine");
+  if (mj) {
+    if (!cJSON_IsString(mj) || !*mj->valuestring) {
+      err = "\"machine\" must name a machine element";
+      return false;
+    }
+    if (s.action != "fault" && s.action != "clear") {
+      err = "\"machine\" belongs to a \"fault\" or \"clear\" step (a condition names its machine value itself)";
+      return false;
+    }
+    if (!s.node.empty()) {
+      err = "a step has \"node\" or \"machine\", not both";
+      return false;
+    }
+    s.machine = mj->valuestring;
+    std::string e;
+    if (s.action == "fault") {
+      if (!parse_machine_fault(a, e)) {
+        err = "\"fault\": " + e;
+        return false;
+      }
+      s.machine_fault = sim_json_text(a);
+      return true;
+    }
+    if (!cJSON_IsString(a) || !is_machine_clear_name(a->valuestring)) {
+      err = "\"clear\" must be a machine fault name (jam, stuck, feeder, misaligned_mm) or \"all\"";
+      return false;
+    }
+    s.clear = a->valuestring;
+    return true;
+  }
   bool needs_node = s.action == "set" || s.action == "override" || s.action == "release" || s.action == "source" ||
                     s.action == "fault" || s.action == "clear";
   if (needs_node && s.node.empty()) {
@@ -703,6 +746,13 @@ bool parse_fault(const cJSON* o, Fault& f, std::string& err) {
 
 std::string Condition::text() const {
   if (is_expr) return expr;
+  static const std::map<std::string, std::string> mops = {{"eq", "=="}, {"ne", "!="}, {"lt", "<"},
+                                                          {"le", "<="}, {"gt", ">"},  {"ge", ">="}};
+  if (!machine.empty()) {
+    char b[32];
+    std::snprintf(b, sizeof b, "%.10g", value.num);
+    return "machine " + machine + " " + mops.at(op) + " " + b;
+  }
   std::string s = "[" + node + "/" + object.str() + "]";
   if (bit >= 0) s = "bit(" + s + ", " + std::to_string(bit) + ")";
   static const std::map<std::string, std::string> ops = {{"eq", "=="}, {"ne", "!="}, {"lt", "<"},
@@ -906,12 +956,21 @@ bool parse_sim_file(const std::string& json, const std::string& path, SimFile& o
         continue;
       }
       std::string e2;
-      if (!known_keys(c, {"nodes", "extra_devices", "scenarios"}, e2)) {
+      if (!known_keys(c, {"nodes", "extra_devices", "scenarios", "machine"}, e2)) {
         fail(at, e2);
         continue;
       }
       SimSection sec;
       sec.network = c->string;
+      const cJSON* mf = cJSON_GetObjectItemCaseSensitive(c, "machine");
+      if (mf) {
+        if (!cJSON_IsString(mf) || !*mf->valuestring) {
+          fail(at + ".machine", "must be the machine file's path, relative to this file");
+        } else {
+          sec.machine = mf->valuestring;
+          sec.machine_path = join_path(out.dir, sec.machine);
+        }
+      }
       parse_body(c, at + ".", out.dir, sec.nodes, sec.extra, sec.scenarios, fail);
       out.networks.push_back(std::move(sec));
     }
@@ -940,6 +999,8 @@ bool sim_file_section(const SimFile& file, const std::string& network, SimFile& 
       out.nodes = sec.nodes;
       out.extra = sec.extra;
       out.scenarios = sec.scenarios;
+      out.machine = sec.machine;
+      out.machine_path = sec.machine_path;
       return true;
     }
   return false;

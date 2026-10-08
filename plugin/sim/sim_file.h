@@ -73,6 +73,7 @@ struct Condition {
   bool is_expr = false;
   std::string expr;
   std::string node;  // device reference ("5" or a name)
+  std::string machine;  // a machine value instead (counter, sensor, fixture, joint)
   ObjKey object;
   int bit = -1;
   std::string op;  // eq ne lt le gt ge
@@ -82,6 +83,8 @@ struct Condition {
 
 struct Step {
   std::string node;  // device reference, "" = none
+  std::string machine;        // fault/clear on a machine element instead of a node
+  std::string machine_fault;  // its fault, JSON text
   bool has_at = false, has_after = false;
   unsigned at_ms = 0, after_ms = 0;
   // set, override, release, source, fault, clear, wait, expect, log, repeat
@@ -136,6 +139,8 @@ struct SimSection {
   std::map<unsigned, NodeBehaviour> nodes;
   std::vector<ExtraDevice> extra;
   std::vector<Scenario> scenarios;
+  std::string machine;       // the machine file as written, "" = none
+  std::string machine_path;  // resolved against the simulation file
 };
 
 struct SimFile {
@@ -147,6 +152,8 @@ struct SimFile {
   std::map<unsigned, NodeBehaviour> nodes;
   std::vector<ExtraDevice> extra;
   std::vector<Scenario> scenarios;
+  // Version 2, one network's section: its machine file.
+  std::string machine, machine_path;
   // Version 2 only: the sections, in file order.
   std::vector<SimSection> networks;
   // Set by sim_file_section: the network whose section this is.

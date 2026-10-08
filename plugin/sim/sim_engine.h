@@ -27,6 +27,7 @@
 
 #include "sim_device.h"
 #include "sim_file.h"
+#include "sim_machine.h"
 
 typedef struct cJSON cJSON;
 
@@ -119,6 +120,8 @@ class Simulator {
   std::vector<unsigned> NodeIds() const;
   // Whether a node ID is simulated here.
   bool Simulates(unsigned node) const;
+  // The network's machine model; nullptr without one (or on a real network).
+  const MachineModel* Machine() const { return machine_.get(); }
 
  private:
   struct Dev;
@@ -127,6 +130,7 @@ class Simulator {
   class Resolver;
   class Ctx;
   class DriveIoImpl;
+  class MachineIoImpl;
 
   void Log(Host::Level l, const std::string& m);
   void PowerOn(Dev& d);
@@ -136,6 +140,8 @@ class Simulator {
   bool ClearFault(Dev& d, const std::string& name, const cJSON* req, std::string& err);
   bool SetSource(Dev& d, const ObjKey& k, const std::string& json, bool from_file, std::string& err);
   bool CheckCycles(std::string& err);
+  bool StartMachine(std::vector<std::string>& errors);
+  void StepMachine(Clock::time_point now);
   void Tick();
   void TickDevice(Dev& d, Clock::time_point now, double dt);
   void RunSources(Clock::time_point now, bool rpdo = false);
@@ -170,6 +176,12 @@ class Simulator {
   bool order_dirty_ = true;
   bool rpdo_posted_ = false;
   std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
+  // The machine model (docs/machine.md).
+  std::unique_ptr<MachineIoImpl> machine_io_;
+  std::unique_ptr<MachineModel> machine_;
+  Clock::time_point machine_next_, machine_last_;
+  uint64_t machine_seq_ = 0;
+  double machine_step_us_ = 0, machine_step_max_us_ = 0;
 };
 
 }  // namespace canopen_sim
