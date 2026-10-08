@@ -287,18 +287,45 @@ void prepare() {
                 strerror(errno));
       return;
     }
-    // Simulated devices (docs/simulator.md). The simulation file names nodes
-    // by node ID alone, so it serves a config with one network only.
+    // Simulated devices (docs/simulator.md). A version 1 simulation file
+    // names nodes by node ID alone, so it serves a config with one network
+    // only; version 2 has a section per network.
     std::shared_ptr<SimSetup> sim;
     if (simulates_anything(cfg)) {
       sim = std::make_shared<SimSetup>();
       sim->store = g_sim_store;
       std::string sim_path = find_sim_file(cfg);
-      if (!sim_path.empty() && st->set.several()) {
-        log_warn("%s is not used: a simulation file serves a configuration with one network only; the "
-                 "simulated devices of this network run with their default behaviour", sim_path.c_str());
+      canopen_sim::SimFile loaded;
+      if (!sim_path.empty() && !canopen_sim::load_sim_file(sim_path, loaded, errors)) {
+        for (const auto& e : errors) log_error("%s", e.c_str());
+        log_error("simulation file rejected; CANopen inactive");
+        return;
+      }
+      if (!sim_path.empty() && loaded.schema_version >= 2) {
+        if (!check_sim_sections(st->set, loaded, errors)) {
+          for (const auto& e : errors) log_error("%s", e.c_str());
+          log_error("simulation file rejected; CANopen inactive");
+          return;
+        }
+        std::string name = sim_network_name(cfg);
+        if (canopen_sim::sim_file_section(loaded, name, sim->file)) {
+          if (!check_sim_file(cfg, sim->file, errors)) {
+            for (const auto& e : errors) log_error("%s", e.c_str());
+            log_error("simulation file rejected; CANopen inactive");
+            return;
+          }
+          log_info("simulation file %s, section \"%s\"", sim_path.c_str(), name.c_str());
+        } else {
+          log_info("simulation file %s has no section for network \"%s\": its simulated devices run with their "
+                   "default behaviour", sim_path.c_str(), name.c_str());
+        }
+      } else if (!sim_path.empty() && st->set.several()) {
+        log_warn("%s is not used: a version 1 simulation file serves a configuration with one network only (version 2 "
+                 "has a section per network); the simulated devices of this network run with their default behaviour",
+                 sim_path.c_str());
       } else if (!sim_path.empty()) {
-        if (!canopen_sim::load_sim_file(sim_path, sim->file, errors) || !check_sim_file(cfg, sim->file, errors)) {
+        sim->file = std::move(loaded);
+        if (!check_sim_file(cfg, sim->file, errors)) {
           for (const auto& e : errors) log_error("%s", e.c_str());
           log_error("simulation file rejected; CANopen inactive");
           return;

@@ -1273,7 +1273,7 @@
  "title": "CANopen network documentation",
  "tool": {
   "name": "openplc-canopen-deploy",
-  "version": "0.37.0"
+  "version": "0.38.0"
  },
  "warnings": []
 }

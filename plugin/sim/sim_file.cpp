@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <set>
 #include <sstream>
 
@@ -742,79 +743,48 @@ bool parse_scenario(const cJSON* o, const std::string& name, Scenario& sc, std::
   return parse_steps(cJSON_GetObjectItemCaseSensitive(o, "steps"), sc.steps, "scenario", err);
 }
 
-bool parse_sim_file(const std::string& json, const std::string& path, SimFile& out, std::vector<std::string>& errors) {
-  out = SimFile();
-  out.path = path;
-  size_t slash = path.rfind('/');
-  out.dir = slash == std::string::npos ? "." : path.substr(0, slash);
-  if (out.dir.empty()) out.dir = "/";
-  cJSON* root = cJSON_Parse(json.c_str());
-  if (!root) {
-    errors.push_back(path + ": not valid JSON");
-    return false;
-  }
-  std::unique_ptr<cJSON, void (*)(cJSON*)> guard(root, cJSON_Delete);
-  auto fail = [&](const std::string& where, const std::string& msg) {
-    errors.push_back(path + ": " + where + (where.empty() ? "" : ": ") + msg);
-  };
-  if (!cJSON_IsObject(root)) {
-    fail("", "must be a JSON object");
-    return false;
-  }
-  std::string err;
-  if (!known_keys(root, {"schema_version", "tick_ms", "nodes", "extra_devices", "scenarios"}, err)) {
-    fail("", err);
-    return false;
-  }
-  const cJSON* ver = cJSON_GetObjectItemCaseSensitive(root, "schema_version");
-  if (ver) {
-    if (!cJSON_IsNumber(ver) || ver->valuedouble < 1 || ver->valuedouble != static_cast<int>(ver->valuedouble)) {
-      fail("schema_version", "must be a positive integer");
-      return false;
-    }
-    out.schema_version = static_cast<unsigned>(ver->valuedouble);
-    if (out.schema_version > kSimSchemaVersion) {
-      fail("schema_version", "the file is version " + std::to_string(out.schema_version) + ", this simulator reads up to " +
-                                 std::to_string(kSimSchemaVersion));
-      return false;
-    }
-  }
-  if (!get_uint(root, "tick_ms", 1, 60000, out.tick_ms, err)) fail("", err);
+namespace {
+
+// The keys a version 1 file and a version 2 section share: nodes,
+// extra_devices, scenarios. `at` goes in front of every JSON path.
+void parse_body(const cJSON* root, const std::string& at, const std::string& dir,
+                std::map<unsigned, NodeBehaviour>& out_nodes, std::vector<ExtraDevice>& out_extra,
+                std::vector<Scenario>& out_scenarios, const std::function<void(const std::string&, const std::string&)>& fail) {
   const cJSON* nodes = cJSON_GetObjectItemCaseSensitive(root, "nodes");
   if (nodes) {
     if (!cJSON_IsObject(nodes)) {
-      fail("nodes", "must be an object keyed by node ID");
+      fail(at + "nodes", "must be an object keyed by node ID");
     } else {
       for (const cJSON* c = nodes->child; c; c = c->next) {
         char* e = nullptr;
         long id = std::strtol(c->string, &e, 10);
         if (!*c->string || *e || id < 1 || id > 127) {
-          fail(std::string("nodes.") + c->string, "the key must be a node ID 1-127");
+          fail(at + "nodes." + c->string, "the key must be a node ID 1-127");
           continue;
         }
         NodeBehaviour b;
         std::string e2;
-        if (!parse_behaviour(c, b, out.dir, false, e2)) {
-          fail(std::string("nodes.") + c->string, e2);
+        if (!parse_behaviour(c, b, dir, false, e2)) {
+          fail(at + "nodes." + c->string, e2);
           continue;
         }
-        out.nodes[static_cast<unsigned>(id)] = std::move(b);
+        out_nodes[static_cast<unsigned>(id)] = std::move(b);
       }
     }
   }
   const cJSON* extra = cJSON_GetObjectItemCaseSensitive(root, "extra_devices");
   if (extra) {
     if (!cJSON_IsArray(extra)) {
-      fail("extra_devices", "must be a list");
+      fail(at + "extra_devices", "must be a list");
     } else {
       int i = 0;
       std::set<std::string> names;
       std::set<unsigned> ids;
       for (const cJSON* c = extra->child; c; c = c->next, ++i) {
-        std::string where = "extra_devices[" + std::to_string(i) + "]";
+        std::string where = at + "extra_devices[" + std::to_string(i) + "]";
         ExtraDevice x;
         std::string e2;
-        if (!parse_behaviour(c, x.behaviour, out.dir, true, e2)) {
+        if (!parse_behaviour(c, x.behaviour, dir, true, e2)) {
           fail(where, e2);
           continue;
         }
@@ -842,7 +812,7 @@ bool parse_sim_file(const std::string& json, const std::string& path, SimFile& o
           continue;
         }
         x.eds = eds->valuestring;
-        x.eds_path = join_path(out.dir, x.eds);
+        x.eds_path = join_path(dir, x.eds);
         if (!x.name.empty() && !names.insert(x.name).second) {
           fail(where, "the name " + x.name + " is used twice");
           continue;
@@ -851,27 +821,128 @@ bool parse_sim_file(const std::string& json, const std::string& path, SimFile& o
           fail(where, "node " + std::to_string(x.node) + " is used by two extra devices");
           continue;
         }
-        out.extra.push_back(std::move(x));
+        out_extra.push_back(std::move(x));
       }
     }
   }
   const cJSON* sc = cJSON_GetObjectItemCaseSensitive(root, "scenarios");
   if (sc) {
     if (!cJSON_IsObject(sc)) {
-      fail("scenarios", "must be an object keyed by scenario name");
+      fail(at + "scenarios", "must be an object keyed by scenario name");
     } else {
       for (const cJSON* c = sc->child; c; c = c->next) {
         Scenario s;
         std::string e2;
         if (!parse_scenario(c, c->string, s, e2)) {
-          fail(std::string("scenarios.") + c->string, e2);
+          fail(at + "scenarios." + c->string, e2);
           continue;
         }
-        out.scenarios.push_back(std::move(s));
+        out_scenarios.push_back(std::move(s));
       }
     }
   }
-  return errors.empty();
+}
+
+}  // namespace
+
+bool parse_sim_file(const std::string& json, const std::string& path, SimFile& out, std::vector<std::string>& errors) {
+  out = SimFile();
+  out.path = path;
+  size_t slash = path.rfind('/');
+  out.dir = slash == std::string::npos ? "." : path.substr(0, slash);
+  if (out.dir.empty()) out.dir = "/";
+  cJSON* root = cJSON_Parse(json.c_str());
+  if (!root) {
+    errors.push_back(path + ": not valid JSON");
+    return false;
+  }
+  std::unique_ptr<cJSON, void (*)(cJSON*)> guard(root, cJSON_Delete);
+  size_t before = errors.size();
+  auto fail = [&](const std::string& where, const std::string& msg) {
+    errors.push_back(path + ": " + where + (where.empty() ? "" : ": ") + msg);
+  };
+  if (!cJSON_IsObject(root)) {
+    fail("", "must be a JSON object");
+    return false;
+  }
+  std::string err;
+  const cJSON* ver = cJSON_GetObjectItemCaseSensitive(root, "schema_version");
+  if (ver) {
+    if (!cJSON_IsNumber(ver) || ver->valuedouble < 1 || ver->valuedouble != static_cast<int>(ver->valuedouble)) {
+      fail("schema_version", "must be a positive integer");
+      return false;
+    }
+    out.schema_version = static_cast<unsigned>(ver->valuedouble);
+    if (out.schema_version > kSimSchemaVersion) {
+      fail("schema_version", "the file is version " + std::to_string(out.schema_version) + ", this simulator reads up to " +
+                                 std::to_string(kSimSchemaVersion));
+      return false;
+    }
+  }
+  if (out.schema_version >= 2) {
+    // Version 2: one section per network (docs/simulator.md).
+    if (!known_keys(root, {"schema_version", "tick_ms", "networks"}, err)) {
+      fail("", err + (cJSON_GetObjectItemCaseSensitive(root, "nodes") || cJSON_GetObjectItemCaseSensitive(root, "scenarios") ||
+                              cJSON_GetObjectItemCaseSensitive(root, "extra_devices")
+                          ? " (in version 2, nodes, extra_devices and scenarios go in a network's section under "
+                            "\"networks\")"
+                          : ""));
+      return false;
+    }
+    if (!get_uint(root, "tick_ms", 1, 60000, out.tick_ms, err)) fail("", err);
+    const cJSON* nets = cJSON_GetObjectItemCaseSensitive(root, "networks");
+    if (!cJSON_IsObject(nets)) {
+      fail("networks", "is required in version 2: an object keyed by network name");
+      return false;
+    }
+    for (const cJSON* c = nets->child; c; c = c->next) {
+      std::string at = std::string("networks.") + c->string;
+      if (!*c->string) {
+        fail("networks", "a network name must not be empty");
+        continue;
+      }
+      if (!cJSON_IsObject(c)) {
+        fail(at, "must be an object with nodes, extra_devices and scenarios");
+        continue;
+      }
+      std::string e2;
+      if (!known_keys(c, {"nodes", "extra_devices", "scenarios"}, e2)) {
+        fail(at, e2);
+        continue;
+      }
+      SimSection sec;
+      sec.network = c->string;
+      parse_body(c, at + ".", out.dir, sec.nodes, sec.extra, sec.scenarios, fail);
+      out.networks.push_back(std::move(sec));
+    }
+    return errors.size() == before;
+  }
+  if (!known_keys(root, {"schema_version", "tick_ms", "nodes", "extra_devices", "scenarios"}, err)) {
+    fail("", err + (cJSON_GetObjectItemCaseSensitive(root, "networks")
+                        ? " (per-network sections need \"schema_version\": 2)"
+                        : ""));
+    return false;
+  }
+  if (!get_uint(root, "tick_ms", 1, 60000, out.tick_ms, err)) fail("", err);
+  parse_body(root, "", out.dir, out.nodes, out.extra, out.scenarios, fail);
+  return errors.size() == before;
+}
+
+bool sim_file_section(const SimFile& file, const std::string& network, SimFile& out) {
+  out = SimFile();
+  out.path = file.path;
+  out.dir = file.dir;
+  out.schema_version = file.schema_version;
+  out.tick_ms = file.tick_ms;
+  out.section = network;
+  for (const auto& sec : file.networks)
+    if (sec.network == network) {
+      out.nodes = sec.nodes;
+      out.extra = sec.extra;
+      out.scenarios = sec.scenarios;
+      return true;
+    }
+  return false;
 }
 
 bool load_sim_file(const std::string& path, SimFile& out, std::vector<std::string>& errors) {

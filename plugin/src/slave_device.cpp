@@ -55,7 +55,16 @@ int guard_hook(const can_msg* msg, void* data) {
 }
 
 int lss_watch(const can_msg* msg, void* data) {
-  if (msg->len >= 2 && msg->data[0] == 0x04 && msg->data[1] == 0x00) static_cast<SlaveDevice*>(data)->LssWaiting();
+  auto* dev = static_cast<SlaveDevice*>(data);
+  if (msg->len >= 2 && msg->data[0] == 0x04 && msg->data[1] == 0x00) dev->LssWaiting();
+  // LSS Fastscan finds devices without a node ID (CiA 305); Lely's slave
+  // answers it with one too. A positive result ends the frame's dispatch, so
+  // this works when this receiver runs before Lely's LSS service, which is
+  // started after it (at the device's first reset).
+  if (msg->len >= 1 && msg->data[0] == 0x51) {
+    uint8_t id = dev->node_id();
+    if (id >= 1 && id <= 127) return 1;
+  }
   return 0;
 }
 

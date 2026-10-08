@@ -19,13 +19,40 @@ from jsonschema.exceptions import best_match
 from . import contract
 from . import eds as eds_mod
 
-SUPPORTED_VERSION = 1
+SUPPORTED_VERSION = 2
 FILE_NAME = "simulation.json"
 _SCHEMA_DIR = os.path.join(os.path.dirname(__file__), "schema")
 _schemas = {}
 
 VISIBLE_STRING = 0x0009
 DELAY_MAX_S = 600.0
+
+
+def version(data):
+    """The file's schema_version (1 when left out)."""
+    v = data.get("schema_version", 1) if isinstance(data, dict) else 1
+    return v if isinstance(v, int) and not isinstance(v, bool) else 1
+
+
+def bodies(data):
+    """(json path parts, part) of the parts that hold nodes, extra_devices
+    and scenarios: the file itself in version 1, each network's section in
+    version 2."""
+    if not isinstance(data, dict):
+        return []
+    if version(data) >= 2:
+        nets = data.get("networks")
+        return [(["networks", k], v) for k, v in nets.items() if isinstance(v, dict)] if isinstance(nets, dict) else []
+    return [([], data)]
+
+
+def section_name(net):
+    """The name a version 2 file's section uses for a network of
+    contract.networks(): its name, or its interface (as the plugin)."""
+    if net["name"]:
+        return net["name"]
+    iface = net["adapter"].get("interface") if isinstance(net["adapter"], dict) else None
+    return iface if isinstance(iface, str) else ""
 
 
 def schema(version=SUPPORTED_VERSION):
@@ -648,9 +675,10 @@ def referenced_files(data, path):
     out = {"eds": {}, "csv": {}}
     if not isinstance(data, dict):
         return out
-    for d in data.get("extra_devices") or []:
-        if isinstance(d, dict) and isinstance(d.get("eds"), str) and d["eds"]:
-            out["eds"][d["eds"]] = _resolve_path(d["eds"], base)
+    for _, body in bodies(data):
+        for d in body.get("extra_devices") or []:
+            if isinstance(d, dict) and isinstance(d.get("eds"), str) and d["eds"]:
+                out["eds"][d["eds"]] = _resolve_path(d["eds"], base)
     for _, src in _all_sources(data):
         csv = src.get("csv") if isinstance(src, dict) else None
         if isinstance(csv, dict) and isinstance(csv.get("file"), str) and csv["file"]:
@@ -660,7 +688,13 @@ def referenced_files(data, path):
 
 def _all_sources(data):
     """(json path parts, source) of every value source: devices' and
-    scenario steps'."""
+    scenario steps', in every part of the file."""
+    for at, body in bodies(data):
+        for parts, src in _body_sources(body):
+            yield at + parts, src
+
+
+def _body_sources(data):
     for key, nd in (data.get("nodes") or {}).items():
         if isinstance(nd, dict):
             for obj, src in (nd.get("sources") or {}).items():
@@ -694,8 +728,9 @@ def rewrite(data, path, eds_value, csv_value):
     values."""
     files = referenced_files(data, path)
     out = json.loads(json.dumps(data))
-    for d in out.get("extra_devices") or []:
-        d["eds"] = eds_value(files["eds"][d["eds"]])
+    for _, body in bodies(out):
+        for d in body.get("extra_devices") or []:
+            d["eds"] = eds_value(files["eds"][d["eds"]])
     for _, src in _all_sources(out):
         csv = src.get("csv") if isinstance(src, dict) else None
         if isinstance(csv, dict):
@@ -794,17 +829,50 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
         err(where, msg)
     if r.errors:
         return r
+    if version >= 2:
+        # One section per network (as the plugin): each checked against its
+        # own network's nodes, messages naming the section.
+        nets = contract.networks(cfg) if isinstance(cfg, dict) else []
+        names = [section_name(n) for n in nets]
+        for name, body in data["networks"].items():
+            at = "networks.%s" % name
+
+            def s_err(where, msg, paths=None, at=at):
+                err(at + "." + where if where else at, msg,
+                    [at + "." + p if p else at for p in (paths if paths is not None else [where])])
+
+            def s_warn(where, msg, paths=None, at=at):
+                warn(at + "." + where if where else at, msg,
+                     [at + "." + p if p else at for p in (paths if paths is not None else [where])])
+
+            net_cfg = None
+            if isinstance(cfg, dict):
+                if name not in names:
+                    err(at, "there is no network '%s' in the configuration (networks: %s)"
+                        % (name, ", ".join(n or "unnamed" for n in names)))
+                    continue
+                net = nets[names.index(name)]
+                net_cfg = {"adapter": net["adapter"], "master": net["master"], "nodes": net["nodes"]}
+            _check_body(body, path, net_cfg, config_path, eds_paths, s_err, s_warn)
+        return r
     if several_networks(cfg):
-        # As the plugin: the file serves a configuration with one network.
-        warn("", "not used: a simulation file serves a configuration with one network only; the simulated "
-                 "devices of a configuration with several networks run with their default behaviour")
+        # As the plugin: a version 1 file serves a configuration with one network.
+        warn("", "not used: a version 1 simulation file serves a configuration with one network only (version 2 "
+                 "has a section per network under 'networks'); the simulated devices of a configuration with "
+                 "several networks run with their default behaviour")
         return r
     if isinstance(cfg, dict) and contract.version_of(cfg) != 1:
         try:
             cfg = contract.network_config(cfg)
         except ValueError:
             pass
+    _check_body(data, path, cfg, config_path, eds_paths, err, warn)
+    return r
 
+
+def _check_body(data, path, cfg, config_path, eds_paths, err, warn):
+    """The checks of one part (a version 1 file or a version 2 section)
+    against one network's config (or None)."""
     base = os.path.dirname(os.path.abspath(path))
     devices = {}  # node ID or name -> _Device
     by_name = {}
@@ -901,7 +969,6 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
     for name, sc in (data.get("scenarios") or {}).items():
         for at, step in _steps(sc.get("steps") or [], ["scenarios", name, "steps"]):
             _check_step(step, at, devices, err, warn, base)
-    return r
 
 
 def _where(parts):

@@ -45,8 +45,31 @@ bool check_sim_file(const Config& cfg, const canopen_sim::SimFile& file, std::ve
     for (const auto& n : cfg.nodes) known = known || n.node_id == kv.first;
     for (const auto& x : file.extra) known = known || x.node == kv.first;
     if (!known) {
-      errors.push_back(file.path + ": nodes." + std::to_string(kv.first) + ": node " + std::to_string(kv.first) +
-                       " is neither in " + cfg.path + " nor an extra device");
+      std::string at = file.section.empty() ? "" : "networks." + file.section + ".";
+      errors.push_back(file.path + ": " + at + "nodes." + std::to_string(kv.first) + ": node " +
+                       std::to_string(kv.first) + " is neither in " +
+                       (file.section.empty() ? cfg.path : "network \"" + file.section + "\" of " + cfg.path) +
+                       " nor an extra device" + (file.section.empty() ? "" : " of that section"));
+      ok = false;
+    }
+  }
+  return ok;
+}
+
+std::string sim_network_name(const Config& cfg) {
+  return cfg.network.empty() ? cfg.adapter.interface : cfg.network;
+}
+
+bool check_sim_sections(const ConfigSet& set, const canopen_sim::SimFile& file, std::vector<std::string>& errors) {
+  bool ok = true;
+  std::string names;
+  for (const auto& n : set.networks) names += (names.empty() ? "" : ", ") + sim_network_name(n);
+  for (const auto& sec : file.networks) {
+    bool known = false;
+    for (const auto& n : set.networks) known = known || sim_network_name(n) == sec.network;
+    if (!known) {
+      errors.push_back(file.path + ": networks." + sec.network + ": there is no network \"" + sec.network + "\" in " +
+                       set.path + " (networks: " + names + ")");
       ok = false;
     }
   }

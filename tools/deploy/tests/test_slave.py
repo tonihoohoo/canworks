@@ -457,6 +457,42 @@ class SlaveContract(unittest.TestCase):
         cfg["gateway"] = {"upper": "line"}
         self.assertIn("gateway: a gateway needs at least one master network", self.errors(cfg))
 
+    def stand_in(self):
+        """The gateway example made fully virtual: field and upper simulated on
+        sim0 and sim1, and a master network "host" on sim1 standing in for the
+        upper master (add-virtual-example)."""
+        cfg = self.gateway()
+        cfg["networks"][0]["adapter"].update(interface="sim0", simulate=True)
+        cfg["networks"][1]["adapter"].update(interface="sim1", simulate=True)
+        cfg["networks"].append({
+            "name": "host", "adapter": {"type": "socketcan", "interface": "sim1", "bitrate": 250000, "simulate": True},
+            "master": {"node_id": 1},
+            "nodes": [{"node_id": 20, "name": "gateway", "eds": "openplc-gateway.eds", "simulate": False,
+                       "tx_pdos": [{"number": 1, "entries": [
+                           {"index": "0x2101", "subindex": 1, "type": "UNSIGNED32", "iec_location": "%ID20"}]}]}]})
+        return cfg
+
+    def test_upper_master_stand_in(self):
+        cfg = self.stand_in()
+        self.assertEqual(contract.upper_master_stand_in(cfg), "host")
+        self.assertEqual([n["name"] for n in contract.field_networks(cfg)], ["field"])
+        r = self.check(cfg)
+        self.assertEqual(r.errors, [])
+        # Not a field network: a route cannot end there, and it does not count as one.
+        cfg["gateway"]["routes"][0]["field"] = {"network": "host", "node": 20, "index": "0x2101", "subindex": 1}
+        self.assertIn("field network 'host' shares the upper network's simulated bus: it stands in for the upper "
+                      "master and is not a field network", self.errors(cfg))
+        cfg = self.stand_in()
+        del cfg["networks"][0]
+        cfg["gateway"].pop("routes")
+        cfg["gateway"].pop("status")
+        cfg["gateway"].pop("sdo_bridge")
+        self.assertIn("a gateway needs at least one master network (a field network) besides the slave network and "
+                      "the upper master's stand-in 'host'", self.errors(cfg))
+        # On real interfaces there is no stand-in.
+        cfg = self.gateway()
+        self.assertIsNone(contract.upper_master_stand_in(cfg))
+
     def test_route_wrong_direction(self):
         cfg = self.gateway()
         cfg["gateway"]["routes"][1]["slave"] = {"index": "0x2101", "subindex": 1}

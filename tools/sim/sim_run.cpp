@@ -509,6 +509,21 @@ class Session {
       sim_path = cfg.config_dir + "/simulation.json";
     if (!sim_path.empty()) {
       if (!canopen_sim::load_sim_file(sim_path, file, errors)) return report("cannot load " + sim_path);
+      if (file.schema_version >= 2) {
+        // A version 2 file: the config's network, or the file's only section.
+        std::string name;
+        if (have_cfg) {
+          name = sim_network_name(cfg);
+        } else if (file.networks.size() == 1) {
+          name = file.networks[0].network;
+        } else {
+          return report(sim_path + ": a version 2 file with " + std::to_string(file.networks.size()) +
+                        " network sections needs --config to say which network to simulate");
+        }
+        canopen_sim::SimFile all = file;
+        if (!canopen_sim::sim_file_section(all, name, file))
+          say(sim_path + " has no section for network \"" + name + "\": default behaviour");
+      }
       canopen_sim::SimFile check = file;
       for (unsigned id : cli_nodes) check.nodes.erase(id);
       if (have_cfg) {

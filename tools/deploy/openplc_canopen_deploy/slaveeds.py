@@ -44,7 +44,8 @@ import os
 import struct
 
 from . import edslint
-from .contract import DEFAULT_BRIDGE_INDEX, DEFAULT_STATUS_INDEX, MAX_STATUS_NETWORKS, _uint, networks, sdo_value
+from .contract import (DEFAULT_BRIDGE_INDEX, DEFAULT_STATUS_INDEX, MAX_STATUS_NETWORKS, _uint, field_networks, networks,
+                       sdo_value)
 from .iec import CO_TYPES
 
 LAYOUTS = ("manufacturer", "cia401")
@@ -243,7 +244,7 @@ def gateway_objects(cfg, names=()):
             raise DescriptionError("gateway: routes[%d]: %s" % (j, str(e).replace("objects[%d]" % j, "route", 1)))
     status = None
     if isinstance(g.get("status"), dict):
-        masters = [n["name"] for n in nets if n["role"] == "master"]
+        masters = [n["name"] for n in field_networks(cfg)]
         if len(masters) > MAX_STATUS_NETWORKS:
             raise DescriptionError("gateway: 'status' covers at most %d field networks; the config has %d"
                                    % (MAX_STATUS_NETWORKS, len(masters)))

@@ -212,7 +212,60 @@ class Checks(unittest.TestCase):
         r = self.f.check(cfg=two)
         self.assertEqual(r.errors, [])
         self.assertEqual(len(r.warnings), 1)
-        self.assertIn("not used: a simulation file serves a configuration with one network only", r.warnings[0])
+        self.assertIn("not used: a version 1 simulation file serves a configuration with one network only", r.warnings[0])
+        self.assertIn("version 2 has a section per network", r.warnings[0])
+
+    def test_version_2_sections(self):
+        # Version 2: each section checked against its own network's nodes.
+        two = {"schema_version": 2, "networks": [dict(self.f.cfg, name="io"),
+                                                  dict(copy.deepcopy(self.f.cfg), name="drives")]}
+        body = {k: v for k, v in self.f.sim.items() if k in ("nodes", "extra_devices", "scenarios")}
+        v2 = {"schema_version": 2, "networks": {"io": copy.deepcopy(body), "drives": {}}}
+        r = self.f.check(v2, cfg=two)
+        self.assertEqual((r.errors, r.warnings), ([], []))
+        # A problem names the section.
+        bad = copy.deepcopy(v2)
+        bad["networks"]["io"]["nodes"]["5"]["sources"]["0x6999:1"] = {"constant": 1}
+        errors = self.f.check(bad, cfg=two).errors
+        self.assertTrue(any("networks.io.nodes.5.sources.0x6999:1" in e and "node 5" in e for e in errors), errors)
+        # A node of another network is not a node of this section's network.
+        other = {"schema_version": 2, "networks": {"drives": {"nodes": {"9": {}}}}}
+        errors = self.f.check(other, cfg=two).errors
+        self.assertTrue(any("networks.drives.nodes.9" in e and "neither a node of the configuration" in e
+                            for e in errors), errors)
+        # A section for a network that is not in the config.
+        errors = self.f.check({"schema_version": 2, "networks": {"drivez": {}}}, cfg=two).errors
+        self.assertTrue(any("networks.drivez" in e and "no network 'drivez'" in e and "io, drives" in e
+                            for e in errors), errors)
+        # Version 1 keys at the top of a version 2 file.
+        errors = self.f.check(dict(body, schema_version=2, networks={}), cfg=two).errors
+        self.assertTrue(any("unknown field" in e for e in errors), errors)
+        # A version 1 config: the section is named after its interface.
+        iface = self.f.cfg["adapter"]["interface"]
+        r = self.f.check({"schema_version": 2, "networks": {iface: copy.deepcopy(body)}})
+        self.assertEqual(r.errors, [])
+
+    def test_version_2_files(self):
+        # Extra devices' EDS files and CSV files of every section.
+        data = {"schema_version": 2, "networks": {
+            "io": {"extra_devices": [{"node": 40, "eds": "a.eds"}]},
+            "drives": {"nodes": {"4": {"sources": {"0x6064:0": {"csv": {"file": "d.csv", "column": 1}}}}}}}}
+        files = simfile.referenced_files(data, "/p/canopen/simulation.json")
+        self.assertEqual(files["eds"], {"a.eds": "/p/canopen/a.eds"})
+        self.assertEqual(files["csv"], {"d.csv": "/p/canopen/d.csv"})
+        out = simfile.rewrite(data, "/p/canopen/simulation.json", lambda p: "eds/x.eds", lambda p: "csv/y.csv")
+        self.assertEqual(out["networks"]["io"]["extra_devices"][0]["eds"], "eds/x.eds")
+        self.assertEqual(out["networks"]["drives"]["nodes"]["4"]["sources"]["0x6064:0"]["csv"]["file"], "csv/y.csv")
+
+    def test_virtual_example(self):
+        # examples/virtual-plant: a version 2 file with a section per network.
+        config = os.path.join(REPO, "examples", "virtual-plant", "canopen", "canopen.json")
+        with open(config, encoding="utf-8") as f:
+            cfg = json.load(f)
+        data, r = simfile.check_file(os.path.join(os.path.dirname(config), "simulation.json"), cfg, config)
+        self.assertTrue(r.ok, r.errors)
+        self.assertEqual(r.warnings, [])
+        self.assertEqual(sorted(data["networks"]), ["io", "motion"])
 
     def test_check_file_and_load(self):
         write_json(self.f.sim_path, self.f.sim)
@@ -228,9 +281,9 @@ class Checks(unittest.TestCase):
         self.assertError(self.changed(lambda s: s.update(colour="red")), "unknown field", "colour")
         self.assertError(self.changed(lambda s: s["nodes"]["5"]["sources"]["0x7130:1"].update(sine={"min": 1})),
                          "nodes.5.sources.0x7130:1")
-        errors = self.errors(self.changed(lambda s: s.update(schema_version=2)))
+        errors = self.errors(self.changed(lambda s: s.update(schema_version=3)))
         self.assertEqual(len(errors), 1)
-        self.assertIn("schema_version 2 is not supported; the highest supported version is 1", errors[0])
+        self.assertIn("schema_version 3 is not supported; the highest supported version is 2", errors[0])
 
     def test_unknown_node(self):
         self.assertError(self.changed(lambda s: s["nodes"].update({"9": {}})),

@@ -30,7 +30,7 @@ A runtime started with the environment variable `CANOPEN_FORCE_SIMULATE=1` runs 
 
 ### Several networks
 
-In a config with several networks ([version 2](config.md)), each network has its own switches: one network can be simulated while another runs on its real interface, and the simulated devices of each network are reached by its name (`--network NAME` on `openplc-canopen-diag sim`, the network picker in the configurator). The simulation file serves a config with one network only: with several networks the plugin and the deploy tool's check say it is not used, and the simulated devices run with their [default behaviour](#default-behaviour).
+In a config with several networks ([version 2](config.md)), each network has its own switches: one network can be simulated while another runs on its real interface, and the simulated devices of each network are reached by its name (`--network NAME` on `openplc-canopen-diag sim`, the network picker in the configurator). The [simulation file](#the-simulation-file) has a section per network in version 2; a version 1 file serves a config with one network only (with several networks the plugin and the deploy tool's check say it is not used, and the simulated devices run with their [default behaviour](#default-behaviour)).
 
 A simulated master network and a simulated [slave network](slave.md#simulated-bus) with the same `interface` name share one simulated bus: the plugin's master then reaches the plugin's own slave. A simulated bus takes one master network and one slave network.
 
@@ -158,11 +158,32 @@ Behaviour is set in `canopen/simulation.json`, next to `canopen.json`. It travel
 
 | Field | Meaning |
 |---|---|
-| `schema_version` | 1 (default). A higher version is refused with both versions named. |
+| `schema_version` | 1 (default) or 2 ([below](#version-2-a-section-per-network)). A higher version is refused with both versions named. |
 | `tick_ms` | How often value sources and models run, 1-60000 ms, default 10. A node or a source can set its own. |
 | `nodes` | Behaviour per node ID (as a string key, `"5"`). Entries for nodes that are not simulated in this config are kept and do nothing, so a node can be switched between real and simulated without editing the file. An entry for a node ID that is neither in the config nor an extra device is an error. |
 | `extra_devices` | Devices that are simulated without being in the config: to try a bus scan, LSS commissioning or an identity check. Each has `node` (1-127, or 0: no node ID, waits for LSS), `eds` (an EDS or DCF, relative to this file), and optionally `name` (required with node 0; a device is addressed by its name then), `identity` and the node fields below. |
 | `scenarios` | Named [scenarios](#scenarios). |
+
+### Version 2: a section per network
+
+A config with several networks takes a version 2 file ([`schema/canopen-sim.v2.schema.json`](../schema/canopen-sim.v2.schema.json)). `tick_ms` stays at the top; `nodes`, `extra_devices` and `scenarios` go in the section of their network under `networks`, keyed by the network's name (its interface for a version 1 config):
+
+```json
+{
+  "schema_version": 2,
+  "tick_ms": 10,
+  "networks": {
+    "io": {
+      "nodes": { "5": { "sources": { "0x7130:1": { "sine": { "min": 200, "max": 260, "period_s": 30 } } } } },
+      "extra_devices": [ { "node": 0, "name": "spare_io", "eds": "dio16.eds", "identity": { "serial_number": 7099 } } ],
+      "scenarios": { "alarm": { "test": true, "steps": [ { "node": 5, "override": { "0x7130:1": 300 } } ] } }
+    },
+    "motion": { "nodes": { "4": { "drive": { "max_velocity": 50000 } } } }
+  }
+}
+```
+
+A section works as a version 1 file does for its own network: node keys, expressions (`[5/0x7130:1]`) and scenario steps refer to the devices of that network only. A section for a network that is not in the config is an error naming the networks there are; a network without a section runs with default behaviour. A version 1 file stays valid for a config with one network. The configurator's Simulation view edits the section of the network picked at the top and writes version 2 when the config has several networks ([configurator.md](configurator.md#simulation-view)). [`examples/virtual-plant`](../examples/virtual-plant/README.md) has a complete one.
 
 A node (or extra device) can have:
 
@@ -273,7 +294,7 @@ Faults are given in the simulation file (`faults`, in force from the start), by 
 
 ## Stored parameters
 
-A device whose EDS has 0x1010 keeps what is saved with "save" (0x65766173) across power off/on, a reset and an NMT reset, per subindex range as CiA 301 defines (1: all, 2: communication, 3: application, 4 and up: manufacturer). "load" (0x64616F6C) to 0x1011 forgets them at the next reset. The configuration date and time in 0x1020 are kept with them, so the plugin's [configuration check](config.md#configuration-check) works. LSS "store configuration" keeps an LSS-assigned node ID the same way. The plugin keeps stored values as long as the runtime runs (across PLC stop and start); the standalone simulator as long as it runs, or in `--state-dir`.
+A device whose EDS has 0x1010 keeps what is saved with "save" (0x65766173) across power off/on, a reset and an NMT reset, per subindex range as CiA 301 defines (1: all, 2: communication, 3: application, 4 and up: manufacturer). "load" (0x64616F6C) to 0x1011 forgets them at the next reset. The configuration date and time in 0x1020 are kept with them, so the plugin's [configuration check](config.md#configuration-check) works. LSS "store configuration" keeps an LSS-assigned node ID the same way. As CiA 305 has it, LSS Fastscan finds only devices without a node ID: a device that has one does not answer it, so a search on a busy bus finds the new device. The plugin keeps stored values as long as the runtime runs (across PLC stop and start); the standalone simulator as long as it runs, or in `--state-dir`.
 
 ## Scenarios
 

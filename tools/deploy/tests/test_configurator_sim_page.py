@@ -519,3 +519,59 @@ class Scenarios(View):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FileSections(Base):
+    """A config with several networks: the Simulation file tab edits the shown
+    network's section of a version 2 file (add-virtual-example)."""
+
+    def setUp(self):
+        super().setUp()
+        io = rtd_config()
+        io["name"] = "io"
+        line = {"name": "line", "adapter": {"type": "socketcan", "interface": "can1", "bitrate": 125000},
+                "master": {"node_id": 1}, "nodes": [{"node_id": 6, "name": "n6", "eds": "rtd8.eds"}]}
+        io.pop("schema_version", None)
+        self.write_config({"schema_version": 2, "networks": [io, line]})
+
+    def file_tab(self):
+        self.page.click('button[data-view="simulation"]')
+        self.page.click('button[data-sim-tab="file"]')
+
+    def test_each_network_its_section(self):
+        pg = self.page
+        self.open()
+        self.file_tab()
+        self.assertIn("Network io", pg.inner_text('[data-sim="file-section"]'))
+        pg.uncheck('[data-sim-file="5"] input[data-sim-field="default_behaviour"]')
+        pg.click('.net-tab[data-net="1"]')
+        self.file_tab()
+        self.assertIn("Network line", pg.inner_text('[data-sim="file-section"]'))
+        pg.uncheck('[data-sim-file="6"] input[data-sim-field="default_behaviour"]')
+        pg.click('button[data-sim="save"]')
+        pg.wait_for_selector("#banner:has-text('Saved')")
+        self.assertEqual(load(self.sim_path), {
+            "schema_version": 2,
+            "networks": {"io": {"nodes": {"5": {"default_behaviour": False}}},
+                         "line": {"nodes": {"6": {"default_behaviour": False}}}}})
+        # Saving one network's section keeps the other's.
+        pg.check('[data-sim-file="6"] input[data-sim-field="default_behaviour"]')
+        pg.evaluate("banner('')")
+        pg.click('button[data-sim="save"]')
+        pg.wait_for_selector("#banner:has-text('Saved')")
+        self.assertEqual(load(self.sim_path), {
+            "schema_version": 2, "networks": {"io": {"nodes": {"5": {"default_behaviour": False}}}}})
+
+    def test_version_1_file_is_converted_on_save(self):
+        pg = self.page
+        with open(self.sim_path, "w", encoding="utf-8") as f:
+            json.dump({"tick_ms": 20, "nodes": {"5": {"default_behaviour": False}}}, f)
+        self.open()
+        self.file_tab()
+        pg.click('button[data-sim="save"]')
+        pg.wait_for_selector("#modal[open]")
+        self.assertIn("section of network io", pg.inner_text("#modal-text"))
+        pg.click('#modal button[data-value="convert"]')
+        pg.wait_for_selector("#banner:has-text('Saved')")
+        self.assertEqual(load(self.sim_path), {
+            "schema_version": 2, "tick_ms": 20, "networks": {"io": {"nodes": {"5": {"default_behaviour": False}}}}})

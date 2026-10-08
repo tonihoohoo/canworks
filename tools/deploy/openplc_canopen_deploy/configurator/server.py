@@ -1760,7 +1760,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return simulation.remote_result(res, kind)
                 except ApiError:
                     pass  # not reachable, or the node is not simulated there: checked here instead
-            return self._check_expr_offline(s, expr, node, body.get("doc"))
+            return self._check_expr_offline(s, expr, node, body.get("doc"), network)
         if route == ("POST", "/api/sim/poll"):
             node = body.get("node")
             objects = [o for o in body.get("objects") or [] if isinstance(o, str)]
@@ -1793,13 +1793,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         raise ApiError(404, "no such API: %s %s" % route)
 
     @staticmethod
-    def _check_expr_offline(s, expr, node, doc):
+    def _check_expr_offline(s, expr, node, doc, network=None):
         """An expression checked on this PC (simulation.check_offline), with
-        the devices of the config and of the draft simulation file."""
+        the devices of the config's network (the picked one when there are
+        several) and of the draft simulation file's part (`doc`)."""
         with s.lock:
             cfg = s.read_config()[0]
+            if isinstance(cfg, dict) and contract.version_of(cfg) != 1:
+                try:
+                    cfg = contract.network_config(cfg, network)
+                except ValueError:
+                    cfg = {}
             if not isinstance(doc, dict):
                 doc = simulation.read(s.sim_path)["doc"]
+                if simulation.version(doc) >= 2:
+                    doc = ((doc.get("networks") or {}).get(network or "") or {})
             devices = {}
             for n in cfg.get("nodes") or []:
                 if isinstance(n, dict) and isinstance(n.get("eds"), str):

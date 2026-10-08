@@ -1559,9 +1559,16 @@ class Parser {
     }
     g.enabled = true;
     g.upper = (unsigned)up;
+    const Config& upc = set.networks[up];
+    for (const auto& c : set.networks)
+      if (!c.is_slave() && c.adapter.simulate && upc.adapter.simulate && c.adapter.interface == upc.adapter.interface)
+        g.upper_master = (int)c.network_index;
     bool any_master = false;
-    for (const auto& c : set.networks) any_master |= !c.is_slave();
-    if (!any_master) error(w, "a gateway needs at least one master network (its field network) besides \"" + upper + "\"");
+    for (const auto& c : set.networks) any_master |= g.is_field(c);
+    if (!any_master) error(w, "a gateway needs at least one master network (its field network) besides \"" + upper + "\"" +
+                                  (g.upper_master >= 0 ? " and the upper master's stand-in \"" +
+                                                             set.networks[g.upper_master].network + "\""
+                                                       : ""));
     get_bool(gw, "emcy_forward", w, g.emcy_forward);
     get_bool(gw, "sdo_bridge", w, g.sdo_bridge);
     get_bool(gw, "sdo_bridge_write", w, g.sdo_bridge_write);
@@ -1640,6 +1647,11 @@ class Parser {
       const Config& field = set.networks[fn];
       if (field.is_slave()) {
         error(fw, "network \"" + fnet + "\" is a slave network; a route's field end is on a master network");
+        continue;
+      }
+      if ((int)fn == g.upper_master) {
+        error(fw, "network \"" + fnet + "\" shares the upper network's simulated bus: it stands in for the upper "
+                  "master and is not a field network");
         continue;
       }
       rc.field_network = (unsigned)fn;
@@ -2044,6 +2056,10 @@ bool load_config(const std::string& path, const ImageLimits& limits,
   ConfigSet set;
   bool ok = load_config_set(path, limits, set, errors, eds_fallback_dir);
   return only_network(set, ok, out, errors);
+}
+
+bool GatewayConfig::is_field(const Config& c) const {
+  return !c.is_slave() && (int)c.network_index != upper_master;
 }
 
 bool force_simulate_from_env(const char* value) { return value && std::strcmp(value, "1") == 0; }

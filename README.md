@@ -6,6 +6,8 @@ A CANopen master (and slave) plugin for the [OpenPLC Runtime v4](https://github.
 
 The plugin reads a JSON file that lists the slave nodes, their EDS files and PDO entries, and binds each PDO entry to an explicit PLC address (`%IX`, `%IB`, `%IW`, `%ID`, `%IL` and the `%Q` equivalents). At every PLC start it validates the file against the EDS files, generates the device configuration with Lely's `dcfgen`, boots and configures every slave over SDO, and exchanges PDOs with the PLC image once per scan. A slave that is missing or drops off the bus never stops the PLC; its status bit goes FALSE and the master keeps trying to bring it back.
 
+**Try it without hardware:** [docs/tour.md](docs/tour.md) walks through [`examples/virtual-plant`](examples/virtual-plant/README.md), one editor project with four simulated networks that shows the features below working together on a PC, with only a container engine, the PC tools and the editor.
+
 ## On the PLC
 
 The plugin's behaviour is set in the config file; [docs/config.md](docs/config.md) describes each field.
@@ -54,7 +56,9 @@ plugin/sim/        the device simulator engine (simulated devices, value sources
                    CiA 402 drive model, faults, scenarios), used by the plugin and openplc-canopen-sim
 schema/            the config contract (JSON Schema 2020-12): canopen.v1.schema.json (one network),
                    canopen.v2.schema.json (several networks, slave networks, the gateway), and
-                   canopen-sim.v1.schema.json for the simulation file
+                   canopen-sim.v1/v2.schema.json for the simulation file (v2: a section per network)
+examples/          virtual-plant/: the fully virtual example project of docs/tour.md (four simulated
+                   networks, a demo program, a simulation file with test scenarios)
 config/            example configurations: config/pingpong/ (the ping-pong slave),
                    config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404), each with
                    an example simulation.json, config/two-networks/ (two ping-pong networks on
@@ -97,10 +101,11 @@ test/fixtures/     config and EDS fixtures shared by the plugin's and the deploy
 test/stock/        install-stock.sh, the editor hook and the upstream runtime's upload rules, end to end
 test/docker/       install-stock.sh in Docker mode and the runtime spec edits
 test/local-runtime/ openplc-canopen-sim-runtime against the image with a compiled PLC program (run.sh)
+test/virtual-example/ the virtual example on the image: checks, exports, every node up, test scenarios
 test/pc-tools/     the release tag check; test/ci/: the CI change classification
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
-docs/              config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
+docs/              tour.md (the guided tour of the virtual example), config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
                    frame-inspector.md, gateway.md, install-pc.md, install-stock.md, local-runtime.md, network-docs.md, plc-sdo.md, simulator.md, slave.md,
                    trace.md
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
@@ -154,11 +159,12 @@ Use a development machine, not one running your PLC: the stock test installs int
 
 ### Local simulator runtime image
 
-`.github/workflows/local-runtime.yml` builds the image of [docs/local-runtime.md](docs/local-runtime.md) from the pinned upstream runtime (`docker/local-runtime/runtime-version`) and runs `openplc-canopen-sim-runtime` against it with a PLC program compiled by STruC++, on pull requests that change the image, the plugin or the command, weekly and on "Run workflow"; an arm64 runner builds the arm64 image. Locally (needs Docker and Node 22):
+`.github/workflows/local-runtime.yml` builds the image of [docs/local-runtime.md](docs/local-runtime.md) from the pinned upstream runtime (`docker/local-runtime/runtime-version`) and runs `openplc-canopen-sim-runtime` against it with a PLC program compiled by STruC++, then deploys the virtual example to it and runs its test scenarios (`test/virtual-example/run.sh`), on pull requests that change the image, the plugin, the command or the example, weekly and on "Run workflow"; an arm64 runner builds the arm64 image. Locally (needs Docker and Node 22):
 
 ```sh
 docker build -f docker/local-runtime/Dockerfile --build-arg RUNTIME_IMAGE=ghcr.io/autonomy-logic/openplc-runtime:$(cat docker/local-runtime/runtime-version) -t openplc-canopen-sim-runtime:dev .
 test/local-runtime/run.sh --image openplc-canopen-sim-runtime:dev --strucpp "$(scripts/fetch-strucpp.sh)"
+test/virtual-example/run.sh --image openplc-canopen-sim-runtime:dev --strucpp "$(scripts/fetch-strucpp.sh)"
 ```
 
 ### PC tools on Windows, macOS and Linux

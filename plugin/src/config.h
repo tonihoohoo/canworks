@@ -384,6 +384,8 @@ struct RouteConfig {
   std::string label() const;  // "route 2 (temp1)"
 };
 
+struct Config;
+
 struct GatewayConfig {
   bool enabled = false;
   unsigned upper = 0;  // index of the slave network in ConfigSet::networks
@@ -396,6 +398,11 @@ struct GatewayConfig {
   bool sdo_bridge = false;
   uint16_t sdo_bridge_index = 0x5F00;
   bool sdo_bridge_write = false;
+  // A master network on the upper network's simulated bus stands in for the
+  // upper master (a whole machine simulated in one config): it is not a
+  // field network. Its index in ConfigSet::networks, or -1.
+  int upper_master = -1;
+  bool is_field(const Config& c) const;
 };
 
 // Highest config schema_version this plugin reads. Version 2 holds a list of
