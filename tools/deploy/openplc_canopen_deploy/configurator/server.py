@@ -1583,8 +1583,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if rounds is not None and (isinstance(rounds, bool) or not isinstance(rounds, int) or
                                            not 1 <= rounds <= 20):
                     raise ApiError(400, "rounds must be 1-20")
+                lone = body.get("lone_device") is True  # after the page asked; LSS probe
                 fn = lambda c: c.detect_bitrate(rates, None, rounds, body.get("force") is True,  # noqa: E731
-                                                body.get("disturb_bus") is True)
+                                                body.get("disturb_bus") is True, lone, "lss" if lone else None)
             try:
                 return conn.call(hostname, port, token, fn, network)
             except diag.DiagError as e:
@@ -1644,7 +1645,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """/api/online/adapter_detect and _status: "Detect" next to the bit
         rate in the USB adapter connection form. The adapter is opened
         listen-only at each rate, so the online connections on this PC are
-        closed first; nothing is sent, so no allow-changes is needed."""
+        closed first; nothing is sent, so no allow-changes is needed. With
+        `lone_device` (after the page asked whether only the bench device is
+        on the bus) it joins the bus in normal mode and sends the LSS probe."""
         from .. import localbus
         from ..localbus import sweep as sweep_mod
         if route[1].endswith("status"):
@@ -1666,7 +1669,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.server.connection.close()
         self.server.sender.close()
         job = sweep_mod.Sweep(spec, rounds=rounds, configured_kbit=kbit if isinstance(kbit, int) else None,
-                              disturb_bus=body.get("disturb_bus") is True)
+                              disturb_bus=body.get("disturb_bus") is True, lone_device=body.get("lone_device") is True,
+                              probe="lss" if body.get("lone_device") is True else None)
         try:
             job.start()
         except localbus.AdapterError as e:

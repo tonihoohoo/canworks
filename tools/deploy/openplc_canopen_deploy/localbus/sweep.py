@@ -15,6 +15,9 @@ import time
 from .. import bitrate as bitrate_mod
 from . import adapter as adapter_mod
 
+LSS_TX = 0x7E5
+LONE_HINT = ("a single device alone on the bus is never acknowledged by a listening adapter: run the lone-device "
+             "sweep (lone_device), or add a second device that acknowledges")
 IDS_KEPT = 16
 EFF_FLAG = 0x80000000  # extended identifiers in `ids`, as the plugin lists them
 
@@ -25,9 +28,13 @@ def _iso(t):
 
 class Sweep:
     def __init__(self, spec, rates=None, per_rate_ms=1000, rounds=1, configured_kbit=None, opener=None,
-                 disturb_bus=False):
+                 disturb_bus=False, lone_device=False, probe=None):
         self.spec = spec
         self.disturb_bus = disturb_bus  # sweep also when the adapter does not confirm listen-only
+        # The lone-device sweep joins the bus at each rate in normal mode, so the
+        # adapter acknowledges the one device's frames; `probe` ("lss" or
+        # {"sdo": node}) makes a quiet device answer.
+        self.lone_device, self.probe = bool(lone_device), probe
         rates = list(rates or bitrate_mod.RATES)
         # Rates the adapter cannot be set to are left out and named in the
         # result, not tried and failed.
@@ -77,20 +84,54 @@ class Sweep:
         if self._opened is not None:
             self._opened.close(restore=False)  # the link is set back once, at the end
             self._opened = None
-        opened = self.opener(self.spec, kbit * 1000, listen_only=True,
-                             **({"disturb_bus": True} if self.disturb_bus else {}))
+        if self.lone_device:
+            opened = self.opener(self.spec, kbit * 1000, listen_only=False)
+        else:
+            opened = self.opener(self.spec, kbit * 1000, listen_only=True,
+                                 **({"disturb_bus": True} if self.disturb_bus else {}))
         if first:
             self._restore = opened.restore
         opened.restore = None
         self._opened = opened
 
+    def _send(self, cob, data):
+        """A probe frame of the lone-device sweep. The shared adapter (Core) is
+        closed during a sweep, so the sweep sends on its own open adapter."""
+        import can
+        try:
+            self._opened.bus.send(can.Message(arbitration_id=cob, data=bytes(data).ljust(8, b"\0"),
+                                              is_extended_id=False), timeout=0.2)
+        except Exception:  # at a wrong rate the adapter may not get it out: nothing to count
+            pass
+
+    def _probe(self):
+        if self.probe == "lss":
+            self._send(LSS_TX, b"\x04\x01")  # switch state global: configuration
+            self._send(LSS_TX, b"\x5e")  # inquire node ID
+            self.probed_lss = True
+        elif isinstance(self.probe, dict) and self.probe.get("sdo"):
+            node = self.probe["sdo"]
+            self._send(0x600 + node, b"\x40\x00\x10\x00")  # upload 0x1000 sub 0
+
+    def _unprobe(self):
+        if getattr(self, "probed_lss", False):
+            self._send(LSS_TX, b"\x04\x00")  # every device back to LSS waiting
+            self.probed_lss = False
+
     def _listen(self, row):
         bus = self._opened.bus
-        end = time.monotonic() + self.per_rate_s
+        start = time.monotonic()
+        end = start + self.per_rate_s
+        probed = False
         while not self._stop.is_set():
-            left = end - time.monotonic()
+            now = time.monotonic()
+            left = end - now
             if left <= 0:
+                self._unprobe()
                 return
+            if self.probe and not probed and now - start >= self.per_rate_s / 2 and not row["frames"]:
+                probed = True
+                self._probe()
             try:
                 msg = bus.recv(min(0.1, left))
             except Exception as e:  # the adapter went away
@@ -122,11 +163,17 @@ class Sweep:
                         break
                     with self.lock:
                         self.done += 1
+                    if self.lone_device and bitrate_mod.matches(self.results[i]["frames"],
+                                                                self.results[i]["error_frames"]):
+                        break  # the device answered: no more wrong rates for it
                 if self._stop.is_set():
                     error = "stopped"
                     break
                 # A clear answer ends the sweep early.
                 if bitrate_mod.decide(self.results)["verdict"] == "detected":
+                    break
+                if self.lone_device and any(bitrate_mod.matches(r["frames"], r["error_frames"])
+                                            for r in self.results):
                     break
         except adapter_mod.AdapterError as e:
             error = str(e)
@@ -163,6 +210,10 @@ class Sweep:
                    "results": [dict(r, ids=list(r["ids"])) for r in self.results]}
             if self.skipped:
                 res["skipped_kbit"] = list(self.skipped)
+            if self.lone_device:
+                res["lone_device"] = True
+                if self.probe:
+                    res["probe"] = self.probe
             if self.running:
                 res["verdict"] = None
                 return res
@@ -173,7 +224,28 @@ class Sweep:
                 res["matches_config"] = d["bitrate_kbit"] == self.configured_kbit
             if self.error:
                 res["error"] = self.error
+            if d["verdict"] == "silent" and not self.lone_device:
+                res["hint"] = LONE_HINT
+            if d["verdict"] == "detected" and self.lone_device:
+                row = next(r for r in self.results if r["bitrate_kbit"] == d["bitrate_kbit"])
+                nodes = node_ids(row["ids"])
+                if len(nodes) > 1:
+                    res["warning"] = ("frames of %d nodes (%s) at %d kbit/s: the bus has more than this device, so "
+                                      "the lone-device sweep's error frames reached them too"
+                                      % (len(nodes), ", ".join(str(n) for n in nodes), d["bitrate_kbit"]))
             return res
+
+
+def node_ids(ids):
+    """The node IDs that identifiers of the CANopen services with a node ID
+    (EMCY, PDOs, SDO, heartbeat) name."""
+    out = set()
+    for i in ids:
+        if i & EFF_FLAG or i in (0x000, 0x080, 0x100, 0x7E4, 0x7E5):
+            continue
+        if 0x081 <= i <= 0x7FF and i & 0x7F:
+            out.add(i & 0x7F)
+    return sorted(out)
 
 
 def idle_status(configured_kbit):

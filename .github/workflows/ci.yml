@@ -115,7 +115,8 @@ jobs:
     # The plugin on vcan, split over three runners (each has its own vcan0) so
     # each runs about the same test time. Test step times (main, 2026-10-07):
     #   group 1: link setup 2 s, ping-pong 16, two networks 21, PLC-cycle SYNC 7,
-    #            LSS 11, bus state 10, RTD module 18, parameters 10, fixed PDOs 9 = ~105 s
+    #            LSS 11, bus state 10, RTD module 18, parameters 10, fixed PDOs 9,
+    #            device commissioning ~25 (new, estimated) = ~130 s
     #   group 2: raw frames and bit rate 53, standalone device simulator 60 = ~115 s
     #   group 3: bus trace 30, slcan 30, master and its own slave 29,
     #            PLC SDO blocks 5, PC-direct commissioning 32 = ~125 s
@@ -214,6 +215,10 @@ jobs:
       - name: Fixed PDO mapping (read-only mapping and COB-IDs) on vcan0
         if: steps.vcan.outcome == 'success' && matrix.group == 1
         run: test/fixed/run.sh
+
+      - name: Write a configuration to one device from the PC on vcan0 (simulated RTD module; then the runtime refusal)
+        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        run: test/commissioning/run.sh
 
       - name: The plugin's master and its own slave (vcan0 and vcan1 joined by cangw)
         if: steps.vcan.outcome == 'success' && matrix.group == 3

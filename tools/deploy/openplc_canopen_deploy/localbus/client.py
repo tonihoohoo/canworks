@@ -20,6 +20,7 @@ from ..diag import DiagError, FORCE_NEEDED, LSS_BITRATES, LSS_KEYS, NMT_COMMANDS
 from . import adapter as adapter_mod
 from . import core as core_mod
 from . import lss as lss_mod
+from . import pdo as pdo_mod
 from . import sdo as sdo_mod
 from . import sweep as sweep_mod
 
@@ -28,7 +29,8 @@ SCAN_PARALLEL = 8
 SCAN_PROBE_S = 0.1
 SCAN_READ_S = 0.2
 TRACE_MAX = 4000
-CHANGES = ("sdo_write", "nmt", "lss_find", "lss_inquire", "lss_set_id", "lss_set_bitrate", "send_frame")
+CHANGES = ("sdo_write", "nmt", "lss_find", "lss_inquire", "lss_set_id", "lss_set_bitrate", "send_frame",
+           "pdo_test_start", "pdo_test_set", "sync_start")
 NOT_LOCAL = "not available on a local adapter"
 # Raw frames, with the plugin's limits.
 SEND_RATE = 50  # single frames per second per handle
@@ -128,6 +130,7 @@ class LocalBus:
         core, self.core = self.core, None
         if core is not None:
             _end_jobs(core, self, "client disconnected")
+            pdo_mod.end_owner(core, self)
             if self.trace_after is not None:
                 core.trace_remove()
             core_mod.release(core)
@@ -223,8 +226,13 @@ class LocalBus:
     def send_frame_stop(self, job=None):
         return self.request("send_frame_stop", **({} if job is None else {"job": job}))
 
-    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False, disturb_bus=False):
+    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False, disturb_bus=False,
+                       lone_device=False, probe=None):
         fields = {}
+        if lone_device:
+            fields["lone_device"] = True
+        if probe:
+            fields["probe"] = probe
         if rates:
             fields["rates"] = list(rates)
         if per_rate_ms:
@@ -239,6 +247,32 @@ class LocalBus:
 
     def detect_bitrate_status(self):
         return self.request("detect_bitrate_status")
+
+    def pdo_test_start(self, node, layout, force=False):
+        return self.request("pdo_test_start", node=node, layout=layout, **({"force": True} if force else {}))
+
+    def pdo_test_status(self, node):
+        return self.request("pdo_test_status", node=node)
+
+    def pdo_test_set(self, node, rpdo, values, repeat_ms=None):
+        fields = {"node": node, "rpdo": rpdo, "values": values}
+        if repeat_ms is not None:
+            fields["repeat_ms"] = repeat_ms
+        return self.request("pdo_test_set", **fields)
+
+    def pdo_test_stop(self, node=None):
+        return self.request("pdo_test_stop", **({} if node is None else {"node": node}))
+
+    def sync_start(self, period_ms, counter=0, cob_id=None, force=False):
+        fields = {"period_ms": period_ms, "counter": counter}
+        if cob_id is not None:
+            fields["cob_id"] = cob_id
+        if force:
+            fields["force"] = True
+        return self.request("sync_start", **fields)
+
+    def sync_stop(self):
+        return self.request("sync_stop")
 
     # -- helpers ------------------------------------------------------------------
     def _network(self):
@@ -870,18 +904,20 @@ def _detect(c, f):
     except DiagError:
         raise DiagError("refused", "field 'per_rate_ms' must be 100-10000")
     rounds = _int(f.get("rounds", 1), "rounds", 1, 20)
+    lone, probe = _lone_fields(c, f)
     # Listen-only sends nothing, so neither allow-changes nor force; but the
     # adapter is closed for it, so no other view may be using it.
     core = c.core
     try:
-        core_mod.take_alone(core, lambda: _end_jobs(core, None, "bit rate detection"))
+        core_mod.take_alone(core, lambda: (_end_jobs(core, None, "bit rate detection"),
+                                           pdo_mod.end_owner(core, c, "bit rate detection")))
     except adapter_mod.AdapterError as e:
         raise DiagError("refused", str(e))
     c.reopen_error = None
     tracing = c.trace_after is not None
     c.core, c.trace_after = None, None
     sweep = sweep_mod.Sweep(c.spec, rates, per_rate_ms, rounds, configured_kbit=core.bitrate // 1000,
-                            disturb_bus=f.get("disturb_bus") is True)
+                            disturb_bus=f.get("disturb_bus") is True, lone_device=lone, probe=probe)
 
     def reopen():
         if c.sweep is not sweep:
@@ -903,6 +939,41 @@ def _detect(c, f):
         c.sweep = None
         raise DiagError("refused", str(e))
     return sweep.status()
+
+
+def _lone_fields(c, f):
+    """(lone_device, probe) of a detect_bitrate request, after the lone-device
+    sweep's guards: it joins the bus at every rate, so it needs allow-changes
+    and a bus where only the one device was heard."""
+    if "lone_device" in f and not isinstance(f["lone_device"], bool):
+        raise DiagError("refused", "field 'lone_device' must be true or false")
+    lone = f.get("lone_device") is True
+    probe = f.get("probe")
+    if probe is not None:
+        if not lone:
+            raise DiagError("refused", "field 'probe' needs 'lone_device'")
+        if isinstance(probe, dict) and set(probe) == {"sdo"}:
+            probe = {"sdo": _int(probe.get("sdo"), "probe.sdo", 1, 127)}
+        elif probe != "lss":
+            raise DiagError("refused", "field 'probe' must be \"lss\" or {\"sdo\": NODE}")
+    if not lone:
+        return False, None
+    if not c.allow_changes:
+        raise DiagError("refused", "changes not allowed (the lone-device sweep joins the bus at every rate; start "
+                                   "with --allow-changes)")
+    c.core.wait_listened()
+    other = c.core.other_master()
+    if other:
+        raise DiagError("refused", "another master is active on this bus (%s, last at %s): the lone-device sweep "
+                                   "is for a bench with one device" % (other["what"], other["last_at"]))
+    now = time.monotonic()
+    with c.core.lock:
+        heard = sorted(n for n, h in c.core.heard.items() if now - h["at"] <= OPERATIONAL_S)
+    if len(heard) > 1:
+        raise DiagError("refused", "more than one node is on the bus (heard nodes %s in the last %d s): the "
+                                   "lone-device sweep is for a bench with one device"
+                                   % (", ".join(str(n) for n in heard), OPERATIONAL_S))
+    return True, probe
 
 
 def _detect_status(c, f):
@@ -932,4 +1003,10 @@ OPS = {
     "send_frame_stop": _send_frame_stop,
     "detect_bitrate": _detect,
     "detect_bitrate_status": _detect_status,
+    "pdo_test_start": pdo_mod.start,
+    "pdo_test_status": pdo_mod.status,
+    "pdo_test_set": pdo_mod.set_values,
+    "pdo_test_stop": pdo_mod.stop,
+    "sync_start": pdo_mod.sync_start,
+    "sync_stop": pdo_mod.sync_stop,
 }
