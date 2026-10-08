@@ -65,6 +65,7 @@ async function api(method, path, body) {
   });
   let data = {};
   try { data = await res.json(); } catch (e) { /* empty body */ }
+  if (method === "POST" && typeof commLogApi === "function") commLogApi(path, body, res.ok, data);
   if (!res.ok) {
     const err = new Error(data.error || res.statusText);
     err.status = res.status;
@@ -3179,15 +3180,20 @@ function adapterForm(view) {
   const allow = el("input", { type: "checkbox", dataset: { online: "adapter-allow" } });
   const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } });
   const detectMsg = el("p", { class: "muted", dataset: { online: "adapter-detect-msg" } });
+  const lone = loneBox();
   const detect = el("button", { type: "button", class: "small", dataset: { online: "adapter-detect" },
     title: "Listen at each bit rate without sending anything, and pick the one with traffic",
-    onclick: () => adapterDetect(input, rate, detect, detectMsg) }, "Detect");
+    onclick: async () => {
+      const alone = lone.querySelector("input").checked;
+      if (alone && !(await askLone())) return;
+      adapterDetect(input, rate, detect, detectMsg, false, alone);
+    } }, "Detect");
   view.append(el("fieldset", null, el("legend", null, "Connect"), targetChoice(),
     el("p", { class: "muted" }, "The PC talks to the bus itself through the adapter: no runtime is needed. It sends nothing until you act, never SYNC, heartbeat or NMT to all nodes, and warns when another master runs on the bus."),
     el("div", { class: "grid" },
       el("label", null, "Adapter", el("div", { class: "row" }, list, refresh), input,
         hint("TYPE:CHANNEL. slcan (for example a CANable) on Windows, macOS and Linux, socketcan on Linux; other python-can types are passed through untested. Kept on this PC.")),
-      el("label", null, "Bit rate", el("div", { class: "row" }, rate, detect), detectMsg,
+      el("label", null, "Bit rate", el("div", { class: "row" }, rate, detect), lone, detectMsg,
         hint("The bus's bit rate. A wrong one disturbs the bus, so check it first: Detect listens at each rate in listen-only mode and sends nothing.")),
       el("div", { class: "check-field" }, el("label", { class: "check" }, allow, " Allow changes (SDO writes, NMT, LSS, restore)"),
         hint("Off by default and for every new connection: read-only."))),
@@ -3211,21 +3217,22 @@ async function askDisturb() {
 }
 function needsDisturb(text) { return /disturb_bus needed\s*$/.test(text || ""); }
 
-async function adapterDetect(input, rate, button, msg, disturb) {
+async function adapterDetect(input, rate, button, msg, disturb, alone) {
   if (!input.value.trim()) { msg.textContent = "Pick or type the adapter first."; input.focus(); return; }
   button.disabled = true;
   const show = (r) => {
     if (r.running) {
-      msg.textContent = `Listening at ${kbitText(r.rate_kbit || 0)} (${r.done} of ${r.total})… nothing is sent.`;
+      msg.textContent = r.lone_device ? `Trying ${kbitText(r.rate_kbit || 0)} (${r.done} of ${r.total}) in normal mode…`
+        : `Listening at ${kbitText(r.rate_kbit || 0)} (${r.done} of ${r.total})… nothing is sent.`;
       return false;
     }
     if (r.verdict === "detected") {
       rate.value = String(r.bitrate_kbit);
-      msg.textContent = `${kbitText(r.bitrate_kbit)} detected and picked.`;
+      msg.textContent = `${kbitText(r.bitrate_kbit)} detected and picked.` + (r.warning ? ` ${upperFirst(r.warning)}.` : "");
     } else if (r.verdict === "ambiguous") {
       msg.textContent = `Ambiguous: frames at ${(r.candidates || []).map(kbitText).join(", ")}. Detect again, or pick the bit rate yourself.`;
     } else if (r.verdict === "silent") {
-      msg.textContent = SILENT_TEXT;
+      msg.textContent = r.lone_device ? "No answer at any bit rate: check the wiring, the termination and the device's power." : SILENT_TEXT;
     } else {
       msg.textContent = `The sweep failed: ${r.error || "no reason given"}.`;
     }
@@ -3234,7 +3241,7 @@ async function adapterDetect(input, rate, button, msg, disturb) {
   };
   try {
     let r = await api("POST", "/api/online/adapter_detect", Object.assign({ adapter: input.value.trim(), adapter_bitrate: Number(rate.value) },
-      disturb ? { disturb_bus: true } : {}));
+      disturb ? { disturb_bus: true } : {}, alone ? { lone_device: true } : {}));
     while (!show(r)) {
       await new Promise((ok) => setTimeout(ok, 300));
       if (!button.isConnected) return;  // the form went away
@@ -3244,7 +3251,7 @@ async function adapterDetect(input, rate, button, msg, disturb) {
     if (e.body && e.body.disturb_bus && !disturb) {
       msg.textContent = "";
       button.disabled = false;
-      if (await askDisturb()) return adapterDetect(input, rate, button, msg, true);
+      if (await askDisturb()) return adapterDetect(input, rate, button, msg, true, alone);
       msg.textContent = `Not started: ${DISTURB_TEXT}`;
       return;
     }
@@ -3303,7 +3310,7 @@ function onlineSetup(view) {
 }
 
 function renderOnline(view) {
-  view.append(el("h2", null, "Online"));
+  view.append(el("h2", null, "Online"), stepsPanel() || "");
   if (!onlineSetup(view)) return;
   view.append(
     el("div", { class: "toolbar" }, netPicker(),
@@ -3761,8 +3768,11 @@ async function renderOnlineNode() {
   const allow = S.onlineLast ? S.onlineLast.hello.allow_changes : false;
   S.onlineNodeAllow = S.onlineLast ? allow : undefined;
   let tab = S.onlineTab || "overview";
-  if (slave && tab === "params") tab = "overview";
-  const tabList = tabs([["overview", "Overview"], ["od", "Object dictionary"], ["params", "Parameters"]].filter(([k]) => !slave || k !== "params"),
+  // The PDO test only on a USB adapter: on a runtime the PLC runs the PDOs.
+  const pdoTab = !slave && pdoTestLocal();
+  if ((slave && tab === "params") || (!pdoTab && tab === "pdo")) tab = "overview";
+  const tabList = tabs([["overview", "Overview"], ["od", "Object dictionary"], ["params", "Parameters"], ["pdo", "PDO test"]]
+    .filter(([k]) => (!slave || k !== "params") && (pdoTab || k !== "pdo")),
     tab, (k) => { S.onlineTab = k; renderOnlineNode(); }, { dataset: "onlineTab", panel: "online-node-panel", label: "Node pages" });
   const title = el("h2", null, `Node ${id} ${n && n.name ? n.name : (S.onlineEdsName || {})[id] || ""}`);
   const panel = (...kids) => el("div", { id: "online-node-panel", role: "tabpanel", "aria-labelledby": `online-node-panel-tab-${tab}` }, ...kids);
@@ -3770,6 +3780,7 @@ async function renderOnlineNode() {
   $("#editor").classList.toggle("wide-view", tab === "od");
   if (tab === "od") { put(box, title, tabList, panel(odPanel(id, n, allow))); return; }
   if (tab === "params") { put(box, title, tabList, panel(paramsPanel(id, n, allow))); return; }
+  if (tab === "pdo") { put(box, title, tabList, panel(pdoTestPanel(id, n, allow))); return; }
   if (slave) { put(box, title, tabList, panel(sdoPanel(id, n, allow))); return; }
   const emcy = el("div", { dataset: { online: "emcy" } }, el("span", { class: "muted" }, "Loading…"));
   const last = S.onlineLast && S.onlineLast.status ? (S.onlineLast.status.nodes || []).find((x) => x.node_id === id) : null;
@@ -3925,7 +3936,8 @@ const OD_GROUPS = [["communication", "Communication (0x1000-0x1FFF)"], ["manufac
   ["profile", "Device profile (0x6000-0x9FFF)"], ["other", "Other"]];
 const WATCH_MAX = 32;
 const WATCH_PERIODS = [500, 1000, 2000, 5000];
-const JOB_NAMES = { read: "Reading all", backup: "Backing up", compare: "Comparing", restore_plan: "Reading the device", restore: "Restoring" };
+const JOB_NAMES = { read: "Reading all", backup: "Backing up", compare: "Comparing", restore_plan: "Reading the device", restore: "Restoring",
+  configure_plan: "Reading the device", configure: "Writing the configuration", configure_verify: "Verifying" };
 
 // Where the server gets a node's EDS: the draft config for a configured
 // node, else the EDS a scan row opened it with.
@@ -4012,6 +4024,7 @@ async function followJob(j, status, onDone, resumed) {
     }
   }
   S.seenJobs = S.seenJobs || {};
+  if (!S.seenJobs[j.id] && typeof commLogJob === "function") commLogJob(j);
   S.seenJobs[j.id] = true;
   put(status);
   if (j.state === "failed") {
@@ -4850,8 +4863,10 @@ function paramsPanel(id, n, allow) {
   // Store on device (0x1010): only when the EDS has it.
   const storeBox = el("div", { dataset: { online: "store-box" } });
   odEntries(id).then((data) => {
+    const defaults = restoreDefaultsBox(id, data, allow);
+    const defaultsHint = defaults ? hint("Restore defaults writes \"load\" to 0x1011: the device takes its factory values at its next reset.") : null;
     if (!data.has_store) {
-      put(storeBox, el("p", { class: "muted" }, "The EDS has no store object (0x1010), so values cannot be stored on this device from here."));
+      put(storeBox, el("p", { class: "muted" }, "The EDS has no store object (0x1010), so values cannot be stored on this device from here."), defaults, defaultsHint);
       return;
     }
     const names = { 1: "all parameters", 2: "communication parameters", 3: "application parameters" };
@@ -4859,7 +4874,8 @@ function paramsPanel(id, n, allow) {
       data.store_subindices.map((s) => el("option", { value: s }, `sub ${s}: ${names[s] || "manufacturer-specific"}`)));
     put(storeBox, el("div", { class: "toolbar" }, sub,
       el("button", { type: "button", disabled: !allow, title: why, dataset: { online: "store" }, onclick: () => storeDialog(id, Number(sub.value), names[Number(sub.value)]) }, "Store on device…")),
-    hint("Writes \"save\" to 0x1010 so the device keeps its current values over a power cycle. Never done by restore. Each store wears the device's flash memory."));
+    hint("Writes \"save\" to 0x1010 so the device keeps its current values over a power cycle. Never done by restore. Each store wears the device's flash memory."),
+    defaults, defaultsHint);
   }).catch((e) => put(storeBox, el("p", { class: "field-msg" }, e.message)));
 
   put(box,
@@ -4876,12 +4892,15 @@ function paramsPanel(id, n, allow) {
       el("div", { class: "toolbar" }, resFile, el("label", { class: "inline" }, comm, " include communication objects (0x1000-0x1FFF)"),
         el("button", { type: "button", disabled: !allow, title: why, dataset: { online: "restore" }, onclick: restore }, "Restore…")),
       hint("Shows what would be written first. Writes only differing manufacturer and profile entries; PDO objects, store/restore commands and what the configuration writes at boot are left out. Restored values are not stored on the device.")),
+    onlineIsSlave() ? null : configureBox(id, n, allow, status, out),
     el("fieldset", null, el("legend", null, "Store on device"), storeBox),
     status, out);
-  resumeJob(id, ["backup", "compare", "restore_plan", "restore"], status, (j, resumed) => {
+  resumeJob(id, ["backup", "compare", "restore_plan", "restore", "configure", "configure_verify"], status, (j, resumed) => {
     if (j.kind === "backup") showBackup(j, resumed);
     else if (j.kind === "compare") compareDone(j);
     else if (j.kind === "restore") showRestore(j.result, out);
+    else if (j.kind === "configure") showConfigure(j.result, out);
+    else if (j.kind === "configure_verify") showVerify(j.result, out);
     else restoreDialog(id, j, status, out);
   });
   return box;
@@ -4947,7 +4966,7 @@ async function storeDialog(id, sub, what) {
 // Scan page
 
 function renderScan(view) {
-  view.append(el("h2", null, "Scan the bus"),
+  view.append(el("h2", null, "Scan the bus"), stepsPanel() || "",
     el("p", { class: "muted" }, "Asks every node ID 1-127 for its identity (0x1018), device type and name, through the runtime or the USB adapter. Reads only; PDOs keep running. Devices that are STOPPED do not answer."));
   const lib = el("input", { type: "text", spellcheck: "false", class: "wide", placeholder: "a folder of vendor EDS files",
     "aria-label": "EDS library folder", dataset: { online: "library" } });
@@ -4987,7 +5006,7 @@ function skippedText(r) {
   const k = r.skipped_kbit || [];
   return k.length ? ` Not tried: ${k.map(kbitText).join(", ")} (the adapter cannot be set to ${k.length === 1 ? "it" : "them"}).` : "";
 }
-const SILENT_TEXT = "The bus was silent. A listening adapter sends no acknowledge, so frames only count when another device acknowledges them: with one device on the bus, add a second device or a second adapter in normal mode. A device that only sends its boot-up message: power-cycle it during the sweep, or run more rounds.";
+const SILENT_TEXT = "The bus was silent. A listening adapter sends no acknowledge, so frames only count when another device acknowledges them: with one device on the bus, tick \"Only this device is on the bus\" (on a USB adapter), or add a second device or a second adapter in normal mode. A device that only sends its boot-up message: power-cycle it during the sweep, or run more rounds.";
 
 function detectSection() {
   const local = S.online.target === "adapter";
@@ -4995,14 +5014,22 @@ function detectSection() {
   const allow = local || !!(diagConfig() && diagConfig().allow_changes);
   const rounds = el("select", { "aria-label": "Rounds", dataset: { online: "detect-rounds" } },
     [1, 2, 3, 5, 10].map((n) => el("option", { value: n }, n === 1 ? "1 round" : `${n} rounds`)));
+  // The lone-device sweep sends (normal mode, LSS query): Allow changes on the adapter connection.
+  const loneAllow = local && !!(S.onlineLast && S.onlineLast.hello && S.onlineLast.hello.allow_changes);
+  const lone = local ? loneBox() : null;
+  if (lone && !loneAllow) {
+    lone.querySelector("input").disabled = true;
+    lone.title = ADAPTER_NO_CHANGES;
+  }
   return el("fieldset", { dataset: { online: "detect-box" } }, el("legend", null, "Detect bit rate"),
     el("p", { class: "muted" }, local ?
       "Finds the bit rate of the traffic on the bus: the USB adapter listens at 1000, 800, 500, 250, 125, 50, 20 and 10 kbit/s for a second each in listen-only mode, without sending anything, then goes back to its bit rate." :
       "Finds the bit rate of the traffic on this network's bus: the runtime stops CANopen on the network, listens at 1000, 800, 500, 250, 125, 50, 20 and 10 kbit/s for a second each without sending anything, then starts CANopen again. Other networks keep running."),
     allow ? null : el("p", { class: "field-msg warning", dataset: { online: "detect-blocked" } }, "Detecting the bit rate needs Allow changes in Online access"),
     el("div", { class: "toolbar" },
-      el("button", { type: "button", dataset: { online: "detect" }, disabled: !allow, onclick: () => runDetect(Number(rounds.value)) }, "Detect bit rate"),
-      rounds),
+      el("button", { type: "button", dataset: { online: "detect" }, disabled: !allow,
+        onclick: () => runDetect(Number(rounds.value), !!lone && lone.querySelector("input").checked) }, "Detect bit rate"),
+      rounds, lone),
     el("div", { id: "detect-result" }));
 }
 
@@ -5013,7 +5040,8 @@ function detectNet() {
   return S.model.networks.find((n) => netName(n) === name) || null;
 }
 
-async function runDetect(rounds) {
+async function runDetect(rounds, alone) {
+  if (alone) { if (await askLone()) await startDetect(rounds, false, false, true); return; }
   if (S.online.target === "adapter") { await startDetect(rounds, false); return; }  // listens only
   const name = onlineNetwork();
   const v = await modal(`Detect the bit rate${name ? " of network " + name : ""}? CANopen on that network stops during the sweep (about ${8 * rounds} s): the program's PDOs and SDOs on it stop, and the nodes boot again afterwards. The runtime only listens; nothing is sent on the bus.`,
@@ -5022,23 +5050,23 @@ async function runDetect(rounds) {
   await startDetect(rounds, false);
 }
 
-async function startDetect(rounds, force, disturb) {
+async function startDetect(rounds, force, disturb, alone) {
   const seq = S.onlineSeq;
   const net = onlineNetwork() ?? "";
-  S.detectArgs = { rounds, force };
+  S.detectArgs = { rounds, force, alone };
   let r;
   try {
     r = await api("POST", "/api/online/detect_bitrate", Object.assign({ port: diagPort(), rounds }, force ? { force: true } : {},
-      disturb ? { disturb_bus: true } : {}));
+      disturb ? { disturb_bus: true } : {}, alone ? { lone_device: true } : {}));
   } catch (e) {
     if (e.body && e.body.force && !force) {
       const v = await modal(`The runtime says: "${e.message}". Stop CANopen on this network for the sweep anyway?`,
         [["force", "Detect anyway", true], ["cancel", "Cancel"]]);
-      if (v === "force") return startDetect(rounds, true, disturb);
+      if (v === "force") return startDetect(rounds, true, disturb, alone);
       return;
     }
     if (e.body && e.body.disturb_bus && !disturb) {
-      if (await askDisturb()) return startDetect(rounds, force, true);
+      if (await askDisturb()) return startDetect(rounds, force, true, alone);
       return;
     }
     const box = $("#detect-result");
@@ -5077,7 +5105,8 @@ function showDetect(r) {
   const parts = [];
   if (r.running) {
     parts.push(el("p", { class: "sweep-progress", dataset: { online: "detect-progress" } },
-      `Listening at ${kbitText(r.rate_kbit)} (${r.done} of ${r.total}${r.total > 8 ? `, round ${r.round}` : ""})… CANopen on this network is stopped until the sweep ends.`));
+      r.lone_device ? `Trying ${kbitText(r.rate_kbit)} (${r.done} of ${r.total}) in normal mode with the LSS query…`
+        : `Listening at ${kbitText(r.rate_kbit)} (${r.done} of ${r.total}${r.total > 8 ? `, round ${r.round}` : ""})… CANopen on this network is stopped until the sweep ends.`));
   } else if (r.verdict) {
     const net = detectNet();
     const current = net && net.adapter ? net.adapter.bitrate : undefined;
@@ -5087,11 +5116,11 @@ function showDetect(r) {
       cls = "ok-text";
       const who = S.online.target === "adapter" ? "the USB adapter is set to" : "the runtime is configured for";
       text = `${kbitText(r.bitrate_kbit)} detected` + (r.matches_config ? `, the bit rate ${who}.` :
-        r.configured_kbit ? `; ${who} ${kbitText(r.configured_kbit)}.` : ".");
+        r.configured_kbit ? `; ${who} ${kbitText(r.configured_kbit)}.` : ".") + (r.warning ? ` ${upperFirst(r.warning)}.` : "");
     } else if (r.verdict === "ambiguous") {
       text = `Ambiguous: frames at ${(r.candidates || []).map(kbitText).join(", ")}. Run the sweep again, with more rounds.`;
     } else if (r.verdict === "silent") {
-      text = SILENT_TEXT;
+      text = r.lone_device ? "No answer at any bit rate: check the wiring, the termination and the device's power." : SILENT_TEXT;
       cls = "field-msg warning";
     } else if (needsDisturb(r.error)) {
       text = `The sweep stopped before listening. ${DISTURB_TEXT}`;
@@ -5104,7 +5133,7 @@ function showDetect(r) {
       parts.push(el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { online: "detect-disturb" },
         onclick: async () => {
           const a = S.detectArgs || { rounds: 1, force: false };
-          if (await askDisturb()) startDetect(a.rounds, a.force, true);
+          if (await askDisturb()) startDetect(a.rounds, a.force, true, a.alone);
         } }, "Sweep anyway")));
     }
     if (r.verdict === "detected" && net && r.bitrate_kbit * 1000 !== current) {
@@ -5211,6 +5240,9 @@ function scanAction(d) {
 // A scanned device that is not in the configuration, opened in the online
 // view's object dictionary and parameters tabs with the matching EDS.
 function openScannedOd(d, match) {
+  Object.assign(commDevice(), { node_id: d.node_id, vendor_id: d.vendor_id, product_code: d.product_code, revision_number: d.revision_number,
+    serial_number: d.serial_number, eds_path: match.path, eds_name: match.name });
+  stepDone("identity", `${hex8(d.vendor_id)} / ${hex8(d.product_code)}, ${match.name}`);
   S.onlineEds = Object.assign(S.onlineEds || {}, { [d.node_id]: match.path });
   S.onlineEdsName = Object.assign(S.onlineEdsName || {}, { [d.node_id]: d.device_name || match.name });
   S.onlineNode = d.node_id;
