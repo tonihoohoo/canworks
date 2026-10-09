@@ -43,11 +43,12 @@
 <div id="sim-banner" role="note" hidden></div>
 <div id="banner" role="status" hidden><span id="banner-text"></span><button id="banner-close" type="button" title="Close" aria-label="Close message">✕</button></div>
 <main id="start" hidden>
+  <p id="start-intro" class="start-intro">Configure CANopen and J1939 networks for OpenPLC Runtime v4, or commission a CANopen device from this PC.</p>
   <section class="start-choices">
-    <button id="start-project" type="button" class="choice"><strong>Open editor project</strong><span>Edit the project's canworks/ folder. Addresses are checked against the rest of the project.</span></button>
-    <button id="start-standalone" type="button" class="choice"><strong>Open standalone config</strong><span>A folder with canworks.json and its EDS files, before a project exists.</span></button>
-    <button id="start-new" type="button" class="choice"><strong>New standalone config</strong><span>Start an empty config in a folder; it is created when you first save.</span></button>
-    <button id="start-commission" type="button" class="choice"><strong>Commission a device</strong><span>A USB CAN adapter on this PC, no PLC and no config: scan, LSS, object dictionary, parameter backup, trace.</span></button>
+    <button id="start-project" type="button" class="choice"><strong>Open OpenPLC Editor project</strong><span>Edit the canworks/ folder of an OpenPLC Editor project. PLC addresses are checked against the project's program.</span></button>
+    <button id="start-standalone" type="button" class="choice"><strong>Open standalone config</strong><span>A folder with canworks.json and its EDS or DBC files, before an OpenPLC Editor project exists.</span></button>
+    <button id="start-new" type="button" class="choice"><strong>New standalone config</strong><span>Start an empty config in a folder. Move it into an OpenPLC Editor project when you have one.</span></button>
+    <button id="start-commission" type="button" class="choice"><strong>Commission a CANopen device</strong><span>A USB CAN adapter on this PC, no OpenPLC runtime and no config: scan, LSS, object dictionary, parameter backup, trace.</span></button>
   </section>
   <section class="browser">
     <h2 id="browser-title">Choose a folder</h2>

@@ -97,7 +97,7 @@ class IntoProject(unittest.TestCase):
         os.remove(os.path.join(self.project, "project.json"))
         code, _, err = deploy("--config", pingpong_config(self.dir), "--into-project", self.project)
         self.assertEqual(code, 1)
-        self.assertIn("not an OpenPLC editor project", err)
+        self.assertIn("not an OpenPLC Editor project", err)
 
     def test_cp1252_eds_converted(self):
         # The pingpong EDS with a CP1252 degree sign and euro sign in names.

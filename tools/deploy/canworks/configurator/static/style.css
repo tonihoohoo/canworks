@@ -74,7 +74,9 @@ input.warned { border-color: var(--warn); }
 .joined button { border-radius: 0 6px 6px 0; margin-left: -1px; }
 #banner.error { background: var(--error-bg); }
 main#start { max-width: 900px; margin: 20px auto; padding: 0 16px; display: grid; gap: 20px; }
-.start-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.start-intro { margin: 0 0 12px; color: var(--muted); }
+.start-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 640px) { .start-choices { grid-template-columns: minmax(0, 1fr); } }
 .choice { display: flex; flex-direction: column; text-align: left; gap: 4px; padding: 14px; white-space: normal; }
 .choice span { color: var(--muted); font-size: 13px; }
 .choice.selected { outline: 2px solid var(--accent); }

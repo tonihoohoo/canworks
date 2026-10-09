@@ -36,6 +36,7 @@
 #include "check.hpp"
 #include "config.h"
 #include "cJSON.h"
+#include "canopen_runtime.h"
 #include "dcf_gen.h"
 #include "diag.h"
 #include "eds_check.h"
@@ -237,7 +238,7 @@ class SlaveSim {
         n.wake.reset(new FdWake(poll_, gw_ ? gw_->fd(cfg.network_index) : -1, [&n] { n.net->ServiceGateway(); }));
       }
     }
-    PlcRequests::instance().open(static_cast<unsigned>(set_.networks.size()));
+    canopen_open_plc_requests(set_);  // the master networks, as the plugin does
     scan_timer_.settime(milliseconds(10), milliseconds(10));
     scan_timer_.submit_wait(exec_, [this](int, std::error_code ec) {
       if (!ec) Scan();

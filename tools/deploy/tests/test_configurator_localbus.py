@@ -162,6 +162,13 @@ class Commission(Running):
         # Not remembered among the recent folders.
         self.assertNotIn(st["folder"], [r["path"] for r in self.ok("GET", "/api/state")["recent"]])
 
+    def test_commission_works_through_an_adapter_only(self):
+        self.ok("POST", "/api/commission", {})
+        status, data, _ = self.request("POST", "/api/online/settings", {"target": "runtime"})
+        self.assertEqual(status, 422, data)
+        self.assertIn("USB adapter", str(data))
+        self.assertEqual(self.ok("GET", "/api/online/settings")["target"], "adapter")
+
 
 del PINGPONG
 

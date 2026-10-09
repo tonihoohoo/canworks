@@ -93,6 +93,9 @@ class AdapterPage(OnlineBase):
         pg.click("#start-commission")
         pg.wait_for_selector('input[data-online="adapter"]')
         self.assertIn("commissioning a device", pg.inner_text("#mode"))
+        # A USB adapter only: no Runtime choice, no hint about a config's online access.
+        self.assertEqual(pg.query_selector_all('input[name="online-target"]'), [])
+        self.assertNotIn("Online access is off", pg.inner_text("#view"))
         pg.fill('input[data-online="adapter"]', "virtual:" + self.ch)
         # No network here, so no bit rate is picked for the user.
         self.assertEqual(pg.input_value('select[data-online="adapter-bitrate"]'), "")

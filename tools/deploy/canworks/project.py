@@ -42,7 +42,7 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
     if not os.path.isdir(project_dir):
         raise ProjectError("%s is not a directory" % project_dir)
     if not os.path.isfile(os.path.join(project_dir, "project.json")):
-        raise ProjectError("%s is not an OpenPLC editor project (it has no project.json)" % project_dir)
+        raise ProjectError("%s is not an OpenPLC Editor project (it has no project.json)" % project_dir)
     target = os.path.join(project_dir, DIR)
     if os.path.lexists(target) and not force:
         raise ProjectError("%s already exists; pass --force to replace it" % target)
