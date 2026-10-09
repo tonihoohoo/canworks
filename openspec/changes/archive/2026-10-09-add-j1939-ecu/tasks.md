@@ -54,4 +54,4 @@
 
 - [x] 10.1 Pi with its adapter as the PLC at 250 kbit/s on a segment without the CANopen node; a second adapter on the PC runs `canworks-j1939-sim` with the example DBC; check address claim, RX values into the PLC, TX values seen by the simulator, request round trip, and the timeout bit when the simulator stops. Run at 500 kbit/s with a CANopen node and the running PLC on the same bus; the request round trip brought a 40-byte BAM answer into the PLC. The runs found and fixed: the slcan open on a busy bus, pywin32 missing on Windows, the claim state not reaching the PLC after a claim seen on the bus, and sends refused just after a claim.
 - [x] 10.2 Contention on the bench: the simulator contends for the PLC's address; the PLC moves within its range; with the range removed it reports "cannot claim" and goes silent.
-- [ ] 10.3 Unplug and replug the Pi's adapter; the network re-claims and resumes. (Taking the interface down and up passed: the network claimed again and resumed.)
+- [x] 10.3 Unplug and replug the Pi's adapter; the network re-claims and resumes. (Also passed: taking the interface down and up.)

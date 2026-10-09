@@ -159,6 +159,12 @@ class Proxy(Online):
         deployed, _ = bundle.rewrite(json.loads(read(path, "r")), path)
         text = json.dumps(deployed, indent=2) + "\n"
         self.assertIn(hashlib.sha256(text.encode()).hexdigest(), online.fingerprints(path))
+        # The file the bundle really carries, written on this OS (LF on Windows too).
+        work = tmpdir(self)
+        os.makedirs(os.path.join(work, "src"))
+        staged, _ = bundle.assemble(os.path.join(work, "src"), deployed, {}, work)
+        raw = read(os.path.join(staged, "conf", "canworks.json"))
+        self.assertIn(hashlib.sha256(raw).hexdigest(), online.fingerprints(path))
 
     def test_connection_errors(self):
         self.ok("POST", "/api/online/settings", {"host": "127.0.0.1:%d" % closed_port()})

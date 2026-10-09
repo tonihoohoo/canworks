@@ -196,10 +196,12 @@ def assemble(bundle_dir, deployed_cfg, eds_by_name, work_dir, fw_by_name=None, s
             os.makedirs(csv_dir)
             for name, src in sorted(csv_by_name.items()):
                 shutil.copyfile(src, os.path.join(csv_dir, name))
-        with open(os.path.join(conf, *SIM_FILE.split("/")), "w", encoding="utf-8") as f:
+        with open(os.path.join(conf, *SIM_FILE.split("/")), "w", encoding="utf-8", newline="\n") as f:
             json.dump(sim_data, f, indent=2)
             f.write("\n")
-    with open(os.path.join(conf, "canworks.json"), "w", encoding="utf-8") as f:
+    # LF on every OS: the configurator compares the runtime's SHA-256 of this
+    # file with the LF form (online.fingerprints).
+    with open(os.path.join(conf, "canworks.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(deployed_cfg, f, indent=2)
         f.write("\n")
     return staged, converted
