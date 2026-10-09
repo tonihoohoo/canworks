@@ -18,8 +18,8 @@
 #   - on a simulated network, a forced SDO upload request to node 2 sent by
 #     hand gets the simulated device's answer, both in the trace;
 #   - raw config messages next to the CANopen network (add-raw-can): the sent
-#     message goes out every 50 ms, a received one counts, the plugin
-#     confirms its own frames by their echo, and a replay plays three frames.
+#     message goes out every 50 ms, a received one counts, and a replay
+#     plays three frames.
 #
 # Needs a build of this repo and an UP interface (sudo scripts/dev-setup.sh).
 
@@ -190,11 +190,12 @@ assert 15 <= len(beats) <= 25, "raw message 0x3F0 every 50 ms: %d frames in 1 s"
 rx.send(struct.pack("=IB3x8s", 0x3F1, 2, bytes.fromhex("3412") + bytes(6)))
 time.sleep(0.2)
 raw = c.status()["raw"]
-assert raw["confirm"] == "echo", raw
+# vcan has no IFF_ECHO by default: its frames are confirmed by a written send.
+assert raw["confirm"] in ("echo", "write"), raw
 remote = [m for m in raw["rx"] if m["message"].startswith("Remote")][0]
 assert remote["count"] == 1 and remote["last_data"] == "34 12", remote
 assert [m for m in raw["tx"] if m["message"].startswith("Beat")][0]["count"] >= 15, raw["tx"]
-print("    raw messages: 0x3F0 every 50 ms, 0x3F1 received, echo confirmation")
+print("    raw messages: 0x3F0 every 50 ms, 0x3F1 received, confirmation by %s" % raw["confirm"])
 frames = [{"t_us": i * 20000, "id": 0x3F2, "dlc": 1, "data": "%02X" % i} for i in range(3)]
 c.replay(frames, force=True)
 got = [x for x in drain(0.5) if x[0] == 0x3F2]
