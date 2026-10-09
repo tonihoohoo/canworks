@@ -1116,7 +1116,7 @@ class Session:
 
 
     # -- a new editor project around a standalone config --------------------
-    def new_project(self, parent, name, interval=None, sdo_blocks=False):
+    def new_project(self, parent, name, interval=None, blocks=False):
         if self.mode != "standalone":
             raise ApiError(400, "only a standalone config can become a new editor project")
         if self.pending or self.pending_dbc or self.changed_on_disk() or not os.path.isfile(self.config_path):
@@ -1145,12 +1145,12 @@ class Session:
         try:
             path, decls = editorproject.create(cfg, self.config_path, target,
                                                interval=interval or editorproject.DEFAULT_INTERVAL,
-                                               runtime_address=address, sdo_blocks=sdo_blocks)
+                                               runtime_address=address, blocks=blocks)
         except editorproject.NewProjectError as e:
             raise ApiError(422, str(e))
         self.open(path, "project")
         out = {"project": path, "declared": len(decls)}
-        if sdo_blocks:
+        if blocks:
             out["library_ok"], out["library"] = sdolibrary.ensure_installed()
         return out
 
@@ -1412,7 +1412,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/new_project"):
                     self._need_open(s)
                     out = s.new_project(body.get("parent"), body.get("name"), body.get("interval"),
-                                        bool(body.get("sdo_blocks")))
+                                        bool(body.get("blocks")))
                     out["state"] = s.state()
                 elif route == ("POST", "/api/quit"):
                     quitting = True

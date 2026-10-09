@@ -5989,9 +5989,9 @@ async function newEditorProject() {
   const [pl, parent] = field("Folder to create it in", S.state.home, "Parent folder");
   const [nl, name] = field("Project name (its folder)", "", "Project name");
   const [il, interval] = field("Task interval", "T#20ms", "Task interval");
-  const sdoBlocks = el("input", { type: "checkbox", "aria-label": "Enable CANopen SDO blocks", dataset: { newProject: "sdo-blocks" } });
-  const sl = el("label", { class: "inline", title: "Enables the canworks library (CO_SDO_READ, CO_SDO_WRITE, ...) in the project and installs it into the editor" },
-    sdoBlocks, " Enable CANopen SDO blocks");
+  const blocks = el("input", { type: "checkbox", "aria-label": "Enable the canworks function blocks", dataset: { newProject: "blocks" } });
+  const sl = el("label", { class: "inline", title: "Enables the canworks library (CO_SDO_READ, CO_SDO_WRITE, CAN_SEND, CAN_RECEIVE, ...) in the project and installs it into the editor" },
+    blocks, " Enable the canworks function blocks");
   const form = el("div", { class: "new-project" }, pl, nl, il, sl,
     el("p", { class: "hint" }, "The program main declares every CANopen location once. Later config changes do not " +
       "change it: declare new locations from Variable declarations."));
@@ -6002,7 +6002,7 @@ async function newEditorProject() {
     let r;
     try {
       r = await api("POST", "/api/new_project", { parent: parent.value.trim(), name: name.value.trim(),
-        interval: interval.value.trim(), sdo_blocks: sdoBlocks.checked });
+        interval: interval.value.trim(), blocks: blocks.checked });
     } catch (e) {
       text = "Not created: " + e.message;
       continue;

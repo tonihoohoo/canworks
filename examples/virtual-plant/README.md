@@ -15,7 +15,7 @@ The diagnostics channel is on with changes allowed. Its token is `virtual-plant-
 
 ## The program
 
-`pous/programs/main.st` starts with what `canworks-deploy --new-project --sdo-blocks --task-interval T#10ms` declares for this config, then:
+`pous/programs/main.st` starts with what `canworks-deploy --new-project --blocks --task-interval T#10ms` declares for this config, then:
 
 - scales RTD channel 0 to °C and switches DIO-16 output 0.0 on above the limit the host sets (25.0 °C), which also goes to the host as the cell's `alarm` with an EMCY;
 - runs a light along DIO-16 output byte 2 and checks it comes back on input byte 2 (the simulated CiA 401 module loops outputs to inputs);

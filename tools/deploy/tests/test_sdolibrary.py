@@ -1,12 +1,14 @@
 """The canworks editor library in the deploy tool (add-plc-sdo-blocks
 tasks 4.1, 4.2 and 4.5)."""
 
+import contextlib
+import io
 import json
 import os
 import unittest
 from unittest import mock
 
-from canworks import __version__, editorproject, sdolibrary
+from canworks import __version__, cli, editorproject, sdolibrary
 
 from .helpers import fake_editor_cli, pingpong_config, tmpdir
 from .test_deploy import deploy
@@ -162,16 +164,16 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("give --out DIR", err)
 
-    def test_new_project_sdo_blocks(self):
+    def test_new_project_blocks(self):
         config = pingpong_config(self.dir)
         target = os.path.join(self.dir, "pp")
-        code, out, err = deploy("--config", config, "--new-project", target, "--sdo-blocks", env=self.env)
+        code, out, err = deploy("--config", config, "--new-project", target, "--blocks", env=self.env)
         self.assertEqual(code, 0, err)
         self.assertEqual(load(os.path.join(target, "project.json"))["data"]["libraries"],
                          [{"name": "canworks", "version": __version__}])
         self.assertIn("installed canworks %s into the editor" % __version__, out)
         # A second project finds the library installed.
-        code, out, err = deploy("--config", config, "--new-project", target + "2", "--sdo-blocks", env=self.env)
+        code, out, err = deploy("--config", config, "--new-project", target + "2", "--blocks", env=self.env)
         self.assertEqual(code, 0, err)
         self.assertIn("canworks %s is installed in the editor" % __version__, out)
 
@@ -179,7 +181,7 @@ class Cli(unittest.TestCase):
         config = pingpong_config(self.dir)
         target = os.path.join(self.dir, "pp")
         env = dict(self.env, OPENPLC_EDITOR_USER_DATA=os.path.join(self.dir, "none"))
-        code, _, err = deploy("--config", config, "--new-project", target, "--sdo-blocks", env=env)
+        code, _, err = deploy("--config", config, "--new-project", target, "--blocks", env=env)
         self.assertEqual(code, 0, err)
         self.assertIn("library --out DIR", err)
         self.assertEqual(load(os.path.join(target, "project.json"))["data"]["libraries"][0]["name"],
@@ -193,11 +195,21 @@ class Cli(unittest.TestCase):
         self.assertEqual(load(os.path.join(target, "project.json"))["data"]["libraries"], [])
         self.assertFalse(os.path.exists(os.path.join(self.ud, "libraries")))
 
-    def test_sdo_blocks_needs_new_project(self):
+    def test_blocks_needs_new_project(self):
         code, _, err = deploy("--config", pingpong_config(self.dir), "--check-only", "--bundle", self.dir,
-                              "--sdo-blocks", env=self.env)
+                              "--blocks", env=self.env)
         self.assertEqual(code, 1)
-        self.assertIn("--sdo-blocks needs --new-project", err)
+        self.assertIn("--blocks needs --new-project", err)
+
+    def test_old_option_is_unknown(self):
+        """add-raw-can: --sdo-blocks became --blocks, a clean cut."""
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as e:
+            cli.main(["--config", pingpong_config(self.dir), "--new-project", os.path.join(self.dir, "pp"),
+                      "--sdo-blocks"])
+        self.assertEqual(e.exception.code, 2)
+        self.assertIn("unrecognized arguments: --sdo-blocks", err.getvalue())
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "pp")))
 
 
 class CreateDirect(unittest.TestCase):
@@ -205,7 +217,7 @@ class CreateDirect(unittest.TestCase):
         d = tmpdir(self)
         with mock.patch.dict(os.environ, {"OPENPLC_CLI": fake_editor_cli(d)}):
             config = pingpong_config(d)
-            path, _ = editorproject.create(load(config), config, os.path.join(d, "x"), sdo_blocks=True)
+            path, _ = editorproject.create(load(config), config, os.path.join(d, "x"), blocks=True)
         self.assertEqual(load(os.path.join(path, "project.json"))["data"]["libraries"][0]["name"],
                          "canworks")
 
