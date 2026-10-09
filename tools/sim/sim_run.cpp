@@ -495,8 +495,8 @@ class LoopRawDevices {
 
   std::unique_ptr<canworks_raw::RawSimDevices> devices_;
   ev_exec_t* exec_;
-  std::unique_ptr<lely::io::CanChannelBase> chan_;
-  std::unique_ptr<lely::io::TimerBase> timer_;
+  std::shared_ptr<lely::io::CanChannelBase> chan_;
+  std::shared_ptr<lely::io::TimerBase> timer_;
   std::unique_ptr<lely::io::TimerWait> wait_;
   can_msg msg_ = CAN_MSG_INIT;
   bool stopped_ = false;

@@ -375,8 +375,8 @@ void Bus::run_session() {
         const bool tapped = static_cast<bool>(tap_chan);
         raw_bridge.reset(new RawBridgeServer(ctx, poll, exec, *vbus, bridge, [&, tapped](const can_msg& m, bool own) {
           if (!own || !tapped) return;
-          if (injected.size() >= 64) injected.pop_front();
-          injected.push_back(m);
+          if (sent.size() >= 256) sent.pop_front();
+          sent.push_back(m);
         }));
       }
     }

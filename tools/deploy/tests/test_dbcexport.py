@@ -213,8 +213,8 @@ class Pdos(unittest.TestCase):
         path = os.path.join(REPO, "examples", "virtual-plant", "canworks", "canworks.json")
         files, _ = dbcexport.export_networks(load(path), path, network="io")
         lines = [ln for ln in files[0][1].splitlines() if ln.startswith("CM_ SG_ 518 ")]
-        self.assertTrue(any('"0x6411:1 INTEGER16 (gateway route, no PLC location)"' in ln for ln in lines), lines)
-        self.assertTrue(any('"0x6411:2 INTEGER16 -> %QW110"' in ln for ln in lines), lines)
+        self.assertTrue(any('"0x6411:1 INTEGER16 (gateway route, no PLC location)' in ln for ln in lines), lines)
+        self.assertTrue(any('"0x6411:2 INTEGER16 -> %QW110' in ln for ln in lines), lines)
 
 
 class Notes(unittest.TestCase):

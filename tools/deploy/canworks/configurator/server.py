@@ -1224,11 +1224,11 @@ class Session:
         if not overwrite and self.changed_on_disk():
             raise ApiError(409, "%s changed on disk after it was loaded" % self.config_path, changed_on_disk=True)
         try:
-            return self._save(cfg, checked)
+            return self._save(cfg, checked, notes)
         except OSError as e:
             raise folder_error(e, "write to", self.canopen_dir)
 
-    def _save(self, cfg, checked):
+    def _save(self, cfg, checked, notes=None):
         os.makedirs(self.canopen_dir, exist_ok=True)
         written = []
         referenced = {n["eds"] for n in contract.eds_users(cfg)}
