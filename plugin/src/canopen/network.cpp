@@ -928,13 +928,15 @@ void Network::ArmInputPdos(unsigned id, bool up) {
   }
 }
 
-// Lely's deadline runs only from a received PDO; one that never arrives
-// after the node came up is caught here, on the supervision tick.
+// The timeout is checked here, on the supervision tick: from the last PDO,
+// or from the node coming up when none has arrived since. Lely's deadline
+// (HandleRpdoTimeout) can only report it earlier: it runs only from a
+// received PDO, and does not fire for a synchronous RPDO on the simulated bus.
 void Network::CheckInputPdos(clock::time_point now) {
   for (auto& it : in_pdos_) {
     InputPdo& p = it.second;
-    if (!p.timeout_ms || p.timed_out || p.seen || !IsOperational(p.node_id)) continue;
-    if (now - p.armed >= std::chrono::milliseconds(p.timeout_ms)) PdoTimedOut(p, now);
+    if (!p.timeout_ms || p.timed_out || !IsOperational(p.node_id)) continue;
+    if (now - (p.seen ? p.last_rx : p.armed) >= std::chrono::milliseconds(p.timeout_ms)) PdoTimedOut(p, now);
   }
 }
 
