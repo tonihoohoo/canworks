@@ -42,12 +42,12 @@
 
 ## 7. CI
 
-- [ ] 7.1 Area classifier: raw paths count as `shared`; no new job; state wall time and summed job time against the baseline (median of the last 5 green `main` push runs with code changes) in the PR and pay for any increase in the same PR.
+- [x] 7.1 Area classifier: raw paths count as `shared`; no new job; state wall time and summed job time against the baseline (median of the last 5 green `main` push runs with code changes) in the PR and pay for any increase in the same PR.
 
 ## 8. Docs
 
 - [x] 8.1 `docs/raw-can.md` (plain networks, raw messages, listen-only, blocks with examples, what `DONE` means per adapter, replay, simulator), README feature list and layout, `docs/configurator.md` CAN messages section; bump the PC tools minor version.
-- [ ] 8.2 Run the banned-word check on the branch.
+- [x] 8.2 Run the banned-word check on the branch.
 
 ## 9. Hardware (bench PLC; skip and leave open when it is not reachable)
 
