@@ -15,7 +15,7 @@
       "$ref": "canworks.v1.schema.json#/$defs/master/properties/diagnostics"
     },
     "networks": {
-      "description": "The CANopen networks: master networks (one master per CAN interface) and slave networks.",
+      "description": "The networks: CANopen master networks (one master per CAN interface), CANopen slave networks and J1939 networks (\"protocol\": \"j1939\", docs/j1939.md).",
       "type": "array",
       "minItems": 1,
       "maxItems": 8,
@@ -48,6 +48,10 @@
           "type": "string",
           "pattern": "^[A-Za-z][A-Za-z0-9_]{0,15}$"
         },
+        "protocol": {
+          "description": "\"canopen\" (default) or \"j1939\" (docs/j1939.md). A J1939 network has 'adapter' and 'j1939', and none of 'role', 'master', 'nodes' and 'slave'.",
+          "enum": [ "canopen", "j1939" ]
+        },
         "role": {
           "description": "\"master\" (default): OpenPLC is the network's NMT master, with 'master' and 'nodes'. \"slave\": OpenPLC is one CANopen device under another master, with 'slave' instead (docs/slave.md).",
           "enum": [ "master", "slave" ]
@@ -64,24 +68,136 @@
           "type": "array",
           "items": { "$ref": "#/$defs/field_node" }
         },
-        "slave": { "$ref": "#/$defs/slave" }
+        "slave": { "$ref": "#/$defs/slave" },
+        "j1939": { "$ref": "#/$defs/j1939" }
       },
       "allOf": [
         { "not": { "anyOf": [ { "required": [ "interface" ] }, { "required": [ "bitrate" ] } ] } },
         {
-          "if": { "properties": { "role": { "const": "slave" } }, "required": [ "role" ] },
+          "if": { "properties": { "protocol": { "const": "j1939" } }, "required": [ "protocol" ] },
           "then": {
-            "description": "A slave network has an adapter and a slave object, and no master or nodes.",
-            "required": [ "adapter", "slave" ],
-            "not": { "anyOf": [ { "required": [ "master" ] }, { "required": [ "nodes" ] } ] }
+            "description": "A J1939 network has an adapter and a j1939 object, none of the CANopen keys, and runs on a real or vcan interface, not on the simulated bus.",
+            "required": [ "adapter", "j1939" ],
+            "not": { "anyOf": [ { "required": [ "role" ] }, { "required": [ "master" ] }, { "required": [ "nodes" ] }, { "required": [ "slave" ] } ] },
+            "properties": { "adapter": { "not": { "properties": { "simulate": { "const": true } }, "required": [ "simulate" ] } } }
           },
           "else": {
-            "description": "A master network has an adapter, a master and nodes, and no slave object.",
-            "required": [ "adapter", "master", "nodes" ],
-            "not": { "required": [ "slave" ] }
+            "not": { "required": [ "j1939" ] },
+            "if": { "properties": { "role": { "const": "slave" } }, "required": [ "role" ] },
+            "then": {
+              "description": "A slave network has an adapter and a slave object, and no master or nodes.",
+              "required": [ "adapter", "slave" ],
+              "not": { "anyOf": [ { "required": [ "master" ] }, { "required": [ "nodes" ] } ] }
+            },
+            "else": {
+              "description": "A master network has an adapter, a master and nodes, and no slave object.",
+              "required": [ "adapter", "master", "nodes" ],
+              "not": { "required": [ "slave" ] }
+            }
           }
         }
       ]
+    },
+    "j1939": {
+      "description": "A J1939 network (docs/j1939.md): the PLC's ECU identity, the PGNs it receives into %I, the PGNs it sends from %Q and the requests it sends. Signals reach the PLC as raw integers; scale, offset and unit are for the tools and the generated declarations.",
+      "type": "object",
+      "properties": {
+        "ecu": { "$ref": "#/$defs/j1939_ecu" },
+        "dbc": { "description": "The DBC file the messages came from, relative to the config file (for the tools; the plugin does not read it).", "type": "string", "minLength": 1 },
+        "rx": { "description": "PGNs received into the PLC.", "type": "array", "items": { "$ref": "#/$defs/j1939_rx" } },
+        "tx": { "description": "PGNs the PLC sends.", "type": "array", "items": { "$ref": "#/$defs/j1939_tx" } },
+        "requests": { "description": "Requests (PGN 59904) the PLC sends periodically; answers are received like any rx PGN.", "type": "array", "items": { "$ref": "#/$defs/j1939_request" } }
+      },
+      "required": [ "ecu" ]
+    },
+    "j1939_ecu": {
+      "type": "object",
+      "properties": {
+        "name": { "$ref": "#/$defs/j1939_name" },
+        "address": { "description": "The preferred source address.", "$ref": "#/$defs/j1939_address" },
+        "address_range": {
+          "description": "[low, high]: the addresses the ECU may move to when it loses its address to a lower NAME (needs arbitrary_address_capable).",
+          "type": "array", "items": { "$ref": "#/$defs/j1939_address" }, "minItems": 2, "maxItems": 2
+        },
+        "state_location": { "description": "Byte input for the claim state: 0 claiming, 1 claimed, 2 cannot claim, 3 no bus.", "$ref": "canworks.v1.schema.json#/$defs/input_byte" },
+        "address_location": { "description": "Byte input for the current source address (254 while none is held).", "$ref": "canworks.v1.schema.json#/$defs/input_byte" }
+      },
+      "required": [ "name", "address" ]
+    },
+    "j1939_name": {
+      "description": "The ECU's 64-bit NAME, field by field. Missing fields are 0 (false).",
+      "type": "object",
+      "properties": {
+        "identity_number": { "type": "integer", "minimum": 0, "maximum": 2097151 },
+        "manufacturer_code": { "type": "integer", "minimum": 0, "maximum": 2047 },
+        "ecu_instance": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "function_instance": { "type": "integer", "minimum": 0, "maximum": 31 },
+        "function": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "vehicle_system": { "type": "integer", "minimum": 0, "maximum": 127 },
+        "vehicle_system_instance": { "type": "integer", "minimum": 0, "maximum": 15 },
+        "industry_group": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "arbitrary_address_capable": { "description": "The ECU may move to another address in address_range when it loses its address.", "type": "boolean" }
+      }
+    },
+    "j1939_address": { "type": "integer", "minimum": 0, "maximum": 253 },
+    "j1939_destination": { "description": "Destination address 0..253, or 255 for global.", "type": "integer", "anyOf": [ { "minimum": 0, "maximum": 253 }, { "const": 255 } ] },
+    "j1939_pgn": {
+      "description": "Parameter group number 0..0x3FFFF. A PDU1 PGN (PDU format below 0xF0) has its low byte 0; the destination is given separately.",
+      "type": "integer", "minimum": 0, "maximum": 262143
+    },
+    "j1939_signal": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "start_bit": { "description": "The start bit as in a DBC file (big byte order: the most significant bit).", "type": "integer", "minimum": 0, "maximum": 14279 },
+        "length": { "description": "Length in bits.", "type": "integer", "minimum": 1, "maximum": 64 },
+        "byte_order": { "description": "\"little\" (default, the J1939 order) or \"big\".", "enum": [ "little", "big" ] },
+        "signed": { "type": "boolean" },
+        "scale": { "type": "number" },
+        "offset": { "type": "number" },
+        "unit": { "type": "string" },
+        "iec_location": { "description": "%I for a received signal, %Q for a sent one, sized to hold the length (X 1 bit, B 8, W 16, D 32, L 64).", "type": "string", "pattern": "^%[IiQq]([Xx][0-9]+\\.[0-7]|[BbWwDdLl][0-9]+)$" },
+        "valid_location": { "description": "Received signals: a bit input that is FALSE while the signal arrives as not available or error.", "type": "string", "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$" }
+      },
+      "required": [ "name", "start_bit", "length", "iec_location" ]
+    },
+    "j1939_rx": {
+      "type": "object",
+      "properties": {
+        "pgn": { "$ref": "#/$defs/j1939_pgn" },
+        "name": { "description": "The message's name (from the DBC).", "type": "string" },
+        "source": { "description": "Take the PGN only from this source address.", "$ref": "#/$defs/j1939_address" },
+        "source_name": { "description": "Take the PGN only from the ECU with this NAME (64 bits, decimal or 0x hex).", "$ref": "canworks.v1.schema.json#/$defs/uint_string" },
+        "source_name_mask": { "description": "The NAME bits to compare (default: all).", "$ref": "canworks.v1.schema.json#/$defs/uint_string" },
+        "timeout_ms": { "description": "0 (default): no supervision. Otherwise status_location goes FALSE when no message arrived for this long.", "type": "integer", "minimum": 0, "maximum": 600000 },
+        "status_location": { "type": "string", "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$" },
+        "signals": { "type": "array", "items": { "$ref": "#/$defs/j1939_signal" } }
+      },
+      "required": [ "pgn", "signals" ],
+      "not": { "required": [ "source", "source_name" ] }
+    },
+    "j1939_tx": {
+      "type": "object",
+      "properties": {
+        "pgn": { "$ref": "#/$defs/j1939_pgn" },
+        "name": { "description": "The message's name (from the DBC).", "type": "string" },
+        "priority": { "description": "0..7, default 6.", "type": "integer", "minimum": 0, "maximum": 7 },
+        "destination": { "description": "PDU1 PGNs only; default 255 (global).", "$ref": "#/$defs/j1939_destination" },
+        "length": { "description": "Message length in bytes; default: the smallest length of at least 8 that holds every signal.", "type": "integer", "minimum": 1, "maximum": 1785 },
+        "period_ms": { "description": "0 (default): send on change and on request only.", "type": "integer", "minimum": 0, "maximum": 600000 },
+        "min_gap_ms": { "description": "Least time between two sends on change (default 0).", "type": "integer", "minimum": 0, "maximum": 600000 },
+        "signals": { "type": "array", "items": { "$ref": "#/$defs/j1939_signal" } }
+      },
+      "required": [ "pgn", "signals" ]
+    },
+    "j1939_request": {
+      "type": "object",
+      "properties": {
+        "pgn": { "$ref": "#/$defs/j1939_pgn" },
+        "destination": { "$ref": "#/$defs/j1939_destination" },
+        "period_ms": { "type": "integer", "minimum": 100, "maximum": 600000 }
+      },
+      "required": [ "pgn", "period_ms" ]
     },
     "field_node": {
       "description": "A node of a master network: the version 1 node, except that a PDO entry may leave out iec_location (the plugin allows that only for an entry a gateway route uses).",
