@@ -8,7 +8,7 @@ import unittest
 
 from canworks import contract as _contract  # noqa: F401 - import order of the package
 from canworks.configurator.declare import identifier
-from canworks.raw import contract, declare, signals
+from canworks.raw import assist, contract, declare, signals
 from canworks.raw.decode import RawDecoder
 
 try:
@@ -130,6 +130,31 @@ class Dbc(unittest.TestCase):
         (m,) = dbc.read_dbc(text)
         self.assertTrue(m["multiplexed"])
         self.assertEqual([s["name"] for s in m["signals"]], ["Plain"])
+
+
+
+@unittest.skipIf(dbc is None, "cantools not installed")
+class AssistTests(unittest.TestCase):
+    def test_suggest_import_and_st_call(self):
+        text = dbc.export_dbc(CAB, "cab")
+        raw, notes = assist.import_messages(dbc.read_dbc(text), {"Joystick": "receive", "Lamps": "send"})
+        self.assertEqual(notes, [])
+        self.assertEqual([m["name"] for m in raw["rx"]], ["Joystick"])
+        self.assertEqual([m["name"] for m in raw["tx"]], ["Lamps"])
+        used = {("I", "X", 300 * 8)}
+        filled = assist.suggest_locations(raw["rx"][0], "rx", used)
+        self.assertEqual(filled, ["status_location", "signals[0].iec_location"])
+        self.assertEqual(raw["rx"][0]["status_location"], "%IX300.1")
+        self.assertEqual(raw["rx"][0]["signals"][0]["iec_location"], "%IW300")
+        assist.suggest_locations(raw["tx"][0], "tx", used)
+        self.assertEqual(sorted(s["iec_location"] for s in raw["tx"][0]["signals"]), ["%QW300", "%QX300.0"])
+        self.assertEqual(contract.check_raw(raw, "networks[0].raw")[0], [])
+        st = assist.st_call(raw["rx"][0], "rx", 1)
+        self.assertIn("rx_Joystick(ENABLE := TRUE, NETWORK := 1, ID := 16#123, RX_DATA := Joystick_data);", st)
+        self.assertIn("Joystick_X := CAN_GET_BITS(DATA := Joystick_data, START_BIT := 0, BIT_LENGTH := 12, "
+                      "MOTOROLA := FALSE, SIGNED := TRUE);", st)
+        st = assist.st_call(raw["tx"][0], "tx")
+        self.assertIn("tx_Lamps(EXECUTE := Lamps_go, ID := 16#501, DLC := 3, DATA := Lamps_data);", st)
 
 
 if __name__ == "__main__":

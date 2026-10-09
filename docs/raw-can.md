@@ -159,16 +159,16 @@ VAR
   last_temp : INT;
 END_VAR
 
-rx(ENABLE := TRUE, ID := 16#600, MASK := 16#780, DATA := frame);  (* 0x600..0x67F *)
+rx(ENABLE := TRUE, ID := 16#600, MASK := 16#780, RX_DATA := frame);  (* 0x600..0x67F *)
 WHILE rx.NEW DO
   IF rx.RX_ID = 16#605 THEN
     last_temp := CAN_GET_UINT16(DATA := frame, OFFSET := 2, MOTOROLA := FALSE);
   END_IF;
-  rx(DATA := frame);
+  rx(ENABLE := TRUE, RX_DATA := frame);
 END_WHILE;
 ```
 
-While `ENABLE` is TRUE the plugin queues every frame of the given format whose `(identifier AND MASK) = (ID AND MASK)`, up to `DEPTH` frames (`0` = 32, at most 256). `MASK` 0 means only `ID` itself; `ANY := TRUE` takes every frame. Each call takes at most one frame: `NEW` TRUE with its `RX_ID`, `RX_EXTENDED`, `RX_RTR`, `RX_DLC`, data and `TIMESTAMP` (UTC microseconds from the kernel), or `NEW` FALSE with the last frame's outputs kept. Calling it in a `WHILE rx.NEW DO` loop drains the queue in one scan; `QUEUED` says how many frames still wait. A frame arriving at a full queue is dropped, sets `OVERFLOW` until `ENABLE` falls and counts in `DROPPED`. Frames the plugin sends itself are not queued. A network has at most 32 receivers.
+While `ENABLE` is TRUE the plugin queues every frame of the given format whose `(identifier AND MASK) = (ID AND MASK)`, up to `DEPTH` frames (`0` = 32, at most 256). `MASK` 0 means only `ID` itself; `ANY := TRUE` takes every frame. Each call takes at most one frame: `NEW` TRUE with its `RX_ID`, `RX_EXTENDED`, `RX_RTR`, `RX_DLC`, `RX_DATA` and `TIMESTAMP` (UTC microseconds from the kernel), or `NEW` FALSE with the last frame's outputs kept. Calling it in a `WHILE rx.NEW DO` loop drains the queue in one scan; `QUEUED` says how many frames still wait. A frame arriving at a full queue is dropped, sets `OVERFLOW` until `ENABLE` falls and counts in `DROPPED`. Frames the plugin sends itself are not queued. A network has at most 32 receivers.
 
 ### `CAN_BUS_INFO`
 
