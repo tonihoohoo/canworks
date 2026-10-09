@@ -270,3 +270,11 @@ endforeach()
 # and the same interface on both networks), through the real plugin library.
 add_test(NAME slave_simulated_bus COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/slave/simulated.sh ${CMAKE_BINARY_DIR} 6)
 set_tests_properties(slave_simulated_bus PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")
+
+# The Modbus bridge's server, register rule and own registers, with a Modbus
+# TCP client over loopback (modbus-bridge).
+add_executable(bridge_tests bridge/bridge_tests.cpp)
+target_include_directories(bridge_tests PRIVATE common)
+target_link_libraries(bridge_tests PRIVATE canworks_bridge_proto)
+add_test(NAME bridge_tests COMMAND bridge_tests)
+set_tests_properties(bridge_tests PROPERTIES TIMEOUT 60)

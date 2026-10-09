@@ -1,0 +1,40 @@
+{
+  "schema_version": 2,
+  "networks": [
+    {
+      "name": "field",
+      "adapter": { "type": "socketcan", "interface": "sim0", "bitrate": 250000, "simulate": true },
+      "master": { "node_id": 1, "sync_period_us": 10000, "state_location": "%IB40" },
+      "nodes": [
+        {
+          "node_id": 5, "name": "sensor", "eds": "sensor.eds",
+          "state_location": "%IB41", "status_location": "%IX42.0",
+          "tx_pdos": [
+            { "number": 1, "timeout_ms": 100, "timeout_location": "%IX42.1",
+              "entries": [
+                { "index": "0x6000", "subindex": 1, "type": "UNSIGNED32", "iec_location": "%ID4" },
+                { "index": "0x6000", "subindex": 2, "type": "INTEGER16", "iec_location": "%IW8" },
+                { "index": "0x6000", "subindex": 3, "type": "UNSIGNED8", "iec_location": "%IB10" },
+                { "index": "0x6000", "subindex": 4, "type": "BOOLEAN", "iec_location": "%IX11.3" }
+              ] }
+          ],
+          "rx_pdos": [
+            { "number": 1,
+              "entries": [
+                { "index": "0x6200", "subindex": 1, "type": "UNSIGNED16", "iec_location": "%QW0" },
+                { "index": "0x6200", "subindex": 2, "type": "BOOLEAN", "iec_location": "%QX100.1" },
+                { "index": "0x6200", "subindex": 3, "type": "REAL32", "iec_location": "%QD4" }
+              ] }
+          ]
+        }
+      ]
+    }
+  ],
+  "bridge": {
+    "listen": "0.0.0.0:502",
+    "word_order": "high_first",
+    "status_location": "%IB48",
+    "control_location": "%QB8",
+    "live_lists": [ { "network": "field", "location": "%IB56" } ]
+  }
+}

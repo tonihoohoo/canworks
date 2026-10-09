@@ -67,7 +67,7 @@ import subprocess
 import sys
 
 from . import (__version__, bundle, clash, contract, dbcexport, dcfexport, docexport, editorproject, localruntime,
-               project, runtime, sdolibrary, simfile, slaveeds)
+               modbusmap, project, runtime, sdolibrary, simfile, slaveeds)
 
 EDITOR_WARNING = (
     "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canworks.json, so the "
@@ -112,6 +112,10 @@ def parser():
                      help="write an HTML document of the networks (CANopen: topology, COB-ID map, bus load, nodes, "
                           "PDOs, boot SDO writes; J1939: ECU, messages, signals, frame map, bus load; PLC I/O) "
                           "instead of deploying; nothing is built or uploaded")
+    src.add_argument("--export-modbus-map", metavar="FILE",
+                     help="write the Modbus register map of a bridge config (one with a \"bridge\" object) as CSV, "
+                          "JSON or an ST variable list, chosen by the extension (.csv, .json, .st), instead of "
+                          "deploying; nothing is built or uploaded")
     src.add_argument("--new-project", metavar="DIR",
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
                           "and declares its I/O in the program main")
@@ -196,8 +200,33 @@ def _ask(question):
     return sys.stdin.readline().strip().lower() in ("y", "yes")
 
 
+def _export_modbus_map(config, path, out):
+    try:
+        with open(config, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except OSError as e:
+        raise Failure("cannot read %s: %s" % (config, e))
+    except ValueError as e:
+        raise Failure("%s: not valid JSON (%s)" % (config, e))
+    try:
+        rows = modbusmap.export(cfg, path)
+    except modbusmap.MapError as e:
+        raise Failure("%s: %s" % (config, e))
+    except OSError as e:
+        raise Failure("cannot write %s: %s" % (path, e))
+    out("wrote %s: %d register map entries" % (path, len(rows)))
+    return 0
+
+
 def run(args, out=print, err=None, password_source=None, confirm_source=None):
     err = err or (lambda m: print(m, file=sys.stderr))
+
+    map_file = getattr(args, "export_modbus_map", None)
+    if map_file:
+        if args.runtime or args.output or args.check_only:
+            raise Failure("--export-modbus-map only writes the register map; leave out --runtime, --output and "
+                          "--check-only")
+        return _export_modbus_map(args.config, map_file, out)
 
     into = getattr(args, "into_project", None)
     export_dir = getattr(args, "export_dcf", None)

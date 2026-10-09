@@ -16,7 +16,7 @@
 ## 3. Bridge runtime
 
 - [ ] 3.1 Bridge host on a big-endian byte image with input and output snapshots; `canworks-bridge` main (config, logging, signals, start/stop of networks); CMake target with the protocol options; verify on the simulated bus that the example's nodes boot and the log line is right.
-- [ ] 3.2 Modbus TCP server (`plugin/src/bridge/modbus_server.*`): poll loop, MBAP framing, functions 1-6, 8, 15, 16, 23, exceptions, unit IDs, limits, `max_clients`, idle close, allowlists; verify with C++ tests using a test client for every function and exception.
+- [x] 3.2 Modbus TCP server (`plugin/src/bridge/modbus_server.*`): poll loop, MBAP framing, functions 1-6, 8, 15, 16, 23, exceptions, unit IDs, limits, `max_clients`, idle close, allowlists; verify with C++ tests using a test client for every function and exception.
 - [ ] 3.3 Register rule and word order; one snapshot per request; writes publish one snapshot; edge detection between snapshots for SDO triggers, NMT command bytes and raw triggers; verify map, tearing (10,000 reads of a 1 kHz counter), cyclic rewrite and event-driven RPDO timing tests.
 - [ ] 3.4 Watchdog and `on_client_loss` (`stop`, `zero`, `hold`) through the host's "outputs running" state; verify each action on the simulated bus (SYNC and RPDOs stop, zeros sent once, hold keeps sending, inputs keep updating).
 - [ ] 3.5 Status block, control block with counter handshake, live lists; verify each command and result code.

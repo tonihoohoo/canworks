@@ -124,6 +124,20 @@ target_compile_definitions(canopen_core PUBLIC CANWORKS_WITH_CANOPEN=$<BOOL:${CA
 target_link_directories(canopen_core PUBLIC ${LELY_LIBRARY_DIRS})
 target_link_libraries(canopen_core PUBLIC ${LELY_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto pthread)
 
+# The Modbus TCP bridge's server, byte image and own registers
+# (canworks-bridge). No Lely and no OpenPLC here, so it builds and tests
+# without either.
+add_library(canworks_bridge_proto STATIC
+    src/bridge/byte_image.cpp
+    src/bridge/modbus.cpp
+    src/bridge/modbus_server.cpp
+    src/bridge/address_list.cpp
+    src/bridge/bridge_blocks.cpp
+)
+target_include_directories(canworks_bridge_proto PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/bridge)
+target_compile_options(canworks_bridge_proto PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_link_libraries(canworks_bridge_proto PUBLIC pthread)
+
 # The plugin version the diagnostics channel reports: $CANWORKS_PLUGIN_VERSION
 # when set (the local simulator runtime image, built without .git), else git.
 if(DEFINED ENV{CANWORKS_PLUGIN_VERSION})
