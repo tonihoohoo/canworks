@@ -757,7 +757,7 @@ async function fxLabLoad() {
     groups.get(x.group).push(x);
   }
   fxFill($("#fx-lab-examples"), 
-    ex.warnings && ex.warnings.length ? el("p", { class: "muted" }, ex.warnings.join(" ")) : null,
+    ex.warnings && ex.warnings.length ? el("p", { class: "muted" }, ex.warnings.map(humanise).join(" ")) : null,
     [...groups].map(([g, xs]) => el("div", { class: "fx-examples" }, el("span", { class: "fx-group-name" }, g),
       xs.map((x) => el("button", { type: "button", class: "chip", dataset: { fxExample: x.label }, onclick: () => fxLabFrames(x.frames, x.label) }, x.label)))));
   fxBuilder();

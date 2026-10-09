@@ -318,6 +318,29 @@ class Decoding(unittest.TestCase):
         self.assertTrue(dec.warnings)
         self.assertEqual(dec.decode(Frame(0, 0x702, b"\x05")).text, "node 2 (pingpong) OPERATIONAL")
 
+    def test_bad_config_note_names_the_problem(self):
+        cfg = copy.deepcopy(load_cases()["base"])
+        cfg["nodes"][0]["eds"] = "missing.eds"
+        path = os.path.join(FIXTURES, "eds", "canworks.json")
+        dec = Decoder.from_config(cfg, path)
+        self.assertEqual(dec.warnings, ["decoding without the config's PDOs: node 2: the EDS file missing.eds "
+                                        "is missing"])
+
+    def test_gateway_routed_entries_decode(self):
+        # Virtual-plant io: node 6's RPDO 1 carries 0x6411:1 for a gateway
+        # route, without a PLC location; the version 2 config passes its check.
+        path = os.path.join(REPO, "examples", "virtual-plant", "canworks", "canworks.json")
+        with open(path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        dec = Decoder.from_config(cfg, path, network="io")
+        self.assertEqual(dec.warnings, [])
+        d = dec.decode(Frame(T0, 0x185, bytes(8)))
+        self.assertEqual((d.kind, d.node), ("pdo", 5))
+        self.assertTrue(d.name.endswith("_TPDO1"), d.name)
+        self.assertTrue(d.signals)
+        self.assertTrue(any(node == 5 and "_TPDO1 " in label for _, label, node in dec.signal_keys()))
+        self.assertIn(0x206, dec.pdos)
+
     def test_plc_variable_names(self):
         from canworks import dbcexport
         cfg = copy.deepcopy(load_cases()["base"])
