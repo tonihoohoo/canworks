@@ -86,5 +86,5 @@ Bug IDs refer to the browser bug hunt of 2026-10-09 (design.md, Context). Each g
 
 - [x] 9.1 docs/configurator.md, docs/trace.md and docs/simulator.md updated where behaviour changed; README if a listed feature changed.
 - [x] 9.2 PC tools minor version bump; golden doc models refreshed (`UPDATE_GOLDEN=1`).
-- [ ] 9.3 Banned-word check on the branch (`--files` and `--range origin/main..HEAD`).
-- [ ] 9.4 Re-run the browser bug hunt crawl (every view of the three examples against the plugin on its simulated bus) and confirm no listed bug remains; list any leftovers in the PR.
+- [x] 9.3 Banned-word check on the branch (`--files` and `--range origin/main..HEAD`).
+- [x] 9.4 Re-run the browser bug hunt crawl (every view of the three examples against the plugin on its simulated bus) and confirm no listed bug remains; list any leftovers in the PR.
