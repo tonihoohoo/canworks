@@ -30,6 +30,9 @@
 - [ ] 6.2 `style.css`: `.start-choices` as a 2 × 2 grid, one column below the narrow breakpoint; check light and dark.
 - [ ] 6.3 Tests: start page scenario in the configurator page tests (four choices in two rows at 1280 px, titles), `Layout.fits()` on the start page at 1000/1280/1440 and phone width; screenshot before and after in the PR.
 
+- [ ] 6.4 `app.js` `onlineSetup()` / `targetChoice()`: in commission mode use the adapter target without saving it and leave out the Runtime choice; never offer the "Bus and master" link there.
+- [ ] 6.5 Test in the configurator page tests: commission mode with saved target `runtime` shows the adapter form, no Runtime radio and no "Online access is off" text.
+
 ## 7. Docs, README, version, CI
 
 - [ ] 7.1 After `docs/review-refresh` is merged, rebase and update only the lines this change makes wrong: `docs/plc-sdo.md` error 6 row, `docs/network-docs.md` (J1939, JSON id and version), `docs/slave.md` state dir variable, `docs/development.md` test variables, the simulator fault kind in `docs/simulator.md` and `docs/diagnostics.md`, `docs/configurator.md` start page text, and README if it lists the HTML export as CANopen only.

@@ -10,6 +10,8 @@ The docs review of 2026-10-09 (branch `docs/review-refresh`) checked every page 
 
 6. The configurator's start page ([screenshot](screenshots/start-page-before.png)) does not say what the tool is for and never mentions OpenPLC: "Open editor project" does not say which editor, and the standalone choices do not say they come before an OpenPLC project. Its four choices sit in a three-column grid, so "Commission a device" is left alone on a second row. Its page token also still sits in a `<meta name="canopen-token">`.
 
+7. In "Commission a device" (Toni, 2026-10-09), choosing **Runtime** under Connect says "Online access is off for this config. Turn it on under Bus and master", and the Bus and master link does nothing. The mode has no config and its side bar has no Bus and master page, so the page sends the user back to Online. The spec says this mode works through a USB adapter, but the Connect form still offers the Runtime choice it has in a config.
+
 The project is not in real use, so renames are clean cuts with no aliases.
 
 ## What Changes
@@ -28,6 +30,8 @@ The project is not in real use, so renames are clean cuts with no aliases.
 
   The folder browser title and the "not an editor project" message say "OpenPLC Editor project". The choices become a 2 × 2 grid (one column at phone width). The token meta becomes `canworks-token`.
 
+- **Commissioning connects through the adapter only**: in "Commission a device" the Connect form shows the USB adapter form with no Runtime choice, even when the PC's online settings last used a runtime. No text in this mode links to a page the mode hides.
+
 **Not changed:**
 - The example configs keep their file names (`config/*/canopen_config.json`); the rename kept them on purpose.
 - Docs pages and README are left to `docs/review-refresh`. This change's PR updates only the lines its own changes make wrong, after that branch is merged.
@@ -43,7 +47,7 @@ None.
 - `canopen-plc-sdo`: error 6 for a `NETWORK` that is not a CANopen master network.
 - `toolkit-names`: every environment variable, CMake option and build argument uses `CANWORKS_`; the old-name check covers them.
 - `canopen-online-diagnostics`: `canworks-diag sim fault` uses the simulator's fault kind names.
-- `canopen-configurator`: the start page's purpose line, OpenPLC wording, four choices in a 2 × 2 grid.
+- `canopen-configurator`: the start page's purpose line, OpenPLC wording, four choices in a 2 × 2 grid; Commission a device connects through a USB adapter only.
 - `j1939-trace`: decoding without cantools warns instead of failing.
 
 ## Impact

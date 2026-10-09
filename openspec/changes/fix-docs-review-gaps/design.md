@@ -37,6 +37,11 @@ The `canopen_check` binary and `canopen_plugin` namespace keep their names (CANo
 ### 6. Start page wording
 Name OpenPLC where the choice depends on it (the Editor project, "before an OpenPLC Editor project exists", "no OpenPLC runtime"), and not elsewhere: the header stays "canworks configurator", since the tools also work with no PLC. Commissioning is CANopen only today (no J1939 in `commission.js`), so its card says so. A 2 × 2 grid (`repeat(2, 1fr)`, one column below the narrow breakpoint) keeps four cards even instead of 3 + 1; four in a row would squeeze the longer texts at 1000 px.
 
+### 7. Commissioning stays on the USB adapter
+`onlineSetup()` shows the Runtime/adapter choice in every mode, and with the Runtime target and no config it links to `showView("bus")`; in commission mode `render()` sends any view outside Online, Scan, Trace and Frame lab back to Online, so the link only redraws the same page. The fix forces the adapter target in commission mode (without changing the saved setting, so a config opened later keeps its Runtime choice) and hides the choice.
+
+Alternative: let commissioning connect to a runtime with only host and token, no config. Rejected for this change: the spec defines the mode as PC-direct on an adapter, the start card says "no OpenPLC runtime", and through a runtime the plugin's own master would be running on the same bus. It can be proposed on its own if wanted.
+
 ## Risks / Trade-offs
 
 - [Docs branch conflicts] → this change does not edit `docs/` or README until `docs/review-refresh` is merged; then it changes only the lines its own behaviour makes wrong (plc-sdo error 6 row, network-docs JSON id and J1939, slave.md state dir variable, development.md test variables, simulator fault kind).
