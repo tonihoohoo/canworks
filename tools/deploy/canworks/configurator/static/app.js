@@ -257,11 +257,11 @@ function sameObject(a, ai, b, bi) { return num(a) === num(b) && num(ai || 0) ===
 // The object a page path starts in, and the path's parts: the open network,
 // or for "master.diagnostics…" the draft's one diagnostics object, which
 // every network shares (master.diagnostics in a version 1 file), or for
-// "gateway…" the top of the draft.
+// "gateway…" and "bridge…" the top of the draft.
 function pathRoot(path) {
   const parts = path.match(/[^.[\]]+/g);
   if (parts[0] === "master" && parts[1] === "diagnostics") return [S.model, parts.slice(1)];
-  if (parts[0] === "gateway") return [S.model.top, parts];
+  if (parts[0] === "gateway" || parts[0] === "bridge") return [S.model.top, parts];
   return [S.config, parts];
 }
 
@@ -489,7 +489,7 @@ function customName(net) {
 }
 
 // The draft as a file: version 1 when it holds one network without a name
-// of its own, else version 2.
+// of its own, else version 2 (always for a Modbus bridge project).
 function fileConfig() {
   const m = S.model;
   const out = {};
@@ -499,7 +499,7 @@ function fileConfig() {
     }
   };
   const net = m.networks[0];
-  if (m.networks.length === 1 && !customName(net) && Object.keys(net).every((k) => NETWORK_KEYS.includes(k))) {
+  if (m.networks.length === 1 && !customName(net) && Object.keys(net).every((k) => NETWORK_KEYS.includes(k)) && !("bridge" in m.top)) {
     for (const [k, v] of Object.entries(m.top)) out[k] = k === "schema_version" && v === 2 ? 1 : v;
     for (const k of ["adapter", "master", "nodes"]) if (k in net) out[k] = net[k];
     if (m.diagnostics !== undefined) out.master = Object.assign({}, net.master, { diagnostics: m.diagnostics });
@@ -808,6 +808,7 @@ function render() {
   // A J1939 network has no nodes, bus scan or simulated devices.
   if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "scan" || S.view === "simulation")) S.view = "bus";
   if (isPlain(S.config) && (S.view.startsWith("node:") || S.view === "scan")) S.view = "bus";
+  if (S.view === "bridge" && !S.model.top.bridge) S.view = "bus";
   renderSide();
   updateSimBanner();
   // The online view, the scan page and the simulation view share one connection.
@@ -820,13 +821,19 @@ function render() {
   const view = $("#view");
   view.replaceChildren();
   view.classList.toggle("indexed", S.view.startsWith("node:"));
-  if (S.view === "bus") (isJ1939(S.config) ? renderJ1939(view) : isPlain(S.config) ? renderPlainBus(view) : renderBus(view));
+  if (S.view === "bus") {
+    (isJ1939(S.config) ? renderJ1939(view) : isPlain(S.config) ? renderPlainBus(view) : renderBus(view));
+    // The project target (bridge.js) leads every bus page: it is the whole project's.
+    const h = view.querySelector("h2");
+    if (h) h.after(bridgeTargetField());
+  }
   else if (S.view === "raw") renderCanMessages(view);
   else if (S.view === "declarations") renderDeclarations(view);
   else if (S.view === "online") renderOnline(view);
   else if (S.view === "scan") renderScan(view);
   else if (S.view === "trace") renderTrace(view);
   else if (S.view === "gateway") renderGateway(view);
+  else if (S.view === "bridge") renderBridge(view);
   else if (S.view === "simulation") renderSimulation(view);
   else if (S.view === "framelab") renderFrameLab(view);
   else renderNode(view, Number(S.view.slice(5)));
@@ -858,6 +865,7 @@ function renderSide() {
   $("#nav-scan").hidden = j1939 || plain;
   $("#nav-simulation").hidden = j1939;
   $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
+  $("#nav-bridge").hidden = !S.model.top.bridge;
   const unused = S.state.unused_eds || [];
   $("#unused-eds").replaceChildren(...(unused.length ? [el("h2", { class: "side-caption" }, "Unused EDS files"),
     el("p", { class: "muted" }, unused.join(", ") + " (left in place, never deleted)")] : []));
@@ -5751,6 +5759,8 @@ async function runCheck() {
         S.taskIntervalTyping = { value: ti.value, caret: ti.selectionStart ?? ti.value.length };
       render();
     } else applyCheck();
+    // The register map follows the draft (bridge.js).
+    if (S.view === "bridge") await bridgeRefreshMap();
   } catch (e) {
     banner(e.message, true);
   }
@@ -6044,6 +6054,11 @@ function placeOf(w) {
     const rt = r && ((S.model.top.gateway || {}).routes || [])[Number(r[1])];
     return ["Gateway"].concat(rt ? [`route ${rt.name || Number(r[1]) + 1}`] : []);
   }
+  if (path.startsWith("bridge")) {
+    const r = /^bridge\.live_lists\[(\d+)\]/.exec(path);
+    const e = r && ((S.model.top.bridge || {}).live_lists || [])[Number(r[1])];
+    return ["Modbus bridge"].concat(r ? [`live list ${(e && e.network) || Number(r[1]) + 1}`] : []);
+  }
   if (!net) return [];
   if (path.startsWith("slave")) {
     const o = /^slave\.objects\[(\d+)\]/.exec(path);
@@ -6078,7 +6093,7 @@ function focusPath(w) {
   if (w.net !== null && w.net !== S.net && S.model.networks[w.net]) switchNet(w.net);
   const path = w.path;
   const m = /^nodes\[(\d+)\]/.exec(path);
-  const want = m ? "node:" + m[1] : path.startsWith("gateway") ? "gateway"
+  const want = m ? "node:" + m[1] : path.startsWith("gateway") ? "gateway" : path.startsWith("bridge") ? "bridge"
     : (path.startsWith("adapter") || path.startsWith("master") || path.startsWith("slave") || path.startsWith("j1939") ||
       path === "role" || path === "protocol" ? "bus" : S.view);
   if (want !== S.view) showView(want);

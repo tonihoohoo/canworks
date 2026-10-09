@@ -30,7 +30,7 @@
 ## 5. PC tools and configurator
 
 - [x] 5.1 `canworks/modbusmap.py`: map, CSV/JSON/ST writers, channel suggestion, Pack for Modbus; verify that the map matches the bridge on the example (a C++ test reads a JSON map produced by the Python module from a fixture) and that packing leaves no clash.
-- [x] 5.2 Configurator target switch, Modbus bridge page, map preview, exports; verify with page tests (switch the virtual example to bridge, pack, export ST).
+- [x] 5.2 Configurator target switch, Modbus bridge page, map preview, exports; verify with page tests (switch the bridge example, saved per type, to bridge, pack, export ST); a cyclic CiA 402 axis stays refused on the bridge, which has no PLC cycle.
 - [x] 5.3 HTML document Modbus register map section; verify with the document tests.
 
 ## 6. Packaging
