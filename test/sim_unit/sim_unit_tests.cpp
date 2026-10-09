@@ -12,6 +12,9 @@
 #include "check.hpp"
 #include "cJSON.h"
 #include "sim_expr.h"
+#include "sim_od.h"
+
+#include <lely/co/type.h>
 
 using namespace canopen_sim;
 
@@ -98,6 +101,24 @@ TEST(expr_corpus) {
   }
   CHECK(n > 40);
   cJSON_Delete(root);
+}
+
+// Values the control protocol refuses for set and override (sim_od.h).
+TEST(value_misfit_by_type) {
+  CHECK(value_misfit(CO_DEFTYPE_INTEGER16, Value::number(-32768)).empty());
+  CHECK(value_misfit(CO_DEFTYPE_INTEGER16, Value::number(32767.4)).empty());  // rounds to 32767
+  CHECK(value_misfit(CO_DEFTYPE_INTEGER16, Value::text("abc")) == "give a number");
+  CHECK_MSG(value_misfit(CO_DEFTYPE_INTEGER16, Value::number(40000)) == "40000 is outside its range -32768 to 32767",
+            value_misfit(CO_DEFTYPE_INTEGER16, Value::number(40000)));
+  CHECK(!value_misfit(CO_DEFTYPE_UNSIGNED32, Value::number(-1)).empty());
+  CHECK(!value_misfit(CO_DEFTYPE_UNSIGNED8, Value::number(NAN)).empty());
+  CHECK(value_misfit(CO_DEFTYPE_BOOLEAN, Value::number(1)).empty());
+  CHECK(!value_misfit(CO_DEFTYPE_BOOLEAN, Value::number(2)).empty());
+  CHECK(value_misfit(CO_DEFTYPE_REAL32, Value::number(1.5)).empty());
+  CHECK(value_misfit(CO_DEFTYPE_VISIBLE_STRING, Value::text("abc")).empty());
+  CHECK(value_misfit(CO_DEFTYPE_VISIBLE_STRING, Value::number(1)) == "give text");
+  CHECK(!value_misfit(CO_DEFTYPE_DOMAIN, Value::text("abc")).empty());
+  CHECK(type_name(CO_DEFTYPE_INTEGER16) == "INTEGER16");
 }
 
 TEST(expr_stateful) {

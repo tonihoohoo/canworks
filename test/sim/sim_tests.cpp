@@ -3248,6 +3248,19 @@ TEST(sim_simulated_pingpong) {
   CHECK(!ok(r));
   CHECK_MSG(str(r, "error").find("the master writes 0x4000:0") != std::string::npos, str(r, "error"));
   cJSON_Delete(r);
+  // A value that does not fit the object's data type is refused, and the
+  // object keeps its value.
+  r = sim->SimAsk(R"({"op":"sim_override","node":2,"values":{"0x4001":"abc"}})");
+  CHECK_MSG(!ok(r) && str(r, "error") == "0x4001:0 is UNSIGNED32; give a number", str(r, "error"));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_set","node":2,"values":{"0x4001":-1}})");
+  CHECK_MSG(!ok(r) && str(r, "error") == "0x4001:0 is UNSIGNED32; -1 is outside its range 0 to 4294967295",
+            str(r, "error"));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_status"})");
+  CHECK(!field(cJSON_GetArrayItem(field(result(r), "devices"), 0), "overrides") ||
+        !field(field(cJSON_GetArrayItem(field(result(r), "devices"), 0), "overrides"), "0x4001:0"));
+  cJSON_Delete(r);
   // An override wins over the source; release gives it back.
   r = sim->SimAsk(R"({"op":"sim_override","node":2,"values":{"0x4001":7}})");
   CHECK(ok(r));
@@ -3400,6 +3413,10 @@ TEST(sim_simulated_power_cycles) {
     CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
     // Off for 2 s: more frames than a receive queue holds (1024) go by.
     sim->RunFor(milliseconds(2000));
+    // While off, a value that does not fit is refused as well.
+    r = sim_diag("sim_override", R"({"op":"sim_override","node":2,"values":{"0x4001":"abc"}})");
+    CHECK_MSG(!ok(r) && str(r, "error") == "0x4001:0 is UNSIGNED32; give a number", str(r, "error"));
+    cJSON_Delete(r);
     r = sim_diag("sim_clear", R"({"op":"sim_clear","node":2,"fault":"power"})");
     CHECK(ok(r));
     cJSON_Delete(r);
