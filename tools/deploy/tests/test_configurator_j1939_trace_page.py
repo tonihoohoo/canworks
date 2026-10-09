@@ -73,3 +73,45 @@ class J1939Inspector(TraceBase):
         pg.wait_for_selector("#trace-inspector [data-fx=inspector][data-kind=claim]")
         self.assertIn("Identity number", pg.inner_text("#trace-inspector [data-fx=fields]"))
         self.assertIn("Source 0x80", pg.inner_text("#trace-inspector [data-fx=identifier]"))
+
+    def test_only_j1939_controls(self):
+        pg = self.page
+        self.open()
+        self.trace_view()
+        pg.set_input_files('input[data-trace="open-input"]', TRACE)
+        pg.wait_for_selector("#trace-rows .trace-row")
+        kinds = pg.eval_on_selector_all("[data-trace-kind]", "es => es.map(e => e.dataset.traceKind)")
+        self.assertEqual(kinds, ["error", "gap", "other", "pgn", "claim", "request", "ack", "tp"])
+        self.assertEqual(pg.locator('[data-trace-tab="sequences"]').count(), 0)
+        # Identifiers: a transport ID is named after its message.
+        pg.click('[data-trace-tab="ids"]')
+        pg.wait_for_selector('tr[data-trace-id="1CEB8000"]')
+        self.assertIn("TP.DT of ComponentInfo", pg.inner_text('tr[data-trace-id="1CEB8000"]'))
+        self.assertIn("TP.CM", pg.inner_text('tr[data-trace-id="1CEC0080"]'))
+        pg.click('[data-trace-tab="graph"]')
+        self.assertIn("Message signals", pg.inner_text("[data-trace=series]"))
+        self.assertNotIn("PDO signals", pg.inner_text("[data-trace=series]"))
+        pg.click('[data-trace-tab="trigger"]')
+        conds = pg.eval_on_selector_all('[data-trace-cond="0.type"] option', "es => es.map(e => e.value)")
+        self.assertEqual(conds, ["frame", "signal", "bus", "error_frame"])
+        # The inspector's data grid speaks of bit numbers, not CANopen ones.
+        pg.click('[data-trace-tab="frames"]')
+        pg.click("#trace-rows .trace-row:has-text('Pressures')")
+        pg.wait_for_selector("#trace-inspector [data-fx=grid]")
+        self.assertNotIn("CANopen", pg.inner_text("#trace-inspector"))
+
+    def test_frame_lab_examples(self):
+        pg = self.page
+        self.open()
+        pg.click('button[data-view="framelab"]')
+        pg.wait_for_selector("[data-fx=examples] .chip")
+        chips = pg.eval_on_selector_all("[data-fx=examples] .chip", "es => es.map(e => e.textContent)")
+        self.assertEqual(chips, ["Request for Address Claimed", "Command", "Pressures", "Setpoints"])
+        self.assertEqual(pg.locator("summary:has-text('Build a frame')").count(), 0)
+        pg.fill("[data-fx=lab-frame]", "185#01")
+        pg.click("[data-fx=lab-explain]")
+        pg.wait_for_selector("#fx-lab-inspector [data-fx=meaning]")
+        text = pg.inner_text("#fx-lab-inspector")
+        self.assertIn("on a J1939 network", text)
+        self.assertNotIn("TPDO", text)
+

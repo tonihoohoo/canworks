@@ -2,6 +2,8 @@
 the inspector under the Trace view's frame list, the Sequences tab and the
 Frame lab. Needs Playwright, like test_configurator_page.py."""
 
+import json
+
 from .test_configurator_layout import FIT_CHECK
 from .test_configurator_trace_page import TraceBase
 
@@ -105,6 +107,11 @@ class FrameLab(TraceBase):
         pg.fill("[data-fx=lab-frame]", "705#123")
         pg.click("[data-fx=lab-explain]")
         pg.wait_for_selector("#fx-lab-error:has-text('whole bytes')")
+        # The previous result does not stay under the error.
+        self.assertEqual(pg.locator("#fx-lab-inspector [data-fx=inspector]").count(), 0)
+        pg.fill("[data-fx=lab-frame]", "#00")
+        pg.click("[data-fx=lab-explain]")
+        pg.wait_for_selector("#fx-lab-error:has-text('the identifier is missing')")
         # Examples from the configuration, also unsaved: add a node first.
         pg.wait_for_selector("[data-fx=examples] .chip")
         self.assertIn("pingpong", pg.inner_text("[data-fx=examples]"))
@@ -132,6 +139,31 @@ class FrameLab(TraceBase):
         self.assertEqual(len(pg.query_selector_all("[data-fx=arbitration] .fx-arbcell.lost")), 1)
         bad = [u for u in requests if "/api/online" in u or "/api/trace" in u or "/api/sim" in u]
         self.assertEqual(bad, [])
+
+    def test_builder_messages_and_network_switch(self):
+        pg = self.page
+        io = dict(self.cfg, name="io")
+        io.pop("schema_version", None)
+        line = {"name": "line", "adapter": {"type": "socketcan", "interface": "can1", "bitrate": 125000},
+                "master": {"node_id": 1}, "nodes": [{"node_id": 3, "name": "other", "eds": "cpp-slave.eds"}]}
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"schema_version": 2, "networks": [io, line]}, f)
+        self.open()
+        pg.click('button[data-view="framelab"]')
+        pg.click("summary:has-text('Build a frame')")
+        pg.fill("[data-fx-build=index]", "zz")
+        pg.click("[data-fx-build=go]")
+        pg.wait_for_selector("#fx-build-error:has-text(\"index: 'zz' is not a hex number\")")
+        pg.fill("[data-fx=lab-frame]", "702#05")
+        pg.click("[data-fx=lab-explain]")
+        pg.wait_for_selector("#fx-lab-inspector [data-fx=inspector]")
+        # Another network: the frame and its result belonged to io.
+        pg.click('.net-tab[data-net="1"]')
+        pg.click('button[data-view="framelab"]')
+        pg.wait_for_selector("[data-fx=examples] .chip")
+        self.assertEqual(pg.input_value("[data-fx=lab-frame]"), "")
+        self.assertEqual(pg.locator("#fx-lab-inspector [data-fx=inspector]").count(), 0)
+        self.assertIn("node 3 (other)", pg.inner_text("[data-fx=examples]"))
 
     def test_examples_follow_the_unsaved_config(self):
         pg = self.page

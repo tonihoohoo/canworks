@@ -418,6 +418,41 @@ class Live(View):
         self.assertNotIn("sim", json.dumps(load(self.config_path)["master"]))
 
 
+class Networks(View):
+    """Two networks: the picked device and the pins belong to one network."""
+
+    def setUp(self):
+        super().setUp()
+        io = rtd_config()
+        io.pop("schema_version", None)
+        io["name"] = "io"
+        io["nodes"][0]["simulate"] = True
+        diagnostics = {"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True}
+        line = {"name": "line", "adapter": {"type": "socketcan", "interface": "can1", "bitrate": 125000},
+                "master": {"node_id": 1}, "nodes": [{"node_id": 6, "name": "n6", "eds": "rtd8.eds", "simulate": True}]}
+        self.write_config({"schema_version": 2, "diagnostics": diagnostics, "networks": [io, line]})
+
+    def test_network_switch_drops_the_node(self):
+        pg = self.page
+        self.sim_view()
+        pg.wait_for_selector('#sim-device h2:has-text("Node 5")')
+        pg.fill('input[data-sim="pin-typed"]', "0x2000:0")
+        pg.click('button[data-sim="pin"]')
+        pg.wait_for_selector(self.row("0x2000:0"))
+        pins = load(os.path.join(self.cfg_dir, "online.json"))["projects"][self.project]["sim_pins"]
+        self.assertEqual(pins, {"io/5": ["0x2000:0"]})
+        # The other network simulates node 6 only.
+        dev = dict(self.fake.devices[5], node=6, name="n6")
+        self.fake.devices = {6: dev}
+        self.fake.values = {(6, "0x7130:1"): (300, "INTEGER16")}
+        self.fake.pdo = {6: ["0x7130:1"]}
+        pg.click('.net-tab[data-net="1"]')
+        pg.wait_for_selector('#sim-device h2:has-text("Node 6")')
+        pg.wait_for_selector(self.row("0x7130:1") + ' [data-sim="value"]:has-text("300")')
+        self.assertEqual(pg.locator(self.row("0x2000:0")).count(), 0)  # io's pin stays on io
+        self.assertNotIn("?", pg.inner_text('[data-sim="device-state"]'))
+
+
 class ReadOnly(View):
     allow = False
 
