@@ -680,7 +680,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.44.0"
+  "version": "0.45.0"
  },
  "warnings": []
 }
