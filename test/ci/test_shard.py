@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import tempfile
 import textwrap
@@ -31,6 +32,25 @@ class Split(unittest.TestCase):
     def test_same_split_every_time(self):
         sizes = {"x.A": 3, "x.B": 3, "y.A": 3}
         self.assertEqual(shard.split(sizes, 2), shard.split(dict(reversed(list(sizes.items()))), 2))
+
+
+class Timings(unittest.TestCase):
+    def test_split_by_recorded_seconds(self):
+        found = {"m.Slow": [1], "m.A": [1, 2, 3, 4], "m.B": [1, 2, 3, 4], "m.C": [1, 2, 3, 4]}
+        sizes = shard.sizes_from(found, {"m.Slow": 90, "m.A": 30, "m.B": 30, "m.C": 30})
+        shards = shard.split(sizes, 2)
+        self.assertIn(["m.Slow"], shards)  # by count it would share a shard; by time it fills one
+
+    def test_unknown_class_counts_as_median(self):
+        sizes = shard.sizes_from({"m.A": [1], "m.B": [1], "m.C": [1], "m.New": [1]},
+                                 {"m.A": 10, "m.B": 20, "m.C": 60})
+        self.assertEqual(sizes["m.New"], 20)
+
+    def test_balance_within_a_third(self):
+        rec = {f"m.C{i}": s for i, s in enumerate([51, 44, 38, 30, 27, 22, 20, 18, 15, 12, 9, 8, 6, 5, 3])}
+        shards = shard.split(shard.sizes_from({k: [1] for k in rec}, rec), 3)
+        loads = [sum(rec[k] for k in s) for s in shards]
+        self.assertLessEqual(max(loads), min(loads) * 4 / 3)
 
 
 class Run(unittest.TestCase):
@@ -90,3 +110,13 @@ class Run(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_timings_file_and_class_times(self):
+        path = os.path.join(self.dir, "times.json")
+        with open(path, "w") as f:
+            json.dump({f"{self.pkg}.test_one.A": 5, f"{self.pkg}.test_two.B": 1}, f)
+        rc, log = self.run_shard("--shard", "1/1", "--exclude", "test_bad$", "--timings", path)
+        self.assertEqual(rc, 0)
+        line = [x for x in log.splitlines() if x.startswith("class times: ")][0]
+        times = json.loads(line[len("class times: "):])
+        self.assertEqual(sorted(times), sorted([f"{self.pkg}.test_one.A", f"{self.pkg}.test_two.B", f"{self.pkg}.test_page.P"]))

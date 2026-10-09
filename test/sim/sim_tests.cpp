@@ -59,6 +59,11 @@
 #define program_host program_host_cyclic
 #include "program_host.h"
 #undef program_host
+// The gantry cell example's program, in namespace program_host_gantry.
+#undef CIA402_PROGRAM_HOST_H
+#define program_host program_host_gantry
+#include "program_host.h"
+#undef program_host
 #endif
 #include "process_image.h"
 
@@ -732,6 +737,14 @@ class Sim {
     if (!sim_json.empty() && !canopen_sim::parse_sim_file(sim_json, cfg_.config_dir + "/simulation.json", file, errors)) {
       for (const auto& e : errors) std::printf("  simulation file: %s\n", e.c_str());
       return false;
+    }
+    if (file.schema_version >= 2) {  // this network's section, as the plugin takes it
+      canopen_sim::SimFile section;
+      if (!canopen_sim::sim_file_section(file, cfg_.network, section)) {
+        std::printf("  simulation file: no section for network %s\n", cfg_.network.c_str());
+        return false;
+      }
+      file = section;
     }
     if (specs.empty()) {
       for (const auto& n : cfg_.nodes) {
@@ -4180,6 +4193,88 @@ TEST(sim_cia402_cyclic_period_warning) {
   for (const auto& l : logs()) n += l.find("the drive interpolates with the wrong period") != std::string::npos;
   CHECK(n == 1);
   delete sim;
+}
+
+// ---------------------------------------------------------------------------
+// The machine model (add-machine-sim): the gantry cell example
+// (examples/gantry-cell) with its own program, configuration, simulation and
+// machine files. The program homes the three axes, picks the parts the
+// conveyor brings and places them on the pallet; Z jams, its drive faults on
+// the following error (EMCY 0x8611), the program resets it and carries on.
+
+TEST(sim_gantry_demo) {
+#ifndef CIA402_PROGRAM
+  const char* need = std::getenv("CANOPEN_REQUIRE_STRUCPP");
+  std::printf("    not built: configure with -DSTRUCPP=$(scripts/fetch-strucpp.sh) to run the gantry demo program\n");
+  CHECK_MSG(!(need && std::string(need) == "1"), "CANOPEN_REQUIRE_STRUCPP=1 but the gantry program was not built");
+#else
+  clear_logs();
+  std::string ex = std::string(GANTRY_DIR) + "/canopen/";
+  std::string dir = make_dir(read(ex + "canopen.json"), {{"servo402.eds", read(ex + "servo402.eds")},
+                                                         {"dio16.eds", read(ex + "dio16.eds")},
+                                                         {"machine.json", read(ex + "machine.json")}});
+  static Sim* sim;
+  sim = new Sim(dir, 10000);  // the example's 10 ms task
+  if (!sim->ok()) {
+    CHECK(sim->ok());
+    return;
+  }
+  program_host_gantry::Reset();
+  auto t0 = steady_clock::now();
+  sim->SetProgram([t0](fake_runtime::Image& plc) {
+    program_host_gantry::Image img{plc.bool_in, plc.bool_out, plc.byte_in, plc.byte_out, plc.int_in,
+                                   plc.int_out, plc.dint_in, plc.dint_out, fake_runtime::kSize};
+    program_host_gantry::Scan(img,
+                              std::chrono::duration_cast<std::chrono::nanoseconds>(steady_clock::now() - t0).count());
+  });
+  if (!sim->StartSimulator(read(ex + "simulation.json"))) {
+    CHECK(!"simulator started");
+    delete sim;
+    return;
+  }
+  CHECK(logged("sim: network motion: machine \"Gantry cell\" (machine.json): 3 joints, 1 conveyors, 1 sensors, 1 fixtures"));
+  sim->net().Start();
+  auto step = [] { return program_host_gantry::Step(); };
+  // A counter of the machine, or a joint's position (mm).
+  auto machine = [](const char* counter) {
+    cJSON* r = sim->SimAsk(R"({"op":"sim_machine"})");
+    double v = num(field(result(r), "counters"), counter);
+    cJSON_Delete(r);
+    return v;
+  };
+  auto z = [] {
+    cJSON* r = sim->SimAsk(R"({"op":"sim_machine"})");
+    double v = num(cJSON_GetArrayItem(field(result(r), "joints"), 2), "position");
+    cJSON_Delete(r);
+    return v;
+  };
+  auto where = [&] {
+    return "step " + std::to_string(step()) + ", placed " + std::to_string(machine("placed")) + ", picked " +
+           std::to_string(machine("picked")) + ", z " + std::to_string(z());
+  };
+
+  // Homed, then two parts on the pallet.
+  CHECK_MSG(sim->RunUntil([&] { return step() == 20; }, seconds(15)), where());
+  CHECK_MSG(sim->RunUntil([&] { return machine("placed") >= 2; }, seconds(30)), where());
+  CHECK(machine("dropped") == 0 && machine("misplaced") == 0);
+  CHECK_MSG(!logged("EMCY 0x8611"), where());  // no following error (a 0x8700 is a late scan on a loaded machine)
+
+  // Z jams on its way down: the drive faults, the program resets it and goes on.
+  CHECK_MSG(sim->RunUntil([&] { return z() > 60; }, seconds(15)), where());
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","machine":"z","fault":{"jam":true}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK_MSG(sim->RunUntil([] { return logged("(z): EMCY 0x8611"); }, seconds(3)), where());
+  CHECK_MSG(sim->RunUntil([&] { return step() == 90; }, seconds(2)), where());
+  r = sim->SimAsk(R"({"op":"sim_clear","machine":"z","fault":"jam"})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  double placed = machine("placed");
+  CHECK_MSG(sim->RunUntil([&] { return machine("placed") >= placed + 1; }, seconds(20)), where());
+  CHECK(machine("dropped") == 0);
+  std::printf("    demo done: %s\n", where().c_str());
+  delete sim;
+#endif
 }
 
 int main(int argc, char** argv) {

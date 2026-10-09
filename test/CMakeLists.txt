@@ -100,6 +100,25 @@ if(STRUCPP)
                              PROGRAM_HOST_HEADER="drive_cyclic_demo.hpp")
   target_compile_options(cia402_cyclic_program PRIVATE -w)
   target_link_libraries(sim_tests PRIVATE cia402_cyclic_program)
+  # The gantry cell example's program (sim_gantry_demo), renamed the same way.
+  set(GANTRY_DIR ${PROJECT_SOURCE_DIR}/examples/gantry-cell)
+  set(GANTRY_GEN ${CMAKE_CURRENT_BINARY_DIR}/gantry_gen)
+  add_custom_command(
+    OUTPUT ${GANTRY_GEN}/gantry.cpp ${GANTRY_GEN}/gantry.hpp
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${GANTRY_GEN}
+    COMMAND ${STRUCPP} ${GANTRY_DIR}/pous/programs/main.st -L ${CANOPEN_STLIB_DIR} -o ${GANTRY_GEN}/gantry.cpp
+    DEPENDS ${GANTRY_DIR}/pous/programs/main.st ${CANOPEN_STLIB_DIR}/openplc_canopen.stlib
+    COMMENT "STruC++: examples/gantry-cell/pous/programs/main.st")
+  add_library(gantry_program STATIC cia402/program_host.cpp ${GANTRY_GEN}/gantry.cpp)
+  set_target_properties(gantry_program PROPERTIES CXX_STANDARD 17)
+  target_include_directories(gantry_program PRIVATE ${GANTRY_GEN} ${STRUCPP_RUNTIME} cia402)
+  target_compile_definitions(gantry_program PRIVATE strucpp=strucpp_gantry program_host=program_host_gantry
+                             strucpp_get_located_globals=strucpp_gantry_get_located_globals
+                             strucpp_get_located_global_count=strucpp_gantry_get_located_global_count
+                             PROGRAM_HOST_HEADER="gantry.hpp")
+  target_compile_options(gantry_program PRIVATE -w)
+  target_link_libraries(sim_tests PRIVATE gantry_program)
+  target_compile_definitions(sim_tests PRIVATE GANTRY_DIR="${GANTRY_DIR}")
   target_compile_definitions(sim_tests PRIVATE CIA402_PROGRAM=1)
 endif()
 # One ctest test per TEST() case, so `ctest -j` overlaps their real-time waits.
@@ -160,6 +179,7 @@ target_link_libraries(link_check PRIVATE canopen_core)
 # The simulator engine's unit tests (expressions, sources, file, scenarios)
 # and its control channel.
 add_executable(sim_unit_tests sim_unit/sim_unit_tests.cpp sim_unit/sim_drive_tests.cpp sim_unit/sim_file_tests.cpp
+               sim_unit/sim_machine_tests.cpp
                sim_unit/sim_control_tests.cpp ${PROJECT_SOURCE_DIR}/tools/sim/control.cpp)
 target_include_directories(sim_unit_tests PRIVATE common ${PROJECT_SOURCE_DIR}/tools/sim)
 target_compile_definitions(sim_unit_tests PRIVATE FIXTURES_DIR="${FIXTURES_DIR}" PINGPONG_DIR="${PINGPONG_DIR}" RTD_DIR="${RTD_DIR}")

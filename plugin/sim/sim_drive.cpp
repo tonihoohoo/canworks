@@ -502,7 +502,7 @@ void DriveModel::run_csv() {
 void DriveModel::run_cst(double dt) {
   double t = sync_seen_ ? cs_torque_ : rd(0x6071, 0, 0);
   sw_limit_ = false;
-  double v = clampd(vd_ + t * s_.torque_accel * dt, -s_.max_velocity, s_.max_velocity);
+  double v = clampd(vd_ + (t - load_permille) * s_.torque_accel * dt, -s_.max_velocity, s_.max_velocity);
   vd_ = limit_velocity(v, s_.max_acceleration);
   v_target_ = vd_;
   pd_ = pa_;
@@ -528,6 +528,12 @@ void DriveModel::run_homing(uint16_t cw, bool edge4, bool fall4, double dt) {
     } else if ((method == 17 || method == 18) && s1 > 0 && s2 > 0) {
       hm_ = Homing::Search;
       hm_dir_ = method == 17 ? -1 : 1;
+      hm_home_ = false;
+    } else if (method >= 19 && method <= 22 && s1 > 0 && s2 > 0) {
+      // Home switch: search it in the method's direction, then leave it slowly.
+      hm_ = Homing::Search;
+      hm_dir_ = method <= 20 ? 1 : -1;
+      hm_home_ = true;
     } else {
       hm_ = Homing::Error;
     }
@@ -538,7 +544,7 @@ void DriveModel::run_homing(uint16_t cw, bool edge4, bool fall4, double dt) {
   if (hm_ == Homing::Search || hm_ == Homing::Back) {
     double s1 = std::min(std::fabs(rd(0x6099, 1, s_.max_velocity * 0.1)), s_.max_velocity);
     double s2 = std::min(std::fabs(rd(0x6099, 2, s_.max_velocity * 0.01)), s_.max_velocity);
-    bool on_switch = hm_dir_ < 0 ? inputs.negative_limit : inputs.positive_limit;
+    bool on_switch = hm_home_ ? inputs.home_switch : hm_dir_ < 0 ? inputs.negative_limit : inputs.positive_limit;
     if (hm_ == Homing::Search) {
       if (on_switch) {
         hm_ = Homing::Back;
@@ -695,8 +701,9 @@ void DriveModel::write_outputs() {
   wr(0x606B, 0, std::round(vd_));
   wr(0x606C, 0, std::round(va_));
   wr(0x60F4, 0, std::round(pd_ - pa_));
-  bool torque = state_ == State::OperationEnabled && mode_ == 10;
-  wr(0x6077, 0, torque ? std::round(sync_seen_ ? cs_torque_ : rd(0x6071, 0, 0)) : 0);
+  bool enabled = state_ == State::OperationEnabled;
+  double torque = enabled && mode_ == 10 ? (sync_seen_ ? cs_torque_ : rd(0x6071, 0, 0)) : enabled ? load_permille : 0;
+  wr(0x6077, 0, std::round(torque));
 }
 
 }  // namespace canopen_sim

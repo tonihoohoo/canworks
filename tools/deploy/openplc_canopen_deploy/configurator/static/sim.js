@@ -1794,3 +1794,68 @@ function stepBody(st, action, changedFn) {
   }
   return el("span");
 }
+
+// ---------------------------------------------------------------------------
+// Machine view (canopen-machine-view): machine_view.js, loaded when the view
+// first opens, draws the machine named by the shown network's section.
+
+const MACHINE = { seq: 0, view: null };
+
+// The machine file the shown network's section names ("" when none).
+function machineName() {
+  const file = SIM.file || (S.state && S.state.simulation && S.state.simulation.doc) || {};
+  const ver = Number.isInteger(file.schema_version) ? file.schema_version : 1;
+  const sec = ver >= 2 ? ((file.networks || {})[simSectionName()] || {}) : file;
+  return typeof sec.machine === "string" ? sec.machine : "";
+}
+
+function stopMachine() {
+  MACHINE.seq++;
+  if (MACHINE.view) MACHINE.view.stop();
+  MACHINE.view = null;
+}
+
+// A drive's following error window (0x6065) in counts: the config's SDO
+// write, else the EDS default.
+function machineFeWindow(node) {
+  const n = (S.config.nodes || []).find((x) => num(x.node_id) === node);
+  if (!n) return null;
+  const w = (n.sdo || []).find((s) => num(s.index) === 0x6065 && num(s.subindex || 0) === 0);
+  if (w && Number.isFinite(num(w.value))) return num(w.value);
+  const o = objectInfo(edsFor(n), 0x6065, 0);
+  const v = o ? num(String(o.default)) : NaN;
+  return Number.isFinite(v) ? v : null;
+}
+
+async function renderMachine(view) {
+  document.querySelector("#editor").classList.add("wide-view");
+  const seq = MACHINE.seq;
+  const name = machineName();
+  view.append(el("div", { class: "toolbar" }, el("h2", null, "Machine")));
+  if (!name) {
+    view.append(el("p", { class: "muted" }, "This network's simulation file section names no machine file. Add \"machine\": \"machine.json\" to the network's section (see docs/machine.md)."));
+    return;
+  }
+  const host = el("div", { id: "machine-view" }, el("p", { class: "muted" }, "Loading the machine view…"));
+  view.append(host);
+  if (!SIM.settings) await loadSimSettings();
+  let mod;
+  try { mod = await import("./machine_view.js"); } catch (e) {
+    if (seq === MACHINE.seq) host.replaceChildren(el("p", { class: "field-msg" }, `The machine view did not load: ${e.message}`));
+    return;
+  }
+  if (seq !== MACHINE.seq || S.view !== "machine") return;
+  const can = simCanConnect();
+  MACHINE.view = mod.openMachineView(host, {
+    network: simSectionName(), port: diagPort(), file: name, canConnect: can,
+    notConnected: SIM.settings.target === "simulator" ? "Connect to the standalone simulator in the Simulation view."
+      : diagConfig() ? "To see it live, enter the runtime host and the token in the Online view."
+        : "Online access is off for this config: turn it on under Bus and master to see the machine live.",
+    feWindow: machineFeWindow,
+    openNode: (node) => {
+      if (several()) S.onlineNet = simSectionName();
+      S.onlineNode = node;
+      showView("online");
+    },
+  });
+}

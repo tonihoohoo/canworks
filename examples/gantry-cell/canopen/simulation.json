@@ -1,0 +1,53 @@
+{
+  "schema_version": 2,
+  "tick_ms": 10,
+  "networks": {
+    "motion": {
+      "machine": "machine.json",
+      "nodes": {
+        "4": { "tick_ms": 1, "drive": { "max_velocity": 1500000, "max_acceleration": 100000000, "lag_ms": 5, "start_position": 20000 } },
+        "5": { "tick_ms": 1, "drive": { "max_velocity": 1500000, "max_acceleration": 100000000, "lag_ms": 5, "start_position": 20000 } },
+        "6": { "tick_ms": 1, "drive": { "max_velocity": 1500000, "max_acceleration": 100000000, "lag_ms": 5, "start_position": 20000 } }
+      },
+      "scenarios": {
+        "fill-a-pallet": {
+          "test": true,
+          "description": "The program homes the gantry, fills the 3 x 3 pallet without dropping a part and changes the pallet.",
+          "steps": [
+            { "expect": { "machine": "placed", "ge": 9 }, "within_ms": 90000 },
+            { "expect": { "machine": "pallets", "ge": 1 }, "within_ms": 15000 },
+            { "expect": { "machine": "dropped", "eq": 0 } },
+            { "expect": { "machine": "misplaced", "eq": 0 } }
+          ]
+        },
+        "z-jam": {
+          "test": true,
+          "description": "Z jams while the gantry works: the drive faults on its following error, the program resets it and carries on.",
+          "steps": [
+            { "wait": { "machine": "placed", "ge": 2 }, "timeout_ms": 60000 },
+            { "wait": { "machine": "z", "gt": 60 }, "timeout_ms": 20000 },
+            { "machine": "z", "fault": { "jam": true } },
+            { "expect": { "node": 6, "object": "0x6041", "bit": 3, "eq": 1 }, "within_ms": 3000 },
+            { "after_ms": 500, "machine": "z", "clear": "jam" },
+            { "expect": { "machine": "placed", "ge": 4 }, "within_ms": 40000 },
+            { "expect": { "machine": "dropped", "eq": 0 } }
+          ]
+        },
+        "sensor-stuck-off": {
+          "description": "The pick sensor stops seeing parts for 20 s: the gantry waits and parts queue on the conveyor.",
+          "steps": [
+            { "machine": "part_at_pick", "fault": { "stuck": "off" } },
+            { "after_ms": 20000, "machine": "part_at_pick", "clear": "stuck" }
+          ]
+        },
+        "feeder-empty": {
+          "description": "The feeder runs empty for 30 s.",
+          "steps": [
+            { "machine": "infeed", "fault": { "feeder": "empty" } },
+            { "after_ms": 30000, "machine": "infeed", "clear": "feeder" }
+          ]
+        }
+      }
+    }
+  }
+}

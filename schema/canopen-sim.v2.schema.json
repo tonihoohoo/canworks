@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tonihoohoo/openplc-canopen/schema/canopen-sim.v2.schema.json",
   "title": "openplc-canopen simulation file, version 2",
-  "description": "Behaviour of simulated CANopen devices, one section per network of the config (docs/simulator.md). Each section holds what a version 1 file holds. Checks the schema cannot express (section names that are networks of the config, objects exist in the EDS, sources on master-written objects, expression syntax and references, node IDs in the network) are run by the plugin, the simulator and the deploy tool's check.",
+  "description": "Behaviour of simulated CANopen devices, one section per network of the config (docs/simulator.md). Each section holds what a version 1 file holds, and may name a machine file (schema/canopen-machine.v1.schema.json). Checks the schema cannot express (section names that are networks of the config, objects exist in the EDS, sources on master-written objects, expression syntax and references, node IDs in the network, the machine file and the machine elements steps and conditions name) are run by the plugin, the simulator and the deploy tool's check.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -947,6 +947,11 @@
         "expr": {
           "type": "string",
           "minLength": 1
+        },
+        "machine": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A machine counter (fed, picked, placed, misplaced, dropped, pallets), sensor, fixture or joint."
         }
       },
       "oneOf": [
@@ -965,6 +970,11 @@
                 "required": [
                   "node"
                 ]
+              },
+              {
+                "required": [
+                  "machine"
+                ]
               }
             ]
           }
@@ -975,9 +985,93 @@
             "object"
           ],
           "not": {
-            "required": [
-              "expr"
+            "anyOf": [
+              {
+                "required": [
+                  "expr"
+                ]
+              },
+              {
+                "required": [
+                  "machine"
+                ]
+              }
             ]
+          },
+          "oneOf": [
+            {
+              "required": [
+                "eq"
+              ]
+            },
+            {
+              "required": [
+                "ne"
+              ]
+            },
+            {
+              "required": [
+                "lt"
+              ]
+            },
+            {
+              "required": [
+                "le"
+              ]
+            },
+            {
+              "required": [
+                "gt"
+              ]
+            },
+            {
+              "required": [
+                "ge"
+              ]
+            }
+          ]
+        },
+        {
+          "required": [
+            "machine"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "expr"
+                ]
+              },
+              {
+                "required": [
+                  "node"
+                ]
+              },
+              {
+                "required": [
+                  "object"
+                ]
+              },
+              {
+                "required": [
+                  "bit"
+                ]
+              }
+            ]
+          },
+          "properties": {
+            "eq": {
+              "type": [
+                "number",
+                "boolean"
+              ]
+            },
+            "ne": {
+              "type": [
+                "number",
+                "boolean"
+              ]
+            }
           },
           "oneOf": [
             {
@@ -1020,6 +1114,11 @@
       "properties": {
         "node": {
           "$ref": "#/$defs/device_ref"
+        },
+        "machine": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A machine element, for a \"fault\" or \"clear\" step instead of \"node\"."
         },
         "at_ms": {
           "type": "integer",
@@ -1066,23 +1165,10 @@
           }
         },
         "fault": {
-          "$ref": "#/$defs/fault"
+          "type": "object"
         },
         "clear": {
-          "type": "string",
-          "enum": [
-            "all",
-            "emcy",
-            "heartbeat",
-            "power",
-            "sdo_abort",
-            "sdo_delay",
-            "refuse_write_operational",
-            "tpdo_stop",
-            "identity",
-            "device_type",
-            "drive_input"
-          ]
+          "type": "string"
         },
         "wait": {
           "$ref": "#/$defs/condition"
@@ -1203,7 +1289,23 @@
                 "required": [
                   "source"
                 ]
-              },
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "node"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "machine"
+            ]
+          },
+          "then": {
+            "anyOf": [
               {
                 "required": [
                   "fault"
@@ -1214,12 +1316,68 @@
                   "clear"
                 ]
               }
-            ]
+            ],
+            "not": {
+              "required": [
+                "node"
+              ]
+            },
+            "properties": {
+              "fault": {
+                "$ref": "#/$defs/machine_fault"
+              },
+              "clear": {
+                "enum": [
+                  "jam",
+                  "stuck",
+                  "feeder",
+                  "misaligned_mm",
+                  "all"
+                ]
+              }
+            }
           },
-          "then": {
-            "required": [
-              "node"
-            ]
+          "else": {
+            "properties": {
+              "fault": {
+                "$ref": "#/$defs/fault"
+              },
+              "clear": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "emcy",
+                  "heartbeat",
+                  "power",
+                  "sdo_abort",
+                  "sdo_delay",
+                  "refuse_write_operational",
+                  "tpdo_stop",
+                  "identity",
+                  "device_type",
+                  "drive_input"
+                ]
+              }
+            },
+            "if": {
+              "anyOf": [
+                {
+                  "required": [
+                    "fault"
+                  ]
+                },
+                {
+                  "required": [
+                    "clear"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "required": [
+                "node"
+              ]
+            }
           }
         },
         {
@@ -1318,6 +1476,43 @@
           "additionalProperties": {
             "$ref": "#/$defs/scenario"
           }
+        },
+        "machine": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The machine file of this network, relative to this file (docs/machine.md)."
+        }
+      }
+    },
+    "machine_fault": {
+      "type": "object",
+      "description": "A fault of a machine element: jam (a joint), stuck (a sensor), slip (the tool), feeder and misaligned_mm (a conveyor with a feeder).",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "jam": {
+          "const": true
+        },
+        "stuck": {
+          "enum": [
+            "on",
+            "off"
+          ]
+        },
+        "slip": {
+          "const": true
+        },
+        "feeder": {
+          "enum": [
+            "stop",
+            "empty"
+          ]
+        },
+        "misaligned_mm": {
+          "type": "number",
+          "minimum": -1000,
+          "maximum": 1000
         }
       }
     }

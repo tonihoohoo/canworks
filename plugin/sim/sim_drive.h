@@ -31,7 +31,8 @@ struct DriveSettings {
 // ("drive: unknown key \"x\""). nullptr gives the defaults.
 bool parse_drive_settings(const cJSON* json, DriveSettings& out, std::string& err);
 
-// Inputs of the model, set as the `drive_input` fault.
+// Inputs of the model, set as the `drive_input` fault and by a machine model
+// (the engine ORs the two).
 struct DriveInputs {
   bool blocked = false, positive_limit = false, negative_limit = false, home_switch = false;
 };
@@ -80,6 +81,10 @@ class DriveModel {
   double interpolation_period() const;
 
   DriveInputs inputs;
+  // A machine's load on the axis, per mille of rated torque: shown in the
+  // actual torque (0x6077) while operation is enabled, and taken off the
+  // target torque in cyclic synchronous torque mode.
+  double load_permille = 0;
 
   // Objects the model writes (statusword 0x6041, 0x6061, 0x6064, 0x606C, ...)
   // that the device has, for the engine's precedence and status.
@@ -94,6 +99,10 @@ class DriveModel {
   double actual_position() const { return pa_; }
   double actual_velocity() const { return va_; }
   double demand_position() const { return pd_; }
+  double demand_velocity() const { return vd_; }
+  // 0x603F (the last fault's EMCY code, 0 after a reset) and 0x6077, as the OD has them.
+  uint16_t error_code() const { return static_cast<uint16_t>(rd(0x603F, 0, 0)); }
+  double actual_torque() const { return rd(0x6077, 0, 0); }
 
   const DriveSettings& settings() const { return s_; }
 
@@ -160,6 +169,7 @@ class DriveModel {
   // Homing.
   Homing hm_ = Homing::Idle;
   double hm_dir_ = 0;
+  bool hm_home_ = false;  // methods 19-22: the home switch, else a limit switch
 };
 
 }  // namespace canopen_sim

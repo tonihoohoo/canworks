@@ -4,7 +4,9 @@
 The simulation file (canopen/simulation.json): reading it with the project,
 checking it against schema/canopen-sim.v1.schema.json (or v2, one section per
 network) and writing it with the
-configurator's save rules. The live requests go to the runtime's simulated
+configurator's save rules. The machine file a section names
+(canopen/machine.json) is read for the Machine view and checked with the
+simulation file's problems. The live requests go to the runtime's simulated
 devices through the online access settings, or to a standalone simulator by
 address; its address and token are kept on this PC (online.json), never in the
 project.
@@ -17,7 +19,7 @@ import os
 import jsonschema
 from jsonschema.exceptions import best_match
 
-from .. import contract, diag, simclient
+from .. import contract, diag, machine, simclient
 
 SIM_FILE = "simulation.json"
 DEFAULT_ADDRESS = "127.0.0.1:%d" % simclient.SIM_PORT
@@ -28,12 +30,12 @@ PINS_MAX = 64
 
 # Requests the page may send through /api/sim/request.
 OPS = ("sim_status", "sim_get", "sim_set", "sim_override", "sim_release", "sim_source", "sim_fault", "sim_clear",
-       "sim_scenario_list", "sim_scenario_start", "sim_scenario_stop", "sim_check_expr")
+       "sim_scenario_list", "sim_scenario_start", "sim_scenario_stop", "sim_check_expr", "sim_machine")
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
     "": ["schema_version", "tick_ms", "nodes", "extra_devices", "scenarios", "networks"],
-    "section": ["nodes", "extra_devices", "scenarios"],
+    "section": ["machine", "nodes", "extra_devices", "scenarios"],
     "node": ["node", "name", "eds", "default_behaviour", "tick_ms", "identity", "device_type", "drive", "sources",
              "faults"],
     "scenario": ["description", "autostart", "test", "steps"],
@@ -102,6 +104,58 @@ def check(doc):
         elif e.validator == "propertyNames" and isinstance(e.instance, dict):
             message = "an object must be written as 0xIIII:S, for example 0x6200:1"
         out.append({"path": where, "message": message})
+    return out
+
+
+def machine_file(doc, network):
+    """The machine file a version 2 file's section for `network` names, or
+    None (a version 1 file, no such section, or no machine)."""
+    if version(doc) < 2 or not isinstance(doc.get("networks"), dict):
+        return None
+    sec = doc["networks"].get(network or "")
+    value = sec.get("machine") if isinstance(sec, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
+def machine_problems(doc, sim_path, cfg, config_path, eds_paths, network=None):
+    """The problems of the machine files a (schema-valid) simulation file
+    names and of the scenario steps and conditions on them, in the shape of
+    check(), with "level": the deploy tool's checks against the config. Only
+    the section of `network` when given."""
+    from .. import simfile
+    if version(doc) < 2 or '"machine"' not in json.dumps(doc):
+        return []  # nothing names a machine: spare the EDS reads on every check
+    r = simfile.check(doc, sim_path, cfg if isinstance(cfg, dict) else None, config_path, eds_paths)
+    out = []
+    for item in r.items:
+        paths = [p for p in item["paths"] if p == "machine" or p.endswith(".machine")]
+        if not paths:
+            continue
+        if network is not None and not (paths[0] + ".").startswith("networks.%s." % network):
+            continue
+        msg = item["message"]
+        prefix = "%s: %s: " % (sim_path, paths[0])
+        if msg.startswith(prefix):
+            msg = msg[len(prefix):]
+        out.append({"path": paths[0], "message": msg, "level": item["level"]})
+    return out
+
+
+def read_machine(doc, sim_path, network):
+    """{"network", "file", "machine"} of the machine file the section of
+    `network` names: "machine" the parsed file, or None when there is none
+    or it cannot be read; "error" then says why."""
+    value = machine_file(doc, network)
+    out = {"network": network, "file": value, "machine": None}
+    if value is None:
+        return out
+    path = value if os.path.isabs(value) else os.path.join(os.path.dirname(os.path.abspath(sim_path)), value)
+    try:
+        m = machine.load(path)
+        if isinstance(m, dict):
+            out["machine"] = m
+    except machine.MachineFileError as e:
+        out["error"] = str(e)
     return out
 
 

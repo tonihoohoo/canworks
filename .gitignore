@@ -1,4 +1,6 @@
 build/
+# the vendored three.js build of the Machine view is source, not a build output
+!/tools/deploy/openplc_canopen_deploy/configurator/static/three/build/
 .canopen/
 __pycache__/
 *.egg-info/

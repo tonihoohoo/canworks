@@ -20,6 +20,8 @@ too, in the deploy tool's layout:
                                     each CSV file -> sim/<name>)
     conf/canopen/eds/<name>        (the extra devices' EDS files)
     conf/canopen/sim/<name>        (its CSV files)
+    conf/canopen/<machine file>    (the machine files its sections name,
+                                    under their names, e.g. machine.json)
 
 It never writes anything when a check fails.
 """
@@ -205,7 +207,7 @@ def _read_sim(z, root, names, budget):
     files = {}
     # Paths as the simulation file names them; "/" stands for canopen/.
     referenced = simfile.referenced_files(data, "/" + SIM_NAME)
-    for kind, what in (("eds", "EDS path"), ("csv", "CSV file path")):
+    for kind, what in (("eds", "EDS path"), ("csv", "CSV file path"), ("machine", "machine file path")):
         for value in sorted(referenced[kind]):
             rel = _safe_relative(value)
             if rel is None:
@@ -227,7 +229,8 @@ def _read_sim(z, root, names, budget):
 def _check_sim(sim, cfg, eds_paths, work):
     """The deploy tool's simulation file checks and rewrite, on the files as
     they arrived, staged in work/canopen/. Returns ((deployed simulation
-    file, {extra device EDS name: bytes}, {CSV name: bytes}), warnings)."""
+    file, {extra device EDS name: bytes}, {CSV name: bytes}, {machine file
+    name: bytes}), warnings)."""
     data, files = sim
     top = os.path.join(work, PROJECT_DIR)
     for rel, content in files.items():
@@ -247,7 +250,7 @@ def _check_sim(sim, cfg, eds_paths, work):
     if not result.ok:
         raise Rejected("; ".join(shown(e) for e in result.errors))
     try:
-        out, eds_by, csv_by = bundle.sim_rewrite(data, path)
+        out, eds_by, csv_by, machine_by = bundle.sim_rewrite(data, path)
     except bundle.BundleError as e:
         raise Rejected(shown(str(e)))
 
@@ -258,7 +261,7 @@ def _check_sim(sim, cfg, eds_paths, work):
                 out[name] = f.read()
         return out
 
-    return (out, contents(eds_by), contents(csv_by)), [shown(w) for w in result.warnings]
+    return (out, contents(eds_by), contents(csv_by), contents(machine_by)), [shown(w) for w in result.warnings]
 
 
 def materialize(snapshot_zip, conf_dir):
@@ -318,7 +321,12 @@ def materialize(snapshot_zip, conf_dir):
             with open(os.path.join(fw_dir, name), "wb") as f:
                 f.write(data)
     if sim is not None:
-        sim_data, sim_eds, sim_csv = sim
+        sim_data, sim_eds, sim_csv, sim_machines = sim
+        for name, data in sorted(sim_machines.items()):
+            p = os.path.join(conf_dir, EDS_DIR.split("/")[0], *name.split("/"))
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "wb") as f:
+                f.write(data)
         if sim_csv:
             csv_dir = os.path.join(conf_dir, *SIM_CSV_DIR.split("/"))
             os.makedirs(csv_dir)
@@ -339,9 +347,10 @@ def materialize(snapshot_zip, conf_dir):
     msgs.append((INFO, "CANopen: config taken from the project snapshot (%s/%s, %d EDS file%s)"
                  % (PROJECT_DIR, CONFIG_NAME, len(by_name), "" if len(by_name) == 1 else "s")))
     if sim is not None:
-        msgs.append((INFO, "CANopen: simulation file carried (%s/%s, %d extra device EDS file%s, %d CSV file%s)%s"
+        msgs.append((INFO, "CANopen: simulation file carried (%s/%s, %d extra device EDS file%s, %d CSV file%s%s)%s"
                      % (PROJECT_DIR, SIM_NAME, len(sim_eds), "" if len(sim_eds) == 1 else "s",
                         len(sim_csv), "" if len(sim_csv) == 1 else "s",
+                        "".join(", machine file %s" % n for n in sorted(sim_machines)),
                         "" if simulated else "; the config simulates nothing, so it has no effect")))
     return True, msgs
 

@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "name": "Gantry cell",
+  "kind": "gantry_xyz",
+  "units": "mm",
+  "tick_ms": 2,
+  "seed": 1,
+  "joints": {
+    "x": { "node": 4, "travel": [0, 900], "counts_per_mm": 1000, "home_flag": 0, "limits": [-5, 905], "hard_stops": [-12, 912] },
+    "y": { "node": 5, "travel": [0, 600], "counts_per_mm": 1000, "home_flag": 0, "limits": [-5, 605], "hard_stops": [-12, 612] },
+    "z": { "node": 6, "travel": [0, 300], "counts_per_mm": 1000, "home_flag": 0, "down": true, "limits": [-5, 305], "hard_stops": [-12, 312],
+           "load": { "hold_permille": 165, "per_kg_permille": 140, "per_m_s2_permille": 60 } }
+  },
+  "tool": {
+    "type": "gripper",
+    "close": { "node": 10, "object": "0x6200:1", "bit": 1 },
+    "gripped": { "node": 10, "object": "0x6000:1", "bit": 4 },
+    "stroke_ms": 120,
+    "open_mm": 96,
+    "axis": "x",
+    "offset": [0, 0, 330],
+    "pick_tolerance_mm": 6
+  },
+  "parts": {
+    "box": { "size": [80, 60, 50], "mass_kg": 0.4 }
+  },
+  "conveyors": [
+    {
+      "name": "infeed",
+      "from": [-400, 480],
+      "to": [120, 480],
+      "width": 120,
+      "height": 60,
+      "speed_mm_s": 250,
+      "gap_mm": 40,
+      "run": { "node": 10, "object": "0x6200:1", "bit": 0 },
+      "feed": { "part": "box", "every_s": [2.0, 3.0] }
+    }
+  ],
+  "sensors": [
+    {
+      "name": "part_at_pick",
+      "at": [80, 480, 85],
+      "size": [20, 140, 40],
+      "detects": "part",
+      "output": { "node": 10, "object": "0x6000:1", "bit": 3 }
+    }
+  ],
+  "fixtures": [
+    {
+      "name": "pallet",
+      "slots": { "origin": [500, 120], "pitch": [120, 120], "count": [3, 3] },
+      "height": 40,
+      "margin": 30,
+      "place_tolerance_mm": 12,
+      "change": {
+        "request": { "node": 10, "object": "0x6200:1", "bit": 2 },
+        "ready": { "node": 10, "object": "0x6000:1", "bit": 5 },
+        "time_s": 3.3,
+        "move": [0, -500]
+      }
+    }
+  ],
+  "visual": {
+    "floor": { "size": [4000, 3200] },
+    "table": { "origin": [-480, -160], "size": [1500, 860], "height": 760 },
+    "frame": { "origin": [-60, -60], "size": [1020, 720], "height": 700, "profile_mm": 40 },
+    "fence": { "origin": [-700, -700], "size": [1950, 1600], "height": 1900 },
+    "stack_light": [1000, 640],
+    "colors": { "carriage": "#d9951f", "frame": "#b9c0c8", "part": "#c8a26a", "pallet": "#2f5f9f", "belt": "#2b2b2b" }
+  }
+}
