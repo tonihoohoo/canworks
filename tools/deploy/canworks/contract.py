@@ -1323,6 +1323,11 @@ def field_networks(cfg):
     return [n for n in networks(cfg) if n["role"] == "master" and not (stand_in and n["name"] == stand_in)]
 
 
+def _net_phrase(net):
+    """'network "io"', or 'network 4' for one without a name yet."""
+    return 'network "%s"' % net["name"] if net["name"] else "network %d" % (net["index"] + 1)
+
+
 def _check_gateway(cfg, err, warn, slaves):
     """The plugin's checks of the gateway section (canopen-gateway): the
     upper network, the field networks, and each route's two ends, their
@@ -1354,8 +1359,8 @@ def _check_gateway(cfg, err, warn, slaves):
     eds, eds_name, bound = slave if slave else (None, None, {})
     if isinstance(g.get("status"), dict):
         if len(masters) > MAX_STATUS_NETWORKS:
-            warn("gateway", "gateway status: only the first %d master networks are published; network \"%s\" is not"
-                 % (MAX_STATUS_NETWORKS, masters[MAX_STATUS_NETWORKS]["name"]), ["gateway.status"])
+            warn("gateway", "gateway status: only the first %d master networks are published; %s is not"
+                 % (MAX_STATUS_NETWORKS, _net_phrase(masters[MAX_STATUS_NETWORKS])), ["gateway.status"])
         if eds is not None:
             base_index = _uint(g["status"].get("index", DEFAULT_STATUS_INDEX))
             for k, m in enumerate(masters[:MAX_STATUS_NETWORKS]):
@@ -1365,14 +1370,14 @@ def _check_gateway(cfg, err, warn, slaves):
                 # for fewer networks) is left out with a warning, as the
                 # plugin does.
                 if k > 0 and not eds.has(rec) and not eds.has(bits):
-                    warn("gateway", "gateway status of network \"%s\" is not published: objects 0x%04X and 0x%04X are "
-                                    "not in the EDS %s" % (m["name"], rec, bits, eds_name), ["gateway.status"])
+                    warn("gateway", "gateway status of %s is not published: objects 0x%04X and 0x%04X are "
+                                    "not in the EDS %s" % (_net_phrase(m), rec, bits, eds_name), ["gateway.status"])
                     continue
                 for index in (rec, bits):
                     if not eds.has(index):
-                        err("gateway", "gateway status of network \"%s\" needs object 0x%04X in the EDS %s (generate "
+                        err("gateway", "gateway status of %s needs object 0x%04X in the EDS %s (generate "
                                        "the slave EDS with the gateway section: canworks-deploy slave-eds "
-                                       "--gateway)" % (m["name"], index, eds_name), ["gateway.status"])
+                                       "--gateway)" % (_net_phrase(m), index, eds_name), ["gateway.status"])
     if g.get("sdo_bridge") is True and eds is not None:
         index = _uint(g.get("sdo_bridge_index", DEFAULT_BRIDGE_INDEX))
         if not eds.has(index) or eds.find(index, 9) is None:

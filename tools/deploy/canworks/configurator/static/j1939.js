@@ -203,6 +203,16 @@ function j1939Dbc(j) {
 }
 
 async function importDbc(file) {
+  // A network has one DBC: the trace decodes its frames with it.
+  const j = j1939Of(S.config);
+  const pgns = (j.rx || []).length + (j.tx || []).length;
+  if (j.dbc && j.dbc !== file.name && pgns) {
+    const v = await modal(`The network's ${pgns} PGN${pgns === 1 ? "" : "s"} come from ${j.dbc}. A network has one DBC file, which ` +
+      `the trace decodes its frames with: importing ${file.name} makes it the network's DBC, and the PGNs from ${j.dbc} that ` +
+      `${file.name} does not have are no longer described by it.`,
+    [["cancel", `Keep ${j.dbc}`], ["replace", `Use ${file.name}`]]);
+    if (v !== "replace") return;
+  }
   const data = await fileBase64(file);
   let res;
   try {
