@@ -118,6 +118,24 @@ function fxBitButton(I, ref, v, label, cls, color, explain, small) {
   return b;
 }
 
+// The parts of a J1939 identifier (j1939-trace): colour and caption.
+const FX_J1939_COLOR = { priority: "id", reserved: "unused", dp: "unused", pf: "fc", ps: "g2", source: "node" };
+const fxHex2 = (v) => "0x" + v.toString(16).toUpperCase().padStart(2, "0");
+
+function fxJ1939Caption(j, p) {
+  if (p === "priority") return `Priority ${j.priority}`;
+  if (p === "reserved") return `R ${j.reserved}`;
+  if (p === "dp") return `DP ${j.dp}`;
+  if (p === "pf") return `PF ${fxHex2(j.pf)}`;
+  if (p === "ps") return j.pdu1 ? (j.ps === 255 ? "Destination 255 (global)" : `Destination ${j.ps}`) : `Group extension ${fxHex2(j.ps)}`;
+  return `Source ${fxHex2(j.source)}`;
+}
+
+function fxPartColor(id, p) {
+  if (id.j1939) return `var(--fx-${FX_J1939_COLOR[p] || "id"})`;
+  return `var(--fx-${p === "function" ? "fc" : p === "node" ? "node" : "id"})`;
+}
+
 function fxIdentifier(I) {
   const id = I.m.identifier;
   const parts = [];
@@ -125,8 +143,9 @@ function fxIdentifier(I) {
     const last = parts[parts.length - 1];
     if (last && last.part === b.part) last.bits.push(b); else parts.push({ part: b.part, bits: [b] });
   }
-  const color = (p) => `var(--fx-${p === "function" ? "fc" : p === "node" ? "node" : "id"})`;
-  const caption = (p) => p === "function" ? `Function code ${id.function_code}` + (id.message ? ` = ${id.message}` : "")
+  const color = (p) => fxPartColor(id, p);
+  const caption = (p) => id.j1939 ? fxJ1939Caption(id.j1939, p)
+    : p === "function" ? `Function code ${id.function_code}` + (id.message ? ` = ${id.message}` : "")
     : p === "node" ? `Node ID ${id.node}` : `Identifier 0x${id.text_id}` + (id.message ? ` = ${id.message}` : "");
   const row = el("div", { class: "fx-idrow", dataset: { fx: "identifier" } }, parts.map((p) => el("div", { class: "fx-group" },
     el("div", { class: "fx-bits" }, p.bits.map((b) => fxBitButton(I, "id." + b.n, b.v, `Identifier bit ${b.n} = ${b.v}`, null,
@@ -136,6 +155,15 @@ function fxIdentifier(I) {
   if (first) first.tabIndex = 0;
   fxRoving(row, ".fx-bit");
   const lines = [];
+  if (id.j1939) {
+    const j = id.j1939;
+    lines.push(el("p", { dataset: { fx: "pgn" } }, el("strong", null, `PGN 0x${j.pgn.toString(16).toUpperCase().padStart(4, "0")} = ${j.pgn}`),
+      id.message ? ` (${id.message})` : "", `, from ${id.sender}` + (j.pdu1 ? ` to ${j.destination_label}` : "") + "."));
+    lines.push(el("p", { class: "muted" }, id.math + "."));
+    return el("section", { class: "fx-layer" }, el("h3", null, "Identifier: who and what"),
+      el("p", { class: "muted" }, "A 29-bit J1939 identifier: 3 priority bits, a reserved bit, the data page, the PDU format (PF), the PDU specific (PS: the destination address when PF is below 240, else a group extension) and the source address. Reserved bit, data page, PF and, from PF 240 up, PS make the PGN."),
+      row, lines, el("p", { class: "muted fx-small" }, id.priority));
+  }
   if (id.math) lines.push(id.math + (id.message ? `: ${id.message}, ${id.what}` : "") + (id.node_label ? ` of ${id.node_label}` : "") + ".");
   else if (id.configured_text) lines.push(id.configured_text);
   else if (id.what) lines.push(`0x${id.text_id}: ${id.what}.`);
@@ -334,8 +362,12 @@ function fxExplainId(I, b) {
   const id = I.m.identifier;
   const wn = I.wireAt.get("id." + b.n);
   fxHighlight(I, ["id." + b.n], wn != null ? [wn] : []);
-  const part = b.part === "function" ? `function code (its bit ${b.n - 7})` : b.part === "node" ? `node ID (its bit ${b.n})` : "identifier";
-  fxShow(I, "Identifier bit", `var(--fx-${b.part === "function" ? "fc" : b.part === "node" ? "node" : "id"})`, `Identifier bit ${b.n} = ${b.v}`, [
+  const J1939_PART = { priority: ["priority", 26], reserved: ["reserved bit", 25], dp: ["data page", 24], pf: ["PDU format", 16],
+    ps: [id.j1939 && id.j1939.pdu1 ? "PDU specific: destination address" : "PDU specific: group extension", 8], source: ["source address", 0] };
+  const jp = id.j1939 ? J1939_PART[b.part] : null;
+  const part = jp ? `${jp[0]} (its bit ${b.n - jp[1]})`
+    : b.part === "function" ? `function code (its bit ${b.n - 7})` : b.part === "node" ? `node ID (its bit ${b.n})` : "identifier";
+  fxShow(I, "Identifier bit", fxPartColor(id, b.part), `Identifier bit ${b.n} = ${b.v}`, [
     ["Part of", part], ["Weight", `${b.weight} (0x${b.weight.toString(16).toUpperCase()})`],
     ["Level", b.v ? "recessive (1)" : "dominant (0)"], wn != null && ["Wire bit", String(wn)],
     id.function_code != null && b.part === "function" && ["Function code", String(id.function_code)],

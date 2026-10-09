@@ -26,6 +26,7 @@ import datetime
 
 from .. import diag
 from . import explain_texts as T
+from . import j1939
 from .decode import Decoder, signal_value
 from .wire import DEFAULT_BITRATE, wire
 
@@ -124,12 +125,17 @@ class Fields:
 
 
 def context_for(trace, index, decoder):
-    """A clone of `decoder` that has decoded the SDO frames before frame
-    `index` of `trace` (up to LOOKBACK frames back)."""
+    """A clone of `decoder` that has decoded the SDO frames (on a J1939
+    network: the transport protocol frames) before frame `index` of `trace`
+    (up to LOOKBACK frames back)."""
     ctx = decoder.clone()
+    is_j1939 = getattr(decoder, "protocol", "canopen") == "j1939"
     for j in range(max(0, index - LOOKBACK), index):
         f = trace.frame(j)
-        if not f.gap and not f.err and not f.ext and 0x581 <= f.can_id <= 0x67F:
+        if is_j1939:
+            if j1939.is_context(f):
+                ctx.decode(f)
+        elif not f.gap and not f.err and not f.ext and 0x581 <= f.can_id <= 0x67F:
             ctx.decode(f)
     return ctx
 
@@ -651,6 +657,18 @@ def explain(f, decoder=None, bitrate=None, context=None):
         out.update(kind="error", title="Error frame", meaning=meaning, about=T.ABOUT["error"],
                    error_classes=classes, fields=F.done(), wire=None)
         return out
+    if f.ext and getattr(dec, "protocol", "canopen") == "j1939":
+        # A J1939 network: the identifier splits into priority, PGN and
+        # addresses (j1939-trace: "J1939 identifier in the frame inspector").
+        ident = j1939.identifier_layer(f, dec)
+        kind, title, meaning, more = j1939.explain_data(F, f, dec, context)
+        notes += more
+        if f.rtr:
+            notes.append("A remote request carries no data: the RTR bit asks the owner of the identifier to send it.")
+        out.update(identifier=ident, kind=kind, title=title, meaning=meaning, about=j1939.ABOUT[kind],
+                   fields=F.done(*getattr(F, "done_gap", ("Not used", "Not used."))),
+                   wire=wire(f.can_id, True, f.rtr, b"" if f.rtr else f.data, f.dlc, bitrate))
+        return out
     ident = identifier_layer(f, dec)
     out["identifier"] = ident
     cid, d = f.can_id, f.data
@@ -835,7 +853,14 @@ def format_text(m, width=100):
         L.append("")
         L.append("Identifier (%d bits, most significant first)" % ident["width"])
         bits = ident["bits"]
-        if ident["width"] == 11 and ident["function_code"] is not None and ident["node"] is None:
+        if ident.get("j1939"):
+            j = ident["j1939"]
+            group = lambda part: "".join(str(b["v"]) for b in bits if b["part"] == part)  # noqa: E731
+            L.append("  priority %s = %d   reserved %s   data page %s" % (group("priority"), j["priority"],
+                                                                         group("reserved"), group("dp")))
+            L.append("  PDU format %s = 0x%02X   PDU specific %s = 0x%02X (%s)   source %s = %d (0x%02X)" % (
+                group("pf"), j["pf"], group("ps"), j["ps"], j["ps_text"], group("source"), j["source"], j["source"]))
+        elif ident["width"] == 11 and ident["function_code"] is not None and ident["node"] is None:
             L.append("  function code %s = %d" % ("".join(str(b["v"]) for b in bits[:4]), ident["function_code"]))
         elif ident["width"] == 11 and ident["function_code"] is not None:
             fc = "".join(str(b["v"]) for b in bits[:4])
@@ -847,7 +872,10 @@ def format_text(m, width=100):
             L.append("  " + ident["math"])
         if ident.get("configured_text"):
             L.append("  " + ident["configured_text"])
-        if ident.get("message"):
+        if ident.get("j1939"):
+            L.append("  %s%s, from %s" % (ident["message"] + ": " if ident.get("message") else "", ident["what"],
+                                          ident["sender"]))
+        elif ident.get("message"):
             L.append("  %s: %s%s" % (ident["message"], ident["what"],
                                       ", " + ident["node_label"] if ident.get("node_label") else ""))
         elif ident.get("what"):

@@ -6,7 +6,8 @@ heartbeat and EMCY identifiers come from the DBC export's model
 SDO object names and types come from the nodes' EDS files. Without a config
 (or with one that does not check) the predefined connection set of CiA 301
 is used. A trace records one network: with several networks in the config
-the decoder takes the traced network's nodes (`network`).
+the decoder takes the traced network's nodes (`network`). A J1939 network
+(`"protocol": "j1939"`) gets a j1939.J1939Decoder instead.
 
     dec = Decoder.from_config(cfg, config_path, names=dbcexport.plc_names(uses), network="drives")
     d = dec.decode(frame)   # Decoded: kind, node, name, text, signals
@@ -21,7 +22,12 @@ import struct
 from .. import contract, dbcexport, diag
 from .model import Frame
 
-KINDS = ("nmt", "sync", "time", "emcy", "heartbeat", "sdo", "pdo", "lss", "error", "gap", "other")
+# J1939 kinds (j1939.py) come last so the CANopen codes stay as they were.
+KINDS = ("nmt", "sync", "time", "emcy", "heartbeat", "sdo", "pdo", "lss", "error", "gap", "other",
+         "pgn", "claim", "request", "ack", "tp")
+# Kinds whose frames a later frame's decoding depends on (segmented SDO
+# transfers, J1939 transport sessions): decoded again before a window.
+CONTEXT_KINDS = ("sdo", "tp")
 
 NMT_COMMANDS = {1: "start", 2: "stop", 128: "enter pre-operational", 129: "reset node", 130: "reset communication"}
 HB_STATES = {0: "boot-up", 4: "STOPPED", 5: "OPERATIONAL", 127: "PRE-OPERATIONAL"}
@@ -126,8 +132,23 @@ def error_frame_text(f):
     return " ".join(classes) or "error frame"
 
 
+def j1939_network(cfg, network=None):
+    """The contract.networks() entry of `network` (or of the config's only
+    network) when its protocol is "j1939", else None."""
+    if not isinstance(cfg, dict):
+        return None
+    nets = contract.networks(cfg)
+    found = [n for n in nets if n["name"] == network] if network is not None else nets if len(nets) == 1 else []
+    if found and found[0]["json"].get("protocol") == "j1939":
+        return found[0]
+    return None
+
+
 class Decoder:
-    """Decodes frames for one configuration (or none)."""
+    """Decodes frames for one configuration (or none). A J1939 network gets
+    a j1939.J1939Decoder, a subclass with protocol "j1939"."""
+
+    protocol = "canopen"
 
     def __init__(self):
         self.node_names = {}   # node id -> config name
@@ -150,6 +171,10 @@ class Decoder:
         d = cls()
         if not cfg:
             return d
+        net = j1939_network(cfg, network)
+        if net is not None:
+            from .j1939 import J1939Decoder
+            return J1939Decoder.from_network(net, config_path)
         try:
             cfg = contract.network_config(cfg, network)
         except ValueError as e:
@@ -509,4 +534,4 @@ def decode_all(decoder, frames):
     return [decoder.decode(f) for f in frames]
 
 
-__all__ = ["Decoder", "Decoded", "decode_all", "signal_value", "KINDS", "Frame"]
+__all__ = ["Decoder", "Decoded", "decode_all", "signal_value", "j1939_network", "KINDS", "CONTEXT_KINDS", "Frame"]

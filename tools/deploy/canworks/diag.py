@@ -963,12 +963,15 @@ def parser():
     ex = sub.add_parser("explain", help="explain frames bit by bit (no connection)",
                         description="Explains CAN frames layer by layer: what the frame means, the identifier "
                                     "split into function code and node ID, every data bit by field, and the frame "
-                                    "rebuilt as it goes on the wire. Frames in candump syntax: 185#2500EA00, "
+                                    "rebuilt as it goes on the wire; on a J1939 network (--network) the identifier "
+                                    "splits into priority, PGN and addresses. Frames in candump syntax: 185#2500EA00, "
                                     "705#05, 705#R (remote request), 18FF0017#0102 (8 digits: extended).")
     ex.add_argument("frames", nargs="*", metavar="FRAME", help="frames as ID#DATA")
     ex.add_argument("--trace", metavar="FILE", help="explain a frame of this trace file (with --index)")
     ex.add_argument("--index", type=int, metavar="N", help="the frame number in --trace, from 0")
-    ex.add_argument("--config", metavar="canworks.json", help="explain with this configuration's nodes and PDOs")
+    ex.add_argument("--config", metavar="canworks.json",
+                    help="explain with this configuration's nodes and PDOs, or its J1939 DBC (default with --network: "
+                         "%s when present)" % os.path.join("canworks", "canworks.json"))
     _network_arg(ex, "use this network of --config (default: the one the trace file names, else the only one)")
     ex.add_argument("--bitrate", type=int, metavar="BIT/S",
                     help="bit rate for the timing (default: --config's or the trace file's, else 500000)")
@@ -1127,10 +1130,16 @@ def format_sync(sy):
 def _print_status(st, out):
     bus = st.get("bus") or {}
     m = st.get("master") or {}
-    if not st.get("session", True):
+    j1939 = st.get("protocol") == "j1939"
+    if not st.get("session", True) and not j1939:
         out.write("no CANopen session: the CAN interface %s is missing or down\n" % (bus.get("interface") or "?"))
     out.write("plugin %s, up %d s, config %s\n" % (st.get("version"), int(st.get("uptime_s") or 0),
                                                    (st.get("config_sha256") or "?")[:12]))
+    if st.get("protocols"):
+        out.write("built-in protocols: %s\n" % ", ".join(str(p) for p in st["protocols"]))
+    if j1939:
+        _print_j1939_status(st, out)
+        return
     if st.get("role") == "slave":
         _print_slave_status(st, out)
         return
@@ -1203,6 +1212,89 @@ def _print_status(st, out):
         if nd.get("interpolation_period_us"):
             out.write("node %s: cyclic synchronous axis, interpolation time period %s us\n"
                       % (nd.get("node_id"), nd["interpolation_period_us"]))
+
+
+J1939_STATES = {0: "claiming an address", 1: "claimed", 2: "cannot claim", 3: "no bus"}
+
+
+def _j1939_name(text):
+    """A NAME of the status answer (a hex string) with its fields."""
+    from .bustrace.j1939 import name_text
+    try:
+        return name_text(int(str(text), 0))
+    except ValueError:
+        return "NAME %s" % text
+
+
+def _table(rows, out, indent="  "):
+    widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]) - 1)]
+    for r in rows:
+        out.write(indent + "  ".join(c.ljust(w) for c, w in zip(r, widths)) + "  " + r[-1] + "\n")
+
+
+def _print_j1939_status(st, out):
+    """The status of a J1939 network (design Decision 11): the PLC's ECU
+    and its claim, the ECUs seen, the received PGNs with their timeouts,
+    the sent PGNs and the requests."""
+    bus = st.get("bus") or {}
+    j = st.get("j1939") or {}
+    line = "bus %s: %s" % (bus.get("interface"), BUS_STATES.get(bus.get("state"), bus.get("state")))
+    if "tx_errors" in bus:
+        line += ", tx errors %s, rx errors %s, bus-off %s" % (bus.get("tx_errors"), bus.get("rx_errors"),
+                                                              bus.get("bus_off_count"))
+    out.write(line + "\n")
+    state = j.get("state")
+    addr = j.get("address")
+    out.write("J1939 ECU: %s, %s\n" % (j.get("state_name") or J1939_STATES.get(state, "state %s" % state),
+                                       "no address" if addr in (None, 254) else "address %s" % addr))
+    if j.get("name"):
+        out.write("own %s\n" % _j1939_name(j["name"]))
+    if j.get("error"):
+        out.write("J1939 not running: %s\n" % j["error"])
+    ecus = j.get("ecus") or []
+    if ecus:
+        out.write("ECUs seen:\n")
+        _table([("ADDRESS", "LAST MESSAGE", "NAME")] + [
+            (str(e.get("address")), _age(e.get("age_ms")), str(e.get("name"))) for e in ecus], out)
+    else:
+        out.write("ECUs seen: none\n")
+    rx = j.get("rx") or []
+    if rx:
+        out.write("received PGNs:\n")
+        rows = [("PGN", "FROM", "SOURCES SEEN", "LAST MESSAGE", "STATE", "TIMEOUTS", "MESSAGES")]
+        for e in rx:
+            rows.append((str(e.get("pgn")), _source_filter(e), ", ".join(str(a) for a in e.get("sources") or []) or "-",
+                         _age(e.get("age_ms")), "TIMED OUT" if e.get("timed_out") else "ok", str(e.get("timeouts") or 0),
+                         str(e.get("count") or 0)))
+        _table(rows, out)
+        for e in rx:
+            if e.get("timed_out"):
+                n = e.get("timeouts") or 0
+                out.write("PGN %s: timed out, no message for %s (%d timeout%s)\n" % (
+                    e.get("pgn"), _age(e.get("age_ms")).replace(" ago", ""), n, "" if n == 1 else "s"))
+        for e in rx:
+            sigs = e.get("signals") or []
+            if sigs:
+                out.write("PGN %s signals (raw): %s\n" % (e.get("pgn"), ", ".join(
+                    "%s %s%s" % (s.get("name"), s.get("raw"), "" if s.get("valid", True) else " (not valid)")
+                    for s in sigs)))
+    for e in j.get("tx") or []:
+        out.write("sent PGN %s: %s sent, %s requests answered\n" % (e.get("pgn"), e.get("sent", 0),
+                                                                   e.get("requests_answered", 0)))
+    for e in j.get("requests") or []:
+        out.write("request for PGN %s: %s sent\n" % (e.get("pgn"), e.get("sent", 0)))
+
+
+def _age(ms):
+    return "never" if ms is None else "%s ms ago" % ms
+
+
+def _source_filter(e):
+    if e.get("source") is not None:
+        return str(e["source"])
+    if e.get("source_name"):
+        return "NAME %s%s" % (e["source_name"], " mask %s" % e["source_name_mask"] if e.get("source_name_mask") else "")
+    return "any"
 
 
 def transmission_text(t):
@@ -2111,6 +2203,18 @@ def _filter(text):
         raise DiagError("usage", "--filter %r: write ID or ID/MASK, e.g. 0x180/0x780" % text)
 
 
+def _config_arg(args):
+    """--config, else (with --network) canworks/canworks.json when it is in
+    the current folder, as the parameter commands find it: a network name
+    means nothing without a config."""
+    from .parameters import DEFAULT_CONFIG
+    if args.config:
+        return args.config
+    if getattr(args, "network", None) and os.path.isfile(DEFAULT_CONFIG):
+        return DEFAULT_CONFIG
+    return None
+
+
 def _decoder(config, network=None, default=None):
     """A decoder with the nodes of `network` in the config (a trace records
     one network). `default` is the network for a config with several when
@@ -2140,7 +2244,7 @@ def _convert(args, out):
     from .bustrace import formats
     try:
         trace = formats.read_file(args.input)
-        decoder = _decoder(args.config, args.network, trace.meta.get("network"))
+        decoder = _decoder(_config_arg(args), args.network, trace.meta.get("network"))
         fmt = formats.write_file(trace, args.output, args.format, decoder)
     except (OSError, formats.FormatError) as e:
         raise DiagError("usage", str(e))
@@ -2164,11 +2268,12 @@ def _explain(args, out):
             trace = formats.read_file(args.trace)
         except (OSError, formats.FormatError) as e:
             raise DiagError("usage", str(e))
-    decoder = _decoder(args.config, args.network, trace.meta.get("network") if trace is not None else None)
+    config = _config_arg(args)
+    decoder = _decoder(config, args.network, trace.meta.get("network") if trace is not None else None)
     bitrate = args.bitrate
-    if bitrate is None and args.config:
+    if bitrate is None and config:
         try:
-            with open(args.config, encoding="utf-8") as f:
+            with open(config, encoding="utf-8") as f:
                 cfg = json.load(f)
         except (OSError, ValueError):
             cfg = None
@@ -2262,7 +2367,7 @@ def _record(args, out, fmt, filters, spec, connect, names):
     # The traced network's nodes decode its frames; without --network that is
     # the plugin's only network.
     network = args.network or (names[0] if len(names) == 1 and names[0] else None)
-    decoder = _decoder(args.config, args.network, network)
+    decoder = _decoder(_config_arg(args), args.network, network)
     if spec:
         try:
             triggers.resolve_signals(spec, decoder.signal_keys())
