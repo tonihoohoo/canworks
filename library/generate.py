@@ -324,10 +324,11 @@ void loop() {
   f.dlc = DLC;
   for (unsigned i = 0; i < 8; ++i) f.data[i] = static_cast<unsigned char>(DATA[i]);
   unsigned short err = 0;
-  if (ENABLE && !cf_prev) {
+  bool rising = ENABLE && !cf_prev;
+  if (rising || (ENABLE && !cf_handle && ERROR && can_frames::retry(ERROR_ID))) {
+    if (rising) COUNT = 0;
     ERROR = false;
     ERROR_ID = 0;
-    COUNT = 0;
     cf_handle = 0;
     if (!t) {
       err = can_frames::err_not_running;
@@ -363,12 +364,15 @@ CAN_RECEIVE_BODY = """\
 void loop() {
   const can_frames::api_v1* t = can_frames::api();
   NEW = false;
-  if (ENABLE && !cf_prev) {
+  bool rising = ENABLE && !cf_prev;
+  if (rising || (ENABLE && !cf_handle && ERROR && can_frames::retry(ERROR_ID))) {
+    if (rising) {
+      QUEUED = 0;
+      OVERFLOW = false;
+      DROPPED = 0;
+    }
     ERROR = false;
     ERROR_ID = 0;
-    QUEUED = 0;
-    OVERFLOW = false;
-    DROPPED = 0;
     unsigned short err = can_frames::err_not_running;
     unsigned int max = EXTENDED ? 0x1FFFFFFFu : 0x7FFu;
     unsigned int mask = ANY ? 0u : (MASK ? static_cast<unsigned int>(MASK) : max);

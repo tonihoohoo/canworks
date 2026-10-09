@@ -146,6 +146,7 @@ void RawRuntime::start() {
   }
   hooks.bus_info = [this](canworks_can_bus_info& info) { bus_info(info); };
   if (adapter_) hooks.prepare = [this] { return prepare_adapter(); };
+  hooks.host_frames_received = cfg_.is_plain();
   // Waiting for the interface is worth a line only when the network has
   // raw messages or is the plain network's own: otherwise nothing waits.
   if (engine_ || cfg_.is_plain()) {

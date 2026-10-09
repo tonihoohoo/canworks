@@ -168,7 +168,7 @@ WHILE rx.NEW DO
 END_WHILE;
 ```
 
-While `ENABLE` is TRUE the plugin queues every frame of the given format whose `(identifier AND MASK) = (ID AND MASK)`, up to `DEPTH` frames (`0` = 32, at most 256). `MASK` 0 means only `ID` itself; `ANY := TRUE` takes every frame. Each call takes at most one frame: `NEW` TRUE with its `RX_ID`, `RX_EXTENDED`, `RX_RTR`, `RX_DLC`, `RX_DATA` and `TIMESTAMP` (UTC microseconds from the kernel), or `NEW` FALSE with the last frame's outputs kept. Calling it in a `WHILE rx.NEW DO` loop drains the queue in one scan; `QUEUED` says how many frames still wait. A frame arriving at a full queue is dropped, sets `OVERFLOW` until `ENABLE` falls and counts in `DROPPED`. Frames the plugin sends itself are not queued. A network has at most 32 receivers.
+While `ENABLE` is TRUE the plugin queues every frame of the given format whose `(identifier AND MASK) = (ID AND MASK)`, up to `DEPTH` frames (`0` = 32, at most 256). `MASK` 0 means only `ID` itself; `ANY := TRUE` takes every frame. Each call takes at most one frame: `NEW` TRUE with its `RX_ID`, `RX_EXTENDED`, `RX_RTR`, `RX_DLC`, `RX_DATA` and `TIMESTAMP` (UTC microseconds from the kernel), or `NEW` FALSE with the last frame's outputs kept. Calling it in a `WHILE rx.NEW DO` loop drains the queue in one scan; `QUEUED` says how many frames still wait. A frame arriving at a full queue is dropped, sets `OVERFLOW` until `ENABLE` falls and counts in `DROPPED`. Frames the plugin sends itself are not queued. On a plain CAN network, frames other programs on the PLC host send (`cansend`, for example) are queued like frames from the bus; on a CANopen or J1939 network they are not, because the kernel marks them the same way as the protocol's own frames. A network has at most 32 receivers.
 
 ### `CAN_BUS_INFO`
 
@@ -187,6 +187,8 @@ While `ENABLE` is TRUE the plugin queues every frame of the given format whose `
 | 7 | The network is bus-off or its interface is down. |
 | 8 | Cancelled by a PLC stop or a network restart. |
 | 9 | The network is listen-only. |
+
+`CAN_SEND_CYCLIC` and `CAN_RECEIVE` whose `ENABLE` stays TRUE try to start again on every call after `ERROR_ID` 1, 7 or 8, so a block enabled from the first scan starts once the network runs, and comes back after a network restart. `ERROR` stays TRUE until it does; other errors need a new rising edge of `ENABLE`.
 
 The blocks never wait on the bus, allocate memory or log on the scan thread. A PLC stop ends every send with `ERROR_ID` 8, closes every receiver and stops every cyclic job.
 

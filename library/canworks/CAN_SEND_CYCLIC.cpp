@@ -72,7 +72,12 @@ struct api_v1 {
   void (*cyc_stop)(unsigned int handle);
   int (*bus_info)(unsigned char network, bus* info, unsigned short* error_id);
 };
-enum { err_not_running = 1, err_input = 3, err_cancelled = 8 };
+enum { err_not_running = 1, err_input = 3, err_bus = 7, err_cancelled = 8 };
+// Errors a later try can clear (the network starts, the bus recovers): a
+// block whose ENABLE stays TRUE tries again every call after these.
+inline bool retry(unsigned short error_id) {
+  return error_id == err_not_running || error_id == err_bus || error_id == err_cancelled;
+}
 
 // The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests
 // link the blocks into one process with the plugin code and name the entry
@@ -149,10 +154,11 @@ void loop() {
   f.dlc = DLC;
   for (unsigned i = 0; i < 8; ++i) f.data[i] = static_cast<unsigned char>(DATA[i]);
   unsigned short err = 0;
-  if (ENABLE && !cf_prev) {
+  bool rising = ENABLE && !cf_prev;
+  if (rising || (ENABLE && !cf_handle && ERROR && can_frames::retry(ERROR_ID))) {
+    if (rising) COUNT = 0;
     ERROR = false;
     ERROR_ID = 0;
-    COUNT = 0;
     cf_handle = 0;
     if (!t) {
       err = can_frames::err_not_running;

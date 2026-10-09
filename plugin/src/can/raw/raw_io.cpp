@@ -106,7 +106,7 @@ void RawIo::handle(const LinkFrame& lf, uint64_t now) {
   if (devices_) devices_->on_frame(f, now / 1000);
   if (lf.ours) {
     if (port_ && port_->own_echo(f)) return;  // a program frame is on the bus
-  } else if (!lf.this_host) {
+  } else if (!lf.this_host || hooks_.host_frames_received) {
     received_.fetch_add(1, std::memory_order_relaxed);
     if (port_) {
       port_->on_frame(f);
