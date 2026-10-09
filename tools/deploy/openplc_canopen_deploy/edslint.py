@@ -282,6 +282,11 @@ def lint_file(path, node_id=1):
         warnings.simplefilter("ignore")
         try:
             _Device(cfg, {"NODEID": node_id})
+        except KeyError as e:  # an entry (a PDO mapping, for one) names an object the file does not have
+            key = e.args[0] if e.args else None
+            what = "object 0x%04X" % key if isinstance(key, int) else "%r" % (key,)
+            return Result("dcfgen cannot read the file: an entry refers to %s, which the file does not have "
+                          "(a PDO mapping, for example)" % what, findings)
         except Exception as e:
             return Result("dcfgen cannot read the file: %s: %s" % (type(e).__name__, e), findings)
     return Result(None, findings)

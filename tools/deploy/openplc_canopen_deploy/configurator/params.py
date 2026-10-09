@@ -179,11 +179,12 @@ def context(session, body, node, library=""):
     path = body.get("eds_path")
     if isinstance(path, str) and path:
         with session.lock:
-            canopen_dir = session.canopen_dir
+            canopen_dir, pending_dir = session.canopen_dir, session.pending_dir
             if not os.path.isabs(path):
                 path = session.eds_path(path)
         real = os.path.realpath(path)
-        roots = [os.path.realpath(r) for r in (canopen_dir, library) if r]
+        # pending_dir: EDS files picked in this page and not saved yet
+        roots = [os.path.realpath(r) for r in (canopen_dir, pending_dir, library) if r]
         if not any(real.startswith(r + os.sep) for r in roots) or not os.path.isfile(real):
             raise Refused(403, "only EDS files in the project's canopen folder or the EDS library can be used")
         try:
