@@ -11,9 +11,9 @@ import unittest
 
 import jsonschema
 
-from openplc_canopen_deploy import bundle, cli, contract, edslint, editorproject, project, slaveeds
-from openplc_canopen_deploy.configurator import declare, layout
-from openplc_canopen_deploy.eds import Eds
+from canworks import bundle, cli, contract, edslint, editorproject, project, slaveeds
+from canworks.configurator import declare, layout
+from canworks.eds import Eds
 
 from .helpers import REPO, editor_bundle, tmpdir, zip_contents
 from .test_deploy import deploy
@@ -275,7 +275,7 @@ class Command(unittest.TestCase):
         cfg = load(os.path.join(GATEWAY, "canopen_config.json"))
         for rt in cfg["gateway"]["routes"]:
             rt["slave"] = {"index": "0x2FFF"}
-        config = self.write("canopen.json", cfg)
+        config = self.write("canworks.json", cfg)
         desc = self.write("gw.json", {})
         out = os.path.join(self.dir, "gw.eds")
         code, stdout, err = deploy("slave-eds", desc, "-o", out, "--gateway", config)
@@ -298,7 +298,7 @@ class SlaveContract(unittest.TestCase):
             shutil.copy(os.path.join(SLAVE, name), self.dir)
         for name in ("openplc-gateway.eds", "cpp-slave.eds"):
             shutil.copy(os.path.join(GATEWAY, name), self.dir)
-        self.path = os.path.join(self.dir, "canopen.json")
+        self.path = os.path.join(self.dir, "canworks.json")
 
     def slave(self):
         return load(os.path.join(SLAVE, "canopen_config.json"))
@@ -566,7 +566,7 @@ class SlaveContract(unittest.TestCase):
         self.assertIn("'sdo_bridge_write' has no effect without 'sdo_bridge'", "\n".join(r.warnings))
 
     def test_exports_skip_the_slave_network(self):
-        from openplc_canopen_deploy import dbcexport, dcfexport
+        from canworks import dbcexport, dcfexport
         cfg = self.gateway()
         files, _ = dcfexport.export(cfg, self.path)
         self.assertEqual(sorted(files), ["field/node_2.dcf"])
@@ -589,10 +589,10 @@ class Deploy(unittest.TestCase):
         self.assertEqual(code, 0, err)
         files = zip_contents(out)
         with open(os.path.join(GATEWAY, "openplc-gateway.eds"), "rb") as f:
-            self.assertEqual(files["conf/canopen/eds/openplc-gateway.eds"], f.read())
-        deployed = json.loads(files["conf/canopen.json"])
-        self.assertEqual(deployed["networks"][1]["slave"]["eds"], "canopen/eds/openplc-gateway.eds")
-        self.assertEqual(deployed["networks"][0]["nodes"][0]["eds"], "canopen/eds/cpp-slave.eds")
+            self.assertEqual(files["conf/canworks/eds/openplc-gateway.eds"], f.read())
+        deployed = json.loads(files["conf/canworks.json"])
+        self.assertEqual(deployed["networks"][1]["slave"]["eds"], "canworks/eds/openplc-gateway.eds")
+        self.assertEqual(deployed["networks"][0]["nodes"][0]["eds"], "canworks/eds/cpp-slave.eds")
         self.assertEqual(deployed["gateway"], load(os.path.join(GATEWAY, "canopen_config.json"))["gateway"])
         self.assertIn("2 EDS files", stdout)
 
@@ -622,12 +622,12 @@ class Deploy(unittest.TestCase):
             f.write("{}")
         cfg = load(os.path.join(SLAVE, "canopen_config.json"))
         written, _ = project.write(cfg, os.path.join(SLAVE, "canopen_config.json"), proj)
-        self.assertIn(os.path.join(proj, "canopen", "openplc-slave.eds"), written)
-        self.assertEqual(load(os.path.join(proj, "canopen", "canopen.json"))["networks"][0]["slave"]["eds"],
+        self.assertIn(os.path.join(proj, "canworks", "openplc-slave.eds"), written)
+        self.assertEqual(load(os.path.join(proj, "canworks", "canworks.json"))["networks"][0]["slave"]["eds"],
                          "openplc-slave.eds")
 
     def test_clash_keys(self):
-        from openplc_canopen_deploy import clash
+        from canworks import clash
         self.assertIn("comm_ok_location", clash.LOCATION_KEYS)
         self.assertIn("sync_count_location", clash.LOCATION_KEYS)
 

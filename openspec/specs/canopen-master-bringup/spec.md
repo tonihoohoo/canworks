@@ -371,7 +371,7 @@ The `master` object MAY give `time_period_ms` (100 to 3600000). When given, the 
 - **THEN** TIME messages use COB-ID 0x180
 
 #### Scenario: Not configured
-- **WHEN** `canopen.json` has no `master.time_period_ms`
+- **WHEN** `canworks.json` has no `master.time_period_ms`
 - **THEN** no TIME message is sent, as before
 
 #### Scenario: Out of range

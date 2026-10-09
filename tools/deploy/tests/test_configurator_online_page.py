@@ -9,8 +9,8 @@ import shutil
 import threading
 import unittest
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.configurator import server as srv
+from canworks import diag
+from canworks.configurator import server as srv
 
 from .fake_diag import SLAVE_NETWORK, TOKEN, TWO_NETWORKS, FakePlugin, closed_port, slave_status
 from .helpers import PINGPONG, REPO, tmpdir
@@ -42,8 +42,8 @@ class OnlineBase(unittest.TestCase):
     def setUp(self):
         self.dir = tmpdir(self)
         self.cfg_dir = os.path.join(self.dir, "cfg")
-        os.environ["OPENPLC_CANOPEN_CONFIG_DIR"] = self.cfg_dir
-        self.addCleanup(os.environ.pop, "OPENPLC_CANOPEN_CONFIG_DIR", None)
+        os.environ["CANWORKS_CONFIG_DIR"] = self.cfg_dir
+        self.addCleanup(os.environ.pop, "CANWORKS_CONFIG_DIR", None)
         self.project = os.path.join(self.dir, "rtd-monitor")
         shutil.copytree(FIXTURE, self.project)
         # The ping-pong config, moved off the fixture project's EtherCAT addresses.
@@ -52,8 +52,8 @@ class OnlineBase(unittest.TestCase):
         cfg["nodes"][0]["rx_pdos"][0]["entries"][0]["iec_location"] = "%QD300"
         cfg["nodes"][0]["status_location"] = "%IX300.0"
         self.cfg = cfg
-        os.makedirs(os.path.join(self.project, "canopen"))
-        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canopen"))
+        os.makedirs(os.path.join(self.project, "canworks"))
+        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         self.write_config()
         self.server = srv.Server()
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -72,7 +72,7 @@ class OnlineBase(unittest.TestCase):
 
     @property
     def config_path(self):
-        return os.path.join(self.project, "canopen", "canopen.json")
+        return os.path.join(self.project, "canworks", "canworks.json")
 
     def write_config(self, diagnostics=None):
         cfg = json.loads(json.dumps(self.cfg))
@@ -297,7 +297,7 @@ class OnlinePage(OnlineBase):
             pg.wait_for_selector("text=No scan has run")
             pg.click('button[data-online="scan"]')
             pg.wait_for_selector('tr[data-scan-node="40"]')
-            self.assertIn("openplc-canopen test devices", pg.inner_text('tr[data-scan-node="40"]'))
+            self.assertIn("canworks test devices", pg.inner_text('tr[data-scan-node="40"]'))
             self.assertIn("RTD sensor", pg.inner_text('tr[data-scan-node="40"]'))
             compare = pg.inner_text('tr[data-scan-node="2"] [data-online="compare"]')
             self.assertIn("0x00000005", compare)
@@ -310,7 +310,7 @@ class OnlinePage(OnlineBase):
             self.assertEqual(pg.evaluate("() => document.activeElement.dataset.path"), "nodes[1].name")
             pg.click('[data-online="back-to-scan"]')
             pg.wait_for_selector('tr[data-scan-node="40"]:has-text("added")')
-            self.assertFalse(os.path.exists(os.path.join(self.project, "canopen", "rtd.eds")))
+            self.assertFalse(os.path.exists(os.path.join(self.project, "canworks", "rtd.eds")))
             self.assertEqual(len(load(self.config_path)["nodes"]), 1)
             pg.wait_for_function("() => document.body.dataset.checking === '0'")
             pg.click("#btn-save")
@@ -318,7 +318,7 @@ class OnlinePage(OnlineBase):
         nodes = load(self.config_path)["nodes"]
         self.assertEqual(nodes[1], {"node_id": 40, "name": "rtd_sensor", "eds": "rtd.eds",
                                     "revision_number": 0x00010002, "serial_number": 99})
-        self.assertTrue(os.path.isfile(os.path.join(self.project, "canopen", "rtd.eds")))
+        self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "rtd.eds")))
 
     # -- LSS ----------------------------------------------------------------
     def test_lss_commission_new_device(self):
@@ -408,7 +408,7 @@ class SlaveOnlinePage(OnlineBase):
         self.cfg = load(os.path.join(folder, "canopen_config.json"))
         for f in os.listdir(folder):
             if f.endswith(".eds"):
-                shutil.copy(os.path.join(folder, f), os.path.join(self.project, "canopen"))
+                shutil.copy(os.path.join(folder, f), os.path.join(self.project, "canworks"))
 
     def write_config(self, diagnostics=None):
         if self.cfg.get("schema_version") != 2:

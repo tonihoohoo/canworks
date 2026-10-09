@@ -5,7 +5,7 @@
 #
 # Runs the ping-pong (tutorial slave, node 2) with the real plugin through
 # canopen_host and read-only diagnostics on 127.0.0.1, then records traces
-# with `openplc-canopen-diag trace` (this checkout's deploy tool). Passes
+# with `canworks-diag trace` (this checkout's deploy tool). Passes
 # (exit 0) when:
 #   - the trace holds the master's SYNC (080) and RPDO1 (202) and the slave's
 #     TPDO1 (182) and heartbeat (702), all marked T: Tx means "sent from the
@@ -35,7 +35,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/pingpong_slave"
 for f in "$PLUGIN" "$HOST" "$SLAVE"; do
@@ -47,7 +47,7 @@ if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP\|,UP"; then
 fi
 PY="${PYTHON:-python3}"
 export PYTHONPATH="$ROOT/tools/deploy${PYTHONPATH:+:$PYTHONPATH}"
-DIAG=("$PY" -m openplc_canopen_deploy.diag --runtime 127.0.0.1:7539 --token trace-test)
+DIAG=("$PY" -m canworks.diag --runtime 127.0.0.1:7539 --token trace-test)
 
 WORK="$(mktemp -d)"
 PIDS=()
@@ -117,7 +117,7 @@ cmp -s "$WORK/all.log" "$WORK/back.log" || fail "candump -> pcapng -> candump ch
 echo "==> A client that stops fetching"
 "$PY" - <<'PY' || fail "idle trace client check failed"
 import time
-from openplc_canopen_deploy import diag
+from canworks import diag
 c = diag.Client("127.0.0.1", 7539, "trace-test")
 c.connect()
 r = c.trace_start()

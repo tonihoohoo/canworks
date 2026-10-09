@@ -1,7 +1,7 @@
 """A stand-in for simulated devices (docs/simulator.md, "Control protocol"):
 FakeSim keeps the devices' state and answers the sim_ requests; FakePlugin
 (fake_diag.py) routes them to it, and FakeSimServer serves it as a standalone
-openplc-canopen-sim on 127.0.0.1. For the CLI and configurator tests.
+canworks-sim on 127.0.0.1. For the CLI and configurator tests.
 
     sim = FakeSim.example()            # nodes 5 and 7, extra device "spare"
     with FakePlugin(allow_changes=True, sim=sim) as fp: ...
@@ -22,8 +22,8 @@ import socketserver
 import threading
 import time
 
-from openplc_canopen_deploy import simfile
-from openplc_canopen_deploy.simclient import READ_OPS
+from canworks import simfile
+from canworks.simclient import READ_OPS
 
 from . import fake_machine
 from . import fake_tls
@@ -396,7 +396,7 @@ class FakeSimServer:
                     return
                 if fake.token and self.mode != "tls":
                     self._send({"ok": False, "error": "this simulator needs an encrypted connection; "
-                                                      "update openplc-canopen-diag"})
+                                                      "update canworks-diag"})
                     return
                 login = fake_tls.Login(fake.token) if fake.token else None
                 authed = not fake.token

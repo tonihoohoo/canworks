@@ -1,10 +1,10 @@
 (* Cyclic synchronous CiA 402 demo for config/cia402-drive/canopen_config_cyclic.json
    (axis "drive", node 4, SYNC from the PLC cycle, task interval T#10ms).
    The VAR block and the first lines of the body are what the project
-   generator writes into main for this config (openplc-canopen-deploy
+   generator writes into main for this config (canworks-deploy
    --new-project --task-interval T#10ms, or the configurator's New editor
    project); the rest is the demo. Paste the demo variables and body into
-   that main. The CO402_Cyclic* blocks come from the openplc_canopen library,
+   that main. The CO402_Cyclic* blocks come from the canworks library,
    which the generated project enables. *)
 PROGRAM main
   VAR
@@ -39,7 +39,7 @@ PROGRAM main
                                 35 CSV ramp down, 40 CST torque step, 50 done (CSV standstill), 90 fault reset *)
   END_VAR
 
-(* CiA 402 axes from canopen/canopen.json: keep these lines first *)
+(* CiA 402 axes from canworks/canworks.json: keep these lines first *)
 drive.iRatioTechUnitsNum := DINT#1;
 drive.dwRatioTechUnitsDenom := DWORD#1;
 drive.fScalefactor := LREAL#1.0;

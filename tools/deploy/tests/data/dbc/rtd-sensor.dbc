@@ -39,7 +39,7 @@ BO_ 0 NMT: 2 Master
 
 BO_ 128 SYNC: 0 Master
 
-CM_ "CANopen network of canopen_config.json, exported by openplc-canopen-deploy TEST";
+CM_ "CANopen network of canopen_config.json, exported by canworks-deploy TEST";
 CM_ BO_ 389 "node 5 TPDO 1, transmission 1";
 CM_ SG_ 389 AI_Input_PV_AI0_Input_PV "0x7130:1 INTEGER16 -> %IW100";
 CM_ SG_ 389 AI_Input_PV_AI1_Input_PV "0x7130:2 INTEGER16 -> %IW101";

@@ -2,25 +2,25 @@
 # Installs the CANopen plugin on an unmodified OpenPLC Runtime v4: a native
 # install (install.sh --native) or upstream's managed Docker install.
 #
-#   sudo scripts/install-stock.sh [--runtime-dir DIR] [--prefix /opt/openplc-canopen]
+#   sudo scripts/install-stock.sh [--runtime-dir DIR] [--prefix /opt/canworks]
 #                                 [--lely-ref <commit>] [--no-deps] [--no-editor-hook]
 #   sudo scripts/install-stock.sh --uninstall [--purge] [--runtime-dir DIR]
 #   sudo scripts/install-stock.sh --docker-image <image>   (hand-run container)
 #
 # Install: builds Lely CANopen and dcfgen into <prefix> (scripts/build-lely.sh),
 # installs the deploy tool into <prefix>/venv (the plugin runs its EDS lint,
-# openplc_canopen_deploy.edslint, at every load), builds libcanopen_plugin.so against the runtime's headers, installs it to
+# canworks.edslint, at every load), builds libcanworks_plugin.so against the runtime's headers, installs it to
 # <prefix>/lib/ (outside the runtime's build tree, so a runtime rebuild keeps
 # it), and puts exactly one disabled `canopen` line into the runtime's
 # plugins.conf. No runtime source file changes. From then on an upload that
-# carries conf/canopen.json (openplc-canopen-deploy) switches the plugin on, and
+# carries conf/canworks.json (canworks-deploy) switches the plugin on, and
 # one without it switches it off. Restart the runtime once so it loads the
 # plugin.
 #
 # Editor hook (unless --no-editor-hook): lets the editor's own "Build and
-# upload" keep CANopen on for a project that carries canopen/canopen.json
+# upload" keep CANopen on for a project that carries canworks/canworks.json
 # (docs/install-stock.md). Installs tools/editor-hook into <prefix>/venv, the hook package to <prefix>/lib/python/ and one file,
-# openplc_canopen_hook.pth, into the runtime's venv (venvs/runtime).
+# canworks_hook.pth, into the runtime's venv (venvs/runtime).
 #
 # Uninstall: removes the `canopen` line, the hook's .pth and <prefix>/lib/.
 # --purge also removes Lely and dcfgen (all of <prefix>).
@@ -33,7 +33,7 @@
 # inside the runtime image the bootloader runs, into <prefix> on the host, adds
 # a bind of <prefix> and a PYTHONPATH entry (which loads the editor hook) to the
 # spec, and recreates the runtime container: the PLC stops and restarts. The
-# editor hook keeps the canopen line in plugins.conf across new containers.
+# editor hook keeps the canworks line in plugins.conf across new containers.
 # After a runtime version change CANopen stays off until this script is run
 # again. --uninstall removes the spec entries again. --docker-image builds for a
 # runtime container you start yourself and prints the docker run flags.
@@ -42,10 +42,10 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PREFIX=/opt/openplc-canopen
+PREFIX=/opt/canworks
 # The Lely commit the deploy tool's vendored dcf package comes from
-# (tools/deploy/openplc_canopen_deploy/_lely_dcf/VERSION).
-LELY_REF=${LELY_REF:-$(cat "$REPO/tools/deploy/openplc_canopen_deploy/_lely_dcf/VERSION")}
+# (tools/deploy/canworks/_lely_dcf/VERSION).
+LELY_REF=${LELY_REF:-$(cat "$REPO/tools/deploy/canworks/_lely_dcf/VERSION")}
 RUNTIME_DIR=""
 UNINSTALL=0
 PURGE=0
@@ -56,7 +56,7 @@ RUNTIME_CONTAINER=openplc-runtime
 BOOTLOADER_CONTAINER=openplc-bootloader
 # Inside the runtime container the install is always here (compiled into the
 # plugin); on the host it is <prefix>.
-CONTAINER_PREFIX=/opt/openplc-canopen
+CONTAINER_PREFIX=/opt/canworks
 DOCKER_IMAGE=""
 IN_IMAGE=0
 
@@ -136,7 +136,7 @@ spec_tool() { python3 "$REPO/scripts/docker_spec.py" "$@"; }
 if [ "$EDITOR_HOOK" -eq 0 ] && { [ "$IN_IMAGE" -eq 1 ] || [ -n "$DOCKER_IMAGE" ] ||
         { [ -f "$BOOTLOADER_SPEC" ] && [ "$UNINSTALL" -eq 0 ]; }; }; then
     die "--no-editor-hook is not available for Docker installs: the hook is what keeps the" \
-        "canopen line in plugins.conf when the runtime container is recreated"
+        "canworks line in plugins.conf when the runtime container is recreated"
 fi
 
 if [ "$IN_IMAGE" -eq 1 ]; then
@@ -187,8 +187,8 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
     recreate_runtime
     cat <<EOF
 ==> Done. CANopen is installed for $IMAGE and disabled until an upload enables it.
-    Deploy a program with its CANopen config (openplc-canopen-deploy, docs/deploy.md),
-    or use the editor's "Build and upload" with a project that has a canopen/ folder.
+    Deploy a program with its CANopen config (canworks-deploy, docs/deploy.md),
+    or use the editor's "Build and upload" with a project that has a canworks/ folder.
     After a runtime version change CANopen stays off until you run this script again.
 EOF
     exit 0
@@ -212,10 +212,10 @@ RUNTIME_DIR="$(cd "$RUNTIME_DIR" 2>/dev/null && pwd)" || die "runtime directory 
 
 PLUGINS_CONF="$RUNTIME_DIR/plugins.conf"
 LIB_DIR="$PREFIX/lib"
-LIB="$LIB_DIR/libcanopen_plugin.so"
-LINE="canopen,$LIB,0,1,$LIB_DIR/canopen.json,"
-SIM_BIN="$LIB_DIR/openplc-canopen-sim"
-SIM_LINK=/usr/local/bin/openplc-canopen-sim
+LIB="$LIB_DIR/libcanworks_plugin.so"
+LINE="canworks,$LIB,0,1,$LIB_DIR/canworks.json,"
+SIM_BIN="$LIB_DIR/canworks-sim"
+SIM_LINK=/usr/local/bin/canworks-sim
 
 # Removes the simulator link when it points into this install.
 remove_sim_link() {
@@ -225,7 +225,7 @@ remove_sim_link() {
 }
 
 RUNTIME_VENV="$RUNTIME_DIR/venvs/runtime"
-PTH_NAME=openplc_canopen_hook.pth
+PTH_NAME=canworks_hook.pth
 HOOK_DIR="$LIB_DIR/python"
 
 # The runtime venv's site-packages, or nothing when there is no venv.
@@ -243,27 +243,27 @@ remove_editor_hook() {
     fi
     rm -rf "$HOOK_DIR"
     if [ -x "$PREFIX/venv/bin/python" ]; then
-        "$PREFIX/venv/bin/python" -m pip uninstall -q -y openplc-canopen-editor-hook >/dev/null 2>&1 || true
+        "$PREFIX/venv/bin/python" -m pip uninstall -q -y canworks-editor-hook >/dev/null 2>&1 || true
     fi
 }
 
-# Removes every canopen line from plugins.conf, in place (keeps owner/mode).
+# Removes every canworks line from plugins.conf, in place (keeps owner/mode).
 strip_canopen_lines() {
     [ -f "$PLUGINS_CONF" ] || return 0
     local tmp
     tmp=$(mktemp)
-    grep -v '^canopen,' "$PLUGINS_CONF" > "$tmp" || true
+    grep -v '^canworks,' "$PLUGINS_CONF" > "$tmp" || true
     cat "$tmp" > "$PLUGINS_CONF"
     rm -f "$tmp"
 }
 
 if [ "$UNINSTALL" -eq 1 ]; then
-    say "Removing the canopen plugin from $PLUGINS_CONF"
+    say "Removing the canworks plugin from $PLUGINS_CONF"
     strip_canopen_lines
     remove_editor_hook
     remove_sim_link
     if [ -x "$PREFIX/venv/bin/python" ]; then
-        "$PREFIX/venv/bin/python" -m pip uninstall -q -y openplc-canopen-deploy >/dev/null 2>&1 || true
+        "$PREFIX/venv/bin/python" -m pip uninstall -q -y canworks-deploy >/dev/null 2>&1 || true
     fi
     if [ "$PURGE" -eq 1 ]; then
         say "Removing $PREFIX"
@@ -309,14 +309,14 @@ trap 'rm -rf "$BUILD_DIR"' EXIT
 say "Building the plugin against $RUNTIME_DIR ($COMMIT)"
 cmake -S "$REPO" -B "$BUILD_DIR" -DOPENPLC_ROOT="$RUNTIME_DIR" -DCANOPEN_BUILD_TESTS=OFF \
     -DLELY_PREFIX="$PREFIX/lely" -DCANOPEN_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release >/dev/null
-cmake --build "$BUILD_DIR" --target canopen_plugin openplc-canopen-sim -j"$(nproc)" >/dev/null
+cmake --build "$BUILD_DIR" --target canworks_plugin canworks-sim -j"$(nproc)" >/dev/null
 
 say "Installing $LIB"
 mkdir -p "$LIB_DIR"
-install -m 0755 "$BUILD_DIR/plugins/libcanopen_plugin.so" "$LIB.new"
+install -m 0755 "$BUILD_DIR/plugins/libcanworks_plugin.so" "$LIB.new"
 mv -f "$LIB.new" "$LIB"
 # The standalone device simulator (docs/simulator.md), same version as the plugin.
-install -m 0755 "$BUILD_DIR/bin/openplc-canopen-sim" "$SIM_BIN.new"
+install -m 0755 "$BUILD_DIR/bin/canworks-sim" "$SIM_BIN.new"
 mv -f "$SIM_BIN.new" "$SIM_BIN"
 if [ "$IN_IMAGE" -eq 0 ]; then
     ln -sfn "$SIM_BIN" "$SIM_LINK"
@@ -357,7 +357,7 @@ install_hook_package() {
     "$PREFIX/venv/bin/python" -m pip install -q "$REPO/tools/editor-hook"
     rm -rf "${HOOK_DIR:?}.new"
     mkdir -p "$HOOK_DIR.new"
-    cp -R "$REPO/tools/editor-hook/openplc_canopen_hook" "$HOOK_DIR.new/"
+    cp -R "$REPO/tools/editor-hook/canworks_hook" "$HOOK_DIR.new/"
     find "$HOOK_DIR.new" -name __pycache__ -prune -exec rm -rf {} +
     rm -rf "${HOOK_DIR:?}"
     mv "$HOOK_DIR.new" "$HOOK_DIR"
@@ -381,11 +381,11 @@ elif [ "$EDITOR_HOOK" -eq 1 ]; then
     # the hook. If the package is gone, the webserver runs as without it.
     {
         printf '%s\n' "$HOOK_DIR"
-        printf '%s\n' 'import sys; exec("try:\n import openplc_canopen_hook\nexcept ImportError:\n pass\nelse:\n openplc_canopen_hook.install()")'
+        printf '%s\n' 'import sys; exec("try:\n import canworks_hook\nexcept ImportError:\n pass\nelse:\n canworks_hook.install()")'
     } > "$SITE/$PTH_NAME"
     say "Editor hook: $SITE/$PTH_NAME"
-    AFTER_UPLOAD="The editor's own \"Build and upload\" keeps CANopen on for a project with a canopen/ folder
-    (openplc-canopen-deploy --into-project) and switches it off for a project without one."
+    AFTER_UPLOAD="The editor's own \"Build and upload\" keeps CANopen on for a project with a canworks/ folder
+    (canworks-deploy --into-project) and switches it off for a project without one."
 else
     remove_editor_hook
     AFTER_UPLOAD="The editor's own \"Build and upload\" switches CANopen off until the next deploy
@@ -395,7 +395,7 @@ fi
 cat <<EOF
 ==> Done. The plugin is installed but disabled.
     1. Restart the runtime once so it loads the plugin:  systemctl restart openplc-runtime
-    2. Deploy a program with its CANopen config:         openplc-canopen-deploy --help (docs/deploy.md)
-    The runtime enables CANopen when an upload carries conf/canopen.json and disables it when one does not.
+    2. Deploy a program with its CANopen config:         canworks-deploy --help (docs/deploy.md)
+    The runtime enables CANopen when an upload carries conf/canworks.json and disables it when one does not.
     $AFTER_UPLOAD
 EOF

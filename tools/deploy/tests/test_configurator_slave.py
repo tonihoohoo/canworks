@@ -1,4 +1,4 @@
-"""openplc-canopen-config with slave networks and the gateway: building and
+"""canworks-config with slave networks and the gateway: building and
 exporting the slave EDS, placing slave objects, check and save
 (add-canopen-slave tasks 4.1 and 6.8)."""
 
@@ -7,7 +7,7 @@ import json
 import os
 import shutil
 
-from openplc_canopen_deploy.configurator import server as srv
+from canworks.configurator import server as srv
 
 from .helpers import REPO
 from .test_configurator_server import Running, read
@@ -61,7 +61,7 @@ class Slave(Running):
         eds = read(os.path.join(self.folder, "line-cell.eds"))
         self.assertTrue(eds.startswith(b"[FileInfo]"))
         self.assertEqual(json.loads(read(os.path.join(self.folder, "line-cell.eds.json"))), desc)
-        saved = json.loads(read(os.path.join(self.folder, "canopen.json")))
+        saved = json.loads(read(os.path.join(self.folder, "canworks.json")))
         self.assertEqual(saved["schema_version"], 2)
         self.assertEqual(list(saved["networks"][0]), ["name", "role", "adapter", "slave"])
         self.assertEqual(list(saved["networks"][0]["slave"]), ["node_id", "eds", "objects"])
@@ -140,12 +140,12 @@ class Slave(Running):
 
     def test_example_round_trip(self):
         shutil.copytree(SLAVE, self.folder)
-        os.rename(os.path.join(self.folder, "canopen_config.json"), os.path.join(self.folder, "canopen.json"))
+        os.rename(os.path.join(self.folder, "canopen_config.json"), os.path.join(self.folder, "canworks.json"))
         state = self.ok("POST", "/api/reload")
         self.assertEqual(state["config"]["networks"][0]["role"], "slave")
         self.assertEqual(self.ok("POST", "/api/check", {"config": state["config"]})["errors"], 0)
         self.ok("POST", "/api/save", {"config": state["config"]})
-        self.assertEqual(json.loads(read(os.path.join(self.folder, "canopen.json"))),
+        self.assertEqual(json.loads(read(os.path.join(self.folder, "canworks.json"))),
                          json.loads(read(os.path.join(SLAVE, "canopen_config.json"))))
 
 
@@ -154,7 +154,7 @@ class Gateway(Running):
         super().setUp()
         self.folder = os.path.join(self.dir, "gateway")
         shutil.copytree(GATEWAY, self.folder)
-        os.rename(os.path.join(self.folder, "canopen_config.json"), os.path.join(self.folder, "canopen.json"))
+        os.rename(os.path.join(self.folder, "canopen_config.json"), os.path.join(self.folder, "canworks.json"))
         self.state = self.ok("POST", "/api/open", {"path": self.folder, "mode": "standalone"})
         self.cfg = self.state["config"]
 
@@ -163,7 +163,7 @@ class Gateway(Running):
         self.assertEqual(check["errors"], 0, check["items"])
         self.assertNotIn("openplc-gateway.eds", self.state["unused_eds"])
         self.ok("POST", "/api/save", {"config": self.cfg})
-        saved = json.loads(read(os.path.join(self.folder, "canopen.json")))
+        saved = json.loads(read(os.path.join(self.folder, "canworks.json")))
         self.assertEqual(saved, json.loads(read(os.path.join(GATEWAY, "canopen_config.json"))))
         self.assertEqual(list(saved)[:3], ["schema_version", "networks", "gateway"])
         self.assertEqual(list(saved["gateway"]["routes"][0]), ["name", "slave", "field"])

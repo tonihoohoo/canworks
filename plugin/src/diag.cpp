@@ -800,7 +800,7 @@ void DiagServer::handle_login(Client& c, const std::string& id, const std::strin
   const MasterConfig& m = settings();
   if (c.mode == Mode::plain) {
     // An older client: tell it why, then close.
-    c.out += diag_error(id, "this runtime needs an encrypted connection; update openplc-canopen-diag");
+    c.out += diag_error(id, "this runtime needs an encrypted connection; update canworks-diag");
     c.closing = true;
     return;
   }

@@ -30,17 +30,17 @@ def _load_hook():
     if hook_dir not in sys.path:
         sys.path.append(hook_dir)
     try:
-        import openplc_canopen_hook
+        import canworks_hook
     except ImportError:
         return
-    openplc_canopen_hook.install(docker=True)
+    canworks_hook.install(docker=True)
 
 
 try:
     _chain()
 except Exception as e:  # another sitecustomize failing must not stop Python
-    sys.stderr.write("[openplc-canopen editor hook] WARNING: the other sitecustomize failed: %s\n" % e)
+    sys.stderr.write("[canworks editor hook] WARNING: the other sitecustomize failed: %s\n" % e)
 try:
     _load_hook()
 except Exception as e:
-    sys.stderr.write("[openplc-canopen editor hook] ERROR: not loaded: %s\n" % e)
+    sys.stderr.write("[canworks editor hook] ERROR: not loaded: %s\n" % e)

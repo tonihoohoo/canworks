@@ -1,0 +1,1011 @@
+{
+  "formatVersion": 1,
+  "manifest": {
+    "name": "canworks",
+    "version": "0.0.0",
+    "namespace": "canworks",
+    "functions": [],
+    "functionBlocks": [
+      {
+        "name": "CO402_CYCLICMOVEABSOLUTE",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "POSITION",
+            "type": "LREAL"
+          },
+          {
+            "name": "VELOCITY",
+            "type": "LREAL"
+          },
+          {
+            "name": "ACCELERATION",
+            "type": "LREAL"
+          },
+          {
+            "name": "JERK",
+            "type": "LREAL"
+          },
+          {
+            "name": "WINDOW",
+            "type": "LREAL"
+          },
+          {
+            "name": "MODETIMEOUT",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "INSYNC",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERRORID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "AXIS",
+            "type": "AXIS_REF_SM3"
+          }
+        ],
+        "locals": [
+          {
+            "name": "ISTATE",
+            "type": "INT"
+          },
+          {
+            "name": "PLAN",
+            "type": "FB_S7RTT_PLAN"
+          },
+          {
+            "name": "START",
+            "type": "ST_MOTIONSTATE"
+          },
+          {
+            "name": "LIMITS",
+            "type": "ST_MOTIONLIMITS"
+          },
+          {
+            "name": "FSET",
+            "type": "LREAL"
+          },
+          {
+            "name": "FT",
+            "type": "LREAL"
+          },
+          {
+            "name": "FELAPSED",
+            "type": "LREAL"
+          },
+          {
+            "name": "FDURATION",
+            "type": "LREAL"
+          },
+          {
+            "name": "FWINDOW",
+            "type": "LREAL"
+          },
+          {
+            "name": "FACTUAL",
+            "type": "LREAL"
+          },
+          {
+            "name": "I",
+            "type": "INT"
+          },
+          {
+            "name": "TMODE",
+            "type": "TON"
+          }
+        ]
+      },
+      {
+        "name": "CO402_CYCLICPOSITION",
+        "inputs": [
+          {
+            "name": "ENABLE",
+            "type": "BOOL"
+          },
+          {
+            "name": "POSITION",
+            "type": "LREAL"
+          },
+          {
+            "name": "MAXVELOCITY",
+            "type": "LREAL"
+          },
+          {
+            "name": "MODETIMEOUT",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "INSYNC",
+            "type": "BOOL"
+          },
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERRORID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "AXIS",
+            "type": "AXIS_REF_SM3"
+          }
+        ],
+        "locals": [
+          {
+            "name": "ISTATE",
+            "type": "INT"
+          },
+          {
+            "name": "FLAST",
+            "type": "LREAL"
+          },
+          {
+            "name": "TMODE",
+            "type": "TON"
+          }
+        ]
+      },
+      {
+        "name": "CO402_CYCLICTORQUE",
+        "inputs": [
+          {
+            "name": "ENABLE",
+            "type": "BOOL"
+          },
+          {
+            "name": "TORQUE",
+            "type": "LREAL"
+          },
+          {
+            "name": "MAXTORQUERATE",
+            "type": "LREAL"
+          },
+          {
+            "name": "MODETIMEOUT",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "INSYNC",
+            "type": "BOOL"
+          },
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERRORID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "AXIS",
+            "type": "AXIS_REF_SM3"
+          }
+        ],
+        "locals": [
+          {
+            "name": "ISTATE",
+            "type": "INT"
+          },
+          {
+            "name": "FLAST",
+            "type": "LREAL"
+          },
+          {
+            "name": "FSET",
+            "type": "LREAL"
+          },
+          {
+            "name": "TMODE",
+            "type": "TON"
+          }
+        ]
+      },
+      {
+        "name": "CO402_CYCLICVELOCITY",
+        "inputs": [
+          {
+            "name": "ENABLE",
+            "type": "BOOL"
+          },
+          {
+            "name": "VELOCITY",
+            "type": "LREAL"
+          },
+          {
+            "name": "MAXACCELERATION",
+            "type": "LREAL"
+          },
+          {
+            "name": "MODETIMEOUT",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "INSYNC",
+            "type": "BOOL"
+          },
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERRORID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "AXIS",
+            "type": "AXIS_REF_SM3"
+          }
+        ],
+        "locals": [
+          {
+            "name": "ISTATE",
+            "type": "INT"
+          },
+          {
+            "name": "FLAST",
+            "type": "LREAL"
+          },
+          {
+            "name": "TMODE",
+            "type": "TON"
+          }
+        ]
+      },
+      {
+        "name": "CO_SDO_READ",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "NODE",
+            "type": "USINT"
+          },
+          {
+            "name": "INDEX",
+            "type": "UINT"
+          },
+          {
+            "name": "SUBINDEX",
+            "type": "USINT"
+          },
+          {
+            "name": "TIMEOUT",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          },
+          {
+            "name": "ABORT_CODE",
+            "type": "UDINT"
+          },
+          {
+            "name": "DATA",
+            "type": "LWORD"
+          },
+          {
+            "name": "SIZE",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [],
+        "implementation": "cpp",
+        "sourceFile": "CO_SDO_READ.cpp"
+      },
+      {
+        "name": "CO_SDO_READ_BYTES",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "NODE",
+            "type": "USINT"
+          },
+          {
+            "name": "INDEX",
+            "type": "UINT"
+          },
+          {
+            "name": "SUBINDEX",
+            "type": "USINT"
+          },
+          {
+            "name": "TIMEOUT",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          },
+          {
+            "name": "ABORT_CODE",
+            "type": "UDINT"
+          },
+          {
+            "name": "SIZE",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "BUFFER",
+            "type": "__INLINE_ARRAY_BYTE",
+            "arrayDimensions": [
+              {
+                "start": 0,
+                "end": 1023
+              }
+            ],
+            "elementTypeName": "BYTE"
+          }
+        ],
+        "implementation": "cpp",
+        "sourceFile": "CO_SDO_READ_BYTES.cpp"
+      },
+      {
+        "name": "CO_SDO_READ_REAL",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "NODE",
+            "type": "USINT"
+          },
+          {
+            "name": "INDEX",
+            "type": "UINT"
+          },
+          {
+            "name": "SUBINDEX",
+            "type": "USINT"
+          },
+          {
+            "name": "TIMEOUT",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          },
+          {
+            "name": "ABORT_CODE",
+            "type": "UDINT"
+          },
+          {
+            "name": "VALUE",
+            "type": "LREAL"
+          }
+        ],
+        "inouts": [],
+        "implementation": "cpp",
+        "sourceFile": "CO_SDO_READ_REAL.cpp"
+      },
+      {
+        "name": "CO_SDO_READ_STRING",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "NODE",
+            "type": "USINT"
+          },
+          {
+            "name": "INDEX",
+            "type": "UINT"
+          },
+          {
+            "name": "SUBINDEX",
+            "type": "USINT"
+          },
+          {
+            "name": "TIMEOUT",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          },
+          {
+            "name": "ABORT_CODE",
+            "type": "UDINT"
+          },
+          {
+            "name": "VALUE",
+            "type": "STRING"
+          }
+        ],
+        "inouts": [],
+        "implementation": "cpp",
+        "sourceFile": "CO_SDO_READ_STRING.cpp"
+      },
+      {
+        "name": "CO_SDO_WRITE",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "NODE",
+            "type": "USINT"
+          },
+          {
+            "name": "INDEX",
+            "type": "UINT"
+          },
+          {
+            "name": "SUBINDEX",
+            "type": "USINT"
+          },
+          {
+            "name": "TIMEOUT",
+            "type": "TIME"
+          },
+          {
+            "name": "DATA",
+            "type": "LWORD"
+          },
+          {
+            "name": "SIZE",
+            "type": "USINT"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          },
+          {
+            "name": "ABORT_CODE",
+            "type": "UDINT"
+          }
+        ],
+        "inouts": [],
+        "implementation": "cpp",
+        "sourceFile": "CO_SDO_WRITE.cpp"
+      },
+      {
+        "name": "CO_SDO_WRITE_BYTES",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "NODE",
+            "type": "USINT"
+          },
+          {
+            "name": "INDEX",
+            "type": "UINT"
+          },
+          {
+            "name": "SUBINDEX",
+            "type": "USINT"
+          },
+          {
+            "name": "TIMEOUT",
+            "type": "TIME"
+          },
+          {
+            "name": "SIZE",
+            "type": "UINT"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          },
+          {
+            "name": "ABORT_CODE",
+            "type": "UDINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "BUFFER",
+            "type": "__INLINE_ARRAY_BYTE",
+            "arrayDimensions": [
+              {
+                "start": 0,
+                "end": 1023
+              }
+            ],
+            "elementTypeName": "BYTE"
+          }
+        ],
+        "implementation": "cpp",
+        "sourceFile": "CO_SDO_WRITE_BYTES.cpp"
+      },
+      {
+        "name": "CO_SDO_WRITE_REAL",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "NODE",
+            "type": "USINT"
+          },
+          {
+            "name": "INDEX",
+            "type": "UINT"
+          },
+          {
+            "name": "SUBINDEX",
+            "type": "USINT"
+          },
+          {
+            "name": "TIMEOUT",
+            "type": "TIME"
+          },
+          {
+            "name": "VALUE",
+            "type": "LREAL"
+          },
+          {
+            "name": "SIZE",
+            "type": "USINT"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          },
+          {
+            "name": "ABORT_CODE",
+            "type": "UDINT"
+          }
+        ],
+        "inouts": [],
+        "implementation": "cpp",
+        "sourceFile": "CO_SDO_WRITE_REAL.cpp"
+      },
+      {
+        "name": "CO_SDO_WRITE_STRING",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "NODE",
+            "type": "USINT"
+          },
+          {
+            "name": "INDEX",
+            "type": "UINT"
+          },
+          {
+            "name": "SUBINDEX",
+            "type": "USINT"
+          },
+          {
+            "name": "TIMEOUT",
+            "type": "TIME"
+          },
+          {
+            "name": "VALUE",
+            "type": "STRING"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          },
+          {
+            "name": "ABORT_CODE",
+            "type": "UDINT"
+          }
+        ],
+        "inouts": [],
+        "implementation": "cpp",
+        "sourceFile": "CO_SDO_WRITE_STRING.cpp"
+      }
+    ],
+    "types": [],
+    "globals": [],
+    "headers": [],
+    "isBuiltin": false,
+    "sourceFiles": [
+      "CO402_CyclicMoveAbsolute.st",
+      "CO402_CyclicPosition.st",
+      "CO402_CyclicTorque.st",
+      "CO402_CyclicVelocity.st",
+      "CO_SDO_READ.cpp",
+      "CO_SDO_READ_BYTES.cpp",
+      "CO_SDO_READ_REAL.cpp",
+      "CO_SDO_READ_STRING.cpp",
+      "CO_SDO_WRITE.cpp",
+      "CO_SDO_WRITE_BYTES.cpp",
+      "CO_SDO_WRITE_REAL.cpp",
+      "CO_SDO_WRITE_STRING.cpp"
+    ]
+  },
+  "chunks": [
+    {
+      "name": "CO402_CYCLICMOVEABSOLUTE",
+      "kind": "functionBlock",
+      "header": "class CO402_CYCLICMOVEABSOLUTE {\npublic:\n    // In-Out\n    AXIS_REF_SM3 AXIS;\n    // Inputs\n    IEC_BOOL EXECUTE;\n    IEC_LREAL POSITION;\n    IEC_LREAL VELOCITY;\n    IEC_LREAL ACCELERATION;\n    IEC_LREAL JERK;\n    IEC_LREAL WINDOW;\n    IEC_TIME MODETIMEOUT;\n    // Outputs\n    IEC_BOOL DONE;\n    IEC_BOOL BUSY;\n    IEC_BOOL INSYNC;\n    IEC_BOOL ERROR;\n    IEC_UINT ERRORID;\n    // Local variables\n    IEC_INT ISTATE;\n    FB_S7RTT_PLAN PLAN;\n    ST_MOTIONSTATE START;\n    ST_MOTIONLIMITS LIMITS;\n    IEC_LREAL FSET;\n    IEC_LREAL FT;\n    IEC_LREAL FELAPSED;\n    IEC_LREAL FDURATION;\n    IEC_LREAL FWINDOW;\n    IEC_LREAL FACTUAL;\n    IEC_INT I;\n    TON TMODE;\n\n    // Implicit IEC 61131-3 ENO pin (mirrors EN)\n    IEC_BOOL ENO = true;\n\n    // Constructor\n    CO402_CYCLICMOVEABSOLUTE();\n\n    // Execute function block\n    void operator()();\n\n    virtual ~CO402_CYCLICMOVEABSOLUTE() = default;\n};\n",
+      "cpp": "CO402_CYCLICMOVEABSOLUTE::CO402_CYCLICMOVEABSOLUTE()\n    : WINDOW(0.0), MODETIMEOUT(500000000LL)\n{\n    // Initialize variables\n}\n\nvoid CO402_CYCLICMOVEABSOLUTE::operator()() {\n    if (!EXECUTE) {\n        ISTATE = 0;\n    } else if (ISTATE == 0) {\n        ERRORID = 0;\n        if ((AXIS.BERROR) | (!AXIS.BCOMMUNICATION)) {\n            ERRORID = 4;\n        } else if (((AXIS.DRIVE.STATUSWORD) & (static_cast<IEC_UINT>(0x006F))) != static_cast<IEC_UINT>(0x0027)) {\n            ERRORID = 1;\n        } else if (((VELOCITY <= 0.0) | (ACCELERATION <= 0.0)) | (JERK <= 0.0)) {\n            ERRORID = 5;\n        } else {\n            AXIS.DRIVE.TARGET_POSITION = AXIS.DRIVE.POSITION_ACTUAL_VALUE;\n            AXIS.DRIVE.MODES_OF_OPERATION = static_cast<IEC_SINT>(8);\n            ISTATE = 10;\n        }\n        if (ERRORID != 0) {\n            ISTATE = 99;\n        }\n    }\n    if (((ISTATE == 10) | (ISTATE == 20)) | (ISTATE == 30)) {\n        if ((AXIS.BERROR) | (!AXIS.BCOMMUNICATION)) {\n            ERRORID = 4;\n            ISTATE = 99;\n        } else if (((AXIS.DRIVE.STATUSWORD) & (static_cast<IEC_UINT>(0x006F))) != static_cast<IEC_UINT>(0x0027)) {\n            ERRORID = 1;\n            ISTATE = 99;\n        } else if ((ISTATE != 10) & (AXIS.DRIVE.MODES_OF_OPERATION_DISPLAY != static_cast<IEC_SINT>(8))) {\n            ERRORID = 2;\n            ISTATE = 99;\n        }\n    }\n    TMODE.IN = ISTATE == 10;\n    TMODE.PT = MODETIMEOUT;\n    TMODE();\n    TMODE.ENO = true;\n    FACTUAL = TO_LREAL(AXIS.DRIVE.POSITION_ACTUAL_VALUE) / AXIS.FINCPERUNIT;\n    if (ISTATE == 10) {\n        AXIS.DRIVE.MODES_OF_OPERATION = static_cast<IEC_SINT>(8);\n        AXIS.DRIVE.TARGET_POSITION = AXIS.DRIVE.POSITION_ACTUAL_VALUE;\n        if (AXIS.DRIVE.MODES_OF_OPERATION_DISPLAY == static_cast<IEC_SINT>(8)) {\n            START.FPOS = FACTUAL;\n            START.FVEL = 0.0;\n            START.FACC = 0.0;\n            START.FDURATION = 0.0;\n            LIMITS.FVELMAX = VELOCITY;\n            LIMITS.FACCMAX = ACCELERATION;\n            LIMITS.FJERKMAX = JERK;\n            PLAN.EXECUTE = false;\n            PLAN();\n            PLAN.ENO = true;\n            PLAN.EXECUTE = true;\n            PLAN.MODEVELOCITY = false;\n            PLAN.STARTSTATE = START;\n            PLAN.TARGETPOS = POSITION;\n            PLAN.TARGETVEL = 0.0;\n            PLAN.LIMITS = LIMITS;\n            PLAN();\n            PLAN.ENO = true;\n            FDURATION = 0.0;\n            for (I = 1; I <= PLAN.SEGMENTCOUNT; I++) {\n                FDURATION = FDURATION + PLAN.TRAJECTORY.at(I).FDURATION;\n            }\n            FELAPSED = 0.0;\n            if (PLAN.ERROR) {\n                ERRORID = 5;\n                ISTATE = 99;\n            } else {\n                ISTATE = 20;\n            }\n        } else if (TMODE.Q) {\n            ERRORID = 2;\n            ISTATE = 99;\n        }\n    }\n    if (ISTATE == 20) {\n        FELAPSED = FELAPSED + AXIS.FCYCLETIME;\n        if ((FELAPSED >= FDURATION) | (PLAN.SEGMENTCOUNT <= 0)) {\n            AXIS.DRIVE.TARGET_POSITION = TO_DINT(POSITION * AXIS.FINCPERUNIT);\n            ISTATE = 30;\n        } else {\n            FT = FELAPSED;\n            FSET = POSITION;\n            for (I = 1; I <= PLAN.SEGMENTCOUNT; I++) {\n                if (FT <= PLAN.TRAJECTORY.at(I).FDURATION) {\n                    FSET = PLAN.TRAJECTORY.at(I).FPOS + PLAN.TRAJECTORY.at(I).FVEL * FT + 0.5 * PLAN.TRAJECTORY.at(I).FACC * FT * FT + PLAN.TRAJECTORY.at(I).FJERK * FT * FT * FT / 6.0;\n                    goto __strucpp_loop_exit_1;\n                }\n                FT = FT - PLAN.TRAJECTORY.at(I).FDURATION;\n            }\n            __strucpp_loop_exit_1: ;\n            AXIS.DRIVE.TARGET_POSITION = TO_DINT(FSET * AXIS.FINCPERUNIT);\n        }\n    }\n    if (ISTATE == 30) {\n        AXIS.DRIVE.TARGET_POSITION = TO_DINT(POSITION * AXIS.FINCPERUNIT);\n    }\n    FWINDOW = WINDOW;\n    if (FWINDOW <= 0.0) {\n        FWINDOW = 1.0 / ABS(AXIS.FINCPERUNIT);\n    }\n    DONE = (ISTATE == 30) & (ABS(FACTUAL - POSITION) <= FWINDOW);\n    INSYNC = (ISTATE == 20) | (ISTATE == 30);\n    BUSY = ((((ISTATE == 10) | (ISTATE == 20)) | (ISTATE == 30))) & (!DONE);\n    ERROR = ISTATE == 99;\n    if (ISTATE == 0) {\n        ERRORID = 0;\n    }\n}\n",
+      "deps": [
+        {
+          "library": "iec-standard-fb",
+          "name": "TON"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "ABS"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "TIME"
+        },
+        {
+          "library": "oscat-basic",
+          "name": "WINDOW"
+        },
+        {
+          "library": "plcopen-softmotion",
+          "name": "AXIS_REF_SM3"
+        },
+        {
+          "library": "plcopen-softmotion",
+          "name": "FB_S7RTT_PLAN"
+        },
+        {
+          "library": "plcopen-softmotion",
+          "name": "ST_MOTIONLIMITS"
+        },
+        {
+          "library": "plcopen-softmotion",
+          "name": "ST_MOTIONSTATE"
+        }
+      ]
+    },
+    {
+      "name": "CO402_CYCLICPOSITION",
+      "kind": "functionBlock",
+      "header": "class CO402_CYCLICPOSITION {\npublic:\n    // In-Out\n    AXIS_REF_SM3 AXIS;\n    // Inputs\n    IEC_BOOL ENABLE;\n    IEC_LREAL POSITION;\n    IEC_LREAL MAXVELOCITY;\n    IEC_TIME MODETIMEOUT;\n    // Outputs\n    IEC_BOOL INSYNC;\n    IEC_BOOL BUSY;\n    IEC_BOOL ERROR;\n    IEC_UINT ERRORID;\n    // Local variables\n    IEC_INT ISTATE;\n    IEC_LREAL FLAST;\n    TON TMODE;\n\n    // Implicit IEC 61131-3 ENO pin (mirrors EN)\n    IEC_BOOL ENO = true;\n\n    // Constructor\n    CO402_CYCLICPOSITION();\n\n    // Execute function block\n    void operator()();\n\n    virtual ~CO402_CYCLICPOSITION() = default;\n};\n",
+      "cpp": "CO402_CYCLICPOSITION::CO402_CYCLICPOSITION()\n    : MAXVELOCITY(0.0), MODETIMEOUT(500000000LL)\n{\n    // Initialize variables\n}\n\nvoid CO402_CYCLICPOSITION::operator()() {\n    if (!ENABLE) {\n        ISTATE = 0;\n    } else if (ISTATE == 0) {\n        ERRORID = 0;\n        if ((AXIS.BERROR) | (!AXIS.BCOMMUNICATION)) {\n            ERRORID = 4;\n        } else if (((AXIS.DRIVE.STATUSWORD) & (static_cast<IEC_UINT>(0x006F))) != static_cast<IEC_UINT>(0x0027)) {\n            ERRORID = 1;\n        } else {\n            AXIS.DRIVE.TARGET_POSITION = AXIS.DRIVE.POSITION_ACTUAL_VALUE;\n            FLAST = TO_LREAL(AXIS.DRIVE.POSITION_ACTUAL_VALUE) / AXIS.FINCPERUNIT;\n            AXIS.DRIVE.MODES_OF_OPERATION = static_cast<IEC_SINT>(8);\n            ISTATE = 10;\n        }\n        if (ERRORID != 0) {\n            ISTATE = 99;\n        }\n    }\n    if ((ISTATE == 10) | (ISTATE == 20)) {\n        if ((AXIS.BERROR) | (!AXIS.BCOMMUNICATION)) {\n            ERRORID = 4;\n            ISTATE = 99;\n        } else if (((AXIS.DRIVE.STATUSWORD) & (static_cast<IEC_UINT>(0x006F))) != static_cast<IEC_UINT>(0x0027)) {\n            ERRORID = 1;\n            ISTATE = 99;\n        }\n    }\n    TMODE.IN = ISTATE == 10;\n    TMODE.PT = MODETIMEOUT;\n    TMODE();\n    TMODE.ENO = true;\n    if (ISTATE == 10) {\n        AXIS.DRIVE.MODES_OF_OPERATION = static_cast<IEC_SINT>(8);\n        AXIS.DRIVE.TARGET_POSITION = AXIS.DRIVE.POSITION_ACTUAL_VALUE;\n        if (AXIS.DRIVE.MODES_OF_OPERATION_DISPLAY == static_cast<IEC_SINT>(8)) {\n            FLAST = TO_LREAL(AXIS.DRIVE.POSITION_ACTUAL_VALUE) / AXIS.FINCPERUNIT;\n            ISTATE = 20;\n        } else if (TMODE.Q) {\n            ERRORID = 2;\n            ISTATE = 99;\n        }\n    }\n    if (ISTATE == 20) {\n        if (AXIS.DRIVE.MODES_OF_OPERATION_DISPLAY != static_cast<IEC_SINT>(8)) {\n            ERRORID = 2;\n            ISTATE = 99;\n        } else if ((MAXVELOCITY > 0.0) & (ABS(POSITION - FLAST) > MAXVELOCITY * AXIS.FCYCLETIME * 1.000001)) {\n            ERRORID = 3;\n            ISTATE = 99;\n        } else {\n            AXIS.DRIVE.TARGET_POSITION = TO_DINT(POSITION * AXIS.FINCPERUNIT);\n            FLAST = POSITION;\n        }\n    }\n    INSYNC = ISTATE == 20;\n    BUSY = (ISTATE == 10) | (ISTATE == 20);\n    ERROR = ISTATE == 99;\n    if (ISTATE == 0) {\n        ERRORID = 0;\n    }\n}\n",
+      "deps": [
+        {
+          "library": "iec-standard-fb",
+          "name": "TON"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "ABS"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "TIME"
+        },
+        {
+          "library": "plcopen-softmotion",
+          "name": "AXIS_REF_SM3"
+        }
+      ]
+    },
+    {
+      "name": "CO402_CYCLICTORQUE",
+      "kind": "functionBlock",
+      "header": "class CO402_CYCLICTORQUE {\npublic:\n    // In-Out\n    AXIS_REF_SM3 AXIS;\n    // Inputs\n    IEC_BOOL ENABLE;\n    IEC_LREAL TORQUE;\n    IEC_LREAL MAXTORQUERATE;\n    IEC_TIME MODETIMEOUT;\n    // Outputs\n    IEC_BOOL INSYNC;\n    IEC_BOOL BUSY;\n    IEC_BOOL ERROR;\n    IEC_UINT ERRORID;\n    // Local variables\n    IEC_INT ISTATE;\n    IEC_LREAL FLAST;\n    IEC_LREAL FSET;\n    TON TMODE;\n\n    // Implicit IEC 61131-3 ENO pin (mirrors EN)\n    IEC_BOOL ENO = true;\n\n    // Constructor\n    CO402_CYCLICTORQUE();\n\n    // Execute function block\n    void operator()();\n\n    virtual ~CO402_CYCLICTORQUE() = default;\n};\n",
+      "cpp": "CO402_CYCLICTORQUE::CO402_CYCLICTORQUE()\n    : MAXTORQUERATE(0.0), MODETIMEOUT(500000000LL)\n{\n    // Initialize variables\n}\n\nvoid CO402_CYCLICTORQUE::operator()() {\n    if (!ENABLE) {\n        if ((ISTATE == 10) | (ISTATE == 20)) {\n            AXIS.DRIVE.TARGET_TORQUE = static_cast<IEC_INT>(0);\n        }\n        ISTATE = 0;\n    } else if (ISTATE == 0) {\n        ERRORID = 0;\n        if ((AXIS.BERROR) | (!AXIS.BCOMMUNICATION)) {\n            ERRORID = 4;\n        } else if (((AXIS.DRIVE.STATUSWORD) & (static_cast<IEC_UINT>(0x006F))) != static_cast<IEC_UINT>(0x0027)) {\n            ERRORID = 1;\n        } else {\n            AXIS.DRIVE.TARGET_TORQUE = static_cast<IEC_INT>(0);\n            FLAST = 0.0;\n            AXIS.DRIVE.MODES_OF_OPERATION = static_cast<IEC_SINT>(10);\n            ISTATE = 10;\n        }\n        if (ERRORID != 0) {\n            ISTATE = 99;\n        }\n    }\n    if ((ISTATE == 10) | (ISTATE == 20)) {\n        if ((AXIS.BERROR) | (!AXIS.BCOMMUNICATION)) {\n            ERRORID = 4;\n            ISTATE = 99;\n        } else if (((AXIS.DRIVE.STATUSWORD) & (static_cast<IEC_UINT>(0x006F))) != static_cast<IEC_UINT>(0x0027)) {\n            ERRORID = 1;\n            ISTATE = 99;\n        }\n    }\n    TMODE.IN = ISTATE == 10;\n    TMODE.PT = MODETIMEOUT;\n    TMODE();\n    TMODE.ENO = true;\n    if (ISTATE == 10) {\n        AXIS.DRIVE.MODES_OF_OPERATION = static_cast<IEC_SINT>(10);\n        AXIS.DRIVE.TARGET_TORQUE = static_cast<IEC_INT>(0);\n        if (AXIS.DRIVE.MODES_OF_OPERATION_DISPLAY == static_cast<IEC_SINT>(10)) {\n            ISTATE = 20;\n        } else if (TMODE.Q) {\n            ERRORID = 2;\n            ISTATE = 99;\n        }\n    }\n    if (ISTATE == 20) {\n        if (AXIS.DRIVE.MODES_OF_OPERATION_DISPLAY != static_cast<IEC_SINT>(10)) {\n            ERRORID = 2;\n            ISTATE = 99;\n        } else if ((MAXTORQUERATE > 0.0) & (ABS(TORQUE - FLAST) > MAXTORQUERATE * AXIS.FCYCLETIME * 1.000001)) {\n            ERRORID = 3;\n            ISTATE = 99;\n        } else {\n            FSET = LIMIT(static_cast<IEC_LREAL>(-32768.0), TORQUE, static_cast<IEC_LREAL>(32767.0));\n            AXIS.DRIVE.TARGET_TORQUE = TO_INT(FSET);\n            FLAST = TORQUE;\n        }\n    }\n    INSYNC = ISTATE == 20;\n    BUSY = (ISTATE == 10) | (ISTATE == 20);\n    ERROR = ISTATE == 99;\n    if (ISTATE == 0) {\n        ERRORID = 0;\n    }\n}\n",
+      "deps": [
+        {
+          "library": "iec-standard-fb",
+          "name": "TON"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "ABS"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "LIMIT"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "TIME"
+        },
+        {
+          "library": "plcopen-softmotion",
+          "name": "AXIS_REF_SM3"
+        }
+      ]
+    },
+    {
+      "name": "CO402_CYCLICVELOCITY",
+      "kind": "functionBlock",
+      "header": "class CO402_CYCLICVELOCITY {\npublic:\n    // In-Out\n    AXIS_REF_SM3 AXIS;\n    // Inputs\n    IEC_BOOL ENABLE;\n    IEC_LREAL VELOCITY;\n    IEC_LREAL MAXACCELERATION;\n    IEC_TIME MODETIMEOUT;\n    // Outputs\n    IEC_BOOL INSYNC;\n    IEC_BOOL BUSY;\n    IEC_BOOL ERROR;\n    IEC_UINT ERRORID;\n    // Local variables\n    IEC_INT ISTATE;\n    IEC_LREAL FLAST;\n    TON TMODE;\n\n    // Implicit IEC 61131-3 ENO pin (mirrors EN)\n    IEC_BOOL ENO = true;\n\n    // Constructor\n    CO402_CYCLICVELOCITY();\n\n    // Execute function block\n    void operator()();\n\n    virtual ~CO402_CYCLICVELOCITY() = default;\n};\n",
+      "cpp": "CO402_CYCLICVELOCITY::CO402_CYCLICVELOCITY()\n    : MAXACCELERATION(0.0), MODETIMEOUT(500000000LL)\n{\n    // Initialize variables\n}\n\nvoid CO402_CYCLICVELOCITY::operator()() {\n    if (!ENABLE) {\n        if ((ISTATE == 10) | (ISTATE == 20)) {\n            AXIS.DRIVE.TARGET_VELOCITY = static_cast<IEC_DINT>(0);\n        }\n        ISTATE = 0;\n    } else if (ISTATE == 0) {\n        ERRORID = 0;\n        if ((AXIS.BERROR) | (!AXIS.BCOMMUNICATION)) {\n            ERRORID = 4;\n        } else if (((AXIS.DRIVE.STATUSWORD) & (static_cast<IEC_UINT>(0x006F))) != static_cast<IEC_UINT>(0x0027)) {\n            ERRORID = 1;\n        } else {\n            AXIS.DRIVE.TARGET_VELOCITY = static_cast<IEC_DINT>(0);\n            FLAST = 0.0;\n            AXIS.DRIVE.MODES_OF_OPERATION = static_cast<IEC_SINT>(9);\n            ISTATE = 10;\n        }\n        if (ERRORID != 0) {\n            ISTATE = 99;\n        }\n    }\n    if ((ISTATE == 10) | (ISTATE == 20)) {\n        if ((AXIS.BERROR) | (!AXIS.BCOMMUNICATION)) {\n            ERRORID = 4;\n            ISTATE = 99;\n        } else if (((AXIS.DRIVE.STATUSWORD) & (static_cast<IEC_UINT>(0x006F))) != static_cast<IEC_UINT>(0x0027)) {\n            ERRORID = 1;\n            ISTATE = 99;\n        }\n    }\n    TMODE.IN = ISTATE == 10;\n    TMODE.PT = MODETIMEOUT;\n    TMODE();\n    TMODE.ENO = true;\n    if (ISTATE == 10) {\n        AXIS.DRIVE.MODES_OF_OPERATION = static_cast<IEC_SINT>(9);\n        AXIS.DRIVE.TARGET_VELOCITY = static_cast<IEC_DINT>(0);\n        if (AXIS.DRIVE.MODES_OF_OPERATION_DISPLAY == static_cast<IEC_SINT>(9)) {\n            ISTATE = 20;\n        } else if (TMODE.Q) {\n            ERRORID = 2;\n            ISTATE = 99;\n        }\n    }\n    if (ISTATE == 20) {\n        if (AXIS.DRIVE.MODES_OF_OPERATION_DISPLAY != static_cast<IEC_SINT>(9)) {\n            ERRORID = 2;\n            ISTATE = 99;\n        } else if ((MAXACCELERATION > 0.0) & (ABS(VELOCITY - FLAST) > MAXACCELERATION * AXIS.FCYCLETIME * 1.000001)) {\n            ERRORID = 3;\n            ISTATE = 99;\n        } else {\n            AXIS.DRIVE.TARGET_VELOCITY = TO_DINT(VELOCITY * AXIS.FINCPERUNIT);\n            FLAST = VELOCITY;\n        }\n    }\n    INSYNC = ISTATE == 20;\n    BUSY = (ISTATE == 10) | (ISTATE == 20);\n    ERROR = ISTATE == 99;\n    if (ISTATE == 0) {\n        ERRORID = 0;\n    }\n}\n",
+      "deps": [
+        {
+          "library": "iec-standard-fb",
+          "name": "TON"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "ABS"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "TIME"
+        },
+        {
+          "library": "plcopen-softmotion",
+          "name": "AXIS_REF_SM3"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "name": "additional-function-blocks",
+      "version": "1.0.0"
+    },
+    {
+      "name": "iec-standard-fb",
+      "version": "1.0.0"
+    },
+    {
+      "name": "iec-std-functions",
+      "version": "1.0.0"
+    },
+    {
+      "name": "oscat-basic",
+      "version": "335.0.0"
+    },
+    {
+      "name": "plcopen-softmotion",
+      "version": "0.1.0"
+    }
+  ],
+  "sources": [
+    {
+      "fileName": "CO402_CyclicMoveAbsolute.st",
+      "source": "(*\n * CO402_CyclicMoveAbsolute: a point-to-point move in cyclic synchronous\n * position mode (CiA 402 mode 8) on an axis of the editor's PLCopen motion\n * library (spec canopen-cia402-axis). The set-points come from the editor\n * library's S-curve trajectory planner (FB_S7RTT_Plan), one\n * per PLC cycle (Axis.fCycleTime), so the program plans the move instead of\n * the drive.\n *\n * Call it every scan while it is in use, after the axis's drive bridge and\n * with MC_Power enabled. On a rising Execute it sets the target position to\n * the actual position, selects mode 8 (operation stays enabled), plans the\n * move from the actual position at standstill once 0x6061 shows 8, and sends\n * the trajectory's positions. Done: the trajectory has ended and the actual\n * position is within Window of Position (Window 0: one drive increment).\n * Execute FALSE stops writing (the drive holds the last set-point): drop it\n * at standstill or hand the axis to MC_Halt.\n *\n * ErrorID: 1 drive not enabled, 2 mode not reached within ModeTimeout (or\n * left), 4 axis in error stop (fault or drive lost), 5 Velocity,\n * Acceleration or Jerk not above 0, or no trajectory.\n *)\nFUNCTION_BLOCK CO402_CyclicMoveAbsolute\nVAR_IN_OUT\n  Axis : AXIS_REF_SM3;\nEND_VAR\nVAR_INPUT\n  Execute : BOOL;\n  Position : LREAL;      (* target [u] *)\n  Velocity : LREAL;      (* [u/s], above 0 *)\n  Acceleration : LREAL;  (* [u/s2], above 0 *)\n  Jerk : LREAL;          (* [u/s3], above 0 *)\n  Window : LREAL := 0.0; (* in-position window [u], 0 = one increment *)\n  ModeTimeout : TIME := T#500ms;\nEND_VAR\nVAR_OUTPUT\n  Done : BOOL;\n  Busy : BOOL;\n  InSync : BOOL;\n  Error : BOOL;\n  ErrorID : UINT;\nEND_VAR\nVAR\n  iState : INT;  (* 0 idle, 10 selecting the mode, 20 moving, 30 done, 99 error *)\n  plan : FB_S7RTT_Plan;\n  start : ST_MotionState;\n  limits : ST_MotionLimits;\n  fSet : LREAL;\n  fT : LREAL;\n  fElapsed : LREAL;\n  fDuration : LREAL;\n  fWindow : LREAL;\n  fActual : LREAL;\n  i : INT;\n  tMode : TON;\nEND_VAR\n  IF NOT Execute THEN\n    iState := 0;\n  ELSIF iState = 0 THEN\n    ErrorID := 0;\n    IF Axis.bError OR NOT Axis.bCommunication THEN\n      ErrorID := 4;\n    ELSIF (Axis.Drive.StatusWord AND UINT#16#006F) <> UINT#16#0027 THEN\n      ErrorID := 1;\n    ELSIF Velocity <= 0.0 OR Acceleration <= 0.0 OR Jerk <= 0.0 THEN\n      ErrorID := 5;\n    ELSE\n      Axis.Drive.Target_Position := Axis.Drive.Position_Actual_Value;\n      Axis.Drive.Modes_of_operation := SINT#8;\n      iState := 10;\n    END_IF\n    IF ErrorID <> 0 THEN iState := 99; END_IF\n  END_IF\n\n  IF iState = 10 OR iState = 20 OR iState = 30 THEN\n    IF Axis.bError OR NOT Axis.bCommunication THEN\n      ErrorID := 4; iState := 99;\n    ELSIF (Axis.Drive.StatusWord AND UINT#16#006F) <> UINT#16#0027 THEN\n      ErrorID := 1; iState := 99;\n    ELSIF iState <> 10 AND Axis.Drive.Modes_of_operation_display <> SINT#8 THEN\n      ErrorID := 2; iState := 99;\n    END_IF\n  END_IF\n  tMode(IN := iState = 10, PT := ModeTimeout);\n  fActual := DINT_TO_LREAL(Axis.Drive.Position_Actual_Value) / Axis.fIncPerUnit;\n  IF iState = 10 THEN\n    Axis.Drive.Modes_of_operation := SINT#8;\n    Axis.Drive.Target_Position := Axis.Drive.Position_Actual_Value;\n    IF Axis.Drive.Modes_of_operation_display = SINT#8 THEN\n      start.fPos := fActual;\n      start.fVel := 0.0;\n      start.fAcc := 0.0;\n      start.fDuration := 0.0;\n      limits.fVelMax := Velocity;\n      limits.fAccMax := Acceleration;\n      limits.fJerkMax := Jerk;\n      plan(Execute := FALSE);\n      plan(Execute := TRUE, ModeVelocity := FALSE, StartState := start, TargetPos := Position, TargetVel := 0.0,\n           Limits := limits);\n      fDuration := 0.0;\n      FOR i := 1 TO plan.SegmentCount DO\n        fDuration := fDuration + plan.Trajectory[i].fDuration;\n      END_FOR\n      fElapsed := 0.0;\n      IF plan.Error THEN\n        ErrorID := 5; iState := 99;\n      ELSE\n        iState := 20;\n      END_IF\n    ELSIF tMode.Q THEN\n      ErrorID := 2; iState := 99;\n    END_IF\n  END_IF\n  IF iState = 20 THEN\n    fElapsed := fElapsed + Axis.fCycleTime;\n    IF fElapsed >= fDuration OR plan.SegmentCount <= 0 THEN\n      Axis.Drive.Target_Position := LREAL_TO_DINT(Position * Axis.fIncPerUnit);\n      iState := 30;\n    ELSE\n      (* the planner's segment at fElapsed: p = p0 + v0 t + a0 t^2/2 + j t^3/6 *)\n      fT := fElapsed;\n      fSet := Position;\n      FOR i := 1 TO plan.SegmentCount DO\n        IF fT <= plan.Trajectory[i].fDuration THEN\n          fSet := plan.Trajectory[i].fPos + plan.Trajectory[i].fVel * fT + 0.5 * plan.Trajectory[i].fAcc * fT * fT\n                  + plan.Trajectory[i].fJerk * fT * fT * fT / 6.0;\n          EXIT;\n        END_IF\n        fT := fT - plan.Trajectory[i].fDuration;\n      END_FOR\n      Axis.Drive.Target_Position := LREAL_TO_DINT(fSet * Axis.fIncPerUnit);\n    END_IF\n  END_IF\n  IF iState = 30 THEN\n    Axis.Drive.Target_Position := LREAL_TO_DINT(Position * Axis.fIncPerUnit);\n  END_IF\n\n  fWindow := Window;\n  IF fWindow <= 0.0 THEN fWindow := 1.0 / ABS(Axis.fIncPerUnit); END_IF\n  Done := iState = 30 AND ABS(fActual - Position) <= fWindow;\n  InSync := iState = 20 OR iState = 30;\n  Busy := (iState = 10 OR iState = 20 OR iState = 30) AND NOT Done;\n  Error := iState = 99;\n  IF iState = 0 THEN ErrorID := 0; END_IF\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CO402_CyclicPosition.st",
+      "source": "(*\n * CO402_CyclicPosition: cyclic synchronous position (CiA 402 mode 8) on an\n * axis of the editor's PLCopen motion library (spec canopen-cia402-axis).\n *\n * Call it every scan while it is in use, after the axis's drive bridge and\n * with MC_Power enabled. On a rising Enable it sets the target position\n * 0x607A to the actual position, selects mode 8 (operation stays enabled) and\n * follows Position once 0x6061 shows 8: one set-point per PLC cycle, applied\n * by the drive on SYNC. MaxVelocity (units/s, 0 = off) limits the step\n * between two set-points to MaxVelocity * Axis.fCycleTime; a larger step sets\n * Error (ErrorID 3) and holds the last set-point. Enable FALSE stops writing\n * the set-point (the drive holds the last one); hand the axis to another\n * block then.\n *\n * ErrorID: 1 drive not enabled, 2 mode not reached within ModeTimeout (or\n * left), 3 step limit exceeded, 4 axis in error stop (fault or drive lost).\n *)\nFUNCTION_BLOCK CO402_CyclicPosition\nVAR_IN_OUT\n  Axis : AXIS_REF_SM3;\nEND_VAR\nVAR_INPUT\n  Enable : BOOL;\n  Position : LREAL;            (* set-point [u] *)\n  MaxVelocity : LREAL := 0.0;  (* step limit [u/s], 0 = off *)\n  ModeTimeout : TIME := T#500ms;\nEND_VAR\nVAR_OUTPUT\n  InSync : BOOL;\n  Busy : BOOL;\n  Error : BOOL;\n  ErrorID : UINT;\nEND_VAR\nVAR\n  iState : INT;  (* 0 idle, 10 selecting the mode, 20 following, 99 error *)\n  fLast : LREAL;\n  tMode : TON;\nEND_VAR\n  IF NOT Enable THEN\n    iState := 0;\n  ELSIF iState = 0 THEN\n    ErrorID := 0;\n    IF Axis.bError OR NOT Axis.bCommunication THEN\n      ErrorID := 4;\n    ELSIF (Axis.Drive.StatusWord AND UINT#16#006F) <> UINT#16#0027 THEN\n      ErrorID := 1;\n    ELSE\n      Axis.Drive.Target_Position := Axis.Drive.Position_Actual_Value;\n      fLast := DINT_TO_LREAL(Axis.Drive.Position_Actual_Value) / Axis.fIncPerUnit;\n      Axis.Drive.Modes_of_operation := SINT#8;\n      iState := 10;\n    END_IF\n    IF ErrorID <> 0 THEN iState := 99; END_IF\n  END_IF\n\n  IF iState = 10 OR iState = 20 THEN\n    IF Axis.bError OR NOT Axis.bCommunication THEN\n      ErrorID := 4; iState := 99;\n    ELSIF (Axis.Drive.StatusWord AND UINT#16#006F) <> UINT#16#0027 THEN\n      ErrorID := 1; iState := 99;\n    END_IF\n  END_IF\n  tMode(IN := iState = 10, PT := ModeTimeout);\n  IF iState = 10 THEN\n    Axis.Drive.Modes_of_operation := SINT#8;\n    Axis.Drive.Target_Position := Axis.Drive.Position_Actual_Value;  (* hold until the drive is in mode 8 *)\n    IF Axis.Drive.Modes_of_operation_display = SINT#8 THEN\n      fLast := DINT_TO_LREAL(Axis.Drive.Position_Actual_Value) / Axis.fIncPerUnit;\n      iState := 20;\n    ELSIF tMode.Q THEN\n      ErrorID := 2; iState := 99;\n    END_IF\n  END_IF\n  IF iState = 20 THEN\n    IF Axis.Drive.Modes_of_operation_display <> SINT#8 THEN\n      ErrorID := 2; iState := 99;\n    ELSIF MaxVelocity > 0.0 AND ABS(Position - fLast) > MaxVelocity * Axis.fCycleTime * 1.000001 THEN\n      ErrorID := 3; iState := 99;\n    ELSE\n      Axis.Drive.Target_Position := LREAL_TO_DINT(Position * Axis.fIncPerUnit);\n      fLast := Position;\n    END_IF\n  END_IF\n\n  InSync := iState = 20;\n  Busy := iState = 10 OR iState = 20;\n  Error := iState = 99;\n  IF iState = 0 THEN ErrorID := 0; END_IF\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CO402_CyclicTorque.st",
+      "source": "(*\n * CO402_CyclicTorque: cyclic synchronous torque (CiA 402 mode 10) on an axis\n * of the editor's PLCopen motion library (spec canopen-cia402-axis).\n *\n * Call it every scan while it is in use, after the axis's drive bridge and\n * with MC_Power enabled. On a rising Enable it sets the target torque 0x6071\n * to 0, selects mode 10 (operation stays enabled) and follows Torque, in per\n * mille of the drive's rated torque (0x6076), once 0x6061 shows 10.\n * MaxTorqueRate (per mille/s, 0 = off) limits the step between two\n * set-points to MaxTorqueRate * Axis.fCycleTime; a larger step sets Error\n * (ErrorID 3) and holds the last set-point. In the scan Enable goes FALSE the\n * block sends torque 0, then stops writing.\n *\n * ErrorID: 1 drive not enabled, 2 mode not reached within ModeTimeout (or\n * left), 3 step limit exceeded, 4 axis in error stop (fault or drive lost).\n *)\nFUNCTION_BLOCK CO402_CyclicTorque\nVAR_IN_OUT\n  Axis : AXIS_REF_SM3;\nEND_VAR\nVAR_INPUT\n  Enable : BOOL;\n  Torque : LREAL;                (* set-point [per mille of rated torque] *)\n  MaxTorqueRate : LREAL := 0.0;  (* step limit [per mille/s], 0 = off *)\n  ModeTimeout : TIME := T#500ms;\nEND_VAR\nVAR_OUTPUT\n  InSync : BOOL;\n  Busy : BOOL;\n  Error : BOOL;\n  ErrorID : UINT;\nEND_VAR\nVAR\n  iState : INT;  (* 0 idle, 10 selecting the mode, 20 following, 99 error *)\n  fLast : LREAL;\n  fSet : LREAL;\n  tMode : TON;\nEND_VAR\n  IF NOT Enable THEN\n    IF iState = 10 OR iState = 20 THEN\n      Axis.Drive.Target_torque := INT#0;\n    END_IF\n    iState := 0;\n  ELSIF iState = 0 THEN\n    ErrorID := 0;\n    IF Axis.bError OR NOT Axis.bCommunication THEN\n      ErrorID := 4;\n    ELSIF (Axis.Drive.StatusWord AND UINT#16#006F) <> UINT#16#0027 THEN\n      ErrorID := 1;\n    ELSE\n      Axis.Drive.Target_torque := INT#0;\n      fLast := 0.0;\n      Axis.Drive.Modes_of_operation := SINT#10;\n      iState := 10;\n    END_IF\n    IF ErrorID <> 0 THEN iState := 99; END_IF\n  END_IF\n\n  IF iState = 10 OR iState = 20 THEN\n    IF Axis.bError OR NOT Axis.bCommunication THEN\n      ErrorID := 4; iState := 99;\n    ELSIF (Axis.Drive.StatusWord AND UINT#16#006F) <> UINT#16#0027 THEN\n      ErrorID := 1; iState := 99;\n    END_IF\n  END_IF\n  tMode(IN := iState = 10, PT := ModeTimeout);\n  IF iState = 10 THEN\n    Axis.Drive.Modes_of_operation := SINT#10;\n    Axis.Drive.Target_torque := INT#0;\n    IF Axis.Drive.Modes_of_operation_display = SINT#10 THEN\n      iState := 20;\n    ELSIF tMode.Q THEN\n      ErrorID := 2; iState := 99;\n    END_IF\n  END_IF\n  IF iState = 20 THEN\n    IF Axis.Drive.Modes_of_operation_display <> SINT#10 THEN\n      ErrorID := 2; iState := 99;\n    ELSIF MaxTorqueRate > 0.0 AND ABS(Torque - fLast) > MaxTorqueRate * Axis.fCycleTime * 1.000001 THEN\n      ErrorID := 3; iState := 99;\n    ELSE\n      fSet := LIMIT(-32768.0, Torque, 32767.0);\n      Axis.Drive.Target_torque := LREAL_TO_INT(fSet);\n      fLast := Torque;\n    END_IF\n  END_IF\n\n  InSync := iState = 20;\n  Busy := iState = 10 OR iState = 20;\n  Error := iState = 99;\n  IF iState = 0 THEN ErrorID := 0; END_IF\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CO402_CyclicVelocity.st",
+      "source": "(*\n * CO402_CyclicVelocity: cyclic synchronous velocity (CiA 402 mode 9) on an\n * axis of the editor's PLCopen motion library (spec canopen-cia402-axis).\n *\n * Call it every scan while it is in use, after the axis's drive bridge and\n * with MC_Power enabled. On a rising Enable it sets the target velocity\n * 0x60FF to 0, selects mode 9 (operation stays enabled) and follows Velocity\n * once 0x6061 shows 9. MaxAcceleration (units/s2, 0 = off) limits the step\n * between two set-points to MaxAcceleration * Axis.fCycleTime; a larger step\n * sets Error (ErrorID 3) and holds the last set-point. In the scan Enable\n * goes FALSE the block sends velocity 0, then stops writing.\n *\n * ErrorID: 1 drive not enabled, 2 mode not reached within ModeTimeout (or\n * left), 3 step limit exceeded, 4 axis in error stop (fault or drive lost).\n *)\nFUNCTION_BLOCK CO402_CyclicVelocity\nVAR_IN_OUT\n  Axis : AXIS_REF_SM3;\nEND_VAR\nVAR_INPUT\n  Enable : BOOL;\n  Velocity : LREAL;                (* set-point [u/s] *)\n  MaxAcceleration : LREAL := 0.0;  (* step limit [u/s2], 0 = off *)\n  ModeTimeout : TIME := T#500ms;\nEND_VAR\nVAR_OUTPUT\n  InSync : BOOL;\n  Busy : BOOL;\n  Error : BOOL;\n  ErrorID : UINT;\nEND_VAR\nVAR\n  iState : INT;  (* 0 idle, 10 selecting the mode, 20 following, 99 error *)\n  fLast : LREAL;\n  tMode : TON;\nEND_VAR\n  IF NOT Enable THEN\n    IF iState = 10 OR iState = 20 THEN\n      Axis.Drive.Target_Velocity := DINT#0;\n    END_IF\n    iState := 0;\n  ELSIF iState = 0 THEN\n    ErrorID := 0;\n    IF Axis.bError OR NOT Axis.bCommunication THEN\n      ErrorID := 4;\n    ELSIF (Axis.Drive.StatusWord AND UINT#16#006F) <> UINT#16#0027 THEN\n      ErrorID := 1;\n    ELSE\n      Axis.Drive.Target_Velocity := DINT#0;\n      fLast := 0.0;\n      Axis.Drive.Modes_of_operation := SINT#9;\n      iState := 10;\n    END_IF\n    IF ErrorID <> 0 THEN iState := 99; END_IF\n  END_IF\n\n  IF iState = 10 OR iState = 20 THEN\n    IF Axis.bError OR NOT Axis.bCommunication THEN\n      ErrorID := 4; iState := 99;\n    ELSIF (Axis.Drive.StatusWord AND UINT#16#006F) <> UINT#16#0027 THEN\n      ErrorID := 1; iState := 99;\n    END_IF\n  END_IF\n  tMode(IN := iState = 10, PT := ModeTimeout);\n  IF iState = 10 THEN\n    Axis.Drive.Modes_of_operation := SINT#9;\n    Axis.Drive.Target_Velocity := DINT#0;\n    IF Axis.Drive.Modes_of_operation_display = SINT#9 THEN\n      iState := 20;\n    ELSIF tMode.Q THEN\n      ErrorID := 2; iState := 99;\n    END_IF\n  END_IF\n  IF iState = 20 THEN\n    IF Axis.Drive.Modes_of_operation_display <> SINT#9 THEN\n      ErrorID := 2; iState := 99;\n    ELSIF MaxAcceleration > 0.0 AND ABS(Velocity - fLast) > MaxAcceleration * Axis.fCycleTime * 1.000001 THEN\n      ErrorID := 3; iState := 99;\n    ELSE\n      Axis.Drive.Target_Velocity := LREAL_TO_DINT(Velocity * Axis.fIncPerUnit);\n      fLast := Velocity;\n    END_IF\n  END_IF\n\n  InSync := iState = 20;\n  Busy := iState = 10 OR iState = 20;\n  Error := iState = 99;\n  IF iState = 0 THEN ErrorID := 0; END_IF\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CO_SDO_READ.cpp",
+      "source": "FUNCTION_BLOCK CO_SDO_READ\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  NODE : USINT;\n  INDEX : UINT;\n  SUBINDEX : USINT;\n  TIMEOUT : TIME;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n  ABORT_CODE : UDINT;\n  DATA : LWORD;\n  SIZE : UINT;\nEND_VAR\nVAR\n  co_handle : UDINT;\n  co_prev : BOOL;\n  co_phase : USINT;\nEND_VAR\n// Shared code of the canworks SDO function blocks (spec\n// canopen-plc-sdo). library/generate.py copies it into every block's source,\n// because the editor grafts each library C++ block into one\n// c_blocks_code.cpp and offers no other place for shared code; the include\n// guard keeps one copy per program.\n//\n// The editor binds every pin and local of a block to a #define of its name, so\n// nothing here uses a pin or local name (the pins are upper case, the shared\n// code is lower case), nor the keyword that closes a variable section. No system header is included after\n// those defines: dlopen and dlsym are declared here as glibc does.\n#ifndef CO_SDO_COMMON_INCLUDED\n#define CO_SDO_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace co_sdo {\n\n// The plugin's C interface, version 1 (plugin/src/canopen_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_data = 1024;\nstruct request {\n  unsigned char network;\n  unsigned char node;\n  unsigned short index;\n  unsigned char subindex;\n  unsigned char write;\n  unsigned char kind;\n  unsigned char size;\n  unsigned int timeout_ms;\n  const unsigned char* data;\n  unsigned int length;\n};\nstruct result {\n  unsigned short error_id;\n  unsigned int abort_code;\n  unsigned int size;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*start)(const request* req, unsigned short* error_id);\n  int (*poll)(unsigned int handle, result* res, unsigned char* data, unsigned int cap);\n};\nenum { kind_int = 0, kind_real = 1, kind_string = 2, kind_bytes = 3 };\nenum { err_not_running = 4, err_input = 6, err_too_big = 7 };\n\n// The loaded plugin's table, looked up by its SONAME without loading it\n// again (RTLD_NOW | RTLD_NOLOAD). Looked up again on each start until found;\n// kept once found, since the runtime unloads plugins only when it exits.\n// (The plugin's own tests link the blocks into one process with the master\n// and name the entry point with -DCO_SDO_TEST_ENTRY.)\n#ifdef CO_SDO_TEST_ENTRY\n}  // namespace co_sdo\nextern \"C\" const void* CO_SDO_TEST_ENTRY(unsigned int version);\nnamespace co_sdo {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CO_SDO_TEST_ENTRY\n  entry_t entry = CO_SDO_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canopen_plc_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to the timeout in ms; 0 and negative mean the default.\ninline unsigned int timeout_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// One block instance's handshake (PLCopen style). The block keeps `handle`\n// and `phase` in its locals and maps the outcome to its pins.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;   // a rising edge: clear the outputs and start a transfer\n  bool clear;   // the result was shown and EXECUTE is FALSE: clear DONE/ERROR\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n// Starts `req`; returns the handle or 0 with `error` set.\ninline unsigned int start(request& req, unsigned short& error) {\n  const api_v1* t = api();\n  if (!t) {\n    error = err_not_running;\n    return 0;\n  }\n  error = 0;\n  return t->start(&req, &error);\n}\n\n// 0 busy, 1 done, 2 error (`res` filled).\ninline int poll(unsigned int handle, result& res, unsigned char* data, unsigned int cap) {\n  const api_v1* t = api();\n  if (!t) {\n    res = result{err_not_running, 0, 0};\n    return 2;\n  }\n  return t->poll(handle, &res, data, cap);\n}\n\ninline void put_le(unsigned char* out, unsigned long long v, unsigned n) {\n  for (unsigned b = 0; b < n; ++b) out[b] = static_cast<unsigned char>(v >> (8 * b));\n}\n\ninline unsigned long long get_le(const unsigned char* in, unsigned n) {\n  unsigned long long v = 0;\n  for (unsigned b = 0; b < n; ++b) v |= static_cast<unsigned long long>(in[b]) << (8 * b);\n  return v;\n}\n\n}  // namespace co_sdo\n#endif\n// CO_SDO_READ: reads an integer or bit string object (up to 8 bytes) into DATA\n// Generated by library/generate.py; edit that file or src/common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = co_prev;\n  unsigned char phase = co_phase;\n  co_sdo::step s = co_sdo::begin(EXECUTE, prev, phase);\n  co_prev = prev;\n  co_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    ABORT_CODE = 0;\n    DATA = 0ULL;\n    SIZE = 0;\n    unsigned short err = 0;\n    co_sdo::request req = {};\n    req.network = NETWORK;\n    req.node = NODE;\n    req.index = INDEX;\n    req.subindex = SUBINDEX;\n    req.write = 0;\n    req.kind = co_sdo::kind_int;\n    req.timeout_ms = co_sdo::timeout_ms(TIMEOUT);\n    unsigned int handle = err ? 0 : co_sdo::start(req, err);\n    if (handle) {\n      co_handle = handle;\n      BUSY = true;\n      co_phase = co_sdo::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      co_phase = co_sdo::phase_ended;\n    }\n  }\n  if (co_phase == co_sdo::phase_busy) {\n    co_sdo::result res = {};\n    unsigned char reply[9];\n    int st = co_sdo::poll(co_handle, res, reply, sizeof reply);\n    if (st != 0) {\n      BUSY = false;\n      co_handle = 0;\n      co_phase = co_sdo::phase_ended;\n      unsigned short err = st == 2 ? res.error_id : 0;\n      if (!err) {\n        if (res.size > 8) {\n          err = co_sdo::err_too_big;\n          SIZE = static_cast<unsigned short>(res.size > 65535u ? 65535u : res.size);\n        } else {\n          DATA = co_sdo::get_le(reply, res.size);\n          SIZE = static_cast<unsigned short>(res.size);\n        }\n      }\n      if (err) {\n        ERROR = true;\n        ERROR_ID = err;\n        ABORT_CODE = (err == 1 || err == 2) ? res.abort_code : 0u;\n      } else {\n        DONE = true;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CO_SDO_READ_BYTES.cpp",
+      "source": "FUNCTION_BLOCK CO_SDO_READ_BYTES\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  NODE : USINT;\n  INDEX : UINT;\n  SUBINDEX : USINT;\n  TIMEOUT : TIME;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n  ABORT_CODE : UDINT;\n  SIZE : UINT;\nEND_VAR\nVAR_IN_OUT\n  BUFFER : ARRAY[0..1023] OF BYTE;\nEND_VAR\nVAR\n  co_handle : UDINT;\n  co_prev : BOOL;\n  co_phase : USINT;\nEND_VAR\n// Shared code of the canworks SDO function blocks (spec\n// canopen-plc-sdo). library/generate.py copies it into every block's source,\n// because the editor grafts each library C++ block into one\n// c_blocks_code.cpp and offers no other place for shared code; the include\n// guard keeps one copy per program.\n//\n// The editor binds every pin and local of a block to a #define of its name, so\n// nothing here uses a pin or local name (the pins are upper case, the shared\n// code is lower case), nor the keyword that closes a variable section. No system header is included after\n// those defines: dlopen and dlsym are declared here as glibc does.\n#ifndef CO_SDO_COMMON_INCLUDED\n#define CO_SDO_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace co_sdo {\n\n// The plugin's C interface, version 1 (plugin/src/canopen_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_data = 1024;\nstruct request {\n  unsigned char network;\n  unsigned char node;\n  unsigned short index;\n  unsigned char subindex;\n  unsigned char write;\n  unsigned char kind;\n  unsigned char size;\n  unsigned int timeout_ms;\n  const unsigned char* data;\n  unsigned int length;\n};\nstruct result {\n  unsigned short error_id;\n  unsigned int abort_code;\n  unsigned int size;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*start)(const request* req, unsigned short* error_id);\n  int (*poll)(unsigned int handle, result* res, unsigned char* data, unsigned int cap);\n};\nenum { kind_int = 0, kind_real = 1, kind_string = 2, kind_bytes = 3 };\nenum { err_not_running = 4, err_input = 6, err_too_big = 7 };\n\n// The loaded plugin's table, looked up by its SONAME without loading it\n// again (RTLD_NOW | RTLD_NOLOAD). Looked up again on each start until found;\n// kept once found, since the runtime unloads plugins only when it exits.\n// (The plugin's own tests link the blocks into one process with the master\n// and name the entry point with -DCO_SDO_TEST_ENTRY.)\n#ifdef CO_SDO_TEST_ENTRY\n}  // namespace co_sdo\nextern \"C\" const void* CO_SDO_TEST_ENTRY(unsigned int version);\nnamespace co_sdo {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CO_SDO_TEST_ENTRY\n  entry_t entry = CO_SDO_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canopen_plc_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to the timeout in ms; 0 and negative mean the default.\ninline unsigned int timeout_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// One block instance's handshake (PLCopen style). The block keeps `handle`\n// and `phase` in its locals and maps the outcome to its pins.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;   // a rising edge: clear the outputs and start a transfer\n  bool clear;   // the result was shown and EXECUTE is FALSE: clear DONE/ERROR\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n// Starts `req`; returns the handle or 0 with `error` set.\ninline unsigned int start(request& req, unsigned short& error) {\n  const api_v1* t = api();\n  if (!t) {\n    error = err_not_running;\n    return 0;\n  }\n  error = 0;\n  return t->start(&req, &error);\n}\n\n// 0 busy, 1 done, 2 error (`res` filled).\ninline int poll(unsigned int handle, result& res, unsigned char* data, unsigned int cap) {\n  const api_v1* t = api();\n  if (!t) {\n    res = result{err_not_running, 0, 0};\n    return 2;\n  }\n  return t->poll(handle, &res, data, cap);\n}\n\ninline void put_le(unsigned char* out, unsigned long long v, unsigned n) {\n  for (unsigned b = 0; b < n; ++b) out[b] = static_cast<unsigned char>(v >> (8 * b));\n}\n\ninline unsigned long long get_le(const unsigned char* in, unsigned n) {\n  unsigned long long v = 0;\n  for (unsigned b = 0; b < n; ++b) v |= static_cast<unsigned long long>(in[b]) << (8 * b);\n  return v;\n}\n\n}  // namespace co_sdo\n#endif\n// CO_SDO_READ_BYTES: reads any object (up to 1024 bytes) into BUFFER\n// Generated by library/generate.py; edit that file or src/common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = co_prev;\n  unsigned char phase = co_phase;\n  co_sdo::step s = co_sdo::begin(EXECUTE, prev, phase);\n  co_prev = prev;\n  co_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    ABORT_CODE = 0;\n    SIZE = 0;\n    unsigned short err = 0;\n    co_sdo::request req = {};\n    req.network = NETWORK;\n    req.node = NODE;\n    req.index = INDEX;\n    req.subindex = SUBINDEX;\n    req.write = 0;\n    req.kind = co_sdo::kind_bytes;\n    req.timeout_ms = co_sdo::timeout_ms(TIMEOUT);\n    unsigned int handle = err ? 0 : co_sdo::start(req, err);\n    if (handle) {\n      co_handle = handle;\n      BUSY = true;\n      co_phase = co_sdo::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      co_phase = co_sdo::phase_ended;\n    }\n  }\n  if (co_phase == co_sdo::phase_busy) {\n    co_sdo::result res = {};\n    unsigned char reply[1024];\n    int st = co_sdo::poll(co_handle, res, reply, sizeof reply);\n    if (st != 0) {\n      BUSY = false;\n      co_handle = 0;\n      co_phase = co_sdo::phase_ended;\n      unsigned short err = st == 2 ? res.error_id : 0;\n      if (!err) {\n        SIZE = static_cast<unsigned short>(res.size > 65535u ? 65535u : res.size);\n        if (res.size > co_sdo::max_data) {\n          err = co_sdo::err_too_big;\n        } else {\n          for (unsigned int i = 0; i < res.size; ++i) BUFFER[i] = reply[i];\n        }\n      }\n      if (err) {\n        ERROR = true;\n        ERROR_ID = err;\n        ABORT_CODE = (err == 1 || err == 2) ? res.abort_code : 0u;\n      } else {\n        DONE = true;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CO_SDO_READ_REAL.cpp",
+      "source": "FUNCTION_BLOCK CO_SDO_READ_REAL\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  NODE : USINT;\n  INDEX : UINT;\n  SUBINDEX : USINT;\n  TIMEOUT : TIME;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n  ABORT_CODE : UDINT;\n  VALUE : LREAL;\nEND_VAR\nVAR\n  co_handle : UDINT;\n  co_prev : BOOL;\n  co_phase : USINT;\nEND_VAR\n// Shared code of the canworks SDO function blocks (spec\n// canopen-plc-sdo). library/generate.py copies it into every block's source,\n// because the editor grafts each library C++ block into one\n// c_blocks_code.cpp and offers no other place for shared code; the include\n// guard keeps one copy per program.\n//\n// The editor binds every pin and local of a block to a #define of its name, so\n// nothing here uses a pin or local name (the pins are upper case, the shared\n// code is lower case), nor the keyword that closes a variable section. No system header is included after\n// those defines: dlopen and dlsym are declared here as glibc does.\n#ifndef CO_SDO_COMMON_INCLUDED\n#define CO_SDO_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace co_sdo {\n\n// The plugin's C interface, version 1 (plugin/src/canopen_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_data = 1024;\nstruct request {\n  unsigned char network;\n  unsigned char node;\n  unsigned short index;\n  unsigned char subindex;\n  unsigned char write;\n  unsigned char kind;\n  unsigned char size;\n  unsigned int timeout_ms;\n  const unsigned char* data;\n  unsigned int length;\n};\nstruct result {\n  unsigned short error_id;\n  unsigned int abort_code;\n  unsigned int size;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*start)(const request* req, unsigned short* error_id);\n  int (*poll)(unsigned int handle, result* res, unsigned char* data, unsigned int cap);\n};\nenum { kind_int = 0, kind_real = 1, kind_string = 2, kind_bytes = 3 };\nenum { err_not_running = 4, err_input = 6, err_too_big = 7 };\n\n// The loaded plugin's table, looked up by its SONAME without loading it\n// again (RTLD_NOW | RTLD_NOLOAD). Looked up again on each start until found;\n// kept once found, since the runtime unloads plugins only when it exits.\n// (The plugin's own tests link the blocks into one process with the master\n// and name the entry point with -DCO_SDO_TEST_ENTRY.)\n#ifdef CO_SDO_TEST_ENTRY\n}  // namespace co_sdo\nextern \"C\" const void* CO_SDO_TEST_ENTRY(unsigned int version);\nnamespace co_sdo {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CO_SDO_TEST_ENTRY\n  entry_t entry = CO_SDO_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canopen_plc_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to the timeout in ms; 0 and negative mean the default.\ninline unsigned int timeout_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// One block instance's handshake (PLCopen style). The block keeps `handle`\n// and `phase` in its locals and maps the outcome to its pins.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;   // a rising edge: clear the outputs and start a transfer\n  bool clear;   // the result was shown and EXECUTE is FALSE: clear DONE/ERROR\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n// Starts `req`; returns the handle or 0 with `error` set.\ninline unsigned int start(request& req, unsigned short& error) {\n  const api_v1* t = api();\n  if (!t) {\n    error = err_not_running;\n    return 0;\n  }\n  error = 0;\n  return t->start(&req, &error);\n}\n\n// 0 busy, 1 done, 2 error (`res` filled).\ninline int poll(unsigned int handle, result& res, unsigned char* data, unsigned int cap) {\n  const api_v1* t = api();\n  if (!t) {\n    res = result{err_not_running, 0, 0};\n    return 2;\n  }\n  return t->poll(handle, &res, data, cap);\n}\n\ninline void put_le(unsigned char* out, unsigned long long v, unsigned n) {\n  for (unsigned b = 0; b < n; ++b) out[b] = static_cast<unsigned char>(v >> (8 * b));\n}\n\ninline unsigned long long get_le(const unsigned char* in, unsigned n) {\n  unsigned long long v = 0;\n  for (unsigned b = 0; b < n; ++b) v |= static_cast<unsigned long long>(in[b]) << (8 * b);\n  return v;\n}\n\n}  // namespace co_sdo\n#endif\n// CO_SDO_READ_REAL: reads a REAL32 or REAL64 object into VALUE\n// Generated by library/generate.py; edit that file or src/common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = co_prev;\n  unsigned char phase = co_phase;\n  co_sdo::step s = co_sdo::begin(EXECUTE, prev, phase);\n  co_prev = prev;\n  co_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    ABORT_CODE = 0;\n    unsigned short err = 0;\n    co_sdo::request req = {};\n    req.network = NETWORK;\n    req.node = NODE;\n    req.index = INDEX;\n    req.subindex = SUBINDEX;\n    req.write = 0;\n    req.kind = co_sdo::kind_real;\n    req.timeout_ms = co_sdo::timeout_ms(TIMEOUT);\n    unsigned int handle = err ? 0 : co_sdo::start(req, err);\n    if (handle) {\n      co_handle = handle;\n      BUSY = true;\n      co_phase = co_sdo::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      co_phase = co_sdo::phase_ended;\n    }\n  }\n  if (co_phase == co_sdo::phase_busy) {\n    co_sdo::result res = {};\n    unsigned char reply[9];\n    int st = co_sdo::poll(co_handle, res, reply, sizeof reply);\n    if (st != 0) {\n      BUSY = false;\n      co_handle = 0;\n      co_phase = co_sdo::phase_ended;\n      unsigned short err = st == 2 ? res.error_id : 0;\n      if (!err) {\n        if (res.size == 4) {\n          unsigned int bits = static_cast<unsigned int>(co_sdo::get_le(reply, 4));\n          float f;\n          memcpy(&f, &bits, sizeof f);\n          VALUE = static_cast<double>(f);\n        } else if (res.size == 8) {\n          unsigned long long bits = co_sdo::get_le(reply, 8);\n          double d;\n          memcpy(&d, &bits, sizeof d);\n          VALUE = d;\n        } else {\n          err = co_sdo::err_too_big;\n        }\n      }\n      if (err) {\n        ERROR = true;\n        ERROR_ID = err;\n        ABORT_CODE = (err == 1 || err == 2) ? res.abort_code : 0u;\n      } else {\n        DONE = true;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CO_SDO_READ_STRING.cpp",
+      "source": "FUNCTION_BLOCK CO_SDO_READ_STRING\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  NODE : USINT;\n  INDEX : UINT;\n  SUBINDEX : USINT;\n  TIMEOUT : TIME;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n  ABORT_CODE : UDINT;\n  VALUE : STRING;\nEND_VAR\nVAR\n  co_handle : UDINT;\n  co_prev : BOOL;\n  co_phase : USINT;\nEND_VAR\n// Shared code of the canworks SDO function blocks (spec\n// canopen-plc-sdo). library/generate.py copies it into every block's source,\n// because the editor grafts each library C++ block into one\n// c_blocks_code.cpp and offers no other place for shared code; the include\n// guard keeps one copy per program.\n//\n// The editor binds every pin and local of a block to a #define of its name, so\n// nothing here uses a pin or local name (the pins are upper case, the shared\n// code is lower case), nor the keyword that closes a variable section. No system header is included after\n// those defines: dlopen and dlsym are declared here as glibc does.\n#ifndef CO_SDO_COMMON_INCLUDED\n#define CO_SDO_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace co_sdo {\n\n// The plugin's C interface, version 1 (plugin/src/canopen_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_data = 1024;\nstruct request {\n  unsigned char network;\n  unsigned char node;\n  unsigned short index;\n  unsigned char subindex;\n  unsigned char write;\n  unsigned char kind;\n  unsigned char size;\n  unsigned int timeout_ms;\n  const unsigned char* data;\n  unsigned int length;\n};\nstruct result {\n  unsigned short error_id;\n  unsigned int abort_code;\n  unsigned int size;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*start)(const request* req, unsigned short* error_id);\n  int (*poll)(unsigned int handle, result* res, unsigned char* data, unsigned int cap);\n};\nenum { kind_int = 0, kind_real = 1, kind_string = 2, kind_bytes = 3 };\nenum { err_not_running = 4, err_input = 6, err_too_big = 7 };\n\n// The loaded plugin's table, looked up by its SONAME without loading it\n// again (RTLD_NOW | RTLD_NOLOAD). Looked up again on each start until found;\n// kept once found, since the runtime unloads plugins only when it exits.\n// (The plugin's own tests link the blocks into one process with the master\n// and name the entry point with -DCO_SDO_TEST_ENTRY.)\n#ifdef CO_SDO_TEST_ENTRY\n}  // namespace co_sdo\nextern \"C\" const void* CO_SDO_TEST_ENTRY(unsigned int version);\nnamespace co_sdo {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CO_SDO_TEST_ENTRY\n  entry_t entry = CO_SDO_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canopen_plc_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to the timeout in ms; 0 and negative mean the default.\ninline unsigned int timeout_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// One block instance's handshake (PLCopen style). The block keeps `handle`\n// and `phase` in its locals and maps the outcome to its pins.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;   // a rising edge: clear the outputs and start a transfer\n  bool clear;   // the result was shown and EXECUTE is FALSE: clear DONE/ERROR\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n// Starts `req`; returns the handle or 0 with `error` set.\ninline unsigned int start(request& req, unsigned short& error) {\n  const api_v1* t = api();\n  if (!t) {\n    error = err_not_running;\n    return 0;\n  }\n  error = 0;\n  return t->start(&req, &error);\n}\n\n// 0 busy, 1 done, 2 error (`res` filled).\ninline int poll(unsigned int handle, result& res, unsigned char* data, unsigned int cap) {\n  const api_v1* t = api();\n  if (!t) {\n    res = result{err_not_running, 0, 0};\n    return 2;\n  }\n  return t->poll(handle, &res, data, cap);\n}\n\ninline void put_le(unsigned char* out, unsigned long long v, unsigned n) {\n  for (unsigned b = 0; b < n; ++b) out[b] = static_cast<unsigned char>(v >> (8 * b));\n}\n\ninline unsigned long long get_le(const unsigned char* in, unsigned n) {\n  unsigned long long v = 0;\n  for (unsigned b = 0; b < n; ++b) v |= static_cast<unsigned long long>(in[b]) << (8 * b);\n  return v;\n}\n\n}  // namespace co_sdo\n#endif\n// CO_SDO_READ_STRING: reads a VISIBLE_STRING object into VALUE\n// Generated by library/generate.py; edit that file or src/common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = co_prev;\n  unsigned char phase = co_phase;\n  co_sdo::step s = co_sdo::begin(EXECUTE, prev, phase);\n  co_prev = prev;\n  co_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    ABORT_CODE = 0;\n    unsigned short err = 0;\n    co_sdo::request req = {};\n    req.network = NETWORK;\n    req.node = NODE;\n    req.index = INDEX;\n    req.subindex = SUBINDEX;\n    req.write = 0;\n    req.kind = co_sdo::kind_string;\n    req.timeout_ms = co_sdo::timeout_ms(TIMEOUT);\n    unsigned int handle = err ? 0 : co_sdo::start(req, err);\n    if (handle) {\n      co_handle = handle;\n      BUSY = true;\n      co_phase = co_sdo::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      co_phase = co_sdo::phase_ended;\n    }\n  }\n  if (co_phase == co_sdo::phase_busy) {\n    co_sdo::result res = {};\n    unsigned char reply[1024];\n    int st = co_sdo::poll(co_handle, res, reply, sizeof reply);\n    if (st != 0) {\n      BUSY = false;\n      co_handle = 0;\n      co_phase = co_sdo::phase_ended;\n      unsigned short err = st == 2 ? res.error_id : 0;\n      if (!err) {\n        unsigned int kept = res.size < co_sdo::max_data ? res.size : co_sdo::max_data;\n        unsigned int len = 0;\n        while (len < kept && reply[len] != 0) ++len;\n        if (len > 254 || (len == kept && res.size > kept)) {\n          err = co_sdo::err_too_big;\n        } else {\n          char text[255];\n          memcpy(text, reply, len);\n          text[len] = 0;\n          VALUE = text;\n        }\n      }\n      if (err) {\n        ERROR = true;\n        ERROR_ID = err;\n        ABORT_CODE = (err == 1 || err == 2) ? res.abort_code : 0u;\n      } else {\n        DONE = true;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CO_SDO_WRITE.cpp",
+      "source": "FUNCTION_BLOCK CO_SDO_WRITE\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  NODE : USINT;\n  INDEX : UINT;\n  SUBINDEX : USINT;\n  TIMEOUT : TIME;\n  DATA : LWORD;\n  SIZE : USINT;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n  ABORT_CODE : UDINT;\nEND_VAR\nVAR\n  co_handle : UDINT;\n  co_prev : BOOL;\n  co_phase : USINT;\nEND_VAR\n// Shared code of the canworks SDO function blocks (spec\n// canopen-plc-sdo). library/generate.py copies it into every block's source,\n// because the editor grafts each library C++ block into one\n// c_blocks_code.cpp and offers no other place for shared code; the include\n// guard keeps one copy per program.\n//\n// The editor binds every pin and local of a block to a #define of its name, so\n// nothing here uses a pin or local name (the pins are upper case, the shared\n// code is lower case), nor the keyword that closes a variable section. No system header is included after\n// those defines: dlopen and dlsym are declared here as glibc does.\n#ifndef CO_SDO_COMMON_INCLUDED\n#define CO_SDO_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace co_sdo {\n\n// The plugin's C interface, version 1 (plugin/src/canopen_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_data = 1024;\nstruct request {\n  unsigned char network;\n  unsigned char node;\n  unsigned short index;\n  unsigned char subindex;\n  unsigned char write;\n  unsigned char kind;\n  unsigned char size;\n  unsigned int timeout_ms;\n  const unsigned char* data;\n  unsigned int length;\n};\nstruct result {\n  unsigned short error_id;\n  unsigned int abort_code;\n  unsigned int size;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*start)(const request* req, unsigned short* error_id);\n  int (*poll)(unsigned int handle, result* res, unsigned char* data, unsigned int cap);\n};\nenum { kind_int = 0, kind_real = 1, kind_string = 2, kind_bytes = 3 };\nenum { err_not_running = 4, err_input = 6, err_too_big = 7 };\n\n// The loaded plugin's table, looked up by its SONAME without loading it\n// again (RTLD_NOW | RTLD_NOLOAD). Looked up again on each start until found;\n// kept once found, since the runtime unloads plugins only when it exits.\n// (The plugin's own tests link the blocks into one process with the master\n// and name the entry point with -DCO_SDO_TEST_ENTRY.)\n#ifdef CO_SDO_TEST_ENTRY\n}  // namespace co_sdo\nextern \"C\" const void* CO_SDO_TEST_ENTRY(unsigned int version);\nnamespace co_sdo {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CO_SDO_TEST_ENTRY\n  entry_t entry = CO_SDO_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canopen_plc_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to the timeout in ms; 0 and negative mean the default.\ninline unsigned int timeout_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// One block instance's handshake (PLCopen style). The block keeps `handle`\n// and `phase` in its locals and maps the outcome to its pins.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;   // a rising edge: clear the outputs and start a transfer\n  bool clear;   // the result was shown and EXECUTE is FALSE: clear DONE/ERROR\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n// Starts `req`; returns the handle or 0 with `error` set.\ninline unsigned int start(request& req, unsigned short& error) {\n  const api_v1* t = api();\n  if (!t) {\n    error = err_not_running;\n    return 0;\n  }\n  error = 0;\n  return t->start(&req, &error);\n}\n\n// 0 busy, 1 done, 2 error (`res` filled).\ninline int poll(unsigned int handle, result& res, unsigned char* data, unsigned int cap) {\n  const api_v1* t = api();\n  if (!t) {\n    res = result{err_not_running, 0, 0};\n    return 2;\n  }\n  return t->poll(handle, &res, data, cap);\n}\n\ninline void put_le(unsigned char* out, unsigned long long v, unsigned n) {\n  for (unsigned b = 0; b < n; ++b) out[b] = static_cast<unsigned char>(v >> (8 * b));\n}\n\ninline unsigned long long get_le(const unsigned char* in, unsigned n) {\n  unsigned long long v = 0;\n  for (unsigned b = 0; b < n; ++b) v |= static_cast<unsigned long long>(in[b]) << (8 * b);\n  return v;\n}\n\n}  // namespace co_sdo\n#endif\n// CO_SDO_WRITE: writes the low SIZE bytes of DATA (SIZE 0: size from the EDS)\n// Generated by library/generate.py; edit that file or src/common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = co_prev;\n  unsigned char phase = co_phase;\n  co_sdo::step s = co_sdo::begin(EXECUTE, prev, phase);\n  co_prev = prev;\n  co_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    ABORT_CODE = 0;\n    unsigned short err = 0;\n    co_sdo::request req = {};\n    req.network = NETWORK;\n    req.node = NODE;\n    req.index = INDEX;\n    req.subindex = SUBINDEX;\n    req.write = 1;\n    req.kind = co_sdo::kind_int;\n    req.timeout_ms = co_sdo::timeout_ms(TIMEOUT);\n    unsigned char payload[8];\n    co_sdo::put_le(payload, static_cast<unsigned long long>(DATA), 8);\n    req.data = payload;\n    req.length = 8;\n    if (SIZE > 8) err = co_sdo::err_input;\n    req.size = static_cast<unsigned char>(SIZE);\n    unsigned int handle = err ? 0 : co_sdo::start(req, err);\n    if (handle) {\n      co_handle = handle;\n      BUSY = true;\n      co_phase = co_sdo::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      co_phase = co_sdo::phase_ended;\n    }\n  }\n  if (co_phase == co_sdo::phase_busy) {\n    co_sdo::result res = {};\n    unsigned char reply[1];\n    int st = co_sdo::poll(co_handle, res, reply, sizeof reply);\n    if (st != 0) {\n      BUSY = false;\n      co_handle = 0;\n      co_phase = co_sdo::phase_ended;\n      unsigned short err = st == 2 ? res.error_id : 0;\n      if (!err) {\n      }\n      if (err) {\n        ERROR = true;\n        ERROR_ID = err;\n        ABORT_CODE = (err == 1 || err == 2) ? res.abort_code : 0u;\n      } else {\n        DONE = true;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CO_SDO_WRITE_BYTES.cpp",
+      "source": "FUNCTION_BLOCK CO_SDO_WRITE_BYTES\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  NODE : USINT;\n  INDEX : UINT;\n  SUBINDEX : USINT;\n  TIMEOUT : TIME;\n  SIZE : UINT;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n  ABORT_CODE : UDINT;\nEND_VAR\nVAR_IN_OUT\n  BUFFER : ARRAY[0..1023] OF BYTE;\nEND_VAR\nVAR\n  co_handle : UDINT;\n  co_prev : BOOL;\n  co_phase : USINT;\nEND_VAR\n// Shared code of the canworks SDO function blocks (spec\n// canopen-plc-sdo). library/generate.py copies it into every block's source,\n// because the editor grafts each library C++ block into one\n// c_blocks_code.cpp and offers no other place for shared code; the include\n// guard keeps one copy per program.\n//\n// The editor binds every pin and local of a block to a #define of its name, so\n// nothing here uses a pin or local name (the pins are upper case, the shared\n// code is lower case), nor the keyword that closes a variable section. No system header is included after\n// those defines: dlopen and dlsym are declared here as glibc does.\n#ifndef CO_SDO_COMMON_INCLUDED\n#define CO_SDO_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace co_sdo {\n\n// The plugin's C interface, version 1 (plugin/src/canopen_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_data = 1024;\nstruct request {\n  unsigned char network;\n  unsigned char node;\n  unsigned short index;\n  unsigned char subindex;\n  unsigned char write;\n  unsigned char kind;\n  unsigned char size;\n  unsigned int timeout_ms;\n  const unsigned char* data;\n  unsigned int length;\n};\nstruct result {\n  unsigned short error_id;\n  unsigned int abort_code;\n  unsigned int size;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*start)(const request* req, unsigned short* error_id);\n  int (*poll)(unsigned int handle, result* res, unsigned char* data, unsigned int cap);\n};\nenum { kind_int = 0, kind_real = 1, kind_string = 2, kind_bytes = 3 };\nenum { err_not_running = 4, err_input = 6, err_too_big = 7 };\n\n// The loaded plugin's table, looked up by its SONAME without loading it\n// again (RTLD_NOW | RTLD_NOLOAD). Looked up again on each start until found;\n// kept once found, since the runtime unloads plugins only when it exits.\n// (The plugin's own tests link the blocks into one process with the master\n// and name the entry point with -DCO_SDO_TEST_ENTRY.)\n#ifdef CO_SDO_TEST_ENTRY\n}  // namespace co_sdo\nextern \"C\" const void* CO_SDO_TEST_ENTRY(unsigned int version);\nnamespace co_sdo {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CO_SDO_TEST_ENTRY\n  entry_t entry = CO_SDO_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canopen_plc_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to the timeout in ms; 0 and negative mean the default.\ninline unsigned int timeout_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// One block instance's handshake (PLCopen style). The block keeps `handle`\n// and `phase` in its locals and maps the outcome to its pins.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;   // a rising edge: clear the outputs and start a transfer\n  bool clear;   // the result was shown and EXECUTE is FALSE: clear DONE/ERROR\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n// Starts `req`; returns the handle or 0 with `error` set.\ninline unsigned int start(request& req, unsigned short& error) {\n  const api_v1* t = api();\n  if (!t) {\n    error = err_not_running;\n    return 0;\n  }\n  error = 0;\n  return t->start(&req, &error);\n}\n\n// 0 busy, 1 done, 2 error (`res` filled).\ninline int poll(unsigned int handle, result& res, unsigned char* data, unsigned int cap) {\n  const api_v1* t = api();\n  if (!t) {\n    res = result{err_not_running, 0, 0};\n    return 2;\n  }\n  return t->poll(handle, &res, data, cap);\n}\n\ninline void put_le(unsigned char* out, unsigned long long v, unsigned n) {\n  for (unsigned b = 0; b < n; ++b) out[b] = static_cast<unsigned char>(v >> (8 * b));\n}\n\ninline unsigned long long get_le(const unsigned char* in, unsigned n) {\n  unsigned long long v = 0;\n  for (unsigned b = 0; b < n; ++b) v |= static_cast<unsigned long long>(in[b]) << (8 * b);\n  return v;\n}\n\n}  // namespace co_sdo\n#endif\n// CO_SDO_WRITE_BYTES: writes SIZE bytes of BUFFER\n// Generated by library/generate.py; edit that file or src/common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = co_prev;\n  unsigned char phase = co_phase;\n  co_sdo::step s = co_sdo::begin(EXECUTE, prev, phase);\n  co_prev = prev;\n  co_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    ABORT_CODE = 0;\n    unsigned short err = 0;\n    co_sdo::request req = {};\n    req.network = NETWORK;\n    req.node = NODE;\n    req.index = INDEX;\n    req.subindex = SUBINDEX;\n    req.write = 1;\n    req.kind = co_sdo::kind_bytes;\n    req.timeout_ms = co_sdo::timeout_ms(TIMEOUT);\n    unsigned char payload[1024];\n    unsigned int len = SIZE;\n    if (len > co_sdo::max_data) {\n      err = co_sdo::err_input;\n      len = 0;\n    }\n    for (unsigned int i = 0; i < len; ++i) payload[i] = static_cast<unsigned char>(BUFFER[i]);\n    req.data = payload;\n    req.length = len;\n    unsigned int handle = err ? 0 : co_sdo::start(req, err);\n    if (handle) {\n      co_handle = handle;\n      BUSY = true;\n      co_phase = co_sdo::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      co_phase = co_sdo::phase_ended;\n    }\n  }\n  if (co_phase == co_sdo::phase_busy) {\n    co_sdo::result res = {};\n    unsigned char reply[1];\n    int st = co_sdo::poll(co_handle, res, reply, sizeof reply);\n    if (st != 0) {\n      BUSY = false;\n      co_handle = 0;\n      co_phase = co_sdo::phase_ended;\n      unsigned short err = st == 2 ? res.error_id : 0;\n      if (!err) {\n      }\n      if (err) {\n        ERROR = true;\n        ERROR_ID = err;\n        ABORT_CODE = (err == 1 || err == 2) ? res.abort_code : 0u;\n      } else {\n        DONE = true;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CO_SDO_WRITE_REAL.cpp",
+      "source": "FUNCTION_BLOCK CO_SDO_WRITE_REAL\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  NODE : USINT;\n  INDEX : UINT;\n  SUBINDEX : USINT;\n  TIMEOUT : TIME;\n  VALUE : LREAL;\n  SIZE : USINT;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n  ABORT_CODE : UDINT;\nEND_VAR\nVAR\n  co_handle : UDINT;\n  co_prev : BOOL;\n  co_phase : USINT;\nEND_VAR\n// Shared code of the canworks SDO function blocks (spec\n// canopen-plc-sdo). library/generate.py copies it into every block's source,\n// because the editor grafts each library C++ block into one\n// c_blocks_code.cpp and offers no other place for shared code; the include\n// guard keeps one copy per program.\n//\n// The editor binds every pin and local of a block to a #define of its name, so\n// nothing here uses a pin or local name (the pins are upper case, the shared\n// code is lower case), nor the keyword that closes a variable section. No system header is included after\n// those defines: dlopen and dlsym are declared here as glibc does.\n#ifndef CO_SDO_COMMON_INCLUDED\n#define CO_SDO_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace co_sdo {\n\n// The plugin's C interface, version 1 (plugin/src/canopen_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_data = 1024;\nstruct request {\n  unsigned char network;\n  unsigned char node;\n  unsigned short index;\n  unsigned char subindex;\n  unsigned char write;\n  unsigned char kind;\n  unsigned char size;\n  unsigned int timeout_ms;\n  const unsigned char* data;\n  unsigned int length;\n};\nstruct result {\n  unsigned short error_id;\n  unsigned int abort_code;\n  unsigned int size;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*start)(const request* req, unsigned short* error_id);\n  int (*poll)(unsigned int handle, result* res, unsigned char* data, unsigned int cap);\n};\nenum { kind_int = 0, kind_real = 1, kind_string = 2, kind_bytes = 3 };\nenum { err_not_running = 4, err_input = 6, err_too_big = 7 };\n\n// The loaded plugin's table, looked up by its SONAME without loading it\n// again (RTLD_NOW | RTLD_NOLOAD). Looked up again on each start until found;\n// kept once found, since the runtime unloads plugins only when it exits.\n// (The plugin's own tests link the blocks into one process with the master\n// and name the entry point with -DCO_SDO_TEST_ENTRY.)\n#ifdef CO_SDO_TEST_ENTRY\n}  // namespace co_sdo\nextern \"C\" const void* CO_SDO_TEST_ENTRY(unsigned int version);\nnamespace co_sdo {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CO_SDO_TEST_ENTRY\n  entry_t entry = CO_SDO_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canopen_plc_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to the timeout in ms; 0 and negative mean the default.\ninline unsigned int timeout_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// One block instance's handshake (PLCopen style). The block keeps `handle`\n// and `phase` in its locals and maps the outcome to its pins.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;   // a rising edge: clear the outputs and start a transfer\n  bool clear;   // the result was shown and EXECUTE is FALSE: clear DONE/ERROR\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n// Starts `req`; returns the handle or 0 with `error` set.\ninline unsigned int start(request& req, unsigned short& error) {\n  const api_v1* t = api();\n  if (!t) {\n    error = err_not_running;\n    return 0;\n  }\n  error = 0;\n  return t->start(&req, &error);\n}\n\n// 0 busy, 1 done, 2 error (`res` filled).\ninline int poll(unsigned int handle, result& res, unsigned char* data, unsigned int cap) {\n  const api_v1* t = api();\n  if (!t) {\n    res = result{err_not_running, 0, 0};\n    return 2;\n  }\n  return t->poll(handle, &res, data, cap);\n}\n\ninline void put_le(unsigned char* out, unsigned long long v, unsigned n) {\n  for (unsigned b = 0; b < n; ++b) out[b] = static_cast<unsigned char>(v >> (8 * b));\n}\n\ninline unsigned long long get_le(const unsigned char* in, unsigned n) {\n  unsigned long long v = 0;\n  for (unsigned b = 0; b < n; ++b) v |= static_cast<unsigned long long>(in[b]) << (8 * b);\n  return v;\n}\n\n}  // namespace co_sdo\n#endif\n// CO_SDO_WRITE_REAL: writes VALUE as REAL32 (SIZE 4) or REAL64 (SIZE 8; 0: from the EDS)\n// Generated by library/generate.py; edit that file or src/common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = co_prev;\n  unsigned char phase = co_phase;\n  co_sdo::step s = co_sdo::begin(EXECUTE, prev, phase);\n  co_prev = prev;\n  co_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    ABORT_CODE = 0;\n    unsigned short err = 0;\n    co_sdo::request req = {};\n    req.network = NETWORK;\n    req.node = NODE;\n    req.index = INDEX;\n    req.subindex = SUBINDEX;\n    req.write = 1;\n    req.kind = co_sdo::kind_real;\n    req.timeout_ms = co_sdo::timeout_ms(TIMEOUT);\n    unsigned char payload[8];\n    double d = VALUE;\n    unsigned long long bits;\n    memcpy(&bits, &d, sizeof bits);\n    co_sdo::put_le(payload, bits, 8);\n    req.data = payload;\n    req.length = 8;\n    if (SIZE != 0 && SIZE != 4 && SIZE != 8) err = co_sdo::err_input;\n    req.size = static_cast<unsigned char>(SIZE);\n    unsigned int handle = err ? 0 : co_sdo::start(req, err);\n    if (handle) {\n      co_handle = handle;\n      BUSY = true;\n      co_phase = co_sdo::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      co_phase = co_sdo::phase_ended;\n    }\n  }\n  if (co_phase == co_sdo::phase_busy) {\n    co_sdo::result res = {};\n    unsigned char reply[1];\n    int st = co_sdo::poll(co_handle, res, reply, sizeof reply);\n    if (st != 0) {\n      BUSY = false;\n      co_handle = 0;\n      co_phase = co_sdo::phase_ended;\n      unsigned short err = st == 2 ? res.error_id : 0;\n      if (!err) {\n      }\n      if (err) {\n        ERROR = true;\n        ERROR_ID = err;\n        ABORT_CODE = (err == 1 || err == 2) ? res.abort_code : 0u;\n      } else {\n        DONE = true;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CO_SDO_WRITE_STRING.cpp",
+      "source": "FUNCTION_BLOCK CO_SDO_WRITE_STRING\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  NODE : USINT;\n  INDEX : UINT;\n  SUBINDEX : USINT;\n  TIMEOUT : TIME;\n  VALUE : STRING;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n  ABORT_CODE : UDINT;\nEND_VAR\nVAR\n  co_handle : UDINT;\n  co_prev : BOOL;\n  co_phase : USINT;\nEND_VAR\n// Shared code of the canworks SDO function blocks (spec\n// canopen-plc-sdo). library/generate.py copies it into every block's source,\n// because the editor grafts each library C++ block into one\n// c_blocks_code.cpp and offers no other place for shared code; the include\n// guard keeps one copy per program.\n//\n// The editor binds every pin and local of a block to a #define of its name, so\n// nothing here uses a pin or local name (the pins are upper case, the shared\n// code is lower case), nor the keyword that closes a variable section. No system header is included after\n// those defines: dlopen and dlsym are declared here as glibc does.\n#ifndef CO_SDO_COMMON_INCLUDED\n#define CO_SDO_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace co_sdo {\n\n// The plugin's C interface, version 1 (plugin/src/canopen_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_data = 1024;\nstruct request {\n  unsigned char network;\n  unsigned char node;\n  unsigned short index;\n  unsigned char subindex;\n  unsigned char write;\n  unsigned char kind;\n  unsigned char size;\n  unsigned int timeout_ms;\n  const unsigned char* data;\n  unsigned int length;\n};\nstruct result {\n  unsigned short error_id;\n  unsigned int abort_code;\n  unsigned int size;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*start)(const request* req, unsigned short* error_id);\n  int (*poll)(unsigned int handle, result* res, unsigned char* data, unsigned int cap);\n};\nenum { kind_int = 0, kind_real = 1, kind_string = 2, kind_bytes = 3 };\nenum { err_not_running = 4, err_input = 6, err_too_big = 7 };\n\n// The loaded plugin's table, looked up by its SONAME without loading it\n// again (RTLD_NOW | RTLD_NOLOAD). Looked up again on each start until found;\n// kept once found, since the runtime unloads plugins only when it exits.\n// (The plugin's own tests link the blocks into one process with the master\n// and name the entry point with -DCO_SDO_TEST_ENTRY.)\n#ifdef CO_SDO_TEST_ENTRY\n}  // namespace co_sdo\nextern \"C\" const void* CO_SDO_TEST_ENTRY(unsigned int version);\nnamespace co_sdo {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CO_SDO_TEST_ENTRY\n  entry_t entry = CO_SDO_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canopen_plc_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to the timeout in ms; 0 and negative mean the default.\ninline unsigned int timeout_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// One block instance's handshake (PLCopen style). The block keeps `handle`\n// and `phase` in its locals and maps the outcome to its pins.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;   // a rising edge: clear the outputs and start a transfer\n  bool clear;   // the result was shown and EXECUTE is FALSE: clear DONE/ERROR\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n// Starts `req`; returns the handle or 0 with `error` set.\ninline unsigned int start(request& req, unsigned short& error) {\n  const api_v1* t = api();\n  if (!t) {\n    error = err_not_running;\n    return 0;\n  }\n  error = 0;\n  return t->start(&req, &error);\n}\n\n// 0 busy, 1 done, 2 error (`res` filled).\ninline int poll(unsigned int handle, result& res, unsigned char* data, unsigned int cap) {\n  const api_v1* t = api();\n  if (!t) {\n    res = result{err_not_running, 0, 0};\n    return 2;\n  }\n  return t->poll(handle, &res, data, cap);\n}\n\ninline void put_le(unsigned char* out, unsigned long long v, unsigned n) {\n  for (unsigned b = 0; b < n; ++b) out[b] = static_cast<unsigned char>(v >> (8 * b));\n}\n\ninline unsigned long long get_le(const unsigned char* in, unsigned n) {\n  unsigned long long v = 0;\n  for (unsigned b = 0; b < n; ++b) v |= static_cast<unsigned long long>(in[b]) << (8 * b);\n  return v;\n}\n\n}  // namespace co_sdo\n#endif\n// CO_SDO_WRITE_STRING: writes VALUE to a VISIBLE_STRING object\n// Generated by library/generate.py; edit that file or src/common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = co_prev;\n  unsigned char phase = co_phase;\n  co_sdo::step s = co_sdo::begin(EXECUTE, prev, phase);\n  co_prev = prev;\n  co_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    ABORT_CODE = 0;\n    unsigned short err = 0;\n    co_sdo::request req = {};\n    req.network = NETWORK;\n    req.node = NODE;\n    req.index = INDEX;\n    req.subindex = SUBINDEX;\n    req.write = 1;\n    req.kind = co_sdo::kind_string;\n    req.timeout_ms = co_sdo::timeout_ms(TIMEOUT);\n    unsigned char payload[254];\n    unsigned int len = static_cast<unsigned int>(VALUE.length());\n    if (len > 254) len = 254;\n    memcpy(payload, VALUE.c_str(), len);\n    req.data = payload;\n    req.length = len;\n    unsigned int handle = err ? 0 : co_sdo::start(req, err);\n    if (handle) {\n      co_handle = handle;\n      BUSY = true;\n      co_phase = co_sdo::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      co_phase = co_sdo::phase_ended;\n    }\n  }\n  if (co_phase == co_sdo::phase_busy) {\n    co_sdo::result res = {};\n    unsigned char reply[1];\n    int st = co_sdo::poll(co_handle, res, reply, sizeof reply);\n    if (st != 0) {\n      BUSY = false;\n      co_handle = 0;\n      co_phase = co_sdo::phase_ended;\n      unsigned short err = st == 2 ? res.error_id : 0;\n      if (!err) {\n      }\n      if (err) {\n        ERROR = true;\n        ERROR_ID = err;\n        ABORT_CODE = (err == 1 || err == 2) ? res.abort_code : 0u;\n      } else {\n        DONE = true;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+    }
+  ]
+}

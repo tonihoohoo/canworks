@@ -10,7 +10,7 @@ import unittest
 
 import jsonschema
 
-from openplc_canopen_deploy import contract
+from canworks import contract
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 FIXTURES = os.path.join(REPO, "test", "fixtures")
@@ -56,7 +56,7 @@ class SharedFixtures(unittest.TestCase):
                 cfg = patched(doc["base"], case["patch"])
                 schema_valid = validator.is_valid(cfg)
                 self.assertEqual(schema_valid, case["schema"] == "valid", "schema verdict")
-                r = contract.check_config(cfg, os.path.join(FIXTURES, "eds", "canopen.json"))
+                r = contract.check_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"))
                 text = "\n".join(r.errors)
                 self.assertEqual(r.ok, case["verdict"] == "accept", text)
                 for m in case.get("messages", []) + case.get("tool_messages", []):
@@ -70,14 +70,14 @@ class SharedFixtures(unittest.TestCase):
 class Examples(unittest.TestCase):
     def test_schema_copy_matches(self):
         # The package ships a copy of schema/; it must not drift.
-        for name in ("canopen.v1.schema.json", "canopen.v2.schema.json"):
+        for name in ("canworks.v1.schema.json", "canworks.v2.schema.json"):
             self.assertTrue(filecmp.cmp(os.path.join(REPO, "schema", name),
-                                        os.path.join(REPO, "tools", "deploy", "openplc_canopen_deploy", "schema",
+                                        os.path.join(REPO, "tools", "deploy", "canworks", "schema",
                                                      name), shallow=False), name)
 
     def test_example_configs_validate(self):
         found = 0
-        paths = [os.path.join(REPO, "examples", d, "canopen", "canopen.json")
+        paths = [os.path.join(REPO, "examples", d, "canworks", "canworks.json")
                  for d in sorted(os.listdir(os.path.join(REPO, "examples")))]
         for root, _, files in os.walk(os.path.join(REPO, "config")):
             for name in files:
@@ -99,8 +99,8 @@ class Examples(unittest.TestCase):
 
     def test_node_id_out_of_range_names_path_and_range(self):
         cfg = patched(load_cases()["base"], [["set", "nodes/0/node_id", 200]])
-        r = contract.check_config(cfg, "canopen.json", eds_dir=os.path.join(FIXTURES, "eds"))
-        self.assertIn("canopen.json: nodes[0].node_id: 200 is greater than the maximum of 127", "\n".join(r.errors))
+        r = contract.check_config(cfg, "canworks.json", eds_dir=os.path.join(FIXTURES, "eds"))
+        self.assertIn("canworks.json: nodes[0].node_id: 200 is greater than the maximum of 127", "\n".join(r.errors))
 
 
 class AutoCobIds(unittest.TestCase):

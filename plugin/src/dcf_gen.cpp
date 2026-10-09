@@ -362,7 +362,7 @@ std::string default_dcfgen() {
   const char* env = std::getenv("CANOPEN_DCFGEN");
   if (env && *env) return env;
 #ifndef CANOPEN_PREFIX
-#define CANOPEN_PREFIX "/opt/openplc-canopen"
+#define CANOPEN_PREFIX "/opt/canworks"
 #endif
   const char* venv = CANOPEN_PREFIX "/venv/bin/dcfgen";
   if (access(venv, X_OK) == 0) return venv;
@@ -688,7 +688,7 @@ std::pair<uint32_t, uint32_t> config_stamp(const std::vector<SdoWrite>& sdos, un
 bool generate_device_config(const Config& cfg, const std::string& dcfgen, GeneratedConfig& out,
                             std::vector<std::string>& errors) {
   out = GeneratedConfig();
-  out.work_dir = cfg.work_dir.empty() ? cfg.config_dir + "/.canopen" : cfg.work_dir;
+  out.work_dir = cfg.work_dir.empty() ? cfg.config_dir + "/.canworks" : cfg.work_dir;
   out.master_dcf = out.work_dir + "/master.dcf";
   if (!mkdir_p(out.work_dir)) {
     errors.push_back("cannot create " + out.work_dir + ": " + std::strerror(errno));

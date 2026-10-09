@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Writes the sources of the openplc_canopen editor library (spec canopen-plc-sdo).
+"""Writes the sources of the canworks editor library (spec canopen-plc-sdo).
 
-    python3 library/generate.py            # write library/openplc_canopen/*.cpp
+    python3 library/generate.py            # write library/canworks/*.cpp
     python3 library/generate.py --check    # fail if they are out of date
 
 Each block is a C++ function block as OpenPLC Editor 4.3 stores one: an ST
@@ -10,7 +10,7 @@ setup() and loop(). The eight blocks share one pin layout and the code in
 src/common.inc, which is copied into every body (behind an include guard)
 because the editor grafts each block into one c_blocks_code.cpp.
 
-library/build.sh turns the folder into openplc_canopen.stlib with strucpp.
+library/build.sh turns the folder into canworks.stlib with strucpp.
 """
 
 import argparse
@@ -18,7 +18,7 @@ import pathlib
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
-OUT = HERE / "openplc_canopen"
+OUT = HERE / "canworks"
 COMMON = (HERE / "src" / "common.inc").read_text()
 
 INPUTS = """\

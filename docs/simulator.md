@@ -6,7 +6,7 @@ A simulated device is what its EDS promises. A real device can behave differentl
 
 ## Two switches
 
-Which devices are simulated, and where, is set in `canopen.json` with two switches:
+Which devices are simulated, and where, is set in `canworks.json` with two switches:
 
 | Field | Meaning |
 |---|---|
@@ -24,13 +24,13 @@ That gives four combinations:
 
 A config with anything simulated is announced everywhere: a warning at every PLC start naming what is simulated, `simulated_network` and per-node `simulated` in the diagnostics status, a banner in the configurator, and a question before the deploy tool uploads it. Outputs to a simulated device go nowhere, so never leave a machine's config simulated.
 
-### Forced by the runtime: `CANOPEN_FORCE_SIMULATE`
+### Forced by the runtime: `CANWORKS_FORCE_SIMULATE`
 
-A runtime started with the environment variable `CANOPEN_FORCE_SIMULATE=1` runs every network simulated, master and slave networks alike, whatever its `adapter.simulate` and adapter settings say: no CAN interface or serial device is opened. The [local simulator runtime](local-runtime.md) image sets it. Nodes keep their own switches, so a node with `"simulate": false` stays absent, as on any simulated network. Only the exact value `1` forces; anything else (`0`, `true`, empty) changes nothing. The plugin logs `simulation forced by the runtime environment (CANOPEN_FORCE_SIMULATE=1)` for each network at every PLC start, the diagnostics status carries `simulation_forced`, and `openplc-canopen-diag status` and the configurator's online view say so.
+A runtime started with the environment variable `CANWORKS_FORCE_SIMULATE=1` runs every network simulated, master and slave networks alike, whatever its `adapter.simulate` and adapter settings say: no CAN interface or serial device is opened. The [local simulator runtime](local-runtime.md) image sets it. Nodes keep their own switches, so a node with `"simulate": false` stays absent, as on any simulated network. Only the exact value `1` forces; anything else (`0`, `true`, empty) changes nothing. The plugin logs `simulation forced by the runtime environment (CANWORKS_FORCE_SIMULATE=1)` for each network at every PLC start, the diagnostics status carries `simulation_forced`, and `canworks-diag status` and the configurator's online view say so.
 
 ### Several networks
 
-In a config with several networks ([version 2](config.md)), each network has its own switches: one network can be simulated while another runs on its real interface, and the simulated devices of each network are reached by its name (`--network NAME` on `openplc-canopen-diag sim`, the network picker in the configurator). The [simulation file](#the-simulation-file) has a section per network in version 2; a version 1 file serves a config with one network only (with several networks the plugin and the deploy tool's check say it is not used, and the simulated devices run with their [default behaviour](#default-behaviour)).
+In a config with several networks ([version 2](config.md)), each network has its own switches: one network can be simulated while another runs on its real interface, and the simulated devices of each network are reached by its name (`--network NAME` on `canworks-diag sim`, the network picker in the configurator). The [simulation file](#the-simulation-file) has a section per network in version 2; a version 1 file serves a config with one network only (with several networks the plugin and the deploy tool's check say it is not used, and the simulated devices run with their [default behaviour](#default-behaviour)).
 
 A simulated master network and a simulated [slave network](slave.md#simulated-bus) with the same `interface` name share one simulated bus: the plugin's master then reaches the plugin's own slave. A simulated bus takes one master network and one slave network.
 
@@ -53,16 +53,16 @@ Without any setting, each device chooses its behaviour from its device profile (
 
 `"default_behaviour": false` on a node in the simulation file switches this off.
 
-## `openplc-canopen-sim`
+## `canworks-sim`
 
 The standalone simulator runs devices on a SocketCAN interface: for a plugin on the same host, for another CANopen master, or on a second adapter on a test bench. It is installed with the plugin (see [install-stock.md](install-stock.md)).
 
 ```sh
-openplc-canopen-sim canopen/canopen.json             # every node of the config on vcan0
-openplc-canopen-sim canopen/canopen.json --nodes 5,7 # only nodes 5 and 7
-openplc-canopen-sim --eds drive.eds --node 4         # one device
-openplc-canopen-sim canopen/canopen.json --iface vcan1 --sim my-sim.json
-sudo openplc-canopen-sim --setup-vcan canopen/canopen.json   # creates vcan0 if missing
+canworks-sim canworks/canworks.json             # every node of the config on vcan0
+canworks-sim canworks/canworks.json --nodes 5,7 # only nodes 5 and 7
+canworks-sim --eds drive.eds --node 4         # one device
+canworks-sim canworks/canworks.json --iface vcan1 --sim my-sim.json
+sudo canworks-sim --setup-vcan canworks/canworks.json   # creates vcan0 if missing
 ```
 
 With a config, `simulation.json` next to it is used when it exists (`--sim FILE` names another; `--no-sim-file` ignores it). Options:
@@ -86,41 +86,41 @@ Without `--real-bus`, an interface that is not vcan is refused, because simulate
 
 ### Control subcommands
 
-While a simulator runs, these talk to it over its control channel (default `127.0.0.1:7532`; `--sim HOST[:PORT]` and `--token`/`--token-file` for another one). `openplc-canopen-diag sim ...` has the same subcommands for the plugin's simulated devices (`--runtime HOST`, with `--network NAME` when the runtime runs several networks) and for a standalone simulator (`--sim HOST[:PORT]`).
+While a simulator runs, these talk to it over its control channel (default `127.0.0.1:7532`; `--sim HOST[:PORT]` and `--token`/`--token-file` for another one). `canworks-diag sim ...` has the same subcommands for the plugin's simulated devices (`--runtime HOST`, with `--network NAME` when the runtime runs several networks) and for a standalone simulator (`--sim HOST[:PORT]`).
 
 ```sh
-openplc-canopen-sim status
-openplc-canopen-sim get 5 0x7130:1
-openplc-canopen-sim set 5 0x7130:1 450                 # once; a source moves it again
-openplc-canopen-sim override 5 0x7130:1 1500           # held until released
-openplc-canopen-sim release 5 0x7130:1                 # or: release 5 (all of node 5)
-openplc-canopen-sim source 5 0x7130:2 '{"sine": {"min": 200, "max": 260, "period_s": 10}}'
-openplc-canopen-sim source 5 0x7130:2 none
-openplc-canopen-sim fault 5 emcy 0x5000 --register 1 --msef 0100000000
-openplc-canopen-sim fault 5 power off                  # power on | power cycle --off-ms 2000
-openplc-canopen-sim fault 5 sdo-abort 0x2000:1 0x08000020 --on write --count 1
-openplc-canopen-sim clear 5 emcy                       # or: clear 5 all
-openplc-canopen-sim scenario list
-openplc-canopen-sim scenario start sensor-break
-openplc-canopen-sim scenario stop sensor-break
+canworks-sim status
+canworks-sim get 5 0x7130:1
+canworks-sim set 5 0x7130:1 450                 # once; a source moves it again
+canworks-sim override 5 0x7130:1 1500           # held until released
+canworks-sim release 5 0x7130:1                 # or: release 5 (all of node 5)
+canworks-sim source 5 0x7130:2 '{"sine": {"min": 200, "max": 260, "period_s": 10}}'
+canworks-sim source 5 0x7130:2 none
+canworks-sim fault 5 emcy 0x5000 --register 1 --msef 0100000000
+canworks-sim fault 5 power off                  # power on | power cycle --off-ms 2000
+canworks-sim fault 5 sdo-abort 0x2000:1 0x08000020 --on write --count 1
+canworks-sim clear 5 emcy                       # or: clear 5 all
+canworks-sim scenario list
+canworks-sim scenario start sensor-break
+canworks-sim scenario stop sensor-break
 ```
 
-The `fault` kinds are those of [Faults](#faults), written with dashes (`heartbeat-stop`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `forget-node-id`, ...); `fault 5 json '{...}'` takes the JSON form. Their fields are arguments or options as above (`emcy CODE --period-ms MS`, `sdo-delay MS --object OBJ`, `identity --serial-number N`, `drive-input --blocked`, ...; `openplc-canopen-sim --help` lists them). `get 5` without objects prints every object in node 5's PDOs. A command exits 1 when the simulator answers with an error, 2 when it cannot reach it.
+The `fault` kinds are those of [Faults](#faults), written with dashes (`heartbeat-stop`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `forget-node-id`, ...); `fault 5 json '{...}'` takes the JSON form. Their fields are arguments or options as above (`emcy CODE --period-ms MS`, `sdo-delay MS --object OBJ`, `identity --serial-number N`, `drive-input --blocked`, ...; `canworks-sim --help` lists them). `get 5` without objects prints every object in node 5's PDOs. A command exits 1 when the simulator answers with an error, 2 when it cannot reach it.
 
 ### Test mode
 
-`openplc-canopen-sim test` runs scenarios as tests of a PLC program:
+`canworks-sim test` runs scenarios as tests of a PLC program:
 
 ```sh
-openplc-canopen-sim test canopen/canopen.json --scenario alarm --junit results.xml
-openplc-canopen-sim test --runtime plc.local --token-file token --scenario alarm
+canworks-sim test canworks/canworks.json --scenario alarm --junit results.xml
+canworks-sim test --runtime plc.local --token-file token --scenario alarm
 ```
 
 With a config it starts the devices as the run mode does, waits until every simulated node is OPERATIONAL (or `--start-timeout` seconds, default 30; then it runs the scenarios anyway, with a warning), runs the named scenarios (default: every scenario with `"test": true`) one after another (`--parallel` runs them together), and stops after the last one or after `--timeout` seconds (default 300; scenarios still running then fail). With `--runtime HOST[:PORT]` (default port 7531) it runs the scenarios in the plugin's simulated devices through the diagnostics channel instead; with the port of a standalone simulator's control channel (`--runtime 127.0.0.1:7532`) it runs them there. It prints one line per scenario, writes a JUnit XML report with `--junit FILE`, and exits 0 only when every scenario passed (1: a scenario failed, 2: usage or start-up error).
 
 ## The simulation file
 
-Behaviour is set in `canopen/simulation.json`, next to `canopen.json`. It travels with the project like the config: the editor's Build and upload and the deploy tool carry it to the runtime. The file is optional. [`schema/canopen-sim.v1.schema.json`](../schema/canopen-sim.v1.schema.json) describes it; unknown keys are errors.
+Behaviour is set in `canworks/simulation.json`, next to `canworks.json`. It travels with the project like the config: the editor's Build and upload and the deploy tool carry it to the runtime. The file is optional. [`schema/canworks-sim.v1.schema.json`](../schema/canworks-sim.v1.schema.json) describes it; unknown keys are errors.
 
 ```json
 {
@@ -166,7 +166,7 @@ Behaviour is set in `canopen/simulation.json`, next to `canopen.json`. It travel
 
 ### Version 2: a section per network
 
-A config with several networks takes a version 2 file ([`schema/canopen-sim.v2.schema.json`](../schema/canopen-sim.v2.schema.json)). `tick_ms` stays at the top; `nodes`, `extra_devices` and `scenarios` go in the section of their network under `networks`, keyed by the network's name (its interface for a version 1 config):
+A config with several networks takes a version 2 file ([`schema/canworks-sim.v2.schema.json`](../schema/canworks-sim.v2.schema.json)). `tick_ms` stays at the top; `nodes`, `extra_devices` and `scenarios` go in the section of their network under `networks`, keyed by the network's name (its interface for a version 1 config):
 
 ```json
 {
@@ -317,7 +317,7 @@ A scenario is a named list of steps, run in order. A step has one action, option
 
 A condition is `{"node": 7, "object": "0x6200:1", "eq": 5}` with one of `eq`, `ne`, `lt`, `le`, `gt`, `ge` and optionally `bit` (compares that bit), or `{"expr": "[7/0x6200:1] > 5 && [5/0x7130:1] < 300"}`.
 
-A scenario with `"autostart": true` starts with the simulation; one with `"test": true` is run by `openplc-canopen-sim test` by default. Several scenarios can run at the same time, and a running scenario can be stopped. A failed `expect` or a `wait` that times out ends the scenario as failed, naming the step, the condition and the value seen; the simulation goes on.
+A scenario with `"autostart": true` starts with the simulation; one with `"test": true` is run by `canworks-sim test` by default. Several scenarios can run at the same time, and a running scenario can be stopped. A failed `expect` or a `wait` that times out ends the scenario as failed, naming the step, the condition and the value seen; the simulation goes on.
 
 ## Control protocol
 

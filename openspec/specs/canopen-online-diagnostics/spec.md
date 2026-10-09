@@ -1,15 +1,15 @@
 # canopen-online-diagnostics Specification
 
 ## Purpose
-An opt-in, token-protected TCP channel on the plugin that lets the configurator and `openplc-canopen-diag` watch node and bus state live, read and (when allowed) write objects over SDO, send NMT commands and scan the bus for nodes while the PLC runs.
+An opt-in, token-protected TCP channel on the plugin that lets the configurator and `canworks-diag` watch node and bus state live, read and (when allowed) write objects over SDO, send NMT commands and scan the bus for nodes while the PLC runs.
 
 ## Requirements
 
 ### Requirement: Diagnostics channel is opt-in
-The `master` object (or the top-level `diagnostics` of a version 2 file) MAY give a `diagnostics` object with `token_verifier` (required: a SCRAM-SHA-256 verifier of the access token in the form `SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>`, base64 fields, iterations 4096 to 1000000, salt at least 16 bytes), `port` (1024 to 65535, default 7531), `bind` (an IPv4 address, default `0.0.0.0`) and `allow_changes` (boolean, default false). Without `diagnostics` the plugin SHALL open no network listener. With it, the plugin SHALL listen on `bind`:`port` from the start of the CANopen session until the PLC stops, and SHALL log the address and whether changes are allowed. A listener that cannot be opened (port in use, address not on the host) SHALL be logged as a warning and SHALL NOT stop CANopen or the PLC; the plugin SHALL retry opening it every 10 seconds. An invalid `diagnostics` object SHALL reject the configuration, naming the field. The former `token_sha256` SHALL reject the configuration with a message saying that the channel is encrypted now and the token must be set again (the configurator's Online access, or `openplc-canopen-diag hash-token`).
+The `master` object (or the top-level `diagnostics` of a version 2 file) MAY give a `diagnostics` object with `token_verifier` (required: a SCRAM-SHA-256 verifier of the access token in the form `SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>`, base64 fields, iterations 4096 to 1000000, salt at least 16 bytes), `port` (1024 to 65535, default 7531), `bind` (an IPv4 address, default `0.0.0.0`) and `allow_changes` (boolean, default false). Without `diagnostics` the plugin SHALL open no network listener. With it, the plugin SHALL listen on `bind`:`port` from the start of the CANopen session until the PLC stops, and SHALL log the address and whether changes are allowed. A listener that cannot be opened (port in use, address not on the host) SHALL be logged as a warning and SHALL NOT stop CANopen or the PLC; the plugin SHALL retry opening it every 10 seconds. An invalid `diagnostics` object SHALL reject the configuration, naming the field. The former `token_sha256` SHALL reject the configuration with a message saying that the channel is encrypted now and the token must be set again (the configurator's Online access, or `canworks-diag hash-token`).
 
 #### Scenario: Not configured
-- **WHEN** `canopen.json` has no `master.diagnostics`
+- **WHEN** `canworks.json` has no `master.diagnostics`
 - **THEN** the plugin opens no TCP port
 
 #### Scenario: Enabled read-only
@@ -64,7 +64,7 @@ Serving the channel SHALL NOT block or delay the PLC scan cycle hooks, and a slo
 
 ### Requirement: Live status
 A status request SHALL return, as of no more than 100 ms before the answer:
-- the plugin version, the time since the CANopen session started, and the SHA-256 of the loaded `canopen.json` file;
+- the plugin version, the time since the CANopen session started, and the SHA-256 of the loaded `canworks.json` file;
 - the master node ID and NMT state code, and the bus state, TX and RX error counters and bus-off count as the bus diagnostics define them (whether or not their PLC locations are configured);
 - the SYNC source (`none`, `timer` or `plc_cycle`), `sync_cycles` for `plc_cycle`, and the SYNC statistics: SYNCs sent, last, shortest and longest interval in microseconds, skipped frames and late PDOs;
 - for each configured node: node ID, name, NMT state code as the state byte defines it, status bit value, whether its last boot succeeded, its last boot error letter with Lely's text (or none), whether a boot retry is pending, the hold in force (none, by the program, or by an operator, with STOPPED or PRE-OPERATIONAL), its last emergency code and error register, and for each SDO variable its name, current value, status code and abort code;
@@ -81,7 +81,7 @@ These values SHALL be available whether or not the corresponding PLC locations a
 - **THEN** the status answer shows node 23 with boot failed, error letter J with Lely's text, and a retry pending
 
 #### Scenario: Config fingerprint
-- **WHEN** the configurator holds a `canopen.json` whose SHA-256 differs from the one in the status answer
+- **WHEN** the configurator holds a `canworks.json` whose SHA-256 differs from the one in the status answer
 - **THEN** the configurator can tell that the runtime runs a different configuration
 
 #### Scenario: SYNC jitter visible
@@ -94,7 +94,7 @@ These values SHALL be available whether or not the corresponding PLC locations a
 
 #### Scenario: Timed-out PDO without a location
 - **WHEN** node 23's TPDO 1 has `"timeout_ms": 500` and no `timeout_location`, and it has stopped arriving
-- **THEN** the status answer shows node 23's TPDO 1 as timed out with a count of at least 1, and `openplc-canopen-diag status` prints a line for node 23's TPDO 1 saying it is timed out
+- **THEN** the status answer shows node 23's TPDO 1 as timed out with a count of at least 1, and `canworks-diag status` prints a line for node 23's TPDO 1 saying it is timed out
 
 ### Requirement: Emergency history
 For each configured node the plugin SHALL keep the last 16 emergency messages received since the CANopen session started, each with its wall-clock time, error code, error register and the five manufacturer bytes, and SHALL return them on request, newest first. The history SHALL include messages whose log lines were suppressed by log throttling, up to the 16 kept. A boot-up message SHALL NOT clear the history.
@@ -168,14 +168,14 @@ An authenticated client SHALL be able to start a scan of node IDs 1 to 127 excep
 - **THEN** that client gets the running scan's progress and its result when it ends
 
 ### Requirement: Command-line client
-The deploy package SHALL install `openplc-canopen-diag`, which connects to `--runtime HOST[:PORT]` with a token given by `--token`, the `OPENPLC_CANOPEN_TOKEN` environment variable, or prompted, and offers: `status` (table of master, bus and nodes), `emcy NODE`, `sdo-read NODE INDEX SUB [--type T]`, `sdo-write NODE INDEX SUB VALUE --type T`, `nmt NODE start|stop|preop|reset|reset-comm`, `scan`, and `hash-token` (prints the `token_sha256` for a token). `--json` SHALL print the raw answer. A refused or failed request SHALL exit non-zero with the reason.
+The deploy package SHALL install `canworks-diag`, which connects to `--runtime HOST[:PORT]` with a token given by `--token`, the `CANWORKS_TOKEN` environment variable, or prompted, and offers: `status` (table of master, bus and nodes), `emcy NODE`, `sdo-read NODE INDEX SUB [--type T]`, `sdo-write NODE INDEX SUB VALUE --type T`, `nmt NODE start|stop|preop|reset|reset-comm`, `scan`, and `hash-token` (prints the `token_sha256` for a token). `--json` SHALL print the raw answer. A refused or failed request SHALL exit non-zero with the reason.
 
 #### Scenario: Status from the engineering PC
-- **WHEN** `openplc-canopen-diag --runtime plc.local status` runs with the right token
+- **WHEN** `canworks-diag --runtime plc.local status` runs with the right token
 - **THEN** it prints the bus state and one line per node with state, boot result and last EMCY
 
 #### Scenario: Write without permission
-- **WHEN** `openplc-canopen-diag --runtime plc.local nmt 5 stop` runs and the config has `allow_changes` false
+- **WHEN** `canworks-diag --runtime plc.local nmt 5 stop` runs and the config has `allow_changes` false
 - **THEN** it prints "changes not allowed" and exits non-zero
 
 ### Requirement: LSS commissioning
@@ -211,10 +211,10 @@ A device that refuses a request SHALL make the operation fail with the reason, a
 - **THEN** the result is "none found"
 
 ### Requirement: LSS commands in the command-line client
-`openplc-canopen-diag` SHALL offer `lss-find [--vendor V --product P]` (shows progress, then the found LSS address), `lss-inquire VENDOR PRODUCT REVISION SERIAL`, `lss-set-id VENDOR PRODUCT REVISION SERIAL NODE [--store]` and `lss-set-bitrate VENDOR PRODUCT REVISION SERIAL KBIT [--store]`. Without `--store` nothing SHALL be stored. A refused or failed operation SHALL exit non-zero with the reason.
+`canworks-diag` SHALL offer `lss-find [--vendor V --product P]` (shows progress, then the found LSS address), `lss-inquire VENDOR PRODUCT REVISION SERIAL`, `lss-set-id VENDOR PRODUCT REVISION SERIAL NODE [--store]` and `lss-set-bitrate VENDOR PRODUCT REVISION SERIAL KBIT [--store]`. Without `--store` nothing SHALL be stored. A refused or failed operation SHALL exit non-zero with the reason.
 
 #### Scenario: Set an ID from the command line
-- **WHEN** `openplc-canopen-diag --runtime plc.local lss-set-id 0x1A2 0x3 0x10001 0x1234 40` runs with `allow_changes` true and that device on the bus
+- **WHEN** `canworks-diag --runtime plc.local lss-set-id 0x1A2 0x3 0x10001 0x1234 40` runs with `allow_changes` true and that device on the bus
 - **THEN** it prints that the device had no node ID and now starts as node 40, and exits 0
 
 #### Scenario: Store needs the flag
@@ -274,22 +274,22 @@ When a client asks for error frames, the plugin SHALL also record the CAN error 
 - **THEN** the trace contains error frames for the missing acknowledgement as far as the driver reports them
 
 ### Requirement: Trace in the command-line client
-`openplc-canopen-diag trace` SHALL record a trace from the runtime into a file, with options for the output file and format, duration, capture filters, error frames and a trigger with pre- and post-trigger time. It SHALL print the frame count, the frame rate and any lost or dropped frames when it ends, and SHALL stop on Ctrl-C and still write the file. `openplc-canopen-diag convert IN OUT` SHALL convert a trace file between the supported formats. `openplc-canopen-diag explain --trace FILE --index N` SHALL explain one frame of a trace file as the `canopen-frame-explain` capability describes.
+`canworks-diag trace` SHALL record a trace from the runtime into a file, with options for the output file and format, duration, capture filters, error frames and a trigger with pre- and post-trigger time. It SHALL print the frame count, the frame rate and any lost or dropped frames when it ends, and SHALL stop on Ctrl-C and still write the file. `canworks-diag convert IN OUT` SHALL convert a trace file between the supported formats. `canworks-diag explain --trace FILE --index N` SHALL explain one frame of a trace file as the `canopen-frame-explain` capability describes.
 
 #### Scenario: Record to ASC for ten seconds
-- **WHEN** a user runs `openplc-canopen-diag --runtime plc.local trace --duration 10 -o run.asc`
+- **WHEN** a user runs `canworks-diag --runtime plc.local trace --duration 10 -o run.asc`
 - **THEN** the command writes a Vector ASC file of ten seconds of bus traffic and prints the count, rate and losses
 
 #### Scenario: Interrupted
-- **WHEN** the user presses Ctrl-C during `openplc-canopen-diag trace -o run.pcapng`
+- **WHEN** the user presses Ctrl-C during `canworks-diag trace -o run.pcapng`
 - **THEN** the frames recorded so far are written to run.pcapng and the command exits with status 0
 
 #### Scenario: Convert
-- **WHEN** a user runs `openplc-canopen-diag convert run.log run.blf`
+- **WHEN** a user runs `canworks-diag convert run.log run.blf`
 - **THEN** a BLF file with the same frames, times and directions is written
 
 #### Scenario: Explain a frame of a trace file
-- **WHEN** a user runs `openplc-canopen-diag explain --trace run.pcapng --index 120 --config canopen.json`
+- **WHEN** a user runs `canworks-diag explain --trace run.pcapng --index 120 --config canworks.json`
 - **THEN** frame 120 of the file is explained with the SDO context of the trace and the bit rate from the file
 
 ### Requirement: Simulator operations
@@ -319,10 +319,10 @@ Bus trace SHALL work on a simulated network with the same operations, filters an
 - **THEN** the trace has the frames of both nodes
 
 ### Requirement: Simulator commands in the command-line client
-`openplc-canopen-diag` SHALL have `sim` subcommands (`status`, `get`, `set`, `override`, `release`, `source`, `fault`, `clear`, `scenario start|stop|list`) that talk to the plugin's simulated devices with `--runtime` or to a standalone simulator with `--sim HOST[:PORT]`, with the same arguments and output as `openplc-canopen-sim`'s own subcommands.
+`canworks-diag` SHALL have `sim` subcommands (`status`, `get`, `set`, `override`, `release`, `source`, `fault`, `clear`, `scenario start|stop|list`) that talk to the plugin's simulated devices with `--runtime` or to a standalone simulator with `--sim HOST[:PORT]`, with the same arguments and output as `canworks-sim`'s own subcommands.
 
 #### Scenario: Fault from the PC
-- **WHEN** a user runs `openplc-canopen-diag sim fault 5 emcy 0x5000 --register 1 --runtime plc.local` against a runtime that simulates node 5, with `allow_changes`
+- **WHEN** a user runs `canworks-diag sim fault 5 emcy 0x5000 --register 1 --runtime plc.local` against a runtime that simulates node 5, with `allow_changes`
 - **THEN** simulated node 5 sends EMCY 0x5000 and the online view shows it in node 5's EMCY history
 
 ### Requirement: One channel for all networks
@@ -359,10 +359,10 @@ Scans, LSS requests, traces, holds, EMCY history and the `no bus` answer SHALL b
 - **THEN** the answer shows `io` with its session, while `status` for `drives` shows `"session": false`
 
 ### Requirement: Network option in the command-line client
-`openplc-canopen-diag` SHALL take `--network NAME` for every command that talks to the plugin. Without it, a command against several networks SHALL fail listing the names, except `status`, which SHALL print every network one after another.
+`canworks-diag` SHALL take `--network NAME` for every command that talks to the plugin. Without it, a command against several networks SHALL fail listing the names, except `status`, which SHALL print every network one after another.
 
 #### Scenario: Status of all networks
-- **WHEN** the user runs `openplc-canopen-diag --runtime plc.local status` against two networks
+- **WHEN** the user runs `canworks-diag --runtime plc.local status` against two networks
 - **THEN** it prints the status of `io` and then of `drives`, each headed by its name and interface
 
 #### Scenario: SDO read needs a network
@@ -388,31 +388,31 @@ For a slave network the object dictionary view SHALL read the slave's own dictio
 - **THEN** it shows the value the last scan wrote
 
 ### Requirement: Plain connections refused
-A connection that does not start with a TLS handshake SHALL get one error line, "this runtime needs an encrypted connection; update openplc-canopen-diag", and be closed without serving any request.
+A connection that does not start with a TLS handshake SHALL get one error line, "this runtime needs an encrypted connection; update canworks-diag", and be closed without serving any request.
 
 #### Scenario: Old client
-- **WHEN** an older `openplc-canopen-diag` sends a plain hello
-- **THEN** it receives "this runtime needs an encrypted connection; update openplc-canopen-diag" and the connection closes
+- **WHEN** an older `canworks-diag` sends a plain hello
+- **THEN** it receives "this runtime needs an encrypted connection; update canworks-diag" and the connection closes
 
 ### Requirement: Encrypted clients
-`openplc-canopen-diag`, the configurator and `openplc-canopen-sim` SHALL connect with TLS, log in with SCRAM-SHA-256 bound to the certificate they received, and check the plugin's server signature before using any answer; a wrong signature SHALL drop the connection with "the runtime could not prove it knows this project's token". They SHALL NOT validate the certificate chain or pin a certificate. They SHALL NOT fall back to an unencrypted connection.
+`canworks-diag`, the configurator and `canworks-sim` SHALL connect with TLS, log in with SCRAM-SHA-256 bound to the certificate they received, and check the plugin's server signature before using any answer; a wrong signature SHALL drop the connection with "the runtime could not prove it knows this project's token". They SHALL NOT validate the certificate chain or pin a certificate. They SHALL NOT fall back to an unencrypted connection.
 
 #### Scenario: Wrong signature
 - **WHEN** a machine in the middle answers the client's login with a signature made without the verifier
 - **THEN** the client drops the connection saying the runtime could not prove it knows this project's token, and sends no request
 
 ### Requirement: Clients against an older plugin
-Against a plugin that does not complete a TLS handshake, `openplc-canopen-diag` and the configurator SHALL stop with a message saying the runtime's plugin is too old for encrypted diagnostics and needs an update.
+Against a plugin that does not complete a TLS handshake, `canworks-diag` and the configurator SHALL stop with a message saying the runtime's plugin is too old for encrypted diagnostics and needs an update.
 
 #### Scenario: Client against an older plugin
-- **WHEN** a user runs `openplc-canopen-diag --runtime plc.local status` against a plugin without TLS
+- **WHEN** a user runs `canworks-diag --runtime plc.local status` against a plugin without TLS
 - **THEN** the command exits 1 saying the runtime's plugin does not speak encrypted diagnostics and must be updated
 
 ### Requirement: Token verifier from the CLI
-`openplc-canopen-diag hash-token` SHALL print a `token_verifier` with a fresh random salt and 4096 iterations.
+`canworks-diag hash-token` SHALL print a `token_verifier` with a fresh random salt and 4096 iterations.
 
 #### Scenario: New verifier
-- **WHEN** a user runs `openplc-canopen-diag hash-token` twice with the same token
+- **WHEN** a user runs `canworks-diag hash-token` twice with the same token
 - **THEN** it prints two different `SCRAM-SHA-256$4096:...` verifiers, and either one in the config accepts the token
 
 ### Requirement: Send raw frames
@@ -488,14 +488,14 @@ The channel SHALL offer `detect_bitrate` to find the bit rate of the traffic on 
 - **THEN** the request is refused naming `configure_link`
 
 ### Requirement: Raw frame and bit rate commands in the command-line client
-`openplc-canopen-diag send ID [DATA]` SHALL send one frame, with `--ext`, `--rtr` with `--dlc N`, and `--force`; with `--period-ms` it SHALL start a cyclic job, keep running until `--count` frames, `--duration` seconds or Ctrl-C, and stop the job on exit. `openplc-canopen-diag send-stop [JOB]` SHALL stop jobs of its own connection only and is meant for scripts that keep a connection. `openplc-canopen-diag detect-bitrate` SHALL run a sweep with `--rates`, `--per-rate-ms`, `--rounds` and `--force`, print progress and a table per rate, and exit 0 only on `detected`. Each command SHALL take `--network` as the other commands do. A plugin that answers `unknown op` SHALL be reported as too old for the command.
+`canworks-diag send ID [DATA]` SHALL send one frame, with `--ext`, `--rtr` with `--dlc N`, and `--force`; with `--period-ms` it SHALL start a cyclic job, keep running until `--count` frames, `--duration` seconds or Ctrl-C, and stop the job on exit. `canworks-diag send-stop [JOB]` SHALL stop jobs of its own connection only and is meant for scripts that keep a connection. `canworks-diag detect-bitrate` SHALL run a sweep with `--rates`, `--per-rate-ms`, `--rounds` and `--force`, print progress and a table per rate, and exit 0 only on `detected`. Each command SHALL take `--network` as the other commands do. A plugin that answers `unknown op` SHALL be reported as too old for the command.
 
 #### Scenario: Send from the terminal
-- **WHEN** `openplc-canopen-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"` runs with `allow_changes` true and nothing OPERATIONAL
+- **WHEN** `canworks-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"` runs with `allow_changes` true and nothing OPERATIONAL
 - **THEN** it prints that the frame was sent and exits 0
 
 #### Scenario: Detect from the terminal
-- **WHEN** `openplc-canopen-diag --runtime plc.local detect-bitrate --rates 125,250,500` runs on a bus at 250 kbit/s
+- **WHEN** `canworks-diag --runtime plc.local detect-bitrate --rates 125,250,500` runs on a bus at 250 kbit/s
 - **THEN** it prints one row per rate with frame and error counts, then `250 kbit/s`, and exits 0
 
 #### Scenario: Older plugin

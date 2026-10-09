@@ -116,10 +116,10 @@ A restore SHALL NOT write 0x1010. Storing SHALL be a separate action that writes
 - **THEN** store is refused, saying the device has no store object
 
 ### Requirement: Parameter commands in the command-line client
-`openplc-canopen-diag` SHALL offer `backup NODE [-o FILE]`, `compare NODE (--with FILE | --with-config | --with-eds-defaults) [--read-only]`, `restore NODE FILE [--include-comm] [--hold-preop] [--ignore-identity] [--dry-run] [--yes]` and `store NODE [--subindex N] [--yes]`. The node's EDS SHALL come from `--config canopen.json` (default `canopen/canopen.json` when present) or `--eds FILE`. Without `--yes`, `restore` and `store` SHALL show the plan and ask for confirmation. A failed entry SHALL make the command exit non-zero.
+`canworks-diag` SHALL offer `backup NODE [-o FILE]`, `compare NODE (--with FILE | --with-config | --with-eds-defaults) [--read-only]`, `restore NODE FILE [--include-comm] [--hold-preop] [--ignore-identity] [--dry-run] [--yes]` and `store NODE [--subindex N] [--yes]`. The node's EDS SHALL come from `--config canworks.json` (default `canworks/canworks.json` when present) or `--eds FILE`. Without `--yes`, `restore` and `store` SHALL show the plan and ask for confirmation. A failed entry SHALL make the command exit non-zero.
 
 #### Scenario: Backup from the command line
-- **WHEN** `openplc-canopen-diag --runtime plc.local backup 23 --config canopen/canopen.json` runs
+- **WHEN** `canworks-diag --runtime plc.local backup 23 --config canworks/canworks.json` runs
 - **THEN** it writes `node23-<name>-<date>-<time>.dcf` and prints how many entries were read and not read
 
 #### Scenario: Dry run

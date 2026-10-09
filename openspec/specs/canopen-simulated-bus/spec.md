@@ -88,18 +88,18 @@ On a simulated network, frames SHALL be delivered in order and without loss, tim
 - **THEN** the trace shows SYNC frames 10 ms apart within the host's timer jitter
 
 ### Requirement: Standalone simulator on a SocketCAN interface
-The `openplc-canopen-sim` command SHALL simulate devices on a SocketCAN interface: the nodes of a `canopen.json` (all of them, or only those `--nodes 5,7` lists; with `canopen/simulation.json` next to it, or `--sim FILE`), or one device from `--eds FILE --node ID`, or both. It SHALL use `vcan0` unless `--iface` names another interface, and with `--setup-vcan` SHALL create and bring up a missing vcan interface (which needs root). It SHALL print one line per device when it starts and a line for each NMT state change, power change, fault and scenario result, and SHALL stop all devices cleanly on SIGINT or SIGTERM.
+The `canworks-sim` command SHALL simulate devices on a SocketCAN interface: the nodes of a `canworks.json` (all of them, or only those `--nodes 5,7` lists; with `canworks/simulation.json` next to it, or `--sim FILE`), or one device from `--eds FILE --node ID`, or both. It SHALL use `vcan0` unless `--iface` names another interface, and with `--setup-vcan` SHALL create and bring up a missing vcan interface (which needs root). It SHALL print one line per device when it starts and a line for each NMT state change, power change, fault and scenario result, and SHALL stop all devices cleanly on SIGINT or SIGTERM.
 
 #### Scenario: One command for a project
-- **WHEN** a user runs `openplc-canopen-sim canopen/canopen.json` on a host with `vcan0` up
+- **WHEN** a user runs `canworks-sim canworks/canworks.json` on a host with `vcan0` up
 - **THEN** every configured node is simulated on `vcan0` and a plugin configured for `vcan0` on the same host boots all of them
 
 #### Scenario: Some nodes of a config
-- **WHEN** a user runs `openplc-canopen-sim canopen/canopen.json --nodes 5` for a config with nodes 5 and 23
+- **WHEN** a user runs `canworks-sim canworks/canworks.json --nodes 5` for a config with nodes 5 and 23
 - **THEN** only node 5 is simulated
 
 #### Scenario: One device
-- **WHEN** a user runs `openplc-canopen-sim --eds drive.eds --node 4`
+- **WHEN** a user runs `canworks-sim --eds drive.eds --node 4`
 - **THEN** one device is simulated as node 4 on `vcan0`
 
 #### Scenario: vcan missing
@@ -110,7 +110,7 @@ The `openplc-canopen-sim` command SHALL simulate devices on a SocketCAN interfac
 The standalone simulator SHALL refuse an interface that is not a vcan interface unless `--real-bus` is given. On a real interface it SHALL apply the same free node ID check and conflict guard as simulated devices in the plugin on a real network.
 
 #### Scenario: Real interface without consent
-- **WHEN** a user runs `openplc-canopen-sim canopen.json --iface can0`
+- **WHEN** a user runs `canworks-sim canworks.json --iface can0`
 - **THEN** the command refuses and says that `--real-bus` is needed to put simulated devices on a real bus
 
 #### Scenario: Node ID taken
@@ -129,7 +129,7 @@ The standalone simulator SHALL refuse an interface that is not a vcan interface 
 The standalone simulator SHALL offer its live control on a TCP port (default 7532) with the same one-JSON-object-per-line framing as the diagnostics channel. It SHALL listen on 127.0.0.1 unless `--bind` names another address; on any other address it SHALL require a token (`--token` or `--token-file`). With a token, the channel SHALL use the same TLS and SCRAM-SHA-256 login as the plugin's diagnostics channel, with a verifier the simulator computes from the token at start, and SHALL refuse plain connections with "this simulator needs an encrypted connection". Without a token it SHALL stay plain. Its subcommands `status`, `get`, `set`, `override`, `release`, `source`, `fault`, `clear`, `scenario start|stop|list` SHALL use this channel.
 
 #### Scenario: Local control
-- **WHEN** a simulator runs with default options and a user runs `openplc-canopen-sim set 5 0x7130:1 450`
+- **WHEN** a simulator runs with default options and a user runs `canworks-sim set 5 0x7130:1 450`
 - **THEN** 0x7130:1 of node 5 reads 450
 
 #### Scenario: Remote bind without token
@@ -137,25 +137,25 @@ The standalone simulator SHALL offer its live control on a TCP port (default 753
 - **THEN** the simulator refuses to start and says a token is needed
 
 #### Scenario: Remote control is encrypted
-- **WHEN** a simulator runs with `--bind 0.0.0.0 --token-file token` and a user runs `openplc-canopen-diag sim --sim host status --token-file token`
+- **WHEN** a simulator runs with `--bind 0.0.0.0 --token-file token` and a user runs `canworks-diag sim --sim host status --token-file token`
 - **THEN** the client connects over TLS, logs in without sending the token, and prints the status
 
 ### Requirement: Test mode
-`openplc-canopen-sim test` SHALL start the simulation, run the named scenarios (or all scenarios marked `test`) one after another or together as asked, stop when they are done or after `--timeout`, print a result line per scenario, write a JUnit XML report with `--junit FILE`, and exit 0 only when every scenario passed. It SHALL work both with its own devices on a SocketCAN interface and against the plugin's simulated devices through the diagnostics channel (`--runtime`).
+`canworks-sim test` SHALL start the simulation, run the named scenarios (or all scenarios marked `test`) one after another or together as asked, stop when they are done or after `--timeout`, print a result line per scenario, write a JUnit XML report with `--junit FILE`, and exit 0 only when every scenario passed. It SHALL work both with its own devices on a SocketCAN interface and against the plugin's simulated devices through the diagnostics channel (`--runtime`).
 
 #### Scenario: Failing expect
 - **WHEN** one of two test scenarios fails an expect
 - **THEN** the command prints the failed step, the condition and the value seen, writes both results to the JUnit file and exits 1
 
 #### Scenario: Test against the plugin
-- **WHEN** a user runs `openplc-canopen-sim test --runtime plc.local --token-file token --scenario alarm` against a runtime that simulates node 5
+- **WHEN** a user runs `canworks-sim test --runtime plc.local --token-file token --scenario alarm` against a runtime that simulates node 5
 - **THEN** the scenario runs in the plugin's simulator and its result is reported as for local devices
 
 ### Requirement: Simulation forced by the runtime environment
-When the plugin's environment has `CANOPEN_FORCE_SIMULATE` set to exactly `1`, the plugin SHALL run every network of the loaded config as a simulated network, whatever its `adapter.simulate`, and SHALL apply the simulated-network rules to its nodes (simulated unless `simulate` is false). It SHALL open no CAN interface or serial device and change no link. Any other value, or no value, SHALL leave the config in charge. The config file itself SHALL NOT be changed. The plugin SHALL log at every PLC start a warning, for each network it forced, that simulation is forced by the runtime environment, and the diagnostics status SHALL report `simulation_forced: true` next to `simulated_network`. `openplc-canopen-diag status` and the configurator's online view SHALL say so when the status reports it.
+When the plugin's environment has `CANWORKS_FORCE_SIMULATE` set to exactly `1`, the plugin SHALL run every network of the loaded config as a simulated network, whatever its `adapter.simulate`, and SHALL apply the simulated-network rules to its nodes (simulated unless `simulate` is false). It SHALL open no CAN interface or serial device and change no link. Any other value, or no value, SHALL leave the config in charge. The config file itself SHALL NOT be changed. The plugin SHALL log at every PLC start a warning, for each network it forced, that simulation is forced by the runtime environment, and the diagnostics status SHALL report `simulation_forced: true` next to `simulated_network`. `canworks-diag status` and the configurator's online view SHALL say so when the status reports it.
 
 #### Scenario: Real adapter config in the simulator runtime
-- **WHEN** the ping-pong config with `adapter.interface: can0` and `adapter.simulate` unset runs with `CANOPEN_FORCE_SIMULATE=1` on a host without `can0`
+- **WHEN** the ping-pong config with `adapter.interface: can0` and `adapter.simulate` unset runs with `CANWORKS_FORCE_SIMULATE=1` on a host without `can0`
 - **THEN** node 2 boots on the simulated network, no interface is opened, the log has the forced-simulation warning, and the status reports `simulated_network: true` and `simulation_forced: true`
 
 #### Scenario: Absent node stays absent
@@ -163,7 +163,7 @@ When the plugin's environment has `CANOPEN_FORCE_SIMULATE` set to exactly `1`, t
 - **THEN** node 7 is absent and its boot retries, as on any simulated network
 
 #### Scenario: Variable not set
-- **WHEN** `CANOPEN_FORCE_SIMULATE` is unset or `0`
+- **WHEN** `CANWORKS_FORCE_SIMULATE` is unset or `0`
 - **THEN** the plugin uses `adapter.simulate` from the config as before and the status reports `simulation_forced: false`
 
 ### Requirement: Fastscan finds only devices without a node ID

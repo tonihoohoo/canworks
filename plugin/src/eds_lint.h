@@ -1,5 +1,5 @@
 // eds_lint.h - dcfgen's EDS lint and the prepared EDS copy, run through the
-// deploy tool's Python module openplc_canopen_deploy.edslint (the same code
+// deploy tool's Python module canworks.edslint (the same code
 // the configurator and the deploy tool's checks run on the PC).
 //
 // For each node the module reads the EDS, makes the prepared copy (UTF-8,

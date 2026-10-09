@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The local simulator runtime end to end (canopen-local-runtime): the image,
-# openplc-canopen-sim-runtime and the `local` target, with a real PLC program.
+# canworks-sim-runtime and the `local` target, with a real PLC program.
 #
 #   test/local-runtime/run.sh --image <image> --strucpp <strucpp command> [--engine docker|podman]
 #
@@ -41,10 +41,10 @@ ok() { echo "  ok   $*"; }
 fail() { echo "  FAIL $*"; FAILS=$((FAILS + 1)); }
 
 WORK=$(mktemp -d)
-export OPENPLC_CANOPEN_CONFIG_DIR="$WORK/settings"
-export OPENPLC_CANOPEN_ENGINE="$ENGINE"
-SETTINGS="$OPENPLC_CANOPEN_CONFIG_DIR/local-runtime.json"
-RT=(openplc-canopen-sim-runtime)
+export CANWORKS_CONFIG_DIR="$WORK/settings"
+export CANWORKS_ENGINE="$ENGINE"
+SETTINGS="$CANWORKS_CONFIG_DIR/local-runtime.json"
+RT=(canworks-sim-runtime)
 cleanup() {
     "${RT[@]}" remove --data >/dev/null 2>&1
     rm -rf "$WORK"
@@ -52,7 +52,7 @@ cleanup() {
 trap cleanup EXIT
 saved() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$SETTINGS" "$1"; }
 # Captured first: `grep -q` closing a pipe early fails the pipeline under pipefail.
-logs() { local text; text=$("$ENGINE" logs openplc-canopen-sim-runtime 2>&1); printf '%s\n' "$text"; }
+logs() { local text; text=$("$ENGINE" logs canworks-sim-runtime 2>&1); printf '%s\n' "$text"; }
 in_logs() { local text; text=$(logs); grep -q "$1" <<<"$text"; }
 
 echo "1. start"
@@ -94,7 +94,7 @@ cfg["master"]["diagnostics"] = {"token_verifier": verifier("local-runtime-test")
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
 PY
 node "$HERE/build_program.mjs" "$STRUCPP" "$HERE/pingpong.st" "$WORK/bundle" >/dev/null || fail "build_program.mjs"
-if openplc-canopen-deploy --bundle "$WORK/bundle" --config "$WORK/project/canopen_config.json" --runtime local \
+if canworks-deploy --bundle "$WORK/bundle" --config "$WORK/project/canopen_config.json" --runtime local \
         > "$WORK/deploy.log" 2>&1; then
     ok "deployed with --runtime local"
 else
@@ -110,12 +110,12 @@ done
 in_logs "simulation forced by the runtime environment" && ok "log: simulation forced" || fail "no forced log line"
 in_logs "node 2 (pingpong) is operational" && ok "node 2 operational" ||
     { logs | grep CANOPEN | tail -20; fail "node 2 not operational"; }
-export OPENPLC_CANOPEN_TOKEN=local-runtime-test
-st=$(openplc-canopen-diag --runtime local status 2>&1)
+export CANWORKS_TOKEN=local-runtime-test
+st=$(canworks-diag --runtime local status 2>&1)
 grep -q "simulation forced by the runtime" <<<"$st" && ok "diagnostics through the published port" ||
     fail "diag status: $st"
 grep -q "plugin unknown" <<<"$st" && fail "the plugin reports no version" || ok "the plugin reports its version"
-value() { openplc-canopen-diag --runtime local --json sim get 2 0x4000 2>/dev/null |
+value() { canworks-diag --runtime local --json sim get 2 0x4000 2>/dev/null |
           python3 -c 'import json,sys; print(json.load(sys.stdin)["values"][0]["value"])' 2>/dev/null; }
 v1=$(value); sleep 2; v2=$(value)
 [ -n "$v1" ] && [ -n "$v2" ] && [ "$v2" -gt "$v1" ] && ok "the round trip runs ($v1 -> $v2)" ||
@@ -131,8 +131,8 @@ out=$("${RT[@]}" status 2>&1)
 grep -q "^PLC: [A-Z]" <<<"$out" && ok "saved credentials log in ($(grep '^PLC:' <<<"$out"))" || fail "status after update: $out"
 
 echo "5. a local runtime from the earlier name (PC tools 0.30.x) is taken over"
-"$ENGINE" stop openplc-canopen-sim-runtime >/dev/null 2>&1
-"$ENGINE" rename openplc-canopen-sim-runtime openplc-canopen-runtime >/dev/null 2>&1 || fail "rename the container"
+"$ENGINE" stop canworks-sim-runtime >/dev/null 2>&1
+"$ENGINE" rename canworks-sim-runtime openplc-canopen-runtime >/dev/null 2>&1 || fail "rename the container"
 python3 - "$SETTINGS" <<'PY'
 import json, sys
 doc = json.load(open(sys.argv[1]))
@@ -140,22 +140,22 @@ doc.pop("volume", None)  # 0.30.x saved no volume name
 json.dump(doc, open(sys.argv[1], "w"))
 PY
 out=$(openplc-canopen-runtime status 2>&1)
-grep -q "openplc-canopen-runtime is now openplc-canopen-sim-runtime" <<<"$out" && ok "the old command name still works" ||
+grep -q "openplc-canopen-runtime is now canworks-sim-runtime" <<<"$out" && ok "the old command name still works" ||
     fail "old command: $out"
 if "${RT[@]}" update --image "$IMAGE" > "$WORK/takeover.log" 2>&1; then ok "update"; else
     cat "$WORK/takeover.log"; fail "update after the rename"; fi
 grep -q "took over the local runtime openplc-canopen-runtime" "$WORK/takeover.log" && ok "took over" ||
     fail "no takeover line: $(cat "$WORK/takeover.log")"
 "$ENGINE" container inspect openplc-canopen-runtime >/dev/null 2>&1 && fail "old container left" || ok "old container gone"
-[ "$(saved volume)" = openplc-canopen-sim-runtime-data ] && ok "same data volume" || fail "volume $(saved volume)"
+[ "$(saved volume)" = canworks-sim-runtime-data ] && ok "same data volume" || fail "volume $(saved volume)"
 [ "$(saved fingerprint)" = "$FP" ] && ok "same fingerprint after the takeover" || fail "fingerprint changed"
 out=$("${RT[@]}" status 2>&1)
 grep -q "^PLC: [A-Z]" <<<"$out" && ok "saved credentials log in" || fail "status after takeover: $out"
 
 echo "6. remove --data"
 "${RT[@]}" remove --data >/dev/null 2>&1
-"$ENGINE" container inspect openplc-canopen-sim-runtime >/dev/null 2>&1 && fail "container left" || ok "container gone"
-"$ENGINE" volume inspect openplc-canopen-sim-runtime-data >/dev/null 2>&1 && fail "volume left" || ok "volume gone"
+"$ENGINE" container inspect canworks-sim-runtime >/dev/null 2>&1 && fail "container left" || ok "container gone"
+"$ENGINE" volume inspect canworks-sim-runtime-data >/dev/null 2>&1 && fail "volume left" || ok "volume gone"
 [ -f "$SETTINGS" ] && fail "credentials left" || ok "credentials gone"
 
 [ "$FAILS" -eq 0 ] && echo OK || echo "$FAILS failure(s)"

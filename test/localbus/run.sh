@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PC-direct commissioning (canopen-local-bus) on a SocketCAN interface
-# (vcan0 by default): openplc-canopen-diag --adapter socketcan:vcan0, no
+# (vcan0 by default): canworks-diag --adapter socketcan:vcan0, no
 # runtime.
 #
 #   test/localbus/run.sh [--build-dir build] [--iface vcan0]
@@ -12,7 +12,7 @@
 #    compare (one difference after a write), restore, lss-find and
 #    lss-set-id (the device gets node ID 7, no LSS store sent), and a trace
 #    exported to pcapng.
-# 2. The real libcanopen_plugin.so in canopen_host on the same bus with the
+# 2. The real libcanworks_plugin.so in canopen_host on the same bus with the
 #    diagnostics channel: scan and sdo-read through the plugin and through
 #    the adapter give the same identity fields (parity), the adapter's status
 #    shows another master (the plugin's SYNC), and lss-find is refused
@@ -38,7 +38,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SENSOR="$BUILD/test/sensor_slave"
 LSS="$BUILD/test/lss_slave"
@@ -60,11 +60,11 @@ cleanup() {
 trap cleanup EXIT
 
 export PYTHONPATH="$ROOT/tools/deploy${PYTHONPATH:+:$PYTHONPATH}"
-export OPENPLC_CANOPEN_TOKEN=localbus-test-token
+export CANWORKS_TOKEN=localbus-test-token
 PORT=7541
-LOCAL=(python3 -m openplc_canopen_deploy.diag --adapter "socketcan:$IFACE" --bitrate 125)
-CHANGE=(python3 -m openplc_canopen_deploy.diag --adapter "socketcan:$IFACE" --bitrate 125 --allow-changes)
-REMOTE=(python3 -m openplc_canopen_deploy.diag --runtime "127.0.0.1:$PORT")
+LOCAL=(python3 -m canworks.diag --adapter "socketcan:$IFACE" --bitrate 125)
+CHANGE=(python3 -m canworks.diag --adapter "socketcan:$IFACE" --bitrate 125 --allow-changes)
+REMOTE=(python3 -m canworks.diag --runtime "127.0.0.1:$PORT")
 
 fail() {
     echo "FAIL: $*" >&2
@@ -75,12 +75,12 @@ fail() {
 cp "$ROOT/config/rtd-sensor/rtd8.eds" "$WORK/"
 python3 - "$ROOT/config/rtd-sensor/canopen_config.json" "$WORK/canopen_config.json" "$IFACE" "$PORT" <<'PY'
 import json, os, sys
-from openplc_canopen_deploy.diag import token_verifier
+from canworks.diag import token_verifier
 cfg = json.load(open(sys.argv[1]))
 cfg["adapter"]["interface"] = sys.argv[3]
 cfg["adapter"]["configure_link"] = False
 cfg["master"]["diagnostics"] = {
-    "token_verifier": token_verifier(os.environ["OPENPLC_CANOPEN_TOKEN"]),
+    "token_verifier": token_verifier(os.environ["CANWORKS_TOKEN"]),
     "port": int(sys.argv[4]), "bind": "127.0.0.1"}
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
 PY

@@ -3,16 +3,16 @@ FileName=rtd8.eds
 FileVersion=1
 FileRevision=1
 EDSVersion=4.0
-Description=Simulated 8-channel RTD input module (CiA 404) for openplc-canopen tests
+Description=Simulated 8-channel RTD input module (CiA 404) for canworks tests
 CreationTime=12:00PM
 CreationDate=10-06-2026
-CreatedBy=openplc-canopen
+CreatedBy=canworks
 ModificationTime=12:00PM
 ModificationDate=10-06-2026
-ModifiedBy=openplc-canopen
+ModifiedBy=canworks
 
 [DeviceInfo]
-VendorName=openplc-canopen test devices
+VendorName=canworks test devices
 VendorNumber=0x00F0F0F0
 ProductName=RTD-8 temperature input module
 ProductNumber=0x00000404

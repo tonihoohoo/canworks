@@ -2,9 +2,9 @@
 
 A bus trace records every CAN frame on the runtime's CANopen interface, received and sent, with its time stamp, and shows it decoded as CANopen: NMT, SYNC, TIME, EMCY with its CiA 301 class, heartbeats with the node state, SDO requests and answers with the object name from the EDS (segmented and block transfers joined into one line when they end), LSS, and PDOs with their signal names and values (the PLC variable names in an editor project). It is read from the plugin's [diagnostics channel](diagnostics.md), so it needs online access set up, but nothing else on the PLC: no extra software on the Raspberry Pi, nothing written to its SD card, and the PLC scan is not touched.
 
-Record from the configurator's [Trace view](configurator.md#trace), or with `openplc-canopen-diag trace` on any PC with the deploy tool ([install-pc.md](install-pc.md)).
+Record from the configurator's [Trace view](configurator.md#trace), or with `canworks-diag trace` on any PC with the deploy tool ([install-pc.md](install-pc.md)).
 
-A trace can also be recorded straight from a USB CAN adapter on the PC, with no runtime: `openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 trace -o bench.pcapng`, or the Trace view on a [USB adapter connection](configurator.md#usb-adapter-on-this-pc) ([pc-adapter.md](pc-adapter.md)). It keeps the same formats, filters and triggers; time stamps are the PC's receive times, and frames the PC itself sends are recorded as sent.
+A trace can also be recorded straight from a USB CAN adapter on the PC, with no runtime: `canworks-diag --adapter slcan:COM5 --bitrate 250 trace -o bench.pcapng`, or the Trace view on a [USB adapter connection](configurator.md#usb-adapter-on-this-pc) ([pc-adapter.md](pc-adapter.md)). It keeps the same formats, filters and triggers; time stamps are the PC's receive times, and frames the PC itself sends are recorded as sent.
 
 A trace records one network. With several CAN networks in the config (`schema_version: 2`) pick it in the trace view or with `--network NAME`; the trace command without it exits naming the networks. The frames are decoded with that network's nodes from the config, so node 2 on `io` and node 2 on `drives` each get their own PDO mapping and object names. To watch two networks, record two traces.
 
@@ -18,7 +18,7 @@ When the CAN interface goes away (the adapter is unplugged) the trace keeps goin
 
 ## Sending frames while recording
 
-With `allow_changes` on, the configurator's **Send** panel and `openplc-canopen-diag send` put frames on the bus by hand ([diagnostics.md](diagnostics.md#raw-frames-and-bit-rate)). They show in the trace marked Tx, followed by whatever the devices answer, so a hand-made SDO request and its response can be read side by side.
+With `allow_changes` on, the configurator's **Send** panel and `canworks-diag send` put frames on the bus by hand ([diagnostics.md](diagnostics.md#raw-frames-and-bit-rate)). They show in the trace marked Tx, followed by whatever the devices answer, so a hand-made SDO request and its response can be read side by side.
 
 ## Time stamps
 
@@ -62,32 +62,32 @@ A signal is named by its key, `<PDO>.<signal>` (for example `valve_RPDO1.Output_
 
 Heartbeat lost, boot error and bus state come from the plugin's status, which the PC reads every 500 ms. A count N fires on every Nth match.
 
-In **single** mode the recording stops once the post-trigger time (0-600 s) has passed after the first hit; the trace then holds what was recorded before (the pre-trigger time) and after it. In **normal** mode every hit puts a marker in the trace and the graph and recording goes on; with auto-save on, the pre/post window around each hit is written to its own file, named `<project>-trace-<UTC time>.<ext>`. The configurator writes them to the `traces` folder in its settings folder unless another folder is chosen; it refuses the project's `canopen/` folder, which travels with the PLC program.
+In **single** mode the recording stops once the post-trigger time (0-600 s) has passed after the first hit; the trace then holds what was recorded before (the pre-trigger time) and after it. In **normal** mode every hit puts a marker in the trace and the graph and recording goes on; with auto-save on, the pre/post window around each hit is written to its own file, named `<project>-trace-<UTC time>.<ext>`. The configurator writes them to the `traces` folder in its settings folder unless another folder is chosen; it refuses the project's `canworks/` folder, which travels with the PLC program.
 
 ## Explaining frames
 
-The configurator's frame inspector explains any frame of a trace bit by bit, with the trace's SDO context and bit rate, and its Sequences tab shows SDO conversations, boot stories and SYNC cycles; `openplc-canopen-diag explain --trace FILE --index N` does the same for one frame in a terminal ([frame-inspector.md](frame-inspector.md)).
+The configurator's frame inspector explains any frame of a trace bit by bit, with the trace's SDO context and bit rate, and its Sequences tab shows SDO conversations, boot stories and SYNC cycles; `canworks-diag explain --trace FILE --index N` does the same for one frame in a terminal ([frame-inspector.md](frame-inspector.md)).
 
 ## Command line
 
 ```sh
-export OPENPLC_CANOPEN_TOKEN=...
+export CANWORKS_TOKEN=...
 # One minute, decoded names in the CSV from the project's config
-openplc-canopen-diag --runtime plc.local trace -o run.pcapng --duration 60
-openplc-canopen-diag --runtime plc.local trace -o run.csv --duration 10 --config canopen/canopen.json
+canworks-diag --runtime plc.local trace -o run.pcapng --duration 60
+canworks-diag --runtime plc.local trace -o run.csv --duration 10 --config canworks/canworks.json
 # Only TPDO1s, plus error frames, until Ctrl-C
-openplc-canopen-diag --runtime plc.local trace -o tpdo.log --filter 0x180/0x780 --error-frames
+canworks-diag --runtime plc.local trace -o tpdo.log --filter 0x180/0x780 --error-frames
 # Wait for an EMCY from node 23, keep 5 s before and 2 s after it, then stop
-openplc-canopen-diag --runtime plc.local trace -o emcy.blf --trigger "emcy node=23" --pre 5 --post 2
+canworks-diag --runtime plc.local trace -o emcy.blf --trigger "emcy node=23" --pre 5 --post 2
 # Mark every heartbeat loss of node 23 and save each window as candump log next to the output
-openplc-canopen-diag --runtime plc.local trace -o long.pcapng --trigger "heartbeat_lost node=23" --mode normal --autosave log
+canworks-diag --runtime plc.local trace -o long.pcapng --trigger "heartbeat_lost node=23" --mode normal --autosave log
 # With several networks: trace one of them, decoded with its nodes
-openplc-canopen-diag --runtime plc.local trace -o drives.pcapng --network drives --config canopen/canopen.json
+canworks-diag --runtime plc.local trace -o drives.pcapng --network drives --config canworks/canworks.json
 # Convert between formats (reads .pcapng, .pcap, .log and .asc)
-openplc-canopen-diag convert run.pcapng run.asc
+canworks-diag convert run.pcapng run.asc
 # Decode with a config of several networks: the network the pcapng names, or --network
-openplc-canopen-diag convert drives.pcapng drives.csv --config canopen/canopen.json
-openplc-canopen-diag convert drives.log drives.csv --config canopen/canopen.json --network drives
+canworks-diag convert drives.pcapng drives.csv --config canworks/canworks.json
+canworks-diag convert drives.log drives.csv --config canworks/canworks.json --network drives
 ```
 
 `trace` prints how many frames it recorded, the rate, and any lost or dropped frames when it ends. Ctrl-C ends a recording and still writes the file.

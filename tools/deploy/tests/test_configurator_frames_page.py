@@ -4,8 +4,8 @@ Needs Playwright, like test_configurator_page.py."""
 
 import time
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.bustrace.model import Frame
+from canworks import diag
+from canworks.bustrace.model import Frame
 
 from .fake_diag import TOKEN, FakePlugin
 from .test_configurator_trace_page import TraceBase

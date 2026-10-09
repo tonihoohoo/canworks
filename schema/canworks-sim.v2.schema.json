@@ -1,0 +1,1520 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tonihoohoo/canworks/schema/canworks-sim.v2.schema.json",
+  "title": "canworks simulation file, version 2",
+  "description": "Behaviour of simulated CANopen devices, one section per network of the config (docs/simulator.md). Each section holds what a version 1 file holds, and may name a machine file (schema/canopen-machine.v1.schema.json). Checks the schema cannot express (section names that are networks of the config, objects exist in the EDS, sources on master-written objects, expression syntax and references, node IDs in the network, the machine file and the machine elements steps and conditions name) are run by the plugin, the simulator and the deploy tool's check.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "networks"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "tick_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60000
+    },
+    "networks": {
+      "type": "object",
+      "description": "Keyed by network name (a version 1 config: its adapter interface).",
+      "propertyNames": {
+        "minLength": 1,
+        "maxLength": 16
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/network"
+      }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "constant": {
+          "type": [
+            "number",
+            "string",
+            "boolean"
+          ]
+        },
+        "sine": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max",
+            "period_s"
+          ],
+          "properties": {
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "period_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "phase_deg": {
+              "type": "number"
+            }
+          }
+        },
+        "triangle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max",
+            "period_s"
+          ],
+          "properties": {
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "period_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "phase_deg": {
+              "type": "number"
+            }
+          }
+        },
+        "sawtooth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max",
+            "period_s"
+          ],
+          "properties": {
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "period_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "phase_deg": {
+              "type": "number"
+            }
+          }
+        },
+        "square": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max",
+            "period_s"
+          ],
+          "properties": {
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "period_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "phase_deg": {
+              "type": "number"
+            },
+            "duty": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "ramp": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "from",
+            "to",
+            "duration_s"
+          ],
+          "properties": {
+            "from": {
+              "type": "number"
+            },
+            "to": {
+              "type": "number"
+            },
+            "duration_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "then": {
+              "enum": [
+                "hold",
+                "repeat",
+                "reverse"
+              ]
+            }
+          }
+        },
+        "steps": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "values"
+          ],
+          "properties": {
+            "values": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                ],
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "repeat": {
+              "type": "boolean"
+            }
+          }
+        },
+        "random_walk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max",
+            "max_step"
+          ],
+          "properties": {
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "max_step": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "start": {
+              "type": "number"
+            }
+          }
+        },
+        "counter": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "start": {
+              "type": "number"
+            },
+            "step": {
+              "type": "number"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            }
+          }
+        },
+        "csv": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file"
+          ],
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1
+            },
+            "column": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "interpolate": {
+              "enum": [
+                "linear",
+                "step"
+              ]
+            },
+            "loop": {
+              "type": "boolean"
+            },
+            "time_scale": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "expr": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "noise": {
+          "type": "number",
+          "minimum": 0
+        },
+        "tick_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "constant"
+          ]
+        },
+        {
+          "required": [
+            "sine"
+          ]
+        },
+        {
+          "required": [
+            "triangle"
+          ]
+        },
+        {
+          "required": [
+            "sawtooth"
+          ]
+        },
+        {
+          "required": [
+            "square"
+          ]
+        },
+        {
+          "required": [
+            "ramp"
+          ]
+        },
+        {
+          "required": [
+            "steps"
+          ]
+        },
+        {
+          "required": [
+            "random_walk"
+          ]
+        },
+        {
+          "required": [
+            "counter"
+          ]
+        },
+        {
+          "required": [
+            "csv"
+          ]
+        },
+        {
+          "required": [
+            "expr"
+          ]
+        }
+      ]
+    },
+    "fault": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "emcy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code"
+          ],
+          "properties": {
+            "code": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+                }
+              ]
+            },
+            "register": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                {
+                  "type": "string",
+                  "pattern": "^0x[0-9A-Fa-f]{1,2}$"
+                }
+              ]
+            },
+            "msef": {
+              "type": "string",
+              "pattern": "^[0-9A-Fa-f]{10}$"
+            },
+            "period_ms": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 3600000
+            }
+          }
+        },
+        "heartbeat": {
+          "const": "stop"
+        },
+        "power": {
+          "enum": [
+            "off",
+            "on",
+            "cycle"
+          ]
+        },
+        "off_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600000
+        },
+        "reset": {
+          "enum": [
+            "node",
+            "comm"
+          ]
+        },
+        "nmt_state": {
+          "enum": [
+            "stopped",
+            "preop",
+            "operational"
+          ]
+        },
+        "sdo_abort": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "object",
+            "code"
+          ],
+          "properties": {
+            "object": {
+              "type": "string",
+              "pattern": "^0x[0-9A-Fa-f]{4}(:([0-9]{1,3}|0x[0-9A-Fa-f]{1,2}))?$"
+            },
+            "code": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+                }
+              ]
+            },
+            "on": {
+              "enum": [
+                "read",
+                "write",
+                "both"
+              ]
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "sdo_delay": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ms"
+          ],
+          "properties": {
+            "ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60000
+            },
+            "object": {
+              "type": "string",
+              "pattern": "^0x[0-9A-Fa-f]{4}(:([0-9]{1,3}|0x[0-9A-Fa-f]{1,2}))?$"
+            }
+          }
+        },
+        "refuse_write_operational": {
+          "const": true
+        },
+        "tpdo_stop": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "vendor_id": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+                }
+              ]
+            },
+            "product_code": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+                }
+              ]
+            },
+            "revision_number": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+                }
+              ]
+            },
+            "serial_number": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+                }
+              ]
+            }
+          }
+        },
+        "device_type": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "string",
+              "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+            }
+          ]
+        },
+        "forget_node_id": {
+          "const": true
+        },
+        "drive_input": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "blocked": {
+              "type": "boolean"
+            },
+            "positive_limit": {
+              "type": "boolean"
+            },
+            "negative_limit": {
+              "type": "boolean"
+            },
+            "home_switch": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "emcy"
+          ]
+        },
+        {
+          "required": [
+            "heartbeat"
+          ]
+        },
+        {
+          "required": [
+            "power"
+          ]
+        },
+        {
+          "required": [
+            "reset"
+          ]
+        },
+        {
+          "required": [
+            "nmt_state"
+          ]
+        },
+        {
+          "required": [
+            "sdo_abort"
+          ]
+        },
+        {
+          "required": [
+            "sdo_delay"
+          ]
+        },
+        {
+          "required": [
+            "refuse_write_operational"
+          ]
+        },
+        {
+          "required": [
+            "tpdo_stop"
+          ]
+        },
+        {
+          "required": [
+            "identity"
+          ]
+        },
+        {
+          "required": [
+            "device_type"
+          ]
+        },
+        {
+          "required": [
+            "forget_node_id"
+          ]
+        },
+        {
+          "required": [
+            "drive_input"
+          ]
+        }
+      ],
+      "dependentSchemas": {
+        "off_ms": {
+          "properties": {
+            "power": {
+              "const": "cycle"
+            }
+          },
+          "required": [
+            "power"
+          ]
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "vendor_id": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "string",
+              "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+            }
+          ]
+        },
+        "product_code": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "string",
+              "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+            }
+          ]
+        },
+        "revision_number": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "string",
+              "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+            }
+          ]
+        },
+        "serial_number": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "string",
+              "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+            }
+          ]
+        }
+      }
+    },
+    "drive": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_velocity": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max_acceleration": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "lag_ms": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "start_position": {
+          "type": "number"
+        },
+        "torque_accel": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "sync_watchdog": {
+          "type": "boolean"
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_behaviour": {
+          "type": "boolean"
+        },
+        "tick_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000
+        },
+        "sources": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^0x[0-9A-Fa-f]{4}(:([0-9]{1,3}|0x[0-9A-Fa-f]{1,2}))?$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/source"
+          }
+        },
+        "drive": {
+          "$ref": "#/$defs/drive"
+        },
+        "faults": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fault"
+          }
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "device_type": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "string",
+              "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+            }
+          ]
+        }
+      }
+    },
+    "extra_device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "eds"
+      ],
+      "properties": {
+        "default_behaviour": {
+          "type": "boolean"
+        },
+        "tick_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000
+        },
+        "sources": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^0x[0-9A-Fa-f]{4}(:([0-9]{1,3}|0x[0-9A-Fa-f]{1,2}))?$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/source"
+          }
+        },
+        "drive": {
+          "$ref": "#/$defs/drive"
+        },
+        "faults": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fault"
+          }
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "device_type": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "string",
+              "pattern": "^(0x[0-9A-Fa-f]{1,8}|[0-9]{1,10})$"
+            }
+          ]
+        },
+        "node": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,31}$"
+        },
+        "eds": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "if": {
+        "properties": {
+          "node": {
+            "const": 0
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "device_ref": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 127
+        },
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,31}$"
+        }
+      ]
+    },
+    "values": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^0x[0-9A-Fa-f]{4}(:([0-9]{1,3}|0x[0-9A-Fa-f]{1,2}))?$"
+      },
+      "additionalProperties": {
+        "type": [
+          "number",
+          "string",
+          "boolean"
+        ]
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "$ref": "#/$defs/device_ref"
+        },
+        "object": {
+          "type": "string",
+          "pattern": "^0x[0-9A-Fa-f]{4}(:([0-9]{1,3}|0x[0-9A-Fa-f]{1,2}))?$"
+        },
+        "bit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 63
+        },
+        "eq": {
+          "type": [
+            "number",
+            "string",
+            "boolean"
+          ]
+        },
+        "ne": {
+          "type": [
+            "number",
+            "string",
+            "boolean"
+          ]
+        },
+        "lt": {
+          "type": "number"
+        },
+        "le": {
+          "type": "number"
+        },
+        "gt": {
+          "type": "number"
+        },
+        "ge": {
+          "type": "number"
+        },
+        "expr": {
+          "type": "string",
+          "minLength": 1
+        },
+        "machine": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A machine counter (fed, picked, placed, misplaced, dropped, pallets), sensor, fixture or joint."
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "expr"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "object"
+                ]
+              },
+              {
+                "required": [
+                  "node"
+                ]
+              },
+              {
+                "required": [
+                  "machine"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "node",
+            "object"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "expr"
+                ]
+              },
+              {
+                "required": [
+                  "machine"
+                ]
+              }
+            ]
+          },
+          "oneOf": [
+            {
+              "required": [
+                "eq"
+              ]
+            },
+            {
+              "required": [
+                "ne"
+              ]
+            },
+            {
+              "required": [
+                "lt"
+              ]
+            },
+            {
+              "required": [
+                "le"
+              ]
+            },
+            {
+              "required": [
+                "gt"
+              ]
+            },
+            {
+              "required": [
+                "ge"
+              ]
+            }
+          ]
+        },
+        {
+          "required": [
+            "machine"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "expr"
+                ]
+              },
+              {
+                "required": [
+                  "node"
+                ]
+              },
+              {
+                "required": [
+                  "object"
+                ]
+              },
+              {
+                "required": [
+                  "bit"
+                ]
+              }
+            ]
+          },
+          "properties": {
+            "eq": {
+              "type": [
+                "number",
+                "boolean"
+              ]
+            },
+            "ne": {
+              "type": [
+                "number",
+                "boolean"
+              ]
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "eq"
+              ]
+            },
+            {
+              "required": [
+                "ne"
+              ]
+            },
+            {
+              "required": [
+                "lt"
+              ]
+            },
+            {
+              "required": [
+                "le"
+              ]
+            },
+            {
+              "required": [
+                "gt"
+              ]
+            },
+            {
+              "required": [
+                "ge"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "$ref": "#/$defs/device_ref"
+        },
+        "machine": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A machine element, for a \"fault\" or \"clear\" step instead of \"node\"."
+        },
+        "at_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "after_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "set": {
+          "$ref": "#/$defs/values"
+        },
+        "override": {
+          "$ref": "#/$defs/values"
+        },
+        "release": {
+          "anyOf": [
+            {
+              "const": "all"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^0x[0-9A-Fa-f]{4}(:([0-9]{1,3}|0x[0-9A-Fa-f]{1,2}))?$"
+              }
+            }
+          ]
+        },
+        "source": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^0x[0-9A-Fa-f]{4}(:([0-9]{1,3}|0x[0-9A-Fa-f]{1,2}))?$"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/source"
+              }
+            ]
+          }
+        },
+        "fault": {
+          "type": "object"
+        },
+        "clear": {
+          "type": "string"
+        },
+        "wait": {
+          "$ref": "#/$defs/condition"
+        },
+        "expect": {
+          "$ref": "#/$defs/condition"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "within_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "for_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "log": {
+          "type": "string"
+        },
+        "repeat": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "steps"
+          ],
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "steps": {
+              "$ref": "#/$defs/steps"
+            }
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "set"
+          ]
+        },
+        {
+          "required": [
+            "override"
+          ]
+        },
+        {
+          "required": [
+            "release"
+          ]
+        },
+        {
+          "required": [
+            "source"
+          ]
+        },
+        {
+          "required": [
+            "fault"
+          ]
+        },
+        {
+          "required": [
+            "clear"
+          ]
+        },
+        {
+          "required": [
+            "wait"
+          ]
+        },
+        {
+          "required": [
+            "expect"
+          ]
+        },
+        {
+          "required": [
+            "log"
+          ]
+        },
+        {
+          "required": [
+            "repeat"
+          ]
+        }
+      ],
+      "not": {
+        "required": [
+          "at_ms",
+          "after_ms"
+        ]
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "set"
+                ]
+              },
+              {
+                "required": [
+                  "override"
+                ]
+              },
+              {
+                "required": [
+                  "release"
+                ]
+              },
+              {
+                "required": [
+                  "source"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "node"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "machine"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "fault"
+                ]
+              },
+              {
+                "required": [
+                  "clear"
+                ]
+              }
+            ],
+            "not": {
+              "required": [
+                "node"
+              ]
+            },
+            "properties": {
+              "fault": {
+                "$ref": "#/$defs/machine_fault"
+              },
+              "clear": {
+                "enum": [
+                  "jam",
+                  "stuck",
+                  "feeder",
+                  "misaligned_mm",
+                  "all"
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "fault": {
+                "$ref": "#/$defs/fault"
+              },
+              "clear": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "emcy",
+                  "heartbeat",
+                  "power",
+                  "sdo_abort",
+                  "sdo_delay",
+                  "refuse_write_operational",
+                  "tpdo_stop",
+                  "identity",
+                  "device_type",
+                  "drive_input"
+                ]
+              }
+            },
+            "if": {
+              "anyOf": [
+                {
+                  "required": [
+                    "fault"
+                  ]
+                },
+                {
+                  "required": [
+                    "clear"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "required": [
+                "node"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "timeout_ms"
+            ]
+          },
+          "then": {
+            "required": [
+              "wait"
+            ]
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "within_ms"
+                ]
+              },
+              {
+                "required": [
+                  "for_ms"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "expect"
+            ],
+            "not": {
+              "required": [
+                "within_ms",
+                "for_ms"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "steps"
+      ],
+      "properties": {
+        "autostart": {
+          "type": "boolean"
+        },
+        "test": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "steps": {
+          "$ref": "#/$defs/steps"
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^([1-9]|[1-9][0-9]|1[01][0-9]|12[0-7])$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "extra_devices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/extra_device"
+          }
+        },
+        "scenarios": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/scenario"
+          }
+        },
+        "machine": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The machine file of this network, relative to this file (docs/machine.md)."
+        }
+      }
+    },
+    "machine_fault": {
+      "type": "object",
+      "description": "A fault of a machine element: jam (a joint), stuck (a sensor), slip (the tool), feeder and misaligned_mm (a conveyor with a feeder).",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "jam": {
+          "const": true
+        },
+        "stuck": {
+          "enum": [
+            "on",
+            "off"
+          ]
+        },
+        "slip": {
+          "const": true
+        },
+        "feeder": {
+          "enum": [
+            "stop",
+            "empty"
+          ]
+        },
+        "misaligned_mm": {
+          "type": "number",
+          "minimum": -1000,
+          "maximum": 1000
+        }
+      }
+    }
+  }
+}

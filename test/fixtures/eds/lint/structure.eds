@@ -12,10 +12,10 @@ EDSVersion=4.0
 Description=Lely C++ tutorial ping-pong slave
 CreationTime=12:00PM
 CreationDate=09-30-2026
-CreatedBy=openplc-canopen
+CreatedBy=canworks
 ModificationTime=12:00PM
 ModificationDate=09-30-2026
-ModifiedBy=openplc-canopen
+ModifiedBy=canworks
 
 [DeviceInfo]
 VendorName=Lely Industries N.V.

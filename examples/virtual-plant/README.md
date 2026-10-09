@@ -15,7 +15,7 @@ The diagnostics channel is on with changes allowed. Its token is `virtual-plant-
 
 ## The program
 
-`pous/programs/main.st` starts with what `openplc-canopen-deploy --new-project --sdo-blocks --task-interval T#10ms` declares for this config, then:
+`pous/programs/main.st` starts with what `canworks-deploy --new-project --sdo-blocks --task-interval T#10ms` declares for this config, then:
 
 - scales RTD channel 0 to °C and switches DIO-16 output 0.0 on above the limit the host sets (25.0 °C), which also goes to the host as the cell's `alarm` with an EMCY;
 - runs a light along DIO-16 output byte 2 and checks it comes back on input byte 2 (the simulated CiA 401 module loops outputs to inputs);
@@ -29,11 +29,11 @@ The diagnostics channel is on with changes allowed. Its token is `virtual-plant-
 
 | File | What it is |
 |---|---|
-| `project.json`, `devices/`, `pous/` | The editor project (Editor 4.3.2 layout, OpenPLC Runtime v4 target, the `openplc_canopen` library enabled). |
-| `canopen/canopen.json` | The CANopen config (`schema_version` 2). |
-| `canopen/simulation.json` | The simulation file, version 2 with sections `io` and `motion`: value sources on the RTD (sine, random walk, ramp, a formula), the drive model's settings, the extra device, an autostart wire-break every 60 s, and four test scenarios. |
-| `canopen/dio16.eds` | DIO-16, written by `make_dio16_eds.py` (run it from this folder: `python3 make_dio16_eds.py > canopen/dio16.eds`). |
-| `canopen/rtd8.eds`, `canopen/servo402.eds` | Copies from [`config/rtd-sensor`](../../config/rtd-sensor/README.md) and [`config/cia402-drive`](../../config/cia402-drive/README.md). |
-| `canopen/cell_eds.json`, `canopen/cell.eds` | The cell slave's description and its EDS: `openplc-canopen-deploy slave-eds canopen/cell_eds.json -o canopen/cell.eds --gateway canopen/canopen.json`. |
+| `project.json`, `devices/`, `pous/` | The editor project (Editor 4.3.2 layout, OpenPLC Runtime v4 target, the `canworks` library enabled). |
+| `canworks/canworks.json` | The CANopen config (`schema_version` 2). |
+| `canworks/simulation.json` | The simulation file, version 2 with sections `io` and `motion`: value sources on the RTD (sine, random walk, ramp, a formula), the drive model's settings, the extra device, an autostart wire-break every 60 s, and four test scenarios. |
+| `canworks/dio16.eds` | DIO-16, written by `make_dio16_eds.py` (run it from this folder: `python3 make_dio16_eds.py > canworks/dio16.eds`). |
+| `canworks/rtd8.eds`, `canworks/servo402.eds` | Copies from [`config/rtd-sensor`](../../config/rtd-sensor/README.md) and [`config/cia402-drive`](../../config/cia402-drive/README.md). |
+| `canworks/cell_eds.json`, `canworks/cell.eds` | The cell slave's description and its EDS: `canworks-deploy slave-eds canworks/cell_eds.json -o canworks/cell.eds --gateway canworks/canworks.json`. |
 
 CI deploys the example to the local simulator runtime image and runs its test scenarios ([`test/virtual-example/run.sh`](../../test/virtual-example/run.sh)).

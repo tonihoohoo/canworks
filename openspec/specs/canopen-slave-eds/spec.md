@@ -6,11 +6,11 @@ Gives users an EDS for their OpenPLC slave without writing one by hand: generate
 ## Requirements
 
 ### Requirement: Generate an EDS from an object list
-`openplc-canopen-deploy slave-eds` SHALL write a CiA 306 EDS from a JSON description with identity (device name, vendor ID, product code, revision), heartbeat default and a list of objects, each with a name, data type, direction (`from_master` or `to_master`) and optional default, low and high limits. The file SHALL pass the plugin's EDS lint with `eds_lint: "all"`.
+`canworks-deploy slave-eds` SHALL write a CiA 306 EDS from a JSON description with identity (device name, vendor ID, product code, revision), heartbeat default and a list of objects, each with a name, data type, direction (`from_master` or `to_master`) and optional default, low and high limits. The file SHALL pass the plugin's EDS lint with `eds_lint: "all"`.
 
 #### Scenario: Generate and lint
-- **WHEN** the user runs `openplc-canopen-deploy slave-eds slave.json -o canopen/slave.eds` with two inputs and two outputs
-- **THEN** `canopen/slave.eds` is written and the plugin's lint finds nothing in it
+- **WHEN** the user runs `canworks-deploy slave-eds slave.json -o canworks/slave.eds` with two inputs and two outputs
+- **THEN** `canworks/slave.eds` is written and the plugin's lint finds nothing in it
 
 #### Scenario: Unsupported type
 - **WHEN** an object has data type `STRING`
@@ -42,8 +42,8 @@ Unless the user sets the revision number, the generator SHALL derive 0x1018:3 fr
 - **THEN** the revision number in the new EDS differs from the old one
 
 ### Requirement: Generated EDS is the file that runs
-The generator SHALL write the EDS into the project's `canopen/` folder as a normal file that the config names in `slave.eds`; the plugin SHALL run that file unchanged and the export SHALL be byte-identical to it.
+The generator SHALL write the EDS into the project's `canworks/` folder as a normal file that the config names in `slave.eds`; the plugin SHALL run that file unchanged and the export SHALL be byte-identical to it.
 
 #### Scenario: Export for the other master
 - **WHEN** the user exports the slave EDS from the configurator
-- **THEN** the exported file has the same SHA-256 as the file in `canopen/` that the plugin runs
+- **THEN** the exported file has the same SHA-256 as the file in `canworks/` that the plugin runs

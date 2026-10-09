@@ -1,5 +1,5 @@
-// Run mode and test mode of openplc-canopen-sim (docs/simulator.md,
-// "openplc-canopen-sim" and "Test mode").
+// Run mode and test mode of canworks-sim (docs/simulator.md,
+// "canworks-sim" and "Test mode").
 //
 // One thread: the Lely loop runs in 10 ms slices, and between slices the
 // control channel is polled and the signal flag checked, so every engine call
@@ -7,10 +7,10 @@
 //
 // Test-only environment overrides (not for users; test/simulator/run.sh uses
 // them because CI has only vcan interfaces):
-//   OPENPLC_CANOPEN_SIM_TREAT_AS_REAL=vcan1[,...]  these interfaces count as
+//   CANWORKS_SIM_TREAT_AS_REAL=vcan1[,...]  these interfaces count as
 //       real buses (not vcan): --real-bus is required and the 1 s free node
 //       ID listen and the conflict guard run, as on a real CAN interface.
-//   OPENPLC_CANOPEN_SIM_VIRTUAL_BUS=1  no SocketCAN interface at all: the
+//   CANWORKS_SIM_VIRTUAL_BUS=1  no SocketCAN interface at all: the
 //       devices run on Lely's in-process virtual bus (nothing outside the
 //       process sees them); for tests of the control channel and the test
 //       mode on hosts without CAN support in the kernel.
@@ -105,7 +105,7 @@ void warn(const std::string& m) {
 }
 void error(const std::string& m) { std::fprintf(stderr, "%s error: %s\n", stamp().c_str(), m.c_str()); }
 // Before the simulation runs: plain messages.
-void fail(const std::string& m) { std::fprintf(stderr, "openplc-canopen-sim: %s\n", m.c_str()); }
+void fail(const std::string& m) { std::fprintf(stderr, "canworks-sim: %s\n", m.c_str()); }
 
 // The plugin's log (config, EDS lint) and Lely's diagnostics.
 void plugin_log(canopen_plugin::LogLevel l, const char* msg) {
@@ -389,7 +389,7 @@ bool prepare_interface(const Options& o, bool& real) {
       return false;
     }
     std::string add = "ip link add dev " + o.iface + " type vcan";
-    std::printf("openplc-canopen-sim: %s\n", add.c_str());
+    std::printf("canworks-sim: %s\n", add.c_str());
     if (std::system(add.c_str()) != 0) {
       fail("cannot create " + o.iface + " (--setup-vcan needs root and the vcan kernel module: sudo modprobe vcan)");
       return false;
@@ -400,7 +400,7 @@ bool prepare_interface(const Options& o, bool& real) {
     fail("cannot read the link " + o.iface + ": " + std::strerror(-rc));
     return false;
   }
-  bool is_vcan = info.kind == "vcan" && !listed_in_env("OPENPLC_CANOPEN_SIM_TREAT_AS_REAL", o.iface);
+  bool is_vcan = info.kind == "vcan" && !listed_in_env("CANWORKS_SIM_TREAT_AS_REAL", o.iface);
   if (!is_vcan && !o.real_bus) {
     fail(o.iface + " is not a vcan interface" + (info.kind.empty() ? "" : " (kind " + info.kind + ")") +
          ": --real-bus is needed to put simulated devices on a real bus, where they can collide with real devices");
@@ -410,7 +410,7 @@ bool prepare_interface(const Options& o, bool& real) {
   if (!info.up) {
     if (is_vcan && o.setup_vcan) {
       std::string up = "ip link set " + o.iface + " up";
-      std::printf("openplc-canopen-sim: %s\n", up.c_str());
+      std::printf("canworks-sim: %s\n", up.c_str());
       if (std::system(up.c_str()) != 0 || ops->get(o.iface, info) != 0 || !info.up) {
         fail("cannot bring " + o.iface + " up (needs root)");
         return false;
@@ -446,7 +446,7 @@ class Session {
     };
     // Prepared EDS copies of the lint live here while the simulator runs.
     const char* tmpdir = std::getenv("TMPDIR");
-    std::string t = std::string(tmpdir && *tmpdir ? tmpdir : "/tmp") + "/openplc-canopen-sim.XXXXXX";
+    std::string t = std::string(tmpdir && *tmpdir ? tmpdir : "/tmp") + "/canworks-sim.XXXXXX";
     std::vector<char> buf(t.begin(), t.end());
     buf.push_back(0);
     if (!mkdtemp(buf.data())) return report("cannot create a work directory " + t + ": " + std::strerror(errno));
@@ -543,8 +543,8 @@ class Session {
     if (specs.empty() && file.extra.empty()) return report("no device to simulate");
 
     // The interface, and the free node ID check on a real bus.
-    const bool virtual_bus = std::getenv("OPENPLC_CANOPEN_SIM_VIRTUAL_BUS") != nullptr &&
-                             std::string(std::getenv("OPENPLC_CANOPEN_SIM_VIRTUAL_BUS")) == "1";
+    const bool virtual_bus = std::getenv("CANWORKS_SIM_VIRTUAL_BUS") != nullptr &&
+                             std::string(std::getenv("CANWORKS_SIM_VIRTUAL_BUS")) == "1";
     bool real = false;
     if (!virtual_bus && !prepare_interface(o, real)) return false;
     if (real) {
@@ -632,7 +632,7 @@ class Session {
       sim_->on_scenario_end = [this](const canopen_sim::ScenarioResult& r) {
         if (on_end) on_end(r);
       };
-      say(std::string("openplc-canopen-sim ") + CANOPEN_PLUGIN_VERSION + ": " + std::to_string(count) + " device" +
+      say(std::string("canworks-sim ") + CANOPEN_PLUGIN_VERSION + ": " + std::to_string(count) + " device" +
           (count == 1 ? "" : "s") + " on " + (virtual_bus ? std::string("an in-process virtual bus") : o.iface) +
           (real ? " (REAL bus)" : "") + (server_ ? ", control on " + server_->address() : ""));
       if (!sim_->Start(errors)) return report("the simulation does not start");
@@ -754,12 +754,12 @@ class TestQueue {
     for (const auto& o : outcomes_) failed += o.passed ? 0 : 1;
     std::ofstream out(path);
     out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-    out << "<testsuite name=\"openplc-canopen-sim\" tests=\"" << outcomes_.size() << "\" failures=\"" << failed
+    out << "<testsuite name=\"canworks-sim\" tests=\"" << outcomes_.size() << "\" failures=\"" << failed
         << "\" errors=\"0\" skipped=\"0\" time=\"" << fmt_seconds(total_) << "\">\n";
     for (const auto& name : names_) {
       for (const auto& o : outcomes_) {
         if (o.name != name) continue;
-        out << "  <testcase classname=\"openplc-canopen-sim\" name=\"" << xml_escape(o.name) << "\" time=\""
+        out << "  <testcase classname=\"canworks-sim\" name=\"" << xml_escape(o.name) << "\" time=\""
             << fmt_seconds(o.seconds) << "\"";
         if (o.passed) {
           out << "/>\n";
@@ -882,7 +882,7 @@ int test_remote(const Options& o) {
     fail("--runtime takes HOST[:PORT], not \"" + o.runtime + "\"");
     return kExitUsage;
   }
-  if (!resolve_token(o.token, o.token_file, "OPENPLC_CANOPEN_TOKEN", token, err)) {
+  if (!resolve_token(o.token, o.token_file, "CANWORKS_TOKEN", token, err)) {
     fail(err);
     return kExitUsage;
   }

@@ -15,10 +15,10 @@ EDSVersion=4.0
 Description=Fixed-mapping digital I/O module (test fixture)
 CreationTime=12:00PM
 CreationDate=10-03-2026
-CreatedBy=openplc-canopen
+CreatedBy=canworks
 ModificationTime=12:00PM
 ModificationDate=10-03-2026
-ModifiedBy=openplc-canopen
+ModifiedBy=canworks
 
 [DeviceInfo]
 VendorName=Lely Industries N.V.

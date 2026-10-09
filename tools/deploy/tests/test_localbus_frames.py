@@ -14,12 +14,12 @@ from unittest import mock
 
 import can
 
-from openplc_canopen_deploy import bitrate as bitrate_mod
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.bustrace.model import RECORD_SIZE, Frame
-from openplc_canopen_deploy.localbus import AdapterError, parse
-from openplc_canopen_deploy.localbus import adapter as adapter_mod
-from openplc_canopen_deploy.localbus import sweep as sweep_mod
+from canworks import bitrate as bitrate_mod
+from canworks import diag
+from canworks.bustrace.model import RECORD_SIZE, Frame
+from canworks.localbus import AdapterError, parse
+from canworks.localbus import adapter as adapter_mod
+from canworks.localbus import sweep as sweep_mod
 
 from .fake_canopen import Peer
 from .helpers import REPO

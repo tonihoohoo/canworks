@@ -239,8 +239,8 @@ class WatchLists(Params):
                                                   "period_ms": 500})
         self.assertEqual(r["keys"], [[0x7130, 1], [0x6110, 1]])
         # A fresh read of the settings file (a new configurator) finds it again.
-        from openplc_canopen_deploy.configurator import online
-        from openplc_canopen_deploy.configurator.server import config_dir
+        from canworks.configurator import online
+        from canworks.configurator.server import config_dir
         saved = online.Settings(config_dir()).project(self.project)
         self.assertEqual(saved["watch"]["5"], {"keys": [[0x7130, 1], [0x6110, 1]], "period_ms": 500})
         self.assertEqual(self.ok("POST", "/api/online/watch", {"node": 5})["period_ms"], 500)

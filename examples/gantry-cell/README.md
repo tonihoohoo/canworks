@@ -12,7 +12,7 @@ The diagnostics channel is on with changes allowed, so the Machine view's fault 
 
 ## The machine
 
-`canopen/machine.json` describes the cell ([docs/machine.md](../../docs/machine.md) is the reference):
+`canworks/machine.json` describes the cell ([docs/machine.md](../../docs/machine.md) is the reference):
 
 - joints `x` (0 to 900 mm), `y` (0 to 600 mm) and `z` (0 to 300 mm, down), each with a home flag at 0, limit switches 5 mm beyond the travel and hard stops at 12 mm; `z` carries the load of the gripper and the part;
 - a gripper whose fingers close along x in 120 ms;
@@ -22,7 +22,7 @@ The diagnostics channel is on with changes allowed, so the Machine view's fault 
 
 ## The program
 
-`pous/programs/main.st` starts with what `openplc-canopen-deploy --new-project --task-interval T#10ms` declares for this config, then:
+`pous/programs/main.st` starts with what `canworks-deploy --new-project --task-interval T#10ms` declares for this config, then:
 
 - powers the three axes and homes Z, then X and Y;
 - waits for a part at the pick position, moves X and Y in a straight line (both axes get the same S-curve scaled to their share of the distance) and lowers Z;
@@ -35,10 +35,10 @@ The diagnostics channel is on with changes allowed, so the Machine view's fault 
 
 | File | What it is |
 |---|---|
-| `project.json`, `devices/`, `pous/` | The editor project (Editor 4.3.2 layout, OpenPLC Runtime v4 target, the `openplc_canopen` library enabled). |
-| `canopen/canopen.json` | The CANopen config (`schema_version` 2, one network). |
-| `canopen/simulation.json` | The simulation file, version 2 with section `motion`: the machine file, the drive model's settings (1 ms device tick, start positions 20 mm from home), two test scenarios (`fill-a-pallet`, `z-jam`) and two to try by hand (`sensor-stuck-off`, `feeder-empty`). |
-| `canopen/machine.json` | The machine file. |
-| `canopen/servo402.eds`, `canopen/dio16.eds` | Copies from [`examples/virtual-plant`](../virtual-plant/README.md). |
+| `project.json`, `devices/`, `pous/` | The editor project (Editor 4.3.2 layout, OpenPLC Runtime v4 target, the `canworks` library enabled). |
+| `canworks/canworks.json` | The CANopen config (`schema_version` 2, one network). |
+| `canworks/simulation.json` | The simulation file, version 2 with section `motion`: the machine file, the drive model's settings (1 ms device tick, start positions 20 mm from home), two test scenarios (`fill-a-pallet`, `z-jam`) and two to try by hand (`sensor-stuck-off`, `feeder-empty`). |
+| `canworks/machine.json` | The machine file. |
+| `canworks/servo402.eds`, `canworks/dio16.eds` | Copies from [`examples/virtual-plant`](../virtual-plant/README.md). |
 
 CI runs the program against the simulated bus and the machine in the `sim_gantry_demo` case of `test/sim/sim_tests.cpp`: it homes, places two parts, jams Z, and checks the drive faults with EMCY 0x8611 and the program recovers.

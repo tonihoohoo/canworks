@@ -9,14 +9,14 @@ import shutil
 import tempfile
 import unittest
 
-from openplc_canopen_deploy import axis, bundle, clash, contract, dbcexport, dcfexport, editorproject
-from openplc_canopen_deploy.configurator import declare
+from canworks import axis, bundle, clash, contract, dbcexport, dcfexport, editorproject
+from canworks.configurator import declare
 
 from .test_contract import FIXTURES, REPO, load_cases
 from .test_dcfexport import NOW, section
 from .test_deploy import deploy
 
-FIXTURE_CONFIG = os.path.join(FIXTURES, "eds", "canopen.json")
+FIXTURE_CONFIG = os.path.join(FIXTURES, "eds", "canworks.json")
 TWO_NETWORKS = os.path.join(REPO, "config", "two-networks", "canopen_config.json")
 
 
@@ -96,7 +96,7 @@ class DbcExport(unittest.TestCase):
         files, _ = dbcexport.export_networks(two(), FIXTURE_CONFIG)
         self.assertEqual([name for name, _ in files], ["io", "drives"])
         for name, text in files:
-            self.assertIn("CANopen network %s of canopen.json" % name, text)
+            self.assertIn("CANopen network %s of canworks.json" % name, text)
             self.assertIn("BO_ 0 NMT", text)
             self.assertEqual(text.count("pingpong_Heartbeat"), 1)
 
@@ -189,7 +189,7 @@ class Bundle(unittest.TestCase):
     def test_rewrite_every_network(self):
         out, by_name = bundle.rewrite(two(), FIXTURE_CONFIG)
         self.assertEqual(sorted(by_name), ["cpp-slave.eds"])
-        self.assertEqual([n["eds"] for n in contract.all_nodes(out)], ["canopen/eds/cpp-slave.eds"] * 2)
+        self.assertEqual([n["eds"] for n in contract.all_nodes(out)], ["canworks/eds/cpp-slave.eds"] * 2)
 
     def test_clash_inside_canopen_json(self):
         cfg = two()
@@ -197,12 +197,12 @@ class Bundle(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         os.makedirs(os.path.join(tmp, "conf"))
-        with open(os.path.join(tmp, "conf", "canopen.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(tmp, "conf", "canworks.json"), "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         uses, problems = clash.bundle_uses(tmp)
         errors, _ = clash.check(uses)
         self.assertEqual(problems, [])
-        self.assertEqual(errors, ["conf/canopen.json: networks[0].nodes[0].tx_pdos[0].entries[0].iec_location and "
+        self.assertEqual(errors, ["conf/canworks.json: networks[0].nodes[0].tx_pdos[0].entries[0].iec_location and "
                                   "networks[1].nodes[0].tx_pdos[0].entries[0].iec_location both map %ID100"])
 
     def test_empty_plugin_config_is_skipped_quietly(self):

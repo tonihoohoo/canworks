@@ -6,11 +6,11 @@ Installing, running and removing the CANopen plugin on the managed Docker instal
 ## Requirements
 
 ### Requirement: Install on the managed Docker runtime
-When `scripts/install-stock.sh` finds the managed Docker install (the bootloader's runtime spec at `/var/lib/openplc-bootloader/runtime-spec.json`), it SHALL install in Docker mode. It SHALL build Lely, `dcfgen`, the plugin library and the editor hook inside the runtime image named by that spec (repository and version), placing the result under `/opt/openplc-canopen` on the host. It SHALL add to the spec a bind of `/opt/openplc-canopen` to the same path in the container, writable, and the environment entry that loads the editor hook, and SHALL then have the runtime container recreated so they take effect. It SHALL change no image, no runtime source file, and no spec entry other than its own. Running it again SHALL leave exactly one copy of each entry and rebuild.
+When `scripts/install-stock.sh` finds the managed Docker install (the bootloader's runtime spec at `/var/lib/openplc-bootloader/runtime-spec.json`), it SHALL install in Docker mode. It SHALL build Lely, `dcfgen`, the plugin library and the editor hook inside the runtime image named by that spec (repository and version), placing the result under `/opt/canworks` on the host. It SHALL add to the spec a bind of `/opt/canworks` to the same path in the container, writable, and the environment entry that loads the editor hook, and SHALL then have the runtime container recreated so they take effect. It SHALL change no image, no runtime source file, and no spec entry other than its own. Running it again SHALL leave exactly one copy of each entry and rebuild.
 
 #### Scenario: Fresh Docker install
 - **WHEN** the script runs on a device with the managed Docker install and no CANopen install
-- **THEN** `/opt/openplc-canopen/lib/` holds the plugin built in the runtime image, the runtime spec has the CANopen bind and environment entry and all its earlier entries unchanged, the runtime container has been recreated with them, and the runtime starts with a disabled `canopen` line in `plugins.conf`
+- **THEN** `/opt/canworks/lib/` holds the plugin built in the runtime image, the runtime spec has the CANopen bind and environment entry and all its earlier entries unchanged, the runtime container has been recreated with them, and the runtime starts with a disabled `canopen` line in `plugins.conf`
 
 #### Scenario: Re-run
 - **WHEN** the script runs a second time
@@ -47,22 +47,22 @@ The Docker-mode install SHALL record the runtime version it built against. When 
 - **THEN** the plugin is rebuilt in the v4.2.5 image and the next upload with a CANopen config runs CANopen
 
 #### Scenario: Deploy to a mismatched runtime
-- **WHEN** `openplc-canopen-deploy` uploads a program with a CANopen config and the editor hook turns `canopen` off after the build because of the version guard
-- **THEN** the deploy tool exits with an error that quotes the hook's message, and does not report the canopen plugin as enabled
+- **WHEN** `canworks-deploy` uploads a program with a CANopen config and the editor hook turns `canopen` off after the build because of the version guard
+- **THEN** the deploy tool exits with an error that quotes the hook's message, and does not report the canworks plugin as enabled
 
 ### Requirement: CAN access in the container
 In Docker mode the plugin SHALL use the same `adapter` settings as on a native install, with no Docker-specific config: SocketCAN interfaces by their host names, slcan adapters by their host serial device path, and link setup (bitrate, bring-up) as on native. The online diagnostics port SHALL be reachable at the device's address as on native.
 
 #### Scenario: CANable on the managed install
 - **WHEN** a config with an slcan adapter on `/dev/ttyACM0` is uploaded to a managed Docker install with the adapter plugged in
-- **THEN** the plugin creates the CAN interface, the master boots its nodes, and `openplc-canopen-config` connects to the device on port 7531
+- **THEN** the plugin creates the CAN interface, the master boots its nodes, and `canworks-config` connects to the device on port 7531
 
 ### Requirement: Uninstall in Docker mode
-`--uninstall` in Docker mode SHALL remove the CANopen bind and environment entry from the runtime spec, leaving every other entry, have the runtime container recreated, and remove the installed library and hook. `--purge` SHALL also remove the rest of `/opt/openplc-canopen`.
+`--uninstall` in Docker mode SHALL remove the CANopen bind and environment entry from the runtime spec, leaving every other entry, have the runtime container recreated, and remove the installed library and hook. `--purge` SHALL also remove the rest of `/opt/canworks`.
 
 #### Scenario: Uninstall
 - **WHEN** `--uninstall` runs on a managed Docker install with CANopen installed
-- **THEN** the runtime spec equals the one before the install, the recreated runtime starts with no `canopen` line in `plugins.conf`, and `/opt/openplc-canopen/lib/` is gone
+- **THEN** the runtime spec equals the one before the install, the recreated runtime starts with no `canopen` line in `plugins.conf`, and `/opt/canworks/lib/` is gone
 
 ### Requirement: Hand-run runtime container
 For a runtime container started by hand (without the bootloader), the script SHALL build for a given runtime image without touching any bootloader spec, and SHALL print the bind and environment flags the container needs. The container then behaves as in Docker mode.

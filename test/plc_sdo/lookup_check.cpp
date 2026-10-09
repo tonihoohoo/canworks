@@ -1,11 +1,11 @@
 // lookup_check.cpp - the library's SDO blocks find the loaded plugin as on a
 // device (spec canopen-plc-sdo, "Finding the plugin").
 //
-//   lookup_check <libcanopen_plugin.so> <program.so> <canopen_config.json> [--stop-check]
+//   lookup_check <libcanworks_plugin.so> <program.so> <canopen_config.json> [--stop-check]
 //
 // The runtime loads plugins and the compiled program with RTLD_LOCAL, so the
 // program cannot link against the plugin; its blocks call
-// dlopen("libcanopen_plugin.so", RTLD_NOW | RTLD_NOLOAD), which matches the
+// dlopen("libcanworks_plugin.so", RTLD_NOW | RTLD_NOLOAD), which matches the
 // plugin's SONAME wherever it was loaded from (here: the build directory,
 // not the install prefix). Checks:
 //  - without the plugin loaded, a block ends with ERROR_ID 4 and the lookup
@@ -84,7 +84,7 @@ int run(scan_fn scan, unsigned node, unsigned& error_id, bool& was_busy) {
 
 int main(int argc, char** argv) {
   if (argc < 4) {
-    std::fprintf(stderr, "usage: %s <libcanopen_plugin.so> <program.so> <canopen_config.json> [--stop-check]\n",
+    std::fprintf(stderr, "usage: %s <libcanworks_plugin.so> <program.so> <canopen_config.json> [--stop-check]\n",
                  argv[0]);
     return 2;
   }
@@ -102,7 +102,7 @@ int main(int argc, char** argv) {
   bool busy = false;
   int st = run(scan, 5, err, busy);
   expect(st == 2 && err == 4, "the block ends with ERROR_ID 4 (CANopen not running)");
-  expect(dlopen("libcanopen_plugin.so", RTLD_NOW | RTLD_NOLOAD) == nullptr, "the lookup loaded nothing");
+  expect(dlopen("libcanworks_plugin.so", RTLD_NOW | RTLD_NOLOAD) == nullptr, "the lookup loaded nothing");
 
   std::printf("plugin loaded from the build directory and started:\n");
   void* h = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);

@@ -64,10 +64,10 @@ class Eds:
         self.w("Description=%s" % description)
         self.w("CreationTime=12:00PM")
         self.w("CreationDate=10-06-2026")
-        self.w("CreatedBy=openplc-canopen")
+        self.w("CreatedBy=canworks")
         self.w("ModificationTime=12:00PM")
         self.w("ModificationDate=10-06-2026")
-        self.w("ModifiedBy=openplc-canopen")
+        self.w("ModifiedBy=canworks")
         self.w()
         self.w("[DeviceInfo]")
         self.w("VendorName=%s" % vendor)
@@ -144,7 +144,7 @@ def drive_402(e, signed_limit_quirks):
 def servo_drive():
     e = Eds()
     e.header("servo-drive.eds", "Made-up CiA 402 servo drive with writable PDO mapping (test fixture)",
-             "openplc-canopen test devices", 0x00F0F0F1, "Servo drive SD-1", 0x00000402, 4, 4)
+             "canworks test devices", 0x00F0F0F1, "Servo drive SD-1", 0x00000402, 4, 4)
     params = list(range(0x2100, 0x2140))
     e.lists([0x1000, 0x1001, 0x1018],
             [0x1005, 0x1008, 0x100C, 0x100D, 0x1010, 0x1011, 0x1014, 0x1017, 0x1020, 0x1200]
@@ -222,7 +222,7 @@ def servo_drive():
 def fixed_drive():
     e = Eds()
     e.header("fixed-drive.eds", "Made-up CiA 402 drive with fixed PDO mapping (test fixture)",
-             "openplc-canopen test devices", 0x00F0F0F2, "Fixed drive FD-1", 0x00000403, 3, 3)
+             "canworks test devices", 0x00F0F0F2, "Fixed drive FD-1", 0x00000403, 3, 3)
     e.lists([0x1000, 0x1001, 0x1018],
             [0x1005, 0x1008, 0x100C, 0x100D, 0x1010, 0x1011, 0x1014, 0x1200, 0x1400, 0x1401, 0x1402,
              0x1600, 0x1601, 0x1602, 0x1800, 0x1801, 0x1802, 0x1A00, 0x1A01, 0x1A02,

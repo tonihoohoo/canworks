@@ -1,4 +1,4 @@
-"""--into-project: a config and its EDS files in an editor project's canopen/
+"""--into-project: a config and its EDS files in an editor project's canworks/
 folder (canopen-editor-upload: "Put a config into an editor project")."""
 
 import json
@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import unittest
 
-from openplc_canopen_deploy import contract, project
+from canworks import contract, project
 
 from .helpers import REPO, pingpong_config, tmpdir
 from .test_deploy import deploy
@@ -28,19 +28,19 @@ class IntoProject(unittest.TestCase):
         os.makedirs(self.project)
         with open(os.path.join(self.project, "project.json"), "w") as f:
             f.write("{}\n")
-        self.canopen = os.path.join(self.project, "canopen")
+        self.canopen = os.path.join(self.project, "canworks")
 
     def test_rtd_sensor(self):
         config = os.path.join(RTD, "canopen_config.json")
         code, out, err = deploy("--config", config, "--into-project", self.project)
         self.assertEqual(code, 0, err)
         # The example's simulation.json next to the config comes along.
-        self.assertEqual(sorted(os.listdir(self.canopen)), ["canopen.json", "rtd8.eds", "simulation.json"])
-        with open(os.path.join(self.canopen, "canopen.json"), encoding="utf-8") as f:
+        self.assertEqual(sorted(os.listdir(self.canopen)), ["canworks.json", "rtd8.eds", "simulation.json"])
+        with open(os.path.join(self.canopen, "canworks.json"), encoding="utf-8") as f:
             cfg = json.load(f)
         self.assertEqual(cfg["nodes"][0]["eds"], "rtd8.eds")
         self.assertEqual(read(os.path.join(self.canopen, "rtd8.eds")), read(os.path.join(RTD, "rtd8.eds")))
-        r = contract.check_config(cfg, os.path.join(self.canopen, "canopen.json"))
+        r = contract.check_config(cfg, os.path.join(self.canopen, "canworks.json"))
         self.assertTrue(r.ok, r.errors)
         self.assertNotIn("converted", out)
 
@@ -58,8 +58,8 @@ class IntoProject(unittest.TestCase):
     def test_program_file_copied(self):
         code, _, err = deploy("--config", self.program_config(b"S00F000068656C6C6F\n"), "--into-project", self.project)
         self.assertEqual(code, 0, err)
-        self.assertEqual(sorted(os.listdir(self.canopen)), ["canopen.json", "cpp-slave.eds", "node2.fw"])
-        with open(os.path.join(self.canopen, "canopen.json"), encoding="utf-8") as f:
+        self.assertEqual(sorted(os.listdir(self.canopen)), ["canworks.json", "cpp-slave.eds", "node2.fw"])
+        with open(os.path.join(self.canopen, "canworks.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["nodes"][0]["software_file"], "node2.fw")
 
     def test_binary_program_file_refused(self):
@@ -91,7 +91,7 @@ class IntoProject(unittest.TestCase):
         self.assertEqual(os.listdir(self.canopen), ["keep.txt"])
         code, _, err = deploy("--config", config, "--into-project", self.project, "--force")
         self.assertEqual(code, 0, err)
-        self.assertEqual(sorted(os.listdir(self.canopen)), ["canopen.json", "cpp-slave.eds"])
+        self.assertEqual(sorted(os.listdir(self.canopen)), ["canworks.json", "cpp-slave.eds"])
 
     def test_not_a_project(self):
         os.remove(os.path.join(self.project, "project.json"))
@@ -117,7 +117,7 @@ class IntoProject(unittest.TestCase):
         self.assertNotIn(b"\xef\xbf\xbd", stored)
         if not os.access(CANOPEN_CHECK, os.X_OK):
             self.skipTest("canopen_check not built (%s)" % CANOPEN_CHECK)
-        for cfg_path in (config, os.path.join(self.canopen, "canopen.json")):
+        for cfg_path in (config, os.path.join(self.canopen, "canworks.json")):
             r = subprocess.run([CANOPEN_CHECK, "--no-dcfgen", cfg_path], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 

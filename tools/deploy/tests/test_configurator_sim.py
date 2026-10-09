@@ -8,7 +8,7 @@ import shutil
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy.configurator import simulation
+from canworks.configurator import simulation
 
 from .fake_sim_page import TOKEN, FakeSim
 from .test_configurator_server import RTD, Running, read, rtd_node
@@ -24,7 +24,7 @@ class Sim(Running):
     def setUp(self):
         super().setUp()
         self.open_project()
-        self.canopen = os.path.join(self.project, "canopen")
+        self.canopen = os.path.join(self.project, "canworks")
         os.makedirs(self.canopen)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), self.canopen)
         self.sim_path = os.path.join(self.canopen, "simulation.json")
@@ -40,7 +40,7 @@ class File(Sim):
         cfg["nodes"][0]["simulate"] = False
         out = self.ok("POST", "/api/save", {"config": cfg})
         self.assertEqual(out["check"]["errors"], 0, out["check"]["items"])
-        saved = json.loads(read(os.path.join(self.canopen, "canopen.json"), "r"))
+        saved = json.loads(read(os.path.join(self.canopen, "canworks.json"), "r"))
         self.assertEqual(list(saved["adapter"]), ["type", "simulate", "interface", "bitrate"])
         self.assertIs(saved["nodes"][0]["simulate"], False)
         self.assertEqual(list(saved["nodes"][0])[:4], ["node_id", "name", "eds", "simulate"])
@@ -176,7 +176,7 @@ class Live(Sim):
 
 class Offline(Sim):
     def test_without_the_checker_module_nothing_is_claimed(self):
-        with mock.patch.dict("sys.modules", {"openplc_canopen_deploy.simfile": None}):
+        with mock.patch.dict("sys.modules", {"canworks.simfile": None}):
             r = self.ok("POST", "/api/sim/check_expr", {"node": 5, "expr": "1 + foo"})
         self.assertEqual(r, {"checked": False})
 
@@ -190,9 +190,9 @@ class Offline(Sim):
                 return (4, "unknown name 'foo'") if "foo" in text else None
 
         self.ok("POST", "/api/save", {"config": sim_config()})
-        with mock.patch.dict("sys.modules", {"openplc_canopen_deploy.simfile": Checker}):
-            import openplc_canopen_deploy
-            with mock.patch.object(openplc_canopen_deploy, "simfile", Checker, create=True):
+        with mock.patch.dict("sys.modules", {"canworks.simfile": Checker}):
+            import canworks
+            with mock.patch.object(canworks, "simfile", Checker, create=True):
                 bad = self.ok("POST", "/api/sim/check_expr", {"node": 5, "expr": "1 + foo"})
                 good = self.ok("POST", "/api/sim/check_expr", {"node": 5, "expr": "[0x7130:1] * 2"})
         self.assertEqual(bad, {"checked": True, "ok": False, "position": 4, "error": "unknown name 'foo'",

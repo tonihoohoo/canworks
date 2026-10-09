@@ -16,7 +16,7 @@ set_tests_properties(unit_tests PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
 
 # The editor's ST-to-C++ compiler package, the version OpenPLC Editor 4.3.2
 # ships: its runtime headers compile the library's SDO function blocks
-# (library/openplc_canopen) into sim_tests the way the editor builds them into
+# (library/canworks) into sim_tests the way the editor builds them into
 # a PLC program (test/plc_sdo/bridge.py writes the editor's glue).
 set(STRUCPP_VERSION 0.7.0)
 set(STRUCPP_SHA256 8d78ae92d931b87c06145520222d1491206f424c147ec66ea84653cb8b0e1be5)
@@ -31,7 +31,7 @@ if(NOT EXISTS ${STRUCPP_DIR}/package/src/runtime/include/iec_std_lib.hpp)
     message(FATAL_ERROR "cannot unpack strucpp ${STRUCPP_VERSION}")
   endif()
 endif()
-file(GLOB SDO_BLOCK_SOURCES ${PROJECT_SOURCE_DIR}/library/openplc_canopen/*.cpp)
+file(GLOB SDO_BLOCK_SOURCES ${PROJECT_SOURCE_DIR}/library/canworks/*.cpp)
 set(SDO_BLOCKS_DIR ${CMAKE_CURRENT_BINARY_DIR}/sdo_blocks)
 add_custom_command(
   OUTPUT ${SDO_BLOCKS_DIR}/c_blocks_code.cpp ${SDO_BLOCKS_DIR}/c_blocks.h
@@ -82,14 +82,14 @@ if(STRUCPP)
   target_compile_options(cia402_program PRIVATE -w)
   target_link_libraries(sim_tests PRIVATE cia402_program)
   # The cyclic synchronous demo (sim_cia402_cyclic), with the CO402_Cyclic*
-  # blocks of the packaged openplc_canopen library. Its runtime namespace and
+  # blocks of the packaged canworks library. Its runtime namespace and
   # C entry points are renamed so that it links next to drive_demo.
-  set(CANOPEN_STLIB_DIR ${PROJECT_SOURCE_DIR}/tools/deploy/openplc_canopen_deploy/library)
+  set(CANOPEN_STLIB_DIR ${PROJECT_SOURCE_DIR}/tools/deploy/canworks/library)
   add_custom_command(
     OUTPUT ${CIA402_GEN}/drive_cyclic_demo.cpp ${CIA402_GEN}/drive_cyclic_demo.hpp
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CIA402_GEN}
     COMMAND ${STRUCPP} ${CIA402_DIR}/drive_cyclic_demo.st -L ${CANOPEN_STLIB_DIR} -o ${CIA402_GEN}/drive_cyclic_demo.cpp
-    DEPENDS ${CIA402_DIR}/drive_cyclic_demo.st ${CANOPEN_STLIB_DIR}/openplc_canopen.stlib
+    DEPENDS ${CIA402_DIR}/drive_cyclic_demo.st ${CANOPEN_STLIB_DIR}/canworks.stlib
     COMMENT "STruC++: config/cia402-drive/drive_cyclic_demo.st")
   add_library(cia402_cyclic_program STATIC cia402/program_host.cpp ${CIA402_GEN}/drive_cyclic_demo.cpp)
   set_target_properties(cia402_cyclic_program PROPERTIES CXX_STANDARD 17)
@@ -107,7 +107,7 @@ if(STRUCPP)
     OUTPUT ${GANTRY_GEN}/gantry.cpp ${GANTRY_GEN}/gantry.hpp
     COMMAND ${CMAKE_COMMAND} -E make_directory ${GANTRY_GEN}
     COMMAND ${STRUCPP} ${GANTRY_DIR}/pous/programs/main.st -L ${CANOPEN_STLIB_DIR} -o ${GANTRY_GEN}/gantry.cpp
-    DEPENDS ${GANTRY_DIR}/pous/programs/main.st ${CANOPEN_STLIB_DIR}/openplc_canopen.stlib
+    DEPENDS ${GANTRY_DIR}/pous/programs/main.st ${CANOPEN_STLIB_DIR}/canworks.stlib
     COMMENT "STruC++: examples/gantry-cell/pous/programs/main.st")
   add_library(gantry_program STATIC cia402/program_host.cpp ${GANTRY_GEN}/gantry.cpp)
   set_target_properties(gantry_program PROPERTIES CXX_STANDARD 17)
@@ -168,7 +168,7 @@ target_link_libraries(plugin_lifecycle PRIVATE ${CMAKE_DL_LIBS})
 target_link_options(plugin_lifecycle PRIVATE -rdynamic)  # base_tick_ns, as the runtime exports it
 target_compile_definitions(plugin_lifecycle PRIVATE PINGPONG_DIR="${PINGPONG_DIR}")
 add_test(NAME plugin_lifecycle
-         COMMAND plugin_lifecycle $<TARGET_FILE:canopen_plugin> ${CMAKE_CURRENT_BINARY_DIR})
+         COMMAND plugin_lifecycle $<TARGET_FILE:canworks_plugin> ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(plugin_lifecycle PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
 
 # Link setup on a real interface (CI: vcan0, as root and as an unprivileged
@@ -196,7 +196,7 @@ target_include_directories(plc_sdo_lookup_check PRIVATE common ${OPENPLC_ROOT}/c
 target_link_libraries(plc_sdo_lookup_check PRIVATE ${CMAKE_DL_LIBS})
 add_test(NAME plc_sdo_lookup
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/plc_sdo/lookup_check.sh $<TARGET_FILE:plc_sdo_lookup_check>
-                 $<TARGET_FILE:canopen_plugin> $<TARGET_FILE:sdo_program> ${PINGPONG_DIR}
+                 $<TARGET_FILE:canworks_plugin> $<TARGET_FILE:sdo_program> ${PINGPONG_DIR}
                  ${CMAKE_CURRENT_BINARY_DIR}/plc_sdo_lookup)
 set_tests_properties(plc_sdo_lookup PROPERTIES ENVIRONMENT "${EDSLINT_ENV}" TIMEOUT 120)
 

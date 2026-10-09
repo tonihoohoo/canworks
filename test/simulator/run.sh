@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# openplc-canopen-sim end-to-end test on vcan0 and vcan1.
+# canworks-sim end-to-end test on vcan0 and vcan1.
 #
 #   test/simulator/run.sh [--build-dir build]
 #
 # 1. Run mode: the standalone simulator simulates node 2 of the ping-pong
 #    config (config/pingpong) on vcan0, with a simulation file that loops
-#    0x4000 back to 0x4001; the real libcanopen_plugin.so in canopen_host
+#    0x4000 back to 0x4001; the real libcanworks_plugin.so in canopen_host
 #    boots it and runs the ping-pong program. While it runs, the control
 #    subcommands are checked against the plugin's view: status, get, source,
 #    set and override (the PLC's answer comes back through the RPDO),
@@ -13,14 +13,14 @@
 #    and the lost and resumed heartbeat), and the remote test mode
 #    (test --runtime) against the simulator's control channel. SIGTERM must
 #    stop the simulator cleanly.
-# 2. Test mode: openplc-canopen-sim test with a passing and a failing
+# 2. Test mode: canworks-sim test with a passing and a failing
 #    scenario next to the plugin; exit codes 1 and 0, and the JUnit file's
 #    structure.
 # 3. Real-bus checks on vcan1: an interface that is not vcan is refused
 #    without --real-bus, and with it a node ID that is already on the bus
 #    (node 23, held by a second simulator sending EMCY) is not simulated
 #    while node 24 is. vcan1 counts as a real bus through the test-only
-#    override OPENPLC_CANOPEN_SIM_TREAT_AS_REAL=vcan1 (tools/sim/sim_run.cpp);
+#    override CANWORKS_SIM_TREAT_AS_REAL=vcan1 (tools/sim/sim_run.cpp);
 #    users never set it.
 #
 # 4. Simulated nodes in the plugin on a real interface (vcan0): a real
@@ -49,9 +49,9 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
-SIM="$BUILD/bin/openplc-canopen-sim"
+SIM="$BUILD/bin/canworks-sim"
 SLAVE="$BUILD/test/pingpong_slave"
 for f in "$PLUGIN" "$HOST" "$SIM" "$SLAVE"; do
     [ -x "$f" ] || [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
@@ -199,7 +199,7 @@ grep -q "FAIL never.*value seen" "$WORK/test.out" && ok "the failure names the s
 if python3 - "$WORK/junit.xml" <<'PY'
 import sys, xml.etree.ElementTree as ET
 suite = ET.parse(sys.argv[1]).getroot()
-assert suite.tag == "testsuite" and suite.get("name") == "openplc-canopen-sim", suite.attrib
+assert suite.tag == "testsuite" and suite.get("name") == "canworks-sim", suite.attrib
 assert suite.get("tests") == "2" and suite.get("failures") == "1", suite.attrib
 cases = {c.get("name"): c for c in suite.findall("testcase")}
 assert set(cases) == {"counts", "never"}, cases
@@ -224,7 +224,7 @@ JSON
 "$SIM" --eds "$WORK/cpp-slave.eds" --node 23 --iface vcan1 --sim "$WORK/holder.json" --port 7540 > "$WORK/holder.log" 2>&1 &
 PIDS+=($!)
 wait_for "node 23: powered on" 10 "$WORK/holder.log" || fail "the holder of node 23 did not start"
-export OPENPLC_CANOPEN_SIM_TREAT_AS_REAL=vcan1
+export CANWORKS_SIM_TREAT_AS_REAL=vcan1
 "$SIM" --eds "$WORK/cpp-slave.eds" --node 24 --iface vcan1 --port 7541 > "$WORK/refused.log" 2>&1
 RC=$?
 [ $RC -eq 2 ] && grep -q -- "--real-bus is needed" "$WORK/refused.log" && ok "a real interface without --real-bus is refused" \
@@ -233,7 +233,7 @@ RC=$?
     > "$WORK/real.log" 2>&1 &
 REAL_PID=$!
 PIDS+=($REAL_PID)
-unset OPENPLC_CANOPEN_SIM_TREAT_AS_REAL
+unset CANWORKS_SIM_TREAT_AS_REAL
 wait_for "node 24: powered on" 10 "$WORK/real.log" && ok "--real-bus: node 24 started" || fail "--real-bus: node 24 did not start"
 grep -q "node 23: node ID 23 is taken" "$WORK/real.log" && ok "--real-bus: node 23 refused, named in the log" || fail "node 23 was not refused"
 "$SIM" status --sim 127.0.0.1:7541 > "$WORK/real-status.out"

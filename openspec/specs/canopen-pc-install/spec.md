@@ -19,7 +19,7 @@ Each release's notes SHALL give the install command and list the pull requests m
 
 #### Scenario: Version bump merged
 - **WHEN** a pull request that changes the package version from 0.20.0 to 0.21.0 is merged to `main`, and `CI` and the PC tools workflow both succeed on the merge commit
-- **THEN** a GitHub release `deploy-v0.21.0` exists, its tag points at the merge commit, and it has the asset `openplc_canopen_deploy-0.21.0-py3-none-any.whl`
+- **THEN** a GitHub release `deploy-v0.21.0` exists, its tag points at the merge commit, and it has the asset `canworks-0.21.0-py3-none-any.whl`
 
 #### Scenario: No version change
 - **WHEN** a commit on `main` keeps the package version 0.21.0 and `deploy-v0.21.0` is already released
@@ -39,7 +39,7 @@ Each release's notes SHALL give the install command and list the pull requests m
 
 #### Scenario: Tag matches the package version
 - **WHEN** the tag `deploy-v0.16.0` is pushed by hand and the package version at that commit is 0.16.0
-- **THEN** a GitHub release `deploy-v0.16.0` exists with the asset `openplc_canopen_deploy-0.16.0-py3-none-any.whl`
+- **THEN** a GitHub release `deploy-v0.16.0` exists with the asset `canworks-0.16.0-py3-none-any.whl`
 
 #### Scenario: Tag does not match
 - **WHEN** the tag `deploy-v0.16.1` is pushed and the package version is 0.16.0
@@ -47,22 +47,22 @@ Each release's notes SHALL give the install command and list the pull requests m
 
 ### Requirement: Install on a PC without Python
 
-The documentation SHALL give, for Windows, for macOS and for Linux, the commands that install the tools on a PC with no Python and no admin rights: install uv with its official installer, then install the release wheel with uv using a uv-managed Python. After these commands the user's shell SHALL find `openplc-canopen-config`, `openplc-canopen-deploy` and `openplc-canopen-diag`, and they SHALL behave as when installed with pip. The documentation SHALL name, per operating system, the folder uv links the commands into and the configurator's settings folder. It SHALL say that the tools reach the CAN bus through a runtime, or directly through a USB CAN adapter on the PC (canopen-local-bus), and SHALL give per operating system what an slcan adapter needs: no driver on Windows 10 and 11, macOS and Linux, and the port name pattern on each, plus on Linux the `dialout` group for serial ports.
+The documentation SHALL give, for Windows, for macOS and for Linux, the commands that install the tools on a PC with no Python and no admin rights: install uv with its official installer, then install the release wheel with uv using a uv-managed Python. After these commands the user's shell SHALL find `canworks-config`, `canworks-deploy` and `canworks-diag`, and they SHALL behave as when installed with pip. The documentation SHALL name, per operating system, the folder uv links the commands into and the configurator's settings folder. It SHALL say that the tools reach the CAN bus through a runtime, or directly through a USB CAN adapter on the PC (canopen-local-bus), and SHALL give per operating system what an slcan adapter needs: no driver on Windows 10 and 11, macOS and Linux, and the port name pattern on each, plus on Linux the `dialout` group for serial ports.
 
 #### Scenario: Fresh Windows PC
 - **WHEN** a Windows user with no Python installed runs the documented uv install command and then the documented `uv tool install` command on the downloaded wheel, and opens a new terminal
-- **THEN** `openplc-canopen-deploy --version` prints the wheel's version and `openplc-canopen-config` opens the configurator in the browser
+- **THEN** `canworks-deploy --version` prints the wheel's version and `canworks-config` opens the configurator in the browser
 
 #### Scenario: Fresh Mac
 - **WHEN** a macOS user with no Python installed runs the documented commands
-- **THEN** the three commands are on PATH and `openplc-canopen-deploy --version` prints the wheel's version
+- **THEN** the three commands are on PATH and `canworks-deploy --version` prints the wheel's version
 
 #### Scenario: Fresh Linux desktop
 - **WHEN** a Linux user (x86_64 or ARM64, glibc) runs the documented uv install command and the documented `uv tool install` command, and opens a new terminal
-- **THEN** the three commands are in `~/.local/bin` and on PATH, `openplc-canopen-deploy --version` prints the wheel's version, and `openplc-canopen-config` opens the configurator in the default browser
+- **THEN** the three commands are in `~/.local/bin` and on PATH, `canworks-deploy --version` prints the wheel's version, and `canworks-config` opens the configurator in the default browser
 
 #### Scenario: Linux without a browser
-- **WHEN** `openplc-canopen-config` starts on a Linux machine with no browser to open (for example over SSH)
+- **WHEN** `canworks-config` starts on a Linux machine with no browser to open (for example over SSH)
 - **THEN** it still serves the page and prints its URL with the access token, and `--no-browser` skips the attempt
 
 #### Scenario: Editor CLI on Linux
@@ -75,7 +75,7 @@ The documentation SHALL give, for Windows, for macOS and for Linux, the commands
 
 #### Scenario: USB adapter after install
 - **WHEN** a user installed the tools with uv on Windows, macOS or Linux and plugs in a CANable with stock firmware
-- **THEN** `openplc-canopen-diag adapters` lists it without any further install step (on Linux, after joining `dialout` when the docs say so)
+- **THEN** `canworks-diag adapters` lists it without any further install step (on Linux, after joining `dialout` when the docs say so)
 
 ### Requirement: Update and uninstall
 
@@ -83,7 +83,7 @@ The documentation SHALL give one command to replace an installed version with a 
 
 #### Scenario: Update
 - **WHEN** the user runs the documented update command on a newer wheel
-- **THEN** `openplc-canopen-deploy --version` prints the newer version and the configurator's saved settings are kept
+- **THEN** `canworks-deploy --version` prints the newer version and the configurator's saved settings are kept
 
 #### Scenario: Uninstall
 - **WHEN** the user runs the documented uninstall command

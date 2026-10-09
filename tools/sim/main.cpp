@@ -1,9 +1,9 @@
-// openplc-canopen-sim - simulated CANopen devices on a SocketCAN interface
-// (docs/simulator.md, "openplc-canopen-sim").
+// canworks-sim - simulated CANopen devices on a SocketCAN interface
+// (docs/simulator.md, "canworks-sim").
 //
-//   openplc-canopen-sim [CONFIG] [options]          run mode (sim_run.cpp)
-//   openplc-canopen-sim test [CONFIG] [options]     test mode (sim_run.cpp)
-//   openplc-canopen-sim status|get|set|...          control subcommands (sim_commands.cpp)
+//   canworks-sim [CONFIG] [options]          run mode (sim_run.cpp)
+//   canworks-sim test [CONFIG] [options]     test mode (sim_run.cpp)
+//   canworks-sim status|get|set|...          control subcommands (sim_commands.cpp)
 
 #include <cstdio>
 #include <cstring>
@@ -40,11 +40,11 @@ bool Args::flag(const char* name) {
 
 void print_usage(bool full) {
   std::printf(
-      "usage: openplc-canopen-sim [CONFIG] [options]           simulate devices on a SocketCAN interface\n"
-      "       openplc-canopen-sim test [CONFIG] [test options]  run scenarios as tests\n"
-      "       openplc-canopen-sim COMMAND ...                   control a running simulator\n");
+      "usage: canworks-sim [CONFIG] [options]           simulate devices on a SocketCAN interface\n"
+      "       canworks-sim test [CONFIG] [test options]  run scenarios as tests\n"
+      "       canworks-sim COMMAND ...                   control a running simulator\n");
   if (!full) {
-    std::printf("Run openplc-canopen-sim --help for the options; docs/simulator.md describes everything.\n");
+    std::printf("Run canworks-sim --help for the options; docs/simulator.md describes everything.\n");
     return;
   }
   std::printf(
@@ -66,9 +66,9 @@ void print_usage(bool full) {
       "  --quiet                  only errors and scenario results\n"
       "  --version, --help\n"
       "\n"
-      "Test mode: openplc-canopen-sim test [CONFIG] [run options] [--scenario NAME]... [--junit FILE]\n"
+      "Test mode: canworks-sim test [CONFIG] [run options] [--scenario NAME]... [--junit FILE]\n"
       "           [--timeout S] [--start-timeout S] [--parallel]\n"
-      "           openplc-canopen-sim test --runtime HOST[:PORT] (--token T | --token-file F) [--scenario NAME]...\n"
+      "           canworks-sim test --runtime HOST[:PORT] (--token T | --token-file F) [--scenario NAME]...\n"
       "  Runs the named scenarios (default: those with \"test\": true); exit 0 all passed, 1 one failed,\n"
       "  2 usage or start-up error. --timeout default 300 s, --start-timeout default 30 s.\n"
       "  --runtime runs them in the plugin's simulated devices (diagnostics channel, port 7531);\n"
@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
   using namespace sim_tool;
   std::vector<std::string> words(argv + 1, argv + argc);
   if (!words.empty() && (words[0] == "--version" || words[0] == "-V")) {
-    std::printf("openplc-canopen-sim %s\n", CANOPEN_PLUGIN_VERSION);
+    std::printf("canworks-sim %s\n", CANOPEN_PLUGIN_VERSION);
     return kExitOk;
   }
   if (!words.empty() && (words[0] == "--help" || words[0] == "-h" || words[0] == "help")) {

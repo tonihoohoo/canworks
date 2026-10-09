@@ -2,11 +2,11 @@
 # OPENPLC_ROOT.
 #
 # Lely CANopen is found with pkg-config (distro packages), falling back to
-# /opt/openplc-canopen/lely (override with -DLELY_PREFIX=).
+# /opt/canworks/lely (override with -DLELY_PREFIX=).
 
-set(LELY_PREFIX "/opt/openplc-canopen/lely" CACHE PATH "Lely CANopen install prefix (fallback)")
+set(LELY_PREFIX "/opt/canworks/lely" CACHE PATH "Lely CANopen install prefix (fallback)")
 # Where scripts/build-lely.sh put Lely and the dcfgen venv (<prefix>/venv).
-set(CANOPEN_PREFIX "/opt/openplc-canopen" CACHE PATH "Install prefix of Lely and dcfgen")
+set(CANOPEN_PREFIX "/opt/canworks" CACHE PATH "Install prefix of Lely and dcfgen")
 find_package(PkgConfig REQUIRED)
 set(ENV{PKG_CONFIG_PATH} "${LELY_PREFIX}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
 pkg_check_modules(LELY REQUIRED liblely-coapp liblely-co liblely-io2 liblely-ev liblely-util liblely-libc)
@@ -85,16 +85,16 @@ if(NOT CANOPEN_PLUGIN_VERSION)
   set(CANOPEN_PLUGIN_VERSION "unknown")
 endif()
 
-add_library(canopen_plugin SHARED src/canopen_plugin.cpp)
-target_compile_definitions(canopen_plugin PRIVATE CANOPEN_PLUGIN_VERSION="${CANOPEN_PLUGIN_VERSION}"
+add_library(canworks_plugin SHARED src/canopen_plugin.cpp)
+target_compile_definitions(canworks_plugin PRIVATE CANOPEN_PLUGIN_VERSION="${CANOPEN_PLUGIN_VERSION}"
                            CANOPEN_PREFIX="${CANOPEN_PREFIX}")
-target_link_libraries(canopen_plugin PRIVATE canopen_core ${CMAKE_DL_LIBS})
+target_link_libraries(canworks_plugin PRIVATE canopen_core ${CMAKE_DL_LIBS})
 # Keep cJSON and the core symbols private to the plugin.
-target_link_options(canopen_plugin PRIVATE -Wl,--exclude-libs,ALL)
-target_compile_options(canopen_plugin PRIVATE -Wall -Wextra -Wno-unused-parameter)
-set_target_properties(canopen_plugin PROPERTIES
+target_link_options(canworks_plugin PRIVATE -Wl,--exclude-libs,ALL)
+target_compile_options(canworks_plugin PRIVATE -Wall -Wextra -Wno-unused-parameter)
+set_target_properties(canworks_plugin PROPERTIES
     PREFIX "lib"
-    OUTPUT_NAME "canopen_plugin"
+    OUTPUT_NAME "canworks_plugin"
     SUFFIX ".so"
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/plugins
     # Find the Lely shared libraries at runtime without ld.so.conf changes.
@@ -105,21 +105,21 @@ set_target_properties(canopen_plugin PROPERTIES
     # The PLC program's SDO function blocks find the loaded plugin by this
     # name (dlopen RTLD_NOLOAD), wherever it is installed.
 )
-target_link_options(canopen_plugin PRIVATE -Wl,-soname,libcanopen_plugin.so)
+target_link_options(canworks_plugin PRIVATE -Wl,-soname,libcanworks_plugin.so)
 
-# openplc-canopen-sim, the standalone simulator (docs/simulator.md): the
+# canworks-sim, the standalone simulator (docs/simulator.md): the
 # simulator engine of canopen_core on a SocketCAN interface. It reports the
 # plugin's version.
-add_executable(openplc-canopen-sim
+add_executable(canworks-sim
     ${PROJECT_SOURCE_DIR}/tools/sim/main.cpp
     ${PROJECT_SOURCE_DIR}/tools/sim/sim_run.cpp
     ${PROJECT_SOURCE_DIR}/tools/sim/sim_commands.cpp
     ${PROJECT_SOURCE_DIR}/tools/sim/control.cpp
 )
-target_compile_definitions(openplc-canopen-sim PRIVATE CANOPEN_PLUGIN_VERSION="${CANOPEN_PLUGIN_VERSION}")
-target_compile_options(openplc-canopen-sim PRIVATE -Wall -Wextra -Wno-unused-parameter)
-target_link_libraries(openplc-canopen-sim PRIVATE canopen_core)
-set_target_properties(openplc-canopen-sim PROPERTIES
+target_compile_definitions(canworks-sim PRIVATE CANOPEN_PLUGIN_VERSION="${CANOPEN_PLUGIN_VERSION}")
+target_compile_options(canworks-sim PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_link_libraries(canworks-sim PRIVATE canopen_core)
+set_target_properties(canworks-sim PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     BUILD_RPATH "${LELY_LIBRARY_DIRS}"
     INSTALL_RPATH "${LELY_LIBRARY_DIRS}"

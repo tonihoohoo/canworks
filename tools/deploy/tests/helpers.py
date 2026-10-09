@@ -144,12 +144,12 @@ class StubRuntime:
                     stub.polls += 1
                     logs = []
                     if stub.editor_hook:
-                        logs.append("[INFO] CANopen: the upload carries conf/canopen.json; the project snapshot "
+                        logs.append("[INFO] CANopen: the upload carries conf/canworks.json; the project snapshot "
                                     "is not used\n")
-                    logs.append("[INFO] Found 2 config files in core/generated/conf: ['canopen', 'ethercat']\n")
+                    logs.append("[INFO] Found 2 config files in core/generated/conf: ['canworks', 'ethercat']\n")
                     if stub.canopen_line:
                         logs.append("[DEBUG] Final state - canopen: enabled=True, "
-                                    "config_path='/opt/openplc-canopen/lib/canopen.json'\n")
+                                    "config_path='/opt/canworks/lib/canworks.json'\n")
                     logs.append("[DEBUG] Final state - ethercat: enabled=True, config_path='x'\n")
                     if stub.hook_error:
                         logs.append("[ERROR] CANopen: %s\n" % stub.hook_error)

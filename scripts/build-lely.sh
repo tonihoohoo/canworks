@@ -2,17 +2,17 @@
 # Builds Lely CANopen from source: C/C++ libraries into <prefix>/lely and the
 # dcf-tools (dcfgen) into a Python venv at <prefix>/venv.
 #
-#   scripts/build-lely.sh [--prefix /opt/openplc-canopen] [--ref <lely-core commit>]
+#   scripts/build-lely.sh [--prefix /opt/canworks] [--ref <lely-core commit>]
 #
 # The default ref is pinned: the deploy tool vendors Lely's dcf package from the
-# same commit (tools/deploy/openplc_canopen_deploy/_lely_dcf/VERSION).
+# same commit (tools/deploy/canworks/_lely_dcf/VERSION).
 #
 # Needs: a C/C++ toolchain, autoconf, automake, libtool, pkg-config, git or
 # curl, python3 with venv. Skips the build if <prefix>/lely/.ref matches.
 
 set -euo pipefail
 
-PREFIX=/opt/openplc-canopen
+PREFIX=/opt/canworks
 REF=88848aa28599ea5d6d7e766a9ffa2054446821b5
 while [ $# -gt 0 ]; do
     case "$1" in

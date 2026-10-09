@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openplc-canopen-deploy"
+name = "canworks-deploy"
 version = "0.41.0"
-description = "Configures CANopen for OpenPLC (openplc-canopen-config), deploys it to an OpenPLC Runtime v4 (openplc-canopen-deploy) and reads the live network (openplc-canopen-diag)"
+description = "Configures CANopen for OpenPLC (canworks-config), deploys it to an OpenPLC Runtime v4 (canworks-deploy) and reads the live network (canworks-diag)"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "Apache-2.0"}
@@ -13,16 +13,16 @@ dependencies = ["jsonschema>=4.0", "python-can>=4.3", "pyserial>=3.5",
                 "python-can[gs-usb]>=4.3; sys_platform == 'darwin'"]  # gs_usb adapters on macOS (needs libusb)
 
 [project.scripts]
-openplc-canopen-deploy = "openplc_canopen_deploy.cli:main"
-openplc-canopen-config = "openplc_canopen_deploy.configurator.server:main"
-openplc-canopen-diag = "openplc_canopen_deploy.diag:main"
-openplc-canopen-sim-runtime = "openplc_canopen_deploy.localruntime:main"
-openplc-canopen-runtime = "openplc_canopen_deploy.localruntime:old_main"
+canworks-deploy = "canworks.cli:main"
+canworks-config = "canworks.configurator.server:main"
+canworks-diag = "canworks.diag:main"
+canworks-sim-runtime = "canworks.localruntime:main"
+openplc-canopen-runtime = "canworks.localruntime:old_main"
 
 [tool.setuptools]
-packages = ["openplc_canopen_deploy", "openplc_canopen_deploy.bustrace", "openplc_canopen_deploy.localbus", "openplc_canopen_deploy.configurator", "openplc_canopen_deploy._lely_dcf"]
+packages = ["canworks", "canworks.bustrace", "canworks.localbus", "canworks.configurator", "canworks._lely_dcf"]
 
 [tool.setuptools.package-data]
-openplc_canopen_deploy = ["schema/*.json", "library/*.stlib"]
-"openplc_canopen_deploy.configurator" = ["static/*", "static/uplot/*", "static/three/*", "static/three/build/*", "static/three/addons/*/*"]
-"openplc_canopen_deploy._lely_dcf" = ["LICENSE", "NOTICE", "VERSION", "README.md"]
+canworks = ["schema/*.json", "library/*.stlib"]
+"canworks.configurator" = ["static/*", "static/uplot/*", "static/three/*", "static/three/build/*", "static/three/addons/*/*"]
+"canworks._lely_dcf" = ["LICENSE", "NOTICE", "VERSION", "README.md"]

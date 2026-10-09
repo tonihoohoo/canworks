@@ -12,15 +12,15 @@ import unittest
 
 import jsonschema
 
-from openplc_canopen_deploy import bundle, machine, project, simfile
+from canworks import bundle, machine, project, simfile
 
 from .fake_machine import FakeMachine, FakeMachineError
 from .fake_sim import FakeSim
 from .helpers import REPO, editor_bundle, tmpdir, zip_contents
 from .test_deploy import deploy
 
-EXAMPLE = os.path.join(REPO, "examples", "gantry-cell", "canopen")
-SCHEMAS = ("canopen-machine.v1.schema.json", "canopen-sim.v2.schema.json")
+EXAMPLE = os.path.join(REPO, "examples", "gantry-cell", "canworks")
+SCHEMAS = ("canopen-machine.v1.schema.json", "canworks-sim.v2.schema.json")
 
 
 def example_machine():
@@ -41,12 +41,12 @@ class Gantry:
 
     def setUp(self):
         self.dir = tmpdir(self)
-        self.canopen = os.path.join(self.dir, "canopen")
+        self.canopen = os.path.join(self.dir, "canworks")
         shutil.copytree(EXAMPLE, self.canopen)
         for name in ("simulation.json",):
             if os.path.exists(os.path.join(self.canopen, name)):
                 os.remove(os.path.join(self.canopen, name))
-        self.config = os.path.join(self.canopen, "canopen.json")
+        self.config = os.path.join(self.canopen, "canworks.json")
         with open(self.config, encoding="utf-8") as f:
             self.cfg = json.load(f)
         self.machine = example_machine()
@@ -76,7 +76,7 @@ class Schema(unittest.TestCase):
         # The package ships a copy of schema/; it must not drift.
         for name in SCHEMAS:
             self.assertTrue(filecmp.cmp(os.path.join(REPO, "schema", name),
-                                        os.path.join(REPO, "tools", "deploy", "openplc_canopen_deploy", "schema",
+                                        os.path.join(REPO, "tools", "deploy", "canworks", "schema",
                                                      name), shallow=False), name)
 
     def test_schemas_are_valid_draft_2020_12(self):
@@ -354,23 +354,23 @@ class Bundle(Gantry, unittest.TestCase):
 
     def test_machine_file_next_to_the_simulation_file(self):
         files, out = self.deploy(self.sim)
-        self.assertIn("conf/canopen/simulation.json, conf/canopen/machine.json", out)
-        self.assertEqual(json.loads(files["conf/canopen/simulation.json"])["networks"]["motion"]["machine"],
+        self.assertIn("conf/canworks/simulation.json, conf/canworks/machine.json", out)
+        self.assertEqual(json.loads(files["conf/canworks/simulation.json"])["networks"]["motion"]["machine"],
                          "machine.json")
         with open(os.path.join(EXAMPLE, "machine.json"), "rb") as f:
-            self.assertEqual(files["conf/canopen/machine.json"], f.read())
+            self.assertEqual(files["conf/canworks/machine.json"], f.read())
 
     def test_relative_name_kept_and_unsafe_names_flattened(self):
         os.makedirs(os.path.join(self.canopen, "cells"))
         shutil.copy(os.path.join(EXAMPLE, "machine.json"), os.path.join(self.canopen, "cells", "gantry.json"))
         files, _ = self.deploy({"schema_version": 2, "networks": {"motion": {"machine": "cells/gantry.json"}}})
-        self.assertIn("conf/canopen/cells/gantry.json", files)
-        self.assertEqual(json.loads(files["conf/canopen/simulation.json"])["networks"]["motion"]["machine"],
+        self.assertIn("conf/canworks/cells/gantry.json", files)
+        self.assertEqual(json.loads(files["conf/canworks/simulation.json"])["networks"]["motion"]["machine"],
                          "cells/gantry.json")
         shutil.copy(os.path.join(EXAMPLE, "machine.json"), os.path.join(self.dir, "outside.json"))
         files, _ = self.deploy({"schema_version": 2, "networks": {"motion": {"machine": "../outside.json"}}})
-        self.assertIn("conf/canopen/outside.json", files)
-        self.assertEqual(json.loads(files["conf/canopen/simulation.json"])["networks"]["motion"]["machine"],
+        self.assertIn("conf/canworks/outside.json", files)
+        self.assertEqual(json.loads(files["conf/canworks/simulation.json"])["networks"]["motion"]["machine"],
                          "outside.json")
         self.assertEqual(bundle.machine_name("eds/m.json", "/x/eds/m.json"), "m.json")
 
@@ -392,7 +392,7 @@ class Bundle(Gantry, unittest.TestCase):
         sim = write_json(os.path.join(self.canopen, "simulation.json"),
                          {"schema_version": 2, "networks": {"motion": {"machine": "cells/gantry.json"}}})
         written, _ = project.write(self.cfg, self.config, proj, sim_path=sim)
-        target = os.path.join(proj, "canopen")
+        target = os.path.join(proj, "canworks")
         self.assertIn(os.path.join(target, "gantry.json"), written)
         with open(os.path.join(target, "simulation.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["networks"]["motion"]["machine"], "gantry.json")

@@ -819,7 +819,7 @@
       "lss_supported": false,
       "product_name": "Example servo drive SD-402",
       "sha256": "7c22fb4770778236c28328f2ce78a32e1f346300ab6f744f9c182fdfe1bb7b96",
-      "vendor_name": "openplc-canopen example devices"
+      "vendor_name": "canworks example devices"
      },
      "ident": "drive",
      "identity": [
@@ -1654,7 +1654,7 @@
  ],
  "title": "CANopen network documentation",
  "tool": {
-  "name": "openplc-canopen-deploy",
+  "name": "canworks-deploy",
   "version": "0.41.0"
  },
  "warnings": [

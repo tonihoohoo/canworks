@@ -1,0 +1,1195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tonihoohoo/canworks/schema/canworks.v1.schema.json",
+  "title": "OpenPLC CANopen master configuration, schema_version 1",
+  "description": "The CANopen plugin's JSON config (conf/canworks.json, canopen_config.json). Unknown fields are allowed: the plugin and the deploy tool ignore them with a warning. Checks this schema cannot express are listed in docs/config.md.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "Config format version. Omitted means 1.",
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1
+        },
+        {
+          "$ref": "#/$defs/uint_string"
+        }
+      ]
+    },
+    "adapter": {
+      "$ref": "#/$defs/adapter"
+    },
+    "interface": {
+      "description": "Deprecated: use adapter.interface.",
+      "deprecated": true,
+      "type": "string",
+      "minLength": 1
+    },
+    "bitrate": {
+      "description": "Deprecated: use adapter.bitrate.",
+      "deprecated": true,
+      "$ref": "#/$defs/bitrate"
+    },
+    "master": {
+      "$ref": "#/$defs/master"
+    },
+    "nodes": {
+      "description": "The slave nodes. May be empty only when master.diagnostics is given (a scan-only configuration).",
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    }
+  },
+  "required": [
+    "master",
+    "nodes"
+  ],
+  "oneOf": [
+    {
+      "required": [
+        "adapter"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "interface"
+            ]
+          },
+          {
+            "required": [
+              "bitrate"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "required": [
+        "interface",
+        "bitrate"
+      ],
+      "not": {
+        "required": [
+          "adapter"
+        ]
+      }
+    }
+  ],
+  "if": {
+    "properties": {
+      "nodes": {
+        "maxItems": 0
+      }
+    },
+    "required": [
+      "nodes"
+    ]
+  },
+  "then": {
+    "properties": {
+      "master": {
+        "required": [
+          "diagnostics"
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "index": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        {
+          "$ref": "#/$defs/uint_string"
+        }
+      ]
+    },
+    "subindex": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        {
+          "$ref": "#/$defs/uint_string"
+        }
+      ]
+    },
+    "u16": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        {
+          "$ref": "#/$defs/uint_string"
+        }
+      ]
+    },
+    "bitrate": {
+      "description": "A CiA 301 bit rate in bit/s.",
+      "enum": [
+        10000,
+        20000,
+        50000,
+        125000,
+        250000,
+        500000,
+        800000,
+        1000000
+      ]
+    },
+    "node_id": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 127
+        },
+        {
+          "$ref": "#/$defs/uint_string"
+        }
+      ]
+    },
+    "co_type": {
+      "enum": [
+        "BOOLEAN",
+        "INTEGER8",
+        "INTEGER16",
+        "INTEGER32",
+        "INTEGER64",
+        "UNSIGNED8",
+        "UNSIGNED16",
+        "UNSIGNED32",
+        "UNSIGNED64",
+        "REAL32",
+        "REAL64"
+      ]
+    },
+    "input_location": {
+      "type": "string",
+      "pattern": "^%[Ii]([Xx][0-9]+\\.[0-7]|[BbWwDdLl][0-9]+)$"
+    },
+    "output_location": {
+      "type": "string",
+      "pattern": "^%[Qq]([Xx][0-9]+\\.[0-7]|[BbWwDdLl][0-9]+)$"
+    },
+    "adapter": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "socketcan",
+            "slcan"
+          ]
+        },
+        "interface": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bitrate": {
+          "$ref": "#/$defs/bitrate"
+        },
+        "configure_link": {
+          "type": "boolean"
+        },
+        "restart_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "device": {
+          "description": "slcan: absolute path of the serial device; /dev/serial/by-id/... keeps working when the device number changes.",
+          "type": "string",
+          "pattern": "^/"
+        },
+        "serial_baudrate": {
+          "description": "slcan: UART speed for adapters behind a real serial port (FTDI-based CANUSB). USB CDC adapters such as the CANable ignore it.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4000000
+        },
+        "simulate": {
+          "description": "true: the network is simulated (docs/simulator.md). No CAN interface or serial device is used; the other adapter fields are kept and checked. A master network and a slave network with the same interface name share one simulated bus (docs/slave.md, Simulated bus).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "description": "The CAN adapter. 'socketcan': an existing SocketCAN interface (CAN HAT, candleLight/gs_usb, PEAK, vcan). 'slcan': a serial-line adapter (CANable with slcan firmware, Lawicel CANUSB); the plugin creates the interface from the serial device.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "socketcan"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "interface",
+              "bitrate"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "device"
+                  ]
+                },
+                {
+                  "required": [
+                    "serial_baudrate"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "slcan"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "device",
+              "interface",
+              "bitrate"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "configure_link"
+                  ]
+                },
+                {
+                  "required": [
+                    "restart_ms"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "master": {
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/node_id"
+        },
+        "sync_period_us": {
+          "description": "SYNC period of the master's timer. Omitted or 0: no SYNC timer; without \"sync_source\": \"plc_cycle\" the master then produces no SYNC, and every configured PDO must be event-driven. Not allowed with \"sync_source\": \"plc_cycle\".",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "sync_source": {
+          "description": "Where SYNC comes from: \"timer\" (default, every sync_period_us) or \"plc_cycle\" (one SYNC every sync_cycles PLC cycles, sent at the start of the cycle).",
+          "enum": [
+            "timer",
+            "plc_cycle"
+          ]
+        },
+        "sync_cycles": {
+          "description": "With \"sync_source\": \"plc_cycle\": PLC cycles per SYNC, 1-1000. Default 1.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "heartbeat_ms": {
+          "$ref": "#/$defs/u16"
+        },
+        "eds_lint": {
+          "description": "Which dcfgen EDS lint findings stop the load: communication (default) only findings in 0x1000-0x1FFF that are not only about limits, all every finding, off none. Accepted findings are logged as one warning per EDS.",
+          "enum": [
+            "communication",
+            "all",
+            "off"
+          ]
+        },
+        "strict_eds": {
+          "description": "Deprecated; true is eds_lint \"all\", false is eds_lint \"off\". Not together with eds_lint.",
+          "type": "boolean"
+        },
+        "bus_state_location": {
+          "description": "An input byte (%IB...) the plugin keeps at the CAN bus state: 0 no bus, 1 error-active, 2 error-warning, 3 error-passive, 4 bus-off.",
+          "type": "string",
+          "pattern": "^%[Ii][Bb][0-9]+$"
+        },
+        "tx_error_count_location": {
+          "description": "An input byte (%IB...) with the CAN controller's transmit error counter, clamped to 255.",
+          "type": "string",
+          "pattern": "^%[Ii][Bb][0-9]+$"
+        },
+        "rx_error_count_location": {
+          "description": "An input byte (%IB...) with the CAN controller's receive error counter, clamped to 255.",
+          "type": "string",
+          "pattern": "^%[Ii][Bb][0-9]+$"
+        },
+        "bus_off_count_location": {
+          "description": "An input word (%IW...) counting bus-off events since the PLC started; wraps at 65535.",
+          "type": "string",
+          "pattern": "^%[Ii][Ww][0-9]+$"
+        },
+        "state_location": {
+          "description": "An input byte (%IB...) the plugin keeps at the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED, 0 resetting or not started.",
+          "$ref": "#/$defs/input_byte"
+        },
+        "vendor_id": {
+          "description": "The master's own identity object 0x1018 sub-index 1.",
+          "$ref": "#/$defs/u32"
+        },
+        "product_code": {
+          "description": "The master's 0x1018 sub-index 2.",
+          "$ref": "#/$defs/u32"
+        },
+        "revision_number": {
+          "description": "The master's 0x1018 sub-index 3.",
+          "$ref": "#/$defs/u32"
+        },
+        "serial_number": {
+          "description": "The master's 0x1018 sub-index 4.",
+          "$ref": "#/$defs/u32"
+        },
+        "sync_window_us": {
+          "description": "Synchronous window length (0x1007) in microseconds; 0 = none.",
+          "$ref": "#/$defs/u32"
+        },
+        "sync_counter_overflow": {
+          "description": "SYNC counter overflow value (0x1019): 0 sends SYNC without a counter, 2-240 adds a counter that runs 1..value.",
+          "anyOf": [
+            {
+              "const": 0
+            },
+            {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 240
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "time_cob_id": {
+          "description": "COB-ID of the master's TIME message (0x1012), default 0x100. With time_period_ms the master sets the producer bit (bit 30) itself.",
+          "$ref": "#/$defs/u32"
+        },
+        "emcy_inhibit_time_us": {
+          "description": "Inhibit time of the master's own EMCY (0x1015), in microseconds.",
+          "$ref": "#/$defs/us100"
+        },
+        "heartbeat_consumer": {
+          "description": "The master watches the nodes' heartbeats (0x1016). Default true.",
+          "type": "boolean"
+        },
+        "heartbeat_multiplier": {
+          "description": "A node with heartbeat_consumer watches the master's heartbeat with heartbeat_ms x this as its timeout. Default 3.",
+          "type": "number",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "error_behavior": {
+          "$ref": "#/$defs/error_behavior"
+        },
+        "nmt_inhibit_time_us": {
+          "description": "NMT inhibit time (0x102A), in microseconds.",
+          "$ref": "#/$defs/us100"
+        },
+        "start": {
+          "description": "The master goes OPERATIONAL by itself after boot-up (0x1F80 bit 2). Default true; false leaves the network PRE-OPERATIONAL.",
+          "type": "boolean"
+        },
+        "start_nodes": {
+          "description": "The master starts the nodes (0x1F80 bit 3). Default true; false leaves them PRE-OPERATIONAL after configuration.",
+          "type": "boolean"
+        },
+        "start_all_nodes": {
+          "description": "Start all nodes with one NMT command once the master is OPERATIONAL (0x1F80 bit 1). Default false.",
+          "type": "boolean"
+        },
+        "reset_all_nodes": {
+          "description": "Reset all nodes when a mandatory node fails (0x1F80 bit 4). Default false.",
+          "type": "boolean"
+        },
+        "stop_all_nodes": {
+          "description": "Stop all nodes, and the master, when a mandatory node fails (0x1F80 bit 6). Default false.",
+          "type": "boolean"
+        },
+        "boot_time_ms": {
+          "description": "Time allowed for all mandatory nodes to boot (0x1F89); 0 = no limit.",
+          "$ref": "#/$defs/u32"
+        },
+        "time_period_ms": {
+          "description": "Produce TIME (CiA 301 TIME_OF_DAY from the host clock) at once when the bus comes up and then every time_period_ms, 100-3600000 ms, on time_cob_id or 0x100. Left out, the master sends no TIME.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 3600000
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "sdo_timeout_ms": {
+          "description": "Timeout of every SDO the master sends to boot and configure a node (identity reads, PDO and startup SDO downloads, restore, firmware download), 10-60000 ms. Default 1000. SDO variables and diagnostics requests keep their own timeouts.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 60000
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "diagnostics": {
+          "description": "The diagnostics channel: the plugin listens on TCP for the configurator's online view, manual SDO/NMT and network scan (docs/diagnostics.md). Absent = no network listener.",
+          "type": "object",
+          "properties": {
+            "token_verifier": {
+              "description": "SCRAM-SHA-256 verifier of the access token, SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey> in base64 (canworks-diag hash-token prints it; iterations 4096-1000000, salt at least 16 bytes). The token itself is never stored in the config, and the verifier does not let anyone log in.",
+              "type": "string",
+              "pattern": "^SCRAM-SHA-256\\$[0-9]{1,7}:[A-Za-z0-9+/]+={0,2}\\$[A-Za-z0-9+/]{43}=:[A-Za-z0-9+/]{43}=$"
+            },
+            "token_sha256": {
+              "description": "No longer accepted: the diagnostics channel is encrypted and needs token_verifier (set the token again in the configurator).",
+              "not": {}
+            },
+            "port": {
+              "description": "TCP port (default 7531).",
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            },
+            "bind": {
+              "description": "IPv4 address to listen on (default 0.0.0.0, all interfaces).",
+              "type": "string",
+              "pattern": "^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$"
+            },
+            "allow_changes": {
+              "description": "Allow SDO writes and NMT commands from clients (default false: read-only).",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "token_verifier"
+          ]
+        }
+      },
+      "required": [
+        "node_id"
+      ],
+      "not": {
+        "required": [
+          "eds_lint",
+          "strict_eds"
+        ]
+      }
+    },
+    "node": {
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/node_id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "eds": {
+          "type": "string",
+          "minLength": 1
+        },
+        "heartbeat_ms": {
+          "$ref": "#/$defs/u16"
+        },
+        "heartbeat_timeout_ms": {
+          "$ref": "#/$defs/u16"
+        },
+        "guard_time_ms": {
+          "$ref": "#/$defs/u16"
+        },
+        "life_time_factor": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "status_location": {
+          "type": "string",
+          "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$"
+        },
+        "state_location": {
+          "description": "An input byte (%IB...) the plugin keeps at the node's NMT state: 4 STOPPED, 5 OPERATIONAL, 127 PRE-OPERATIONAL, 0 no contact.",
+          "type": "string",
+          "pattern": "^%[Ii][Bb][0-9]+$"
+        },
+        "boot_error_location": {
+          "description": "An input byte (%IB...) with the ASCII code of the CiA 302 error status of the node's last failed boot (66 B no response, 68 D vendor, 74 J configuration refused, 77 M product code, 78 N revision, 79 O serial number); 0 while it is operational.",
+          "$ref": "#/$defs/input_byte"
+        },
+        "emcy_code_location": {
+          "description": "An input word (%IW...) holding the error code of the node's latest emergency (EMCY) message; 0 when no error is active (after an error reset or a boot-up message).",
+          "type": "string",
+          "pattern": "^%[Ii][Ww][0-9]+$"
+        },
+        "error_register_location": {
+          "description": "An input byte (%IB...) holding the error register (object 0x1001) from the node's latest emergency (EMCY) message; 0 after a boot-up message.",
+          "type": "string",
+          "pattern": "^%[Ii][Bb][0-9]+$"
+        },
+        "nmt_command_location": {
+          "description": "An output byte (%QB...) through which the program commands the node with CiA 301 NMT codes: 0 or 1 run normally, 2 keep STOPPED, 128 keep PRE-OPERATIONAL; a change to 129 sends RESET NODE once, to 130 RESET COMMUNICATION once.",
+          "type": "string",
+          "pattern": "^%[Qq][Bb][0-9]+$"
+        },
+        "mandatory": {
+          "description": "The master does not go OPERATIONAL until this node has booted (0x1F81 bit 3). Default false.",
+          "type": "boolean"
+        },
+        "boot": {
+          "description": "The master boots and configures the node (0x1F81 bit 2). Default true; false leaves the node to itself.",
+          "type": "boolean"
+        },
+        "reset_communication": {
+          "description": "The master may reset the node's communication at start (0x1F81 bit 4 inverted). Default true.",
+          "type": "boolean"
+        },
+        "revision_number": {
+          "description": "Expected 0x1018 sub-index 3. Left out, the EDS value; 0 turns the revision check off.",
+          "$ref": "#/$defs/u32"
+        },
+        "serial_number": {
+          "description": "Expected 0x1018 sub-index 4. Left out, not checked.",
+          "$ref": "#/$defs/u32"
+        },
+        "heartbeat_consumer": {
+          "description": "The node watches the master's heartbeat (its 0x1016). Needs master heartbeat_ms. Left out, the node's EDS entries stay.",
+          "type": "boolean"
+        },
+        "retry_factor": {
+          "description": "Node guarding retries (0x1F81). Default: life_time_factor.",
+          "$ref": "#/$defs/u8"
+        },
+        "time_cob_id": {
+          "description": "The node's TIME COB-ID (0x1012). Left out, the EDS value stays.",
+          "$ref": "#/$defs/u32"
+        },
+        "error_behavior": {
+          "$ref": "#/$defs/error_behavior"
+        },
+        "restore_configuration": {
+          "description": "Sub-index of 0x1011 the master restores before configuring the node. Left out, none.",
+          "$ref": "#/$defs/u8"
+        },
+        "config_check": {
+          "description": "Skip the configuration download when the node's 0x1020 (configuration date and time) holds this configuration's stamp; after a download the master writes the stamp. Needs a writable 0x1020 sub 1 and 2 in the EDS. Default false.",
+          "type": "boolean"
+        },
+        "store_configuration": {
+          "description": "Sub-index of 0x1010 (1-127) the master writes \"save\" to after a download, so the node keeps its configuration in non-volatile memory. Needs config_check, so the node saves only when its configuration changed. Left out, the node is never told to save.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 127
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "lss": {
+          "description": "LSS (CiA 305): give the device this node's ID by its identity (EDS vendor ID and product code, serial_number, revision_number when set and not 0) at every master start, before any node boots. Absent = no LSS for this node.",
+          "type": "object",
+          "properties": {
+            "assign": {
+              "description": "Find the device by its LSS address and set its node ID to node_id when it differs. Needs serial_number and reset_communication true. Default false.",
+              "type": "boolean"
+            },
+            "store": {
+              "description": "After setting a new node ID, store it in the device's non-volatile memory (LSS store configuration). Never when the ID was already right. Needs assign. Default false.",
+              "type": "boolean"
+            }
+          }
+        },
+        "axis": {
+          "description": "The node is a CiA 402 drive used by the PLC program as one PLCopen axis (AXIS_REF_SM3 of the editor's built-in PLCopen SoftMotion library), named after the node. Its standard objects (0x6040, 0x6041, ...) are found in the node's PDO mapping; needs status_location. The plugin does nothing different on the bus. See docs/cia402.md.",
+          "type": "object",
+          "properties": {
+            "scale_numerator": {
+              "description": "Axis iRatioTechUnitsNum (DINT): increments per technical unit together with scale_denominator and scale_factor. Default 1.",
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "scale_denominator": {
+              "description": "Axis dwRatioTechUnitsDenom (DWORD). Default 1.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            },
+            "scale_factor": {
+              "description": "Axis fScalefactor (LREAL), not 0. Default 1.0.",
+              "type": "number",
+              "not": {
+                "const": 0
+              }
+            },
+            "cyclic": {
+              "description": "The program drives the axis in cyclic synchronous position (8), velocity (9) or torque (10) mode with the CO402_Cyclic* blocks. Needs \"sync_source\": \"plc_cycle\" with sync_cycles 1 and synchronous drive RPDOs; the plugin writes the interpolation time period 0x60C2. Default false. See docs/cia402.md.",
+              "type": "boolean"
+            },
+            "interpolation_period_us": {
+              "description": "With cyclic: the interpolation time period written to 0x60C2 instead of the SYNC period (the PLC base tick times sync_cycles). Must be a value of 1-255 times 1 ms, 100 us, 10 us or 1 us.",
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 255000
+            }
+          }
+        },
+        "software_file": {
+          "description": "Program file the master downloads to the node (0x1F50) when its software version (0x1F56) differs from software_version. Relative to the config folder.",
+          "type": "string",
+          "minLength": 1
+        },
+        "software_version": {
+          "description": "Expected program software version (0x1F56 sub-index 1). Needs software_file.",
+          "$ref": "#/$defs/u32"
+        },
+        "tx_pdos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tx_pdo"
+          }
+        },
+        "rx_pdos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/rx_pdo"
+          }
+        },
+        "sdo": {
+          "description": "Startup SDOs, written in list order after the PDO parameters and before NMT start.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdo"
+          }
+        },
+        "sdo_variables": {
+          "description": "Objects moved over SDO between the node and IEC locations while the network runs: read entries land in an input location, write entries come from an output location.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdo_variable"
+          }
+        },
+        "simulate": {
+          "description": "true: this node is a simulated device run by the plugin (docs/simulator.md). Default: true on a simulated network (adapter.simulate), false on a real one.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "node_id",
+        "eds"
+      ]
+    },
+    "pdo": {
+      "type": "object",
+      "dependentRequired": {
+        "on_timeout": [
+          "timeout_ms"
+        ],
+        "timeout_location": [
+          "timeout_ms"
+        ]
+      },
+      "properties": {
+        "number": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 512
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "cob_id": {
+          "description": "11-bit COB-ID, or \"auto\": the CiA 301 default for PDOs 1-4, a free COB-ID for higher PDOs.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 128,
+              "maximum": 2047
+            },
+            {
+              "const": "auto"
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "transmission": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 240
+            },
+            {
+              "type": "integer",
+              "minimum": 254,
+              "maximum": 255
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "event_timer_ms": {
+          "description": "Sub-index 5: on a TPDO the event timer, on an RPDO the node's deadline. Left out, the EDS value stays.",
+          "$ref": "#/$defs/u16"
+        },
+        "inhibit_time_us": {
+          "description": "TPDO only. Sub-index 3, in microseconds (a multiple of 100). Left out, the EDS value stays.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6553500,
+              "multipleOf": 100
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "mapping": {
+          "description": "Who sets the PDO's mapping: \"config\" (the master writes it from entries) or \"device\" (the node keeps its EDS default mapping; entries name the mapped objects the PLC uses). Left out: \"device\" when the EDS makes the mapping read-only, else \"config\".",
+          "enum": [
+            "config",
+            "device"
+          ]
+        },
+        "timeout_ms": {
+          "description": "TPDO only (tx_pdos). Receive timeout: the deadline of the master's own RPDO for this PDO, in milliseconds (1-65535), or \"auto\" for two times the PDO's event timer (event_timer_ms, else the EDS value; refused when that is 0). Left out, the PDO is not monitored.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            {
+              "const": "auto"
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "on_timeout": {
+          "description": "TPDO only, with timeout_ms. What the PDO's inputs show while it is timed out: \"hold\" (default, the last values) or \"zero\".",
+          "enum": [
+            "hold",
+            "zero"
+          ]
+        },
+        "timeout_location": {
+          "description": "TPDO only, with timeout_ms. An input bit (%IX...) that is TRUE while the PDO is timed out and its node is up.",
+          "type": "string",
+          "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$"
+        },
+        "sync_start": {
+          "description": "TPDO only, with a synchronous transmission type (1-240). Sub-index 6. Left out, the EDS value stays.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 240
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        }
+      }
+    },
+    "tx_pdo": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/pdo"
+        }
+      ],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/tx_entry"
+          }
+        }
+      },
+      "required": [
+        "entries"
+      ]
+    },
+    "rx_pdo": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/pdo"
+        }
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "inhibit_time_us"
+            ]
+          },
+          {
+            "required": [
+              "sync_start"
+            ]
+          },
+          {
+            "required": [
+              "timeout_ms"
+            ]
+          },
+          {
+            "required": [
+              "on_timeout"
+            ]
+          },
+          {
+            "required": [
+              "timeout_location"
+            ]
+          }
+        ]
+      },
+      "properties": {
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/rx_entry"
+          }
+        }
+      },
+      "required": [
+        "entries"
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "$ref": "#/$defs/index"
+        },
+        "subindex": {
+          "$ref": "#/$defs/subindex"
+        },
+        "type": {
+          "$ref": "#/$defs/co_type"
+        }
+      },
+      "required": [
+        "index",
+        "type",
+        "iec_location"
+      ]
+    },
+    "tx_entry": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/entry"
+        }
+      ],
+      "properties": {
+        "iec_location": {
+          "$ref": "#/$defs/input_location"
+        }
+      }
+    },
+    "rx_entry": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/entry"
+        }
+      ],
+      "properties": {
+        "iec_location": {
+          "$ref": "#/$defs/output_location"
+        }
+      }
+    },
+    "sdo": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "$ref": "#/$defs/index"
+        },
+        "subindex": {
+          "$ref": "#/$defs/subindex"
+        },
+        "type": {
+          "$ref": "#/$defs/co_type"
+        },
+        "value": {
+          "description": "A JSON number (true/false for BOOLEAN), or an integer as a decimal or 0x hex string. Must fit the type.",
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "^-?(0[xX][0-9a-fA-F]+|[0-9]+)$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "index",
+        "type",
+        "value"
+      ]
+    },
+    "uint_string": {
+      "description": "An unsigned integer written as a string, decimal or 0x hex (\"0x2001\", \"8193\"). Its range is checked by the plugin, not by this schema.",
+      "type": "string",
+      "pattern": "^(0[xX][0-9a-fA-F]+|[0-9]+)$"
+    },
+    "u8": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        {
+          "$ref": "#/$defs/uint_string"
+        }
+      ]
+    },
+    "u32": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        {
+          "$ref": "#/$defs/uint_string"
+        }
+      ]
+    },
+    "us100": {
+      "description": "Microseconds for a CiA object counted in 100 us: a multiple of 100, at most 6553500.",
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6553500,
+          "multipleOf": 100
+        },
+        {
+          "$ref": "#/$defs/uint_string"
+        }
+      ]
+    },
+    "input_byte": {
+      "type": "string",
+      "pattern": "^%[Ii][Bb][0-9]+$"
+    },
+    "error_behavior": {
+      "description": "Object 0x1029 (error behavior): sub-index (1-254, as a string key) to value (0 = pre-operational, 1 = no change, 2 = stopped, others manufacturer-specific).",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(0[xX][0-9a-fA-F]+|[0-9]+)$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/u8"
+      }
+    },
+    "sdo_variable": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "index": {
+          "$ref": "#/$defs/index"
+        },
+        "subindex": {
+          "$ref": "#/$defs/subindex"
+        },
+        "type": {
+          "$ref": "#/$defs/co_type"
+        },
+        "direction": {
+          "description": "read: device to an input location (after each boot, every period_ms, on each trigger edge). write: an output location to the device (without a trigger: after each boot and on change; with a trigger: on its rising edge).",
+          "enum": [
+            "read",
+            "write"
+          ]
+        },
+        "iec_location": {
+          "type": "string",
+          "pattern": "^%[IiQq]([Xx][0-9]+\\.[0-7]|[BbWwDdLl][0-9]+)$"
+        },
+        "period_ms": {
+          "description": "Read entries only: read again every period (10 ms or more) while the node is available.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 4294967295
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "trigger_location": {
+          "description": "An output bit (%QX...): each rising edge reads or writes the entry once.",
+          "type": "string",
+          "pattern": "^%[Qq][Xx][0-9]+\\.[0-7]$"
+        },
+        "status_location": {
+          "description": "An input byte (%IB...): 0 nothing yet, 1 busy, 2 done, 3 aborted, 4 node not available.",
+          "$ref": "#/$defs/input_byte"
+        },
+        "abort_code_location": {
+          "description": "An input double word (%ID...): CiA 301 abort code of the latest aborted transfer, 0 after a successful one.",
+          "type": "string",
+          "pattern": "^%[Ii][Dd][0-9]+$"
+        },
+        "timeout_ms": {
+          "description": "SDO timeout, 10-60000 ms. Default 1000.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 60000
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        }
+      },
+      "required": [
+        "index",
+        "type",
+        "direction",
+        "iec_location"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "direction": {
+                "const": "read"
+              }
+            },
+            "required": [
+              "direction"
+            ]
+          },
+          "then": {
+            "properties": {
+              "iec_location": {
+                "$ref": "#/$defs/input_location"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "direction": {
+                "const": "write"
+              }
+            },
+            "required": [
+              "direction"
+            ]
+          },
+          "then": {
+            "properties": {
+              "iec_location": {
+                "$ref": "#/$defs/output_location"
+              }
+            },
+            "not": {
+              "required": [
+                "period_ms"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

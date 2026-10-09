@@ -1,10 +1,10 @@
-# Deploying a program with CANopen: `openplc-canopen-deploy`
+# Deploying a program with CANopen: `canworks-deploy`
 
-A stock OpenPLC Runtime v4 enables a plugin when a program upload carries the plugin's config as `conf/<name>.json`, and disables it when an upload does not. That is how the editor ships EtherCAT. `openplc-canopen-deploy` uses the same rule for CANopen: it takes the program the editor built, adds `conf/canopen.json` and the EDS files, checks everything, and uploads it through the runtime's REST API. The runtime then switches the CANopen plugin on by its own rules. No runtime or editor file changes.
+A stock OpenPLC Runtime v4 enables a plugin when a program upload carries the plugin's config as `conf/<name>.json`, and disables it when an upload does not. That is how the editor ships EtherCAT. `canworks-deploy` uses the same rule for CANopen: it takes the program the editor built, adds `conf/canworks.json` and the EDS files, checks everything, and uploads it through the runtime's REST API. The runtime then switches the CANopen plugin on by its own rules. No runtime or editor file changes.
 
 The runtime needs the plugin installed once: see [install-stock.md](install-stock.md).
 
-> **Without the editor hook, the editor's own "Build and upload" switches CANopen off.** It sends no `conf/canopen.json`, so the runtime disables the plugin until you deploy with this tool again. The PLC program itself still runs. With the [editor hook](install-stock.md#the-editors-build-and-upload) installed on the runtime, put the config into the project once with `--into-project` and the editor's upload keeps CANopen on. After every deploy the tool prints which of the two applies, from the runtime's build log.
+> **Without the editor hook, the editor's own "Build and upload" switches CANopen off.** It sends no `conf/canworks.json`, so the runtime disables the plugin until you deploy with this tool again. The PLC program itself still runs. With the [editor hook](install-stock.md#the-editors-build-and-upload) installed on the runtime, put the config into the project once with `--into-project` and the editor's upload keeps CANopen on. After every deploy the tool prints which of the two applies, from the runtime's build log.
 
 ## Install (on the engineering PC)
 
@@ -18,7 +18,7 @@ No Python needed: install uv, then the release wheel with `uv tool install --pyt
 ```sh
 export OPENPLC_USER=openplc
 export OPENPLC_PASSWORD=...        # or leave it unset to be prompted
-openplc-canopen-deploy \
+canworks-deploy \
     --bundle "<project>/build/OpenPLC Runtime v4/src" \
     --config canopen_config.json \
     --runtime 192.168.1.20 \
@@ -30,7 +30,7 @@ Instead of `--bundle`, `--project <project>` runs `openplc-cli compile <project>
 The tool:
 
 1. reads the config and checks it the way the plugin does at PLC start: the JSON Schema for its `schema_version`, the checks the schema cannot express, and the EDS checks (object exists, PDO-mappable, `DataType`, `AccessType`, startup SDO value range). A problem stops the deploy, naming the file and JSON path, with the plugin's own wording for EDS problems;
-2. copies the bundle, adds `conf/canopen.json` and each EDS file as `conf/canopen/eds/<file>`, and rewrites each node's `eds` to `canopen/eds/<file>`, plus the simulation file and its files when there is one ([Simulated devices](#simulated-devices)). Every other file, including other plugins' configs such as `conf/ethercat.json`, stays byte for byte as the editor wrote it;
+2. copies the bundle, adds `conf/canworks.json` and each EDS file as `conf/canworks/eds/<file>`, and rewrites each node's `eds` to `canworks/eds/<file>`, plus the simulation file and its files when there is one ([Simulated devices](#simulated-devices)). Every other file, including other plugins' configs such as `conf/ethercat.json`, stays byte for byte as the editor wrote it;
 3. checks IEC addresses across every plugin config in `conf/*.json` (below);
 4. logs in (`POST /api/login`), uploads (`POST /api/upload-file`), follows `/api/compilation-status` and prints the runtime's build log;
 5. starts the PLC (`/api/start-plc`), which the runtime leaves stopped after an upload, and waits until `/api/status` reports it running. `--no-start` leaves it stopped.
@@ -43,39 +43,39 @@ Nothing is uploaded when a check fails.
 
 A config can simulate the network or some of its nodes (`adapter.simulate` and node `simulate`, see [simulator.md](simulator.md)), and a simulation file sets how the simulated devices behave.
 
-**The simulation file.** `simulation.json` next to the config is used when it exists; `--sim FILE` names another. Every mode except the DCF, DBC and HTML exports checks it after the config: the [simulation file schema](../schema/canopen-sim.v1.schema.json) and its `schema_version` (a newer one is refused, naming both versions), node keys that are neither configured nodes nor extra devices, objects that are not in the device's EDS (in sources, faults, scenario steps and conditions), value sources on objects the master writes (naming the RPDO, "startup SDO" or the SDO variable), extra devices (the EDS or DCF file exists, node 0 has a name, names are unique, node IDs are free), CSV files that do not exist, and every expression with the grammar of [Expressions](simulator.md#expressions), including reference cycles. A problem stops the deploy like a config problem, naming the file, the JSON path and, for an expression, the position in its text. The bundle gets:
+**The simulation file.** `simulation.json` next to the config is used when it exists; `--sim FILE` names another. Every mode except the DCF, DBC and HTML exports checks it after the config: the [simulation file schema](../schema/canworks-sim.v1.schema.json) and its `schema_version` (a newer one is refused, naming both versions), node keys that are neither configured nodes nor extra devices, objects that are not in the device's EDS (in sources, faults, scenario steps and conditions), value sources on objects the master writes (naming the RPDO, "startup SDO" or the SDO variable), extra devices (the EDS or DCF file exists, node 0 has a name, names are unique, node IDs are free), CSV files that do not exist, and every expression with the grammar of [Expressions](simulator.md#expressions), including reference cycles. A problem stops the deploy like a config problem, naming the file, the JSON path and, for an expression, the position in its text. The bundle gets:
 
 | File | In the bundle | Path in `simulation.json` |
 |---|---|---|
-| the simulation file | `conf/canopen/simulation.json` | |
-| an extra device's EDS or DCF | `conf/canopen/eds/<file>`, next to the node EDS files (converted to UTF-8 like them) | `eds/<file>` |
-| a CSV file of a value source | `conf/canopen/sim/<file>` | `sim/<file>` |
+| the simulation file | `conf/canworks/simulation.json` | |
+| an extra device's EDS or DCF | `conf/canworks/eds/<file>`, next to the node EDS files (converted to UTF-8 like them) | `eds/<file>` |
+| a CSV file of a value source | `conf/canworks/sim/<file>` | `sim/<file>` |
 
-Paths in the simulation file are relative to it, so the rewritten paths point into `conf/canopen/`. Two different files with the same name are refused; rename one. `--into-project` and `--new-project` write the simulation file as `canopen/simulation.json` and its EDS, DCF and CSV files next to it in the project's `canopen/` folder, each path in the file rewritten to the bare file name, as for node EDS files.
+Paths in the simulation file are relative to it, so the rewritten paths point into `conf/canworks/`. Two different files with the same name are refused; rename one. `--into-project` and `--new-project` write the simulation file as `canworks/simulation.json` and its EDS, DCF and CSV files next to it in the project's `canworks/` folder, each path in the file rewritten to the bare file name, as for node EDS files.
 
 **The question before uploading.** When the config simulates the network or any node, the tool says what is simulated before it uploads ("the network is simulated; no CAN interface is used", or "nodes 5, 7 are simulated devices on the real network can0") and asks whether to upload it. `--simulated` (or `--yes`) uploads without asking. Without a terminal to ask on and without either option, the tool stops before building the bundle and names the option that uploads it anyway. `--check-only`, `--into-project` and `--new-project` print the same as a warning. Outputs to a simulated device go nowhere, so never leave a machine's config simulated.
 
 ## Into an editor project
 
-To build the config in a browser instead of by hand, use [`openplc-canopen-config`](configurator.md); it writes the same folder.
+To build the config in a browser instead of by hand, use [`canworks-config`](configurator.md); it writes the same folder.
 
 On a runtime with the [editor hook](install-stock.md#the-editors-build-and-upload), the config can live in the editor project instead, so the editor's own **Build and upload** carries it:
 
 ```sh
-openplc-canopen-deploy --config config/rtd-sensor/canopen_config.json --into-project ~/Documents/workspace/rtd-monitor
+canworks-deploy --config config/rtd-sensor/canopen_config.json --into-project ~/Documents/workspace/rtd-monitor
 ```
 
-It runs the same checks as a deploy, then writes `canopen/canopen.json` (each node's `eds` relative to `canopen/`) and the EDS files into the project. EDS files are written as UTF-8 and one in CP1252/Latin-1 is converted, because the editor sends project files as UTF-8 text. An existing `canopen/` folder is replaced only with `--force`. Nothing is uploaded. A simulation file `canopen/simulation.json` in the project travels with the editor's upload too, and the editor hook checks it as this tool does.
+It runs the same checks as a deploy, then writes `canworks/canworks.json` (each node's `eds` relative to `canworks/`) and the EDS files into the project. EDS files are written as UTF-8 and one in CP1252/Latin-1 is converted, because the editor sends project files as UTF-8 text. An existing `canworks/` folder is replaced only with `--force`. Nothing is uploaded. A simulation file `canworks/simulation.json` in the project travels with the editor's upload too, and the editor hook checks it as this tool does.
 
 ## A new editor project from the config
 
 Starting without an editor project, `--new-project` creates one around the config:
 
 ```sh
-openplc-canopen-deploy --config config/rtd-sensor/canopen_config.json --new-project ~/Documents/workspace/rtd-monitor [--task-interval T#10ms]
+canworks-deploy --config config/rtd-sensor/canopen_config.json --new-project ~/Documents/workspace/rtd-monitor [--task-interval T#10ms]
 ```
 
-It runs the same checks as `--into-project`, then runs the editor's own `openplc-cli create` (so the project is in the editor's recent projects), sets the target to OpenPLC Runtime v4, writes the config into `canopen/` as `--into-project` does, and replaces `pous/programs/main.st` with a program `main` that declares every CANopen location the config uses, in the editor's own form:
+It runs the same checks as `--into-project`, then runs the editor's own `openplc-cli create` (so the project is in the editor's recent projects), sets the target to OpenPLC Runtime v4, writes the config into `canworks/` as `--into-project` does, and replaces `pous/programs/main.st` with a program `main` that declares every CANopen location the config uses, in the editor's own form:
 
 ```
 PROGRAM main
@@ -88,17 +88,17 @@ PROGRAM main
 
 Master diagnostics come first, then each node in config order: diagnostics, inputs, outputs and the NMT command byte. With [several networks](config.md#several-networks-schema_version-2) the networks follow each other in config order, every name starts with its network's name (`io_door_ok`, `drives_door_ok`) and every comment names the network. A [slave network](slave.md) comes last, and its names always start with the network's name: one variable per binding, named after its `name` or the object's EDS name (`line_speed_setpoint`), with the object's IEC type, and the status and EMCY locations (`line_state`, `line_comm_ok`, `line_sync_count`, `line_emcy`, `line_errreg`), inputs before outputs. Everything is in `main` because Editor 4.3.2 accepts located variables only in a program's VAR block; put your own logic in function blocks called from `main` if you want to split it. The task interval defaults to `T#20ms`.
 
-With `--sdo-blocks` the project also enables the `openplc_canopen` library (the SDO function blocks, [plc-sdo.md](plc-sdo.md)), and the library is installed into the editor on this PC if it is missing or older than the tools; if that cannot be done (the editor has never run here), the output says how to install it.
+With `--sdo-blocks` the project also enables the `canworks` library (the SDO function blocks, [plc-sdo.md](plc-sdo.md)), and the library is installed into the editor on this PC if it is missing or older than the tools; if that cannot be done (the editor has never run here), the output says how to install it.
 
 The project is written once: later config changes do not touch `main`. Declare new locations from the configurator's "not yet declared" block. An existing folder (even an empty one) is refused, and a failure after `openplc-cli create` removes the new folder. The command needs `openplc-cli` (the editor installs it on first run, or run `openplc-cli install-cli`; `$OPENPLC_CLI` names another program). Nothing is uploaded.
 
 ## The SDO block library
 
 ```sh
-openplc-canopen-deploy library --install              # into OpenPLC Editor on this PC
-openplc-canopen-deploy library --out DIR              # writes DIR/openplc_canopen.stlib
-openplc-canopen-deploy library --project <project>    # enables it in an editor project
-openplc-canopen-deploy library --list                 # the block names
+canworks-deploy library --install              # into OpenPLC Editor on this PC
+canworks-deploy library --out DIR              # writes DIR/canworks.stlib
+canworks-deploy library --project <project>    # enables it in an editor project
+canworks-deploy library --list                 # the block names
 ```
 
 The library's version is the tools' version. `--install` does what the editor's Library Manager does for "install from file" (restart the editor if it is open); `$OPENPLC_EDITOR_USER_DATA` names another editor settings folder. See [plc-sdo.md](plc-sdo.md).
@@ -106,7 +106,7 @@ The library's version is the tools' version. `--install` does what the editor's 
 ## Checking without a runtime
 
 ```sh
-openplc-canopen-deploy --bundle <dir> --config canopen_config.json --check-only --output program.zip
+canworks-deploy --bundle <dir> --config canopen_config.json --check-only --output program.zip
 ```
 
 runs every check and writes the zip that would be uploaded.
@@ -114,7 +114,7 @@ runs every check and writes the zip that would be uploaded.
 ## Export the nodes as DCF files
 
 ```sh
-openplc-canopen-deploy --config canopen_config.json --export-dcf dcf/
+canworks-deploy --config canopen_config.json --export-dcf dcf/
 ```
 
 writes one CiA 306 Device Configuration File per node, `dcf/node_<id>.dcf`, for inspection, comparing two configs, or another CANopen tool. Each file is the node's EDS with:
@@ -133,7 +133,7 @@ The values come from the same steps the plugin runs on the PLC (Lely's dcfgen, t
 ## Export the network as a DBC file
 
 ```sh
-openplc-canopen-deploy --config canopen_config.json --export-dbc bus.dbc [--dbc-sdo none|config|all]
+canworks-deploy --config canopen_config.json --export-dbc bus.dbc [--dbc-sdo none|config|all]
 ```
 
 writes the configured network as a DBC file, so CAN bus tools that do not read EDS files (SavvyCAN, Wireshark, python-can with cantools, PCAN-Explorer, BusMaster, CANalyzer) can decode the bus. It holds:
@@ -142,7 +142,7 @@ writes the configured network as a DBC file, so CAN bus tools that do not read E
 - each node's heartbeat (`NMT_State` with named states) and EMCY (`Error_Code`, `Error_Register`, `Manufacturer_Data`), the NMT command (`Command` with named commands, `Node_ID`) and, when the config has a SYNC period, SYNC;
 - comments naming each signal's object, type and PLC address, each PDO's transmission type, and a `GenMsgCycleTime` for synchronous PDOs (SYNC period times the transmission type).
 
-Signals are named after the object in the EDS: a plain object by its `ParameterName`, a sub-object by its parent's name and its own (`AI_Sensor_Type_Output_1`), without repeating the parent when the sub-object's name already starts with it. When `--config` is the `canopen/canopen.json` of an editor project, a signal whose PLC address has exactly one located variable in the project is named after that variable.
+Signals are named after the object in the EDS: a plain object by its `ParameterName`, a sub-object by its parent's name and its own (`AI_Sensor_Type_Output_1`), without repeating the parent when the sub-object's name already starts with it. When `--config` is the `canworks/canworks.json` of an editor project, a signal whose PLC address has exactly one located variable in the project is named after that variable.
 
 With several networks the tool writes one DBC per network next to the given file, `bus_io.dbc` and `bus_drives.dbc` for `--export-dbc bus.dbc`, each with only its own network's nodes, NMT and SYNC. `--network drives` writes only that network, to `bus.dbc`. Slave networks are left out, as for DCF files.
 
@@ -153,8 +153,8 @@ The tool runs the deploy checks first and writes nothing if they fail. A startup
 ## The slave EDS
 
 ```sh
-openplc-canopen-deploy slave-eds slave_eds.json -o canopen/openplc-slave.eds
-openplc-canopen-deploy slave-eds gateway_eds.json -o canopen/openplc-gateway.eds --gateway canopen/canopen.json --update-config
+canworks-deploy slave-eds slave_eds.json -o canworks/openplc-slave.eds
+canworks-deploy slave-eds gateway_eds.json -o canworks/openplc-gateway.eds --gateway canworks/canworks.json --update-config
 ```
 
 writes the EDS of a [slave network](slave.md) from a short JSON description (identity, heartbeat, layout and objects; every field in [slave.md](slave.md#the-eds)). It prints each object with its index, type and access, the number of RPDOs and TPDOs and the revision number. The file passes the plugin's EDS lint with `eds_lint: "all"`, and the same description always gives the same bytes. Put it next to the config and name it in `slave.eds`; the deploy tool bundles it like any EDS, and the other master's tool imports the same file.
@@ -166,10 +166,10 @@ An invalid description or gateway section stops it with the reason (the object a
 ## Export documentation of the network
 
 ```sh
-openplc-canopen-deploy --config canopen_config.json --export-html network.html [--network NAME] [--doc-title TEXT] [--doc-od used|all] [--doc-embed-eds] [--doc-cycle-ms MS]
+canworks-deploy --config canopen_config.json --export-html network.html [--network NAME] [--doc-title TEXT] [--doc-od used|all] [--doc-embed-eds] [--doc-cycle-ms MS]
 ```
 
-writes one self-contained HTML document of the configured networks for people: topology, master and bus settings, the COB-ID map with a bus load estimate, and per node its identity, settings, PDO layouts down to the PLC variables, every SDO write of its boot configuration and an object dictionary extract, plus a PLC I/O cross-reference. With several networks the one document has a section per network; `--network` limits it to one. When `--config` is the `canopen/canopen.json` of an editor project, PLC addresses show their located variables and the project's task interval is the PLC cycle. The tool runs the deploy checks first and writes nothing if they fail; nothing is built or uploaded. What the document holds, the bus load method and the options: [network-docs.md](network-docs.md). The configurator exports the same document ([configurator.md](configurator.md#export-documentation)).
+writes one self-contained HTML document of the configured networks for people: topology, master and bus settings, the COB-ID map with a bus load estimate, and per node its identity, settings, PDO layouts down to the PLC variables, every SDO write of its boot configuration and an object dictionary extract, plus a PLC I/O cross-reference. With several networks the one document has a section per network; `--network` limits it to one. When `--config` is the `canworks/canworks.json` of an editor project, PLC addresses show their located variables and the project's task interval is the PLC cycle. The tool runs the deploy checks first and writes nothing if they fail; nothing is built or uploaded. What the document holds, the bus load method and the options: [network-docs.md](network-docs.md). The configurator exports the same document ([configurator.md](configurator.md#export-documentation)).
 
 ## Address clashes with other plugins
 
@@ -181,13 +181,13 @@ Every string under a key named `iec_location` or `status_location` in any `conf/
 | outputs (`%Q`) | warning: both only read it |
 | memory (`%M`) | warning |
 
-Overlaps inside `canopen.json` are errors, as in the plugin.
+Overlaps inside `canworks.json` are errors, as in the plugin.
 
 An empty config, such as the zero-byte `conf/ethercat.json` the editor writes into every build, has no addresses and is skipped quietly. A config that is not valid JSON gets a warning that its addresses are not checked.
 
 ## The local simulator runtime
 
-`--runtime local` deploys to the [local simulator runtime](local-runtime.md) on this PC (`openplc-canopen-sim-runtime start`): the tool takes its address, user, password and certificate fingerprint from the saved `local-runtime.json`, so no `--fingerprint` or password is needed (`--user`, `$OPENPLC_PASSWORD` and the certificate options still win when given). Every network runs simulated there, so the tool says so and does not ask the [simulated-config question](#simulated-devices). Without a local runtime it stops with `no local runtime: run openplc-canopen-sim-runtime start first`.
+`--runtime local` deploys to the [local simulator runtime](local-runtime.md) on this PC (`canworks-sim-runtime start`): the tool takes its address, user, password and certificate fingerprint from the saved `local-runtime.json`, so no `--fingerprint` or password is needed (`--user`, `$OPENPLC_PASSWORD` and the certificate options still win when given). Every network runs simulated there, so the tool says so and does not ask the [simulated-config question](#simulated-devices). Without a local runtime it stops with `no local runtime: run canworks-sim-runtime start first`.
 
 ## The runtime's certificate
 

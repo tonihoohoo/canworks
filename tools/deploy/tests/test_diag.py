@@ -1,4 +1,4 @@
-"""openplc-canopen-diag and the diag client against a fake plugin."""
+"""canworks-diag and the diag client against a fake plugin."""
 
 import base64
 import io
@@ -11,7 +11,7 @@ import unittest
 from contextlib import redirect_stderr
 from unittest import mock
 
-from openplc_canopen_deploy import diag
+from canworks import diag
 
 from .fake_diag import SLAVE_NETWORK, TOKEN, TWO_NETWORKS, FakePlugin, closed_port, slave_status
 from .helpers import REPO
@@ -27,7 +27,7 @@ def run(*argv, env_token=TOKEN):
         try:
             code = diag.run(args, out)
         except diag.DiagError as e:
-            err.write("openplc-canopen-diag: %s\n" % e)
+            err.write("canworks-diag: %s\n" % e)
             code = 2 if e.kind == "usage" else 1
     return code, out.getvalue(), err.getvalue()
 
@@ -114,7 +114,7 @@ class Cli(unittest.TestCase):
         self.assertIn("node 23 TPDO 2: receiving (timeout 200 ms, 0 timeouts, last PDO never)", out)
 
     def test_format_sync(self):
-        from openplc_canopen_deploy.diag import format_sync
+        from canworks.diag import format_sync
         self.assertIsNone(format_sync(None))
         self.assertEqual(format_sync({"source": "none", "count": 0}), "SYNC: off")
         self.assertEqual(format_sync({"source": "timer", "period_us": 20000, "count": 1, "skipped": 0,
@@ -442,7 +442,7 @@ class SlaveNetworks(unittest.TestCase):
 
 
 def documented_commands():
-    """Every openplc-canopen-diag command line in the docs' code blocks, as
+    """Every canworks-diag command line in the docs' code blocks, as
     argument lists ([optional] parts included)."""
     out = []
     for name in ("diagnostics.md", "trace.md"):
@@ -451,7 +451,7 @@ def documented_commands():
         for block in text.split("```")[1::2]:
             for line in block.splitlines():
                 line = line.strip()
-                if line.startswith("openplc-canopen-diag "):
+                if line.startswith("canworks-diag "):
                     argv = shlex.split(line.replace("[", "").replace("]", ""), comments=True)
                     out.append((name, argv[1:]))
     return out

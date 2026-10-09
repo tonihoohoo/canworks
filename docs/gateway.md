@@ -8,7 +8,7 @@ A gateway is one config with a [slave network](slave.md) (the upper network, run
 
 1. Set up the field network as usual, with its nodes and PDO entries. An RPDO entry that only a route writes needs no `iec_location`.
 2. Add a slave network for the upper side and a `gateway` section with `upper` naming it and one route per value.
-3. Generate the upper network's EDS with the gateway objects: `openplc-canopen-deploy slave-eds description.json -o gateway.eds --gateway canopen_config.json --update-config` ([deploy.md](deploy.md#the-slave-eds)), or **Build the EDS** with **With the gateway objects** ticked in the configurator. The generator adds a slave object per route, the status ARRAYs and the SDO bridge record, and `--update-config` (the configurator always) writes each route's slave object into the config.
+3. Generate the upper network's EDS with the gateway objects: `canworks-deploy slave-eds description.json -o gateway.eds --gateway canopen_config.json --update-config` ([deploy.md](deploy.md#the-slave-eds)), or **Build the EDS** with **With the gateway objects** ticked in the configurator. The generator adds a slave object per route, the status ARRAYs and the SDO bridge record, and `--update-config` (the configurator always) writes each route's slave object into the config.
 4. Deploy, and import the EDS into the upper master's tool.
 
 ## The `gateway` section
@@ -97,4 +97,4 @@ On top of the [slave network checks](slave.md#direction), a gateway is rejected 
 
 ## Diagnostics
 
-The slave network's status in the diagnostics channel ([slave.md](slave.md#diagnostics)) has a `gateway` part: the number of routes, whether the upper master is there (`upper_ok`) and how many forwarded field errors are active. The configurator's **Online** view shows it on the upper network ([configurator.md](configurator.md#online-view)), and `openplc-canopen-diag status` prints it.
+The slave network's status in the diagnostics channel ([slave.md](slave.md#diagnostics)) has a `gateway` part: the number of routes, whether the upper master is there (`upper_ok`) and how many forwarded field errors are active. The configurator's **Online** view shows it on the upper network ([configurator.md](configurator.md#online-view)), and `canworks-diag status` prints it.

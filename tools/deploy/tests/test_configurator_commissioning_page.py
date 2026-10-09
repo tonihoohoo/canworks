@@ -11,9 +11,9 @@ import time
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy.localbus import adapter as adapter_mod
-from openplc_canopen_deploy.localbus import parse
-from openplc_canopen_deploy.localbus import sweep as sweep_mod
+from canworks.localbus import adapter as adapter_mod
+from canworks.localbus import parse
+from canworks.localbus import sweep as sweep_mod
 
 from .helpers import PINGPONG
 from .test_commissioning import FIXED_IO, IDENTITY, RTD, fixed_io_od, rtd_od
@@ -28,7 +28,7 @@ class Page(_Page):
 
     def setUp(self):
         super().setUp()
-        canopen = os.path.join(self.project, "canopen")
+        canopen = os.path.join(self.project, "canworks")
         shutil.copy(FIXED_IO, canopen)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), canopen)
         rtd = load(os.path.join(RTD, "canopen_config.json"))["nodes"][0]
@@ -184,7 +184,7 @@ class StepsPage(Page):
         folder = os.path.join(self.dir, "bench")
         os.makedirs(folder)
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), folder)
-        with open(os.path.join(folder, "canopen.json"), "w") as f:
+        with open(os.path.join(folder, "canworks.json"), "w") as f:
             json.dump(load(os.path.join(PINGPONG, "canopen_config.json")), f)
         pg.goto(self.server.url)
         pg.click("#start-commission")

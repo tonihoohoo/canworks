@@ -21,7 +21,7 @@ import json
 import math
 import os
 
-from openplc_canopen_deploy import machine as machine_mod
+from canworks import machine as machine_mod
 
 STATUS_ENABLED = 0x0237
 STATUS_FAULT = 0x0218
@@ -56,7 +56,7 @@ class FakeMachine:
     def example(cls, **kw):
         """The gantry-cell example's machine (examples/gantry-cell)."""
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "examples", "gantry-cell",
-                            "canopen", "machine.json")
+                            "canworks", "machine.json")
         with open(path, encoding="utf-8") as f:
             return cls(json.load(f), **kw)
 

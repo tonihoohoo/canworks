@@ -44,7 +44,7 @@ JSON
 export CANOPEN_STATE_DIR="$WORK/state"
 
 RC=0
-"$BUILD/test/canopen_host" "$BUILD/plugins/libcanopen_plugin.so" "$WORK/canopen_config.json" "$SECONDS_RUN" slave \
+"$BUILD/test/canopen_host" "$BUILD/plugins/libcanworks_plugin.so" "$WORK/canopen_config.json" "$SECONDS_RUN" slave \
     2> "$WORK/host.log" || RC=1
 grep -E "\[CANOPEN\]" "$WORK/host.log" | head -30
 for line in "line: .*opened simulated bus sim0, starting the CANopen slave (node ID 10)" \

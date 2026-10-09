@@ -1,16 +1,16 @@
 # canopen-editor-project Specification
 
 ## Purpose
-An OpenPLC Editor project created from a CANopen config: made with the editor's own `openplc-cli create`, targeting OpenPLC Runtime v4, with the config in its `canopen/` folder and every CANopen location declared in the program `main`.
+An OpenPLC Editor project created from a CANopen config: made with the editor's own `openplc-cli create`, targeting OpenPLC Runtime v4, with the config in its `canworks/` folder and every CANopen location declared in the program `main`.
 
 ## Requirements
 
 ### Requirement: Project files
-Creating an editor project from a CANopen config SHALL create the project with the installed editor's own New Project command (`openplc-cli create`, Structured Text), so its files and the editor's project history are the editor's own, and SHALL then change only the device configuration's target, `pous/programs/main.st`, the `canopen/` folder and, when the SDO blocks are asked for, the project's list of enabled libraries. The project name SHALL be the folder name. Without a working `openplc-cli` creation SHALL be refused, saying how to install it, and nothing SHALL be written.
+Creating an editor project from a CANopen config SHALL create the project with the installed editor's own New Project command (`openplc-cli create`, Structured Text), so its files and the editor's project history are the editor's own, and SHALL then change only the device configuration's target, `pous/programs/main.st`, the `canworks/` folder and, when the SDO blocks are asked for, the project's list of enabled libraries. The project name SHALL be the folder name. Without a working `openplc-cli` creation SHALL be refused, saying how to install it, and nothing SHALL be written.
 
 #### Scenario: Files written
 - **WHEN** a project is created at `~/workspace/rtd-monitor` from the RTD sensor config
-- **THEN** that folder holds what `openplc-cli create rtd-monitor --path ~/workspace` writes, plus `canopen/`, with `main.st` and the target replaced, and `project.json` names the project `rtd-monitor`
+- **THEN** that folder holds what `openplc-cli create rtd-monitor --path ~/workspace` writes, plus `canworks/`, with `main.st` and the target replaced, and `project.json` names the project `rtd-monitor`
 
 #### Scenario: Editor CLI missing
 - **WHEN** `openplc-cli` is not on PATH and `$OPENPLC_CLI` is not set
@@ -36,18 +36,18 @@ The project SHALL target `OpenPLC Runtime v4` and SHALL have one cyclic task `ta
 - **THEN** creation is refused naming the interval and nothing is written
 
 ### Requirement: CANopen config in the project
-The project SHALL get the config and its EDS and program files in its `canopen/` folder exactly as moving a standalone config into a project writes them, and creation SHALL be refused when the config does not pass the checks moving it would run.
+The project SHALL get the config and its EDS and program files in its `canworks/` folder exactly as moving a standalone config into a project writes them, and creation SHALL be refused when the config does not pass the checks moving it would run.
 
 #### Scenario: Config copied
 - **WHEN** a project is created from a config with node 5 using `rtd8.eds`
-- **THEN** the project's `canopen/` holds `canopen.json` and `rtd8.eds`, as "move into project" would write them
+- **THEN** the project's `canworks/` holds `canworks.json` and `rtd8.eds`, as "move into project" would write them
 
 #### Scenario: Invalid config
 - **WHEN** the config has an error
 - **THEN** creation is refused with that error and no project folder is created
 
 ### Requirement: CANopen I/O declared in main
-The program `main` SHALL declare, in one `VAR` block, a located variable for every location the config uses: mapped PDO entries, master and node diagnostic inputs, NMT command bytes and SDO variable locations, with the names and IEC types of the configurator's located variable declarations. Declarations SHALL use the editor's own form `name : TYPE AT location;`. For every axis node `main` SHALL also declare the axis, named after the node, of the library's axis type, and one drive bridge instance named `<node>_bridge`. The program body SHALL hold a comment saying the block came from `canopen/canopen.json`; when the config has axis nodes, the body SHALL start with generated lines that, for each axis in config order, set the axis's three scaling fields from the config, for a cyclic axis also its `fCycleTime` from the project's task interval in seconds, and call its bridge with the axis, the node's mapped standard objects (only those mapped) and its status bit, and say they must stay first. Entries without a location SHALL be left out.
+The program `main` SHALL declare, in one `VAR` block, a located variable for every location the config uses: mapped PDO entries, master and node diagnostic inputs, NMT command bytes and SDO variable locations, with the names and IEC types of the configurator's located variable declarations. Declarations SHALL use the editor's own form `name : TYPE AT location;`. For every axis node `main` SHALL also declare the axis, named after the node, of the library's axis type, and one drive bridge instance named `<node>_bridge`. The program body SHALL hold a comment saying the block came from `canworks/canworks.json`; when the config has axis nodes, the body SHALL start with generated lines that, for each axis in config order, set the axis's three scaling fields from the config, for a cyclic axis also its `fCycleTime` from the project's task interval in seconds, and call its bridge with the axis, the node's mapped standard objects (only those mapped) and its status bit, and say they must stay first. Entries without a location SHALL be left out.
 
 #### Scenario: RTD sensor
 - **WHEN** a project is created from a config whose node `rtd` maps four INTEGER16 inputs at `%IW100` to `%IW103` and has status bit `%IX10.0`
@@ -88,15 +88,15 @@ Creating a project SHALL be refused when the target folder already exists, and S
 - **THEN** creation is refused naming the folder and nothing in it changes
 
 #### Scenario: Failure after create
-- **WHEN** writing `canopen/` fails after `openplc-cli create` succeeded
+- **WHEN** writing `canworks/` fails after `openplc-cli create` succeeded
 - **THEN** the new project folder is removed and the error is shown
 
 ### Requirement: SDO blocks in a new project
-Creating a project with the SDO blocks option (`--sdo-blocks`) SHALL enable the library `openplc_canopen` in the project, in the form the editor itself writes when the user enables a library, so the project's library tree shows the `CO_SDO_*` blocks. Without the option the project SHALL enable no library. When the editor on the same computer has no `openplc_canopen` library, or an older version, creation SHALL install the tools' version into it as `openplc-canopen-deploy library --install` does. When that is not possible (the editor has not run on this computer), creation SHALL still succeed and SHALL say how to install the library.
+Creating a project with the SDO blocks option (`--sdo-blocks`) SHALL enable the library `canworks` in the project, in the form the editor itself writes when the user enables a library, so the project's library tree shows the `CO_SDO_*` blocks. Without the option the project SHALL enable no library. When the editor on the same computer has no `canworks` library, or an older version, creation SHALL install the tools' version into it as `canworks-deploy library --install` does. When that is not possible (the editor has not run on this computer), creation SHALL still succeed and SHALL say how to install the library.
 
 #### Scenario: Option given
 - **WHEN** a project is created with `--sdo-blocks` and the library is installed in the editor
-- **THEN** opening the project in OpenPLC Editor 4.3.2 shows `openplc_canopen` enabled with its eight blocks, and Build only succeeds
+- **THEN** opening the project in OpenPLC Editor 4.3.2 shows `canworks` enabled with its eight blocks, and Build only succeeds
 
 #### Scenario: Library not installed yet
 - **WHEN** a project is created with `--sdo-blocks` on a PC whose editor does not have the library

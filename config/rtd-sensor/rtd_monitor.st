@@ -3,7 +3,7 @@
    (0x6132 "decimal digits" = 1), so 215 means 21.5 degC.
 
    Paste into a Structured Text POU in the OpenPLC editor (target OpenPLC
-   Runtime v4), Build only, then deploy with openplc-canopen-deploy and
+   Runtime v4), Build only, then deploy with canworks-deploy and
    config/rtd-sensor/canopen_config.json. *)
 PROGRAM rtd_monitor
   VAR

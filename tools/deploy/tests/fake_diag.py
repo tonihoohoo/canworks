@@ -27,7 +27,7 @@ import socket
 import socketserver
 import threading
 
-from openplc_canopen_deploy import diag
+from canworks import diag
 
 from . import fake_tls
 
@@ -228,7 +228,7 @@ class FakePlugin:
                 if self.mode != "tls":
                     if self.mode == "plain":
                         self._send({"ok": False,
-                                    "error": "this runtime needs an encrypted connection; update openplc-canopen-diag"})
+                                    "error": "this runtime needs an encrypted connection; update canworks-diag"})
                     return
                 login = fake_tls.Login(fake.token)
                 authed = False

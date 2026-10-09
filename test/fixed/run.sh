@@ -7,7 +7,7 @@
 # test/fixtures/eds/fixed-io.eds: its PDO mappings, PDO COB-IDs and
 # transmission types are read-only, so Lely's SDO server aborts any write to
 # them, as a real fixed-mapping device does. Input 0x6000:2 moves through
-# 10-50. Then loads the real libcanopen_plugin.so through canopen_host with
+# 10-50. Then loads the real libcanworks_plugin.so through canopen_host with
 # the `fixed` program, which uses only 0x6000:2 of TPDO 1 (%IB40) and only
 # 0x6200:1 of RPDO 1 (%QB40 := %IB40). Passes (exit 0) when the node status
 # bit %IX10.0 is TRUE and %IB40 follows the module, the plugin logs no SDO
@@ -37,7 +37,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/sensor_slave"
 CHECK="$BUILD/canopen_check"

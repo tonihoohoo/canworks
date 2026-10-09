@@ -6,7 +6,7 @@ OpenPLC as the master of a field network and a slave on an upper network in one 
 |---|---|
 | `cpp-slave.eds` | The field node: the Lely tutorial ping-pong slave, as in `config/pingpong`. |
 | `gateway_eds.json` | The description of the gateway's own objects (one bit the program writes). |
-| `openplc-gateway.eds` | The gateway's EDS on the upper network, written by `openplc-canopen-deploy slave-eds config/gateway/gateway_eds.json -o config/gateway/openplc-gateway.eds --gateway config/gateway/canopen_config.json`: the description's object, a slave object per route, the field node status and the SDO bridge record. |
+| `openplc-gateway.eds` | The gateway's EDS on the upper network, written by `canworks-deploy slave-eds config/gateway/gateway_eds.json -o config/gateway/openplc-gateway.eds --gateway config/gateway/canopen_config.json`: the description's object, a slave object per route, the field node status and the SDO bridge record. |
 | `canopen_config.json` | Network `field` (master, `vcan0`, node 2) and network `upper` (slave, `vcan1`, node ID 20), and the gateway section. |
 
 ## Routes

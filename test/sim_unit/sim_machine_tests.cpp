@@ -266,10 +266,10 @@ TEST(machine_sim_file_section) {
       { "expect": { "machine": "placed", "ge": 9 }, "within_ms": 60000 } ] } } } } })";
   SimFile f, sec;
   std::vector<std::string> errors;
-  CHECK(parse_sim_file(sim, "/p/canopen/simulation.json", f, errors));
+  CHECK(parse_sim_file(sim, "/p/canworks/simulation.json", f, errors));
   for (const auto& e : errors) std::printf("  %s\n", e.c_str());
   CHECK(sim_file_section(f, "motion", sec));
-  CHECK(sec.machine == "machine.json" && sec.machine_path == "/p/canopen/machine.json");
+  CHECK(sec.machine == "machine.json" && sec.machine_path == "/p/canworks/machine.json");
   CHECK(sec.scenarios.size() == 1 && sec.scenarios[0].steps.size() == 3);
   CHECK(sec.scenarios[0].steps[0].machine == "z" && sec.scenarios[0].steps[0].machine_fault == "{\"jam\":true}");
   CHECK(sec.scenarios[0].steps[2].cond.machine == "placed" && sec.scenarios[0].steps[2].cond.op == "ge");

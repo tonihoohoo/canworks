@@ -9,7 +9,7 @@ configuration date and time (0x1020), a TIME consumer entry (0x1012) and LSS.
 Two manufacturer objects give the guide something to read and write over SDO.
 Its vendor ID is not one CiA assigns.
 
-    python3 examples/virtual-plant/make_dio16_eds.py > examples/virtual-plant/canopen/dio16.eds
+    python3 examples/virtual-plant/make_dio16_eds.py > examples/virtual-plant/canworks/dio16.eds
 """
 
 U8, U16, U32, I16, BOOL, VSTR = 0x0005, 0x0006, 0x0007, 0x0003, 0x0001, 0x0009
@@ -68,16 +68,16 @@ w("FileName=dio16.eds")
 w("FileVersion=1")
 w("FileRevision=1")
 w("EDSVersion=4.0")
-w("Description=Made-up 16-channel digital and 2-channel analogue I/O module (CiA 401) for the openplc-canopen example")
+w("Description=Made-up 16-channel digital and 2-channel analogue I/O module (CiA 401) for the canworks example")
 w("CreationTime=12:00PM")
 w("CreationDate=10-07-2026")
-w("CreatedBy=openplc-canopen")
+w("CreatedBy=canworks")
 w("ModificationTime=12:00PM")
 w("ModificationDate=10-07-2026")
-w("ModifiedBy=openplc-canopen")
+w("ModifiedBy=canworks")
 w()
 w("[DeviceInfo]")
-w("VendorName=openplc-canopen test devices")
+w("VendorName=canworks test devices")
 w("VendorNumber=0x%08X" % VENDOR_ID)
 w("ProductName=DIO-16 I/O module")
 w("ProductNumber=0x%08X" % PRODUCT_CODE)

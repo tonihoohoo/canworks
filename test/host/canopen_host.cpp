@@ -1,8 +1,8 @@
-// canopen_host.cpp - loads libcanopen_plugin.so the way the OpenPLC runtime
+// canopen_host.cpp - loads libcanworks_plugin.so the way the OpenPLC runtime
 // does and drives it with a stand-in PLC scan, so the real plugin can be run
 // against a real SocketCAN bus without a compiled PLC program.
 //
-//   canopen_host <libcanopen_plugin.so> <canopen_config.json> [seconds] [pingpong|rtd|bus|fixed|two]
+//   canopen_host <libcanworks_plugin.so> <canopen_config.json> [seconds] [pingpong|rtd|bus|fixed|two]
 //
 // The scan runs every 10 ms. Once a second it prints the inputs and the node
 // status bit %IX10.0.
@@ -75,7 +75,7 @@ F sym(void* h, const char* name) {
 
 int main(int argc, char** argv) {
   if (argc < 3) {
-    std::fprintf(stderr, "usage: %s <libcanopen_plugin.so> <canopen_config.json> [seconds] [pingpong|rtd|bus|fixed|two|slave]\n",
+    std::fprintf(stderr, "usage: %s <libcanworks_plugin.so> <canopen_config.json> [seconds] [pingpong|rtd|bus|fixed|two|slave]\n",
                  argv[0]);
     return 2;
   }

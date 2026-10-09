@@ -3,16 +3,16 @@ FileName=dio16.eds
 FileVersion=1
 FileRevision=1
 EDSVersion=4.0
-Description=Made-up 16-channel digital and 2-channel analogue I/O module (CiA 401) for the openplc-canopen example
+Description=Made-up 16-channel digital and 2-channel analogue I/O module (CiA 401) for the canworks example
 CreationTime=12:00PM
 CreationDate=10-07-2026
-CreatedBy=openplc-canopen
+CreatedBy=canworks
 ModificationTime=12:00PM
 ModificationDate=10-07-2026
-ModifiedBy=openplc-canopen
+ModifiedBy=canworks
 
 [DeviceInfo]
-VendorName=openplc-canopen test devices
+VendorName=canworks test devices
 VendorNumber=0x00F0F0F0
 ProductName=DIO-16 I/O module
 ProductNumber=0x00000401

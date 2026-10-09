@@ -2,7 +2,7 @@ name: Local simulator runtime
 
 # The image of the local simulator runtime (canopen-local-runtime,
 # docker/local-runtime/Dockerfile) built from the pinned upstream runtime
-# image, and openplc-canopen-sim-runtime run against it with a real PLC program
+# image, and canworks-sim-runtime run against it with a real PLC program
 # (test/local-runtime/run.sh), then the virtual example on it
 # (test/virtual-example/run.sh, docs/tour.md). Pull requests run it when they
 # touch what goes into the image, the command or the example; it also runs
@@ -18,9 +18,9 @@ on:
       - "scripts/install-stock.sh"
       - "scripts/build-lely.sh"
       - "tools/editor-hook/**"
-      - "tools/deploy/openplc_canopen_deploy/localruntime.py"
-      - "tools/deploy/openplc_canopen_deploy/cli.py"
-      - "tools/deploy/openplc_canopen_deploy/diag.py"
+      - "tools/deploy/canworks/localruntime.py"
+      - "tools/deploy/canworks/cli.py"
+      - "tools/deploy/canworks/diag.py"
       - "test/local-runtime/**"
       - "examples/**"
       - "test/virtual-example/**"
@@ -48,8 +48,8 @@ jobs:
           runtime=$(cat docker/local-runtime/runtime-version)
           docker build -f docker/local-runtime/Dockerfile \
             --build-arg RUNTIME_IMAGE="ghcr.io/autonomy-logic/openplc-runtime:$runtime" \
-            --build-arg TOOLS_VERSION=ci -t openplc-canopen-sim-runtime:ci .
-          size=$(docker image inspect openplc-canopen-sim-runtime:ci --format '{{.Size}}')
+            --build-arg TOOLS_VERSION=ci -t canworks-sim-runtime:ci .
+          size=$(docker image inspect canworks-sim-runtime:ci --format '{{.Size}}')
           echo "image size: $((size / 1000000)) MB"
           if [ "$size" -gt 1600000000 ]; then echo "::warning::the image is $((size / 1000000)) MB"; fi
 
@@ -67,20 +67,20 @@ jobs:
       - name: Cache STruC++
         uses: actions/cache@v4
         with:
-          path: ~/.cache/openplc-canopen/strucpp
+          path: ~/.cache/canworks/strucpp
           key: strucpp-${{ runner.os }}-${{ hashFiles('scripts/fetch-strucpp.sh') }}
 
       - name: Fetch STruC++ (compiles the test's PLC program)
         id: strucpp
         run: echo "cli=$(scripts/fetch-strucpp.sh)" >> "$GITHUB_OUTPUT"
 
-      - name: openplc-canopen-sim-runtime with the image and a PLC program
-        run: test/local-runtime/run.sh --image openplc-canopen-sim-runtime:ci --strucpp "${{ steps.strucpp.outputs.cli }}"
+      - name: canworks-sim-runtime with the image and a PLC program
+        run: test/local-runtime/run.sh --image canworks-sim-runtime:ci --strucpp "${{ steps.strucpp.outputs.cli }}"
 
       - name: The virtual example on the image (the tour's command-line steps and its test scenarios)
         env:
           JUNIT_DIR: ${{ runner.temp }}/junit
-        run: test/virtual-example/run.sh --image openplc-canopen-sim-runtime:ci --strucpp "${{ steps.strucpp.outputs.cli }}"
+        run: test/virtual-example/run.sh --image canworks-sim-runtime:ci --strucpp "${{ steps.strucpp.outputs.cli }}"
 
       - name: Scenario reports
         if: always()
@@ -101,7 +101,7 @@ jobs:
           runtime=$(cat docker/local-runtime/runtime-version)
           docker build -f docker/local-runtime/Dockerfile \
             --build-arg RUNTIME_IMAGE="ghcr.io/autonomy-logic/openplc-runtime:$runtime" \
-            --build-arg TOOLS_VERSION=ci -t openplc-canopen-sim-runtime:ci .
-          docker run --rm --entrypoint ldd openplc-canopen-sim-runtime:ci /opt/openplc-canopen/lib/libcanopen_plugin.so |
+            --build-arg TOOLS_VERSION=ci -t canworks-sim-runtime:ci .
+          docker run --rm --entrypoint ldd canworks-sim-runtime:ci /opt/canworks/lib/libcanworks_plugin.so |
             tee ldd.txt
           ! grep -q "not found" ldd.txt

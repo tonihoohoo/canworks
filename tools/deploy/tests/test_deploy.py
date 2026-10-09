@@ -8,8 +8,8 @@ import os
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy import cli, clash, runtime
-from openplc_canopen_deploy.iec import parse_location
+from canworks import cli, clash, runtime
+from canworks.iec import parse_location
 
 from .helpers import (StubRuntime, editor_bundle, fake_editor_cli, make_cert, pingpong_config, python_program, tmpdir,
                       zip_contents)
@@ -56,12 +56,12 @@ class Bundle(unittest.TestCase):
                 with open(path, "rb") as f:
                     self.assertEqual(files[rel], f.read(), rel)
         with open(os.path.join(self.dir, "cpp-slave.eds"), "rb") as f:
-            self.assertEqual(files["conf/canopen/eds/cpp-slave.eds"], f.read())
-        deployed = json.loads(files["conf/canopen.json"])
-        self.assertEqual(deployed["nodes"][0]["eds"], "canopen/eds/cpp-slave.eds")
+            self.assertEqual(files["conf/canworks/eds/cpp-slave.eds"], f.read())
+        deployed = json.loads(files["conf/canworks.json"])
+        self.assertEqual(deployed["nodes"][0]["eds"], "canworks/eds/cpp-slave.eds")
         with open(self.config, encoding="utf-8") as f:
             original = json.load(f)
-        original["nodes"][0]["eds"] = "canopen/eds/cpp-slave.eds"
+        original["nodes"][0]["eds"] = "canworks/eds/cpp-slave.eds"
         self.assertEqual(deployed, original)
         self.assertEqual(len(files), 10)
         self.assertNotIn("Note:", out)  # the editor warning follows an upload
@@ -76,7 +76,7 @@ class Bundle(unittest.TestCase):
             original = f.read()
         code, out, err = deploy("--bundle", self.src, "--config", self.config, "--check-only", "--output", self.zip)
         self.assertEqual(code, 0, err)
-        shipped = zip_contents(self.zip)["conf/canopen/eds/cpp-slave.eds"]
+        shipped = zip_contents(self.zip)["conf/canworks/eds/cpp-slave.eds"]
         self.assertEqual(shipped, original.decode("cp1252").encode("utf-8"))
         self.assertIn("Line1=Range 0-100 \u201dC", shipped.decode("utf-8"))
         with open(eds, "rb") as f:
@@ -96,8 +96,8 @@ class Bundle(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("and 1 program file", out)
         files = zip_contents(self.zip)
-        self.assertEqual(files["conf/canopen/fw/node2.bin"], b"\x02\x00\x00\x00\xff\xfe firmware")
-        self.assertEqual(json.loads(files["conf/canopen.json"])["nodes"][0]["software_file"], "canopen/fw/node2.bin")
+        self.assertEqual(files["conf/canworks/fw/node2.bin"], b"\x02\x00\x00\x00\xff\xfe firmware")
+        self.assertEqual(json.loads(files["conf/canworks.json"])["nodes"][0]["software_file"], "canworks/fw/node2.bin")
 
     def test_program_file_missing(self):
         with open(self.config, encoding="utf-8") as f:
@@ -162,7 +162,7 @@ class Bundle(unittest.TestCase):
         code, out, err = deploy("--project", project, "--config", self.config, "--check-only", "--output", self.zip,
                                 env={"OPENPLC_CLI": fake})
         self.assertEqual(code, 0, err)
-        self.assertIn("conf/canopen.json", zip_contents(self.zip))
+        self.assertIn("conf/canworks.json", zip_contents(self.zip))
         # A relative project path reaches openplc-cli as an absolute one.
         os.makedirs(os.path.join(self.dir, "relative"))
         cwd = os.getcwd()
@@ -206,7 +206,7 @@ class NewProject(unittest.TestCase):
             self.assertIn("--time=T#10ms", json.load(f))
         with open(os.path.join(self.target, "pous", "programs", "main.st")) as f:
             self.assertIn(" : UDINT AT %ID100;", f.read())
-        self.assertTrue(os.path.isfile(os.path.join(self.target, "canopen", "canopen.json")))
+        self.assertTrue(os.path.isfile(os.path.join(self.target, "canworks", "canworks.json")))
 
     def test_existing_folder(self):
         os.makedirs(self.target)
@@ -244,21 +244,21 @@ class Clashes(unittest.TestCase):
 
     def test_input_clash_with_ethercat(self):
         ethercat = {"slaves": [{"channels": [{"iec_location": "%ID100"}]}]}
-        errors, _ = clash.check(self.uses({"ethercat.json": ethercat, "canopen.json": self.canopen()}))
+        errors, _ = clash.check(self.uses({"ethercat.json": ethercat, "canworks.json": self.canopen()}))
         self.assertEqual(len(errors), 1)
         for part in ("conf/ethercat.json slaves[0].channels[0].iec_location",
-                     "conf/canopen.json nodes[0].tx_pdos[0].entries[0].iec_location", "both write %ID100"):
+                     "conf/canworks.json nodes[0].tx_pdos[0].entries[0].iec_location", "both write %ID100"):
             self.assertIn(part, errors[0])
 
     def test_different_sizes_are_different_tables(self):
         # %IW100 (int_input[100]) and %ID100 (dint_input[100]) are separate variables.
         ethercat = {"slaves": [{"channels": [{"iec_location": "%IW100"}]}]}
-        self.assertEqual(clash.check(self.uses({"ethercat.json": ethercat, "canopen.json": self.canopen()})),
+        self.assertEqual(clash.check(self.uses({"ethercat.json": ethercat, "canworks.json": self.canopen()})),
                          ([], []))
 
     def test_output_shared_with_modbus_master(self):
         modbus = {"devices": [{"points": [{"iec_location": "%QD99", "len": 2}]}]}
-        errors, warnings = clash.check(self.uses({"modbus_master.json": modbus, "canopen.json": self.canopen()}))
+        errors, warnings = clash.check(self.uses({"modbus_master.json": modbus, "canworks.json": self.canopen()}))
         self.assertEqual(errors, [])
         self.assertEqual(len(warnings), 1)
         self.assertIn("conf/modbus_master.json devices[0].points[0].iec_location (%QD99..%QD100)", warnings[0])
@@ -266,7 +266,7 @@ class Clashes(unittest.TestCase):
 
     def test_bit_runs(self):
         modbus = {"points": [{"iec_location": "%IX9.0", "len": 16}]}
-        errors, _ = clash.check(self.uses({"modbus_master.json": modbus, "canopen.json": self.canopen()}))
+        errors, _ = clash.check(self.uses({"modbus_master.json": modbus, "canworks.json": self.canopen()}))
         self.assertEqual(len(errors), 1)
         self.assertIn("both write %IX10.0", errors[0])
 
@@ -279,20 +279,20 @@ class Clashes(unittest.TestCase):
 
     def test_allow_clash(self):
         ethercat = {"c": [{"iec_location": "%ID100"}]}
-        errors, warnings = clash.check(self.uses({"ethercat.json": ethercat, "canopen.json": self.canopen()}),
+        errors, warnings = clash.check(self.uses({"ethercat.json": ethercat, "canworks.json": self.canopen()}),
                                        allow_clash=True)
         self.assertEqual(errors, [])
         self.assertIn("allowed by --allow-clash", warnings[0])
 
     def test_inside_canopen_is_an_error(self):
-        errors, _ = clash.check(self.uses({"canopen.json": self.canopen(loc_in="%IX10.0")}))
+        errors, _ = clash.check(self.uses({"canworks.json": self.canopen(loc_in="%IX10.0")}))
         self.assertEqual(len(errors), 1)
 
     def test_boot_error_byte_inside_canopen(self):
         cfg = self.canopen()
         cfg["master"] = {"state_location": "%IB20"}
         cfg["nodes"][0]["boot_error_location"] = "%IB20"
-        errors, _ = clash.check(self.uses({"canopen.json": cfg}))
+        errors, _ = clash.check(self.uses({"canworks.json": cfg}))
         self.assertEqual(len(errors), 1)
         self.assertIn("master.state_location", errors[0])
         self.assertIn("nodes[0].boot_error_location", errors[0])
@@ -340,9 +340,9 @@ class Upload(unittest.TestCase):
         with open(zip_path, "rb") as f:
             self.assertEqual(stub.uploaded, f.read())
         self.assertIn("Final state - canopen: enabled=True", out)
-        self.assertIn("canopen plugin enabled", out)
+        self.assertIn("canworks plugin enabled", out)
         last = out.strip().splitlines()[-1]
-        self.assertIn("\"Build and upload\" sends no conf/canopen.json", last)
+        self.assertIn("\"Build and upload\" sends no conf/canworks.json", last)
         self.assertEqual(stub.requests[:2], [("POST", "/api/login"), ("POST", "/api/upload-file")])
         self.assertIn(("GET", "/api/start-plc"), stub.requests)
         self.assertIn("the PLC is running", out)
@@ -407,7 +407,7 @@ class Upload(unittest.TestCase):
     def test_plugin_not_installed_on_runtime(self):
         code, _, err = self.run_against(StubRuntime(self.cert, self.key, canopen_line=False), "--ca", self.cert)
         self.assertEqual(code, 1)
-        self.assertIn("did not enable the canopen plugin", err)
+        self.assertIn("did not enable the canworks plugin", err)
 
     def test_canopen_turned_off_by_the_editor_hook(self):
         # Docker: the runtime enables the line, then the hook turns it off.
@@ -416,7 +416,7 @@ class Upload(unittest.TestCase):
         code, out, err = self.run_against(StubRuntime(self.cert, self.key, hook_error=problem), "--ca", self.cert)
         self.assertEqual(code, 1)
         self.assertIn("CANopen was turned off: " + problem, err)
-        self.assertNotIn("canopen plugin enabled", out)
+        self.assertNotIn("canworks plugin enabled", out)
 
 
 if __name__ == "__main__":

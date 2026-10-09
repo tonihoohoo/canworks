@@ -10,9 +10,9 @@ import tempfile
 import time
 import unittest
 
-from openplc_canopen_deploy import commissioning as C
-from openplc_canopen_deploy import dcfexport
-from openplc_canopen_deploy import parameters as P
+from canworks import commissioning as C
+from canworks import dcfexport
+from canworks import parameters as P
 
 from .fake_canopen import FakeDevice
 from .helpers import REPO
@@ -46,7 +46,7 @@ class Rtd(Base):
             shutil.copy(os.path.join(RTD, name), self.dir)
         with open(os.path.join(RTD, "canopen_config.json")) as f:
             self.cfg = json.load(f)
-        self.config = os.path.join(self.dir, "canopen.json")
+        self.config = os.path.join(self.dir, "canworks.json")
         self.save()
 
     def save(self):
@@ -318,7 +318,7 @@ class PdoTest(Base):
         self.assertIn("changes not allowed", err)
 
     def test_event_rpdo_ops_and_another_master(self):
-        from openplc_canopen_deploy import pdotest
+        from canworks import pdotest
         from .fake_canopen import Peer
         od = fixed_io_od()
         od[(0x1400, 2)] = b"\xff"  # event-driven
@@ -365,8 +365,8 @@ class PdoTest(Base):
 class LoneSweep(Base):
     def setUp(self):
         super().setUp()
-        from openplc_canopen_deploy.localbus import adapter as adapter_mod
-        from openplc_canopen_deploy.localbus import parse
+        from canworks.localbus import adapter as adapter_mod
+        from canworks.localbus import parse
         from unittest import mock
         self.opened = []
         real = adapter_mod.open
@@ -419,7 +419,7 @@ class LoneSweep(Base):
         self.assertIn("needs 'lone_device'", str(e.exception))
 
     def test_silent_hint_and_runtime_refusal(self):
-        from openplc_canopen_deploy import diag
+        from canworks import diag
         c = self.client()
         c.detect_bitrate(rates=[500], per_rate_ms=100)
         res = self.wait(c)

@@ -1,6 +1,6 @@
 (* CiA 402 demo for config/cia402-drive (axis "drive", node 4).
    The VAR block and the first lines of the body are what the project
-   generator writes into main for this config (openplc-canopen-deploy
+   generator writes into main for this config (canworks-deploy
    --new-project, or the configurator's New editor project); the rest is the
    demo. Paste the demo variables and body into that main. *)
 PROGRAM main
@@ -33,7 +33,7 @@ PROGRAM main
     step    : INT;          (* 0 power on, 5 homing mode, 10 home, 20 move to 1000, 30 run at 200/s for 2 s, 40 halt, 50 done, 90 fault reset *)
   END_VAR
 
-(* CiA 402 axes from canopen/canopen.json: keep these lines first *)
+(* CiA 402 axes from canworks/canworks.json: keep these lines first *)
 drive.iRatioTechUnitsNum := DINT#1;
 drive.dwRatioTechUnitsDenom := DWORD#1;
 drive.fScalefactor := LREAL#1.0;

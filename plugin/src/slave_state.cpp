@@ -12,7 +12,7 @@
 #include "cJSON.h"
 
 #ifndef CANOPEN_PREFIX
-#define CANOPEN_PREFIX "/opt/openplc-canopen"
+#define CANOPEN_PREFIX "/opt/canworks"
 #endif
 
 namespace canopen_plugin {

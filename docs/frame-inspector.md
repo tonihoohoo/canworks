@@ -6,7 +6,7 @@ It is in three places:
 
 - the configurator's **Trace** view: select a frame in a recorded or opened trace and the inspector opens under the list; the **Sequences** tab shows SDO conversations, boot stories and SYNC cycles made of many frames;
 - the configurator's **Frame lab** view: type, paste or build frames without a runtime, a trace or an adapter, and see two frames compete for the bus;
-- the command line: `openplc-canopen-diag explain`.
+- the command line: `canworks-diag explain`.
 
 Nothing in the inspector or the Frame lab sends anything to the bus.
 
@@ -59,16 +59,16 @@ The **Frame lab** view works with the configuration on the page, saved or not:
 
 ```sh
 # A frame, explained with the project's names and mapping
-openplc-canopen-diag explain 185#2500EA00 --config canopen/canopen.json
+canworks-diag explain 185#2500EA00 --config canworks/canworks.json
 
 # Several frames, as JSON (the same model the configurator draws)
-openplc-canopen-diag explain 705#7F 000#0105 --format json
+canworks-diag explain 705#7F 000#0105 --format json
 
 # Frame 120 of a trace file, with the SDO frames before it as context
-openplc-canopen-diag explain --trace boot.pcapng --index 120 --config canopen/canopen.json
+canworks-diag explain --trace boot.pcapng --index 120 --config canworks/canworks.json
 
 # The wire layer at another bit rate
-openplc-canopen-diag explain 080# --bitrate 1000000
+canworks-diag explain 080# --bitrate 1000000
 ```
 
 The bit rate comes from `--bitrate`, else the config's network, else the trace file, else 500 kbit/s (and the output says it is assumed). Frames over 8 data bytes are refused: only classic CAN is supported. The text output draws the byte grid with a letter per field and the wire bits with stuff bits in brackets:

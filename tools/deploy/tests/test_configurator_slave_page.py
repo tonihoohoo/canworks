@@ -9,7 +9,7 @@ import shutil
 import threading
 import unittest
 
-from openplc_canopen_deploy.configurator import server as srv
+from canworks.configurator import server as srv
 
 from .helpers import PINGPONG, REPO, tmpdir
 from .test_configurator_page import REQUIRED, load, sync_playwright
@@ -38,8 +38,8 @@ class SlavePage(unittest.TestCase):
 
     def setUp(self):
         self.dir = tmpdir(self)
-        os.environ["OPENPLC_CANOPEN_CONFIG_DIR"] = os.path.join(self.dir, "cfg")
-        self.addCleanup(os.environ.pop, "OPENPLC_CANOPEN_CONFIG_DIR", None)
+        os.environ["CANWORKS_CONFIG_DIR"] = os.path.join(self.dir, "cfg")
+        self.addCleanup(os.environ.pop, "CANWORKS_CONFIG_DIR", None)
         self.folder = os.path.join(self.dir, "plant")
         os.makedirs(self.folder)
         self.server = srv.Server()
@@ -58,7 +58,7 @@ class SlavePage(unittest.TestCase):
 
     @property
     def config_path(self):
-        return os.path.join(self.folder, "canopen.json")
+        return os.path.join(self.folder, "canworks.json")
 
     def write(self, cfg):
         with open(self.config_path, "w", encoding="utf-8") as f:

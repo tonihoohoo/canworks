@@ -9,7 +9,7 @@ import threading
 import time
 import unittest
 
-from openplc_canopen_deploy.configurator import server as srv
+from canworks.configurator import server as srv
 
 from .helpers import PINGPONG, REPO, fake_editor_cli, tmpdir
 
@@ -54,8 +54,8 @@ class Page(unittest.TestCase):
 
     def setUp(self):
         self.dir = tmpdir(self)
-        os.environ["OPENPLC_CANOPEN_CONFIG_DIR"] = os.path.join(self.dir, "cfg")
-        self.addCleanup(os.environ.pop, "OPENPLC_CANOPEN_CONFIG_DIR", None)
+        os.environ["CANWORKS_CONFIG_DIR"] = os.path.join(self.dir, "cfg")
+        self.addCleanup(os.environ.pop, "CANWORKS_CONFIG_DIR", None)
         self.server = srv.Server()
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
@@ -169,7 +169,7 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].sdo[1].value", "100")
         self.save()
 
-        saved = load(os.path.join(self.project, "canopen", "canopen.json"))
+        saved = load(os.path.join(self.project, "canworks", "canworks.json"))
         self.assertEqual(saved["adapter"], {"type": "socketcan", "interface": "can0", "bitrate": 250000,
                                             "restart_ms": 100})
         self.assertEqual(saved["master"]["sync_period_us"], 10000)
@@ -183,7 +183,7 @@ class Page(unittest.TestCase):
         self.assertEqual(node["sdo"], [
             {"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": "0x1E"},
             {"index": "0x1017", "subindex": 0, "type": "UNSIGNED16", "value": 100}])
-        self.assertTrue(os.path.isfile(os.path.join(self.project, "canopen", "rtd8.eds")))
+        self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "rtd8.eds")))
 
         # Declarations for the editor.
         pg.click('button[data-view="declarations"]')
@@ -212,7 +212,7 @@ class Page(unittest.TestCase):
             text = f.read()
         self.assertIn("NodeName=rtd", text)
         self.assertRegex(text, r"\[1017\][^\[]*ParameterValue=0xC8")
-        self.assertFalse(os.path.exists(os.path.join(self.project, "canopen", "canopen.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.project, "canworks", "canworks.json")))
         pg.wait_for_selector("#banner:has-text('Exported node_5.dcf')")
         # All nodes: one zip.
         with pg.expect_download() as dl:
@@ -246,7 +246,7 @@ class Page(unittest.TestCase):
             text = f.read()
         self.assertIn("BU_: Master rtd", text)
         self.assertNotIn("SDO_Rx", text)
-        self.assertFalse(os.path.exists(os.path.join(self.project, "canopen", "canopen.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.project, "canworks", "canworks.json")))
         pg.wait_for_selector("#banner:has-text('Exported rtd-monitor.dbc')")
         # The SDO choice applies and is stored with the page settings.
         with pg.expect_response(lambda r: r.url.endswith("/api/ui") and r.request.method == "POST") as resp:
@@ -282,7 +282,7 @@ class Page(unittest.TestCase):
             pg.wait_for_function("() => document.querySelector('input[data-path=\"master.%s\"]').value === '%s'"
                                  % (key, want))
         self.save()
-        master = load(os.path.join(self.project, "canopen", "canopen.json"))["master"]
+        master = load(os.path.join(self.project, "canworks", "canworks.json"))["master"]
         self.assertEqual((master["bus_state_location"], master["tx_error_count_location"],
                           master["rx_error_count_location"], master["bus_off_count_location"]),
                          ("%IB100", "%IB101", "%IB102", "%IW100"))
@@ -319,13 +319,13 @@ class Page(unittest.TestCase):
 
     def test_eds_lint_setting(self):
         pg = self.page
-        os.makedirs(os.path.join(self.project, "canopen"))
-        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canopen"))
+        os.makedirs(os.path.join(self.project, "canworks"))
+        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         cfg = srv.empty_config()
         cfg["master"]["strict_eds"] = False
         cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "tx_pdos": [{"entries": [
             {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
-        path = os.path.join(self.project, "canopen", "canopen.json")
+        path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
             json.dump(cfg, f)
         self.open_from_start("#start-project", self.project)
@@ -346,12 +346,12 @@ class Page(unittest.TestCase):
 
     def test_sync_period_left_empty(self):
         pg = self.page
-        os.makedirs(os.path.join(self.project, "canopen"))
-        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canopen"))
+        os.makedirs(os.path.join(self.project, "canworks"))
+        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         cfg = srv.empty_config()
         cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "tx_pdos": [{"transmission": 255,
             "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
-        path = os.path.join(self.project, "canopen", "canopen.json")
+        path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
             json.dump(cfg, f)
         self.open_from_start("#start-project", self.project)
@@ -365,12 +365,12 @@ class Page(unittest.TestCase):
 
     def test_sync_source_plc_cycle(self):
         pg = self.page
-        os.makedirs(os.path.join(self.project, "canopen"))
-        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canopen"))
+        os.makedirs(os.path.join(self.project, "canworks"))
+        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         cfg = srv.empty_config()  # SYNC period 10 ms; the EDS's TPDO 1 is type 1
         cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "tx_pdos": [{
             "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
-        path = os.path.join(self.project, "canopen", "canopen.json")
+        path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
             json.dump(cfg, f)
         self.open_from_start("#start-project", self.project)
@@ -420,7 +420,7 @@ class Page(unittest.TestCase):
         device = "/dev/serial/by-id/usb-Openlight_Labs_CANable2_b158aa7-if00"
         self.fill("adapter.device", device)
         self.save()
-        saved = load(os.path.join(self.project, "canopen", "canopen.json"))["adapter"]
+        saved = load(os.path.join(self.project, "canworks", "canworks.json"))["adapter"]
         self.assertEqual(saved, {"type": "slcan", "device": device, "interface": "can0", "bitrate": 500000})
         # Back to SocketCAN: the serial device is dropped.
         pg.select_option('select[data-path="adapter.type"]', "socketcan")
@@ -428,7 +428,7 @@ class Page(unittest.TestCase):
         self.settled()
         pg.click("#btn-save")  # the banner still says Saved from the first save
         pg.wait_for_function("() => document.querySelector('#btn-save').textContent === 'Saved'")
-        saved = load(os.path.join(self.project, "canopen", "canopen.json"))["adapter"]
+        saved = load(os.path.join(self.project, "canworks", "canworks.json"))["adapter"]
         self.assertEqual(saved, {"type": "socketcan", "interface": "can0", "bitrate": 500000})
 
     def test_advanced_settings(self):
@@ -463,7 +463,7 @@ class Page(unittest.TestCase):
         self.assertEqual(pg.get_attribute('input[data-path="master.sdo_timeout_ms"]', "placeholder"), "1000")
         self.fill("master.sdo_timeout_ms", "3000")
         self.save()
-        cfg = load(os.path.join(self.project, "canopen", "canopen.json"))
+        cfg = load(os.path.join(self.project, "canworks", "canworks.json"))
         node, master = cfg["nodes"][0], cfg["master"]
         self.assertEqual((node["boot_error_location"], node["mandatory"], node["revision_number"],
                           node["error_behavior"], node["heartbeat_consumer"]),
@@ -477,7 +477,7 @@ class Page(unittest.TestCase):
             pg.click('details[data-advanced="master"] > summary')
         self.fill("master.sdo_timeout_ms", "")
         self.save()  # the banner still says Saved from before, so wait for the file
-        path = os.path.join(self.project, "canopen", "canopen.json")
+        path = os.path.join(self.project, "canworks", "canworks.json")
         deadline = time.time() + 5
         while "sdo_timeout_ms" in load(path)["master"] and time.time() < deadline:
             time.sleep(0.05)
@@ -507,7 +507,7 @@ class Page(unittest.TestCase):
         self.assertEqual(len(labels), 4)  # 0x1010 sub 1-3 in config-check.eds
         pg.select_option(store, "1")
         self.save()
-        path = os.path.join(self.project, "canopen", "canopen.json")
+        path = os.path.join(self.project, "canworks", "canworks.json")
         node = load(path)["nodes"][0]
         self.assertEqual((node["config_check"], node["store_configuration"]), (True, 1))
         # Turning the check off drops both keys.
@@ -551,7 +551,7 @@ class Page(unittest.TestCase):
         self.settled()
         self.assertTrue(pg.is_disabled("#btn-save"))
         pg.wait_for_selector('[data-for="nodes[0].serial_number"]:has-text("serial_number")')
-        path = os.path.join(self.project, "canopen", "canopen.json")
+        path = os.path.join(self.project, "canworks", "canworks.json")
         self.assertFalse(os.path.exists(path))
         self.fill("nodes[0].serial_number", "0x1234")
         self.save()
@@ -593,7 +593,7 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].axis.scale_numerator", "10")
         self.fill("nodes[0].axis.scale_factor", "2.5")
         self.save()
-        node = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]
+        node = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]
         self.assertEqual(node["axis"], {"scale_numerator": 10, "scale_factor": 2.5})
         self.assertEqual(node["status_location"], "%IX100.0")
         example = load(os.path.join(CIA402, "canopen_config.json"))["nodes"][0]
@@ -653,7 +653,7 @@ class Page(unittest.TestCase):
         self.assertTrue(until(lambda: not pg.inner_text('[data-for="nodes[0].axis.cyclic"]')))
         self.assertEqual(pg.locator("button[data-cyclic-fix]").count(), 0)
         self.save()
-        cfg = load(os.path.join(self.project, "canopen", "canopen.json"))
+        cfg = load(os.path.join(self.project, "canworks", "canworks.json"))
         self.assertEqual(cfg["master"].get("sync_source"), "plc_cycle")
         self.assertNotIn("sync_period_us", cfg["master"])
         node = cfg["nodes"][0]
@@ -701,7 +701,7 @@ class Page(unittest.TestCase):
         pg.check('input[aria-label="Show all writable objects"]')
         self.assertEqual(pg.locator('button[data-sdo="0x1400:5"]').count(), 1)
         self.save()
-        node = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]
+        node = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]
         self.assertEqual(node["tx_pdos"][0].get("event_timer_ms"), 50)
         self.assertEqual(node["tx_pdos"][0].get("cob_id"), "auto")
         self.assertNotIn("inhibit_time_us", node["tx_pdos"][0])
@@ -730,7 +730,7 @@ class Page(unittest.TestCase):
         pg.select_option('select[data-path="nodes[0].tx_pdos[0].on_timeout"]', "zero")
         self.fill("nodes[0].tx_pdos[0].timeout_location", "%IX10.1")
         self.save()
-        pdo = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]["tx_pdos"][0]
+        pdo = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]["tx_pdos"][0]
         self.assertEqual(pdo.get("timeout_ms"), "auto")
         self.assertEqual(pdo.get("on_timeout"), "zero")
         self.assertEqual(pdo.get("timeout_location"), "%IX10.1")
@@ -739,7 +739,7 @@ class Page(unittest.TestCase):
         pg.press('input[data-path="nodes[0].tx_pdos[0].timeout_ms"]', "Tab")
         pg.wait_for_selector('select[data-path="nodes[0].tx_pdos[0].on_timeout"]', state="detached")
         self.save()  # the banner still says Saved from before, so wait for the file
-        path = os.path.join(self.project, "canopen", "canopen.json")
+        path = os.path.join(self.project, "canworks", "canworks.json")
         deadline = time.time() + 5
         while "timeout_ms" in load(path)["nodes"][0]["tx_pdos"][0] and time.time() < deadline:
             time.sleep(0.05)
@@ -763,7 +763,7 @@ class Page(unittest.TestCase):
         self.pick("0x6200:1")
         pg.wait_for_selector('input[data-path="nodes[0].rx_pdos[0].entries[0].iec_location"]')
         self.save()
-        node = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]
+        node = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]
         tx, rx = node["tx_pdos"][0], node["rx_pdos"][0]
         self.assertNotIn("mapping", tx)
         self.assertEqual(tx["number"], 1)
@@ -783,7 +783,7 @@ class Page(unittest.TestCase):
         pg.select_option('select[data-path="nodes[0].tx_pdos[0].mapping"]', "device")
         pg.wait_for_selector('.pdo-map:has-text("0x4001:0")')
         self.save()
-        pdo = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]["tx_pdos"][0]
+        pdo = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]["tx_pdos"][0]
         self.assertEqual(pdo["mapping"], "device")
 
     def test_inhibit_time_in_ms(self):
@@ -799,7 +799,7 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].tx_pdos[0].inhibit_time_us", "2.5")
         # cpp-slave.eds has no RPDO sub 5, so no deadline field.
         self.save()
-        pdo = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]["tx_pdos"][0]
+        pdo = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]["tx_pdos"][0]
         self.assertEqual(pdo["inhibit_time_us"], 2500)
 
     def test_read_only_sdo_refused(self):
@@ -844,7 +844,7 @@ class Page(unittest.TestCase):
         pg.click("text=Add variable")
         self.assertIn("not in", pg.inner_text("#banner"))
         self.save()
-        node = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]
+        node = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]
         self.assertEqual(node["nmt_command_location"], nmt)
         read, write = node["sdo_variables"]
         self.assertEqual((read["index"], read["subindex"], read["type"], read["direction"], read["period_ms"]),
@@ -872,7 +872,7 @@ class Page(unittest.TestCase):
         self.pick("0x7130:1")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.save()
-        node = load(os.path.join(self.project, "canopen", "canopen.json"))["nodes"][0]
+        node = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]
         self.assertNotIn("heartbeat_ms", node)
         self.assertEqual((node["guard_time_ms"], node["life_time_factor"]), (100, 3))
 
@@ -891,7 +891,7 @@ class Page(unittest.TestCase):
         pg.check("#allow-overlap")
         pg.wait_for_selector("#btn-save:not([disabled])")
         self.save()
-        saved = load(os.path.join(self.project, "canopen", "canopen.json"))
+        saved = load(os.path.join(self.project, "canworks", "canworks.json"))
         self.assertEqual(saved["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"], "%ID100")
 
     def test_standalone_then_move_into_project(self):
@@ -904,14 +904,14 @@ class Page(unittest.TestCase):
         self.pick("0x7130:1")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.save()
-        self.assertTrue(os.path.isfile(os.path.join(folder, "canopen.json")))
+        self.assertTrue(os.path.isfile(os.path.join(folder, "canworks.json")))
         pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
         pg.click("#btn-move")
         pg.fill("#modal-extra input", self.project)
         pg.click("#modal-buttons button[data-value=move]")
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")
         self.assertIn("Moved into", pg.inner_text("#banner"))
-        moved = load(os.path.join(self.project, "canopen", "canopen.json"))
+        moved = load(os.path.join(self.project, "canworks", "canworks.json"))
         self.assertEqual(moved["nodes"][0]["tx_pdos"][0]["entries"][0]["index"], "0x7130")
         self.assertIn("in use", pg.inner_text("#scan-info"))
 
@@ -950,9 +950,9 @@ class Page(unittest.TestCase):
         pg.click("#modal-buttons button[data-value=create]")
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")
         self.assertIn("1 CANopen variable declared in main", pg.inner_text("#banner"))
-        self.assertIn("Installed openplc_canopen", pg.inner_text("#banner"))
+        self.assertIn("Installed canworks", pg.inner_text("#banner"))
         self.assertEqual(load(os.path.join(work, "rtd-monitor", "project.json"))["data"]["libraries"][0]["name"],
-                         "openplc_canopen")
+                         "canworks")
         self.assertTrue(os.path.isfile(os.path.join(user_data, "libraries", "registry.json")))
         self.assertTrue(pg.is_hidden("#menu-project"))
         main = os.path.join(work, "rtd-monitor", "pous", "programs", "main.st")
@@ -967,7 +967,7 @@ class Page(unittest.TestCase):
         self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.save()
-        path = os.path.join(self.project, "canopen", "canopen.json")
+        path = os.path.join(self.project, "canworks", "canworks.json")
         doc = load(path)
         doc["master"]["sync_period_us"] = 20000
         with open(path, "w") as f:

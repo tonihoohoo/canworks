@@ -6,9 +6,9 @@ Playwright, like test_configurator_page.py."""
 import os
 import time
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.bustrace import formats
-from openplc_canopen_deploy.bustrace.model import Frame, Trace
+from canworks import diag
+from canworks.bustrace import formats
+from canworks.bustrace.model import Frame, Trace
 
 from .fake_diag import TOKEN, FakePlugin
 from .test_bustrace import sample_trace, written

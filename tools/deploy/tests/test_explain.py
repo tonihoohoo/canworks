@@ -1,6 +1,6 @@
 """Frame explanation (canopen-frame-explain): the four layers for every
 frame kind, the wire reconstruction, the frame builder, the sequence views
-of canopen-bus-trace and `openplc-canopen-diag explain`."""
+of canopen-bus-trace and `canworks-diag explain`."""
 
 import contextlib
 import copy
@@ -11,13 +11,13 @@ import shutil
 import tempfile
 import unittest
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.bustrace import explain_texts, formats, framebuild, sequences
-from openplc_canopen_deploy.bustrace.decode import Decoder
-from openplc_canopen_deploy.bustrace.explain import (candump_text, context_for, explain, format_text, parse_frame)
-from openplc_canopen_deploy.bustrace.model import Frame, Trace
-from openplc_canopen_deploy.bustrace.recorder import Session
-from openplc_canopen_deploy.bustrace.wire import crc15, crc15_bytes, unstuff, wire
+from canworks import diag
+from canworks.bustrace import explain_texts, formats, framebuild, sequences
+from canworks.bustrace.decode import Decoder
+from canworks.bustrace.explain import (candump_text, context_for, explain, format_text, parse_frame)
+from canworks.bustrace.model import Frame, Trace
+from canworks.bustrace.recorder import Session
+from canworks.bustrace.wire import crc15, crc15_bytes, unstuff, wire
 
 from .test_contract import REPO
 

@@ -4,7 +4,7 @@ context: |
   Project: add CANopen master support to OpenPLC Runtime v4.
   Transport: Linux SocketCAN (can0/vcan0 etc.); the PLC acts as the CANopen master (NMT master, SDO client, PDO mapping).
   Target: OpenPLC Runtime v4 (upstream: github.com/Autonomy-Logic/openplc-runtime), Linux only.
-  Plugin source lives in this repo (openplc-canopen) and is installed next to an unmodified (stock) runtime by scripts/install-stock.sh; no runtime fork, no upstream PRs.
+  Plugin source lives in this repo (canworks) and is installed next to an unmodified (stock) runtime by scripts/install-stock.sh; no runtime fork, no upstream PRs.
   Specs describe observable runtime behavior (network bring-up, node configuration, PDO<->PLC I/O mapping, error handling).
 
 # Project context (optional)

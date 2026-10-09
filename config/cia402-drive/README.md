@@ -27,7 +27,7 @@ RPDO 4 and TPDO 4 (torques) are not in the config, so the master switches them o
 
 ## Try it
 
-1. Create an editor project from the config: `openplc-canopen-deploy --config config/cia402-drive/canopen_config.json --new-project <folder>/drive-demo`, or **New editor project…** in the configurator.
+1. Create an editor project from the config: `canworks-deploy --config config/cia402-drive/canopen_config.json --new-project <folder>/drive-demo`, or **New editor project…** in the configurator.
 2. In the editor (4.3.2), replace `main` with `drive_demo.st`: its VAR block and first lines are what the generator wrote, followed by the demo.
 3. Build and upload. The sequence runs once after start (`start` is TRUE by default; set it FALSE to hold at step 0); `step` shows where it is (50 done, 90 fault reset).
 
@@ -42,4 +42,4 @@ RPDO 4 and TPDO 4 (torques) are not in the config, so the master switches them o
 | TPDO 1 | statusword 0x6041, modes of operation display 0x6061, position actual value 0x6064 | `%IW100`, `%IB100`, `%ID100` |
 | TPDO 2 | velocity actual value 0x606C, torque actual value 0x6077 | `%ID101`, `%IW101` |
 
-All four have transmission type 1, and the master sends SYNC from the PLC cycle; the plugin writes 0x60C2 from the runtime's cycle time. Create the project with `--task-interval T#10ms` (the generated `fCycleTime` line follows it) and replace `main` with `drive_cyclic_demo.st`; the generated project enables the `openplc_canopen` library with the `CO402_Cyclic*` blocks. See [docs/cia402.md](../../docs/cia402.md#cyclic-synchronous-modes).
+All four have transmission type 1, and the master sends SYNC from the PLC cycle; the plugin writes 0x60C2 from the runtime's cycle time. Create the project with `--task-interval T#10ms` (the generated `fCycleTime` line follows it) and replace `main` with `drive_cyclic_demo.st`; the generated project enables the `canworks` library with the `CO402_Cyclic*` blocks. See [docs/cia402.md](../../docs/cia402.md#cyclic-synchronous-modes).

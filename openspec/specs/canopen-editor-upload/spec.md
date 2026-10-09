@@ -6,17 +6,17 @@ Keeps the CANopen plugin enabled on a stock OpenPLC Runtime v4 when the OpenPLC 
 ## Requirements
 
 ### Requirement: CANopen config in the editor project
-An editor project SHALL be able to carry its CANopen config as `canopen/canopen.json` at the project root, with every EDS file it names next to it or in a subfolder of `canopen/`. The file SHALL follow the same contract as the deploy tool's input (`schema_version` 1), with `eds` paths relative to `canopen/`.
+An editor project SHALL be able to carry its CANopen config as `canworks/canworks.json` at the project root, with every EDS file it names next to it or in a subfolder of `canworks/`. The file SHALL follow the same contract as the deploy tool's input (`schema_version` 1), with `eds` paths relative to `canworks/`.
 
 #### Scenario: Project layout
-- **WHEN** a project folder contains `canopen/canopen.json` naming `eds: "rtd8.eds"` and `canopen/rtd8.eds` exists
+- **WHEN** a project folder contains `canworks/canworks.json` naming `eds: "rtd8.eds"` and `canworks/rtd8.eds` exists
 - **THEN** the project carries a complete CANopen config
 
 ### Requirement: Editor upload enables CANopen from the project
-On a stock runtime with the hook installed, a successful build from an upload that carries no `conf/canopen.json`, but whose project snapshot carries `canopen/canopen.json`, SHALL end with the runtime enabling `canopen` using that config and its EDS files, before the runtime reports the build successful. The runtime log SHALL say the config came from the project snapshot.
+On a stock runtime with the hook installed, a successful build from an upload that carries no `conf/canworks.json`, but whose project snapshot carries `canworks/canworks.json`, SHALL end with the runtime enabling `canopen` using that config and its EDS files, before the runtime reports the build successful. The runtime log SHALL say the config came from the project snapshot.
 
 #### Scenario: Build and upload from the editor
-- **WHEN** a project with `canopen/canopen.json` is sent with the editor's "Build and upload" and the build succeeds
+- **WHEN** a project with `canworks/canworks.json` is sent with the editor's "Build and upload" and the build succeeds
 - **THEN** `plugins.conf` shows `canopen` enabled before the compilation status reads SUCCESS, the PLC started afterwards runs with CANopen, and the build log names the snapshot as the config's source
 
 #### Scenario: Build fails
@@ -24,17 +24,17 @@ On a stock runtime with the hook installed, a successful build from an upload th
 - **THEN** the hook changes nothing and the runtime's own failure handling applies
 
 ### Requirement: Deployed config takes precedence
-When an upload carries `conf/canopen.json` (as the deploy tool's uploads do), the hook SHALL leave that config and its EDS files untouched and ignore any CANopen config in the project snapshot.
+When an upload carries `conf/canworks.json` (as the deploy tool's uploads do), the hook SHALL leave that config and its EDS files untouched and ignore any CANopen config in the project snapshot.
 
 #### Scenario: Deploy tool upload
-- **WHEN** a bundle made by `openplc-canopen-deploy` is uploaded
-- **THEN** the runtime enables `canopen` with the uploaded `conf/canopen.json`, exactly as without the hook
+- **WHEN** a bundle made by `canworks-deploy` is uploaded
+- **THEN** the runtime enables `canopen` with the uploaded `conf/canworks.json`, exactly as without the hook
 
 ### Requirement: No config means CANopen off
 When neither the upload nor its project snapshot carries a CANopen config, or the upload has no snapshot at all, the runtime SHALL disable `canopen` exactly as it does without the hook.
 
 #### Scenario: Project without CANopen
-- **WHEN** a project with no `canopen/` folder is sent with "Build and upload"
+- **WHEN** a project with no `canworks/` folder is sent with "Build and upload"
 - **THEN** the runtime disables `canopen` and logs that no config was found
 
 #### Scenario: Upload without a snapshot
@@ -42,11 +42,11 @@ When neither the upload nor its project snapshot carries a CANopen config, or th
 - **THEN** the runtime disables `canopen`
 
 ### Requirement: Fail closed on a bad project config
-If the snapshot's `canopen/canopen.json` is not valid JSON, fails the contract's schema, or names an EDS file the snapshot does not contain, the hook SHALL apply nothing from the snapshot, so the runtime disables `canopen`. The build log SHALL name the file and the problem. The build result SHALL not change because of it.
+If the snapshot's `canworks/canworks.json` is not valid JSON, fails the contract's schema, or names an EDS file the snapshot does not contain, the hook SHALL apply nothing from the snapshot, so the runtime disables `canopen`. The build log SHALL name the file and the problem. The build result SHALL not change because of it.
 
 #### Scenario: Missing EDS
-- **WHEN** the project's `canopen.json` names `drive.eds` and the snapshot has no such file
-- **THEN** the build still succeeds, `canopen` is disabled, and the build log says `canopen/drive.eds` is missing from the project
+- **WHEN** the project's `canworks.json` names `drive.eds` and the snapshot has no such file
+- **THEN** the build still succeeds, `canopen` is disabled, and the build log says `canworks/drive.eds` is missing from the project
 
 ### Requirement: EDS text encoding
 The editor reads every project file as UTF-8 text when it builds the snapshot, so an EDS in another encoding arrives with its non-ASCII bytes replaced. The hook SHALL treat an EDS from the snapshot that contains the Unicode replacement character (bytes EF BF BD) as invalid and fail closed, naming the file. Putting a config into a project SHALL store every EDS as UTF-8, converting from Latin-1/CP1252 when the file is not valid UTF-8.
@@ -60,7 +60,7 @@ The editor reads every project file as UTF-8 text when it builds the snapshot, s
 - **THEN** nothing is extracted, `canopen` is disabled, and the build log names the EDS and says it must be UTF-8 (`--into-project` converts it)
 
 ### Requirement: Safe extraction from the snapshot
-The hook SHALL read only `canopen/canopen.json` and the EDS files it names from the snapshot. It SHALL reject absolute paths, `..` components and links, and it SHALL bound the total size it extracts. It SHALL never write outside the upload's `conf/` directory.
+The hook SHALL read only `canworks/canworks.json` and the EDS files it names from the snapshot. It SHALL reject absolute paths, `..` components and links, and it SHALL bound the total size it extracts. It SHALL never write outside the upload's `conf/` directory.
 
 #### Scenario: Path traversal
 - **WHEN** the project's config names `eds: "../../etc/passwd"`
@@ -85,8 +85,8 @@ At webserver start, the hook SHALL check that the runtime still provides the pos
 - **THEN** the hook is active again
 
 ### Requirement: Put a config into an editor project
-The deploy tool SHALL be able to copy a config and its EDS files into an editor project's `canopen/` folder, after the same checks it runs before a deploy, rewriting each node's `eds` to a path relative to `canopen/`. It SHALL refuse to overwrite an existing `canopen/` folder unless asked to.
+The deploy tool SHALL be able to copy a config and its EDS files into an editor project's `canworks/` folder, after the same checks it runs before a deploy, rewriting each node's `eds` to a path relative to `canworks/`. It SHALL refuse to overwrite an existing `canworks/` folder unless asked to.
 
 #### Scenario: Prepare a project
-- **WHEN** `openplc-canopen-deploy --config config/rtd-sensor/canopen_config.json --into-project ~/Documents/workspace/rtd-monitor` runs
-- **THEN** the project has `canopen/canopen.json` and `canopen/rtd8.eds`, and the next "Build and upload" from the editor leaves CANopen enabled
+- **WHEN** `canworks-deploy --config config/rtd-sensor/canopen_config.json --into-project ~/Documents/workspace/rtd-monitor` runs
+- **THEN** the project has `canworks/canworks.json` and `canworks/rtd8.eds`, and the next "Build and upload" from the editor leaves CANopen enabled

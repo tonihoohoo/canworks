@@ -14,7 +14,7 @@
 #   - a cyclic job with a count sends exactly that many frames, and a job ends
 #     when its client disconnects;
 #   - detect_bitrate on vcan is refused and the session goes on;
-#   - `openplc-canopen-diag send` and `detect-bitrate` behave the same;
+#   - `canworks-diag send` and `detect-bitrate` behave the same;
 #   - on a simulated network, a forced SDO upload request to node 2 sent by
 #     hand gets the simulated device's answer, both in the trace.
 #
@@ -37,7 +37,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/pingpong_slave"
 for f in "$PLUGIN" "$HOST" "$SLAVE"; do
@@ -49,9 +49,9 @@ if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP\|,UP"; then
 fi
 PY="${PYTHON:-python3}"
 export PYTHONPATH="$ROOT/tools/deploy${PYTHONPATH:+:$PYTHONPATH}"
-export OPENPLC_CANOPEN_TOKEN=raw-test
+export CANWORKS_TOKEN=raw-test
 PORT=7541
-DIAG=("$PY" -m openplc_canopen_deploy.diag --runtime "127.0.0.1:$PORT")
+DIAG=("$PY" -m canworks.diag --runtime "127.0.0.1:$PORT")
 
 WORK="$(mktemp -d)"
 PIDS=()
@@ -64,7 +64,7 @@ trap cleanup EXIT
 
 CONFIG="$ROOT/config/pingpong"
 cp "$CONFIG/cpp-slave.eds" "$WORK/"
-VERIFIER="$("$PY" -c 'from openplc_canopen_deploy.diag import token_verifier; print(token_verifier("raw-test"))')"
+VERIFIER="$("$PY" -c 'from canworks.diag import token_verifier; print(token_verifier("raw-test"))')"
 DIAGCFG="\"diagnostics\": { \"token_verifier\": \"$VERIFIER\", \"port\": $PORT, \"bind\": \"127.0.0.1\", \"allow_changes\": true }"
 sed -e "s/\"vcan0\"/\"$IFACE\"/" \
     -e "s|\"sync_period_us\": 100000 }|\"sync_period_us\": 100000, $DIAGCFG }|" \
@@ -86,7 +86,7 @@ fail() { echo "FAIL: $*" >&2; RC=1; }
 echo "==> send_frame, guards and cyclic jobs through the protocol"
 "$PY" - "$IFACE" "$PORT" <<'PY' || fail "protocol checks failed"
 import base64, socket, struct, sys, time
-from openplc_canopen_deploy import diag
+from canworks import diag
 
 iface, port = sys.argv[1], int(sys.argv[2])
 rx = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
@@ -164,7 +164,7 @@ assert c.status()["session"], "the session ended after a refused detection"
 print("    detect_bitrate: refused on vcan, session goes on")
 PY
 
-echo "==> openplc-canopen-diag send and detect-bitrate"
+echo "==> canworks-diag send and detect-bitrate"
 out="$("${DIAG[@]}" send 0x60A "40 18 10 01" 2>&1)"
 [ $? -eq 1 ] || fail "send without --force while node 2 runs should exit 1: $out"
 echo "$out" | grep -q "force" || fail "send without --force does not say force is needed: $out"
@@ -191,7 +191,7 @@ SIM_PID=$!
 sleep 4
 "$PY" - "$SIMPORT" <<'PY' || fail "simulated network check failed"
 import base64, struct, sys, time
-from openplc_canopen_deploy import diag
+from canworks import diag
 c = diag.Client("127.0.0.1", int(sys.argv[1]), "raw-test")
 c.connect()
 t = c.trace_start()

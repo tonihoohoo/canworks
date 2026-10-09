@@ -1,7 +1,7 @@
 // dcf_gen.h - turns the validated JSON config into Lely device configuration
 // files by running Lely's dcfgen on the device.
 //
-// Output goes to <config_dir>/.canopen/: dcfgen.yml (the generated input),
+// Output goes to <config_dir>/.canworks/: dcfgen.yml (the generated input),
 // master.dcf, one <node>.bin concise DCF per slave, dcfgen.log and
 // inputs.hash. dcfgen reads each node's eds_path, the prepared copy in
 // eds/node_<id>.eds when run_eds_lint made one (eds_lint.h), and runs with

@@ -794,18 +794,18 @@ TEST(eds_resolved_next_to_config) {
 }
 
 TEST(eds_resolved_in_generated_conf) {
-  // Stock route: the runtime copied canopen.json next to the library and
+  // Stock route: the runtime copied canworks.json next to the library and
   // extracted the upload's EDS files under core/generated/conf/.
   std::string lib = tmpdir();
   std::string conf = tmpdir();
   mkdir((conf + "/canopen").c_str(), 0755);
-  mkdir((conf + "/canopen/eds").c_str(), 0755);
-  write(conf + "/canopen/eds/cpp-slave.eds", read(std::string(PINGPONG_DIR) + "/cpp-slave.eds"));
+  mkdir((conf + "/canworks/eds").c_str(), 0755);
+  write(conf + "/canworks/eds/cpp-slave.eds", read(std::string(PINGPONG_DIR) + "/cpp-slave.eds"));
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(parse_config(replace(kValid, "\"cpp-slave.eds\"", "\"canopen/eds/cpp-slave.eds\""), lib + "/canopen.json",
+  CHECK(parse_config(replace(kValid, "\"cpp-slave.eds\"", "\"canworks/eds/cpp-slave.eds\""), lib + "/canworks.json",
                      ImageLimits(), cfg, errors, conf));
-  CHECK_MSG(cfg.nodes[0].eds_path == conf + "/canopen/eds/cpp-slave.eds", cfg.nodes[0].eds_path);
+  CHECK_MSG(cfg.nodes[0].eds_path == conf + "/canworks/eds/cpp-slave.eds", cfg.nodes[0].eds_path);
   CHECK_MSG(check_eds_files(cfg, errors), join(errors));
 }
 
@@ -813,11 +813,11 @@ TEST(eds_resolved_nowhere) {
   std::string lib = tmpdir();
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(parse_config(replace(kValid, "\"cpp-slave.eds\"", "\"canopen/eds/cpp-slave.eds\""), lib + "/canopen.json",
+  CHECK(parse_config(replace(kValid, "\"cpp-slave.eds\"", "\"canworks/eds/cpp-slave.eds\""), lib + "/canworks.json",
                      ImageLimits(), cfg, errors, "/nonexistent/conf"));
   CHECK(!check_eds_files(cfg, errors));
-  CHECK_MSG(has_error(errors, "node 2: EDS file " + lib + "/canopen/eds/cpp-slave.eds not found (also looked for "
-                              "/nonexistent/conf/canopen/eds/cpp-slave.eds)"),
+  CHECK_MSG(has_error(errors, "node 2: EDS file " + lib + "/canworks/eds/cpp-slave.eds not found (also looked for "
+                              "/nonexistent/conf/canworks/eds/cpp-slave.eds)"),
             join(errors));
 }
 
@@ -882,7 +882,7 @@ int run_fixture_file(const std::string& file) {
     char* text = cJSON_Print(cfg_json);
     ConfigSet set;
     std::vector<std::string> errors;
-    bool ok = parse_config_set(text, fixtures + "/eds/canopen.json", ImageLimits(), set, errors, "/nonexistent");
+    bool ok = parse_config_set(text, fixtures + "/eds/canworks.json", ImageLimits(), set, errors, "/nonexistent");
     std::vector<std::string> warnings = set.warnings;
     for (auto& cfg : set.networks) {
       if (ok) {
@@ -1530,10 +1530,10 @@ TEST(dcfgen_generates_and_caches) {
   GeneratedConfig gen;
   CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
   CHECK(!gen.reused);
-  CHECK(gen.work_dir == dir + "/.canopen");
+  CHECK(gen.work_dir == dir + "/.canworks");
   struct stat st;
-  CHECK(stat((dir + "/.canopen/master.dcf").c_str(), &st) == 0);
-  CHECK(stat((dir + "/.canopen/node_2.bin").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canworks/master.dcf").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canworks/node_2.bin").c_str(), &st) == 0);
   CHECK(gen.slave_sdos.count(2) == 1);
   // Heartbeat producer 500 ms is written to 0x1017 of the slave.
   bool hb = false, tpdo_map = false, rpdo_map = false;
@@ -1570,16 +1570,16 @@ TEST(dcfgen_generates_and_caches) {
   cfg.nodes[0].heartbeat_ms = 200;
   // dcfgen writes master.bin only for a config with master-side checks
   // (such as serial_number); one from an earlier config must not survive.
-  write(dir + "/.canopen/master.bin", "stale");
+  write(dir + "/.canworks/master.bin", "stale");
   GeneratedConfig changed;
   errors.clear();
   CHECK(!generate_device_config(cfg, "/bin/false", changed, errors));
   CHECK_MSG(has_error(errors, "dcfgen failed"), join(errors));
-  CHECK(stat((dir + "/.canopen/master.dcf").c_str(), &st) != 0);  // stale output removed
-  CHECK(stat((dir + "/.canopen/master.bin").c_str(), &st) != 0);
+  CHECK(stat((dir + "/.canworks/master.dcf").c_str(), &st) != 0);  // stale output removed
+  CHECK(stat((dir + "/.canworks/master.bin").c_str(), &st) != 0);
 }
 
-// The EDS lint (openplc_canopen_deploy.edslint): a prepared copy only when a
+// The EDS lint (canworks.edslint): a prepared copy only when a
 // correction applies, the verdict under eds_lint, and an error naming the
 // install when the module cannot run.
 TEST(eds_lint_prepared_copy_and_verdict) {
@@ -1624,7 +1624,7 @@ TEST(eds_lint_prepared_copy_and_verdict) {
   errors.clear();
   Config missing = config("cpp-slave.eds", "");
   CHECK(!run_eds_lint(missing, "/nonexistent/python", work, errors));
-  CHECK_MSG(has_error(errors, "cannot run the EDS lint (/nonexistent/python -m openplc_canopen_deploy.edslint)") &&
+  CHECK_MSG(has_error(errors, "cannot run the EDS lint (/nonexistent/python -m canworks.edslint)") &&
                 has_error(errors, "rerun scripts/install-stock.sh"),
             join(errors));
   errors.clear();
@@ -1667,14 +1667,14 @@ TEST(dcfgen_accepts_nodeid_suffix_eds) {
   Config cfg;
   std::vector<std::string> errors;
   CHECK(parse_config(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
-  CHECK_MSG(run_eds_lint(cfg, default_edslint_python(), dir + "/.canopen", errors), join(errors));
+  CHECK_MSG(run_eds_lint(cfg, default_edslint_python(), dir + "/.canworks", errors), join(errors));
   CHECK_MSG(cfg.notes.size() == 1 && cfg.notes[0].find("\"<number>+$NODEID\" rewritten") != std::string::npos,
             join(cfg.notes));
   GeneratedConfig gen;
   CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
   CHECK(read(dir + "/cpp-slave.eds") == eds);  // the original is left alone
   struct stat st;
-  CHECK(stat((dir + "/.canopen/eds/node_2.eds").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canworks/eds/node_2.eds").c_str(), &st) == 0);
   // The slave's TPDO 1 gets the configured COB-ID 0x182.
   bool cob = false;
   for (const auto& w : gen.slave_sdos[2])
@@ -1707,7 +1707,7 @@ TEST(dcfgen_device_pdo_mapping) {
 })";
   Config cfg;
   std::vector<std::string> errors;
-  CHECK_MSG(parse_config(json, fixtures + "/eds/canopen.json", ImageLimits(), cfg, errors, "/nonexistent") &&
+  CHECK_MSG(parse_config(json, fixtures + "/eds/canworks.json", ImageLimits(), cfg, errors, "/nonexistent") &&
                 check_eds_files(cfg, errors),
             join(errors));
   const NodeConfig& n = cfg.nodes[0];
@@ -1725,11 +1725,11 @@ TEST(dcfgen_device_pdo_mapping) {
   // dcfgen's output: nothing left to download but no PDO or COB-ID write.
   std::string dir = tmpdir();
   write(dir + "/fixed-io.eds", read(fixtures + "/eds/fixed-io.eds"));
-  write(dir + "/canopen.json", json);
+  write(dir + "/canworks.json", json);
   Config cfg2;
   GeneratedConfig gen;
   errors.clear();
-  CHECK_MSG(load_config(dir + "/canopen.json", ImageLimits(), cfg2, errors) && check_eds_files(cfg2, errors) &&
+  CHECK_MSG(load_config(dir + "/canworks.json", ImageLimits(), cfg2, errors) && check_eds_files(cfg2, errors) &&
                 generate_device_config(cfg2, default_dcfgen(), gen, errors),
             join(errors));
   for (const auto& w : gen.slave_sdos[4])
@@ -1749,11 +1749,11 @@ TEST(dcfgen_explicit_pdo_values_equal_to_eds_default) {
   std::string json = replace(kValid, "\"tx_pdos\": [ { \"entries\"",
                              "\"tx_pdos\": [ { \"transmission\": 1, \"inhibit_time_us\": 0, \"event_timer_ms\": 0, \"entries\"");
   json = replace(json, "\"rx_pdos\": [ { \"entries\"", "\"rx_pdos\": [ { \"transmission\": 1, \"entries\"");
-  write(dir + "/canopen.json", json);
+  write(dir + "/canworks.json", json);
   Config cfg;
   GeneratedConfig gen;
   std::vector<std::string> errors;
-  CHECK_MSG(load_config(dir + "/canopen.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors) &&
+  CHECK_MSG(load_config(dir + "/canworks.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors) &&
                 generate_device_config(cfg, default_dcfgen(), gen, errors),
             join(errors));
   const auto& w = gen.slave_sdos[2];
@@ -1802,14 +1802,14 @@ TEST(eds_fixed_entries_writable_count) {
 })";
   Config cfg;
   std::vector<std::string> errors;
-  CHECK_MSG(parse_config(json, dir + "/canopen.json", ImageLimits(), cfg, errors, "/nonexistent") &&
+  CHECK_MSG(parse_config(json, dir + "/canworks.json", ImageLimits(), cfg, errors, "/nonexistent") &&
                 check_eds_files(cfg, errors),
             join(errors));
   CHECK(cfg.nodes[0].tx_pdos[0].device_mapping);
   json = replace(json, "\"tx_pdos\": [ { \"entries\"", "\"tx_pdos\": [ { \"mapping\": \"config\", \"entries\"");
   Config forced;
   errors.clear();
-  CHECK(parse_config(json, dir + "/canopen.json", ImageLimits(), forced, errors, "/nonexistent"));
+  CHECK(parse_config(json, dir + "/canworks.json", ImageLimits(), forced, errors, "/nonexistent"));
   CHECK(!check_eds_files(forced, errors));
   CHECK_MSG(has_error(errors, "fixes the mapping (0x1A00 subindex 1 is ro)"), join(errors));
   set_log_sink(nullptr);
@@ -2051,10 +2051,10 @@ TEST(config_input_pdo_timeout_auto) {
   std::string eds = read(std::string(FIXTURES_DIR) + "/eds/cpp-slave.eds");
   auto check = [&](const std::string& tpdo, const std::string& with_eds, std::vector<std::string>& errors) {
     write(dir + "/cpp-slave.eds", with_eds);
-    write(dir + "/canopen.json", replace(kValid, "\"tx_pdos\": [ { \"entries\"", "\"tx_pdos\": [ { " + tpdo + "\"entries\""));
+    write(dir + "/canworks.json", replace(kValid, "\"tx_pdos\": [ { \"entries\"", "\"tx_pdos\": [ { " + tpdo + "\"entries\""));
     Config cfg;
     errors.clear();
-    bool ok = load_config(dir + "/canopen.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors);
+    bool ok = load_config(dir + "/canworks.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors);
     return ok ? cfg.nodes[0].tx_pdos[0].timeout_ms : 0u;
   };
   std::vector<std::string> errors;
@@ -2079,11 +2079,11 @@ TEST(dcfgen_rpdo_deadline_in_master_dcf) {
   std::string dir = tmpdir();
   write(dir + "/cpp-slave.eds", read(std::string(FIXTURES_DIR) + "/eds/cpp-slave.eds"));
   auto master = [&](const std::string& json) {
-    write(dir + "/canopen.json", json);
+    write(dir + "/canworks.json", json);
     Config cfg;
     GeneratedConfig gen;
     std::vector<std::string> errors;
-    CHECK_MSG(load_config(dir + "/canopen.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors) &&
+    CHECK_MSG(load_config(dir + "/canworks.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors) &&
                   generate_device_config(cfg, default_dcfgen(), gen, errors),
               join(errors));
     return read(gen.master_dcf);
@@ -2807,7 +2807,7 @@ TEST(config_diagnostics_defaults_and_fields) {
 
 TEST(config_file_fingerprint) {
   std::string dir = tmpdir();
-  std::string path = dir + "/canopen.json";
+  std::string path = dir + "/canworks.json";
   std::ofstream(path) << kValid;
   std::ofstream(dir + "/cpp-slave.eds") << read(std::string(PINGPONG_DIR) + "/cpp-slave.eds");
   Config cfg;
@@ -3702,8 +3702,8 @@ TEST(config_v2_networks) {
   CHECK(io.network == "io" && io.network_index == 0 && io.log_prefix == "io");
   // Without a name, the network is named after its interface.
   CHECK(drives.network == "vcan1" && drives.network_index == 1 && drives.log_prefix == "vcan1");
-  CHECK(io.work_dir == std::string(PINGPONG_DIR) + "/.canopen/io");
-  CHECK(drives.work_dir == std::string(PINGPONG_DIR) + "/.canopen/vcan1");
+  CHECK(io.work_dir == std::string(PINGPONG_DIR) + "/.canworks/io");
+  CHECK(drives.work_dir == std::string(PINGPONG_DIR) + "/.canworks/vcan1");
   CHECK(io.master.node_id == 1 && drives.master.node_id == 3 && drives.adapter.bitrate == 500000);
   // The one diagnostics object reaches every network's master.
   for (const auto& cfg : set.networks)
@@ -3716,16 +3716,16 @@ TEST(config_v2_networks) {
   CHECK(!parse_config(json, path, ImageLimits(), one, errors));
   CHECK_MSG(has_error(errors, "holds 2 networks; this tool takes a file with one"), join(errors));
 
-  // A version 1 file: one unnamed network, no log prefix, .canopen as before.
+  // A version 1 file: one unnamed network, no log prefix, .canworks as before.
   errors.clear();
   ConfigSet v1;
   CHECK(parse_config_set(kValid, path, ImageLimits(), v1, errors));
   CHECK(v1.networks.size() == 1 && v1.networks[0].network.empty() && v1.networks[0].log_prefix.empty());
-  CHECK(v1.networks[0].work_dir == std::string(PINGPONG_DIR) + "/.canopen");
+  CHECK(v1.networks[0].work_dir == std::string(PINGPONG_DIR) + "/.canworks");
 }
 
 TEST(dcfgen_work_dir_per_network) {
-  // Each network generates into .canopen/<name>/ with its own reuse stamp:
+  // Each network generates into .canworks/<name>/ with its own reuse stamp:
   // a change to one network regenerates only that network.
   std::string dir = tmpdir();
   write(dir + "/cpp-slave.eds", read(std::string(PINGPONG_DIR) + "/cpp-slave.eds"));
@@ -3737,7 +3737,7 @@ TEST(dcfgen_work_dir_per_network) {
     GeneratedConfig io, drives;
     CHECK_MSG(generate_device_config(set.networks[0], default_dcfgen(), io, errors), join(errors));
     CHECK_MSG(generate_device_config(set.networks[1], default_dcfgen(), drives, errors), join(errors));
-    CHECK(io.work_dir == dir + "/.canopen/io" && drives.work_dir == dir + "/.canopen/vcan1");
+    CHECK(io.work_dir == dir + "/.canworks/io" && drives.work_dir == dir + "/.canworks/vcan1");
     io_reused = io.reused;
     drives_reused = drives.reused;
   };
@@ -3746,9 +3746,9 @@ TEST(dcfgen_work_dir_per_network) {
   generate(json, a, b);
   CHECK(!a && !b);
   struct stat st;
-  CHECK(stat((dir + "/.canopen/io/master.dcf").c_str(), &st) == 0);
-  CHECK(stat((dir + "/.canopen/vcan1/master.dcf").c_str(), &st) == 0);
-  CHECK(stat((dir + "/.canopen/master.dcf").c_str(), &st) != 0);
+  CHECK(stat((dir + "/.canworks/io/master.dcf").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canworks/vcan1/master.dcf").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canworks/master.dcf").c_str(), &st) != 0);
   std::string changed = json;
   size_t at = changed.find("\"node_id\": 3, \"sync_period_us\": 10000");
   CHECK(at != std::string::npos);
@@ -3767,7 +3767,7 @@ TEST(config_v2_single_network_has_no_prefix) {
   std::vector<std::string> errors;
   CHECK_MSG(parse_config_set(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors), join(errors));
   CHECK(set.networks.size() == 1 && set.networks[0].network == "plant" && set.networks[0].log_prefix.empty());
-  CHECK(set.networks[0].work_dir == std::string(PINGPONG_DIR) + "/.canopen/plant");
+  CHECK(set.networks[0].work_dir == std::string(PINGPONG_DIR) + "/.canworks/plant");
   Config cfg;
   CHECK(parse_config(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), cfg, errors));
 }
@@ -4100,7 +4100,7 @@ TEST(diag_server_tls_login) {
   {
     PlainClient c(server.port());
     std::string a = c.ask(R"({"op":"hello","token":"secret"})");
-    CHECK_MSG(a.find("this runtime needs an encrypted connection; update openplc-canopen-diag") != std::string::npos, a);
+    CHECK_MSG(a.find("this runtime needs an encrypted connection; update canworks-diag") != std::string::npos, a);
     CHECK(c.line() == "<closed>");
   }
   server.stop();

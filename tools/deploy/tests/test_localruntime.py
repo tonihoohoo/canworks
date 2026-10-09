@@ -1,4 +1,4 @@
-"""openplc-canopen-sim-runtime and the `local` target (canopen-local-runtime).
+"""canworks-sim-runtime and the `local` target (canopen-local-runtime).
 
 The container engine is a fake that records its command lines; the runtime
 behind the published port is the HTTPS stub of the deploy tests."""
@@ -12,7 +12,7 @@ import subprocess
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy import __version__, diag, localruntime
+from canworks import __version__, diag, localruntime
 
 from .helpers import StubRuntime, editor_bundle, make_cert, pingpong_config, tmpdir
 from .test_deploy import deploy
@@ -96,14 +96,14 @@ class FakeEngine:
 class Base(unittest.TestCase):
     def setUp(self):
         self.dir = tmpdir(self)
-        env = mock.patch.dict(os.environ, {"OPENPLC_CANOPEN_CONFIG_DIR": os.path.join(self.dir, "cfg")})
+        env = mock.patch.dict(os.environ, {"CANWORKS_CONFIG_DIR": os.path.join(self.dir, "cfg")})
         env.start()
         self.addCleanup(env.stop)
         os.environ.pop(localruntime.ENGINE_ENV, None)
         self.engine = FakeEngine()
-        for target, value in (("openplc_canopen_deploy.localruntime._run", self.engine),
-                              ("openplc_canopen_deploy.localruntime.shutil.which", lambda name: "/usr/bin/" + name),
-                              ("openplc_canopen_deploy.localruntime.READY_TIMEOUT", 5.0)):
+        for target, value in (("canworks.localruntime._run", self.engine),
+                              ("canworks.localruntime.shutil.which", lambda name: "/usr/bin/" + name),
+                              ("canworks.localruntime.READY_TIMEOUT", 5.0)):
             p = mock.patch(target, value)
             p.start()
             self.addCleanup(p.stop)
@@ -136,7 +136,7 @@ class Engines(Base):
         self.assertIn("docker: Cannot connect to the daemon", str(cm.exception))
 
     def test_not_installed(self):
-        with mock.patch("openplc_canopen_deploy.localruntime.shutil.which", lambda name: None):
+        with mock.patch("canworks.localruntime.shutil.which", lambda name: None):
             with self.assertRaises(localruntime.LocalRuntimeError) as cm:
                 localruntime.detect_engine(platform="linux")
         self.assertIn("docker: not installed; podman: not installed", str(cm.exception))
@@ -182,7 +182,7 @@ class Start(WithRuntime):
         self.assertEqual(run[-1], "%s:%s" % (localruntime.IMAGE_REPO, __version__))
         self.assertIn("127.0.0.1:%d:8443" % self.port, run)
         self.assertIn("127.0.0.1:7531:7531", run)
-        self.assertIn("openplc-canopen-sim-runtime-data:/var/run/runtime", run)
+        self.assertIn("canworks-sim-runtime-data:/var/run/runtime", run)
         self.assertIn("unless-stopped", run)
         self.assertIn("SYS_NICE", run)
         self.assertIn("memlock=-1:-1", run)
@@ -254,7 +254,7 @@ class Start(WithRuntime):
         self.engine.container = ("running", "%s:0.1.0" % localruntime.IMAGE_REPO)
         code, out, err = self.start()
         self.assertEqual(code, 0, err)
-        self.assertIn("runs image %s:0.1.0; `openplc-canopen-sim-runtime update` switches it" % localruntime.IMAGE_REPO, out)
+        self.assertIn("runs image %s:0.1.0; `canworks-sim-runtime update` switches it" % localruntime.IMAGE_REPO, out)
         self.assertEqual(localruntime.load_settings()["image"], "%s:0.1.0" % localruntime.IMAGE_REPO)
         code, out, err = self.start("--image", "other:1")
         self.assertEqual(code, 1)
@@ -266,7 +266,7 @@ class Manage(WithRuntime):
         self.assertEqual(self.start()[0], 0)
         code, out, err = self.cli("status", "--show-password")
         self.assertEqual(code, 0, err)
-        self.assertIn("container: openplc-canopen-sim-runtime, running", out)
+        self.assertIn("container: canworks-sim-runtime, running", out)
         self.assertIn("password " + localruntime.load_settings()["password"], out)
         self.assertIn("PLC: STOPPED", out)
         self.assertIn("simulation forced by the runtime environment", out)
@@ -348,7 +348,7 @@ class Rename(WithRuntime):
         self.old_runtime()
         code, out, err = self.cli("status")
         self.assertEqual(code, 1)
-        self.assertIn("openplc-canopen-sim-runtime update` takes it over", out)
+        self.assertIn("canworks-sim-runtime update` takes it over", out)
         self.assertIn(localruntime.OLD_NAME, self.engine.containers)
 
     def test_both_containers(self):
@@ -374,9 +374,9 @@ class Rename(WithRuntime):
             code = localruntime.old_main(["status"])
         self.assertEqual(code, self.cli("status")[0])
         self.assertEqual(err.getvalue().splitlines(),
-                         ["openplc-canopen-runtime is now openplc-canopen-sim-runtime; this name goes away in the "
+                         ["openplc-canopen-runtime is now canworks-sim-runtime; this name goes away in the "
                           "next release"])
-        self.assertIn("container: openplc-canopen-sim-runtime, running", out.getvalue())
+        self.assertIn("container: canworks-sim-runtime, running", out.getvalue())
 
 
 class LocalTarget(WithRuntime):
@@ -402,7 +402,7 @@ class LocalTarget(WithRuntime):
         with open(config, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         src = editor_bundle(os.path.join(self.dir, "src"))
-        with mock.patch("openplc_canopen_deploy.cli._ask") as ask:
+        with mock.patch("canworks.cli._ask") as ask:
             code, out, err = deploy("--bundle", src, "--config", config, "--runtime", "local")
         self.assertEqual(code, 0, err)
         self.assertFalse(ask.called)
@@ -412,7 +412,7 @@ class LocalTarget(WithRuntime):
         src = editor_bundle(os.path.join(self.dir, "src"))
         code, out, err = deploy("--bundle", src, "--config", config, "--runtime", "local")
         self.assertEqual(code, 1)
-        self.assertIn("run `openplc-canopen-sim-runtime start` first", err)
+        self.assertIn("run `canworks-sim-runtime start` first", err)
 
     def test_diag_host(self):
         self.assertEqual(diag.parse_runtime("local"), ("127.0.0.1", 7531))

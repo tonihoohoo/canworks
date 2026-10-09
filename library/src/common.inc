@@ -1,4 +1,4 @@
-// Shared code of the openplc_canopen SDO function blocks (spec
+// Shared code of the canworks SDO function blocks (spec
 // canopen-plc-sdo). library/generate.py copies it into every block's source,
 // because the editor grafts each library C++ block into one
 // c_blocks_code.cpp and offers no other place for shared code; the include
@@ -60,7 +60,7 @@ inline const api_v1* api() {
 #ifdef CO_SDO_TEST_ENTRY
   entry_t entry = CO_SDO_TEST_ENTRY;
 #else
-  void* lib = dlopen("libcanopen_plugin.so", 0x2 | 0x4);
+  void* lib = dlopen("libcanworks_plugin.so", 0x2 | 0x4);
   if (!lib) return nullptr;
   entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, "canopen_plc_api"));
 #endif

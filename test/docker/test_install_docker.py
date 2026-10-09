@@ -53,7 +53,7 @@ STUB_DOCKER = textwrap.dedent("""\
         run)
             [ -n "$STUB_RUN_FAILS" ] && exit 1
             mkdir -p "$STUB_PREFIX/lib/sitecustomize"
-            echo so > "$STUB_PREFIX/lib/libcanopen_plugin.so"
+            echo so > "$STUB_PREFIX/lib/libcanworks_plugin.so"
             exit 0 ;;
     esac
     exit 0
@@ -61,8 +61,8 @@ STUB_DOCKER = textwrap.dedent("""\
 
 
 class SpecTool(unittest.TestCase):
-    BIND = "/opt/openplc-canopen:/opt/openplc-canopen"
-    ENV = "PYTHONPATH=/opt/openplc-canopen/lib/sitecustomize"
+    BIND = "/opt/canworks:/opt/canworks"
+    ENV = "PYTHONPATH=/opt/canworks/lib/sitecustomize"
 
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="spec-")
@@ -144,8 +144,8 @@ class Installer(unittest.TestCase):
         self.spec = os.path.join(self.dir, "bootloader", "runtime-spec.json")
         os.makedirs(os.path.dirname(self.spec))
         self.log = os.path.join(self.dir, "docker.log")
-        self.bind = "%s:/opt/openplc-canopen" % self.prefix
-        self.env_entry = "PYTHONPATH=/opt/openplc-canopen/lib/sitecustomize"
+        self.bind = "%s:/opt/canworks" % self.prefix
+        self.env_entry = "PYTHONPATH=/opt/canworks/lib/sitecustomize"
 
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)

@@ -10,7 +10,7 @@ name: Release PC tools
 # release never re-triggers itself through the tag trigger.
 #
 # Each release also publishes the local simulator runtime image
-# (canopen-local-runtime) ghcr.io/<owner>/openplc-canopen-sim-runtime: the jobs
+# (canopen-local-runtime) ghcr.io/<owner>/canworks-sim-runtime: the jobs
 # image (amd64 and arm64 on native runners, pushed by digest) and manifest
 # (:<version> and :latest) run only when the release job released (go=true),
 # and an existing :<version> is never overwritten. The image build itself is
@@ -79,7 +79,7 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = push ]; then go true; exit 0; fi
 
           if gh release view "$TAG" --json assets --jq '.assets[].name' > assets.txt 2>/dev/null; then
-            if grep -qx "openplc_canopen_deploy-$VERSION-py3-none-any.whl" assets.txt; then
+            if grep -qx "canworks-$VERSION-py3-none-any.whl" assets.txt; then
               echo "::notice::$TAG is already released; nothing to do"
               go false; exit 0
             fi
@@ -119,13 +119,13 @@ jobs:
         run: |
           ls dist
           test "$(ls dist/*.whl | wc -l)" -eq 1
-          test -f "dist/openplc_canopen_deploy-${{ steps.version.outputs.version }}-py3-none-any.whl"
+          test -f "dist/canworks-${{ steps.version.outputs.version }}-py3-none-any.whl"
 
-      - name: The SDO block library (openplc_canopen.stlib, from the wheel, with its version)
+      - name: The SDO block library (canworks.stlib, from the wheel, with its version)
         if: steps.gate.outputs.go == 'true'
         run: |
           python3 -m zipfile -e dist/*.whl wheel
-          PYTHONPATH=wheel python3 -m openplc_canopen_deploy library --out dist
+          PYTHONPATH=wheel python3 -m canworks library --out dist
           ls dist
 
       - name: Create the release
@@ -135,8 +135,8 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           previous=$(git tag --list 'deploy-v*' | python3 scripts/release_version.py --previous-tag "$VERSION")
-          notes="Install on Windows, macOS or Linux without Python: see docs/install-pc.md. Download the wheel below, then run: uv tool install --python 3.12 openplc_canopen_deploy-$VERSION-py3-none-any.whl. openplc_canopen.stlib is the SDO function block library for OpenPLC Editor (docs/plc-sdo.md). Local simulator runtime (no hardware needed, docs/local-runtime.md): openplc-canopen-sim-runtime start pulls ghcr.io/${{ github.repository_owner }}/openplc-canopen-sim-runtime:$VERSION (amd64 and arm64)."
-          gh release create "$TAG" dist/*.whl dist/openplc_canopen.stlib \
+          notes="Install on Windows, macOS or Linux without Python: see docs/install-pc.md. Download the wheel below, then run: uv tool install --python 3.12 canworks-$VERSION-py3-none-any.whl. canworks.stlib is the SDO function block library for OpenPLC Editor (docs/plc-sdo.md). Local simulator runtime (no hardware needed, docs/local-runtime.md): canworks-sim-runtime start pulls ghcr.io/${{ github.repository_owner }}/canworks-sim-runtime:$VERSION (amd64 and arm64)."
+          gh release create "$TAG" dist/*.whl dist/canworks.stlib \
             --target "$SHA" \
             --title "PC tools $VERSION" \
             --notes "$notes" \
@@ -170,12 +170,12 @@ jobs:
       - name: Build and push by digest
         id: push
         run: |
-          repo="ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/openplc-canopen-sim-runtime"
+          repo="ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/canworks-sim-runtime"
           runtime=$(cat docker/local-runtime/runtime-version)
           docker build -f docker/local-runtime/Dockerfile \
             --build-arg RUNTIME_IMAGE="ghcr.io/autonomy-logic/openplc-runtime:$runtime" \
             --build-arg TOOLS_VERSION="$VERSION" -t "$repo:build-${{ matrix.arch }}" .
-          docker run --rm --entrypoint ldd "$repo:build-${{ matrix.arch }}" /opt/openplc-canopen/lib/libcanopen_plugin.so > ldd.txt
+          docker run --rm --entrypoint ldd "$repo:build-${{ matrix.arch }}" /opt/canworks/lib/libcanworks_plugin.so > ldd.txt
           if grep "not found" ldd.txt; then exit 1; fi
           docker push "$repo:build-${{ matrix.arch }}"
           digest=$(docker image inspect "$repo:build-${{ matrix.arch }}" --format '{{index .RepoDigests 0}}' | cut -d@ -f2)
@@ -206,7 +206,7 @@ jobs:
 
       - name: Create :<version> and :latest
         run: |
-          repo="ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/openplc-canopen-sim-runtime"
+          repo="ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/canworks-sim-runtime"
           if docker manifest inspect "$repo:$VERSION" > /dev/null 2>&1; then
             echo "::error::$repo:$VERSION exists already; a released image is never overwritten"
             exit 1

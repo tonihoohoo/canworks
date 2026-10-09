@@ -92,7 +92,7 @@ std::string default_edslint_python() {
   const char* env = std::getenv("CANOPEN_EDSLINT");
   if (env && *env) return env;
 #ifndef CANOPEN_PREFIX
-#define CANOPEN_PREFIX "/opt/openplc-canopen"
+#define CANOPEN_PREFIX "/opt/canworks"
 #endif
   const char* venv = CANOPEN_PREFIX "/venv/bin/python";
   if (access(venv, X_OK) == 0) return venv;
@@ -131,7 +131,7 @@ bool run_eds_lint(Config& cfg, const std::string& python, const std::string& wor
     const std::string& base = it.base;
     std::string copy = base + ".eds", out_path = base + ".lint.json", err_path = base + ".lint.log";
     unlink(copy.c_str());  // a copy from an earlier load must not outlive its corrections
-    std::vector<std::string> args = {python, "-m", "openplc_canopen_deploy.edslint", "--json",
+    std::vector<std::string> args = {python, "-m", "canworks.edslint", "--json",
                                      "--node-id", std::to_string(it.node_id), "--mode", it.mode,
                                      "--label", it.label, "--name", *it.eds, "--out", copy, *it.eds_path};
     std::string why;
@@ -143,7 +143,7 @@ bool run_eds_lint(Config& cfg, const std::string& python, const std::string& wor
     if (!doc || !cJSON_IsObject(doc)) {
       if (why.empty()) why = rc == 0 ? "no result" : "exit status " + std::to_string(rc);
       std::string tail = last_lines(err, 2);
-      errors.push_back("cannot run the EDS lint (" + python + " -m openplc_canopen_deploy.edslint): " + why +
+      errors.push_back("cannot run the EDS lint (" + python + " -m canworks.edslint): " + why +
                        (tail.empty() ? "" : ": " + tail) +
                        "; the deploy tool must be installed in the plugin's venv (rerun scripts/install-stock.sh)");
       cJSON_Delete(doc);

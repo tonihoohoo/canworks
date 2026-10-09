@@ -45,7 +45,7 @@ runs:
     - name: Cache the build dependency packages
       uses: actions/cache@v4
       with:
-        path: ~/.cache/openplc-canopen/apt-build
+        path: ~/.cache/canworks/apt-build
         key: ${{ steps.apt-key.outputs.key }}
 
     - name: Install build dependencies
@@ -58,35 +58,35 @@ runs:
       run: |
         pkgs="build-essential cmake pkg-config autoconf automake libtool python3-venv can-utils libssl-dev ccache"
         if [ "$KERNEL_MODULES" = true ] && ! modinfo vcan >/dev/null 2>&1; then
-          python3 .github/scripts/apt_install.py --debs ~/.cache/openplc-canopen/apt-build $pkgs "linux-modules-extra-$(uname -r)" || \
-          python3 .github/scripts/apt_install.py --debs ~/.cache/openplc-canopen/apt-build $pkgs
+          python3 .github/scripts/apt_install.py --debs ~/.cache/canworks/apt-build $pkgs "linux-modules-extra-$(uname -r)" || \
+          python3 .github/scripts/apt_install.py --debs ~/.cache/canworks/apt-build $pkgs
         else
-          python3 .github/scripts/apt_install.py --debs ~/.cache/openplc-canopen/apt-build $pkgs
+          python3 .github/scripts/apt_install.py --debs ~/.cache/canworks/apt-build $pkgs
         fi
 
-    - name: Prepare /opt/openplc-canopen
+    - name: Prepare /opt/canworks
       shell: bash
-      run: sudo mkdir -p /opt/openplc-canopen && sudo chown "$USER" /opt/openplc-canopen
+      run: sudo mkdir -p /opt/canworks && sudo chown "$USER" /opt/canworks
 
     - name: Cache Lely CANopen
       id: lely-cache
       uses: actions/cache@v4
       with:
-        path: /opt/openplc-canopen
+        path: /opt/canworks
         key: lely-${{ runner.os }}-${{ hashFiles('scripts/build-lely.sh') }}
 
     - name: Build Lely CANopen and dcfgen
       if: steps.lely-cache.outputs.cache-hit != 'true'
       shell: bash
-      run: scripts/build-lely.sh --prefix /opt/openplc-canopen
+      run: scripts/build-lely.sh --prefix /opt/canworks
 
     - name: Vendored Lely dcf package matches the pinned lely-core
       shell: bash
-      run: scripts/check-lely-dcf.sh --prefix /opt/openplc-canopen
+      run: scripts/check-lely-dcf.sh --prefix /opt/canworks
 
     - name: Install the deploy tool into the plugin venv (the plugin's EDS lint)
       shell: bash
-      run: /opt/openplc-canopen/venv/bin/python -m pip install -q ./tools/deploy
+      run: /opt/canworks/venv/bin/python -m pip install -q ./tools/deploy
 
     - name: Compiler cache key (runner image, compiler, target set; ccache itself hashes each compile's inputs)
       id: ccache-key
@@ -105,7 +105,7 @@ runs:
       id: ccache
       uses: actions/cache/restore@v4
       with:
-        path: ~/.cache/openplc-canopen/ccache
+        path: ~/.cache/canworks/ccache
         key: ${{ steps.ccache-key.outputs.key }}
         restore-keys: ${{ steps.ccache-key.outputs.prefix }}
 
@@ -119,7 +119,7 @@ runs:
         CCACHE_COMPILERCHECK: content
         CCACHE_MAXSIZE: 300M
       run: |
-        export CCACHE_DIR="$HOME/.cache/openplc-canopen/ccache"
+        export CCACHE_DIR="$HOME/.cache/canworks/ccache"
         ccache -z >/dev/null
         cmake -B build -DOPENPLC_ROOT="$PWD/upstream-runtime" ${STRUCPP:+-DSTRUCPP="$STRUCPP"} \
           -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
@@ -130,5 +130,5 @@ runs:
       if: steps.ccache.outputs.cache-hit != 'true' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
       uses: actions/cache/save@v4
       with:
-        path: ~/.cache/openplc-canopen/ccache
+        path: ~/.cache/canworks/ccache
         key: ${{ steps.ccache-key.outputs.key }}

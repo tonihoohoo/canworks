@@ -4,8 +4,8 @@
 #   test/params/run.sh [--build-dir build] [--iface vcan0]
 #
 # Runs the simulated RTD module (config/rtd-sensor, node 5) and the real
-# libcanopen_plugin.so through canopen_host with the diagnostics channel on
-# 127.0.0.1 (changes allowed). Then, with openplc-canopen-diag: backs node 5
+# libcanworks_plugin.so through canopen_host with the diagnostics channel on
+# 127.0.0.1 (changes allowed). Then, with canworks-diag: backs node 5
 # up, changes three of its parameters by hand, checks that compare finds the
 # three, restores the backup, and checks that compare finds no difference.
 # With candump it also checks that nothing was written to 0x1010 (store).
@@ -27,7 +27,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/sensor_slave"
 for f in "$PLUGIN" "$HOST" "$SLAVE"; do
@@ -48,9 +48,9 @@ cleanup() {
 trap cleanup EXIT
 
 export PYTHONPATH="$ROOT/tools/deploy${PYTHONPATH:+:$PYTHONPATH}"
-export OPENPLC_CANOPEN_TOKEN=params-test-token
+export CANWORKS_TOKEN=params-test-token
 PORT=7539
-DIAG=(python3 -m openplc_canopen_deploy.diag --runtime "127.0.0.1:$PORT")
+DIAG=(python3 -m canworks.diag --runtime "127.0.0.1:$PORT")
 
 cp "$ROOT/config/rtd-sensor/rtd8.eds" "$WORK/"
 python3 - "$ROOT/config/rtd-sensor/canopen_config.json" "$WORK/canopen_config.json" "$IFACE" "$PORT" <<'PY'
@@ -65,7 +65,7 @@ def verifier(token):  # diag.token_verifier: SCRAM-SHA-256 (docs/diagnostics.md)
 cfg = json.load(open(sys.argv[1]))
 cfg["adapter"]["interface"] = sys.argv[3]
 cfg["master"]["diagnostics"] = {
-    "token_verifier": verifier(os.environ["OPENPLC_CANOPEN_TOKEN"]),
+    "token_verifier": verifier(os.environ["CANWORKS_TOKEN"]),
     "port": int(sys.argv[4]), "bind": "127.0.0.1", "allow_changes": True}
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
 PY

@@ -50,7 +50,7 @@ The plugin and the deploy tool SHALL accept the top-level `interface` and `bitra
 - **THEN** the config is rejected with an error naming both keys
 
 ### Requirement: Simulation switches in the config
-`canopen.json` version 1 SHALL accept an optional boolean `adapter.simulate` (the network is simulated), default false, and an optional boolean `simulate` on each node (the device is simulated), whose default is true on a simulated network and false on a real one. A config without them SHALL behave as before. The schema SHALL describe both, and the plugin and the deploy tool SHALL accept a config with simulated parts whose adapter would otherwise be valid.
+`canworks.json` version 1 SHALL accept an optional boolean `adapter.simulate` (the network is simulated), default false, and an optional boolean `simulate` on each node (the device is simulated), whose default is true on a simulated network and false on a real one. A config without them SHALL behave as before. The schema SHALL describe both, and the plugin and the deploy tool SHALL accept a config with simulated parts whose adapter would otherwise be valid.
 
 #### Scenario: Old config
 - **WHEN** a config written before this change is loaded
@@ -65,7 +65,7 @@ The plugin and the deploy tool SHALL accept the top-level `interface` and `bitra
 - **THEN** it validates
 
 ### Requirement: Simulation file contract
-The simulation file (`simulation.json`, next to `canopen.json`) SHALL carry its own integer `schema_version`, read as 1 when omitted, and the repository SHALL publish a JSON Schema (draft 2020-12) for it. The plugin, the standalone simulator and the PC tools SHALL reject a file whose version is higher than they support, naming both versions, and SHALL reject unknown keys. Checks the schema cannot express (objects that exist in the EDS, value sources on master-written objects, expression syntax and references) SHALL be documented next to it and run by the deploy tool's check as well as at load. Behaviour given for a node that is not simulated SHALL be kept and SHALL NOT be an error, so a node can be switched between real and simulated without editing the file.
+The simulation file (`simulation.json`, next to `canworks.json`) SHALL carry its own integer `schema_version`, read as 1 when omitted, and the repository SHALL publish a JSON Schema (draft 2020-12) for it. The plugin, the standalone simulator and the PC tools SHALL reject a file whose version is higher than they support, naming both versions, and SHALL reject unknown keys. Checks the schema cannot express (objects that exist in the EDS, value sources on master-written objects, expression syntax and references) SHALL be documented next to it and run by the deploy tool's check as well as at load. Behaviour given for a node that is not simulated SHALL be kept and SHALL NOT be an error, so a node can be switched between real and simulated without editing the file.
 
 #### Scenario: Unknown key
 - **WHEN** a simulation file has `"nodes": {"5": {"sources": {...}, "sourcse": {...}}}`
@@ -95,7 +95,7 @@ A version 2 file SHALL have `schema_version: 2`, a `networks` list, and MAY have
 - **THEN** it loads, that network running as a scan-only network
 
 ### Requirement: Version 2 schema shares version 1 definitions
-The repository SHALL publish `schema/canopen.v2.schema.json`. Its adapter, master and node definitions SHALL be the version 1 definitions, referenced rather than copied, so an optional field added to version 1 is accepted in version 2 too. Every example config SHALL validate against the schema of its own version.
+The repository SHALL publish `schema/canworks.v2.schema.json`. Its adapter, master and node definitions SHALL be the version 1 definitions, referenced rather than copied, so an optional field added to version 1 is accepted in version 2 too. Every example config SHALL validate against the schema of its own version.
 
 #### Scenario: Field added to version 1
 - **WHEN** a new optional `master` field is added to the version 1 schema
@@ -131,7 +131,7 @@ A version 2 network MAY have `role`, `"master"` (default) or `"slave"`. A slave 
 The `slave` object SHALL have `node_id` (1-127, or null for LSS) and `eds`, and MAY have `objects`, `inputs_on_loss` (`"hold"` default or `"zero"`), `state_location`, `comm_ok_location`, `sync_count_location`, `emcy_code_location` and `error_register_location`. Each `objects` entry SHALL have `index`, `subindex` and `iec_location`, and MAY have `name`. The JSON Schema SHALL describe all of these.
 
 #### Scenario: Example validates
-- **WHEN** `config/slave/canopen_config.json` is checked against `schema/canopen.v2.schema.json`
+- **WHEN** `config/slave/canopen_config.json` is checked against `schema/canworks.v2.schema.json`
 - **THEN** it validates
 
 ### Requirement: One role per interface
@@ -161,7 +161,7 @@ Tools that write a config SHALL write version 2 whenever any network is a slave 
 - **THEN** the file has `schema_version: 2` and that network has `"role": "slave"`
 
 ### Requirement: Gateway section in the schema
-`schema/canopen.v2.schema.json` SHALL describe the top-level `gateway` object (`upper`, `routes`, `status`, `emcy_forward`, `on_upper_loss`, `sdo_bridge`, `sdo_bridge_write`), and a version 1 file SHALL NOT have `gateway`.
+`schema/canworks.v2.schema.json` SHALL describe the top-level `gateway` object (`upper`, `routes`, `status`, `emcy_forward`, `on_upper_loss`, `sdo_bridge`, `sdo_bridge_write`), and a version 1 file SHALL NOT have `gateway`.
 
 #### Scenario: Gateway example validates
 - **WHEN** `config/gateway/canopen_config.json` is checked against the version 2 schema

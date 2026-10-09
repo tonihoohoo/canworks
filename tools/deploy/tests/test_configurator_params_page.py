@@ -32,7 +32,7 @@ class ParamsPage(OnlineBase):
             e["iec_location"] = e["iec_location"].replace("%IW", "%IW3")
         cfg["nodes"][0]["status_location"] = "%IX310.0"
         self.cfg = cfg
-        shutil.copy(os.path.join(RTD, "rtd8.eds"), os.path.join(self.project, "canopen"))
+        shutil.copy(os.path.join(RTD, "rtd8.eds"), os.path.join(self.project, "canworks"))
         self.write_config()
 
     def device(self, allow=True, booted=True):

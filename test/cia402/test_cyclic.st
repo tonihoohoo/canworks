@@ -1,5 +1,5 @@
 (*
- * The cyclic synchronous blocks (CO402_Cyclic*, library/openplc_canopen) on
+ * The cyclic synchronous blocks (CO402_Cyclic*, library/canworks) on
  * the program the project generator writes for
  * config/cia402-drive/canopen_config_cyclic.json (task interval T#10ms, so
  * fCycleTime 0.01), against the drive model. Run by test/cia402/run.sh.

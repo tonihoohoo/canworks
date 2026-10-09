@@ -28,6 +28,6 @@ test/pingpong/run.sh               # expect PASS and exit 0
 test/pingpong/run.sh --no-slave    # expect FAIL and exit 1
 ```
 
-`run.sh` starts the slave, then loads the real `libcanopen_plugin.so` through `build/test/canopen_host`, which calls the plugin's entry points the way the runtime does and runs the PLC program above every 10 ms. It prints `%ID100` and `%IX10.0` once a second, and a count of SYNC, SDO, PDO and heartbeat frames from `candump`.
+`run.sh` starts the slave, then loads the real `libcanworks_plugin.so` through `build/test/canopen_host`, which calls the plugin's entry points the way the runtime does and runs the PLC program above every 10 ms. It prints `%ID100` and `%IX10.0` once a second, and a count of SYNC, SDO, PDO and heartbeat frames from `candump`.
 
 Running the same thing inside the runtime itself needs a PLC program compiled by the OpenPLC editor, which cannot be scripted yet.
