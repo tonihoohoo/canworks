@@ -38,9 +38,11 @@ class Host {
   enum class Level { Info, Warn, Error };
   virtual ~Host() = default;
   virtual ev_exec_t* exec() = 0;
-  virtual std::unique_ptr<lely::io::TimerBase> make_timer() = 0;
+  // Shared pointers: Lely's timer and channel classes have no virtual
+  // destructor, and a channel deleted as its base stays open on the bus.
+  virtual std::shared_ptr<lely::io::TimerBase> make_timer() = 0;
   // A new channel on the bus, open.
-  virtual std::unique_ptr<lely::io::CanChannelBase> make_channel() = 0;
+  virtual std::shared_ptr<lely::io::CanChannelBase> make_channel() = 0;
   virtual void log(Level level, const std::string& message) = 0;
   // Simulated devices next to real ones: the conflict guard runs.
   virtual bool real_network() const = 0;
@@ -164,7 +166,7 @@ class Simulator {
   SimOptions opt_;
   std::vector<std::unique_ptr<Dev>> devs_;
   std::vector<std::unique_ptr<Run>> runs_;
-  std::unique_ptr<lely::io::TimerBase> timer_;
+  std::shared_ptr<lely::io::TimerBase> timer_;
   std::unique_ptr<lely::io::TimerWait> wait_;
   unsigned tick_ms_ = kDefaultTickMs;
   Clock::time_point start_;

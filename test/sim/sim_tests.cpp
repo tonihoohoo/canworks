@@ -19,6 +19,7 @@
 #include <fstream>
 #include <memory>
 #include <map>
+#include <condition_variable>
 #include <mutex>
 #include <thread>
 #include <sstream>
@@ -770,6 +771,22 @@ class Sim {
   }
   canopen_sim::Simulator& simulator() { return *simulator_; }
   const std::vector<canopen_sim::ScenarioResult>& scenario_results() const { return results_; }
+  // Writes `n` frames (0x7F0, no CANopen use) onto the bus, running the loop
+  // between batches; false once the bus refuses one, as it does when a
+  // channel left on it is not read and its receive queue is full.
+  bool Flood(int n) {
+    io::VirtualCanChannel ch(ctx_, exec_);
+    ch.open(ctrl_);
+    can_msg m = CAN_MSG_INIT;
+    m.id = 0x7F0;
+    for (int i = 0; i < n; ++i) {
+      std::error_code ec;
+      ch.write(m, 0, ec);
+      if (ec) return false;
+      if (i % 50 == 49) RunFor(milliseconds(10));
+    }
+    return true;
+  }
   // A control request to the simulator; the parsed answer (cJSON_Delete it).
   // Routes sim_ diagnostics requests to the simulator, as bus.cpp does.
   void WireSimHandler() {
@@ -3324,6 +3341,101 @@ TEST(sim_simulated_faults) {
   a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 4));
   CHECK_MSG(str(result(a), "data") == "00 00 00 00", str(result(a), "data"));
   cJSON_Delete(a);
+  delete sim;
+}
+
+// Ends the test program when a case does not finish in time: a bus loop
+// that spins never returns to the test.
+class Watchdog {
+ public:
+  Watchdog(const char* what, seconds limit) : thread_([this, what, limit] {
+      std::unique_lock<std::mutex> lock(mutex_);
+      if (cv_.wait_for(lock, limit, [this] { return done_; })) return;
+      std::printf("  watchdog: %s did not finish within %lld s\n", what, (long long)limit.count());
+      std::fflush(stdout);
+      std::_Exit(1);
+    }) {}
+  ~Watchdog() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      done_ = true;
+    }
+    cv_.notify_all();
+    thread_.join();
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  bool done_ = false;
+  std::thread thread_;
+};
+
+// Power off and on, five times (canopen-device-simulator "Power cycle keeps
+// the network running"): the device boots again each time, the diagnostics
+// channel keeps answering and the session ends promptly.
+TEST(sim_simulated_power_cycles) {
+  clear_logs();
+  Watchdog dog("sim_simulated_power_cycles", seconds(60));
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->EnableDiag();
+  sim->WireSimHandler();
+  // Through the diagnostics channel, as the plugin gets them.
+  auto sim_diag = [](const std::string& op, const std::string& json) {
+    DiagRequest dr = diag_req(op);
+    dr.raw = json;
+    return sim->Ask(std::move(dr));
+  };
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  for (int i = 0; i < 5; ++i) {
+    cJSON* r = sim_diag("sim_fault", R"({"op":"sim_fault","node":2,"fault":{"power":"off"}})");
+    CHECK(ok(r));
+    cJSON_Delete(r);
+    CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
+    // Off for 2 s: more frames than a receive queue holds (1024) go by.
+    sim->RunFor(milliseconds(2000));
+    r = sim_diag("sim_clear", R"({"op":"sim_clear","node":2,"fault":"power"})");
+    CHECK(ok(r));
+    cJSON_Delete(r);
+    uint32_t before = sim->in();
+    CHECK_MSG(sim->RunUntil([before] { return sim->status() && sim->in() > before + 3; }, seconds(5)),
+              "cycle " + std::to_string(i + 1) + ": node 2 is not back");
+    auto t0 = steady_clock::now();
+    cJSON* a = sim->Ask(diag_req("status"), milliseconds(1000));
+    CHECK_MSG(ok(a), "cycle " + std::to_string(i + 1) + ": no status answer within 1 s");
+    CHECK(steady_clock::now() - t0 < milliseconds(1000));
+    cJSON_Delete(a);
+  }
+  CHECK(count_logs("sim: node 2: powered on") == 6);
+  CHECK(sim->Flood(3000));
+  auto t0 = steady_clock::now();
+  delete sim;
+  auto took = duration_cast<milliseconds>(steady_clock::now() - t0).count();
+  std::printf("    session ended in %lld ms\n", (long long)took);
+  CHECK(took < 2000);
+}
+
+// A simulation the engine refuses at start (a source on an object the master
+// writes): the master runs without simulated devices, and nothing of the
+// refused devices stays on the bus.
+TEST(sim_simulated_refused_start) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(!sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4000": {"constant": 5}}}}})"));
+  sim->net().Start();
+  sim->RunFor(milliseconds(500));
+  CHECK(!sim->status());
+  CHECK(sim->Flood(3000));
   delete sim;
 }
 

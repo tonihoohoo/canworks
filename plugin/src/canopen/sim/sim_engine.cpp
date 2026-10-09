@@ -155,8 +155,8 @@ struct Simulator::Dev {
   std::string store_key;
   std::shared_ptr<StoredState> store;
 
-  std::unique_ptr<lely::io::TimerBase> timer;
-  std::unique_ptr<lely::io::CanChannelBase> chan;
+  std::shared_ptr<lely::io::TimerBase> timer;
+  std::shared_ptr<lely::io::CanChannelBase> chan;
   std::unique_ptr<SimDevice> dev;
   bool powered = false;
   bool conflict = false;

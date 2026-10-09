@@ -201,7 +201,9 @@ void Bus::run_session() {
     // The master's channel: on the in-process virtual bus, or on the interface.
     std::shared_ptr<lely::io::VirtualCanController> vbus;
     std::unique_ptr<lely::io::CanController> ctrl;
-    std::unique_ptr<lely::io::CanChannelBase> chan;
+    // A shared pointer deletes the channel as what it is (Lely's channel
+    // classes have no virtual destructor): it leaves the bus at the end.
+    std::shared_ptr<lely::io::CanChannelBase> chan;
     if (virt) {
       vbus = shared_virtual_bus(cfg_.adapter.interface);
       auto* c = new lely::io::VirtualCanChannel(ctx, exec);

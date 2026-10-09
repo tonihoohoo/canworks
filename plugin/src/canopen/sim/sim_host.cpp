@@ -15,17 +15,17 @@ LoopHost::LoopHost(lely::io::Context& ctx, lely::io::Poll& poll, ev_exec_t* exec
 
 LoopHost::~LoopHost() = default;
 
-std::unique_ptr<lely::io::TimerBase> LoopHost::make_timer() {
-  return std::unique_ptr<lely::io::TimerBase>(new lely::io::Timer(poll_, exec_, CLOCK_MONOTONIC));
+std::shared_ptr<lely::io::TimerBase> LoopHost::make_timer() {
+  return std::make_shared<lely::io::Timer>(poll_, exec_, CLOCK_MONOTONIC);
 }
 
-std::unique_ptr<lely::io::CanChannelBase> LoopHost::make_channel() {
+std::shared_ptr<lely::io::CanChannelBase> LoopHost::make_channel() {
   if (vbus_) {
-    std::unique_ptr<lely::io::VirtualCanChannel> c(new lely::io::VirtualCanChannel(ctx_, exec_));
+    auto c = std::make_shared<lely::io::VirtualCanChannel>(ctx_, exec_);
     c->open(*vbus_);
     return c;
   }
-  std::unique_ptr<lely::io::CanChannel> c(new lely::io::CanChannel(poll_, exec_));
+  auto c = std::make_shared<lely::io::CanChannel>(poll_, exec_);
   c->open(*ctrl_);
   return c;
 }
