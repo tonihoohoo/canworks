@@ -8,7 +8,7 @@ The PC tools SHALL read a DBC file and list its J1939 messages (29-bit identifie
 - **THEN** the import lists PGN 65280 with its 4 signals and cycle time, and one problem naming the 11-bit message
 
 ### Requirement: Config from imported messages
-Adding an imported message SHALL create an `rx` or `tx` entry with the DBC's signal layout and names, `period_ms` from the cycle time for `tx`, `timeout_ms` of three times the cycle time for `rx`, the DBC priority, and suggested free IEC locations of the right size. The DBC file SHALL be copied into the project's `canopen/` folder and named in `j1939.dbc`.
+Adding an imported message SHALL create an `rx` or `tx` entry with the DBC's signal layout and names, `period_ms` from the cycle time for `tx`, `timeout_ms` of three times the cycle time for `rx`, the DBC priority, and suggested free IEC locations of the right size. The DBC file SHALL be copied into the project's `canworks/` folder and named in `j1939.dbc`.
 
 #### Scenario: Receive a message
 - **WHEN** the user adds PGN 65280 (cycle 100 ms) as received

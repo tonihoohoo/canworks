@@ -150,6 +150,25 @@ Jobs and steps run when their area or `shared` is present. A J1939 step lives in
 - A J1939 network cannot share an interface with a CANopen network.
 - `adapter.simulate: true` is rejected on J1939 ("use vcan").
 
+### 11. Status answer of a J1939 network
+
+A status request for a J1939 network answers with the same top-level fields as a CANopen network (`version`, `uptime_s`, `config_sha256`, `network`, `session`, `bus` with `interface`, `state`, `tx_errors`, `rx_errors`, `bus_off_count`), plus `"protocol": "j1939"` and a `j1939` object. Every status answer, for any protocol, also carries `protocols`, the protocols built into the plugin (`["canopen", "j1939"]`).
+
+```json
+"j1939": {
+  "state": 1, "state_name": "claimed", "address": 128, "name": "0x80000000820004D2",
+  "ecus": [ { "address": 0, "name": "0x0000000000000001", "age_ms": 12 } ],
+  "rx": [ { "pgn": 65280, "source": 0, "sources": [0], "age_ms": 12, "timed_out": false,
+            "timeouts": 0, "count": 1234,
+            "signals": [ { "name": "Pressure", "raw": 1234, "valid": true } ] } ],
+  "tx": [ { "pgn": 65281, "sent": 812, "requests_answered": 2 } ],
+  "requests": [ { "pgn": 65282, "sent": 81 } ] }
+```
+
+- `state` uses the `state_location` codes (0 claiming, 1 claimed, 2 cannot claim, 3 no bus); `address` is 254 while none is held. NAMEs are 16-digit hex strings.
+- An `rx` entry has `source` (a number) or `source_name` (and `source_name_mask`) as configured, or neither. `age_ms` is null until the first message. `raw` is the signal's raw integer (sign-extended when `signed`); `valid` is false while it arrives as not available or error.
+- Without a running bus thread (no bus, or the module missing) the answer has `state` 3 and empty `ecus`, and `j1939.error` names the reason, for example "J1939 needs the can-j1939 kernel module (modprobe can-j1939)".
+
 ## Risks / Trade-offs
 
 - [Docker Desktop kernels may lack `can-j1939`, so the local sim runtime cannot run J1939] → J1939 networks are refused there with a clear message, and this is checked in a later task.
