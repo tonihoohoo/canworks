@@ -34,6 +34,7 @@ set(CANWORKS_CORE_SOURCES
     src/can/log.cpp
     src/can/iec_location.cpp
     src/can/image_io.cpp
+    src/can/signals.cpp
     src/can/config.cpp
     src/j1939/j1939_config.cpp
     src/can/diag.cpp

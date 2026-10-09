@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "signals.h"
+
 namespace canopen_plugin {
 
 uint64_t J1939Name::value() const {
@@ -19,21 +21,7 @@ std::string j1939_pgn_text(uint32_t pgn) {
 }
 
 std::vector<unsigned> j1939_signal_bits(const J1939Signal& s) {
-  std::vector<unsigned> bits;
-  bits.reserve(s.length);
-  if (!s.big_endian) {
-    for (unsigned k = 0; k < s.length; ++k) bits.push_back(s.start_bit + k);
-    return bits;
-  }
-  // DBC big byte order: the start bit is the most significant bit; the next
-  // lower bit is the next lower bit of the same byte, or bit 7 of the next byte.
-  long pos = s.start_bit;
-  for (unsigned k = 0; k < s.length; ++k) {
-    bits.push_back(static_cast<unsigned>(pos));
-    pos = (pos % 8 == 0) ? pos + 15 : pos - 1;
-  }
-  std::reverse(bits.begin(), bits.end());
-  return bits;
+  return signal_bits(s.start_bit, s.length, s.big_endian);
 }
 
 unsigned j1939_bytes_needed(const std::vector<J1939Signal>& signals) {
