@@ -344,6 +344,14 @@ class Decoding(unittest.TestCase):
         self.assertTrue(d.signals)
         self.assertTrue(any(node == 5 and "_TPDO1 " in label for _, label, node in dec.signal_keys()))
         self.assertIn(0x206, dec.pdos)
+        # The slave network cell: the PLC (node 20) with its own EDS's PDOs.
+        dec = Decoder.from_config(cfg, path, network="cell")
+        self.assertEqual(dec.warnings, [])
+        self.assertEqual(sorted(dec.pdos), [0x194, 0x214, 0x294, 0x394, 0x494])
+        d = dec.decode(Frame(T0, 0x194, bytes([1, 7, 0, 0, 0])))
+        self.assertEqual((d.kind, d.node, d.name), ("pdo", 20, "cell_TPDO1"))
+        self.assertEqual(dict(d.signals)["cell_TPDO1.BOOLEAN_to_master_alarm"], 1)
+        self.assertEqual(dec.pdos[0x194].info[0]["location"], "%QX300.0")
 
     def test_plc_variable_names(self):
         from canworks import dbcexport

@@ -18,6 +18,16 @@ const LANES = 4;
 const COND_TYPES = [["frame", "Frame"], ["emcy", "EMCY"], ["state", "Node state"], ["heartbeat_lost", "Heartbeat lost"],
   ["boot_error", "Boot error"], ["sdo_abort", "SDO abort"], ["signal", "Signal value"], ["bus", "Bus state"],
   ["error_frame", "Error frame"]];
+// A J1939 network shows only its kinds and conditions, a CANopen one only its own.
+const J1939_KINDS = ["pgn", "claim", "request", "ack", "tp"];
+const SHARED_KINDS = ["error", "gap", "other"];
+const J1939_CONDS = ["frame", "signal", "bus", "error_frame"];
+function traceJ1939() { return isJ1939(onlineConfig()); }
+function traceKinds() {
+  const j = traceJ1939();
+  return TRACE_KINDS.filter(([k]) => SHARED_KINDS.includes(k) || J1939_KINDS.includes(k) === j);
+}
+function condTypes() { return traceJ1939() ? COND_TYPES.filter(([k]) => J1939_CONDS.includes(k)) : COND_TYPES; }
 const SIGNAL_OPS = [">", "<", "=", "!=", "cross_up", "cross_down", "rising", "falling"];
 // Graph series colours, one set per theme (readable on the panel of each).
 const SERIES_COLORS = {
@@ -49,6 +59,11 @@ function stopTrace() {
   for (const p of T.plots) p.destroy();
   T.plots = [];
   document.querySelector("#editor").classList.remove("wide-view");
+}
+
+// An error belongs to the tab or view it came from: a switch clears it.
+function clearErrorBanner() {
+  if ($("#banner").classList.contains("error")) banner("");
 }
 
 function traceT0() { return T.st && T.st.start_us != null ? T.st.start_us : 0; }
@@ -92,7 +107,12 @@ function dropSeries() {
 function renderTrace(view) {
   document.querySelector("#editor").classList.add("wide-view");
   const net = onlineNetwork();
-  if (T.net !== undefined && T.net !== net) dropSeries();
+  if (T.net !== undefined && T.net !== net) {
+    dropSeries();
+    T.trigDraft = null;
+    clearErrorBanner();
+  }
+  if (traceJ1939() && T.tab === "sequences") T.tab = "frames";
   T.net = net;
   const fileInput = el("input", { type: "file", accept: ".pcapng,.pcap,.log,.asc", dataset: { trace: "open-input" } });
   fileInput.addEventListener("change", () => {
@@ -128,8 +148,8 @@ function renderTrace(view) {
     captureSettings(),
     sendPanel(),
     el("div", { id: "trace-stats", class: "trace-stats", dataset: { trace: "stats" } }),
-    tabs([["frames", "Frames"], ["ids", "Identifiers"], ["graph", "Graph"], ["sequences", "Sequences"], ["trigger", "Trigger"]],
-      T.tab, (v) => { T.tab = v; renderTraceTab(); }, { class: "segmented trace-tabs", tab: "", dataset: "traceTab", panel: "trace-tab", label: "Trace pages" }),
+    tabs([["frames", "Frames"], ["ids", "Identifiers"], ["graph", "Graph"]].concat(traceJ1939() ? [] : [["sequences", "Sequences"]], [["trigger", "Trigger"]]),
+      T.tab, (v) => { T.tab = v; clearErrorBanner(); renderTraceTab(); }, { class: "segmented trace-tabs", tab: "", dataset: "traceTab", panel: "trace-tab", label: "Trace pages" }),
     el("div", { id: "trace-tab", role: "tabpanel", "aria-labelledby": "trace-tab-tab-" + T.tab }));
   T.lastFrames = -1;
   T.lastGeneration = -1;
@@ -358,7 +378,9 @@ async function traceExport() {
 
 function renderFrames(box) {
   const f = T.filter;
-  const kinds = el("div", { class: "kind-chips" }, TRACE_KINDS.map(([k, label]) => {
+  const offered = traceKinds();
+  if (f.kinds) f.kinds = f.kinds.filter((k) => offered.some(([o]) => o === k));
+  const kinds = el("div", { class: "kind-chips" }, offered.map(([k, label]) => {
     const cb = el("input", { type: "checkbox", checked: (f.kinds || []).includes(k), dataset: { traceKind: k } });
     cb.onchange = () => {
       const set = new Set(f.kinds || []);
@@ -574,7 +596,7 @@ async function loadIds() {
 function seriesGroups() {
   const all = (T.st ? T.st.series : []).slice();
   const out = [["Bus", [{ key: "bus.rate", label: "Frames per second", kind: "bus" }, { key: "bus.load", label: "Bus load % (estimate)", kind: "bus" }]]];
-  const by = { signal: "PDO signals", status: "Status (polled)", event: "Events" };
+  const by = { signal: traceJ1939() ? "Message signals" : "PDO signals", status: "Status (polled)", event: "Events" };
   for (const kind of ["signal", "status", "event"]) {
     const list = all.filter((s) => s.kind === kind);
     if (list.length) out.push([by[kind], list]);
@@ -816,7 +838,7 @@ function showCursors() {
 
 // -- trigger ----------------------------------------------------------------
 
-function blankCondition(type) { return { type: type || "emcy" }; }
+function blankCondition(type) { return { type: type || (traceJ1939() ? "frame" : "emcy") }; }
 
 function triggerDraft() {
   if (!T.trigDraft) {
@@ -837,7 +859,7 @@ function triggerDraft() {
 function condEditor(c, k) {
   const d = triggerDraft();
   const type = el("select", { "aria-label": "Condition", dataset: { traceCond: k + ".type" } },
-    COND_TYPES.map(([v, l]) => el("option", { value: v, selected: c.type === v }, l)));
+    condTypes().map(([v, l]) => el("option", { value: v, selected: c.type === v }, l)));
   type.onchange = () => { d.conditions[k] = blankCondition(type.value); renderTrigger($("#trace-tab")); };
   const txt = (key, label, width) => {
     const i = el("input", { type: "text", spellcheck: "false", placeholder: label, "aria-label": label,
@@ -864,7 +886,7 @@ function condEditor(c, k) {
     ["operational", "OPERATIONAL"], ["preop", "PRE-OPERATIONAL"]], "any"));
   if (c.type === "signal") {
     const sigs = ((T.st && T.st.series) || []).filter((s) => s.kind === "signal");
-    fields.push(sel("key", "Signal", sigs.length ? sigs.map((s) => [s.key, s.label]) : [["", "no PDO signals in this config"]], sigs.length ? sigs[0].key : ""),
+    fields.push(sel("key", "Signal", sigs.length ? sigs.map((s) => [s.key, s.label]) : [["", traceJ1939() ? "no message signals in this config" : "no PDO signals in this config"]], sigs.length ? sigs[0].key : ""),
       sel("op", "Comparison", SIGNAL_OPS.map((o) => [o, o.replace("_", " ")]), ">"), txt("value", "value", "10ch"));
   }
   if (c.type === "bus") fields.push(sel("state", "Bus state", [["warning", "error-warning or worse"], ["passive", "error-passive or worse"], ["off", "bus-off"]], "warning"));

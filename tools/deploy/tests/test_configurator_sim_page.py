@@ -356,6 +356,13 @@ class Live(View):
         pg.click(form + 'button[data-sim="inject"]')
         self.assertEqual(self.wait_sent("sim_fault", 4)[-1]["fault"],
                          {"sdo_abort": {"object": "0x2000:1", "code": "0x08000020", "on": "write", "count": 1}})
+        # Injected: the form closes; opened again, it adds the fault to the faults at start.
+        pg.wait_for_selector(form, state="detached")
+        pg.click('button[data-sim-fault="sdo_abort"]')
+        pg.fill(form + 'input[data-sim-field="object"]', "0x2000:1")
+        pg.fill(form + 'input[data-sim-field="code"]', "0x08000020")
+        pg.select_option(form + 'select[data-sim-field="on"]', "write")
+        pg.fill(form + 'input[data-sim-field="count"]', "1")
         pg.click(form + 'button[data-sim="at-start"]')
         # A drive only gets drive inputs; this device is CiA 404.
         self.assertEqual(pg.locator('button[data-sim-fault="drive_input"]').count(), 0)
@@ -578,3 +585,23 @@ class FileSections(Base):
         pg.wait_for_selector("#banner:has-text('Saved')")
         self.assertEqual(load(self.sim_path), {
             "schema_version": 2, "tick_ms": 20, "networks": {"io": {"nodes": {"5": {"default_behaviour": False}}}}})
+
+    def test_tick_field_and_its_problem(self):
+        pg = self.page
+        with open(self.sim_path, "w", encoding="utf-8") as f:
+            json.dump({"schema_version": 2, "tick_ms": 10, "networks": {"io": {"nodes": {"5": {}}}}}, f)
+        self.open()
+        self.file_tab()
+        tick = 'input[data-sim-field="file-tick"]'
+        state = '[data-sim="file-state"]'
+        pg.fill(tick, "")
+        pg.wait_for_selector(state + ':text-matches("^Unsaved changes")')
+        # The same number again is no change, wherever the field lands in the file.
+        pg.fill(tick, "10")
+        pg.wait_for_selector(state + ':text-matches("^Saved")')
+        pg.fill(tick, "abc")
+        pg.wait_for_selector(".sim-problems li")
+        pg.click('button[data-sim="save"]')
+        pg.wait_for_selector("#banner.error")
+        self.assertEqual(pg.eval_on_selector_all(".sim-problems li", "ls => ls.map(l => l.innerText)"),
+                         ["tick_ms: 'abc' is not of type 'integer'"])

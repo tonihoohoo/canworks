@@ -197,6 +197,7 @@ class Live(TraceBase):
         pg.wait_for_selector("text=Hit 1 at")
         # Normal mode with auto-save: every hit is a marker and a file, recording goes on.
         folder = os.path.join(self.dir, "auto")
+        os.mkdir(folder)
         pg.select_option('[data-trace-cond="0.type"]', "frame")
         pg.fill('[data-trace-cond="0.id"]', "0x702")
         pg.select_option('[data-trace-trig="mode"]', "normal")

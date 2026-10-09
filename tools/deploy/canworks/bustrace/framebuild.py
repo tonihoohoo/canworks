@@ -227,8 +227,30 @@ def _signal_bits(name, v, length, signed, fk, tname):
     return x & ((1 << length) - 1)
 
 
+def _j1939_examples(dec):
+    """A J1939 network's examples: the address claim request and one frame
+    of each message the DBC or the config defines (data all zero)."""
+    own = dec.own_address if isinstance(dec.own_address, int) else 0x80
+    out = [{"group": "Network", "label": "Request for Address Claimed",
+            "frames": [{"label": "Request", "frame": _f(0x18EAFF00 | own, bytes([0x00, 0xEE, 0x00]), ext=True)}]}]
+    by_name = {v: k for k, v in dec.address_names.items()}
+    seen = set()
+    for (pgn, source), m in sorted(dec.messages.items(), key=lambda kv: (kv[0][0], kv[0][1] or 0)):
+        if id(m) in seen or not m.length or m.length > 8:
+            continue
+        seen.add(id(m))
+        sa = source if source is not None else own if m.sender == "PLC" else by_name.get(m.sender, 0)
+        pf = (pgn >> 8) & 0xFF
+        can_id = 6 << 26 | (pgn & 0x3FF00 if pf < 240 else pgn) << 8 | (0xFF00 if pf < 240 else 0) | (sa & 0xFF)
+        out.append({"group": "Messages", "label": m.name, "frames": [{"label": m.name,
+                                                                       "frame": _f(can_id, bytes(m.length), ext=True)}]})
+    return out
+
+
 def examples(dec):
     """Example frames from a configuration: [{"group", "label", "frames"}]."""
+    if getattr(dec, "protocol", "canopen") == "j1939":
+        return _j1939_examples(dec)
     out = [{"group": "Network", "label": "NMT start all nodes", "frames": nmt("start", 0)},
            {"group": "Network", "label": "SYNC", "frames": [{"label": "SYNC", "frame": _f(dec.sync_cob)}]}]
     for nid in sorted(dec.node_names):

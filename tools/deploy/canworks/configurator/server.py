@@ -1895,6 +1895,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 return conn.call(host, port, token, fn, network), kind
             except diag.DiagError as e:
+                if kind == "simulator" and e.kind == "closed":
+                    e = simulation.simclient.closed_error(host, port)
                 raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
 
         def hello(kind):

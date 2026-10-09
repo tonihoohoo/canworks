@@ -170,6 +170,25 @@ class Decoding(unittest.TestCase):
             a.feed(f)
         self.assertEqual(len(a.series["Pressures.Pressure"].values), 2)
         self.assertEqual(list(a.series["ComponentInfo.Starts"].values), [42.0])
+        # Transport identifiers are named after their message, not their last frame.
+        names = {x["id_text"]: (x["name"], x["kind"]) for x in (st.as_dict() for st in a.ids.values())}
+        self.assertEqual(names["1CEC0080"], ("TP.CM", "tp"))
+        self.assertEqual(names["1CEB8000"], ("TP.DT of ComponentInfo", "tp"))
+        self.assertEqual(names["1CEBFF00"], ("TP.DT of PGN 65283", "tp"))
+
+    def test_canopen_frame_on_a_j1939_network(self):
+        m = explain(parse_frame("185#01"), machine_decoder())
+        self.assertEqual((m["kind"], m["title"], m["protocol"]), ("other", "11-bit frame", "j1939"))
+        self.assertNotIn("TPDO", json.dumps(m))
+        self.assertEqual({b["part"] for b in m["identifier"]["bits"]}, {"id"})
+
+    def test_frame_lab_examples(self):
+        from canworks.bustrace import framebuild
+        from canworks.bustrace.explain import candump_text
+        ex = {x["label"]: [candump_text(f["frame"]) for f in x["frames"]] for x in framebuild.examples(machine_decoder())}
+        self.assertEqual(ex["Request for Address Claimed"], ["18EAFF80#00EE00"])
+        self.assertEqual(ex["Pressures"], ["18FF0000#0000000000000000"])
+        self.assertNotIn("NMT start all nodes", ex)
 
     def test_canopen_networks_keep_their_decoding(self):
         with open(os.path.join(PINGPONG, "canopen_config.json"), encoding="utf-8") as f:

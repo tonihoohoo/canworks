@@ -20,7 +20,9 @@ import os
 import re
 import struct
 
-from .. import bundle, contract, dbcexport, diag
+from .. import bundle, contract, dbcexport, diag, edslint
+from .. import eds as eds_mod
+from ..iec import CO_TYPE_BY_CODE
 from .model import Frame
 
 # J1939 kinds (j1939.py) come last so the CANopen codes stay as they were.
@@ -145,6 +147,41 @@ def j1939_network(cfg, network=None):
     return None
 
 
+def _slave_config(net, eds_paths):
+    """A version 1 style config with the PLC as the one node of a slave
+    network (contract.networks() entry): its PDOs are the default mappings
+    of its own EDS, the objects it binds carry their PLC locations."""
+    s = net["slave"]
+    nid = dbcexport._u(s.get("node_id"))
+    with open(eds_paths[s["eds"]], "rb") as f:
+        text, _, _ = edslint.check(f.read(), nid)
+    eds = eds_mod.Eds.read(s["eds"], text)
+    bound = {(dbcexport._u(o.get("index")), dbcexport._u(o.get("subindex"), 0)): o
+             for o in s.get("objects") or [] if isinstance(o, dict)}
+    node = {"node_id": nid, "name": net["name"] or "plc", "eds": s["eds"], "tx_pdos": [], "rx_pdos": []}
+    for key, base in (("tx_pdos", 0x1A00), ("rx_pdos", 0x1600)):
+        for k in range(512):
+            mi = eds_mod.mapping_info(eds, base + k)
+            if not eds.has(base + k) or not mi["has_default"]:
+                continue
+            entries = []
+            for v in mi["defaults"]:
+                index, sub = v >> 16, (v >> 8) & 0xFF
+                o, obj = bound.get((index, sub)), eds.find(index, sub)
+                if o and o.get("iec_location") and obj is not None and CO_TYPE_BY_CODE.get(obj.data_type):
+                    entries.append({"index": "0x%04X" % index, "subindex": sub,
+                                    "type": CO_TYPE_BY_CODE[obj.data_type], "iec_location": o["iec_location"]})
+            pdo = {"number": k + 1, "mapping": "device", "entries": entries}
+            comm = eds.find(base - 0x200 + k, 1)
+            cob = comm.value(nid) if comm is not None else None
+            if isinstance(cob, int) and not cob & 0x80000000:
+                pdo["cob_id"] = cob & 0x7FF
+            elif k >= 4:
+                continue  # off in the EDS and no default: the other master gives it its COB-ID
+            node[key].append(pdo)
+    return {"schema_version": 1, "adapter": net["adapter"], "master": {}, "nodes": [node]}
+
+
 def _config_problem(cfg, one, config_path, eds_paths, error):
     """Why the network `one` of the config `cfg` cannot be decoded with its
     PDOs, in the user's terms: a missing EDS file, else the first error of
@@ -203,6 +240,17 @@ class Decoder:
         except ValueError as e:
             d.warnings.append("decoding without the config's nodes: %s" % e)
             return d
+        slave = next((n for n in contract.networks(full) if n["role"] == "slave" and n["name"] == network
+                      and n["slave"]), None) if network is not None else None
+        if slave is not None:
+            # A slave network: the PLC is the one node, with its EDS's PDOs.
+            eds_paths = eds_paths if eds_paths is not None else bundle.eds_files(full, config_path)
+            try:
+                cfg = _slave_config(slave, eds_paths)
+            except Exception as e:  # noqa: BLE001 - decodes without the PDOs, says why
+                d.warnings.append("decoding without the config's PDOs: %s" % _config_problem(
+                    full, {"nodes": [slave["slave"]]}, config_path, eds_paths, e))
+                return d
         master = cfg.get("master") or {}
         d.master_id = dbcexport._u(master.get("node_id"))
         d.sync_window_us = dbcexport._u(master.get("sync_window_us")) or None

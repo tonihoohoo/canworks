@@ -163,6 +163,16 @@ class Live(Sim):
             self.assertNotIn("port", fake.sent("sim_fault")[0])
             self.assertEqual(self.request("POST", "/api/sim/request", {"op": "status"})[0], 400)
 
+    def test_closed_simulator_port_names_the_simulator(self):
+        with FakeSim(token="", standalone=True) as fake:
+            address = fake.address
+        self.ok("POST", "/api/sim/settings", {"target": "simulator", "address": address})
+        status, data, _ = self.request("POST", "/api/sim/poll", {})
+        self.assertEqual((status, data["kind"]), (502, "closed"))
+        self.assertIn("no canworks-sim runs there", data["error"])
+        self.assertNotIn("runtime", data["error"])
+        self.assertNotIn("PLC", data["error"])
+
     def test_expression_checked_by_the_simulator_when_connected(self):
         with FakeSim(token="", standalone=True) as fake:
             self.use(fake, standalone=True)
