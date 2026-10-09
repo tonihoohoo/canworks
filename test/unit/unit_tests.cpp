@@ -880,6 +880,9 @@ int run_fixture_file(const std::string& file) {
     const cJSON* op;
     cJSON_ArrayForEach(op, cJSON_GetObjectItemCaseSensitive(c, "patch")) apply_patch(cfg_json, op);
     char* text = cJSON_Print(cfg_json);
+#if !CANWORKS_WITH_J1939
+    cJSON* cfg_json_copy = cJSON_Duplicate(cfg_json, true);
+#endif
     ConfigSet set;
     std::vector<std::string> errors;
     bool ok = parse_config_set(text, fixtures + "/eds/canworks.json", ImageLimits(), set, errors, "/nonexistent");
@@ -897,6 +900,22 @@ int run_fixture_file(const std::string& file) {
     std::free(text);
     cJSON_Delete(cfg_json);
     bool want = std::string(cJSON_GetObjectItemCaseSensitive(c, "verdict")->valuestring) == "accept";
+#if !CANWORKS_WITH_J1939
+    // A plugin built without J1939 refuses every config with a J1939
+    // network, by name, before any other check.
+    bool has_j1939 = false;
+    const cJSON* net;
+    cJSON_ArrayForEach(net, cJSON_GetObjectItemCaseSensitive(cfg_json_copy, "networks")) {
+      const cJSON* proto = cJSON_GetObjectItemCaseSensitive(net, "protocol");
+      has_j1939 = has_j1939 || (cJSON_IsString(proto) && std::string(proto->valuestring) == "j1939");
+    }
+    cJSON_Delete(cfg_json_copy);
+    if (has_j1939) {
+      CHECK_MSG(!ok && has_error(errors, "J1939 is not built into this plugin"), name + join(errors));
+      ++count;
+      continue;
+    }
+#endif
     CHECK_MSG(ok == want, name + join(errors));
     if (want) {
       std::string schema = cJSON_GetObjectItemCaseSensitive(c, "schema")->valuestring;
