@@ -35,6 +35,8 @@
 #include "plc_api.h"
 #include "process_image.h"
 
+struct can_msg;
+
 namespace canopen_plugin {
 
 class Network;
@@ -131,6 +133,9 @@ class Network : public lely::canopen::BasicMaster {
   // Nodes marked simulated whose node ID a device on the wire already uses:
   // they stay real, and the status says so.
   void SetSimConflicts(std::set<unsigned> nodes) { sim_conflicts_ = std::move(nodes); }
+  // Called with every frame the master puts on the bus (a simulated bus's
+  // trace marks them Tx); call before Start().
+  void SetSendTap(std::function<void(const can_msg&)> tap);
 
   // Supervision period and retry backoff limits.
   static constexpr std::chrono::milliseconds kTick{100};
@@ -406,6 +411,10 @@ class Network : public lely::canopen::BasicMaster {
   std::function<bool()> tick_;
   SimHandler sim_handler_;
   std::set<unsigned> sim_conflicts_;
+  std::function<void(const can_msg&)> send_tap_;
+  void* send_func_ = nullptr;  // Lely's can_send_func_t*, called by SendTapped()
+  void* send_data_ = nullptr;
+  static int SendTapped(const can_msg* msg, void* data);
   std::map<unsigned, NodeState> nodes_;
   lely::io::TimerWait tick_wait_;
   lely::io::TimerBase* req_timer_;

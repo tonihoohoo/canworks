@@ -224,6 +224,10 @@ void Bus::run_session() {
       if (!shut_down) ctx.shutdown();
       shut_down = true;
     };
+    // Frames the master and the diagnostics channel (below) put on the
+    // simulated bus that the trace tap has yet to see: it marks them Tx.
+    // Before the Network, which can send until it is destroyed.
+    std::deque<can_msg> sent;
     // The supervision tick ends the session by shutting the I/O context down:
     // that cancels every pending Lely operation, after which the loop stops
     // and everything can be destroyed cleanly.
@@ -292,11 +296,12 @@ void Bus::run_session() {
         });
       }
     }
-    // Frames sent by hand (below) that the tap has yet to see: it marks them
-    // Tx when they come by.
-    std::deque<can_msg> injected;
     // The bus trace on a simulated network: a channel that sees every frame.
     if (virt && sim_ && sim_->tap) {
+      net.SetSendTap([&sent](const can_msg& m) {
+        if (sent.size() >= 256) sent.pop_front();  // never seen: do not grow
+        sent.push_back(m);
+      });
       tap_chan.reset(new lely::io::VirtualCanChannel(ctx, exec));
       tap_chan->open(*vbus);
       SimTraceTap* tap = sim_->tap.get();
@@ -305,10 +310,10 @@ void Bus::run_session() {
           if (ec) return;
           if (result == 1) {
             bool tx = false;
-            for (auto it = injected.begin(); it != injected.end(); ++it)
+            for (auto it = sent.begin(); it != sent.end(); ++it)
               if (it->id == tap_msg.id && it->flags == tap_msg.flags && it->len == tap_msg.len &&
                   std::memcmp(it->data, tap_msg.data, tap_msg.len) == 0) {
-                injected.erase(it);
+                sent.erase(it);
                 tx = true;
                 break;
               }
@@ -348,8 +353,8 @@ void Bus::run_session() {
           std::error_code ec;
           inject_chan->write(msg, 0, ec);
           if (!ec && tapped) {
-            if (injected.size() >= 64) injected.pop_front();  // never seen: do not grow
-            injected.push_back(msg);
+            if (sent.size() >= 256) sent.pop_front();  // never seen: do not grow
+            sent.push_back(msg);
           }
         }
       }));

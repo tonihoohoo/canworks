@@ -8,8 +8,11 @@
 #include <lely/can/msg.h>
 #include <lely/ev/exec.hpp>
 
-// <lely/can/net.h> clashes with the C++ headers; only this is needed.
+// <lely/can/net.h> clashes with the C++ headers; only these are needed.
 extern "C" int can_net_send(__can_net* net, const can_msg* msg);
+using can_send_func = int(const can_msg* msg, void* data);
+extern "C" void can_net_get_send_func(const __can_net* net, can_send_func** pfunc, void** pdata);
+extern "C" void can_net_set_send_func(__can_net* net, can_send_func* func, void* data);
 
 #include "log.h"
 
@@ -176,6 +179,22 @@ Network::~Network() {
   if (out_timer_) out_timer_->cancel_wait(out_wait_);
   // Program transfers this session took never finish now.
   PlcRequests::instance().cancel_taken(cfg_.network_index);
+}
+
+void Network::SetSendTap(std::function<void(const can_msg&)> tap) {
+  __can_net* net = lely::io::CanNet::operator __can_net*();
+  can_send_func* f = nullptr;
+  can_net_get_send_func(net, &f, &send_data_);
+  send_func_ = reinterpret_cast<void*>(f);
+  send_tap_ = std::move(tap);
+  can_net_set_send_func(net, &Network::SendTapped, this);
+}
+
+int Network::SendTapped(const can_msg* msg, void* data) {
+  auto* self = static_cast<Network*>(data);
+  int r = reinterpret_cast<can_send_func*>(self->send_func_)(msg, self->send_data_);
+  if (!r) self->send_tap_(*msg);
+  return r;
 }
 
 void Network::Start() {

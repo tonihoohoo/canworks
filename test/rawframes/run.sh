@@ -16,7 +16,8 @@
 #   - detect_bitrate on vcan is refused and the session goes on;
 #   - `canworks-diag send` and `detect-bitrate` behave the same;
 #   - on a simulated network, a forced SDO upload request to node 2 sent by
-#     hand gets the simulated device's answer, both in the trace.
+#     hand gets the simulated device's answer, both in the trace; the trace
+#     marks the master's frames (SYNC, RPDO1) Tx and the simulated node's Rx.
 #
 # Needs a build of this repo and an UP interface (sudo scripts/dev-setup.sh).
 
@@ -208,6 +209,13 @@ ans = [r for r in recs if struct.unpack_from("<I", r, 8)[0] == 0x582 and r[16] =
 assert req and req[0][13] & 1, "the hand-sent request is not in the trace as Tx"
 assert ans, "no SDO answer from the simulated node 2"
 print("    simulated: request Tx, answer 0x582 %s" % ans[0][16:24].hex(" "))
+# The master's frames are Tx, the simulated device's Rx.
+def ids(tx):
+    return {struct.unpack_from("<I", r, 8)[0] & 0x1FFFFFFF for r in recs if bool(r[13] & 1) == tx}
+assert {0x080, 0x202} <= ids(True), "SYNC and RPDO1 are not both Tx: %s" % sorted(ids(True))
+assert {0x182, 0x702} <= ids(False) and not {0x182, 0x702} & ids(True), \
+    "the simulated node's TPDO1 and heartbeat are not Rx: Tx %s" % sorted(ids(True))
+print("    simulated: SYNC and RPDO1 Tx, the node's TPDO1 and heartbeat Rx")
 PY
 wait "$SIM_PID"
 

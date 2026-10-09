@@ -282,7 +282,7 @@ Numbers may also be given as strings (`"0x1018"`). `sdo_write`, `nmt`, the `lss_
 | 0 | 8 | time stamp, microseconds since 1970 (UTC), from the kernel (`SO_TIMESTAMP`) |
 | 8 | 4 | CAN ID with the SocketCAN flags: bit 31 extended frame, bit 30 remote request, bit 29 error frame (the ID bits then hold the error class) |
 | 12 | 1 | DLC |
-| 13 | 1 | flags: bit 0 sent from the PLC's computer (Tx: by the plugin, or by another program on it such as `cansend`), bit 1 gap: the capture restarted (after the interface went down or the session restarted); a gap record carries no frame |
+| 13 | 1 | flags: bit 0 sent from the PLC's computer (Tx: by the plugin, or by another program on it such as `cansend`; on a simulated network the simulated devices' frames are Rx), bit 1 gap: the capture restarted (after the interface went down or the session restarted); a gap record carries no frame |
 | 14 | 2 | reserved, 0 |
 | 16 | 8 | data, unused bytes 0 |
 
