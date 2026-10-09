@@ -8,12 +8,14 @@
 # and runs the simulator as the Engine node at address 0, sending
 # ComponentInfo (40 bytes, BAM) every second with Starts=42. At 5 s it stops
 # the simulator and takes the interface down and up (sudo), then starts it
-# again; at 10 s it stops it for good. Passes (exit 0) when the plugin's
-# checks pass (claimed, no bus, claimed again; Pressures values and the
-# timeout bit; Starts=42) and the simulator received Setpoints (Run=1) and
-# Command (PDU1 to address 0, Mode=3) from 128 and the plugin's request for
-# ComponentInfo. Needs the kernel module can-j1939 (loaded with sudo when it
-# is missing). Exit 1: a check failed; 2: setup failed.
+# again; at 10 s it stops it for good, and a contender with a lower NAME
+# claims 128. Passes (exit 0) when the plugin's checks pass (claimed, no
+# bus, claimed again, moved to 129; Pressures values and the timeout bit;
+# Starts=42), the contender saw the plugin claim 129, and the simulator
+# received Setpoints (Run=1) and Command (PDU1 to address 0, Mode=3) from
+# 128 and the plugin's request for ComponentInfo. Needs the kernel module
+# can-j1939 (loaded with sudo when it is missing). Exit 1: a check failed;
+# 2: setup failed.
 
 set -uo pipefail
 
@@ -26,7 +28,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --build-dir) BUILD="$(cd "$2" && pwd)"; shift ;;
         --iface) IFACE="$2"; shift ;;
-        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -86,7 +88,7 @@ stop_sim() {
 
 echo "==> The plugin's J1939 ECU and the simulated engine on $IFACE"
 start_sim 1
-"$HOST" "$PLUGIN" "$WORK/canworks.json" 13 j1939 > "$WORK/host.out" 2> "$WORK/host.log" &
+"$HOST" "$PLUGIN" "$WORK/canworks.json" 14 j1939 > "$WORK/host.out" 2> "$WORK/host.log" &
 HOST_PID=$!
 sleep 5
 stop_sim
@@ -96,6 +98,12 @@ sleep 1
 sudo ip link set "$IFACE" up
 start_sim 2
 sleep 4
+stop_sim
+echo "==> A lower NAME takes address 128"
+"${SIM[@]}" --contend 128 --name-value 0x10 --interface "$IFACE" --log "$WORK/contend.log.jsonl" \
+    > "$WORK/contend.out" 2>&1 &
+SIM_PID=$!
+sleep 2
 stop_sim
 wait "$HOST_PID"
 RC=$?
@@ -124,6 +132,10 @@ def rx(pgn):
     return [r for r in recs if r["event"] == "rx" and r["pgn"] == pgn and r["source"] == 128 and "signals" in r]
 
 
+with open(os.path.join(work, "contend.log.jsonl")) as f:
+    contend = [json.loads(line) for line in f if line.strip()]
+check(any(r["event"] == "claim_seen" and r.get("address") == 129 for r in contend),
+      "the contender took 128 and saw the plugin claim 129")
 check(sum(1 for r in recs if r["event"] == "claimed") == 2, "the simulator claimed address 0 in both runs")
 check(sum(1 for r in rx(65281) if r["signals"].get("Run") == 1) >= 10,
       "Setpoints with Run=1 from 128 (%d)" % len(rx(65281)))
@@ -131,7 +143,7 @@ check(any(r["signals"].get("Mode") == 3 for r in rx(61184)), "Command (PDU1 to 0
 check(any(r["event"] == "request" and r.get("pgn") == 65282 and r.get("source") == 128 for r in recs),
       "the plugin's request for ComponentInfo")
 if failed:
-    for path in sorted(glob.glob(os.path.join(work, "engine-*.out"))):
+    for path in sorted(glob.glob(os.path.join(work, "*.out"))):
         print("--- " + os.path.basename(path))
         with open(path) as f:
             sys.stdout.write(f.read())

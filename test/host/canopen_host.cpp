@@ -36,8 +36,10 @@
 // canworks-j1939-sim as the engine; computes `%QW210 := %IW210 + 1`
 // (Setpoint), `%QB204 := 1` (Run) and `%QB205 := 3` (Mode). The script stops
 // the simulator, takes the interface down and up, starts it again and stops
-// it before the end. Exits 0 if the claim state %IB200 went claimed, no bus,
-// claimed again (address %IB201 128 at the end), the Pressures status bit
+// it before the end; then an ECU with a lower NAME claims address 128. Exits
+// 0 if the claim state %IB200 went claimed, no bus, claimed again, the
+// address %IB201 went 128 then 129 (moved within the range, claimed at the
+// end), the Pressures status bit
 // %IX202.0 was TRUE while Pressure %IW210 changed and is FALSE at the end
 // (timed out), and ComponentInfo brought Starts %IW212 = 42.
 
@@ -99,6 +101,8 @@ int main(int argc, char** argv) {
   const bool j1939 = argc > 4 && std::strcmp(argv[4], "j1939") == 0;
   std::string claim_states;  // distinct successive values of %IB200
   int last_claim = -1;
+  int last_address = -1;
+  std::string addresses;  // distinct successive values of %IB201
   bool pressures_seen = false, pressure_moved = false, starts_seen = false;
   int first_pressure = -1;
   bool fixed_in_range = true, fixed_moved = false;
@@ -193,6 +197,10 @@ int main(int argc, char** argv) {
                     (unsigned)img->byte_in[201]);
         std::fflush(stdout);
       }
+      if (img->byte_in[201] != last_address) {
+        last_address = img->byte_in[201];
+        addresses += (addresses.empty() ? "" : " ") + std::to_string(last_address);
+      }
       if (img->bool_in[202][0]) {
         pressures_seen = true;
         if (first_pressure < 0) first_pressure = img->int_in[210];
@@ -255,10 +263,12 @@ int main(int argc, char** argv) {
     size_t a = (" " + claim_states + " ").find(" 1 ");
     size_t b = a == std::string::npos ? a : (" " + claim_states + " ").find(" 3 ", a);
     size_t c = b == std::string::npos ? b : (" " + claim_states + " ").find(" 1 ", b);
-    const bool reclaimed = c != std::string::npos && last_claim == 1 && address_at_end == 128;
-    const bool ok = reclaimed && pressures_seen && pressure_moved && !pressures_at_end && starts_seen;
-    std::printf("%s: claim states %s (address %u at the end), Pressures %s and %s, %s at the end, Starts=42 %s\n",
-                ok ? "PASS" : "FAIL", claim_states.c_str(), address_at_end, pressures_seen ? "seen" : "not seen",
+    const bool reclaimed = c != std::string::npos && last_claim == 1;
+    // Lost 128 to the lower NAME, then claimed 129.
+    const bool moved = (" " + addresses + " ").find(" 128 ") != std::string::npos && address_at_end == 129;
+    const bool ok = reclaimed && moved && pressures_seen && pressure_moved && !pressures_at_end && starts_seen;
+    std::printf("%s: claim states %s, addresses %s (%u at the end), Pressures %s and %s, %s at the end, Starts=42 %s\n",
+                ok ? "PASS" : "FAIL", claim_states.c_str(), addresses.c_str(), address_at_end, pressures_seen ? "seen" : "not seen",
                 pressure_moved ? "changed" : "did not change", pressures_at_end ? "still TRUE" : "timed out",
                 starts_seen ? "seen" : "not seen");
     return ok ? 0 : 1;
