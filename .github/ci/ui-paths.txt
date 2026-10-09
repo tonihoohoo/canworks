@@ -1,0 +1,12 @@
+# Path rules of the configurator page tests (.github/scripts/ci_changes.py
+# prints ui=true when a changed path matches one). The page tests run on the
+# configurator's front end and server, the PC tools' modules it imports, the
+# schemas, the shipped examples, the page tests and their data, and the
+# shared CI files. One fnmatch pattern per line on the repository path, where
+# * also matches /.
+
+tools/deploy/canworks/*
+schema/*
+examples/*
+tools/deploy/tests/*
+.github/*
