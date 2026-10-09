@@ -2,7 +2,7 @@
 """Run one shard of a unittest suite, so CI can spread it over parallel jobs.
 
   test_shard.py --shard K/N --start DIR --top DIR [--pattern P ...] [--exclude REGEX]
-                [--contains REGEX] [--timings FILE]
+                [--contains REGEX] [--timings FILE] [--together REGEX]
 
 Discovers the tests like `python -m unittest discover -s DIR -t DIR -p P`
 (once per --pattern, default test*.py), drops modules whose name matches
@@ -15,6 +15,9 @@ With --timings, a class's size is its recorded seconds in FILE ({class id:
 seconds}) instead of its test count; a class FILE does not name counts as the
 median recorded class. After the run, the shard prints its classes' seconds
 as one "class times:" JSON line, the values to merge into FILE.
+
+With --together, the classes whose id matches REGEX go to one shard as one
+unit (CI builds what they need only on that shard).
 
 With --contains, runs nothing: exits 0 when shard K has a test whose id
 (module.Class.test_name) matches REGEX, 1 otherwise (CI installs a tool only
@@ -55,14 +58,23 @@ def classes(start, top, patterns, exclude=None):
     return found
 
 
-def split(sizes, n):
-    """Class ids per shard: largest first onto the lightest shard (tests or seconds)."""
+def split(sizes, n, together=None):
+    """Class ids per shard: largest first onto the lightest shard (tests or seconds).
+    Classes whose id matches `together` are one unit on one shard."""
+    units = {key: [key] for key in sizes}
+    if together:
+        group = sorted(k for k in sizes if re.search(together, k))
+        if group:
+            for k in group:
+                del units[k]
+            units[group[0]] = group
+    size = {u: sum(sizes[k] for k in keys) for u, keys in units.items()}
     shards = [[] for _ in range(n)]
     load = [0] * n
-    for key in sorted(sizes, key=lambda k: (-sizes[k], k)):
+    for u in sorted(units, key=lambda k: (-size[k], k)):
         i = load.index(min(load))
-        shards[i].append(key)
-        load[i] += sizes[key]
+        shards[i].extend(units[u])
+        load[i] += size[u]
     return shards
 
 
@@ -103,6 +115,7 @@ def main(argv=None):
     p.add_argument("--exclude", help="skip test modules whose name matches this regex")
     p.add_argument("--contains", help="run nothing; exit 0 when the shard has a test id matching this regex")
     p.add_argument("--timings", help="JSON file {class id: seconds}: split by recorded time")
+    p.add_argument("--together", help="keep the classes whose id matches this regex on one shard")
     a = p.parse_args(argv)
     k, n = (int(x) for x in a.shard.split("/"))
     if not 1 <= k <= n:
@@ -114,7 +127,7 @@ def main(argv=None):
     if a.timings:
         with open(a.timings) as f:
             timings = json.load(f)
-    mine = split(sizes_from(found, timings), n)[k - 1]
+    mine = split(sizes_from(found, timings), n, a.together)[k - 1]
     if a.contains:
         hit = [t.id() for key in mine for t in found[key] if re.search(a.contains, t.id())]
         print(f"shard {k}/{n}: {', '.join(hit) if hit else 'no test'} matching {a.contains!r}", flush=True)

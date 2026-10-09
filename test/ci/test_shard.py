@@ -34,6 +34,17 @@ class Split(unittest.TestCase):
         self.assertEqual(shard.split(sizes, 2), shard.split(dict(reversed(list(sizes.items()))), 2))
 
 
+    def test_together_on_one_shard(self):
+        sizes = {f"m.C{i}": 10 for i in range(9)}
+        sizes.update({"p.Parity": 10, "q.Parity": 10, "r.Into": 10})
+        for n in (2, 3):
+            shards = shard.split(sizes, n, r"^(p|q)\.Parity$|^r\.Into$")
+            holding = [s for s in shards if "p.Parity" in s]
+            self.assertEqual(len(holding), 1)
+            self.assertTrue({"q.Parity", "r.Into"} <= set(holding[0]), shards)
+            self.assertEqual(sorted(k for s in shards for k in s), sorted(sizes))
+
+
 class Timings(unittest.TestCase):
     def test_split_by_recorded_seconds(self):
         found = {"m.Slow": [1], "m.A": [1, 2, 3, 4], "m.B": [1, 2, 3, 4], "m.C": [1, 2, 3, 4]}
