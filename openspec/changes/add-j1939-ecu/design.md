@@ -32,7 +32,23 @@ Decisions from the exploration (2026-10-08): both ECU roles in slice 1, the Linu
 
 The `protocol` field selects the engine per network. This keeps one config file (`conf/canworks.json` after the rename), one deploy injection, one diagnostics port, one clash check and one `canworks` line in `plugins.conf`.
 
-*Alternative:* a second plugin `j1939`. Rejected: it would need a second config path through the editor upload (a hand-added plugin does not survive uploads), a second diag port, and cross-plugin clash checks.
+*Alternative:* one plugin per protocol. Rejected for these reasons:
+- The runtime loads all plugins into one process, so separate plugins isolate nothing.
+- Each plugin would need its own config file in every upload, because the runtime disables a plugin whose config is missing.
+- Bit rate detection, trace, raw frames and the one-network-per-interface check need one owner of the adapters. CANopen and J1939 on one bus later also needs a single owner.
+- Separate plugins would mean two diag ports and cross-plugin clash checks.
+
+**Layout inside the plugin.** Shared CAN core in `plugin/src/can/` (adapter and link setup, bit rate sweep, bus monitor, trace capture, raw frames, diagnostics server, process image, IEC locations, plugin entry points). One folder per protocol: `plugin/src/canopen/` (Lely master, slave, gateway, DCF) and `plugin/src/j1939/`. A protocol registers a small interface with the core:
+- parse and check its network config
+- create its bus thread
+- add its status to the diag answer
+- list its IEC locations for the clash check
+
+The core never includes protocol headers. A later protocol adds a folder and a registration, with no core change.
+
+**Build options.** CMake options `CANWORKS_WITH_CANOPEN` and `CANWORKS_WITH_J1939`, both ON by default; at least one must be ON. A build without CANopen does not need Lely or dcfgen. The plugin's status and log name the protocols it was built with. A config whose network uses a protocol that is not built in is rejected as a config error naming the protocol. The install script builds both by default and takes `--without-canopen` / `--without-j1939`.
+
+**Testing the options.** The single-protocol builds are compiled and run through the config tests in the weekly integration workflow, not on every pull request, so pull request CI time does not grow.
 
 ### 2. Kernel CAN_J1939 sockets
 

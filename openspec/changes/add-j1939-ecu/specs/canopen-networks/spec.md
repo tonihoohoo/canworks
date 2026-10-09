@@ -18,3 +18,20 @@ A version 2 config SHALL hold a `networks` list of 1 to 8 entries. Each CANopen 
 #### Scenario: CANopen and J1939 networks
 - **WHEN** a version 2 config has a CANopen network on `can0` and a J1939 network on `can1`
 - **THEN** the plugin loads it and logs one line for the CANopen network as above and one for the J1939 network naming its interface, bit rate, address and numbers of received and sent PGNs
+
+## ADDED Requirements
+
+### Requirement: Protocols built into the plugin
+The plugin SHALL be one library that runs every supported protocol, each protocol selectable at build time and on by default. Its log at load and its diagnostics status SHALL name the protocols it was built with. A config with a network whose protocol is not built in SHALL be rejected as a configuration error naming the network and the protocol.
+
+#### Scenario: Default build
+- **WHEN** the plugin is built with default options and loads a config with a CANopen and a J1939 network
+- **THEN** it logs that it supports canopen and j1939 and runs both networks
+
+#### Scenario: J1939-only build
+- **WHEN** the plugin is built without CANopen and loads a config with a CANopen network
+- **THEN** the configuration is rejected with an error naming the network and saying CANopen is not built into this plugin, and no interface is opened
+
+#### Scenario: Build without Lely
+- **WHEN** the plugin is built without CANopen on a system without Lely or dcfgen installed
+- **THEN** the build succeeds

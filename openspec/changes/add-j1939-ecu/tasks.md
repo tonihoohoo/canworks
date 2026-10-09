@@ -15,7 +15,8 @@
 - [ ] 2.3 Signal pack/unpack (little and big byte order, signed, 1..64 bits, not-available/error), unused bits 1; verify with C++ unit tests against cantools-encoded vectors stored as fixtures.
 - [ ] 2.4 RX path into the process image, source filters (address, NAME with mask), timeouts and status bits; TX path from the output snapshot (period, on change, min gap, TP over 8 bytes); request answers and NACK; periodic requests; verify on vcan with the simulator (values both ways, 1785-byte TP, request round trip, timeout bit).
 - [ ] 2.5 Bus loss and recovery (interface down, slcan unplug, bus-off) with re-claim; verify the vcan down/up case in CI.
-- [ ] 2.6 Network dispatch in `canopen_plugin.cpp`/`network.*`: protocol per network, log lines; move the shared files touched here to `plugin/src/can/`.
+- [ ] 2.6 Split the plugin into `plugin/src/can/` (core), `plugin/src/canopen/` and `plugin/src/j1939/` with the protocol registration interface (config parse/check, bus thread, diag status, IEC locations); the core includes no protocol header; protocol per network and log lines. Do the file moves in their own commit (moves only) so review sees them apart from code changes. Verify the full existing suite passes unchanged after the split.
+- [ ] 2.7 CMake options `CANWORKS_WITH_CANOPEN` / `CANWORKS_WITH_J1939` (default ON, at least one), Lely and dcfgen only with CANopen; status and log name the built-in protocols; config rejection for a protocol not built in; `install-stock.sh --without-canopen` / `--without-j1939`. Verify with a C++ test for the rejection and with both single-protocol builds in the weekly integration workflow.
 
 ## 3. Install
 
@@ -42,7 +43,7 @@
 
 ## 8. CI
 
-- [ ] 8.1 Area classifier in `ci_changes.py` with its path rules file and tests; gate J1939 and CANopen-only steps; put the J1939 vcan step in the vcan group with the most headroom (`modprobe can-j1939` there); state wall time against the median of the last 5 green `main` runs in the PR.
+- [ ] 8.1 Area classifier in `ci_changes.py` with its path rules file and tests; gate J1939 and CANopen-only steps; put the J1939 vcan step in the vcan group with the most headroom (`modprobe can-j1939` there); state both wall time and summed job time against the baseline (median of the last 5 green `main` push runs with code changes) in the PR, and pay for the J1939 tests with savings in the same PR if either would go up.
 
 ## 9. Docs
 

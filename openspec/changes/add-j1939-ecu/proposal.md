@@ -24,6 +24,7 @@ This change assumes `rename-to-canworks` has landed and uses its command names.
   - PLC locations for claim state and current address
 
   Signal layouts come from the user's DBC. The SAE J1939 Digital Annex is licensed and is not shipped. The JSON Schema describes it all.
+- **One plugin, modular inside**: the plugin stays one library (one config file, one upload path, one diagnostics port, one owner of the CAN adapters). Its code is split into a shared CAN core (`plugin/src/can/`) and one folder per protocol (`plugin/src/canopen/`, `plugin/src/j1939/`) behind a small registration interface. Build options `CANWORKS_WITH_CANOPEN` and `CANWORKS_WITH_J1939` (both on by default) allow a single-protocol build, for example J1939 without Lely.
 - **Runtime plugin** (same library, one bus thread per network as today): a J1939 network opens kernel `CAN_J1939` sockets on its interface. It:
   - claims its address and handles contention and loss
   - receives configured PGNs (multi-packet included, the kernel reassembles them) into `%I`
@@ -69,7 +70,7 @@ This change assumes `rename-to-canworks` has landed and uses its command names.
 
 ## Impact
 
-- **Plugin**: new `plugin/src/j1939/` (config, ECU, socket wrapper). Shared adapter, trace, diag and process-image files move to `plugin/src/can/` when first touched. `config.cpp` dispatches on `protocol`. No new third-party C/C++ dependency (kernel UAPI headers only).
+- **Plugin**: shared files move to `plugin/src/can/`, CANopen files to `plugin/src/canopen/`, and the new `plugin/src/j1939/` holds config, ECU and socket wrapper. A protocol registration interface replaces direct CANopen calls in the entry points and the diag server. CMake gets the two protocol options. No new third-party C/C++ dependency (kernel UAPI headers only).
 - **PC tools**: new `j1939/` package (dbc import, decode, sim), configurator static pages, `bustrace/decode.py` dispatch. New runtime dependencies: `can-j1939` (pulls numpy) and `cantools`. Both MIT.
 - **Schema**: `schema/canworks.v2.schema.json` gains the optional `protocol` and `j1939` (additive within version 2).
 - **Not supported in this change**:
