@@ -44,7 +44,7 @@ class Arguments(unittest.TestCase):
         self.assertEqual(self.fault("power", "off"), {"power": "off"})
         self.assertEqual(self.fault("power", "cycle", "--off-ms", "2000"), {"power": "cycle", "off_ms": 2000})
         self.assertEqual(self.fault("reset", "comm"), {"reset": "comm"})
-        self.assertEqual(self.fault("nmt", "preop"), {"nmt_state": "preop"})
+        self.assertEqual(self.fault("nmt-state", "preop"), {"nmt_state": "preop"})
         self.assertEqual(self.fault("sdo-abort", "0x2000:1", "0x08000020", "--on", "write", "--count", "1"),
                          {"sdo_abort": {"object": "0x2000:1", "code": 0x08000020, "on": "write", "count": 1}})
         self.assertEqual(self.fault("sdo-delay", "1500", "--object", "0x1008"),
@@ -58,6 +58,12 @@ class Arguments(unittest.TestCase):
         self.assertEqual(self.fault("drive-input", "--blocked", "--no-home-switch"),
                          {"drive_input": {"blocked": True, "home_switch": False}})
         self.assertEqual(self.fault("json", '{"heartbeat": "stop"}'), {"heartbeat": "stop"})
+
+    def test_fault_kind_names_match_the_simulator(self):
+        import contextlib
+        import io
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            self.fault("nmt", "preop")  # the simulator's name is nmt-state
 
     def test_fault_usage_errors(self):
         for argv in (("identity",), ("drive-input",), ("power", "on", "--off-ms", "10"),

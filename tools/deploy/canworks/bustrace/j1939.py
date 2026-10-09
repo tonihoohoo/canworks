@@ -179,8 +179,11 @@ class Msg:
 def load_dbc(path):
     """{(pgn, source): Msg} from a DBC's extended messages (source None for
     the first message of a PGN, which stands for every source). Raises
-    OSError or ValueError."""
-    import cantools
+    OSError or ValueError (also when cantools is not installed)."""
+    try:
+        import cantools
+    except ImportError:
+        raise ValueError("cantools is not installed; reinstall the PC tools")
     try:
         db = cantools.database.load_file(path, database_format="dbc", strict=False)
     except OSError:
