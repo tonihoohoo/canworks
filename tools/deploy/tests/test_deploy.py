@@ -133,7 +133,7 @@ class Bundle(unittest.TestCase):
             json.dump(cfg, f)
         code, _, err = deploy("--bundle", self.src, "--config", self.config, "--check-only")
         self.assertEqual(code, 1)
-        self.assertIn("nodes[0].node_id: 200 is greater than the maximum of 127", err)
+        self.assertIn("nodes[0].node_id: node ID must be 1 to 127", err)
 
     def test_eds_check_fails_with_the_plugins_message(self):
         eds = os.path.join(self.dir, "cpp-slave.eds")

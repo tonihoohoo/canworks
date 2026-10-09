@@ -189,18 +189,223 @@ def json_path(parts):
     return out
 
 
+UINT_PATTERN = r"^(0[xX][0-9a-fA-F]+|[0-9]+)$"
+
+
 def _uint(value):
     """An unsigned integer given as a JSON number or a "0x.."/decimal string,
-    as the plugin reads it; None if it is not one."""
+    as the plugin reads it; None if it is not one. The one number parser:
+    parse_numbers() runs it over every numeric field before the range checks."""
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
         return value if value >= 0 else None
     if isinstance(value, float):
         return int(value) if value >= 0 and value == math.floor(value) else None
-    if isinstance(value, str) and re.match(r"^(0[xX][0-9a-fA-F]+|[0-9]+)$", value):
+    if isinstance(value, str) and re.match(UINT_PATTERN, value):
         return int(value, 16) if value[:2].lower() == "0x" else int(value, 0 if value == "0" else 10)
     return None
+
+
+def _alternatives(node, root):
+    """The resolved alternatives a field's schema allows (itself when it has
+    none), through anyOf, oneOf and allOf."""
+    node = _resolve(node, root)
+    out = []
+    for key in ("anyOf", "oneOf", "allOf"):
+        for sub in node.get(key, []):
+            out += _alternatives(sub, root)
+    return out or [node]
+
+
+def _takes_number_string(node, root):
+    """Whether a field takes both an integer and the same integer written as
+    a string ("0x80", "128"): the schema's uint_string next to an integer."""
+    alts = _alternatives(node, root)
+    return any(a.get("pattern") == UINT_PATTERN for a in alts) and any(
+        a.get("type") == "integer" or isinstance(a.get("const"), int) for a in alts)
+
+
+def parse_numbers(value, node, root):
+    """`value` with every number written as a string ("0x80", "128") where
+    the schema takes it turned into the integer, so the schema's ranges
+    check hex and decimal alike (the plugin parses before its range check)."""
+    if isinstance(value, str):
+        n = _uint(value)
+        return n if n is not None and _takes_number_string(node, root) else value
+    if isinstance(value, dict):
+        props = _properties(node, root)
+        return {k: parse_numbers(v, props[k], root) if k in props else v for k, v in value.items()}
+    if isinstance(value, list):
+        items = _items(node, root)
+        return [parse_numbers(v, items, root) for v in value] if items is not None else value
+    return value
+
+
+# ---------------------------------------------------------------------------
+# Schema errors in the user's words: the field's name and what it takes, not
+# the rule or pattern (canopen-configurator: "The check refuses what the
+# plugin refuses").
+
+FIELD_NAMES = {
+    "node_id": "node ID", "heartbeat_ms": "heartbeat period", "heartbeat_timeout_ms": "heartbeat timeout",
+    "guard_time_ms": "guard time", "life_time_factor": "life time factor", "cob_id": "COB-ID",
+    "time_cob_id": "TIME COB-ID", "vendor_id": "vendor ID", "product_code": "product code",
+    "revision_number": "revision number", "serial_number": "serial number", "sync_period_us": "SYNC period",
+    "sync_cycles": "SYNC every N PLC cycles", "sync_counter_overflow": "SYNC counter overflow",
+    "sync_window_us": "SYNC window", "sync_source": "SYNC source", "index": "index", "subindex": "sub-index",
+    "number": "PDO number", "transmission": "transmission type", "event_timer_ms": "event timer",
+    "inhibit_time_us": "inhibit time", "sync_start": "SYNC start value", "timeout_ms": "timeout",
+    "interface": "CAN interface", "bitrate": "bit rate", "device": "serial device", "serial_baudrate": "serial speed",
+    "restart_ms": "restart time", "type": "type", "eds": "EDS file", "iec_location": "PLC location",
+    "status_location": "status bit", "timeout_location": "timeout bit", "trigger_location": "trigger bit",
+    "valid_location": "valid bit", "comm_ok_location": "communication OK bit", "port": "port", "bind": "address",
+    "name": "name", "entries": "mapped objects", "nodes": "nodes", "networks": "networks",
+    "scale_numerator": "scale numerator", "scale_denominator": "scale denominator", "scale_factor": "scale factor",
+    "sdo_timeout_ms": "SDO timeout", "time_period_ms": "TIME period", "boot_time_ms": "boot time",
+    "emcy_inhibit_time_us": "EMCY inhibit time", "nmt_inhibit_time_us": "NMT inhibit time",
+    "heartbeat_multiplier": "heartbeat timeout factor", "period_ms": "read period", "value": "value",
+    "direction": "direction", "pgn": "PGN", "address": "address", "upper": "upper network", "network": "network",
+    "adapter": "CAN adapter", "master": "master section", "slave": "slave section", "j1939": "J1939 section",
+}
+
+# Fields whose numbers are written in hex in the page and the docs.
+HEX_FIELDS = ("cob_id", "time_cob_id", "index", "vendor_id", "product_code", "revision_number", "serial_number",
+              "pgn", "sdo_bridge_index", "status_index")
+
+LOCATION_SIZES = {"X": ("bit", "X0.0"), "B": ("byte", "B0"), "W": ("word", "W0"), "D": ("double word", "D0"),
+                  "L": ("long word", "L0")}
+
+
+def field_name(key):
+    """A config key in the page's words ("node_id" -> "node ID")."""
+    return FIELD_NAMES.get(key) or str(key).replace("_", " ")
+
+
+def _location_text(pattern):
+    """What an IEC location pattern of the schema takes: "an input bit
+    such as %IX0.0"."""
+    m = re.match(r"^\^%\[(I?i?Q?q?)\](.*)$", pattern)
+    if not m:
+        return None
+    area = {"Ii": "input", "Qq": "output"}.get(m.group(1), "input or output")
+    letter = m.group(1)[0]
+    sizes = [s for s in "XBWDL" if "[%s%s]" % (s, s.lower()) in m.group(2) or "[" + s in m.group(2)
+             or (s != "X" and "[BbWwDdLl]" in m.group(2))]
+    if len(sizes) == 1:
+        size, example = LOCATION_SIZES[sizes[0]]
+        return "an %s %s such as %%%s%s" % (area, size, letter, example)
+    return "an %s location such as %%%sX0.0 or %%%sW0" % (area, letter, letter)
+
+
+def _number_text(n, hex_field):
+    return "0x%X" % n if hex_field and n >= 16 else str(n)
+
+
+def _range_text(alts, hex_field):
+    """"1 to 127", "0 to 240 or 254 to 255", '128 to 2047 or "auto"'."""
+    parts = []
+    for a in alts:
+        if a.get("type") == "integer" or "minimum" in a or "maximum" in a:
+            lo, hi = a.get("minimum"), a.get("maximum")
+            if lo is not None and hi is not None:
+                parts.append("%s to %s" % (_number_text(lo, hex_field), _number_text(hi, hex_field)))
+            elif lo is not None:
+                parts.append("%s or more" % _number_text(lo, hex_field))
+            elif hi is not None:
+                parts.append("at most %s" % _number_text(hi, hex_field))
+        elif "const" in a:
+            parts.append(json.dumps(a["const"]))
+        elif "enum" in a:
+            parts += [json.dumps(v) for v in a["enum"]]
+        elif a.get("type") == "null":
+            parts.append("null")
+    parts = list(dict.fromkeys(parts))
+    return ", ".join(parts[:-1]) + " or " + parts[-1] if len(parts) > 2 else " or ".join(parts)
+
+
+def plain_schema_message(e, root):
+    """A jsonschema error (before best_match) of a field in the user's
+    words: what the field takes, never the schema rule or its pattern."""
+    path = list(e.absolute_path)
+    keys = [p for p in path if isinstance(p, str)]
+    key = keys[-1] if keys else ""
+    name = field_name(key) if key else "the value"
+    if path and isinstance(path[-1], int) and key:
+        name = "each entry of " + name
+    hex_field = key in HEX_FIELDS
+    v = e.validator
+    if v in ("anyOf", "oneOf") and not isinstance(e.instance, (dict, list)):
+        alts = _alternatives(e.schema, root)
+        numbers = [a for a in alts if a.get("type") in ("integer", "null") or "const" in a or "enum" in a]
+        if isinstance(e.instance, str) and any(a.get("pattern") == UINT_PATTERN for a in alts) \
+                and _uint(e.instance) is None and not any(a.get("type") == "string" and "pattern" not in a
+                                                          for a in alts):
+            words = _range_text(numbers, hex_field)
+            return "%s must be a number (decimal or 0x hex)%s" % (name, ", " + words if words else "")
+        def fits(a, x):
+            if a.get("type") == "null":
+                return False
+            return a.get("minimum", x) <= x <= a.get("maximum", x) if "const" not in a and "enum" not in a \
+                else x == a.get("const", x) and x in a.get("enum", [x])
+        if numbers and isinstance(e.instance, (int, float)) and not isinstance(e.instance, bool) \
+                and not any(fits(a, e.instance) for a in numbers):
+            return "%s must be %s" % (name, _range_text(numbers, hex_field))
+        if numbers and isinstance(e.instance, str) and not any(a.get("type") == "string" for a in alts):
+            return "%s must be %s" % (name, _range_text(numbers, hex_field))
+    while e.context:
+        fitting = [c for c in e.context if c.validator != "type"]
+        e = best_match(fitting or e.context)
+        v = e.validator
+    if v in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"):
+        return "%s must be %s" % (name, _range_text([e.schema], hex_field))
+    if v == "required":
+        missing = [k for k in e.validator_value if isinstance(e.instance, dict) and k not in e.instance]
+        return "the %s is missing" % field_name(missing[0] if missing else "")
+    if v == "type":
+        want = e.validator_value if isinstance(e.validator_value, list) else [e.validator_value]
+        words = {"integer": "a whole number", "number": "a number", "string": "text", "boolean": "true or false",
+                 "object": "a group of settings", "array": "a list", "null": "empty"}
+        return "%s must be %s" % (name, " or ".join(words.get(w, w) for w in want))
+    if v == "enum":
+        return "%s must be %s" % (name, _range_text([{"enum": e.validator_value}], False))
+    if v == "const":
+        return "%s must be %s" % (name, json.dumps(e.validator_value))
+    if v == "not" and isinstance(e.validator_value, dict) and "const" in e.validator_value:
+        return "%s must not be %s" % (name, json.dumps(e.validator_value["const"]))
+    if v == "pattern":
+        loc = _location_text(e.validator_value)
+        if loc:
+            return "%s must be %s" % (name, loc)
+        if e.validator_value == NETWORK_NAME.pattern:
+            return "%s must start with a letter and hold only letters, digits and '_', at most 16 characters" % name
+        if e.validator_value == UINT_PATTERN:
+            return "%s must be a number (decimal or 0x hex)" % name
+        return "%s %s is not valid here" % (name, json.dumps(e.instance))
+    if v == "multipleOf":
+        return "%s must be a multiple of %s" % (name, e.validator_value)
+    if v == "minItems":
+        return "%s: give at least %d" % (name, e.validator_value)
+    if v == "maxItems":
+        return "%s: give at most %d" % (name, e.validator_value)
+    if v == "minLength":
+        return "%s must not be empty" % name
+    if v == "maxLength":
+        return "%s must be at most %d characters" % (name, e.validator_value)
+    if v == "dependentRequired":
+        have = [k for k in e.validator_value if isinstance(e.instance, dict) and k in e.instance]
+        need = [k for k in (e.validator_value.get(have[0]) if have else []) if k not in e.instance]
+        if have and need:
+            return "the %s needs the %s" % (field_name(have[0]), field_name(need[0]))
+    if v == "additionalProperties" and isinstance(e.instance, dict):
+        allowed = e.schema.get("properties") or {}
+        return "unknown field%s %s" % ("" if len([k for k in e.instance if k not in allowed]) == 1 else "s",
+                                      ", ".join("'%s'" % k for k in e.instance if k not in allowed))
+    if v in ("oneOf", "anyOf"):
+        return "%s does not fit any of the allowed forms" % name
+    if v == "not":
+        return "%s is not allowed here" % name
+    return e.message
 
 
 # ---------------------------------------------------------------------------
@@ -525,7 +730,10 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
 
     s = schema(version)
     validator = jsonschema.Draft202012Validator(s)
-    schema_errors = sorted(validator.iter_errors(cfg), key=lambda e: list(map(str, e.absolute_path)))
+    # Numbers written as strings are parsed first, so "0x80" meets the same
+    # range check as 128.
+    schema_errors = sorted(validator.iter_errors(parse_numbers(cfg, s, s)),
+                           key=lambda e: list(map(str, e.absolute_path)))
     found = []
     unknown_fields(cfg, s, s, [], found)
     base = eds_dir if eds_dir is not None else os.path.dirname(os.path.abspath(path))
@@ -590,7 +798,7 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
         if where == "schema_version":
             err("", "field 'schema_version' must be 2 in a file with 'networks'", ["schema_version"])
             continue
-        err(where, e.message)
+        err(where, plain_schema_message(e, schema(2)))
     diag = isinstance(cfg.get("diagnostics"), dict)
     routed = routed_entries(cfg)
     slaves = {}
@@ -874,10 +1082,11 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 for f in fields if other != kind else ():
                     if f in a:
                         err("adapter", "field '%s' does not apply to adapter type %s" % (f, kind), ["adapter." + f])
+            for f in ("interface", "bitrate") + (("device",) if kind == "slcan" else ()):
+                if f not in a or a[f] == "":
+                    err("adapter", "the %s is missing" % field_name(f), ["adapter." + f])
             if kind == "slcan":
-                if "device" not in a:
-                    err("adapter", "missing required field 'device'", ["adapter.device"])
-                elif isinstance(a["device"], str) and a["device"] and not a["device"].startswith("/"):
+                if isinstance(a.get("device"), str) and a["device"] and not a["device"].startswith("/"):
                     err("adapter", "field 'device' must be an absolute path such as /dev/ttyACM0", ["adapter.device"])
     elif old_iface or old_rate:
         warn("", "top-level 'interface' and 'bitrate' are deprecated; move them into "
@@ -896,6 +1105,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
 
     # The schema, with one message per problem at its JSON path.
     for rel, e in schema_errors:
+        first = e
         while e.context:
             # Of the alternatives, the one for the value's own type says what
             # is wrong with it ("200 is greater than the maximum of 127").
@@ -908,6 +1118,8 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             continue  # reported above, in the plugin's words
         if where == "adapter.device" and e.validator == "pattern":
             continue
+        if where in ("adapter.interface", "adapter.device") and e.validator == "minLength":
+            continue  # reported above as missing
         if (where == "master" and e.validator == "not") or where == "master.eds_lint":
             continue  # reported above
         if where.endswith("diagnostics.token_sha256"):
@@ -934,7 +1146,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         if pdo_msg:
             err(pdo_msg[0], pdo_msg[1], [where])
             continue
-        err(where, e.message)
+        err(where, plain_schema_message(first, schema(version)))
 
     if role == "j1939":
         a = cfg.get("adapter")
@@ -1012,6 +1224,14 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         if n.get("heartbeat_consumer") is True and not master_hb:
             err(w, "'heartbeat_consumer' needs a master heartbeat (master 'heartbeat_ms' above 0)",
                 [w + ".heartbeat_consumer"])
+        if "heartbeat_timeout_ms" in n:
+            hb, timeout = _uint(n.get("heartbeat_ms", 0)) or 0, _uint(n["heartbeat_timeout_ms"])
+            if not hb:
+                err(w, "the heartbeat timeout needs a heartbeat period", [w + ".heartbeat_timeout_ms"])
+            elif timeout < hb:
+                err(w, "the heartbeat timeout (%d ms) must not be shorter than the heartbeat period (%d ms)"
+                    % (timeout, hb),
+                    [w + ".heartbeat_timeout_ms", w + ".heartbeat_ms"])
         _error_behavior(n, w, err)
         sw = n.get("software_file")
         if sw:
@@ -1046,7 +1266,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             node["lss"] = {"serial_number": _uint(n.get("serial_number", 0)),
                            "revision_number": _uint(n.get("revision_number", 0)) or 0}
         if node["node_id"] == master_id:
-            err("nodes", "node ID %d is the master's node ID" % node["node_id"], ["master.node_id", w + ".node_id"])
+            err("nodes", "node ID %d is the master's node ID" % node["node_id"], [w + ".node_id", "master.node_id"])
         seen.setdefault(node["node_id"], []).append(i)
         if len(seen[node["node_id"]]) == 2:
             err("nodes", "node ID %d is used by more than one slave" % node["node_id"],
@@ -1135,6 +1355,23 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
     # "auto" COB-IDs, as the plugin resolves them.
     for (i, key, j), cob in auto_cob_ids(nodes).items():
         nodes[i][key][j]["cob_id"] = cob
+
+    # Two PDOs on one COB-ID collide on the bus (plugin: add_cob), whether
+    # the COB-ID is set, "auto" or the default.
+    cobs = {}
+    for i, node in enumerate(nodes):
+        label = "node %d" % node["node_id"] + (" (%s)" % node["name"] if node["name"] else "")
+        for key, kind in (("tx_pdos", "TPDO"), ("rx_pdos", "RPDO")):
+            for j, pdo in enumerate(node[key]):
+                cob = pdo.get("cob_id")
+                cob = cob if isinstance(cob, int) else pdo["default_cob_id"]
+                if cob is None:
+                    continue
+                who, at = "%s %s %d" % (label, kind, pdo["number"]), "nodes[%d].%s[%d].cob_id" % (i, key, j)
+                if cob in cobs:
+                    err("nodes", "%s and %s both use COB-ID 0x%03X" % (who, cobs[cob][0], cob), [at, cobs[cob][1]])
+                else:
+                    cobs[cob] = (who, at)
 
     # CiA 402 axes: the standard objects the motion blocks' drive bridge needs.
     axis_mod.check(cfg, err, warn)
