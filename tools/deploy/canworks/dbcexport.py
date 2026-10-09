@@ -408,7 +408,7 @@ def _sdo_objects(n, eds, option):
     return out
 
 
-def _sdo_messages(n, node_name, eds, option):
+def _sdo_messages(n, node_name, eds, option, notes=None):
     objects = _sdo_objects(n, eds, option)
     node_id = n_id(n)
     msgs = []
@@ -430,9 +430,11 @@ def _sdo_messages(n, node_name, eds, option):
             table.append((value, "0x%04X:%d %s" % (index, sub, name)))
             length = 8 if type_name == "BOOLEAN" else _bits_of(type_name)
             signed, float_kind = _signal_type(type_name, length)
-            data.append(Signal(name, 32, length, signed, float_kind, [receiver],
-                               "0x%04X:%d %s%s" % (index, sub, type_name, ", " + comment if comment else ""),
-                               mux=value))
+            signal = Signal(name, 32, length, signed, float_kind, [receiver],
+                            "0x%04X:%d %s%s" % (index, sub, type_name, ", " + comment if comment else ""), mux=value)
+            if notes is not None:
+                note_signal(notes.note(index, sub), signal, type_name)
+            data.append(signal)
         msg.signals.append(Signal("Object", 8, 24, receivers=[receiver], multiplexer=True,
                                   comment="index + subindex * 65536 (bytes 1-3 of the frame)", values=table))
         msg.signals += data
@@ -462,7 +464,8 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
     messages = []
     for n, eds, norm, node_name in zip(cfg["nodes"], eds_list, pdos, node_names):
         node_id = n_id(n)
-        messages += _pdo_messages(n, node_name, eds, norm, cfg, names, warnings, notes(n["eds"], eds))
+        nt = notes(n["eds"], eds)
+        messages += _pdo_messages(n, node_name, eds, norm, cfg, names, warnings, nt)
         hb = Message(0x700 + node_id, "%s_Heartbeat" % node_name, 1, node_name, "node %d heartbeat" % node_id)
         hb.signals.append(Signal("NMT_State", 0, 7, receivers=[MASTER], values=NMT_STATES))
         messages.append(hb)
@@ -472,7 +475,7 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
                        Signal("Manufacturer_Data", 24, 40, receivers=[MASTER])]
         messages.append(em)
         if sdo != "none":
-            messages += _sdo_messages(n, node_name, eds, sdo)
+            messages += _sdo_messages(n, node_name, eds, sdo, nt)
     nmt = Message(0x000, "NMT", 2, MASTER, "NMT node control; Node_ID 0 addresses all nodes")
     nmt.signals += [Signal("Command", 0, 8, receivers=node_names or [NO_RECEIVER], values=NMT_COMMANDS),
                     Signal("Node_ID", 8, 8, receivers=node_names or [NO_RECEIVER])]
