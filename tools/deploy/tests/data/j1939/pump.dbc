@@ -1,0 +1,46 @@
+VERSION ""
+
+
+NS_ :
+
+BS_:
+
+BU_: PLC Pump
+
+BO_ 2566852613 Status: 8 Pump
+ SG_ Flow : 0|16@1+ (0.5,-100) [-100|32667.5] "l/min" PLC
+ SG_ Running : 16|1@1+ (1,0) [0|1] "" PLC
+ SG_ Mode : 17|3@1+ (1,0) [0|7] "" PLC
+ SG_ Delta : 24|12@1- (1,0) [-2048|2047] "" PLC
+
+BO_ 2565832709 Request: 8 Pump
+ SG_ Code : 0|8@1+ (1,0) [0|255] "" PLC
+
+BO_ 2365526277 Counters: 16 Pump
+ SG_ Total : 7|32@0+ (1,0) [0|4294967295] "" PLC
+ SG_ Wide : 48|72@1+ (1,0) [0|1] "" PLC
+
+BO_ 2566853125 Muxed: 8 Pump
+ SG_ Sel M : 0|8@1+ (1,0) [0|255] "" PLC
+ SG_ A m0 : 8|8@1+ (1,0) [0|255] "" PLC
+ SG_ B m1 : 8|8@1+ (1,0) [0|255] "" PLC
+
+BO_ 2566853381 Mixed: 8 Pump
+ SG_ Temperature : 0|32@1- (1,0) [-1000|1000] "degC" PLC
+ SG_ Count : 32|16@1+ (1,0) [0|65535] "" PLC
+
+BO_ 1792 Legacy: 2 Pump
+ SG_ Level : 0|16@1+ (1,0) [0|65535] "" PLC
+
+CM_ "Test DBC for the J1939 import: 29-bit and 11-bit messages, made-up proprietary PGNs.";
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ BO_ "VFrameFormat" ENUM "StandardCAN","ExtendedCAN","reserved","J1939PG";
+BA_DEF_ SG_ "SPN" INT 0 524287;
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_DEF_DEF_ "VFrameFormat" "J1939PG";
+BA_DEF_DEF_ "SPN" 0;
+BA_ "GenMsgCycleTime" BO_ 2566852613 50;
+BA_ "GenMsgCycleTime" BO_ 2365526277 1000;
+BA_ "VFrameFormat" BO_ 1792 0;
+BA_ "SPN" SG_ 2566852613 Flow 520192;
+SIG_VALTYPE_ 2566853381 Temperature : 1;

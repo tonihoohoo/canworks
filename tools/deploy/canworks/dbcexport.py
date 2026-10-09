@@ -47,32 +47,58 @@ class ExportFailed(Exception):
 
 
 class Signal:
+    """A DBC signal. `start` is the DBC start bit (big byte order: the most
+    significant bit); scale, offset and unit are the J1939 export's, the
+    CANopen export leaves them at 1, 0 and ""."""
+
     def __init__(self, name, start, length, signed=False, float_kind=0, receivers=(), comment="",
-                 mux=None, multiplexer=False, values=None):
+                 mux=None, multiplexer=False, values=None, scale=1, offset=0, unit="", big_endian=False):
         self.name, self.start, self.length = name, start, length
         self.signed, self.float_kind = signed, float_kind  # float_kind: 0, 1 (single) or 2 (double)
         self.receivers = list(receivers)
         self.comment, self.mux, self.multiplexer = comment, mux, multiplexer
         self.values = values or []  # [(value, text)]
+        self.scale, self.offset, self.unit, self.big_endian = scale, offset, unit, big_endian
 
-    def range(self):
+    def raw_range(self):
         if self.float_kind:
             return 0, 0
         if self.signed:
             return -(1 << (self.length - 1)), (1 << (self.length - 1)) - 1
         return 0, (1 << self.length) - 1
 
+    def range(self):
+        """[minimum, maximum] in physical units."""
+        lo, hi = self.raw_range()
+        if self.scale == 1 and self.offset == 0:
+            return lo, hi
+        lo, hi = lo * self.scale + self.offset, hi * self.scale + self.offset
+        return (lo, hi) if lo <= hi else (hi, lo)
+
 
 class Message:
-    def __init__(self, cob_id, name, length, sender, comment="", cycle_ms=None):
+    """A DBC message. `extended`: a 29-bit identifier (written with bit 31
+    set, as DBC files mark it); `j1939`: a J1939 parameter group
+    (VFrameFormat J1939PG)."""
+
+    def __init__(self, cob_id, name, length, sender, comment="", cycle_ms=None, extended=False, j1939=False):
         self.cob_id, self.name, self.length, self.sender = cob_id, name, length, sender
         self.comment, self.cycle_ms = comment, cycle_ms
+        self.extended, self.j1939 = extended or j1939, j1939
         self.signals = []
+
+    @property
+    def dbc_id(self):
+        return self.cob_id | 0x80000000 if self.extended else self.cob_id
 
 
 class Model:
-    def __init__(self, nodes, messages, comment, warnings):
+    """`protocol`: "J1939" writes the J1939 attributes (ProtocolType,
+    VFrameFormat); None for CANopen."""
+
+    def __init__(self, nodes, messages, comment, warnings, protocol=None):
         self.nodes, self.messages, self.comment, self.warnings = nodes, messages, comment, warnings
+        self.protocol = protocol
 
 
 # -- names --------------------------------------------------------------------
@@ -454,40 +480,62 @@ def frames(cfg, model):
 
 # -- writing ------------------------------------------------------------------
 
+def number(v):
+    """A DBC number: 6425.5, 0.1, 255 (an integral value without a point)."""
+    if isinstance(v, float):
+        if v.is_integer() and abs(v) < 1e15:
+            return "%d" % v
+        return format(v, ".15g")
+    return "%d" % v
+
+
 def write(model):
     """The model as DBC text (ASCII, CRLF)."""
     L = ['VERSION ""', "", "NS_ :", "\tNS_DESC_", "\tCM_", "\tBA_DEF_", "\tBA_", "\tVAL_", "\tBA_DEF_DEF_",
          "\tSIG_VALTYPE_", "", "BS_:", "", "BU_: " + " ".join(model.nodes), ""]
     for m in model.messages:
-        L.append("BO_ %d %s: %d %s" % (m.cob_id, m.name, m.length, m.sender))
+        L.append("BO_ %d %s: %d %s" % (m.dbc_id, m.name, m.length, m.sender))
         for s in m.signals:
             mux = " M" if s.multiplexer else (" m%d" % s.mux if s.mux is not None else "")
             lo, hi = s.range()
-            L.append(' SG_ %s%s : %d|%d@1%s (1,0) [%d|%d] "" %s'
-                     % (s.name, mux, s.start, s.length, "-" if s.signed else "+", lo, hi,
+            L.append(' SG_ %s%s : %d|%d@%d%s (%s,%s) [%s|%s] "%s" %s'
+                     % (s.name, mux, s.start, s.length, 0 if s.big_endian else 1, "-" if s.signed else "+",
+                        number(s.scale), number(s.offset), number(lo), number(hi), _ascii(s.unit),
                         ",".join(s.receivers) or NO_RECEIVER))
         L.append("")
     L.append('CM_ "%s";' % _ascii(model.comment))
     for m in model.messages:
         if m.comment:
-            L.append('CM_ BO_ %d "%s";' % (m.cob_id, _ascii(m.comment)))
+            L.append('CM_ BO_ %d "%s";' % (m.dbc_id, _ascii(m.comment)))
         for s in m.signals:
             if s.comment:
-                L.append('CM_ SG_ %d %s "%s";' % (m.cob_id, s.name, _ascii(s.comment)))
+                L.append('CM_ SG_ %d %s "%s";' % (m.dbc_id, s.name, _ascii(s.comment)))
+    j1939 = model.protocol == "J1939"
+    if j1939:
+        L.append('BA_DEF_ "ProtocolType" STRING ;')
     L.append('BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;')
+    if j1939:
+        L.append('BA_DEF_ BO_ "VFrameFormat" ENUM "StandardCAN","ExtendedCAN","reserved","J1939PG";')
+        L.append('BA_DEF_DEF_ "ProtocolType" "";')
     L.append('BA_DEF_DEF_ "GenMsgCycleTime" 0;')
+    if j1939:
+        L.append('BA_DEF_DEF_ "VFrameFormat" "J1939PG";')
+        L.append('BA_ "ProtocolType" "J1939";')
     for m in model.messages:
         if m.cycle_ms:
-            L.append('BA_ "GenMsgCycleTime" BO_ %d %d;' % (m.cob_id, min(m.cycle_ms, 65535)))
+            L.append('BA_ "GenMsgCycleTime" BO_ %d %d;' % (m.dbc_id, min(m.cycle_ms, 65535)))
+    if j1939:
+        for m in model.messages:
+            L.append('BA_ "VFrameFormat" BO_ %d %d;' % (m.dbc_id, 3 if m.j1939 else 1 if m.extended else 0))
     for m in model.messages:
         for s in m.signals:
             if s.values:
-                L.append("VAL_ %d %s %s ;" % (m.cob_id, s.name,
+                L.append("VAL_ %d %s %s ;" % (m.dbc_id, s.name,
                                               " ".join('%d "%s"' % (v, _ascii(t)) for v, t in s.values)))
     for m in model.messages:
         for s in m.signals:
             if s.float_kind:
-                L.append("SIG_VALTYPE_ %d %s : %d;" % (m.cob_id, s.name, s.float_kind))
+                L.append("SIG_VALTYPE_ %d %s : %d;" % (m.dbc_id, s.name, s.float_kind))
     return "\r\n".join(L) + "\r\n"
 
 
@@ -500,7 +548,8 @@ def export(cfg, config_path, eds_paths=None, sdo="none", names=None):
 
 def export_networks(cfg, config_path, eds_paths=None, sdo="none", names=None, network=None):
     """([(network name, DBC text)], warnings): one DBC per network, or only
-    for the one `network` names; the name is "" for a version 1 file. Every
+    for the one `network` names; the name is "" for a version 1 file. A
+    J1939 network's DBC comes from canworks/j1939/dbc.py. Every
     network is checked (and the checks across networks run) before any is
     built. Raises ExportFailed."""
     paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
@@ -515,12 +564,20 @@ def export_networks(cfg, config_path, eds_paths=None, sdo="none", names=None, ne
             raise ExportFailed([("no network '%s' in the config (%s)" % (
                 network, ", ".join(n["name"] or "unnamed" for n in every)), ["networks"])])
     files, warnings = [], list(result.warnings)
-    for net in _no_slave(nets, network, "a DBC file"):
-        one = contract.network_config(cfg, net["name"] if net["path"] else None)
-        model = build(one, config_path, paths, sdo, names, checked=True)
-        if len(every) > 1:
-            model.comment = "CANopen network %s of %s, exported by canworks-deploy %s" % (
-                net["name"], os.path.basename(config_path), __version__)
+    j1939_nets = [n for n in nets if n["role"] == "j1939"]
+    masters = [n for n in nets if n["role"] == "master"] if j1939_nets else _no_slave(nets, network, "a DBC file")
+    for net in nets:
+        if net in j1939_nets:
+            from .j1939 import dbc as j1939_dbc  # the J1939 export (canworks/j1939/dbc.py)
+            model = j1939_dbc.build(net, config_path, names)
+        elif net in masters:
+            one = contract.network_config(cfg, net["name"] if net["path"] else None)
+            model = build(one, config_path, paths, sdo, names, checked=True)
+            if len(every) > 1:
+                model.comment = "CANopen network %s of %s, exported by canworks-deploy %s" % (
+                    net["name"], os.path.basename(config_path), __version__)
+        else:
+            continue
         files.append((net["name"], write(model)))
         warnings += [(net["name"] + ": " if len(every) > 1 else "") + w for w in model.warnings]
     return files, warnings
@@ -530,6 +587,9 @@ def _no_slave(nets, network, what):
     """The master networks of `nets`; ExportFailed when `network` names a
     slave network or none is left (a slave network has no nodes to export:
     its own EDS is the file for the other master's tool)."""
+    if network is not None and nets and nets[0]["role"] == "j1939":
+        raise ExportFailed([("network '%s' is a J1939 network; it has no CANopen nodes to export as %s"
+                             % (network, what), [nets[0]["path"]])])
     if network is not None and nets and nets[0]["role"] == "slave":
         raise ExportFailed([("network '%s' is a slave network; it has no nodes to export as %s (its EDS, %s, is "
                              "the file for the other master's tool)" % (network, what, nets[0]["slave"].get("eds")),

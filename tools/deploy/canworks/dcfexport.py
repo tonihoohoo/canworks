@@ -760,6 +760,9 @@ def _no_slave(nets, network, what):
     """The master networks of `nets`; ExportFailed when `network` names a
     slave network or none is left (a slave network has no nodes to export:
     its own EDS is the file for the other master's tool)."""
+    if network is not None and nets and nets[0]["role"] == "j1939":
+        raise ExportFailed([("network '%s' is a J1939 network; it has no CANopen nodes to export as %s"
+                             % (network, what), [nets[0]["path"]])])
     if network is not None and nets and nets[0]["role"] == "slave":
         raise ExportFailed([("network '%s' is a slave network; it has no nodes to export as %s (its EDS, %s, is "
                              "the file for the other master's tool)" % (network, what, nets[0]["slave"].get("eds")),
