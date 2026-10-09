@@ -306,7 +306,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
     remove_editor_hook
     remove_sim_link
     if [ -x "$PREFIX/venv/bin/python" ]; then
-        "$PREFIX/venv/bin/python" -m pip uninstall -q -y canworks-deploy >/dev/null 2>&1 || true
+        "$PREFIX/venv/bin/python" -m pip uninstall -q -y canworks >/dev/null 2>&1 || true
     fi
     if [ "$PURGE" -eq 1 ]; then
         say "Removing $PREFIX"

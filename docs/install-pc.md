@@ -28,7 +28,7 @@ Download `canworks-<version>-py3-none-any.whl` from the repository's **Releases*
 uv tool install --python 3.12 canworks-<version>-py3-none-any.whl
 ```
 
-Without a release file, uv installs the newest code straight from GitHub; this needs no git: `uv tool install --force "canworks-deploy @ https://github.com/tonihoohoo/canworks/archive/refs/heads/main.zip#subdirectory=tools/deploy"`. If uv cannot install its own Python on the PC (seen on a Windows IoT LTSC build), point `--python` at a Python 3.8 or newer that is already installed instead.
+Without a release file, uv installs the newest code straight from GitHub; this needs no git: `uv tool install --force "canworks @ https://github.com/tonihoohoo/canworks/archive/refs/heads/main.zip#subdirectory=tools/deploy"`. If uv cannot install its own Python on the PC (seen on a Windows IoT LTSC build), point `--python` at a Python 3.8 or newer that is already installed instead.
 
 uv downloads Python 3.12 if the PC has none, puts the tools in their own environment, and links the four commands into its bin folder (`%USERPROFILE%\.local\bin` on Windows, `~/.local/bin` on macOS and Linux). If it warns that the folder is not on PATH, run `uv tool update-shell` and open a new terminal. Check:
 
@@ -47,7 +47,7 @@ The first install needs internet access to github.com (Python) and pypi.org (the
 
 ```sh
 uv tool install --force --python 3.12 canworks-<new version>-py3-none-any.whl
-uv tool uninstall canworks-deploy
+uv tool uninstall canworks
 ```
 
 The configurator's own settings (theme, online access) and the local simulator runtime's credentials (`local-runtime.json`) live in the user's settings folder (`%APPDATA%\canworks` on Windows, `~/Library/Application Support/canworks` on macOS, `$XDG_CONFIG_HOME/canworks` or `~/.config/canworks` on Linux) and survive both. Uninstalling leaves a local simulator runtime container in place: run `canworks-sim-runtime remove --data` first to delete it. After an update, `canworks-sim-runtime update` moves the local runtime to the image of the new version.
@@ -70,7 +70,7 @@ To run the plugin on the PC itself, install the runtime and the plugin there ([i
 
 ## Switching from pipx or a venv
 
-Remove the old install first so the old commands do not shadow the new ones: `pipx uninstall canworks-deploy`, or delete the venv (for example `~/.venvs/canopen`) and any PATH entry or alias pointing into it. Then follow the steps above.
+Remove the old install first so the old commands do not shadow the new ones: `pipx uninstall canworks`, or delete the venv (for example `~/.venvs/canopen`) and any PATH entry or alias pointing into it. Then follow the steps above.
 
 ## With pip or pipx
 

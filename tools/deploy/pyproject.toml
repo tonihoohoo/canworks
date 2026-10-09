@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "canworks-deploy"
+name = "canworks"
 version = "0.42.0"
 description = "Configures CANopen for OpenPLC (canworks-config), deploys it to an OpenPLC Runtime v4 (canworks-deploy) and reads the live network (canworks-diag)"
 readme = "README.md"
