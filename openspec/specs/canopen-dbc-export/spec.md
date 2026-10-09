@@ -58,11 +58,15 @@ Each mapped object SHALL become one signal at its bit offset in the frame, in In
 - **THEN** the message has one signal, at bit 8
 
 ### Requirement: Signal types and ranges
-Signals of INTEGER types SHALL be signed and of UNSIGNED and BOOLEAN types unsigned, with minimum and maximum the full range of the type's bit length. REAL32 and REAL64 signals SHALL be declared as IEEE single and double floats. Factor SHALL be 1, offset 0 and unit empty. The type SHALL be the config entry's `type` where the config names the object, else the EDS data type.
+Signals of INTEGER types SHALL be signed and of UNSIGNED and BOOLEAN types unsigned, with minimum and maximum the full range of the type's bit length. REAL32 and REAL64 signals SHALL be declared as IEEE single and double floats. Offset SHALL be 0. Unit SHALL be the `unit` of the object's merged note (see `canopen-device-notes`), else empty. Factor SHALL be the note's `scale`, else 1, with minimum and maximum scaled by it. The type SHALL be the config entry's `type` where the config names the object, else the EDS data type.
 
 #### Scenario: REAL32 input
 - **WHEN** a TPDO maps a REAL32 object
 - **THEN** its signal is 32 bits and declared as an IEEE single float
+
+#### Scenario: Scaled pressure
+- **WHEN** a TPDO maps 0x2200:1 (INTEGER16) and its note has unit bar and scale 0.01
+- **THEN** its signal has factor 0.01, unit "bar", minimum -327.68 and maximum 327.67
 
 ### Requirement: Signal names
 A signal SHALL be named after the object in the node's object dictionary (EDS), turned into a DBC identifier. For a plain object (ObjectType VAR) the name SHALL be its `ParameterName`. For a sub-object of a record or array the name SHALL be the parent object's `ParameterName`, `_`, then the sub-object's own `ParameterName`, except that the parent part SHALL be left out when the sub-object's name already starts with it (compared as identifiers, ignoring case), as with `CompactSubObj` sub-objects. When the export runs on a config that belongs to an editor project and the signal's PLC location has exactly one named located variable in the project, the signal SHALL be named after that variable instead. Within a message, a name that is already taken SHALL get `_<index hex>_<subindex>` appended. An object without a usable name SHALL be named `obj_<index hex>_<subindex>`.
@@ -84,7 +88,7 @@ A signal SHALL be named after the object in the node's object dictionary (EDS), 
 - **THEN** that signal is `valve1`
 
 ### Requirement: Comments and timing
-Each signal SHALL have a comment naming the object as `0x<index>:<subindex>`, its CANopen type, and its PLC location, or saying that the PLC does not use it. Each PDO message SHALL have a comment naming the node ID, the PDO and its transmission type (or that the EDS value applies). A PDO with a synchronous transmission type 1-240 SHALL get a `GenMsgCycleTime` attribute of the SYNC period times the transmission type, in milliseconds. With `"sync_source": "plc_cycle"` such a PDO SHALL get no `GenMsgCycleTime`, and its comment SHALL say it is sent every N SYNCs, one SYNC every `sync_cycles` PLC cycles.
+Each signal SHALL have a comment naming the object as `0x<index>:<subindex>`, its CANopen type, and its PLC location, or saying that the PLC does not use it, followed by the note `text` of its merged note when it has one. A signal whose merged note has `values` SHALL get a value table (`VAL_`) with those values and meanings. Each PDO message SHALL have a comment naming the node ID, the PDO and its transmission type (or that the EDS value applies). A PDO with a synchronous transmission type 1-240 SHALL get a `GenMsgCycleTime` attribute of the SYNC period times the transmission type, in milliseconds. With `"sync_source": "plc_cycle"` such a PDO SHALL get no `GenMsgCycleTime`, and its comment SHALL say it is sent every N SYNCs, one SYNC every `sync_cycles` PLC cycles.
 
 #### Scenario: Synchronous TPDO
 - **WHEN** the SYNC period is 100000 µs and TPDO 1 has transmission type 1
@@ -93,6 +97,14 @@ Each signal SHALL have a comment naming the object as `0x<index>:<subindex>`, it
 #### Scenario: Synchronous TPDO with PLC-cycle SYNC
 - **WHEN** the config has `"sync_source": "plc_cycle"` and `"sync_cycles": 2`, and TPDO 1 has transmission type 1
 - **THEN** the message has no `GenMsgCycleTime` and its comment says it is sent at every SYNC, one SYNC every 2 PLC cycles
+
+#### Scenario: Mode of operation display
+- **WHEN** a TPDO of a CiA 402 drive maps 0x6061
+- **THEN** the file has a `VAL_` line for that signal listing the modes of operation, among them `3 "profile velocity"`
+
+#### Scenario: Without notes
+- **WHEN** no mapped object has a note with text, unit, scale or values
+- **THEN** the DBC file is byte for byte the same as before this feature
 
 ### Requirement: Fixed CANopen frames
 The DBC SHALL describe, for every configured node, its heartbeat message (0x700 + node ID, 1 byte, a 7-bit `NMT_State` signal with values Boot-up 0, Stopped 4, Operational 5, Pre-operational 127) and its EMCY message (0x80 + node ID, 8 bytes: `Error_Code` 16 bits, `Error_Register` 8 bits, `Manufacturer_Data` 40 bits). It SHALL also describe the NMT command message (0x000, 2 bytes, sent by `Master`: `Command` with values Start 1, Stop 2, Enter pre-operational 128, Reset node 129, Reset communication 130, and `Node_ID`) and, when the master produces SYNC (a SYNC period greater than 0, or `"sync_source": "plc_cycle"`), the SYNC message (0x080, sent by `Master`, 0 bytes).

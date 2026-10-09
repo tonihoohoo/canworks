@@ -27,7 +27,7 @@
 
 - [x] 5.1 `docs/configurator.md`: new "Device notes" section (file name, format with an example, built-in notes, merge rule, editor, checks); `docs/network-docs.md` and the DBC part of `docs/deploy.md` for the new columns and value tables; README configurator bullet.
 - [x] 5.2 Bump the deploy tool minor version (0.46.0).
-- [ ] 5.3 CI time: the change adds tests only to the existing Python and page jobs and no new job, so CI time for a small change does not grow; compare the PR's CI run with the last run on `main`. Squash-merge if an intermediate commit was red.
+- [x] 5.3 CI time: the change adds tests only to the existing Python and page jobs and no new job, so CI time for a small change does not grow; compare the PR's CI run with the last run on `main`. Squash-merge if an intermediate commit was red. Result: 30 job-minutes on the PR against 32 on the last `main` run; the first commit had a red page test, so squash-merge.
 
 ## 6. Hardware check
 

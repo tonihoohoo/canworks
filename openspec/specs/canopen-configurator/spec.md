@@ -51,7 +51,7 @@ The configurator SHALL listen only on the loopback interface and SHALL reject an
 - **THEN** the configurator opens no network connection
 
 ### Requirement: Import an EDS
-Adding a node SHALL start from an EDS file the user picks. The configurator SHALL check that it is a CiA 306 EDS the deploy tool accepts, store it under `canworks/` as UTF-8 (converting from Latin-1/CP1252 when it is not valid UTF-8) and refer to it by a path relative to `canworks/`. A different file with the same name SHALL NOT be overwritten silently.
+Adding a node SHALL start from an EDS file the user picks. The configurator SHALL check that it is a CiA 306 EDS the deploy tool accepts, store it under `canworks/` as UTF-8 (converting from Latin-1/CP1252 when it is not valid UTF-8) and refer to it by a path relative to `canworks/`. A different file with the same name SHALL NOT be overwritten silently. When "keep both" gives the new EDS another name, it SHALL get its own notes file (see `canopen-device-notes`), and replacing an EDS SHALL keep its notes file.
 
 At import, the configurator SHALL also run the checks the PLC runs before dcfgen, on the same prepared copy (see `canopen-master-bringup`, "Prepared EDS copy"): dcfgen's EDS read and lint, and Lely's EDS parse rules, sorting the lint findings as the plugin does (see `canopen-master-bringup`, "EDS lint scope") under the config's `eds_lint` setting. The import SHALL show:
 - that the file is readable, when nothing below applies;
@@ -79,6 +79,10 @@ The import SHALL be refused, showing the reason, and no node SHALL be added, whe
 #### Scenario: Finding in a communication object
 - **WHEN** the user imports an EDS whose 0x1A00 sub 0 has the data type UNSIGNED16, and `eds_lint` is unset
 - **THEN** the import is refused, the finding in 0x1A00 sub 0 is shown, and no node is added
+
+#### Scenario: Notes file for a new EDS
+- **WHEN** the user imports `valve.eds`, which has no notes file, adds the node and saves
+- **THEN** `canworks/valve.eds.notes.json` is written with the valve's identity and an entry for each manufacturer object
 
 ### Requirement: SocketCAN adapter settings
 The configurator SHALL edit the `socketcan` adapter: interface name, bit rate chosen from the CiA 301 rates the contract allows, whether the plugin configures the link (`configure_link`, default on) and the bus-off restart delay (`restart_ms`). A config using the pre-contract top-level `interface`/`bitrate` keys SHALL be shown as that adapter and saved in the `adapter` form, with the page saying so.
@@ -168,7 +172,7 @@ Every setting the plugin defaults when it is left out SHALL show that default on
 - **THEN** the heartbeat fields are removed from the node and only guard time and life time factor are shown
 
 ### Requirement: Startup SDO writes
-For each node the configurator SHALL edit an ordered list of startup SDO writes, which the plugin performs every time the node is configured at boot. The user SHALL pick the object from the node's EDS or type an index and subindex, and the type SHALL come from the EDS. Objects the EDS does not define, or marks read-only or const, SHALL be refused, and each value SHALL be checked against its type's range.
+For each node the configurator SHALL edit an ordered list of startup SDO writes, which the plugin performs every time the node is configured at boot. The user SHALL pick the object from the node's EDS or type an index and subindex, and the type SHALL come from the EDS. Objects the EDS does not define, or marks read-only or const, SHALL be refused, and each value SHALL be checked against its type's range. The picker and the list SHALL show each object's note `text` under its name; the value field SHALL show the value's meaning and unit from the merged note, and SHALL offer the note's `values` as a list with "Other value…" when it has them.
 
 #### Scenario: Set the RTD sensor type
 - **WHEN** the user adds a write to 0x6110 subindex 1 (`AI0_Sensor_Type`, `rw`, UNSIGNED16, EDS default 0x1E), enters `0x1E`, and moves it to the top of the list
@@ -185,6 +189,10 @@ For each node the configurator SHALL edit an ordered list of startup SDO writes,
 #### Scenario: Object not in the EDS
 - **WHEN** the user types index 0x2100 subindex 0 that the EDS does not list
 - **THEN** the write is refused, because the plugin only writes startup SDOs to objects the node's EDS defines
+
+#### Scenario: Startup SDO with a value meaning
+- **WHEN** the notes give 0x2011:2 the values 0 "hold position" and 1 "close" and the user adds a startup SDO for it
+- **THEN** the value field lists "0 hold position" and "1 close", and the saved write has the number the user picked
 
 ### Requirement: Map PDO entries from the EDS
 When mapping a node's PDO entries, the configurator SHALL list only objects the node's EDS marks as PDO-mappable, with index, subindex, name and data type. An object the slave can only send SHALL be offered as an input (TPDO), one it can only receive as an output (RPDO). The entry's `type` SHALL be taken from the EDS.
@@ -239,7 +247,7 @@ Before saving, the configurator SHALL run the deploy tool's checks: contract sch
 - **THEN** the Save button reads "Save (overlaps allowed)" and saving writes the config
 
 ### Requirement: Save only the project's canopen folder
-Saving SHALL write `canworks/canworks.json` and the imported EDS files under `canworks/`, and no other file. `canworks.json` SHALL be replaced atomically, carry `schema_version` 1 and keep fields the configurator does not know. The saved folder SHALL be accepted unchanged by the deploy tool's `--config` and by the editor-upload hook.
+Saving SHALL write `canworks/canworks.json`, the imported EDS files and their notes files (`<eds file name>.notes.json`, see `canopen-device-notes`) under `canworks/`, and no other file. `canworks.json` SHALL be replaced atomically, carry `schema_version` 1 and keep fields the configurator does not know. The saved folder SHALL be accepted unchanged by the deploy tool's `--config` and by the editor-upload hook.
 
 #### Scenario: Unknown field kept
 - **WHEN** a loaded config has a field the configurator does not know and the user changes a heartbeat and saves
@@ -660,7 +668,7 @@ The object dictionary tab SHALL offer "Read all" (the parameter read-all, with p
 - **THEN** the page refuses it and says at most 32 entries can be watched
 
 ### Requirement: Editing values in the object dictionary view
-When the runtime allows changes, writable entries in the object dictionary tab SHALL be editable in place, using the SDO panel's write with its range check and its warnings for entries the configuration writes or an SDO variable owns. The editor SHALL show the entry's EDS LowLimit and HighLimit when the EDS has them, and a value outside them SHALL need a confirmation before it is written. The value shown SHALL be read back after the write. When changes are not allowed, entries SHALL be read-only with the reason shown.
+When the runtime allows changes, writable entries in the object dictionary tab SHALL be editable in place, using the SDO panel's write with its range check and its warnings for entries the configuration writes or an SDO variable owns. The editor SHALL show the entry's EDS LowLimit and HighLimit when the EDS has them, and a value outside them SHALL need a confirmation before it is written. When the entry's merged note has `values`, the editor SHALL offer them as a list with their meanings plus "Other value…" for any value in range. The value shown SHALL be read back after the write. When changes are not allowed, entries SHALL be read-only with the reason shown.
 
 #### Scenario: Edit a parameter
 - **WHEN** the runtime allows changes and the user changes 0x6110 subindex 1 of node 3 to 30
@@ -673,6 +681,10 @@ When the runtime allows changes, writable entries in the object dictionary tab S
 #### Scenario: Read-only runtime
 - **WHEN** the runtime's `allow_changes` is false
 - **THEN** no entry is editable and the tab says online changes are not allowed
+
+#### Scenario: Pick a mode by name
+- **WHEN** the runtime allows changes and the user edits 0x6060 of a CiA 402 drive
+- **THEN** the editor lists the modes of operation by name, and picking "profile velocity" writes 3
 
 ### Requirement: Parameters actions for a node
 The online view SHALL offer per node: Back up (downloads the backup DCF), Compare (with a chosen backup file, the configuration or the EDS defaults, with an option for read-only entries; differences listed first), Restore from a chosen backup file, and Store on device. Back up and Compare SHALL work without `allow_changes`; Restore and Store SHALL be disabled with the reason when changes are not allowed.
@@ -726,7 +738,7 @@ Next to the search box the object dictionary tab SHALL offer filters that can be
 - **THEN** only writable entries whose name or index contains "sensor" are shown
 
 ### Requirement: Value formats in the object dictionary view
-Each numeric entry SHALL be shown in decimal by default and SHALL let the user switch it to hex or binary, the choice kept for that entry while the page is open. INTEGER entries in hex or binary SHALL show their two's-complement bits. For a known bit-field object (at least 0x1001 error register, 0x1002 manufacturer status register, 0x6040 controlword and 0x6041 statusword of CiA 402) the entry SHALL offer a bit view naming each set bit; the bit names SHALL come from a table in the configurator, not from the EDS.
+Each numeric entry SHALL be shown in decimal by default and SHALL let the user switch it to hex or binary, the choice kept for that entry while the page is open. INTEGER entries in hex or binary SHALL show their two's-complement bits. For an object whose merged note has `bits` (see `canopen-device-notes`; built in at least for 0x1001 error register, 0x1002 manufacturer status register, 0x6040 controlword and 0x6041 statusword of CiA 402; an empty `bits` marks a bit field without names) the entry SHALL offer a bit view naming each set bit from those notes; a set bit without a name SHALL be shown by its number. An entry whose merged note has `values` SHALL show the meaning after the value, as `3 (profile velocity)`, and a value without a meaning as the number alone. An entry whose note has `unit` SHALL show it after the value, and with `scale` the scaled value too, as `1234 (12.34 bar)`. An entry's note `text` SHALL be shown under its name, with `details` and `manual` on hover.
 
 #### Scenario: Hex view
 - **WHEN** 0x6110 subindex 1 reads 30 and the user switches it to hex
@@ -735,6 +747,14 @@ Each numeric entry SHALL be shown in decimal by default and SHALL let the user s
 #### Scenario: Statusword bits
 - **WHEN** 0x6041 of a CiA 402 drive reads 0x0237 and the user opens its bit view
 - **THEN** the bits ready to switch on, switched on, operation enabled, voltage enabled, quick stop and remote are shown as set
+
+#### Scenario: Vendor bit field
+- **WHEN** the notes of `valve.eds` give 0x2100 the bits 0 "coil A open" and 7 "overtemperature", and 0x2100 reads 0x81
+- **THEN** its bit view shows "coil A open" and "overtemperature" as set
+
+#### Scenario: Scaled value with unit
+- **WHEN** the notes give 0x2200:1 the unit bar and scale 0.01, and it reads 1234
+- **THEN** the entry shows `1234 (12.34 bar)`
 
 ### Requirement: PDO marks in the object dictionary view
 For a configured node, an entry mapped in one of the node's PDOs in the configuration (a config-written mapping or a device mapping the configuration names) SHALL be marked with the PDO and the bits it takes, such as "TPDO2 bits 16-31", and the mark SHALL name the PLC location. Reading such an entry SHALL still use SDO.
@@ -1206,3 +1226,35 @@ In Commission a device and on a USB adapter target, the configurator SHALL recor
 #### Scenario: Save the record
 - **WHEN** the user gave the device node ID 12, wrote a configuration and stored it, then pressed Save log
 - **THEN** the file lists those three changes in order with their results
+
+### Requirement: Note editor
+Wherever an object's note is shown in a project (object dictionary view, startup SDO editor and picker, PDO entry picker), a "Note" button SHALL open an editor for that object or sub-object with text, details, unit, scale, a values table, a bits table and manual. For an object with a built-in note the editor SHALL start from the built-in fields and SHALL save only the fields the user changed into the device notes file.
+
+#### Scenario: Write a note while commissioning
+- **WHEN** the user opens the Note editor of 0x2010 of node 7, types "Opening ramp of the valve", unit ms, and saves the project
+- **THEN** `0x2010` in the EDS's notes file has that text and unit, and the object dictionary view shows them
+
+#### Scenario: Override a built-in note
+- **WHEN** the user adds the value -1 "vendor jog mode" to the values of 0x6060 in the Note editor and saves
+- **THEN** the device notes file has only a `values` entry for 0x6060 and the built-in text is not copied
+
+### Requirement: Note edits are draft edits
+A note edit SHALL mark the draft as changed, SHALL be written with Save, and SHALL be undoable like other draft edits.
+
+#### Scenario: Undo a note
+- **WHEN** the user changes the text of 0x2010 in the Note editor and presses Ctrl+Z
+- **THEN** the earlier text is back and the draft is clean again if nothing else changed
+
+### Requirement: Notes read-only without a config
+In "Commission a device" without a config, notes SHALL be shown but not editable.
+
+#### Scenario: Read-only when commissioning
+- **WHEN** the user opens the object dictionary view in "Commission a device" without a config
+- **THEN** notes are shown and no Note button is offered
+
+### Requirement: Notes in the other node lists
+The PDO entry picker and the Parameters compare and restore lists SHALL show each object's note `text` under its name and the meaning and unit of each value from its merged note.
+
+#### Scenario: Compare with meanings
+- **WHEN** the user compares node 4 against a backup and 0x6060 differs (3 on the device, 1 in the backup)
+- **THEN** the compare list shows `3 (profile velocity)` and `1 (profile position)`
