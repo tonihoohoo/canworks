@@ -11,7 +11,7 @@
 # installs the deploy tool into <prefix>/venv (the plugin runs its EDS lint,
 # canworks.edslint, at every load), builds libcanworks_plugin.so against the runtime's headers, installs it to
 # <prefix>/lib/ (outside the runtime's build tree, so a runtime rebuild keeps
-# it), and puts exactly one disabled `canopen` line into the runtime's
+# it), and puts exactly one disabled `canworks` line into the runtime's
 # plugins.conf. No runtime source file changes. From then on an upload that
 # carries conf/canworks.json (canworks-deploy) switches the plugin on, and
 # one without it switches it off. Restart the runtime once so it loads the
@@ -22,7 +22,7 @@
 # (docs/install-stock.md). Installs tools/editor-hook into <prefix>/venv, the hook package to <prefix>/lib/python/ and one file,
 # canworks_hook.pth, into the runtime's venv (venvs/runtime).
 #
-# Uninstall: removes the `canopen` line, the hook's .pth and <prefix>/lib/.
+# Uninstall: removes the `canworks` line, the hook's .pth and <prefix>/lib/.
 # --purge also removes Lely and dcfgen (all of <prefix>).
 #
 # The runtime directory defaults to the WorkingDirectory of the

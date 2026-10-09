@@ -206,7 +206,7 @@ def canopen_state(logs):
             continue
         seen_any = True
         rest = line.split("Final state - ", 1)[1]
-        if rest.startswith("canopen:"):
+        if rest.startswith("canworks:"):
             return "enabled=True" in rest
     return False if seen_any else None
 

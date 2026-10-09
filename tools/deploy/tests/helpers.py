@@ -148,7 +148,7 @@ class StubRuntime:
                                     "is not used\n")
                     logs.append("[INFO] Found 2 config files in core/generated/conf: ['canworks', 'ethercat']\n")
                     if stub.canopen_line:
-                        logs.append("[DEBUG] Final state - canopen: enabled=True, "
+                        logs.append("[DEBUG] Final state - canworks: enabled=True, "
                                     "config_path='/opt/canworks/lib/canworks.json'\n")
                     logs.append("[DEBUG] Final state - ethercat: enabled=True, config_path='x'\n")
                     if stub.hook_error:

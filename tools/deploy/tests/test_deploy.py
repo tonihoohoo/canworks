@@ -339,7 +339,7 @@ class Upload(unittest.TestCase):
         self.assertEqual(code, 0, err)
         with open(zip_path, "rb") as f:
             self.assertEqual(stub.uploaded, f.read())
-        self.assertIn("Final state - canopen: enabled=True", out)
+        self.assertIn("Final state - canworks: enabled=True", out)
         self.assertIn("canworks plugin enabled", out)
         last = out.strip().splitlines()[-1]
         self.assertIn("\"Build and upload\" sends no conf/canworks.json", last)

@@ -124,7 +124,7 @@ fi
 echo "5. runtime container as another version: CANopen stays off"
 if start_runtime -e RUNTIME_VERSION=v0.0.0-other; then
     logs=$(docker logs "$NAME" 2>&1)
-    [ "$(plugins_line)" = "$LINE_DISABLED" ] && ok "canopen disabled" || fail "canworks line: '$(plugins_line)'"
+    [ "$(plugins_line)" = "$LINE_DISABLED" ] && ok "canworks disabled" || fail "canworks line: '$(plugins_line)'"
     grep -q "built for runtime $VERSION but the runtime is v0.0.0-other" <<<"$logs" &&
         ok "log names both versions" || { grep "editor hook" <<<"$logs"; fail "no version error"; }
 else

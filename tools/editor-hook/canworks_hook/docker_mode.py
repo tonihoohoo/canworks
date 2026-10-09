@@ -2,15 +2,15 @@
 
 The bootloader creates a new runtime container for every runtime version
 change (and on repair), and the runtime then recreates plugins.conf from
-plugins_default.conf, without our `canopen` line. So, in Docker mode only:
+plugins_default.conf, without our `canworks` line. So, in Docker mode only:
 
-- after each upload, record the `canopen` line the runtime wrote
+- after each upload, record the `canworks` line the runtime wrote
   (<prefix>/lib/plugins-line, on the host through the bind mount);
 - at webserver start, put that line back when plugins.conf has none, or a
   disabled one when nothing was recorded yet;
 - when the plugin was built for another runtime version than the one running
   (<prefix>/lib/runtime-version, written by scripts/install-stock.sh), keep
-  `canopen` disabled: a library built in another image may not even load.
+  `canworks` disabled: a library built in another image may not even load.
 
 Standard library only: this runs inside the runtime's webserver.
 """

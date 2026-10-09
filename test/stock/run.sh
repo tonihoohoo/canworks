@@ -4,8 +4,8 @@
 #   1. scripts/install-stock.sh twice: one disabled canworks line, no modified
 #      tracked runtime files; an install from before the rename is removed
 #   2. the runtime's own upload handling on a deploy-tool bundle (enables
-#      canopen, config next to the library, EDS from core/generated/conf) and
-#      on an editor bundle without it (disables canopen)
+#      the canworks plugin, config next to the library, EDS from core/generated/conf) and
+#      on an editor bundle without it (disables the canworks plugin)
 #   3. the editor hook: one .pth in the runtime venv, active when the
 #      webserver imports its modules, and test/stock/editor_hook.py (the hook
 #      on the runtime's own modules); --no-editor-hook removes it
