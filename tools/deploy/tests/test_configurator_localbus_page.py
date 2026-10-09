@@ -15,6 +15,7 @@ from openplc_canopen_deploy.localbus import parse
 from openplc_canopen_deploy.localbus import sweep as sweep_mod
 
 from .fake_canopen import FakeDevice, Peer
+from .helpers import REPO
 from .test_configurator_online_page import OnlineBase
 
 _n = itertools.count(1)
@@ -105,6 +106,11 @@ class AdapterPage(OnlineBase):
         pg.click('button[data-online="scan"]')
         pg.wait_for_selector('tr[data-scan-node="7"]', timeout=20000)
         self.assertEqual(pg.query_selector_all('button[data-online="add-node"]'), [])
+        # No EDS in the library matches: the device's own EDS file opens its object dictionary.
+        self.assertIn("No matching EDS", pg.inner_text('tr[data-scan-node="7"]'))
+        pg.set_input_files('tr[data-scan-node="7"] input[data-online="pick-eds"]',
+                           os.path.join(REPO, "config", "gateway", "cpp-slave.eds"))
+        pg.wait_for_selector('tr[data-od-key="%d:1"]' % 0x1018, state="attached", timeout=20000)
         time.sleep(0.1)
 
 

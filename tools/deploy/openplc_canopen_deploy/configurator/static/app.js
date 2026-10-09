@@ -4798,7 +4798,7 @@ function paramsPanel(id, n, allow) {
   };
   const backup = async () => {
     const live = nodeLive(id);
-    if (live && !live.booted) {
+    if (live && !live.booted && S.online.target !== "adapter") {  // a USB adapter has no master to configure it
       const v = await modal(`Node ${id} has not booted successfully, so the master may not have configured it yet. Back up anyway?`,
         [["go", "Back up anyway", true], ["cancel", "Cancel"]]);
       if (v !== "go") return;
@@ -5226,7 +5226,12 @@ function scanAction(d) {
   if (configNode(d.node_id)) return el("span", { class: "muted" }, "added (not saved yet)");
   const m = d.eds_matches || [];
   if (S.state.commission) {  // no config to add to: only the object dictionary
-    if (!m.length) return el("span", { class: "muted" }, "No matching EDS in the EDS library.");
+    if (!m.length) {  // the device's EDS from a file instead, for its object dictionary
+      const input = el("input", { type: "file", accept: ".eds,.EDS", dataset: { online: "pick-eds" } });
+      input.addEventListener("change", () => { const f = input.files[0]; if (f) openPickedOd(d, f); });
+      return el("div", null, el("span", { class: "muted" }, "No matching EDS in the EDS library. "),
+        el("label", { class: "file-button" }, "Pick EDS file…", input));
+    }
     const pick = el("select", { "aria-label": "EDS file", dataset: { online: "eds-match" } }, m.map((x, k) => el("option", { value: k }, x.name)));
     return el("div", null, pick, el("button", { type: "button", dataset: { online: "open-od" }, onclick: () => openScannedOd(d, m[Number(pick.value)]) }, "Object dictionary"));
   }
@@ -5257,18 +5262,33 @@ function openScannedOd(d, match) {
   showView("online");
 }
 
+// Commissioning: a scanned device whose EDS is not in the library, opened
+// with an EDS file picked here (kept with the session's unsaved files).
+async function openPickedOd(d, file) {
+  let res;
+  try {
+    const data = await readBase64(file);
+    res = await api("POST", "/api/eds", { name: file.name, data, on_conflict: "keep_both", eds_lint: edsLint() });
+  } catch (e) { banner(e.message, true); return; }
+  openScannedOd(d, { path: res.name, name: res.name });
+}
+
+function readBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result.split(",")[1] || "");
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
 async function addScannedNode(d, match, file, identity, lss) {
   let res;
   try {
     if (match) {
       res = await api("POST", "/api/online/use_eds", { path: match.path, eds_lint: edsLint() });
     } else {
-      const data = await new Promise((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(r.result.split(",")[1] || "");
-        r.onerror = () => reject(r.error);
-        r.readAsDataURL(file);
-      });
+      const data = await readBase64(file);
       res = await api("POST", "/api/eds", { name: file.name, data, on_conflict: "keep_both", eds_lint: edsLint() });
     }
   } catch (e) { banner(e.message, true); return; }
