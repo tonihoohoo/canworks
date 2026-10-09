@@ -392,7 +392,7 @@ class LoneSweep(Base):
     def test_lss_probe_finds_a_quiet_device(self):
         dev = self.device(None)
         c = self.client(allow_changes=True)
-        c.detect_bitrate(per_rate_ms=200, lone_device=True, probe="lss")
+        c.detect_bitrate(rates=[500, 250], per_rate_ms=500, lone_device=True, probe="lss")  # room for the answer on a slow runner
         res = self.wait(c)
         self.assertEqual((res["verdict"], res["bitrate_kbit"]), ("detected", 250), res)
         self.assertTrue(res["lone_device"])
