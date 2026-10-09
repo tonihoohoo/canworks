@@ -13,6 +13,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <cstdio>
 #include <cstring>
 #include <map>
 
@@ -54,6 +55,18 @@ can_frame to_can(const canworks_can_frame& f) {
   return c;
 }
 
+// The driver echoes sent frames (IFF_ECHO). SIOCGIFFLAGS gives only the low
+// 16 flag bits, and IFF_ECHO is bit 18: sysfs has them all.
+bool echoes(const std::string& interface) {
+  if (interface.find('/') != std::string::npos) return false;
+  FILE* f = std::fopen(("/sys/class/net/" + interface + "/flags").c_str(), "r");
+  if (!f) return false;
+  unsigned long flags = 0;
+  bool ok = std::fscanf(f, "%lx", &flags) == 1;
+  std::fclose(f);
+  return ok && (flags & IFF_ECHO);
+}
+
 uint64_t utc_us(const timeval& tv) {
   return static_cast<uint64_t>(tv.tv_sec) * 1000000u + static_cast<uint64_t>(tv.tv_usec);
 }
@@ -78,8 +91,7 @@ class SocketLink : public RawLink {
     int index = ifr.ifr_ifindex;
     // Echo of sent frames: confirmation on the bus when the driver echoes
     // (IFF_ECHO); otherwise the kernel loops them back at once.
-    bool echo = ioctl(fd, SIOCGIFFLAGS, &ifr) == 0 && (ifr.ifr_flags & IFF_ECHO);
-    confirm_ = echo ? Confirm::Echo : Confirm::Write;
+    confirm_ = echoes(interface_) ? Confirm::Echo : Confirm::Write;
     int on = 1;
     setsockopt(fd, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &on, sizeof on);
     setsockopt(fd, SOL_SOCKET, SO_TIMESTAMP, &on, sizeof on);

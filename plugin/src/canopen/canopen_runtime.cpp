@@ -115,7 +115,7 @@ void SlaveRuntime::make(const ConfigSet& set, GatewayLink* gw, const char* versi
   if (cfg_.adapter.simulate) {
     std::string master;
     for (const auto& other : set.networks)
-      if (!other.is_slave() && !other.is_j1939() && other.adapter.simulate &&
+      if (!other.is_slave() && other.is_canopen() && other.adapter.simulate &&
           other.adapter.interface == cfg_.adapter.interface)
         master = other.network.empty() ? other.adapter.interface : other.network;
     log_warn("the slave network is SIMULATED (%s): no CAN interface is used; it runs on simulated "
@@ -213,7 +213,7 @@ void canopen_init_logging() { route_lely_diagnostics(); }
 bool canopen_check(ConfigSet& set, std::vector<std::string>& errors) {
   bool ok = true;
   for (auto& cfg : set.networks) {
-    if (cfg.is_j1939()) continue;
+    if (!cfg.is_canopen()) continue;  // J1939 and plain CAN networks have their own runtimes
     ScopedLogPrefix prefix(prefix_of(cfg));
     if (cfg.is_slave()) log_info("%s: EDS %s", cfg.slave.label().c_str(), cfg.slave.eds_path.c_str());
     if (cfg.adapter.simulation_forced)
@@ -285,7 +285,7 @@ bool canopen_create(ConfigSet& set, uint64_t base_tick_ns, const char* version,
   }
   for (size_t i = 0; i < set.networks.size(); ++i) {
     Config& cfg = set.networks[i];
-    if (cfg.is_j1939()) continue;
+    if (!cfg.is_canopen()) continue;  // J1939 and plain CAN networks have their own runtimes
     ScopedLogPrefix prefix(prefix_of(cfg));
     if (cfg.is_slave()) {
       std::unique_ptr<SlaveRuntime> s(new SlaveRuntime(cfg));
@@ -304,7 +304,7 @@ bool canopen_create(ConfigSet& set, uint64_t base_tick_ns, const char* version,
 void canopen_open_plc_requests(const ConfigSet& set) {
   uint32_t masters = 0;
   for (size_t i = 0; i < set.networks.size() && i < 32; ++i)
-    if (!set.networks[i].is_j1939() && !set.networks[i].is_slave()) masters |= 1u << i;
+    if (set.networks[i].is_canopen() && !set.networks[i].is_slave()) masters |= 1u << i;
   PlcRequests::instance().open(masters);
 }
 void canopen_close_plc_requests() { PlcRequests::instance().close(); }

@@ -324,7 +324,8 @@ void PlcPort::expire_echoes(uint64_t now_us, uint64_t max_age_us) {
   while (echo_tail_ != echo_head_) {
     TxSlot& s = tx_[echo_[echo_tail_ % kTx]];
     uint8_t st = s.state.load(std::memory_order_acquire);
-    if ((st == kWritten || st == kAbandoned) && now_us - s.written_us < max_age_us) break;
+    // The caller's `now_us` may predate written_us (read before the write).
+    if ((st == kWritten || st == kAbandoned) && (now_us < s.written_us || now_us - s.written_us < max_age_us)) break;
     if (st == kWritten || st == kAbandoned) {
       s.error.store(CANWORKS_CAN_ERR_TIMEOUT, std::memory_order_relaxed);
       finish(s, kWritten, kFailed);

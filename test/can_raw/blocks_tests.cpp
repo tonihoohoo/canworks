@@ -175,6 +175,47 @@ TEST(can_receive_overflow_and_plc_stop) {
   CHECK(rx.ERROR && rx.ERROR_ID == CANWORKS_CAN_ERR_CANCELLED && !rx.ACTIVE);
 }
 
+TEST(blocks_retry_until_the_network_runs) {
+  // ENABLE TRUE from the first scan, before the network is up: the blocks
+  // keep trying and start once it runs (no new rising edge needed).
+  Net n;
+  n.port.set_running(false);
+  CAN_SEND_CYCLIC_INST cy;
+  cy.ID = 0x300;
+  cy.DLC = 1;
+  cy.PERIOD = 10LL * 1000000;  // T#10ms
+  cy.ENABLE = true;
+  CAN_RECEIVE_INST rx;
+  rx.ID = 0x10;
+  rx.ENABLE = true;
+  can_send_cyclic_call(&cy);
+  can_receive_call(&rx);
+  CHECK(cy.ERROR && cy.ERROR_ID == CANWORKS_CAN_ERR_NOT_RUNNING && !cy.ACTIVE);
+  CHECK(rx.ERROR && rx.ERROR_ID == CANWORKS_CAN_ERR_NOT_RUNNING && !rx.ACTIVE);
+  can_send_cyclic_call(&cy);
+  CHECK(cy.ERROR && !cy.ACTIVE);
+  n.port.set_running(true);
+  can_send_cyclic_call(&cy);
+  can_receive_call(&rx);
+  CHECK(cy.ACTIVE && !cy.ERROR && cy.ERROR_ID == 0);
+  CHECK(rx.ACTIVE && !rx.ERROR && rx.ERROR_ID == 0);
+  n.port.on_frame(frame(0x10, {4}));
+  can_receive_call(&rx);
+  CHECK(rx.NEW && rx.RX_DATA[0] == 4);
+  // A cancelled receiver (network restart) opens again while ENABLE stays TRUE.
+  n.port.cancel_all();
+  can_receive_call(&rx);
+  CHECK(rx.ERROR && rx.ERROR_ID == CANWORKS_CAN_ERR_CANCELLED);
+  can_receive_call(&rx);
+  CHECK(rx.ACTIVE && !rx.ERROR);
+  // An input error is not retried.
+  CAN_SEND_CYCLIC_INST bad;
+  bad.ENABLE = true;  // PERIOD T#0s
+  can_send_cyclic_call(&bad);
+  can_send_cyclic_call(&bad);
+  CHECK(bad.ERROR && bad.ERROR_ID == CANWORKS_CAN_ERR_INPUT && !bad.ACTIVE);
+}
+
 TEST(can_bus_info) {
   Net n;
   canworks_can_bus_info b{};

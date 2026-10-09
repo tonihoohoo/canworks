@@ -35,7 +35,7 @@ enum class Origin {
 struct LinkFrame {
   canworks_can_frame frame;
   bool ours = false;       // written through this link (its echo)
-  bool this_host = false;  // written by something else in this process (the protocol)
+  bool this_host = false;  // written by another socket on this host (the protocol, or another program)
 };
 
 // A kernel-style receive filter: frames whose identifier matches `id` under

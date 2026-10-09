@@ -44,6 +44,11 @@ struct RawIoHooks {
   std::function<bool()> prepare;
   // A line for the runtime log.
   std::function<void(const std::string&)> log;
+  // Frames other sockets on this host write (cansend, another program) are
+  // received frames for the program and the counts. Only where no protocol
+  // stack shares the interface (plain CAN networks): the kernel marks its
+  // frames the same way.
+  bool host_frames_received = false;
 };
 
 class RawIo {
