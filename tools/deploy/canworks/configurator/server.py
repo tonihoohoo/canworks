@@ -203,7 +203,7 @@ def empty_config():
             "nodes": []}
 
 
-SCHEMA_FILE = "canopen.v%d.schema.json"
+SCHEMA_FILE = "canworks.v%d.schema.json"
 
 
 def lowest_version(cfg):

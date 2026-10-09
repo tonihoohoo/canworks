@@ -46,7 +46,7 @@ mkdir -p "$OLD_PREFIX/lib"
 echo "canopen,$OLD_PREFIX/lib/libcanopen_plugin.so,0,1,$OLD_PREFIX/lib/canopen.json," >> "$RUNTIME/plugins.conf"  # rename-keep
 touch "$SITE/openplc_canopen_hook.pth"  # rename-keep
 CANWORKS_OLD_PREFIX="$OLD_PREFIX" "$REPO/scripts/install-stock.sh" --no-deps --runtime-dir "$RUNTIME" >/dev/null
-! grep -q '^canopen,' "$RUNTIME/plugins.conf" || fail "the old canopen line was left"
+! grep -q '^canopen,' "$RUNTIME/plugins.conf" || fail "the old canopen line was left"  # rename-keep
 [ ! -e "$SITE/openplc_canopen_hook.pth" ] || fail "the old editor hook was left"  # rename-keep
 [ ! -e "$OLD_PREFIX" ] || fail "the old install folder was left"
 "$REPO/scripts/install-stock.sh" --no-deps --runtime-dir "$RUNTIME"

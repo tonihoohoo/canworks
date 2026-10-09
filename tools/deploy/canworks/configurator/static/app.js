@@ -494,8 +494,8 @@ function fileConfig() {
   const m = S.model;
   const out = {};
   const swapSchema = (from, to) => {
-    if (typeof out.$schema === "string" && out.$schema.endsWith(`canopen.v${from}.schema.json`)) {
-      out.$schema = out.$schema.slice(0, -`canopen.v${from}.schema.json`.length) + `canopen.v${to}.schema.json`;
+    if (typeof out.$schema === "string" && out.$schema.endsWith(`canworks.v${from}.schema.json`)) {
+      out.$schema = out.$schema.slice(0, -`canworks.v${from}.schema.json`.length) + `canworks.v${to}.schema.json`;
     }
   };
   const net = m.networks[0];

@@ -281,10 +281,10 @@ strip_plugin_lines() {
 # before the rename to canworks, then its folder.
 remove_old_install() {
     local site tmp old_sim=/usr/local/bin/openplc-canopen-sim  # rename-keep
-    if [ -f "$PLUGINS_CONF" ] && grep -q '^canopen,' "$PLUGINS_CONF"; then
-        say "Removing the canopen line from before the rename to canworks from $PLUGINS_CONF"
+    if [ -f "$PLUGINS_CONF" ] && grep -q '^canopen,' "$PLUGINS_CONF"; then  # rename-keep
+        say "Removing the canopen line from before the rename to canworks from $PLUGINS_CONF"  # rename-keep
         tmp=$(mktemp)
-        grep -v '^canopen,' "$PLUGINS_CONF" > "$tmp" || true
+        grep -v '^canopen,' "$PLUGINS_CONF" > "$tmp" || true  # rename-keep
         cat "$tmp" > "$PLUGINS_CONF"
         rm -f "$tmp"
     fi

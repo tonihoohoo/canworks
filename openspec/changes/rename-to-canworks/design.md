@@ -42,7 +42,7 @@ The owner confirmed the project is not in real use anywhere. The only installs a
 | device simulator `openplc-canopen-sim` | `canworks-sim` |
 | `OPENPLC_CANOPEN_*`, `CANOPEN_FORCE_SIMULATE` | `CANWORKS_*`, `CANWORKS_FORCE_SIMULATE` |
 | settings folder `openplc-canopen` | `canworks` |
-| schemas `canopen.v{1,2}`, `canopen-sim.v{1,2}` | `canworks.v{1,2}`, `canworks-sim.v{1,2}` |
+| schemas `canopen.v{1,2}`, `canopen-sim.v{1,2}`, `canopen-machine.v1` | `canworks.v{1,2}`, `canworks-sim.v{1,2}`, `canworks-machine.v1` |
 | image/container `openplc-canopen-sim-runtime` | `canworks-sim-runtime` |
 | `openplc_canopen.stlib` | `canworks.stlib` |
 

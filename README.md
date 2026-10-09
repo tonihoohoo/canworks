@@ -61,8 +61,8 @@ plugin/sim/        the device simulator engine (simulated devices, value sources
                    CiA 402 drive model, faults, scenarios, the machine model), used by the plugin and canworks-sim
 schema/            the config contract (JSON Schema 2020-12): canworks.v1.schema.json (one network),
                    canworks.v2.schema.json (several networks, slave networks, the gateway), and
-                   canopen-sim.v1/v2.schema.json for the simulation file (v2: a section per network),
-                   canopen-machine.v1.schema.json for the machine file
+                   canworks-sim.v1/v2.schema.json for the simulation file (v2: a section per network),
+                   canworks-machine.v1.schema.json for the machine file
 examples/          virtual-plant/: the fully virtual example project of docs/tour.md (four simulated
                    networks, a demo program, a simulation file with test scenarios); gantry-cell/: a
                    simulated XYZ gantry with a pick-and-place program (docs/machine.md)

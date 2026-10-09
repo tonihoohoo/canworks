@@ -23,7 +23,7 @@ from .. import contract, diag, machine, simclient
 
 SIM_FILE = "simulation.json"
 DEFAULT_ADDRESS = "127.0.0.1:%d" % simclient.SIM_PORT
-SCHEMA_FILE = "canopen-sim.v%d.schema.json"
+SCHEMA_FILE = "canworks-sim.v%d.schema.json"
 SUPPORTED_VERSION = 2
 TARGETS = ("runtime", "simulator")
 PINS_MAX = 64

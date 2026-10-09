@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tonihoohoo/canworks/schema/canopen-machine.v1.schema.json",
+  "$id": "https://github.com/tonihoohoo/canworks/schema/canworks-machine.v1.schema.json",
   "title": "canworks machine file, version 1",
   "description": "A made-up machine around the simulated devices of one network, named by that network's simulation file section (\"machine\": \"machine.json\"; docs/machine.md). Lengths are millimetres: x and y on the table, heights above the table top. Checks the schema cannot express (travel, limits and hard stops in order, part kinds defined, element names unique, no input bit bound twice, joints on simulated CiA 402 axis nodes, bound objects in the node's EDS with a type the bit fits, outputs written by the master in an RPDO and inputs not) are run by the plugin, the simulator and the deploy tool's check.",
   "type": "object",

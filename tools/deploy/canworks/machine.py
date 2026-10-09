@@ -29,7 +29,7 @@ JOINTS = ("x", "y", "z")
 
 def schema(version=SUPPORTED_VERSION):
     if version not in _schemas:
-        with open(os.path.join(_SCHEMA_DIR, "canopen-machine.v%d.schema.json" % version), encoding="utf-8") as f:
+        with open(os.path.join(_SCHEMA_DIR, "canworks-machine.v%d.schema.json" % version), encoding="utf-8") as f:
             _schemas[version] = json.load(f)
     return _schemas[version]
 

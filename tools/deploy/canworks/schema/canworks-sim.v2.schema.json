@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tonihoohoo/canworks/schema/canworks-sim.v2.schema.json",
   "title": "canworks simulation file, version 2",
-  "description": "Behaviour of simulated CANopen devices, one section per network of the config (docs/simulator.md). Each section holds what a version 1 file holds, and may name a machine file (schema/canopen-machine.v1.schema.json). Checks the schema cannot express (section names that are networks of the config, objects exist in the EDS, sources on master-written objects, expression syntax and references, node IDs in the network, the machine file and the machine elements steps and conditions name) are run by the plugin, the simulator and the deploy tool's check.",
+  "description": "Behaviour of simulated CANopen devices, one section per network of the config (docs/simulator.md). Each section holds what a version 1 file holds, and may name a machine file (schema/canworks-machine.v1.schema.json). Checks the schema cannot express (section names that are networks of the config, objects exist in the EDS, sources on master-written objects, expression syntax and references, node IDs in the network, the machine file and the machine elements steps and conditions name) are run by the plugin, the simulator and the deploy tool's check.",
   "type": "object",
   "additionalProperties": false,
   "required": [

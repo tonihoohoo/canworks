@@ -28,7 +28,7 @@ The project is in active development and not in real use anywhere (2026-10-09). 
   - the editor hook module is `canworks_hook` and looks for the editor project folder `canworks/` (with `canworks/canworks.json`)
   - `CANOPEN_FORCE_SIMULATE` becomes `CANWORKS_FORCE_SIMULATE`
 - **Unchanged on the PLC**: the diagnostics port 7531 and the diagnostics protocol version.
-- **Schemas**: `schema/canworks.v1.schema.json`, `canworks.v2.schema.json`, `canworks-sim.v1/v2.schema.json`. The `schema_version` values inside configs stay 1 and 2, so the contract does not restart.
+- **Schemas**: `schema/canworks.v1.schema.json`, `canworks.v2.schema.json`, `canworks-sim.v1/v2.schema.json`, `canworks-machine.v1.schema.json`. The `schema_version` values inside configs stay 1 and 2, so the contract does not restart.
 - **Simulator runtime image and container**: image `ghcr.io/tonihoohoo/canworks-sim-runtime`, container `canworks-sim-runtime`.
 - **PLC library**: the SDO function block library file becomes `canworks.stlib`. The block names stay, because they are CANopen blocks.
 - **Install cleanup**: `install-stock.sh` removes a leftover `canopen` plugin line, `/opt/openplc-canopen` and the old runtime-spec entries when it finds them, once, and says so.

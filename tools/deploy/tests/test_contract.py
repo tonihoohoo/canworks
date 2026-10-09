@@ -82,7 +82,7 @@ class Examples(unittest.TestCase):
         for root, _, files in os.walk(os.path.join(REPO, "config")):
             for name in files:
                 # Other JSON files there are not configs: simulation.json follows
-                # canopen-sim.v1 (test_simfile), *_eds.json are slave EDS descriptions.
+                # canworks-sim.v1 (test_simfile), *_eds.json are slave EDS descriptions.
                 if name.endswith(".json") and name != "simulation.json" and not name.endswith("_eds.json"):
                     paths.append(os.path.join(root, name))
         for path in paths:

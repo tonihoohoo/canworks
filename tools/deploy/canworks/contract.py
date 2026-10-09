@@ -43,7 +43,7 @@ def schema(version=1):
     refers to version 1's definitions by file name; here they are copied in
     so the references resolve without loading anything else."""
     if version not in _schemas:
-        with open(os.path.join(_SCHEMA_DIR, "canopen.v%d.schema.json" % version), encoding="utf-8") as f:
+        with open(os.path.join(_SCHEMA_DIR, "canworks.v%d.schema.json" % version), encoding="utf-8") as f:
             doc = json.load(f)
         if version > 1:
             doc = _local_refs(doc)

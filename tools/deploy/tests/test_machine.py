@@ -20,7 +20,7 @@ from .helpers import REPO, editor_bundle, tmpdir, zip_contents
 from .test_deploy import deploy
 
 EXAMPLE = os.path.join(REPO, "examples", "gantry-cell", "canworks")
-SCHEMAS = ("canopen-machine.v1.schema.json", "canworks-sim.v2.schema.json")
+SCHEMAS = ("canworks-machine.v1.schema.json", "canworks-sim.v2.schema.json")
 
 
 def example_machine():
