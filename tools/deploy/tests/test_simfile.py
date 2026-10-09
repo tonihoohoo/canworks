@@ -251,8 +251,9 @@ class Checks(unittest.TestCase):
             "io": {"extra_devices": [{"node": 40, "eds": "a.eds"}]},
             "drives": {"nodes": {"4": {"sources": {"0x6064:0": {"csv": {"file": "d.csv", "column": 1}}}}}}}}
         files = simfile.referenced_files(data, "/p/canworks/simulation.json")
-        self.assertEqual(files["eds"], {"a.eds": "/p/canworks/a.eds"})
-        self.assertEqual(files["csv"], {"d.csv": "/p/canworks/d.csv"})
+        base = os.path.dirname(os.path.abspath("/p/canworks/simulation.json"))  # D:\p\canworks on Windows
+        self.assertEqual(files["eds"], {"a.eds": os.path.join(base, "a.eds")})
+        self.assertEqual(files["csv"], {"d.csv": os.path.join(base, "d.csv")})
         out = simfile.rewrite(data, "/p/canworks/simulation.json", lambda p: "eds/x.eds", lambda p: "csv/y.csv")
         self.assertEqual(out["networks"]["io"]["extra_devices"][0]["eds"], "eds/x.eds")
         self.assertEqual(out["networks"]["drives"]["nodes"]["4"]["sources"]["0x6064:0"]["csv"]["file"], "csv/y.csv")
