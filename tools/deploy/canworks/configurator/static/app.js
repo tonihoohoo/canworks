@@ -1405,8 +1405,8 @@ function slaveObjects(eds) {
     return el("tr", { dataset: { object: `${o.index}:${o.subindex ?? 0}` } },
       el("td", null, `${o.index}:${o.subindex ?? 0}`),
       el("td", null, info ? info.name : el("span", { class: "field-msg" }, "not in the EDS")),
-      el("td", null, info ? info.type || "" : ""),
-      el("td", null, info ? `${info.access}: ` + (dir === "input" ? "master writes, PLC input (%I)" : dir === "output" ? "PLC writes, master reads (%Q)" : "cannot be bound") : ""),
+      el("td", null, info ? info.type || "" : "",
+        info ? hint(`${info.access}: ` + (dir === "input" ? "PLC input (%I)" : dir === "output" ? "PLC output (%Q)" : "cannot be bound")) : null),
       el("td", null, el("span", { class: "row" }, field("", path + ".iec_location", "text",
         { placeholder: dir === "output" ? "%Q…" : "%I…" }).querySelector("input"), suggest),
         el("span", { class: "field-msg", dataset: { for: path + ".iec_location" } }),
@@ -1422,9 +1422,9 @@ function slaveObjects(eds) {
     el("option", { value: k }, `${o.index}:${o.subindex} ${o.name} (${o.type}, ${o.access})`)));
   fs.append(el("p", { class: "muted" }, "Objects the master writes (AccessType rww or rw) are PLC inputs; objects the " +
       "program writes (ro or rwr) are PLC outputs the master reads. The name is optional and names the variable."),
-    el("div", { class: "objects" }, el("table", null,
-      el("thead", null, el("tr", null, thCells(["Object", "EDS name", "Type", "Direction", "PLC location", "Name", ""]))),
-      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 7, class: "muted" }, "No objects bound yet."))))),
+    el("div", { class: "objects" }, el("table", { class: "slave-objects" },
+      el("thead", null, el("tr", null, thCells(["Object", "EDS name", "Type and direction", "PLC location", "Name", ""]))),
+      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 6, class: "muted" }, "No objects bound yet."))))),
     free.length ? el("div", { class: "toolbar" }, pick, el("button", { type: "button", dataset: { bind: "1" },
       onclick: async () => {
         const o = free[Number(pick.value)];
@@ -1485,7 +1485,7 @@ function slaveBuilder() {
       el("label", null, "Revision number", input(d, "revision_number", "Revision number", "num", { placeholder: "from the content" }),
         hint("Empty: derived from the objects, so a changed dictionary gets a new revision.")),
       el("label", null, "Heartbeat (ms)", input(d, "heartbeat_ms", "Heartbeat", "num", { placeholder: "1000" })),
-      el("label", null, "Layout", layoutSel,
+      el("label", { class: "span2" }, "Layout", layoutSel,
         hint(cia401 ? "Device type 401: digital I/O as UNSIGNED8 (0x6000/0x6200), analog as INTEGER16 (0x6401/0x6411)."
           : "From the master in 0x2000 and up, to the master in 0x2100 and up, one ARRAY per type."))),
     el("div", { class: "objects" }, el("table", null,
@@ -1655,9 +1655,10 @@ function gatewayRoutes(g, masters, upperEds) {
   const slaveObjs = upperEds && upperEds.objects ? upperEds.objects.filter((o) => BINDABLE[o.access] && o.type && num(o.index) >= 0x2000) : [];
   const rows = g.routes.map((rt, j) => {
     const path = `gateway.routes[${j}]`;
+    const who = `route ${rt.name || j + 1}`;
     rt.slave = rt.slave || {};
     rt.field = rt.field || {};
-    const objSel = el("select", { dataset: { path: path + ".slave" }, "aria-label": "Slave object" },
+    const objSel = el("select", { dataset: { path: path + ".slave" }, "aria-label": `Slave object of ${who}` },
       el("option", { value: "" }, "(pick)"),
       slaveObjs.map((o, k) => el("option", { value: k }, `${o.index}:${o.subindex} ${o.name} (${o.access})`)));
     const cur = slaveObjs.findIndex((o) => sameObject(o.index, o.subindex, rt.slave.index, rt.slave.subindex));
@@ -1669,13 +1670,13 @@ function gatewayRoutes(g, masters, upperEds) {
       rt.slave = o ? { index: o.index, subindex: o.subindex } : {};
       changed();
     });
-    const netSel = el("select", { dataset: { path: path + ".field.network" }, "aria-label": "Field network" },
+    const netSel = el("select", { dataset: { path: path + ".field.network" }, "aria-label": `Field network of ${who}` },
       el("option", { value: "" }, "(pick)"), masters.map((n) => el("option", { value: netName(n) }, netName(n))));
     netSel.value = rt.field.network || "";
     netSel.addEventListener("change", () => { rt.field = { network: netSel.value }; changed(true); });
     const net = masters.find((n) => netName(n) === rt.field.network);
     const nodes = net ? net.nodes || [] : [];
-    const nodeSel = el("select", { dataset: { path: path + ".field.node" }, "aria-label": "Field node" },
+    const nodeSel = el("select", { dataset: { path: path + ".field.node" }, "aria-label": `Field node of ${who}` },
       el("option", { value: "" }, "(pick)"), nodes.map((n) => el("option", { value: n.node_id }, `${n.node_id} ${n.name || ""}`)));
     nodeSel.value = rt.field.node === undefined ? "" : String(rt.field.node);
     nodeSel.addEventListener("change", () => {
@@ -1684,7 +1685,7 @@ function gatewayRoutes(g, masters, upperEds) {
     });
     const node = nodes.find((n) => num(n.node_id) === num(rt.field.node));
     const entries = node ? fieldEntries(node) : [];
-    const entrySel = el("select", { dataset: { path: path + ".field" }, "aria-label": "Field PDO entry" },
+    const entrySel = el("select", { dataset: { path: path + ".field" }, "aria-label": `Field PDO entry of ${who}` },
       el("option", { value: "" }, "(pick)"), entries.map((e, k) => el("option", { value: k }, e.label)));
     const ce = entries.findIndex((e) => sameObject(e.index, e.subindex, rt.field.index, rt.field.subindex));
     entrySel.value = ce >= 0 ? String(ce) : "";
@@ -1694,11 +1695,14 @@ function gatewayRoutes(g, masters, upperEds) {
       changed(true);
     });
     const e = ce >= 0 ? entries[ce] : null;
+    // The field end in one cell, the PDO entry and its direction under
+    // the network and node, so the table fits next to Problems.
     return el("tr", { dataset: { route: j } },
-      el("td", null, field("", path + ".name", "text", { placeholder: `route${j + 1}` }).querySelector("input")),
-      el("td", null, objSel), el("td", null, netSel), el("td", null, nodeSel), el("td", null, entrySel),
-      el("td", null, e ? (e.dir === "up" ? "up: node to upper master" : "down: upper master to node") : ""),
-      el("td", null, el("button", { type: "button", onclick: () => { g.routes.splice(j, 1); changed(true); } }, "Remove"),
+      el("td", null, field(`Name of route ${j + 1}`, path + ".name", "text", { placeholder: `route${j + 1}` }).querySelector("input")),
+      el("td", null, objSel),
+      el("td", null, el("span", { class: "row" }, netSel, nodeSel), entrySel,
+        e ? hint(e.dir === "up" ? "up: node to upper master" : "down: upper master to node") : null),
+      el("td", null, el("button", { type: "button", "aria-label": `Remove ${who}`, onclick: () => { g.routes.splice(j, 1); changed(true); } }, "Remove"),
         el("span", { class: "field-msg", dataset: { for: path } })));
   });
   return el("fieldset", null, el("legend", null, "Routes"),
@@ -1706,9 +1710,9 @@ function gatewayRoutes(g, masters, upperEds) {
       "or a slave object the upper master writes (rww) down to a field RPDO entry, of the same type. An RPDO entry a route writes " +
       "needs no PLC location: one writer per object."),
     upperEds ? null : el("p", { class: "field-msg" }, "Build or pick the upper network's EDS to pick slave objects."),
-    el("div", { class: "objects" }, el("table", null,
-      el("thead", null, el("tr", null, thCells(["Name", "Slave object", "Network", "Node", "PDO entry", "Direction", ""]))),
-      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 7, class: "muted" }, "No routes yet."))))),
+    el("div", { class: "objects" }, el("table", { class: "routes" },
+      el("thead", null, el("tr", null, thCells(["Name", "Slave object", "Field network, node and PDO entry", ""]))),
+      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 4, class: "muted" }, "No routes yet."))))),
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { addRoute: "1" },
       onclick: () => { g.routes.push({ slave: {}, field: {} }); changed(true); } }, "Add route")));
 }

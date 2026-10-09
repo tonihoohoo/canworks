@@ -146,7 +146,7 @@ details.picker > div { margin-top: 8px; }
 .grid label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); }
 .grid label.check { flex-direction: row; align-items: center; color: var(--text); }
 .grid > p.wide { grid-column: 1 / -1; margin: 0; }
-fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 16px; padding: 10px 14px; background: var(--panel); }
+fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 16px; padding: 10px 14px; background: var(--panel); min-width: 0; }
 legend { font-weight: 600; padding: 0 4px; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -185,12 +185,19 @@ ul.pdo-map li .tag { margin-left: 6px; }
 .sdo-var-fields label.num input { width: 100%; }
 .toolbar { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
 .objects { max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+/* Gateway routes: the selects as wide as their choice, the field end on two lines. */
+table.routes select { field-sizing: content; min-width: 8ch; }
+table.routes td > select { display: block; margin-top: 4px; }
+table.routes td:first-child input { min-width: 12ch; }
+/* The slave's bound objects: the location and the name as wide as their text. */
+table.slave-objects td input[type=text] { field-sizing: content; min-width: 9ch; }
+table.slave-objects td .hint { display: block; }
 textarea.block { width: 100%; min-height: 160px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); max-width: 520px; }
 dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; margin: 12px 0 0; }
 /* Narrow windows: problems as a strip under the header, the side list as a bar. */
 @media (max-width: 1100px) {
-  main#editor { grid-template-columns: minmax(0, 1fr); grid-template-areas: "problems" "side" "view"; }
+  main#editor { grid-template-columns: minmax(0, 1fr); grid-template-areas: "problems" "side" "view"; grid-template-rows: auto auto 1fr; }  /* only the view grows */
   #problems { border: 0; border-bottom: 1px solid var(--line); padding: 4px 16px; }
   #problems-box > summary { cursor: pointer; margin: 4px 0; }
   #problems-box > summary::before { content: "▸"; color: var(--muted); }
@@ -240,7 +247,7 @@ input.index { width: 80px; }
 /* Trace view: the problems pane gives its room to the trace. */
 main#editor.wide-view { grid-template-columns: 220px minmax(0, 1fr); grid-template-areas: "side view"; }
 main#editor.wide-view #problems { display: none; }
-@media (max-width: 1100px) { main#editor.wide-view { grid-template-columns: minmax(0, 1fr); grid-template-areas: "side" "view"; } }
+@media (max-width: 1100px) { main#editor.wide-view { grid-template-columns: minmax(0, 1fr); grid-template-areas: "side" "view"; grid-template-rows: auto 1fr; } }
 .send-fields { border: 0; padding: 0; margin: 8px 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .send-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 4px 20px; }
 .send-lists h4 { margin: 8px 0 4px; }
@@ -583,6 +590,9 @@ tr.group-row th { text-align: left; font-weight: 600; padding-top: 6px; }
 /* J1939 networks (j1939.js): signal tables, the DBC message picker, the claim state online. */
 table.j1939-signals input[type=text] { min-width: 4.5em; }
 table.j1939-signals td .row input[type=text] { min-width: 6em; }
+table.j1939-signals tr[data-path] > td { border-bottom: 0; }
+.j1939-locs { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+.j1939-locs > div { display: flex; flex-direction: column; gap: 3px; }
 dialog:has(.j1939-picker) { max-width: min(960px, 92vw); }
 .j1939-picker { max-height: 60vh; overflow: auto; }
 .j1939-picker td select { min-width: 8em; }
