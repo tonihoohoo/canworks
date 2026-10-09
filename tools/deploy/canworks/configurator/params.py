@@ -15,7 +15,7 @@ import threading
 import time
 
 from .. import commissioning as C
-from .. import contract, dbcexport, diag, pdotest
+from .. import contract, dbcexport, diag, notes as notes_mod, pdotest
 from .. import parameters as P
 
 KEEP = 10  # finished jobs kept
@@ -173,9 +173,12 @@ def context(session, body, node, library=""):
                     eds_paths = session.eds_paths(cfg)
                     config_path = session.config_path
                 try:
-                    return P.node_context(node, config_path, cfg=cfg, eds_paths=eds_paths, network=network)
+                    ctx = P.node_context(node, config_path, cfg=cfg, eds_paths=eds_paths, network=network)
                 except (OSError, P.ParameterError) as e:
                     raise Refused(422, str(e))
+                with session.lock:
+                    ctx.notes_eds_path = session.notes_eds_path(n["eds"])
+                return ctx
     path = body.get("eds_path")
     if isinstance(path, str) and path:
         with session.lock:
@@ -192,6 +195,7 @@ def context(session, body, node, library=""):
         except (OSError, P.ParameterError) as e:
             raise Refused(422, str(e))
         ctx.eds_name = os.path.basename(real)
+        ctx.notes_eds_path = None if real.startswith(os.path.realpath(pending_dir) + os.sep) else real
         return ctx
     raise Refused(422, "node %d has no EDS: add it to the configuration, or open it from the scan with its EDS" % node)
 
@@ -218,6 +222,7 @@ def slave_context(session, cfg, network, node):
         raise Refused(422, str(e))
     ctx.eds_name = eds
     ctx.slave = slave_binds(cfg, net)
+    ctx.notes_eds_path = None  # the configurator builds this EDS: built-in notes only
     return ctx
 
 
@@ -312,7 +317,8 @@ def entries_json(ctx):
                                                                     if ctx.eds.find(0x1010, s) is not None],
             "has_restore": ctx.eds.has(0x1011), "restore_subindices": [s for s in range(1, 128)
                                                                         if ctx.eds.find(0x1011, s) is not None],
-            "entries": out, "note": note}
+            "entries": out, "note": note,
+            "notes": notes_mod.Notes.for_eds(ctx.eds, ctx.eds_name, getattr(ctx, "notes_eds_path", None)).to_json()}
 
 
 def keys_arg(body):

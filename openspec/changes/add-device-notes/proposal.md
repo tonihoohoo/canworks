@@ -25,7 +25,7 @@ XDD/XDC (CiA 311) can carry descriptions, units and value meanings, but classic 
 
 ## Impact
 
-- `tools/deploy/canworks/`: new `notes.py` (load, merge, validate, skeleton), `notes/` with `cia301.json`, `cia401.json`, `cia402.json`, schema `canworks-notes.v1.schema.json` (also under top-level `schema/`); `configurator/server.py` (notes in the EDS summary and the OD entries, save, problems); `configurator/static/app.js` (note display and editor, `OD_BITS`/`OD_MODES` removed); `docexport.py`; `dbcexport.py`.
+- `tools/deploy/canworks/`: new `notes.py` (load, merge, validate, skeleton), `builtin_notes/` with `cia301.json`, `cia401.json`, `cia402.json`, schema `canworks-notes.v1.schema.json` (also under top-level `schema/`); `configurator/server.py` and `configurator/params.py` (notes in the EDS summary and the OD entries, save, problems); `configurator/static/app.js` (note display and editor, `OD_BITS`/`OD_MODES` removed); `docexport.py`; `dbcexport.py`.
 - No plugin, runtime, `canworks.json` schema or deploy bundle change; the deploy tool ignores notes files.
 - Tests: notes module unit tests, configurator API and page tests, docs and DBC export tests. CI runs them in the existing PC tools job; no new job.
 - Docs: `docs/configurator.md` (new "Device notes" section with the file format), `docs/network-docs.md`, README (configurator bullet). Deploy tool minor version bump.
