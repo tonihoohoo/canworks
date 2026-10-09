@@ -4,7 +4,7 @@ Open CAN toolkit: configure, commission, diagnose, trace and simulate CANopen an
 
 > **Experimental.** All code, tests and documentation in this repository were written by Claude (Anthropic's AI model), directed and tested by a person. Treat everything here as experimental: it has run on a test bench, not in production, and comes with no warranty (see [LICENSE](LICENSE)). Do not use it to control machinery where a fault could hurt people or damage equipment.
 
-A CANopen master (and slave) plugin for the [OpenPLC Runtime v4](https://github.com/Autonomy-Logic/openplc-runtime), built on [Lely CANopen](https://gitlab.com/lely_industries/lely-core) over Linux SocketCAN.
+A CANopen master (and slave) and J1939 ECU plugin for the [OpenPLC Runtime v4](https://github.com/Autonomy-Logic/openplc-runtime), built on [Lely CANopen](https://gitlab.com/lely_industries/lely-core) and the Linux kernel's J1939 stack over SocketCAN.
 
 The plugin reads a JSON file that lists the slave nodes, their EDS files and PDO entries, and binds each PDO entry to an explicit PLC address (`%IX`, `%IB`, `%IW`, `%ID`, `%IL` and the `%Q` equivalents). At every PLC start it validates the file against the EDS files, generates the device configuration with Lely's `dcfgen`, boots and configures every slave over SDO, and exchanges PDOs with the PLC image once per scan. A slave that is missing or drops off the bus never stops the PLC; its status bit goes FALSE and the master keeps trying to bring it back.
 
@@ -31,11 +31,12 @@ The plugin's behaviour is set in the config file; [docs/config.md](docs/config.m
 - **Gateway:** a slave network and master networks in one config, with routes that copy values between upper-network objects and field PDO entries in the plugin, without the PLC program, plus field node status, EMCY forwarding, behaviour on loss of the upper master and an SDO bridge ([docs/gateway.md](docs/gateway.md)).
 - **Online diagnostics** (opt-in, encrypted with TLS; the token never crosses the network): a channel for the PC tools below. Nothing a client does touches the PLC scan.
 - **Simulated devices** ([docs/simulator.md](docs/simulator.md)): any node, or the whole network, can be simulated from its EDS, so a project and its PLC program run without the real devices or any CAN hardware. Simulated devices boot, answer SDO, exchange PDOs, send heartbeats and EMCY and store parameters as their EDS describes; their values can follow waveforms, formulas across devices, recorded CSV data, a CiA 401 loopback, a CiA 404 slow movement or a CiA 402 drive model; faults (EMCY, lost heartbeat, power loss, SDO aborts and delays, wrong identity, ...) come on command or from timed scenarios that also test the program's reaction. Two switches in the config pick what is simulated: the network (`adapter.simulate`) and each node (`simulate`), in any mix with real devices.
+- **J1939 ECU** ([docs/j1939.md](docs/j1939.md)): a network with `"protocol": "j1939"` makes the PLC an ECU with its own NAME and address claim (moving within an address range when it loses its address), received PGNs on `%I` locations with not-available and timeout bits, sent PGNs from `%Q` locations periodically or on change, request answers and periodic requests, and messages up to 1785 bytes through the kernel's transport protocol. Signals are raw integers with their scaling in a DBC file the tools use. J1939 and CANopen networks run side by side in one config.
 - **Simulated machine** ([docs/simulator.md](docs/simulator.md#simulated-machine)): a simulated network can carry an XYZ gantry with a gripper, a conveyor with a feeder, sensors and a pallet with slots on top of its simulated drives and I/O. The program's drive moves and outputs move parts, and the machine sets the drives' home and limit switches, their load and the sensor inputs; jams, stuck sensors and feeder faults come on command or from scenarios. The **Machine** tab of the configurator's **Simulation** view shows it in 3D. [`examples/gantry-cell`](examples/gantry-cell/README.md) is a complete project with a pick-and-place program.
 
 ## On the engineering PC
 
-Four commands in one package, for Windows, macOS and Linux. They install with uv without a Python on the PC: [docs/install-pc.md](docs/install-pc.md).
+Five commands in one package, for Windows, macOS and Linux. They install with uv without a Python on the PC: [docs/install-pc.md](docs/install-pc.md).
 
 They reach the bus through the runtime, or straight through a USB CAN adapter on the PC (slcan adapters such as a CANable on Windows, macOS and Linux, gs_usb/candleLight adapters on macOS, SocketCAN on Linux) with no runtime at all: scan, object dictionary, parameters, LSS, trace, writing a node's configuration to a device that keeps its own, a PDO test with SYNC from the PC and bit rate detection of a lone device, for commissioning devices on the bench or as a guest on a bus another master runs, read-only until changes are allowed ([docs/pc-adapter.md](docs/pc-adapter.md#commissioning-one-device)).
 
@@ -44,11 +45,14 @@ They reach the bus through the runtime, or straight through a USB CAN adapter on
 - **`canworks-diag`** ([docs/diagnostics.md](docs/diagnostics.md)): the online functions from a terminal, including `backup`, `compare`, `restore` and `store` of device parameters (a CiA 306 DCF, so a replaced device gets its settings back), `configure` to write a node's configuration to a device with read-back and `--verify-only`, `restore-defaults`, `pdo-test` on a USB adapter, LSS commands, `send` for raw frames and `detect-bitrate` (both guarded, [docs/diagnostics.md](docs/diagnostics.md#raw-frames-and-bit-rate)), `--network` to pick one of several networks, `trace` with export to pcapng, candump, ASC, BLF, TRC or CSV, `sim` to drive simulated devices and run scenarios as tests, and `explain` to explain a frame bit by bit without a runtime; `--adapter` runs the same commands through a USB adapter on the PC, and `adapters` lists the adapters found.
 - **`canworks-sim-runtime`** ([docs/local-runtime.md](docs/local-runtime.md)): try a project without any hardware. It runs the stock OpenPLC Runtime v4 with the CANopen plugin in a container on the PC (Docker Engine, Podman or Colima; no Docker Desktop needed; amd64 and arm64, so M-series Macs too), with every network simulated. The editor uploads to `localhost` and debugs the program there, and the other tools reach it as `--runtime local`. The editor's own OpenPLC Simulator cannot run runtime plugins, so this takes its place for CANopen projects.
 
+- **`canworks-j1939-sim`** ([docs/j1939.md](docs/j1939.md#simulator)): plays one node of a J1939 DBC file on a SocketCAN interface or a USB adapter, with address claim, cycle times, value ramps or a scenario file, request answers and a decoded log of what it receives; `--contend` takes an address from another ECU for claim tests.
+
 The configurator's **Simulated** switches and **Simulation** view set up and drive simulated devices. On the runtime host, `canworks-sim` runs simulated devices on a SocketCAN interface for any CANopen master, with a `test` mode that runs scenarios and writes a JUnit report ([docs/simulator.md](docs/simulator.md#canworks-sim)).
 
 ## Scope
 
 - Master and slave roles, one role per CAN interface; no flying master, MPDO or SRDO, and no program download into OpenPLC as a slave.
+- J1939: one ECU per interface, raw integer signals, no diagnostic messages (DM1 ...) or multiplexed DBC messages yet ([docs/j1939.md](docs/j1939.md#limits)).
 - Linux with SocketCAN (`can0`, `vcan0`, ...; serial `slcan` adapters need Linux 6.0 or later), OpenPLC v4 native installs (`install.sh --native`) and upstream's managed Docker install ([docs/install-stock.md](docs/install-stock.md#docker-installs)).
 - Stock runtime only (unmodified upstream): `scripts/install-stock.sh` installs the plugin and an editor hook next to the runtime. A program then gets its CANopen config either from a `canworks/` folder in the editor project, carried by the editor's own **Build and upload**, or from `canworks-deploy`, which uploads an editor build together with the config. Either way the runtime switches the plugin on. See [docs/install-stock.md](docs/install-stock.md) and [docs/deploy.md](docs/deploy.md).
 
@@ -56,16 +60,20 @@ The configurator's **Simulated** switches and **Simulation** view set up and dri
 
 ```
 CMakeLists.txt     builds libcanworks_plugin.so; the runtime's install.sh builds it from here
-plugin/            native plugin source
-plugin/sim/        the device simulator engine (simulated devices, value sources, expressions,
-                   CiA 402 drive model, faults, scenarios, the machine model), used by the plugin and canworks-sim
+plugin/            native plugin source: src/can/ the shared CAN core (config, adapters, bit rate
+                   detection, trace, raw frames, diagnostics server, entry points), src/canopen/ the
+                   CANopen master, slave and gateway on Lely, src/j1939/ the J1939 ECU (address claim,
+                   kernel sockets, signals), src/canopen/sim/ the device simulator
+                   engine (simulated devices, value sources, expressions, CiA 402 drive model, faults,
+                   scenarios, the machine model), used by the plugin and canworks-sim
 schema/            the config contract (JSON Schema 2020-12): canworks.v1.schema.json (one network),
                    canworks.v2.schema.json (several networks, slave networks, the gateway), and
                    canworks-sim.v1/v2.schema.json for the simulation file (v2: a section per network),
                    canworks-sim-machine.v1.schema.json for the machine file
 examples/          virtual-plant/: the fully virtual example project of docs/tour.md (four simulated
                    networks, a demo program, a simulation file with test scenarios); gantry-cell/: a
-                   simulated XYZ gantry with a pick-and-place program (docs/simulator.md)
+                   simulated XYZ gantry with a pick-and-place program (docs/simulator.md); j1939/: a J1939
+                   ECU config and its DBC file (docs/j1939.md)
 config/            example configurations: config/pingpong/ (the ping-pong slave),
                    config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404), each with
                    an example simulation.json, config/two-networks/ (two ping-pong networks on
@@ -75,13 +83,16 @@ config/            example configurations: config/pingpong/ (the ping-pong slave
                    config/gateway/ (the ping-pong node on a field network, OpenPLC as a gateway above it)
 tools/             canopen_check: validates a config and its EDS files without starting the PLC
 tools/deploy/      the PC tools (Python, one package): canworks-deploy, canworks-config
-                   (the configurator), canworks-diag (online diagnostics, parameters, trace)
+                   (the configurator), canworks-diag (online diagnostics, parameters, trace),
+                   canworks-j1939-sim (the J1939 ECU simulator)
 docker/local-runtime/ the local simulator runtime image (stock runtime + plugin, forced simulation) and
                    the pinned upstream runtime version
 tools/editor-hook/ the runtime-side hook that keeps CANopen on with the editor's Build and upload
 library/           the canworks editor library (SDO function blocks): generate.py writes the
                    block sources, build.sh builds the .stlib the deploy tool carries
 test/unit/         unit tests: config validation, EDS checks, dcfgen, process image
+test/j1939_unit/   J1939 unit tests: NAME, signals, address claim, the engine on a fake socket
+test/j1939/        the plugin's J1939 ECU against canworks-j1939-sim on vcan0, and two simulators
 test/sim/          master against Lely slaves and simulated devices on an in-process virtual CAN bus
 test/slave/        the plugin's master against its own slave and gateway on virtual buses, and
                    run.sh for a master on vcan0 and the slave on vcan1 joined by cangw, and
@@ -110,11 +121,11 @@ test/stock/        install-stock.sh, the editor hook and the upstream runtime's 
 test/docker/       install-stock.sh in Docker mode and the runtime spec edits
 test/local-runtime/ canworks-sim-runtime against the image with a compiled PLC program (run.sh)
 test/virtual-example/ the virtual example on the image: checks, exports, every node up, test scenarios
-test/pc-tools/     the release tag check; test/ci/: the CI change classification
+test/pc-tools/     the release tag check; test/ci/: the CI change classification and areas
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
 docs/              tour.md (the guided tour of the virtual example), config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
-                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, local-runtime.md, network-docs.md, plc-sdo.md, simulator.md, slave.md,
+                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, j1939.md, local-runtime.md, network-docs.md, plc-sdo.md, simulator.md, slave.md,
                    trace.md
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
 ```
@@ -142,7 +153,10 @@ test/trace/run.sh                               # bus trace and its export forma
 test/rawframes/run.sh                           # raw frames sent by hand, bit rate detection refusals
 test/bus/run.sh                                 # bus state byte with vcan0 taken down and up
 test/slcan/run.sh                               # slcan adapter (needs the slcan module and vcan1)
+test/j1939/run.sh                               # the J1939 ECU against the J1939 simulator (needs can-j1939)
 ```
+
+`-DCANWORKS_WITH_CANOPEN=OFF` or `-DCANWORKS_WITH_J1939=OFF` builds one protocol only; a J1939-only build needs no Lely.
 
 The CiA 402 tests use the editor's ST compiler, STruC++ (needs Node 22):
 
@@ -152,11 +166,11 @@ cmake -B build -DOPENPLC_ROOT=../openplc-runtime -DSTRUCPP=$(scripts/fetch-struc
 cmake --build build -j && build/test/sim_tests --exact sim_cia402_demo   # the demo program on the virtual bus
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of these on every pull request and push to `main` that changes code, the deploy tool, page and vcan tests spread over several runners (a new vcan test goes into the vcan group with the least test time, listed above the job; package installs go through `.github/scripts/apt_install.py`, which skips installed packages and retries a stalled mirror); its last job, `ci-ok`, is the one check a branch ruleset needs. A change that touches only documentation or specs runs just the OpenSpec validation; the build and test jobs are skipped.
+CI (`.github/workflows/ci.yml`) runs all of these on every pull request and push to `main` that changes code, the deploy tool, page and vcan tests spread over several runners (a new vcan test goes into the vcan group with the least test time, listed above the job; package installs go through `.github/scripts/apt_install.py`, which skips installed packages and retries a stalled mirror); its last job, `ci-ok`, is the one check a branch ruleset needs. A change that touches only documentation or specs runs just the OpenSpec validation; the build and test jobs are skipped. The vcan steps of one protocol are skipped when a change touches only the other protocol's files (`.github/ci/areas.txt`).
 
 ### Integration tests (by hand, weekly, or locally)
 
-Two end-to-end installs test against things outside this repository and mostly catch upstream drift, so they are not in the pull request run. `.github/workflows/integration.yml` runs them weekly, on "Run workflow", and on pull requests that change the install routes (`install-stock.sh`, `test/stock/`, `test/docker/`, the editor hook). On a Linux machine with the development build above:
+Two end-to-end installs test against things outside this repository and mostly catch upstream drift, so they are not in the pull request run. `.github/workflows/integration.yml` runs them weekly (with the single-protocol builds), on "Run workflow", and on pull requests that change the install routes (`install-stock.sh`, `test/stock/`, `test/docker/`, the editor hook). On a Linux machine with the development build above:
 
 ```sh
 pip install jsonschema python-dotenv
@@ -190,11 +204,11 @@ A `deploy-v<version>` release publishes the tools as a wheel on GitHub and the l
 
 ## Installing it
 
-`scripts/install-stock.sh` builds the plugin against the runtime checkout's headers, installs it to `/opt/canworks/lib/` and registers it in the runtime's `plugins.conf`; uploads then switch it on and off. See [docs/install-stock.md](docs/install-stock.md). Without a config file the plugin logs a warning and stays inactive; a config with errors is logged and also leaves it inactive. The PLC runs normally in both cases. See [docs/config.md](docs/config.md) for the configuration format.
+`scripts/install-stock.sh` builds the plugin against the runtime checkout's headers, installs it to `/opt/canworks/lib/` and registers it in the runtime's `plugins.conf`; uploads then switch it on and off. It builds CANopen and J1939 (and loads the `can-j1939` kernel module); `--without-canopen` or `--without-j1939` leaves one out. See [docs/install-stock.md](docs/install-stock.md). Without a config file the plugin logs a warning and stays inactive; a config with errors is logged and also leaves it inactive. The PLC runs normally in both cases. See [docs/config.md](docs/config.md) for the configuration format.
 
 ## Specs
 
-The behaviour is specified with [OpenSpec](https://github.com/Fission-AI/OpenSpec) in `openspec/specs/`, one folder per capability: master bring-up, node supervision, PDO I/O, SDO variables, bus diagnostics, online diagnostics, device parameters, bus trace, the slcan adapter, the config contract, the stock install, the Docker install, the deploy tool, the editor upload, the editor project, the configurator, DCF export, DBC export, the network documentation, frame explanations, the PC install, the local simulator runtime and CI. New work starts as a change under `openspec/changes/` and is archived into the specs once it is merged.
+The behaviour is specified with [OpenSpec](https://github.com/Fission-AI/OpenSpec) in `openspec/specs/`, one folder per capability: master bring-up, node supervision, PDO I/O, SDO variables, bus diagnostics, online diagnostics, device parameters, bus trace, the slcan adapter, the config contract, the stock install, the Docker install, the deploy tool, the editor upload, the editor project, the configurator, DCF export, DBC export, the network documentation, frame explanations, the PC install, the local simulator runtime, CI, and for J1939 the config, the ECU, the PC tools, the simulator and the trace. New work starts as a change under `openspec/changes/` and is archived into the specs once it is merged.
 
 ## License
 

@@ -38,7 +38,7 @@ extern "C" void* dlsym(void* handle, const char* name) noexcept(true);
 
 namespace co_sdo {
 
-// The plugin's C interface, version 1 (plugin/src/canopen_plc_api.h).
+// The plugin's C interface, version 1 (plugin/src/canopen/canopen_plc_api.h).
 const unsigned api_version = 1;
 const unsigned max_data = 1024;
 struct request {

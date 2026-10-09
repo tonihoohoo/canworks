@@ -175,6 +175,9 @@ out="$("${DIAG[@]}" detect-bitrate --force 2>&1)"
 [ $? -eq 1 ] || fail "detect-bitrate on vcan should exit 1: $out"
 echo "$out" | grep -q "virtual bus" || fail "detect-bitrate does not say why: $out"
 
+# Every request is done: stop the host (a clean exit on SIGTERM) instead of
+# waiting out its 40 s.
+kill -TERM "$HOST_PID" 2>/dev/null
 wait "$HOST_PID"
 grep -q "frame 0x60A \[8\] 40 18 10 01 00 00 00 00 sent by 127.0.0.1 (forced: node 2 (pingpong) is OPERATIONAL)" "$WORK/host.log" \
     || fail "the forced frame is not logged with the client's address"

@@ -2,7 +2,7 @@
 Schema, and the checks the schema cannot express, given the network of the
 simulation file section that names it.
 
-The machine model itself runs in the simulator (plugin/sim/sim_machine.cpp);
+The machine model itself runs in the simulator (plugin/src/canopen/sim/sim_machine.cpp);
 messages here follow its wording, each naming the network and the element.
 """
 

@@ -109,7 +109,7 @@ for _ in $(seq 1 60); do
 done
 in_logs "simulation forced by the runtime environment" && ok "log: simulation forced" || fail "no forced log line"
 in_logs "node 2 (pingpong) is operational" && ok "node 2 operational" ||
-    { logs | grep CANOPEN | tail -20; fail "node 2 not operational"; }
+    { logs | grep CANWORKS | tail -20; fail "node 2 not operational"; }
 export CANWORKS_TOKEN=local-runtime-test
 st=$(canworks-diag --runtime local status 2>&1)
 grep -q "simulation forced by the runtime" <<<"$st" && ok "diagnostics through the published port" ||

@@ -4,6 +4,19 @@ set(PINGPONG_DIR ${PROJECT_SOURCE_DIR}/config/pingpong)
 set(FIXTURES_DIR ${PROJECT_SOURCE_DIR}/test/fixtures)
 set(RTD_DIR ${PROJECT_SOURCE_DIR}/config/rtd-sensor)
 
+# The J1939 engine on a fake socket (no kernel J1939 module needed).
+if(CANWORKS_WITH_J1939)
+  add_executable(j1939_unit_tests j1939_unit/j1939_unit_tests.cpp)
+  target_include_directories(j1939_unit_tests PRIVATE common)
+  target_link_libraries(j1939_unit_tests PRIVATE canopen_core)
+  add_test(NAME j1939_unit_tests COMMAND j1939_unit_tests)
+endif()
+
+# Everything below is CANopen (CANWORKS_WITH_CANOPEN).
+if(NOT CANWORKS_WITH_CANOPEN)
+  return()
+endif()
+
 add_executable(unit_tests unit/unit_tests.cpp)
 target_include_directories(unit_tests PRIVATE common)
 target_compile_definitions(unit_tests PRIVATE PINGPONG_DIR="${PINGPONG_DIR}" FIXTURES_DIR="${FIXTURES_DIR}"
@@ -186,6 +199,7 @@ target_compile_definitions(sim_unit_tests PRIVATE FIXTURES_DIR="${FIXTURES_DIR}"
 target_link_libraries(sim_unit_tests PRIVATE canopen_core)
 add_test(NAME sim_unit_tests COMMAND sim_unit_tests)
 set_tests_properties(sim_unit_tests PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
+
 
 # The SDO blocks find the loaded plugin by its SONAME (test/plc_sdo).
 add_library(sdo_program SHARED plc_sdo/program.cpp ${SDO_BLOCKS_DIR}/c_blocks_code.cpp)

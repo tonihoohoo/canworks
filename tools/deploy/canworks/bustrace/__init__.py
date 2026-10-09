@@ -5,6 +5,8 @@ and the recorder the configurator and canworks-diag share.
     model    Frame, Trace (packed 24-byte records, markers, gaps)
     formats  pcapng (native), candump log, ASC, BLF, TRC 2.1, CSV
     decode   CANopen decoding from a config and its EDS files
+    j1939    J1939 decoding of a J1939 network (identifier split, DBC names,
+             claims, requests, acknowledgements, transport sessions)
     stats    frame rate, bus load, per-identifier cycle times
     triggers trigger conditions and their evaluation
     recorder the recording loop over a diagnostics connection

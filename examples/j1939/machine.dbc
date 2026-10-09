@@ -1,0 +1,46 @@
+VERSION ""
+
+
+NS_ :
+
+BS_:
+
+BU_: PLC Engine
+
+BO_ 2566848512 Pressures: 8 Engine
+ SG_ Pressure : 0|16@1+ (0.1,0) [0|6425.5] "bar" PLC
+ SG_ Temp : 16|8@1- (1,0) [-125|125] "degC" PLC
+ SG_ Level : 24|8@1+ (0.4,0) [0|100] "%" PLC
+ SG_ PumpOn : 32|2@1+ (1,0) [0|1] "" PLC
+
+BO_ 2566848896 Setpoints: 8 PLC
+ SG_ Setpoint : 0|16@1+ (1,0) [0|64255] "rpm" Engine
+ SG_ Run : 16|2@1+ (1,0) [0|1] "" Engine
+
+BO_ 2566849024 ComponentInfo: 40 Engine
+ SG_ Hours : 0|32@1+ (0.05,0) [0|210554060.75] "h" PLC
+ SG_ Starts : 32|16@1+ (1,0) [0|64255] "" PLC
+ SG_ Serial : 240|32@1+ (1,0) [0|4294967295] "" PLC
+
+BO_ 2565800064 Command: 8 PLC
+ SG_ Mode : 0|8@1+ (1,0) [0|250] "" Engine
+
+CM_ "Example J1939 machine for canworks (docs/j1939.md): proprietary PGNs only (0xEF00, 0xFF00..0xFF02).";
+CM_ BO_ 2566848512 "Pressures, temperature and level from the engine ECU (address 0).";
+CM_ BO_ 2566848896 "Speed setpoint and run command from the PLC (address 128).";
+CM_ BO_ 2566849024 "Component data, 40 bytes (transport protocol), sent on request.";
+CM_ BO_ 2565800064 "Operating mode command to the engine ECU (PDU1, destination 0).";
+BA_DEF_ "ProtocolType" STRING ;
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ BO_ "VFrameFormat" ENUM "StandardCAN","ExtendedCAN","reserved","J1939PG";
+BA_DEF_DEF_ "ProtocolType" "";
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_DEF_DEF_ "VFrameFormat" "J1939PG";
+BA_ "ProtocolType" "J1939";
+BA_ "GenMsgCycleTime" BO_ 2566848512 100;
+BA_ "GenMsgCycleTime" BO_ 2566848896 100;
+BA_ "GenMsgCycleTime" BO_ 2565800064 0;
+BA_ "VFrameFormat" BO_ 2566848512 3;
+BA_ "VFrameFormat" BO_ 2566848896 3;
+BA_ "VFrameFormat" BO_ 2566849024 3;
+BA_ "VFrameFormat" BO_ 2565800064 3;

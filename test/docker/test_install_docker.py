@@ -146,6 +146,14 @@ class Installer(unittest.TestCase):
         self.log = os.path.join(self.dir, "docker.log")
         self.bind = "%s:/opt/canworks" % self.prefix
         self.env_entry = "PYTHONPATH=/opt/canworks/lib/sitecustomize"
+        # The host's can-j1939 module: a modprobe stub and a modules-load.d here.
+        self.modules = os.path.join(self.dir, "modules-load.d")
+        self.modprobe_log = os.path.join(self.dir, "modprobe.log")
+        modprobe = os.path.join(self.bin, "modprobe-stub")
+        with open(modprobe, "w") as f:
+            f.write('#!/bin/sh\necho "$*" >> "%s"\n' % self.modprobe_log)
+        os.chmod(modprobe, 0o755)
+        self.modprobe = modprobe
 
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
@@ -154,7 +162,8 @@ class Installer(unittest.TestCase):
         e = dict(os.environ, PATH=self.bin + os.pathsep + os.environ["PATH"], DOCKER_LOG=self.log,
                  STUB_PREFIX=self.prefix, STUB_CONTAINERS="",
                  OPENPLC_BOOTLOADER_SPEC=self.spec if spec else os.path.join(self.dir, "none.json"),
-                 OPENPLC_SERVICE_FILE=os.path.join(self.dir, "no.service"))
+                 OPENPLC_SERVICE_FILE=os.path.join(self.dir, "no.service"),
+                 CANWORKS_MODULES_LOAD_DIR=self.modules, CANWORKS_MODPROBE=self.modprobe)
         e.update(env)
         return subprocess.run(["bash", SCRIPT, "--prefix", self.prefix] + list(args), env=e,
                               capture_output=True, text=True)
@@ -191,6 +200,12 @@ class Installer(unittest.TestCase):
         self.assertEqual(calls[-2:], ["rm -f openplc-runtime", "restart openplc-bootloader"])
         # Slave networks' saved parameters live on the bind-mounted prefix.
         self.assertTrue(os.path.isdir(os.path.join(self.prefix, "state")))
+        # J1939 needs can-j1939 on the host, now and at every boot.
+        conf = os.path.join(self.modules, "canworks-j1939.conf")
+        with open(conf) as f:
+            self.assertEqual(f.read(), "can-j1939\n")
+        with open(self.modprobe_log) as f:
+            self.assertEqual(f.read(), "can-j1939\n")
 
         p = self.run_script()
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -202,6 +217,7 @@ class Installer(unittest.TestCase):
         self.assertEqual(self.read_spec(), UPSTREAM_SPEC)
         self.assertFalse(os.path.exists(os.path.join(self.prefix, "lib")))
         self.assertTrue(os.path.isdir(os.path.join(self.prefix, "state")))  # kept without --purge
+        self.assertFalse(os.path.exists(conf))
         self.assertEqual(self.calls()[-2:], ["rm -f openplc-runtime", "restart openplc-bootloader"])
 
     def test_install_from_before_the_rename_removed(self):
@@ -217,6 +233,30 @@ class Installer(unittest.TestCase):
         spec = json.loads(self.read_spec())
         self.assertEqual((spec["extraBinds"], spec["extraEnv"]), (["/data:/data", self.bind], [self.env_entry]))
         self.assertFalse(os.path.exists(old))
+
+    def test_single_protocol_builds(self):
+        self.write_spec()
+        p = self.run_script("--without-j1939")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        run = [c for c in self.calls() if c.startswith("run ")]
+        self.assertIn("--in-image --lely-ref", run[-1])
+        self.assertTrue(run[-1].endswith("--without-j1939"), run[-1])
+        self.assertIn("canworks (CANopen) is installed", p.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.modules, "canworks-j1939.conf")))
+        p = self.run_script("--without-canopen")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertTrue([c for c in self.calls() if c.startswith("run ")][-1].endswith("--without-canopen"))
+        self.assertIn("canworks (J1939) is installed", p.stdout)
+        self.assertTrue(os.path.exists(os.path.join(self.modules, "canworks-j1939.conf")))
+        p = self.run_script("--without-canopen", "--without-j1939")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("leave no protocol to build", p.stderr)
+
+    def test_missing_module_warns(self):
+        self.write_spec()
+        p = self.run_script(CANWORKS_MODPROBE="false")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("the kernel module can-j1939 could not be loaded", p.stderr)
 
     def test_failed_build_changes_nothing(self):
         self.write_spec()

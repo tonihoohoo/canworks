@@ -4,7 +4,7 @@ it belongs to and the EDS files of its devices.
 
 The expression language of value sources and conditions is parsed here with
 the grammar of docs/simulator.md ("Expressions"), the same as the simulator's
-own parser (plugin/sim); test/fixtures/sim/expressions.json holds both to it.
+own parser (plugin/src/canopen/sim); test/fixtures/sim/expressions.json holds both to it.
 """
 
 import json

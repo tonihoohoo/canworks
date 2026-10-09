@@ -6,7 +6,7 @@ Lets one PLC run several CANopen networks, one master per CAN interface, from on
 ## Requirements
 
 ### Requirement: Network list
-A version 2 config SHALL hold a `networks` list of 1 to 8 entries. Each entry SHALL have an `adapter`, a `master` and a `nodes` list with the same fields and meaning as the version 1 top level, and MAY have a `name`. A version 1 config SHALL be read as one network with no name.
+A version 2 config SHALL hold a `networks` list of 1 to 8 entries. Each CANopen entry SHALL have an `adapter`, a `master` and a `nodes` list with the same fields and meaning as the version 1 top level, and MAY have a `name`. A J1939 entry (`"protocol": "j1939"`) SHALL have an `adapter` and a `j1939` object as `j1939-config` defines. A version 1 config SHALL be read as one CANopen network with no name.
 
 #### Scenario: Two networks
 - **WHEN** a version 2 config has networks on `can0` (nodes 2 and 3) and `can1` (nodes 2 and 10)
@@ -19,6 +19,10 @@ A version 2 config SHALL hold a `networks` list of 1 to 8 entries. Each entry SH
 #### Scenario: Too many networks
 - **WHEN** a version 2 config has 9 networks
 - **THEN** the configuration is rejected, saying at most 8 networks are supported
+
+#### Scenario: CANopen and J1939 networks
+- **WHEN** a version 2 config has a CANopen network on `can0` and a J1939 network on `can1`
+- **THEN** the plugin loads it and logs one line for the CANopen network as above and one for the J1939 network naming its interface, bit rate, address and numbers of received and sent PGNs
 
 ### Requirement: Network names
 A network's `name` SHALL match `[A-Za-z][A-Za-z0-9_]*` and be at most 16 characters; without `name`, the network SHALL be named after its adapter's `interface` when the interface name matches that pattern, and the config SHALL be rejected otherwise. Names SHALL be unique in the file, compared without case.
@@ -98,3 +102,18 @@ With a version 2 config, each network's dcfgen output and prepared EDS copies SH
 #### Scenario: Change one network only
 - **WHEN** only a PDO on network `io` changes between two PLC starts
 - **THEN** the log says the device configuration was generated for `io` and reused for `drives`
+
+### Requirement: Protocols built into the plugin
+The plugin SHALL be one library that runs every supported protocol, each protocol selectable at build time and on by default. Its log at load and its diagnostics status SHALL name the protocols it was built with. A config with a network whose protocol is not built in SHALL be rejected as a configuration error naming the network and the protocol.
+
+#### Scenario: Default build
+- **WHEN** the plugin is built with default options and loads a config with a CANopen and a J1939 network
+- **THEN** it logs that it supports canopen and j1939 and runs both networks
+
+#### Scenario: J1939-only build
+- **WHEN** the plugin is built without CANopen and loads a config with a CANopen network
+- **THEN** the configuration is rejected with an error naming the network and saying CANopen is not built into this plugin, and no interface is opened
+
+#### Scenario: Build without Lely
+- **WHEN** the plugin is built without CANopen on a system without Lely or dcfgen installed
+- **THEN** the build succeeds

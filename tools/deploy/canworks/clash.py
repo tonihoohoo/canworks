@@ -2,7 +2,8 @@
 
 Every string under a key in LOCATION_KEYS (`iec_location`, the node status,
 state, EMCY and NMT command keys, the SDO variable keys, the master's bus
-diagnostic keys, a slave network's status keys) is a location, wherever it
+diagnostic keys, a slave network's status keys, a J1939 network's ECU state
+and address, rx status and signal valid keys) is a location, wherever it
 sits in the file; a sibling integer `len` (the Modbus master's format) makes it
 a run of that many consecutive elements. This works
 for the EtherCAT and Modbus master configs without knowing their schemas.
@@ -25,7 +26,8 @@ from .iec import parse_location, element_str
 LOCATION_KEYS = ("iec_location", "status_location", "state_location", "boot_error_location", "bus_state_location",
                  "tx_error_count_location", "rx_error_count_location", "bus_off_count_location",
                  "emcy_code_location", "error_register_location", "nmt_command_location", "trigger_location",
-                 "abort_code_location", "comm_ok_location", "sync_count_location", "timeout_location")
+                 "abort_code_location", "comm_ok_location", "sync_count_location", "timeout_location",
+                 "address_location", "valid_location")
 
 
 class Use:

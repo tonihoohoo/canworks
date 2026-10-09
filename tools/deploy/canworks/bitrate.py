@@ -2,7 +2,7 @@
 detection"), for the sweeps the PC tools run themselves on a local adapter.
 
 The plugin has the same rules in C++ (decide_sweep in
-plugin/src/bitrate_sweep.cpp); test/fixtures/sweep_verdicts.json holds the
+plugin/src/can/bitrate_sweep.cpp); test/fixtures/sweep_verdicts.json holds the
 cases both are tested against.
 """
 

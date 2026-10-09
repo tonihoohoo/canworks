@@ -102,6 +102,7 @@ class SlavePage(unittest.TestCase):
         self.write(load(os.path.join(PINGPONG, "canopen_config.json")))
         self.open()
         pg.click('#net-bar button[data-net-action="add"]')
+        pg.click('#modal button[data-value="canopen"]')
         pg.fill('#view input[data-path="adapter.interface"]', "vcan1")
         pg.select_option('#view select[data-path="role"]', "slave")
         pg.wait_for_selector("#view h2:has-text('Bus and slave device')")

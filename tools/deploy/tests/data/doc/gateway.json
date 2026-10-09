@@ -1416,7 +1416,7 @@
  "title": "CANopen network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.43.1"
+  "version": "0.44.0"
  },
  "warnings": []
 }

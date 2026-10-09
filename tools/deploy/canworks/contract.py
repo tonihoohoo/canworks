@@ -1,8 +1,8 @@
-"""The CANopen config contract: schema_version, the published JSON Schema, and
+"""The config contract (CANopen and J1939 networks): schema_version, the published JSON Schema, and
 the checks the plugin runs that the schema cannot express.
 
 Messages that the plugin also produces use the plugin's wording (see
-plugin/src/config.cpp); the shared fixtures in test/fixtures/config/ hold both
+plugin/src/can/config.cpp); the shared fixtures in test/fixtures/config/ hold both
 to it.
 """
 
@@ -66,16 +66,19 @@ def version_of(cfg):
 def networks(cfg):
     """The config's networks, for both versions: a list of dicts with `name`
     ("" for a version 1 file), `index`, `path` (the JSON path prefix of the
-    network's fields, "" for version 1), `role` ("master" or "slave"),
-    `adapter`, `master` and `nodes` (empty for a slave network) and `slave`
-    (the slave object, empty for a master network). A version 2 network
-    without a name is named after its interface."""
+    network's fields, "" for version 1), `role` ("master", "slave" or, for a
+    J1939 network, "j1939"), `protocol` ("canopen" or "j1939"), `adapter`,
+    `master` and `nodes` (empty for a slave or J1939 network), `slave` (the
+    slave object, empty for the others) and `j1939` (the j1939 object of a
+    J1939 network, else empty). A version 2 network without a name is named
+    after its interface."""
     if version_of(cfg) == 1 or not isinstance(cfg.get("networks"), list):
         adapter = cfg.get("adapter")
         if adapter is None and "interface" in cfg:
             adapter = {"type": "socketcan", "interface": cfg.get("interface"), "bitrate": cfg.get("bitrate")}
-        return [{"name": "", "index": 0, "path": "", "role": "master", "adapter": adapter or {},
-                 "master": cfg.get("master") or {}, "nodes": cfg.get("nodes") or [], "slave": {}, "json": cfg}]
+        return [{"name": "", "index": 0, "path": "", "role": "master", "protocol": "canopen", "adapter": adapter or {},
+                 "master": cfg.get("master") or {}, "nodes": cfg.get("nodes") or [], "slave": {}, "j1939": {},
+                 "json": cfg}]
     out = []
     for i, net in enumerate(cfg["networks"]):
         if not isinstance(net, dict):
@@ -85,12 +88,19 @@ def networks(cfg):
         if not isinstance(name, str) or not name:
             iface = adapter.get("interface")
             name = iface if isinstance(iface, str) and NETWORK_NAME.match(iface) else ""
+        if is_j1939(net):
+            # Never a CANopen network: no master, nodes or slave, whatever the
+            # entry holds (the checks report those keys).
+            out.append({"name": name, "index": i, "path": "networks[%d]" % i, "role": "j1939", "protocol": "j1939",
+                        "adapter": adapter, "master": {}, "nodes": [], "slave": {},
+                        "j1939": net.get("j1939") if isinstance(net.get("j1939"), dict) else {}, "json": net})
+            continue
         slave = net.get("role") == "slave"
         out.append({"name": name, "index": i, "path": "networks[%d]" % i, "role": "slave" if slave else "master",
-                    "adapter": adapter, "master": {} if slave else net.get("master") or {},
+                    "protocol": "canopen", "adapter": adapter, "master": {} if slave else net.get("master") or {},
                     "nodes": [] if slave else net.get("nodes") or [],
                     "slave": (net.get("slave") if isinstance(net.get("slave"), dict) else {}) if slave else {},
-                    "json": net})
+                    "j1939": {}, "json": net})
     return out
 
 
@@ -212,7 +222,10 @@ def _properties(node, root):
     props = dict(node.get("properties", {}))
     for key in ("allOf", "anyOf", "oneOf"):
         for sub in node.get(key, []):
-            props.update(_properties(sub, root))
+            for name, child in _properties(sub, root).items():
+                # A field described twice (a J1939 network's adapter rule)
+                # has the fields of both descriptions.
+                props[name] = {"allOf": [props[name], child]} if name in props else child
     if "then" in node:
         # A conditional only adds fields; it does not replace the schema of a
         # field already described (the empty-node-list rule names master).
@@ -526,7 +539,10 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
             if key in cfg:
                 err("", "field '%s' needs schema_version 2: slave networks are entries of 'networks' with "
                         "\"role\": \"slave\"" % key, [key])
-        found = [(where, key) for where, key in found if where not in V2_ONLY_KEYS]
+        for key in J1939_V2_KEYS:
+            if key in cfg:
+                err("", "field '%s' needs schema_version 2" % key, [key])
+        found = [(where, key) for where, key in found if where not in V2_ONLY_KEYS + J1939_V2_KEYS]
         _check_network(r, cfg, "", 1, [(list(e.absolute_path), e) for e in schema_errors], **args)
     else:
         _check_v2(r, cfg, schema_errors, err, warn, args)
@@ -538,6 +554,7 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
 
 # Top-level keys a version 1 file may not have.
 V2_ONLY_KEYS = ("role", "slave", "gateway")
+J1939_V2_KEYS = ("protocol", "j1939")
 
 MOVED_V1_KEYS = (("adapter", "networks[].adapter"), ("master", "networks[].master"), ("nodes", "networks[].nodes"),
                  ("interface", "networks[].adapter.interface"), ("bitrate", "networks[].adapter.bitrate"))
@@ -583,8 +600,20 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             err(prefix, "must be an object", [prefix])
             continue
         before = len(r.errors)
-        role = "slave" if net.get("role") == "slave" else "master"
-        if role == "slave":
+        j1939 = is_j1939(net)
+        if "protocol" in net and net["protocol"] not in ("canopen", "j1939"):
+            err(prefix, 'field \'protocol\' must be "canopen" or "j1939"', [prefix + ".protocol"])
+        role = "j1939" if j1939 else "slave" if net.get("role") == "slave" else "master"
+        if j1939:
+            for key in CANOPEN_KEYS:
+                if key in net:
+                    err(prefix, "field '%s' belongs to a CANopen network; a J1939 network has 'j1939'" % key,
+                        [prefix + "." + key])
+        elif "j1939" in net:
+            err(prefix, 'field \'j1939\' belongs to a J1939 network ("protocol": "j1939")', [prefix + ".j1939"])
+        if j1939:
+            pass
+        elif role == "slave":
             for key in ("master", "nodes"):
                 if key in net:
                     err(prefix, "field '%s' belongs to a master network; a slave network (\"role\": \"slave\") has "
@@ -606,7 +635,13 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
         errors = [(p, e) for p, e in by_net.get(i, []) if not (
             (p == ["name"] and e.validator == "pattern") or
             (p == [] and e.validator == "not") or
-            (p == ["master"] and e.validator == "not"))]
+            (p == ["master"] and e.validator == "not") or
+            p[:1] == ["protocol"] or
+            # A J1939 network's own checks below give the plugin's words for
+            # everything but its adapter; a CANopen network's j1939 object is
+            # reported above.
+            (j1939 and (not p or p[0] in ("j1939",) + CANOPEN_KEYS)) or
+            (not j1939 and p[:1] == ["j1939"]))]
         adapter = net.get("adapter") if isinstance(net.get("adapter"), dict) else {}
         name = net.get("name") if isinstance(net.get("name"), str) and net.get("name") else adapter.get("interface")
         _check_network(r, net, prefix, 2, errors, diag=diag, before=before, role=role, routed=routed,
@@ -715,6 +750,9 @@ def location_uses(net, prefix=""):
         if loc is not None:
             out.append(((loc.area, loc.size, loc.element), prefix + who, base + at, str(loc)))
 
+    if net.get("role") == "j1939":
+        _j1939_location_uses(net.get("j1939") or {}, add)
+        return out
     s = net.get("slave") or {}
     for key in SLAVE_LOCATION_KEYS:
         if key in s:
@@ -759,6 +797,29 @@ def location_uses(net, prefix=""):
                         label, kind, number, _uint(e.get("index")) or 0, _uint(e.get("subindex", 0)) or 0),
                         "%s.%s[%d].entries[%d].iec_location" % (w, key, j, k))
     return out
+
+
+def _j1939_location_uses(j, add):
+    """location_uses() of a J1939 network, in the plugin's order and words."""
+    ecu = j.get("ecu") if isinstance(j.get("ecu"), dict) else {}
+    for key, who in (("state_location", "ECU state"), ("address_location", "ECU address")):
+        if key in ecu:
+            add(ecu[key], who, "j1939.ecu." + key)
+    for key in ("rx", "tx"):
+        for i, m in enumerate(j.get(key) if isinstance(j.get(key), list) else []):
+            if not isinstance(m, dict):
+                continue
+            pgn = _uint(m.get("pgn"))
+            who, at = "PGN %s" % pgn, "j1939.%s[%d]" % (key, i)
+            if key == "rx" and "status_location" in m:
+                add(m["status_location"], who + " status_location", at + ".status_location")
+            for k, s in enumerate(m.get("signals") if isinstance(m.get("signals"), list) else []):
+                if not isinstance(s, dict):
+                    continue
+                sig = "%s signal %s" % (who, s.get("name"))
+                add(s.get("iec_location"), sig, "%s.signals[%d].iec_location" % (at, k))
+                if key == "rx" and "valid_location" in s:
+                    add(s["valid_location"], sig + " valid_location", "%s.signals[%d].valid_location" % (at, k))
 
 
 def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths, sw_paths, diag=False, before=None,
@@ -874,6 +935,13 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             err(pdo_msg[0], pdo_msg[1], [where])
             continue
         err(where, e.message)
+
+    if role == "j1939":
+        a = cfg.get("adapter")
+        if isinstance(a, dict) and a.get("simulate") is True:
+            err("", J1939_SIMULATE, ["adapter.simulate"])
+        check_j1939(cfg, err)
+        return
 
     # The verifier's numbers, which the schema's pattern does not check.
     d = cfg.get("diagnostics") if version > 1 else (cfg.get("master") or {}).get("diagnostics")
@@ -1270,6 +1338,10 @@ def _check_gateway(cfg, err, warn, slaves):
     if upper is None:
         err("gateway", "upper network '%s' is not in the config (networks: %s)"
             % (upper_name, ", ".join(n["name"] or "unnamed" for n in nets)), ["gateway.upper"])
+    elif upper["role"] == "j1939":
+        # The plugin's words (parse_gateway).
+        err("gateway", 'upper network "%s" must be a slave network ("role": "slave"); it is a J1939 network'
+            % upper_name, ["gateway.upper"])
     elif upper["role"] != "slave":
         err("gateway", "the upper network '%s' must be a slave network (\"role\": \"slave\"), not a master network"
             % upper_name, ["gateway.upper"])
@@ -1320,6 +1392,10 @@ def _check_gateway(cfg, err, warn, slaves):
         s_index, s_sub = _uint(rt["slave"]["index"]), _uint(rt["slave"].get("subindex", 0))
         if fnet is None:
             err(at, "field network '%s' is not in the config" % f["network"], [pj + ".field.network"])
+            continue
+        if fnet["role"] == "j1939":
+            err(at + ": field", 'network "%s" is a J1939 network; a route\'s field end is on a CANopen master network'
+                % f["network"], [pj + ".field.network"])
             continue
         if fnet["role"] != "master":
             err(at, "field network '%s' is a slave network; a route's field end is a PDO entry of a node on a master "
@@ -1392,3 +1468,474 @@ def _check_gateway(cfg, err, warn, slaves):
                 % (target_text, writers[target], j), ["gateway.routes[%d]" % writers[target], pj])
         else:
             writers[target] = j
+
+
+# ---------------------------------------------------------------------------
+# J1939 networks (j1939-config spec; plugin: parse_j1939_network in
+# plugin/src/can/config.cpp and check_j1939 in plugin/src/j1939/j1939_config.cpp)
+
+J1939_MAX_PGN = 0x3FFFF
+J1939_MAX_ADDRESS = 253  # 254 is the null address, 255 global
+J1939_NULL_ADDRESS = 254
+J1939_GLOBAL = 255
+J1939_MAX_LENGTH = 1785  # bytes, the transport protocol's limit
+J1939_MAX_PERIOD_MS = 600000
+J1939_MIN_REQUEST_PERIOD_MS = 100
+J1939_DEFAULT_PRIORITY = 6
+# The NAME fields and their highest values, in the order of the NAME's bits.
+J1939_NAME_FIELDS = (("identity_number", 0x1FFFFF), ("manufacturer_code", 2047), ("ecu_instance", 7),
+                     ("function_instance", 31), ("function", 255), ("vehicle_system", 127),
+                     ("vehicle_system_instance", 15), ("industry_group", 7))
+# Keys of a CANopen network that a J1939 network may not have.
+CANOPEN_KEYS = ("role", "master", "nodes", "slave")
+J1939_SIMULATE = ("J1939 networks run on SocketCAN or slcan interfaces; use a vcan interface for simulation, not "
+                  "adapter.simulate")
+
+
+def is_j1939(net):
+    """Whether a networks[] entry is a J1939 network."""
+    return isinstance(net, dict) and net.get("protocol") == "j1939"
+
+
+def has_j1939(cfg):
+    """Whether any network of the config is a J1939 network (writers then
+    write schema_version 2)."""
+    return isinstance(cfg, dict) and isinstance(cfg.get("networks"), list) and any(
+        is_j1939(n) for n in cfg["networks"])
+
+
+def j1939_pdu1(pgn):
+    """PDU1 (PF below 240): the PGN's low byte is the destination."""
+    return ((pgn >> 8) & 0xFF) < 240
+
+
+def j1939_pgn_text(pgn):
+    return "%d (0x%X)" % (pgn, pgn)
+
+
+def j1939_name_value(name):
+    """The 64-bit NAME of a j1939.ecu.name object (missing fields 0)."""
+    name = name if isinstance(name, dict) else {}
+    shifts = (0, 21, 32, 35, 40, 49, 56, 60)
+    value = 0
+    for (key, top), shift in zip(J1939_NAME_FIELDS, shifts):
+        v = name.get(key, 0)
+        value |= (v & top if isinstance(v, int) and not isinstance(v, bool) else 0) << shift
+    return value | (1 << 63 if name.get("arbitrary_address_capable") is True else 0)
+
+
+def j1939_signal_bits(start_bit, length, big_endian=False):
+    """The message bits a signal covers, least significant first (plugin:
+    j1939_signal_bits). DBC big byte order: the start bit is the most
+    significant bit; the next lower bit is the next lower bit of the same
+    byte, or bit 7 of the next byte."""
+    if not big_endian:
+        return list(range(start_bit, start_bit + length))
+    bits, pos = [], start_bit
+    for _ in range(length):
+        bits.append(pos)
+        pos = pos + 15 if pos % 8 == 0 else pos - 1
+    return bits[::-1]
+
+
+def j1939_bytes_needed(signals):
+    """The bytes a message needs to hold `signals` (parse_j1939() signals)."""
+    top = 0
+    for s in signals:
+        for b in j1939_signal_bits(s["start_bit"], s["length"], s["big_endian"]):
+            top = max(top, b // 8 + 1)
+    return top
+
+
+class _J1939Parser:
+    """Reads one networks[] entry's j1939 object the way the plugin does,
+    reporting through err(where, message, paths) with the plugin's places
+    and words. The result (parse()) is the object with defaults filled in
+    and locations parsed; entries and signals the plugin would drop are left
+    out."""
+
+    def __init__(self, err):
+        self.err = err
+
+    # The plugin's field readers (j_uint, j_range, j_uint64, get_string, ...).
+    def uint(self, obj, key, where, path):
+        if key not in obj:
+            return None
+        v = obj[key]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or (isinstance(v, float) and (
+                not math.isfinite(v) or v != math.floor(v))) or v < 0:
+            self.err(where, "field '%s' must be a non-negative integer" % key, [path + "." + key])
+            return None
+        return int(v)
+
+    def range(self, obj, key, where, path, lo, hi, extra=""):
+        v = self.uint(obj, key, where, path)
+        if v is None:
+            return None
+        if not lo <= v <= hi:
+            self.err(where, "%s %d is out of range %d..%d%s" % (key, v, lo, hi, extra), [path + "." + key])
+            return None
+        return v
+
+    def uint64(self, obj, key, where, path):
+        if key not in obj:
+            return None
+        v = obj[key]
+        if isinstance(v, str) and v and not v.startswith("-"):
+            text = v.strip()
+            try:
+                if re.match(r"^0[xX][0-9a-fA-F]+$", text):
+                    n = int(text, 16)
+                elif re.match(r"^0[0-7]*$", text):
+                    n = int(text, 8)
+                elif re.match(r"^[1-9][0-9]*$", text):
+                    n = int(text)
+                else:
+                    n = None
+            except ValueError:
+                n = None
+            if n is not None and n < 1 << 64:
+                return n
+        elif isinstance(v, (int, float)) and not isinstance(v, bool):
+            return self.uint(obj, key, where, path)
+        self.err(where, "field '%s' must be a 64-bit unsigned integer, decimal or 0x hex" % key, [path + "." + key])
+        return None
+
+    def string(self, obj, key, where, path, required=False):
+        if key not in obj:
+            if required:
+                self.err(where, "missing required field '%s'" % key, [path + "." + key])
+            return None
+        v = obj[key]
+        if not isinstance(v, str) or not v:
+            self.err(where, "field '%s' must be a non-empty string" % key, [path + "." + key])
+            return None
+        return v
+
+    def boolean(self, obj, key, where, path):
+        if key not in obj:
+            return None
+        if not isinstance(obj[key], bool):
+            self.err(where, "field '%s' must be true or false" % key, [path + "." + key])
+            return None
+        return obj[key]
+
+    def number(self, obj, key, where, path):
+        if key not in obj:
+            return None
+        v = obj[key]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+            self.err(where, "field '%s' must be a number" % key, [path + "." + key])
+            return None
+        return v
+
+    def location(self, obj, key, where, path):
+        text = self.string(obj, key, where, path)
+        if text is None:
+            return None
+        loc = parse_location(text)
+        if loc is None or loc.area == "M":
+            self.err(where, 'invalid %s "%s": %s' % (
+                key, text, "only input (%I) and output (%Q) locations are supported" if loc is not None
+                else "expected a location like %IX0.0 or %QW10"), [path + "." + key])
+            return None
+        return loc
+
+    def fixed_location(self, obj, key, where, path, area, size, what):
+        """A status location of one area and size ("a byte input (%IB)")."""
+        if key not in obj:
+            return None
+        loc = self.location(obj, key, where, path)
+        if loc is None:
+            return None
+        if loc.area != area or loc.size != size:
+            self.err(where, "%s %s must be %s" % (key, loc, what), [path + "." + key])
+            return None
+        return loc
+
+    def pgn(self, obj, where, path):
+        if "pgn" not in obj:
+            self.err(where, "field 'pgn' is missing", [path])
+            return None
+        v = self.range(obj, "pgn", where, path, 0, J1939_MAX_PGN, " (0x3FFFF)")
+        if v is not None and j1939_pdu1(v) and v & 0xFF:
+            self.err(where, "PGN %s is a PDU1 PGN: its low byte must be 0 (the destination is given separately)"
+                     % j1939_pgn_text(v), [path + ".pgn"])
+        return v
+
+    def destination(self, obj, where, path):
+        v = self.uint(obj, "destination", where, path)
+        if v is not None and v > J1939_MAX_ADDRESS and v != J1939_GLOBAL:
+            self.err(where, "destination %d is out of range 0..253 or 255 (global)" % v, [path + ".destination"])
+            return None
+        return v
+
+    # The j1939 object.
+    def parse(self, j):
+        out = {"ecu": None, "dbc": None, "rx": [], "tx": [], "requests": []}
+        out["ecu"] = self.ecu(j)
+        out["dbc"] = self.string(j, "dbc", "j1939", "j1939")
+        for key in ("rx", "tx", "requests"):
+            arr = j.get(key)
+            if key in j and not isinstance(arr, list):
+                self.err("j1939", "field '%s' must be an array" % key, ["j1939." + key])
+                continue
+            for i, m in enumerate(arr or []):
+                w, p = "j1939: %s[%d]" % (key, i), "j1939.%s[%d]" % (key, i)
+                if not isinstance(m, dict):
+                    self.err(w, "must be an object", [p])
+                    continue
+                out[key].append(getattr(self, key)(m, w, p))
+        self.check(out)
+        return out
+
+    def ecu(self, j):
+        w, p = "j1939: ecu", "j1939.ecu"
+        if "ecu" not in j:
+            self.err("j1939", "field 'ecu' is missing", ["j1939.ecu"])
+            return None
+        e = j["ecu"]
+        if not isinstance(e, dict):
+            self.err("j1939", "field 'ecu' must be an object", ["j1939.ecu"])
+            return None
+        ecu = {"name": {key: 0 for key, _ in J1939_NAME_FIELDS}, "address": None, "address_range": None,
+               "state_location": None, "address_location": None}
+        ecu["name"]["arbitrary_address_capable"] = False
+        n = e.get("name")
+        if "name" not in e:
+            self.err(w, "field 'name' is missing", [p + ".name"])
+        elif not isinstance(n, dict):
+            self.err(w, "field 'name' must be an object of NAME fields", [p + ".name"])
+        else:
+            for key, top in J1939_NAME_FIELDS:
+                v = self.range(n, key, w + ": name", p + ".name", 0, top)
+                if v is not None:
+                    ecu["name"][key] = v
+            aac = self.boolean(n, "arbitrary_address_capable", w + ": name", p + ".name")
+            if aac is not None:
+                ecu["name"]["arbitrary_address_capable"] = aac
+        if "address" not in e:
+            self.err(w, "field 'address' is missing", [p + ".address"])
+        else:
+            ecu["address"] = self.range(e, "address", w, p, 0, J1939_MAX_ADDRESS)
+        if "address_range" in e:
+            r = e["address_range"]
+
+            def addr(x):
+                return not isinstance(x, bool) and isinstance(x, (int, float)) and 0 <= x <= 253 and x == int(x)
+
+            def plain(x):
+                return int(x) if isinstance(x, float) and x == math.floor(x) else x
+
+            shown = json.dumps([plain(x) for x in r] if isinstance(r, list) else r, separators=(", ", ":"))
+            if not isinstance(r, list) or len(r) != 2 or not addr(r[0]) or not addr(r[1]) or r[0] > r[1]:
+                self.err(w, "address_range %s must be [low, high] within 0..253" % shown, [p + ".address_range"])
+            else:
+                ecu["address_range"] = [int(r[0]), int(r[1])]
+                if not ecu["name"]["arbitrary_address_capable"]:
+                    self.err(w, "address_range needs a NAME with arbitrary_address_capable true",
+                             [p + ".address_range", p + ".name.arbitrary_address_capable"])
+        for key in ("state_location", "address_location"):
+            ecu[key] = self.fixed_location(e, key, w, p, "I", "B", "a byte input (%IB)")
+        return ecu
+
+    def rx(self, m, w, p):
+        r = {"pgn": self.pgn(m, w, p), "name": self.string(m, "name", w, p), "source": None, "source_name": None,
+             "source_name_mask": None, "timeout_ms": 0, "status_location": None}
+        if "source" in m and "source_name" in m:
+            self.err(w, "give 'source' or 'source_name', not both", [p + ".source", p + ".source_name"])
+        elif "source" in m:
+            r["source"] = self.range(m, "source", w, p, 0, J1939_MAX_ADDRESS)
+        elif "source_name" in m:
+            r["source_name"] = self.uint64(m, "source_name", w, p)
+        if "source_name_mask" in m:
+            if "source_name" not in m:
+                self.err(w, "field 'source_name_mask' needs 'source_name'", [p + ".source_name_mask"])
+            else:
+                r["source_name_mask"] = self.uint64(m, "source_name_mask", w, p)
+        v = self.range(m, "timeout_ms", w, p, 0, J1939_MAX_PERIOD_MS)
+        if v is not None:
+            r["timeout_ms"] = v
+        r["status_location"] = self.fixed_location(m, "status_location", w, p, "I", "X", "a bit input (%IX)")
+        r["signals"] = self.signals(m, w, p, True)
+        return r
+
+    def tx(self, m, w, p):
+        t = {"pgn": self.pgn(m, w, p), "name": self.string(m, "name", w, p), "priority": J1939_DEFAULT_PRIORITY,
+             "destination": J1939_GLOBAL, "length": None, "period_ms": 0, "min_gap_ms": 0}
+        v = self.range(m, "priority", w, p, 0, 7)
+        if v is not None:
+            t["priority"] = v
+        v = self.destination(m, w, p)
+        if v is not None:
+            t["destination"] = v
+            if t["pgn"] is not None and not j1939_pdu1(t["pgn"]):
+                self.err(w, "PGN %s is a PDU2 PGN and always broadcast; remove 'destination'"
+                         % j1939_pgn_text(t["pgn"]), [p + ".destination"])
+        t["length"] = self.range(m, "length", w, p, 1, J1939_MAX_LENGTH)
+        for key in ("period_ms", "min_gap_ms"):
+            v = self.range(m, key, w, p, 0, J1939_MAX_PERIOD_MS)
+            if v is not None:
+                t[key] = v
+        t["signals"] = self.signals(m, w, p, False)
+        return t
+
+    def requests(self, m, w, p):
+        q = {"pgn": self.pgn(m, w, p), "destination": J1939_GLOBAL, "period_ms": None}
+        v = self.destination(m, w, p)
+        if v is not None:
+            q["destination"] = v
+        if "period_ms" not in m:
+            self.err(w, "field 'period_ms' is missing", [p + ".period_ms"])
+        else:
+            q["period_ms"] = self.range(m, "period_ms", w, p, J1939_MIN_REQUEST_PERIOD_MS, J1939_MAX_PERIOD_MS)
+        return q
+
+    def signals(self, msg, where, path, rx):
+        out = []
+        if "signals" not in msg:
+            self.err(where, "field 'signals' is missing", [path + ".signals"])
+            return out
+        arr = msg["signals"]
+        if not isinstance(arr, list):
+            self.err(where, "field 'signals' must be an array", [path + ".signals"])
+            return out
+        for i, sj in enumerate(arr):
+            sw, sp = "%s: signals[%d]" % (where, i), "%s.signals[%d]" % (path, i)
+            if not isinstance(sj, dict):
+                self.err(sw, "must be an object", [sp])
+                continue
+            name = self.string(sj, "name", sw, sp, required=True)
+            if name is None:
+                continue
+            me = "signal " + name
+            mw = where + ": " + me
+            s = {"name": name, "start_bit": None, "length": None, "big_endian": False, "signed": False,
+                 "scale": 1, "offset": 0, "unit": "", "location": None, "valid_location": None, "path": sp}
+            ok = True
+            for key, lo, hi in (("start_bit", 0, J1939_MAX_LENGTH * 8 - 1), ("length", 1, 64)):
+                if key not in sj:
+                    self.err(where, "%s: field '%s' is missing" % (me, key), [sp + "." + key])
+                    ok = False
+                    continue
+                s[key] = self.range(sj, key, mw, sp, lo, hi)
+                ok = ok and s[key] is not None
+            order = self.string(sj, "byte_order", sw, sp)
+            if order == "big":
+                s["big_endian"] = True
+            elif order is not None and order != "little":
+                self.err(where, '%s: field \'byte_order\' must be "little" or "big", not "%s"' % (me, order),
+                         [sp + ".byte_order"])
+            s["signed"] = self.boolean(sj, "signed", sw, sp) or False
+            for key, default in (("scale", 1), ("offset", 0)):
+                v = self.number(sj, key, sw, sp)
+                s[key] = default if v is None else v
+            s["unit"] = self.string(sj, "unit", sw, sp) or ""
+            if "iec_location" not in sj:
+                self.err(where, "%s: field 'iec_location' is missing" % me, [sp + ".iec_location"])
+                ok = False
+            else:
+                loc = self.location(sj, "iec_location", mw, sp)
+                at = [sp + ".iec_location"]
+                if loc is None:
+                    ok = False
+                elif rx and loc.area != "I":
+                    self.err(where, "%s: location %s must be an input (%%I)" % (me, loc), at)
+                    ok = False
+                elif not rx and loc.area != "Q":
+                    self.err(where, "%s: location %s must be an output (%%Q)" % (me, loc), at)
+                    ok = False
+                elif ok and (s["length"] != 1 if loc.size == "X" else s["length"] > SIZE_BITS[loc.size]):
+                    self.err(where, "%s (%d bit%s) does not fit location %s (%d bit)" % (
+                        me, s["length"], "" if s["length"] == 1 else "s", loc, SIZE_BITS[loc.size]), at)
+                    ok = False
+                s["location"] = loc
+            if "valid_location" in sj:
+                if not rx:
+                    self.err(where, "%s: field 'valid_location' is only for received signals (rx)" % me,
+                             [sp + ".valid_location"])
+                else:
+                    s["valid_location"] = self.fixed_location(sj, "valid_location", mw, sp, "I", "X",
+                                                              "a bit input (%IX)")
+            if ok:
+                out.append(s)
+        return out
+
+    # check_j1939: signal fit and overlap, duplicate PGNs, default TX length.
+    def check_signals(self, signals, length, where, path):
+        owner = {}
+        reported = set()
+        for i, s in enumerate(signals):
+            fits = True
+            for b in j1939_signal_bits(s["start_bit"], s["length"], s["big_endian"]):
+                if b >= length * 8:
+                    fits = False
+                    continue
+                o = owner.get(b)
+                if o is not None and (o, i) not in reported:
+                    reported.add((o, i))
+                    self.err(where, "signals %s and %s overlap" % (signals[o]["name"], s["name"]),
+                             [signals[o]["path"], s["path"]])
+                owner[b] = i
+            if not fits:
+                self.err(where, "signal %s (start bit %d, %d bits) does not fit in %d bytes"
+                         % (s["name"], s["start_bit"], s["length"], length), [s["path"]])
+
+    def check(self, j):
+        def same_filter(a, b):
+            if (a["source"] is None) != (b["source"] is None) or \
+                    (a["source_name"] is None) != (b["source_name"] is None):
+                return False
+            if a["source"] is not None:
+                return a["source"] == b["source"]
+            if a["source_name"] is not None:
+                return a["source_name"] == b["source_name"] and a["source_name_mask"] == b["source_name_mask"]
+            return True
+
+        for i, r in enumerate(j["rx"]):
+            # A received message is as long as its sender makes it; the
+            # signals only have to fit what the transport protocol carries.
+            self.check_signals(r["signals"], J1939_MAX_LENGTH, "j1939: rx[%d]" % i, "j1939.rx[%d]" % i)
+            for k in range(i):
+                if r["pgn"] is not None and j["rx"][k]["pgn"] == r["pgn"] and same_filter(j["rx"][k], r):
+                    self.err("j1939", "rx[%d] and rx[%d] both receive PGN %s with the same source filter"
+                             % (k, i, j1939_pgn_text(r["pgn"])), ["j1939.rx[%d]" % k, "j1939.rx[%d]" % i])
+        for i, t in enumerate(j["tx"]):
+            w = "j1939: tx[%d]" % i
+            if t["length"] is None:
+                t["length"] = max(8, j1939_bytes_needed(t["signals"]))
+                if t["length"] > J1939_MAX_LENGTH:
+                    self.err(w, "the signals need %d bytes; a message carries at most %d"
+                             % (t["length"], J1939_MAX_LENGTH), ["j1939.tx[%d]" % i])
+                    t["length"] = J1939_MAX_LENGTH
+            self.check_signals(t["signals"], t["length"], w, "j1939.tx[%d]" % i)
+            for k in range(i):
+                if t["pgn"] is not None and j["tx"][k]["pgn"] == t["pgn"]:
+                    self.err("j1939", "tx[%d] and tx[%d] both send PGN %s" % (k, i, j1939_pgn_text(t["pgn"])),
+                             ["j1939.tx[%d]" % k, "j1939.tx[%d]" % i])
+
+
+def check_j1939(net, err):
+    """The plugin's checks of one J1939 network's j1939 object (the network's
+    adapter and keys are checked by the caller). `err(where, message,
+    paths)` gets places and paths relative to the network. Returns the
+    parsed object (parse_j1939()) or None when there is none."""
+    j = net.get("j1939")
+    if "j1939" not in net:
+        err("", "a J1939 network needs a 'j1939' object", ["j1939"])
+        return None
+    if not isinstance(j, dict):
+        err("", "field 'j1939' must be an object", ["j1939"])
+        return None
+    return _J1939Parser(err).parse(j)
+
+
+def parse_j1939(net):
+    """A J1939 network's j1939 object as the plugin reads it: {"ecu": {"name":
+    {field: value}, "address", "address_range", "state_location",
+    "address_location"}, "dbc", "rx": [...], "tx": [...], "requests": [...]}
+    with defaults filled in (tx length, priority, destination) and locations
+    as iec.Location; signals {"name", "start_bit", "length", "big_endian",
+    "signed", "scale", "offset", "unit", "location", "valid_location",
+    "path"}. Meant for a config that passed check_config."""
+    return check_j1939(net, lambda *a: None) or {"ecu": None, "dbc": None, "rx": [], "tx": [], "requests": []}

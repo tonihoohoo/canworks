@@ -880,6 +880,9 @@ int run_fixture_file(const std::string& file) {
     const cJSON* op;
     cJSON_ArrayForEach(op, cJSON_GetObjectItemCaseSensitive(c, "patch")) apply_patch(cfg_json, op);
     char* text = cJSON_Print(cfg_json);
+#if !CANWORKS_WITH_J1939
+    cJSON* cfg_json_copy = cJSON_Duplicate(cfg_json, true);
+#endif
     ConfigSet set;
     std::vector<std::string> errors;
     bool ok = parse_config_set(text, fixtures + "/eds/canworks.json", ImageLimits(), set, errors, "/nonexistent");
@@ -897,6 +900,22 @@ int run_fixture_file(const std::string& file) {
     std::free(text);
     cJSON_Delete(cfg_json);
     bool want = std::string(cJSON_GetObjectItemCaseSensitive(c, "verdict")->valuestring) == "accept";
+#if !CANWORKS_WITH_J1939
+    // A plugin built without J1939 refuses every config with a J1939
+    // network, by name, before any other check.
+    bool has_j1939 = false;
+    const cJSON* net;
+    cJSON_ArrayForEach(net, cJSON_GetObjectItemCaseSensitive(cfg_json_copy, "networks")) {
+      const cJSON* proto = cJSON_GetObjectItemCaseSensitive(net, "protocol");
+      has_j1939 = has_j1939 || (cJSON_IsString(proto) && std::string(proto->valuestring) == "j1939");
+    }
+    cJSON_Delete(cfg_json_copy);
+    if (has_j1939) {
+      CHECK_MSG(!ok && has_error(errors, "J1939 is not built into this plugin"), name + join(errors));
+      ++count;
+      continue;
+    }
+#endif
     CHECK_MSG(ok == want, name + join(errors));
     if (want) {
       std::string schema = cJSON_GetObjectItemCaseSensitive(c, "schema")->valuestring;
@@ -915,6 +934,8 @@ int run_fixture_file(const std::string& file) {
 TEST(shared_fixtures) { CHECK(run_fixture_file("cases.json") > 20); }
 
 TEST(shared_fixtures_v2) { CHECK(run_fixture_file("cases-v2.json") > 15); }
+
+TEST(shared_fixtures_j1939) { CHECK(run_fixture_file("cases-j1939.json") > 30); }
 
 // ---------------------------------------------------------------------------
 // SocketCAN link setup on a mocked rtnetlink layer (canopen-master-bringup)
@@ -968,7 +989,7 @@ std::vector<std::string> g_log;
 void capture(LogLevel level, const char* msg) {
   const char* l = level == LogLevel::Warn ? "W: " : level == LogLevel::Error ? "E: " : "I: ";
   std::string m = msg;
-  if (m.compare(0, 10, "[CANOPEN] ") == 0) m = m.substr(10);
+  if (m.compare(0, 11, "[CANWORKS] ") == 0) m = m.substr(11);
   g_log.push_back(std::string(l) + m);
 }
 
@@ -3785,9 +3806,9 @@ TEST(log_prefix_per_thread) {
   }
   log_info("after");
   set_log_sink(nullptr);
-  CHECK(diag_log_count("[CANOPEN] drives: node 10 (valve) lost") == 1);
-  CHECK(diag_log_count("[CANOPEN] other thread") == 1);
-  CHECK(diag_log_count("[CANOPEN] after") == 1);
+  CHECK(diag_log_count("[CANWORKS] drives: node 10 (valve) lost") == 1);
+  CHECK(diag_log_count("[CANWORKS] other thread") == 1);
+  CHECK(diag_log_count("[CANWORKS] after") == 1);
 }
 
 TEST(diag_server_two_networks) {
@@ -3810,9 +3831,9 @@ TEST(diag_server_two_networks) {
   CHECK(wait_port(server));
   DiagClient c(server.port());
   std::string hello = c.ask(R"({"op":"hello","token":"secret"})");
-  CHECK_MSG(hello.find(R"("protocol":2)") != std::string::npos &&
-                hello.find(R"("networks":[{"name":"io","interface":"vcan0","bitrate":125000,"role":"master","master_node_id":1},)"
-                           R"({"name":"vcan1","interface":"vcan1","bitrate":500000,"role":"master",)"
+  CHECK_MSG(hello.find(R"("protocol":2)") != std::string::npos && hello.find(R"("protocols":[)") != std::string::npos &&
+                hello.find(R"("networks":[{"name":"io","interface":"vcan0","bitrate":125000,"protocol":"canopen","role":"master","master_node_id":1},)"
+                           R"({"name":"vcan1","interface":"vcan1","bitrate":500000,"protocol":"canopen","role":"master",)"
                            R"("master_node_id":3}])") !=
                     std::string::npos,
             hello);
@@ -3867,7 +3888,7 @@ TEST(diag_server_slave_network) {
   CHECK(wait_port(server));
   DiagClient c(server.port());
   std::string hello = c.ask(R"({"op":"hello","token":"secret"})");
-  CHECK_MSG(hello.find(R"({"name":"line","interface":"vcan0","bitrate":250000,"role":"slave","node_id":10})") !=
+  CHECK_MSG(hello.find(R"({"name":"line","interface":"vcan0","bitrate":250000,"protocol":"canopen","role":"slave","node_id":10})") !=
                 std::string::npos,
             hello);
   std::string st = c.ask(R"({"op":"status","network":"line"})");

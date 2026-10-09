@@ -26,9 +26,12 @@ The script:
   canworks,/opt/canworks/lib/libcanworks_plugin.so,0,1,/opt/canworks/lib/canworks.json,
   ```
 
+- loads the kernel module `can-j1939` for [J1939 networks](j1939.md) and lists it in `/etc/modules-load.d/canworks-j1939.conf` so it loads at every boot (in Docker mode on the host); a kernel without it only gets a warning, and CANopen works as before;
 - installs the [editor hook](#the-editors-build-and-upload): the hook's checks go into `/opt/canworks/venv` next to the deploy tool, the hook to `/opt/canworks/lib/python/`, and one file, `canworks_hook.pth`, into the runtime's Python environment (`venvs/runtime`). `--no-editor-hook` leaves it out (and removes it if it was installed).
 
-It changes no file the runtime's git checkout tracks (`plugins.conf` is the runtime's own untracked, runtime-managed file). Running it again rebuilds the plugin and still leaves exactly one `canopen` line. It records the runtime commit it built against in `/opt/canworks/lib/runtime-commit` and warns when the runtime has changed since: the plugin interface is not versioned, so re-run the script after updating the runtime. When the runtime runs in Docker it installs in [Docker mode](#docker-installs) instead.
+Both protocols are built by default. `--without-j1939` builds CANopen only (no kernel module). `--without-canopen` builds J1939 only: no Lely, `dcfgen`, deploy tool venv lint or `canworks-sim`; the venv then only holds the editor hook. A config with a network of a protocol that is not built in is refused at load.
+
+It changes no file the runtime's git checkout tracks (`plugins.conf` is the runtime's own untracked, runtime-managed file). Running it again rebuilds the plugin and still leaves exactly one `canworks` line. It records the runtime commit it built against in `/opt/canworks/lib/runtime-commit` and warns when the runtime has changed since: the plugin interface is not versioned, so re-run the script after updating the runtime. When the runtime runs in Docker it installs in [Docker mode](#docker-installs) instead.
 
 The line survives runtime updates as long as `plugins.conf` is kept: the runtime only recreates it from `plugins_default.conf` when it is missing.
 
@@ -112,7 +115,7 @@ CI runs the hook against the upstream runtime's own `update_plugin_configuration
 ## Uninstall
 
 ```sh
-sudo scripts/install-stock.sh --uninstall           # removes the canworks line, the editor hook, the simulator link and /opt/canworks/lib
+sudo scripts/install-stock.sh --uninstall           # removes the canworks line, the editor hook, the simulator link, the modules-load.d entry and /opt/canworks/lib
 sudo scripts/install-stock.sh --uninstall --purge   # also removes Lely and dcfgen (all of /opt/canworks)
 sudo systemctl restart openplc-runtime
 ```

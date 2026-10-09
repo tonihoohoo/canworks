@@ -19,6 +19,10 @@ jobs:
     timeout-minutes: 10
     outputs:
       code: ${{ steps.classify.outputs.code }}
+      # The protocol areas (.github/ci/areas.txt): true when the area's own
+      # or shared code changed.
+      canopen: ${{ steps.classify.outputs.canopen }}
+      j1939: ${{ steps.classify.outputs.j1939 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -117,10 +121,13 @@ jobs:
     #   group 1: link setup 2 s, ping-pong 16, two networks 21, PLC-cycle SYNC 7,
     #            LSS 11, bus state 10, RTD module 18, parameters 10, fixed PDOs 9,
     #            device commissioning ~25 (new, estimated) = ~130 s
-    #   group 2: raw frames and bit rate 53, standalone device simulator 60 = ~115 s
+    #   group 2: raw frames and bit rate 53, standalone device simulator 60,
+    #            J1939 ECU against the simulator ~25 (new, estimated) = ~140 s
     #   group 3: bus trace 30, slcan 30, master and its own slave 29,
     #            PLC SDO blocks 5, PC-direct commissioning 32 = ~125 s
     # A new vcan test goes into the group with the least time; update the table.
+    # The CANopen steps run when needs.changes.outputs.canopen is true, the J1939
+    # step when .j1939 is; a group with nothing to run skips its build.
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
@@ -134,6 +141,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/build-plugin
+        if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
         with:
           # what the vcan steps start: the plugin, the standalone simulator and the helper programs
           # (not unit_tests, sim_tests, sim_unit_tests or slave_tests, which run in the plugin job)
@@ -142,13 +150,16 @@ jobs:
             sensor_slave link_check sdo_program plc_sdo_lookup_check
 
       - uses: actions/setup-python@v5
+        if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
         with:
           python-version: "3.12"
 
-      - name: Python dependencies of the vcan scripts (deploy tool modules, diagnostics, trace export)
-        run: python -m pip install -q jsonschema cantools python-can pyserial
+      - name: Python dependencies of the vcan scripts (deploy tool modules, diagnostics, trace export, J1939 simulator)
+        if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
+        run: python -m pip install -q jsonschema cantools python-can pyserial ${{ matrix.group == 2 && 'can-j1939' || '' }}
 
       - name: Create vcan0 (down; the plugin's link setup brings it up)
+        if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
         id: vcan
         continue-on-error: true
         run: |
@@ -160,7 +171,7 @@ jobs:
         run: sudo ip link set vcan0 up
 
       - name: Link setup on vcan0 (as root, then without CAP_NET_ADMIN)
-        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
         run: |
           sudo build/test/link_check vcan0 --expect ready
           ip link show vcan0 | grep -q ",UP"
@@ -169,7 +180,7 @@ jobs:
           sudo ip link set vcan0 up
 
       - name: Ping-pong on vcan0
-        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
         run: |
           test/pingpong/run.sh --seconds 10
           if test/pingpong/run.sh --seconds 4 --no-slave; then
@@ -177,7 +188,7 @@ jobs:
           fi
 
       - name: Two networks on vcan0 and vcan1 (one master per interface, one lost node)
-        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
         run: |
           sudo ip link add dev vcan1 type vcan
           sudo ip link set vcan1 up
@@ -185,49 +196,49 @@ jobs:
           sudo ip link del vcan1
 
       - name: PLC-cycle SYNC on vcan0
-        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
         run: test/pingpong/run.sh --seconds 6 --plc-cycle
 
       - name: LSS node ID assignment on vcan0 (slave without a node ID)
-        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
         run: test/lss/run.sh --seconds 10
 
       - name: Bus trace on vcan0 (capture, directions, filter, formats, idle trace)
-        if: steps.vcan.outcome == 'success' && matrix.group == 3
+        if: steps.vcan.outcome == 'success' && matrix.group == 3 && needs.changes.outputs.canopen == 'true'
         run: test/trace/run.sh
 
       - name: Raw frames and bit rate detection on vcan0 and the simulated bus
-        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        if: steps.vcan.outcome == 'success' && matrix.group == 2 && needs.changes.outputs.canopen == 'true'
         run: test/rawframes/run.sh
 
       - name: Bus state byte on vcan0 (interface taken down and up)
-        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
         run: test/bus/run.sh
 
       - name: slcan adapter (fake CANable on a pty, bridged to vcan1)
-        if: steps.vcan.outcome == 'success' && matrix.group == 3
+        if: steps.vcan.outcome == 'success' && matrix.group == 3 && needs.changes.outputs.canopen == 'true'
         run: test/slcan/run.sh
 
       - name: RTD temperature module on vcan0
-        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
         run: |
           test/sensor/run.sh --seconds 10
           test/sensor/run.sh --seconds 6 --keep-vendor-pdos
 
       - name: Device parameter backup, compare and restore on vcan0 (RTD module)
-        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
         run: test/params/run.sh
 
       - name: Fixed PDO mapping (read-only mapping and COB-IDs) on vcan0
-        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
         run: test/fixed/run.sh
 
       - name: Write a configuration to one device from the PC on vcan0 (simulated RTD module; then the runtime refusal)
-        if: steps.vcan.outcome == 'success' && matrix.group == 1
+        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
         run: test/commissioning/run.sh
 
       - name: The plugin's master and its own slave (vcan0 and vcan1 joined by cangw)
-        if: steps.vcan.outcome == 'success' && matrix.group == 3
+        if: steps.vcan.outcome == 'success' && matrix.group == 3 && needs.changes.outputs.canopen == 'true'
         run: |
           python3 .github/scripts/apt_install.py can-utils
           sudo modprobe can-gw
@@ -236,7 +247,7 @@ jobs:
           sudo --preserve-env=PATH test/slave/run.sh
 
       - name: PLC program SDO blocks on vcan0 (a PLC stop cancels a transfer in flight)
-        if: steps.vcan.outcome == 'success' && matrix.group == 3
+        if: steps.vcan.outcome == 'success' && matrix.group == 3 && needs.changes.outputs.canopen == 'true'
         env:
           CANOPEN_EDSLINT: python3
           PYTHONPATH: tools/deploy
@@ -245,15 +256,21 @@ jobs:
             build/test/sdo_program.so config/pingpong "$RUNNER_TEMP/plc_sdo_stop" --stop-check
 
       - name: Standalone device simulator next to the plugin on vcan0 (and real-bus checks on vcan1)
-        if: steps.vcan.outcome == 'success' && matrix.group == 2
+        if: steps.vcan.outcome == 'success' && matrix.group == 2 && needs.changes.outputs.canopen == 'true'
         run: test/simulator/run.sh
 
       - name: PC-direct commissioning through a CAN adapter on vcan0 (no runtime; then parity with the plugin)
-        if: steps.vcan.outcome == 'success' && matrix.group == 3
+        if: steps.vcan.outcome == 'success' && matrix.group == 3 && needs.changes.outputs.canopen == 'true'
         run: test/localbus/run.sh
 
+      - name: J1939 ECU against the J1939 simulator on vcan0 (claim, values both ways, requests, timeout bit, interface down and up)
+        if: steps.vcan.outcome == 'success' && matrix.group == 2 && needs.changes.outputs.j1939 == 'true'
+        run: |
+          test/j1939/run.sh
+          test/j1939/sim_vcan.sh
+
       - name: Report skipped vcan test
-        if: steps.vcan.outcome != 'success'
+        if: steps.vcan.outcome == 'failure'
         run: echo "::warning::vcan is not available on this runner; the ping-pong test was skipped"
 
   tools:
@@ -285,7 +302,7 @@ jobs:
         # cantools: loads every exported DBC strictly (test_dbcexport); not a deploy tool dependency.
         # python-can and pyserial: the local adapter backend (localbus); python-can also reads back every
         # exported trace format (test_bustrace).
-        run: python -m pip install -q jsonschema cantools python-can pyserial
+        run: python -m pip install -q jsonschema cantools python-can pyserial can-j1939
 
       - name: Does this shard run the Wireshark decode test (test_bustrace)?
         id: bustrace
@@ -353,7 +370,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install the page tests' Python dependencies
-        run: python -m pip install -q jsonschema playwright python-can pyserial
+        run: python -m pip install -q jsonschema playwright python-can pyserial cantools
 
       - name: Playwright version and runner image (the cache key)
         id: playwright

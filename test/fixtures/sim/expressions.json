@@ -1,5 +1,5 @@
 {
-  "comment": "Shared corpus for the expression checkers (plugin/sim C++ and tools/deploy Python). Each case: expr; ok; for ok cases optionally value (evaluated once with t, prev and objects; stateful functions on their first tick); for errors the 0-based position of the offending token and a word the message contains. Objects not listed exist and read 0. Known devices: the own device, node 7 and the extra device named spare; node 9 is unknown. Unknown objects: anything at index 0x6999.",
+  "comment": "Shared corpus for the expression checkers (plugin/src/canopen/sim C++ and tools/deploy Python). Each case: expr; ok; for ok cases optionally value (evaluated once with t, prev and objects; stateful functions on their first tick); for errors the 0-based position of the offending token and a word the message contains. Objects not listed exist and read 0. Known devices: the own device, node 7 and the extra device named spare; node 9 is unknown. Unknown objects: anything at index 0x6999.",
   "context": { "t": 2.0, "dt": 0.01, "prev": 10, "objects": { "0x6200:1": 5, "0x6401:1": 100, "7/0x6200:1": 3, "spare/0x2000": 9 } },
   "cases": [
     { "expr": "1 + 2 * 3", "ok": true, "value": 7 },

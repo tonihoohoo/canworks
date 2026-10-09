@@ -21,7 +21,7 @@ const nums = (v, n, dflt) => (Array.isArray(v) && v.length === n && v.every(isNu
 const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
 
 // ---------------------------------------------------------------------------
-// The machine file with the simulator's defaults (plugin/sim/sim_machine.h)
+// The machine file with the simulator's defaults (plugin/src/canopen/sim/sim_machine.h)
 // and a drawing size for every part the file leaves out.
 
 export function machineSpec(file) {

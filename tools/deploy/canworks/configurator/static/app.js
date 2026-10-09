@@ -557,7 +557,7 @@ function renderNetBar() {
         onclick: () => switchNet(i) }, netLabel(n, i), el("span", { class: "count" })))) : null,
     el("div", { class: "net-actions" },
       nets.length < MAX_NETWORKS ? el("button", { type: "button", dataset: { netAction: "add" }, onclick: addNetwork,
-        title: "Another CANopen network with its own CAN interface, master and nodes" }, "Add network") : null,
+        title: "Another network with its own CAN interface: CANopen (a master and its nodes) or J1939 (an ECU)" }, "Add network") : null,
       several() ? el("button", { type: "button", dataset: { netAction: "rename" }, onclick: renameNetwork }, "Rename") : null,
       several() ? el("button", { type: "button", dataset: { netAction: "remove" }, onclick: removeNetwork }, "Remove") : null));
 }
@@ -576,15 +576,20 @@ function switchNet(i) {
   render();
 }
 
-function addNetwork() {
+async function addNetwork() {
+  const protocol = await modal("Add a network with its own CAN interface. Which protocol does it run?",
+    [["cancel", "Cancel"], ["j1939", "J1939 (an ECU)"], ["canopen", "CANopen (a master and nodes)", true]]);
+  if (protocol !== "canopen" && protocol !== "j1939") return;
   const first = S.model.networks[0];
   const rate = first && first.adapter && Number.isInteger(first.adapter.bitrate) ? first.adapter.bitrate : 250000;
   // No interface: the user picks it (each network needs its own).
-  S.model.networks.push({ adapter: { type: "socketcan", bitrate: rate }, master: { node_id: 1, sync_period_us: 10000 }, nodes: [] });
+  S.model.networks.push(protocol === "j1939" ? newJ1939Network(rate)
+    : { adapter: { type: "socketcan", bitrate: rate }, master: { node_id: 1, sync_period_us: 10000 }, nodes: [] });
   openNet(S.model.networks.length - 1);
   S.onlineNet = null;
   S.view = "bus";
-  banner(`Added network ${S.model.networks.length}. Enter its CAN interface (each network needs its own), then add its nodes.`);
+  banner(`Added ${protocol === "j1939" ? "J1939 " : ""}network ${S.model.networks.length}. Enter its CAN interface (each network needs its own), then ` +
+    (protocol === "j1939" ? "its ECU identity and messages." : "add its nodes."));
   changed(true);
 }
 
@@ -796,6 +801,8 @@ function render() {
   $("#menu-project").hidden = S.state.mode !== "standalone" || commission;
   $("#btn-export-node").disabled = !S.view.startsWith("node:");
   if (commission && !["online", "scan", "trace", "framelab"].includes(S.view)) S.view = "online";
+  // A J1939 network has no nodes, bus scan or simulated devices.
+  if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "scan" || S.view === "simulation")) S.view = "bus";
   renderSide();
   updateSimBanner();
   // The online view, the scan page and the simulation view share one connection.
@@ -808,7 +815,7 @@ function render() {
   const view = $("#view");
   view.replaceChildren();
   view.classList.toggle("indexed", S.view.startsWith("node:"));
-  if (S.view === "bus") renderBus(view);
+  if (S.view === "bus") (isJ1939(S.config) ? renderJ1939(view) : renderBus(view));
   else if (S.view === "declarations") renderDeclarations(view);
   else if (S.view === "online") renderOnline(view);
   else if (S.view === "scan") renderScan(view);
@@ -835,9 +842,14 @@ function renderSide() {
     const s = S.config.slave || {};
     list.append(item(S.view === "bus", { dataset: { slave: "1" }, onclick: () => showView("bus") },
       el("span", { class: "name" }, `${s.node_id === null ? "LSS" : s.node_id ?? "?"} slave device (this PLC)`)));
-  } else if (!(S.config.nodes || []).length) list.append(el("li", { class: "muted" }, "No nodes yet"));
+  } else if (!(S.config.nodes || []).length && !isJ1939(S.config)) list.append(el("li", { class: "muted" }, "No nodes yet"));
   fillCounts(countProblems());
-  $("#eds-input").closest("label").hidden = isSlave(S.config);
+  const j1939 = isJ1939(S.config);
+  $("#eds-input").closest("label").hidden = isSlave(S.config) || j1939;
+  $("#nodes-caption").hidden = j1939;
+  $("#nav-bus").textContent = j1939 ? "Bus and ECU" : "Bus and master";
+  $("#nav-scan").hidden = j1939;
+  $("#nav-simulation").hidden = j1939;
   $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
   const unused = S.state.unused_eds || [];
   $("#unused-eds").replaceChildren(...(unused.length ? [el("h2", { class: "side-caption" }, "Unused EDS files"),
@@ -1034,22 +1046,17 @@ function switchSyncSource(source) {
   changed(true);
 }
 
-function renderBus(view) {
+// The CAN adapter of the open network (CANopen and J1939 alike).
+function adapterFieldset() {
   const a = "adapter";
   const slcan = getPath("adapter.type") === "slcan";
-  const plcCycle = getPath("master.sync_source") === "plc_cycle";
-  const slave = isSlave(S.config);
   const rateSel = el("select", { dataset: { path: "adapter.bitrate" }, "aria-label": "Bit rate" },
     BITRATES.map((r) => el("option", { value: r }, (r >= 1000000 ? r / 1000000 + " Mbit/s" : r / 1000 + " kbit/s"))));
   const rate = getPath("adapter.bitrate");
   if (rate !== undefined && !BITRATES.includes(rate)) rateSel.prepend(el("option", { value: rate }, String(rate) + " (not CiA 301)"));
   rateSel.value = rate === undefined ? "" : String(rate);
   rateSel.addEventListener("change", () => setPath("adapter.bitrate", Number(rateSel.value)));
-  view.append(
-    el("h2", null, (slave ? "Bus and slave device" : "Bus and master") + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
-    roleField(),
-    slave ? slaveNetworkSettings() : networkSettings(),
-    el("fieldset", null, el("legend", null, "CAN adapter"),
+  return el("fieldset", null, el("legend", null, "CAN adapter"),
       el("div", { class: "grid" },
         choice("Adapter type", a + ".type", [
           { value: "socketcan", label: "SocketCAN (CAN HAT, candleLight/gs_usb, PEAK, vcan)",
@@ -1072,7 +1079,18 @@ function renderBus(view) {
           "Off: the interface must already be up at the right rate, for example from the OS network setup."),
         slcan ? null : field("Bus-off restart (ms)", a + ".restart_ms", "intstr", { placeholder: "not set",
           hint: "Empty: keep the interface's own setting. 0 turns automatic restart after bus-off off. Used only when the plugin sets up the link." })),
-      el("datalist", { id: "ifaces" }, ["can0", "can1", "vcan0"].map((v) => el("option", { value: v })))),
+      el("datalist", { id: "ifaces" }, ["can0", "can1", "vcan0"].map((v) => el("option", { value: v }))));
+}
+
+function renderBus(view) {
+  const plcCycle = getPath("master.sync_source") === "plc_cycle";
+  const slave = isSlave(S.config);
+  view.append(
+    el("h2", null, (slave ? "Bus and slave device" : "Bus and master") + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
+    protocolField(),
+    roleField(),
+    slave ? slaveNetworkSettings() : networkSettings(),
+    adapterFieldset(),
     ...(slave ? slaveFieldsets() : [el("fieldset", null, el("legend", null, "Master"),
       el("div", { class: "grid" },
         field("Node ID", "master.node_id", "intstr", { placeholder: "1",
@@ -2834,8 +2852,18 @@ function cyclicInterval() {
   if (!cyclic) return null;
   const input = el("input", { type: "text", spellcheck: "false", id: "task-interval", placeholder: "T#20ms",
     "aria-label": "Task interval" });
-  input.value = S.taskInterval || "";
-  input.addEventListener("change", () => { S.taskInterval = input.value.trim(); scheduleCheck(); });
+  // A check that lands while the user types renders the view again: keep
+  // the text not yet committed (no change event yet) and the focus.
+  const typing = S.taskIntervalTyping;
+  input.value = typing ? typing.value : S.taskInterval || "";
+  if (typing) setTimeout(() => { input.focus(); input.setSelectionRange(typing.caret, typing.caret); });
+  S.taskIntervalTyping = null;
+  input.addEventListener("input", () => { S.taskIntervalDirty = true; });
+  input.addEventListener("change", () => {
+    S.taskIntervalDirty = false;
+    S.taskInterval = input.value.trim();
+    scheduleCheck();
+  });
   return el("div", { class: "grid" }, el("label", null, "Task interval", input,
     hint("The interval of the editor task that runs the program, for the cyclic axis's fCycleTime line. Change the line with the interval. Empty: T#20ms, the project generator's default."),
     el("span", { class: "field-msg", dataset: { for: "task_interval" } })));
@@ -3372,7 +3400,8 @@ async function pollOnline(seq) {
   }
   const notes = [];
   const bus = st.bus || {};
-  if (!st.session) notes.push(el("div", { class: "online-note error" }, `No CANopen session: the CAN interface ${bus.interface || "of this network"} is missing or down on the runtime.`));
+  const protocol = st.protocol === "j1939" ? "J1939" : "CANopen";
+  if (!st.session) notes.push(el("div", { class: "online-note error" }, `No ${protocol} session: the CAN interface ${bus.interface || "of this network"} is missing or down on the runtime.`));
   if (r.config === "different") notes.push(el("div", { class: "online-note warning", dataset: { online: "fingerprint" } },
     "The runtime runs a different configuration than the saved canworks.json (saved changes not uploaded yet, or another project). " +
     "Upload the saved config with the deploy tool (canworks deploy) or the editor's Build and upload with the CANopen hook."));
@@ -3381,9 +3410,14 @@ async function pollOnline(seq) {
     "This runtime simulates every network (the local simulator runtime): no CAN interface is used, whatever the adapter settings say."));
   conn.className = "online-conn ok";
   // The connection line is a live region: it is rewritten only when it changes.
-  const line = el("div", null, `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, CANopen session up ${Math.floor(st.uptime_s || 0)} s, ` +
+  const line = el("div", null, `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${protocol} session up ${Math.floor(st.uptime_s || 0)} s, ` +
     (r.hello.allow_changes ? "changes allowed." : "read-only."), ...notes);
   if (conn.dataset.html !== line.innerHTML) { conn.dataset.html = line.innerHTML; conn.replaceChildren(...line.childNodes); }
+  if (st.protocol === "j1939") {
+    j1939Live(st);
+    S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
+    return;
+  }
   if (st.role === "slave") {
     slaveLive(r);
     S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
@@ -5503,7 +5537,12 @@ async function runCheck() {
       task_interval: S.taskInterval || undefined });
     if (seq !== S.checkSeq) return;
     S.check = normCheck(r, fileVersion(cfg));
-    if (S.view === "declarations") render(); else applyCheck();
+    if (S.view === "declarations") {
+      const ti = $("#task-interval");
+      if (ti && (S.taskIntervalDirty || document.activeElement === ti))
+        S.taskIntervalTyping = { value: ti.value, caret: ti.selectionStart ?? ti.value.length };
+      render();
+    } else applyCheck();
   } catch (e) {
     banner(e.message, true);
   }
@@ -5788,6 +5827,7 @@ function placeOf(w) {
     return lead.concat(["Slave device"], b ? [`${b.index}:${b.subindex ?? 0}`] : []);
   }
   if (path.startsWith("adapter")) return lead.concat(["CAN adapter"]);
+  if (path.startsWith("j1939")) return lead.concat(j1939Place(net, path));
   if (path.startsWith("master")) return lead.concat(["Master"]);
   const m = /^nodes\[(\d+)\](?:\.(tx_pdos|rx_pdos|sdo|sdo_variables)\[(\d+)\](?:\.entries\[(\d+)\])?)?/.exec(path);
   const n = m && (net.nodes || [])[Number(m[1])];
@@ -5815,7 +5855,8 @@ function focusPath(w) {
   const path = w.path;
   const m = /^nodes\[(\d+)\]/.exec(path);
   const want = m ? "node:" + m[1] : path.startsWith("gateway") ? "gateway"
-    : (path.startsWith("adapter") || path.startsWith("master") || path.startsWith("slave") || path === "role" ? "bus" : S.view);
+    : (path.startsWith("adapter") || path.startsWith("master") || path.startsWith("slave") || path.startsWith("j1939") ||
+      path === "role" || path === "protocol" ? "bus" : S.view);
   if (want !== S.view) showView(want);
   const target = document.querySelector(`[data-path="${CSS.escape(path)}"]`);
   if (!target) return;

@@ -4,7 +4,7 @@ The DCF is the node's EDS (the prepared copy the plugin uses) with a
 ParameterValue on every sub-object the plugin writes during the node's
 configuration download, a [DeviceComissioning] section and updated [FileInfo]
 keys. The download is built the way the plugin builds it on the PLC
-(plugin/src/dcf_gen.cpp): the dcfgen input of make_dcfgen_yaml(), Lely
+(plugin/src/canopen/dcf_gen.cpp): the dcfgen input of make_dcfgen_yaml(), Lely
 dcfgen's own Slave/Master code (vendored as _lely_dcf/dcfgen_cli.py), then
 the plugin's post-processing of generate_device_config(). CI compares the
 result with `canopen_check --dump-writes` for the fixture configs.
@@ -760,6 +760,9 @@ def _no_slave(nets, network, what):
     """The master networks of `nets`; ExportFailed when `network` names a
     slave network or none is left (a slave network has no nodes to export:
     its own EDS is the file for the other master's tool)."""
+    if network is not None and nets and nets[0]["role"] == "j1939":
+        raise ExportFailed([("network '%s' is a J1939 network; it has no CANopen nodes to export as %s"
+                             % (network, what), [nets[0]["path"]])])
     if network is not None and nets and nets[0]["role"] == "slave":
         raise ExportFailed([("network '%s' is a slave network; it has no nodes to export as %s (its EDS, %s, is "
                              "the file for the other master's tool)" % (network, what, nets[0]["slave"].get("eds")),

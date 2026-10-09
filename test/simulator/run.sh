@@ -176,6 +176,14 @@ wait_for "lost: no heartbeat" 3 "$WORK/host.log" && ok "the plugin lost node 2's
 "$SIM" clear 2 heartbeat > /dev/null && ok "clear heartbeat" || fail "clear heartbeat"
 wait_for "heartbeat resumed\|node 2 (pingpong).*boot" 5 "$WORK/host.log" && ok "the plugin saw the heartbeat again" || fail "the heartbeat did not come back"
 
+# Every check is done: once node 2 is operational again, stop the host (it
+# prints its result on SIGTERM) instead of waiting out its 30 s.
+for i in $(seq 1 100); do
+    "$SIM" status 2>/dev/null | grep -q "node 2 (pingpong): power on, operational" && break
+    sleep 0.1
+done
+sleep 1
+kill -TERM "$HOST_PID" 2>/dev/null
 wait "$HOST_PID"
 HOST_RC=$?
 # The heartbeat fault makes the plugin boot node 2 again, which restarts the

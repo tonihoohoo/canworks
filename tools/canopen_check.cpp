@@ -18,7 +18,8 @@
 // network; its output then puts "network <name>" before each network's lines.
 // A slave network (canopen-slave-device spec) runs no dcfgen; its line says
 // "slave node ID <n>" (or "LSS") and lists the bound objects. A gateway
-// section is checked against the upper network's EDS.
+// section is checked against the upper network's EDS. A J1939 network is
+// checked as the plugin does; its line names the ECU's address and its PGNs.
 
 #include <cstdio>
 #include <cstdlib>
@@ -60,7 +61,9 @@ int main(int argc, char** argv) {
   for (const auto& w : set.warnings) std::printf("warning: %s\n", w.c_str());
   for (const auto& m : set.notes) std::printf("note: %s\n", m.c_str());
   for (auto& cfg : set.networks) {
-    bool ok = checked && run_eds_lint(cfg, default_edslint_python(), cfg.work_dir, errors) && check_eds_files(cfg, errors);
+    // A J1939 network has no EDS files.
+    bool ok = checked && (cfg.is_j1939() || (run_eds_lint(cfg, default_edslint_python(), cfg.work_dir, errors) &&
+                                             check_eds_files(cfg, errors)));
     for (const auto& w : cfg.warnings) std::printf("warning: %s%s\n", set.several() ? (cfg.network + ": ").c_str() : "", w.c_str());
     for (const auto& m : cfg.notes) std::printf("note: %s%s\n", set.several() ? (cfg.network + ": ").c_str() : "", m.c_str());
     checked = checked && ok;
@@ -75,6 +78,13 @@ int main(int argc, char** argv) {
   }
   for (const auto& cfg : set.networks) {
     if (set.several()) std::printf("network %s\n", cfg.network.c_str());
+    if (cfg.is_j1939()) {
+      const J1939Config& j = cfg.j1939;
+      std::printf("ok: %s adapter %s, %u bit/s, J1939 ECU at address %u, %zu received, %zu sent, %zu requested PGN(s)\n",
+                  cfg.adapter.type.c_str(), cfg.adapter.interface.c_str(), cfg.adapter.bitrate, j.ecu.address,
+                  j.rx.size(), j.tx.size(), j.requests.size());
+      continue;
+    }
     if (cfg.is_slave()) {
       std::string id = cfg.slave.lss ? std::string("LSS") : std::to_string(cfg.slave.node_id);
       std::printf("ok: %s adapter %s, %u bit/s, slave node ID %s, %zu bound object(s)\n", cfg.adapter.type.c_str(),
@@ -93,7 +103,7 @@ int main(int argc, char** argv) {
                 set.gateway.routes.size());
   if (!run_dcfgen) return 0;
   for (const auto& cfg : set.networks) {
-    if (cfg.is_slave()) continue;  // the slave runs its EDS as it is
+    if (cfg.is_slave() || cfg.is_j1939()) continue;  // the slave runs its EDS as it is; J1939 has none
     if (set.several()) std::printf("network %s\n", cfg.network.c_str());
     GeneratedConfig gen;
     if (!generate_device_config(cfg, default_dcfgen(), gen, errors)) {

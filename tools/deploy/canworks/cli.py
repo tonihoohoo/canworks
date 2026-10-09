@@ -23,7 +23,8 @@ each network's files go into <dir>/<network>/; --network NAME exports one.
 writes the network's PDOs, heartbeat, EMCY, NMT and SYNC (and optionally its
 SDO frames) as a DBC file for CAN bus tools, and uploads nothing. With
 several networks it writes bus_<network>.dbc per network; --network NAME
-writes only that network to bus.dbc.
+writes only that network to bus.dbc. A J1939 network's DBC holds its rx and
+tx parameter groups with 29-bit identifiers (VFrameFormat J1939PG).
 
   canworks-deploy --config canopen_config.json --export-html network.html [--doc-od all] [--doc-embed-eds]
 

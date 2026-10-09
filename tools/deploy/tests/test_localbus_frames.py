@@ -82,25 +82,33 @@ class FakeBus:
 
 
 class ListenOnly(unittest.TestCase):
-    def _slcan(self, knows_m1, answers=True):
+    def _slcan(self, knows_m1, answers=True, busy=False):
         """A fake slcan serial port; firmware that knows the 'm' (mode)
         command answers it with CR, other firmware with BEL. With `answers`
-        false it answers nothing, as some firmware does."""
+        false it answers nothing, as some firmware does. With `busy` an open
+        channel receives frames without end, as on a busy bus."""
         from can.interfaces import slcan
         ports = []
 
         class Port:
             def __init__(self, url, **kw):
                 self.written, self.inbuf = b"", bytearray()
+                self.open = False
                 ports.append(self)
 
             def write(self, b):
                 self.written += b
+                if b[:1] in (b"O", b"L"):
+                    self.open = True
+                elif b[:1] == b"C":
+                    self.open = False
                 if b[:1] == b"m" and answers:
                     self.inbuf += b"\r" if knows_m1 else b"\x07"
 
             @property
             def in_waiting(self):
+                if busy and self.open and not self.inbuf:
+                    self.inbuf += b"t0800\r"  # a SYNC frame
                 return len(self.inbuf)
 
             def read(self, n):
@@ -136,6 +144,18 @@ class ListenOnly(unittest.TestCase):
         # A normal open sets normal mode before opening.
         opened = adapter_mod.open(parse("slcan:COM9"), 250000, options={"sleep_after_open": 0})
         self.assertTrue(ports[-1].written.endswith(b"m0\rO\r"))
+        opened.close()
+
+    def test_slcan_opens_on_a_busy_bus(self):
+        # python-can opens the channel in set_bitrate() and once more; frames
+        # arriving without end must not keep the open waiting for quiet.
+        ports = self._slcan(knows_m1=True, busy=True)
+        started = time.monotonic()
+        opened = adapter_mod.open(parse("slcan:COM9"), 500000, options={"sleep_after_open": 0})
+        self.assertLess(time.monotonic() - started, 3)
+        commands = [c for c in ports[-1].written.split(b"\r") if c]
+        self.assertEqual(commands[commands.index(b"S6"):], [b"S6", b"m0", b"O"])
+        self.assertTrue(opened.retune(250000))
         opened.close()
 
     def test_slcan_unconfirmed_silent_mode_is_refused(self):

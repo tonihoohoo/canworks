@@ -20,7 +20,7 @@ from array import array
 from .. import contract, dbcexport, diag
 from ..bustrace import explain as explain_mod
 from ..bustrace import formats, sequences, triggers
-from ..bustrace.decode import KINDS, Decoder
+from ..bustrace.decode import CONTEXT_KINDS, KINDS, Decoder, j1939_network
 from ..bustrace.recorder import Recorder, Session
 from ..bustrace.stats import KIND_CODE
 
@@ -29,7 +29,7 @@ LOOKBACK = 4000  # frames searched back for SDO transfers when decoding a window
 SPAN_CONTEXT = 50000  # above this, frames between filtered rows are not decoded for SDO context
 MAX_VIEWS = 8
 MAX_SEQUENCES = 2000  # conversations or boot stories sent to the page
-SDO = KIND_CODE["sdo"]
+CONTEXT = {KIND_CODE[k] for k in CONTEXT_KINDS}  # SDO transfers, J1939 transport sessions
 GAP = KIND_CODE["gap"]
 EXPORT_FORMATS = ("pcapng", "candump", "asc", "blf", "trc", "csv", "signals")
 CONTENT_TYPES = {"csv": "text/csv", "signals": "text/csv"}
@@ -133,7 +133,7 @@ class FilterView:
                     ok = False
                 elif flt.dir != "any" and f.tx != (flt.dir == "tx"):
                     ok = False
-            if self.decoder is not None and (ok or kind == SDO):
+            if self.decoder is not None and (ok or kind in CONTEXT):
                 f = f or t.frame(i)
                 d = self.decoder.decode(f)
                 if ok:
@@ -291,7 +291,7 @@ class Workspace:
                 dec = s.decoder.clone()
                 first, last = idx[0], idx[-1]
                 for j in range(max(0, first - LOOKBACK), first):
-                    if a.kinds[j] == SDO:
+                    if a.kinds[j] in CONTEXT:
                         dec.decode(t.frame(j))
                 wanted = set(idx)
                 between = range(first, last + 1) if last - first <= SPAN_CONTEXT else idx
@@ -300,7 +300,7 @@ class Workspace:
                         f = t.frame(j)
                         d = dec.decode(f)
                         rows.append(_row(f, d, j + base, positions[len(rows)]))
-                    elif a.kinds[j] == SDO:
+                    elif a.kinds[j] in CONTEXT:
                         dec.decode(t.frame(j))
             return {"generation": generation, "total": total, "offset": offset, "focus": focus, "rows": rows,
                     "start_us": t.start_us}
@@ -459,7 +459,10 @@ class Traces:
 def decoder_for(cfg, config_path, eds_paths, names, network=None):
     """A decoder with the nodes of one network: the one `network` names in
     a version 2 config, or the only one (without it, a config with several
-    decodes without nodes and says so in the warnings)."""
+    decodes without nodes and says so in the warnings). A J1939 network
+    decodes as J1939 (bustrace/j1939.py)."""
+    if isinstance(cfg, dict) and j1939_network(cfg, network) is not None:
+        return Decoder.from_config(cfg, config_path, network=network)
     if not isinstance(cfg, dict) or not contract.all_nodes(cfg):
         return Decoder()
     if contract.version_of(cfg) == 1:

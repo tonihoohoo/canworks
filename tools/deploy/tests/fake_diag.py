@@ -1,4 +1,4 @@
-"""A stand-in for the plugin's diagnostics channel (plugin/src/diag.cpp), for
+"""A stand-in for the plugin's diagnostics channel (plugin/src/can/diag.cpp), for
 the CLI and configurator tests. Speaks protocol 2 (TLS and the SCRAM login,
 fake_tls.py) on 127.0.0.1, and tells a plain client to update.
 
@@ -22,6 +22,7 @@ says per rate."""
 import base64
 import copy
 import json
+import os
 import time
 import socket
 import socketserver
@@ -83,6 +84,18 @@ def drives_status(config_sha256="0" * 64):
              "emcy": {"code": 0, "error_register": 0, "count": 0}, "sdo_variables": []},
         ],
     }
+
+
+# A J1939 network as the hello lists it, and its status answer as recorded
+# (design Decision 11): claimed at 128, PGN 65280 timed out with two
+# senders, 0 and 3.
+J1939_NETWORK = {"name": "machine", "interface": "vcan0", "bitrate": 250000, "protocol": "j1939"}
+J1939_STATUS = os.path.join(os.path.dirname(__file__), "data", "diag", "j1939-status.json")
+
+
+def j1939_status():
+    with open(J1939_STATUS, encoding="utf-8") as f:
+        return json.load(f)
 
 
 # A slave network (config/slave) as the hello lists it.
@@ -168,7 +181,10 @@ class FakePlugin:
         self.trace_lock = threading.Lock()
         self.present = {2, 23, 40}  # node IDs that answer SDO
         if self.networks:
-            if self.networks[0].get("role") == "slave":
+            if self.networks[0].get("protocol") == "j1939":
+                self.status = j1939_status()
+                self.present = set()
+            elif self.networks[0].get("role") == "slave":
                 self.status = slave_status()
                 self.objects = slave_objects(self.networks[0]["node_id"])
                 self.present = {self.networks[0]["node_id"]}
@@ -176,7 +192,8 @@ class FakePlugin:
             self.status["bus"]["interface"] = self.networks[0]["interface"]
             for info in self.networks[1:]:
                 slave = info.get("role") == "slave"
-                st = drives_status() if info["name"] == "drives" else slave_status() if slave else dict(status(), nodes=[])
+                st = (drives_status() if info["name"] == "drives" else slave_status() if slave
+                      else j1939_status() if info.get("protocol") == "j1939" else dict(status(), nodes=[]))
                 st["network"] = info["name"]
                 st["bus"]["interface"] = info["interface"]
                 self.others[info["name"]] = FakeNetwork(info, st)

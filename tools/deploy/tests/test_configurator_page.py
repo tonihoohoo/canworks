@@ -665,6 +665,11 @@ class Page(unittest.TestCase):
         self.assertTrue(until(lambda: "fCycleTime" in pg.input_value("textarea.block")))
         self.assertIn("drive.fCycleTime := LREAL#0.02;", pg.input_value("textarea.block"))
         pg.fill("#task-interval", "T#5ms")
+        # A check that lands before Enter renders the view again: the typed
+        # text and the focus stay.
+        pg.evaluate("runCheck()")
+        self.assertEqual(pg.input_value("#task-interval"), "T#5ms")
+        self.assertTrue(pg.evaluate("document.activeElement.id === 'task-interval'"))
         pg.press("#task-interval", "Enter")
         self.assertTrue(until(lambda: "drive.fCycleTime := LREAL#0.005;" in pg.input_value("textarea.block")))
 

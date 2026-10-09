@@ -2,7 +2,7 @@
 // does and drives it with a stand-in PLC scan, so the real plugin can be run
 // against a real SocketCAN bus without a compiled PLC program.
 //
-//   canopen_host <libcanworks_plugin.so> <canopen_config.json> [seconds] [pingpong|rtd|bus|fixed|two]
+//   canopen_host <libcanworks_plugin.so> <canworks.json> [seconds] [pingpong|rtd|bus|fixed|two|slave|j1939]
 //
 // The scan runs every 10 ms. Once a second it prints the inputs and the node
 // status bit %IX10.0.
@@ -31,6 +31,17 @@
 // fixed: the fixed-mapping I/O module of test/fixed/run.sh; computes
 // `%QB40 := %IB40`. Exits 0 if the status bit is TRUE at the end and, during
 // the last half of the run, %IB40 stayed in 10-50 and changed.
+//
+// j1939: the J1939 example (examples/j1939) of test/j1939/run.sh against
+// canworks-j1939-sim as the engine; computes `%QW210 := %IW210 + 1`
+// (Setpoint), `%QB204 := 1` (Run) and `%QB205 := 3` (Mode). The script stops
+// the simulator, takes the interface down and up, starts it again and stops
+// it before the end; then an ECU with a lower NAME claims address 128. Exits
+// 0 if the claim state %IB200 went claimed, no bus, claimed again, the
+// address %IB201 went 128 then 129 (moved within the range, claimed at the
+// end), the Pressures status bit
+// %IX202.0 was TRUE while Pressure %IW210 changed and is FALSE at the end
+// (timed out), and ComponentInfo brought Starts %IW212 = 42.
 
 #include <dlfcn.h>
 #include <signal.h>
@@ -75,7 +86,7 @@ F sym(void* h, const char* name) {
 
 int main(int argc, char** argv) {
   if (argc < 3) {
-    std::fprintf(stderr, "usage: %s <libcanworks_plugin.so> <canopen_config.json> [seconds] [pingpong|rtd|bus|fixed|two|slave]\n",
+    std::fprintf(stderr, "usage: %s <libcanworks_plugin.so> <canopen_config.json> [seconds] [pingpong|rtd|bus|fixed|two|slave|j1939]\n",
                  argv[0]);
     return 2;
   }
@@ -87,9 +98,16 @@ int main(int argc, char** argv) {
   const bool fixed = argc > 4 && std::strcmp(argv[4], "fixed") == 0;
   const bool two = argc > 4 && std::strcmp(argv[4], "two") == 0;
   const bool slave = argc > 4 && std::strcmp(argv[4], "slave") == 0;
+  const bool j1939 = argc > 4 && std::strcmp(argv[4], "j1939") == 0;
+  std::string claim_states;  // distinct successive values of %IB200
+  int last_claim = -1;
+  int last_address = -1;
+  std::string addresses;  // distinct successive values of %IB201
+  bool pressures_seen = false, pressure_moved = false, starts_seen = false;
+  int first_pressure = -1;
   bool fixed_in_range = true, fixed_moved = false;
   uint8_t fixed_first = 0;
-  if (argc > 4 && !rtd && !bus && !fixed && !two && !slave && std::strcmp(argv[4], "pingpong") != 0) {
+  if (argc > 4 && !rtd && !bus && !fixed && !two && !slave && !j1939 && std::strcmp(argv[4], "pingpong") != 0) {
     std::fprintf(stderr, "canopen_host: unknown program '%s'\n", argv[4]);
     return 2;
   }
@@ -147,7 +165,11 @@ int main(int argc, char** argv) {
   while (!g_stop && clock::now() - t0 < std::chrono::seconds(seconds)) {
     cycle_start();
     auto ai = [&](int ch) { return static_cast<int16_t>(img->int_in[100 + ch]); };
-    if (rtd)
+    if (j1939) {
+      img->int_out[210] = static_cast<IEC_UINT>(img->int_in[210] + 1);  // Setpoint
+      img->byte_out[204] = 1;                                            // Run
+      img->byte_out[205] = 3;                                            // Mode
+    } else if (rtd)
       img->bool_out[100][0] = ai(0) > 250;  // %QX100.0 := AI0 > 25.0 degC
     else if (fixed)
       img->byte_out[40] = img->byte_in[40];  // %QB40 := %IB40
@@ -165,6 +187,26 @@ int main(int argc, char** argv) {
       const long ms = (long)std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - t0).count();
       std::printf("t=%5ldms  bus state %%IB110=%d\n", ms, last_bus);
       std::fflush(stdout);
+    }
+    if (j1939) {
+      if (img->byte_in[200] != last_claim) {
+        last_claim = img->byte_in[200];
+        claim_states += (claim_states.empty() ? "" : " ") + std::to_string(last_claim);
+        const long ms = (long)std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - t0).count();
+        std::printf("t=%5ldms  claim state %%IB200=%d  address %%IB201=%u\n", ms, last_claim,
+                    (unsigned)img->byte_in[201]);
+        std::fflush(stdout);
+      }
+      if (img->byte_in[201] != last_address) {
+        last_address = img->byte_in[201];
+        addresses += (addresses.empty() ? "" : " ") + std::to_string(last_address);
+      }
+      if (img->bool_in[202][0]) {
+        pressures_seen = true;
+        if (first_pressure < 0) first_pressure = img->int_in[210];
+        pressure_moved = pressure_moved || img->int_in[210] != first_pressure;
+      }
+      starts_seen = starts_seen || (img->bool_in[202][3] && img->int_in[212] == 42);
     }
     if (!have_mid && clock::now() >= half) {
       mid = img->dint_in[100];
@@ -184,7 +226,10 @@ int main(int argc, char** argv) {
     }
     if (clock::now() >= next_print) {
       const long t = (long)std::chrono::duration_cast<std::chrono::seconds>(clock::now() - t0).count();
-      if (fixed)
+      if (j1939)
+        std::printf("t=%2lds  %%IW210=%u  %%IX202.0=%d  %%IW212=%u  %%IX202.3=%d\n", t, (unsigned)img->int_in[210],
+                    img->bool_in[202][0], (unsigned)img->int_in[212], img->bool_in[202][3]);
+      else if (fixed)
         std::printf("t=%2lds  %%IB40=%u  %%IX10.0=%d\n", t, (unsigned)img->byte_in[40], img->bool_in[10][0]);
       else if (rtd)
         std::printf("t=%2lds  AI0..AI3=%.1f %.1f %.1f %.1f degC  alarm=%d  %%IX10.0=%d\n", t, ai(0) / 10.0,
@@ -207,10 +252,27 @@ int main(int argc, char** argv) {
   const IEC_UDINT last = img->dint_in[100], last2 = slave ? img->int_in[10] : img->dint_in[101];
   const bool slave_ok = img->bool_in[300][0] != 0;
   const bool up = img->bool_in[10][0] != 0, up2 = img->bool_in[10][1] != 0;
+  const bool pressures_at_end = img->bool_in[202][0] != 0;
+  const unsigned address_at_end = img->byte_in[201];
   stop_loop();
   cleanup();
   dlclose(h);
 
+  if (j1939) {
+    // Claimed, then no bus, then claimed again.
+    size_t a = (" " + claim_states + " ").find(" 1 ");
+    size_t b = a == std::string::npos ? a : (" " + claim_states + " ").find(" 3 ", a);
+    size_t c = b == std::string::npos ? b : (" " + claim_states + " ").find(" 1 ", b);
+    const bool reclaimed = c != std::string::npos && last_claim == 1;
+    // Lost 128 to the lower NAME, then claimed 129.
+    const bool moved = (" " + addresses + " ").find(" 128 ") != std::string::npos && address_at_end == 129;
+    const bool ok = reclaimed && moved && pressures_seen && pressure_moved && !pressures_at_end && starts_seen;
+    std::printf("%s: claim states %s, addresses %s (%u at the end), Pressures %s and %s, %s at the end, Starts=42 %s\n",
+                ok ? "PASS" : "FAIL", claim_states.c_str(), addresses.c_str(), address_at_end, pressures_seen ? "seen" : "not seen",
+                pressure_moved ? "changed" : "did not change", pressures_at_end ? "still TRUE" : "timed out",
+                starts_seen ? "seen" : "not seen");
+    return ok ? 0 : 1;
+  }
   if (bus) {
     const bool ok = (" " + bus_states + " ").find(" 1 0 1 ") != std::string::npos;
     std::printf("%s: bus state byte went %s\n", ok ? "PASS" : "FAIL", bus_states.c_str());

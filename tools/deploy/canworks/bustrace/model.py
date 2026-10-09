@@ -1,4 +1,4 @@
-"""Trace records: the plugin's 24-byte TraceRecord (plugin/src/trace_capture.h),
+"""Trace records: the plugin's 24-byte TraceRecord (plugin/src/can/trace_capture.h),
 kept packed so a trace of millions of frames stays small."""
 
 import bisect

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://github.com/tonihoohoo/canworks/schema/canworks.v2.schema.json",
+  "schema_version": 2,
+  "networks": [
+    {
+      "name": "machine",
+      "protocol": "j1939",
+      "adapter": { "type": "socketcan", "interface": "can0", "bitrate": 250000 },
+      "j1939": {
+        "ecu": {
+          "name": { "identity_number": 1234, "manufacturer_code": 0, "function": 130, "industry_group": 0, "arbitrary_address_capable": true },
+          "address": 128,
+          "address_range": [ 128, 135 ],
+          "state_location": "%IB200",
+          "address_location": "%IB201"
+        },
+        "dbc": "machine.dbc",
+        "rx": [
+          {
+            "pgn": 65280, "name": "Pressures", "source": 0, "timeout_ms": 300, "status_location": "%IX202.0",
+            "signals": [
+              { "name": "Pressure", "start_bit": 0, "length": 16, "scale": 0.1, "unit": "bar", "iec_location": "%IW210", "valid_location": "%IX202.1" },
+              { "name": "Temp", "start_bit": 16, "length": 8, "signed": true, "unit": "degC", "iec_location": "%IB204", "valid_location": "%IX202.2" },
+              { "name": "Level", "start_bit": 24, "length": 8, "scale": 0.4, "unit": "%", "iec_location": "%IB205" },
+              { "name": "PumpOn", "start_bit": 32, "length": 2, "iec_location": "%IB206" }
+            ]
+          },
+          {
+            "pgn": 65282, "name": "ComponentInfo", "source": 0, "status_location": "%IX202.3",
+            "signals": [
+              { "name": "Hours", "start_bit": 0, "length": 32, "scale": 0.05, "unit": "h", "iec_location": "%ID210" },
+              { "name": "Starts", "start_bit": 32, "length": 16, "iec_location": "%IW212" },
+              { "name": "Serial", "start_bit": 240, "length": 32, "iec_location": "%ID211" }
+            ]
+          }
+        ],
+        "tx": [
+          {
+            "pgn": 65281, "name": "Setpoints", "priority": 6, "period_ms": 100,
+            "signals": [
+              { "name": "Setpoint", "start_bit": 0, "length": 16, "unit": "rpm", "iec_location": "%QW210" },
+              { "name": "Run", "start_bit": 16, "length": 2, "iec_location": "%QB204" }
+            ]
+          },
+          {
+            "pgn": 61184, "name": "Command", "priority": 6, "destination": 0, "period_ms": 0, "min_gap_ms": 50,
+            "signals": [
+              { "name": "Mode", "start_bit": 0, "length": 8, "iec_location": "%QB205" }
+            ]
+          }
+        ],
+        "requests": [
+          { "pgn": 65282, "destination": 0, "period_ms": 1000 }
+        ]
+      }
+    }
+  ]
+}

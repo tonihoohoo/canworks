@@ -87,7 +87,7 @@ cangw -A -s vcan1 -d vcan0 -e
 RC=0
 echo "==> Running the master on vcan0 and the slave on vcan1 for ${SECONDS_RUN}s"
 "$BUILD/test/canopen_host" "$PLUGIN" "$WORK/canopen_config.json" "$SECONDS_RUN" slave 2> "$WORK/host.log" || RC=1
-grep -E "\[CANOPEN\]" "$WORK/host.log" | head -40
+grep -E "\[CANWORKS\]" "$WORK/host.log" | head -40
 
 check_log() {
     if grep -q -- "$1" "$WORK/host.log"; then
@@ -97,9 +97,9 @@ check_log() {
         RC=1
     fi
 }
-check_log "\[CANOPEN\] line: .*NMT state PRE-OPERATIONAL (node ID 10)"
-check_log "\[CANOPEN\] line: .*NMT state OPERATIONAL (node ID 10)"
-check_log "\[CANOPEN\] plc: node 10 (openplc) is operational"
+check_log "\[CANWORKS\] line: .*NMT state PRE-OPERATIONAL (node ID 10)"
+check_log "\[CANWORKS\] line: .*NMT state OPERATIONAL (node ID 10)"
+check_log "\[CANWORKS\] plc: node 10 (openplc) is operational"
 
 echo "==> Again, with the vcan1 -> vcan0 route removed for 3 s halfway"
 (
@@ -114,7 +114,7 @@ if [ $? -ne 0 ]; then
     RC=1
 fi
 wait
-if grep -E "\[CANOPEN\] plc: node 10 \(openplc\).*(lost|heartbeat|not operational)" "$WORK/host2.log" >/dev/null; then
+if grep -E "\[CANWORKS\] plc: node 10 \(openplc\).*(lost|heartbeat|not operational)" "$WORK/host2.log" >/dev/null; then
     echo "==> the master reported node 10 lost"
 else
     echo "FAIL: the master did not report node 10 lost" >&2
