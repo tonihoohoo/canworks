@@ -66,3 +66,53 @@ jobs:
 
       - name: Build in the runtime image, ping-pong and the runtime container
         run: sudo test/docker/run.sh --image ghcr.io/autonomy-logic/openplc-runtime:latest
+
+  single-protocol:
+    # The plugin built with one protocol only (CANWORKS_WITH_CANOPEN /
+    # CANWORKS_WITH_J1939, install-stock.sh --without-*): weekly and by hand;
+    # CI builds both protocols together.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        protocol: [canopen, j1939]
+    name: single-protocol (${{ matrix.protocol }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out the upstream OpenPLC runtime (plugin headers)
+        if: matrix.protocol == 'j1939'
+        uses: actions/checkout@v4
+        with:
+          repository: Autonomy-Logic/openplc-runtime
+          ref: development
+          path: upstream-runtime
+
+      - name: J1939 only (no Lely, no dcfgen)
+        if: matrix.protocol == 'j1939'
+        run: |
+          cmake -B build -DOPENPLC_ROOT="$PWD/upstream-runtime" -DCANWORKS_WITH_CANOPEN=OFF
+          cmake --build build -j"$(nproc)"
+          ctest --test-dir build --output-on-failure
+          if ldd build/plugins/libcanworks_plugin.so | grep -i lely; then
+            echo "::error::the J1939-only plugin links Lely"; exit 1
+          fi
+
+      - uses: ./.github/actions/build-plugin
+        if: matrix.protocol == 'canopen'
+        with:
+          kernel-modules: "false"
+          targets: canworks_plugin
+
+      - name: CANopen only
+        if: matrix.protocol == 'canopen'
+        run: |
+          cmake -B build-canopen -DOPENPLC_ROOT="$PWD/upstream-runtime" -DCANWORKS_WITH_J1939=OFF
+          cmake --build build-canopen -j"$(nproc)"
+          CANOPEN_EDSLINT=python3 PYTHONPATH="$PWD/tools/deploy" ctest --test-dir build-canopen --output-on-failure -j4
+          # A J1939 config is refused by name.
+          if build-canopen/canopen_check --no-dcfgen examples/j1939/canworks.json; then
+            echo "::error::the CANopen-only build accepted a J1939 config"; exit 1
+          fi

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Installs the CANopen plugin on an unmodified OpenPLC Runtime v4: a native
+# Installs the canworks plugin on an unmodified OpenPLC Runtime v4: a native
 # install (install.sh --native) or upstream's managed Docker install.
 #
 #   sudo scripts/install-stock.sh [--runtime-dir DIR] [--prefix /opt/canworks]
 #                                 [--lely-ref <commit>] [--no-deps] [--no-editor-hook]
+#                                 [--without-canopen | --without-j1939]
 #   sudo scripts/install-stock.sh --uninstall [--purge] [--runtime-dir DIR]
 #   sudo scripts/install-stock.sh --docker-image <image>   (hand-run container)
 #
@@ -17,12 +18,19 @@
 # one without it switches it off. Restart the runtime once so it loads the
 # plugin.
 #
+# Protocols: CANopen and J1939 are both built in by default. --without-canopen
+# builds J1939 only (no Lely, dcfgen or device simulator); --without-j1939
+# builds CANopen only. With J1939 the script loads the kernel module
+# can-j1939 and lists it in /etc/modules-load.d/canworks-j1939.conf so it
+# loads at every boot (on the host also for Docker installs).
+#
 # Editor hook (unless --no-editor-hook): lets the editor's own "Build and
-# upload" keep CANopen on for a project that carries canworks/canworks.json
+# upload" keep canworks on for a project that carries canworks/canworks.json
 # (docs/install-stock.md). Installs tools/editor-hook into <prefix>/venv, the hook package to <prefix>/lib/python/ and one file,
 # canworks_hook.pth, into the runtime's venv (venvs/runtime).
 #
-# Uninstall: removes the `canworks` line, the hook's .pth and <prefix>/lib/.
+# Uninstall: removes the `canworks` line, the hook's .pth, <prefix>/lib/ and the
+# modules-load.d entry.
 # --purge also removes Lely and dcfgen (all of <prefix>).
 #
 # The runtime directory defaults to the WorkingDirectory of the
@@ -34,7 +42,7 @@
 # a bind of <prefix> and a PYTHONPATH entry (which loads the editor hook) to the
 # spec, and recreates the runtime container: the PLC stops and restarts. The
 # editor hook keeps the canworks line in plugins.conf across new containers.
-# After a runtime version change CANopen stays off until this script is run
+# After a runtime version change canworks stays off until this script is run
 # again. --uninstall removes the spec entries again. --docker-image builds for a
 # runtime container you start yourself and prints the docker run flags.
 # See docs/install-stock.md.
@@ -61,8 +69,13 @@ DOCKER_IMAGE=""
 IN_IMAGE=0
 
 EDITOR_HOOK=1
+WITH_CANOPEN=1
+WITH_J1939=1
+# J1939 needs the kernel's can-j1939 module (overridable for the tests).
+MODULES_LOAD=${CANWORKS_MODULES_LOAD_DIR:-/etc/modules-load.d}/canworks-j1939.conf
+MODPROBE=${CANWORKS_MODPROBE:-modprobe}
 
-usage() { sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -75,6 +88,8 @@ while [ $# -gt 0 ]; do
         --purge) PURGE=1 ;;
         --docker-image) DOCKER_IMAGE="$2"; shift ;;
         --in-image) IN_IMAGE=1 ;;
+        --without-canopen) WITH_CANOPEN=0 ;;
+        --without-j1939) WITH_J1939=0 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
     esac
@@ -83,6 +98,32 @@ done
 
 die() { echo "error: $*" >&2; exit 1; }
 say() { echo "==> $*"; }
+
+[ "$WITH_CANOPEN" -eq 1 ] || [ "$WITH_J1939" -eq 1 ] ||
+    die "--without-canopen and --without-j1939 together leave no protocol to build"
+if [ "$WITH_CANOPEN" -eq 1 ] && [ "$WITH_J1939" -eq 1 ]; then
+    PROTOCOLS="CANopen and J1939"
+elif [ "$WITH_CANOPEN" -eq 1 ]; then
+    PROTOCOLS="CANopen"
+else
+    PROTOCOLS="J1939"
+fi
+
+# Loads can-j1939 now and at every boot; without J1939, removes the entry.
+setup_j1939_module() {
+    if [ "$WITH_J1939" -eq 0 ]; then
+        rm -f "$MODULES_LOAD"
+        return 0
+    fi
+    mkdir -p "$(dirname "$MODULES_LOAD")"
+    echo can-j1939 > "$MODULES_LOAD"
+    if "$MODPROBE" can-j1939 2>/dev/null; then
+        say "Kernel module can-j1939 loaded (and at every boot: $MODULES_LOAD)"
+    else
+        echo "warning: the kernel module can-j1939 could not be loaded; J1939 networks stay down until it is" \
+             "(modprobe can-j1939; on Ubuntu it is in linux-modules-extra-\$(uname -r))" >&2
+    fi
+}
 
 # --- Docker ------------------------------------------------------------------
 
@@ -126,6 +167,8 @@ build_in_image() {
     trap 'rm -rf "${SRC_COPY:?}"' EXIT
     cp -a "$REPO/." "$SRC_COPY/"
     local args=(--in-image --lely-ref "$LELY_REF")
+    [ "$WITH_CANOPEN" -eq 1 ] || args+=(--without-canopen)
+    [ "$WITH_J1939" -eq 1 ] || args+=(--without-j1939)
     say "Building in $image (this takes a while on a Raspberry Pi)"
     docker run --rm --network host \
         -v "$PREFIX:$CONTAINER_PREFIX" -v "$SRC_COPY:/src" \
@@ -166,12 +209,13 @@ elif [ -n "$DOCKER_IMAGE" ]; then
     [ "$UNINSTALL" -eq 0 ] || die "--uninstall with --docker-image: remove the flags from your container and delete $PREFIX"
     docker_entries
     build_in_image "$DOCKER_IMAGE"
+    setup_j1939_module
     cat <<EOF
 ==> Done. Built for $DOCKER_IMAGE into $PREFIX.
     Start the runtime container with these extra flags (next to upstream's
     --privileged --network host -v /dev:/dev):
         -v $DOCKER_BIND -e $DOCKER_ENV
-    Then deploy a program with its CANopen config (docs/deploy.md). Run this
+    Then deploy a program with its canworks config (docs/deploy.md). Run this
     script again whenever you change the runtime image.
 EOF
     exit 0
@@ -183,7 +227,7 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
     IMAGE=$(spec_tool image "$BOOTLOADER_SPEC") || die "cannot read $BOOTLOADER_SPEC; nothing was changed"
     say "Managed Docker install found: runtime image $IMAGE"
     if [ "$UNINSTALL" -eq 1 ]; then
-        say "Removing the CANopen entries from $BOOTLOADER_SPEC"
+        say "Removing the canworks entries from $BOOTLOADER_SPEC"
         spec_tool remove "$BOOTLOADER_SPEC" "$DOCKER_BIND" "$DOCKER_ENV" || die "could not update $BOOTLOADER_SPEC"
         recreate_runtime
         if [ "$PURGE" -eq 1 ]; then
@@ -193,7 +237,8 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
             say "Removing $PREFIX/lib (Lely and dcfgen stay in $PREFIX; --purge removes them)"
             rm -rf "${PREFIX:?}/lib"
         fi
-        say "Done. The runtime runs without CANopen."
+        rm -f "$MODULES_LOAD"
+        say "Done. The runtime runs without canworks."
         exit 0
     fi
     build_in_image "$IMAGE"
@@ -204,12 +249,13 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
     remove_old_prefix
     say "Adding $DOCKER_BIND and $DOCKER_ENV to $BOOTLOADER_SPEC"
     spec_tool add "$BOOTLOADER_SPEC" "$DOCKER_BIND" "$DOCKER_ENV" || die "could not update $BOOTLOADER_SPEC"
+    setup_j1939_module
     recreate_runtime
     cat <<EOF
-==> Done. CANopen is installed for $IMAGE and disabled until an upload enables it.
-    Deploy a program with its CANopen config (canworks-deploy, docs/deploy.md),
+==> Done. canworks ($PROTOCOLS) is installed for $IMAGE and disabled until an upload enables it.
+    Deploy a program with its canworks config (canworks-deploy, docs/deploy.md),
     or use the editor's "Build and upload" with a project that has a canworks/ folder.
-    After a runtime version change CANopen stays off until you run this script again.
+    After a runtime version change canworks stays off until you run this script again.
 EOF
     exit 0
 elif command -v docker >/dev/null 2>&1 &&
@@ -305,6 +351,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
     remove_old_install
     remove_editor_hook
     remove_sim_link
+    rm -f "$MODULES_LOAD"
     if [ -x "$PREFIX/venv/bin/python" ]; then
         "$PREFIX/venv/bin/python" -m pip uninstall -q -y canworks >/dev/null 2>&1 || true
     fi
@@ -334,9 +381,14 @@ fi
 pkg-config --atleast-version=3 openssl 2>/dev/null ||
     die "OpenSSL 3 development files are missing: apt-get install libssl-dev (Debian 12 or newer, Raspberry Pi OS bookworm or newer, Ubuntu 22.04 or newer)"
 mkdir -p "$PREFIX" "$PREFIX/state"  # state: slave networks' saved parameters
-"$REPO/scripts/build-lely.sh" --prefix "$PREFIX" --ref "$LELY_REF"
-say "Installing the deploy tool into $PREFIX/venv (EDS lint)"
-"$PREFIX/venv/bin/python" -m pip install -q "$REPO/tools/deploy"
+if [ "$WITH_CANOPEN" -eq 1 ]; then
+    "$REPO/scripts/build-lely.sh" --prefix "$PREFIX" --ref "$LELY_REF"
+    say "Installing the deploy tool into $PREFIX/venv (EDS lint)"
+    "$PREFIX/venv/bin/python" -m pip install -q "$REPO/tools/deploy"
+elif [ ! -x "$PREFIX/venv/bin/python" ]; then
+    # J1939 only: no Lely or dcfgen; the venv holds the editor hook.
+    python3 -m venv "$PREFIX/venv"
+fi
 
 # --- The plugin ---------------------------------------------------------------
 
@@ -349,21 +401,30 @@ fi
 
 BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
-say "Building the plugin against $RUNTIME_DIR ($COMMIT)"
+say "Building the plugin ($PROTOCOLS) against $RUNTIME_DIR ($COMMIT)"
+on_off() { [ "$1" -eq 1 ] && echo ON || echo OFF; }
 cmake -S "$REPO" -B "$BUILD_DIR" -DOPENPLC_ROOT="$RUNTIME_DIR" -DCANOPEN_BUILD_TESTS=OFF \
+    -DCANWORKS_WITH_CANOPEN="$(on_off "$WITH_CANOPEN")" -DCANWORKS_WITH_J1939="$(on_off "$WITH_J1939")" \
     -DLELY_PREFIX="$PREFIX/lely" -DCANOPEN_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release >/dev/null
-cmake --build "$BUILD_DIR" --target canworks_plugin canworks-sim -j"$(nproc)" >/dev/null
+TARGETS=(canworks_plugin)
+[ "$WITH_CANOPEN" -eq 0 ] || TARGETS+=(canworks-sim)
+cmake --build "$BUILD_DIR" --target "${TARGETS[@]}" -j"$(nproc)" >/dev/null
 
 say "Installing $LIB"
 mkdir -p "$LIB_DIR"
 install -m 0755 "$BUILD_DIR/plugins/libcanworks_plugin.so" "$LIB.new"
 mv -f "$LIB.new" "$LIB"
-# The standalone device simulator (docs/simulator.md), same version as the plugin.
-install -m 0755 "$BUILD_DIR/bin/canworks-sim" "$SIM_BIN.new"
-mv -f "$SIM_BIN.new" "$SIM_BIN"
-if [ "$IN_IMAGE" -eq 0 ]; then
-    ln -sfn "$SIM_BIN" "$SIM_LINK"
-    say "Installed $SIM_LINK"
+# The standalone CANopen device simulator (docs/simulator.md), same version as the plugin.
+if [ "$WITH_CANOPEN" -eq 1 ]; then
+    install -m 0755 "$BUILD_DIR/bin/canworks-sim" "$SIM_BIN.new"
+    mv -f "$SIM_BIN.new" "$SIM_BIN"
+    if [ "$IN_IMAGE" -eq 0 ]; then
+        ln -sfn "$SIM_BIN" "$SIM_LINK"
+        say "Installed $SIM_LINK"
+    fi
+else
+    [ "$IN_IMAGE" -eq 1 ] || remove_sim_link
+    rm -f "$SIM_BIN"
 fi
 echo "$COMMIT" > "$COMMIT_FILE"
 
@@ -392,6 +453,7 @@ if [ -s "$PLUGINS_CONF" ] && [ "$(tail -c1 "$PLUGINS_CONF" | od -An -c | tr -d '
 fi
 echo "$LINE" >> "$PLUGINS_CONF"
 say "plugins.conf: $LINE"
+setup_j1939_module
 fi
 
 # --- Editor hook --------------------------------------------------------------
@@ -428,18 +490,18 @@ elif [ "$EDITOR_HOOK" -eq 1 ]; then
         printf '%s\n' 'import sys; exec("try:\n import canworks_hook\nexcept ImportError:\n pass\nelse:\n canworks_hook.install()")'
     } > "$SITE/$PTH_NAME"
     say "Editor hook: $SITE/$PTH_NAME"
-    AFTER_UPLOAD="The editor's own \"Build and upload\" keeps CANopen on for a project with a canworks/ folder
+    AFTER_UPLOAD="The editor's own \"Build and upload\" keeps canworks on for a project with a canworks/ folder
     (canworks-deploy --into-project) and switches it off for a project without one."
 else
     remove_editor_hook
-    AFTER_UPLOAD="The editor's own \"Build and upload\" switches CANopen off until the next deploy
+    AFTER_UPLOAD="The editor's own \"Build and upload\" switches canworks off until the next deploy
     (installed with --no-editor-hook)."
 fi
 
 cat <<EOF
-==> Done. The plugin is installed but disabled.
+==> Done. The plugin ($PROTOCOLS) is installed but disabled.
     1. Restart the runtime once so it loads the plugin:  systemctl restart openplc-runtime
-    2. Deploy a program with its CANopen config:         canworks-deploy --help (docs/deploy.md)
-    The runtime enables CANopen when an upload carries conf/canworks.json and disables it when one does not.
+    2. Deploy a program with its canworks config:        canworks-deploy --help (docs/deploy.md)
+    The runtime enables canworks when an upload carries conf/canworks.json and disables it when one does not.
     $AFTER_UPLOAD
 EOF

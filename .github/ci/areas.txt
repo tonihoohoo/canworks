@@ -1,0 +1,47 @@
+# Path rules of the CI area classifier (.github/scripts/ci_changes.py).
+# One rule per line: <area> <pattern>. Patterns are fnmatch patterns on the
+# repository path, where * also matches /. A code path no rule names is
+# "shared". The first matching rule wins.
+
+j1939 plugin/src/j1939/*
+j1939 tools/deploy/canworks/j1939/*
+j1939 tools/deploy/canworks/bustrace/j1939.py
+j1939 tools/deploy/tests/test_j1939_*
+j1939 tools/deploy/tests/test_configurator_j1939_*
+j1939 tools/deploy/tests/data/j1939/*
+j1939 test/j1939/*
+j1939 test/j1939_unit/*
+j1939 test/fixtures/config/cases-j1939.json
+j1939 examples/j1939/*
+
+canopen plugin/src/canopen/*
+canopen tools/sim/*
+canopen tools/canopen_check.cpp
+canopen tools/deploy/canworks/_lely_dcf/*
+canopen tools/deploy/canworks/edslint.py
+canopen tools/deploy/canworks/eds.py
+canopen tools/deploy/canworks/dcfexport.py
+canopen tools/deploy/canworks/slaveeds.py
+canopen scripts/build-lely.sh
+canopen config/*
+canopen test/bus/*
+canopen test/cia402/*
+canopen test/commissioning/*
+canopen test/drive/*
+canopen test/fixed/*
+canopen test/localbus/*
+canopen test/lss/*
+canopen test/networks/*
+canopen test/params/*
+canopen test/pingpong/*
+canopen test/plc_sdo/*
+canopen test/rawframes/*
+canopen test/sensor/*
+canopen test/sim/*
+canopen test/sim_unit/*
+canopen test/simulator/*
+canopen test/slave/*
+canopen test/slcan/*
+canopen test/trace/*
+canopen test/unit/*
+canopen test/virtual-example/*
