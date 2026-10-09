@@ -790,6 +790,15 @@ def location_uses(net, prefix=""):
         if loc is not None:
             out.append(((loc.area, loc.size, loc.element), prefix + who, base + at, str(loc)))
 
+    # Raw messages first, named by their place in the file as the plugin does.
+    raw = (net.get("json") or {}).get("raw")
+    if net["path"] and isinstance(raw, dict):
+        for text, at in raw_contract.locations(raw, net["path"] + ".raw"):
+            loc = parse_location(text)
+            if loc is not None:
+                out.append(((loc.area, loc.size, loc.element), at, at, str(loc)))
+    if net.get("role") == "plain":
+        return out
     if net.get("role") == "j1939":
         _j1939_location_uses(net.get("j1939") or {}, add)
         return out

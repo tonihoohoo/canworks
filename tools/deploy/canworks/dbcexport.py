@@ -23,6 +23,7 @@ from .iec import CO_TYPES, CO_TYPE_BY_CODE, parse_location
 SDO_OPTIONS = ("none", "config", "all")
 MASTER = "Master"
 NO_RECEIVER = "Vector__XXX"
+PLC_NODE = "PLC"  # the sender of a plain CAN network's raw messages
 
 NMT_STATES = [(0, "Boot-up"), (4, "Stopped"), (5, "Operational"), (127, "Pre-operational")]
 NMT_COMMANDS = [(1, "Start"), (2, "Stop"), (128, "Enter pre-operational"), (129, "Reset node"),
@@ -52,13 +53,15 @@ class Signal:
     CANopen export leaves them at 1, 0 and ""."""
 
     def __init__(self, name, start, length, signed=False, float_kind=0, receivers=(), comment="",
-                 mux=None, multiplexer=False, values=None, scale=1, offset=0, unit="", big_endian=False):
+                 mux=None, multiplexer=False, values=None, scale=1, offset=0, unit="", big_endian=False,
+                 minimum=None, maximum=None):
         self.name, self.start, self.length = name, start, length
         self.signed, self.float_kind = signed, float_kind  # float_kind: 0, 1 (single) or 2 (double)
         self.receivers = list(receivers)
         self.comment, self.mux, self.multiplexer = comment, mux, multiplexer
         self.values = values or []  # [(value, text)]
         self.scale, self.offset, self.unit, self.big_endian = scale, offset, unit, big_endian
+        self.minimum, self.maximum = minimum, maximum  # physical limits; None: the raw range's
 
     def raw_range(self):
         if self.float_kind:
@@ -69,6 +72,8 @@ class Signal:
 
     def range(self):
         """[minimum, maximum] in physical units."""
+        if self.minimum is not None and self.maximum is not None:
+            return self.minimum, self.maximum
         lo, hi = self.raw_range()
         if self.scale == 1 and self.offset == 0:
             return lo, hi
@@ -565,9 +570,16 @@ def export_networks(cfg, config_path, eds_paths=None, sdo="none", names=None, ne
                 network, ", ".join(n["name"] or "unnamed" for n in every)), ["networks"])])
     files, warnings = [], list(result.warnings)
     j1939_nets = [n for n in nets if n["role"] == "j1939"]
-    masters = [n for n in nets if n["role"] == "master"] if j1939_nets else _no_slave(nets, network, "a DBC file")
+    plain = [n for n in nets if n["role"] == "plain"]
+    masters = [n for n in nets if n["role"] == "master"] if j1939_nets or plain \
+        else _no_slave(nets, network, "a DBC file")
     for net in nets:
-        if net in j1939_nets:
+        raw = net["json"].get("raw") if net["path"] else None
+        if net in plain:
+            model = Model([PLC_NODE], raw_messages(raw, PLC_NODE),
+                          "Plain CAN network %s of %s, exported by canworks-deploy %s" % (
+                              net["name"], os.path.basename(config_path), __version__), [])
+        elif net in j1939_nets:
             from .j1939 import dbc as j1939_dbc  # the J1939 export (canworks/j1939/dbc.py)
             model = j1939_dbc.build(net, config_path, names)
         elif net in masters:
@@ -578,9 +590,38 @@ def export_networks(cfg, config_path, eds_paths=None, sdo="none", names=None, ne
                     net["name"], os.path.basename(config_path), __version__)
         else:
             continue
+        if raw and net not in plain:
+            sender = PLC_NODE if PLC_NODE in model.nodes else model.nodes[0]
+            model.messages += raw_messages(raw, sender)
         files.append((net["name"], write(model)))
         warnings += [(net["name"] + ": " if len(every) > 1 else "") + w for w in model.warnings]
     return files, warnings
+
+
+def raw_messages(raw, sender):
+    """The raw messages of a network's `raw` object as DBC messages (spec
+    canopen-dbc-export "Raw messages in the DBC"): send messages from
+    `sender`, the cycle time from the period, or for a receive message a
+    third of its timeout."""
+    from .raw.contract import hex_id, tx_dlc
+    out = []
+    for kind in ("rx", "tx"):
+        for m in (raw or {}).get(kind) or []:
+            if not isinstance(m, dict) or not isinstance(m.get("id"), int):
+                continue
+            cycle = m.get("period_ms") if kind == "tx" else (m.get("timeout_ms") or 0) // 3
+            msg = Message(m["id"], identifier(m.get("name") or "msg_%s" % hex_id(m["id"])[2:]),
+                          tx_dlc(m) if kind == "tx" else m.get("dlc", 8), sender if kind == "tx" else NO_RECEIVER,
+                          comment="raw message, %s" % ("sent by the PLC" if kind == "tx" else "received"),
+                          cycle_ms=cycle or None, extended=bool(m.get("extended")))
+            for j, sg in enumerate(m.get("signals") or []):
+                msg.signals.append(Signal(
+                    identifier(sg.get("name") or "s%d" % j), sg["start_bit"], sg["length"], signed=bool(sg.get("signed")),
+                    receivers=[sender] if kind == "rx" else (), comment=sg.get("comment", ""),
+                    scale=sg.get("scale", 1), offset=sg.get("offset", 0), unit=sg.get("unit", ""),
+                    big_endian=sg.get("byte_order") == "big", minimum=sg.get("minimum"), maximum=sg.get("maximum")))
+            out.append(msg)
+    return out
 
 
 def _no_slave(nets, network, what):

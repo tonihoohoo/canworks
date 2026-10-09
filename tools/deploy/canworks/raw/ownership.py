@@ -70,9 +70,11 @@ def _canopen_use(net):
     for n in net.get("nodes") or []:
         if not isinstance(n, dict) or _uint(n.get("node_id")) is None:
             continue
-        nodes.append({"node_id": _uint(n["node_id"]), "name": n.get("name") or "",
-                      "tx_pdos": [p for p in n.get("tx_pdos") or [] if isinstance(p, dict) and _uint(p.get("number"))],
-                      "rx_pdos": [p for p in n.get("rx_pdos") or [] if isinstance(p, dict) and _uint(p.get("number"))]})
+        # A PDO without a number is numbered by its place, as the plugin does.
+        pdos = {key: [dict(p, number=_uint(p.get("number")) or j + 1)
+                      for j, p in enumerate(n.get(key) or []) if isinstance(p, dict)]
+                for key in ("tx_pdos", "rx_pdos")}
+        nodes.append({"node_id": _uint(n["node_id"]), "name": n.get("name") or "", **pdos})
     auto = auto_cob_ids(nodes)
 
     def pdo_cob(i, key, j, p, nid):

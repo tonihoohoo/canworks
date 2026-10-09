@@ -6,6 +6,7 @@ import re
 from .. import contract
 from ..iec import parse_location
 from ..iec import CO_TYPES, type_fits
+from ..raw import declare as raw_declare
 from .layout import C_MACROS, MASTER_LOCATIONS, NODE_LOCATIONS, SDO_VARIABLE_LOCATIONS, SIZE_TYPES, SLAVE_LOCATIONS
 
 IEC_TYPE = {
@@ -260,6 +261,15 @@ def declarations(cfg, object_name, declared, slave_object=None):
     nets = contract.networks(cfg) if isinstance(cfg, dict) else []
     base = 0
     for n in nets:
+        # Raw messages of any network (kind "raw"): `<network>_<message>_<signal>`
+        # with several networks or on a plain CAN network.
+        several = len(nets) > 1 and n["name"]
+        named = (several or n["role"] == "plain") and n["name"]
+        out.extend(raw_declare.declarations(
+            n["json"].get("raw"), n["path"] + "." if n["path"] else "", identifier(n["name"]) + "_" if named else "",
+            "network %s: " % n["name"] if named else "", unique, identifier, declared))
+        if n["role"] == "plain":
+            continue
         if n["role"] == "slave":
             slave_network(n)
             continue
@@ -277,13 +287,16 @@ def program_order(decls):
     """The declarations in a generated program's order: master diagnostics,
     then node by node in config order with diagnostics, inputs (PDO, then
     SDO), outputs (PDO, then SDO) and the NMT command byte last, then the
-    slave networks' inputs and outputs, then the J1939 networks'."""
+    slave networks' inputs and outputs, then the J1939 networks', then the raw
+    messages'."""
     def key(d):
         area = d["location"].strip()[1:2].upper()
         if d.get("kind") == "slave":
             return SLAVE_RANK, 0 if area == "I" else 1  # after every node, inputs first
         if d.get("kind") == "j1939":
             return SLAVE_RANK + 1, 0 if area == "I" else 1
+        if d.get("kind") == "raw":
+            return SLAVE_RANK + 2, 0 if area == "I" else 1
         node = -1 if d.get("node") is None else d["node"]
         return node, _RANK.get((d.get("kind"), area), 0 if area == "I" else 4)
     return sorted(decls, key=key)
