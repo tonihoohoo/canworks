@@ -15,7 +15,8 @@ block names and links to Lely's CANopen documentation.
 A line containing `rename-keep` is left alone, so code that has to name an
 old install (the install script's cleanup) can do so. Archived OpenSpec
 changes, this script, its test, the rename change itself and the
-toolkit-names spec (which lists the retired names) are skipped. Running the script twice changes nothing the second time.
+toolkit-names spec (which lists the retired names) are skipped.
+Running the script twice changes nothing the second time.
 """
 
 import argparse
