@@ -2,7 +2,7 @@
 # Stock-runtime install test (canopen-stock-install), on a checkout of the
 # upstream runtime:
 #   1. scripts/install-stock.sh twice: one disabled canworks line, no modified
-#      tracked runtime files
+#      tracked runtime files; an install from before the rename is removed
 #   2. the runtime's own upload handling on a deploy-tool bundle (enables
 #      canopen, config next to the library, EDS from core/generated/conf) and
 #      on an editor bundle without it (disables canopen)
@@ -39,8 +39,16 @@ hook_log() {
         grep '^\[canworks editor hook\]' || true)
 }
 
-echo "==> install (twice)"
-"$REPO/scripts/install-stock.sh" --no-deps --runtime-dir "$RUNTIME" >/dev/null
+echo "==> install (twice), over an install from before the rename to canworks"
+OLD_PREFIX="$WORK/old-prefix"
+mkdir -p "$OLD_PREFIX/lib"
+[ -f "$RUNTIME/plugins.conf" ] || cp "$RUNTIME/plugins_default.conf" "$RUNTIME/plugins.conf"
+echo "canopen,$OLD_PREFIX/lib/libcanopen_plugin.so,0,1,$OLD_PREFIX/lib/canopen.json," >> "$RUNTIME/plugins.conf"  # rename-keep
+touch "$SITE/openplc_canopen_hook.pth"  # rename-keep
+CANWORKS_OLD_PREFIX="$OLD_PREFIX" "$REPO/scripts/install-stock.sh" --no-deps --runtime-dir "$RUNTIME" >/dev/null
+! grep -q '^canopen,' "$RUNTIME/plugins.conf" || fail "the old canopen line was left"
+[ ! -e "$SITE/openplc_canopen_hook.pth" ] || fail "the old editor hook was left"  # rename-keep
+[ ! -e "$OLD_PREFIX" ] || fail "the old install folder was left"
 "$REPO/scripts/install-stock.sh" --no-deps --runtime-dir "$RUNTIME"
 [ "$(grep -c '^canworks,' "$RUNTIME/plugins.conf")" = 1 ] || fail "expected exactly one canworks line"
 grep -qx 'canworks,/opt/canworks/lib/libcanworks_plugin.so,0,1,/opt/canworks/lib/canworks.json,' \

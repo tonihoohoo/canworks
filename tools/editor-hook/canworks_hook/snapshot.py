@@ -165,7 +165,7 @@ def _load(snapshot_zip):
         sim = _read_sim(z, root, names, budget)
 
     # The deploy tool's checks, on the files as they arrived.
-    work = tempfile.mkdtemp(prefix="openplc-canopen-hook-")
+    work = tempfile.mkdtemp(prefix="canworks-hook-")
     try:
         def stage(files, tag):
             paths = {}

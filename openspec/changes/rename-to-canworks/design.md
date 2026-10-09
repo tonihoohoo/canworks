@@ -84,9 +84,9 @@ The PR merges first. Then the owner renames the repository in Settings → Gener
 
 ## Migration Plan
 
-1. Merge the PR (0.41.0).
+1. Merge the PR (0.42.0).
 2. Rename the repository on GitHub.
-3. Release publishes `canworks-0.41.0` and the `canworks-sim-runtime` image; set the image public.
+3. Release publishes `canworks-0.42.0` and the `canworks-sim-runtime` image; set the image public.
 4. Bench: reinstall the PC tools, re-run `install-stock.sh` on the PLC, rename the template project's folder, redeploy.
 
 Rollback: revert the merge and the GitHub rename.

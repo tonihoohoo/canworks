@@ -129,8 +129,10 @@ def apply(root):
 
 def check(root):
     found = []
+    # Main specs are synced from the change's deltas when it is archived.
+    pending = os.path.isdir(os.path.join(root, "openspec", "changes", "rename-to-canworks"))
     for path in tracked(root):
-        if skipped(path):
+        if skipped(path) or (pending and path.startswith("openspec/specs/")):
             continue
         if OLD.search(path):
             found.append("%s: path" % path)

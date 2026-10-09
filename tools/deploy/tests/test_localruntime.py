@@ -303,80 +303,12 @@ class Manage(WithRuntime):
         self.assertFalse(self.engine.volume)
 
 
-class Rename(WithRuntime):
-    """canopen-local-runtime: taking over a local runtime from the earlier name."""
-
-    def old_runtime(self, status="running"):
-        """A local runtime as PC tools 0.30.x left it: the old container name and
-        volume, and settings without a volume name."""
-        self.assertEqual(self.start()[0], 0)
-        self.engine.containers.pop(localruntime.CONTAINER)
-        self.engine.containers[localruntime.OLD_NAME] = [status, "ghcr.io/tonihoohoo/openplc-canopen-runtime:0.30.1",
-                                                         "openplc-canopen-runtime-data"]
-        saved = localruntime.load_settings()
-        saved.pop("volume")
-        localruntime.save_settings(saved)
-        return saved
-
-    def check_taken_over(self, first, out):
-        self.assertNotIn(localruntime.OLD_NAME, self.engine.containers)
-        new = self.engine.containers[localruntime.CONTAINER]
-        self.assertEqual((new[0], new[2]), ("running", "openplc-canopen-runtime-data"))
-        saved = localruntime.load_settings()
-        self.assertEqual((saved["password"], saved["fingerprint"]), (first["password"], first["fingerprint"]))
-        self.assertEqual(saved["volume"], "openplc-canopen-runtime-data")
-        self.assertIn("took over the local runtime openplc-canopen-runtime", out)
-
-    def test_update_takes_over(self):
-        first = self.old_runtime()
-        code, out, err = self.cli("update", "--port", str(self.port))
-        self.assertEqual(code, 0, err)
-        self.check_taken_over(first, out)
-        self.assertEqual(self.engine.container[1], localruntime.default_image())
-        # remove --data deletes the volume in use, not the default name
-        code, out, err = self.cli("remove", "--data")
-        self.assertEqual(code, 0, err)
-        self.assertIn(["docker", "volume", "rm", "openplc-canopen-runtime-data"], self.engine.calls)
-
-    def test_start_takes_over_stopped(self):
-        first = self.old_runtime("exited")
-        code, out, err = self.start()
-        self.assertEqual(code, 0, err)
-        self.check_taken_over(first, out)
-
-    def test_status_with_only_the_old_one(self):
-        self.old_runtime()
-        code, out, err = self.cli("status")
-        self.assertEqual(code, 1)
-        self.assertIn("canworks-sim-runtime update` takes it over", out)
-        self.assertIn(localruntime.OLD_NAME, self.engine.containers)
-
-    def test_both_containers(self):
-        self.assertEqual(self.start()[0], 0)
-        self.engine.containers[localruntime.OLD_NAME] = ["exited", "old", "openplc-canopen-runtime-data"]
-        for argv in (("status",), ("start", "--port", str(self.port))):
-            code, out, err = self.cli(*argv)
-            self.assertEqual(code, 0, err)
-            self.assertIn("remove it with `docker rm -f openplc-canopen-runtime`", out)
-        self.assertIn(localruntime.OLD_NAME, self.engine.containers)
-        self.assertEqual(self.engine.containers[localruntime.CONTAINER][2], localruntime.VOLUME)
-
+class Logs(WithRuntime):
     def test_logs_one_stream(self):
         self.assertEqual(self.start()[0], 0)
         self.assertEqual(self.cli("logs")[0], 0)
         self.assertEqual(self.engine.calls[-1], ["docker", "logs", localruntime.CONTAINER])
         self.assertTrue(self.engine.merged)
-
-    def test_old_command_name(self):
-        self.assertEqual(self.start()[0], 0)
-        out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = localruntime.old_main(["status"])
-        self.assertEqual(code, self.cli("status")[0])
-        self.assertEqual(err.getvalue().splitlines(),
-                         ["openplc-canopen-runtime is now canworks-sim-runtime; this name goes away in the "
-                          "next release"])
-        self.assertIn("container: canworks-sim-runtime, running", out.getvalue())
 
 
 class LocalTarget(WithRuntime):

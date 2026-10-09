@@ -31,7 +31,6 @@ CONTAINER = PROG
 VOLUME = PROG + "-data"
 # The name of PC tools 0.30.x (canopen-local-runtime: taking over a local
 # runtime from the earlier name); its command stays an alias for one release.
-OLD_NAME = "openplc-canopen-runtime"
 DATA_PATH = "/var/run/runtime"  # upstream's data directory in its image
 RUNTIME_PORT = 8443
 DIAG_PORT = 7531
@@ -195,36 +194,6 @@ def saved_volume(settings):
     return (settings or {}).get("volume") or VOLUME
 
 
-def _volume_of(eng, name):
-    r = eng("inspect", "--type", "container", "--format",
-            '{{range .Mounts}}{{if eq .Destination "%s"}}{{.Name}}{{end}}{{end}}' % DATA_PATH, name, timeout=30)
-    return (r.stdout or "").strip() if r.returncode == 0 else ""
-
-
-def _old_note(eng):
-    return ("note: an older local runtime container %s exists as well; remove it with `%s rm -f %s`"
-            % (OLD_NAME, " ".join(eng.argv), OLD_NAME))
-
-
-def take_over(eng, out):
-    """A container from the earlier name (PC tools 0.30.x) and none under the
-    current one: removes the old container and returns its data volume, so the
-    new container keeps the program, user and certificate. None otherwise."""
-    if container_state(eng, OLD_NAME) is None:
-        return None
-    if container_state(eng) is not None:
-        out(_old_note(eng))
-        return None
-    volume = _volume_of(eng, OLD_NAME) or OLD_NAME + "-data"
-    eng("stop", OLD_NAME, timeout=120)
-    r = eng("rm", OLD_NAME, timeout=60)
-    if r.returncode != 0:
-        raise LocalRuntimeError("%s could not remove the old container %s: %s"
-                                % (eng.name, OLD_NAME, _last_line(r.stderr)))
-    out("took over the local runtime %s (renamed %s): same data volume %s" % (OLD_NAME, CONTAINER, volume))
-    return volume
-
-
 def _has_image(eng, image):
     return eng("image", "inspect", image, timeout=60).returncode == 0
 
@@ -378,7 +347,7 @@ def cmd_start(args, out):
     image = args.image or default_image()
     port = args.port or (settings or {}).get("port") or RUNTIME_PORT
     diag_port = args.diag_port or (settings or {}).get("diag_port") or DIAG_PORT
-    volume = take_over(eng, out) or saved_volume(settings)
+    volume = saved_volume(settings)
     state = container_state(eng)
     if state is None:
         if not _has_image(eng, image):
@@ -438,17 +407,10 @@ def cmd_status(args, out):
     eng = _engine_for(args, settings)
     out("engine: %s" % eng.name)
     state = container_state(eng)
-    old = container_state(eng, OLD_NAME)
     if state is None:
-        if old is not None:
-            out("container: none; the older local runtime %s (%s) is there: `%s update` takes it over with "
-                "its data" % (OLD_NAME, old[0], PROG))
-        else:
-            out("container: none (run `%s start`)" % PROG)
+        out("container: none (run `%s start`)" % PROG)
         return 1
     out("container: %s, %s" % (CONTAINER, state[0]))
-    if old is not None:
-        out(_old_note(eng))
     out("image: %s" % state[1])
     if not settings:
         out("credentials: not saved on this PC (%s)" % settings_path())
@@ -495,7 +457,7 @@ def cmd_update(args, out):
         if not _has_image(eng, image):
             raise
         out("note: could not pull %s; using the copy on this PC" % image)
-    volume = take_over(eng, out) or saved_volume(settings)
+    volume = saved_volume(settings)
     if container_state(eng) is not None:
         eng("stop", CONTAINER, timeout=120)
         r = eng("rm", CONTAINER, timeout=60)
@@ -558,12 +520,6 @@ def parser():
     rm = sub.add_parser("remove", help="delete the container")
     rm.add_argument("--data", action="store_true", help="also delete its data volume and the saved credentials")
     return p
-
-
-def old_main(argv=None):
-    """The command's earlier name, kept for one release."""
-    print("%s is now %s; this name goes away in the next release" % (OLD_NAME, PROG), file=sys.stderr, flush=True)
-    return main(argv)
 
 
 COMMANDS = {"start": cmd_start, "stop": cmd_stop, "status": cmd_status, "logs": cmd_logs, "update": cmd_update,

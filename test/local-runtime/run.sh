@@ -130,29 +130,7 @@ if "${RT[@]}" update --image "$IMAGE" > "$WORK/update.log" 2>&1; then ok "update
 out=$("${RT[@]}" status 2>&1)
 grep -q "^PLC: [A-Z]" <<<"$out" && ok "saved credentials log in ($(grep '^PLC:' <<<"$out"))" || fail "status after update: $out"
 
-echo "5. a local runtime from the earlier name (PC tools 0.30.x) is taken over"
-"$ENGINE" stop canworks-sim-runtime >/dev/null 2>&1
-"$ENGINE" rename canworks-sim-runtime openplc-canopen-runtime >/dev/null 2>&1 || fail "rename the container"
-python3 - "$SETTINGS" <<'PY'
-import json, sys
-doc = json.load(open(sys.argv[1]))
-doc.pop("volume", None)  # 0.30.x saved no volume name
-json.dump(doc, open(sys.argv[1], "w"))
-PY
-out=$(openplc-canopen-runtime status 2>&1)
-grep -q "openplc-canopen-runtime is now canworks-sim-runtime" <<<"$out" && ok "the old command name still works" ||
-    fail "old command: $out"
-if "${RT[@]}" update --image "$IMAGE" > "$WORK/takeover.log" 2>&1; then ok "update"; else
-    cat "$WORK/takeover.log"; fail "update after the rename"; fi
-grep -q "took over the local runtime openplc-canopen-runtime" "$WORK/takeover.log" && ok "took over" ||
-    fail "no takeover line: $(cat "$WORK/takeover.log")"
-"$ENGINE" container inspect openplc-canopen-runtime >/dev/null 2>&1 && fail "old container left" || ok "old container gone"
-[ "$(saved volume)" = canworks-sim-runtime-data ] && ok "same data volume" || fail "volume $(saved volume)"
-[ "$(saved fingerprint)" = "$FP" ] && ok "same fingerprint after the takeover" || fail "fingerprint changed"
-out=$("${RT[@]}" status 2>&1)
-grep -q "^PLC: [A-Z]" <<<"$out" && ok "saved credentials log in" || fail "status after takeover: $out"
-
-echo "6. remove --data"
+echo "5. remove --data"
 "${RT[@]}" remove --data >/dev/null 2>&1
 "$ENGINE" container inspect canworks-sim-runtime >/dev/null 2>&1 && fail "container left" || ok "container gone"
 "$ENGINE" volume inspect canworks-sim-runtime-data >/dev/null 2>&1 && fail "volume left" || ok "volume gone"

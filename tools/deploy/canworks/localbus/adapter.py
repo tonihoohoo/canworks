@@ -125,7 +125,7 @@ class _Lock:
     sharing the adapter."""
 
     def __init__(self, spec):
-        folder = os.path.join(tempfile.gettempdir(), "openplc-canopen-adapters")
+        folder = os.path.join(tempfile.gettempdir(), "canworks-adapters")
         os.makedirs(folder, exist_ok=True)
         name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(spec))
         self.path = os.path.join(folder, name + ".lock")

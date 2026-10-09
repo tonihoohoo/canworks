@@ -204,6 +204,20 @@ class Installer(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(self.prefix, "state")))  # kept without --purge
         self.assertEqual(self.calls()[-2:], ["rm -f openplc-runtime", "restart openplc-bootloader"])
 
+    def test_install_from_before_the_rename_removed(self):
+        old = os.path.join(self.dir, "old-prefix")
+        os.makedirs(os.path.join(old, "lib"))
+        spec = json.loads(UPSTREAM_SPEC)
+        spec["extraBinds"] = ["/data:/data", "%s:/opt/openplc-canopen" % old]  # rename-keep
+        spec["extraEnv"] = ["PYTHONPATH=/opt/openplc-canopen/lib/sitecustomize"]  # rename-keep
+        self.write_spec(json.dumps(spec))
+        p = self.run_script(CANWORKS_OLD_PREFIX=old)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("from before the rename to canworks", p.stdout)
+        spec = json.loads(self.read_spec())
+        self.assertEqual((spec["extraBinds"], spec["extraEnv"]), (["/data:/data", self.bind], [self.env_entry]))
+        self.assertFalse(os.path.exists(old))
+
     def test_failed_build_changes_nothing(self):
         self.write_spec()
         p = self.run_script(STUB_RUN_FAILS="1")

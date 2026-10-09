@@ -1,10 +1,14 @@
 # canworks
 
+Open CAN toolkit: configure, commission, diagnose, trace and simulate CANopen and J1939 networks, with runtime plugins for OpenPLC.
+
 > **Experimental.** All code, tests and documentation in this repository were written by Claude (Anthropic's AI model), directed and tested by a person. Treat everything here as experimental: it has run on a test bench, not in production, and comes with no warranty (see [LICENSE](LICENSE)). Do not use it to control machinery where a fault could hurt people or damage equipment.
 
 A CANopen master (and slave) plugin for the [OpenPLC Runtime v4](https://github.com/Autonomy-Logic/openplc-runtime), built on [Lely CANopen](https://gitlab.com/lely_industries/lely-core) over Linux SocketCAN.
 
 The plugin reads a JSON file that lists the slave nodes, their EDS files and PDO entries, and binds each PDO entry to an explicit PLC address (`%IX`, `%IB`, `%IW`, `%ID`, `%IL` and the `%Q` equivalents). At every PLC start it validates the file against the EDS files, generates the device configuration with Lely's `dcfgen`, boots and configures every slave over SDO, and exchanges PDOs with the PLC image once per scan. A slave that is missing or drops off the bus never stops the PLC; its status bit goes FALSE and the master keeps trying to bring it back.
+
+**Renamed from openplc-canopen** (tools 0.42.0): the repository, PC tools, commands, plugin and its files are now called `canworks` (`canworks-deploy`, `canworks-config`, `canworks-diag`, `canworks-sim-runtime`, `/opt/canworks`, `conf/canworks.json`), with no old names left. After updating: reinstall the PC tools, run `scripts/install-stock.sh` again on the PLC (it removes the old install), and rename a project's `canopen/` folder to `canworks/`. <!-- rename-keep -->
 
 **Try it without hardware:** [docs/tour.md](docs/tour.md) walks through [`examples/virtual-plant`](examples/virtual-plant/README.md), one editor project with four simulated networks that shows the features below working together on a PC, with only a container engine, the PC tools and the editor.
 

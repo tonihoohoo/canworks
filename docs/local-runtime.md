@@ -73,10 +73,6 @@ canworks-sim-runtime remove [--data]            # delete the container; --data a
 
 `update` pulls the image that matches the installed tools (after a tools update), replaces the container and keeps the data volume, so the user, password and certificate stay the same. The new container has no program running: upload it again. `--image` runs another image, for example one built from a checkout (below).
 
-## Renamed in 0.31.0
-
-Tools 0.30.x called the command, image, container and volume `openplc-canopen-runtime`. From 0.31.0 they are `canworks-sim-runtime`, so the name says that everything in it runs simulated. A local runtime started with 0.30.x is taken over by the next `start` or `update`: the old container is replaced by `canworks-sim-runtime` on the same data volume (`openplc-canopen-runtime-data`), and the program data, user, password and certificate fingerprint stay. `openplc-canopen-runtime` still works in 0.31.x, with a one-line notice; the release after removes it. New images are published as `ghcr.io/tonihoohoo/canworks-sim-runtime`; the 0.30.x images stay under the old name.
-
 ## Limits
 
 - Every CANopen network runs simulated, whatever `adapter.simulate` and the adapter settings say: the image sets `CANWORKS_FORCE_SIMULATE=1`, and the runtime log, `canworks-diag status` and the configurator's online view say so. A real CAN adapter cannot be reached from a container on Windows or macOS anyway.

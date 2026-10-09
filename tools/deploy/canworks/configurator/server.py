@@ -2279,7 +2279,7 @@ def main(argv=None):
             print("canworks-config: %s" % e, file=sys.stderr)
             server.server_close()
             return 2
-    print("CANopen configurator: %s" % server.url, flush=True)
+    print("canworks configurator: %s" % server.url, flush=True)
     print("Press Ctrl-C to stop.", flush=True)
     if not args.no_browser:
         webbrowser.open(server.url)

@@ -18,7 +18,7 @@ The project is in active development and not in real use anywhere (2026-10-09). 
   - settings folder `canworks`
   - environment variables `CANWORKS_*`
 
-  The old command names, variables and folder are gone. Release tags stay `deploy-v<version>` and the version continues (0.41.0).
+  The old command names, variables and folder are gone. Release tags stay `deploy-v<version>` and the version continues (0.42.0).
 - **On the PLC**:
   - the plugin registers as `canworks` in `plugins.conf` with `libcanworks_plugin.so`
   - it installs under `/opt/canworks`
@@ -47,12 +47,12 @@ The project is in active development and not in real use anywhere (2026-10-09). 
 - `toolkit-names`: the project, package, command, PLC-side, image and settings names, the install cleanup of an older install, and the CI check that no old name remains.
 
 ### Modified Capabilities
-- none (main specs are rewritten in place by the same mapping; no behaviour other than names changes)
+- `canopen-local-runtime`: the takeover of a local runtime from the 0.30 name and the earlier command name are removed (clean cut). Other main specs are rewritten in place by the same mapping; no behaviour other than names changes.
 
 ## Impact
 
 - **Every area is touched**: PC tools (package move), plugin (library and plugin name, config file name, generated folder, simulator binary name), `scripts/install-stock.sh` and `scripts/docker_spec.py`, the editor hook, `.github/workflows/`, `.github/scripts/test_shard.py`, `docker/local-runtime/`, `schema/`, `library/`, tests, README and `docs/`.
 - **Existing installs must be redeployed** after the merge: re-run `install-stock.sh` on the bench PLC, rename the template project's `canopen/` folder to `canworks/`, and reinstall the PC tools. Nothing else uses the project.
-- **When it lands**: when no other pull request is open, or right after the open ones merge (today #39 and `propose/add-machine-sim`). Branches started later begin from the renamed `main`.
+- **When it lands**: when no other pull request is open, or right after the open ones merge. Branches started later begin from the renamed `main`.
 - **After the merge**, the owner renames the repository in GitHub Settings.
 - Licence stays Apache-2.0.

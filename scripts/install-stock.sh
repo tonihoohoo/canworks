@@ -92,6 +92,21 @@ docker_entries() {
     DOCKER_ENV="PYTHONPATH=$CONTAINER_PREFIX/lib/sitecustomize"
 }
 
+# An install from before the rename to canworks (tools 0.41 and earlier).
+# Removed once, when found; the lines naming it are kept by the rename check.
+# CANWORKS_OLD_PREFIX is for the tests.
+OLD_CONTAINER_PREFIX=/opt/openplc-canopen  # rename-keep
+OLD_PREFIX=${CANWORKS_OLD_PREFIX:-$OLD_CONTAINER_PREFIX}
+OLD_DOCKER_BIND="$OLD_PREFIX:$OLD_CONTAINER_PREFIX"
+OLD_DOCKER_ENV="PYTHONPATH=$OLD_CONTAINER_PREFIX/lib/sitecustomize"
+
+remove_old_prefix() {
+    if [ -d "$OLD_PREFIX" ] && [ "$OLD_PREFIX" != "$PREFIX" ]; then
+        say "Removing $OLD_PREFIX (the install from before the rename to canworks)"
+        rm -rf "${OLD_PREFIX:?}"
+    fi
+}
+
 # Builds Lely, dcfgen, the plugin and the editor hook in a one-shot container
 # of the runtime image $1, into <prefix> on the host (--in-image below).
 build_in_image() {
@@ -182,6 +197,11 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
         exit 0
     fi
     build_in_image "$IMAGE"
+    if grep -qF "$OLD_CONTAINER_PREFIX" "$BOOTLOADER_SPEC"; then
+        say "Removing the entries from before the rename to canworks from $BOOTLOADER_SPEC"
+        spec_tool remove "$BOOTLOADER_SPEC" "$OLD_DOCKER_BIND" "$OLD_DOCKER_ENV" || die "could not update $BOOTLOADER_SPEC"
+    fi
+    remove_old_prefix
     say "Adding $DOCKER_BIND and $DOCKER_ENV to $BOOTLOADER_SPEC"
     spec_tool add "$BOOTLOADER_SPEC" "$DOCKER_BIND" "$DOCKER_ENV" || die "could not update $BOOTLOADER_SPEC"
     recreate_runtime
@@ -248,7 +268,7 @@ remove_editor_hook() {
 }
 
 # Removes every canworks line from plugins.conf, in place (keeps owner/mode).
-strip_canopen_lines() {
+strip_plugin_lines() {
     [ -f "$PLUGINS_CONF" ] || return 0
     local tmp
     tmp=$(mktemp)
@@ -257,9 +277,32 @@ strip_canopen_lines() {
     rm -f "$tmp"
 }
 
+# Removes the plugin line, editor hook and simulator link of an install from
+# before the rename to canworks, then its folder.
+remove_old_install() {
+    local site tmp old_sim=/usr/local/bin/openplc-canopen-sim  # rename-keep
+    if [ -f "$PLUGINS_CONF" ] && grep -q '^canopen,' "$PLUGINS_CONF"; then
+        say "Removing the canopen line from before the rename to canworks from $PLUGINS_CONF"
+        tmp=$(mktemp)
+        grep -v '^canopen,' "$PLUGINS_CONF" > "$tmp" || true
+        cat "$tmp" > "$PLUGINS_CONF"
+        rm -f "$tmp"
+    fi
+    site=$(runtime_site)
+    if [ -n "$site" ] && [ -e "$site/openplc_canopen_hook.pth" ]; then  # rename-keep
+        say "Removing the editor hook from before the rename to canworks from $site"
+        rm -f "$site/openplc_canopen_hook.pth"  # rename-keep
+    fi
+    if [ -L "$old_sim" ]; then
+        rm -f "$old_sim"
+    fi
+    remove_old_prefix
+}
+
 if [ "$UNINSTALL" -eq 1 ]; then
     say "Removing the canworks plugin from $PLUGINS_CONF"
-    strip_canopen_lines
+    strip_plugin_lines
+    remove_old_install
     remove_editor_hook
     remove_sim_link
     if [ -x "$PREFIX/venv/bin/python" ]; then
@@ -341,7 +384,8 @@ if [ "$IN_IMAGE" -eq 0 ]; then
 if [ ! -f "$PLUGINS_CONF" ]; then
     cp "$RUNTIME_DIR/plugins_default.conf" "$PLUGINS_CONF"
 fi
-strip_canopen_lines
+strip_plugin_lines
+remove_old_install
 # The file may end without a newline.
 if [ -s "$PLUGINS_CONF" ] && [ "$(tail -c1 "$PLUGINS_CONF" | od -An -c | tr -d ' ')" != '\n' ]; then
     echo >> "$PLUGINS_CONF"

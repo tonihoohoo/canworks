@@ -1,6 +1,6 @@
 ## 1. Timing
 
-- [ ] 1.1 Before applying, check that no other pull request is open (today #39 and the `propose/add-machine-sim` branch). If any is, wait for it to merge, or agree with its thread to replay the rename on its branch (design Decision 4).
+- [ ] 1.1 Before applying, check that no other pull request is open. If any is, wait for it to merge, or agree with its thread to replay the rename on its branch (design Decision 4).
 
 ## 2. Rename script
 
@@ -17,13 +17,13 @@
 
 - [ ] 4.1 Workflows: wheel and image names, package paths in `test_shard.py`, labels in `docker/local-runtime/Dockerfile`; `rename_to_canworks.py --check` in the tools job (no new job). State the CI wall time against the median of the last 5 green main runs in the PR.
 - [ ] 4.2 README: title "canworks", tagline "Open CAN toolkit: configure, commission, diagnose, trace and simulate CANopen and J1939 networks, with runtime plugins for OpenPLC", a short "Renamed from openplc-canopen" note (reinstall tools, re-run the installer, rename the project folder); update `docs/` and the configurator page title.
-- [ ] 4.3 Bump the PC tools to 0.41.0; release notes name the new wheel and image.
+- [ ] 4.3 Bump the PC tools to 0.42.0; release notes name the new wheel and image.
 - [ ] 4.4 Run the banned-word check on the branch (`--files` and `--range origin/main..HEAD`).
 
 ## 5. After merge
 
 - [ ] 5.1 The owner renames the repository to `canworks` in GitHub Settings; then verify that the old clone URL redirects.
-- [ ] 5.2 After `deploy-v0.41.0` publishes, set the `canworks-sim-runtime` package public; verify an anonymous `docker pull`.
+- [ ] 5.2 After `deploy-v0.42.0` publishes, set the `canworks-sim-runtime` package public; verify an anonymous `docker pull`.
 - [ ] 5.3 Post the in-flight branch recipe once in the project chat; update project memory with the new names.
 
 ## 6. Bench
