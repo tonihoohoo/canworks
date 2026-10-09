@@ -3,23 +3,13 @@
 #include "raw_io.h"
 
 #include <errno.h>
-#include <fcntl.h>
-#include <linux/can.h>
-#include <linux/can/raw.h>
-#include <net/if.h>
 #include <poll.h>
 #include <sys/eventfd.h>
-#include <sys/ioctl.h>
-#include <sys/socket.h>
-#include <sys/time.h>
 #include <unistd.h>
 
 #include <cstring>
 
-// net/if.h hides IFF_ECHO; linux/if.h clashes with it.
-#ifndef IFF_ECHO
-#define IFF_ECHO (1 << 18)
-#endif
+#include "../frame_tx.h"
 
 namespace canworks_raw {
 
@@ -27,28 +17,9 @@ namespace {
 
 constexpr uint64_t kEchoMaxAgeUs = 1000000;  // an echo later than 1 s fails the frame
 constexpr int kTickMs = 1;
+constexpr int kIdleMs = 100;
 constexpr int kRetryMs = 1000;
-
-canworks_can_frame from_can(const can_frame& c, uint64_t time_us) {
-  canworks_can_frame f{};
-  bool ext = (c.can_id & CAN_EFF_FLAG) != 0;
-  f.id = c.can_id & (ext ? CAN_EFF_MASK : CAN_SFF_MASK);
-  f.flags = static_cast<uint8_t>((ext ? CANWORKS_CAN_EXTENDED : 0) | ((c.can_id & CAN_RTR_FLAG) ? CANWORKS_CAN_RTR : 0));
-  f.dlc = c.can_dlc > 8 ? 8 : c.can_dlc;
-  if (!(c.can_id & CAN_RTR_FLAG)) std::memcpy(f.data, c.data, f.dlc);
-  f.time_us = time_us;
-  return f;
-}
-
-can_frame to_can(const canworks_can_frame& f) {
-  can_frame c{};
-  c.can_id = f.id;
-  if (f.flags & CANWORKS_CAN_EXTENDED) c.can_id |= CAN_EFF_FLAG;
-  if (f.flags & CANWORKS_CAN_RTR) c.can_id |= CAN_RTR_FLAG;
-  c.can_dlc = f.dlc > 8 ? 8 : f.dlc;
-  if (!(f.flags & CANWORKS_CAN_RTR)) std::memcpy(c.data, f.data, c.can_dlc);
-  return c;
-}
+constexpr size_t kReadBatch = 256;
 
 // Approximate bits on the wire, with worst-case-ish stuffing (one stuff bit
 // per 5 of the stuffed part).
@@ -58,20 +29,27 @@ uint64_t frame_bits(const canworks_can_frame& f) {
   return stuffed + stuffed / 5 + 13;  // CRC delimiter, ACK, EOF, interframe space
 }
 
-uint64_t utc_us(const timeval& tv) {
-  return static_cast<uint64_t>(tv.tv_sec) * 1000000u + static_cast<uint64_t>(tv.tv_usec);
+canworks_can_frame from_raw_frame(const canopen_plugin::RawFrame& r) {
+  canworks_can_frame f{};
+  f.id = r.id;
+  f.flags = static_cast<uint8_t>((r.ext ? CANWORKS_CAN_EXTENDED : 0) | (r.rtr ? CANWORKS_CAN_RTR : 0));
+  f.dlc = r.dlc > 8 ? 8 : r.dlc;
+  std::memcpy(f.data, r.data, 8);
+  return f;
 }
 
 }  // namespace
 
-RawIo::RawIo(std::string interface, uint32_t bitrate, bool listen_only, RawEngine* engine, PlcPort* port,
-             RawIoHooks hooks)
-    : interface_(std::move(interface)),
+RawIo::RawIo(std::unique_ptr<RawLink> link, uint32_t bitrate, bool listen_only, RawEngine* engine, PlcPort* port,
+             RawIoHooks hooks, RawSimDevices* devices, std::shared_ptr<canopen_plugin::SimFrameInjector> injector)
+    : link_(std::move(link)),
       bitrate_(bitrate),
       listen_only_(listen_only),
       engine_(engine),
       port_(port),
-      hooks_(std::move(hooks)) {
+      hooks_(std::move(hooks)),
+      devices_(devices && devices->size() ? devices : nullptr),
+      injector_(std::move(injector)) {
   if (engine_) outputs_.assign(engine_->output_locations().size(), 0);
 }
 
@@ -100,122 +78,81 @@ void RawIo::with_engine(const std::function<void(const RawEngine&)>& f) {
   if (engine_) f(*engine_);
 }
 
-int RawIo::open_socket() {
-  int fd = socket(PF_CAN, SOCK_RAW | SOCK_NONBLOCK | SOCK_CLOEXEC, CAN_RAW);
-  if (fd < 0) return -errno;
-  ifreq ifr{};
-  std::strncpy(ifr.ifr_name, interface_.c_str(), IFNAMSIZ - 1);
-  if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
-    int e = errno;
-    close(fd);
-    return -e;
-  }
-  int index = ifr.ifr_ifindex;
-  // Echo of sent frames: confirmation on the bus when the driver echoes
-  // (IFF_ECHO); otherwise the kernel loops them back at once.
-  bool echo = ioctl(fd, SIOCGIFFLAGS, &ifr) == 0 && (ifr.ifr_flags & IFF_ECHO);
-  confirm_ = echo ? Confirm::Echo : Confirm::Write;
-  int on = 1;
-  setsockopt(fd, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &on, sizeof on);
-  setsockopt(fd, SOL_SOCKET, SO_TIMESTAMP, &on, sizeof on);
-  sockaddr_can addr{};
-  addr.can_family = AF_CAN;
-  addr.can_ifindex = index;
-  if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof addr) < 0) {
-    int e = errno;
-    close(fd);
-    return -e;
-  }
-  filters_version_ = ~0u;
-  set_filters(fd);
-  return fd;
-}
-
 // Config receive entries only: kernel filters. With program frames in use
-// (receivers, sends waiting for echoes, cyclic jobs) everything is taken and
-// matched here, so every echo and receiver sees its frames.
-void RawIo::set_filters(int fd) {
-  bool all = port_ && port_->active();
+// (receivers, sends waiting for echoes, cyclic jobs) or simulated devices
+// listening, everything is taken and matched here.
+void RawIo::set_filters() {
+  bool all = (port_ && port_->active()) || devices_;
   uint32_t version = port_ ? port_->receivers_version() : 0;
   if (all == filters_all_ && version == filters_version_) return;
   filters_all_ = all;
   filters_version_ = version;
-  std::vector<can_filter> f;
+  std::vector<LinkFilter> f;
   if (!all && engine_) {
-    for (const RawRx& m : engine_->config().rx) {
-      can_filter cf{};
-      cf.can_id = m.id | (m.extended ? CAN_EFF_FLAG : 0) | (m.rtr ? CAN_RTR_FLAG : 0);
-      cf.can_mask = m.mask | CAN_EFF_FLAG | CAN_RTR_FLAG;
-      f.push_back(cf);
-    }
+    constexpr uint32_t kEff = 0x80000000u, kRtr = 0x40000000u;
+    constexpr uint32_t kSffMask = 0x7FFu, kEffMask = 0x1FFFFFFFu;
+    for (const RawRx& m : engine_->config().rx)
+      f.push_back({m.id | (m.extended ? kEff : 0) | (m.rtr ? kRtr : 0), m.mask | kEff | kRtr});
     // Own sends come back for the sent counts.
-    for (const RawTx& m : engine_->config().tx) {
-      can_filter cf{};
-      cf.can_id = m.id | (m.extended ? CAN_EFF_FLAG : 0);
-      cf.can_mask = (m.extended ? CAN_EFF_MASK : CAN_SFF_MASK) | CAN_EFF_FLAG;
-      f.push_back(cf);
-    }
+    for (const RawTx& m : engine_->config().tx)
+      f.push_back({m.id | (m.extended ? kEff : 0), (m.extended ? kEffMask : kSffMask) | kEff});
   }
-  if (all || f.size() > 512) {
-    can_filter any{0, 0};
-    setsockopt(fd, SOL_CAN_RAW, CAN_RAW_FILTER, &any, sizeof any);
-  } else {
-    // An empty list receives nothing.
-    setsockopt(fd, SOL_CAN_RAW, CAN_RAW_FILTER, f.empty() ? nullptr : f.data(),
-               static_cast<socklen_t>(f.size() * sizeof(can_filter)));
-  }
+  link_->set_filters(f, all);
 }
 
-void RawIo::receive(int fd, uint64_t now) {
-  for (int n = 0; n < 256; ++n) {
-    can_frame c{};
-    char ctrl[CMSG_SPACE(sizeof(timeval))];
-    iovec iov{&c, sizeof c};
-    msghdr msg{};
-    msg.msg_iov = &iov;
-    msg.msg_iovlen = 1;
-    msg.msg_control = ctrl;
-    msg.msg_controllen = sizeof ctrl;
-    ssize_t r = recvmsg(fd, &msg, MSG_DONTWAIT);
-    if (r < static_cast<ssize_t>(sizeof c)) return;
-    if (c.can_id & CAN_ERR_FLAG) continue;
-    uint64_t t = 0;
-    for (cmsghdr* h = CMSG_FIRSTHDR(&msg); h; h = CMSG_NXTHDR(&msg, h))
-      if (h->cmsg_level == SOL_SOCKET && h->cmsg_type == SO_TIMESTAMP) {
-        timeval tv;
-        std::memcpy(&tv, CMSG_DATA(h), sizeof tv);
-        t = utc_us(tv);
-      }
-    canworks_can_frame f = from_can(c, t);
-    bool ours = (msg.msg_flags & MSG_CONFIRM) != 0;         // sent from this socket
-    bool this_host = (msg.msg_flags & MSG_DONTROUTE) != 0;  // sent by another socket here (the protocol)
-    load_bits_ += frame_bits(f);
-    if (ours) {
-      if (port_ && port_->own_echo(f)) continue;  // a program frame is on the bus
-    } else if (!this_host && port_) {
+void RawIo::handle(const LinkFrame& lf, uint64_t now) {
+  const canworks_can_frame& f = lf.frame;
+  load_bits_ += frame_bits(f);
+  if (devices_) devices_->on_frame(f, now / 1000);
+  if (lf.ours) {
+    if (port_ && port_->own_echo(f)) return;  // a program frame is on the bus
+  } else if (!lf.this_host) {
+    received_.fetch_add(1, std::memory_order_relaxed);
+    if (port_) {
       port_->on_frame(f);
       port_->count_rx();
     }
-    if (engine_ && !ours) {
-      std::lock_guard<std::mutex> lock(engine_mutex_);
-      if (engine_->on_frame(f, now) && hooks_.publish_inputs) hooks_.publish_inputs(engine_->input_values());
+  }
+  if (engine_ && !lf.ours) {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    if (engine_->on_frame(f, now) && hooks_.publish_inputs) hooks_.publish_inputs(engine_->input_values());
+  }
+}
+
+void RawIo::receive(uint64_t now) {
+  rx_buf_.clear();
+  link_->read(rx_buf_, kReadBatch);
+  for (const LinkFrame& lf : rx_buf_) handle(lf, now);
+}
+
+bool RawIo::write_frame(const canworks_can_frame& f, int& error, Origin origin) {
+  error = link_->write(f, origin);
+  if (error) return false;
+  if (origin == Origin::Own) {
+    sent_.fetch_add(1, std::memory_order_relaxed);
+    if (port_) port_->count_tx();
+  }
+  return true;
+}
+
+void RawIo::send_due(uint64_t now) {
+  bool running = hooks_.plc_running ? hooks_.plc_running() : true;
+  if (devices_) {
+    dev_buf_.clear();
+    devices_->due(now / 1000, dev_buf_);
+    for (const canworks_can_frame& f : dev_buf_) {
+      int err = 0;
+      write_frame(f, err, Origin::Device);
     }
   }
-}
-
-bool RawIo::write_frame(int fd, const canworks_can_frame& f, int& error) {
-  can_frame c = to_can(f);
-  ssize_t w = write(fd, &c, sizeof c);
-  if (w == static_cast<ssize_t>(sizeof c)) {
-    if (port_) port_->count_tx();
-    return true;
+  if (injector_) {
+    std::vector<canopen_plugin::RawFrame> hand;
+    injector_->drain(hand);
+    for (const auto& r : hand) {
+      int err = 0;
+      write_frame(from_raw_frame(r), err, Origin::Hand);
+    }
   }
-  error = w < 0 ? errno : EIO;
-  return false;
-}
-
-void RawIo::send_due(int fd, uint64_t now) {
-  bool running = hooks_.plc_running ? hooks_.plc_running() : true;
   if (engine_) {
     std::lock_guard<std::mutex> lock(engine_mutex_);
     engine_->set_plc_running(running && !listen_only_, now);
@@ -225,7 +162,7 @@ void RawIo::send_due(int fd, uint64_t now) {
     engine_->due(now, frames, idx);
     for (size_t k = 0; k < frames.size(); ++k) {
       int err = 0;
-      engine_->sent(idx[k], now, write_frame(fd, frames[k], err) ? 0 : err);
+      engine_->sent(idx[k], now, write_frame(frames[k], err) ? 0 : err);
     }
     if (engine_->check_timeouts(now) && hooks_.publish_inputs) hooks_.publish_inputs(engine_->input_values());
   }
@@ -234,7 +171,7 @@ void RawIo::send_due(int fd, uint64_t now) {
   uint32_t tag;
   while (port_->next_tx(f, tag)) {
     int err = 0;
-    if (write_frame(fd, f, err))
+    if (write_frame(f, err))
       port_->tx_written(tag, false);  // the echo confirms it (also without IFF_ECHO: the kernel loops it back)
     else
       port_->tx_failed(tag, err == ENETDOWN || err == ENODEV ? CANWORKS_CAN_ERR_BUS : CANWORKS_CAN_ERR_FULL);
@@ -244,7 +181,7 @@ void RawIo::send_due(int fd, uint64_t now) {
   int n = port_->cyclic_due(now, due, jobs, CANWORKS_CAN_CYCLIC_JOBS);
   for (int k = 0; k < n; ++k) {
     int err = 0;
-    if (write_frame(fd, due[k], err)) port_->cyclic_sent(jobs[k]);
+    if (write_frame(due[k], err)) port_->cyclic_sent(jobs[k]);
   }
   port_->expire_echoes(now, kEchoMaxAgeUs);
 }
@@ -267,52 +204,63 @@ void RawIo::update_bus(uint64_t now) {
   port_->publish_bus(info);
 }
 
+int RawIo::next_timeout(uint64_t now) {
+  if ((port_ && port_->active()) || (engine_ && !engine_->config().tx.empty())) return kTickMs;
+  uint64_t in_us = UINT64_MAX;
+  if (engine_) {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    in_us = engine_->next_event_in(now);
+  }
+  if (devices_) {
+    uint64_t d = devices_->next_in(now / 1000);
+    if (d != UINT64_MAX && d * 1000 < in_us) in_us = d * 1000;
+  }
+  if (in_us == UINT64_MAX) return kIdleMs;
+  uint64_t ms = in_us / 1000 + 1;
+  return ms > static_cast<uint64_t>(kIdleMs) ? kIdleMs : static_cast<int>(ms);
+}
+
 void RawIo::run() {
-  int fd = -1;
+  bool open = false;
   bool reported = false;
   while (!stop_) {
-    if (fd < 0) {
-      fd = open_socket();
-      if (fd < 0) {
+    if (!open) {
+      int r = hooks_.prepare && !hooks_.prepare() ? -ENETDOWN : link_->open();
+      if (r < 0) {
         if (!reported && hooks_.log)
-          hooks_.log("raw messages on " + interface_ + " wait for the interface: " + std::strerror(-fd));
+          hooks_.log("raw CAN on " + link_->where() + " waits for the interface: " + std::strerror(-r));
         reported = true;
         if (port_) port_->set_running(false);
         pollfd w{wake_fd_, POLLIN, 0};
         poll(&w, 1, kRetryMs);
         continue;
       }
-      if (reported && hooks_.log) hooks_.log("raw messages on " + interface_ + " running");
+      if (reported && hooks_.log) hooks_.log("raw CAN on " + link_->where() + " running");
       reported = false;
+      open = true;
+      confirm_ = link_->confirm();
+      filters_version_ = ~0u;
+      set_filters();
       if (port_) port_->set_running(true);
+      if (devices_) devices_->start(monotonic_us() / 1000);
     }
     uint64_t now = monotonic_us();
-    int timeout = kTickMs;
-    bool busy = (port_ && port_->active()) || (engine_ && !engine_->config().tx.empty());
-    if (!busy && engine_) {
-      std::lock_guard<std::mutex> lock(engine_mutex_);
-      uint64_t in = engine_->next_event_in(now);
-      timeout = in == UINT64_MAX ? 100 : static_cast<int>(in / 1000 + 1);
-      if (timeout > 100) timeout = 100;
-    } else if (!busy) {
-      timeout = 100;
-    }
-    pollfd p[2] = {{fd, POLLIN, 0}, {wake_fd_, POLLIN, 0}};
-    int r = poll(p, 2, timeout);
+    pollfd p[2] = {{link_->fd(), POLLIN, 0}, {wake_fd_, POLLIN, 0}};
+    int r = poll(p, 2, next_timeout(now));
     if (stop_) break;
     now = monotonic_us();
     if (r > 0 && (p[0].revents & (POLLERR | POLLHUP | POLLNVAL))) {
       // The interface went away (USB unplug): reopen.
-      close(fd);
-      fd = -1;
+      link_->close();
+      open = false;
       continue;
     }
-    set_filters(fd);
-    if (r > 0 && (p[0].revents & POLLIN)) receive(fd, now);
-    send_due(fd, now);
+    set_filters();
+    if (r > 0 && (p[0].revents & POLLIN)) receive(now);
+    send_due(now);
     update_bus(now);
   }
-  if (fd >= 0) close(fd);
+  link_->close();
   if (port_) {
     port_->set_running(false);
     port_->cancel_all();

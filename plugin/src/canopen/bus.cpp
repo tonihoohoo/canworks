@@ -19,6 +19,7 @@
 #include "can_adapter.h"
 #include "log.h"
 #include "network.h"
+#include "raw_bridge_server.h"
 #include "sim_config.h"
 #include "sim_host.h"
 
@@ -351,6 +352,19 @@ void Bus::run_session() {
           }
         }
       }));
+    }
+    // The raw path (raw messages, program frames, plain CAN devices) on the
+    // virtual bus; its own frames show as Tx in a trace.
+    std::unique_ptr<RawBridgeServer> raw_bridge;
+    if (virt) {
+      if (auto bridge = canworks_raw::sim_bridge(cfg_.network_index)) {
+        const bool tapped = static_cast<bool>(tap_chan);
+        raw_bridge.reset(new RawBridgeServer(ctx, poll, exec, *vbus, bridge, [&, tapped](const can_msg& m, bool own) {
+          if (!own || !tapped) return;
+          if (injected.size() >= 64) injected.pop_front();
+          injected.push_back(m);
+        }));
+      }
     }
     net.Start();
     SyncWake sync_wake(poll, image_.sync_fd(), net);

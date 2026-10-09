@@ -38,7 +38,7 @@ canworks_can_frame frame(uint32_t id, std::initializer_list<uint8_t> data, uint8
 }
 
 const canworks_can_api_v1* api() {
-  return static_cast<const canworks_can_api_v1*>(canworks_can_api(CANWORKS_CAN_API_VERSION));
+  return static_cast<const canworks_can_api_v1*>(canworks_can_api_table(CANWORKS_CAN_API_VERSION));
 }
 
 // A running port registered as network 0, unregistered at the end.
@@ -57,7 +57,7 @@ struct Net {
 TEST(api_versions) {
   CHECK(api() != nullptr);
   CHECK(api()->size == sizeof(canworks_can_api_v1));
-  CHECK(canworks_can_api(2) == nullptr);
+  CHECK(canworks_can_api_table(2) == nullptr);
 }
 
 TEST(receiver_range_and_order) {

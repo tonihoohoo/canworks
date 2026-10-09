@@ -931,7 +931,7 @@ bool parse_sim_file(const std::string& json, const std::string& path, SimFile& o
   }
   if (out.schema_version >= 2) {
     // Version 2: one section per network (docs/simulator.md).
-    if (!known_keys(root, {"schema_version", "tick_ms", "networks"}, err)) {
+    if (!known_keys(root, {"schema_version", "tick_ms", "networks", "raw_devices"}, err)) {
       fail("", err + (cJSON_GetObjectItemCaseSensitive(root, "nodes") || cJSON_GetObjectItemCaseSensitive(root, "scenarios") ||
                               cJSON_GetObjectItemCaseSensitive(root, "extra_devices")
                           ? " (in version 2, nodes, extra_devices and scenarios go in a network's section under "
@@ -976,7 +976,7 @@ bool parse_sim_file(const std::string& json, const std::string& path, SimFile& o
     }
     return errors.size() == before;
   }
-  if (!known_keys(root, {"schema_version", "tick_ms", "nodes", "extra_devices", "scenarios"}, err)) {
+  if (!known_keys(root, {"schema_version", "tick_ms", "nodes", "extra_devices", "scenarios", "raw_devices"}, err)) {
     fail("", err + (cJSON_GetObjectItemCaseSensitive(root, "networks")
                         ? " (per-network sections need \"schema_version\": 2)"
                         : ""));

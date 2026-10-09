@@ -28,6 +28,7 @@
 #include <chrono>
 #include <cstdint>
 #include <map>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -118,8 +119,17 @@ class DiagHub {
   // Server thread: the network's cyclic send jobs as a JSON array, for
   // status answers.
   void set_send_jobs(const std::string& json_array);
-  // Adds "send_jobs" and "bitrate_sweep" to a status result (either thread).
+  // Adds "send_jobs", "bitrate_sweep" and "raw" to a status result (either
+  // thread).
   void add_tx_status(cJSON* res) const;
+  // The network's raw CAN path status (raw/raw_runtime.h), set at config
+  // load before the server starts.
+  void set_raw_status(std::function<cJSON*()> f) { raw_status_ = std::move(f); }
+  // A plain CAN network has no bus thread: its raw path says whether frames
+  // can be sent.
+  void set_raw_running(std::function<bool()> f) { raw_running_ = std::move(f); }
+  // Frames sent by hand can go out now.
+  bool can_send() const { return attached() || (raw_running_ && raw_running_()); }
 
   // ---- bit rate detection (bitrate_sweep.h) ----
   // Server thread: asks the bus thread for a sweep; false when one is already
@@ -151,6 +161,8 @@ class DiagHub {
 
   // Guarded by state_mutex_ (never held together with mutex_).
   mutable std::mutex state_mutex_;
+  std::function<cJSON*()> raw_status_;
+  std::function<bool()> raw_running_;
   std::string operational_;
   std::string send_jobs_ = "[]";
   bool sweep_pending_ = false, sweep_running_ = false, sweep_ever_ = false;

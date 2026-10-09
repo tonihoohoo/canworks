@@ -102,6 +102,8 @@ typedef struct {
 
 /* The table for `version`, or NULL when this plugin does not offer it. */
 const void* canworks_can_api(uint32_t version);
+/* The same inside the plugin's code (the plugin exports it as the above). */
+const void* canworks_can_api_table(uint32_t version);
 
 #ifdef __cplusplus
 }

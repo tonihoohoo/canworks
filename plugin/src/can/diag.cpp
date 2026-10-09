@@ -234,6 +234,7 @@ void DiagHub::add_tx_status(cJSON* res) const {
   cJSON_AddItemToObject(res, "send_jobs", jobs ? jobs : cJSON_CreateArray());
   cJSON* sw = cJSON_AddObjectToObject(res, "bitrate_sweep");
   cJSON_AddBoolToObject(sw, "running", sweep_pending_ || sweep_running_);
+  if (raw_status_) cJSON_AddItemToObject(res, "raw", raw_status_());
 }
 
 bool DiagHub::request_sweep(const SweepRequest& req) {
@@ -348,7 +349,7 @@ cJSON* DiagHub::sweep_status() const {
 
 void diag_add_protocols(cJSON* res) {
   cJSON* p = cJSON_AddArrayToObject(res, "protocols");
-  for (Protocol k : {Protocol::CANopen, Protocol::J1939})
+  for (Protocol k : {Protocol::CANopen, Protocol::J1939, Protocol::None})
     if (protocol_built_in(k)) cJSON_AddItemToArray(p, cJSON_CreateString(protocol_name(k)));
 }
 
@@ -361,6 +362,21 @@ std::string DiagHub::offline_answer(const DiagRequest& r) const {
   cJSON_AddStringToObject(res, "network", cfg_.network.c_str());
   diag_add_protocols(res);
   cJSON_AddBoolToObject(res, "session", false);
+  if (cfg_.is_plain()) {
+    // A plain CAN network has no bus thread: this is its status at all times
+    // (its raw path in "raw").
+    cJSON_AddStringToObject(res, "protocol", "none");
+    cJSON_AddBoolToObject(res, "simulated_network", cfg_.adapter.simulate);
+    cJSON_AddBoolToObject(res, "simulation_forced", cfg_.adapter.simulation_forced);
+    cJSON_AddBoolToObject(res, "listen_only", cfg_.adapter.listen_only);
+    cJSON* b = cJSON_AddObjectToObject(res, "bus");
+    cJSON_AddStringToObject(b, "interface", cfg_.adapter.simulate ? "simulated" : cfg_.adapter.interface.c_str());
+    cJSON_AddNumberToObject(b, "bitrate", cfg_.adapter.bitrate);
+    add_tx_status(res);
+    cJSON* raw = cJSON_GetObjectItemCaseSensitive(res, "raw");
+    cJSON_AddNumberToObject(b, "state", cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(raw, "running")) ? 1 : 0);
+    return diag_ok(r.id, res);
+  }
   if (cfg_.is_j1939()) {
     // The bus thread answers while it runs (j1939_network.h); this is before
     // it started or after it ended.
@@ -810,7 +826,10 @@ cJSON* DiagServer::hello_info() const {
     cJSON_AddStringToObject(o, "interface", nc.adapter.interface.c_str());
     cJSON_AddNumberToObject(o, "bitrate", nc.adapter.bitrate);
     cJSON_AddStringToObject(o, "protocol", protocol_name(nc.protocol));
-    if (nc.is_j1939()) {
+    if (nc.is_plain()) {
+      cJSON_AddStringToObject(o, "role", "plain");
+      cJSON_AddBoolToObject(o, "listen_only", nc.adapter.listen_only);
+    } else if (nc.is_j1939()) {
       cJSON_AddStringToObject(o, "role", "ecu");
       cJSON_AddNumberToObject(o, "address", nc.j1939.ecu.address);
     } else if (nc.is_slave()) {
@@ -926,10 +945,11 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
     return;
   }
 
-  // A J1939 network serves its status only.
-  if (hub.config().is_j1939() && r.op != "status" && r.op != "hello") {
+  // A J1939 or plain CAN network serves its status only.
+  if (!hub.config().is_canopen() && r.op != "status" && r.op != "hello") {
     cJSON_Delete(req);
-    c.out += diag_error(r.id, "network \"" + hub.config().network + "\" is a J1939 network; " + r.op +
+    c.out += diag_error(r.id, "network \"" + hub.config().network + "\" is a " +
+                                  (hub.config().is_j1939() ? "J1939" : "plain CAN") + " network; " + r.op +
                                   " needs a CANopen network");
     return;
   }
@@ -1386,7 +1406,8 @@ void DiagServer::handle_tx(Client& c, size_t net, const std::string& op, const s
 
 std::string DiagServer::force_reason(size_t net, const RawFrame& f) const {
   const DiagHub& hub = *chans_[net].hub;
-  std::string use = cob_id_use(hub.config(), f.id, f.ext);
+  std::string use = protocol_id_use(hub.config(), f.id, f.ext);
+  if (use.empty()) use = raw_id_use(hub.config(), f.id, f.ext);
   if (!use.empty()) return id_text(f) + " is " + use + " on network " + (hub.config().network.empty() ? hub.config().adapter.interface : hub.config().network);
   std::string op = hub.operational();
   if (!op.empty()) return op + " is OPERATIONAL";
@@ -1476,7 +1497,11 @@ void DiagServer::handle_send(Client& c, size_t net, const std::string& id, const
     c.out += diag_error(id, "sending frames is not available on this simulated network");
     return;
   }
-  if (!hub.attached() || hub.sweep_busy()) {
+  if (cfg.adapter.listen_only) {
+    c.out += diag_error(id, "network \"" + cfg.network + "\" is listen-only: nothing is sent on it");
+    return;
+  }
+  if (!hub.can_send() || hub.sweep_busy()) {
     c.out += diag_error(id, "no bus");
     return;
   }
@@ -1629,9 +1654,9 @@ void DiagServer::handle_detect(Client& c, size_t net, const std::string& id, con
   DiagHub& hub = *chans_[net].hub;
   auto status = [&]() { c.out += diag_ok(id, hub.sweep_status()); };
   const Config& cfg = hub.config();
-  if (cfg.is_j1939()) {
-    c.out += diag_error(id, "bit rate detection runs on CANopen networks; network \"" + cfg.network +
-                                "\" is a J1939 network");
+  if (!cfg.is_canopen()) {
+    c.out += diag_error(id, "bit rate detection runs on CANopen networks; network \"" + cfg.network + "\" is a " +
+                                (cfg.is_j1939() ? "J1939" : "plain CAN") + " network");
     return;
   }
   std::string why;

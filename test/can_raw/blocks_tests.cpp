@@ -1,6 +1,6 @@
 // The library's CAN_* function blocks (spec can-plc-frames) with the
 // editor's glue (test/plc_sdo/bridge.py), against the plugin's frame port in
-// the same process (-DCAN_FRAMES_TEST_ENTRY=canworks_can_api). The test plays
+// the same process (-DCAN_FRAMES_TEST_ENTRY=canworks_can_api_table). The test plays
 // the raw I/O thread by hand.
 
 #include <cstring>

@@ -46,6 +46,18 @@ set(CANWORKS_CORE_SOURCES
     src/can/secure_channel.cpp
     src/can/can_adapter.cpp
     src/can/runtime_version.cpp
+    src/can/raw/config.cpp
+    src/can/raw/engine.cpp
+    src/can/raw/plc_frames.cpp
+    src/can/raw/raw_io.cpp
+    src/can/raw/raw_link.cpp
+    src/can/raw/raw_devices.cpp
+    src/can/raw/raw_runtime.cpp
+    # Value sources and plain CAN devices of the simulation file: the raw path
+    # plays plain CAN devices on any simulated network, without Lely.
+    src/canopen/sim/sim_expr.cpp
+    src/canopen/sim/sim_source.cpp
+    src/canopen/sim/sim_raw.cpp
     ${NATIVE_DIR}/cjson/cJSON.c
 )
 set(CANWORKS_CANOPEN_SOURCES
@@ -68,9 +80,8 @@ set(CANWORKS_CANOPEN_SOURCES
     src/canopen/gateway.cpp
     src/canopen/sim_config.cpp
     src/canopen/sim_trace.cpp
-    src/canopen/sim/sim_expr.cpp
+    src/canopen/raw_bridge_server.cpp
     src/canopen/sim/sim_od.cpp
-    src/canopen/sim/sim_source.cpp
     src/canopen/sim/sim_device.cpp
     src/canopen/sim/sim_file.cpp
     src/canopen/sim/sim_drive.cpp
@@ -96,6 +107,7 @@ endif()
 # Everything except the entry points, so the tests can link it too.
 add_library(canopen_core STATIC ${CANWORKS_SOURCES})
 target_include_directories(canopen_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/can
     ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen
     ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/sim

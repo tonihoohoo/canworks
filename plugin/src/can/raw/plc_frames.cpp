@@ -53,8 +53,17 @@ PlcPort* port(uint8_t network) {
   return network < kMaxNetworks ? g_ports[network].load(std::memory_order_acquire) : nullptr;
 }
 
+// Each port starts its handle generations where the previous ports left
+// off, so a handle the program kept from before a PLC restart (a new port)
+// answers "cancelled" instead of naming a new receiver or job.
+static std::atomic<uint32_t> g_gen_seed{0};
+
 PlcPort::PlcPort(uint8_t network) : network_(network) {
   bus_.state = 4;
+  uint32_t base = g_gen_seed.fetch_add(0x1000, std::memory_order_relaxed) & kGenMask;
+  for (Receiver& r : rx_) r.gen = base;
+  for (TxSlot& t : tx_) t.gen = base;
+  for (Job& j : jobs_) j.gen = base;
 }
 
 void PlcPort::set_rules(PortRules rules) { rules_ = std::move(rules); }
@@ -601,6 +610,7 @@ const canworks_can_api_v1 kApiV1 = {
 
 }  // namespace canworks_raw
 
-extern "C" __attribute__((visibility("default"))) const void* canworks_can_api(uint32_t version) {
+// The plugin exports it as canworks_can_api (plugin.cpp).
+extern "C" const void* canworks_can_api_table(uint32_t version) {
   return version == 1 ? &canworks_raw::kApiV1 : nullptr;
 }
