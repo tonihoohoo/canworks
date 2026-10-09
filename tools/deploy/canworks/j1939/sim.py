@@ -61,6 +61,19 @@ class SimError(Exception):
 # Identifiers, NAMEs and values
 
 
+def _pythoncom_fix():
+    """can-j1939 (2.0.12) ends its job thread on Windows with
+    pythoncom.CoUnitialize(), a misspelling that raises at every stop."""
+    if sys.platform != "win32":
+        return
+    try:
+        import pythoncom
+    except ImportError:
+        return
+    if not hasattr(pythoncom, "CoUnitialize") and hasattr(pythoncom, "CoUninitialize"):
+        pythoncom.CoUnitialize = pythoncom.CoUninitialize
+
+
 def pgn_of(frame_id):
     """The PGN of a 29-bit identifier: PS is part of it only for PDU2 (PF >= 240)."""
     dp, pf, ps = (frame_id >> 24) & 1, (frame_id >> 16) & 0xFF, (frame_id >> 8) & 0xFF
@@ -495,6 +508,7 @@ class Simulator:
             if m.is_extended_frame:
                 self._rx.setdefault(pgn_of(m.frame_id), []).append(m)
 
+        _pythoncom_fix()
         self.ecu = j1939.ElectronicControlUnit(send_message=self._send_frame, max_cmdt_packets=255)
         self.ca = _claim_class()(name, address, keep_address, lambda: set(self.claims), self._report, clock)
         self.ecu.add_ca(controller_application=self.ca)
