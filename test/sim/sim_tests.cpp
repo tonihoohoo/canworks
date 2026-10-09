@@ -2578,6 +2578,10 @@ TEST(sim_diag_status_emcy_sdo_nmt) {
   CHECK_MSG(num(cJSON_GetArrayItem(list, 0), "code") == 0x6000 + 39, std::to_string(num(cJSON_GetArrayItem(list, 0), "code")));
   CHECK(num(cJSON_GetArrayItem(list, 15), "code") == 0x6000 + 24);
   cJSON_Delete(a);
+  // The status counts every EMCY received (4 + 40), not the history's 16.
+  a = sim->Ask(diag_req("status"));
+  CHECK_MSG(num(field(node_of(a, 5), "emcy"), "count") == 44, a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
 
   // Manual SDO read: the device name, a missing object, an absent node.
   a = sim->Ask(diag_req("sdo_read", 5, 0x1008, 0));

@@ -1277,6 +1277,7 @@ void Network::HandleEmcy(uint8_t id, uint16_t eec, uint8_t er, const std::array<
   rec.msef = msef;
   n.emcy_head = (n.emcy_head + 1) % kEmcyHistory;
   n.emcy_n = std::min(n.emcy_n + 1, kEmcyHistory);
+  ++n.emcy_total;
   auto now = clock::now();
   if (now - n.emcy_window >= std::chrono::seconds(1)) {
     FlushEmcySummary(n, now, true);

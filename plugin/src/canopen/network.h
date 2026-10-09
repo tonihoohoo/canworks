@@ -235,7 +235,8 @@ class Network : public lely::canopen::BasicMaster {
     };
     std::array<Emcy, kEmcyHistory> emcy_hist{};
     size_t emcy_head = 0;
-    size_t emcy_n = 0;
+    size_t emcy_n = 0;       // in the history
+    uint64_t emcy_total = 0;  // received in this session
     // LSS assignment before boot retries (lss.assign): next attempt, backoff,
     // and whether one is running for this node.
     clock::time_point lss_next{};
