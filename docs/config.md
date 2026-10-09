@@ -394,7 +394,7 @@ Without any node with `lss` and without diagnostics changes the master sends no 
 
 | Field | Meaning |
 |---|---|
-| `scale_numerator` | Drive increments for `scale_denominator` position units, -2147483648 to 2147483647. Default 1. |
+| `scale_numerator` | Drive increments for `scale_denominator` position units, -2147483648 to 2147483647 except 0. Default 1. |
 | `scale_denominator` | 1 to 4294967295. Default 1. |
 | `scale_factor` | The library's extra factor, any number but 0. Default 1.0. |
 | `cyclic` | `true`: the program drives the axis in the cyclic synchronous modes (CSP 8, CSV 9, CST 10) with the `CO402_Cyclic*` blocks. Default `false`. |
@@ -679,7 +679,7 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a time in µs that CiA counts in 100 µs is not a multiple of 100, `sync_counter_overflow` is 1 or above 240, or an `error_behavior` sub-index is outside 1-254;
 - a node sets `config_check` while its EDS has no writable 0x1020 sub 1 and sub 2, or `store_configuration` outside 1-127, without `config_check`, or on a 0x1010 sub-index its EDS does not define as writable;
 - a node sets `lss.assign` without `serial_number` or with `reset_communication: false`, `lss.store` without `lss.assign`, or two nodes with `lss.assign` have the same LSS address;
-- a node's `axis` is not an object, has an unknown field, a `scale_numerator` that is not an integer in the DINT range, a `scale_denominator` outside 1-4294967295 or a `scale_factor` of 0;
+- a node's `axis` is not an object, has an unknown field, a `scale_numerator` that is 0 or not an integer in the DINT range, a `scale_denominator` outside 1-4294967295 or a `scale_factor` of 0;
 - a node sets `heartbeat_consumer: true` while `master.heartbeat_ms` is 0, sets `software_version` without `software_file`, or names a `software_file` that does not exist;
 - a location lies outside the runtime's I/O image (index 1024 and up on a default runtime);
 - in a version 2 file: `networks` is missing, empty or longer than 8, a network name is invalid or used twice, two networks use the same interface or serial device, a field of a network (`adapter`, `master`, `nodes`) sits at the top level, or `diagnostics` sits in a network's `master`;

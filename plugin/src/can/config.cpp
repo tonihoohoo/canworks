@@ -1519,8 +1519,12 @@ class Parser {
         n.interpolation_period_us = (unsigned)period;
     }
     double v = 0;
-    if (get_number(axis, "scale_numerator", aw, -2147483648.0, 2147483647.0, v) && v != std::floor(v))
-      error(aw, "field 'scale_numerator' must be an integer");
+    if (get_number(axis, "scale_numerator", aw, -2147483648.0, 2147483647.0, v)) {
+      if (v != std::floor(v))
+        error(aw, "field 'scale_numerator' must be an integer");
+      else if (v == 0)
+        error(aw, "field 'scale_numerator' must not be 0");
+    }
     if (get_number(axis, "scale_denominator", aw, 1.0, 4294967295.0, v) && v != std::floor(v))
       error(aw, "field 'scale_denominator' must be an integer");
     if (get_number(axis, "scale_factor", aw, -DBL_MAX, DBL_MAX, v) && v == 0)

@@ -98,6 +98,9 @@ class SendPanel(Base):
         pg.fill('[data-send="period"]', "100")
         pg.click('[data-send="send"]')
         pg.wait_for_selector('[data-send-job="1"]')
+        # The job list the server polls shows the identifier in hex too.
+        pg.wait_for_timeout(1300)  # after a poll of the server's job list
+        self.assertTrue(pg.inner_text('[data-send-job="1"]').startswith("Job 1: 60A [0]"), pg.inner_text('[data-send-job="1"]'))
         pg.click('[data-send-job="1"] [data-send="stop-job"]')
         pg.wait_for_selector("#banner:has-text('Job 1 stopped')")
         self.assertEqual(pg.locator("[data-send-job]").count(), 0)
@@ -109,9 +112,27 @@ class SendPanel(Base):
         pg.wait_for_selector("#banner:has-text('ended: count reached, 3 sent')")
         self.assertEqual(pg.locator("[data-send-job]").count(), 0)
 
+    def test_messages_in_the_page_words(self):
+        pg = self.page
+        self.trace()
+        for ident, data, msg in (("6G0", "", "the identifier must be hex, for example 60A"),
+                                 ("60A", "4", "the data must be whole hex bytes, for example 40 18 10 01"),
+                                 ("60A", "zz", "the data must be whole hex bytes, for example 40 18 10 01"),
+                                 ("800", "", "identifier 800 is out of range: 0-7FF (tick Extended for a 29-bit one)")):
+            pg.evaluate("banner('')")
+            pg.fill('[data-send="id"]', ident)
+            pg.fill('[data-send="data"]', data)
+            pg.click('[data-send="send"]')
+            pg.wait_for_selector("#banner.error")
+            self.assertEqual(pg.inner_text("#banner-text"), "Not sent: " + msg)
+        # An error banner goes with a switch of the trace's tab.
+        pg.click('[data-trace-tab="ids"]')
+        self.assertTrue(pg.is_hidden("#banner"))
+
     def test_send_this_frame_from_the_trace(self):
         pg = self.page
         self.trace()
+        pg.click("[data-trace=send-panel] > summary")  # closed again: Send this frame opens it
         pg.click("[data-trace=start]")
         pg.wait_for_selector("#trace-source:has-text('recording')")
         now = int(time.time() * 1e6)
@@ -119,6 +140,8 @@ class SendPanel(Base):
         pg.wait_for_selector("#trace-rows .trace-row")
         pg.click("#trace-rows .trace-row")
         pg.click("[data-trace=send-this]")
+        self.assertTrue(pg.eval_on_selector("[data-trace=send-panel]", "d => d.open"))
+        self.assertTrue(pg.is_visible('[data-send="id"]'))
         self.assertEqual(pg.input_value('[data-send="id"]'), "60A")
         self.assertEqual(pg.input_value('[data-send="data"]'), "40 18 10 01 00 00 00 00")
         pg.click('[data-send="send"]')

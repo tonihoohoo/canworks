@@ -20,6 +20,11 @@
 // "slave node ID <n>" (or "LSS") and lists the bound objects. A gateway
 // section is checked against the upper network's EDS. A J1939 network is
 // checked as the plugin does; its line names the ECU's address and its PGNs.
+//
+// A simulation file next to the config (simulation.json, or
+// canworks/simulation.json) is checked as far as the plugin checks it before
+// its simulator runs: the file itself, its sections and nodes, and value
+// sources on objects the master writes.
 
 #include <cstdio>
 #include <cstdlib>
@@ -32,8 +37,50 @@
 #include "eds_check.h"
 #include "eds_lint.h"
 #include "log.h"
+#include "sim_config.h"
+#include "sim_file.h"
 
 using namespace canopen_plugin;
+
+namespace {
+
+// The simulation file of the master networks that simulate anything, as
+// MasterRuntime::load_sim reads it (without starting the simulator).
+bool check_simulation(const ConfigSet& set, std::vector<std::string>& errors) {
+  if (set.networks.empty()) return true;
+  std::string path;
+  for (const char* name : {"/simulation.json", "/canworks/simulation.json"}) {
+    std::string p = set.networks[0].config_dir + name;
+    if (FILE* f = std::fopen(p.c_str(), "r")) {
+      std::fclose(f);
+      path = p;
+      break;
+    }
+  }
+  if (path.empty()) return true;
+  bool used = false;
+  for (const auto& cfg : set.networks) used = used || (!cfg.is_slave() && !cfg.is_j1939() && simulates_anything(cfg));
+  if (!used) return true;
+  canopen_sim::SimFile loaded;
+  if (!canopen_sim::load_sim_file(path, loaded, errors)) return false;
+  if (loaded.schema_version >= 2 && !check_sim_sections(set, loaded, errors)) return false;
+  bool ok = true;
+  for (const auto& cfg : set.networks) {
+    if (cfg.is_slave() || cfg.is_j1939() || !simulates_anything(cfg)) continue;
+    canopen_sim::SimFile file;
+    if (loaded.schema_version >= 2) {
+      if (!canopen_sim::sim_file_section(loaded, sim_network_name(cfg), file)) continue;
+    } else if (set.several()) {
+      continue;  // a version 1 file is not used with several networks
+    } else {
+      file = loaded;
+    }
+    ok = check_sim_file(cfg, file, errors) && check_sim_sources(cfg, file, errors) && ok;
+  }
+  return ok;
+}
+
+}  // namespace
 
 int main(int argc, char** argv) {
   ImageLimits limits;
@@ -72,6 +119,7 @@ int main(int argc, char** argv) {
     checked = check_gateway_eds(set, errors);
     for (const auto& w : set.warnings) std::printf("warning: %s\n", w.c_str());
   }
+  if (checked) checked = check_simulation(set, errors);
   if (!checked) {
     for (const auto& e : errors) std::printf("error: %s\n", e.c_str());
     return 1;

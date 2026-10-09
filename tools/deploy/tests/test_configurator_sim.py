@@ -105,6 +105,28 @@ class File(Sim):
         self.assertEqual([p["path"] for p in problems], ["networks.io"])
         self.assertEqual(simulation.check({"schema_version": 2})[0]["path"], "")
 
+    def test_check_and_save_refuse_what_the_plugin_refuses(self):
+        # Against the saved config, as the plugin loads the file (D3, D19).
+        cfg = sim_config()
+        cfg["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": 30}]
+        self.ok("POST", "/api/save", {"config": cfg})
+        doc = {"schema_version": 1, "nodes": {"5": {"sources": {"0x6110:1": {"constant": 1}},
+                                                    "faults": [{"tpdo_stop": 9}]}},
+               "scenarios": {"s": {"steps": [{"node": 5, "override": {"0x7130:1": "abc"}},
+                                             {"node": 99, "log": "x"}]}}}
+        problems = {p["path"]: p for p in self.ok("POST", "/api/sim/check", {"doc": doc})["problems"]}
+        self.assertEqual(problems["nodes.5.sources.0x6110:1"]["message"],
+                         "node 5 (rtd): 0x6110:1 is written by the master (startup SDO); a value source cannot drive "
+                         "it (an override makes the device ignore the master)")
+        self.assertIn("TPDO 9 does not exist", problems["nodes.5.faults[0].tpdo_stop"]["message"])
+        self.assertIn('"abc" does not fit INTEGER16', problems["scenarios.s.steps[0].override"]["message"])
+        self.assertIn("unknown device 99", problems["scenarios.s.steps[1].node"]["message"])
+        self.assertTrue(all(p["level"] == "error" and self.sim_path not in p["message"] for p in problems.values()))
+        status, data, _ = self.request("POST", "/api/sim/save", {"doc": doc})
+        self.assertEqual(status, 422, data)
+        self.assertEqual(len(data["problems"]), 4)
+        self.assertFalse(os.path.exists(self.sim_path))
+
 
 class Settings(Sim):
     def test_address_token_and_pins_stay_on_this_pc(self):
@@ -162,6 +184,16 @@ class Live(Sim):
             self.assertEqual(fake.sent("sim_fault")[0]["fault"], {"emcy": {"code": "0x5000"}})
             self.assertNotIn("port", fake.sent("sim_fault")[0])
             self.assertEqual(self.request("POST", "/api/sim/request", {"op": "status"})[0], 400)
+
+    def test_closed_simulator_port_names_the_simulator(self):
+        with FakeSim(token="", standalone=True) as fake:
+            address = fake.address
+        self.ok("POST", "/api/sim/settings", {"target": "simulator", "address": address})
+        status, data, _ = self.request("POST", "/api/sim/poll", {})
+        self.assertEqual((status, data["kind"]), (502, "closed"))
+        self.assertIn("no canworks-sim runs there", data["error"])
+        self.assertNotIn("runtime", data["error"])
+        self.assertNotIn("PLC", data["error"])
 
     def test_expression_checked_by_the_simulator_when_connected(self):
         with FakeSim(token="", standalone=True) as fake:

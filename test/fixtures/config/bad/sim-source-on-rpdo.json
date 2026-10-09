@@ -1,0 +1,69 @@
+{
+  "description": "A value source on 0x4000:0, which node 2's RPDO 1 maps (D3).",
+  "config": {
+    "schema_version": 1,
+    "adapter": {
+      "type": "socketcan",
+      "interface": "vcan0",
+      "bitrate": 125000,
+      "simulate": true
+    },
+    "master": {
+      "node_id": 1,
+      "sync_period_us": 100000
+    },
+    "nodes": [
+      {
+        "node_id": 2,
+        "name": "pingpong",
+        "eds": "cpp-slave.eds",
+        "heartbeat_ms": 100,
+        "status_location": "%IX10.0",
+        "tx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4001",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%ID100"
+              }
+            ]
+          }
+        ],
+        "rx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4000",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%QD100"
+              }
+            ]
+          }
+        ],
+        "sdo": [
+          {
+            "index": "0x1017",
+            "subindex": 0,
+            "type": "UNSIGNED16",
+            "value": 100
+          }
+        ]
+      }
+    ]
+  },
+  "simulation": {
+    "schema_version": 1,
+    "nodes": {
+      "2": {
+        "sources": {
+          "0x4000:0": {
+            "constant": 1
+          }
+        }
+      }
+    }
+  }
+}

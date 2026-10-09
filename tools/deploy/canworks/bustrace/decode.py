@@ -19,10 +19,13 @@ decode() keeps state for segmented SDO transfers: feed it the frames in
 order (reset() before a new pass).
 """
 
+import os
 import re
 import struct
 
-from .. import contract, dbcexport, diag
+from .. import bundle, contract, dbcexport, diag, edslint
+from .. import eds as eds_mod
+from ..iec import CO_TYPE_BY_CODE
 from .model import Frame
 
 # J1939 kinds (j1939.py) come last so the CANopen codes stay as they were.
@@ -152,6 +155,62 @@ def j1939_network(cfg, network=None):
     return net if net is not None and net["json"].get("protocol") == "j1939" else None
 
 
+def _slave_config(net, eds_paths):
+    """A version 1 style config with the PLC as the one node of a slave
+    network (contract.networks() entry): its PDOs are the default mappings
+    of its own EDS, the objects it binds carry their PLC locations."""
+    s = net["slave"]
+    nid = dbcexport._u(s.get("node_id"))
+    with open(eds_paths[s["eds"]], "rb") as f:
+        text, _, _ = edslint.check(f.read(), nid)
+    eds = eds_mod.Eds.read(s["eds"], text)
+    bound = {(dbcexport._u(o.get("index")), dbcexport._u(o.get("subindex"), 0)): o
+             for o in s.get("objects") or [] if isinstance(o, dict)}
+    node = {"node_id": nid, "name": net["name"] or "plc", "eds": s["eds"], "tx_pdos": [], "rx_pdos": []}
+    for key, base in (("tx_pdos", 0x1A00), ("rx_pdos", 0x1600)):
+        for k in range(512):
+            mi = eds_mod.mapping_info(eds, base + k)
+            if not eds.has(base + k) or not mi["has_default"]:
+                continue
+            entries = []
+            for v in mi["defaults"]:
+                index, sub = v >> 16, (v >> 8) & 0xFF
+                o, obj = bound.get((index, sub)), eds.find(index, sub)
+                if o and o.get("iec_location") and obj is not None and CO_TYPE_BY_CODE.get(obj.data_type):
+                    entries.append({"index": "0x%04X" % index, "subindex": sub,
+                                    "type": CO_TYPE_BY_CODE[obj.data_type], "iec_location": o["iec_location"]})
+            pdo = {"number": k + 1, "mapping": "device", "entries": entries}
+            comm = eds.find(base - 0x200 + k, 1)
+            cob = comm.value(nid) if comm is not None else None
+            if isinstance(cob, int) and not cob & 0x80000000:
+                pdo["cob_id"] = cob & 0x7FF
+            elif k >= 4:
+                continue  # off in the EDS and no default: the other master gives it its COB-ID
+            node[key].append(pdo)
+    return {"schema_version": 1, "adapter": net["adapter"], "master": {}, "nodes": [node]}
+
+
+def _config_problem(cfg, one, config_path, eds_paths, error):
+    """Why the network `one` of the config `cfg` cannot be decoded with its
+    PDOs, in the user's terms: a missing EDS file, else the first error of
+    the config's check, without the config file's path."""
+    paths = eds_paths if eds_paths is not None else bundle.eds_files(one, config_path)
+    for n in one.get("nodes") or []:
+        path = paths.get(n.get("eds")) if isinstance(n, dict) else None
+        if path and not os.path.isfile(path):
+            return "node %s: the EDS file %s is missing" % (n.get("node_id"), os.path.basename(path))
+    try:
+        result = contract.check_config(cfg, config_path, eds_paths=eds_paths)
+        errors = [i["message"] for i in result.items if i["level"] == "error"]
+    except Exception:  # noqa: BLE001 - the build's own error is named instead
+        errors = []
+    text = errors[0] if errors else (str(error).splitlines() or [""])[0] or type(error).__name__
+    for prefix in (config_path, os.path.abspath(config_path)):
+        if text.startswith(prefix + ": "):
+            text = text[len(prefix) + 2:]
+    return text
+
+
 class Decoder:
     """Decodes frames for one configuration (or none). A J1939 network gets
     a j1939.J1939Decoder, a subclass with protocol "j1939"."""
@@ -217,11 +276,23 @@ class Decoder:
             return d
         if entry is not None:
             d.attach_raw(entry)
+        full = cfg
         try:
             cfg = contract.network_config(cfg, network)
         except ValueError as e:
             d.warnings.append("decoding without the config's nodes: %s" % e)
             return d
+        slave = next((n for n in contract.networks(full) if n["role"] == "slave" and n["name"] == network
+                      and n["slave"]), None) if network is not None else None
+        if slave is not None:
+            # A slave network: the PLC is the one node, with its EDS's PDOs.
+            eds_paths = eds_paths if eds_paths is not None else bundle.eds_files(full, config_path)
+            try:
+                cfg = _slave_config(slave, eds_paths)
+            except Exception as e:  # noqa: BLE001 - decodes without the PDOs, says why
+                d.warnings.append("decoding without the config's PDOs: %s" % _config_problem(
+                    full, {"nodes": [slave["slave"]]}, config_path, eds_paths, e))
+                return d
         master = cfg.get("master") or {}
         d.master_id = dbcexport._u(master.get("node_id"))
         d.sync_window_us = dbcexport._u(master.get("sync_window_us")) or None
@@ -233,11 +304,15 @@ class Decoder:
             nid = dbcexport._u(n.get("node_id"))
             if nid is not None:
                 d.node_names[nid] = n.get("name") or "node%d" % nid
+        # The network as the configurator's check passed it (a version 2
+        # config's PDO entries fed by a gateway route have no PLC location,
+        # which the version 1 schema would refuse); only when that build
+        # fails does the check name the config's problem.
         try:
-            model = dbcexport.build(cfg, config_path, eds_paths=eds_paths, sdo="none", names=names)
+            model = dbcexport.build(cfg, config_path, eds_paths=eds_paths, sdo="none", names=names, checked=True)
             eds_list = dbcexport._load_eds(cfg, config_path, eds_paths)
-        except (dbcexport.ExportFailed, OSError, KeyError, ValueError) as e:
-            d.warnings.append("decoding without the config's PDOs: %s" % (str(e).splitlines()[0] if str(e) else e))
+        except Exception as e:  # noqa: BLE001 - a config that does not check still decodes without its PDOs
+            d.warnings.append("decoding without the config's PDOs: %s" % _config_problem(full, cfg, config_path, eds_paths, e))
             return d
         d.warnings += model.warnings
         for n, eds in zip(cfg["nodes"], eds_list):

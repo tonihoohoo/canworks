@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import unittest
+import unittest.mock
 
 from canworks.configurator import server as srv
 
@@ -1059,3 +1060,142 @@ class Cia402(Running):
         status, data, _ = self.request("POST", "/api/map_cia402", {"config": self.cfg, "node": 0})
         self.assertEqual(status, 400)
         self.assertIn("not found", data["error"])
+
+
+class Folders(Running):
+    """Folders the configurator cannot use, open vs new, Recent, and moving
+    a config with its simulation file (fix-gui-test-findings 3.1-3.4, 4.6)."""
+
+    PLANT = os.path.join(REPO, "examples", "virtual-plant", "canworks")
+
+    def standalone(self, src=PLANT):
+        folder = os.path.join(self.dir, "plant")
+        shutil.copytree(src, folder)
+        return folder
+
+    def test_open_existing_or_new(self):
+        missing = os.path.join(self.dir, "typo")
+        status, data, _ = self.request("POST", "/api/open", {"path": missing, "mode": "standalone", "new": False})
+        self.assertEqual(status, 404)
+        self.assertIn("does not exist", data["error"])
+        status, data, _ = self.request("POST", "/api/open", {"path": self.dir, "mode": "standalone", "new": False})
+        self.assertEqual(status, 404)
+        self.assertTrue(data["no_config"])
+        folder = self.standalone()
+        status, data, _ = self.request("POST", "/api/open", {"path": folder, "mode": "standalone", "new": True})
+        self.assertEqual(status, 409)
+        self.assertTrue(data["has_config"])
+        state = self.ok("GET", "/api/state")
+        self.assertIsNone(state["mode"])
+        self.assertEqual(state["recent"], [])
+        self.assertEqual(self.ok("POST", "/api/open", {"path": missing, "mode": "standalone", "new": True})["mode"],
+                         "standalone")
+        self.assertEqual(self.ok("POST", "/api/open", {"path": folder, "mode": "standalone", "new": False})["mode"],
+                         "standalone")
+
+    def test_unreadable_folder(self):
+        folder = self.standalone()
+        listdir = os.listdir
+
+        def refuse(path="."):
+            if os.path.abspath(path) == folder:
+                raise PermissionError(13, "Permission denied", path)
+            return listdir(path)
+
+        with unittest.mock.patch("os.listdir", refuse):
+            status, data, _ = self.request("POST", "/api/open", {"path": folder, "mode": "standalone"})
+        self.assertEqual(status, 403)
+        self.assertEqual(data["error"], "cannot read the folder %s: permission denied" % folder)
+        state = self.ok("GET", "/api/state")
+        self.assertIsNone(state["mode"])
+        self.assertEqual(state["recent"], [])
+        # Opened, then unreadable: the state says why and goes back to the start page.
+        self.ok("POST", "/api/open", {"path": folder, "mode": "standalone"})
+        with unittest.mock.patch("os.listdir", refuse):
+            state = self.ok("GET", "/api/state")
+        self.assertIsNone(state["mode"])
+        self.assertIn("permission denied", state["open_error"])
+        self.assertIsNone(self.ok("GET", "/api/state")["mode"])
+        # A folder the browser cannot list: one sentence, no errno.
+        with unittest.mock.patch("os.listdir", refuse):
+            status, data, _ = self.request("GET", "/api/folders?path=" + folder)
+        self.assertEqual(data["error"], "cannot list the folder %s: permission denied" % folder)
+
+    def test_read_only_folder_on_save(self):
+        folder = self.standalone()
+        state = self.ok("POST", "/api/open", {"path": folder, "mode": "standalone"})
+        replace = os.replace
+
+        def refuse(src, dst):
+            if os.path.dirname(dst) == folder:
+                raise PermissionError(13, "Permission denied", src)
+            return replace(src, dst)
+
+        with unittest.mock.patch("os.replace", refuse):
+            status, data, _ = self.request("POST", "/api/save", {"config": state["config"]})
+            self.assertEqual(status, 403)
+            self.assertEqual(data["error"], "cannot write to the folder %s: permission denied" % folder)
+            status, data, _ = self.request("POST", "/api/sim/save", {"doc": state["simulation"]["doc"]})
+            self.assertEqual(status, 403, data)
+            self.assertIn("cannot write to the folder %s" % folder, data["error"])
+        self.assertEqual(self.ok("GET", "/api/state")["mode"], "standalone")
+
+    def test_forget_recent(self):
+        folder = self.standalone()
+        self.ok("POST", "/api/open", {"path": folder, "mode": "standalone"})
+        self.open_project()
+        self.ok("POST", "/api/close")
+        self.assertEqual([r["path"] for r in self.ok("GET", "/api/state")["recent"]], [self.project, folder])
+        self.assertEqual(self.ok("POST", "/api/recent/forget", {"path": folder})["recent"],
+                         [{"path": self.project, "mode": "project"}])
+
+    def test_slave_description_and_move(self):
+        folder = self.standalone()
+        state = self.ok("POST", "/api/open", {"path": folder, "mode": "standalone"})
+        # The example names its description cell_eds.json.
+        self.assertEqual(state["slave_descriptions"]["cell.eds"]["device_name"],
+                         json.loads(read(os.path.join(folder, "cell_eds.json")))["device_name"])
+        status, data, _ = self.request("POST", "/api/move", {"project": self.project})
+        self.assertEqual(status, 200, data)
+        target = os.path.join(self.project, "canworks")
+        for name in ("simulation.json", "cell_eds.json"):
+            self.assertIn(os.path.join(target, name), data["written"])
+        self.assertEqual(json.loads(read(os.path.join(target, "simulation.json"))),
+                         json.loads(read(os.path.join(folder, "simulation.json"))))
+        self.assertEqual(read(os.path.join(target, "cell_eds.json")), read(os.path.join(folder, "cell_eds.json")))
+        self.assertTrue(data["state"]["simulation"]["exists"])
+        self.assertIn("cell.eds", data["state"]["slave_descriptions"])
+
+    def test_move_keeps_the_machine_file(self):
+        folder = self.standalone(os.path.join(REPO, "examples", "gantry-cell", "canworks"))
+        self.ok("POST", "/api/open", {"path": folder, "mode": "standalone"})
+        os.makedirs(os.path.join(self.project, "canworks"))
+        status, data, _ = self.request("POST", "/api/move", {"project": self.project})
+        self.assertEqual(status, 409)
+        self.assertIn("already has a canworks/ folder", data["error"])
+        self.ok("POST", "/api/move", {"project": self.project, "replace": True})
+        self.assertEqual(sorted(os.listdir(os.path.join(self.project, "canworks"))),
+                         sorted(os.listdir(folder)))
+
+    def test_new_project_keeps_the_simulation(self):
+        os.environ["OPENPLC_CLI"] = fake_editor_cli(self.dir)
+        self.addCleanup(os.environ.pop, "OPENPLC_CLI", None)
+        folder = self.standalone()
+        self.ok("POST", "/api/open", {"path": folder, "mode": "standalone"})
+        work = os.path.join(self.dir, "work")
+        os.makedirs(work)
+        data = self.ok("POST", "/api/new_project", {"parent": work, "name": "plant"})
+        target = os.path.join(data["project"], "canworks")
+        for name in ("simulation.json", "cell_eds.json", "cell.eds"):
+            self.assertTrue(os.path.isfile(os.path.join(target, name)), name)
+
+    def test_save_keeps_the_key_order(self):
+        folder = self.standalone(os.path.join(REPO, "examples", "gantry-cell", "canworks"))
+        before = read(os.path.join(folder, "canworks.json"), "r")
+        cfg = self.ok("POST", "/api/open", {"path": folder, "mode": "standalone"})["config"]
+        cfg["networks"][0]["master"]["heartbeat_ms"] = 150
+        self.ok("POST", "/api/save", {"config": cfg})
+        after = read(os.path.join(folder, "canworks.json"), "r")
+        changed = [(a, b) for a, b in zip(before.splitlines(), after.splitlines()) if a != b]
+        self.assertEqual(len(before.splitlines()), len(after.splitlines()))
+        self.assertEqual(changed, [('        "heartbeat_ms": 100,', '        "heartbeat_ms": 150,')])

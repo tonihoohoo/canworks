@@ -579,6 +579,8 @@ void PlcSlave::DiagStatus(const DiagRequest& r) {
   cJSON_AddStringToObject(res, "network", cfg_.network.c_str());
   cJSON_AddStringToObject(res, "role", "slave");
   cJSON_AddBoolToObject(res, "session", true);
+  cJSON_AddBoolToObject(res, "simulated_network", cfg_.adapter.simulate);
+  cJSON_AddBoolToObject(res, "simulation_forced", cfg_.adapter.simulation_forced);
   cJSON* s = cJSON_AddObjectToObject(res, "slave");
   cJSON_AddNumberToObject(s, "node_id", node_id() == 0xFF ? 0 : node_id());
   cJSON_AddNumberToObject(s, "state", nmt_state());

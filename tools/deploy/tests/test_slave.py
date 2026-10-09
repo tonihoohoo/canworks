@@ -367,7 +367,7 @@ class SlaveContract(unittest.TestCase):
         cfg["networks"][0]["slave"]["node_id"] = None
         self.assertTrue(self.check(cfg).ok)
         cfg["networks"][0]["slave"]["node_id"] = "200"
-        self.assertIn("slave: field 'node_id' must be 1-127, or null for LSS: 200", self.errors(cfg))
+        self.assertIn("slave.node_id: node ID must be 1 to 127 or null", self.errors(cfg))
         cfg = self.slave()
         cfg["networks"][0]["slave"]["eds"] = "missing.eds"
         self.assertIn("networks[0]: slave: EDS file %s not found" % os.path.join(self.dir, "missing.eds"),
@@ -403,7 +403,7 @@ class SlaveContract(unittest.TestCase):
                       self.errors(cfg))
         cfg = self.slave()
         del cfg["networks"][0]["slave"]
-        self.assertIn("networks[0]: 'slave' is a required property", self.errors(cfg))
+        self.assertIn("networks[0]: the slave section is missing", self.errors(cfg))
 
     def test_version_1_refuses_slave_and_gateway(self):
         cfg = {"adapter": {"type": "socketcan", "interface": "can0", "bitrate": 125000}, "master": {"node_id": 1},

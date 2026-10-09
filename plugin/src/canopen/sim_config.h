@@ -23,6 +23,12 @@ std::vector<canopen_sim::DeviceSpec> sim_device_specs(const Config& cfg, bool on
 // extra devices).
 bool check_sim_file(const Config& cfg, const canopen_sim::SimFile& file, std::vector<std::string>& errors);
 
+// The simulation file's value sources on objects the master writes (an
+// RPDO entry, a startup SDO, an SDO variable), which the simulator refuses
+// when it starts (Simulator::SetSource). For canopen_check, which does not
+// start the simulator.
+bool check_sim_sources(const Config& cfg, const canopen_sim::SimFile& file, std::vector<std::string>& errors);
+
 // The name a version 2 simulation file's section uses for `cfg`: the
 // network's name, or its interface for a version 1 config.
 std::string sim_network_name(const Config& cfg);

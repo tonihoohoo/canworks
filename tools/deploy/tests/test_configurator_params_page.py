@@ -383,6 +383,88 @@ class ParamsPage(OnlineBase):
             pg.click('button[data-online="od-compare-clear"]')
             self.assertEqual(pg.locator('input[data-od-filter="compare"]').count(), 0)
 
+    def test_od_values_follow_compare_restore_and_writes(self):
+        """fix-gui-test-findings C6: the object dictionary shows what a
+        compare read, and no stale value after a restore or a write."""
+        pg = self.page
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        row = 'tr[data-od-key="%d:3"]' % 0x6112
+        shown = row + ' [data-online="od-shown"]'
+        with self.device() as fp:
+            self.open_node(fp, tab="od")
+            pg.click('button[data-online="od-read-all"]')
+            pg.wait_for_selector('[data-online="od-summary"]:has-text("read, 0 not readable")')
+            before = fp.value(0x6112, 3)[0]
+            pg.click('button[data-online-tab="params"]')
+            path = self.backup(os.path.join(tmp, "b.dcf"))
+            fp.set(0x6112, 3, bytes([before + 1]))
+            pg.set_input_files('input[data-online="compare-file"]', path)
+            pg.click('button[data-online="compare"]')
+            pg.wait_for_selector('[data-online="compare-summary"]:has-text("1 different")')
+            pg.click('button[data-online-tab="od"]')
+            self.search("0x6112")
+            pg.wait_for_selector(row, state="visible")
+            self.assertTrue(pg.inner_text(shown).startswith(str(before + 1)))
+            self.assertIn("≠ backup: %d" % before, pg.inner_text(row))
+            # A restore writes it back: the shown value is gone until read again.
+            pg.click('button[data-online-tab="params"]')
+            pg.set_input_files('input[data-online="restore-file"]', path)
+            pg.click('button[data-online="restore"]')
+            pg.click('#modal button[data-value="restore"]')
+            pg.wait_for_selector('[data-online="restore-done"]:has-text("1 written")')
+            pg.click('button[data-online-tab="od"]')
+            pg.wait_for_selector(row, state="visible")
+            self.assertEqual(pg.locator(shown).count(), 0)
+            pg.click(row + ' button[data-online="od-read"]')
+            pg.wait_for_selector(shown)
+            # So does a write from the Overview's SDO panel.
+            pg.click('button[data-online-tab="overview"]')
+            pg.fill('input[data-online="index"]', "0x6112")
+            pg.fill('input[data-online="subindex"]', "3")
+            pg.select_option('select[data-online="type"]', "UNSIGNED8")
+            pg.fill('input[data-online="value"]', "1")
+            pg.click('button[data-online="write"]')
+            pg.wait_for_selector('[data-online="sdo-result"]:has-text("Written")')
+            pg.click('button[data-online-tab="od"]')
+            pg.wait_for_selector(row, state="visible")
+            self.assertEqual(pg.locator(shown).count(), 0)
+
+    def test_watch_graph_draws_its_lines(self):
+        """C8: the graph's series had no colour, so it drew nothing."""
+        pg = self.page
+        with self.device() as fp:
+            self.open_node(fp, tab="od")
+            pg.wait_for_selector('details[data-od-group="profile"]')
+            pg.select_option('select[data-online="watch-period"]', "500")
+            for sub in (1, 2):
+                self.search("0x7130")
+                pg.check('tr[data-od-key="%d:%d"] input[data-online="od-watch"]' % (0x7130, sub))
+            for theme in ("light", "dark"):
+                pg.evaluate("t => document.documentElement.dataset.theme = t", theme)
+                pg.click('button[data-online="watch-graph-toggle"]')
+                pg.wait_for_selector('[data-online="watch-graph"] .uplot')
+                for k in range(4):
+                    fp.set(0x7130, 1, (100 * k).to_bytes(2, "little"))
+                    fp.set(0x7130, 2, (50 * k).to_bytes(2, "little"))
+                    pg.wait_for_timeout(500)
+                # Each series has a colour and a line; the canvas has drawn pixels in both.
+                strokes = pg.evaluate("() => S.od[%d].plot.series.slice(1).map((s) => s._stroke || s.stroke())" % NODE)
+                self.assertEqual(len(strokes), 2)
+                self.assertTrue(all(isinstance(c, str) and c.startswith("#") for c in strokes), strokes)
+                self.assertNotEqual(strokes[0], strokes[1])
+                drawn = pg.evaluate("""(colors) => {
+                    const c = document.querySelector('[data-online="watch-graph"] canvas');
+                    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+                    const rgb = colors.map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
+                    const seen = rgb.map(() => 0);
+                    for (let i = 0; i < d.length; i += 4) rgb.forEach((x, k) => {
+                      if (d[i + 3] > 200 && Math.abs(d[i] - x[0]) < 8 && Math.abs(d[i + 1] - x[1]) < 8 && Math.abs(d[i + 2] - x[2]) < 8) seen[k]++;
+                    });
+                    return seen; }""", strokes)
+                self.assertTrue(all(n > 0 for n in drawn), drawn)
+                pg.click('button[data-online="watch-graph-toggle"]')
+
     def test_notes_in_object_dictionary(self):
         # Device notes (canopen-device-notes): text, meaning, scaled value, a
         # value picker on edit and the note editor.

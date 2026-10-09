@@ -243,6 +243,13 @@ async function addToConfig() {
   if (!folder) { banner("Type the config folder.", true); return; }
   const f = file ? file.files[0] : null;
   if (file && !f) { banner("Pick the device's EDS file.", true); return; }
+  // Checked before the folder opens, so this page and its log stay.
+  try {
+    if ((await api("POST", "/api/folder_nodes", { path: folder })).nodes.includes(d.node_id)) {
+      banner(`The config in ${folder} already has node ${d.node_id}: give the device another node ID (Set node ID), or pick another config.`, true);
+      return;
+    }
+  } catch (e) { banner(e.message, true); return; }
   try {
     banner("");
     await api("POST", "/api/open", { path: folder, mode: mode.value });
@@ -290,17 +297,23 @@ function configureBox(id, n, allow, status, out) {
     }
     return Object.assign(b, { source: "config", from_node: Number(src.value.slice(5)), config: fileConfig() });
   };
+  // A node of this page's draft: the server names the saved file, which
+  // unsaved changes make the wrong name.
+  const named = (j, b) => {
+    if (b.config && S.dirty && j.result && j.result.source) j.result.source.name = `node ${b.from_node} of this page's configuration (unsaved changes)`;
+    return j;
+  };
   const write = async () => {
     const b = await body();
     if (!b) return;
     put(out);
-    startJob("/api/online/configure_plan", b, status, (j) => configureDialog(id, j, b, status, out));
+    startJob("/api/online/configure_plan", b, status, (j) => configureDialog(id, named(j, b), b, status, out));
   };
   const verify = async () => {
     const b = await body();
     if (!b) return;
     put(out);
-    startJob("/api/online/configure_verify", b, status, (j) => showVerify(j.result, out));
+    startJob("/api/online/configure_verify", b, status, (j) => showVerify(named(j, b).result, out));
   };
   return el("fieldset", { dataset: { online: "configure-box" } }, el("legend", null, "Write configuration"),
     el("div", { class: "toolbar" }, el("label", { class: "inline" }, "From ", src), file, folderBox),
@@ -371,13 +384,14 @@ async function configureDialog(id, j, body, status, out) {
   if (await go !== "write") return;
   startJob("/api/online/configure", { node: id, port: diagPort(), plan: j.id, hold: hold.checked, restore_defaults: restore.checked,
     store: store.checked, store_subindex: storeSub ? Number(storeSub.value) : (subs[0] || 1), ignore_identity: other.checked }, status,
-  (r) => showConfigure(r.result, out));
+  (r) => showConfigure(r.result, out, id));
 }
 
 function stepLine(s) { return `${hex4(s.index)}:${s.subindex} ${s.name}`; }
 
-function showConfigure(r, out) {
+function showConfigure(r, out, id) {
   if (!r) return;
+  odTake(id, null, r.written.concat(r.failed).map((w) => odKey(w.index, w.subindex)));
   put(out, el("p", { dataset: { online: "configure-done" } },
     `${r.written.length} written, ${r.failed.length} failed, ${r.same} already the same${r.cancelled ? ", cancelled" : ""}. `,
     r.cancelled ? null : el("strong", { class: r.verified ? "ok-text" : "bad" }, r.verified ? "Read-back verified." : "The read-back differs.")),

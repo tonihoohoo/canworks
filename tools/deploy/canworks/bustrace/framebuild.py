@@ -42,6 +42,17 @@ def _uint(v, field, top):
     return n
 
 
+def _hex(v, field, top):
+    """A field the page asks for in hex ("1017" or "0x1017"); a number as it is."""
+    if isinstance(v, str):
+        t = v.strip()
+        t = t[2:] if t[:2].lower() == "0x" else t
+        if not t or any(c not in "0123456789abcdefABCDEF" for c in t):
+            raise BuildError(field, "%r is not a hex number" % (v.strip(),))
+        v = int(t, 16)
+    return _uint(v, field, top)
+
+
 def _f(can_id, data=b"", **kw):
     return Frame(0, can_id, bytes(data), **kw)
 
@@ -62,8 +73,8 @@ def heartbeat(node, state="operational"):
 
 def emcy(node, code=0x1000, register=0x01, manufacturer=""):
     n = _node(node)
-    code = _uint(code, "error code", 0xFFFF)
-    reg = _uint(register, "error register", 0xFF)
+    code = _hex(code, "error code", 0xFFFF)
+    reg = _hex(register, "error register", 0xFF)
     try:
         mfr = diag.parse_hex(manufacturer) if str(manufacturer or "").strip() else b""
     except ValueError as e:
@@ -99,7 +110,7 @@ def sdo(dec, node, index, sub, op="read", value=None, type_name=None, segmented=
     expedited unless segmented=True; longer ones always in segments."""
     dec = dec or Decoder()
     n = _node(node)
-    index = _uint(index, "index", 0xFFFF)
+    index = _hex(index, "index", 0xFFFF)
     sub = _uint(sub, "subindex", 0xFF)
     if op not in ("read", "write"):
         raise BuildError("operation", "read or write")
@@ -216,8 +227,30 @@ def _signal_bits(name, v, length, signed, fk, tname):
     return x & ((1 << length) - 1)
 
 
+def _j1939_examples(dec):
+    """A J1939 network's examples: the address claim request and one frame
+    of each message the DBC or the config defines (data all zero)."""
+    own = dec.own_address if isinstance(dec.own_address, int) else 0x80
+    out = [{"group": "Network", "label": "Request for Address Claimed",
+            "frames": [{"label": "Request", "frame": _f(0x18EAFF00 | own, bytes([0x00, 0xEE, 0x00]), ext=True)}]}]
+    by_name = {v: k for k, v in dec.address_names.items()}
+    seen = set()
+    for (pgn, source), m in sorted(dec.messages.items(), key=lambda kv: (kv[0][0], kv[0][1] or 0)):
+        if id(m) in seen or not m.length or m.length > 8:
+            continue
+        seen.add(id(m))
+        sa = source if source is not None else own if m.sender == "PLC" else by_name.get(m.sender, 0)
+        pf = (pgn >> 8) & 0xFF
+        can_id = 6 << 26 | (pgn & 0x3FF00 if pf < 240 else pgn) << 8 | (0xFF00 if pf < 240 else 0) | (sa & 0xFF)
+        out.append({"group": "Messages", "label": m.name, "frames": [{"label": m.name,
+                                                                       "frame": _f(can_id, bytes(m.length), ext=True)}]})
+    return out
+
+
 def examples(dec):
     """Example frames from a configuration: [{"group", "label", "frames"}]."""
+    if getattr(dec, "protocol", "canopen") == "j1939":
+        return _j1939_examples(dec)
     out = [{"group": "Network", "label": "NMT start all nodes", "frames": nmt("start", 0)},
            {"group": "Network", "label": "SYNC", "frames": [{"label": "SYNC", "frame": _f(dec.sync_cob)}]}]
     for nid in sorted(dec.node_names):

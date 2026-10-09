@@ -111,7 +111,7 @@ class Examples(unittest.TestCase):
     def test_node_id_out_of_range_names_path_and_range(self):
         cfg = patched(load_cases()["base"], [["set", "nodes/0/node_id", 200]])
         r = contract.check_config(cfg, "canworks.json", eds_dir=os.path.join(FIXTURES, "eds"))
-        self.assertIn("canworks.json: nodes[0].node_id: 200 is greater than the maximum of 127", "\n".join(r.errors))
+        self.assertIn("canworks.json: nodes[0].node_id: node ID must be 1 to 127", "\n".join(r.errors))
 
 
 class AutoCobIds(unittest.TestCase):

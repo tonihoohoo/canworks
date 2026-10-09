@@ -56,7 +56,19 @@ class IdStats:
         self.last_us = f.time_us
         self.data = f.data
         self.tx = f.tx
-        if d is not None:
+        if d is None:
+            return
+        if d.kind == "tp":
+            # A J1939 transport identifier is named after its message (TP.CM,
+            # TP.DT), not after the step its last frame was (RTS, End of message ACK).
+            base = d.name.split(" ", 1)[0]
+            if not self.name.startswith(base):
+                self.name = base
+            self.kind, self.node = d.kind, d.node
+        elif self.kind == "tp":
+            # The message a TP.DT session carried, decoded on its last packet.
+            self.name = "%s of %s" % (self.name.split(" ", 1)[0], d.name)
+        else:
             self.name, self.kind, self.node = d.name, d.kind, d.node
 
     def as_dict(self):

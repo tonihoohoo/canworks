@@ -690,8 +690,9 @@ def explain(f, decoder=None, bitrate=None, context=None):
         raise ValueError("only classic CAN frames with up to 8 data bytes are supported")
     F = Fields(b"" if f.rtr else f.data)
     notes = []
+    protocol = getattr(dec, "protocol", "canopen")
     out = {"frame": frame_dict(f), "kind": "other", "title": "", "notes": notes, "identifier": None,
-           "error_classes": None}
+           "error_classes": None, "protocol": protocol}
     if f.err:
         meaning, classes = _error_frame(F, f)
         out.update(kind="error", title="Error frame", meaning=meaning, about=T.ABOUT["error"],
@@ -727,6 +728,21 @@ def explain(f, decoder=None, bitrate=None, context=None):
         out.update(identifier=ident, kind=kind, title=title, meaning=meaning, about=j1939.ABOUT[kind],
                    fields=F.done(*getattr(F, "done_gap", ("Not used", "Not used."))),
                    wire=wire(f.can_id, True, f.rtr, b"" if f.rtr else f.data, f.dlc, bitrate))
+        return out
+    if protocol == "j1939":
+        # An 11-bit frame on a J1939 network: no CANopen function code split.
+        ident = {"width": 11, "value": f.can_id, "text_id": f.id_text(), "function_code": None, "node": None,
+                 "message": None, "what": "an 11-bit identifier, which J1939 does not use", "sender": None,
+                 "math": None, "configured": False, "priority": T.ARBITRATION,
+                 "bits": [{"n": n, "v": (f.can_id >> n) & 1, "part": "id", "weight": 1 << n} for n in range(10, -1, -1)]}
+        if f.data:
+            F.add("Data", 0, len(f.data) * 8, hexbytes(f.data), "Data of another protocol; its meaning is not known here.")
+        out.update(identifier=ident, title="11-bit frame",
+                   about="J1939 uses 29-bit identifiers only; an 11-bit frame comes from another protocol on the "
+                         "same bus, so its data has no known meaning here.", fields=F.done("Not used", "Not used."),
+                   meaning="An 11-bit frame with %s on a J1939 network, which uses 29-bit identifiers only; not a "
+                           "J1939 frame." % _bytes(len(f.data)),
+                   wire=wire(f.can_id, False, f.rtr, b"" if f.rtr else f.data, f.dlc, bitrate))
         return out
     ident = identifier_layer(f, dec)
     out["identifier"] = ident
@@ -848,11 +864,13 @@ def parse_frame(text):
     ident, data = t.split("#", 1)
     if ident.lower().startswith("0x"):
         ident = ident[2:]
-    if not ident or any(c not in "0123456789abcdefABCDEF" for c in ident):
-        raise ValueError("%r: the identifier must be hexadecimal" % ident)
+    if not ident:
+        raise ValueError("the identifier is missing: write a frame as ID#DATA, e.g. 185#2500EA00 or 705#R")
+    if any(c not in "0123456789abcdefABCDEF" for c in ident):
+        raise ValueError("the identifier %s is not hex: write a frame as ID#DATA, e.g. 185#2500EA00" % ident)
     ext = len(ident) == 8
     if len(ident) > 8:
-        raise ValueError("%r: the identifier has too many digits" % ident)
+        raise ValueError("the identifier %s has too many digits (at most 8)" % ident)
     can_id = int(ident, 16)
     if not ext and can_id > 0x7FF:
         raise ValueError("0x%X is more than 11 bits: write extended identifiers with 8 digits" % can_id)
@@ -866,7 +884,7 @@ def parse_frame(text):
         return Frame(0, can_id, b"", ext=ext, rtr=True, dlc=dlc)
     data = data.replace(".", "")
     if any(c not in "0123456789abcdefABCDEF" for c in data):
-        raise ValueError("%r: the data must be hexadecimal bytes" % data)
+        raise ValueError("the data %s is not hex bytes: write a frame as ID#DATA, e.g. 185#2500EA00" % data)
     if len(data) % 2:
         raise ValueError("the data needs whole bytes: an even number of hex digits")
     raw = bytes.fromhex(data)
