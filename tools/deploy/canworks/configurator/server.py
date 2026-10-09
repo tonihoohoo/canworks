@@ -1066,11 +1066,33 @@ class Session:
             return exists
         return not exists or sha256(self.sim_path) != self.sim_loaded
 
+    def sim_problems(self, doc, network=None, machine=False):
+        """simulation.config_problems() of a schema-valid simulation file
+        against the saved config (only the machine file's with `machine`)."""
+        if not os.path.isfile(self.config_path):
+            return []  # nothing to check against yet
+        cfg = self.read_config()[0]
+        fn = simulation.machine_problems if machine else simulation.config_problems
+        try:
+            out = fn(doc, self.sim_path, cfg, self.config_path, self.eds_paths(cfg) if isinstance(cfg, dict) else {},
+                     network)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return []  # a config the contract check refuses: its problems show there
+        # An extra device's EDS imported but not saved yet is written with the file.
+        nets = doc.get("networks") if simulation.version(doc) >= 2 else None
+        parts = [("networks.%s." % k, b) for k, b in nets.items()] if isinstance(nets, dict) else [("", doc)]
+        pending = {"%sextra_devices[%d].eds" % (prefix, i) for prefix, body in parts if isinstance(body, dict)
+                   for i, d in enumerate(body.get("extra_devices") or [])
+                   if isinstance(d, dict) and d.get("eds") in self.pending}
+        return [p for p in out if p["path"] not in pending]
+
     def save_simulation(self, doc, overwrite=False):
         """Writes canworks/simulation.json after the schema check, with the EDS
         files its extra devices name that were imported but not saved yet.
         Like canworks.json, only into the project's config folder."""
         problems = simulation.check(doc)
+        if not problems:
+            problems = [p for p in self.sim_problems(doc) if p["level"] == "error"]
         if problems:
             raise ApiError(422, "the simulation file has %d error%s; nothing was saved"
                            % (len(problems), "" if len(problems) == 1 else "s"), problems=problems)
@@ -1853,7 +1875,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             problems = simulation.check(body.get("doc"))
             if not problems:
                 with s.lock:
-                    problems = self._machine_problems(s, body.get("doc"))
+                    problems = s.sim_problems(body.get("doc"))
             return {"problems": problems}
         if route == ("GET", "/api/sim/machine"):
             # The machine file of the network's section, for the Machine tab offline.
@@ -1864,7 +1886,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 problems = []
                 if out["file"] and not simulation.check(doc):
                     problems = [{"path": p["path"], "message": p["message"]}
-                                for p in self._machine_problems(s, doc, name)]
+                                for p in s.sim_problems(doc, name, machine=True)]
             error = out.pop("error", None)
             if error and not problems:
                 problems = [{"path": "networks.%s.machine" % name, "message": error}]
@@ -1950,18 +1972,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             res, kind = call(lambda c: c.request(op, **fields))
             return {"result": res, "target": kind}
         raise ApiError(404, "no such API: %s %s" % route)
-
-    @staticmethod
-    def _machine_problems(s, doc, network=None):
-        """The machine file problems of a schema-valid simulation file
-        (simulation.machine_problems) against the saved config; the caller
-        holds s.lock."""
-        cfg = s.read_config()[0]
-        try:
-            return simulation.machine_problems(doc, s.sim_path, cfg, s.config_path,
-                                               s.eds_paths(cfg) if isinstance(cfg, dict) else {}, network)
-        except (KeyError, TypeError, ValueError, AttributeError):
-            return []  # a config the contract check refuses: its problems show there
 
     @staticmethod
     def _check_expr_offline(s, expr, node, doc, network=None):

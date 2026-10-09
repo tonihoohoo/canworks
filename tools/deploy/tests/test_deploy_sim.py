@@ -97,7 +97,7 @@ class Bundle(unittest.TestCase):
         write_json(self.sim, sim)
         code, out, err = deploy("--bundle", self.src, "--config", self.config, "--check-only")
         self.assertEqual(code, 1)
-        self.assertIn("node 2 (pingpong): object 0x4000:0 is written by the master (RPDO 1)", err)
+        self.assertIn("node 2 (pingpong): 0x4000:0 is written by the master (RPDO 1)", err)
         self.assertIn("reference cycle", err)
         self.assertIn("nothing was uploaded", err)
 

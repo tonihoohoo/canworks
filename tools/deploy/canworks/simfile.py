@@ -821,11 +821,12 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
     s = schema(version)
     for e in sorted(jsonschema.Draft202012Validator(s).iter_errors(data),
                     key=lambda e: list(map(str, e.absolute_path))):
+        first = e
         while e.context:
             fitting = [c for c in e.context if c.validator != "type"]
             e = best_match(fitting or e.context)
         where = contract.json_path(list(e.absolute_path))
-        msg = e.message
+        msg = contract.plain_schema_message(first, s)
         if e.validator == "additionalProperties" and isinstance(e.instance, dict):
             unknown = sorted(k for k in e.instance if k not in (e.schema.get("properties") or {}))
             msg = "unknown field%s %s" % ("s" if len(unknown) > 1 else "", ", ".join("'%s'" % k for k in unknown))
@@ -1046,6 +1047,32 @@ def _object_problem(dev, obj):
     return index, sub, None
 
 
+def value_problem(type_name, value):
+    """Why a set or override value does not fit an object of a data type
+    (an EDS type name such as "INTEGER16"), or None. Numbers with a
+    fraction are rounded for an integer object, as the simulator does."""
+    if type_name == "VISIBLE_STRING":
+        return None if isinstance(value, str) else "a VISIBLE_STRING object takes text, not %s" % json.dumps(value)
+    if type_name not in contract.CO_TYPES:
+        return None
+    if isinstance(value, str):
+        return "%s does not fit %s: give a number" % (json.dumps(value), type_name)
+    if isinstance(value, float) and not math.isfinite(value):
+        return "%s does not fit %s" % (json.dumps(value), type_name)
+    if type_name in ("REAL32", "REAL64"):
+        return None
+    number = int(value) if isinstance(value, bool) else round(value)
+    if contract.sdo_value(number, type_name)[1]:
+        return "%s does not fit %s" % (json.dumps(value), type_name)
+    return None
+
+
+def _value_problem(o, value):
+    if o is None:
+        return None
+    return value_problem("VISIBLE_STRING" if o.data_type == VISIBLE_STRING else o.type_name, value)
+
+
 def _resolver(devices, own):
     def resolve(device, index, sub):
         if device is None:
@@ -1073,8 +1100,8 @@ def _check_source(src, obj, dev, at, devices, err, base):
         return None
     writer = dev.writers.get((index, sub))
     if writer:
-        err(w, "%s: object %s is written by the master (%s); a value source on it is refused, use an override "
-               "to make the device ignore its master" % (dev.label, object_key(index, sub), writer))
+        err(w, "%s: %s is written by the master (%s); a value source cannot drive it (an override makes the device "
+               "ignore the master)" % (dev.label, object_key(index, sub), writer))
     o = dev.sub(index, sub)
     is_string = o is not None and o.data_type == VISIBLE_STRING
     kinds = [k for k in src if k not in ("noise", "tick_ms")]
@@ -1208,6 +1235,10 @@ def _check_step(step, at, devices, err, warn, base, machine=None):
             index, sub, problem = _object_problem(dev, obj)
             if problem:
                 err(w + "." + key, problem)
+                continue
+            problem = _value_problem(dev.sub(index, sub), step[key][obj])
+            if problem:
+                err(w + "." + key, "%s: %s of %s: %s" % (dev.label, key, object_key(index, sub), problem))
             elif key == "override" and (index, sub) in dev.writers:
                 warn(w + ".override", "%s: object %s is written by the master (%s); the override makes the device "
                      "ignore it" % (dev.label, object_key(index, sub), dev.writers[(index, sub)]))
