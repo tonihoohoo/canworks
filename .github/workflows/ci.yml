@@ -375,8 +375,8 @@ jobs:
         run: sudo python3 -m unittest discover -v -s test/docker
 
   configurator-page:
-    # The configurator's pages in Chromium, split over three runners by test
-    # class. Needs no plugin build. Skipped when nothing the pages use changed
+    # The configurator's pages in Chromium, split over four runners by test
+    # class (three kept the run's wall time above the main baseline). Needs no plugin build. Skipped when nothing the pages use changed
     # (needs.changes.outputs.ui).
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.ui == 'true'
@@ -385,8 +385,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
-    name: configurator-page (${{ matrix.shard }}/3)
+        shard: [1, 2, 3, 4]
+    name: configurator-page (${{ matrix.shard }}/4)
     steps:
       - uses: actions/checkout@v4
 
@@ -434,7 +434,7 @@ jobs:
         env:
           CANWORKS_REQUIRE_BROWSER: "1"  # fail instead of skipping without Playwright/Chromium
         run: >
-          python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3
+          python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/4
           --start tools/deploy/tests --top tools/deploy --timings .github/ci/page-test-times.json
           --pattern 'test_configurator_*page.py' --pattern 'test_configurator_layout.py'
 
