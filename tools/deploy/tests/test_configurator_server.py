@@ -130,6 +130,11 @@ class Access(Running):
     def test_listens_on_loopback_only(self):
         self.assertEqual(self.server.server_address[0], "127.0.0.1")
 
+    def test_backlog_holds_a_module_burst(self):
+        # Windows refuses connections over the listen backlog; the page's
+        # module imports (three.js) come in a burst.
+        self.assertGreaterEqual(self.server.request_queue_size, 64)
+
     def test_page_needs_the_cookie(self):
         status, _, _ = self.request("GET", "/", token=False)
         self.assertEqual(status, 403)

@@ -2216,6 +2216,10 @@ def frame_error(e):
 
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
+    # The page loads many modules at once (three.js for the Machine tab). On
+    # Windows a full listen backlog refuses connections instead of letting
+    # them wait, so the default of 5 made imports fail now and then.
+    request_queue_size = 128
 
     def __init__(self, port=0, token=None, verbose=False):
         super().__init__(("127.0.0.1", port), Handler)
