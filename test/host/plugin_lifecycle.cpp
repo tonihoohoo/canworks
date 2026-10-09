@@ -67,6 +67,14 @@ bool logged(const char* text) {
   return false;
 }
 
+int count_logged(const char* text) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  int n = 0;
+  for (const auto& l : g_logs)
+    if (l.find(text) != std::string::npos) ++n;
+  return n;
+}
+
 template <typename F>
 F sym(void* h, const char* name) {
   F f = reinterpret_cast<F>(dlsym(h, name));
@@ -437,6 +445,7 @@ int main(int argc, char** argv) {
     expect(answered, "network io: the raw request goes over the virtual bus and the simulated device's answer comes in");
     expect(joystick, "network cab: the simulated joystick's signal and status reach the PLC");
     expect(received, "network cab: the program's receiver gets the joystick frames");
+    expect(count_logged("starting the CANopen master") == 1, "only network io starts a CANopen master; the plain network starts none");
     if (started) stop_loop();
     canworks_can_frame fr{};
     canworks_can_rx_info info{};

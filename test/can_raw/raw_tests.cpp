@@ -6,7 +6,10 @@
 #include <chrono>
 #include <memory>
 #include <cstring>
+#include <mutex>
 #include <thread>
+#include <sys/eventfd.h>
+#include <unistd.h>
 
 #include <fstream>
 #include <sstream>
@@ -147,6 +150,25 @@ TEST(send_confirmed_by_echo) {
   CHECK(n.port.own_echo(frame(0x510, {1, 2})));
   CHECK(api()->tx_poll(h, &err) == 1);
   CHECK(api()->tx_poll(h, &err) == 2 && err == CANWORKS_CAN_ERR_CANCELLED);  // handle used up
+}
+
+TEST(send_waits_for_echo_when_the_clock_predates_the_write) {
+  // The raw thread reads its clock before writing a frame; the expiry in
+  // the same pass must not take the earlier time as "long ago".
+  Net n;
+  uint16_t err = 0;
+  canworks_can_frame f = frame(0x511, {9});
+  uint32_t h = api()->tx_send(0, &f, 0, &err);
+  canworks_can_frame out{};
+  uint32_t tag = 0;
+  uint64_t before = monotonic_us();
+  CHECK(n.port.next_tx(out, tag));
+  std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  n.port.tx_written(tag, false);
+  n.port.expire_echoes(before, 1000000u);
+  CHECK(api()->tx_poll(h, &err) == 0);
+  CHECK(n.port.own_echo(frame(0x511, {9})));
+  CHECK(api()->tx_poll(h, &err) == 1);
 }
 
 TEST(send_times_out_without_echo) {
@@ -643,6 +665,79 @@ TEST(raw_io_on_a_simulated_plain_network) {
   io.stop();
   CHECK(!port.running());
   set_port(1, nullptr);
+}
+
+// A link that hands out frames the test queues, marked as from another
+// socket on this host.
+class HostLink : public RawLink {
+ public:
+  HostLink() : fd_(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC)) {}
+  ~HostLink() override { ::close(fd_); }
+  int open() override { return 0; }
+  void close() override {}
+  int fd() const override { return fd_; }
+  Confirm confirm() const override { return Confirm::Echo; }
+  void set_filters(const std::vector<LinkFilter>&, bool) override {}
+  void read(std::vector<LinkFrame>& out, size_t) override {
+    uint64_t v;
+    if (::read(fd_, &v, sizeof v) < 0) {
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    out.insert(out.end(), queued_.begin(), queued_.end());
+    queued_.clear();
+  }
+  int write(const canworks_can_frame&, Origin) override { return 0; }
+  std::string where() const override { return "test"; }
+  void host_frame(const canworks_can_frame& f) {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      LinkFrame lf;
+      lf.frame = f;
+      lf.this_host = true;
+      queued_.push_back(lf);
+    }
+    uint64_t one = 1;
+    if (::write(fd_, &one, sizeof one) < 0) {
+    }
+  }
+
+ private:
+  int fd_;
+  std::mutex mutex_;
+  std::vector<LinkFrame> queued_;
+};
+
+// Frames another program on the PLC host sends (cansend) reach the
+// program's receivers on a plain CAN network; on a protocol network the
+// kernel marks the protocol's own frames the same way, so they do not.
+TEST(host_frames_reach_receivers_on_plain_networks) {
+  for (bool plain : {true, false}) {
+    PlcPort port(1);
+    port.set_rules(PortRules{});
+    set_port(1, &port);
+    std::unique_ptr<HostLink> owned(new HostLink);
+    HostLink* link = owned.get();
+    RawIoHooks hooks;
+    hooks.host_frames_received = plain;
+    RawIo io(std::move(owned), 500000, false, nullptr, &port, hooks);
+    io.start();
+    for (int i = 0; i < 100 && !port.running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    uint16_t err = 0;
+    uint32_t h = port.rx_open(0x123, 0x7FF, 0, 8, &err);
+    CHECK(h != 0);
+    link->host_frame(frame(0x123, {7}));
+    canworks_can_frame f{};
+    canworks_can_rx_info info{};
+    bool got = false;
+    for (int i = 0; i < 40 && !got; ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      got = port.rx_read(h, &f, &info) == 1;
+    }
+    CHECK(got == plain);
+    CHECK(io.frames_received() == (plain ? 1u : 0u));
+    io.stop();
+    set_port(1, nullptr);
+  }
 }
 
 TEST(raw_scenarios_parse) {
