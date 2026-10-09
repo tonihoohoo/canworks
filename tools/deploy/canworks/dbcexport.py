@@ -17,12 +17,14 @@ import re
 import tempfile
 
 from . import __version__, bundle, contract, edslint
+from . import notes as notes_mod
 from . import eds as eds_mod
 from .iec import CO_TYPES, CO_TYPE_BY_CODE, parse_location
 
 SDO_OPTIONS = ("none", "config", "all")
 MASTER = "Master"
 NO_RECEIVER = "Vector__XXX"
+PLC_NODE = "PLC"  # the sender of a plain CAN network's raw messages
 
 NMT_STATES = [(0, "Boot-up"), (4, "Stopped"), (5, "Operational"), (127, "Pre-operational")]
 NMT_COMMANDS = [(1, "Start"), (2, "Stop"), (128, "Enter pre-operational"), (129, "Reset node"),
@@ -48,17 +50,20 @@ class ExportFailed(Exception):
 
 class Signal:
     """A DBC signal. `start` is the DBC start bit (big byte order: the most
-    significant bit); scale, offset and unit are the J1939 export's, the
-    CANopen export leaves them at 1, 0 and ""."""
+    significant bit). The CANopen export takes scale, unit and value names
+    from the object's device notes (canopen-device-notes), else 1, "" and
+    none; its offset is 0."""
 
     def __init__(self, name, start, length, signed=False, float_kind=0, receivers=(), comment="",
-                 mux=None, multiplexer=False, values=None, scale=1, offset=0, unit="", big_endian=False):
+                 mux=None, multiplexer=False, values=None, scale=1, offset=0, unit="", big_endian=False,
+                 minimum=None, maximum=None):
         self.name, self.start, self.length = name, start, length
         self.signed, self.float_kind = signed, float_kind  # float_kind: 0, 1 (single) or 2 (double)
         self.receivers = list(receivers)
         self.comment, self.mux, self.multiplexer = comment, mux, multiplexer
         self.values = values or []  # [(value, text)]
         self.scale, self.offset, self.unit, self.big_endian = scale, offset, unit, big_endian
+        self.minimum, self.maximum = minimum, maximum  # physical limits; None: the raw range's
 
     def raw_range(self):
         if self.float_kind:
@@ -69,6 +74,8 @@ class Signal:
 
     def range(self):
         """[minimum, maximum] in physical units."""
+        if self.minimum is not None and self.maximum is not None:
+            return self.minimum, self.maximum
         lo, hi = self.raw_range()
         if self.scale == 1 and self.offset == 0:
             return lo, hi
@@ -184,6 +191,30 @@ def _signal_type(type_name, length):
     return bool(type_name and type_name.startswith("INTEGER")), 0
 
 
+def file_notes(paths):
+    """The notes source of an export run from files: each EDS's notes file
+    next to it, over the built-in notes. `paths`: {eds value: EDS path}."""
+    def source(value, eds):
+        path = paths.get(value)
+        return notes_mod.Notes.for_eds(eds, value, path if path and os.path.isfile(path) else None)
+    return source
+
+
+def note_signal(note, signal, type_name):
+    """Unit, scale, value names and the note text of an object's merged note
+    on its signal."""
+    if not note:
+        return
+    if note.get("unit"):
+        signal.unit = note["unit"]
+    if isinstance(note.get("scale"), (int, float)) and not isinstance(note.get("scale"), bool) and note["scale"]:
+        signal.scale = note["scale"]
+    if note.get("values") and not signal.float_kind:
+        signal.values = sorted((int(v), t) for v, t in note["values"].items())
+    if note.get("text"):
+        signal.comment += "; " + note["text"]
+
+
 def _load_eds(cfg, config_path, eds_paths):
     paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
     out = []
@@ -274,7 +305,7 @@ def pdo_marks(n, eds):
     return out
 
 
-def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings):
+def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
     sync_us = _u(cfg["master"].get("sync_period_us"), 0)
     plc_cycle = cfg["master"].get("sync_source") == "plc_cycle"
     sync_cycles = _u(cfg["master"].get("sync_cycles"), 1) or 1
@@ -326,8 +357,11 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings):
                     what = "(not used by the PLC)"
                 else:
                     what = "(not used by the PLC, sent as 0 by the master)"
-                msg.signals.append(Signal(name, bit, length, signed, float_kind, [receiver],
-                                          "0x%04X:%d %s %s" % (index, sub, type_name or "unknown type", what)))
+                signal = Signal(name, bit, length, signed, float_kind, [receiver],
+                                "0x%04X:%d %s %s" % (index, sub, type_name or "unknown type", what))
+                if notes is not None and obj is not None:
+                    note_signal(notes.note(index, sub), signal, type_name)
+                msg.signals.append(signal)
                 bit += length
             msgs.append(msg)
     for s in n.get("sdo", []):
@@ -376,7 +410,7 @@ def _sdo_objects(n, eds, option):
     return out
 
 
-def _sdo_messages(n, node_name, eds, option):
+def _sdo_messages(n, node_name, eds, option, notes=None):
     objects = _sdo_objects(n, eds, option)
     node_id = n_id(n)
     msgs = []
@@ -398,9 +432,11 @@ def _sdo_messages(n, node_name, eds, option):
             table.append((value, "0x%04X:%d %s" % (index, sub, name)))
             length = 8 if type_name == "BOOLEAN" else _bits_of(type_name)
             signed, float_kind = _signal_type(type_name, length)
-            data.append(Signal(name, 32, length, signed, float_kind, [receiver],
-                               "0x%04X:%d %s%s" % (index, sub, type_name, ", " + comment if comment else ""),
-                               mux=value))
+            signal = Signal(name, 32, length, signed, float_kind, [receiver],
+                            "0x%04X:%d %s%s" % (index, sub, type_name, ", " + comment if comment else ""), mux=value)
+            if notes is not None:
+                note_signal(notes.note(index, sub), signal, type_name)
+            data.append(signal)
         msg.signals.append(Signal("Object", 8, 24, receivers=[receiver], multiplexer=True,
                                   comment="index + subindex * 65536 (bytes 1-3 of the frame)", values=table))
         msg.signals += data
@@ -408,11 +444,12 @@ def _sdo_messages(n, node_name, eds, option):
     return msgs
 
 
-def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=False):
+def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=False, notes=None):
     """The DBC model of a config with one network. Raises ExportFailed with
     the config checks' errors; `checked`: the caller ran them, and the model's
     warnings are only the export's own. `names`: plc_names() of the editor
-    project, or None."""
+    project, or None. `notes`: a callable (eds value, Eds) -> notes.Notes;
+    default: each EDS's notes file next to it."""
     if sdo not in SDO_OPTIONS:
         raise ValueError("sdo must be one of %s" % ", ".join(SDO_OPTIONS))
     paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
@@ -425,10 +462,12 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
     eds_list = _load_eds(cfg, config_path, paths)
     pdos = _normalized_pdos(cfg)
     node_names = node_identifiers(cfg)
+    notes = notes or file_notes(paths)
     messages = []
     for n, eds, norm, node_name in zip(cfg["nodes"], eds_list, pdos, node_names):
         node_id = n_id(n)
-        messages += _pdo_messages(n, node_name, eds, norm, cfg, names, warnings)
+        nt = notes(n["eds"], eds)
+        messages += _pdo_messages(n, node_name, eds, norm, cfg, names, warnings, nt)
         hb = Message(0x700 + node_id, "%s_Heartbeat" % node_name, 1, node_name, "node %d heartbeat" % node_id)
         hb.signals.append(Signal("NMT_State", 0, 7, receivers=[MASTER], values=NMT_STATES))
         messages.append(hb)
@@ -438,7 +477,7 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
                        Signal("Manufacturer_Data", 24, 40, receivers=[MASTER])]
         messages.append(em)
         if sdo != "none":
-            messages += _sdo_messages(n, node_name, eds, sdo)
+            messages += _sdo_messages(n, node_name, eds, sdo, nt)
     nmt = Message(0x000, "NMT", 2, MASTER, "NMT node control; Node_ID 0 addresses all nodes")
     nmt.signals += [Signal("Command", 0, 8, receivers=node_names or [NO_RECEIVER], values=NMT_COMMANDS),
                     Signal("Node_ID", 8, 8, receivers=node_names or [NO_RECEIVER])]
@@ -541,14 +580,14 @@ def write(model):
     return "\r\n".join(L) + "\r\n"
 
 
-def export(cfg, config_path, eds_paths=None, sdo="none", names=None):
+def export(cfg, config_path, eds_paths=None, sdo="none", names=None, notes=None):
     """(DBC text, warnings [str]) of a config with one network. Raises
     ExportFailed."""
-    model = build(cfg, config_path, eds_paths, sdo, names)
+    model = build(cfg, config_path, eds_paths, sdo, names, notes=notes)
     return write(model), model.warnings
 
 
-def export_networks(cfg, config_path, eds_paths=None, sdo="none", names=None, network=None):
+def export_networks(cfg, config_path, eds_paths=None, sdo="none", names=None, network=None, notes=None):
     """([(network name, DBC text)], warnings): one DBC per network, or only
     for the one `network` names; the name is "" for a version 1 file. A
     J1939 network's DBC comes from canworks/j1939/dbc.py. Every
@@ -567,22 +606,58 @@ def export_networks(cfg, config_path, eds_paths=None, sdo="none", names=None, ne
                 network, ", ".join(n["name"] or "unnamed" for n in every)), ["networks"])])
     files, warnings = [], list(result.warnings)
     j1939_nets = [n for n in nets if n["role"] == "j1939"]
-    masters = [n for n in nets if n["role"] == "master"] if j1939_nets else _no_slave(nets, network, "a DBC file")
+    plain = [n for n in nets if n["role"] == "plain"]
+    masters = [n for n in nets if n["role"] == "master"] if j1939_nets or plain \
+        else _no_slave(nets, network, "a DBC file")
     for net in nets:
-        if net in j1939_nets:
+        raw = net["json"].get("raw") if net["path"] else None
+        if net in plain:
+            model = Model([PLC_NODE], raw_messages(raw, PLC_NODE),
+                          "Plain CAN network %s of %s, exported by canworks-deploy %s" % (
+                              net["name"], os.path.basename(config_path), __version__), [])
+        elif net in j1939_nets:
             from .j1939 import dbc as j1939_dbc  # the J1939 export (canworks/j1939/dbc.py)
             model = j1939_dbc.build(net, config_path, names)
         elif net in masters:
             one = contract.network_config(cfg, net["name"] if net["path"] else None)
-            model = build(one, config_path, paths, sdo, names, checked=True)
+            model = build(one, config_path, paths, sdo, names, checked=True, notes=notes)
             if len(every) > 1:
                 model.comment = "CANopen network %s of %s, exported by canworks-deploy %s" % (
                     net["name"], os.path.basename(config_path), __version__)
         else:
             continue
+        if raw and net not in plain:
+            sender = PLC_NODE if PLC_NODE in model.nodes else model.nodes[0]
+            model.messages += raw_messages(raw, sender)
         files.append((net["name"], write(model)))
         warnings += [(net["name"] + ": " if len(every) > 1 else "") + w for w in model.warnings]
     return files, warnings
+
+
+def raw_messages(raw, sender):
+    """The raw messages of a network's `raw` object as DBC messages (spec
+    canopen-dbc-export "Raw messages in the DBC"): send messages from
+    `sender`, the cycle time from the period, or for a receive message a
+    third of its timeout."""
+    from .raw.contract import hex_id, tx_dlc
+    out = []
+    for kind in ("rx", "tx"):
+        for m in (raw or {}).get(kind) or []:
+            if not isinstance(m, dict) or not isinstance(m.get("id"), int):
+                continue
+            cycle = m.get("period_ms") if kind == "tx" else (m.get("timeout_ms") or 0) // 3
+            msg = Message(m["id"], identifier(m.get("name") or "msg_%s" % hex_id(m["id"])[2:]),
+                          tx_dlc(m) if kind == "tx" else m.get("dlc", 8), sender if kind == "tx" else NO_RECEIVER,
+                          comment="raw message, %s" % ("sent by the PLC" if kind == "tx" else "received"),
+                          cycle_ms=cycle or None, extended=bool(m.get("extended")))
+            for j, sg in enumerate(m.get("signals") or []):
+                msg.signals.append(Signal(
+                    identifier(sg.get("name") or "s%d" % j), sg["start_bit"], sg["length"], signed=bool(sg.get("signed")),
+                    receivers=[sender] if kind == "rx" else (), comment=sg.get("comment", ""),
+                    scale=sg.get("scale", 1), offset=sg.get("offset", 0), unit=sg.get("unit", ""),
+                    big_endian=sg.get("byte_order") == "big", minimum=sg.get("minimum"), maximum=sg.get("maximum")))
+            out.append(msg)
+    return out
 
 
 def _no_slave(nets, network, what):

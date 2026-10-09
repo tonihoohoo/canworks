@@ -390,6 +390,7 @@
         "index": 4119,
         "meaning": "heartbeat every 50 ms",
         "name": "Producer heartbeat time",
+        "note": "Producer heartbeat time: how often the device sends its heartbeat; 0 means no heartbeat",
         "source": "node settings",
         "subindex": 0,
         "value": "50 (0x0032)"
@@ -401,6 +402,7 @@
         "index": 5120,
         "meaning": "COB-ID 0x204, PDO switched off",
         "name": "RPDO 1 communication parameter / COB-ID",
+        "note": "COB-ID of the receive PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484164 (0x80000204)"
@@ -412,6 +414,7 @@
         "index": 5632,
         "meaning": "0 mapped objects",
         "name": "RPDO 1 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -423,6 +426,7 @@
         "index": 5632,
         "meaning": "maps 0x6040:0, 16 bits (Controlword)",
         "name": "RPDO 1 mapping parameter / Mapped object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1614807056 (0x60400010)"
@@ -434,6 +438,7 @@
         "index": 5632,
         "meaning": "maps 0x6060:0, 8 bits (Modes of operation)",
         "name": "RPDO 1 mapping parameter / Mapped object 2",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 2,
         "value": "1616904200 (0x60600008)"
@@ -445,6 +450,7 @@
         "index": 5632,
         "meaning": "2 mapped objects",
         "name": "RPDO 1 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "2 (0x02)"
@@ -456,6 +462,7 @@
         "index": 5120,
         "meaning": "COB-ID 0x204, PDO valid",
         "name": "RPDO 1 communication parameter / COB-ID",
+        "note": "COB-ID of the receive PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "516 (0x00000204)"
@@ -467,6 +474,7 @@
         "index": 5121,
         "meaning": "COB-ID 0x304, PDO switched off",
         "name": "RPDO 2 communication parameter / COB-ID",
+        "note": "COB-ID of the receive PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484420 (0x80000304)"
@@ -478,6 +486,7 @@
         "index": 5633,
         "meaning": "0 mapped objects",
         "name": "RPDO 2 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -489,6 +498,7 @@
         "index": 5633,
         "meaning": "maps 0x607A:0, 32 bits (Target position)",
         "name": "RPDO 2 mapping parameter / Mapped object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1618608160 (0x607A0020)"
@@ -500,6 +510,7 @@
         "index": 5633,
         "meaning": "maps 0x6081:0, 32 bits (Profile velocity)",
         "name": "RPDO 2 mapping parameter / Mapped object 2",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 2,
         "value": "1619066912 (0x60810020)"
@@ -511,6 +522,7 @@
         "index": 5633,
         "meaning": "2 mapped objects",
         "name": "RPDO 2 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "2 (0x02)"
@@ -522,6 +534,7 @@
         "index": 5121,
         "meaning": "COB-ID 0x304, PDO valid",
         "name": "RPDO 2 communication parameter / COB-ID",
+        "note": "COB-ID of the receive PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "772 (0x00000304)"
@@ -533,6 +546,7 @@
         "index": 5122,
         "meaning": "COB-ID 0x404, PDO switched off",
         "name": "RPDO 3 communication parameter / COB-ID",
+        "note": "COB-ID of the receive PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484676 (0x80000404)"
@@ -544,6 +558,7 @@
         "index": 5634,
         "meaning": "0 mapped objects",
         "name": "RPDO 3 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -555,6 +570,7 @@
         "index": 5634,
         "meaning": "maps 0x60FF:0, 32 bits (Target velocity)",
         "name": "RPDO 3 mapping parameter / Mapped object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1627324448 (0x60FF0020)"
@@ -566,6 +582,7 @@
         "index": 5634,
         "meaning": "1 mapped object",
         "name": "RPDO 3 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "1 (0x01)"
@@ -577,6 +594,7 @@
         "index": 5122,
         "meaning": "COB-ID 0x404, PDO valid",
         "name": "RPDO 3 communication parameter / COB-ID",
+        "note": "COB-ID of the receive PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1028 (0x00000404)"
@@ -588,6 +606,7 @@
         "index": 5123,
         "meaning": "COB-ID 0x504, PDO switched off",
         "name": "RPDO 4 communication parameter / COB-ID",
+        "note": "COB-ID of the receive PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484932 (0x80000504)"
@@ -599,6 +618,7 @@
         "index": 6144,
         "meaning": "COB-ID 0x184, PDO switched off",
         "name": "TPDO 1 communication parameter / COB-ID",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484036 (0x80000184)"
@@ -610,6 +630,7 @@
         "index": 6656,
         "meaning": "0 mapped objects",
         "name": "TPDO 1 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -621,6 +642,7 @@
         "index": 6656,
         "meaning": "maps 0x6041:0, 16 bits (Statusword)",
         "name": "TPDO 1 mapping parameter / Mapped object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1614872592 (0x60410010)"
@@ -632,6 +654,7 @@
         "index": 6656,
         "meaning": "maps 0x6061:0, 8 bits (Modes of operation display)",
         "name": "TPDO 1 mapping parameter / Mapped object 2",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 2,
         "value": "1616969736 (0x60610008)"
@@ -643,6 +666,7 @@
         "index": 6656,
         "meaning": "2 mapped objects",
         "name": "TPDO 1 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "2 (0x02)"
@@ -654,6 +678,7 @@
         "index": 6144,
         "meaning": "COB-ID 0x184, PDO valid",
         "name": "TPDO 1 communication parameter / COB-ID",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "388 (0x00000184)"
@@ -665,6 +690,7 @@
         "index": 6145,
         "meaning": "COB-ID 0x284, PDO switched off",
         "name": "TPDO 2 communication parameter / COB-ID",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484292 (0x80000284)"
@@ -676,6 +702,7 @@
         "index": 6657,
         "meaning": "0 mapped objects",
         "name": "TPDO 2 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -687,6 +714,7 @@
         "index": 6657,
         "meaning": "maps 0x6064:0, 32 bits (Position actual value)",
         "name": "TPDO 2 mapping parameter / Mapped object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1617166368 (0x60640020)"
@@ -698,6 +726,7 @@
         "index": 6657,
         "meaning": "1 mapped object",
         "name": "TPDO 2 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "1 (0x01)"
@@ -709,6 +738,7 @@
         "index": 6145,
         "meaning": "COB-ID 0x284, PDO valid",
         "name": "TPDO 2 communication parameter / COB-ID",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "644 (0x00000284)"
@@ -720,6 +750,7 @@
         "index": 6146,
         "meaning": "COB-ID 0x384, PDO switched off",
         "name": "TPDO 3 communication parameter / COB-ID",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484548 (0x80000384)"
@@ -731,6 +762,7 @@
         "index": 6658,
         "meaning": "0 mapped objects",
         "name": "TPDO 3 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -742,6 +774,7 @@
         "index": 6658,
         "meaning": "maps 0x606C:0, 32 bits (Velocity actual value)",
         "name": "TPDO 3 mapping parameter / Mapped object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1617690656 (0x606C0020)"
@@ -753,6 +786,7 @@
         "index": 6658,
         "meaning": "1 mapped object",
         "name": "TPDO 3 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "1 (0x01)"
@@ -764,6 +798,7 @@
         "index": 6146,
         "meaning": "COB-ID 0x384, PDO valid",
         "name": "TPDO 3 communication parameter / COB-ID",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "900 (0x00000384)"
@@ -775,6 +810,7 @@
         "index": 6147,
         "meaning": "COB-ID 0x484, PDO switched off",
         "name": "TPDO 4 communication parameter / COB-ID",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484804 (0x80000484)"
@@ -786,6 +822,7 @@
         "index": 24707,
         "meaning": "",
         "name": "Profile acceleration",
+        "note": "Profile acceleration in user units",
         "source": "startup SDO",
         "subindex": 0,
         "value": "20000 (0x00004E20)"
@@ -797,6 +834,7 @@
         "index": 24708,
         "meaning": "",
         "name": "Profile deceleration",
+        "note": "Profile deceleration in user units",
         "source": "startup SDO",
         "subindex": 0,
         "value": "20000 (0x00004E20)"
@@ -806,8 +844,9 @@
         "data": "23",
         "eds_default": "35",
         "index": 24728,
-        "meaning": "",
+        "meaning": "current position (old number)",
         "name": "Homing method",
+        "note": "Homing method: how the drive finds its home position; 3-14 and 19-30 are home switch variants, see the drive manual",
         "source": "startup SDO",
         "subindex": 0,
         "value": "35 (0x23)"
@@ -1335,8 +1374,10 @@
          "length": 16,
          "location": "%IW100",
          "name": "Statusword",
+         "note": "Statusword: the drive's state and operation mode status",
          "subindex": 0,
          "type": "UNSIGNED16",
+         "unit": "",
          "used": true,
          "variables": []
         },
@@ -1347,8 +1388,10 @@
          "length": 8,
          "location": "%IB100",
          "name": "Modes of operation display",
+         "note": "Modes of operation display: the operation mode the drive is in",
          "subindex": 0,
          "type": "INTEGER8",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -1377,8 +1420,10 @@
          "length": 32,
          "location": "%ID100",
          "name": "Position actual value",
+         "note": "Position actual value in user units",
          "subindex": 0,
          "type": "INTEGER32",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -1407,8 +1452,10 @@
          "length": 32,
          "location": "%ID101",
          "name": "Velocity actual value",
+         "note": "Velocity actual value in user units",
          "subindex": 0,
          "type": "INTEGER32",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -1437,8 +1484,10 @@
          "length": 16,
          "location": "%QW100",
          "name": "Controlword",
+         "note": "Controlword: commands the drive's state machine and the operation mode",
          "subindex": 0,
          "type": "UNSIGNED16",
+         "unit": "",
          "used": true,
          "variables": []
         },
@@ -1449,8 +1498,10 @@
          "length": 8,
          "location": "%QB100",
          "name": "Modes of operation",
+         "note": "Modes of operation: the operation mode the master asks for",
          "subindex": 0,
          "type": "INTEGER8",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -1479,8 +1530,10 @@
          "length": 32,
          "location": "%QD100",
          "name": "Target position",
+         "note": "Target position in user units (profile position and cyclic sync position modes)",
          "subindex": 0,
          "type": "INTEGER32",
+         "unit": "",
          "used": true,
          "variables": []
         },
@@ -1491,8 +1544,10 @@
          "length": 32,
          "location": "%QD101",
          "name": "Profile velocity",
+         "note": "Profile velocity: the travel speed of a profile position move, in user units",
          "subindex": 0,
          "type": "UNSIGNED32",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -1521,8 +1576,10 @@
          "length": 32,
          "location": "%QD102",
          "name": "Target velocity",
+         "note": "Target velocity in user units (profile velocity and cyclic sync velocity modes)",
          "subindex": 0,
          "type": "INTEGER32",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -1656,7 +1713,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.45.0"
+  "version": "0.46.2"
  },
  "warnings": [
   "estimated worst-case bus load 64.5 % is above 60 %"

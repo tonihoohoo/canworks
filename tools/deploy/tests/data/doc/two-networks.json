@@ -285,6 +285,7 @@
         "index": 4119,
         "meaning": "heartbeat every 100 ms",
         "name": "Producer heartbeat time",
+        "note": "Producer heartbeat time: how often the device sends its heartbeat; 0 means no heartbeat",
         "source": "node settings",
         "subindex": 0,
         "value": "100 (0x0064)"
@@ -296,6 +297,7 @@
         "index": 5120,
         "meaning": "COB-ID 0x202, PDO switched off",
         "name": "RPDO communication parameter / COB-ID used by RPDO",
+        "note": "COB-ID of the receive PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484162 (0x80000202)"
@@ -307,6 +309,7 @@
         "index": 5632,
         "meaning": "0 mapped objects",
         "name": "RPDO mapping parameter / Number of mapped application objects in PDO",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -318,6 +321,7 @@
         "index": 5632,
         "meaning": "maps 0x4000:0, 32 bits (UNSIGNED32 received by slave)",
         "name": "RPDO mapping parameter / Application object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1073741856 (0x40000020)"
@@ -329,6 +333,7 @@
         "index": 5632,
         "meaning": "1 mapped object",
         "name": "RPDO mapping parameter / Number of mapped application objects in PDO",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "1 (0x01)"
@@ -340,6 +345,7 @@
         "index": 5120,
         "meaning": "COB-ID 0x202, PDO valid",
         "name": "RPDO communication parameter / COB-ID used by RPDO",
+        "note": "COB-ID of the receive PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "514 (0x00000202)"
@@ -351,6 +357,7 @@
         "index": 6144,
         "meaning": "COB-ID 0x182, PDO switched off",
         "name": "TPDO communication parameter / COB-ID used by TPDO",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484034 (0x80000182)"
@@ -362,6 +369,7 @@
         "index": 6656,
         "meaning": "0 mapped objects",
         "name": "TPDO mapping parameter / Number of mapped application objects in PDO",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -373,6 +381,7 @@
         "index": 6656,
         "meaning": "maps 0x4001:0, 32 bits (UNSIGNED32 sent from slave)",
         "name": "TPDO mapping parameter / Application object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1073807392 (0x40010020)"
@@ -384,6 +393,7 @@
         "index": 6656,
         "meaning": "1 mapped object",
         "name": "TPDO mapping parameter / Number of mapped application objects in PDO",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "1 (0x01)"
@@ -395,6 +405,7 @@
         "index": 6144,
         "meaning": "COB-ID 0x182, PDO valid",
         "name": "TPDO communication parameter / COB-ID used by TPDO",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "386 (0x00000182)"
@@ -625,8 +636,10 @@
          "length": 32,
          "location": "%ID100",
          "name": "UNSIGNED32 sent from slave",
+         "note": "",
          "subindex": 0,
          "type": "UNSIGNED32",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -655,8 +668,10 @@
          "length": 32,
          "location": "%QD100",
          "name": "UNSIGNED32 received by slave",
+         "note": "",
          "subindex": 0,
          "type": "UNSIGNED32",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -961,6 +976,7 @@
         "index": 4119,
         "meaning": "heartbeat every 100 ms",
         "name": "Producer heartbeat time",
+        "note": "Producer heartbeat time: how often the device sends its heartbeat; 0 means no heartbeat",
         "source": "node settings",
         "subindex": 0,
         "value": "100 (0x0064)"
@@ -972,6 +988,7 @@
         "index": 5120,
         "meaning": "COB-ID 0x202, PDO switched off",
         "name": "RPDO communication parameter / COB-ID used by RPDO",
+        "note": "COB-ID of the receive PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484162 (0x80000202)"
@@ -983,6 +1000,7 @@
         "index": 5632,
         "meaning": "0 mapped objects",
         "name": "RPDO mapping parameter / Number of mapped application objects in PDO",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -994,6 +1012,7 @@
         "index": 5632,
         "meaning": "maps 0x4000:0, 32 bits (UNSIGNED32 received by slave)",
         "name": "RPDO mapping parameter / Application object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1073741856 (0x40000020)"
@@ -1005,6 +1024,7 @@
         "index": 5632,
         "meaning": "1 mapped object",
         "name": "RPDO mapping parameter / Number of mapped application objects in PDO",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "1 (0x01)"
@@ -1016,6 +1036,7 @@
         "index": 5120,
         "meaning": "COB-ID 0x202, PDO valid",
         "name": "RPDO communication parameter / COB-ID used by RPDO",
+        "note": "COB-ID of the receive PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "514 (0x00000202)"
@@ -1027,6 +1048,7 @@
         "index": 6144,
         "meaning": "COB-ID 0x182, PDO switched off",
         "name": "TPDO communication parameter / COB-ID used by TPDO",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484034 (0x80000182)"
@@ -1038,6 +1060,7 @@
         "index": 6656,
         "meaning": "0 mapped objects",
         "name": "TPDO mapping parameter / Number of mapped application objects in PDO",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -1049,6 +1072,7 @@
         "index": 6656,
         "meaning": "maps 0x4001:0, 32 bits (UNSIGNED32 sent from slave)",
         "name": "TPDO mapping parameter / Application object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1073807392 (0x40010020)"
@@ -1060,6 +1084,7 @@
         "index": 6656,
         "meaning": "1 mapped object",
         "name": "TPDO mapping parameter / Number of mapped application objects in PDO",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "1 (0x01)"
@@ -1071,6 +1096,7 @@
         "index": 6144,
         "meaning": "COB-ID 0x182, PDO valid",
         "name": "TPDO communication parameter / COB-ID used by TPDO",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "386 (0x00000182)"
@@ -1301,8 +1327,10 @@
          "length": 32,
          "location": "%ID101",
          "name": "UNSIGNED32 sent from slave",
+         "note": "",
          "subindex": 0,
          "type": "UNSIGNED32",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -1331,8 +1359,10 @@
          "length": 32,
          "location": "%QD101",
          "name": "UNSIGNED32 received by slave",
+         "note": "",
          "subindex": 0,
          "type": "UNSIGNED32",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -1439,7 +1469,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.45.0"
+  "version": "0.46.2"
  },
  "warnings": []
 }

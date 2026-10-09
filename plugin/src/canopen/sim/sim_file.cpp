@@ -177,8 +177,8 @@ bool parse_step(const cJSON* o, Step& s, std::string& err) {
     err = "must be an object";
     return false;
   }
-  if (!known_keys(o, {"node", "machine", "at_ms", "after_ms", "set", "override", "release", "source", "fault", "clear",
-                      "wait", "expect", "timeout_ms", "within_ms", "for_ms", "log", "repeat"},
+  if (!known_keys(o, {"node", "machine", "device", "at_ms", "after_ms", "set", "override", "release", "source", "fault",
+                      "clear", "wait", "expect", "timeout_ms", "within_ms", "for_ms", "log", "repeat"},
                   err))
     return false;
   const cJSON* n = cJSON_GetObjectItemCaseSensitive(o, "node");
@@ -209,6 +209,54 @@ bool parse_step(const cJSON* o, Step& s, std::string& err) {
     return false;
   }
   const cJSON* a = cJSON_GetObjectItemCaseSensitive(o, s.action.c_str());
+  const cJSON* dj = cJSON_GetObjectItemCaseSensitive(o, "device");
+  if (dj) {
+    // A plain CAN device of raw_devices (docs/simulator.md, "Plain CAN devices").
+    if (!cJSON_IsString(dj) || !*dj->valuestring) {
+      err = "\"device\" must name a plain CAN device (raw_devices)";
+      return false;
+    }
+    if (s.action != "fault" && s.action != "clear") {
+      err = "\"device\" belongs to a \"fault\" or \"clear\" step";
+      return false;
+    }
+    if (!s.node.empty() || cJSON_GetObjectItemCaseSensitive(o, "machine")) {
+      err = "a step has one of \"node\", \"machine\" and \"device\"";
+      return false;
+    }
+    s.device = dj->valuestring;
+    if (s.action == "clear") {
+      if (!cJSON_IsString(a) || (std::strcmp(a->valuestring, "stop") != 0 && std::strcmp(a->valuestring, "wrong_dlc") != 0 &&
+                                 std::strcmp(a->valuestring, "all") != 0)) {
+        err = "\"clear\" of a plain CAN device must be \"stop\", \"wrong_dlc\" or \"all\"";
+        return false;
+      }
+      s.clear = a->valuestring;
+      return true;
+    }
+    const cJSON* stop = cJSON_GetObjectItemCaseSensitive(a, "stop");
+    const cJSON* dlc = cJSON_GetObjectItemCaseSensitive(a, "wrong_dlc");
+    if (!cJSON_IsObject(a) || cJSON_GetArraySize(a) != 1 || (!stop && !dlc)) {
+      err = "\"fault\" of a plain CAN device must be {\"stop\": true} or {\"wrong_dlc\": 0-8}";
+      return false;
+    }
+    if (stop) {
+      if (!cJSON_IsTrue(stop)) {
+        err = "\"fault\": \"stop\" must be true";
+        return false;
+      }
+      s.device_fault = "stop";
+      return true;
+    }
+    if (!cJSON_IsNumber(dlc) || dlc->valuedouble < 0 || dlc->valuedouble > 8 ||
+        dlc->valuedouble != static_cast<int>(dlc->valuedouble)) {
+      err = "\"fault\": \"wrong_dlc\" must be an integer 0-8";
+      return false;
+    }
+    s.device_fault = "wrong_dlc";
+    s.device_dlc = static_cast<int>(dlc->valuedouble);
+    return true;
+  }
   const cJSON* mj = cJSON_GetObjectItemCaseSensitive(o, "machine");
   if (mj) {
     if (!cJSON_IsString(mj) || !*mj->valuestring) {
@@ -931,7 +979,7 @@ bool parse_sim_file(const std::string& json, const std::string& path, SimFile& o
   }
   if (out.schema_version >= 2) {
     // Version 2: one section per network (docs/simulator.md).
-    if (!known_keys(root, {"schema_version", "tick_ms", "networks"}, err)) {
+    if (!known_keys(root, {"schema_version", "tick_ms", "networks", "raw_devices"}, err)) {
       fail("", err + (cJSON_GetObjectItemCaseSensitive(root, "nodes") || cJSON_GetObjectItemCaseSensitive(root, "scenarios") ||
                               cJSON_GetObjectItemCaseSensitive(root, "extra_devices")
                           ? " (in version 2, nodes, extra_devices and scenarios go in a network's section under "
@@ -976,7 +1024,7 @@ bool parse_sim_file(const std::string& json, const std::string& path, SimFile& o
     }
     return errors.size() == before;
   }
-  if (!known_keys(root, {"schema_version", "tick_ms", "nodes", "extra_devices", "scenarios"}, err)) {
+  if (!known_keys(root, {"schema_version", "tick_ms", "nodes", "extra_devices", "scenarios", "raw_devices"}, err)) {
     fail("", err + (cJSON_GetObjectItemCaseSensitive(root, "networks")
                         ? " (per-network sections need \"schema_version\": 2)"
                         : ""));

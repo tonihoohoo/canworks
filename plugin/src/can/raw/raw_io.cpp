@@ -1,0 +1,270 @@
+// raw_io.cpp - see raw_io.h.
+
+#include "raw_io.h"
+
+#include <errno.h>
+#include <poll.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
+
+#include <cstring>
+
+#include "../frame_tx.h"
+
+namespace canworks_raw {
+
+namespace {
+
+constexpr uint64_t kEchoMaxAgeUs = 1000000;  // an echo later than 1 s fails the frame
+constexpr int kTickMs = 1;
+constexpr int kIdleMs = 100;
+constexpr int kRetryMs = 1000;
+constexpr size_t kReadBatch = 256;
+
+// Approximate bits on the wire, with worst-case-ish stuffing (one stuff bit
+// per 5 of the stuffed part).
+uint64_t frame_bits(const canworks_can_frame& f) {
+  unsigned data = (f.flags & CANWORKS_CAN_RTR) ? 0 : 8u * f.dlc;
+  unsigned stuffed = ((f.flags & CANWORKS_CAN_EXTENDED) ? 54u : 34u) + data;
+  return stuffed + stuffed / 5 + 13;  // CRC delimiter, ACK, EOF, interframe space
+}
+
+canworks_can_frame from_raw_frame(const canopen_plugin::RawFrame& r) {
+  canworks_can_frame f{};
+  f.id = r.id;
+  f.flags = static_cast<uint8_t>((r.ext ? CANWORKS_CAN_EXTENDED : 0) | (r.rtr ? CANWORKS_CAN_RTR : 0));
+  f.dlc = r.dlc > 8 ? 8 : r.dlc;
+  std::memcpy(f.data, r.data, 8);
+  return f;
+}
+
+}  // namespace
+
+RawIo::RawIo(std::unique_ptr<RawLink> link, uint32_t bitrate, bool listen_only, RawEngine* engine, PlcPort* port,
+             RawIoHooks hooks, RawSimDevices* devices, std::shared_ptr<canopen_plugin::SimFrameInjector> injector)
+    : link_(std::move(link)),
+      bitrate_(bitrate),
+      listen_only_(listen_only),
+      engine_(engine),
+      port_(port),
+      hooks_(std::move(hooks)),
+      devices_(devices && devices->size() ? devices : nullptr),
+      injector_(std::move(injector)) {
+  if (engine_) outputs_.assign(engine_->output_locations().size(), 0);
+}
+
+RawIo::~RawIo() { stop(); }
+
+void RawIo::start() {
+  if (thread_.joinable()) return;
+  stop_ = false;
+  wake_fd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+  thread_ = std::thread([this] { run(); });
+}
+
+void RawIo::stop() {
+  if (!thread_.joinable()) return;
+  stop_ = true;
+  uint64_t one = 1;
+  if (wake_fd_ >= 0 && write(wake_fd_, &one, sizeof one) < 0) {
+  }
+  thread_.join();
+  if (wake_fd_ >= 0) close(wake_fd_);
+  wake_fd_ = -1;
+}
+
+void RawIo::with_engine(const std::function<void(const RawEngine&)>& f) {
+  std::lock_guard<std::mutex> lock(engine_mutex_);
+  if (engine_) f(*engine_);
+}
+
+// Config receive entries only: kernel filters. With program frames in use
+// (receivers, sends waiting for echoes, cyclic jobs) or simulated devices
+// listening, everything is taken and matched here.
+void RawIo::set_filters() {
+  bool all = (port_ && port_->active()) || devices_;
+  uint32_t version = port_ ? port_->receivers_version() : 0;
+  if (all == filters_all_ && version == filters_version_) return;
+  filters_all_ = all;
+  filters_version_ = version;
+  std::vector<LinkFilter> f;
+  if (!all && engine_) {
+    constexpr uint32_t kEff = 0x80000000u, kRtr = 0x40000000u;
+    constexpr uint32_t kSffMask = 0x7FFu, kEffMask = 0x1FFFFFFFu;
+    for (const RawRx& m : engine_->config().rx)
+      f.push_back({m.id | (m.extended ? kEff : 0) | (m.rtr ? kRtr : 0), m.mask | kEff | kRtr});
+    // Own sends come back for the sent counts.
+    for (const RawTx& m : engine_->config().tx)
+      f.push_back({m.id | (m.extended ? kEff : 0), (m.extended ? kEffMask : kSffMask) | kEff});
+  }
+  link_->set_filters(f, all);
+}
+
+void RawIo::handle(const LinkFrame& lf, uint64_t now) {
+  const canworks_can_frame& f = lf.frame;
+  load_bits_ += frame_bits(f);
+  if (devices_) devices_->on_frame(f, now / 1000);
+  if (lf.ours) {
+    if (port_ && port_->own_echo(f)) return;  // a program frame is on the bus
+  } else if (!lf.this_host || hooks_.host_frames_received) {
+    received_.fetch_add(1, std::memory_order_relaxed);
+    if (port_) {
+      port_->on_frame(f);
+      port_->count_rx();
+    }
+  }
+  if (engine_ && !lf.ours) {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    if (engine_->on_frame(f, now) && hooks_.publish_inputs) hooks_.publish_inputs(engine_->input_values());
+  }
+}
+
+void RawIo::receive(uint64_t now) {
+  rx_buf_.clear();
+  link_->read(rx_buf_, kReadBatch);
+  for (const LinkFrame& lf : rx_buf_) handle(lf, now);
+}
+
+bool RawIo::write_frame(const canworks_can_frame& f, int& error, Origin origin) {
+  error = link_->write(f, origin);
+  if (error) return false;
+  if (origin == Origin::Own) {
+    sent_.fetch_add(1, std::memory_order_relaxed);
+    if (port_) port_->count_tx();
+  }
+  return true;
+}
+
+void RawIo::send_due(uint64_t now) {
+  bool running = hooks_.plc_running ? hooks_.plc_running() : true;
+  if (devices_) {
+    dev_buf_.clear();
+    devices_->due(now / 1000, dev_buf_);
+    for (const canworks_can_frame& f : dev_buf_) {
+      int err = 0;
+      write_frame(f, err, Origin::Device);
+    }
+  }
+  if (injector_) {
+    std::vector<canopen_plugin::RawFrame> hand;
+    injector_->drain(hand);
+    for (const auto& r : hand) {
+      int err = 0;
+      write_frame(from_raw_frame(r), err, Origin::Hand);
+    }
+  }
+  if (engine_) {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    engine_->set_plc_running(running && !listen_only_, now);
+    if (hooks_.latest_outputs && hooks_.latest_outputs(outputs_)) engine_->set_outputs(outputs_.data(), now);
+    std::vector<canworks_can_frame> frames;
+    std::vector<size_t> idx;
+    engine_->due(now, frames, idx);
+    for (size_t k = 0; k < frames.size(); ++k) {
+      int err = 0;
+      engine_->sent(idx[k], now, write_frame(frames[k], err) ? 0 : err);
+    }
+    if (engine_->check_timeouts(now) && hooks_.publish_inputs) hooks_.publish_inputs(engine_->input_values());
+  }
+  if (!port_) return;
+  canworks_can_frame f;
+  uint32_t tag;
+  while (port_->next_tx(f, tag)) {
+    int err = 0;
+    if (write_frame(f, err))
+      port_->tx_written(tag, false);  // the echo confirms it (also without IFF_ECHO: the kernel loops it back)
+    else
+      port_->tx_failed(tag, err == ENETDOWN || err == ENODEV ? CANWORKS_CAN_ERR_BUS : CANWORKS_CAN_ERR_FULL);
+  }
+  canworks_can_frame due[CANWORKS_CAN_CYCLIC_JOBS];
+  uint8_t jobs[CANWORKS_CAN_CYCLIC_JOBS];
+  int n = port_->cyclic_due(now, due, jobs, CANWORKS_CAN_CYCLIC_JOBS);
+  for (int k = 0; k < n; ++k) {
+    int err = 0;
+    if (write_frame(due[k], err)) port_->cyclic_sent(jobs[k]);
+  }
+  port_->expire_echoes(now, kEchoMaxAgeUs);
+}
+
+void RawIo::update_bus(uint64_t now) {
+  if (now - load_window_start_ >= 1000000) {
+    uint64_t span = now - load_window_start_;
+    if (bitrate_ && load_window_start_) {
+      uint64_t pct = load_bits_ * 100u * 1000000u / (static_cast<uint64_t>(bitrate_) * span);
+      bus_load_ = static_cast<uint8_t>(pct > 100 ? 100 : pct);
+    }
+    load_window_start_ = now;
+    load_bits_ = 0;
+  }
+  if (now < next_bus_update_ || !port_) return;
+  next_bus_update_ = now + 100000;
+  canworks_can_bus_info info{};
+  if (hooks_.bus_info) hooks_.bus_info(info);
+  info.bus_load = bus_load_;
+  port_->publish_bus(info);
+}
+
+int RawIo::next_timeout(uint64_t now) {
+  if ((port_ && port_->active()) || (engine_ && !engine_->config().tx.empty())) return kTickMs;
+  uint64_t in_us = UINT64_MAX;
+  if (engine_) {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    in_us = engine_->next_event_in(now);
+  }
+  if (devices_) {
+    uint64_t d = devices_->next_in(now / 1000);
+    if (d != UINT64_MAX && d * 1000 < in_us) in_us = d * 1000;
+  }
+  if (in_us == UINT64_MAX) return kIdleMs;
+  uint64_t ms = in_us / 1000 + 1;
+  return ms > static_cast<uint64_t>(kIdleMs) ? kIdleMs : static_cast<int>(ms);
+}
+
+void RawIo::run() {
+  bool open = false;
+  bool reported = false;
+  while (!stop_) {
+    if (!open) {
+      int r = hooks_.prepare && !hooks_.prepare() ? -ENETDOWN : link_->open();
+      if (r < 0) {
+        if (!reported && hooks_.log)
+          hooks_.log("raw CAN on " + link_->where() + " waits for the interface: " + std::strerror(-r));
+        reported = true;
+        if (port_) port_->set_running(false);
+        pollfd w{wake_fd_, POLLIN, 0};
+        poll(&w, 1, kRetryMs);
+        continue;
+      }
+      if (reported && hooks_.log) hooks_.log("raw CAN on " + link_->where() + " running");
+      reported = false;
+      open = true;
+      confirm_ = link_->confirm();
+      filters_version_ = ~0u;
+      set_filters();
+      if (port_) port_->set_running(true);
+      if (devices_) devices_->start(monotonic_us() / 1000);
+    }
+    uint64_t now = monotonic_us();
+    pollfd p[2] = {{link_->fd(), POLLIN, 0}, {wake_fd_, POLLIN, 0}};
+    int r = poll(p, 2, next_timeout(now));
+    if (stop_) break;
+    now = monotonic_us();
+    if (r > 0 && (p[0].revents & (POLLERR | POLLHUP | POLLNVAL))) {
+      // The interface went away (USB unplug): reopen.
+      link_->close();
+      open = false;
+      continue;
+    }
+    set_filters();
+    if (r > 0 && (p[0].revents & POLLIN)) receive(now);
+    send_due(now);
+    update_bus(now);
+  }
+  link_->close();
+  if (port_) {
+    port_->set_running(false);
+    port_->cancel_all();
+  }
+}
+
+}  // namespace canworks_raw

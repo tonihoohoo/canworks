@@ -28,6 +28,7 @@
 #include <chrono>
 #include <cstdint>
 #include <map>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -118,8 +119,17 @@ class DiagHub {
   // Server thread: the network's cyclic send jobs as a JSON array, for
   // status answers.
   void set_send_jobs(const std::string& json_array);
-  // Adds "send_jobs" and "bitrate_sweep" to a status result (either thread).
+  // Adds "send_jobs", "bitrate_sweep" and "raw" to a status result (either
+  // thread).
   void add_tx_status(cJSON* res) const;
+  // The network's raw CAN path status (raw/raw_runtime.h), set at config
+  // load before the server starts.
+  void set_raw_status(std::function<cJSON*()> f) { raw_status_ = std::move(f); }
+  // A plain CAN network has no bus thread: its raw path says whether frames
+  // can be sent.
+  void set_raw_running(std::function<bool()> f) { raw_running_ = std::move(f); }
+  // Frames sent by hand can go out now.
+  bool can_send() const { return attached() || (raw_running_ && raw_running_()); }
 
   // ---- bit rate detection (bitrate_sweep.h) ----
   // Server thread: asks the bus thread for a sweep; false when one is already
@@ -151,6 +161,8 @@ class DiagHub {
 
   // Guarded by state_mutex_ (never held together with mutex_).
   mutable std::mutex state_mutex_;
+  std::function<cJSON*()> raw_status_;
+  std::function<bool()> raw_running_;
   std::string operational_;
   std::string send_jobs_ = "[]";
   bool sweep_pending_ = false, sweep_running_ = false, sweep_ever_ = false;
@@ -208,6 +220,9 @@ class DiagServer {
   static constexpr unsigned kMaxPeriodMs = 60000;
   static constexpr std::chrono::minutes kJobTimeLimit{10};
   static constexpr double kSingleFramesPerSecond = 50;
+  static constexpr size_t kReplayBatch = 500;
+  static constexpr size_t kReplayMaxFrames = 200000;
+  static constexpr unsigned kReplayMaxRate = 1000;  // frames in any second
 
  private:
   enum class Mode { unknown, plain, tls };
@@ -249,6 +264,23 @@ class DiagServer {
     std::chrono::steady_clock::time_point started, next;
     // Set when it ended; kept kEndedKeep for send_frame_stop and status.
     std::string reason;
+    std::chrono::steady_clock::time_point ended;
+  };
+
+  // A replay of recorded frames (replay, replay_status, replay_stop); one
+  // per network.
+  struct Replay {
+    size_t net = 0;
+    uint64_t client = 0;
+    std::string peer;
+    std::vector<std::pair<uint64_t, RawFrame>> frames;  // time from the first frame in µs
+    size_t pos = 0;      // the next frame
+    bool more = false;   // the client sends more batches
+    bool loop = false;
+    bool forced = false;
+    uint64_t sent = 0, rounds = 0;
+    std::chrono::steady_clock::time_point started, round_start, blocked_since{};
+    std::string reason;  // set when it ended
     std::chrono::steady_clock::time_point ended;
   };
 
@@ -313,6 +345,10 @@ class DiagServer {
   void end_job(size_t i, const std::string& reason, std::chrono::steady_clock::time_point now);
   void end_client_jobs(uint64_t client, const std::string& reason);
   void publish_jobs(size_t net);
+  void handle_replay(Client& c, size_t net, const std::string& op, const std::string& id, const cJSON* req);
+  // Sends the replays' due frames; returns the time until the next one.
+  std::chrono::milliseconds service_replays(std::chrono::steady_clock::time_point now);
+  void end_replay(size_t i, const std::string& reason, std::chrono::steady_clock::time_point now);
   const MasterConfig& settings() const { return chans_[0].hub->config().master; }
 
   std::vector<Channel> chans_;
@@ -333,6 +369,8 @@ class DiagServer {
 
   std::vector<TxJob> jobs_;   // running
   std::vector<TxJob> ended_;  // ended in the last kEndedKeep
+  std::vector<Replay> replays_;        // running
+  std::vector<Replay> ended_replays_;  // ended in the last kEndedKeep (frames dropped)
   uint64_t next_job_ = 1;
   uint64_t next_client_ = 1;
   std::unique_ptr<LinkOps> link_ops_;

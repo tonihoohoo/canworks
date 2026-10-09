@@ -441,8 +441,88 @@ class CheckAndSave(Running):
         data = self.ok("POST", "/api/save", {"config": self.cfg})
         after = self.snapshot()
         changed = {k for k in set(before) | set(after) if before.get(k) != after.get(k)}
-        self.assertEqual(changed, {os.path.join("canworks", "canworks.json"), os.path.join("canworks", "rtd8.eds")})
-        self.assertEqual(sorted(os.path.basename(p) for p in data["written"]), ["canworks.json", "rtd8.eds"])
+        self.assertEqual(changed, {os.path.join("canworks", "canworks.json"), os.path.join("canworks", "rtd8.eds"),
+                                   os.path.join("canworks", "rtd8.eds.notes.json")})
+        self.assertEqual(sorted(os.path.basename(p) for p in data["written"]),
+                         ["canworks.json", "rtd8.eds", "rtd8.eds.notes.json"])
+
+    def notes_file(self, name="rtd8.eds"):
+        with open(os.path.join(self.canopen, name + ".notes.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_notes_skeleton_then_edits(self):
+        # First save: a skeleton with the identity and the manufacturer objects' names.
+        self.ok("POST", "/api/save", {"config": self.cfg})
+        doc = self.notes_file()
+        self.assertEqual(doc["eds"], {"file": "rtd8.eds", "vendor_id": "0x00F0F0F0", "product_code": "0x00000404",
+                                      "revision": "0x00010003"})
+        self.assertEqual(doc["objects"]["0x2001:2"], {"name": "Supply voltage"})
+        self.assertNotIn("0x1017", doc["objects"])
+        # A hand-written entry stays; page edits are applied next to it.
+        doc["objects"]["0x2001:2"].update({"text": "Measured supply", "x-source": "manual p. 7"})
+        with open(os.path.join(self.canopen, "rtd8.eds.notes.json"), "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        edits = {"rtd8.eds": {"0x2000:2": {"unit": "ms"}, "0x1017": {"text": "Heartbeat of the sensor"}}}
+        self.ok("POST", "/api/save", {"config": self.cfg, "notes": edits})
+        doc = self.notes_file()
+        self.assertEqual(doc["objects"]["0x2001:2"], {"name": "Supply voltage", "text": "Measured supply",
+                                                      "x-source": "manual p. 7"})
+        self.assertEqual(doc["objects"]["0x2000:2"], {"name": "Start delay ms", "unit": "ms"})
+        self.assertEqual(doc["objects"]["0x1017"]["text"], "Heartbeat of the sensor")
+        # Without edits, a save leaves the file as it is.
+        before = read(os.path.join(self.canopen, "rtd8.eds.notes.json"))
+        self.ok("POST", "/api/save", {"config": self.cfg})
+        self.assertEqual(read(os.path.join(self.canopen, "rtd8.eds.notes.json")), before)
+
+    def test_notes_unreadable_file_kept(self):
+        os.makedirs(self.canopen)
+        path = os.path.join(self.canopen, "rtd8.eds.notes.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("{ broken")
+        data = self.ok("POST", "/api/check", {"config": self.cfg, "notes": {"rtd8.eds": {"0x1017": {"unit": "s"}}}})
+        self.assertEqual(data["errors"], 0, data["items"])
+        [item] = [i for i in data["items"] if i.get("notes")]
+        self.assertEqual(item["level"], "warning")
+        self.assertIn("rtd8.eds.notes.json cannot be read", item["message"])
+        self.assertIn("not changed on save", item["message"])
+        self.ok("POST", "/api/save", {"config": self.cfg, "notes": {"rtd8.eds": {"0x1017": {"unit": "s"}}}})
+        self.assertEqual(read(path), b"{ broken")
+
+    def test_notes_check_warnings(self):
+        data = self.ok("POST", "/api/check", {"config": self.cfg, "notes": {"rtd8.eds": {
+            "0x2001:9": {"text": "no such sub-object"}}}})
+        self.assertEqual(data["errors"], 0, data["items"])
+        self.assertTrue(any(i.get("notes") == "rtd8.eds" and "0x2001:9" in i["message"] for i in data["items"]),
+                        data["items"])
+
+    def test_notes_keep_both_gets_own_file(self):
+        self.ok("POST", "/api/save", {"config": self.cfg, "notes": {"rtd8.eds": {"0x2000:2": {"unit": "ms"}}}})
+        other = os.path.join(self.dir, "rtd8.eds")
+        with open(other, "wb") as f:
+            f.write(read(os.path.join(RTD, "rtd8.eds")).replace(b"Start delay ms", b"Start delay", 1))
+        status, data, _ = self.eds(other, on_conflict="keep_both")
+        self.assertEqual((status, data["name"]), (200, "rtd8-2.eds"))
+        self.cfg["nodes"].append({"node_id": 6, "name": "rtd2", "eds": "rtd8-2.eds", "tx_pdos": []})
+        self.ok("POST", "/api/save", {"config": self.cfg})
+        self.assertEqual(self.notes_file("rtd8-2.eds")["eds"]["file"], "rtd8-2.eds")
+        self.assertEqual(self.notes_file("rtd8-2.eds")["objects"]["0x2000:2"], {"name": "Start delay"})
+        self.assertEqual(self.notes_file()["objects"]["0x2000:2"]["unit"], "ms")
+        # Replacing an EDS keeps its notes file.
+        status, data, _ = self.eds(other, on_conflict="replace")
+        self.assertEqual((status, data["name"]), (200, "rtd8.eds"))
+        self.ok("POST", "/api/save", {"config": self.cfg})
+        self.assertEqual(self.notes_file()["objects"]["0x2000:2"]["unit"], "ms")
+
+    def test_export_merged_notes(self):
+        before = self.snapshot()
+        data = self.ok("POST", "/api/export_notes", {"config": self.cfg, "eds": "rtd8.eds",
+                                                      "notes": {"rtd8.eds": {"0x2000:2": {"unit": "ms"}}}})
+        self.assertEqual(data["name"], "rtd8.eds.merged.notes.json")
+        doc = json.loads(data["data"])
+        self.assertEqual(doc["format"], "canworks-notes.v1")
+        self.assertEqual(doc["objects"]["0x2000:2"]["unit"], "ms")
+        self.assertIn("heartbeat", doc["objects"]["0x1017"]["text"])
+        self.assertEqual(self.snapshot(), before)
 
     def test_export_dcf_one_node_unsaved(self):
         # The draft (EDS only imported, nothing saved) exports; the project

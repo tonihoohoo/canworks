@@ -1,0 +1,27 @@
+VERSION ""
+
+NS_ :
+
+BS_:
+
+BU_: PLC JOY PEDAL
+
+BO_ 385 Joystick: 5 JOY
+ SG_ X : 0|16@1- (1,0) [-1000|1000] "" PLC
+ SG_ Y : 16|16@1- (1,0) [-1000|1000] "" PLC
+ SG_ Button1 : 32|1@1+ (1,0) [0|1] "" PLC
+ SG_ Button2 : 33|1@1+ (1,0) [0|1] "" PLC
+
+BO_ 2566852640 Pedal: 2 PEDAL
+ SG_ Position : 7|16@0+ (0.1,0) [0|100] "%" PLC
+
+BO_ 769 Display: 3 PLC
+ SG_ Speed : 0|16@1+ (0.1,0) [0|6553.5] "km/h" JOY
+ SG_ Warning : 16|1@1+ (1,0) [0|1] "" JOY
+ SG_ Light : 17|1@1+ (1,0) [0|1] "" JOY
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_ "GenMsgCycleTime" BO_ 385 20;
+BA_ "GenMsgCycleTime" BO_ 2566852640 50;
+BA_ "GenMsgCycleTime" BO_ 769 100;

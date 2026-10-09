@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "can/can_plc_api.h"
 #include "fake_runtime.hpp"
 
 // The runtime's own base tick (core/src/plc_app/utils/utils.c), exported as
@@ -64,6 +65,14 @@ bool logged(const char* text) {
   for (const auto& l : g_logs)
     if (l.find(text) != std::string::npos) return true;
   return false;
+}
+
+int count_logged(const char* text) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  int n = 0;
+  for (const auto& l : g_logs)
+    if (l.find(text) != std::string::npos) ++n;
+  return n;
 }
 
 template <typename F>
@@ -376,6 +385,71 @@ int main(int argc, char** argv) {
                         " EMCY log lines on host)").c_str());
     expect(!logged("gateway status of network \"host\""), "the stand-in has no place in the gateway status");
     if (started) stop_loop();
+    cleanup();
+    expect(!logged("ERROR"), "no error");
+    std::remove((sim_dir + "/simulation.json").c_str());
+  }
+
+  // Raw CAN (can-raw-messages): config messages on a simulated CANopen
+  // network (through its virtual bus) and a simulated plain CAN network,
+  // both fed by the simulation file's plain CAN devices, and the program's
+  // frame blocks' table.
+  std::printf("raw messages on a simulated CANopen network and a plain CAN network:\n");
+  {
+    {
+      std::ofstream f(sim_dir + "/canworks.json");
+      f << R"({"schema_version": 2, "networks": [
+        {"name": "io", "adapter": {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true},
+         "master": {"node_id": 1, "sync_period_us": 20000},
+         "nodes": [{"node_id": 2, "name": "a", "eds": "cpp-slave.eds", "heartbeat_ms": 50,
+                    "tx_pdos": [{"entries": [{"index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID100"}]}]}],
+         "raw": {"rx": [{"name": "Answer", "id": 768, "signals": [{"start_bit": 0, "length": 8, "iec_location": "%IB60"}]}],
+                 "tx": [{"name": "Ask", "id": 769, "dlc": 1, "period_ms": 20, "data_location": "%QL90"}]}},
+        {"name": "cab", "protocol": "none",
+         "adapter": {"type": "socketcan", "interface": "sim1", "bitrate": 250000, "simulate": true},
+         "raw": {"rx": [{"name": "Joystick", "id": 384, "timeout_ms": 200, "status_location": "%IX80.0",
+                         "signals": [{"start_bit": 0, "length": 16, "iec_location": "%IW70"}]}]}}]})";
+      std::ofstream sf(sim_dir + "/simulation.json");
+      sf << R"({"schema_version": 2, "networks": {},
+               "raw_devices": [
+                 {"name": "echo", "network": "io", "replies": [{"on": {"id": 769, "data": [7]}, "send": {"id": 768, "data": [55]}}]},
+                 {"name": "joystick", "network": "cab", "send": [{"id": 384, "dlc": 2, "period_ms": 20, "data": [52, 18]}]}]})";
+    }
+    g_logs.clear();
+    img.reset(new fake_runtime::Image);
+    rt = args(sim_dir + "/canworks.json");
+    expect(init(rt.get()) == 0, "init returns 0");
+    rt.reset();
+    bool started = start_loop() == 0;
+    expect(started, "start_loop starts both networks");
+    typedef const void* (*api_entry)(uint32_t);
+    auto api = static_cast<const canworks_can_api_v1*>(sym<api_entry>(h, "canworks_can_api")(CANWORKS_CAN_API_VERSION));
+    expect(api != nullptr, "the frame blocks' table is exported");
+    uint16_t error_id = 0;
+    uint32_t joy = 0;
+    bool answered = false, joystick = false, received = false;
+    for (int i = 0; started && i < 300 && !(answered && joystick && received); ++i) {
+      // As CAN_RECEIVE does: until the network runs, opening answers "not running".
+      if (api && !joy) joy = api->rx_open(1, 384, 0x7FF, 0, 8, &error_id);
+      cycle_start();
+      img->lint_out[90] = 7;
+      cycle_end();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      answered = img->byte_in[60] == 55;
+      joystick = img->int_in[70] == 0x1234 && img->bool_in[80][0];
+      canworks_can_frame fr{};
+      canworks_can_rx_info info{};
+      if (api && api->rx_read(joy, &fr, &info) == 1) received = fr.id == 384 && fr.data[1] == 18;
+    }
+    expect(joy != 0, "a program receiver opens on the plain network");
+    expect(answered, "network io: the raw request goes over the virtual bus and the simulated device's answer comes in");
+    expect(joystick, "network cab: the simulated joystick's signal and status reach the PLC");
+    expect(received, "network cab: the program's receiver gets the joystick frames");
+    expect(count_logged("starting the CANopen master") == 1, "only network io starts a CANopen master; the plain network starts none");
+    if (started) stop_loop();
+    canworks_can_frame fr{};
+    canworks_can_rx_info info{};
+    expect(!api || api->rx_read(joy, &fr, &info) == -CANWORKS_CAN_ERR_CANCELLED, "PLC stop cancels the receiver");
     cleanup();
     expect(!logged("ERROR"), "no error");
     std::remove((sim_dir + "/simulation.json").c_str());

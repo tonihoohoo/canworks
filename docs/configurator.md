@@ -89,6 +89,14 @@ Saving writes the lowest config version that holds the draft: one network withou
 
 The checks report what the plugin would refuse (addresses, PGNs, signals outside the message, locations of the wrong area or size, a location used twice across all networks); **Problems** names the network, the PGN and the signal. With [online access](#online-access), the **Online** view of a J1939 network shows the claim state, the address and NAME held, the bus counters, the ECUs on the bus, and per received PGN its sources, message count, age, timeout and raw signal values, and per sent PGN the messages sent and requests answered. The trace decodes the network's frames with its DBC file ([j1939.md](j1939.md#diagnostics-and-trace)).
 
+## CAN messages and plain CAN networks
+
+**CAN messages** in the side bar holds a network's [raw CAN messages](raw-can.md): plain frames received into `%I` and sent from `%Q`, on a network of any protocol. **Add network** and **Protocol** offer **Plain CAN** (`"protocol": "none"`): a network with only these messages, no master, nodes or ECU. Its bus page reads **Bus** and holds the adapter, the **Real**/**Simulated** switch and online access; **Scan** and the node list are hidden. A plain CAN network has **Listen only** on the CAN messages page: the PLC only watches the bus and never sends or acknowledges a frame, so sent messages are refused.
+
+The page lists **Received messages** and **Sent messages** with identifier (hex, `ext` for 29 bits, the mask for received ones), DLC, timeout or period and the number of signals. Click a row to edit it: the message's settings (timeout, status, counter, identifier, DLC and data inputs for received messages; period, on change with least gap, trigger and enable outputs, fill byte and **Override protocol** for sent ones), a table of its signals (start bit, bits, byte order, signed, scale, offset, unit, PLC location) and a **Bit layout** grid that colours each signal's bits and marks overlaps in red. **Suggest addresses** fills every empty location with a free one of the right size; **Copy as ST call** copies a `CAN_RECEIVE` or `CAN_SEND` call for the message with a `CAN_GET_BITS`/`CAN_SET_BITS` line per signal ([raw-can.md](raw-can.md#st-helpers)). **Import DBC…** lists a DBC file's messages; set each to **receive**, **send** or **skip** (messages the DBC says the `PLC` node sends start as **send**), and the picked ones are added with free addresses. The file name is kept as the network's `raw.dbc`, which the trace uses to decode. On a CANopen or J1939 network, **Program may send protocol identifiers** lets the frame blocks use identifiers the protocol owns.
+
+The checks report what the plugin would refuse (identifiers, masks, signals outside the frame, a sent identifier the protocol uses without **Override protocol**, locations). The **Online** view adds a **CAN messages** block on any network with raw messages or program frame blocks: frames sent and received, bus load, the program's receivers and cyclic jobs, simulated plain CAN devices, and per received message its count, age or timeout, short frames and last frame, and per sent message its count and last error. A plain CAN network shows its bus row and this block only.
+
 ## Add a node from its EDS
 
 **Add node from EDS…** imports the device's EDS file. It must be a CiA 306 EDS (objects 0x1000 and 0x1018). It is stored in the config folder as UTF-8, converted from CP1252/Latin-1 when needed, because the editor sends project files as UTF-8 text. If a different EDS with the same name is already there, you choose between replacing it and keeping both. The import also runs the checks the PLC runs before `dcfgen`, under the current EDS lint setting: the banner says the file is readable, lists the corrections the PLC will make in its copy (a REAL value rewritten, an OCTET_STRING value Lely cannot read cleared, with its old text), and shows accepted lint findings as a collapsed list grouped by object. A file the PLC could not read, or with a finding that would stop it, is refused with the reason and no node is added. **Check** and saving rerun the lint for every node with its real node ID. The new node gets the first free node ID, and its page opens with the name field focused; the side bar follows the name as you type. Set its ID and name, pick the supervision method (EDS default, heartbeat or node guarding; only that method's fields are shown) the status bit, the state byte and the boot error byte, and under **Emergency (EMCY)** the EMCY code word and the error register byte; **Suggest** picks a free `%IX` bit, `%IB` byte or `%IW` word.
@@ -126,7 +134,7 @@ Under each input PDO (TPDO), **Timeout** sets its [receive timeout](config.md#re
 
 Each node has an ordered list of SDO writes that the plugin performs every time the node is configured at boot, after the PDO parameters. The section is folded while it is empty and shows its count in its heading; **Add…** unfolds it. Pick an object from the node's writable EDS objects, or type its index and subindex.
 
-By default the list shows only settings. It hides process signals (PDO-mappable objects, which belong in a PDO), the communication objects the plugin writes itself from the node's settings (0x1005-0x1007, 0x100C, 0x100D, 0x1014-0x1017, 0x1400-0x1BFF, 0x1F80), and objects already in the list. A line under the list says how many it hid and why. **Show all writable objects** lists everything. A write to an object the plugin also sets is accepted with a warning, because it runs last and overrides that setting. Objects the EDS does not define, or marks read-only or const, are refused, because the plugin would refuse them too. Values are checked against the type's range. An object written twice is marked on both rows: the node keeps the last value. Use ↑ and ↓ to change the order.
+By default the list shows only settings. It hides process signals (PDO-mappable objects, which belong in a PDO), the communication objects the plugin writes itself from the node's settings (0x1005-0x1007, 0x100C, 0x100D, 0x1014-0x1017, 0x1400-0x1BFF, 0x1F80), and objects already in the list. A line under the list says how many it hid and why. **Show all writable objects** lists everything. A write to an object the plugin also sets is accepted with a warning, because it runs last and overrides that setting. Objects the EDS does not define, or marks read-only or const, are refused, because the plugin would refuse them too. Values are checked against the type's range. An object written twice is marked on both rows: the node keeps the last value. Use ↑ and ↓ to change the order. An object with a [device note](#device-notes) shows its text under the name and the meaning of the value next to it; when the note names values, a list picks a value by name (**Other value…** keeps a typed one). **Note** opens the note editor.
 
 ## SDO variables
 
@@ -136,13 +144,44 @@ A node page has a section index on the right (Node, Supervision, Emergency, Adva
 
 The node's **NMT command** field, next to the state byte, takes an output byte (`%QB`) for [NMT commands from the program](config.md#nmt-commands-from-the-program); its hint lists the codes.
 
+## Device notes
+
+A device note explains an object: a one-line text, longer details, a unit, a scale, what each value means, bit names and a manual reference. EDS files have no place for these, so canworks keeps them in a **notes file** next to each EDS in the `canworks/` folder, `<EDS file name>.notes.json` (for example `valve.eds.notes.json`, format `canworks-notes.v1`, JSON Schema in `schema/canworks-notes.v1.schema.json`). Notes are documentation on the PC only: they are never deployed to the PLC, the plugin never reads them, and they never change a value written to a device.
+
+canworks has **built-in notes** for the objects of CiA 301 (communication: heartbeat, PDO parameters, error register, store and restore, ...) and, chosen from the low 16 bits of the EDS's 0x1000 default, CiA 401 (generic I/O) and CiA 402 (drives: controlword and statusword bits, operation modes, option codes, homing methods). A notes file only needs what the device adds or does differently; its fields replace the built-in note's field by field. A sub-object without its own entry uses its object's text, details, unit, scale and manual reference, but not its value meanings or bit names.
+
+The first save creates the notes file of each EDS that has none: the EDS's identity and an entry with the name of each manufacturer-specific object (0x2000-0x5FFF), ready to fill in from the device's manual. A notes file is never replaced afterwards: saving applies only the notes changed on the page and keeps entries and fields written by hand (also unknown fields, such as `x-source`). A notes file that cannot be read is left untouched; **Problems** shows it as a warning and its notes are not used. Importing an EDS under a new name (**Keep both**) gives it its own notes file; replacing an EDS keeps its notes.
+
+```json
+{
+  "format": "canworks-notes.v1",
+  "eds": {"file": "valve.eds", "vendor_id": "0x000000AB", "product_code": "0x00000010", "revision": "0x00010000"},
+  "objects": {
+    "0x2010": {"name": "Ramp time", "text": "Opening ramp", "unit": "ms"},
+    "0x2011:2": {"name": "Fault reaction", "values": {"0": "hold", "1": "close"}},
+    "0x2100": {"text": "Valve status", "bits": {"0": "open", "1": "fault"}},
+    "0x2200": {"text": "Pressure of the channel", "unit": "bar", "scale": 0.01, "manual": "manual p. 12"}
+  }
+}
+```
+
+Keys are `0x<index>` for a whole object (or a plain variable) and `0x<index>:<subindex>` for one sub-object. `text` is one line of up to 200 characters; `scale` turns the raw value into the shown one (shown = raw × scale); `values` maps raw values to meanings, `bits` bit numbers to names. `name` is informational only.
+
+Where notes show:
+
+- the object dictionary browser: the text under each object, the value's meaning (`3 (profile velocity)`) or the scaled value with its unit (`1234 (12.34 bar)`), bit names in the bit view, and a list to pick a value by name when editing; the search finds note texts;
+- the startup SDO list, the object picker, and the parameter compare and restore lists;
+- the HTML documentation and the DBC export (units, scales, value names, note texts).
+
+**Note** next to an object opens the note editor; it starts from the built-in note and keeps only what differs from it. Note edits are draft edits like any other: undoable, marked as unsaved, and written to the notes file on **Save**. Without a config (commissioning a single device), or for a slave network's own EDS, notes are shown read-only. Check names problems in a notes file as warnings that never block saving: a key the EDS does not have, value meanings on a non-integer object, bit numbers past the object's size. **Export merged notes** on a node's page downloads `<EDS file name>.merged.notes.json`, the built-in and device notes merged, to share or to start another device's notes from.
+
 ## Checks and saving
 
 Every change is checked as you type, with the same checks the deploy tool and the plugin run: the JSON Schema, the EDS type and access checks, node ID uniqueness, overlapping locations and SDO value ranges. Errors appear next to their field and in **Problems**, named by node, PDO, object or SDO variable; clicking one goes to its field. **Save** reads **Saved** and is disabled while the draft equals the file on disk (also after a field is typed back to its saved value), **Save** while there is something to save, and stays disabled with the error count in its tooltip while there are errors; while a save runs it reads **Saving…** and a second click does nothing. A save keeps the key order of the file on disk, so a change of one field is a change of one line. Exports, **Move into project…**, **New editor project…** and **Add node from EDS…** show their progress the same way.
 
 In a project, a CANopen location that a Modbus device, an EtherCAT channel or the pin mapping also uses is an error that names the other file. **Allow overlap** appears in **Problems** under such errors; tick it to save anyway, as with the deploy tool's `--allow-clash` (the Save button then reads "Save (overlaps allowed)"). It is not saved and is off again when the config is reopened. A located variable at exactly a CANopen entry's location is not a clash: the entry shows that it is declared under that name. A located variable named like a C library macro (`X_OK`, `EOF`, `NULL` and a few more, in any case) is an error: the runtime declares variables in C++ under their upper-case names and cannot compile it. Generated names (**New editor project…**, `--new-project`) skip those names, so a node named `x` gets `x_ok_2`.
 
-Saving writes only `canworks.json` and the imported EDS files, in the config folder. Fields the configurator does not know are kept. EDS files no longer used are listed and left in place. If `canworks.json` changed on disk after the page loaded it, saving asks whether to reload it or overwrite it.
+Saving writes only `canworks.json`, the imported EDS files and their notes files, in the config folder. Fields the configurator does not know are kept. EDS files no longer used are listed and left in place. If `canworks.json` changed on disk after the page loaded it, saving asks whether to reload it or overwrite it.
 
 Messages about what you did (saved, sent, copied, removed) show in a bar under the header and close by themselves after a few seconds; errors stay until you close them (✕). Switching to another view clears the bar. **Close** and **Reload from disk** ask before discarding unsaved changes, an unsaved simulation or a trace recording that was neither saved nor downloaded, and so does closing the browser tab.
 

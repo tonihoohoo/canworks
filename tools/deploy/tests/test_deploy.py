@@ -66,6 +66,16 @@ class Bundle(unittest.TestCase):
         self.assertEqual(len(files), 10)
         self.assertNotIn("Note:", out)  # the editor warning follows an upload
 
+    def test_notes_file_not_deployed(self):
+        # Notes files are PC-side documentation (canopen-device-notes).
+        with open(os.path.join(self.dir, "cpp-slave.eds.notes.json"), "w", encoding="utf-8") as f:
+            json.dump({"format": "canworks-notes.v1", "objects": {"0x2000": {"text": "x"}}}, f)
+        code, _, err = deploy("--bundle", self.src, "--config", self.config, "--check-only", "--output", self.zip)
+        self.assertEqual(code, 0, err)
+        files = zip_contents(self.zip)
+        self.assertIn("conf/canworks/eds/cpp-slave.eds", files)
+        self.assertFalse([name for name in files if "notes" in name], sorted(files))
+
     def test_cp1252_eds_converted(self):
         eds = os.path.join(self.dir, "cpp-slave.eds")
         with open(eds, "rb") as f:

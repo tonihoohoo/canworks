@@ -22,6 +22,9 @@ canopen tools/deploy/canworks/edslint.py
 canopen tools/deploy/canworks/eds.py
 canopen tools/deploy/canworks/dcfexport.py
 canopen tools/deploy/canworks/slaveeds.py
+canopen tools/deploy/canworks/notes.py
+canopen tools/deploy/canworks/builtin_notes/*
+canopen tools/deploy/tests/test_notes.py
 canopen scripts/build-lely.sh
 canopen config/*
 canopen test/bus/*

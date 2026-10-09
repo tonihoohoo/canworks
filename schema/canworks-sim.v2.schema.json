@@ -28,6 +28,13 @@
       "additionalProperties": {
         "$ref": "#/$defs/network"
       }
+    },
+    "raw_devices": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/raw_device"
+      },
+      "description": "Plain CAN devices: frames sent at a period and replies to received frames."
     }
   },
   "$defs": {
@@ -1206,6 +1213,11 @@
               "$ref": "#/$defs/steps"
             }
           }
+        },
+        "device": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A plain CAN device (raw_devices), for a \"fault\" or \"clear\" step."
         }
       },
       "oneOf": [
@@ -1338,28 +1350,12 @@
             }
           },
           "else": {
-            "properties": {
-              "fault": {
-                "$ref": "#/$defs/fault"
-              },
-              "clear": {
-                "type": "string",
-                "enum": [
-                  "all",
-                  "emcy",
-                  "heartbeat",
-                  "power",
-                  "sdo_abort",
-                  "sdo_delay",
-                  "refuse_write_operational",
-                  "tpdo_stop",
-                  "identity",
-                  "device_type",
-                  "drive_input"
-                ]
-              }
-            },
             "if": {
+              "required": [
+                "device"
+              ]
+            },
+            "then": {
               "anyOf": [
                 {
                   "required": [
@@ -1371,12 +1367,75 @@
                     "clear"
                   ]
                 }
-              ]
+              ],
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "node"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "machine"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "fault": {
+                  "$ref": "#/$defs/raw_fault"
+                },
+                "clear": {
+                  "enum": [
+                    "stop",
+                    "wrong_dlc",
+                    "all"
+                  ]
+                }
+              }
             },
-            "then": {
-              "required": [
-                "node"
-              ]
+            "else": {
+              "properties": {
+                "fault": {
+                  "$ref": "#/$defs/fault"
+                },
+                "clear": {
+                  "type": "string",
+                  "enum": [
+                    "all",
+                    "emcy",
+                    "heartbeat",
+                    "power",
+                    "sdo_abort",
+                    "sdo_delay",
+                    "refuse_write_operational",
+                    "tpdo_stop",
+                    "identity",
+                    "device_type",
+                    "drive_input"
+                  ]
+                }
+              },
+              "if": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "fault"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "clear"
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "required": [
+                  "node"
+                ]
+              }
             }
           }
         },
@@ -1513,6 +1572,227 @@
           "type": "number",
           "minimum": -1000,
           "maximum": 1000
+        }
+      }
+    },
+    "raw_bytes": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      }
+    },
+    "raw_signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_bit",
+        "length",
+        "source"
+      ],
+      "description": "A signal of a sent frame, numbered as in DBC files; the source gives scale * raw + offset.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "start_bit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 63
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "byte_order": {
+          "enum": [
+            "little",
+            "big"
+          ]
+        },
+        "signed": {
+          "type": "boolean"
+        },
+        "scale": {
+          "type": "number",
+          "not": {
+            "const": 0
+          }
+        },
+        "offset": {
+          "type": "number"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "raw_send": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "period_ms"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 536870911
+        },
+        "extended": {
+          "type": "boolean"
+        },
+        "rtr": {
+          "type": "boolean"
+        },
+        "dlc": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "data": {
+          "$ref": "#/$defs/raw_bytes"
+        },
+        "period_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/raw_signal"
+          }
+        }
+      }
+    },
+    "raw_reply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "on",
+        "send"
+      ],
+      "properties": {
+        "on": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 536870911
+            },
+            "extended": {
+              "type": "boolean"
+            },
+            "data": {
+              "$ref": "#/$defs/raw_bytes"
+            },
+            "mask": {
+              "$ref": "#/$defs/raw_bytes"
+            }
+          }
+        },
+        "send": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 536870911
+            },
+            "extended": {
+              "type": "boolean"
+            },
+            "rtr": {
+              "type": "boolean"
+            },
+            "dlc": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 8
+            },
+            "data": {
+              "$ref": "#/$defs/raw_bytes"
+            }
+          }
+        },
+        "delay_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000
+        }
+      }
+    },
+    "raw_device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "description": "A plain CAN device (docs/simulator.md, Plain CAN devices).",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "network": {
+          "type": "string"
+        },
+        "send": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/raw_send"
+          }
+        },
+        "replies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/raw_reply"
+          }
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "send"
+          ]
+        },
+        {
+          "required": [
+            "replies"
+          ]
+        }
+      ]
+    },
+    "raw_fault": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "stop": {
+          "const": true
+        },
+        "wrong_dlc": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
         }
       }
     }

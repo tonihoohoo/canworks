@@ -20,7 +20,7 @@ from array import array
 from .. import contract, dbcexport, diag
 from ..bustrace import explain as explain_mod
 from ..bustrace import formats, sequences, triggers
-from ..bustrace.decode import CONTEXT_KINDS, KINDS, Decoder, j1939_network
+from ..bustrace.decode import CONTEXT_KINDS, KINDS, Decoder, network_entry
 from ..bustrace.recorder import Recorder, Session
 from ..bustrace.stats import KIND_CODE
 
@@ -476,8 +476,10 @@ def decoder_for(cfg, config_path, eds_paths, names, network=None):
     """A decoder with the nodes of one network: the one `network` names in
     a version 2 config, or the only one (without it, a config with several
     decodes without nodes and says so in the warnings). A J1939 network
-    decodes as J1939 (bustrace/j1939.py)."""
-    if isinstance(cfg, dict) and j1939_network(cfg, network) is not None:
+    decodes as J1939 (bustrace/j1939.py), a plain CAN network as its raw
+    messages."""
+    entry = network_entry(cfg, network) if isinstance(cfg, dict) else None
+    if entry is not None and entry["json"].get("protocol") in ("j1939", "none"):
         return Decoder.from_config(cfg, config_path, network=network)
     if not isinstance(cfg, dict) or not contract.all_nodes(cfg):
         return Decoder()

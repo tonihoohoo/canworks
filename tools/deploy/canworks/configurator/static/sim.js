@@ -106,6 +106,7 @@ function simBind() {
     for (const k of ["nodes", "extra_devices", "scenarios"]) if (SIM.file[k] !== undefined) body[k] = SIM.file[k];
     const out = { schema_version: 2 };
     if (SIM.file.tick_ms !== undefined) out.tick_ms = SIM.file.tick_ms;
+    if (SIM.file.raw_devices !== undefined) out.raw_devices = SIM.file.raw_devices;
     out.networks = Object.keys(body).length ? { [first]: body } : {};
     if (Object.keys(body).length) SIM.converted = first;
     SIM.file = out;
@@ -1221,7 +1222,32 @@ function simFileTab() {
     el("div", { class: "toolbar" }, el("label", { class: "inline" }, "Tick (ms) ", tick), hint("How often sources and models run, 1-60000 ms (default 10).")),
     refs.map(([id, n]) => simDeviceFile(id, `Node ${id} ${n.name || ""}`, nodeSimulated(n) ? null : "not simulated in this configuration: the entry is kept and does nothing")),
     extra.map((d) => simDeviceFile(d.node ? d.node : d.name, `Extra device ${d.node ? d.node : "without node ID"} ${d.name || ""}`, null)),
-    simExtraDevices());
+    simExtraDevices(),
+    simRawDevices());
+}
+
+// The plain CAN devices of the file (raw_devices) on the shown network:
+// what each sends and answers. They are edited in simulation.json
+// (docs/simulator.md, "Plain CAN devices"); scenarios stop them or change
+// their DLC with "device" steps.
+function simRawDevices() {
+  const name = simSectionName();
+  const mine = (SIM.file.raw_devices || []).filter((d) => d && (!d.network || d.network === name || !several()));
+  if (!mine.length) return null;
+  const hex = (id, ext) => "0x" + Number(id).toString(16).toUpperCase().padStart(ext ? 8 : 3, "0");
+  const rows = mine.map((d) => {
+    const sends = (d.send || []).map((m) => `${m.name ? m.name + " " : ""}${hex(m.id, m.extended)} every ${m.period_ms} ms` +
+      ((m.signals || []).length ? ` (${m.signals.map((g) => g.name || "bit " + g.start_bit).join(", ")})` : ""));
+    const replies = (d.replies || []).map((r) => `answers ${hex(r.on.id, r.on.extended)} with ${hex(r.send.id, r.send.extended)}`);
+    return el("tr", { dataset: { simRaw: d.name } }, el("td", null, d.name), el("td", null, sends.join("; ") || "-"),
+      el("td", null, replies.join("; ") || "-"));
+  });
+  return el("fieldset", { dataset: { sim: "raw-devices" } }, el("legend", null, "Plain CAN devices"),
+    el("p", { class: "muted" }, "Devices without CANopen that send frames and answer requests, from raw_devices in simulation.json. " +
+      "A scenario stops one with {\"device\": NAME, \"fault\": {\"stop\": true}} or changes its frames' length with {\"wrong_dlc\": N}."),
+    el("table", { class: "online-nodes" },
+      el("thead", null, el("tr", null, el("th", null, "Device"), el("th", null, "Sends"), el("th", null, "Replies"))),
+      el("tbody", null, rows)));
 }
 
 function simDeviceFile(ref, title, note) {

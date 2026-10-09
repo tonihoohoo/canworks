@@ -1,0 +1,41 @@
+{
+  "$schema": "https://github.com/tonihoohoo/canworks/schema/canworks.v2.schema.json",
+  "schema_version": 2,
+  "networks": [
+    {
+      "name": "cab",
+      "protocol": "none",
+      "adapter": { "type": "socketcan", "interface": "can0", "bitrate": 250000, "simulate": true },
+      "raw": {
+        "dbc": "cab.dbc",
+        "rx": [
+          {
+            "name": "Joystick", "id": 385, "dlc": 5, "timeout_ms": 100, "status_location": "%IX300.0",
+            "signals": [
+              { "name": "X", "start_bit": 0, "length": 16, "signed": true, "iec_location": "%IW300" },
+              { "name": "Y", "start_bit": 16, "length": 16, "signed": true, "iec_location": "%IW301" },
+              { "name": "Button1", "start_bit": 32, "length": 1, "iec_location": "%IX300.1" },
+              { "name": "Button2", "start_bit": 33, "length": 1, "iec_location": "%IX300.2" }
+            ]
+          },
+          {
+            "name": "Pedal", "id": 419368992, "extended": true, "dlc": 2, "timeout_ms": 250, "status_location": "%IX300.3",
+            "signals": [
+              { "name": "Position", "start_bit": 7, "length": 16, "byte_order": "big", "scale": 0.1, "unit": "%", "iec_location": "%IW302" }
+            ]
+          }
+        ],
+        "tx": [
+          {
+            "name": "Display", "id": 769, "dlc": 3, "period_ms": 100,
+            "signals": [
+              { "name": "Speed", "start_bit": 0, "length": 16, "scale": 0.1, "unit": "km/h", "iec_location": "%QW300" },
+              { "name": "Warning", "start_bit": 16, "length": 1, "iec_location": "%QX300.0" },
+              { "name": "Light", "start_bit": 17, "length": 1, "iec_location": "%QX300.1" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

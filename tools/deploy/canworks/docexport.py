@@ -20,6 +20,7 @@ import struct
 import tempfile
 
 from . import __version__, bundle, contract, dbcexport, dcfexport, edslint, editorproject
+from . import notes as notes_mod
 from . import eds as eds_mod
 from .iec import CO_TYPE_BY_CODE, parse_location
 
@@ -229,6 +230,17 @@ def meaning(index, sub, data, eds, master_id):
         return {0: "pre-operational on error", 1: "no state change on error", 2: "stopped on error"}.get(
             v, "manufacturer-specific")
     return ""
+
+
+def _note_fields(nt, index, sub, raw=None):
+    """(note text, value meaning) of an object from its merged device note:
+    the meaning of `raw` (an int) from the note's values, or its scaled value
+    and unit."""
+    note = nt.note(index, sub) if nt is not None else {}
+    if not note:
+        return "", ""
+    what = notes_mod.value_meaning(note, raw) if isinstance(raw, int) else ""
+    return note.get("text", ""), what
 
 
 def _od_text(eds, index, sub):
@@ -460,7 +472,7 @@ def _identity(n, info):
     return out
 
 
-def _pdos(n, eds, norm, cfg, names):
+def _pdos(n, eds, norm, cfg, names, nt=None):
     out = []
     node_id = _u(n["node_id"])
     for key, kind in (("tx_pdos", "TPDO"), ("rx_pdos", "RPDO")):
@@ -509,9 +521,11 @@ def _pdos(n, eds, norm, cfg, names):
                 if entry and entry.get("iec_location"):
                     parsed = parse_location(entry["iec_location"])
                     loc = str(parsed) if parsed else entry["iec_location"]
+                note = nt.note(index, sub) if nt is not None and obj is not None else {}
                 entries.append({"bit": bit, "length": length, "index": index, "subindex": sub,
                                 "name": _od_text(eds, index, sub), "type": type_name or "", "location": loc,
-                                "variables": _plc_names(names, loc), "used": bool(entry), "dummy": False})
+                                "variables": _plc_names(names, loc), "used": bool(entry), "dummy": False,
+                                "note": note.get("text", ""), "unit": note.get("unit", "")})
                 bit += length
             out.append({"kind": kind, "number": num, "anchor": "", "cob_id": pn["cob_id"],
                         "transmission": trans, "transmission_from_eds": bool(trans_eds and trans is not None),
@@ -525,15 +539,18 @@ def _pdos(n, eds, norm, cfg, names):
     return out
 
 
-def _boot(download, eds, master_id):
+def _boot(download, eds, master_id, nt=None):
     writes = []
     sources = download.sources or ["node"] * len(download.writes)
     for (index, sub, data), source in zip(download.writes, sources):
         obj = eds.find(index, sub)
         type_name = obj.type_name if obj else None
+        raw = _int_of(data, type_name) if obj is not None and type_name and type_name != "VISIBLE_STRING" else None
+        note, value_meaning = _note_fields(nt, index, sub, raw if isinstance(raw, int) else None) \
+            if obj is not None else ("", "")
         writes.append({"index": index, "subindex": sub, "name": _od_text(eds, index, sub),
-                       "value": _value_text(data, type_name), "data": data.hex(),
-                       "meaning": meaning(index, sub, data, eds, master_id),
+                       "value": _value_text(data, type_name), "data": data.hex(), "note": note,
+                       "meaning": meaning(index, sub, data, eds, master_id) or value_meaning,
                        "access": obj.access if obj else "", "eds_default": obj.default if obj else "",
                        "source": dcfexport.WRITE_SOURCES.get(source, source)})
     before, after = [], []
@@ -584,9 +601,10 @@ def _od(eds, node_id, pdos, download, n, mode):
     return out
 
 
-def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, several, warnings):
+def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, several, warnings, notes=None):
     nname = net["name"]
-    model = dbcexport.build(cfg, config_path, paths, sdo="none", names=names, checked=True)
+    notes = notes or dbcexport.file_notes(paths)
+    model = dbcexport.build(cfg, config_path, paths, sdo="none", names=names, checked=True, notes=notes)
     all_frames = dbcexport.frames(cfg, model)
     downloads = dcfexport.plugin_downloads(cfg, config_path, paths)
     m = cfg["master"]
@@ -603,7 +621,8 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
         node_id = _u(n["node_id"])
         eds, raw = _load_node_eds(n, paths)
         info = eds_mod.device_info(paths[n["eds"]]) or {}
-        pdos = _pdos(n, eds, pn, cfg, names)
+        nt = notes(n["eds"], eds)
+        pdos = _pdos(n, eds, pn, cfg, names, nt)
         node_anchor = anchor("node", nname, node_id)
         for p in pdos:
             p["anchor"] = anchor("pdo", nname, node_id, p["kind"].lower() + str(p["number"]))
@@ -619,7 +638,7 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
                         "vendor_name": info.get("vendor_name", ""), "product_name": info.get("product_name", ""),
                         "lss_supported": bool(info.get("lss_supported"))},
                 "identity": _identity(n, info), "settings": _node_settings(n, m), "locations": locations,
-                "pdos": pdos, "boot": _boot(download, eds, master_id) if download else None,
+                "pdos": pdos, "boot": _boot(download, eds, master_id, nt) if download else None,
                 "startup_sdos": [{"index": _u(s["index"]), "subindex": _u(s.get("subindex"), 0),
                                   "name": _od_text(eds, _u(s["index"]), _u(s.get("subindex"), 0)),
                                   "type": s["type"], "value": str(s["value"])} for s in n.get("sdo", [])],
@@ -1241,10 +1260,11 @@ def _gateway(cfg, networks):
 
 
 def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None, od="used", embed_eds=False,
-          plc_cycle_ms=None, now=None):
+          plc_cycle_ms=None, now=None, notes=None):
     """The document model of a config. `names`: {location: [PLC variable
-    names]} of an editor project, or None. Raises ExportFailed with the
-    config checks' errors."""
+    names]} of an editor project, or None. `notes`: a callable (eds value,
+    Eds) -> notes.Notes, default each EDS's notes file next to it. Raises
+    ExportFailed with the config checks' errors."""
     if od not in OD_OPTIONS:
         raise ValueError("od must be one of %s" % ", ".join(OD_OPTIONS))
     paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
@@ -1272,7 +1292,8 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
                 "upper": gateway_cfg.get("upper"), "routes": gateway_cfg.get("routes", [])}))
             continue
         one = contract.network_config(cfg, net["name"] if net["path"] else None)
-        networks.append(_network(net, one, config_path, paths, names, od, embed_eds, plc_cycle_ms, several, warnings))
+        networks.append(_network(net, one, config_path, paths, names, od, embed_eds, plc_cycle_ms, several, warnings,
+                                 notes))
     for n in networks:
         n.setdefault("protocol", "canopen")
     gateway = _gateway(cfg, networks) if network is None else None

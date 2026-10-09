@@ -17,7 +17,10 @@
 #   - `canworks-diag send` and `detect-bitrate` behave the same;
 #   - on a simulated network, a forced SDO upload request to node 2 sent by
 #     hand gets the simulated device's answer, both in the trace; the trace
-#     marks the master's frames (SYNC, RPDO1) Tx and the simulated node's Rx.
+#     marks the master's frames (SYNC, RPDO1) Tx and the simulated node's Rx;
+#   - raw config messages next to the CANopen network (add-raw-can): the sent
+#     message goes out every 50 ms, a received one counts, and a replay
+#     plays three frames.
 #
 # Needs a build of this repo and an UP interface (sudo scripts/dev-setup.sh).
 
@@ -71,6 +74,24 @@ sed -e "s/\"vcan0\"/\"$IFACE\"/" \
     -e "s|\"sync_period_us\": 100000 }|\"sync_period_us\": 100000, $DIAGCFG }|" \
     "$CONFIG/canopen_config.json" > "$WORK/canopen_config.json"
 grep -q token_verifier "$WORK/canopen_config.json" || { echo "FAIL: could not add diagnostics to the config" >&2; exit 1; }
+# Raw messages next to the CANopen network: one sent, one received (version 2).
+"$PY" - "$WORK/canopen_config.json" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    cfg = json.load(f)
+cfg["raw"] = {"tx": [{"name": "Beat", "id": 0x3F0, "dlc": 2, "period_ms": 50,
+                      "signals": [{"name": "v", "start_bit": 0, "length": 16, "iec_location": "%QW400"}]}],
+              "rx": [{"name": "Remote", "id": 0x3F1, "timeout_ms": 500, "status_location": "%IX400.0",
+                      "signals": [{"name": "v", "start_bit": 0, "length": 16, "iec_location": "%IW400"}]}]}
+# raw needs schema_version 2: the network moves into networks[].
+diagnostics = cfg["master"].pop("diagnostics")
+raw = cfg.pop("raw")
+cfg = {"schema_version": 2, "diagnostics": diagnostics,
+       "networks": [{"name": "pingpong", "adapter": cfg["adapter"], "master": cfg["master"], "nodes": cfg["nodes"],
+                     "raw": raw}]}
+with open(sys.argv[1], "w") as f:
+    json.dump(cfg, f)
+PY
 
 "$SLAVE" "$IFACE" "$WORK/cpp-slave.eds" 2 > "$WORK/slave.log" 2>&1 &
 PIDS+=($!)
@@ -163,6 +184,24 @@ except diag.DiagError as e:
     assert "no bit rate on a virtual bus" in str(e), e
 assert c.status()["session"], "the session ended after a refused detection"
 print("    detect_bitrate: refused on vcan, session goes on")
+
+# Raw config messages (add-raw-can).
+beats = [x for x in drain(1.0) if x[0] == 0x3F0]
+assert 15 <= len(beats) <= 25, "raw message 0x3F0 every 50 ms: %d frames in 1 s" % len(beats)
+rx.send(struct.pack("=IB3x8s", 0x3F1, 2, bytes.fromhex("3412") + bytes(6)))
+time.sleep(0.2)
+raw = c.status()["raw"]
+# vcan has no IFF_ECHO by default: its frames are confirmed by a written send.
+assert raw["confirm"] in ("echo", "write"), raw
+remote = [m for m in raw["rx"] if m["message"].startswith("Remote")][0]
+assert remote["count"] == 1 and remote["last_data"] == "34 12", remote
+assert [m for m in raw["tx"] if m["message"].startswith("Beat")][0]["count"] >= 15, raw["tx"]
+print("    raw messages: 0x3F0 every 50 ms, 0x3F1 received, confirmation by %s" % raw["confirm"])
+frames = [{"t_us": i * 20000, "id": 0x3F2, "dlc": 1, "data": "%02X" % i} for i in range(3)]
+c.replay(frames, force=True)
+got = [x for x in drain(0.5) if x[0] == 0x3F2]
+assert [g[1] for g in got] == [b"\x00", b"\x01", b"\x02"], got
+print("    replay: three frames in order")
 PY
 
 echo "==> canworks-diag send and detect-bitrate"

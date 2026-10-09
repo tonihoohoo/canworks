@@ -690,6 +690,45 @@ class Page(unittest.TestCase):
         pg.press("#task-interval", "Enter")
         self.assertTrue(until(lambda: "drive.fCycleTime := LREAL#0.005;" in pg.input_value("textarea.block")))
 
+    def test_startup_sdo_notes(self):
+        # Device notes on the startup SDO list (canopen-device-notes): the
+        # built-in note, a note written here, a value picked by name; Save
+        # writes the notes file next to the EDS.
+        pg = self.page
+        self.open_from_start("#start-project", self.project)
+        self.fill("adapter.interface", "can0")
+        self.add_node(os.path.join(RTD, "rtd8.eds"))
+        self.fill("nodes[0].node_id", "5")
+        self.open_sections()
+        pg.check('input[aria-label="Show all writable objects"]')
+        pg.click('button[data-sdo="0x1017:0"]')
+        row = 'tr[data-path="nodes[0].sdo[0]"]'
+        pg.wait_for_selector(row)
+        pg.wait_for_selector(row + ' [data-note="text"]:has-text("sends its heartbeat")')
+        pg.click('button[data-sdo="0x6110:1"]')
+        row = 'tr[data-path="nodes[0].sdo[1]"]'
+        pg.wait_for_selector(row)
+        self.assertEqual(pg.locator(row + " select[data-value-pick]").count(), 0)
+        pg.click(row + ' button[data-note-edit]')
+        # The dialog fits without a horizontal scroll bar.
+        self.assertFalse(pg.evaluate("""() => { for (let x = document.querySelector('#modal .note-editor');
+            x && x.id !== 'modal'; x = x.parentElement) if (x.scrollWidth > x.clientWidth + 1) return x.id || x.className || x.tagName;
+            const m = document.querySelector('#modal'); return m.scrollWidth > m.clientWidth + 1 ? 'modal' : false; }"""))
+        pg.fill('#modal [data-note-field="text"]', "Sensor type of the channel")
+        pg.fill('#modal [data-note-field="values"]', "1 = two-wire\n30 = four-wire")
+        pg.click('#modal button[data-value="save"]')
+        pg.wait_for_selector(row + ' [data-note="text"]:has-text("Sensor type of the channel")')
+        pg.select_option(row + " select[data-value-pick]", "30")
+        self.assertEqual(pg.input_value('input[data-path="nodes[0].sdo[1].value"]'), "30")
+        self.assertIn("four-wire", pg.inner_text(row + " [data-sdo-meaning]"))
+        self.save()
+        saved = load(os.path.join(self.project, "canworks", "canworks.json"))
+        self.assertEqual(saved["nodes"][0]["sdo"][1]["value"], 30)
+        notes = load(os.path.join(self.project, "canworks", "rtd8.eds.notes.json"))
+        self.assertEqual(notes["objects"]["0x6110:1"], {"name": "AI0_Sensor_Type", "text": "Sensor type of the channel",
+                                                        "values": {"1": "two-wire", "30": "four-wire"}})
+        self.assertEqual(notes["eds"]["file"], "rtd8.eds")
+
     def test_pdo_timing_and_sdo_picker(self):
         pg = self.page
         self.open_from_start("#start-project", self.project)
@@ -966,8 +1005,8 @@ class Page(unittest.TestCase):
         os.makedirs(user_data)
         os.environ["OPENPLC_EDITOR_USER_DATA"] = user_data
         self.addCleanup(os.environ.pop, "OPENPLC_EDITOR_USER_DATA", None)
-        self.assertFalse(pg.is_checked('#modal-extra input[aria-label="Enable CANopen SDO blocks"]'))
-        pg.check('#modal-extra input[aria-label="Enable CANopen SDO blocks"]')
+        self.assertFalse(pg.is_checked('#modal-extra input[aria-label="Enable the canworks function blocks"]'))
+        pg.check('#modal-extra input[aria-label="Enable the canworks function blocks"]')
         pg.fill('#modal-extra input[aria-label="Project name"]', "rtd-monitor")
         pg.click("#modal-buttons button[data-value=create]")
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")

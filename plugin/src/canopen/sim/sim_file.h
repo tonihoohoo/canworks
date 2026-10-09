@@ -85,6 +85,9 @@ struct Step {
   std::string node;  // device reference, "" = none
   std::string machine;        // fault/clear on a machine element instead of a node
   std::string machine_fault;  // its fault, JSON text
+  std::string device;         // fault/clear on a plain CAN device (raw_devices) instead of a node
+  std::string device_fault;   // "stop" or "wrong_dlc"
+  int device_dlc = -1;        // wrong_dlc: the DLC its frames carry
   bool has_at = false, has_after = false;
   unsigned at_ms = 0, after_ms = 0;
   // set, override, release, source, fault, clear, wait, expect, log, repeat

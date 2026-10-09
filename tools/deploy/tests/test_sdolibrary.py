@@ -1,17 +1,19 @@
 """The canworks editor library in the deploy tool (add-plc-sdo-blocks
 tasks 4.1, 4.2 and 4.5)."""
 
+import contextlib
+import io
 import json
 import os
 import unittest
 from unittest import mock
 
-from canworks import __version__, editorproject, sdolibrary
+from canworks import __version__, cli, editorproject, sdolibrary
 
 from .helpers import fake_editor_cli, pingpong_config, tmpdir
 from .test_deploy import deploy
 
-BLOCKS = ["CO402_CYCLICMOVEABSOLUTE", "CO402_CYCLICPOSITION", "CO402_CYCLICTORQUE", "CO402_CYCLICVELOCITY",
+BLOCKS = ["CAN_BUS_INFO", "CAN_RECEIVE", "CAN_SEND", "CAN_SEND_CYCLIC", "CO402_CYCLICMOVEABSOLUTE", "CO402_CYCLICPOSITION", "CO402_CYCLICTORQUE", "CO402_CYCLICVELOCITY",
           "CO_SDO_READ", "CO_SDO_READ_BYTES", "CO_SDO_READ_REAL", "CO_SDO_READ_STRING", "CO_SDO_WRITE",
           "CO_SDO_WRITE_BYTES", "CO_SDO_WRITE_REAL", "CO_SDO_WRITE_STRING"]
 
@@ -28,11 +30,15 @@ class Archive(unittest.TestCase):
         self.assertEqual(data["manifest"]["version"], __version__)
         self.assertEqual(sorted(sdolibrary.block_names()), BLOCKS)
         # Every block's source travels in the archive (the editor shows it and
-        # compiles it into the program): C++ for the SDO blocks, ST for the
-        # cyclic CiA 402 blocks.
+        # compiles it into the program): C++ for the SDO and frame blocks, ST
+        # for the cyclic CiA 402 blocks and the CAN_ byte and bit helpers.
+        helpers = ["CAN_GET_BITS.st", "CAN_GET_UINT16.st", "CAN_GET_UINT32.st", "CAN_J1939_ID.st",
+                   "CAN_J1939_PGN.st", "CAN_J1939_SOURCE.st", "CAN_SET_BITS.st", "CAN_SET_UINT16.st",
+                   "CAN_SET_UINT32.st"]
         self.assertEqual(sorted(s["fileName"] for s in data["sources"]),
-                         ["CO402_CyclicMoveAbsolute.st", "CO402_CyclicPosition.st", "CO402_CyclicTorque.st",
-                          "CO402_CyclicVelocity.st"] + [b + ".cpp" for b in BLOCKS if b.startswith("CO_SDO")])
+                         sorted(["CO402_CyclicMoveAbsolute.st", "CO402_CyclicPosition.st", "CO402_CyclicTorque.st",
+                                 "CO402_CyclicVelocity.st"] + helpers +
+                                [b + ".cpp" for b in BLOCKS if b.startswith(("CO_SDO", "CAN_"))]))
 
     def test_write(self):
         d = tmpdir(self)
@@ -158,16 +164,16 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("give --out DIR", err)
 
-    def test_new_project_sdo_blocks(self):
+    def test_new_project_blocks(self):
         config = pingpong_config(self.dir)
         target = os.path.join(self.dir, "pp")
-        code, out, err = deploy("--config", config, "--new-project", target, "--sdo-blocks", env=self.env)
+        code, out, err = deploy("--config", config, "--new-project", target, "--blocks", env=self.env)
         self.assertEqual(code, 0, err)
         self.assertEqual(load(os.path.join(target, "project.json"))["data"]["libraries"],
                          [{"name": "canworks", "version": __version__}])
         self.assertIn("installed canworks %s into the editor" % __version__, out)
         # A second project finds the library installed.
-        code, out, err = deploy("--config", config, "--new-project", target + "2", "--sdo-blocks", env=self.env)
+        code, out, err = deploy("--config", config, "--new-project", target + "2", "--blocks", env=self.env)
         self.assertEqual(code, 0, err)
         self.assertIn("canworks %s is installed in the editor" % __version__, out)
 
@@ -175,7 +181,7 @@ class Cli(unittest.TestCase):
         config = pingpong_config(self.dir)
         target = os.path.join(self.dir, "pp")
         env = dict(self.env, OPENPLC_EDITOR_USER_DATA=os.path.join(self.dir, "none"))
-        code, _, err = deploy("--config", config, "--new-project", target, "--sdo-blocks", env=env)
+        code, _, err = deploy("--config", config, "--new-project", target, "--blocks", env=env)
         self.assertEqual(code, 0, err)
         self.assertIn("library --out DIR", err)
         self.assertEqual(load(os.path.join(target, "project.json"))["data"]["libraries"][0]["name"],
@@ -189,11 +195,21 @@ class Cli(unittest.TestCase):
         self.assertEqual(load(os.path.join(target, "project.json"))["data"]["libraries"], [])
         self.assertFalse(os.path.exists(os.path.join(self.ud, "libraries")))
 
-    def test_sdo_blocks_needs_new_project(self):
+    def test_blocks_needs_new_project(self):
         code, _, err = deploy("--config", pingpong_config(self.dir), "--check-only", "--bundle", self.dir,
-                              "--sdo-blocks", env=self.env)
+                              "--blocks", env=self.env)
         self.assertEqual(code, 1)
-        self.assertIn("--sdo-blocks needs --new-project", err)
+        self.assertIn("--blocks needs --new-project", err)
+
+    def test_old_option_is_unknown(self):
+        """add-raw-can: --sdo-blocks became --blocks, a clean cut."""
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as e:
+            cli.main(["--config", pingpong_config(self.dir), "--new-project", os.path.join(self.dir, "pp"),
+                      "--sdo-blocks"])
+        self.assertEqual(e.exception.code, 2)
+        self.assertIn("unrecognized arguments: --sdo-blocks", err.getvalue())
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "pp")))
 
 
 class CreateDirect(unittest.TestCase):
@@ -201,7 +217,7 @@ class CreateDirect(unittest.TestCase):
         d = tmpdir(self)
         with mock.patch.dict(os.environ, {"OPENPLC_CLI": fake_editor_cli(d)}):
             config = pingpong_config(d)
-            path, _ = editorproject.create(load(config), config, os.path.join(d, "x"), sdo_blocks=True)
+            path, _ = editorproject.create(load(config), config, os.path.join(d, "x"), blocks=True)
         self.assertEqual(load(os.path.join(path, "project.json"))["data"]["libraries"][0]["name"],
                          "canworks")
 

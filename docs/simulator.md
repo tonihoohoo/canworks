@@ -324,6 +324,29 @@ A condition is `{"node": 7, "object": "0x6200:1", "eq": 5}` with one of `eq`, `n
 
 A scenario with `"autostart": true` starts with the simulation; one with `"test": true` is run by `canworks-sim test` by default. Several scenarios can run at the same time, and a running scenario can be stopped. A failed `expect` or a `wait` that times out ends the scenario as failed, naming the step, the condition and the value seen; the simulation goes on.
 
+### Plain CAN devices
+
+Devices that speak neither CANopen nor J1939, such as a joystick or a display that sends and takes plain CAN frames ([raw-can.md](raw-can.md)), go in the simulation file's top-level `raw_devices`. They run on a simulated network of any protocol, a [plain CAN network](raw-can.md#plain-can-networks) included, inside the plugin, and with `canworks-sim` on an interface.
+
+```json
+"raw_devices": [
+  { "name": "joystick",
+    "send": [ { "id": 385, "dlc": 5, "period_ms": 20, "signals": [
+      { "name": "X", "start_bit": 0, "length": 16, "signed": true,
+        "source": { "sine": { "min": -1000, "max": 1000, "period_s": 4 } } } ] } ],
+    "replies": [ { "on": { "id": 2016, "data": [2, 1, 12] }, "send": { "id": 2024, "data": [4, 65, 12] } } ] }
+]
+```
+
+| Field | Meaning |
+|---|---|
+| `name` | The device's name in scenarios, logs and the status. Unique in the file. |
+| `network` | The network's name; required with several networks. |
+| `send[]` | Frames the device sends every `period_ms`: `id` (`extended` for 29 bits), `dlc`, fixed `data` bytes, and `signals` numbered as in DBC files (`start_bit`, `length`, `byte_order`, `signed`, `scale`, `offset`) whose value comes from a [value source](#value-sources). Expression sources here cannot read objects. |
+| `replies[]` | Answers: a frame matching `on` (`id`, and the first bytes `data`, with an optional bit `mask` per byte) makes the device send `send` after `delay_ms`. |
+
+A scenario step with `"device": NAME` acts on a plain CAN device: `"fault": {"stop": true}` stops its frames and replies, `"fault": {"wrong_dlc": N}` sends its frames with N data bytes, and `"clear"` takes `"stop"`, `"wrong_dlc"` or `"all"`. On a plain CAN network these steps, `log` and `repeat` are the only ones, since there are no nodes. [`examples/raw-can/cab.sim.json`](../examples/raw-can/cab.sim.json) has a joystick and a pedal and a scenario that stops the joystick. The configurator's **Simulation** view lists the devices on its **File** tab.
+
 ### Control protocol
 
 The plugin's diagnostics channel ([diagnostics.md](diagnostics.md#protocol)) and the standalone simulator's control channel take the same requests: one JSON object per line each way, answers `{"id": ..., "ok": true, "result": {...}}` or `{"id": ..., "ok": false, "error": "..."}`. The standalone simulator listens on `127.0.0.1:7532` by default. With a token it is encrypted and wants the same TLS and login as the diagnostics channel ([diagnostics.md](diagnostics.md#protocol)), computing the verifier from its token at start; its login answer carries `protocol` (2), `version` and `simulator: true`, and it refuses plain connections. Without a token (loopback only) it speaks plain lines, takes an optional `{"op": "hello"}` and answers it with `protocol` (1), `version` and `simulator: true`.

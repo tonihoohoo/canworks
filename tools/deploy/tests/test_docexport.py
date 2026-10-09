@@ -16,7 +16,7 @@ import shutil
 import tempfile
 import unittest
 
-from canworks import cli, dbcexport, dcfexport, docexport, docwriter
+from canworks import cli, dbcexport, dcfexport, docexport, docwriter, notes
 
 from .test_contract import FIXTURES, REPO, load_cases
 
@@ -178,6 +178,17 @@ class Model(unittest.TestCase):
         [net] = build(cfg)["networks"]
         sources = [w["source"] for w in net["nodes"][0]["boot"]["writes"]]
         self.assertEqual(sources[-2:], ["configuration check", "configuration check"])
+
+    def test_startup_sdo_note(self):
+        # The built-in CiA 301 note, then the device notes over it (canopen-device-notes).
+        def startup(net):
+            return [w for w in net["nodes"][0]["boot"]["writes"] if w["source"] == "startup SDO"][0]
+        [net] = build(base_config())["networks"]
+        self.assertIn("how often the device sends its heartbeat", startup(net)["note"])
+        doc = {"format": notes.FORMAT, "objects": {"0x1017": {"text": "Heartbeat of the sensor"}}}
+        [net] = build(base_config(), notes=lambda value, eds: notes.Notes(eds, value, None, doc))["networks"]
+        self.assertEqual(startup(net)["note"], "Heartbeat of the sensor")
+        self.assertEqual(startup(net)["meaning"], "heartbeat every 100 ms")
 
     def test_master_heartbeat_time_and_sdo_frames(self):
         cfg = base_config()

@@ -98,6 +98,27 @@ def j1939_status():
         return json.load(f)
 
 
+# A plain CAN network (examples/raw-can) as the hello lists it, and its
+# status (diag.cpp offline_answer, raw_runtime.cpp RawRuntime::status).
+PLAIN_NETWORK = {"name": "cab", "interface": "can0", "bitrate": 250000, "protocol": "none"}
+
+
+def plain_status():
+    return {
+        "version": "v-test", "uptime_s": 7, "config_sha256": "0" * 64, "network": "cab", "session": False,
+        "protocol": "none", "simulated_network": False, "simulation_forced": False, "listen_only": False,
+        "bus": {"interface": "can0", "bitrate": 250000, "state": 1},
+        "raw": {"running": True, "listen_only": False, "confirm": "echo", "frames_sent": 40, "frames_received": 81,
+                "bus_load": 3, "program": {"receivers": 1, "cyclic_jobs": 0, "frames_sent": 2, "dropped": 0},
+                "rx": [{"message": "Joystick", "count": 80, "short_frames": 0, "seen": True, "timed_out": False,
+                        "age_ms": 12, "last_id": 0x181, "last_dlc": 5, "last_data": "E8 03 0C FE 01"},
+                       {"message": "Pedal", "count": 1, "short_frames": 1, "seen": True, "timed_out": True,
+                        "age_ms": 900, "last_id": 0x18FF1020, "last_dlc": 2, "last_data": "01 F4"}],
+                "tx": [{"message": "Display", "count": 38}],
+                "simulated_devices": ["joystick"]},
+    }
+
+
 # A slave network (config/slave) as the hello lists it.
 SLAVE_NETWORK = {"name": "line", "interface": "vcan1", "bitrate": 250000, "role": "slave", "node_id": 10}
 
@@ -183,6 +204,9 @@ class FakePlugin:
         if self.networks:
             if self.networks[0].get("protocol") == "j1939":
                 self.status = j1939_status()
+                self.present = set()
+            elif self.networks[0].get("protocol") == "none":
+                self.status = plain_status()
                 self.present = set()
             elif self.networks[0].get("role") == "slave":
                 self.status = slave_status()

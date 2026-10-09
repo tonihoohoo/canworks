@@ -45,6 +45,16 @@ std::string raw_frame_text(const RawFrame& f);
 // are never in the map.
 std::string cob_id_use(const Config& cfg, uint32_t id, bool ext);
 
+// What the network's protocol uses `id` for, whatever the protocol: the
+// CANopen map above, on a J1939 network every 29-bit frame from the ECU's
+// address (or address range), nothing on a plain CAN network. The guard of
+// raw messages and program sends (can-raw-messages "Protocol identifiers").
+std::string protocol_id_use(const Config& cfg, uint32_t id, bool ext);
+
+// The raw `tx` message of the network that sends `id` ("raw message Lamps"),
+// or "" (the guard map of hand-sent frames).
+std::string raw_id_use(const Config& cfg, uint32_t id, bool ext);
+
 // Where frames go: a CAN_RAW socket on the interface, or the simulated bus.
 class FrameSink {
  public:

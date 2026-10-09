@@ -593,18 +593,20 @@ function switchNet(i) {
 
 async function addNetwork() {
   const protocol = await modal("Add a network with its own CAN interface. Which protocol does it run?",
-    [["cancel", "Cancel"], ["j1939", "J1939 (an ECU)"], ["canopen", "CANopen (a master and nodes)", true]]);
-  if (protocol !== "canopen" && protocol !== "j1939") return;
+    [["cancel", "Cancel"], ["none", "Plain CAN (messages only)"], ["j1939", "J1939 (an ECU)"],
+      ["canopen", "CANopen (a master and nodes)", true]]);
+  if (protocol !== "canopen" && protocol !== "j1939" && protocol !== "none") return;
   const first = S.model.networks[0];
   const rate = first && first.adapter && Number.isInteger(first.adapter.bitrate) ? first.adapter.bitrate : 250000;
   // No interface: the user picks it (each network needs its own).
   S.model.networks.push(protocol === "j1939" ? newJ1939Network(rate)
+    : protocol === "none" ? { protocol: "none", adapter: { type: "socketcan", bitrate: rate } }
     : { adapter: { type: "socketcan", bitrate: rate }, master: { node_id: 1, sync_period_us: 10000 }, nodes: [] });
   openNet(S.model.networks.length - 1);
   S.onlineNet = null;
   S.view = "bus";
-  banner(`Added ${protocol === "j1939" ? "J1939 " : ""}network ${S.model.networks.length}. Enter its CAN interface (each network needs its own), then ` +
-    (protocol === "j1939" ? "its ECU identity and messages." : "add its nodes."));
+  banner(`Added ${protocol === "j1939" ? "J1939 " : protocol === "none" ? "plain CAN " : ""}network ${S.model.networks.length}. Enter its CAN interface (each network needs its own), then ` +
+    (protocol === "j1939" ? "its ECU identity and messages." : protocol === "none" ? "its messages on the CAN messages page." : "add its nodes."));
   changed(true);
 }
 
@@ -881,6 +883,7 @@ function render() {
   if (commission && !["online", "scan", "trace", "framelab"].includes(S.view)) S.view = "online";
   // A J1939 network has no nodes, bus scan or simulated devices.
   if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "scan" || S.view === "simulation")) S.view = "bus";
+  if (isPlain(S.config) && (S.view.startsWith("node:") || S.view === "scan")) S.view = "bus";
   renderSide();
   updateSimBanner();
   // The online view, the scan page and the simulation view share one connection.
@@ -893,7 +896,8 @@ function render() {
   const view = $("#view");
   view.replaceChildren();
   view.classList.toggle("indexed", S.view.startsWith("node:"));
-  if (S.view === "bus") (isJ1939(S.config) ? renderJ1939(view) : renderBus(view));
+  if (S.view === "bus") (isJ1939(S.config) ? renderJ1939(view) : isPlain(S.config) ? renderPlainBus(view) : renderBus(view));
+  else if (S.view === "raw") renderCanMessages(view);
   else if (S.view === "declarations") renderDeclarations(view);
   else if (S.view === "online") renderOnline(view);
   else if (S.view === "scan") renderScan(view);
@@ -922,15 +926,16 @@ function renderSide() {
     const s = S.config.slave || {};
     list.append(item(S.view === "bus", { dataset: { slave: "1" }, onclick: () => showView("bus") },
       el("span", { class: "name" }, `${s.node_id === null ? "LSS" : s.node_id ?? "?"} slave device (this PLC)`)));
-  } else if (!(S.config.nodes || []).length && !isJ1939(S.config)) list.append(el("li", { class: "muted" }, "No nodes yet"));
+  } else if (!(S.config.nodes || []).length && !isJ1939(S.config) && !isPlain(S.config)) list.append(el("li", { class: "muted" }, "No nodes yet"));
   const again = had && list.querySelector(had.node !== undefined ? `[data-node="${had.node}"]` : had.slave ? "[data-slave]" : null);
   if (again) again.focus();
   fillCounts(countProblems());
   const j1939 = isJ1939(S.config);
-  $("#eds-input").closest("label").hidden = isSlave(S.config) || j1939;
-  $("#nodes-caption").hidden = j1939;
-  $("#nav-bus").textContent = j1939 ? "Bus and ECU" : "Bus and master";
-  $("#nav-scan").hidden = j1939;
+  const plain = isPlain(S.config);
+  $("#eds-input").closest("label").hidden = isSlave(S.config) || j1939 || plain;
+  $("#nodes-caption").hidden = j1939 || plain;
+  $("#nav-bus").textContent = j1939 ? "Bus and ECU" : plain ? "Bus" : "Bus and master";
+  $("#nav-scan").hidden = j1939 || plain;
   $("#nav-simulation").hidden = j1939;
   $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
   const unused = S.state.unused_eds || [];
@@ -1837,12 +1842,15 @@ function renderNode(view, i) {
       declNote(base + "." + key));
   const exportBtn = el("button", { type: "button", dataset: { exportDcf: i }, title: "This node as a CiA 306 DCF file, checked",
     onclick: () => busy(exportBtn, "Exporting…", () => exportDcf(n.node_id, tabNetwork())) }, "Export DCF");
+  const notesBtn = n.eds && eds && !eds.error ? el("button", { type: "button", dataset: { exportNotes: i },
+    title: "The notes of every object of this node's EDS, built-in and your own merged, as one file",
+    onclick: () => busy(notesBtn, "Exporting…", () => exportNotes(n.eds)) }, "Export merged notes") : null;
   const sections = [];  // [id, label, element]: the section index, in page order
   const section = (id, label, element) => { if (element) { element.id = "sec-" + id; sections.push([element.id, label]); } return element; };
   const index = el("nav", { class: "section-index", "aria-label": "Sections of this node" });
   view.append(
     el("div", { class: "toolbar" }, el("h2", null, `Node ${n.node_id ?? "?"} ${n.name || ""}`),
-      el("div", { class: "spacer" }), exportBtn,
+      el("div", { class: "spacer" }), notesBtn, exportBtn,
       el("button", { type: "button", dataset: { removeNode: i }, onclick: () => removeNode(i) }, "Remove node")),
     index,
     section("node", "Node", el("fieldset", null, el("legend", null, "Node"),
@@ -2627,6 +2635,8 @@ function objectPicker(i, eds, dir) {
   const label = dir === "input" ? "TPDO" : "RPDO";
   const target = S.pickerTarget && S.pickerTarget.dir === dir ? S.pickerTarget.number : null;
   const objects = eds.objects.map((o) => Object.assign({}, o, { directions: pickable(eds, o) })).filter((o) => o.directions.includes(dir));
+  const name = S.config.nodes[i].eds;
+  const noteOfObj = (o) => noteFor(notesOf(name), name, o.index, o.subindex, !!o.var);
   const d = el("details", { class: "picker", open: S.pickerOpen[dir] || null, dataset: { picker: dir } },
     el("summary", null, "Add entry…"));
   d.addEventListener("toggle", () => { S.pickerOpen[dir] = d.open; if (!d.open) S.pickerTarget = null; });
@@ -2637,11 +2647,15 @@ function objectPicker(i, eds, dir) {
     const f = S.objectFilter.toLowerCase();
     body.replaceChildren(...objects
       .filter((o) => !f || o.index.toLowerCase().includes(f) || (o.name || "").toLowerCase().includes(f))
-      .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name), el("td", null, o.type),
+      .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name, noteLine(noteOfObj(o))),
+        el("td", null, o.type, noteOfObj(o).unit ? el("span", { class: "muted" }, " " + noteOfObj(o).unit) : null),
         el("td", null, o.access),
         el("td", null, isMapped(i, o) ? el("span", { class: "muted" }, "mapped") :
           el("button", { type: "button", dataset: { add: `${o.index}:${o.subindex}` }, "aria-label": `Add ${o.index}:${o.subindex} ${o.name || ""}`,
-            onclick: (e) => busy(e.currentTarget, "Adding…", () => addEntry(i, o, dir, target)) }, "Add")))));
+            onclick: (e) => busy(e.currentTarget, "Adding…", () => addEntry(i, o, dir, target)) }, "Add"),
+          notesEditable(name) ? el("button", { type: "button", class: "small", dataset: { noteEdit: `${o.index}:${o.subindex}` },
+            title: "Write a note for this object: text, unit, value meanings, bit names",
+            onclick: async () => { if (await editNote(name, notesOf(name), o.index, o.subindex, !!o.var, `${o.index}:${o.subindex} ${o.name || ""}`)) fill(); } }, "Note") : null))));
   };
   filter.addEventListener("input", () => { S.objectFilter = filter.value; fill(); });
   fill();
@@ -2727,20 +2741,32 @@ function renderSdos(i, eds) {
   const list = n.sdo || [];
   const fs = el("fieldset", { dataset: { path: `nodes[${i}].sdo` } }, el("legend", null, "Startup SDO writes"),
     el("p", { class: "muted" }, "Written in this order every time the node is configured at boot, after the PDO parameters. Only objects the EDS marks writable can be added."));
+  const nb = notesOf(n.eds);
+  const noteOfObj = (o) => noteFor(nb, n.eds, o.index, o.subindex, !!o.var);
+  const noteButton = (o, after) => notesEditable(n.eds) ? el("button", { type: "button", class: "small", dataset: { noteEdit: `${o.index}:${o.subindex}` },
+    title: "Write a note for this object: text, unit, value meanings, bit names",
+    onclick: async () => { if (await editNote(n.eds, nb, o.index, o.subindex, !!o.var, `${o.index}:${o.subindex} ${o.name || ""}`)) after(); } }, "Note") : null;
   const rows = list.map((s, j) => {
     const sp = `nodes[${i}].sdo[${j}]`;
     const info = objectInfo(eds, s.index, s.subindex);
+    const note = info ? noteOfObj(info) : {};
     const value = el("input", { type: "text", dataset: { path: sp + ".value" }, "aria-label": "Value",
       placeholder: info && info.default ? info.default : null });
     value.value = s.value === undefined ? "" : String(s.value);
-    value.addEventListener("input", () => {
+    const meaning = el("span", { class: "muted", dataset: { sdoMeaning: sp } });
+    const showMeaning = () => { const t = value.value.trim(); const w = /^-?[0-9]+(\.[0-9]+)?$/.test(t) ? noteMeaning(note, Number(t)) : ""; meaning.textContent = w ? ` (${w})` : ""; };
+    const setValue = () => {
       const t = value.value.trim();
       let v = t;
       if (/^-?[0-9]+$/.test(t)) v = parseInt(t, 10);
       else if (/^-?[0-9]*\.[0-9]+$/.test(t)) v = parseFloat(t);
       else if (t === "true" || t === "false") v = t === "true";
       setPath(sp + ".value", t === "" ? undefined : v);
-    });
+      showMeaning();
+    };
+    value.addEventListener("input", setValue);
+    const pick = valuePicker(note, value, (x) => { value.value = x; setValue(); });
+    showMeaning();
     const typeCell = info && info.type ? s.type : (() => {
       const sel = el("select", { dataset: { path: sp + ".type" }, "aria-label": "Type" }, TYPES.map((t) => el("option", { value: t }, t)));
       sel.value = s.type || "";
@@ -2751,18 +2777,19 @@ function renderSdos(i, eds) {
     const twice = list.map((o, x) => x).filter((x) => x !== j && sameObject(list[x].index, list[x].subindex, s.index, s.subindex));
     return el("tr", { dataset: { path: sp } },
       el("td", null, `${s.index}:${s.subindex ?? 0}`),
-      el("td", null, info ? info.name : el("span", { class: "field-msg warning" }, "not in the EDS"),
+      el("td", null, info ? info.name : el("span", { class: "field-msg warning" }, "not in the EDS"), noteLine(note),
         twice.length ? el("span", { class: "field-msg warning", dataset: { twice: "1" } },
           ` also written in row ${twice.map((x) => x + 1).join(", ")}; the last write wins`) : null),
       el("td", null, typeCell),
-      el("td", null, value, el("span", { class: "field-msg", dataset: { for: sp + ".value" } }),
+      el("td", null, pick, value, meaning, el("span", { class: "field-msg", dataset: { for: sp + ".value" } }),
         el("span", { class: "field-msg", dataset: { for: sp } }), el("span", { class: "field-msg", dataset: { for: sp + ".type" } }),
-        info && info.default ? el("span", { class: "muted" }, " EDS default " + info.default) : null),
+        info && info.default ? el("span", { class: "muted" }, " · EDS default " + info.default) : null),
       el("td", null, el("span", { class: "btn-group" },
         el("button", { type: "button", title: "Up", "aria-label": `Move ${s.index}:${s.subindex ?? 0} up`, disabled: j === 0, onclick: () => moveSdo(i, j, -1) }, "↑"),
         el("button", { type: "button", title: "Down", "aria-label": `Move ${s.index}:${s.subindex ?? 0} down`, disabled: j === list.length - 1, onclick: () => moveSdo(i, j, 1) }, "↓"),
         el("button", { type: "button", title: "Remove", "aria-label": `Remove the write of ${s.index}:${s.subindex ?? 0}`,
-          onclick: () => { list.splice(j, 1); changed(true); removedBanner(`the startup write of ${s.index}:${s.subindex ?? 0}`); } }, "✕"))));
+          onclick: () => { list.splice(j, 1); changed(true); removedBanner(`the startup write of ${s.index}:${s.subindex ?? 0}`); } }, "✕"),
+        info ? noteButton(info, render) : null)));
   });
   fs.append(el("table", null, el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Value", ""]))),
     el("tbody", null, rows)));
@@ -2792,10 +2819,10 @@ function renderSdos(i, eds) {
     body.replaceChildren(...shown
       .filter((o) => !f || o.index.toLowerCase().includes(f) || (o.name || "").toLowerCase().includes(f))
       .slice(0, 400)
-      .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name),
-        el("td", null, o.type || "?"), el("td", null, o.access), el("td", null, o.default),
+      .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name, noteLine(noteOfObj(o))),
+        el("td", null, o.type || "?"), el("td", null, o.access), el("td", null, withMeaning(noteOfObj(o), o.default)),
         el("td", null, el("button", { type: "button", dataset: { sdo: `${o.index}:${o.subindex}` },
-          onclick: () => addSdo(i, o.index, o.subindex) }, "Add")))));
+          onclick: () => addSdo(i, o.index, o.subindex) }, "Add"), noteButton(o, fill)))));
   };
   filter.addEventListener("input", () => { S.sdoFilter = filter.value; fill(); });
   fill();
@@ -3460,6 +3487,7 @@ function renderOnline(view) {
         onclick: () => { S.onlineForm = true; render(); } }, "Connection…")),
     el("div", { id: "online-conn", class: "online-conn" }, "Connecting to " + targetLabel() + "…"),
     el("div", { id: "online-live" }),
+    el("div", { id: "online-raw" }),
     el("div", { id: "online-lss" }),
     el("div", { id: "online-node" }));
   S.lssAllow = undefined;
@@ -3527,8 +3555,8 @@ async function pollOnline(seq) {
   }
   const notes = [];
   const bus = st.bus || {};
-  const protocol = st.protocol === "j1939" ? "J1939" : "CANopen";
-  if (!st.session) notes.push(el("div", { class: "online-note error" }, `No ${protocol} session: the CAN interface ${bus.interface || "of this network"} is missing or down on the runtime.`));
+  const protocol = st.protocol === "j1939" ? "J1939" : st.protocol === "none" ? "plain CAN" : "CANopen";
+  if (!st.session && st.protocol !== "none") notes.push(el("div", { class: "online-note error" }, `No ${protocol} session: the CAN interface ${bus.interface || "of this network"} is missing or down on the runtime.`));
   if (r.config === "different") notes.push(el("div", { class: "online-note warning", dataset: { online: "fingerprint" } },
     "The runtime runs a different configuration than the saved canworks.json (saved changes not uploaded yet, or another project). " +
     "Upload the saved config with the deploy tool (canworks deploy) or the editor's Build and upload with the CANopen hook."));
@@ -3537,9 +3565,15 @@ async function pollOnline(seq) {
     `This runtime simulates every network${/^local$/i.test((S.online.host || "").trim()) ? " (the local simulator runtime)" : ""}: no CAN interface is used, whatever the adapter settings say.`));
   conn.className = "online-conn ok";
   // The connection line is a live region: it is rewritten only when it changes.
-  const line = el("div", null, `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${protocol} session up ${Math.floor(st.uptime_s || 0)} s, ` +
+  const line = el("div", null, `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${st.protocol === "none" ? "plain CAN network" : protocol + " session"} up ${Math.floor(st.uptime_s || 0)} s, ` +
     (r.hello.allow_changes ? "changes allowed." : "read-only."), ...notes);
   if (conn.dataset.html !== line.innerHTML) { conn.dataset.html = line.innerHTML; conn.replaceChildren(...line.childNodes); }
+  rawLive(st);
+  if (st.protocol === "none") {
+    plainLive(st);
+    S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
+    return;
+  }
   if (st.protocol === "j1939") {
     j1939Live(st);
     S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
@@ -4319,22 +4353,166 @@ function downloadBase64(data, name, type) {
 // configuration" after a live write.
 
 // Bit names of known bit-field objects (CiA 301, and CiA 402 when 0x1000 says so).
-const OD_BITS = {
-  0x1001: { size: 1, names: ["generic error", "current", "voltage", "temperature", "communication error",
-    "device profile specific", "reserved", "manufacturer specific"] },
-  0x1002: { size: 4, names: null },
-  0x6040: { size: 2, cia402: true, names: ["switch on", "enable voltage", "quick stop", "enable operation",
-    "operation mode specific 4", "operation mode specific 5", "operation mode specific 6", "fault reset", "halt",
-    "operation mode specific 9", "reserved", "manufacturer specific 11", "manufacturer specific 12",
-    "manufacturer specific 13", "manufacturer specific 14", "manufacturer specific 15"] },
-  0x6041: { size: 2, cia402: true, names: ["ready to switch on", "switched on", "operation enabled", "fault",
-    "voltage enabled", "quick stop", "switch on disabled", "warning", "manufacturer specific 8", "remote",
-    "target reached", "internal limit active", "operation mode specific 12", "operation mode specific 13",
-    "manufacturer specific 14", "manufacturer specific 15"] },
-};
-// Value names of CiA 402 modes of operation (0x6060, and its display 0x6061).
-const OD_MODES = { 1: "profile position", 2: "velocity", 3: "profile velocity", 4: "profile torque", 6: "homing",
-  7: "interpolated position", 8: "cyclic sync position", 9: "cyclic sync velocity", 10: "cyclic sync torque" };
+// -- device notes (canopen-device-notes): a text, unit, scale, value names and
+// bit names per object, from canworks' built-in CiA notes and the EDS's own
+// notes file (<eds>.notes.json). Unsaved edits live in S.model.notes, so they
+// mark the draft changed, undo like other edits and go with Save.
+const NOTE_FIELDS = ["text", "details", "unit", "scale", "values", "bits", "manual"];
+const NOTE_INHERITED = ["text", "details", "unit", "scale", "manual"];
+
+function noteKey(index, sub) { return sub === null || sub === undefined ? hex4(num(index)) : `${hex4(num(index))}:${num(sub)}`; }
+function noteEdits(name) { return (S.model && S.model.notes && S.model.notes[name]) || null; }
+function notesOf(name) {
+  const e = name && S.state && S.state.eds ? S.state.eds[name] : null;
+  return e && e.notes ? e.notes : null;
+}
+function notesEditable(name) { const b = notesOf(name); return !!(b && b.editable && !b.error && !S.state.commission); }
+
+// The device table with the page's unsaved edits: an edit replaces the
+// entry's note fields and keeps its other keys (name, hand-written extras).
+function applyNoteEdits(table, edits) {
+  const out = Object.assign({}, table || {});
+  for (const [k, v] of Object.entries(edits || {})) {
+    if (v === null) { delete out[k]; continue; }
+    const entry = {};
+    for (const [f, x] of Object.entries(out[k] || {})) if (!NOTE_FIELDS.includes(f)) entry[f] = x;
+    for (const f of NOTE_FIELDS) if (v[f] !== undefined && v[f] !== null && v[f] !== "") entry[f] = v[f];
+    out[k] = entry;
+  }
+  return out;
+}
+
+// One table's note of a sub-object, with what it takes from its object's
+// entry (a VAR's object entry is its own).
+function noteLayer(table, index, sub, isVar) {
+  const own = table[noteKey(index, sub)], obj = table[noteKey(index)];
+  if (isVar && num(sub) === 0) return Object.assign({}, obj || {}, own || {});
+  const out = {};
+  if (obj) for (const f of NOTE_INHERITED) if (obj[f] !== undefined) out[f] = obj[f];
+  return Object.assign(out, own || {});
+}
+
+// The merged note of a sub-object: device over built-in, field by field.
+// `block` is an EDS's notes (state or od_entries), `name` the EDS whose
+// unsaved edits apply (null: none).
+function noteFor(block, name, index, sub, isVar) {
+  if (!block) return {};
+  const device = block.error ? {} : applyNoteEdits(block.device, name ? noteEdits(name) : null);
+  const m = Object.assign(noteLayer(block.builtin || {}, index, sub, isVar), noteLayer(device, index, sub, isVar));
+  const out = {};
+  for (const f of NOTE_FIELDS) if (m[f] !== undefined && m[f] !== null && m[f] !== "") out[f] = m[f];
+  return out;
+}
+
+function noteNumber(x) { return typeof x === "number" && !Number.isInteger(x) ? String(Number(x.toPrecision(6))) : String(x); }
+
+// What a raw value means by a note: its name, else the scaled value with its
+// unit, else the value with its unit; "" when the note says nothing.
+function noteMeaning(note, raw) {
+  if (raw === null || raw === undefined || !note) return "";
+  if (note.values && note.values[String(raw)] !== undefined) return note.values[String(raw)];
+  const unit = note.unit || "";
+  if (typeof note.scale === "number" && note.scale !== 1 && note.scale !== 0) return noteNumber(Number(raw) * note.scale) + (unit ? " " + unit : "");
+  return unit ? `${noteNumber(Number(raw))} ${unit}` : "";
+}
+
+// A value text with its meaning: "3 (profile velocity)" for a named value,
+// "1234 (12.34 bar)" for a scaled one; the text as it is otherwise.
+function withMeaning(note, text) {
+  const m = /^(-?\d+(?:\.\d+)?)/.exec(String(text ?? ""));
+  if (!m) return text ?? "";
+  const raw = m[1].includes(".") ? parseFloat(m[1]) : parseInt(m[1], 10);
+  const what = noteMeaning(note, raw);
+  if (!what) return text;
+  return note.values && note.values[String(raw)] !== undefined ? `${m[1]} (${what})` : `${text} (${what})`;
+}
+
+// A list of the note's named values for a value field, with "Other value…"
+// for any other; null when the note names no values.
+function valuePicker(note, input, set) {
+  if (!note || !note.values || !Object.keys(note.values).length) return null;
+  const entries = Object.entries(note.values).sort((a, b) => Number(a[0]) - Number(b[0]));
+  const sel = el("select", { "aria-label": "Named value", dataset: { valuePick: "1" } },
+    entries.map(([k, t]) => el("option", { value: k }, `${k} ${t}`)), el("option", { value: "" }, "Other value…"));
+  const cur = String(input.value).trim();
+  sel.value = entries.some(([k]) => k === cur) ? cur : "";
+  sel.addEventListener("change", () => { if (sel.value !== "") set(sel.value); else input.focus(); });
+  input.addEventListener("input", () => { const t = input.value.trim(); sel.value = entries.some(([k]) => k === t) ? t : ""; });
+  return sel;
+}
+
+// The note's text under an object's name; details and manual on hover.
+function noteLine(note) {
+  if (!note || (!note.text && !note.details && !note.manual)) return null;
+  const title = [note.details, note.manual ? "Manual: " + note.manual : ""].filter(Boolean).join("\n");
+  return el("div", { class: "muted note-text", title: title || null, dataset: { note: "text" } }, note.text || "More in the note");
+}
+
+function noteLines(map) { return Object.entries(map || {}).map(([k, v]) => `${k} = ${v}`).join("\n"); }
+
+// "3 = profile velocity" lines as {"3": "profile velocity"}; throws on a bad line.
+function parseNoteLines(text, what, pattern) {
+  const out = {};
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const m = /^\s*(-?\d+)\s*[=:]\s*(.+?)\s*$/.exec(line);
+    if (!m || !pattern.test(m[1])) throw new Error(`${what}: "${line.trim()}" is not "number = meaning".`);
+    out[String(parseInt(m[1], 10))] = m[2];
+  }
+  return out;
+}
+
+// The note editor of one object or sub-object of an EDS. Only the fields
+// that differ from the built-in note are kept in the device notes.
+async function editNote(name, block, index, sub, isVar, label) {
+  const key = isVar && num(sub) === 0 ? noteKey(index) : noteKey(index, sub);
+  const cur = noteFor(block, name, index, sub, isVar);
+  const base = noteLayer(block.builtin || {}, index, sub, isVar);
+  const input = (f, attrs) => { const x = el("input", Object.assign({ type: "text", dataset: { noteField: f } }, attrs || {})); x.value = cur[f] === undefined ? "" : String(cur[f]); return x; };
+  const area = (f, value, rows) => { const x = el("textarea", { rows, dataset: { noteField: f } }); x.value = value; return x; };
+  const f = {
+    text: input("text", { maxlength: 200 }), details: area("details", cur.details || "", 3), unit: input("unit", { maxlength: 20, class: "short" }),
+    scale: input("scale", { class: "short", placeholder: "1" }), values: area("values", noteLines(cur.values), 4),
+    bits: area("bits", noteLines(cur.bits), 4), manual: input("manual"),
+  };
+  const msg = el("p", { class: "field-msg" });
+  const form = el("div", { class: "note-editor", dataset: { noteEditor: key } },
+    el("label", null, "Text (one line)", f.text), el("label", null, "Details", f.details),
+    el("div", { class: "row" }, el("label", null, "Unit", f.unit), el("label", null, "Scale (shown = raw × scale)", f.scale)),
+    el("label", null, "Value meanings, one per line: 3 = profile velocity", f.values),
+    el("label", null, "Bit names, one per line: 0 = ready", f.bits),
+    el("label", null, "Manual reference", f.manual), msg,
+    block.builtin && Object.keys(noteLayer(block.builtin, index, sub, isVar)).length
+      ? el("p", { class: "muted" }, "Starts from canworks' built-in note; only what you change is kept in " + (block.file || name + ".notes.json") + ".") : null);
+  for (;;) {
+    const v = await modal(`Note for ${label}`, [["cancel", "Cancel"], ["clear", "Remove my note"], ["save", "Keep note", true]], form);
+    if (v !== "save" && v !== "clear") return false;
+    let entry = {};
+    if (v === "save") {
+      try {
+        const scale = f.scale.value.trim();
+        if (scale !== "" && (!Number.isFinite(Number(scale)) || Number(scale) === 0)) throw new Error("Scale must be a number other than 0.");
+        const got = { text: f.text.value.replace(/[\r\n]+/g, " ").trim(), details: f.details.value.trim(), unit: f.unit.value.trim(),
+          scale: scale === "" ? undefined : Number(scale), values: parseNoteLines(f.values.value, "Value meanings", /^-?\d+$/),
+          bits: parseNoteLines(f.bits.value, "Bit names", /^([0-9]|[1-5][0-9]|6[0-3])$/), manual: f.manual.value.trim() };
+        if (!Object.keys(got.values).length) got.values = undefined;
+        if (!Object.keys(got.bits).length && !(base.bits && !Object.keys(base.bits).length)) got.bits = undefined;
+        for (const k of NOTE_FIELDS) {
+          const x = got[k];
+          if (x === undefined || x === "") continue;
+          if (JSON.stringify(x) === JSON.stringify(base[k])) continue;
+          entry[k] = x;
+        }
+      } catch (e) { msg.textContent = e.message; continue; }
+    }
+    S.model.notes = S.model.notes || {};
+    S.model.notes[name] = S.model.notes[name] || {};
+    S.model.notes[name][key] = entry;
+    changed(false);
+    return true;
+  }
+}
+
 const OD_FILTERS = [["changed", "Changed from default"], ["writable", "Writable"], ["owned", "Set by config or SDO variable"],
   ["pdo", "In a PDO"], ["failed", "Not readable"], ["compare", "Different in last compare"]];
 const OD_NUMERIC = ["BOOLEAN", "INTEGER8", "INTEGER16", "INTEGER32", "INTEGER64", "UNSIGNED8", "UNSIGNED16",
@@ -4413,24 +4591,31 @@ function odText(v, e, fmt) {
   return "0b" + u.toString(2).padStart(width * 8, "0").replace(/(.{4})(?=.)/g, "$1 ");
 }
 
-function odIs402(id, byKey) {
-  const st = odState(id);
-  const v = st.values[odKey(0x1000, 0)];
-  const data = v && v.data ? v.data : (byKey[odKey(0x1000, 0)] || {}).default_data;
-  const n = data ? odNumber(data, "UNSIGNED32") : null;
-  return n !== null && Number(n & 0xFFFFn) === 402;
+// The merged notes of an online node, as (index, sub) -> note: its config
+// EDS's (with unsaved edits), else the EDS its object dictionary was read with.
+function nodeNotes(id) {
+  const src = nodeSource(id);
+  const cfgNode = src && src.config && !onlineSlaveCfg() ? configNode(id) : null;
+  const name = cfgNode && cfgNode.eds ? cfgNode.eds : null;
+  const cached = S.odEntries && S.odEntries[id] ? S.odEntries[id].data : null;
+  const block = (name && notesOf(name)) || (cached && cached.notes) || null;
+  const vars = {};
+  const eds = name ? (S.state.eds || {})[name] : null;
+  if (eds && eds.objects) for (const o of eds.objects) vars[num(o.index)] = !!o.var;
+  else if (cached) for (const e of cached.entries) vars[e.index] = e.object_type === "VAR";
+  return (index, sub) => noteFor(block, name, index, sub, !!vars[num(index)]);
 }
 
-// The names of the set bits of a known bit-field entry, or null.
-function odBitNames(e, v, is402) {
-  const t = OD_BITS[e.index];
-  if (!t || e.subindex !== 0 || (t.cia402 && !is402) || !v || v.error) return null;
+// The names of the set bits of an entry whose note names its bits, or null.
+function odBitNames(e, v, note) {
+  if (!note || !note.bits || !v || v.error) return null;
   const it = intInfo(e.type);
-  if (!it || it.signed || it.bytes !== t.size) return null;
-  const n = odNumber(v.data, e.type);
+  if (!it) return null;
+  let n = odNumber(v.data, e.type);
   if (n === null) return null;
+  if (n < 0n) n += 1n << BigInt(8 * it.bytes);
   const out = [];
-  for (let b = 0; b < t.size * 8; b++) if ((n >> BigInt(b)) & 1n) out.push(t.names ? t.names[b] : `bit ${b}`);
+  for (let b = 0; b < it.bytes * 8; b++) if ((n >> BigInt(b)) & 1n) out.push(note.bits[String(b)] || `bit ${b}`);
   return out;
 }
 
@@ -4505,7 +4690,11 @@ function odBuild(box, id, n, allow, data) {
   const objRows = {};  // index: {tr, sub rows, summary}
   const status = el("div", { class: "job-status", dataset: { online: "od-status" } });
   const summary = el("div", { class: "muted", dataset: { online: "od-summary" } });
-  const is402 = () => odIs402(id, byKey);
+  // Notes: the config node's EDS (editable, with unsaved edits), else the EDS the view was opened with.
+  const notesCfg = nodeSource(id).config && !onlineSlaveCfg() ? configNode(id) : null;
+  const notesName = notesCfg && notesCfg.eds ? notesCfg.eds : null;
+  const notesBlock = () => (notesName && notesOf(notesName)) || data.notes;
+  const noteOf = (e) => noteFor(notesBlock(), notesName, e.index, e.subindex, e.object_type === "VAR");
   if (st.plot) { st.plot.destroy(); st.plot = null; }
   // A slave's own dictionary: its PDO marks from the mappings in force.
   const slaveNow = data.slave && S.onlineLast && S.onlineLast.status && S.onlineLast.status.slave;
@@ -4560,12 +4749,12 @@ function odBuild(box, id, n, allow, data) {
     if (v.error) { c.value.append(el("span", { class: "field-msg" }, v.error)); return; }
     if (e.default_data != null && !sameValue(v.data, e.default_data, e.type)) c.value.classList.add("differs");
     c.value.append(el("strong", { dataset: { online: "od-shown" } }, odText(v, e, st.formats[key])));
-    if ((e.index === 0x6060 || e.index === 0x6061) && is402()) {
-      const m = odNumber(v.data, e.type);
-      if (m !== null && OD_MODES[Number(m)]) c.value.append(" ", el("span", { class: "muted" }, OD_MODES[Number(m)]));
-    }
+    const note = noteOf(e);
+    const raw = odNumber(v.data, e.type);
+    const what = raw === null ? "" : noteMeaning(note, typeof raw === "bigint" && raw >= -(2n ** 53n) && raw <= 2n ** 53n ? Number(raw) : raw);
+    if (what) c.value.append(" ", el("span", { class: "muted", dataset: { online: "od-meaning" } }, `(${what})`));
     const it = intInfo(e.type);
-    const bits = odBitNames(e, v, is402());
+    const bits = odBitNames(e, v, note);
     const tools = el("span", { class: "od-tools" });
     if (it) {
       const fmt = el("select", { class: "od-format", "aria-label": "Format", dataset: { online: "od-format" } },
@@ -4772,22 +4961,31 @@ function odBuild(box, id, n, allow, data) {
       onclick: async () => { try { await readKeys([[e.index, e.subindex]]); } catch (err) { banner(err.message, true); } } }, "Read");
     const edit = el("button", { type: "button", class: "small", disabled: !allow || !e.writable, dataset: { online: "od-edit" },
       title: !allow ? NO_CHANGES : !e.writable ? "Read-only in the EDS (" + e.access + ")" : null,
-      onclick: () => odEdit(id, n, e, cells[key], readKeys, (wrote) => {
+      onclick: () => odEdit(id, n, e, cells[key], readKeys, noteOf(e), (wrote) => {
         cells[key].editing = false;
         if (wrote) st.keep[key] = wrote;
         showValue(key);
       }) }, "Edit");
+    const noteBox = el("div", { dataset: { online: "od-note" } }, noteLine(noteOf(e)));
+    const noteBtn = notesName && notesEditable(notesName) ? el("button", { type: "button", class: "small", dataset: { online: "od-note-edit" },
+      title: "Write a note for this entry: text, unit, value meanings, bit names",
+      onclick: async () => {
+        if (await editNote(notesName, notesBlock(), e.index, e.subindex, e.object_type === "VAR", `${hex4(e.index)}:${e.subindex} ${e.name}`)) {
+          put(noteBox, noteLine(noteOf(e)));
+          showValue(key);
+        }
+      } }, "Note") : null;
     const tr = el("tr", { class: isSub ? "od-sub" : "od-var", dataset: { odKey: key, odObject: String(e.index) } },
       el("td", { class: "mono" }, isSub ? `:${e.subindex}` : `${hex4(e.index)}:${e.subindex}`),
-      el("td", { class: "od-name" }, el("div", null, isSub ? e.sub_name || e.name : e.name), marks),
+      el("td", { class: "od-name" }, el("div", null, isSub ? e.sub_name || e.name : e.name), noteBox, marks),
       el("td", { class: "od-type" }, e.type || "?", " ", el("span", { class: "muted" }, e.access),
         e.default ? el("div", { class: "muted", title: "EDS default" }, "default " + e.default) : null),
       value, el("td", { class: "actions" }, read, edit,
         el("button", { type: "button", class: "small", disabled: data.slave || (!e.readable && !e.writable),
           title: data.slave ? NO_ST_SLAVE : "Copy as ST call (CO_SDO_* block)",
-          dataset: { online: "od-st" }, onclick: () => copyStCall(id, e.index, e.subindex, e.type, e.readable, e.writable) }, "ST")),
+          dataset: { online: "od-st" }, onclick: () => copyStCall(id, e.index, e.subindex, e.type, e.readable, e.writable) }, "ST"), noteBtn),
       el("td", { class: "od-watch" }, watch));
-    cells[key] = { tr, value, marks, watch, text: `${hex4(e.index)}:${e.subindex} ${e.index.toString(16)} ${e.name}`.toLowerCase() };
+    cells[key] = { tr, value, marks, watch, text: `${hex4(e.index)}:${e.subindex} ${e.index.toString(16)} ${e.name} ${noteOf(e).text || ""}`.toLowerCase() };
     return tr;
   };
   for (const [g, title] of OD_GROUPS) {
@@ -5009,11 +5207,12 @@ function odBuild(box, id, n, allow, data) {
 
 // In-place edit of one entry: the SDO panel's checks, the EDS limits, a write
 // and a read-back. done(true) after a successful write.
-function odEdit(id, n, e, cell, readKeys, done) {
+function odEdit(id, n, e, cell, readKeys, note, done) {
   cell.editing = true;
   const v = (S.od[id].values[odKey(e.index, e.subindex)] || {});
   const input = el("input", { type: "text", class: "od-input", "aria-label": "New value", dataset: { online: "od-input" } });
   input.value = v.text ? v.text.replace(/ \(0x[0-9A-F]+\)$/, "") : "";
+  const pick = valuePicker(note, input, (x) => { input.value = x; });
   const limits = odLimitText(e);
   const msg = el("span", { class: "field-msg" });
   const write = async () => {
@@ -5039,7 +5238,7 @@ function odEdit(id, n, e, cell, readKeys, done) {
     done(written || true);
   };
   input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") write(); if (ev.key === "Escape") done(false); });
-  put(cell.value, input, el("button", { type: "button", class: "small primary", dataset: { online: "od-write" }, onclick: write }, "Write"),
+  put(cell.value, pick, input, el("button", { type: "button", class: "small primary", dataset: { online: "od-write" }, onclick: write }, "Write"),
     el("button", { type: "button", class: "small", onclick: () => done(false) }, "Cancel"),
     limits ? el("div", { class: "muted", dataset: { online: "od-limits" } }, limits) : null, msg);
   input.focus();
@@ -5091,14 +5290,16 @@ function paramsPanel(id, n, allow) {
     const r = j.result;
     const s = r.summary;
     const rows = r.rows.filter((x) => showEqual.checked || x.result !== "equal");
+    const noteAt = nodeNotes(id);
     put(out, el("p", { dataset: { online: "compare-summary" } },
       `${s.different} different, ${s["not readable"]} not readable, ${s.equal} equal, ${s["no reference"]} without a reference.`),
     r.stopped ? el("p", { class: "field-msg" }, "Stopped: " + r.stopped) : null,
     rows.length ? el("table", { class: "od compare-rows" },
       el("thead", null, el("tr", null, thCells(["Entry", "Name", "Result", r.reference === "file" ? "Backup" : r.reference === "config" ? "Configuration" : "EDS default", "Device"]))),
       el("tbody", null, rows.map((x) => el("tr", { class: x.result === "different" ? "bad" : x.result === "equal" ? "muted" : null },
-        el("td", { class: "mono" }, `${hex4(x.index)}:${x.subindex}`), el("td", null, x.name), el("td", null, x.result),
-        el("td", null, x.reference ?? ""), el("td", null, x.device ?? (x.error || "")))))) : null);
+        el("td", { class: "mono" }, `${hex4(x.index)}:${x.subindex}`), el("td", null, x.name, noteLine(noteAt(x.index, x.subindex))), el("td", null, x.result),
+        el("td", null, withMeaning(noteAt(x.index, x.subindex), x.reference ?? "")),
+        el("td", null, x.device !== null && x.device !== undefined ? withMeaning(noteAt(x.index, x.subindex), x.device) : (x.error || "")))))) : null);
   };
   showEqual.addEventListener("change", () => { if (lastCompare) showCompare({ result: lastCompare }); });
   // The result also marks the object dictionary tab's entries.
@@ -5190,10 +5391,12 @@ async function restoreDialog(id, j, status, out) {
   const refuse = ids.filter((i) => i.level === "refuse");
   const hold = el("input", { type: "checkbox", dataset: { online: "restore-hold" } });
   const other = el("input", { type: "checkbox", dataset: { online: "restore-other" } });
+  const noteAt = nodeNotes(id);
   const writes = p.writes.length ? el("table", { class: "od" },
     el("thead", null, el("tr", null, thCells(["Entry", "Name", "Backup", "Device now"]))),
-    el("tbody", null, p.writes.map((w) => el("tr", null, el("td", { class: "mono" }, `${hex4(w.index)}:${w.subindex}`), el("td", null, w.name),
-      el("td", null, w.backup), el("td", null, w.device ?? "not readable"))))) : el("p", { class: "muted" }, "Nothing to write: the device already has the backup's values.");
+    el("tbody", null, p.writes.map((w) => el("tr", null, el("td", { class: "mono" }, `${hex4(w.index)}:${w.subindex}`), el("td", null, w.name, noteLine(noteAt(w.index, w.subindex))),
+      el("td", null, withMeaning(noteAt(w.index, w.subindex), w.backup)),
+      el("td", null, w.device !== null && w.device !== undefined ? withMeaning(noteAt(w.index, w.subindex), w.device) : "not readable"))))) : el("p", { class: "muted" }, "Nothing to write: the device already has the backup's values.");
   const skipped = p.skipped.length ? el("details", null, el("summary", null, `${p.skipped.length} entries left out`),
     el("table", { class: "od" }, el("tbody", null, p.skipped.map((s) => el("tr", null, el("td", { class: "mono" }, `${hex4(s.index)}:${s.subindex}`),
       el("td", null, s.name), el("td", { class: "muted" }, s.reason)))))) : null;
@@ -5806,7 +6009,7 @@ async function runCheck() {
   try {
     const cfg = fileConfig();
     const r = await api("POST", "/api/check", { config: cfg, allow_overlap: $("#allow-overlap").checked,
-      task_interval: S.taskInterval || undefined });
+      task_interval: S.taskInterval || undefined, notes: S.model.notes });
     if (seq !== S.checkSeq) return;
     S.check = normCheck(r, fileVersion(cfg));
     if (S.view === "declarations") {
@@ -5871,7 +6074,7 @@ async function exportDcf(nodeId, network) {
 async function exportHtml() {
   try {
     const cfg = fileConfig();
-    const r = await api("POST", "/api/export_html", { config: cfg });
+    const r = await api("POST", "/api/export_html", { config: cfg, notes: S.model.notes });
     exportCheck(r, cfg);
     if (r.errors) {
       banner(`Documentation export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"} (see Problems). Nothing was downloaded.`, true);
@@ -5890,13 +6093,29 @@ async function exportHtml() {
   }
 }
 
+// Downloads the merged notes (built-in and the EDS's own, with unsaved edits) of one EDS.
+async function exportNotes(name) {
+  try {
+    const r = await api("POST", "/api/export_notes", { config: fileConfig(), eds: name, notes: S.model.notes });
+    const url = URL.createObjectURL(new Blob([r.data], { type: "application/json" }));
+    const a = el("a", { href: url, download: r.name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    banner(`Exported ${r.name}.`);
+  } catch (e) {
+    banner(e.message, true);
+  }
+}
+
 // Exports the draft (saved or not) as a DBC file for CAN bus tools, with
 // the SDO frames chosen next to the button: the open tab's network. Errors go to the Problems pane
 // and nothing is downloaded; warnings go there after the download.
 async function exportDbc() {
   try {
     const cfg = fileConfig();
-    const body = { config: cfg, sdo: $("#dbc-sdo").value };
+    const body = { config: cfg, sdo: $("#dbc-sdo").value, notes: S.model.notes };
     if (several()) body.network = netName(S.config);
     const r = await api("POST", "/api/export_dbc", body);
     exportCheck(r, cfg);
@@ -6161,7 +6380,8 @@ function updateSave() {
 async function save(overwrite) {
   const cfg = fileConfig();
   try {
-    const r = await api("POST", "/api/save", { config: cfg, allow_overlap: $("#allow-overlap").checked, overwrite: !!overwrite });
+    const r = await api("POST", "/api/save", { config: cfg, allow_overlap: $("#allow-overlap").checked, overwrite: !!overwrite,
+      notes: S.model.notes });
     S.state = r.state;
     setModel(S.state.config);
     S.dirty = false;
@@ -6264,9 +6484,9 @@ async function newEditorProject() {
   const [pl, parent] = field("Folder to create it in", S.state.home, "Parent folder");
   const [nl, name] = field("Project name (its folder)", "", "Project name");
   const [il, interval] = field("Task interval", "T#20ms", "Task interval");
-  const sdoBlocks = el("input", { type: "checkbox", "aria-label": "Enable CANopen SDO blocks", dataset: { newProject: "sdo-blocks" } });
-  const sl = el("label", { class: "inline", title: "Enables the canworks library (CO_SDO_READ, CO_SDO_WRITE, ...) in the project and installs it into the editor" },
-    sdoBlocks, " Enable CANopen SDO blocks");
+  const blocks = el("input", { type: "checkbox", "aria-label": "Enable the canworks function blocks", dataset: { newProject: "blocks" } });
+  const sl = el("label", { class: "inline", title: "Enables the canworks library (CO_SDO_READ, CO_SDO_WRITE, CAN_SEND, CAN_RECEIVE, ...) in the project and installs it into the editor" },
+    blocks, " Enable the canworks function blocks");
   const form = el("div", { class: "new-project" }, pl, nl, il, sl,
     el("p", { class: "hint" }, "The program main declares every CANopen location once. Later config changes do not " +
       "change it: declare new locations from Variable declarations."));
@@ -6277,7 +6497,7 @@ async function newEditorProject() {
     let r;
     try {
       r = await api("POST", "/api/new_project", { parent: parent.value.trim(), name: name.value.trim(),
-        interval: interval.value.trim(), sdo_blocks: sdoBlocks.checked });
+        interval: interval.value.trim(), blocks: blocks.checked });
     } catch (e) {
       text = "Not created: " + e.message;
       continue;

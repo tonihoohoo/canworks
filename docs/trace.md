@@ -6,6 +6,8 @@ Record from the configurator's [Trace view](configurator.md#trace), or with `can
 
 A trace can also be recorded straight from a USB CAN adapter on the PC, with no runtime: `canworks-diag --adapter slcan:COM5 --bitrate 250 trace -o bench.pcapng`, or the Trace view on a [USB adapter connection](configurator.md#usb-adapter-on-this-pc) ([pc-adapter.md](pc-adapter.md)). It keeps the same formats, filters and triggers; time stamps are the PC's receive times, and frames the PC itself sends are recorded as sent.
 
+Raw CAN messages ([raw-can.md](raw-can.md)) decode on every network as their message and signals with scale and unit, from the network's `raw` entries and its `raw.dbc` file; a [plain CAN network](raw-can.md#plain-can-networks) decodes those and shows every other frame as plain CAN. The frame inspector colours a raw message's signal bits with their PLC addresses.
+
 A trace records one network. With several CAN networks in the config (`schema_version: 2`) pick it in the trace view or with `--network NAME`; the trace command without it exits naming the networks. The frames are decoded with that network's nodes from the config, so node 2 on `io` and node 2 on `drives` each get their own PDO mapping and object names. To watch two networks, record two traces.
 
 ## Recording

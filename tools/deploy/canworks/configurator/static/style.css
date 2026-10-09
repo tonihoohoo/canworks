@@ -330,7 +330,8 @@ table.od-tree { table-layout: fixed; width: 100%; }
 table.od-tree col.c-entry { width: 8.5em; }
 table.od-tree col.c-type { width: 9.5em; }
 table.od-tree col.c-value { width: 13em; }
-table.od-tree col.c-actions { width: 11em; }
+table.od-tree col.c-actions { width: 13.5em; }
+table.od-tree td.actions { white-space: normal; }
 table.od-tree col.c-watch { width: 3.5em; }
 table.od td.od-name, table.od td.od-type, table.od td.od-value { overflow-wrap: anywhere; }
 table.od-tree td.od-value strong { white-space: normal; }
@@ -608,3 +609,12 @@ dialog:has(.j1939-picker) { max-width: min(960px, 92vw); }
 .j1939-claim-2, .j1939-claim-3 { color: var(--error); }
 fieldset[data-section^="j1939-"] { min-width: 0; }
 table.j1939-signals td:first-child input[type=text] { min-width: 8em; }
+
+/* Device notes: the note text under a name, and the note editor. */
+.note-text { font-size: 12px; white-space: normal; }
+.note-editor { display: grid; gap: 8px; width: 520px; max-width: 100%; box-sizing: border-box; }
+.note-editor label { display: grid; gap: 2px; }
+.note-editor textarea { width: 100%; font-family: inherit; }
+.note-editor input, .note-editor textarea { box-sizing: border-box; max-width: 100%; }
+.note-editor .row { display: flex; gap: 12px; }
+.note-editor .row label { flex: 1; min-width: 0; }

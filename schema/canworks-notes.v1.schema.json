@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tonihoohoo/canworks/schema/canworks-notes.v1.schema.json",
+  "title": "canworks device notes, version 1",
+  "description": "Notes for the objects of one EDS, kept next to it as <eds file name>.notes.json (docs/configurator.md, Device notes). The configurator shows them with the object dictionary, startup SDOs and PDO entries, and the network document and DBC export use them. They never reach the PLC. Checks against the EDS (objects it has, integer types for values and bits, bit numbers within the type) are run by the configurator.",
+  "type": "object",
+  "required": [
+    "format",
+    "objects"
+  ],
+  "properties": {
+    "format": {
+      "const": "canworks-notes.v1"
+    },
+    "eds": {
+      "type": "object",
+      "description": "The EDS the notes belong to, as its [DeviceInfo] gives it. Informational.",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "vendor_id": {
+          "type": "string"
+        },
+        "product_code": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      }
+    },
+    "objects": {
+      "type": "object",
+      "description": "Notes per object (0x2010) or sub-object (0x2011:2). A sub-object without its own entry uses its object's text, details, unit, scale and manual.",
+      "propertyNames": {
+        "pattern": "^0x[0-9A-F]{4}(:(0|[1-9][0-9]?|1[0-9][0-9]|2[0-4][0-9]|25[0-5]))?$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/note"
+      }
+    }
+  },
+  "$defs": {
+    "note": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "A copy of the EDS name, for reading the file by hand. Ignored when read; refreshed on save."
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^[^\\n\\r]*$",
+          "description": "One line on what the object does."
+        },
+        "details": {
+          "type": "string",
+          "description": "Longer text, shown on hover and in the note editor."
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "scale": {
+          "type": "number",
+          "not": {
+            "const": 0
+          },
+          "description": "Shown value = raw value x scale."
+        },
+        "values": {
+          "type": "object",
+          "description": "Meaning of a raw value, by the value in decimal.",
+          "propertyNames": {
+            "pattern": "^-?(0|[1-9][0-9]*)$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "bits": {
+          "type": "object",
+          "description": "Meaning of each bit, by bit number 0-63. Empty marks a bit field without names.",
+          "propertyNames": {
+            "pattern": "^([0-9]|[1-5][0-9]|6[0-3])$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "manual": {
+          "type": "string",
+          "description": "Where the device manual describes the object, such as a page or section."
+        }
+      }
+    }
+  }
+}

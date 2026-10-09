@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "canworks"
-version = "0.45.0"
+version = "0.46.2"
 description = "Configures CANopen for OpenPLC (canworks-config), deploys it to an OpenPLC Runtime v4 (canworks-deploy) and reads the live network (canworks-diag)"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -22,9 +22,9 @@ canworks-j1939-sim = "canworks.j1939.sim:main"
 
 [tool.setuptools]
 packages = ["canworks", "canworks.bustrace", "canworks.localbus", "canworks.configurator", "canworks._lely_dcf",
-            "canworks.j1939"]
+            "canworks.j1939", "canworks.raw"]
 
 [tool.setuptools.package-data]
-canworks = ["schema/*.json", "library/*.stlib"]
+canworks = ["schema/*.json", "library/*.stlib", "builtin_notes/*.json"]
 "canworks.configurator" = ["static/*", "static/uplot/*", "static/three/*", "static/three/build/*", "static/three/addons/*/*"]
 "canworks._lely_dcf" = ["LICENSE", "NOTICE", "VERSION", "README.md"]
