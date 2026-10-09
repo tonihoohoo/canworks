@@ -270,17 +270,22 @@ def _slcan_bus(listen_only, disturb_bus=False):
     then the channel stays closed and `unconfirmed` is set, unless
     `disturb_bus`. Closing sets the mode back with 'm0'. A normal open sends 'm0'
     before 'O' too, so a sweep that died in silent mode cannot leave the
-    adapter mute."""
+    adapter mute. open() does nothing while the channel is open: python-can
+    4.6 opens it in set_bitrate() and then once more, and commands to an
+    open channel on a busy bus meet a stream of frames."""
     from can.interfaces.slcan import slcanBus
 
     class Slcan(slcanBus):
         _silent = False
+        _open = False
         unconfirmed = False
 
         def _ask(self, cmd):
             # Answers to the commands before (close, bit rate) are not
-            # this one's: let them arrive and drop them first.
-            while self._read(0.05) is not None:
+            # this one's: let them arrive and drop them first (for a
+            # bounded time: an open channel on a busy bus never goes quiet).
+            drain = time.monotonic() + 0.3
+            while time.monotonic() < drain and self._read(0.05) is not None:
                 pass
             self._write(cmd)
             deadline = time.monotonic() + 0.2
@@ -293,6 +298,9 @@ def _slcan_bus(listen_only, disturb_bus=False):
                 return not reply.endswith("\a")
 
         def open(self):
+            if self._open:
+                return
+            self._open = True
             if listen_only:
                 answer = self._ask("m1")
                 self._silent = answer is not False  # 'm0' on close, also after an unanswered 'm1'
@@ -307,6 +315,7 @@ def _slcan_bus(listen_only, disturb_bus=False):
 
         def close(self):
             super().close()
+            self._open = False
             if self._silent:
                 self._write("m0")
                 self._silent = False
