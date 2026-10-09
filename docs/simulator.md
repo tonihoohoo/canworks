@@ -2,6 +2,8 @@
 
 The simulator has two parts. [Simulated devices](#simulated-devices) are CANopen nodes built from their EDS files, so a configuration, the configurator's online views and a PLC program can be tried without the real devices. A [simulated machine](#simulated-machine) can sit on top of a simulated network's devices: a gantry, conveyors, sensors and a pallet that the program's outputs move. The configurator's **Simulation** view drives both; its **Machine** tab shows the machine in 3D.
 
+Both are for CANopen networks. A J1939 network does not run on the simulated bus (`adapter.simulate` is refused there); `canworks-j1939-sim` plays its other ECUs from a DBC file instead ([j1939.md](j1939.md#simulator)).
+
 ## Simulated devices
 The simulator runs CANopen devices built from their EDS (or DCF) files, so a configuration, the configurator's online views and a PLC program can be tried without the real devices. A simulated device is a full CANopen node: it boots, answers SDO, takes its configuration from the master, sends and receives PDOs, produces heartbeats, sends EMCY and stores parameters, all as its EDS describes. On top of that its values can move by themselves, follow formulas, play recorded data, and show faults on command or on a timeline.
 
@@ -381,7 +383,7 @@ The simulation file (version 2) names it per network, relative to itself:
 }
 ```
 
-The deploy tool carries it into the upload with the simulation file. Its JSON Schema is [`schema/canworks-machine.v1.schema.json`](../schema/canworks-sim-machine.v1.schema.json). Units are millimetres: x and y on the table, heights above the table top. An I/O binding is always `{ "node": 10, "object": "0x6200:1", "bit": 1 }`. Outputs (conveyor run, gripper close, change request) must be objects the master writes, inputs (sensors, gripped, change ready) objects it does not write.
+The deploy tool carries it into the upload with the simulation file. Its JSON Schema is [`schema/canworks-sim-machine.v1.schema.json`](../schema/canworks-sim-machine.v1.schema.json). Units are millimetres: x and y on the table, heights above the table top. An I/O binding is always `{ "node": 10, "object": "0x6200:1", "bit": 1 }`. Outputs (conveyor run, gripper close, change request) must be objects the master writes, inputs (sensors, gripped, change ready) objects it does not write.
 
 | Key | What it is |
 |---|---|

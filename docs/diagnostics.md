@@ -49,7 +49,7 @@ canworks-diag explain 185#2500EA00 --config canworks/canworks.json             #
 
 With several CAN networks ([config.md](config.md), `schema_version: 2`) every command that talks to the plugin takes `--network NAME`. `status` without it prints every network one after another, each headed by its name and interface; every other command without it exits with status 1 naming the networks. With one network `--network` may be left out, and an older plugin, which knows no networks, ignores it.
 
-On a J1939 network ([j1939.md](j1939.md#diagnostics-and-trace)) `status` prints the ECU's claim state, address and NAME, the ECUs seen on the bus, a line per received PGN (source filter, sources seen, age of the last message, timed out or not, timeouts, count, raw signal values) and the sent PGNs, answered requests and sent requests; `trace`, `send` and `explain` work as on any network, and the CANopen commands (SDO, NMT, LSS, parameters, scan, bit rate detection) exit with status 1 saying that they need a CANopen network. The status answer and `hello` name the protocols the plugin was built with (`protocols`), and `hello` gives each network its `protocol`.
+On a J1939 network ([j1939.md](j1939.md#diagnostics-and-trace)) `status` prints the ECU's claim state, address and NAME, the ECUs seen on the bus, a line per received PGN (source filter, sources seen, age of the last message, timed out or not, timeouts, count, raw signal values) and the sent PGNs, answered requests and sent requests; `trace`, `send` and `explain` work as on any network, and the CANopen commands (SDO, NMT, LSS, parameters, scan, bit rate detection) exit with status 1 saying that they need a CANopen network. The status answer and the login answer name the protocols the plugin was built with (`protocols`), and the login answer gives each network its `protocol`.
 
 On a slave network ([slave.md](slave.md#diagnostics)) `status` prints the plugin's own device instead of a master and nodes: its node ID (or that it waits for LSS), NMT state, communication OK, SYNC count, EMCY code and error register, each TPDO and RPDO in force with its COB-ID, transmission type and mapped objects, and on a gateway's upper network the gateway's route count, whether the upper master is there and the active forwarded errors. `sdo-read` and `sdo-write` with the slave's own node ID read and write its dictionary; the other commands exit with status 1 saying that they need a master network.
 
@@ -238,7 +238,7 @@ ServerSignature = HMAC(ServerKey, AuthMessage)
 
 A wrong proof closes the connection without an answer; the next login from that address is answered a second later at the earliest. The client checks `signature` before it uses anything else; `canworks-diag` and the configurator drop a connection whose signature is wrong ("could not prove it knows this project's token"). A connection that does not start with a TLS handshake (a client from before the encrypted channel) gets one line, `this runtime needs an encrypted connection; update canworks-diag`, and is closed.
 
-The login answer carries `protocol` (2), `version`, `allow_changes`, `master_node_id` (the first network's) and `networks`: the networks in config order, each `{"name", "interface", "bitrate", "role", "master_node_id"}` (a slave network has `"role": "slave"` and `node_id`, null while it waits for LSS, instead of `master_node_id`; see [slave.md](slave.md#diagnostics)), the name empty for a version 1 config.
+The login answer carries `protocol` (2), `version`, `allow_changes`, `master_node_id` (the first network's), `protocols` (`canopen`, `j1939`: the protocols the plugin was built with) and `networks`: the networks in config order, each `{"name", "interface", "bitrate", "protocol", "role", "master_node_id"}` (a slave network has `"role": "slave"` and `node_id`, null while it waits for LSS, instead of `master_node_id`, see [slave.md](slave.md#diagnostics); a J1939 network has `"role": "ecu"` and its `address`), the name empty for a version 1 config.
 
 Every request after the hello may carry `network`, the name of the network it is for. With one network it may be left out. With several, a request without it answers `network required (io, drives)` and one with a name the plugin does not run `unknown network 'x' (io, drives)`. A client sends `network` only when the hello lists more than one network, so it also talks to an older plugin. Then:
 
@@ -256,7 +256,6 @@ Every request after the hello may carry `network`, the name of the network it is
 | `lss_inquire` | `vendor_id`, `product_code`, `revision_number`, `serial_number` | `node_id` (255: none), `configured` |
 | `lss_set_id` | the address, `node`, `store` (default false) | `node_id`, `previous_node_id`, `had_node_id`, `note`, `stored` |
 | `lss_set_bitrate` | the address, `bitrate_kbit`, `store` (default false) | `bitrate_kbit`, `note`, `stored` |
-
 | `trace_start` | `filters` (optional list of `{"id", "mask"}`, at most 16), `error_frames` (default false) | `next` (the sequence number to fetch after), `buffer_frames` (65536), `record_size` (24), `network`, `interface`, `bitrate` of the traced network |
 | `trace_fetch` | `after` (the last sequence number received), `max` (1-4000, default 2000) | `count`, `next`, `more` (more frames are waiting), `lost` (frames the ring overwrote before this client fetched them), `kernel_drops` (frames the kernel dropped since tracing started), `session`, `frames` |
 | `trace_stop` | | ends this client's trace |
@@ -269,6 +268,8 @@ Every request after the hello may carry `network`, the name of the network it is
 `send_frame`, `send_frame_stop`, `detect_bitrate` and `detect_bitrate_status` are served by the diagnostics thread and work on master and slave networks. `status` also carries `send_jobs` (the network's cyclic jobs: `job`, `id`, `ext`, `period_ms`, `sent`, `count`, `peer`) and `bitrate_sweep` (`running`). While a sweep runs, the network has no session: requests other than `status` and `detect_bitrate_status` answer `no bus`.
 
 A client traces one network at a time: `trace_start` on another network moves its trace there, and `trace_fetch` for another network than the traced one answers `no trace running`.
+
+A J1939 network serves `status`, the `trace_` ops, `send_frame`, `send_frame_stop` and `detect_bitrate_status`; `detect_bitrate` answers that bit rate detection runs on CANopen networks, and every other op `network "NAME" is a J1939 network; OP needs a CANopen network`.
 
 Numbers may also be given as strings (`"0x1018"`). `sdo_write`, `nmt`, the `lss_` ops except `lss_find_status`, and the `sim_` ops except `sim_status`, `sim_get`, `sim_scenario_list` and `sim_check_expr` answer `changes not allowed` unless the config has `allow_changes: true`. Requests other than `status` answer `no bus` while there is no CANopen session.
 

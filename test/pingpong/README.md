@@ -6,6 +6,7 @@ The slave from the [Lely C++ tutorial](https://opensource.lely.com/canopen/docs/
 
 - `config/pingpong/cpp-slave.eds`: the slave's EDS.
 - `config/pingpong/canopen_config.json`: the plugin config for it (node 2 on `vcan0`, SYNC every 100 ms, heartbeat 100 ms with a 300 ms timeout).
+- `config/pingpong/simulation.json`: a simulation file that plays the slave on the simulated bus (0x4001 follows 0x4000) with a test scenario `round-trip` ([docs/simulator.md](../../docs/simulator.md#the-simulation-file)).
 - `pingpong_slave.hpp`, `slave.cpp`: the slave, built as `build/test/pingpong_slave <iface> <eds> [node-id]`. The virtual-bus tests in `test/sim/` use the same class.
 - `run.sh`: the end-to-end test on a SocketCAN interface.
 
@@ -26,6 +27,7 @@ sudo scripts/dev-setup.sh          # once: Lely, dcfgen, vcan0
 cmake -B build -DOPENPLC_ROOT=../openplc-runtime && cmake --build build -j
 test/pingpong/run.sh               # expect PASS and exit 0
 test/pingpong/run.sh --no-slave    # expect FAIL and exit 1
+test/pingpong/run.sh --plc-cycle   # SYNC from the PLC cycle (10 ms) instead of the 100 ms timer
 ```
 
 `run.sh` starts the slave, then loads the real `libcanworks_plugin.so` through `build/test/canopen_host`, which calls the plugin's entry points the way the runtime does and runs the PLC program above every 10 ms. It prints `%ID100` and `%IX10.0` once a second, and a count of SYNC, SDO, PDO and heartbeat frames from `candump`.

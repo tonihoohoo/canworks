@@ -1,6 +1,6 @@
 # Installing the PC tools: configurator, deploy tool, diagnostics
 
-`canworks-config`, `canworks-deploy`, `canworks-diag` and `canworks-sim-runtime` run on the engineering PC (Windows, macOS or Linux). They come as one package. `canworks-sim-runtime` runs a [local simulator runtime](local-runtime.md) in a container and needs a container engine (Docker Engine, Podman or Colima); the other three need nothing else. The recommended way installs them with [uv](https://docs.astral.sh/uv/), which brings its own Python: nothing else needs to be on the PC, and no admin rights are needed. Installing with pip into a Python you already have also works: see [With pip or pipx](#with-pip-or-pipx).
+`canworks-config`, `canworks-deploy`, `canworks-diag`, `canworks-sim-runtime` and `canworks-j1939-sim` run on the engineering PC (Windows, macOS or Linux). They come as one package. `canworks-sim-runtime` runs a [local simulator runtime](local-runtime.md) in a container and needs a container engine (Docker Engine, Podman or Colima); the other four need nothing else. `canworks-j1939-sim` simulates a J1939 ECU from a DBC file ([j1939.md](j1939.md#simulator)). The recommended way installs them with [uv](https://docs.astral.sh/uv/), which brings its own Python: nothing else needs to be on the PC, and no admin rights are needed. Installing with pip into a Python you already have also works: see [With pip or pipx](#with-pip-or-pipx).
 
 The tools call the editor's `openplc-cli` for **Build only** and **New editor project**; it comes with the OpenPLC Editor (`openplc-cli install-cli`, or set `OPENPLC_CLI` to it).
 
@@ -39,9 +39,9 @@ canworks-config            # opens the configurator in the browser
 
 The configurator prints its address with an access token and opens it in the default browser. On a machine without one (over SSH, WSL without a browser), open the printed address yourself; `--no-browser` skips the attempt.
 
-Linux works with x86_64 and ARM64 (glibc distributions; uv's Python and the one compiled dependency come as wheels for both).
+Linux works with x86_64 and ARM64 (glibc distributions; uv's Python and the compiled dependencies come as wheels for both).
 
-The first install needs internet access to github.com (Python) and pypi.org (the `jsonschema` package). Behind a company proxy that inspects TLS, add `--native-tls` (or set `UV_NATIVE_TLS=1`) so uv trusts the certificates installed in the operating system.
+The first install needs internet access to github.com (Python) and pypi.org (the Python packages the tools use: `jsonschema`, `python-can`, `pyserial`, `cantools`, `can-j1939`). Behind a company proxy that inspects TLS, add `--native-tls` (or set `UV_NATIVE_TLS=1`) so uv trusts the certificates installed in the operating system.
 
 ## Update and uninstall
 
@@ -64,13 +64,13 @@ The PC tools reach the CAN bus in one of two ways. Through a runtime: everything
 - **macOS:** `/dev/tty.usbmodem14101` or similar.
 - **Linux:** `/dev/ttyACM0` or similar; join the `dialout` group once to open serial ports (`sudo usermod -aG dialout $USER`, then log in again). SocketCAN interfaces (`can0`, `vcan0`) work too.
 
-`canworks-diag adapters` lists the adapters it finds.
+`canworks-diag adapters` lists the adapters it finds. `canworks-j1939-sim` takes the same `--adapter` values.
 
 To run the plugin on the PC itself, install the runtime and the plugin there ([install-stock.md](install-stock.md), native or Docker) and set the network's `adapter` (`socketcan`, or `slcan` for serial adapters; see [config.md](config.md)). A Linux PC can so carry the whole bench: editor, PC tools, runtime with the plugin, and `vcan0` with simulated devices ([simulator.md](simulator.md)).
 
 ## Switching from pipx or a venv
 
-Remove the old install first so the old commands do not shadow the new ones: `pipx uninstall canworks`, or delete the venv (for example `~/.venvs/canopen`) and any PATH entry or alias pointing into it. Then follow the steps above.
+Remove the old install first so the old commands do not shadow the new ones: `pipx uninstall canworks`, or delete the venv (for example `~/.venvs/canworks`) and any PATH entry or alias pointing into it. Then follow the steps above.
 
 ## With pip or pipx
 

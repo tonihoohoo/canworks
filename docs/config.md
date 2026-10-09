@@ -1,6 +1,6 @@
 # canopen_config.json
 
-The CANopen plugin reads one JSON file, the config path given for the `canopen` entry in the runtime's `plugins.conf`. It describes the CAN adapter, the master, and every slave node with its EDS file, PDO entries and startup SDOs; a version 2 file can also make the PLC itself a [slave](#slave-networks) or a [gateway](#gateway). Each PDO entry is bound to one explicit PLC address; nothing is assigned automatically.
+The canworks plugin reads one JSON file, the config path given for the `canworks` entry in the runtime's `plugins.conf`. It describes the CAN adapter, the master, and every slave node with its EDS file, PDO entries and startup SDOs; a version 2 file can also make the PLC itself a [slave](#slave-networks) or a [gateway](#gateway), or run a [J1939](j1939.md) network. Each PDO entry is bound to one explicit PLC address; nothing is assigned automatically.
 
 The format is a versioned contract: [`schema/canworks.v1.schema.json`](../schema/canworks.v1.schema.json) (JSON Schema 2020-12) describes `schema_version` 1, the file with one CAN network, and [`schema/canworks.v2.schema.json`](../schema/canworks.v2.schema.json) describes `schema_version` 2, the file with [several networks](#several-networks-schema_version-2). The plugin, the deploy tool ([docs/deploy.md](deploy.md)) and any future editor GUI read and write the same file. The deploy tool and the editor hook deliver it with each upload as `conf/canworks.json`, and the runtime points `plugins.conf` at it.
 
@@ -77,15 +77,16 @@ One PLC can drive up to 8 CAN networks, each on its own adapter, with its own ma
 
 | Field | Required | Meaning |
 |---|---|---|
-| `networks` | yes | 1 to 8 networks. Each has `adapter`, `master` and `nodes` exactly as a version 1 file has them at the top level, and an optional `name`; a [slave network](#slave-networks) has `"role": "slave"` and `slave` instead of `master` and `nodes`. |
-| `networks[].role` | no | `"master"` (default) or `"slave"`. |
+| `networks` | yes | 1 to 8 networks. Each has `adapter`, `master` and `nodes` exactly as a version 1 file has them at the top level, and an optional `name`; a [slave network](#slave-networks) has `"role": "slave"` and `slave` instead of `master` and `nodes`, and a J1939 network has `"protocol": "j1939"` and `j1939` instead ([j1939.md](j1939.md)). |
+| `networks[].protocol` | no | `"canopen"` (default) or `"j1939"`. A J1939 network has no `role`, `master`, `nodes` or `slave`. |
+| `networks[].role` | no | `"master"` (default) or `"slave"`. CANopen networks only. |
 | `networks[].name` | no | A letter, then letters, digits and `_`, at most 16 characters; names differ, ignoring case. Default: the adapter's `interface`, which then must be usable as a name. |
 | `diagnostics` | no | [Online diagnostics](#online-diagnostics) for all networks together: one port and one token. In version 2 it sits at the top level, not in a network's `master`. |
 | `gateway` | no | Routes between a slave network and the master networks ([gateway](#gateway)). |
 
 Each network is checked as a version 1 file is: node IDs and COB-IDs need only be unique inside their network, so node 2 can exist on two networks. Across networks, two networks may not use the same `interface` or the same `slcan` `device`, and no two locations may overlap: all networks share the PLC's one I/O image. Messages name the network: `networks[1]: nodes[0]: ...`, and an overlap names both sides with their networks.
 
-An error in any network rejects the whole file and no interface is opened. Once running, each network has its own bus thread: a network whose adapter fails or whose node is lost does not stop the others. With several networks every log line starts with the network's name (`[CANWORKS] drives: node 2 (pingpong) is operational`), and the generated files go to `.canworks/<name>/` instead of `.canworks/`. A version 2 file with one network behaves as a version 1 file. The PLC program's SDO function blocks pick the network with their `NETWORK` input: 0 for the first network in the list, 1 for the second, and so on ([plc-sdo.md](plc-sdo.md)).
+An error in any network rejects the whole file and no interface is opened. Once running, each network has its own bus thread: a network whose adapter fails or whose node is lost does not stop the others. With several networks every log line starts with the network's name (`[CANWORKS] drives: node 2 (pingpong) is operational`). In a version 2 file the generated files go to `.canworks/<name>/` instead of `.canworks/`. A version 2 file with one network otherwise behaves as a version 1 file. The PLC program's SDO function blocks pick the network with their `NETWORK` input: 0 for the first network in the list, 1 for the second, and so on ([plc-sdo.md](plc-sdo.md)).
 
 A version 2 file needs the plugin and the deploy tool from the same release or later; an older plugin rejects it as a newer `schema_version`. Version 1 files load unchanged, and the configurator saves a config with one network as version 1.
 
@@ -115,7 +116,7 @@ A network with `"role": "slave"` makes the PLC a node of a network another maste
 | `emcy_code_location` | no | `%QW`: a change to a non-zero code sends an EMCY with it, a change to 0 the error reset. |
 | `error_register_location` | no | `%QB`: the error register sent with that EMCY. |
 
-Everything else (PDO mapping, heartbeat, guarding, SYNC consumer, error behaviour) comes from the EDS, and the other master may change it over SDO. A slave network needs `schema_version` 2; a version 1 file with `role`, `slave` or `gateway` is rejected with a message that says so. Slave networks follow the rules of every network: their own interface, a name, and locations that overlap no other network's. With the device simulator's `"simulate": true` adapters, one master network and one slave network may share a simulated bus (the same `interface`).
+Everything else (PDO mapping, heartbeat, guarding, SYNC consumer, error behaviour) comes from the EDS, and the other master may change it over SDO. A slave network needs `schema_version` 2; a version 1 file with `role`, `slave`, `gateway`, `protocol` or `j1939` is rejected with a message that says so. Slave networks follow the rules of every network: their own interface, a name, and locations that overlap no other network's. With the device simulator's `"simulate": true` adapters, one master network and one slave network may share a simulated bus (the same `interface`).
 
 ## Gateway
 
@@ -142,7 +143,7 @@ A PDO entry that a route writes (an RPDO entry fed from the upper master) may le
 | `configure_link` | no | `socketcan` only. Default `true`: at PLC start the plugin sets the interface to `bitrate` and brings it up. A link that is already up at that rate is used as is; one up at another rate is taken down, set and brought up again, with a warning. A `vcan` link is only brought up. `false` leaves the link to the system, with a warning if its rate differs. |
 | `restart_ms` | no | `socketcan` only. Bus-off auto-restart delay in ms, set together with the bit rate (`ip link ... restart-ms`). |
 | `device` | `slcan` | `slcan` only. Absolute path of the serial device, such as `/dev/serial/by-id/usb-Openlight_Labs_CANable2_...-if00` (preferred: `/dev/ttyACM0` can change number when the adapter is plugged in again). |
-| `simulate` | no | Default `false`. `true`: the network is simulated. The master runs on an in-process virtual bus with simulated devices; no interface or serial device is opened and no link is changed, so it needs no CAN hardware and no privileges. The other fields are still checked, so switching back needs only this one. See [simulator.md](simulator.md#two-switches). |
+| `simulate` | no | Default `false`. `true`: the network is simulated. The master runs on an in-process virtual bus with simulated devices; no interface or serial device is opened and no link is changed, so it needs no CAN hardware and no privileges. The other fields are still checked, so switching back needs only this one. Not allowed on a J1939 network, which uses a `vcan` interface for simulation instead. See [simulator.md](simulator.md#two-switches). |
 | `serial_baudrate` | no | `slcan` only. UART speed for adapters behind a real serial port, such as the FTDI-based Lawicel CANUSB. USB adapters such as the CANable ignore it; left out, the speed is not changed. |
 
 A field of the other type (`device` with `socketcan`, `configure_link` with `slcan`, ...) is an error, not ignored.
@@ -152,7 +153,7 @@ Changing the link needs `CAP_NET_ADMIN`; the runtime runs as root and has it. Wi
 ### slcan (CANable, Lawicel CANUSB)
 
 ```json
-"adapter": { "type": "slcan", "device": "/dev/serial/by-id/usb-Openlight_Labs_CANable2_b158aa7_..._205A38914D4D-if00", "interface": "can0", "bitrate": 500000 }
+"adapter": { "type": "slcan", "device": "/dev/serial/by-id/usb-Openlight_Labs_CANable2_...-if00", "interface": "can0", "bitrate": 500000 }
 ```
 
 At PLC start the plugin creates the interface itself, as `slcand` would: it opens `device` for exclusive use in raw mode, attaches the kernel's slcan driver, renames the new `slcanN` interface to `interface`, sets `bitrate`, sets the transmit queue to 1000 frames (the driver's 10 overflows on SDO and PDO bursts) and brings it up. No `slcand`, `can-utils` or systemd unit is needed; disable one you set up before. The log names the device, interface and bit rate.
@@ -621,7 +622,7 @@ The schema describes every field, its type and whether it is required. It cannot
 - a startup SDO value fits its type, and numbers given as strings are in range;
 - everything against the EDS: the file parses, PDO numbers exist, objects exist, are PDO-mappable, have the configured `DataType` and an `AccessType` that allows the direction.
 
-The shared fixtures in [`test/fixtures/config/cases.json`](../test/fixtures/config/cases.json) and, for several networks, [`cases-v2.json`](../test/fixtures/config/cases-v2.json) run through the schema, the plugin and the deploy tool, and CI checks that they agree.
+The shared fixtures in [`test/fixtures/config/cases.json`](../test/fixtures/config/cases.json) and, for several networks and J1939, [`cases-v2.json`](../test/fixtures/config/cases-v2.json) and [`cases-j1939.json`](../test/fixtures/config/cases-j1939.json) run through the schema, the plugin and the deploy tool, and CI checks that they agree.
 
 ## Emergency messages
 
@@ -680,10 +681,11 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a node sets `lss.assign` without `serial_number` or with `reset_communication: false`, `lss.store` without `lss.assign`, or two nodes with `lss.assign` have the same LSS address;
 - a node's `axis` is not an object, has an unknown field, a `scale_numerator` that is not an integer in the DINT range, a `scale_denominator` outside 1-4294967295 or a `scale_factor` of 0;
 - a node sets `heartbeat_consumer: true` while `master.heartbeat_ms` is 0, sets `software_version` without `software_file`, or names a `software_file` that does not exist;
-- a location lies outside the runtime's I/O image (index 1024 and up on a default runtime).
+- a location lies outside the runtime's I/O image (index 1024 and up on a default runtime);
 - in a version 2 file: `networks` is missing, empty or longer than 8, a network name is invalid or used twice, two networks use the same interface or serial device, a field of a network (`adapter`, `master`, `nodes`) sits at the top level, or `diagnostics` sits in a network's `master`;
 - `nodes` is empty without `master.diagnostics` (in version 2, without the top-level `diagnostics`), or `master.diagnostics` has the former `token_sha256` or a `token_verifier` that is not a valid verifier, a `port` outside 1024-65535 or a `bind` that is not an IPv4 address;
-- a slave network has `master` or `nodes`, a master network has `slave`, a version 1 file has `role`, `slave` or `gateway`, or two master networks (or two slave networks) share a simulated bus;
+- a network's `protocol` is not `"canopen"` or `"j1939"`, a J1939 network has `role`, `master`, `nodes` or `slave`, lacks `j1939` or sets `adapter.simulate`, or a CANopen network has `j1939`;
+- a slave network has `master` or `nodes`, a master network has `slave`, a version 1 file has `role`, `slave`, `gateway`, `protocol` or `j1939`, or two master networks (or two slave networks) share a simulated bus;
 - a slave's `node_id` is outside 1-127 and not `null`, its EDS is missing or fails the lint, or a binding names an object the EDS does not define, an object bound twice, a `const` or `wo` object, a location of the wrong area for the object's access type or of a size that does not fit its type; a slave status location has the wrong type (`%IB` state, `%IX` communication OK, `%IW` SYNC count, `%QW` EMCY code, `%QB` error register);
 - a PDO entry has no `iec_location` and no gateway route writes it;
 - the `gateway` names an `upper` network that is missing or not a slave network, there is no master network, a route names a network, node, PDO entry or slave object that does not exist, its direction does not fit the slave object's access type, its two ends differ in type, its target has a second writer, `status` covers more than 4 master networks, or `status` or `sdo_bridge` is set while the slave's EDS lacks their objects.

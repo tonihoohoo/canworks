@@ -1,6 +1,6 @@
 # Deploying a program with CANopen: `canworks-deploy`
 
-A stock OpenPLC Runtime v4 enables a plugin when a program upload carries the plugin's config as `conf/<name>.json`, and disables it when an upload does not. That is how the editor ships EtherCAT. `canworks-deploy` uses the same rule for CANopen: it takes the program the editor built, adds `conf/canworks.json` and the EDS files, checks everything, and uploads it through the runtime's REST API. The runtime then switches the CANopen plugin on by its own rules. No runtime or editor file changes.
+A stock OpenPLC Runtime v4 enables a plugin when a program upload carries the plugin's config as `conf/<name>.json`, and disables it when an upload does not. That is how the editor ships EtherCAT. `canworks-deploy` uses the same rule for CANopen: it takes the program the editor built, adds `conf/canworks.json` and the EDS files, checks everything, and uploads it through the runtime's REST API. The runtime then switches the CANopen plugin on by its own rules. No runtime or editor file changes. A config with [J1939 networks](j1939.md) deploys the same way.
 
 The runtime needs the plugin installed once: see [install-stock.md](install-stock.md).
 
@@ -35,7 +35,7 @@ The tool:
 4. logs in (`POST /api/login`), uploads (`POST /api/upload-file`), follows `/api/compilation-status` and prints the runtime's build log;
 5. starts the PLC (`/api/start-plc`), which the runtime leaves stopped after an upload, and waits until `/api/status` reports it running. `--no-start` leaves it stopped.
 
-It exits 0 only when the runtime reports a successful build, its log shows the `canopen` plugin enabled and the PLC runs (or `--no-start` was given). When the device's run/stop switch is at STOP the start is refused and the tool says so.
+It exits 0 only when the runtime reports a successful build, its log shows the `canworks` plugin enabled and the PLC runs (or `--no-start` was given). When the device's run/stop switch is at STOP the start is refused and the tool says so.
 
 Nothing is uploaded when a check fails.
 
@@ -86,7 +86,7 @@ PROGRAM main
   END_VAR
 ```
 
-Master diagnostics come first, then each node in config order: diagnostics, inputs, outputs and the NMT command byte. With [several networks](config.md#several-networks-schema_version-2) the networks follow each other in config order, every name starts with its network's name (`io_door_ok`, `drives_door_ok`) and every comment names the network. A [slave network](slave.md) comes last, and its names always start with the network's name: one variable per binding, named after its `name` or the object's EDS name (`line_speed_setpoint`), with the object's IEC type, and the status and EMCY locations (`line_state`, `line_comm_ok`, `line_sync_count`, `line_emcy`, `line_errreg`), inputs before outputs. Everything is in `main` because Editor 4.3.2 accepts located variables only in a program's VAR block; put your own logic in function blocks called from `main` if you want to split it. The task interval defaults to `T#20ms`.
+Master diagnostics come first, then each node in config order: diagnostics, inputs, outputs and the NMT command byte. With [several networks](config.md#several-networks-schema_version-2) the networks follow each other in config order, every name starts with its network's name (`io_door_ok`, `drives_door_ok`) and every comment names the network. A [slave network](slave.md) comes last, and its names always start with the network's name: one variable per binding, named after its `name` or the object's EDS name (`line_speed_setpoint`), with the object's IEC type, and the status and EMCY locations (`line_state`, `line_comm_ok`, `line_sync_count`, `line_emcy`, `line_errreg`), inputs before outputs. A [J1939 network](j1939.md)'s names also start with the network's name: the ECU's state and address, each received PGN's status bit, and one variable per signal, plus its valid bit when it has one (`machine_Pressure`, `machine_Pressure_valid`). Everything is in `main` because Editor 4.3.2 accepts located variables only in a program's VAR block; put your own logic in function blocks called from `main` if you want to split it. The task interval defaults to `T#20ms`.
 
 With `--sdo-blocks` the project also enables the `canworks` library (the SDO function blocks, [plc-sdo.md](plc-sdo.md)), and the library is installed into the editor on this PC if it is missing or older than the tools; if that cannot be done (the editor has never run here), the output says how to install it.
 
@@ -124,7 +124,7 @@ writes one CiA 306 Device Configuration File per node, `dcf/node_<id>.dcf`, for 
 - `[FileInfo]`: `FileName`, `LastEDS` (the EDS it came from), `ModifiedBy` and the modification date and time.
 - A leading `;` comment naming the boot steps that are not settings: restoring defaults (`restore_configuration`), the firmware download (`software_file`) and the "save" after a configuration check (`store_configuration`).
 
-With several networks each network's files go into a folder of their own, `dcf/<network>/node_<id>.dcf`, each with its own network's bit rate. `--network drives` exports only that network, into `dcf/node_<id>.dcf`. [Slave networks](slave.md) have no nodes and are left out; `--network` naming one is refused.
+With several networks each network's files go into a folder of their own, `dcf/<network>/node_<id>.dcf`, each with its own network's bit rate. `--network drives` exports only that network, into `dcf/node_<id>.dcf`. [Slave networks](slave.md) and [J1939 networks](j1939.md) have no CANopen nodes and are left out; `--network` naming one is refused.
 
 The tool runs the deploy checks first, then checks each finished DCF with Lely's CiA 306 lint and reader (the same code the plugin uses), that every value sits on a writable object or equals the EDS value, that `NodeID` is the node's ID and that the node's EDS supports the bit rate. If any check fails it prints every problem and writes no file. Nothing is built or uploaded; `--runtime`, `--output` and `--check-only` are refused with it.
 
@@ -144,7 +144,7 @@ writes the configured network as a DBC file, so CAN bus tools that do not read E
 
 Signals are named after the object in the EDS: a plain object by its `ParameterName`, a sub-object by its parent's name and its own (`AI_Sensor_Type_Output_1`), without repeating the parent when the sub-object's name already starts with it. When `--config` is the `canworks/canworks.json` of an editor project, a signal whose PLC address has exactly one located variable in the project is named after that variable.
 
-With several networks the tool writes one DBC per network next to the given file, `bus_io.dbc` and `bus_drives.dbc` for `--export-dbc bus.dbc`, each with only its own network's nodes, NMT and SYNC. `--network drives` writes only that network, to `bus.dbc`. Slave networks are left out, as for DCF files.
+With several networks the tool writes one DBC per network next to the given file, `bus_io.dbc` and `bus_drives.dbc` for `--export-dbc bus.dbc`, each with only its own network's nodes, NMT and SYNC. `--network drives` writes only that network, to `bus.dbc`. Slave networks are left out, as for DCF files. A [J1939 network](j1939.md)'s DBC holds its `rx` and `tx` parameter groups with 29-bit identifiers.
 
 `--dbc-sdo` adds each node's SDO request (0x600 + node ID) and response (0x580 + node ID) frames: `none` (the default) adds none, `config` decodes the config's SDO variables and startup SDOs, `all` every EDS object of a numeric type up to 32 bits. The messages are multiplexed on `Object` (index + subindex * 65536, named `0x6110:1 AI_Sensor_Type_AI0_Sensor_Type` in the tool), so a frame shows as command, object and value. Only expedited transfers (up to 4 bytes) decode; on an abort the abort code shows as the object's raw data.
 
@@ -203,4 +203,4 @@ The password is read from `$OPENPLC_PASSWORD` or an interactive prompt, never fr
 
 ## Exit status
 
-0: deployed, the runtime built the program and enabled CANopen. 1: a check failed (nothing uploaded), an upload with simulated devices was not confirmed, the runtime rejected the login or the upload, its build failed (the log is printed), or it did not enable the `canopen` plugin (it is not installed, see [install-stock.md](install-stock.md)). 2: usage error.
+0: deployed, the runtime built the program and enabled CANopen. 1: a check failed (nothing uploaded), an upload with simulated devices was not confirmed, the runtime rejected the login or the upload, its build failed (the log is printed), or it did not enable the `canworks` plugin (it is not installed, see [install-stock.md](install-stock.md)). 2: usage error.

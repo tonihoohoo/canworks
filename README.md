@@ -33,7 +33,7 @@ canworks-config                                                      # opens the
 ```sh
 git clone https://github.com/tonihoohoo/canworks
 cd canworks
-sudo scripts/install-stock.sh
+sudo scripts/install-stock.sh             # CANopen and J1939; --without-canopen or --without-j1939 builds one
 sudo systemctl restart openplc-runtime    # native installs: once, so the runtime loads the plugin
 ```
 
