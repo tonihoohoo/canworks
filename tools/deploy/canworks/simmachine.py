@@ -1,4 +1,4 @@
-"""The machine file (canworks/machine.json, docs/machine.md): loading, the JSON
+"""The machine file (canworks/machine.json, docs/simulator.md, Simulated machine): loading, the JSON
 Schema, and the checks the schema cannot express, given the network of the
 simulation file section that names it.
 
@@ -29,7 +29,7 @@ JOINTS = ("x", "y", "z")
 
 def schema(version=SUPPORTED_VERSION):
     if version not in _schemas:
-        with open(os.path.join(_SCHEMA_DIR, "canworks-machine.v%d.schema.json" % version), encoding="utf-8") as f:
+        with open(os.path.join(_SCHEMA_DIR, "canworks-sim-machine.v%d.schema.json" % version), encoding="utf-8") as f:
             _schemas[version] = json.load(f)
     return _schemas[version]
 

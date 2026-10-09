@@ -1,4 +1,4 @@
-// sim_machine.h - the machine model of a simulated network (docs/machine.md).
+// sim_machine.h - the machine model of a simulated network (docs/simulator.md, Simulated machine).
 //
 // A machine file describes a made-up machine around the simulated devices:
 // joints driven by CiA 402 drive models, a gripper, belt conveyors with

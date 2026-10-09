@@ -157,11 +157,13 @@ class Sdo(Base):
         peer = Peer(self.ch)
         try:
             c = self.client()
+            # Timed from the peer's request: the tool holds off until
+            # FOREIGN_SDO_S after it saw it, however long the sleep took.
+            t = time.monotonic()
             peer.send(0x605, b"\x40\x00\x10\x00\0\0\0\0")
             time.sleep(0.05)
-            t = time.monotonic()
             self.assertTrue(c.sdo_read(5, 0x1018, 1)["success"])
-            self.assertGreaterEqual(time.monotonic() - t, 0.1)
+            self.assertGreaterEqual(time.monotonic() - t, core_mod.FOREIGN_SDO_S)
         finally:
             peer.close()
 

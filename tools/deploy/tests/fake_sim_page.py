@@ -5,7 +5,7 @@ allow_changes) or a standalone canworks-sim (hello with simulator:
 true). With a token it speaks TLS and the SCRAM login (fake_tls.py), without
 one plain lines, on 127.0.0.1, and records every request.
 
-With machine=FakeMachine(...) (fake_machine.py) it answers sim_machine with
+With machine=FakeMachine(...) (fake_sim_machine.py) it answers sim_machine with
 the machine's snapshot at its clock (seconds since start, or fake.clock =
 lambda: t) and takes sim_fault / sim_clear with "machine"; without one
 sim_machine answers "no machine"."""
@@ -16,7 +16,7 @@ import socketserver
 import threading
 import time
 
-from . import fake_machine, fake_tls
+from . import fake_sim_machine, fake_tls
 
 TOKEN = "test-token"
 CHANGE_OPS = ("sim_set", "sim_override", "sim_release", "sim_source", "sim_fault", "sim_clear", "sim_scenario_start",
@@ -160,7 +160,7 @@ class FakeSim:
                     self.machine.fault(req["machine"], req.get("fault"), self.clock())
                 else:
                     self.machine.clear(req["machine"], req.get("fault"), self.clock())
-            except fake_machine.FakeMachineError as e:
+            except fake_sim_machine.FakeMachineError as e:
                 return err(str(e))
             return ok()
         node = req.get("node")

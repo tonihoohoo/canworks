@@ -1,5 +1,5 @@
-// Machine view scene (canopen-machine-view "Built-in gantry drawing" and
-// "Smooth motion from snapshots"; docs/machine.md): the 3D model of a
+// Machine tab scene (canopen-machine-view "Built-in gantry drawing" and
+// "Smooth motion from snapshots"; docs/simulator.md): the 3D model of a
 // machine file built from its kind and dimensions, posed from sim_machine
 // snapshots, and the snapshot interpolator. No renderer here, so the page
 // tests build and pose it without WebGL; machine_view.js draws it.

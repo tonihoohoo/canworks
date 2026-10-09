@@ -1,5 +1,5 @@
 """The configurator's machine endpoints (add-machine-sim task 3.2): the
-machine file of a network's section for the Machine view offline, the live
+machine file of a network's section for the Machine tab offline, the live
 sim_machine answer over the kept-open connection, machine faults through
 /api/sim/request, and machine file problems with the simulation file's."""
 
@@ -12,7 +12,7 @@ from canworks.configurator import simulation
 
 from . import fake_sim_page
 from .fake_diag import TOKEN, FakePlugin
-from .fake_machine import FakeMachine
+from .fake_sim_machine import FakeMachine
 from .fake_sim import FakeSim
 from .helpers import REPO
 from .test_configurator_server import Running

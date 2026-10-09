@@ -347,7 +347,12 @@ async function renderSimulation(view) {
   const seq = SIM.seq;
   if (!SIM.settings) await loadSimSettings();
   if (seq !== SIM.seq || S.view !== "simulation") return;
-  const tabList = tabs([["live", "Live values"], ["file", "Simulation file"], ["scenarios", "Scenarios"]], SIM.tab,
+  // The Machine tab shows only when the shown network's section names a
+  // machine file; another network falls back to Live values.
+  const pages = [["live", "Live values"], ["file", "Simulation file"], ["scenarios", "Scenarios"]];
+  if (machineName()) pages.push(["machine", "Machine"]);
+  else if (SIM.tab === "machine") SIM.tab = "live";
+  const tabList = tabs(pages, SIM.tab,
     (k) => { SIM.tab = k; SIM.rowKeys = ""; SIM.scenSig = ""; render(); }, { dataset: "simTab", panel: "sim-body", label: "Simulation pages" });
   view.append(
     el("div", { class: "toolbar" }, el("h2", null, "Simulation"), el("div", { class: "spacer" }), simSaveBar()),
@@ -515,6 +520,7 @@ function simRenderTab() {
   if (!body) return;
   SIM.rowKeys = "";
   SIM.scenSig = "";
+  if (SIM.tab === "machine") { simMachineTab(body); return; }
   if (SIM.tab === "file") put(body, simFileTab());
   else if (SIM.tab === "scenarios") put(body, simScenariosTab());
   else put(body, simLiveTab());
@@ -1796,7 +1802,7 @@ function stepBody(st, action, changedFn) {
 }
 
 // ---------------------------------------------------------------------------
-// Machine view (canopen-machine-view): machine_view.js, loaded when the view
+// Machine tab (canopen-machine-view): machine_view.js, loaded when the tab
 // first opens, draws the machine named by the shown network's section.
 
 const MACHINE = { seq: 0, view: null };
@@ -1827,28 +1833,23 @@ function machineFeWindow(node) {
   return Number.isFinite(v) ? v : null;
 }
 
-async function renderMachine(view) {
-  document.querySelector("#editor").classList.add("wide-view");
+// The Machine tab of the Simulation view.
+async function simMachineTab(body) {
+  stopMachine();
   const seq = MACHINE.seq;
   const name = machineName();
-  view.append(el("div", { class: "toolbar" }, el("h2", null, "Machine")));
-  if (!name) {
-    view.append(el("p", { class: "muted" }, "This network's simulation file section names no machine file. Add \"machine\": \"machine.json\" to the network's section (see docs/machine.md)."));
-    return;
-  }
   const host = el("div", { id: "machine-view" }, el("p", { class: "muted" }, "Loading the machine view…"));
-  view.append(host);
-  if (!SIM.settings) await loadSimSettings();
+  body.replaceChildren(host);
   let mod;
   try { mod = await import("./machine_view.js"); } catch (e) {
     if (seq === MACHINE.seq) host.replaceChildren(el("p", { class: "field-msg" }, `The machine view did not load: ${e.message}`));
     return;
   }
-  if (seq !== MACHINE.seq || S.view !== "machine") return;
+  if (seq !== MACHINE.seq || S.view !== "simulation" || SIM.tab !== "machine") return;
   const can = simCanConnect();
   MACHINE.view = mod.openMachineView(host, {
     network: simSectionName(), port: diagPort(), file: name, canConnect: can,
-    notConnected: SIM.settings.target === "simulator" ? "Connect to the standalone simulator in the Simulation view."
+    notConnected: SIM.settings.target === "simulator" ? "Connect to the standalone simulator above."
       : diagConfig() ? "To see it live, enter the runtime host and the token in the Online view."
         : "Online access is off for this config: turn it on under Bus and master to see the machine live.",
     feWindow: machineFeWindow,
