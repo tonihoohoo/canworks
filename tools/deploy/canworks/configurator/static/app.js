@@ -2852,8 +2852,18 @@ function cyclicInterval() {
   if (!cyclic) return null;
   const input = el("input", { type: "text", spellcheck: "false", id: "task-interval", placeholder: "T#20ms",
     "aria-label": "Task interval" });
-  input.value = S.taskInterval || "";
-  input.addEventListener("change", () => { S.taskInterval = input.value.trim(); scheduleCheck(); });
+  // A check that lands while the user types renders the view again: keep
+  // the text not yet committed (no change event yet) and the focus.
+  const typing = S.taskIntervalTyping;
+  input.value = typing ? typing.value : S.taskInterval || "";
+  if (typing) setTimeout(() => { input.focus(); input.setSelectionRange(typing.caret, typing.caret); });
+  S.taskIntervalTyping = null;
+  input.addEventListener("input", () => { S.taskIntervalDirty = true; });
+  input.addEventListener("change", () => {
+    S.taskIntervalDirty = false;
+    S.taskInterval = input.value.trim();
+    scheduleCheck();
+  });
   return el("div", { class: "grid" }, el("label", null, "Task interval", input,
     hint("The interval of the editor task that runs the program, for the cyclic axis's fCycleTime line. Change the line with the interval. Empty: T#20ms, the project generator's default."),
     el("span", { class: "field-msg", dataset: { for: "task_interval" } })));
@@ -5527,7 +5537,12 @@ async function runCheck() {
       task_interval: S.taskInterval || undefined });
     if (seq !== S.checkSeq) return;
     S.check = normCheck(r, fileVersion(cfg));
-    if (S.view === "declarations") render(); else applyCheck();
+    if (S.view === "declarations") {
+      const ti = $("#task-interval");
+      if (ti && (S.taskIntervalDirty || document.activeElement === ti))
+        S.taskIntervalTyping = { value: ti.value, caret: ti.selectionStart ?? ti.value.length };
+      render();
+    } else applyCheck();
   } catch (e) {
     banner(e.message, true);
   }
