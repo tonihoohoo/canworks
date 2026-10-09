@@ -23,6 +23,8 @@ BUILD="$(cd "${2:-$REPO/build}" && pwd)"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
+# can-j1939 boot entry and modprobe: a folder of the test's own and a stub.
+export CANWORKS_MODULES_LOAD_DIR="$WORK/modules-load.d" CANWORKS_MODPROBE=true
 
 # The runtime's install.sh creates venvs/runtime; a bare checkout has none.
 # This one sees the packages of the Python running the test (the runtime's
@@ -54,6 +56,7 @@ CANWORKS_OLD_PREFIX="$OLD_PREFIX" "$REPO/scripts/install-stock.sh" --no-deps --r
 grep -qx 'canworks,/opt/canworks/lib/libcanworks_plugin.so,0,1,/opt/canworks/lib/canworks.json,' \
     "$RUNTIME/plugins.conf" || fail "unexpected canworks line"
 [ -f /opt/canworks/lib/libcanworks_plugin.so ] || fail "library not installed"
+grep -qx can-j1939 "$CANWORKS_MODULES_LOAD_DIR/canworks-j1939.conf" || fail "can-j1939 boot entry not written"
 # The simulator and the plugin take their version from the same CMake value
 # (git describe of the checkout they were built from).
 SIM_VERSION=$(canworks-sim --version | awk '{print $2}')
@@ -111,6 +114,7 @@ echo "==> uninstall"
 ! grep -q '^canworks,' "$RUNTIME/plugins.conf" || fail "canworks line left in plugins.conf"
 [ ! -e /opt/canworks/lib ] || fail "library directory left behind"
 [ ! -e "$PTH" ] || fail "uninstall left $PTH"
+[ ! -e "$CANWORKS_MODULES_LOAD_DIR/canworks-j1939.conf" ] || fail "uninstall left the can-j1939 boot entry"
 [ ! -e /usr/local/bin/canworks-sim ] && [ ! -L /usr/local/bin/canworks-sim ] ||
     fail "uninstall left /usr/local/bin/canworks-sim"
 [ -z "$(hook_log)" ] || fail "uninstall: the hook still logs"

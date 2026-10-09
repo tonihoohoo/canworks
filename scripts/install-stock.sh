@@ -115,8 +115,9 @@ setup_j1939_module() {
         rm -f "$MODULES_LOAD"
         return 0
     fi
-    mkdir -p "$(dirname "$MODULES_LOAD")"
-    echo can-j1939 > "$MODULES_LOAD"
+    if ! { mkdir -p "$(dirname "$MODULES_LOAD")" && echo can-j1939 > "$MODULES_LOAD"; } 2>/dev/null; then
+        echo "warning: cannot write $MODULES_LOAD (not root?): can-j1939 is not loaded at boot" >&2
+    fi
     if "$MODPROBE" can-j1939 2>/dev/null; then
         say "Kernel module can-j1939 loaded (and at every boot: $MODULES_LOAD)"
     else
