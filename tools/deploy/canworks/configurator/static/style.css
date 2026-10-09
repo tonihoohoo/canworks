@@ -578,3 +578,14 @@ tr.group-row th { text-align: left; font-weight: 600; padding-top: 6px; }
 .machine-faults li { display: flex; gap: 4px 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 .machine-faults li > span:first-child { flex: 1 1 120px; }
 .machine-mm { width: 64px; }
+/* J1939 networks (j1939.js): signal tables, the DBC message picker, the claim state online. */
+table.j1939-signals input[type=text] { min-width: 4.5em; }
+table.j1939-signals td .row input[type=text] { min-width: 6em; }
+dialog:has(.j1939-picker) { max-width: min(960px, 92vw); }
+.j1939-picker { max-height: 60vh; overflow: auto; }
+.j1939-picker td select { min-width: 8em; }
+.j1939-claim-1 { color: var(--ok); }
+.j1939-claim-0 { color: var(--warn); }
+.j1939-claim-2, .j1939-claim-3 { color: var(--error); }
+fieldset[data-section^="j1939-"] { min-width: 0; }
+table.j1939-signals td:first-child input[type=text] { min-width: 8em; }

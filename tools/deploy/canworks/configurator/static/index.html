@@ -67,17 +67,17 @@
 <main id="editor" hidden>
   <nav id="side" aria-label="Pages">
     <div id="net-bar" data-config="1"></div>
-    <button type="button" data-view="bus" class="nav-item" data-config="1">Bus and master</button>
-    <h2 class="side-caption" data-config="1">Nodes</h2>
+    <button id="nav-bus" type="button" data-view="bus" class="nav-item" data-config="1">Bus and master</button>
+    <h2 id="nodes-caption" class="side-caption" data-config="1">Nodes</h2>
     <ul id="node-list" data-config="1"></ul>
     <label class="file-button" data-config="1">Add node from EDS… <input id="eds-input" type="file" accept=".eds,.EDS"></label>
     <button id="nav-gateway" type="button" data-view="gateway" class="nav-item" hidden>Gateway</button>
     <button type="button" data-view="declarations" class="nav-item" data-config="1">Variable declarations</button>
     <h2 class="side-caption">Runtime</h2>
     <button type="button" data-view="online" class="nav-item">Online</button>
-    <button type="button" data-view="scan" class="nav-item">Scan the bus</button>
+    <button id="nav-scan" type="button" data-view="scan" class="nav-item">Scan the bus</button>
     <button type="button" data-view="trace" class="nav-item">Trace</button>
-    <button type="button" data-view="simulation" class="nav-item" data-config="1">Simulation</button>
+    <button id="nav-simulation" type="button" data-view="simulation" class="nav-item" data-config="1">Simulation</button>
     <button id="nav-machine" type="button" data-view="machine" class="nav-item" data-config="1" hidden>Machine</button>
     <button type="button" data-view="framelab" class="nav-item">Frame lab</button>
     <div id="unused-eds" data-config="1"></div>
@@ -98,5 +98,6 @@
 <script src="trace.js"></script>
 <script src="explain.js"></script>
 <script src="sim.js"></script>
+<script src="j1939.js"></script>
 </body>
 </html>

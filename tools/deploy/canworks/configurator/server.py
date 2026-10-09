@@ -39,6 +39,7 @@ from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequenc
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, parse_location
 from ..userdirs import config_dir
+from ..j1939 import dbc as j1939_dbc
 from . import cia402map, declare, layout, online, params, scan, simulation, tracing
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -366,6 +367,7 @@ class Session:
         self.sim_loaded = None  # sha256 of simulation.json as loaded, or None when there was none
         self.pending = {}  # EDS name -> UTF-8 bytes imported but not yet saved
         self.descriptions = {}  # EDS name -> slave EDS description built but not yet saved
+        self.pending_dbc = {}  # DBC name -> bytes imported for a J1939 network but not yet saved
         self.pending_dir = tempfile.mkdtemp(prefix="canopen-config-")
         self.uses, self.scan_problems, self.scanned_at = [], [], None
 
@@ -433,6 +435,7 @@ class Session:
         self.commission = False
         self.pending.clear()
         self.descriptions.clear()
+        self.pending_dbc.clear()
         self.reload()
         self.remember()
 
@@ -450,10 +453,12 @@ class Session:
         self.mode = self.folder = self.loaded = self.sim_loaded = None
         self.pending.clear()
         self.descriptions.clear()
+        self.pending_dbc.clear()
 
     def reload(self):
         self.pending.clear()
         self.descriptions.clear()
+        self.pending_dbc.clear()
         if os.path.isfile(self.config_path):
             self.loaded = (os.path.getmtime(self.config_path), sha256(self.config_path))
         else:
@@ -587,6 +592,90 @@ class Session:
         return {"name": name, "converted": converted, "summary": eds_summary(eds, os.path.join(self.pending_dir, name)),
                 "lint": {"mode": mode, "corrections": [c.to_json() for c in corrections],
                          "accepted": [f.to_json() for f in lint.accepted(mode)]}}
+
+    # -- J1939 DBC import (j1939-pc-tools "J1939 network in the configurator") --
+    def dbc_path(self, name):
+        if name in self.pending_dbc:
+            return os.path.join(self.pending_dir, name)
+        return os.path.join(self.canopen_dir, name)
+
+    def import_dbc(self, name, data=None, on_conflict=None):
+        """A DBC file for a J1939 network's message picker: with `data` a
+        new file, kept for the draft and written to the config folder on
+        save (a different file of that name: 409 unless `on_conflict` is
+        "replace" or "keep_both"); without it the file the network already
+        names. Returns {name, messages, problems}: dbc.load()'s messages
+        without their frame IDs' parts the page does not use."""
+        name = os.path.basename(name or "").strip()
+        if not name or name in (".", "..") or name == CONFIG or not name.lower().endswith(".dbc"):
+            raise ApiError(422, "invalid DBC file name %r (it must end in .dbc)" % name)
+        new = data is not None
+        if not new:
+            path = self.dbc_path(name)
+            if not os.path.isfile(path):
+                raise ApiError(404, "DBC file %s not found" % path)
+            with open(path, "rb") as f:
+                data = f.read()
+        else:
+            existing = self.pending_dbc.get(name)
+            if existing is None and os.path.isfile(os.path.join(self.canopen_dir, name)):
+                with open(os.path.join(self.canopen_dir, name), "rb") as f:
+                    existing = f.read()
+            if existing is not None and existing != data:
+                if on_conflict == "keep_both":
+                    stem, ext = os.path.splitext(name)
+                    n = 2
+                    while (os.path.exists(os.path.join(self.canopen_dir, "%s-%d%s" % (stem, n, ext)))
+                           or "%s-%d%s" % (stem, n, ext) in self.pending_dbc):
+                        n += 1
+                    name = "%s-%d%s" % (stem, n, ext)
+                elif on_conflict != "replace":
+                    raise ApiError(409, "a different DBC file named %s is already in %s" % (name, self.canopen_dir),
+                                   conflict=name)
+        try:
+            imported = j1939_dbc.load(text=data.decode("utf-8", "replace"))
+        except j1939_dbc.ImportFailed as e:
+            raise ApiError(422, "%s: %s" % (name, e))
+        if not imported.messages:
+            raise ApiError(422, "%s has no J1939 messages (29-bit identifiers) to import%s"
+                           % (name, ": " + "; ".join(imported.problems) if imported.problems else ""))
+        if new:
+            self.pending_dbc[name] = data
+            with open(os.path.join(self.pending_dir, name), "wb") as f:
+                f.write(data)
+        return {"name": name, "problems": imported.problems,
+                "messages": [dict({k: m[k] for k in ("name", "pgn", "priority", "source", "destination", "length",
+                                                     "cycle_ms", "sender", "comment")},
+                                  signals=[s["name"] for s in m["signals"]]) for m in imported.messages]}
+
+    def dbc_entries(self, cfg, network, name, picks):
+        """rx and tx entries of picked DBC messages for J1939 network
+        `network` (index): picks [{index (of import_dbc()'s messages),
+        direction "rx"|"tx"}], each signal at a free location of the right
+        size (none the config or the editor project uses). Returns
+        {entries: [{direction, entry}]}."""
+        if not isinstance(cfg, dict) or not isinstance(picks, list):
+            raise ApiError(400, "config must be a JSON object and picks a list")
+        nets = contract.networks(cfg)
+        try:
+            if nets[int(network or 0)]["role"] != "j1939":
+                raise ApiError(400, "network %s is not a J1939 network" % (int(network or 0) + 1))
+        except (IndexError, TypeError, ValueError):
+            raise ApiError(400, "no network %r in the config" % network)
+        path = self.dbc_path(os.path.basename(name or ""))
+        try:
+            messages = j1939_dbc.load(path).messages
+        except (OSError, j1939_dbc.ImportFailed) as e:
+            raise ApiError(422, "%s cannot be read: %s" % (path, e))
+        used = j1939_dbc.free_locations(cfg, self.uses)
+        out = []
+        for p in picks:
+            try:
+                message = messages[int(p["index"])]
+                out.append({"direction": p["direction"], "entry": j1939_dbc.config_entry(message, p["direction"], used)})
+            except (KeyError, IndexError, TypeError, ValueError):
+                raise ApiError(400, "picks must be {index, direction \"rx\" or \"tx\"} of the DBC's messages")
+        return {"entries": out}
 
     # -- checks -------------------------------------------------------------
     def check(self, cfg, allow_overlap=False, task_interval=None):
@@ -744,7 +833,9 @@ class Session:
         CANopen type and EDS `access`, or "slave_state", "slave_comm_ok",
         "slave_sync_count", "slave_emcy", "slave_errreg" (no node needed).
         `network` is the index of the node's network; the suggestion skips
-        the locations of every network."""
+        the locations of every network. For a J1939 network: "j1939_state",
+        "j1939_address", "j1939_status", "j1939_valid" (no node needed), or
+        "j1939_rx"/"j1939_tx" with the signal's length in bits as type."""
         used = layout.taken(cfg, self.uses) if isinstance(cfg, dict) else set()
         start = layout.DEFAULT_START if start in (None, "") else int(start)
         for key, size, _, _ in layout.MASTER_LOCATIONS:
@@ -759,6 +850,15 @@ class Session:
                 raise ApiError(400, "a slave object needs a CANopen type and AccessType rww, rw, ro or rwr "
                                     "(const and wo cannot be bound)")
             return {"location": layout.suggest(*layout.area_size(side, type_name), used, start)}
+        if direction in J1939_PLACES:
+            return {"location": layout.suggest(*J1939_PLACES[direction], used, start)}
+        if direction in ("j1939_rx", "j1939_tx"):
+            # A signal: `type_name` is its length in bits.
+            try:
+                size = j1939_dbc.location_size(int(type_name))
+            except (StopIteration, TypeError, ValueError):
+                raise ApiError(400, "a J1939 signal needs its length, 1 to 64 bits, as type")
+            return {"location": layout.suggest("I" if direction == "j1939_rx" else "Q", size, used, start)}
         try:
             n = contract.networks(cfg)[int(network or 0)]["nodes"][int(node)]
         except (KeyError, IndexError, TypeError, ValueError, AttributeError):
@@ -937,6 +1037,14 @@ class Session:
                     f.write("\n")
                 os.replace(target + ".tmp", target)
                 written.append(target)
+        dbc_names = {n["j1939"].get("dbc") for n in contract.networks(cfg) if n["role"] == "j1939"}
+        for name, data in sorted(self.pending_dbc.items()):
+            if name in dbc_names:
+                target = os.path.join(self.canopen_dir, name)
+                with open(target + ".tmp", "wb") as f:
+                    f.write(data)
+                os.replace(target + ".tmp", target)
+                written.append(target)
         tmp = self.config_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(canonical(cfg), f, indent=2, ensure_ascii=False)
@@ -946,6 +1054,8 @@ class Session:
         for name in [n for n in self.pending if n in referenced]:
             del self.pending[name]
             self.descriptions.pop(name, None)
+        for name in [n for n in self.pending_dbc if n in dbc_names]:
+            del self.pending_dbc[name]
         self.loaded = (os.path.getmtime(self.config_path), sha256(self.config_path))
         return {"written": written, "check": checked}
 
@@ -985,7 +1095,7 @@ class Session:
     def move(self, target, replace=False):
         if self.mode != "standalone":
             raise ApiError(400, "only a standalone config can be moved into a project")
-        if self.pending or self.changed_on_disk() or not os.path.isfile(self.config_path):
+        if self.pending or self.pending_dbc or self.changed_on_disk() or not os.path.isfile(self.config_path):
             raise ApiError(409, "save the config before moving it into a project", unsaved=True)
         target = os.path.abspath(os.path.expanduser(target or ""))
         if not os.path.isfile(os.path.join(target, "project.json")):
@@ -1009,7 +1119,7 @@ class Session:
     def new_project(self, parent, name, interval=None, sdo_blocks=False):
         if self.mode != "standalone":
             raise ApiError(400, "only a standalone config can become a new editor project")
-        if self.pending or self.changed_on_disk() or not os.path.isfile(self.config_path):
+        if self.pending or self.pending_dbc or self.changed_on_disk() or not os.path.isfile(self.config_path):
             raise ApiError(409, "save the config before creating a project from it", unsaved=True)
         name = (name or "").strip()
         if not name or name in (".", "..") or "/" in name or os.sep in name:
@@ -1043,6 +1153,11 @@ class Session:
         if sdo_blocks:
             out["library_ok"], out["library"] = sdolibrary.ensure_installed()
         return out
+
+
+# J1939 locations /api/place suggests: direction -> (area, size letter).
+J1939_PLACES = {"j1939_state": ("I", "B"), "j1939_address": ("I", "B"), "j1939_status": ("I", "X"),
+                "j1939_valid": ("I", "X")}
 
 
 def _bitrate_arg(v):
@@ -1245,6 +1360,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     except ValueError:
                         raise ApiError(400, "data must be base64")
                     out = s.import_eds(body.get("name"), data, body.get("on_conflict"), body.get("eds_lint"))
+                elif route == ("POST", "/api/j1939/dbc"):
+                    self._need_open(s)
+                    data = None
+                    if body.get("data") is not None:
+                        try:
+                            data = base64.b64decode(body.get("data") or "", validate=True)
+                        except ValueError:
+                            raise ApiError(400, "data must be base64")
+                    out = s.import_dbc(body.get("name"), data, body.get("on_conflict"))
+                elif route == ("POST", "/api/j1939/entries"):
+                    self._need_open(s)
+                    out = s.dbc_entries(body.get("config"), body.get("network", 0), body.get("name"),
+                                        body.get("picks"))
                 elif route == ("POST", "/api/check"):
                     self._need_open(s)
                     out = s.check(body.get("config"), bool(body.get("allow_overlap")), body.get("task_interval"))
