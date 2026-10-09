@@ -564,7 +564,10 @@ class Detect(Base):
         # No connection at a guessed rate first: every open is the sweep's,
         # listen-only, and --bitrate is not needed.
         from .test_localbus import cli
-        code, out, err = cli("--adapter", "virtual:" + self.ch, "detect-bitrate", "--per-rate-ms", "100")
+        # More rounds only run when the first heard nothing (a runner that
+        # stalled the traffic for the whole 250 kbit/s window).
+        code, out, err = cli("--adapter", "virtual:" + self.ch, "detect-bitrate", "--per-rate-ms", "100",
+                             "--rounds", "3")
         self.assertEqual(code, 0, err)
         self.assertIn("250 kbit/s detected", out)
         self.assertTrue(self.opened)
@@ -573,7 +576,7 @@ class Detect(Base):
     def test_cli(self):
         from .test_localbus import cli
         code, out, err = cli("--adapter", "virtual:" + self.ch, "--bitrate", "250", "detect-bitrate",
-                             "--per-rate-ms", "100")
+                             "--per-rate-ms", "100", "--rounds", "3")  # as above
         self.assertEqual(code, 0, err)
         self.assertIn("250 kbit/s detected, as configured", out)
 

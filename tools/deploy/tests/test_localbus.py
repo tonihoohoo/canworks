@@ -334,6 +334,17 @@ class Lss(Base):
 
     def test_find_with_vendor(self):
         d = self.device(None, identity=(0x360, 0x7, 0x2, 0x55))
+        # One answer that does not come in time reads as a 1 bit and spoils
+        # the address: the search starts over and still finds the device.
+        send, answers = d.send, []
+
+        def lossy(cob, data):
+            if cob == 0x7E4 and data[:1] == b"\x4f":
+                answers.append(data)
+                if len(answers) == 3:  # a bit probe of the revision number
+                    return
+            send(cob, data)
+        d.send = lossy
         c = self.client(allow_changes=True)
         res = c.lss_find(True, 0x360, 0x7)
         while res["running"]:

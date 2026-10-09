@@ -83,33 +83,47 @@ def store(core):
     _configure(core, 0x17, b"", "LSS store configuration failed")
 
 
-def fastscan(core, vendor_id=None, product_code=None, step_s=FASTSCAN_STEP_S, should_stop=None):
+def fastscan(core, vendor_id=None, product_code=None, step_s=FASTSCAN_STEP_S, should_stop=None, attempts=3):
     """Finds one device without a node ID; its address (4 ints) or None. The
     found device is left in configuration state. Known vendor and product
     skip the search of those parts."""
     known = {0: vendor_id, 1: product_code} if vendor_id is not None and product_code is not None else {}
 
     with core.expect(LSS_RX_COB) as rx:
-        def probe(idn, bit, sub, nxt):
+        def probe(idn, bit, sub, nxt, step):
             rx.drain()
             _send(core, 0x51, struct.pack("<IBBB", idn & 0xFFFFFFFF, bit, sub, nxt))
-            return _wait(rx, 0x4F, step_s) is not None
+            return _wait(rx, 0x4F, step) is not None
+
+        def scan(step):
+            address = [0, 0, 0, 0]
+            for sub in range(4):
+                nxt = (sub + 1) % 4
+                if sub in known:
+                    address[sub] = known[sub]
+                else:
+                    for bit in range(31, -1, -1):
+                        if should_stop and should_stop():
+                            return None
+                        if not probe(address[sub], bit, sub, sub, step):
+                            address[sub] |= 1 << bit
+                if not probe(address[sub], 0, sub, nxt, step):
+                    return None
+            return tuple(address)
 
         # Anyone without a node ID? Asked up to three times: on a busy PC one
         # answer can come later than a probe step.
-        if not any(probe(0, 0x80, 0, 0) for _ in range(3)):
+        if not any(probe(0, 0x80, 0, 0, step_s) for _ in range(3)):
             return None
-        address = [0, 0, 0, 0]
-        for sub in range(4):
-            nxt = (sub + 1) % 4
-            if sub in known:
-                address[sub] = known[sub]
-            else:
-                for bit in range(31, -1, -1):
-                    if should_stop and should_stop():
-                        return None
-                    if not probe(address[sub], bit, sub, sub):
-                        address[sub] |= 1 << bit
-            if not probe(address[sub], 0, sub, nxt):
-                return None
-        return tuple(address)
+        # A missing answer reads as a 1 bit, so one late answer on a busy PC
+        # spoils the address and the check of that part fails. Then the scan
+        # starts over (the 0x80 probe resets every device's scan position)
+        # with longer steps.
+        for attempt in range(attempts):
+            step = step_s * 2 ** attempt
+            if attempt and not probe(0, 0x80, 0, 0, step):
+                continue
+            address = scan(step)
+            if address is not None or (should_stop and should_stop()):
+                return address
+        return None
