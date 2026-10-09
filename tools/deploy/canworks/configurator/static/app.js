@@ -100,7 +100,8 @@ function modal(text, buttons, extra) {
         dataset: { value }, onclick: () => done(value) }, label));
     }
     dlg.showModal();
-    const field = extra && extra.querySelector ? extra.querySelector("input:not([type=checkbox]), select, textarea") : null;
+    const fields = "input:not([type=checkbox]), select, textarea";
+    const field = !extra || !extra.querySelector ? null : extra.matches(fields) ? extra : extra.querySelector(fields);
     (field || menu.firstElementChild).focus();
   });
 }
@@ -267,6 +268,8 @@ function pathRoot(path) {
 
 // Writes a value at a JSON path in the draft ("" or undefined deletes it).
 function setPath(path, value) {
+  const nodeId = /^nodes\[\d+\]\.node_id$/.test(path);
+  const was = nodeId ? getPath(path) : undefined;
   const [root, parts] = pathRoot(path);
   let obj = root;
   for (let i = 0; i < parts.length - 1; i++) {
@@ -277,6 +280,7 @@ function setPath(path, value) {
   const last = parts[parts.length - 1];
   if (value === undefined || value === "") delete obj[last];
   else obj[last] = value;
+  if (nodeId) followNodeId(path, was, getPath(path));
   changed(false, path);
 }
 
@@ -308,13 +312,20 @@ function changed(rerender, path) {
   S.undoPath = path || null;
   S.undoAt = now;
   undoBase();
-  S.dirty = true;
+  S.dirty = draftDirty();
   if (rerender) render();
   else {
     updateSimBanner();
     if (path && /^nodes\[\d+\]\.(name|node_id)$/.test(path)) renderSide();
   }
   scheduleCheck();
+}
+
+// Whether there is something to save: the draft differs from the file as
+// loaded (a field typed back to its value is clean again), or a file built
+// here (a generated slave EDS) waits for Save.
+function draftDirty() {
+  return !!S.unsavedFiles || JSON.stringify(S.model) !== S.savedJson;
 }
 
 // The draft as it is now, kept as the snapshot of the next edit.
@@ -327,6 +338,7 @@ function resetUndo() {
   S.undo = [];
   S.redo = [];
   S.undoPath = null;
+  S.unsavedFiles = false;
   S.savedJson = S.model ? JSON.stringify(S.model) : null;
   if (S.model) undoBase();
 }
@@ -346,7 +358,7 @@ function undo(redo) {
   S.undoPath = null;
   S.supervision = {};
   undoBase();
-  S.dirty = JSON.stringify(S.model) !== S.savedJson;
+  S.dirty = draftDirty();
   banner("");
   render();
   scheduleCheck();
@@ -483,6 +495,8 @@ function netName(net) {
   return typeof iface === "string" && NETWORK_NAME.test(iface) ? iface : "";
 }
 function netLabel(net, i) { return netName(net) || `network ${i + 1}`; }
+// The network in a sentence: "network io", or "network 5" without a name.
+function netNamed(net, i) { return netName(net) ? `network ${netName(net)}` : netLabel(net, i); }
 
 function customName(net) {
   return typeof net.name === "string" && net.name !== "" && !(net.adapter && net.name === net.adapter.interface);
@@ -610,24 +624,55 @@ async function renameNetwork() {
     else break;
   }
   const name = input.value.trim();
+  const was = netName(net);
   if (!name || name === iface) delete net.name;
   else net.name = name;
+  // The gateway names networks: it follows the rename.
+  const g = S.model.top.gateway;
+  const now = netName(net);
+  if (g && was && now && was !== now) {
+    if (g.upper === was) g.upper = now;
+    for (const r of g.routes || []) if (r && r.field && r.field.network === was) r.field.network = now;
+  }
   changed(true);
 }
 
+// A node ID changed: the gateway routes that read or write the node follow
+// it. The last whole ID is kept while the field is empty, so typing over
+// the ID carries the routes along too.
+function followNodeId(path, was, now) {
+  S.nodeIdWas = S.nodeIdWas || {};
+  const key = `${S.net}|${path}`;
+  const from = Number.isInteger(was) ? was : S.nodeIdWas[key];
+  if (Number.isInteger(was)) S.nodeIdWas[key] = was;
+  if (!Number.isInteger(now)) return;
+  S.nodeIdWas[key] = now;
+  const g = S.model.top.gateway;
+  const net = netName(S.config);
+  if (!g || !net || !Number.isInteger(from) || from === now) return;
+  for (const r of g.routes || []) if (r && r.field && r.field.network === net && num(r.field.node) === from) r.field.node = now;
+}
+
 async function removeNetwork() {
-  const label = netLabel(S.config, S.net);
+  const label = netNamed(S.config, S.net);
   const k = (S.config.nodes || []).length;
-  const v = await modal(`Remove network ${label}` + (k ? ` and its ${k} node${k === 1 ? "" : "s"}` : "") +
-    "? Its EDS files stay in the folder.", [["cancel", "Keep the network"], ["remove", "Remove network", { danger: true }]]);
+  const g = S.model.top.gateway;
+  const upper = !!(g && netName(S.config) && g.upper === netName(S.config));
+  const routes = upper && Array.isArray(g.routes) ? g.routes.length : 0;
+  // The gateway's upper network: the gateway goes with it.
+  const v = await modal(`Remove ${label}` + (k ? ` and its ${k} node${k === 1 ? "" : "s"}` : "") + "? " +
+    (upper ? `It is the gateway's upper network: the gateway and its ${routes} route${routes === 1 ? "" : "s"} are removed too, ` +
+      "and the PDO entries the routes use then need a PLC location. " : "") +
+    "Its EDS files stay in the folder.", [["cancel", "Keep the network"], ["remove", upper ? "Remove network and gateway" : "Remove network", { danger: true }]]);
   if (v !== "remove") return;
+  if (upper) delete S.model.top.gateway;
   S.model.networks.splice(S.net, 1);
   openNet(Math.min(S.net, S.model.networks.length - 1));
   S.onlineNet = null;
   S.onlineNode = null;
   S.scanResult = null;
   if (S.view.startsWith("node:")) S.view = "bus";
-  banner(`Removed network ${label}.`);
+  banner(`Removed ${label}` + (upper ? " and the gateway." : "."));
   changed(true);
 }
 
@@ -703,13 +748,14 @@ async function loadState() {
     await loadOnlineSettings();
     // A migrated file (an old setting rewritten on load) differs from the draft: there is something to save.
     S.dirty = !!(S.state.notices && S.state.notices.length);
+    if (S.dirty) S.savedJson = null; // the file is not the draft until saved
     S.supervision = {};
     if (S.view.startsWith("node:") && !(S.config.nodes || [])[Number(S.view.slice(5))]) S.view = "bus";
     if (typeof simLoad === "function") simLoad();
     if (S.state.load_error) banner(S.state.load_error, true);
     else if (S.state.notices && S.state.notices.length) banner(S.state.notices.join(" "));
     else banner("");
-  }
+  } else if (S.state.open_error) banner(S.state.open_error, true);
   render();
   if (S.state.mode) runCheck();
 }
@@ -722,6 +768,7 @@ function renderStart() {
   $("#sim-banner").hidden = true;
   for (const [id, mode] of [["#start-project", "project"], ["#start-standalone", "standalone"], ["#start-new", "new"]]) {
     $(id).classList.toggle("selected", S.startMode === mode);
+    $(id).setAttribute("aria-pressed", String(S.startMode === mode));
   }
   $("#browser-title").textContent = {
     project: "Choose the OpenPLC Editor project folder",
@@ -731,15 +778,27 @@ function renderStart() {
   const recent = $("#recent");
   recent.replaceChildren(...(S.state.recent.length ? S.state.recent.map((r) =>
     el("li", { onclick: () => openFolder(r.path, r.mode) }, r.path,
-      el("span", { class: "tag" }, r.mode === "project" ? "project" : "standalone")))
+      el("span", { class: "tag" }, r.mode === "project" ? "project" : "standalone"),
+      el("button", { type: "button", class: "small", dataset: { forget: r.path }, "aria-label": "Remove " + r.path + " from Recent",
+        title: "Remove from Recent (the folder stays)", onclick: (e) => { e.stopPropagation(); forgetRecent(r.path); } }, "Remove")))
     : [el("li", { class: "muted" }, "Nothing opened yet")]));
   if (!S.browserPath) browse(S.state.home);
+}
+
+async function forgetRecent(path) {
+  try {
+    S.state.recent = (await api("POST", "/api/recent/forget", { path })).recent;
+    renderStart();
+  } catch (e) {
+    banner(e.message, true);
+  }
 }
 
 async function browse(path) {
   const typed = $("#browser-path").value;
   try {
     const r = await api("GET", "/api/folders?path=" + encodeURIComponent(path));
+    if (S.browseFailed) { S.browseFailed = false; banner(""); }
     S.browserPath = r.path;
     // A path typed while the listing loaded (the first one, of the home
     // folder, starts with the page) stays: Open uses the field.
@@ -752,14 +811,18 @@ async function browse(path) {
     e.config ? el("span", { class: "tag" }, "canworks.json") : null)));
     if (!r.entries.length) $("#browser-list").append(el("li", { class: "muted" }, "No subfolders"));
   } catch (e) {
+    // The old list is not the typed folder's: drop it.
+    S.browseFailed = true;
+    $("#browser-list").replaceChildren(el("li", { class: "muted" }, "No folder listed"));
+    $("#browser-up").disabled = true;
     banner(e.message, true);
   }
 }
 
-async function openFolder(path, mode) {
+async function openFolder(path, mode, isNew) {
   try {
     banner("");
-    await api("POST", "/api/open", { path, mode });
+    await api("POST", "/api/open", { path, mode, new: isNew });
     S.view = "bus";
     await loadState();
   } catch (e) {
@@ -769,6 +832,9 @@ async function openFolder(path, mode) {
     } else if (e.body && e.body.is_project) {
       const v = await modal(e.message + ".", [["project", "Open as project", true], ["cancel", "Cancel"]]);
       if (v === "project") return openFolder(path, "project");
+    } else if (e.body && e.body.has_config) {
+      const v = await modal(e.message + ". Open it instead?", [["open", "Open it", true], ["cancel", "Cancel"]]);
+      if (v === "open") return openFolder(path, "standalone", false);
     } else {
       banner(e.message, true);
     }
@@ -778,7 +844,9 @@ async function openFolder(path, mode) {
 function startOpen() {
   const path = $("#browser-path").value.trim();
   if (!path) return;
-  openFolder(path, S.startMode === "project" ? "project" : "standalone");
+  // Open standalone wants an existing config, New refuses one.
+  if (S.startMode === "project") openFolder(path, "project");
+  else openFolder(path, "standalone", S.startMode === "new");
 }
 
 // ---------------------------------------------------------------------------
@@ -1086,7 +1154,7 @@ function renderBus(view) {
   const plcCycle = getPath("master.sync_source") === "plc_cycle";
   const slave = isSlave(S.config);
   view.append(
-    el("h2", null, (slave ? "Bus and slave device" : "Bus and master") + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
+    el("h2", null, (slave ? "Bus and slave device" : "Bus and master") + (several() ? `: ${netNamed(S.config, S.net)}` : "")),
     protocolField(),
     roleField(),
     slave ? slaveNetworkSettings() : networkSettings(),
@@ -1286,7 +1354,7 @@ async function switchRole(role) {
     const k = (net.nodes || []).length;
     const settings = Object.keys(net.master || {}).filter((key) => !["node_id", "sync_period_us"].includes(key)).length;
     if (k || settings) {
-      const v = await modal(`Make network ${netLabel(net, S.net)} a slave network? Its master settings` +
+      const v = await modal(`Make ${netNamed(net, S.net)} a slave network? Its master settings` +
         (k ? ` and its ${k} node${k === 1 ? "" : "s"}` : "") + " are dropped. Their EDS files stay in the folder.",
         [["slave", "Make it a slave", true], ["cancel", "Cancel"]]);
       if (v !== "slave") { render(); return; }
@@ -1298,7 +1366,7 @@ async function switchRole(role) {
   } else {
     const s = net.slave || {};
     if (s.eds || (s.objects || []).length) {
-      const v = await modal(`Make network ${netLabel(net, S.net)} a master network again? The slave settings and ` +
+      const v = await modal(`Make ${netNamed(net, S.net)} a master network again? The slave settings and ` +
         "bindings are dropped. The EDS file stays in the folder.", [["master", "Make it a master", true], ["cancel", "Cancel"]]);
       if (v !== "master") { render(); return; }
     }
@@ -1527,8 +1595,11 @@ async function generateSlaveEds(withGateway) {
   s.eds = r.name;
   const g = S.model.top.gateway;
   if (withGateway && g && Array.isArray(g.routes)) r.routes.forEach((place, j) => { if (g.routes[j]) g.routes[j].slave = place; });
-  const v = await modal(`Generated ${r.name}: ${r.objects.length} object${r.objects.length === 1 ? "" : "s"}, revision number ` +
-    `${hex8(r.revision_number)}. Bind ${r.bindings.length === 1 ? "the object" : `all ${r.bindings.length} objects`} to the suggested locations` +
+  S.unsavedFiles = true;
+  const what = `Generated ${r.name}: ${r.objects.length} object${r.objects.length === 1 ? "" : "s"}, revision number ` +
+    `${hex8(r.revision_number)}.`;
+  // Nothing to bind (an empty list, or only route objects): no question.
+  const v = !r.bindings.length ? "keep" : await modal(what + ` Bind ${r.bindings.length === 1 ? "the object" : `all ${r.bindings.length} objects`} to the suggested locations` +
     ` (${r.bindings.map((b) => `${b.name} ${b.iec_location}`).join(", ")})?`,
     [["bind", "Bind all", true], ["keep", "Keep the bindings"]]);
   if (v === "bind") s.objects = r.bindings;
@@ -1552,6 +1623,7 @@ async function useSlaveEdsFile(file) {
     S.state.eds = S.state.eds || {};
     S.state.eds[res.name] = res.summary;
     S.config.slave.eds = res.name;
+    S.unsavedFiles = true;
     banner(importReport(res));
     changed(true);
   } catch (e) {
@@ -2168,7 +2240,9 @@ function renderPdos(i, key, dir, title, eds) {
         el("span", { class: "field-msg", dataset: { for: pb } }),
         eds && eds.objects ? el("button", { type: "button", class: "small", dataset: { addEntry: pb },
           title: `Pick an object for ${dir === "input" ? "TPDO" : "RPDO"} ${number}`,
-          onclick: () => { S.pickerTarget = { dir, number }; S.pickerOpen[dir] = true; render(); focusPicker(dir); } }, "Add entry…") : null),
+          onclick: () => { S.pickerTarget = { dir, number }; S.pickerOpen[dir] = true; render(); focusPicker(dir); } }, "Add entry…") : null,
+        el("button", { type: "button", class: "small", dataset: { removePdo: pb }, title: `Remove ${dir === "input" ? "TPDO" : "RPDO"} ${number} and its entries`,
+          onclick: () => removePdo(i, key, j) }, "Remove PDO")),
       el("div", { class: "pdo-grid" },
         pdoField("Number", pb + ".number", String(j + 1)),
         cobIdField(pb, n, dir, p, j),
@@ -2430,8 +2504,11 @@ function timeoutLine(i, pb, p, eds) {
   // Off and on change which fields follow.
   input.addEventListener("change", () => {
     if (getPath(path) === undefined) {
-      setPath(pb + ".on_timeout", undefined);
-      setPath(pb + ".timeout_location", undefined);
+      // Part of emptying the field: one undo step brings all three back.
+      const pdo = getPath(pb);
+      if (pdo) { delete pdo.on_timeout; delete pdo.timeout_location; }
+      undoBase();
+      scheduleCheck();
     }
     render();
   });
@@ -2651,9 +2728,13 @@ function renderSdos(i, eds) {
       sel.addEventListener("change", () => setPath(sp + ".type", sel.value));
       return sel;
     })();
+    // The same object written twice: the node keeps the later value.
+    const twice = list.map((o, x) => x).filter((x) => x !== j && sameObject(list[x].index, list[x].subindex, s.index, s.subindex));
     return el("tr", { dataset: { path: sp } },
       el("td", null, `${s.index}:${s.subindex ?? 0}`),
-      el("td", null, info ? info.name : el("span", { class: "field-msg warning" }, "not in the EDS")),
+      el("td", null, info ? info.name : el("span", { class: "field-msg warning" }, "not in the EDS"),
+        twice.length ? el("span", { class: "field-msg warning", dataset: { twice: "1" } },
+          ` also written in row ${twice.map((x) => x + 1).join(", ")}; the last write wins`) : null),
       el("td", null, typeCell),
       el("td", null, value, el("span", { class: "field-msg", dataset: { for: sp + ".value" } }),
         el("span", { class: "field-msg", dataset: { for: sp } }), el("span", { class: "field-msg", dataset: { for: sp + ".type" } }),
@@ -2876,7 +2957,9 @@ function renderDeclarations(view) {
   ta.value = block || "(every mapped entry is already declared in the project)";
   view.append(
     el("h2", null, "Variable declarations"),
-    el("p", { class: "muted" }, "Paste this block into the editor's variables, in the global list or in a program. You can also type the rows below into a variables table. Entries the project already declares at the same location are left out."),
+    el("p", { class: "muted" }, "Paste this block into the VAR block of the program that uses these variables, not into a global variable list: " +
+      "located variables there do not reach the runtime. You can also type the rows below into the program's variables table. " +
+      "Entries the project already declares at the same location are left out."),
     el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", id: "copy-block", onclick: async () => {
       try { await navigator.clipboard.writeText(block); banner("Copied the declarations block."); }
       catch (e) { ta.select(); document.execCommand("copy"); banner("Copied the declarations block."); }
@@ -5441,10 +5524,26 @@ async function addEntry(i, o, dir, into) {
 
 function removeEntry(i, key, j, k) {
   const pdos = S.config.nodes[i][key];
+  const number = pdos[j].number ?? j + 1;
   const [e] = pdos[j].entries.splice(k, 1);
-  if (!pdos[j].entries.length && j === pdos.length - 1) pdos.pop();
+  if (!pdos[j].entries.length) dropPdo(pdos, j);
   changed(true);
-  removedBanner(`${e.index}:${e.subindex ?? 0} from ${key === "tx_pdos" ? "TPDO" : "RPDO"} ${pdos[j] ? pdos[j].number ?? j + 1 : j + 1}`);
+  removedBanner(`${e.index}:${e.subindex ?? 0} from ${key === "tx_pdos" ? "TPDO" : "RPDO"} ${number}`);
+}
+
+// Takes PDO j out of the list. The PDOs after it keep their numbers: one
+// numbered by its place gets its number written.
+function dropPdo(pdos, j) {
+  for (let x = j + 1; x < pdos.length; x++) if (pdos[x].number === undefined) pdos[x].number = x + 1;
+  pdos.splice(j, 1);
+}
+
+function removePdo(i, key, j) {
+  const pdos = S.config.nodes[i][key];
+  const number = pdos[j].number ?? j + 1;
+  dropPdo(pdos, j);
+  changed(true);
+  removedBanner(`${key === "tx_pdos" ? "TPDO" : "RPDO"} ${number}`);
 }
 
 function moveEntry(i, key, j, k, to) {
@@ -5452,6 +5551,7 @@ function moveEntry(i, key, j, k, to) {
   const [e] = pdos[j].entries.splice(k, 1);
   if (to === "new") pdos.push({ entries: [e] });
   else pdos[Number(to)].entries.push(e);
+  if (!pdos[j].entries.length) dropPdo(pdos, j);
   changed(true);
 }
 
@@ -5488,8 +5588,9 @@ async function addSdo(i, index, subindex) {
   }
   n.sdo = n.sdo || [];
   const value = info && info.default && /^(0x[0-9a-f]+|-?[0-9]+)$/i.test(info.default) ? info.default : 0;
+  const listed = n.sdo.some((o) => sameObject(o.index, o.subindex, ix, sx));
   n.sdo.push({ index: hex4(ix), subindex: sx, type, value });
-  banner("");
+  banner(listed ? `${hex4(ix)}:${sx} is already written at startup; added again, and the last write wins.` : "", listed);
   changed(true);
 }
 
@@ -5963,13 +6064,14 @@ async function moveIntoProject() {
     r = await api("POST", "/api/move", { project });
   } catch (e) {
     if (e.status === 409 && e.body.exists) {
-      const w = await modal(`${project} already has a canopen folder. Replace it?`, [["cancel", "Cancel"], ["replace", "Replace", { danger: true }]]);
+      const w = await modal(`${project} already has a canworks/ folder. Replace it?`, [["cancel", "Cancel"], ["replace", "Replace", { danger: true }]]);
       if (w !== "replace") return;
       try { r = await api("POST", "/api/move", { project, replace: true }); } catch (e2) { banner(e2.message, true); return; }
     } else { banner(e.message, true); return; }
   }
   S.state = r.state;
   setModel(S.state.config);
+  if (typeof simLoad === "function") simLoad();
   S.dirty = false;
   S.view = "bus";
   render();
@@ -6009,6 +6111,7 @@ async function newEditorProject() {
     }
     S.state = r.state;
     setModel(S.state.config);
+    if (typeof simLoad === "function") simLoad();
     S.dirty = false;
     S.view = "bus";
     render();
@@ -6090,6 +6193,17 @@ function wire() {
   for (const b of document.querySelectorAll("#side .nav-item")) b.onclick = () => showView(b.dataset.view);
   $("#banner-close").onclick = () => banner("");
   $("#modal").addEventListener("cancel", () => { const r = modalResolve; modalResolve = null; if (r) r(null); });
+  // Enter in a dialog's field picks its primary button (never a danger
+  // one); a dialog closed any other way still answers, with null.
+  $("#modal form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const primary = $("#modal-buttons").querySelector("button.primary:not(.danger)");
+    if (primary) primary.click();
+  });
+  $("#modal").addEventListener("close", () => {
+    if ($("#modal").open) return; // the close event of a dialog since opened again
+    const r = modalResolve; modalResolve = null; if (r) r(null);
+  });
   document.addEventListener("keydown", undoKeys);
   wireTheme();
   wireProblems();
