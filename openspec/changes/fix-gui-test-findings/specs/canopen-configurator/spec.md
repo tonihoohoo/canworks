@@ -7,7 +7,7 @@ The configurator's check (and the deploy tool's, which is the same) SHALL refuse
 - two PDOs on one network with the same COB-ID, naming both;
 - an axis scale numerator or denominator of 0.
 
-A heartbeat consumer timeout shorter than the node's heartbeat period SHALL be a warning. Each message SHALL name the place in the user's terms and say what is allowed ("node ID 1 to 127", "COB-ID 0x185 is also node 5's TPDO 1"), not quote a schema rule or pattern.
+A heartbeat consumer timeout shorter than the node's heartbeat period SHALL be refused, as the plugin refuses it. Each message SHALL name the place in the user's terms and say what is allowed ("node ID 1 to 127", "COB-ID 0x185 is also node 5's TPDO 1"), not quote a schema rule or pattern.
 
 #### Scenario: Missing interface
 - **WHEN** the user adds a network and leaves the SocketCAN interface empty

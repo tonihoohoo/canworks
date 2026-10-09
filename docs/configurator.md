@@ -72,7 +72,7 @@ Saving writes the lowest config version that holds the draft: one network withou
 - **Objects**: the bound objects from the EDS, each with its EDS name, type, the direction its `AccessType` gives (`rww`/`rw`: the master writes, an `%I` location; `ro`/`rwr`: the program writes, a `%Q` location), its PLC location with **Suggest** (a free location of the matching area and size) and an optional variable name. **Bind** adds an object of the EDS that is not bound yet. A location of the other area is an error that names the area the object needs.
 - **Status and EMCY**: the own state byte, communication OK bit, SYNC count, and the EMCY code and error register the program sends, each with **Suggest**.
 
-**Export EDS** downloads the EDS the plugin runs, byte for byte, named after its device name, for import into the other master's configuration tool. The DCF and DBC exports cover the master networks: **Export all DCFs** with all networks leaves slave networks out, and exporting a slave network's tab says that its EDS is the file for the other master's tool.
+**Export EDS** downloads the EDS the plugin runs, byte for byte, named after its device name, for import into the other master's configuration tool. The DCF and DBC exports cover the master networks: **Export all DCFs** with all networks leaves slave networks out, and a slave network's tab offers no DCF or DBC export: its EDS is the file for the other master's tool.
 
 ## Gateway
 

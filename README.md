@@ -113,7 +113,7 @@ On the runtime host, `canworks-sim` runs simulated CANopen devices on a SocketCA
 
 ## Development
 
-[docs/development.md](docs/development.md) covers the development build, the test suites, CI and the repository layout. The behaviour is specified with [OpenSpec](https://github.com/Fission-AI/OpenSpec) in `openspec/specs/`, one folder per capability; new work starts as a change under `openspec/changes/` and is archived into the specs once merged.
+[docs/development.md](docs/development.md) covers the development build, the test suites, CI and the repository layout. The configurator's page tests drive it in Chromium, and a separate browser workflow runs it against the real plugin on its simulated bus, with no CAN hardware or vcan. The behaviour is specified with [OpenSpec](https://github.com/Fission-AI/OpenSpec) in `openspec/specs/`, one folder per capability; new work starts as a change under `openspec/changes/` and is archived into the specs once merged.
 
 ### PC tools on Windows, macOS and Linux
 

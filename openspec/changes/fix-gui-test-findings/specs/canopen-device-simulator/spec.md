@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Simulation file checked like the plugin checks it
-The PC tools' check of the simulation file (the configurator's Simulation view, its save, and the deploy tool) SHALL refuse everything the plugin refuses when it loads the file, with a message naming the network, node and object: a value source or override on an object the master writes (an entry of a configured RPDO mapping), an override or `set` value that does not fit the object's data type, and a scenario step or fault on a node that is not simulated on that network. The plugin's control protocol SHALL refuse an override that does not fit the object's data type instead of storing it.
+The PC tools' check of the simulation file (the configurator's Simulation view, its save, and the deploy tool) SHALL refuse everything the plugin refuses when it loads the file, with a message naming the network, node and object: a value source on an object the master writes (an entry of a configured RPDO mapping), an override or `set` value that does not fit the object's data type, and a scenario step or fault on a node that is not simulated on that network. The plugin's control protocol SHALL refuse an override that does not fit the object's data type instead of storing it. An override on an object the master writes SHALL be a warning, since the plugin accepts it and the device then ignores the master's writes to it.
 
 #### Scenario: Source on an RPDO entry
 - **WHEN** the user adds a value source on node 6's 0x6200:1, which node 6's RPDO 1 maps, and saves

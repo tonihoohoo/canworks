@@ -18,7 +18,7 @@ The existing page tests run on small one-network fixtures with a fake plugin, so
 - Numbers entered in hex get the same range checks as decimal.
 - Duplicate PDO COB-IDs on a network are reported.
 - TIME COB-IDs and axis scale fields get the plugin's range checks.
-- Heartbeat timeouts shorter than their period get a warning.
+- Heartbeat timeouts shorter than their period are refused, as the plugin refuses them.
 - A simulation value source on an object the master writes (a mapped RPDO entry) is reported, as are overrides that don't fit the object's type and scenario steps on unknown nodes.
 - Messages say what is wrong in the user's terms, not as raw schema or regex text.
 
