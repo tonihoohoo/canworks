@@ -36,7 +36,17 @@ struct LinkFrame {
   canworks_can_frame frame;
   bool ours = false;       // written through this link (its echo)
   bool this_host = false;  // written by another socket on this host (the protocol, or another program)
+  // An error frame from the driver (`frame` is empty): its CAN_ERR_* class
+  // bits, and the controller's error counters when the frame carries them.
+  bool error = false;
+  uint32_t error_class = 0;
+  int tx_errors = -1;
+  int rx_errors = -1;
 };
+
+// Error frame classes (linux/can/error.h).
+constexpr uint32_t kErrBusOff = 0x00000040u;
+constexpr uint32_t kErrCounters = 0x00000200u;  // data[6]/data[7] hold the tx/rx error counters
 
 // A kernel-style receive filter: frames whose identifier matches `id` under
 // `mask`, with the extended and RTR flags as in SocketCAN.

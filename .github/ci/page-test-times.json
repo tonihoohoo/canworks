@@ -25,7 +25,7 @@
  "tests.test_configurator_online_page.OnlinePage": 23.6,
  "tests.test_configurator_online_page.SlaveOnlinePage": 3.6,
  "tests.test_configurator_page.Page": 74.0,
- "tests.test_configurator_params_page.ParamsPage": 52.1,
+ "tests.test_configurator_params_page.ParamsPage": 58.0,
  "tests.test_configurator_sim_machine_page.Live": 6.7,
  "tests.test_configurator_sim_machine_page.Offline": 2.9,
  "tests.test_configurator_sim_machine_page.ReadOnly": 2.1,

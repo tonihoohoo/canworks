@@ -31,4 +31,5 @@
 
 ## 6. Hardware check
 
-- [ ] 6.1 On the bench device with a vendor EDS: save the project once, check the notes skeleton, write a note and a value list for one manufacturer setting in the OD view, read and write it by name, and open the network document and DBC file to see them.
+- [x] 6.1 On the bench device with a vendor EDS: save the project once, check the notes skeleton, write a note and a value list for one manufacturer setting in the OD view, read and write it by name, and open the network document and DBC file to see them.
+  Result 2026-10-09: skeleton, note editor, OD read with note and meaning, HTML and DBC passed on the bench device. The write by name reached the device, which refused the chosen object while OPERATIONAL (abort 0x06010002, a device rule: the object is written at boot). Found and fixed: notes on DBC SDO signals, note dialog width, startup hint separator (follow-up PR), and the online object dictionary's network match.

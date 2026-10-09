@@ -667,8 +667,9 @@ TEST(raw_io_on_a_simulated_plain_network) {
   set_port(1, nullptr);
 }
 
-// A link that hands out frames the test queues, marked as from another
-// socket on this host.
+// A link that hands out frames the test queues (marked as from another
+// socket on this host, or error frames), echoes what it writes and can
+// refuse writes like a full kernel queue.
 class HostLink : public RawLink {
  public:
   HostLink() : fd_(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC)) {}
@@ -686,14 +687,35 @@ class HostLink : public RawLink {
     out.insert(out.end(), queued_.begin(), queued_.end());
     queued_.clear();
   }
-  int write(const canworks_can_frame&, Origin) override { return 0; }
+  int write(const canworks_can_frame& f, Origin) override {
+    if (int e = write_error.load()) return e;
+    LinkFrame lf;
+    lf.frame = f;
+    lf.ours = true;
+    push(lf);
+    return 0;
+  }
   std::string where() const override { return "test"; }
+  std::atomic<int> write_error{0};
+  void error_frame(uint32_t error_class, int tx_errors, int rx_errors) {
+    LinkFrame lf;
+    lf.error = true;
+    lf.error_class = error_class | (tx_errors >= 0 ? kErrCounters : 0);
+    lf.tx_errors = tx_errors;
+    lf.rx_errors = rx_errors;
+    push(lf);
+  }
   void host_frame(const canworks_can_frame& f) {
+    LinkFrame lf;
+    lf.frame = f;
+    lf.this_host = true;
+    push(lf);
+  }
+
+ private:
+  void push(const LinkFrame& lf) {
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      LinkFrame lf;
-      lf.frame = f;
-      lf.this_host = true;
       queued_.push_back(lf);
     }
     uint64_t one = 1;
@@ -701,7 +723,6 @@ class HostLink : public RawLink {
     }
   }
 
- private:
   int fd_;
   std::mutex mutex_;
   std::vector<LinkFrame> queued_;
@@ -738,6 +759,82 @@ TEST(host_frames_reach_receivers_on_plain_networks) {
     io.stop();
     set_port(1, nullptr);
   }
+}
+
+// No device acknowledges: the kernel queue is full (ENOBUFS). A program
+// frame is held and tried again, so CAN_SEND ends with its TIMEOUT (6), or
+// with DONE once the bus takes frames again.
+TEST(send_held_while_the_kernel_queue_is_full) {
+  PlcPort port(1);
+  port.set_rules(PortRules{});
+  set_port(1, &port);
+  std::unique_ptr<HostLink> owned(new HostLink);
+  HostLink* link = owned.get();
+  link->write_error = ENOBUFS;
+  RawIo io(std::move(owned), 500000, false, nullptr, &port, RawIoHooks{});
+  io.start();
+  for (int i = 0; i < 100 && !port.running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  uint16_t err = 0;
+  canworks_can_frame f = frame(0x3F2, {1});
+  uint32_t h = port.tx_send(&f, 30, &err);
+  CHECK(h != 0);
+  int st = 0;
+  for (int i = 0; i < 40 && st == 0; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    st = port.tx_poll(h, &err);
+  }
+  CHECK(st == 2 && err == CANWORKS_CAN_ERR_TIMEOUT);
+  // The next frame goes out once the bus takes frames again.
+  h = port.tx_send(&f, 1000, &err);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  CHECK(port.tx_poll(h, &err) == 0);
+  link->write_error = 0;
+  st = 0;
+  for (int i = 0; i < 100 && st == 0; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    st = port.tx_poll(h, &err);
+  }
+  CHECK(st == 1);
+  io.stop();
+  set_port(1, nullptr);
+}
+
+// Adapters whose driver reports no error counters (gs_usb): CAN_BUS_INFO
+// counts error frames and takes the counters they carry while the bus is
+// not error-active.
+TEST(bus_info_from_error_frames) {
+  PlcPort port(1);
+  port.set_rules(PortRules{});
+  set_port(1, &port);
+  std::unique_ptr<HostLink> owned(new HostLink);
+  HostLink* link = owned.get();
+  std::atomic<uint8_t> state{2};
+  RawIoHooks hooks;
+  hooks.bus_info = [&](canworks_can_bus_info& info) {
+    info.state = state;
+    return false;
+  };
+  RawIo io(std::move(owned), 500000, false, nullptr, &port, hooks);
+  io.start();
+  link->error_frame(0x20, -1, -1);  // no acknowledgement
+  link->error_frame(0x04, 128, 0);  // controller: error passive, with counters
+  link->error_frame(kErrBusOff, -1, -1);
+  canworks_can_bus_info info{};
+  uint16_t err = 0;
+  for (int i = 0; i < 100 && info.error_frames < 3; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    port.bus_info(&info, &err);
+  }
+  CHECK(info.state == 2 && info.error_frames == 3 && info.bus_off_count == 1);
+  CHECK(info.tx_errors == 128 && info.rx_errors == 0);
+  state = 0;  // error-active again: the frame counters are stale
+  for (int i = 0; i < 100 && info.state != 0; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    port.bus_info(&info, &err);
+  }
+  CHECK(info.state == 0 && info.tx_errors == 0 && info.error_frames == 3);
+  io.stop();
+  set_port(1, nullptr);
 }
 
 TEST(raw_scenarios_parse) {

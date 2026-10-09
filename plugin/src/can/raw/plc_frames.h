@@ -81,6 +81,9 @@ class PlcPort {
   // The frame was written. With `confirmed`, it counts as on the bus now;
   // otherwise the next matching own_echo() confirms it.
   void tx_written(uint32_t tag, bool confirmed);
+  // A frame next_tx() gave is still wanted (not given up by the block's
+  // TIMEOUT); frees the slot when it was given up.
+  bool tx_pending(uint32_t tag);
   // The frame could not be written (error_id: CANWORKS_CAN_ERR_BUS ...).
   void tx_failed(uint32_t tag, uint16_t error_id);
   // An echo of a frame this plugin sent; confirms the oldest written frame

@@ -134,7 +134,7 @@ IF tx.DONE THEN go := FALSE; END_IF;
 
 A rising edge of `EXECUTE` queues one frame with that call's inputs (`ID`, `EXTENDED`, `RTR`, `DLC`, `DATA`) and sets `BUSY`; edges and input changes while `BUSY` are ignored. `DONE` comes when the frame is confirmed on the bus, `ERROR` with `ERROR_ID` 6 when it is not within `TIMEOUT` (`T#0s` = 100 ms). The outputs stay while `EXECUTE` stays TRUE and for one call after it fell.
 
-What "confirmed" means depends on the adapter. SocketCAN drivers that echo sent frames (most USB adapters and on-chip controllers) echo a frame only once it was acknowledged on the bus, so `DONE` means another device took it. Without echo (vcan, some slcan firmware) `DONE` means the frame was handed to the driver. The diagnostics status shows which (`confirm: echo` or `confirm: write`). On a bus with no other device a frame is never acknowledged, and `CAN_SEND` ends with `ERROR_ID` 6.
+What "confirmed" means depends on the adapter. SocketCAN drivers that echo sent frames (most USB adapters and on-chip controllers) echo a frame only once it was acknowledged on the bus, so `DONE` means another device took it. Without echo (vcan, some slcan firmware) `DONE` means the frame was handed to the driver. The diagnostics status shows which (`confirm: echo` or `confirm: write`). On a bus with no other device a frame is never acknowledged, and `CAN_SEND` ends with `ERROR_ID` 6. When the adapter's transmit queue is full meanwhile, the plugin keeps the program's frame and tries again until `TIMEOUT`, and `CAN_SEND_CYCLIC` keeps its job but `COUNT` stops until the bus takes frames again; `CAN_BUS_INFO` shows the state (usually 2, error passive).
 
 ### `CAN_SEND_CYCLIC`: a frame on a timer
 
@@ -173,6 +173,8 @@ While `ENABLE` is TRUE the plugin queues every frame of the given format whose `
 ### `CAN_BUS_INFO`
 
 `STATE` (0 error active, 1 warning, 2 error passive, 3 bus-off, 4 interface down or missing), `TX_ERRORS`, `RX_ERRORS`, `BUS_OFF_COUNT`, `BUS_LOAD` (percent over the last second), `RX_COUNT`, `TX_COUNT`, `ERROR_FRAMES`.
+
+`ERROR_FRAMES` and `BUS_OFF_COUNT` count the driver's error frames. Drivers that report no error counters (gs_usb, for example) give `TX_ERRORS` and `RX_ERRORS` from the last error frame that carried them while the bus is not error active, and 0 once it is error active again.
 
 ### Error IDs
 

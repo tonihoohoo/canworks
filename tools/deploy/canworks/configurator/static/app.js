@@ -689,10 +689,12 @@ function onlineNetwork() {
 }
 
 // The draft network the picked runtime network is (its nodes and EDS files).
+// A draft with one network stands for the runtime network of another name
+// (a runtime that also runs other networks, a draft without network names).
 function onlineConfig() {
   const name = onlineNetwork();
   if (name === null) return S.config;
-  return S.model.networks.find((n) => netName(n) === name) || { nodes: [] };
+  return S.model.networks.find((n) => netName(n) === name) || (several() ? { nodes: [] } : S.config);
 }
 
 // The network picker of the online, scan and trace views: the runtime's

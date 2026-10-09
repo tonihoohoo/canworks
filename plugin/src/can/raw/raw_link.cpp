@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/can.h>
+#include <linux/can/error.h>
 #include <linux/can/raw.h>
 #include <net/if.h>
 #include <sys/eventfd.h>
@@ -95,6 +96,10 @@ class SocketLink : public RawLink {
     int on = 1;
     setsockopt(fd, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &on, sizeof on);
     setsockopt(fd, SOL_SOCKET, SO_TIMESTAMP, &on, sizeof on);
+    // Error frames: error counts and counters for adapters whose driver
+    // reports no counters over netlink (gs_usb).
+    can_err_mask_t err_mask = CAN_ERR_MASK;
+    setsockopt(fd, SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &err_mask, sizeof err_mask);
     sockaddr_can addr{};
     addr.can_family = AF_CAN;
     addr.can_ifindex = index;
@@ -143,7 +148,17 @@ class SocketLink : public RawLink {
       msg.msg_controllen = sizeof ctrl;
       ssize_t r = recvmsg(fd_, &msg, MSG_DONTWAIT);
       if (r < static_cast<ssize_t>(sizeof c)) return;
-      if (c.can_id & CAN_ERR_FLAG) continue;
+      if (c.can_id & CAN_ERR_FLAG) {
+        LinkFrame lf;
+        lf.error = true;
+        lf.error_class = c.can_id & CAN_ERR_MASK;
+        if (lf.error_class & kErrCounters) {
+          lf.tx_errors = c.data[6];
+          lf.rx_errors = c.data[7];
+        }
+        out.push_back(lf);
+        continue;
+      }
       uint64_t t = 0;
       for (cmsghdr* h = CMSG_FIRSTHDR(&msg); h; h = CMSG_NXTHDR(&msg, h))
         if (h->cmsg_level == SOL_SOCKET && h->cmsg_type == SO_TIMESTAMP) {

@@ -153,6 +153,14 @@ def context(session, body, node, library=""):
     nodes = []
     if isinstance(cfg, dict):
         network = (body.get("network") or None) if contract.version_of(cfg) == 2 else None
+        # A draft with one network stands for the runtime network of another
+        # name (as the page's onlineConfig).
+        try:
+            nets = contract.networks(cfg) if network else []
+        except (ValueError, TypeError, AttributeError):
+            nets = []
+        if len(nets) == 1 and nets[0]["name"] != network:
+            network = None
         ctx = slave_context(session, cfg, network, node)
         if ctx is not None:
             return ctx

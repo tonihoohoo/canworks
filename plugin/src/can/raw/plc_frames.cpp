@@ -297,6 +297,14 @@ void PlcPort::tx_written(uint32_t tag, bool confirmed) {
   if (echo_head_ - echo_tail_ < kTx) echo_[echo_head_++ % kTx] = static_cast<uint8_t>(tag);
 }
 
+bool PlcPort::tx_pending(uint32_t tag) {
+  if (tag >= kTx) return false;
+  TxSlot& s = tx_[tag];
+  uint8_t st = s.state.load(std::memory_order_acquire);
+  if (st == kAbandoned) s.state.store(kFree, std::memory_order_release);
+  return st == kQueued;
+}
+
 void PlcPort::tx_failed(uint32_t tag, uint16_t error_id) {
   if (tag >= kTx) return;
   TxSlot& s = tx_[tag];

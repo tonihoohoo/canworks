@@ -506,6 +506,33 @@ class ParamsPage(OnlineBase):
             self.search("0x6126")
             self.assertIn("bar", pg.inner_text('tr[data-od-key="%d:1"]' % 0x6126))
 
+    def test_runtime_with_other_network_names(self):
+        # A draft with one network against a runtime that runs two networks
+        # of other names: the draft's node 5 still has its EDS online.
+        self.other_names()
+
+    def test_runtime_with_other_network_names_v2(self):
+        # The same with a version 2 draft whose one network has a third name.
+        net = copy.deepcopy(self.cfg)
+        net.pop("schema_version", None)
+        net["name"] = "line"
+        v2 = {"schema_version": 2, "networks": [net]}
+
+        def write_config(diagnostics=None):
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(dict(v2, **({"diagnostics": diagnostics} if diagnostics else {})), f, indent=2)
+        self.write_config = write_config
+        self.other_names()
+
+    def other_names(self):
+        from .fake_diag import TWO_NETWORKS
+        pg = self.page
+        with self.device() as fp:
+            fp.networks = copy.deepcopy(TWO_NETWORKS)
+            self.open_node(fp, tab="od")
+            pg.wait_for_selector('details[data-od-group="profile"]')
+            self.assertEqual(pg.locator('[data-online="no-eds"]').count(), 0)
+
     def test_read_only(self):
         pg = self.page
         with self.device(allow=False) as fp:
