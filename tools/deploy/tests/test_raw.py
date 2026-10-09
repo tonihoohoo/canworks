@@ -265,7 +265,7 @@ class StatusText(unittest.TestCase):
         diag._print_status(self.ANSWER, out)
         text = out.getvalue()
         self.assertIn("plain CAN network on simulated, 250 kbit/s (simulated", text)
-        self.assertIn("raw CAN: running, 40 frames sent, 81 received, bus load 3 %", text)
+        self.assertIn("raw CAN: running, 40 frames sent, 81 received, bus load 3 %, confirm: echo", text)
         self.assertIn("program blocks: 1 receiver, 0 cyclic jobs, 2 frames sent, 0 dropped", text)
         self.assertIn("simulated plain CAN devices: joystick", text)
         self.assertRegex(text, r"joystick \(0x180\)\s+80\s+9 ms ago\s+0x180 \[2\] 10 00")

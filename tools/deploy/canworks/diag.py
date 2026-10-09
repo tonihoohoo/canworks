@@ -1172,6 +1172,8 @@ def _print_raw_status(raw, out):
         raw.get("frames_received", 0), float(raw.get("bus_load") or 0))
     if raw.get("listen_only"):
         line += ", listen-only"
+    if raw.get("confirm"):
+        line += ", confirm: %s" % raw["confirm"]
     out.write(line + "\n")
     if prog.get("receivers") or prog.get("cyclic_jobs") or prog.get("frames_sent"):
         out.write("program blocks: %s receiver%s, %s cyclic job%s, %s frames sent, %s dropped\n" % (
