@@ -19,6 +19,7 @@
 #include <fstream>
 #include <memory>
 #include <map>
+#include <condition_variable>
 #include <mutex>
 #include <thread>
 #include <sstream>
@@ -770,6 +771,22 @@ class Sim {
   }
   canopen_sim::Simulator& simulator() { return *simulator_; }
   const std::vector<canopen_sim::ScenarioResult>& scenario_results() const { return results_; }
+  // Writes `n` frames (0x7F0, no CANopen use) onto the bus, running the loop
+  // between batches; false once the bus refuses one, as it does when a
+  // channel left on it is not read and its receive queue is full.
+  bool Flood(int n) {
+    io::VirtualCanChannel ch(ctx_, exec_);
+    ch.open(ctrl_);
+    can_msg m = CAN_MSG_INIT;
+    m.id = 0x7F0;
+    for (int i = 0; i < n; ++i) {
+      std::error_code ec;
+      ch.write(m, 0, ec);
+      if (ec) return false;
+      if (i % 50 == 49) RunFor(milliseconds(10));
+    }
+    return true;
+  }
   // A control request to the simulator; the parsed answer (cJSON_Delete it).
   // Routes sim_ diagnostics requests to the simulator, as bus.cpp does.
   void WireSimHandler() {
@@ -2578,6 +2595,10 @@ TEST(sim_diag_status_emcy_sdo_nmt) {
   CHECK_MSG(num(cJSON_GetArrayItem(list, 0), "code") == 0x6000 + 39, std::to_string(num(cJSON_GetArrayItem(list, 0), "code")));
   CHECK(num(cJSON_GetArrayItem(list, 15), "code") == 0x6000 + 24);
   cJSON_Delete(a);
+  // The status counts every EMCY received (4 + 40), not the history's 16.
+  a = sim->Ask(diag_req("status"));
+  CHECK_MSG(num(field(node_of(a, 5), "emcy"), "count") == 44, a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
 
   // Manual SDO read: the device name, a missing object, an absent node.
   a = sim->Ask(diag_req("sdo_read", 5, 0x1008, 0));
@@ -3227,6 +3248,19 @@ TEST(sim_simulated_pingpong) {
   CHECK(!ok(r));
   CHECK_MSG(str(r, "error").find("the master writes 0x4000:0") != std::string::npos, str(r, "error"));
   cJSON_Delete(r);
+  // A value that does not fit the object's data type is refused, and the
+  // object keeps its value.
+  r = sim->SimAsk(R"({"op":"sim_override","node":2,"values":{"0x4001":"abc"}})");
+  CHECK_MSG(!ok(r) && str(r, "error") == "0x4001:0 is UNSIGNED32; give a number", str(r, "error"));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_set","node":2,"values":{"0x4001":-1}})");
+  CHECK_MSG(!ok(r) && str(r, "error") == "0x4001:0 is UNSIGNED32; -1 is outside its range 0 to 4294967295",
+            str(r, "error"));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_status"})");
+  CHECK(!field(cJSON_GetArrayItem(field(result(r), "devices"), 0), "overrides") ||
+        !field(field(cJSON_GetArrayItem(field(result(r), "devices"), 0), "overrides"), "0x4001:0"));
+  cJSON_Delete(r);
   // An override wins over the source; release gives it back.
   r = sim->SimAsk(R"({"op":"sim_override","node":2,"values":{"0x4001":7}})");
   CHECK(ok(r));
@@ -3320,6 +3354,105 @@ TEST(sim_simulated_faults) {
   a = sim->Ask(diag_req("sdo_read", 2, 0x1018, 4));
   CHECK_MSG(str(result(a), "data") == "00 00 00 00", str(result(a), "data"));
   cJSON_Delete(a);
+  delete sim;
+}
+
+// Ends the test program when a case does not finish in time: a bus loop
+// that spins never returns to the test.
+class Watchdog {
+ public:
+  Watchdog(const char* what, seconds limit) : thread_([this, what, limit] {
+      std::unique_lock<std::mutex> lock(mutex_);
+      if (cv_.wait_for(lock, limit, [this] { return done_; })) return;
+      std::printf("  watchdog: %s did not finish within %lld s\n", what, (long long)limit.count());
+      std::fflush(stdout);
+      std::_Exit(1);
+    }) {}
+  ~Watchdog() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      done_ = true;
+    }
+    cv_.notify_all();
+    thread_.join();
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  bool done_ = false;
+  std::thread thread_;
+};
+
+// Power off and on, five times (canopen-device-simulator "Power cycle keeps
+// the network running"): the device boots again each time, the diagnostics
+// channel keeps answering and the session ends promptly.
+TEST(sim_simulated_power_cycles) {
+  clear_logs();
+  Watchdog dog("sim_simulated_power_cycles", seconds(60));
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->EnableDiag();
+  sim->WireSimHandler();
+  // Through the diagnostics channel, as the plugin gets them.
+  auto sim_diag = [](const std::string& op, const std::string& json) {
+    DiagRequest dr = diag_req(op);
+    dr.raw = json;
+    return sim->Ask(std::move(dr));
+  };
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  for (int i = 0; i < 5; ++i) {
+    cJSON* r = sim_diag("sim_fault", R"({"op":"sim_fault","node":2,"fault":{"power":"off"}})");
+    CHECK(ok(r));
+    cJSON_Delete(r);
+    CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
+    // Off for 2 s: more frames than a receive queue holds (1024) go by.
+    sim->RunFor(milliseconds(2000));
+    // While off, a value that does not fit is refused as well.
+    r = sim_diag("sim_override", R"({"op":"sim_override","node":2,"values":{"0x4001":"abc"}})");
+    CHECK_MSG(!ok(r) && str(r, "error") == "0x4001:0 is UNSIGNED32; give a number", str(r, "error"));
+    cJSON_Delete(r);
+    r = sim_diag("sim_clear", R"({"op":"sim_clear","node":2,"fault":"power"})");
+    CHECK(ok(r));
+    cJSON_Delete(r);
+    uint32_t before = sim->in();
+    CHECK_MSG(sim->RunUntil([before] { return sim->status() && sim->in() > before + 3; }, seconds(5)),
+              "cycle " + std::to_string(i + 1) + ": node 2 is not back");
+    auto t0 = steady_clock::now();
+    cJSON* a = sim->Ask(diag_req("status"), milliseconds(1000));
+    CHECK_MSG(ok(a), "cycle " + std::to_string(i + 1) + ": no status answer within 1 s");
+    CHECK(steady_clock::now() - t0 < milliseconds(1000));
+    cJSON_Delete(a);
+  }
+  CHECK(count_logs("sim: node 2: powered on") == 6);
+  CHECK(sim->Flood(3000));
+  auto t0 = steady_clock::now();
+  delete sim;
+  auto took = duration_cast<milliseconds>(steady_clock::now() - t0).count();
+  std::printf("    session ended in %lld ms\n", (long long)took);
+  CHECK(took < 2000);
+}
+
+// A simulation the engine refuses at start (a source on an object the master
+// writes): the master runs without simulated devices, and nothing of the
+// refused devices stays on the bus.
+TEST(sim_simulated_refused_start) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(!sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4000": {"constant": 5}}}}})"));
+  sim->net().Start();
+  sim->RunFor(milliseconds(500));
+  CHECK(!sim->status());
+  CHECK(sim->Flood(3000));
   delete sim;
 }
 
@@ -3450,6 +3583,55 @@ TEST(sim_input_pdo_never_arrives) {
   sim->RunFor(milliseconds(500));
   CHECK(sim->plc().bool_in[10][1] == 0);
   CHECK_MSG(count_logs("no PDO for") == 1, std::to_string(count_logs("no PDO for")) + " timeout warnings");
+  delete sim;
+}
+
+// A synchronous TPDO that stops after it was received (Lely's RPDO deadline
+// does not fire for it on the simulated bus): the plugin's own check on the
+// supervision tick times it out.
+TEST(sim_input_pdo_timeout_synchronous) {
+  clear_logs();
+  std::string json = pingpong_json();
+  json.replace(json.find("\"tx_pdos\": [ { "), 15,
+               "\"tx_pdos\": [ { \"transmission\": 1, \"timeout_ms\": 200, \"timeout_location\": \"%IX10.1\", ");
+  std::string dir = make_dir(json, {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->EnableDiag();
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  sim->RunFor(milliseconds(500));
+  CHECK(sim->plc().bool_in[10][1] == 0);
+  CHECK(!logged("no PDO for"));
+
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"tpdo_stop":1}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  auto stopped = steady_clock::now();
+  CHECK(sim->RunUntil([] { return sim->plc().bool_in[10][1] != 0; }, seconds(2)));
+  auto took = duration_cast<milliseconds>(steady_clock::now() - stopped).count();
+  std::printf("    timeout bit after %lld ms\n", (long long)took);
+  CHECK(took >= 180 && took < 350);  // 200 ms, checked on the 100 ms supervision tick
+  sim->RunFor(milliseconds(500));
+  CHECK(sim->status());
+  CHECK(sim->plc().bool_in[10][1] != 0);
+  CHECK_MSG(count_logs("node 2 (pingpong) TPDO 1: no PDO for 200 ms (timeout_ms)") == 1,
+            std::to_string(count_logs("no PDO for")) + " timeout warnings");
+  cJSON* a = sim->Ask(diag_req("status"));
+  const cJSON* t = pdo_timeout_of(a, 2, 1);
+  CHECK_MSG(t && cJSON_IsTrue(field(t, "timed_out")) && num(t, "count") == 1, a ? cJSON_PrintUnformatted(a) : "null");
+  const cJSON* n;
+  cJSON_ArrayForEach(n, field(result(a), "nodes"))
+    if (num(n, "node_id") == 2) CHECK(num(n, "state") == 5);
+  cJSON_Delete(a);
+
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"tpdo_stop"})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->plc().bool_in[10][1] == 0; }, seconds(2)));
+  CHECK(logged("node 2 (pingpong) TPDO 1 is back after "));
   delete sim;
 }
 

@@ -155,8 +155,8 @@ struct Simulator::Dev {
   std::string store_key;
   std::shared_ptr<StoredState> store;
 
-  std::unique_ptr<lely::io::TimerBase> timer;
-  std::unique_ptr<lely::io::CanChannelBase> chan;
+  std::shared_ptr<lely::io::TimerBase> timer;
+  std::shared_ptr<lely::io::CanChannelBase> chan;
   std::unique_ptr<SimDevice> dev;
   bool powered = false;
   bool conflict = false;
@@ -167,6 +167,7 @@ struct Simulator::Dev {
   uint8_t last_nmt = 0xFF;
 
   std::set<ObjKey> objects;
+  std::map<ObjKey, uint16_t> types;  // data types, known while powered off
   uint16_t profile = 0;
   std::map<uint8_t, uint32_t> eds_identity;  // 0x1018 as the file has it
   uint32_t eds_device_type = 0;
@@ -575,7 +576,10 @@ void Simulator::PowerOn(Dev& d) {
   }
   SimDevice& dev = *d.dev;
   if (d.objects.empty()) {
-    for (const auto& o : od_objects(dev.od())) d.objects.insert(ObjKey{o.first, o.second});
+    for (const auto& o : od_objects(dev.od())) {
+      d.objects.insert(ObjKey{o.first, o.second});
+      d.types[ObjKey{o.first, o.second}] = od_type(dev.od(), o.first, o.second);
+    }
     for (uint8_t s = 1; s <= 4; ++s)
       if (od_has(dev.od(), 0x1018, s)) d.eds_identity[s] = static_cast<uint32_t>(od_number(dev.od(), 0x1018, s));
     d.eds_device_type = static_cast<uint32_t>(od_number(dev.od(), 0x1000, 0));
@@ -1757,12 +1761,9 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
       if (!parse_obj_key(c->string, k)) return answer(id, nullptr, std::string("\"") + c->string + "\" is not an object");
       if (!parse_value(c, v)) return answer(id, nullptr, std::string("the value of ") + c->string + " must be a number or text");
       if (!d->objects.count(k)) return answer(id, nullptr, d->label + " has no object " + k.str());
-      if (d->dev) {
-        OdKind kind = od_kind(d->dev->od(), k.index, k.subindex);
-        if ((kind == OdKind::String) != v.is_string)
-          return answer(id, nullptr, k.str() + " is " + od_type_name(d->dev->od(), k.index, k.subindex) +
-                                         (v.is_string ? "; give a number" : "; give text"));
-      }
+      // Also while powered off: the value is written at power on.
+      std::string why = value_misfit(d->types[k], v);
+      if (!why.empty()) return answer(id, nullptr, k.str() + " is " + type_name(d->types[k]) + "; " + why);
       values.emplace_back(k, v);
     }
     std::string desc;

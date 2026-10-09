@@ -1,6 +1,7 @@
 #include "sim_od.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 
@@ -118,7 +119,11 @@ OdKind od_kind(__co_dev* dev, uint16_t index, uint8_t subindex) {
 }
 
 std::string od_type_name(__co_dev* dev, uint16_t index, uint8_t subindex) {
-  switch (od_type(dev, index, subindex)) {
+  return type_name(od_type(dev, index, subindex));
+}
+
+std::string type_name(uint16_t type) {
+  switch (type) {
     case CO_DEFTYPE_BOOLEAN: return "BOOLEAN";
     case CO_DEFTYPE_INTEGER8: return "INTEGER8";
     case CO_DEFTYPE_INTEGER16: return "INTEGER16";
@@ -145,6 +150,19 @@ std::string od_type_name(__co_dev* dev, uint16_t index, uint8_t subindex) {
     case 0: return "";
     default: return "OTHER";
   }
+}
+
+std::string value_misfit(uint16_t type, const Value& v) {
+  double lo, hi;
+  if (type_range(type, lo, hi)) {
+    if (v.is_string) return "give a number";
+    if (std::isfinite(v.num) && std::round(v.num) >= lo && std::round(v.num) <= hi) return "";
+    char why[128];
+    std::snprintf(why, sizeof why, "%.15g is outside its range %.15g to %.15g", v.num, lo, hi);
+    return why;
+  }
+  if (type == CO_DEFTYPE_VISIBLE_STRING) return v.is_string ? "" : "give text";
+  return "the simulator cannot write it";
 }
 
 bool od_read(__co_dev* dev, uint16_t index, uint8_t subindex, Value& out) {
