@@ -81,8 +81,11 @@ class Examples(unittest.TestCase):
 
     def test_example_configs_validate(self):
         found = 0
-        paths = [os.path.join(REPO, "examples", d, "canworks", "canworks.json")
-                 for d in sorted(os.listdir(os.path.join(REPO, "examples")))]
+        paths = []
+        for d in sorted(os.listdir(os.path.join(REPO, "examples"))):
+            # An editor project keeps it in canworks/; examples/j1939 is the config alone.
+            inside = os.path.join(REPO, "examples", d, "canworks", "canworks.json")
+            paths.append(inside if os.path.isfile(inside) else os.path.join(REPO, "examples", d, "canworks.json"))
         for root, _, files in os.walk(os.path.join(REPO, "config")):
             for name in files:
                 # Other JSON files there are not configs: simulation.json follows

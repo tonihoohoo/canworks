@@ -9,7 +9,7 @@ description = "Configures CANopen for OpenPLC (canworks-config), deploys it to a
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "Apache-2.0"}
-dependencies = ["jsonschema>=4.0", "python-can>=4.3", "pyserial>=3.5",
+dependencies = ["jsonschema>=4.0", "python-can>=4.3", "pyserial>=3.5", "cantools>=39", "can-j1939>=2.0.12",
                 "python-can[gs-usb]>=4.3; sys_platform == 'darwin'"]  # gs_usb adapters on macOS (needs libusb)
 
 [project.scripts]
@@ -19,7 +19,8 @@ canworks-diag = "canworks.diag:main"
 canworks-sim-runtime = "canworks.localruntime:main"
 
 [tool.setuptools]
-packages = ["canworks", "canworks.bustrace", "canworks.localbus", "canworks.configurator", "canworks._lely_dcf"]
+packages = ["canworks", "canworks.bustrace", "canworks.localbus", "canworks.configurator", "canworks._lely_dcf",
+            "canworks.j1939"]
 
 [tool.setuptools.package-data]
 canworks = ["schema/*.json", "library/*.stlib"]

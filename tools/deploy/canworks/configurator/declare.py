@@ -1,4 +1,5 @@
-"""Located variable declarations for the editor, from a CANopen config."""
+"""Located variable declarations for the editor, from a canworks config
+(CANopen and J1939 networks)."""
 
 import re
 
@@ -42,6 +43,12 @@ SDO_TEXT = {"trigger_location": "trigger", "status_location": "status", "abort_c
 SLAVE_TEXT = {"state_location": "own NMT state", "comm_ok_location": "communication OK",
               "sync_count_location": "SYNC count", "emcy_code_location": "EMCY code to send",
               "error_register_location": "error register to send"}
+# A J1939 signal's IEC type by location size: (unsigned, signed).
+J1939_TYPES = {"X": ("BOOL", "BOOL"), "B": ("USINT", "SINT"), "W": ("UINT", "INT"), "D": ("UDINT", "DINT"),
+               "L": ("ULINT", "LINT")}
+J1939_ECU_TEXT = {"state_location": ("ecu_state", "J1939 address claim state (0 claiming, 1 claimed, 2 cannot "
+                                                  "claim, 3 no bus)"),
+                  "address_location": ("ecu_address", "J1939 source address (254 while none is held)")}
 # Order inside a node in a generated program: diagnostics, inputs, outputs, NMT command last.
 SLAVE_RANK = 1 << 30
 _RANK = {("diag", "I"): 0, ("pdo", "I"): 1, ("sdo", "I"): 2, ("pdo", "Q"): 3, ("sdo", "Q"): 4, ("nmt", "Q"): 5}
@@ -51,6 +58,18 @@ def comment_text(text):
     """One line that is safe inside (* ... *)."""
     text = re.sub(r"\s+", " ", str(text or "")).replace("(*", "( *").replace("*)", "* )")
     return text.strip()
+
+
+def number_text(v):
+    """A scale or offset as written in a comment: 1, 0.1, -40."""
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return repr(v) if isinstance(v, float) else str(v)
+
+
+def scaling_text(scale, offset, unit):
+    """The comment of a J1939 signal's declaration: "x 0.1 + 0 bar"."""
+    return ("x %s + %s %s" % (number_text(scale), number_text(offset), unit or "")).strip()
 
 
 def declarations(cfg, object_name, declared, slave_object=None):
@@ -71,7 +90,15 @@ def declarations(cfg, object_name, declared, slave_object=None):
     object's ParameterName, which `slave_object(eds value, index, subindex)`
     gives together with its CANopen type as (name, type), or None. The IEC
     type is the object's when it fits the location, else the location
-    size's."""
+    size's.
+
+    A J1939 network adds one variable per signal (kind "j1939", node
+    None), named `<network>_<signal>`, typed by its location size and
+    `signed`, with `comment` holding its scale, offset and unit ("x 0.1 + 0
+    bar"); one per ECU state and address location (`<network>_ecu_state`,
+    `<network>_ecu_address`), per rx status location (`<network>_<message>_ok`,
+    the message's name or PGN) and per signal valid location
+    (`<network>_<signal>_valid`)."""
     out, names = [], set()
 
     def unique(base):
@@ -189,11 +216,55 @@ def declarations(cfg, object_name, declared, slave_object=None):
                             "path": path, "declared_as": declared.get(path), "node": None, "kind": "slave",
                             "description": "%s: %s" % (who, SLAVE_TEXT[key])})
 
+    def j1939_network(n):
+        j = n["j1939"]
+        net = identifier(n["name"] or "j1939")
+        at = n["path"] + "." if n["path"] else ""
+        who = "network %s:" % n["name"]
+
+        def add(name, location, iec_type, path, text, comment=None):
+            d = {"name": unique(name), "location": location.strip(), "type": iec_type, "path": at + path,
+                 "declared_as": declared.get(at + path), "node": None, "kind": "j1939", "description": text}
+            if comment:
+                d["comment"] = comment
+            out.append(d)
+
+        ecu = j.get("ecu") if isinstance(j.get("ecu"), dict) else {}
+        for key, (suffix, text) in J1939_ECU_TEXT.items():
+            if parse_location(ecu.get(key)):
+                add("%s_%s" % (net, suffix), ecu[key], "USINT", "j1939.ecu." + key, "%s %s" % (who, text))
+        for key in ("rx", "tx"):
+            for i, m in enumerate(j.get(key) if isinstance(j.get(key), list) else []):
+                if not isinstance(m, dict):
+                    continue
+                pgn = contract._uint(m.get("pgn"))
+                msg = "PGN %s" % pgn + (" (%s)" % m["name"] if m.get("name") else "")
+                mp = "j1939.%s[%d]" % (key, i)
+                if key == "rx" and parse_location(m.get("status_location")):
+                    add("%s_%s_ok" % (net, identifier(m.get("name") or "PGN%s" % pgn)), m["status_location"], "BOOL",
+                        mp + ".status_location", "%s %s received in time" % (who, msg))
+                for k, sg in enumerate(m.get("signals") if isinstance(m.get("signals"), list) else []):
+                    loc = parse_location(sg.get("iec_location") if isinstance(sg, dict) else None)
+                    if not loc or loc.size not in J1939_TYPES:
+                        continue
+                    sname = identifier(sg.get("name"))
+                    comment = scaling_text(sg.get("scale", 1), sg.get("offset", 0), sg.get("unit", ""))
+                    add("%s_%s" % (net, sname), sg["iec_location"], J1939_TYPES[loc.size][sg.get("signed") is True],
+                        "%s.signals[%d].iec_location" % (mp, k),
+                        "%s %s %s, %s" % (who, msg, sg.get("name"), comment), comment)
+                    if key == "rx" and parse_location(sg.get("valid_location")):
+                        add("%s_%s_valid" % (net, sname), sg["valid_location"], "BOOL",
+                            "%s.signals[%d].valid_location" % (mp, k),
+                            "%s %s %s valid (not 'not available' or 'error')" % (who, msg, sg.get("name")))
+
     nets = contract.networks(cfg) if isinstance(cfg, dict) else []
     base = 0
     for n in nets:
         if n["role"] == "slave":
             slave_network(n)
+            continue
+        if n["role"] == "j1939":
+            j1939_network(n)
             continue
         several = len(nets) > 1 and n["name"]
         network(n["master"], [x for x in n["nodes"] if isinstance(x, dict)], n["path"] + "." if n["path"] else "",
@@ -206,11 +277,13 @@ def program_order(decls):
     """The declarations in a generated program's order: master diagnostics,
     then node by node in config order with diagnostics, inputs (PDO, then
     SDO), outputs (PDO, then SDO) and the NMT command byte last, then the
-    slave networks' inputs and outputs."""
+    slave networks' inputs and outputs, then the J1939 networks'."""
     def key(d):
         area = d["location"].strip()[1:2].upper()
         if d.get("kind") == "slave":
             return SLAVE_RANK, 0 if area == "I" else 1  # after every node, inputs first
+        if d.get("kind") == "j1939":
+            return SLAVE_RANK + 1, 0 if area == "I" else 1
         node = -1 if d.get("node") is None else d["node"]
         return node, _RANK.get((d.get("kind"), area), 0 if area == "I" else 4)
     return sorted(decls, key=key)
@@ -237,12 +310,15 @@ def editor_block(decls, indent="  "):
 
 
 def st_block(decls):
-    """A VAR ... END_VAR block of the declarations not yet in the project."""
+    """A VAR ... END_VAR block of the declarations not yet in the project,
+    with a J1939 signal's scaling in a comment."""
     rows = [d for d in decls if not d["declared_as"]]
     if not rows:
         return ""
     width = max(len(d["name"]) for d in rows)
     lines = ["VAR"]
-    lines += ["  %s AT %s : %s;" % (d["name"].ljust(width), d["location"], d["type"]) for d in rows]
+    lines += ["  %s AT %s : %s;%s" % (d["name"].ljust(width), d["location"], d["type"],
+                                       " (* %s *)" % comment_text(d["comment"]) if d.get("comment") else "")
+              for d in rows]
     lines.append("END_VAR")
     return "\n".join(lines) + "\n"
