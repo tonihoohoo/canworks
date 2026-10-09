@@ -11,6 +11,7 @@
 #include "cJSON.h"
 #include "j1939_signal.h"
 #include "log.h"
+#include "outputs_gate.h"
 
 namespace canopen_plugin {
 
@@ -266,6 +267,7 @@ void J1939Engine::on_request(const J1939Message& m, clock::time_point now) {
   if (!can_send(now)) return;
   for (size_t i = 0; i < j_.tx.size(); ++i) {
     if (j_.tx[i].pgn != pgn) continue;
+    if (!outputs_enabled()) return;  // a transmit message, stopped with the outputs
     const uint64_t* snap = image_.latest_outputs();
     build_tx(i, snap);
     uint8_t dest = j1939_pdu1(pgn) && m.source <= kJ1939MaxAddress ? m.source : kJ1939Global;
@@ -336,8 +338,13 @@ void J1939Engine::tick(clock::time_point now) {
   }
   if (claimed) {
     const uint64_t* snap = image_.latest_outputs();
-    // Nothing is sent from outputs the program has not written yet.
-    if (image_.scan_count(snap) > 0) {
+    // Nothing is sent from outputs the program has not written yet, nor while
+    // the host's outputs gate is closed (the bridge's outputs off).
+    const bool gate = outputs_enabled();
+    if (gate && !gate_was_open_)
+      for (auto& t : tx_) t.next_due = now;
+    gate_was_open_ = gate;
+    if (gate && image_.scan_count(snap) > 0) {
       for (size_t i = 0; i < j_.tx.size(); ++i) {
         const J1939Tx& t = j_.tx[i];
         TxState& st = tx_[i];

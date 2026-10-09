@@ -15,6 +15,7 @@ extern "C" void can_net_get_send_func(const __can_net* net, can_send_func** pfun
 extern "C" void can_net_set_send_func(__can_net* net, can_send_func* func, void* data);
 
 #include "log.h"
+#include "outputs_gate.h"
 
 // From <lely/co/nmt.h> (C header): sends the synchronous TPDOs and actuates
 // the synchronous RPDOs after a SYNC, then calls the SYNC indication (OnSync).
@@ -134,6 +135,7 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
       req_timer_(req_timer),
       req_wait_(exec, [this](int, std::error_code ec) {
         if (ec || stopped_) return;
+        ServiceHost();
         ServiceDiag();
         ServiceRequests();
         req_timer_->submit_wait(req_wait_);
@@ -173,6 +175,7 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
 }
 
 Network::~Network() {
+  HostRequests::instance().clear(cfg_.network_index);
   if (lss_) lss_->AbortAll();
   sup_timer_.cancel_wait(tick_wait_);
   if (req_timer_) req_timer_->cancel_wait(req_wait_);
@@ -313,7 +316,8 @@ void Network::SetUp(unsigned id, bool up, const char* why) {
   image_.set_node_status(id, up);
   ArmInputPdos(id, up);
   image_.commit_inputs();
-  EnableTpdos(n, up);
+  HostRequests::instance().set_operational(cfg_.network_index, id, up);
+  EnableTpdos(n, up && outputs_on_);
   if (up)
     log_info("%s is operational", n.cfg->label().c_str());
   else
@@ -401,6 +405,7 @@ void Network::OnTick() {
     return;
   }
   if (!req_timer_) {
+    ServiceHost();
     ServiceDiag();
     ServiceRequests();
   }
@@ -1159,6 +1164,35 @@ void Network::WriteOutputs() {
   for (const auto& c : changed)
     for (unsigned num : nodes_[c.first].tpdos)
       if (tpdo_event_.count(num)) TpdoEvent(static_cast<int>(num));
+}
+
+// The host's NMT commands (the bridge's control block) and outputs gate.
+void Network::ServiceHost() {
+  bool gate = outputs_enabled();
+  if (gate != outputs_on_) {
+    outputs_on_ = gate;
+    ApplyOutputsGate();
+  }
+  host_nmt_.clear();
+  HostRequests::instance().take(cfg_.network_index, host_nmt_);
+  for (const HostNmt& r : host_nmt_) {
+    for (auto& it : nodes_)
+      if (r.node == 0 || r.node == it.first) OperatorNmt(it.first, it.second, r.command, "the Modbus control block");
+  }
+}
+
+// Outputs off: no master TPDOs (the nodes' RPDOs); SYNC, inputs, heartbeats
+// and supervision go on, so synchronous inputs keep coming and a node's RPDO
+// event timer sees the outputs stop. Outputs on: the TPDOs again for the
+// nodes that are operational.
+void Network::ApplyOutputsGate() {
+  for (auto& it : nodes_) EnableTpdos(it.second, it.second.up && outputs_on_);
+  if (outputs_on_) {
+    log_info("outputs on: RPDOs run again");
+    WriteOutputs();
+  } else {
+    log_info("outputs off: RPDOs stopped, SYNC and inputs go on");
+  }
 }
 
 void Network::OnHeartbeat(uint8_t id, bool occurred) noexcept {

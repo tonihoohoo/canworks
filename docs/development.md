@@ -122,7 +122,9 @@ plugin/            native plugin source: src/can/ the shared CAN core (config, a
                    kernel sockets, signals), src/can/raw/ raw CAN messages, plain networks
                    and the frame blocks' interface, src/canopen/sim/ the device simulator
                    engine (simulated devices, value sources, expressions, CiA 402 drive model, faults,
-                   scenarios, the machine model), used by the plugin and canworks-sim
+                   scenarios, the machine model), used by the plugin and canworks-sim; src/bridge/
+                   canworks-bridge, the Modbus TCP bridge (Modbus server, byte image, bridge
+                   registers, the host that runs the shared engine without OpenPLC)
 schema/            the config contract (JSON Schema 2020-12): canworks.v1.schema.json (one network),
                    canworks.v2.schema.json (several networks, slave networks, the gateway), and
                    canworks-sim.v1/v2.schema.json for the simulation file (v2: a section per network),
@@ -131,7 +133,8 @@ examples/          virtual-plant/: the fully virtual example project of docs/tou
                    networks, a demo program, a simulation file with test scenarios); gantry-cell/: a
                    simulated XYZ gantry with a pick-and-place program (docs/simulator.md); j1939/: a J1939
                    ECU config and its DBC file (docs/j1939.md); raw-can/: a plain CAN network with
-                   its DBC file and simulated devices (docs/raw-can.md)
+                   its DBC file and simulated devices (docs/raw-can.md); modbus-bridge/: a bridge
+                   config with simulated devices (docs/modbus-bridge.md)
 config/            example configurations: config/pingpong/ (the ping-pong slave),
                    config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404), each with
                    an example simulation.json, config/two-networks/ (two ping-pong networks on
@@ -144,6 +147,7 @@ tools/             canopen_check.cpp: validates a config and its EDS files witho
 tools/deploy/      the PC tools (Python, one package): canworks-deploy, canworks-config
                    (the configurator), canworks-diag (online diagnostics, parameters, trace),
                    canworks-j1939-sim (the J1939 ECU simulator)
+docker/bridge/     the canworks-bridge image (docs/modbus-bridge.md)
 docker/local-runtime/ the local simulator runtime image (stock runtime + plugin, forced simulation) and
                    the pinned upstream runtime version
 tools/editor-hook/ the runtime-side hook that keeps CANopen on with the editor's Build and upload
@@ -173,6 +177,8 @@ test/rawframes/    raw frames sent by hand (guards, cyclic jobs), raw messages a
 test/bus/          the bus state byte while vcan0 goes down and up
 test/networks/     two networks on vcan0 and vcan1, one of them losing its node
 test/slcan/        the slcan adapter against a fake CANable on a pseudo-terminal, bridged to vcan1
+test/bridge/       the Modbus server and bridge registers, canworks-bridge against simulated devices,
+                   config upload and install-bridge.sh with a stub systemctl
 test/plc_sdo/      the SDO blocks compiled as the editor does, finding the real plugin in-process
 test/host/         canopen_host: loads the plugin .so with a stand-in PLC scan; plugin lifecycle tests
 test/browser/      run.py: the configurator in Chromium against canopen_host on the simulated bus
@@ -187,10 +193,10 @@ test/docker/       install-stock.sh in Docker mode and the runtime spec edits
 test/local-runtime/ canworks-sim-runtime against the image with a compiled PLC program (run.sh)
 test/virtual-example/ the virtual example on the image: checks, exports, every node up, test scenarios
 test/pc-tools/     the release tag check; test/ci/: the CI change classification and areas
-scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
+scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh, install-bridge.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
 docs/              tour.md (the guided tour of the virtual example), config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
-                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, j1939.md, local-runtime.md, network-docs.md, plc-sdo.md, raw-can.md, simulator.md, slave.md,
+                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, j1939.md, local-runtime.md, modbus-bridge.md, network-docs.md, plc-sdo.md, raw-can.md, simulator.md, slave.md,
                    trace.md, development.md (this page)
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
 ```

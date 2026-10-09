@@ -621,3 +621,11 @@ table.j1939-signals td:first-child input[type=text] { min-width: 8em; }
 .note-editor input, .note-editor textarea { box-sizing: border-box; max-width: 100%; }
 .note-editor .row { display: flex; gap: 12px; }
 .note-editor .row label { flex: 1; min-width: 0; }
+/* Modbus bridge page (bridge.js). */
+.bridge-map { max-height: 420px; }
+.bridge-map td { overflow-wrap: anywhere; }
+table.bridge-channels { width: auto; margin-bottom: 12px; }
+table.od td.num { text-align: right; font-variant-numeric: tabular-nums; }
+#bridge-map input[type=search] { flex: 1 1 220px; max-width: 420px; }
+table.bridge-lists td { vertical-align: top; }
+table.bridge-lists label { display: flex; flex-direction: column; gap: 3px; }

@@ -40,6 +40,8 @@ set(CANWORKS_CORE_SOURCES
     src/can/diag.cpp
     src/can/trace_capture.cpp
     src/can/frame_tx.cpp
+    src/can/iface_lock.cpp
+    src/can/engine.cpp
     src/can/bitrate_sweep.cpp
     src/can/slcan_sweep.cpp
     src/can/sha256.cpp
@@ -71,6 +73,7 @@ set(CANWORKS_CANOPEN_SOURCES
     src/canopen/network_lss.cpp
     src/canopen/network_plc.cpp
     src/canopen/plc_api.cpp
+    src/canopen/host_requests.cpp
     src/canopen/bus.cpp
     src/canopen/bus_monitor.cpp
     src/canopen/slave_state.cpp
@@ -123,6 +126,20 @@ target_compile_definitions(canopen_core PUBLIC CANWORKS_WITH_CANOPEN=$<BOOL:${CA
                            CANWORKS_WITH_J1939=$<BOOL:${CANWORKS_WITH_J1939}>)
 target_link_directories(canopen_core PUBLIC ${LELY_LIBRARY_DIRS})
 target_link_libraries(canopen_core PUBLIC ${LELY_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto pthread)
+
+# The Modbus TCP bridge's server, byte image and own registers
+# (canworks-bridge). No Lely and no OpenPLC here, so it builds and tests
+# without either.
+add_library(canworks_bridge_proto STATIC
+    src/bridge/byte_image.cpp
+    src/bridge/modbus.cpp
+    src/bridge/modbus_server.cpp
+    src/bridge/address_list.cpp
+    src/bridge/bridge_blocks.cpp
+)
+target_include_directories(canworks_bridge_proto PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/bridge)
+target_compile_options(canworks_bridge_proto PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_link_libraries(canworks_bridge_proto PUBLIC pthread)
 
 # The plugin version the diagnostics channel reports: $CANWORKS_PLUGIN_VERSION
 # when set (the local simulator runtime image, built without .git), else git.
@@ -178,3 +195,18 @@ set_target_properties(canworks-sim PROPERTIES
     INSTALL_RPATH "${LELY_LIBRARY_DIRS}"
 )
 endif()
+
+# canworks-bridge, the Modbus TCP bridge (docs/modbus-bridge.md): the
+# plugin's engine with a byte image served to Modbus clients.
+add_executable(canworks-bridge
+    src/bridge/bridge_host.cpp
+    src/bridge/bridge_main.cpp
+)
+target_compile_definitions(canworks-bridge PRIVATE CANWORKS_PLUGIN_VERSION="${CANWORKS_PLUGIN_VERSION}")
+target_compile_options(canworks-bridge PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_link_libraries(canworks-bridge PRIVATE canopen_core canworks_bridge_proto)
+set_target_properties(canworks-bridge PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    BUILD_RPATH "${LELY_LIBRARY_DIRS}"
+    INSTALL_RPATH "${LELY_LIBRARY_DIRS}"
+)

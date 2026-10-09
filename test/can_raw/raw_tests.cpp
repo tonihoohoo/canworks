@@ -837,6 +837,18 @@ TEST(bus_info_from_error_frames) {
   set_port(1, nullptr);
 }
 
+// Error frames as drivers send them: gs_usb sets the counters of a
+// controller-problem frame (0x04) without CAN_ERR_CNT; others set it.
+TEST(error_frame_counters) {
+  const uint8_t passive[8] = {0, 0x30, 0, 0, 0, 0, 0x80, 0};  // as seen from gs_usb: tx 128
+  LinkFrame lf = error_link_frame(0x20000024u, passive);
+  CHECK(lf.error && lf.tx_errors == 128 && lf.rx_errors == 0);
+  lf = error_link_frame(0x20000220u, passive);  // no acknowledgement, with CAN_ERR_CNT
+  CHECK(lf.tx_errors == 128);
+  lf = error_link_frame(0x20000020u, passive);  // no acknowledgement only: no counters
+  CHECK(lf.error && lf.tx_errors == -1 && lf.rx_errors == -1);
+}
+
 TEST(raw_scenarios_parse) {
   std::vector<canopen_sim::RawScenario> sc;
   std::vector<std::string> errors;

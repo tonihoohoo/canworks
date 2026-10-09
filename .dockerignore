@@ -1,4 +1,4 @@
-# The image build context (docker/local-runtime/Dockerfile): the sources only.
+# The image build context (docker/local-runtime/Dockerfile, docker/bridge/Dockerfile): the sources only.
 .git
 build/
 **/.canworks/

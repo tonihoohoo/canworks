@@ -52,6 +52,10 @@ class SharedFixtures(unittest.TestCase):
         # J1939 networks (test/fixtures/config/cases-j1939.json).
         self.run_cases(load_cases("cases-j1939.json"), contract.schema(2), 30)
 
+    def test_cases_bridge(self):
+        # Modbus bridge configs (test/fixtures/config/cases-bridge.json).
+        self.run_cases(load_cases("cases-bridge.json"), contract.schema(2), 30)
+
     def run_cases(self, doc, schema, at_least):
         validator = jsonschema.Draft202012Validator(schema)
         self.assertGreater(len(doc["cases"]), at_least)

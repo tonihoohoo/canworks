@@ -149,6 +149,7 @@ class J1939Engine : private AddressClaimer::Actions {
   clock::time_point session_start_{};
   clock::time_point claimed_at_{};
   bool was_claimed_ = false;
+  bool gate_was_open_ = true;  // the outputs gate at the last tick
   bool settling_ = false;  // within 1 s of the claim
   std::string problem_ = "not started";
   std::vector<RxState> rx_;

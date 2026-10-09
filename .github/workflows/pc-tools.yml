@@ -51,7 +51,7 @@ jobs:
         # run on Linux only; they skip here and say why.
         run: >
           uv run --no-project --python 3.12 --managed-python --with jsonschema --with cantools
-          --with python-can --with pyserial
+          --with python-can --with pyserial --with can-j1939 --with "pywin32; sys_platform == 'win32'"
           python -m unittest discover -v -s tools/deploy/tests -t tools/deploy
 
       - name: Release tag check tests

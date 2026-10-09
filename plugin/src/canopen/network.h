@@ -31,6 +31,7 @@
 #include "dcf_gen.h"
 #include "diag.h"
 #include "gateway.h"
+#include "host_requests.h"
 #include "log.h"
 #include "plc_api.h"
 #include "process_image.h"
@@ -385,6 +386,12 @@ class Network : public lely::canopen::BasicMaster {
   void DiagStatus(const DiagRequest& r);
   void DiagEmcy(const DiagRequest& r);
   void DiagNmt(const DiagRequest& r);
+  // NMT for one node from an operator (diagnostics client or host); returns a
+  // note when the command waits for the node's boot.
+  std::string OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by);
+  // The host's requests (host_requests.h) and its outputs gate (outputs_gate.h).
+  void ServiceHost();
+  void ApplyOutputsGate();
   void StartManual(ManualSdo& m);
   void FinishManual(uint64_t seq, std::error_code ec, const std::vector<uint8_t>* data);
   void DiagScan(const DiagRequest& r, bool start);
@@ -482,6 +489,8 @@ class Network : public lely::canopen::BasicMaster {
   void SendTime();
   clock::time_point next_time_;
   bool stopped_ = false;
+  bool outputs_on_ = true;  // the outputs gate as last applied (SYNC, master TPDOs)
+  std::vector<HostNmt> host_nmt_;
   bool master_op_ = false;  // the master itself is OPERATIONAL (PDOs run)
   uint8_t master_state_ = 0;
   clock::time_point started_;
