@@ -40,6 +40,8 @@ set(CANWORKS_CORE_SOURCES
     src/can/diag.cpp
     src/can/trace_capture.cpp
     src/can/frame_tx.cpp
+    src/can/iface_lock.cpp
+    src/can/engine.cpp
     src/can/bitrate_sweep.cpp
     src/can/slcan_sweep.cpp
     src/can/sha256.cpp
@@ -71,6 +73,7 @@ set(CANWORKS_CANOPEN_SOURCES
     src/canopen/network_lss.cpp
     src/canopen/network_plc.cpp
     src/canopen/plc_api.cpp
+    src/canopen/host_requests.cpp
     src/canopen/bus.cpp
     src/canopen/bus_monitor.cpp
     src/canopen/slave_state.cpp
@@ -192,3 +195,18 @@ set_target_properties(canworks-sim PROPERTIES
     INSTALL_RPATH "${LELY_LIBRARY_DIRS}"
 )
 endif()
+
+# canworks-bridge, the Modbus TCP bridge (docs/modbus-bridge.md): the
+# plugin's engine with a byte image served to Modbus clients.
+add_executable(canworks-bridge
+    src/bridge/bridge_host.cpp
+    src/bridge/bridge_main.cpp
+)
+target_compile_definitions(canworks-bridge PRIVATE CANWORKS_PLUGIN_VERSION="${CANWORKS_PLUGIN_VERSION}")
+target_compile_options(canworks-bridge PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_link_libraries(canworks-bridge PRIVATE canopen_core canworks_bridge_proto)
+set_target_properties(canworks-bridge PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    BUILD_RPATH "${LELY_LIBRARY_DIRS}"
+    INSTALL_RPATH "${LELY_LIBRARY_DIRS}"
+)

@@ -108,7 +108,7 @@ Word, double and long word locations SHALL start at an even byte, which a load c
 ### 5. Watchdog and client loss
 
 The watchdog is fed by every accepted write request (function 5, 6, 15, 16 or 23) from a writer. When it runs out (`watchdog_ms`, default 1000, 0 = off) or the control block commands idle, the bridge enters **outputs off** with the `on_client_loss` action:
-- **`"stop"`** (default): the same as when the OpenPLC program stops. SYNC stops, no RPDOs, no raw TX and no J1939 TX. Inputs, supervision, heartbeat, the diagnostics channel and J1939 address claim keep running.
+- **`"stop"`** (default): no RPDOs, no raw TX and no J1939 TX. SYNC keeps running, so inputs that nodes send on SYNC keep updating (a reading HMI still sees live values) and a node with an RPDO event timer notices the outputs stop. Inputs, supervision, heartbeat, the diagnostics channel and J1939 address claim keep running.
 - **`"zero"`:** every output location is set to 0 and sent once, then outputs stop as with `"stop"`.
 - **`"hold"`:** outputs keep being sent with their last values.
 

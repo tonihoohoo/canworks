@@ -41,7 +41,7 @@ Every read request SHALL be answered from one input snapshot, and every write re
 - **THEN** every pair read is a value the node actually sent
 
 ### Requirement: Outputs without a scan
-A write request SHALL publish its new output snapshot immediately. Synchronous RPDOs SHALL carry it from the next SYNC, and event-driven RPDOs, raw messages sent on change and J1939 messages sent on change SHALL go out without waiting for a cycle. Rising-edge inputs of the config (SDO variable triggers, NMT command bytes, raw trigger bits) SHALL be detected between consecutive published snapshots, so rewriting the same value creates no edge.
+A write request SHALL publish its new output snapshot immediately. Synchronous RPDOs SHALL carry it from the next SYNC, event-driven RPDOs from the next SYNC on a network with a SYNC period and at once on one without, and raw messages sent on change and J1939 messages sent on change SHALL go out without waiting for a cycle. Rising-edge inputs of the config (SDO variable triggers, NMT command bytes, raw trigger bits) SHALL be detected between consecutive published snapshots, so rewriting the same value creates no edge.
 
 #### Scenario: Cyclic rewrite
 - **WHEN** a client writes the same holding registers, including an SDO variable's trigger bit at 1, every 10 ms
@@ -49,19 +49,19 @@ A write request SHALL publish its new output snapshot immediately. Synchronous R
 
 #### Scenario: Event-driven output
 - **WHEN** a client changes a value mapped into an event-driven RPDO
-- **THEN** the RPDO is sent within 2 ms of the write response
+- **THEN** the RPDO is sent at the next SYNC when the network has a SYNC period, and within 2 ms of the write response when it has none
 
 ### Requirement: Output watchdog
 The bridge SHALL feed its watchdog with every accepted write request (functions 5, 6, 15, 16, 23) from a writer client. When no such write arrived for `watchdog_ms` (default 1000; 0 turns the watchdog off), the bridge SHALL enter outputs off with the action of `on_client_loss`:
-- `"stop"` (default): outputs stop as when the OpenPLC program stops (no SYNC, no RPDOs, no raw or J1939 transmit messages)
+- `"stop"` (default): outputs stop: no RPDOs, no raw or J1939 transmit messages. SYNC keeps running, so nodes that send their inputs on SYNC keep sending them and a node's RPDO event timer sees the outputs stop
 - `"zero"`: every output location is set to 0, the outputs are sent once, then they stop
 - `"hold"`: outputs keep being sent with their last values
 
-Inputs, node supervision, the diagnostics channel and J1939 address claim SHALL keep running. The next accepted write SHALL end outputs off. Entering and leaving SHALL be logged with the reason.
+Inputs, SYNC, node supervision, the diagnostics channel and J1939 address claim SHALL keep running. The next accepted write SHALL end outputs off. Entering and leaving SHALL be logged with the reason.
 
 #### Scenario: Client unplugged
 - **WHEN** the client that writes outputs every 50 ms stops and `watchdog_ms` is 1000 with the default action
-- **THEN** about 1 s later SYNC and RPDOs stop, input registers keep updating, the status block reads 2, and the log names the watchdog
+- **THEN** about 1 s later RPDOs stop, SYNC and input registers keep updating, the status block reads 2, and the log names the watchdog
 
 #### Scenario: Reader does not feed the watchdog
 - **WHEN** only a client that reads input registers is connected

@@ -8,8 +8,10 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "address_list.h"
 #include "byte_image.h"
@@ -23,6 +25,13 @@ struct ServerConfig {
   AddressList readers;  // empty: anyone may connect
   AddressList writers;  // empty: every connected client may write
   int idle_timeout_ms = 60000;
+};
+
+// One connected client, for status reports.
+struct ClientInfo {
+  std::string address;
+  uint64_t requests = 0;
+  bool writer = false;
 };
 
 class ModbusServer {
@@ -42,6 +51,7 @@ class ModbusServer {
 
   uint16_t port() const { return port_; }  // the bound port (listen port 0 in tests)
   int clients() const { return clients_.load(std::memory_order_relaxed); }
+  std::vector<ClientInfo> client_list() const;
 
  private:
   void run();
@@ -52,6 +62,8 @@ class ModbusServer {
   int wake_fd_ = -1;
   uint16_t port_ = 0;
   std::atomic<int> clients_{0};
+  mutable std::mutex info_mu_;
+  std::vector<ClientInfo> info_;
   std::atomic<bool> stop_{false};
   std::thread thread_;
 };

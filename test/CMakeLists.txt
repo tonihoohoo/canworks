@@ -278,3 +278,12 @@ target_include_directories(bridge_tests PRIVATE common)
 target_link_libraries(bridge_tests PRIVATE canworks_bridge_proto)
 add_test(NAME bridge_tests COMMAND bridge_tests)
 set_tests_properties(bridge_tests PROPERTIES TIMEOUT 60)
+
+# canworks-bridge end to end: the example on its simulated bus with a Modbus
+# TCP client (modbus-bridge).
+add_executable(bridge_host_tests bridge/bridge_host_tests.cpp ${PROJECT_SOURCE_DIR}/plugin/src/bridge/bridge_host.cpp)
+target_include_directories(bridge_host_tests PRIVATE common)
+target_compile_definitions(bridge_host_tests PRIVATE EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/modbus-bridge")
+target_link_libraries(bridge_host_tests PRIVATE canopen_core canworks_bridge_proto)
+add_test(NAME bridge_host_tests COMMAND bridge_host_tests)
+set_tests_properties(bridge_host_tests PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")

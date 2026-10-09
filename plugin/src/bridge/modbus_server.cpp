@@ -32,6 +32,7 @@ struct Client {
   Clock::time_point last;
   std::vector<uint8_t> rx;
   std::vector<uint8_t> tx;
+  uint64_t requests = 0;
 };
 
 void close_fd(int& fd) {
@@ -128,6 +129,7 @@ void ModbusServer::run() {
         }
         if (c.rx.size() < 6u + len) break;
         uint8_t unit = c.rx[6];
+        ++c.requests;
         const uint8_t* pdu = &c.rx[kMbapSize];
         size_t n = len - 1u;
         if (unit != cfg_.unit_id && unit != 0 && unit != 255) {
@@ -182,13 +184,25 @@ void ModbusServer::run() {
         int one = 1;
         ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
         bool writer = cfg_.writers.empty() || cfg_.writers.matches(pa);
-        clients.push_back(Client{fd, writer, who, now, {}, {}});
+        clients.push_back(Client{fd, writer, who, now, {}, {}, 0});
       }
     }
     clients_.store(static_cast<int>(clients.size()), std::memory_order_relaxed);
+    {
+      std::lock_guard<std::mutex> lock(info_mu_);
+      info_.clear();
+      for (const Client& c : clients) info_.push_back(ClientInfo{c.peer, c.requests, c.may_write});
+    }
   }
   for (Client& c : clients) ::close(c.fd);
   clients_ = 0;
+  std::lock_guard<std::mutex> lock(info_mu_);
+  info_.clear();
+}
+
+std::vector<ClientInfo> ModbusServer::client_list() const {
+  std::lock_guard<std::mutex> lock(info_mu_);
+  return info_;
 }
 
 }  // namespace canworks_bridge

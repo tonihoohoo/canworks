@@ -41,6 +41,13 @@ class OutputSupervisor {
 
   OutputState state() const { return state_; }
   bool running() const { return state_ == OutputState::kRunning; }
+  // Milliseconds until the watchdog fires (0 when off, idle or already fired).
+  uint64_t left_ms(Clock::time_point now) const {
+    if (watchdog_.count() == 0 || state_ != OutputState::kRunning) return 0;
+    auto end = last_write_ + watchdog_;
+    if (now >= end) return 0;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(end - now).count();
+  }
 
  private:
   bool set(OutputState s);
