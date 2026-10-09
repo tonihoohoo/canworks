@@ -42,6 +42,17 @@ def _uint(v, field, top):
     return n
 
 
+def _hex(v, field, top):
+    """A field the page asks for in hex ("1017" or "0x1017"); a number as it is."""
+    if isinstance(v, str):
+        t = v.strip()
+        t = t[2:] if t[:2].lower() == "0x" else t
+        if not t or any(c not in "0123456789abcdefABCDEF" for c in t):
+            raise BuildError(field, "%r is not a hex number" % (v.strip(),))
+        v = int(t, 16)
+    return _uint(v, field, top)
+
+
 def _f(can_id, data=b"", **kw):
     return Frame(0, can_id, bytes(data), **kw)
 
@@ -62,8 +73,8 @@ def heartbeat(node, state="operational"):
 
 def emcy(node, code=0x1000, register=0x01, manufacturer=""):
     n = _node(node)
-    code = _uint(code, "error code", 0xFFFF)
-    reg = _uint(register, "error register", 0xFF)
+    code = _hex(code, "error code", 0xFFFF)
+    reg = _hex(register, "error register", 0xFF)
     try:
         mfr = diag.parse_hex(manufacturer) if str(manufacturer or "").strip() else b""
     except ValueError as e:
@@ -99,7 +110,7 @@ def sdo(dec, node, index, sub, op="read", value=None, type_name=None, segmented=
     expedited unless segmented=True; longer ones always in segments."""
     dec = dec or Decoder()
     n = _node(node)
-    index = _uint(index, "index", 0xFFFF)
+    index = _hex(index, "index", 0xFFFF)
     sub = _uint(sub, "subindex", 0xFF)
     if op not in ("read", "write"):
         raise BuildError("operation", "read or write")

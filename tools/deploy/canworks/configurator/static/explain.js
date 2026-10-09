@@ -708,6 +708,10 @@ function fxLabBody(extra) {
 
 function renderFrameLab(view) {
   const L = FX.lab;
+  // Another network: the frame and its result belonged to the previous one.
+  const net = S.model ? netName(S.config) : "";
+  if (L.net !== undefined && L.net !== net) Object.assign(L, { frame: "", built: null, form: {} });
+  L.net = net;
   const input = el("input", { type: "text", spellcheck: "false", autocomplete: "off", placeholder: "705#7F", "aria-label": "Frame (ID#DATA)",
     value: L.frame, dataset: { fx: "lab-frame" } });
   input.style.width = "24ch";
@@ -782,7 +786,9 @@ async function fxLabExplain(text) {
   try {
     r = await api("POST", "/api/explain", fxLabBody({ frame: text }));
   } catch (e) {
+    if (box._fxSeq !== my) return;
     if (err) err.textContent = e.message;
+    fxFill(box);
     return;
   }
   if (box._fxSeq !== my) return;
@@ -856,17 +862,21 @@ function fxBuilder() {
 
 async function fxBuild() {
   const L = FX.lab, F = L.form;
-  const hexNum = (v) => (v == null || v === "" ? v : /^0x/i.test(v) ? v : "0x" + v);
   const body = { what: L.what };
-  if (L.what === "sdo") Object.assign(body, { node: F.node || "1", index: hexNum(F.index || "1017"), subindex: F.subindex || "0", op: F.op || "read",
+  if (L.what === "sdo") Object.assign(body, { node: F.node || "1", index: F.index || "1017", subindex: F.subindex || "0", op: F.op || "read",
     value: F.value || "", type: F.type || "", segmented: !!F.segmented });
   else if (L.what === "pdo") Object.assign(body, { cob_id: Number(F.pdo || (L.pdos[0] || {}).cob_id), values: F.values || {} });
   else if (L.what === "nmt") Object.assign(body, { command: F.command || "start", node: F.target || 0 });
   else if (L.what === "heartbeat") Object.assign(body, { node: F.node || "1", state: F.state || "operational" });
-  else Object.assign(body, { node: F.node || "1", code: hexNum(F.code || "1000"), register: hexNum(F.register || "01"), manufacturer: F.manufacturer || "" });
+  else Object.assign(body, { node: F.node || "1", code: F.code || "1000", register: F.register || "01", manufacturer: F.manufacturer || "" });
   const err = $("#fx-build-error");
   let r;
-  try { r = await api("POST", "/api/explain/build", fxLabBody(body)); } catch (e) { if (err) err.textContent = e.message; return; }
+  try { r = await api("POST", "/api/explain/build", fxLabBody(body)); } catch (e) {
+    if (err) err.textContent = e.message;
+    const box = $("#fx-lab-inspector");
+    if (box) { box._fxSeq = (box._fxSeq || 0) + 1; fxFill(box); }
+    return;
+  }
   if (err) err.textContent = "";
   fxLabFrames(r.frames, (FX_BUILD.find(([v]) => v === L.what) || [0, "Built"])[1]);
 }

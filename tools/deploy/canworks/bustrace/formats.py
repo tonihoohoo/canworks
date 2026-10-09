@@ -459,7 +459,8 @@ def write_csv(trace, out, decoder=None):
 
 def write_signals_csv(series, out, t0_us=None):
     """series: [(name, [(time_us, value)])]. One row per time at which any
-    series changes, holding every series' latest value."""
+    series changes its value (a point that repeats the value writes no
+    row), holding every series' latest value."""
     names = [n for n, _ in series]
     events = []
     for k, (_, points) in enumerate(series):
@@ -473,9 +474,14 @@ def write_signals_csv(series, out, t0_us=None):
     i = 0
     while i < len(events):
         t = events[i][0]
+        changed = False
         while i < len(events) and events[i][0] == t:
-            current[events[i][1]] = events[i][2]
+            k, v = events[i][1], events[i][2]
+            changed = changed or current[k] == "" or current[k] != v
+            current[k] = v
             i += 1
+        if not changed:
+            continue
         utc = dt.datetime.fromtimestamp(t / 1e6, dt.timezone.utc).isoformat(timespec="microseconds")
         out.write(",".join(["%.6f" % ((t - t0_us) / 1e6), utc] + [_csv_cell(_num(v)) for v in current]) + "\n")
 

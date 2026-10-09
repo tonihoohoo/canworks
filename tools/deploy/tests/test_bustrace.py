@@ -188,6 +188,10 @@ class Formats(unittest.TestCase):
             "0.000000,2026-10-05T06:20:00.000000+00:00,1,",
             "0.000500,2026-10-05T06:20:00.000500+00:00,1,1.5",
             "0.001000,2026-10-05T06:20:00.001000+00:00,2,1.5"])
+        # A point that repeats its series' value (the next frame of the PDO) writes no row.
+        out = io.StringIO()
+        formats.write_signals_csv([("a", [(T0, 1), (T0 + 1000, 1), (T0 + 2000, 1), (T0 + 3000, 2)])], out)
+        self.assertEqual([ln.split(",")[0] for ln in out.getvalue().splitlines()[1:]], ["0.000000", "0.003000"])
 
     @unittest.skipIf(can is None, "python-can is not installed")
     def test_python_can_reads_every_format(self):
@@ -599,6 +603,23 @@ class Recording(unittest.TestCase):
         self.assertFalse(r.running)
         self.assertEqual(r.message, "stopped by the trigger")
         self.assertEqual([m["kind"] for m in s.trace.markers], ["trigger"])
+
+    def test_single_trigger_keeps_the_window(self):
+        spec = triggers.parse("emcy node=2", mode="single", pre_s=0.1, post_s=0.0)
+        s, r = self.recorder(trigger=spec)
+        r.start()
+        self.assertTrue(self.wait_for(lambda: r.state == "recording"))
+        now = int(time.time() * 1e6)
+        self.fake.push([Frame(now + i * 100000, 0x182, bytes([i, 0, 0, 0])) for i in range(5)] +
+                       [Frame(now + 450000, 0x82, bytes.fromhex("1050010000000000")),
+                        Frame(now + 460000, 0x182, bytes(4))])
+        r.wait(3)
+        self.assertEqual(r.message, "stopped by the trigger")
+        # Only the 100 ms before the hit and the hit itself: 0x182 at 400 ms, the EMCY.
+        self.assertEqual([f.time_us - now for f in s.trace], [400000, 450000])
+        self.assertEqual(r.info()["trimmed"], 5)
+        self.assertEqual(s.analysis.frames, 2)
+        self.assertEqual(s.analysis.series["pingpong_TPDO1.UNSIGNED32_sent_from_slave"].values.tolist(), [4.0])
 
     def test_normal_trigger_autosaves(self):
         folder = tempfile.mkdtemp()

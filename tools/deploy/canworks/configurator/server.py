@@ -2238,7 +2238,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             fmt = body.get("format") or "pcapng"
             if fmt not in formats_mod.FORMATS and fmt not in [v[0] for v in formats_mod.FORMATS.values()]:
                 raise ApiError(400, "format must be one of " + ", ".join(sorted(formats_mod.FORMATS)))
-            target = tracing.check_folder(body.get("folder") or traces_dir, canopen_dir)
+            target = tracing.check_folder(body.get("folder") or traces_dir, canopen_dir, exists=bool(body.get("folder")))
             fid = formats_mod.format_of("x", fmt)
             ext = next(e for e, (f, _) in formats_mod.FORMATS.items() if f == fid)
             part, dec = ws.part(start, end)
@@ -2310,17 +2310,23 @@ def frame_from(body):
     a number, the data as hex bytes."""
     ext, rtr = body.get("ext") is True, body.get("rtr") is True
     raw = body.get("id")
+    if isinstance(raw, str):
+        text = raw.strip()
+        text = text[2:] if text.lower().startswith("0x") else text
+        if not text or any(c not in "0123456789abcdefABCDEF" for c in text):
+            raise ApiError(422, "the identifier must be hex, for example 60A")
+        raw = int(text, 16)
     try:
-        if isinstance(raw, str):
-            text = raw.strip()
-            text = text[2:] if text.lower().startswith("0x") else text
-            raw = int(text, 16)
         can_id = diag.parse_frame_id(raw, ext)
+    except ValueError:
+        raise ApiError(422, "the identifier must be hex, for example 60A" if not isinstance(raw, int) else
+                       "identifier %X is out of range: 0-%X%s" % (raw, 0x1FFFFFFF if ext else 0x7FF,
+                                                                 "" if ext else " (tick Extended for a 29-bit one)"))
+    try:
         data = b"" if rtr else diag.parse_frame_data(body.get("data") or "")
     except ValueError as e:
-        if "invalid literal" in str(e):
-            raise ApiError(422, "identifier %r is not hexadecimal" % body.get("id"))
-        raise ApiError(422, str(e))
+        raise ApiError(422, str(e) if "at most 8" in str(e) else
+                       "the data must be whole hex bytes, for example 40 18 10 01")
     dlc = body.get("dlc")
     if rtr and (isinstance(dlc, bool) or not isinstance(dlc, int) or not 0 <= dlc <= 8):
         raise ApiError(422, "a remote frame needs a DLC of 0-8")

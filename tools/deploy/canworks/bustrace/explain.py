@@ -789,11 +789,13 @@ def parse_frame(text):
     ident, data = t.split("#", 1)
     if ident.lower().startswith("0x"):
         ident = ident[2:]
-    if not ident or any(c not in "0123456789abcdefABCDEF" for c in ident):
-        raise ValueError("%r: the identifier must be hexadecimal" % ident)
+    if not ident:
+        raise ValueError("the identifier is missing: write a frame as ID#DATA, e.g. 185#2500EA00 or 705#R")
+    if any(c not in "0123456789abcdefABCDEF" for c in ident):
+        raise ValueError("the identifier %s is not hex: write a frame as ID#DATA, e.g. 185#2500EA00" % ident)
     ext = len(ident) == 8
     if len(ident) > 8:
-        raise ValueError("%r: the identifier has too many digits" % ident)
+        raise ValueError("the identifier %s has too many digits (at most 8)" % ident)
     can_id = int(ident, 16)
     if not ext and can_id > 0x7FF:
         raise ValueError("0x%X is more than 11 bits: write extended identifiers with 8 digits" % can_id)
@@ -807,7 +809,7 @@ def parse_frame(text):
         return Frame(0, can_id, b"", ext=ext, rtr=True, dlc=dlc)
     data = data.replace(".", "")
     if any(c not in "0123456789abcdefABCDEF" for c in data):
-        raise ValueError("%r: the data must be hexadecimal bytes" % data)
+        raise ValueError("the data %s is not hex bytes: write a frame as ID#DATA, e.g. 185#2500EA00" % data)
     if len(data) % 2:
         raise ValueError("the data needs whole bytes: an even number of hex digits")
     raw = bytes.fromhex(data)
