@@ -405,7 +405,7 @@
       "file": "cpp-slave.eds",
       "lss_supported": false,
       "product_name": "cpp-slave",
-      "sha256": "9a37938e19d64c4492222b5ee613a6a5eb33435cb439ab7864eab4a2d9e92f59",
+      "sha256": "3a501d530d1438509943b2054e90666257cce241dabfbf511d096481c3dad74e",
       "vendor_name": "Lely Industries N.V."
      },
      "ident": "pingpong",
@@ -1080,7 +1080,7 @@
       "file": "cpp-slave.eds",
       "lss_supported": false,
       "product_name": "cpp-slave",
-      "sha256": "9a37938e19d64c4492222b5ee613a6a5eb33435cb439ab7864eab4a2d9e92f59",
+      "sha256": "3a501d530d1438509943b2054e90666257cce241dabfbf511d096481c3dad74e",
       "vendor_name": "Lely Industries N.V."
      },
      "ident": "pingpong",
@@ -1437,7 +1437,7 @@
  "title": "CANopen network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.41.0"
+  "version": "0.42.0"
  },
  "warnings": []
 }
