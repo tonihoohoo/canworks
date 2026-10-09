@@ -8,10 +8,14 @@
 #include <lely/can/msg.h>
 #include <lely/ev/exec.hpp>
 
-// <lely/can/net.h> clashes with the C++ headers; only this is needed.
+// <lely/can/net.h> clashes with the C++ headers; only these are needed.
 extern "C" int can_net_send(__can_net* net, const can_msg* msg);
+using can_send_func = int(const can_msg* msg, void* data);
+extern "C" void can_net_get_send_func(const __can_net* net, can_send_func** pfunc, void** pdata);
+extern "C" void can_net_set_send_func(__can_net* net, can_send_func* func, void* data);
 
 #include "log.h"
+#include "outputs_gate.h"
 
 // From <lely/co/nmt.h> (C header): sends the synchronous TPDOs and actuates
 // the synchronous RPDOs after a SYNC, then calls the SYNC indication (OnSync).
@@ -131,6 +135,7 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
       req_timer_(req_timer),
       req_wait_(exec, [this](int, std::error_code ec) {
         if (ec || stopped_) return;
+        ServiceHost();
         ServiceDiag();
         ServiceRequests();
         req_timer_->submit_wait(req_wait_);
@@ -170,12 +175,29 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
 }
 
 Network::~Network() {
+  HostRequests::instance().clear(cfg_.network_index);
   if (lss_) lss_->AbortAll();
   sup_timer_.cancel_wait(tick_wait_);
   if (req_timer_) req_timer_->cancel_wait(req_wait_);
   if (out_timer_) out_timer_->cancel_wait(out_wait_);
   // Program transfers this session took never finish now.
   PlcRequests::instance().cancel_taken(cfg_.network_index);
+}
+
+void Network::SetSendTap(std::function<void(const can_msg&)> tap) {
+  __can_net* net = lely::io::CanNet::operator __can_net*();
+  can_send_func* f = nullptr;
+  can_net_get_send_func(net, &f, &send_data_);
+  send_func_ = reinterpret_cast<void*>(f);
+  send_tap_ = std::move(tap);
+  can_net_set_send_func(net, &Network::SendTapped, this);
+}
+
+int Network::SendTapped(const can_msg* msg, void* data) {
+  auto* self = static_cast<Network*>(data);
+  int r = reinterpret_cast<can_send_func*>(self->send_func_)(msg, self->send_data_);
+  if (!r) self->send_tap_(*msg);
+  return r;
 }
 
 void Network::Start() {
@@ -294,7 +316,8 @@ void Network::SetUp(unsigned id, bool up, const char* why) {
   image_.set_node_status(id, up);
   ArmInputPdos(id, up);
   image_.commit_inputs();
-  EnableTpdos(n, up);
+  HostRequests::instance().set_operational(cfg_.network_index, id, up);
+  EnableTpdos(n, up && outputs_on_);
   if (up)
     log_info("%s is operational", n.cfg->label().c_str());
   else
@@ -382,6 +405,7 @@ void Network::OnTick() {
     return;
   }
   if (!req_timer_) {
+    ServiceHost();
     ServiceDiag();
     ServiceRequests();
   }
@@ -928,13 +952,15 @@ void Network::ArmInputPdos(unsigned id, bool up) {
   }
 }
 
-// Lely's deadline runs only from a received PDO; one that never arrives
-// after the node came up is caught here, on the supervision tick.
+// The timeout is checked here, on the supervision tick: from the last PDO,
+// or from the node coming up when none has arrived since. Lely's deadline
+// (HandleRpdoTimeout) can only report it earlier: it runs only from a
+// received PDO, and does not fire for a synchronous RPDO on the simulated bus.
 void Network::CheckInputPdos(clock::time_point now) {
   for (auto& it : in_pdos_) {
     InputPdo& p = it.second;
-    if (!p.timeout_ms || p.timed_out || p.seen || !IsOperational(p.node_id)) continue;
-    if (now - p.armed >= std::chrono::milliseconds(p.timeout_ms)) PdoTimedOut(p, now);
+    if (!p.timeout_ms || p.timed_out || !IsOperational(p.node_id)) continue;
+    if (now - (p.seen ? p.last_rx : p.armed) >= std::chrono::milliseconds(p.timeout_ms)) PdoTimedOut(p, now);
   }
 }
 
@@ -1140,6 +1166,35 @@ void Network::WriteOutputs() {
       if (tpdo_event_.count(num)) TpdoEvent(static_cast<int>(num));
 }
 
+// The host's NMT commands (the bridge's control block) and outputs gate.
+void Network::ServiceHost() {
+  bool gate = outputs_enabled();
+  if (gate != outputs_on_) {
+    outputs_on_ = gate;
+    ApplyOutputsGate();
+  }
+  host_nmt_.clear();
+  HostRequests::instance().take(cfg_.network_index, host_nmt_);
+  for (const HostNmt& r : host_nmt_) {
+    for (auto& it : nodes_)
+      if (r.node == 0 || r.node == it.first) OperatorNmt(it.first, it.second, r.command, "the Modbus control block");
+  }
+}
+
+// Outputs off: no master TPDOs (the nodes' RPDOs); SYNC, inputs, heartbeats
+// and supervision go on, so synchronous inputs keep coming and a node's RPDO
+// event timer sees the outputs stop. Outputs on: the TPDOs again for the
+// nodes that are operational.
+void Network::ApplyOutputsGate() {
+  for (auto& it : nodes_) EnableTpdos(it.second, it.second.up && outputs_on_);
+  if (outputs_on_) {
+    log_info("outputs on: RPDOs run again");
+    WriteOutputs();
+  } else {
+    log_info("outputs off: RPDOs stopped, SYNC and inputs go on");
+  }
+}
+
 void Network::OnHeartbeat(uint8_t id, bool occurred) noexcept {
   BasicMaster::OnHeartbeat(id, occurred);
   Defer([this, id, occurred] { HandleHeartbeat(id, occurred); });
@@ -1275,6 +1330,7 @@ void Network::HandleEmcy(uint8_t id, uint16_t eec, uint8_t er, const std::array<
   rec.msef = msef;
   n.emcy_head = (n.emcy_head + 1) % kEmcyHistory;
   n.emcy_n = std::min(n.emcy_n + 1, kEmcyHistory);
+  ++n.emcy_total;
   auto now = clock::now();
   if (now - n.emcy_window >= std::chrono::seconds(1)) {
     FlushEmcySummary(n, now, true);

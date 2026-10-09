@@ -46,6 +46,12 @@ OdKind od_kind(__co_dev* dev, uint16_t index, uint8_t subindex);
 // The CiA 301 data type name ("UNSIGNED16", ...), "" when missing.
 std::string od_type_name(__co_dev* dev, uint16_t index, uint8_t subindex);
 uint16_t od_type(__co_dev* dev, uint16_t index, uint8_t subindex);
+// The name of a data type code (CO_DEFTYPE_*), "" for 0.
+std::string type_name(uint16_t type);
+// Why `v` cannot be set on an object of data type `type`, "" when it fits:
+// text for a number, a number for text, or a number outside the type's range
+// (an explicit value is refused where a source's is clamped).
+std::string value_misfit(uint16_t type, const Value& v);
 
 bool od_read(__co_dev* dev, uint16_t index, uint8_t subindex, Value& out);
 // Numeric read; 0 when missing or not numeric.

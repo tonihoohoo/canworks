@@ -271,6 +271,115 @@ class OnlinePage(OnlineBase):
             pg.click('#modal button[data-value="write"]')
             pg.wait_for_selector('[data-online="sdo-result"]:has-text("out of range for UNSIGNED16")')
 
+    def test_node_table_patched_in_place(self):
+        # fix-gui-test-findings C16: the table used to be rebuilt every poll,
+        # so focus on a row went back to the page within 0.5 s.
+        pg = self.page
+        with FakePlugin() as fp:
+            self.online(fp)
+            row = 'tr[data-online-node="2"]'
+            pg.wait_for_selector(row)
+            pg.focus(row)
+            for k in range(10):
+                fp.status["nodes"][0]["sdo_variables"][0]["raw"] = str(100 + k)
+                pg.wait_for_timeout(500)
+            pg.wait_for_selector(row + ':has-text("= 109")')
+            self.assertEqual(pg.evaluate("() => document.activeElement.dataset.onlineNode"), "2")
+            pg.keyboard.press("Enter")
+            pg.wait_for_selector('#online-node h2:has-text("Node 2")')
+
+    def test_wording_and_pdo_timeouts_while_not_operational(self):
+        # C2: a done SDO variable shows its value only; C3: no "local
+        # simulator runtime" for any runtime; C5: no "receiving" while the
+        # node is not OPERATIONAL.
+        pg = self.page
+        with FakePlugin() as fp:
+            fp.status["nodes"][0]["sdo_variables"][0]["status"] = 2
+            fp.status["nodes"][0]["sdo_variables"].append(dict(fp.status["nodes"][0]["sdo_variables"][0], name="spare", status=4))
+            fp.status["simulation_forced"] = True
+            fp.status["nodes"][1]["state"] = 127
+            self.online(fp)
+            pg.wait_for_selector('[data-online="forced"]')
+            self.assertEqual(pg.inner_text('[data-online="forced"]'), "This runtime simulates every network: no CAN "
+                             "interface is used, whatever the adapter settings say.")
+            row = pg.inner_text('tr[data-online-node="2"]')
+            self.assertIn("(uptime) = 42,", row)
+            self.assertNotIn("status 2", row)
+            self.assertIn("spare = 42 (node not available)", row)
+            pg.click('tr[data-online-node="23"]')
+            pg.wait_for_selector('[data-pdo-timeout-row="2"]')
+            self.assertIn("not monitored (node PRE-OPERATIONAL)", pg.inner_text('[data-pdo-timeout-row="2"]'))
+            self.assertIn("timed out", pg.inner_text('[data-pdo-timeout-row="1"]'))
+
+    def test_connection_lost_greys_the_node_panel(self):
+        # C13: the node panel greys out with the age of its values, like the table.
+        pg = self.page
+        with FakePlugin() as fp:
+            self.online(fp)
+            pg.click('tr[data-online-node="23"]')
+            pg.wait_for_selector('[data-pdo-timeout-row="1"]')
+            fp.outage()
+            pg.wait_for_selector("#online-node.stale [data-online='node-stale']", timeout=8000)
+            self.assertIn("Connection lost", pg.inner_text('[data-online="node-stale"]'))
+            self.assertIn("s ago", pg.inner_text('[data-online="node-stale"]'))
+            fp.restart()
+            pg.wait_for_selector("#online-node:not(.stale)", timeout=8000)
+            self.assertEqual(pg.locator('[data-online="node-stale"]').count(), 0)
+
+    def test_connection_button_for_a_runtime(self):
+        # C1: Connection… on a runtime target brings the connect box back.
+        pg = self.page
+        with FakePlugin() as fp:
+            self.online(None)
+            pg.wait_for_selector("#online-conn:has-text('Not connected (port closed)')")
+            pg.click('button[data-online="change-target"]')
+            pg.fill('input[data-online="host"]', fp.runtime)
+            pg.click('button[data-online="connect"]')
+            pg.wait_for_selector("text=Connected to " + fp.runtime)
+
+    def test_rpdo_mapped_write_warns_and_keep_keeps_the_written_value(self):
+        # C9 and C4: the program overwrites an RPDO-mapped object; Keep in
+        # configuration keeps the value written, and the row is marked at once.
+        pg = self.page
+        with FakePlugin(allow_changes=True) as fp:
+            fp.objects[(2, 0x4000, 0)] = bytes(4)
+            answer = fp.answer
+
+            def pdo_overwrites(req, conn=None):
+                res = answer(req, conn)
+                if req.get("op") == "sdo_write" and (req.get("index"), req.get("subindex")) == (0x4000, 0):
+                    fp.objects[(2, 0x4000, 0)] = bytes(4)  # the next RPDO
+                return res
+            fp.answer = pdo_overwrites
+            self.online(fp, allow=True)
+            pg.click('tr[data-online-node="2"]')
+            pg.click('button[data-online-tab="od"]')
+            pg.fill('input[data-online="od-filter"]', "0x4000")
+            row = 'tr[data-od-key="%d:0"]' % 0x4000
+            pg.wait_for_selector(row, state="visible")
+            self.assertNotIn("set by config", pg.inner_text(row))
+            pg.click(row + ' button[data-online="od-edit"]')
+            pg.fill(row + ' input[data-online="od-input"]', "7")
+            pg.click(row + ' button[data-online="od-write"]')
+            self.assertIn("RPDO1 bits 0-31, %QD300", pg.inner_text("#modal-text"))
+            self.assertIn("overwritten", pg.inner_text("#modal-text"))
+            pg.click('#modal button[data-value="write"]')
+            pg.click(row + ' button[data-online="od-keep"]')
+            sdo = pg.evaluate("() => S.config.nodes[0].sdo")
+            self.assertIn({"index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "value": 7}, sdo)
+            self.assertIn("set by config", pg.inner_text(row))
+            pg.fill('input[data-online="od-filter"]', "")
+            pg.check('input[data-od-filter="owned"]')
+            pg.wait_for_selector(row, state="visible")
+            # The Overview's SDO panel asks too.
+            pg.click('button[data-online-tab="overview"]')
+            pg.fill('input[data-online="index"]', "0x4000")
+            pg.fill('input[data-online="subindex"]', "0")
+            pg.fill('input[data-online="value"]', "3")
+            pg.click('button[data-online="write"]')
+            pg.wait_for_selector("#modal-text:has-text('RPDO1')")
+            pg.click('#modal button[data-value="cancel"]')
+
     def test_connection_error_shown(self):
         pg = self.page
         self.online(None)
@@ -310,6 +419,10 @@ class OnlinePage(OnlineBase):
             self.assertEqual(pg.evaluate("() => document.activeElement.dataset.path"), "nodes[1].name")
             pg.click('[data-online="back-to-scan"]')
             pg.wait_for_selector('tr[data-scan-node="40"]:has-text("added")')
+            # C12: added, not "not configured"; no Use for node for it.
+            self.assertIn("added as rtd_sensor (not saved yet)", pg.inner_text('tr[data-scan-node="40"]'))
+            self.assertNotIn("not configured", pg.inner_text('tr[data-scan-node="40"]'))
+            self.assertEqual(pg.locator('tr[data-scan-node="40"] select[data-online="use-for"]').count(), 0)
             self.assertFalse(os.path.exists(os.path.join(self.project, "canworks", "rtd.eds")))
             self.assertEqual(len(load(self.config_path)["nodes"]), 1)
             pg.wait_for_function("() => document.body.dataset.checking === '0'")
@@ -319,6 +432,27 @@ class OnlinePage(OnlineBase):
         self.assertEqual(nodes[1], {"node_id": 40, "name": "rtd_sensor", "eds": "rtd.eds",
                                     "revision_number": 0x00010002, "serial_number": 99})
         self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "rtd.eds")))
+
+    def test_library_change_matches_the_shown_devices_again(self):
+        # C15: a new EDS library folder matches the shown scan result again.
+        pg = self.page
+        lib = os.path.join(self.dir, "eds-library")
+        os.makedirs(lib)
+        with open(os.path.join(RTD, "rtd8.eds"), encoding="latin-1") as f:
+            text = f.read()
+        with open(os.path.join(lib, "rtd.eds"), "w", encoding="latin-1") as f:
+            f.write(text.replace("VendorNumber=0x00F0F0F0", "VendorNumber=0xAB").replace("ProductNumber=0x00000404", "ProductNumber=0x1234"))
+        with FakePlugin() as fp:
+            self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
+            self.remember(fp.runtime)
+            self.open()
+            pg.click('button[data-view="scan"]')
+            pg.click('button[data-online="scan"]')
+            pg.wait_for_selector('tr[data-scan-node="40"]:has-text("No matching EDS")')
+            pg.fill('input[data-online="library"]', lib)
+            pg.press('input[data-online="library"]', "Tab")
+            pg.wait_for_selector('tr[data-scan-node="40"] select[data-online="eds-match"]')
+            self.assertEqual(len([r for r in fp.requests if r["op"] == "scan"]), 1)  # not scanned again
 
     # -- LSS ----------------------------------------------------------------
     def test_lss_commission_new_device(self):
@@ -336,6 +470,11 @@ class OnlinePage(OnlineBase):
             pg.click(row + ' button[data-online="lss-set-id"]')
             self.assertEqual(pg.input_value('#modal input[data-online="lss-node-id"]'), "3")  # lowest free
             self.assertFalse(pg.is_checked('#modal input[data-online="lss-store"]'))
+            # An invalid node ID keeps the dialog, with the reason.
+            pg.fill('#modal input[data-online="lss-node-id"]', "128")
+            pg.click('#modal button[data-value="set"]')
+            pg.wait_for_selector('#modal [data-online="lss-node-id-msg"]:has-text("must be 1-127")')
+            self.assertFalse([r for r in fp.requests if r["op"] == "lss_set_id"])
             pg.fill('#modal input[data-online="lss-node-id"]', "40")
             pg.check('#modal input[data-online="lss-store"]')
             pg.click('#modal button[data-value="set"]')
@@ -344,6 +483,9 @@ class OnlinePage(OnlineBase):
             self.assertEqual((req["node"], req["store"], req["serial_number"]), (40, True, 0x42))
             pg.click('#modal button[data-value="add"]')
             pg.wait_for_selector('#banner:has-text("Added node 40")')
+            # Found in the online view, not in a scan: the way back leads there.
+            self.assertEqual(pg.locator('[data-online="back-to-scan"]').count(), 0)
+            self.assertIn("Back to the online view", pg.inner_text('[data-online="back-to-online"]'))
             self.assertEqual(len(load(self.config_path)["nodes"]), 1)  # unsaved
             pg.wait_for_function("() => document.body.dataset.checking === '0'")
             pg.click("#btn-save")
@@ -469,6 +611,30 @@ class SlaveOnlinePage(OnlineBase):
             pg.wait_for_selector('[data-online="scan-slave"]')
             self.assertEqual(pg.locator('button[data-online="scan"]').count(), 0)
         self.assertFalse([r for r in fp.requests if r["op"] not in ("status", "sdo_read", "sdo_write")])
+
+    def test_slave_pdo_filter_names_and_simulated(self):
+        # C10: the "In a PDO" filter on the slave's own dictionary, a mapped
+        # object the config does not bind named after the dictionary, and
+        # the simulated note.
+        pg = self.page
+        self.use("slave")
+        self.cfg["networks"][0]["slave"]["objects"] = [o for o in self.cfg["networks"][0]["slave"]["objects"]
+                                                       if o["index"] != "0x2101"]
+        with FakePlugin(networks=[SLAVE_NETWORK]) as fp:
+            fp.status.update(simulated_network=True, simulation_forced=True)
+            self.online(fp)
+            pg.wait_for_selector('[data-online="slave-state"]:has-text("OPERATIONAL")')
+            self.assertEqual(pg.inner_text('[data-online="bus"]'), "vcan1 (simulated)")
+            pg.wait_for_selector('[data-online="forced"]')
+            pg.wait_for_selector('tr[data-slave-pdo="tx1"]:has-text("temperature")')
+            self.assertIn("0x2101:1 (16 bits)", pg.inner_text('tr[data-slave-pdo="tx1"]'))
+            pg.click('button[data-online-tab="od"]')
+            pg.wait_for_selector('input[data-od-filter="pdo"]')
+            pg.check('input[data-od-filter="pdo"]')
+            for key in ((0x2000, 1), (0x2002, 1), (0x2100, 1), (0x2101, 1)):
+                pg.wait_for_selector('tr[data-od-key="%d:%d"]' % key, state="visible")
+            self.assertIn("RPDO1 bit 24", pg.inner_text('tr[data-od-key="%d:1"]' % 0x2002))
+            self.assertTrue(pg.locator('tr[data-od-key="%d:0"]' % 0x1008).is_hidden())
 
     def test_gateway_upper_network(self):
         pg = self.page

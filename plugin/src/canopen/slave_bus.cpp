@@ -100,7 +100,9 @@ void SlaveBus::run_session() {
     const std::string where = virt ? "simulated bus " + cfg_.adapter.interface : cfg_.adapter.interface;
     std::shared_ptr<lely::io::VirtualCanController> vbus;
     std::unique_ptr<lely::io::CanController> ctrl;
-    std::unique_ptr<lely::io::CanChannelBase> chan_ptr;
+    // A shared pointer deletes the channel as what it is (Lely's channel
+    // classes have no virtual destructor): it leaves the bus at the end.
+    std::shared_ptr<lely::io::CanChannelBase> chan_ptr;
     if (virt) {
       vbus = shared_virtual_bus(cfg_.adapter.interface);
       auto* c = new lely::io::VirtualCanChannel(ctx, exec);

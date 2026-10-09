@@ -52,6 +52,10 @@ class SharedFixtures(unittest.TestCase):
         # J1939 networks (test/fixtures/config/cases-j1939.json).
         self.run_cases(load_cases("cases-j1939.json"), contract.schema(2), 30)
 
+    def test_cases_bridge(self):
+        # Modbus bridge configs (test/fixtures/config/cases-bridge.json).
+        self.run_cases(load_cases("cases-bridge.json"), contract.schema(2), 30)
+
     def run_cases(self, doc, schema, at_least):
         validator = jsonschema.Draft202012Validator(schema)
         self.assertGreater(len(doc["cases"]), at_least)
@@ -107,7 +111,7 @@ class Examples(unittest.TestCase):
     def test_node_id_out_of_range_names_path_and_range(self):
         cfg = patched(load_cases()["base"], [["set", "nodes/0/node_id", 200]])
         r = contract.check_config(cfg, "canworks.json", eds_dir=os.path.join(FIXTURES, "eds"))
-        self.assertIn("canworks.json: nodes[0].node_id: 200 is greater than the maximum of 127", "\n".join(r.errors))
+        self.assertIn("canworks.json: nodes[0].node_id: node ID must be 1 to 127", "\n".join(r.errors))
 
 
 class AutoCobIds(unittest.TestCase):

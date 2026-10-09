@@ -1,7 +1,11 @@
 """The CI change classification (.github/scripts/ci_changes.py)."""
 
+import contextlib
+import fnmatch
 import importlib.util
+import io
 import os
+import subprocess
 import unittest
 
 _path = os.path.join(os.path.dirname(__file__), "..", "..", ".github", "scripts", "ci_changes.py")
@@ -69,6 +73,47 @@ class Areas(unittest.TestCase):
         import fnmatch
         for area, pattern in self.rules:
             self.assertTrue(any(fnmatch.fnmatchcase(f, pattern) for f in files), "%s %s" % (area, pattern))
+
+
+class Ui(unittest.TestCase):
+    def setUp(self):
+        self.rules = ci.load_ui_rules()
+
+    def test_configurator_and_what_it_uses(self):
+        for p in ("tools/deploy/canworks/configurator/static/app.js", "tools/deploy/canworks/contract.py",
+                  "schema/canworks.schema.json", "examples/virtual-plant/canworks/canworks.json",
+                  "tools/deploy/tests/test_configurator_layout.py", "tools/deploy/tests/data/axe/axe.min.js",
+                  ".github/workflows/ci.yml", ".github/ci/page-test-times.json"):
+            self.assertTrue(ci.is_ui([p], self.rules), p)
+
+    def test_plugin_only_skips_the_page_tests(self):
+        self.assertFalse(ci.is_ui(["plugin/src/canopen/network.cpp", "plugin/src/canopen/bus.cpp",
+                                   "test/sim/sim_tests.cpp", "tools/sim/main.cpp", "docs/configurator.md"], self.rules))
+
+    def test_one_ui_path_among_others(self):
+        self.assertTrue(ci.is_ui(["plugin/src/canopen/bus.cpp", "tools/deploy/canworks/diag.py"], self.rules))
+
+    def test_unknown_paths_run_the_page_tests(self):
+        self.assertTrue(ci.is_ui(None, self.rules))
+
+    def test_every_rule_matches_a_file(self):
+        root = os.path.join(os.path.dirname(__file__), "..", "..")
+        files = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True, text=True).stdout.split()
+        for pattern in self.rules:
+            self.assertTrue(any(fnmatch.fnmatchcase(f, pattern) for f in files), pattern)
+
+    def run_main(self, *args):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            ci.main(["ci_changes.py"] + list(args))
+        return dict(line.split("=", 1) for line in out.getvalue().splitlines())
+
+    def test_output(self):
+        # The base is unknown: everything runs.
+        self.assertEqual(self.run_main("", "HEAD")["ui"], "true")
+        # A push to main runs the page tests whatever changed (here: nothing).
+        self.assertEqual(self.run_main("--main-push", "HEAD", "HEAD")["ui"], "true")
+        self.assertEqual(self.run_main("HEAD", "HEAD")["ui"], "false")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "../frame_tx.h"
+#include "../outputs_gate.h"
 
 namespace canworks_raw {
 
@@ -145,7 +146,8 @@ bool RawIo::write_frame(const canworks_can_frame& f, int& error, Origin origin) 
 }
 
 void RawIo::send_due(uint64_t now) {
-  bool running = hooks_.plc_running ? hooks_.plc_running() : true;
+  // The host's outputs gate (the bridge's outputs off) stops transmit messages like a PLC stop.
+  bool running = (hooks_.plc_running ? hooks_.plc_running() : true) && canopen_plugin::outputs_enabled();
   if (devices_) {
     dev_buf_.clear();
     devices_->due(now / 1000, dev_buf_);

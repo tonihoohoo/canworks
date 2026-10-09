@@ -56,6 +56,24 @@ bool check_sim_file(const Config& cfg, const canopen_sim::SimFile& file, std::ve
   return ok;
 }
 
+bool check_sim_sources(const Config& cfg, const canopen_sim::SimFile& file, std::vector<std::string>& errors) {
+  bool ok = true;
+  std::string at = file.section.empty() ? "" : "networks." + file.section + ".";
+  for (const auto& d : sim_device_specs(cfg, false)) {
+    auto it = file.nodes.find(d.node);
+    if (it == file.nodes.end()) continue;
+    for (const auto& s : it->second.sources) {
+      auto mw = d.master_written.find(s.first);
+      if (mw == d.master_written.end()) continue;
+      errors.push_back(file.path + ": " + at + "nodes." + std::to_string(d.node) + ".sources." + s.first.str() +
+                       ": node " + std::to_string(d.node) + ": the master writes " + s.first.str() + " (" +
+                       mw->second + "); use an override to make the device ignore it");
+      ok = false;
+    }
+  }
+  return ok;
+}
+
 std::string sim_network_name(const Config& cfg) {
   return cfg.network.empty() ? cfg.adapter.interface : cfg.network;
 }

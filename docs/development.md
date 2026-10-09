@@ -32,6 +32,8 @@ test/j1939/run.sh                               # the J1939 ECU against the J193
 
 `-DCANWORKS_WITH_CANOPEN=OFF` or `-DCANWORKS_WITH_J1939=OFF` builds one protocol only; a J1939-only build needs no Lely.
 
+The configurator and the plugin refuse the same configs: `tools/deploy/tests/test_parity.py` runs every entry of `test/fixtures/config/bad/` (a config, and optionally its simulation file) through the deploy tool's checks and through `build/canopen_check --no-dcfgen`, and fails naming the entry when one of them accepts it. It skips without the build unless `CANWORKS_REQUIRE_PARITY=1`, as in CI. **A pull request that makes the plugin refuse something new adds a corpus file for it**, and the configurator's check that refuses it too.
+
 The CiA 402 tests use the editor's ST compiler, STruC++ (needs Node 22):
 
 ```sh
@@ -40,7 +42,53 @@ cmake -B build -DOPENPLC_ROOT=../openplc-runtime -DSTRUCPP=$(scripts/fetch-struc
 cmake --build build -j && build/test/sim_tests --exact sim_cia402_demo   # the demo program on the virtual bus
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of these on every pull request and push to `main` that changes code, the deploy tool, page and vcan tests spread over several runners (a new vcan test goes into the vcan group with the least test time, listed above the job; package installs go through `.github/scripts/apt_install.py`, which skips installed packages and retries a stalled mirror); its last job, `ci-ok`, is the one check a branch ruleset needs. A change that touches only documentation or specs runs just the OpenSpec validation; the build and test jobs are skipped. The vcan steps of one protocol are skipped when a change touches only the other protocol's files (`.github/ci/areas.txt`).
+CI (`.github/workflows/ci.yml`) runs all of these on every pull request and push to `main` that changes code, the deploy tool, page and vcan tests spread over several runners (a new vcan test goes into the vcan group with the least test time, listed above the job; package installs go through `.github/scripts/apt_install.py`, which skips installed packages and retries a stalled mirror); its last job, `ci-ok`, is the one check a branch ruleset needs. A change that touches only documentation or specs runs just the OpenSpec validation; the build and test jobs are skipped. The vcan steps of one protocol are skipped when a change touches only the other protocol's files (`.github/ci/areas.txt`). The configurator page tests run only when a change touches what the configurator uses: the PC tools package, the schemas, the shipped examples, the deploy tool tests or the CI files (`.github/ci/ui-paths.txt`); a push to `main` always runs them.
+
+## Browser coverage
+
+Three kinds of test check the configurator in ways the small page-test fixtures do not:
+
+- **Example sweep.** `tools/deploy/tests/test_configurator_examples_page.py` opens `examples/virtual-plant`, `gantry-cell` and `j1939` and visits every view of every network at 1280 px. It fails on a clipped field or button, a table or view that scrolls sideways, a console or page error, an HTTP error answer, or a "decoding without the config's PDOs" note, and names the example, network and view of each. It runs in the configurator page jobs; a new page-test class goes into `.github/ci/page-test-times.json` so the shards stay balanced.
+- **Validation parity.** A corpus of bad configs under `test/fixtures/config/bad/` goes through both the configurator's check and the plugin's loader (`canopen_check`) in the tools job; both must refuse each one.
+- **Browser run against the real plugin.** `test/browser/run.py`, below.
+
+## The plugin and the configurator without a CAN interface
+
+`canopen_host` loads the plugin the way the runtime does, with a stand-in PLC scan. With `CANWORKS_FORCE_SIMULATE=1` every network of the config runs on the plugin's simulated bus with its simulated devices, so no vcan, Docker or CAN adapter is needed (a container works). The stand-in scan does not run the example's ST program. Build the two targets, copy an example (the plugin writes its generated files next to the config), and start the host and the configurator:
+
+```sh
+cmake -B build -DOPENPLC_ROOT=../openplc-runtime
+cmake --build build -j --target canworks_plugin canopen_host
+cp -r examples/virtual-plant /tmp/vp
+CANWORKS_FORCE_SIMULATE=1 build/test/canopen_host build/plugins/libcanworks_plugin.so \
+    /tmp/vp/canworks/canworks.json 3600 > /tmp/vp-host.log 2>&1 &
+PYTHONPATH=tools/deploy python3 -c 'from canworks.configurator.server import main; main()' /tmp/vp
+```
+
+The diagnostics channel listens on 127.0.0.1 at the config's `diagnostics.port` (7531 by default; set another port in the copy to run several hosts). In the configurator, Online → host `127.0.0.1:7531`, token `virtual-plant-demo` (the example's demo token). The Simulation view then drives the simulated devices: faults, power off and on, TPDO stop. `PYTHONPATH=tools/deploy python3 -m canworks.diag --runtime 127.0.0.1 --token virtual-plant-demo status` (or `canworks-diag` when the PC tools are installed) reads the same channel from the command line.
+
+## Browser run against the real plugin
+
+`test/browser/run.py` does the setup above on a temporary copy of `examples/virtual-plant` (on a free diagnostics port) and drives the configurator in Chromium through these steps:
+
+1. Connect.
+2. Nodes 5, 6 and 7 OPERATIONAL in the node table.
+3. An SDO read and write on node 6.
+4. A heartbeat stop on node 6 seen online, then cleared.
+5. A TPDO stop on node 5 raising its timeout.
+6. A trace started, stopped and downloaded.
+7. A power off and on of node 5, after which the status still answers.
+8. The host stopping on SIGTERM.
+
+A failed step is reported with a screenshot and the run goes on. Locally (needs Playwright: `pip install jsonschema playwright`, and a Chromium from `python -m playwright install chromium` or named by `CANWORKS_CHROMIUM`):
+
+```sh
+cmake --build build -j --target canworks_plugin canopen_host
+test/browser/run.py --out /tmp/browser-run      # logs, screenshots and the downloaded trace in --out
+test/browser/run.py --headed                    # watch it
+```
+
+`.github/workflows/browser.yml` runs it weekly, on "Run workflow", and on pull requests that change the configurator's online or trace code, the diagnostics, the plugin's bus, network and diagnostics sources, or the simulator. It is a workflow of its own, so CI's time and `ci-ok` are unaffected; on a failure it keeps the logs and screenshots as the run's `browser-run` artifact.
 
 ## Integration tests (by hand, weekly, or locally)
 
@@ -74,7 +122,9 @@ plugin/            native plugin source: src/can/ the shared CAN core (config, a
                    kernel sockets, signals), src/can/raw/ raw CAN messages, plain networks
                    and the frame blocks' interface, src/canopen/sim/ the device simulator
                    engine (simulated devices, value sources, expressions, CiA 402 drive model, faults,
-                   scenarios, the machine model), used by the plugin and canworks-sim
+                   scenarios, the machine model), used by the plugin and canworks-sim; src/bridge/
+                   canworks-bridge, the Modbus TCP bridge (Modbus server, byte image, bridge
+                   registers, the host that runs the shared engine without OpenPLC)
 schema/            the config contract (JSON Schema 2020-12): canworks.v1.schema.json (one network),
                    canworks.v2.schema.json (several networks, slave networks, the gateway), and
                    canworks-sim.v1/v2.schema.json for the simulation file (v2: a section per network),
@@ -83,7 +133,8 @@ examples/          virtual-plant/: the fully virtual example project of docs/tou
                    networks, a demo program, a simulation file with test scenarios); gantry-cell/: a
                    simulated XYZ gantry with a pick-and-place program (docs/simulator.md); j1939/: a J1939
                    ECU config and its DBC file (docs/j1939.md); raw-can/: a plain CAN network with
-                   its DBC file and simulated devices (docs/raw-can.md)
+                   its DBC file and simulated devices (docs/raw-can.md); modbus-bridge/: a bridge
+                   config with simulated devices (docs/modbus-bridge.md)
 config/            example configurations: config/pingpong/ (the ping-pong slave),
                    config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404), each with
                    an example simulation.json, config/two-networks/ (two ping-pong networks on
@@ -96,6 +147,7 @@ tools/             canopen_check.cpp: validates a config and its EDS files witho
 tools/deploy/      the PC tools (Python, one package): canworks-deploy, canworks-config
                    (the configurator), canworks-diag (online diagnostics, parameters, trace),
                    canworks-j1939-sim (the J1939 ECU simulator)
+docker/bridge/     the canworks-bridge image (docs/modbus-bridge.md)
 docker/local-runtime/ the local simulator runtime image (stock runtime + plugin, forced simulation) and
                    the pinned upstream runtime version
 tools/editor-hook/ the runtime-side hook that keeps CANopen on with the editor's Build and upload
@@ -125,22 +177,26 @@ test/rawframes/    raw frames sent by hand (guards, cyclic jobs), raw messages a
 test/bus/          the bus state byte while vcan0 goes down and up
 test/networks/     two networks on vcan0 and vcan1, one of them losing its node
 test/slcan/        the slcan adapter against a fake CANable on a pseudo-terminal, bridged to vcan1
+test/bridge/       the Modbus server and bridge registers, canworks-bridge against simulated devices,
+                   config upload and install-bridge.sh with a stub systemctl
 test/plc_sdo/      the SDO blocks compiled as the editor does, finding the real plugin in-process
 test/host/         canopen_host: loads the plugin .so with a stand-in PLC scan; plugin lifecycle tests
+test/browser/      run.py: the configurator in Chromium against canopen_host on the simulated bus
 test/link/         link_check: the SocketCAN link setup on a real interface
 test/dump/         canopen_check --dump-writes against a checked-in list (DCF export parity)
 test/common/       helpers shared by the C++ tests (checks, a fake runtime)
 test/fixtures/     config and EDS fixtures shared by the plugin's and the deploy tool's tests
+                   (test/fixtures/config/bad/: configs both must refuse, the parity test's corpus)
                    (test/fixtures/eds/drives/: two made-up CiA 402 drives)
 test/stock/        install-stock.sh, the editor hook and the upstream runtime's upload rules, end to end
 test/docker/       install-stock.sh in Docker mode and the runtime spec edits
 test/local-runtime/ canworks-sim-runtime against the image with a compiled PLC program (run.sh)
 test/virtual-example/ the virtual example on the image: checks, exports, every node up, test scenarios
 test/pc-tools/     the release tag check; test/ci/: the CI change classification and areas
-scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
+scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh, install-bridge.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
 docs/              tour.md (the guided tour of the virtual example), config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
-                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, j1939.md, local-runtime.md, network-docs.md, plc-sdo.md, raw-can.md, simulator.md, slave.md,
+                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, j1939.md, local-runtime.md, modbus-bridge.md, network-docs.md, plc-sdo.md, raw-can.md, simulator.md, slave.md,
                    trace.md, development.md (this page)
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
 ```

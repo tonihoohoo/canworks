@@ -1,0 +1,641 @@
+{
+  "comment": "Bridge configs (modbus-bridge): a version 2 config with a 'bridge' object, as canworks-bridge loads it (\"host\": \"bridge\"). The plugin's unit tests and the deploy tool's tests/test_contract.py run each case; both must reach the verdict with the messages.",
+  "host": "bridge",
+  "base": {
+    "schema_version": 2,
+    "networks": [
+      {
+        "name": "io",
+        "adapter": {
+          "type": "socketcan",
+          "interface": "vcan0",
+          "bitrate": 125000
+        },
+        "master": {
+          "node_id": 1,
+          "sync_period_us": 100000,
+          "state_location": "%IB20"
+        },
+        "nodes": [
+          {
+            "node_id": 2,
+            "name": "pingpong",
+            "eds": "cpp-slave.eds",
+            "heartbeat_ms": 100,
+            "status_location": "%IX16.0",
+            "tx_pdos": [
+              {
+                "entries": [
+                  {
+                    "index": "0x4001",
+                    "subindex": 0,
+                    "type": "UNSIGNED32",
+                    "iec_location": "%ID0"
+                  }
+                ]
+              }
+            ],
+            "rx_pdos": [
+              {
+                "entries": [
+                  {
+                    "index": "0x4000",
+                    "subindex": 0,
+                    "type": "UNSIGNED32",
+                    "iec_location": "%QD0"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "bridge": {
+      "listen": "0.0.0.0:1502",
+      "status_location": "%IB24",
+      "control_location": "%QB8",
+      "live_lists": [
+        {
+          "network": "io",
+          "location": "%IB32"
+        }
+      ],
+      "sdo_bridge_location": {
+        "request": "%QB16",
+        "response": "%IB48"
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "bridge: the base config",
+      "patch": [],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "bridge: a double word at an odd byte",
+      "patch": [
+        [
+          "set",
+          "networks/0/nodes/0/tx_pdos/0/entries/0/iec_location",
+          "%ID1"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "%ID1 must start at an even byte: word locations are whole Modbus registers"
+      ]
+    },
+    {
+      "name": "bridge: a bit inside a double word",
+      "patch": [
+        [
+          "set",
+          "networks/0/nodes/0/status_location",
+          "%IX2.0"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "status_location (%IX2.0) and",
+        "(%ID0) overlap in input byte 2"
+      ]
+    },
+    {
+      "name": "bridge: a byte inside a double word",
+      "patch": [
+        [
+          "set",
+          "networks/0/master/state_location",
+          "%IB3"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "master state_location (%IB3) and",
+        "(%ID0) overlap in input byte 3"
+      ]
+    },
+    {
+      "name": "bridge: a block sharing two bytes with a double word",
+      "patch": [
+        [
+          "set",
+          "bridge/status_location",
+          "%IB2"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "(%ID0) and bridge status_location (%IB2) overlap in input bytes 2 and 3"
+      ]
+    },
+    {
+      "name": "bridge: bits of one byte with different bit numbers",
+      "patch": [
+        [
+          "set",
+          "networks/0/nodes/0/tx_pdos/0/timeout_ms",
+          200
+        ],
+        [
+          "set",
+          "networks/0/nodes/0/tx_pdos/0/timeout_location",
+          "%IX16.1"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "bridge: two locations on the same bit",
+      "patch": [
+        [
+          "set",
+          "networks/0/nodes/0/tx_pdos/0/timeout_ms",
+          200
+        ],
+        [
+          "set",
+          "networks/0/nodes/0/tx_pdos/0/timeout_location",
+          "%IX16.0"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "both map to %IX16.0"
+      ]
+    },
+    {
+      "name": "bridge: inputs and outputs at the same byte do not clash",
+      "patch": [
+        [
+          "set",
+          "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location",
+          "%QD0"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "bridge: the status block over a location",
+      "patch": [
+        [
+          "set",
+          "bridge/status_location",
+          "%IB18"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "and bridge status_location (%IB18) overlap in input byte 20"
+      ]
+    },
+    {
+      "name": "bridge: the control block in the inputs",
+      "patch": [
+        [
+          "set",
+          "bridge/control_location",
+          "%IB8"
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "control_location must be an output byte location (%QB...) where its 6-byte block starts, not %IB8"
+      ]
+    },
+    {
+      "name": "bridge: the status block as a word",
+      "patch": [
+        [
+          "set",
+          "bridge/status_location",
+          "%IW24"
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "status_location must be an input byte location (%IB...) where its 8-byte block starts, not %IW24"
+      ]
+    },
+    {
+      "name": "bridge: a block past the image",
+      "patch": [
+        [
+          "set",
+          "bridge/status_location",
+          "%IB8190"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "status_location %IB8190: its 8-byte block ends outside the image (8192 bytes)"
+      ]
+    },
+    {
+      "name": "bridge: listen with a host name",
+      "patch": [
+        [
+          "set",
+          "bridge/listen",
+          "localhost:502"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "field 'listen' must be address:port with a numeric address, such as 0.0.0.0:502 or [::]:502, not \"localhost:502\""
+      ]
+    },
+    {
+      "name": "bridge: listen without a port",
+      "patch": [
+        [
+          "set",
+          "bridge/listen",
+          "0.0.0.0"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "field 'listen' must be address:port"
+      ]
+    },
+    {
+      "name": "bridge: listen on IPv6",
+      "patch": [
+        [
+          "set",
+          "bridge/listen",
+          "[::]:502"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "bridge: listen missing",
+      "patch": [
+        [
+          "delete",
+          "bridge/listen"
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "bridge: missing required field 'listen'"
+      ]
+    },
+    {
+      "name": "bridge: unknown word order",
+      "patch": [
+        [
+          "set",
+          "bridge/word_order",
+          "big"
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "field 'word_order' must be \"high_first\" or \"low_first\""
+      ]
+    },
+    {
+      "name": "bridge: low word first",
+      "patch": [
+        [
+          "set",
+          "bridge/word_order",
+          "low_first"
+        ],
+        [
+          "set",
+          "bridge/unit_id",
+          255
+        ],
+        [
+          "set",
+          "bridge/max_clients",
+          64
+        ],
+        [
+          "set",
+          "bridge/watchdog_ms",
+          0
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "bridge: no clients",
+      "patch": [
+        [
+          "set",
+          "bridge/max_clients",
+          0
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "field 'max_clients' must be 1-64"
+      ]
+    },
+    {
+      "name": "bridge: too many clients",
+      "patch": [
+        [
+          "set",
+          "bridge/max_clients",
+          65
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "field 'max_clients' is out of range (max 64): 65"
+      ]
+    },
+    {
+      "name": "bridge: unit ID too large",
+      "patch": [
+        [
+          "set",
+          "bridge/unit_id",
+          256
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "field 'unit_id' is out of range (max 255): 256"
+      ]
+    },
+    {
+      "name": "bridge: watchdog too long",
+      "patch": [
+        [
+          "set",
+          "bridge/watchdog_ms",
+          60001
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "field 'watchdog_ms' is out of range (max 60000): 60001"
+      ]
+    },
+    {
+      "name": "bridge: unknown client-loss action",
+      "patch": [
+        [
+          "set",
+          "bridge/on_client_loss",
+          "off"
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "field 'on_client_loss' must be \"stop\", \"zero\" or \"hold\""
+      ]
+    },
+    {
+      "name": "bridge: zero on client loss",
+      "patch": [
+        [
+          "set",
+          "bridge/on_client_loss",
+          "zero"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "bridge: allowlists",
+      "patch": [
+        [
+          "set",
+          "bridge/writers",
+          [
+            "192.168.1.10",
+            "10.0.0.0/8",
+            "fd00::/8"
+          ]
+        ],
+        [
+          "set",
+          "bridge/readers",
+          [
+            "::1",
+            "127.0.0.1/32"
+          ]
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "bridge: a prefix too long",
+      "patch": [
+        [
+          "set",
+          "bridge/writers",
+          [
+            "10.0.0.0/33"
+          ]
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "field 'writers': \"10.0.0.0/33\" is not an IPv4 or IPv6 address or prefix"
+      ]
+    },
+    {
+      "name": "bridge: a host name in the readers",
+      "patch": [
+        [
+          "set",
+          "bridge/readers",
+          [
+            "plc.local"
+          ]
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "field 'readers': \"plc.local\" is not an IPv4 or IPv6 address or prefix"
+      ]
+    },
+    {
+      "name": "bridge: a live list of an unknown network",
+      "patch": [
+        [
+          "set",
+          "bridge/live_lists/0/network",
+          "nope"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "bridge.live_lists[0]: network \"nope\" is not in the config"
+      ]
+    },
+    {
+      "name": "bridge: a live list without a location",
+      "patch": [
+        [
+          "delete",
+          "bridge/live_lists/0/location"
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "bridge.live_lists[0]: missing required field 'location'"
+      ]
+    },
+    {
+      "name": "bridge: SDO bridge without a response block",
+      "patch": [
+        [
+          "delete",
+          "bridge/sdo_bridge_location/response"
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "bridge.sdo_bridge_location: missing required field 'response'"
+      ]
+    },
+    {
+      "name": "bridge: SDO writes without the SDO bridge",
+      "patch": [
+        [
+          "delete",
+          "bridge/sdo_bridge_location"
+        ],
+        [
+          "set",
+          "bridge/sdo_bridge_write",
+          true
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept",
+      "warnings": [
+        "'sdo_bridge_write' has no effect without 'sdo_bridge_location'"
+      ]
+    },
+    {
+      "name": "bridge: the SDO bridge blocks overlap the control block",
+      "patch": [
+        [
+          "set",
+          "bridge/sdo_bridge_location/request",
+          "%QB10"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "bridge control_location (%QB8) and bridge sdo_bridge_location.request (%QB10) overlap in output bytes 10 and 11 and 12 and 13"
+      ]
+    },
+    {
+      "name": "bridge: an unknown field",
+      "patch": [
+        [
+          "set",
+          "bridge/colour",
+          "red"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept",
+      "warnings": [
+        "unknown field 'colour' (bridge.colour) ignored"
+      ]
+    },
+    {
+      "name": "bridge: not an object",
+      "patch": [
+        [
+          "set",
+          "bridge",
+          5
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "field 'bridge' must be an object"
+      ]
+    },
+    {
+      "name": "bridge: SYNC from the PLC cycle",
+      "patch": [
+        [
+          "delete",
+          "networks/0/master/sync_period_us"
+        ],
+        [
+          "set",
+          "networks/0/master/sync_source",
+          "plc_cycle"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "\"sync_source\": \"plc_cycle\" needs a PLC cycle, which the Modbus bridge does not have"
+      ]
+    },
+    {
+      "name": "bridge: no blocks at all",
+      "patch": [
+        [
+          "delete",
+          "bridge/status_location"
+        ],
+        [
+          "delete",
+          "bridge/control_location"
+        ],
+        [
+          "delete",
+          "bridge/live_lists"
+        ],
+        [
+          "delete",
+          "bridge/sdo_bridge_location"
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    }
+  ]
+}

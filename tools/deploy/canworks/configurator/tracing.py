@@ -53,6 +53,22 @@ def _int(v, what, lo=None, hi=None):
     return n
 
 
+def _hex_id(v, what):
+    """An identifier as the trace shows it: hex, with or without 0x (a JSON
+    number is taken as it is)."""
+    if isinstance(v, str):
+        t = v.strip()
+        t = t[2:] if t[:2].lower() == "0x" else t
+        if not t or any(c not in "0123456789abcdefABCDEF" for c in t):
+            raise Refused(400, "%s must be a hex identifier, e.g. 180 or 0x180" % what)
+        v = int(t, 16)
+    return _int(v, what, 0, 0x1FFFFFFF)
+
+
+def _opt_id(v, what):
+    return None if v in (None, "") else _hex_id(v, what)
+
+
 def _opt_time(v, what):
     return None if v in (None, "") else _int(v, what)
 
@@ -63,8 +79,8 @@ def capture_filters(items):
     for f in items or []:
         if not isinstance(f, dict):
             raise Refused(400, "a capture filter must be an object with id and mask")
-        can_id = _int(f.get("id"), "filter id", 0, 0x1FFFFFFF)
-        mask = _int(f.get("mask") if f.get("mask") not in (None, "") else 0x1FFFFFFF, "filter mask", 0, 0x1FFFFFFF)
+        can_id = _hex_id(f.get("id"), "filter id")
+        mask = _hex_id(f.get("mask") if f.get("mask") not in (None, "") else 0x1FFFFFFF, "filter mask")
         out.append((can_id, mask))
     if len(out) > 16:
         raise Refused(400, "at most 16 capture filters")
@@ -81,8 +97,8 @@ class DisplayFilter:
         if bad:
             raise Refused(400, "unknown frame kind %s (known: %s)" % (bad[0], ", ".join(KINDS)))
         self.kinds = {KIND_CODE[k] for k in kinds} or None
-        self.id_from = _opt_time(spec.get("id_from"), "id_from")
-        self.id_to = _opt_time(spec.get("id_to"), "id_to")
+        self.id_from = _opt_id(spec.get("id_from"), "ID from")
+        self.id_to = _opt_id(spec.get("id_to"), "ID to")
         direction = spec.get("dir") or "any"
         if direction not in ("any", "rx", "tx"):
             raise Refused(400, "dir must be any, rx or tx")
@@ -481,13 +497,22 @@ def check_trigger(spec):
         raise Refused(422, str(e))
 
 
-def check_folder(folder, canopen_dir):
-    """An auto-save or save folder: absolute, and never the project's canopen folder."""
-    folder = os.path.abspath(os.path.expanduser(folder))
+def check_folder(folder, canopen_dir, exists=True):
+    """An auto-save or save folder: absolute, existing (unless `exists` is
+    false: the default traces folder is made on the first save), and never
+    the project's canworks folder."""
+    given = folder
+    folder = os.path.expanduser(folder)
+    if not os.path.isabs(folder):
+        raise Refused(422, "the folder %s is not a full path; give one such as %s" % (
+            given, os.path.join(os.path.expanduser("~"), "traces")))
+    folder = os.path.abspath(folder)
     real, cdir = os.path.realpath(folder), os.path.realpath(canopen_dir)
     if real == cdir or real.startswith(cdir + os.sep):
-        raise Refused(422, "traces are not saved in the project's canopen folder (it travels with the PLC "
+        raise Refused(422, "traces are not saved in the project's canworks folder (it travels with the PLC "
                            "program); choose another folder")
+    if exists and not os.path.isdir(folder):
+        raise Refused(422, "the folder %s does not exist" % folder)
     return folder
 
 

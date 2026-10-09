@@ -30,8 +30,8 @@ class LoopHost : public Host {
   ~LoopHost() override;
 
   ev_exec_t* exec() override { return exec_; }
-  std::unique_ptr<lely::io::TimerBase> make_timer() override;
-  std::unique_ptr<lely::io::CanChannelBase> make_channel() override;
+  std::shared_ptr<lely::io::TimerBase> make_timer() override;
+  std::shared_ptr<lely::io::CanChannelBase> make_channel() override;
   void log(Level level, const std::string& message) override { if (log_) log_(level, message); }
   bool real_network() const override { return real_; }
   std::string interface_name() const override { return iface_; }

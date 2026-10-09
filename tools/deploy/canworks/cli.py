@@ -65,9 +65,10 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
-from . import (__version__, bundle, clash, contract, dbcexport, dcfexport, docexport, editorproject, localruntime,
-               project, runtime, sdolibrary, simfile, slaveeds)
+from . import (__version__, bridgecheck, bundle, clash, contract, dbcexport, dcfexport, diag, docexport,
+               editorproject, localruntime, modbusmap, project, runtime, sdolibrary, simfile, slaveeds)
 
 EDITOR_WARNING = (
     "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canworks.json, so the "
@@ -96,6 +97,10 @@ def parser():
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument("--bundle", metavar="DIR",
                      help="the editor's \"Build only\" output: <project>/build/<target>/src")
+    src.add_argument("--bridge", metavar="HOST[:PORT]",
+                     help="upload a Modbus bridge config (one with a \"bridge\" object) to canworks-bridge over its "
+                          "diagnostics channel (default port %d; needs allow_changes and allow_config_upload)"
+                          % diag.DEFAULT_PORT)
     src.add_argument("--project", metavar="DIR",
                      help="an editor project: build it with openplc-cli compile first")
     src.add_argument("--into-project", metavar="DIR",
@@ -112,6 +117,10 @@ def parser():
                      help="write an HTML document of the networks (CANopen: topology, COB-ID map, bus load, nodes, "
                           "PDOs, boot SDO writes; J1939: ECU, messages, signals, frame map, bus load; PLC I/O) "
                           "instead of deploying; nothing is built or uploaded")
+    src.add_argument("--export-modbus-map", metavar="FILE",
+                     help="write the Modbus register map of a bridge config (one with a \"bridge\" object) as CSV, "
+                          "JSON or an ST variable list, chosen by the extension (.csv, .json, .st), instead of "
+                          "deploying; nothing is built or uploaded")
     src.add_argument("--new-project", metavar="DIR",
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
                           "and declares its I/O in the program main")
@@ -154,6 +163,8 @@ def parser():
     tls.add_argument("--fingerprint", metavar="SHA256",
                      help="verify the runtime's certificate by its SHA-256 fingerprint")
     tls.add_argument("--insecure", action="store_true", help="do not verify the runtime's certificate")
+    p.add_argument("--token", help="with --bridge: the diagnostics token (default: $%s, else a prompt)" % diag.TOKEN_ENV)
+    p.add_argument("--token-file", metavar="FILE", help="with --bridge: read the diagnostics token from this file")
     p.add_argument("--sim", metavar="FILE",
                    help="the simulation file to check and carry with the config (default: %s next to --config, "
                         "when it exists)" % simfile.FILE_NAME)
@@ -196,8 +207,122 @@ def _ask(question):
     return sys.stdin.readline().strip().lower() in ("y", "yes")
 
 
+def _export_modbus_map(config, path, out):
+    try:
+        with open(config, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except OSError as e:
+        raise Failure("cannot read %s: %s" % (config, e))
+    except ValueError as e:
+        raise Failure("%s: not valid JSON (%s)" % (config, e))
+    try:
+        rows = modbusmap.export(cfg, path)
+    except modbusmap.MapError as e:
+        raise Failure("%s: %s" % (config, e))
+    except OSError as e:
+        raise Failure("cannot write %s: %s" % (path, e))
+    out("wrote %s: %d register map entries" % (path, len(rows)))
+    return 0
+
+
+def bridge_files(cfg, config_path, sim_path=None):
+    """The files canworks-bridge gets for a config, as the runtime's conf/
+    folder holds them: {path: bytes} with "canworks.json" the config."""
+    try:
+        deployed, eds_by_name = bundle.rewrite(cfg, config_path)
+        fw_by_name = bundle.software_by_name(cfg, config_path)
+        sim = None
+        if sim_path:
+            sim_data, sim_eds, sim_csv, sim_machines = bundle.sim_rewrite(simfile.load(sim_path), sim_path)
+            bundle.merge_by_name(eds_by_name, sim_eds, "EDS files")
+            sim = (sim_data, sim_csv, sim_machines)
+    except (bundle.BundleError, simfile.SimFileError) as e:
+        raise Failure(str(e))
+    work = bundle.temp_dir()
+    try:
+        empty = os.path.join(work, "empty")
+        os.makedirs(empty)
+        staged, _ = bundle.assemble(empty, deployed, eds_by_name, work, fw_by_name, sim)
+        conf = os.path.join(staged, "conf")
+        files = {}
+        for root, dirs, names in os.walk(conf):
+            dirs.sort()
+            for name in sorted(names):
+                full = os.path.join(root, name)
+                with open(full, "rb") as f:
+                    files[os.path.relpath(full, conf).replace(os.sep, "/")] = f.read()
+        return files
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _deploy_bridge(args, cfg, sim_path, out, err, wait_s=60.0):
+    """Uploads a bridge config to canworks-bridge (put_config) and reads back
+    whether it started."""
+    files = bridge_files(cfg, args.config, sim_path)
+    size = sum(len(v) for v in files.values())
+    out("ok: %d file%s, %d bytes for canworks-bridge" % (len(files), "" if len(files) == 1 else "s", size))
+    if args.check_only:
+        out("not uploaded (--check-only)")
+        return 0
+    try:
+        host, port = diag.parse_runtime(args.bridge)
+    except ValueError as e:
+        raise Failure("--bridge: %s" % e)
+    try:
+        token = diag._token(args)
+        client = diag.Client(host, port, token, timeout=10.0)
+        info = client.connect()
+        if info.get("host") != "bridge":
+            client.close()
+            raise Failure("%s is not canworks-bridge (it is %s): upload this config with --runtime to an OpenPLC "
+                          "runtime only after removing its 'bridge' object" % (client.where, info.get("host") or
+                                                                              "an OpenPLC runtime"))
+        if not info.get("allow_config_upload"):
+            client.close()
+            raise Failure("config upload is off on %s: its running config needs \"allow_changes\": true and "
+                          "\"allow_config_upload\": true in 'diagnostics'" % client.where)
+        res = client.put_config(files)
+        client.close()
+    except diag.DiagError as e:
+        raise Failure("%s: %s" % (args.bridge, e))
+    number = res.get("upload")
+    out("uploaded to %s; canworks-bridge restarts on it" % args.bridge)
+    if not isinstance(cfg.get("diagnostics"), dict):
+        out("the new config has no diagnostics channel, so whether it started cannot be read back")
+        return 0
+    deadline = time.monotonic() + wait_s
+    last = None
+    while time.monotonic() < deadline:
+        time.sleep(1.0)
+        try:
+            c = diag.Client(host, port, token, timeout=5.0)
+            c.connect()
+            st = c.status()
+            c.close()
+        except diag.DiagError as e:
+            last = e
+            continue
+        up = (st.get("bridge") or {}).get("last_upload") or {}
+        if up.get("number") != number:
+            continue
+        if up.get("result") == "started":
+            out("ok: canworks-bridge runs the new config")
+            return 0
+        raise Failure("canworks-bridge did not start the new config: %s" % up.get("detail"))
+    raise Failure("canworks-bridge did not answer within %d s after the upload%s"
+                  % (wait_s, ": %s" % last if last else ""))
+
+
 def run(args, out=print, err=None, password_source=None, confirm_source=None):
     err = err or (lambda m: print(m, file=sys.stderr))
+
+    map_file = getattr(args, "export_modbus_map", None)
+    if map_file:
+        if args.runtime or args.output or args.check_only:
+            raise Failure("--export-modbus-map only writes the register map; leave out --runtime, --output and "
+                          "--check-only")
+        return _export_modbus_map(args.config, map_file, out)
 
     into = getattr(args, "into_project", None)
     export_dir = getattr(args, "export_dcf", None)
@@ -232,8 +357,13 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         raise Failure("--blocks needs --new-project")
     if new_project and (args.runtime or args.output or args.check_only):
         raise Failure("--new-project only creates an editor project; leave out --runtime, --output and --check-only")
+    bridge_target = getattr(args, "bridge", None)
+    if bridge_target and (args.runtime or args.output):
+        raise Failure("--bridge uploads to canworks-bridge; leave out --runtime and --output")
+    if (getattr(args, "token", None) or getattr(args, "token_file", None)) and not bridge_target:
+        raise Failure("--token and --token-file go with --bridge")
     if not into and not export_dir and not dbc_file and not html_file and not new_project and not args.check_only \
-            and not args.runtime:
+            and not args.runtime and not bridge_target:
         raise Failure("give --runtime to upload, or --check-only")
     local = None
     if localruntime.is_local(getattr(args, "runtime", None)):
@@ -260,6 +390,13 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     if not result.ok:
         raise Failure("\n".join(result.errors))
     out("ok: %s passes the schema and EDS checks" % args.config)
+    is_bridge = bridgecheck.is_bridge_config(cfg)
+    if bridge_target and not is_bridge:
+        raise Failure("%s has no top-level \"bridge\" object, so canworks-bridge does not run it: upload it to an "
+                      "OpenPLC runtime with --bundle or --project and --runtime" % args.config)
+    if is_bridge and (args.runtime or args.bundle or args.project or into or new_project):
+        raise Failure("%s is a Modbus bridge config (it has a 'bridge' object): canworks-bridge runs it, not the "
+                      "OpenPLC plugin; upload it with --bridge HOST" % args.config)
 
     # The simulation file and what the config simulates (not for the exports).
     sim_path = None
@@ -285,7 +422,8 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         if local and uploading:
             out("local simulator runtime: every network runs simulated there, whatever the config says")
         if simulated and uploading and not local and not (getattr(args, "yes", False) or getattr(args, "simulated", False)):
-            answer = (confirm_source or _ask)("Upload this config with simulated devices to %s?" % args.runtime)
+            answer = (confirm_source or _ask)("Upload this config with simulated devices to %s?"
+                                              % (bridge_target or args.runtime))
             if answer is None:
                 raise Failure("not uploaded: %s. Pass --simulated (or --yes) to upload it anyway" % simulated)
             if not answer:
@@ -357,6 +495,9 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         out("The editor's \"Build and upload\" now carries this config, on a runtime with the CANopen editor hook "
             "(docs/install-stock.md).")
         return 0
+
+    if bridge_target:
+        return _deploy_bridge(args, cfg, sim_path, out, err)
 
     # 2. The bundle.
     bundle_dir = build_project(args.project, args.target, out) if args.project else args.bundle

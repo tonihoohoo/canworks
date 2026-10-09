@@ -51,8 +51,8 @@ From a frame in the list, the inspector offers its SDO conversation, SYNC cycle 
 The **Frame lab** view works with the configuration on the page, saved or not:
 
 - **Explain a frame** typed or pasted in candump syntax: `185#2500EA00`, `705#7F`, `701#R` for a remote request, 8 identifier digits for an extended frame. The bit rate is the network's, or one picked from the list.
-- **Example frames** made from the configuration: NMT start, SYNC, and per node its boot-up, heartbeat, an SDO read of 1018h:01, an EMCY and every PDO.
-- **Build a frame**: an SDO read or write (expedited or segmented, with every answer), a PDO from values per signal (checked against each signal's range), an NMT command, a heartbeat or an EMCY.
+- **Example frames** made from the configuration: NMT start, SYNC, and per node its boot-up, heartbeat, an SDO read of 1018h:01, an EMCY and every PDO. On a J1939 network: a request for Address Claimed and one frame of each message of the DBC or the config.
+- **Build a frame** (CANopen networks): an SDO read or write (expedited or segmented, with every answer), a PDO from values per signal (checked against each signal's range), an NMT command, a heartbeat or an EMCY. Index, error code and error register are hex, with or without `0x`.
 - **Arbitration**: two frames sent at the same moment, bit by bit, with each sender's bit and the bus level, up to the bit where one sender sends a recessive 1, reads a dominant 0 and stops. With `185#…` and `183#…`, both are equal up to identifier bit 2, where node 3's frame wins.
 
 ## Command line

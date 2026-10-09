@@ -22,6 +22,13 @@ def parse_sim(text):
     return host, port
 
 
+def closed_error(host, port):
+    """The DiagError for a refused connection to a standalone simulator
+    (diag.Client's own message talks about the runtime)."""
+    return diag.DiagError("closed", "port %d on %s is closed: no canworks-sim runs there, or it listens on another "
+                                    "port" % (port, host))
+
+
 def object_key(index, subindex=0):
     """The protocol's object name, "0xIIII:S"."""
     return "0x%04X:%d" % (index, subindex)
@@ -61,7 +68,12 @@ class SimClient:
     @classmethod
     def for_simulator(cls, host="127.0.0.1", port=SIM_PORT, token="", timeout=5.0):
         c = diag.Client(host, port, token or "", timeout)
-        c.connect()
+        try:
+            c.connect()
+        except diag.DiagError as e:
+            if e.kind == "closed":
+                raise closed_error(host, port)
+            raise
         return cls(c)
 
     @property

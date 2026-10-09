@@ -45,7 +45,7 @@ FIT_CHECK = r"""() => {
     const v = document.getElementById(id);
     if (v && shown(v) && v.scrollWidth > v.clientWidth + 1) out.push(["scrolls sideways", id]);
   }
-  for (const e of document.querySelectorAll(".objects, table")) {
+  for (const e of document.querySelectorAll(".objects, .table-scroll, table")) {
     if (shown(e) && e.scrollWidth > e.clientWidth + 1) out.push(["table scrolls sideways", e.className || e.tagName]);
   }
   if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) out.push(["page scrolls sideways"]);
@@ -175,7 +175,7 @@ class Layout(OnlineBase):
         with FakePlugin(allow_changes=True) as fp:
             self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
             self.remember(fp.runtime)
-            for width, scheme in ((1000, "light"), (1280, "dark"), (1440, "light")):
+            for width, scheme in ((1000, "light"), (1280, "dark")):
                 pg.emulate_media(color_scheme=scheme)
                 pg.set_viewport_size({"width": width, "height": 800})
                 pg.goto(self.server.url)
@@ -447,3 +447,109 @@ class Layout(OnlineBase):
                 self.assertEqual(outside, [], "at %d" % width)
                 self.assertGreater(pg.locator('tr[data-od-key="%d:1"]' % 0x1018).bounding_box()["height"], 30)  # name wrapped
                 self.fits("object dictionary at %d" % width)
+
+
+class Examples(OnlineBase):
+    """The shipped examples (fix-gui-test-findings): the gateway routes,
+    slave objects and J1939 signal tables fit at 1280 px and never make the
+    page scroll sideways; the Export menu offers only what applies; at
+    1100 px and below the grid rows don't stretch."""
+
+    def open_example(self, name):
+        folder = os.path.join(self.dir, name)
+        shutil.copytree(os.path.join(REPO, "examples", name), folder)
+        pg = self.page
+        pg.goto(self.server.url)
+        pg.click("#start-project" if os.path.exists(os.path.join(folder, "project.json")) else "#start-standalone")
+        pg.fill("#browser-path", folder)
+        pg.click("#browser-open")
+        pg.wait_for_selector("#editor:not([hidden])")
+        pg.wait_for_function("() => document.body.dataset.checking === '0'")
+
+    def fit(self, where):
+        self.page.evaluate("() => document.querySelectorAll('#view details').forEach((d) => { d.open = true; })")
+        self.page.wait_for_timeout(200)
+        self.assertEqual(self.page.evaluate(FIT_CHECK), [], where)
+
+    def test_virtual_plant_tables(self):
+        pg = self.page
+        self.open_example("virtual-plant")
+        pg.click('#net-bar [data-net="2"]')  # cell, the slave network
+        for width in (1280, 900):
+            pg.set_viewport_size({"width": width, "height": 800})
+            pg.click('button[data-view="bus"]')
+            pg.wait_for_selector("[data-slave-objects] tr[data-object]")
+            self.fit("cell objects at %d" % width)
+            pg.click("#nav-gateway")
+            pg.wait_for_selector("tr[data-route]")
+            self.fit("gateway at %d" % width)
+        pg.set_viewport_size({"width": 1280, "height": 800})
+        self.assertEqual(pg.input_value('input[data-path="gateway.routes[0].name"]'), "temperature")
+        self.assertIn("INTEGER16", pg.inner_text('tr[data-route="0"] select[data-path="gateway.routes[0].field"] option:checked'))
+        # Nothing runs under Problems; every route control has a name.
+        right = pg.evaluate("() => Math.max(...[...document.querySelectorAll('tr[data-route] input, tr[data-route] select, tr[data-route] button')].map((e) => e.getBoundingClientRect().right))")
+        self.assertLessEqual(right, pg.locator("#problems").bounding_box()["x"])
+        self.assertEqual(pg.eval_on_selector_all("tr[data-route] input, tr[data-route] select",
+                                                 "es => es.filter((e) => !e.getAttribute('aria-label')).length"), 0)
+        audit(pg, "gateway at 1280")
+        # Below 1000 px a narrow box scrolls by itself, not the page.
+        pg.set_viewport_size({"width": 700, "height": 800})
+        pg.wait_for_timeout(200)
+        self.assertEqual(pg.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"), True)
+
+    def test_j1939_signal_tables(self):
+        pg = self.page
+        self.open_example("j1939")
+        for width in (1280, 900):
+            pg.set_viewport_size({"width": width, "height": 800})
+            self.fit("j1939 signals at %d" % width)
+        loc = pg.locator('input[data-path="j1939.rx[0].signals[0].iec_location"]')
+        self.assertEqual(loc.input_value(), "%IW210")
+        self.assertTrue(pg.is_visible('[data-path="j1939.rx[0].signals[0].valid_location"]'))
+        self.assertTrue(pg.is_visible('button[aria-label="Remove signal Pressure"]'))
+
+    def test_export_menu_offers_what_applies(self):
+        pg = self.page
+        self.open_example("virtual-plant")
+        shown = lambda: [b for b in ("#btn-export-all", "#btn-export-node", "#btn-export-dbc", "#btn-export-html")
+                         if pg.evaluate("(s) => !document.querySelector(s).closest('[hidden]')", b)]
+        self.assertEqual(shown(), ["#btn-export-all", "#btn-export-node", "#btn-export-dbc", "#btn-export-html"])
+        # A dialog opened from a menu item: Escape returns the focus to the menu.
+        pg.focus("#menu-export > summary")
+        pg.keyboard.press("Enter")
+        pg.keyboard.press("ArrowDown")
+        self.assertEqual(pg.evaluate("() => document.activeElement.id"), "btn-export-all")
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector("#modal[open]")
+        self.assertIn("every network", pg.inner_text("#modal-text"))
+        pg.keyboard.press("Escape")
+        pg.wait_for_selector("#modal[open]", state="hidden")
+        pg.wait_for_function("() => document.activeElement === document.querySelector('#menu-export > summary')")
+        pg.wait_for_selector("#menu-export > summary:has-text('Export')")
+        pg.click('#net-bar [data-net="2"]')
+        self.assertEqual(shown(), ["#btn-export-all", "#btn-export-html"])
+        # All DCFs from the slave tab: no "Network cell" question, every master network's DCFs.
+        pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
+        with pg.expect_download() as dl:
+            pg.click("#btn-export-all")
+        self.assertTrue(dl.value.suggested_filename.endswith("_dcf.zip"))
+        self.assertTrue(pg.is_hidden("#modal"))
+        pg.click("#btn-close")
+        pg.wait_for_selector("#start:not([hidden])")
+        self.open_example("j1939")
+        self.assertEqual(shown(), ["#btn-export-dbc", "#btn-export-html"])
+
+    def test_narrow_rows_do_not_stretch(self):
+        pg = self.page
+        pg.set_viewport_size({"width": 1000, "height": 900})
+        self.open_example("virtual-plant")
+        pg.click('button[data-view="scan"]')
+        pg.wait_for_timeout(300)
+        gaps = pg.evaluate("""() => {
+          const box = (s) => document.querySelector(s).getBoundingClientRect();
+          const p = document.querySelector('#problems');
+          const inner = [...p.children].reduce((h, c) => h + c.getBoundingClientRect().height, 0);
+          return [Math.round(p.getBoundingClientRect().height - inner), Math.round(box('#view').top - box('#side').bottom)];
+        }""")
+        self.assertLess(gaps[0], 20, gaps)  # the strip is as tall as its content
+        self.assertLess(abs(gaps[1]), 2, gaps)

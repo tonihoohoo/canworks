@@ -311,7 +311,7 @@ class Checks(unittest.TestCase):
         def source(node, obj):
             return self.changed(lambda s: s["nodes"].setdefault(node, {}).setdefault("sources", {}).update(
                 {obj: {"constant": 1}}))
-        self.assertError(source("7", "0x6200:1"), "node 7 (io): object 0x6200:1 is written by the master (RPDO 1)")
+        self.assertError(source("7", "0x6200:1"), "node 7 (io): 0x6200:1 is written by the master (RPDO 1); a value source cannot drive it")
         # In the device's default mapping, which the config keeps.
         self.assertError(source("7", "0x6200:2"), "0x6200:2 is written by the master (RPDO 1)")
         self.assertError(source("5", "0x6110:2"), "0x6110:2 is written by the master (startup SDO)")
@@ -324,6 +324,18 @@ class Checks(unittest.TestCase):
             {"node": 7, "override": {"0x6200:1": 1}})))
         self.assertEqual(r.errors, [])
         self.assertIn("the override makes the device ignore it", r.warnings[0])
+
+    def test_set_and_override_values_fit_the_data_type(self):
+        def step(**kw):
+            return self.changed(lambda s: s["scenarios"]["sensor-break"]["steps"].append(dict(node=5, **kw)))
+        self.assertError(step(override={"0x7130:1": "abc"}), "steps[6].override",
+                         'node 5 (rtd): override of 0x7130:1: "abc" does not fit INTEGER16: give a number')
+        self.assertError(step(set={"0x7130:1": 40000}), "steps[6].set", "40000 does not fit INTEGER16")
+        for ok in (-32768, 32767, 12.4, True):
+            self.assertEqual(self.errors(step(override={"0x7130:1": ok})), [], ok)
+        self.assertEqual(simfile.value_problem("UNSIGNED8", -1), "-1 does not fit UNSIGNED8")
+        self.assertEqual(simfile.value_problem("REAL32", 1.5), None)
+        self.assertIn("takes text", simfile.value_problem("VISIBLE_STRING", 3))
 
     def test_expressions(self):
         self.assertError(self.changed(lambda s: s["nodes"]["5"]["sources"].update(

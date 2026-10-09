@@ -85,13 +85,15 @@ def check(doc):
         return [{"path": "schema_version", "message": "schema_version %d is not supported; the highest supported "
                                                       "version is %d" % (v, SUPPORTED_VERSION)}]
     out = []
-    validator = jsonschema.Draft202012Validator(schema(version(doc)))
+    root = schema(version(doc))
+    validator = jsonschema.Draft202012Validator(root)
     for e in sorted(validator.iter_errors(doc), key=lambda e: list(map(str, e.absolute_path))):
+        first = e
         while e.context:
             fitting = [c for c in e.context if c.validator != "type"]
             e = best_match(fitting or e.context)
         where = json_path(list(e.absolute_path))
-        message = e.message
+        message = contract.plain_schema_message(first, root)
         if e.validator == "oneOf" and isinstance(e.instance, dict):
             message = "give exactly one of the alternatives (%s)" % ", ".join(sorted(e.instance)) \
                 if e.instance else "is empty"
@@ -117,28 +119,36 @@ def machine_file(doc, network):
     return value if isinstance(value, str) and value else None
 
 
-def machine_problems(doc, sim_path, cfg, config_path, eds_paths, network=None):
-    """The problems of the machine files a (schema-valid) simulation file
-    names and of the scenario steps and conditions on them, in the shape of
-    check(), with "level": the deploy tool's checks against the config. Only
-    the section of `network` when given."""
+def config_problems(doc, sim_path, cfg, config_path, eds_paths, network=None):
+    """The problems of a (schema-valid) simulation file against the config,
+    as the plugin finds them when it loads the file (the deploy tool's
+    simfile.check): value sources on objects the master writes, values that
+    do not fit an object, steps and faults on unknown devices or PDOs, the
+    machine file. In the shape of check(), with "level". Only the section of
+    `network` when given."""
     from .. import simfile
-    if version(doc) < 2 or '"machine"' not in json.dumps(doc):
-        return []  # nothing names a machine: spare the EDS reads on every check
     r = simfile.check(doc, sim_path, cfg if isinstance(cfg, dict) else None, config_path, eds_paths)
     out = []
     for item in r.items:
-        paths = [p for p in item["paths"] if p == "machine" or p.endswith(".machine")]
-        if not paths:
-            continue
-        if network is not None and not (paths[0] + ".").startswith("networks.%s." % network):
+        path = item["paths"][0] if item["paths"] else ""
+        if network is not None and not (path + ".").startswith("networks.%s." % network):
             continue
         msg = item["message"]
-        prefix = "%s: %s: " % (sim_path, paths[0])
-        if msg.startswith(prefix):
-            msg = msg[len(prefix):]
-        out.append({"path": paths[0], "message": msg, "level": item["level"]})
+        for prefix in ("%s: %s: " % (sim_path, path), "%s: " % sim_path):
+            if msg.startswith(prefix):
+                msg = msg[len(prefix):]
+                break
+        out.append({"path": path, "message": msg, "level": item["level"]})
     return out
+
+
+def machine_problems(doc, sim_path, cfg, config_path, eds_paths, network=None):
+    """The config_problems() of the machine files a simulation file names
+    and of the scenario steps and conditions on them."""
+    if version(doc) < 2 or '"machine"' not in json.dumps(doc):
+        return []  # nothing names a machine: spare the EDS reads
+    return [p for p in config_problems(doc, sim_path, cfg, config_path, eds_paths, network)
+            if p["path"] == "machine" or p["path"].endswith(".machine")]
 
 
 def read_machine(doc, sim_path, network):

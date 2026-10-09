@@ -79,6 +79,12 @@ class WriteConfigurationPage(Page):
         self.assertIsNone(dev.saved)
         pg.click('button[data-online="configure-verify"]')
         pg.wait_for_selector('[data-online="verify-done"]:has-text("no difference")', timeout=20000)
+        self.assertIn("canworks.json", pg.inner_text('[data-online="verify-done"]'))
+        # C7: with unsaved changes Verify compares with them, and says so.
+        pg.evaluate("() => { S.config.nodes.find((n) => n.node_id === 5).name = 'rtd2'; changed(); }")
+        pg.wait_for_function("() => S.dirty")
+        pg.click('button[data-online="configure-verify"]')
+        pg.wait_for_selector('[data-online="verify-done"]:has-text("of this page\'s configuration (unsaved changes)")', timeout=20000)
         # Restore defaults asks, naming the node and 0x1011.
         pg.click('button[data-online="restore-defaults"]')
         pg.wait_for_selector("#modal[open]")
@@ -215,6 +221,23 @@ class StepsPage(Page):
         self.assertIn("LSS set node ID 12 (serial number 0x00000099): set", text)
         self.assertIn("Serial number 0x00000099", text)
         self.assertNotIn(self.ch, text)
+        # C18: no "Compare against the configuration" without one.
+        self.assertEqual(pg.evaluate("() => { S.onlineEds = { 12: 'fixed-io.eds' }; return [...paramsPanel(12, { node_id: 12 }, true).querySelectorAll("
+                                     "'[data-online=compare-ref] option')].map((o) => o.value); }"), ["file", "eds"])
+        # A config that already has node 12: refused before it opens, the page stays.
+        taken = os.path.join(self.dir, "taken")
+        os.makedirs(taken)
+        cfg = load(os.path.join(PINGPONG, "canopen_config.json"))
+        cfg["nodes"][0]["node_id"] = 12
+        with open(os.path.join(taken, "canworks.json"), "w") as f:
+            json.dump(cfg, f)
+        pg.click('button[data-online="add-to-config"]')
+        pg.fill('input[data-online="add-folder"]', taken)
+        pg.set_input_files('input[data-online="add-eds"]', FIXED_IO)
+        pg.click('#modal button[data-value="add"]')
+        pg.wait_for_selector("#banner:has-text('already has node 12')")
+        self.assertTrue(pg.evaluate("() => S.state.commission"))
+        self.assertTrue(pg.is_visible('[data-online="steps"]'))
         # Add to a config: the folder opens with node 12 added, unsaved.
         pg.click('button[data-online="add-to-config"]')
         pg.fill('input[data-online="add-folder"]', folder)

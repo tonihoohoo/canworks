@@ -21,7 +21,8 @@
       "maxItems": 8,
       "items": { "$ref": "#/$defs/network" }
     },
-    "gateway": { "$ref": "#/$defs/gateway" }
+    "gateway": { "$ref": "#/$defs/gateway" },
+    "bridge": { "$ref": "#/$defs/bridge" }
   },
   "required": [ "schema_version", "networks" ],
   "not": {
@@ -40,6 +41,45 @@
     "properties": { "networks": { "items": { "properties": { "nodes": { "minItems": 1 } } } } }
   },
   "$defs": {
+    "bridge": {
+      "description": "Makes this a Modbus bridge config, run by canworks-bridge instead of the OpenPLC plugin (docs/modbus-bridge.md). Locations are byte addresses then: %IWn covers input bytes n and n+1, word and larger locations start at an even byte, and no two locations share a byte (bits of one byte with different bit numbers excepted). Input byte n is input register n/2, %IXn.b discrete input n*8+b; outputs map to holding registers and coils the same way.",
+      "type": "object",
+      "properties": {
+        "listen": { "description": "address:port to serve Modbus TCP on, a numeric address: 0.0.0.0:502, [::]:502, 192.168.1.10:1502.", "type": "string", "minLength": 1 },
+        "unit_id": { "description": "Unit identifier answered (default 1; 0 and 255 are always answered).", "type": "integer", "minimum": 0, "maximum": 255 },
+        "word_order": { "description": "Order of the registers of a 32- or 64-bit value (default high_first).", "enum": [ "high_first", "low_first" ] },
+        "max_clients": { "description": "Connections served at once (default 16).", "type": "integer", "minimum": 1, "maximum": 64 },
+        "writers": { "description": "Addresses or prefixes allowed to write (default: every client).", "type": "array", "items": { "type": "string" } },
+        "readers": { "description": "Addresses or prefixes allowed to connect (default: every client).", "type": "array", "items": { "type": "string" } },
+        "watchdog_ms": { "description": "Outputs off when no write came from a writer for this long (default 1000; 0: no watchdog).", "type": "integer", "minimum": 0, "maximum": 60000 },
+        "on_client_loss": { "description": "Outputs off: stop (default, no RPDOs or transmit messages), zero (send 0 once, then stop) or hold (keep sending).", "enum": [ "stop", "zero", "hold" ] },
+        "status_location": { "description": "Start of the 8-byte status block.", "$ref": "canworks.v1.schema.json#/$defs/input_byte" },
+        "control_location": { "description": "Start of the 6-byte control block.", "type": "string", "pattern": "^%[Qq][Bb][0-9]+$" },
+        "live_lists": {
+          "description": "16-byte live lists of CANopen master networks: bit n set while node n is operational.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "network": { "type": "string", "minLength": 1 },
+              "location": { "$ref": "canworks.v1.schema.json#/$defs/input_byte" }
+            },
+            "required": [ "network", "location" ]
+          }
+        },
+        "sdo_bridge_location": {
+          "description": "The SDO bridge registers: a 14-byte request block in the outputs and a 14-byte response block in the inputs.",
+          "type": "object",
+          "properties": {
+            "request": { "type": "string", "pattern": "^%[Qq][Bb][0-9]+$" },
+            "response": { "$ref": "canworks.v1.schema.json#/$defs/input_byte" }
+          },
+          "required": [ "request", "response" ]
+        },
+        "sdo_bridge_write": { "description": "Allow SDO writes through the SDO bridge registers (default false).", "type": "boolean" }
+      },
+      "required": [ "listen" ]
+    },
     "network": {
       "type": "object",
       "properties": {

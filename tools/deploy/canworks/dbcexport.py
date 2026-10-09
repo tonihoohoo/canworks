@@ -349,8 +349,10 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
                 name = plc_name or od_name(eds, index, sub) or "obj_%04X_%d" % (index, sub)
                 name = taken.add(name, "%04X_%d" % (index, sub))
                 signed, float_kind = _signal_type(type_name, length)
-                if entry:
+                if entry and loc_text:
                     what = "-> " + loc_text
+                elif entry:  # a version 2 entry a gateway route uses: no PLC location
+                    what = "(gateway route, no PLC location)"
                 elif tx:
                     what = "(not used by the PLC)"
                 else:

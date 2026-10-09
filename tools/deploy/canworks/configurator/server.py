@@ -13,6 +13,7 @@ Requests whose Host is not loopback are refused (DNS rebinding).
 
 import argparse
 import base64
+import copy
 import hashlib
 import http.server
 import io
@@ -31,13 +32,13 @@ import urllib.parse
 import webbrowser
 import zipfile
 
-from .. import __version__, axis, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, parameters, project as project_mod, sdolibrary
+from .. import __version__, axis, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, modbusmap, parameters, project as project_mod, sdolibrary
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequences as sequences_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
-from ..iec import CO_TYPES, parse_location
+from ..iec import CO_TYPES, element_str, parse_location
 from ..userdirs import config_dir
 from ..j1939 import dbc as j1939_dbc
 from . import cia402map, declare, layout, online, params, rawpage, scan, simulation, tracing
@@ -53,7 +54,7 @@ UNEXPECTED_ERROR = "The configurator hit an error; see its terminal."
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
-    "": ["$schema", "schema_version", "adapter", "master", "nodes", "networks", "gateway", "diagnostics"],
+    "": ["$schema", "schema_version", "adapter", "master", "nodes", "networks", "gateway", "bridge", "diagnostics"],
     "network": ["name", "protocol", "role", "adapter", "master", "nodes", "slave", "j1939"],
     "adapter": ["type", "simulate", "interface", "bitrate", "configure_link", "restart_ms"],
     "master": ["node_id", "sync_period_us", "heartbeat_ms", "eds_lint", "strict_eds", "bus_state_location",
@@ -86,6 +87,9 @@ ORDER = {
                 "sdo_bridge_write"],
     "route": ["name", "slave", "field"],
     "route_field": ["network", "node", "index", "subindex"],
+    "bridge": list(bridgecheck.KEYS),
+    "live_list": ["network", "location"],
+    "sdo_bridge_location": ["request", "response"],
 }
 
 
@@ -158,12 +162,35 @@ def canonical(cfg):
                     for key, kind in (("slave", "entry"), ("field", "route_field")):
                         if isinstance(rt.get(key), dict):
                             rt[key] = _ordered(rt[key], kind)
+    if isinstance(cfg.get("bridge"), dict):
+        b = cfg["bridge"] = _ordered(cfg["bridge"], "bridge")
+        if isinstance(b.get("live_lists"), list):
+            b["live_lists"] = [_ordered(e, "live_list") for e in b["live_lists"]]
+        if isinstance(b.get("sdo_bridge_location"), dict):
+            b["sdo_bridge_location"] = _ordered(b["sdo_bridge_location"], "sdo_bridge_location")
     if isinstance(cfg.get("diagnostics"), dict):
         cfg["diagnostics"] = _ordered(cfg["diagnostics"], "diagnostics")
     if isinstance(cfg.get("networks"), list):
         cfg["networks"] = [_canonical_network(_ordered(net, "network")) if isinstance(net, dict) else net
                            for net in cfg["networks"]]
     return cfg
+
+
+def keep_order(new, old):
+    """`new` with the keys of each object in the order `old` (the file on
+    disk) has them, so a save changes only the lines of what changed. Keys
+    `old` lacks go after the key that precedes them in `new`; lists match
+    item by item."""
+    if isinstance(new, dict) and isinstance(old, dict):
+        keys = [k for k in old if k in new]
+        for i, k in enumerate(new):
+            if k not in old:
+                before = next((p for p in reversed(list(new)[:i]) if p in keys), None)
+                keys.insert(keys.index(before) + 1 if before is not None else 0, k)
+        return {k: keep_order(new[k], old.get(k)) for k in keys}
+    if isinstance(new, list) and isinstance(old, list):
+        return [keep_order(v, old[i] if i < len(old) else None) for i, v in enumerate(new)]
+    return new
 
 
 def _canonical_network(cfg):
@@ -212,9 +239,10 @@ def lowest_version(cfg):
     contract): a version 2 file with one network that has no name of its own
     (none, or its interface's) becomes version 1, its diagnostics back in the
     master. Anything else comes back as it is, also a file the checks will
-    refuse, so they report it as the user wrote it."""
+    refuse, so they report it as the user wrote it. A bridge config stays
+    version 2: the bridge object needs it."""
     if not isinstance(cfg, dict) or cfg.get("schema_version") != 2 or not isinstance(cfg.get("networks"), list) \
-            or len(cfg["networks"]) != 1 or not isinstance(cfg["networks"][0], dict):
+            or len(cfg["networks"]) != 1 or not isinstance(cfg["networks"][0], dict) or "bridge" in cfg:
         return cfg
     net = cfg["networks"][0]
     adapter, master, name = net.get("adapter"), net.get("master"), net.get("name")
@@ -355,6 +383,14 @@ class ApiError(Exception):
         self.body = dict(error=message, **extra)
 
 
+def folder_error(e, doing, folder):
+    """An OSError as one sentence naming the folder: "cannot read the
+    folder /x: permission denied"."""
+    reason = (e.strerror or str(e)).lower() if isinstance(e, OSError) else str(e)
+    return ApiError(403 if isinstance(e, PermissionError) else 500,
+                    "cannot %s the folder %s: %s" % (doing, folder, reason))
+
+
 class Session:
     """What the page is editing. One user, one folder at a time."""
 
@@ -408,6 +444,13 @@ class Session:
             return  # the "Commission a device" scratch folder
         items = [r for r in self.recent() if r["path"] != self.folder]
         items.insert(0, {"path": self.folder, "mode": self.mode})
+        self._write_recent(items)
+
+    def forget(self, path):
+        """Drops a folder from Recent (one that was moved or deleted)."""
+        self._write_recent([r for r in self.recent() if r["path"] != path])
+
+    def _write_recent(self, items):
         try:
             os.makedirs(config_dir(), exist_ok=True)
             tmp = os.path.join(config_dir(), "recent.json.tmp")
@@ -418,8 +461,16 @@ class Session:
             pass  # a convenience only
 
     # -- open / close -------------------------------------------------------
-    def open(self, path, mode="auto"):
+    def open(self, path, mode="auto", new=None):
+        """Opens a folder. `new` False ("Open standalone config") wants an
+        existing canworks.json, True ("New standalone config") refuses one;
+        None (Recent, the command line) takes either."""
         path = os.path.abspath(os.path.expanduser(path or ""))
+        try:
+            if os.path.isdir(path):
+                os.listdir(path)  # what is in it can only be told when it can be read
+        except OSError as e:
+            raise folder_error(e, "read", path)
         is_project = os.path.isfile(os.path.join(path, "project.json"))
         if mode == "auto":
             mode = "project" if is_project else "standalone"
@@ -434,14 +485,36 @@ class Session:
                 raise ApiError(422, "%s is an editor project; open it as a project" % path, is_project=True)
             if os.path.exists(path) and not os.path.isdir(path):
                 raise ApiError(422, "%s is not a folder" % path)
+            if new is False and not os.path.isdir(path):
+                raise ApiError(404, "%s does not exist" % path)
+            if new is False and not os.path.isfile(os.path.join(path, CONFIG)):
+                raise ApiError(404, "%s has no %s; pick New standalone config to start one there" % (path, CONFIG),
+                               no_config=True)
+            if new is True and os.path.isfile(os.path.join(path, CONFIG)):
+                raise ApiError(409, "%s already has a %s" % (path, CONFIG), has_config=True, path=path)
         else:
             raise ApiError(400, "unknown mode %r" % mode)
+        # Read what state() reads before anything changes: an unreadable
+        # folder leaves the page where it was.
+        folder = os.path.join(path, "canworks") if mode == "project" else path
+        try:
+            if os.path.isdir(folder):
+                os.listdir(folder)
+            for f in (os.path.join(folder, CONFIG), os.path.join(folder, simulation.SIM_FILE)):
+                if os.path.isfile(f):
+                    open(f, "rb").close()
+        except OSError as e:
+            raise folder_error(e, "read", folder)
         self.mode, self.folder = mode, path
         self.commission = False
         self.pending.clear()
         self.descriptions.clear()
         self.pending_dbc.clear()
-        self.reload()
+        try:
+            self.reload()
+        except OSError as e:
+            self.close()
+            raise folder_error(e, "read", folder)
         self.remember()
 
     def commission_device(self):
@@ -492,7 +565,9 @@ class Session:
         try:
             with open(self.config_path, encoding="utf-8") as f:
                 cfg = json.load(f)
-        except (OSError, ValueError) as e:
+        except OSError as e:
+            return empty_config(), [], "%s cannot be read: %s" % (self.config_path, (e.strerror or str(e)).lower())
+        except ValueError as e:
             return empty_config(), [], "%s cannot be read: %s" % (self.config_path, e)
         cfg, notices = migrate(cfg)
         return cfg, notices, None
@@ -631,6 +706,15 @@ class Session:
                 "default_start": layout.DEFAULT_START, "commission": self.commission}
         if not self.mode:
             return base
+        try:
+            return self._state(base)
+        except OSError as e:
+            # The folder became unreadable: back to the start page, with why.
+            error = folder_error(e, "read", self.canopen_dir).body["error"]
+            self.close()
+            return dict(base, mode=None, commission=False, open_error=error)
+
+    def _state(self, base):
         cfg, notices, error = self.read_config()
         sim = simulation.read(self.sim_path)
         sim_eds = simulation.eds_files(self.canopen_dir)
@@ -816,7 +900,9 @@ class Session:
             items += self.notes_problems(cfg, notes)
         except (OSError, ValueError, TypeError, AttributeError):
             pass  # notes are documentation: they never stop a check
-        extra, declared = layout.project_checks(cfg, self.uses, allow_overlap)
+        # A bridge config does not run in OpenPLC: the project's addresses are not its addresses.
+        extra, declared = layout.project_checks(cfg, [] if modbusmap.is_bridge_config(cfg) else self.uses,
+                                                allow_overlap)
         items += extra
         # A cyclic axis's fCycleTime line: the task interval the page gives.
         cycle_s = editorproject.interval_seconds(editorproject.DEFAULT_INTERVAL)
@@ -1040,7 +1126,7 @@ class Session:
             if name in self.descriptions:
                 out[name] = self.descriptions[name]
                 continue
-            path = os.path.join(self.canopen_dir, description_name(name))
+            path = description_path(self.canopen_dir, name)
             try:
                 with open(path, encoding="utf-8") as f:
                     desc = json.load(f)
@@ -1072,7 +1158,7 @@ class Session:
             raise ApiError(422, str(e))
         data = text.encode("utf-8")
         target = os.path.join(self.canopen_dir, name)
-        built = name in self.descriptions or os.path.isfile(os.path.join(self.canopen_dir, description_name(name)))
+        built = name in self.descriptions or os.path.isfile(description_path(self.canopen_dir, name))
         if not replace and not built and name not in self.pending and os.path.isfile(target):
             with open(target, "rb") as f:
                 if f.read() != data:
@@ -1141,6 +1227,134 @@ class Session:
         new, mapped, missing = cia402map.map_objects(n, info, layout.taken(cfg, self.uses), start, changes)
         return {"node": new, "mapped": mapped, "missing": missing, "changes": changes}
 
+    # -- Modbus bridge (canopen-configurator "Modbus bridge target") ---------
+    @staticmethod
+    def _bridge_config(cfg):
+        if not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        if not modbusmap.is_bridge_config(cfg):
+            raise ApiError(400, "not a bridge config: it has no top-level \"bridge\" object")
+        return cfg
+
+    def bridge_map(self, cfg):
+        """The register map of the draft for the bridge page: {rows,
+        channels, input_bytes, output_bytes}, or {rows: [], problem} when
+        the locations break the byte rules (Check says where)."""
+        self._bridge_config(cfg)
+        try:
+            rows = modbusmap.register_map(cfg)
+        except modbusmap.MapError as e:
+            return {"rows": [], "channels": [], "problem": str(e)}
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return {"rows": [], "channels": [], "problem": "the config cannot be read for the register map (see Problems)"}
+        inputs, outputs = modbusmap.image_sizes(rows)
+        return {"rows": rows, "input_bytes": inputs, "output_bytes": outputs,
+                "channels": [{"function": f, "start": st, "count": c, "direction": d}
+                             for f, st, c, d in modbusmap.suggest_channels(rows)]}
+
+    def bridge_pack(self, cfg):
+        """The draft with every location packed for Modbus (modbusmap.pack)."""
+        self._bridge_config(cfg)
+        try:
+            return {"config": modbusmap.pack(cfg)}
+        except modbusmap.MapError as e:
+            raise ApiError(400, str(e))
+
+    # The bridge blocks Suggest places: (area, bytes).
+    BRIDGE_BLOCKS = {"status_location": ("I", bridgecheck.STATUS_BYTES),
+                     "control_location": ("Q", bridgecheck.CONTROL_BYTES),
+                     "live_list": ("I", bridgecheck.LIVE_LIST_BYTES),
+                     "sdo_request": ("Q", bridgecheck.SDO_BYTES),
+                     "sdo_response": ("I", bridgecheck.SDO_BYTES)}
+
+    def bridge_suggest(self, cfg, block, index=None):
+        """A free place for one bridge block: the first even byte after the
+        packed data (data and status locations) of its area where the whole
+        block overlaps nothing. `block` is a key of BRIDGE_BLOCKS, `index`
+        the live list's. The block's own location is left out, so Suggest
+        can also move it."""
+        self._bridge_config(cfg)
+        if block not in self.BRIDGE_BLOCKS:
+            raise ApiError(400, "block must be one of: " + ", ".join(self.BRIDGE_BLOCKS))
+        cfg = copy.deepcopy(cfg)
+        b = cfg["bridge"]
+        if block == "live_list":
+            lists = b.get("live_lists")
+            try:
+                entry = lists[int(index)]
+            except (IndexError, TypeError, ValueError):
+                raise ApiError(400, "no live list %r" % index)
+            if not isinstance(entry, dict):
+                raise ApiError(400, "no live list %r" % index)
+            entry.pop("location", None)
+        elif block.startswith("sdo_"):
+            if isinstance(b.get("sdo_bridge_location"), dict):
+                b["sdo_bridge_location"].pop(block[4:], None)
+        else:
+            b.pop(block, None)
+        try:
+            items = modbusmap.collect(cfg)
+        except modbusmap.MapError as e:
+            raise ApiError(400, str(e))
+        area, nbytes = self.BRIDGE_BLOCKS[block]
+        mine = [it for it in items if it.loc.area == area]
+        end = max((it.loc.index + it.nbytes for it in mine if it.kind != "bridge"), default=0)
+        pos = end + end % 2
+        ranges = sorted((it.loc.index, it.loc.index + it.nbytes) for it in mine)
+        moved = True
+        while moved:
+            moved = False
+            for lo, hi in ranges:
+                if lo < pos + nbytes and pos < hi:
+                    pos = hi + hi % 2
+                    moved = True
+        if pos + nbytes > bridgecheck.IMAGE_BYTES:
+            raise ApiError(400, "no free %d-byte range left in the %s image" % (nbytes, "input" if area == "I" else "output"))
+        return {"location": "%%%sB%d" % (area, pos)}
+
+    MAP_TYPES = {"csv": "text/csv", "json": "application/json", "st": "text/plain"}
+
+    def export_modbus_map(self, cfg, fmt):
+        """The register map file `canworks-deploy --export-modbus-map
+        map.<fmt>` writes for the draft (saved or not): `<folder>_modbus.<fmt>`,
+        base64 in `data`. When the locations break the byte rules: the
+        /api/check shape, and no file."""
+        self._bridge_config(cfg)
+        if fmt not in self.MAP_TYPES:
+            raise ApiError(400, "format must be csv, json or st")
+        try:
+            rows = modbusmap.register_map(cfg)
+        except modbusmap.MapError as e:
+            return {"items": [{"level": "error", "message": str(e), "paths": []}], "errors": 1}
+        text = modbusmap.to_csv(rows) if fmt == "csv" else modbusmap.to_json(cfg, rows) if fmt == "json" \
+            else modbusmap.to_st(cfg, rows)
+        folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
+        return {"items": [], "errors": 0, "name": "%s_modbus.%s" % (folder, fmt),
+                "content_type": self.MAP_TYPES[fmt], "rows": len(rows),
+                "data": base64.b64encode(text.encode("utf-8")).decode("ascii")}
+
+    def pack_openplc(self, cfg, start=None):
+        """The draft with every location repacked for OpenPLC's per-type
+        tables, as Suggest places them: per area and size in file order from
+        `start` (layout.DEFAULT_START), skipping the editor project's
+        addresses. The bridge's own blocks are left alone."""
+        if not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        try:
+            start = layout.DEFAULT_START if start in (None, "") else int(start)
+        except (TypeError, ValueError):
+            raise ApiError(400, "start must be a number")
+        out = copy.deepcopy(cfg)
+        used = {u.key() for u in self.uses}
+        nxt = {}
+        for holder, key, loc in location_slots(out):
+            element = nxt.get((loc.area, loc.size), start * 8 if loc.size == "X" else start)
+            while (loc.area, loc.size, element) in used:
+                element += 1
+            holder[key] = element_str(loc.area, loc.size, element)
+            nxt[(loc.area, loc.size)] = element + 1
+        return {"config": out}
+
     # -- save ---------------------------------------------------------------
     def save(self, cfg, allow_overlap=False, overwrite=False, notes=None):
         cfg = lowest_version(cfg)
@@ -1150,6 +1364,12 @@ class Session:
                            % (checked["errors"], "" if checked["errors"] == 1 else "s"), check=checked)
         if not overwrite and self.changed_on_disk():
             raise ApiError(409, "%s changed on disk after it was loaded" % self.config_path, changed_on_disk=True)
+        try:
+            return self._save(cfg, checked, notes)
+        except OSError as e:
+            raise folder_error(e, "write to", self.canopen_dir)
+
+    def _save(self, cfg, checked, notes=None):
         os.makedirs(self.canopen_dir, exist_ok=True)
         written = []
         referenced = {n["eds"] for n in contract.eds_users(cfg)}
@@ -1163,7 +1383,7 @@ class Session:
             os.replace(tmp, target)
             written.append(target)
             if name in self.descriptions:
-                target = os.path.join(self.canopen_dir, description_name(name))
+                target = description_path(self.canopen_dir, name)
                 with open(target + ".tmp", "w", encoding="utf-8") as f:
                     json.dump(self.descriptions[name], f, indent=2, ensure_ascii=False)
                     f.write("\n")
@@ -1177,9 +1397,15 @@ class Session:
                     f.write(data)
                 os.replace(target + ".tmp", target)
                 written.append(target)
+        out = canonical(cfg)
+        try:
+            with open(self.config_path, encoding="utf-8") as f:
+                out = keep_order(out, json.load(f))
+        except (OSError, ValueError):
+            pass  # a new file, or one that cannot be read: the fixed order
         tmp = self.config_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(canonical(cfg), f, indent=2, ensure_ascii=False)
+            json.dump(out, f, indent=2, ensure_ascii=False)
             f.write("\n")
         os.replace(tmp, self.config_path)
         written.append(self.config_path)
@@ -1199,16 +1425,44 @@ class Session:
             return exists
         return not exists or sha256(self.sim_path) != self.sim_loaded
 
+    def sim_problems(self, doc, network=None, machine=False):
+        """simulation.config_problems() of a schema-valid simulation file
+        against the saved config (only the machine file's with `machine`)."""
+        if not os.path.isfile(self.config_path):
+            return []  # nothing to check against yet
+        cfg = self.read_config()[0]
+        fn = simulation.machine_problems if machine else simulation.config_problems
+        try:
+            out = fn(doc, self.sim_path, cfg, self.config_path, self.eds_paths(cfg) if isinstance(cfg, dict) else {},
+                     network)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return []  # a config the contract check refuses: its problems show there
+        # An extra device's EDS imported but not saved yet is written with the file.
+        nets = doc.get("networks") if simulation.version(doc) >= 2 else None
+        parts = [("networks.%s." % k, b) for k, b in nets.items()] if isinstance(nets, dict) else [("", doc)]
+        pending = {"%sextra_devices[%d].eds" % (prefix, i) for prefix, body in parts if isinstance(body, dict)
+                   for i, d in enumerate(body.get("extra_devices") or [])
+                   if isinstance(d, dict) and d.get("eds") in self.pending}
+        return [p for p in out if p["path"] not in pending]
+
     def save_simulation(self, doc, overwrite=False):
         """Writes canworks/simulation.json after the schema check, with the EDS
         files its extra devices name that were imported but not saved yet.
         Like canworks.json, only into the project's config folder."""
         problems = simulation.check(doc)
+        if not problems:
+            problems = [p for p in self.sim_problems(doc) if p["level"] == "error"]
         if problems:
             raise ApiError(422, "the simulation file has %d error%s; nothing was saved"
                            % (len(problems), "" if len(problems) == 1 else "s"), problems=problems)
         if not overwrite and self.sim_changed_on_disk():
             raise ApiError(409, "%s changed on disk after it was loaded" % self.sim_path, changed_on_disk=True)
+        try:
+            return self._save_simulation(doc)
+        except OSError as e:
+            raise folder_error(e, "write to", self.canopen_dir)
+
+    def _save_simulation(self, doc):
         os.makedirs(self.canopen_dir, exist_ok=True)
         written = []
         wanted = set(simulation.extra_eds(doc))
@@ -1234,19 +1488,42 @@ class Session:
         if not os.path.isfile(os.path.join(target, "project.json")):
             raise ApiError(422, "%s is not an OpenPLC Editor project (it has no project.json)" % target)
         if os.path.lexists(os.path.join(target, "canworks")) and not replace:
-            raise ApiError(409, "%s already has a canopen folder" % target, exists=True)
+            raise ApiError(409, "%s already has a canworks/ folder" % target, exists=True)
         with open(self.config_path, encoding="utf-8") as f:
             cfg = json.load(f)
         result = contract.check_config(cfg, self.config_path)
         if not result.ok:
             raise ApiError(422, "\n".join(result.errors))
         try:
-            written, converted = project_mod.write(cfg, self.config_path, target, force=replace)
+            written, converted = project_mod.write(cfg, self.config_path, target, force=replace,
+                                                   sim_path=self._sim_to_move())
         except project_mod.ProjectError as e:
             raise ApiError(422, str(e))
+        written += self._move_descriptions(cfg, os.path.join(target, project_mod.DIR))
         self.open(target, "project")
         return {"written": written, "converted": converted}
 
+
+    def _sim_to_move(self):
+        """The simulation file that goes along into a project, or None."""
+        if self.sim_changed_on_disk():
+            raise ApiError(409, "save the simulation before moving the config into a project", unsaved=True)
+        return self.sim_path if os.path.isfile(self.sim_path) else None
+
+    def _move_descriptions(self, cfg, target):
+        """Copies the description of each slave network's EDS (what Build
+        the EDS shows) into a project's canworks/ folder: the paths written."""
+        written = []
+        for net in contract.networks(cfg):
+            eds = (net.get("slave") or {}).get("eds") if net["role"] == "slave" else None
+            if not isinstance(eds, str) or not eds:
+                continue
+            src = description_path(os.path.dirname(self.eds_path(eds)), os.path.basename(eds))
+            dst = os.path.join(target, os.path.basename(src))
+            if os.path.isfile(src) and not os.path.exists(dst):
+                shutil.copyfile(src, dst)
+                written.append(dst)
+        return written
 
     # -- a new editor project around a standalone config --------------------
     def new_project(self, parent, name, interval=None, blocks=False):
@@ -1278,9 +1555,11 @@ class Session:
         try:
             path, decls = editorproject.create(cfg, self.config_path, target,
                                                interval=interval or editorproject.DEFAULT_INTERVAL,
-                                               runtime_address=address, blocks=blocks)
+                                               runtime_address=address, blocks=blocks,
+                                               sim_path=self._sim_to_move())
         except editorproject.NewProjectError as e:
             raise ApiError(422, str(e))
+        self._move_descriptions(cfg, os.path.join(path, project_mod.DIR))
         self.open(path, "project")
         out = {"project": path, "declared": len(decls)}
         if blocks:
@@ -1291,6 +1570,29 @@ class Session:
 # J1939 locations /api/place suggests: direction -> (area, size letter).
 J1939_PLACES = {"j1939_state": ("I", "B"), "j1939_address": ("I", "B"), "j1939_status": ("I", "X"),
                 "j1939_valid": ("I", "X")}
+
+
+def location_slots(cfg):
+    """[(dict, key, Location)] of every %I and %Q location of a config, in
+    file order: each `iec_location` and `*_location` value (the rule of
+    modbusmap.collect), the bridge object and the diagnostics left out."""
+    out = []
+
+    def walk(value):
+        if isinstance(value, dict):
+            for key, sub in value.items():
+                if isinstance(sub, str) and (key == "iec_location" or key.endswith("_location")):
+                    loc = parse_location(sub)
+                    if loc is not None and loc.area in "IQ":
+                        out.append((value, key, loc))
+                elif isinstance(sub, (dict, list)):
+                    walk(sub)
+        elif isinstance(value, list):
+            for sub in value:
+                walk(sub)
+
+    walk({k: v for k, v in cfg.items() if k not in ("bridge", "diagnostics")})
+    return out
 
 
 def _bitrate_arg(v):
@@ -1311,6 +1613,15 @@ def description_name(eds_name):
     return eds_name + ".json"
 
 
+def description_path(folder, eds_name):
+    """The description of a slave EDS in folder: <name>.eds.json, or
+    <stem>_eds.json as `canworks-deploy slave-eds` examples name it, when
+    that one is there."""
+    other = os.path.join(folder, os.path.splitext(eds_name)[0] + "_eds.json")
+    path = os.path.join(folder, description_name(eds_name))
+    return other if not os.path.isfile(path) and os.path.isfile(other) else path
+
+
 def slave_eds_name(device_name):
     """An EDS file name from a device name: "OpenPLC slave" -> openplc-slave.eds."""
     stem = re.sub(r"[^a-z0-9]+", "-", str(device_name or "").lower()).strip("-")
@@ -1325,7 +1636,7 @@ def list_folders(path):
     try:
         names = sorted(os.listdir(path), key=str.lower)
     except OSError as e:
-        raise ApiError(403, "%s cannot be listed: %s" % (path, e))
+        raise folder_error(e, "list", path)
     for name in names:
         full = os.path.join(path, name)
         if name.startswith(".") or not os.path.isdir(full):
@@ -1337,6 +1648,27 @@ def list_folders(path):
     return {"path": path, "parent": parent if parent != path else None, "entries": entries,
             "project": os.path.isfile(os.path.join(path, "project.json")),
             "config": os.path.isfile(os.path.join(path, CONFIG))}
+
+
+def folder_nodes(path):
+    """{"nodes": [node IDs]} of the first network of the config in a project
+    or standalone config folder, for "Add to a config…" before it opens the
+    folder; no IDs when the folder has no config yet."""
+    if not isinstance(path, str) or not path.strip():
+        raise ApiError(400, "path must be a folder")
+    try:
+        with open(params.config_file(path.strip()), encoding="utf-8") as f:
+            nets = contract.networks(json.load(f))
+    except (params.Refused, OSError, ValueError, TypeError, AttributeError):
+        return {"nodes": []}
+    nodes = nets[0]["nodes"] if nets else []
+    ids = []
+    for n in nodes if isinstance(nodes, list) else []:
+        try:
+            ids.append(int(str(n.get("node_id")), 0))
+        except (AttributeError, ValueError):
+            pass
+    return {"nodes": ids}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -1467,9 +1799,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = save_ui(body)
                 elif route == ("GET", "/api/folders"):
                     out = list_folders(query.get("path", [None])[0])
+                elif route == ("POST", "/api/folder_nodes"):
+                    out = folder_nodes(body.get("path"))
                 elif route == ("POST", "/api/open"):
-                    s.open(body.get("path"), body.get("mode", "auto"))
+                    s.open(body.get("path"), body.get("mode", "auto"), body.get("new"))
                     out = s.state()
+                elif route == ("POST", "/api/recent/forget"):
+                    s.forget(body.get("path"))
+                    out = {"recent": s.recent()}
                 elif route == ("POST", "/api/commission"):
                     s.commission_device()
                     self.server.adapter_allow = False
@@ -1535,6 +1872,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/export_eds"):
                     self._need_open(s)
                     out = s.export_eds(body.get("config"), body.get("network", 0))
+                elif route == ("POST", "/api/bridge/map"):
+                    self._need_open(s)
+                    out = s.bridge_map(body.get("config"))
+                elif route == ("POST", "/api/bridge/pack"):
+                    self._need_open(s)
+                    out = s.bridge_pack(body.get("config"))
+                elif route == ("POST", "/api/bridge/suggest"):
+                    self._need_open(s)
+                    out = s.bridge_suggest(body.get("config"), body.get("block"), body.get("index"))
+                elif route == ("POST", "/api/bridge/export"):
+                    self._need_open(s)
+                    out = s.export_modbus_map(body.get("config"), body.get("format"))
+                elif route == ("POST", "/api/pack_openplc"):
+                    self._need_open(s)
+                    out = s.pack_openplc(body.get("config"), body.get("start"))
                 elif route == ("POST", "/api/map_cia402"):
                     self._need_open(s)
                     out = s.map_cia402(body.get("config"), body.get("node"), body.get("start"),
@@ -1567,6 +1919,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.wfile.flush()
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
         except ApiError as e:
+            self._send(e.status, e.body)
+        except OSError as e:
+            if not e.filename:  # pragma: no cover
+                traceback.print_exc()
+                return self._send(500, {"error": UNEXPECTED_ERROR})
+            # A file the configurator could not read or write: say which.
+            e = folder_error(e, "use", os.path.dirname(os.path.abspath(e.filename)))
             self._send(e.status, e.body)
         except Exception:  # pragma: no cover - the page gets one sentence, the terminal the details
             traceback.print_exc()
@@ -1799,6 +2158,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except ValueError as e:
                     raise ApiError(422, str(e))
                 res = call(lambda c: c.sdo_write(node, index, sub, data, timeout_ms))
+                if res.get("success"):
+                    res["data"] = diag.hex_bytes(data)  # what was written, for Keep in configuration
             else:
                 res = call(lambda c: c.sdo_read(node, index, sub, timeout_ms))
                 if res.get("success"):
@@ -1995,7 +2356,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             problems = simulation.check(body.get("doc"))
             if not problems:
                 with s.lock:
-                    problems = self._machine_problems(s, body.get("doc"))
+                    problems = s.sim_problems(body.get("doc"))
             return {"problems": problems}
         if route == ("GET", "/api/sim/machine"):
             # The machine file of the network's section, for the Machine tab offline.
@@ -2006,7 +2367,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 problems = []
                 if out["file"] and not simulation.check(doc):
                     problems = [{"path": p["path"], "message": p["message"]}
-                                for p in self._machine_problems(s, doc, name)]
+                                for p in s.sim_problems(doc, name, machine=True)]
             error = out.pop("error", None)
             if error and not problems:
                 problems = [{"path": "networks.%s.machine" % name, "message": error}]
@@ -2037,6 +2398,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 return conn.call(host, port, token, fn, network), kind
             except diag.DiagError as e:
+                if kind == "simulator" and e.kind == "closed":
+                    e = simulation.simclient.closed_error(host, port)
                 raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
 
         def hello(kind):
@@ -2092,18 +2455,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             res, kind = call(lambda c: c.request(op, **fields))
             return {"result": res, "target": kind}
         raise ApiError(404, "no such API: %s %s" % route)
-
-    @staticmethod
-    def _machine_problems(s, doc, network=None):
-        """The machine file problems of a schema-valid simulation file
-        (simulation.machine_problems) against the saved config; the caller
-        holds s.lock."""
-        cfg = s.read_config()[0]
-        try:
-            return simulation.machine_problems(doc, s.sim_path, cfg, s.config_path,
-                                               s.eds_paths(cfg) if isinstance(cfg, dict) else {}, network)
-        except (KeyError, TypeError, ValueError, AttributeError):
-            return []  # a config the contract check refuses: its problems show there
 
     @staticmethod
     def _check_expr_offline(s, expr, node, doc, network=None):
@@ -2380,7 +2731,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             fmt = body.get("format") or "pcapng"
             if fmt not in formats_mod.FORMATS and fmt not in [v[0] for v in formats_mod.FORMATS.values()]:
                 raise ApiError(400, "format must be one of " + ", ".join(sorted(formats_mod.FORMATS)))
-            target = tracing.check_folder(body.get("folder") or traces_dir, canopen_dir)
+            target = tracing.check_folder(body.get("folder") or traces_dir, canopen_dir, exists=bool(body.get("folder")))
             fid = formats_mod.format_of("x", fmt)
             ext = next(e for e, (f, _) in formats_mod.FORMATS.items() if f == fid)
             part, dec = ws.part(start, end)
@@ -2452,17 +2803,23 @@ def frame_from(body):
     a number, the data as hex bytes."""
     ext, rtr = body.get("ext") is True, body.get("rtr") is True
     raw = body.get("id")
+    if isinstance(raw, str):
+        text = raw.strip()
+        text = text[2:] if text.lower().startswith("0x") else text
+        if not text or any(c not in "0123456789abcdefABCDEF" for c in text):
+            raise ApiError(422, "the identifier must be hex, for example 60A")
+        raw = int(text, 16)
     try:
-        if isinstance(raw, str):
-            text = raw.strip()
-            text = text[2:] if text.lower().startswith("0x") else text
-            raw = int(text, 16)
         can_id = diag.parse_frame_id(raw, ext)
+    except ValueError:
+        raise ApiError(422, "the identifier must be hex, for example 60A" if not isinstance(raw, int) else
+                       "identifier %X is out of range: 0-%X%s" % (raw, 0x1FFFFFFF if ext else 0x7FF,
+                                                                 "" if ext else " (tick Extended for a 29-bit one)"))
+    try:
         data = b"" if rtr else diag.parse_frame_data(body.get("data") or "")
     except ValueError as e:
-        if "invalid literal" in str(e):
-            raise ApiError(422, "identifier %r is not hexadecimal" % body.get("id"))
-        raise ApiError(422, str(e))
+        raise ApiError(422, str(e) if "at most 8" in str(e) else
+                       "the data must be whole hex bytes, for example 40 18 10 01")
     dlc = body.get("dlc")
     if rtr and (isinstance(dlc, bool) or not isinstance(dlc, int) or not 0 <= dlc <= 8):
         raise ApiError(422, "a remote frame needs a DLC of 0-8")

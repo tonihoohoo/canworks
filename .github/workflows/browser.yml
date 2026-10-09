@@ -1,0 +1,87 @@
+name: Browser run against the real plugin
+
+# The configurator in Chromium against the real plugin (canopen-ci "Browser
+# run against the real plugin"): canopen_host runs examples/virtual-plant on
+# the plugin's simulated bus (CANWORKS_FORCE_SIMULATE=1, no CAN interface)
+# and test/browser/run.py drives the online view, the simulation, a power
+# cycle, a TPDO timeout and a trace. Weekly, by hand ("Run workflow"), and on
+# pull requests that touch the configurator's online or trace code or the
+# plugin's diagnostics or simulated bus. A workflow of its own so that it
+# leaves the CI workflow's time alone; CI's ci-ok check does not wait for it.
+on:
+  pull_request:
+    paths:
+      - "tools/deploy/canworks/configurator/**"
+      - "tools/deploy/canworks/bustrace/**"
+      - "tools/deploy/canworks/diag.py"
+      - "plugin/src/canopen/diag*"
+      - "plugin/src/canopen/bus*"
+      - "plugin/src/canopen/network*"
+      - "tools/sim/**"
+      - "test/browser/**"
+      - ".github/workflows/browser.yml"
+  schedule:
+    - cron: "37 4 * * 2"  # Tuesdays 04:37 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: browser-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/build-plugin
+        with:
+          kernel-modules: "false"
+          targets: canworks_plugin canopen_host
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the configurator's and the script's Python dependencies
+        run: python -m pip install -q jsonschema playwright python-can pyserial cantools
+
+      - name: Playwright version and runner image (the cache key)
+        id: playwright
+        run: |
+          echo "version=$(python -c 'import importlib.metadata as m; print(m.version("playwright"))')" >> "$GITHUB_OUTPUT"
+          echo "image=${ImageOS:-os}-${ImageVersion:-image}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Chromium
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/canworks/apt-playwright
+          key: playwright-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}
+
+      - name: Chromium
+        # As in ci.yml's configurator-page job: the browser from the cache (or
+        # downloaded), its system libraries through the bounded install.
+        timeout-minutes: 8
+        run: |
+          python -m playwright install chromium
+          plan=$(python -m playwright install-deps --dry-run chromium 2>&1) || true
+          echo "$plan"
+          if grep -q "dependencies are installed" <<<"$plan"; then exit 0; fi
+          deps=$({ sed -n 's/.*--no-install-recommends //p' <<<"$plan" | tr -d '"'
+                   sed -n 's/^  \([a-z0-9][^ ]*\)$/\1/p' <<<"$plan"; } | xargs)
+          test -n "$deps" || { echo "no package list from playwright install-deps --dry-run" >&2; exit 1; }
+          python3 .github/scripts/apt_install.py --debs ~/.cache/canworks/apt-playwright --no-install-recommends $deps
+
+      - name: Connect, nodes, object dictionary, simulated faults, TPDO timeout, trace and power cycle
+        run: test/browser/run.py --build-dir build --out "$RUNNER_TEMP/browser"
+
+      - name: Logs and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-run
+          path: ${{ runner.temp }}/browser
+          retention-days: 7

@@ -31,9 +31,12 @@
 #include "dcf_gen.h"
 #include "diag.h"
 #include "gateway.h"
+#include "host_requests.h"
 #include "log.h"
 #include "plc_api.h"
 #include "process_image.h"
+
+struct can_msg;
 
 namespace canopen_plugin {
 
@@ -131,6 +134,9 @@ class Network : public lely::canopen::BasicMaster {
   // Nodes marked simulated whose node ID a device on the wire already uses:
   // they stay real, and the status says so.
   void SetSimConflicts(std::set<unsigned> nodes) { sim_conflicts_ = std::move(nodes); }
+  // Called with every frame the master puts on the bus (a simulated bus's
+  // trace marks them Tx); call before Start().
+  void SetSendTap(std::function<void(const can_msg&)> tap);
 
   // Supervision period and retry backoff limits.
   static constexpr std::chrono::milliseconds kTick{100};
@@ -235,7 +241,8 @@ class Network : public lely::canopen::BasicMaster {
     };
     std::array<Emcy, kEmcyHistory> emcy_hist{};
     size_t emcy_head = 0;
-    size_t emcy_n = 0;
+    size_t emcy_n = 0;       // in the history
+    uint64_t emcy_total = 0;  // received in this session
     // LSS assignment before boot retries (lss.assign): next attempt, backoff,
     // and whether one is running for this node.
     clock::time_point lss_next{};
@@ -379,6 +386,12 @@ class Network : public lely::canopen::BasicMaster {
   void DiagStatus(const DiagRequest& r);
   void DiagEmcy(const DiagRequest& r);
   void DiagNmt(const DiagRequest& r);
+  // NMT for one node from an operator (diagnostics client or host); returns a
+  // note when the command waits for the node's boot.
+  std::string OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by);
+  // The host's requests (host_requests.h) and its outputs gate (outputs_gate.h).
+  void ServiceHost();
+  void ApplyOutputsGate();
   void StartManual(ManualSdo& m);
   void FinishManual(uint64_t seq, std::error_code ec, const std::vector<uint8_t>* data);
   void DiagScan(const DiagRequest& r, bool start);
@@ -405,6 +418,10 @@ class Network : public lely::canopen::BasicMaster {
   std::function<bool()> tick_;
   SimHandler sim_handler_;
   std::set<unsigned> sim_conflicts_;
+  std::function<void(const can_msg&)> send_tap_;
+  void* send_func_ = nullptr;  // Lely's can_send_func_t*, called by SendTapped()
+  void* send_data_ = nullptr;
+  static int SendTapped(const can_msg* msg, void* data);
   std::map<unsigned, NodeState> nodes_;
   lely::io::TimerWait tick_wait_;
   lely::io::TimerBase* req_timer_;
@@ -472,6 +489,8 @@ class Network : public lely::canopen::BasicMaster {
   void SendTime();
   clock::time_point next_time_;
   bool stopped_ = false;
+  bool outputs_on_ = true;  // the outputs gate as last applied (SYNC, master TPDOs)
+  std::vector<HostNmt> host_nmt_;
   bool master_op_ = false;  // the master itself is OPERATIONAL (PDOs run)
   uint8_t master_state_ = 0;
   clock::time_point started_;

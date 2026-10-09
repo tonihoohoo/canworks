@@ -188,6 +188,10 @@ class Formats(unittest.TestCase):
             "0.000000,2026-10-05T06:20:00.000000+00:00,1,",
             "0.000500,2026-10-05T06:20:00.000500+00:00,1,1.5",
             "0.001000,2026-10-05T06:20:00.001000+00:00,2,1.5"])
+        # A point that repeats its series' value (the next frame of the PDO) writes no row.
+        out = io.StringIO()
+        formats.write_signals_csv([("a", [(T0, 1), (T0 + 1000, 1), (T0 + 2000, 1), (T0 + 3000, 2)])], out)
+        self.assertEqual([ln.split(",")[0] for ln in out.getvalue().splitlines()[1:]], ["0.000000", "0.003000"])
 
     @unittest.skipIf(can is None, "python-can is not installed")
     def test_python_can_reads_every_format(self):
@@ -317,6 +321,37 @@ class Decoding(unittest.TestCase):
         dec = Decoder.from_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"))
         self.assertTrue(dec.warnings)
         self.assertEqual(dec.decode(Frame(0, 0x702, b"\x05")).text, "node 2 (pingpong) OPERATIONAL")
+
+    def test_bad_config_note_names_the_problem(self):
+        cfg = copy.deepcopy(load_cases()["base"])
+        cfg["nodes"][0]["eds"] = "missing.eds"
+        path = os.path.join(FIXTURES, "eds", "canworks.json")
+        dec = Decoder.from_config(cfg, path)
+        self.assertEqual(dec.warnings, ["decoding without the config's PDOs: node 2: the EDS file missing.eds "
+                                        "is missing"])
+
+    def test_gateway_routed_entries_decode(self):
+        # Virtual-plant io: node 6's RPDO 1 carries 0x6411:1 for a gateway
+        # route, without a PLC location; the version 2 config passes its check.
+        path = os.path.join(REPO, "examples", "virtual-plant", "canworks", "canworks.json")
+        with open(path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        dec = Decoder.from_config(cfg, path, network="io")
+        self.assertEqual(dec.warnings, [])
+        d = dec.decode(Frame(T0, 0x185, bytes(8)))
+        self.assertEqual((d.kind, d.node), ("pdo", 5))
+        self.assertTrue(d.name.endswith("_TPDO1"), d.name)
+        self.assertTrue(d.signals)
+        self.assertTrue(any(node == 5 and "_TPDO1 " in label for _, label, node in dec.signal_keys()))
+        self.assertIn(0x206, dec.pdos)
+        # The slave network cell: the PLC (node 20) with its own EDS's PDOs.
+        dec = Decoder.from_config(cfg, path, network="cell")
+        self.assertEqual(dec.warnings, [])
+        self.assertEqual(sorted(dec.pdos), [0x194, 0x214, 0x294, 0x394, 0x494])
+        d = dec.decode(Frame(T0, 0x194, bytes([1, 7, 0, 0, 0])))
+        self.assertEqual((d.kind, d.node, d.name), ("pdo", 20, "cell_TPDO1"))
+        self.assertEqual(dict(d.signals)["cell_TPDO1.BOOLEAN_to_master_alarm"], 1)
+        self.assertEqual(dec.pdos[0x194].info[0]["location"], "%QX300.0")
 
     def test_plc_variable_names(self):
         from canworks import dbcexport
@@ -576,6 +611,23 @@ class Recording(unittest.TestCase):
         self.assertFalse(r.running)
         self.assertEqual(r.message, "stopped by the trigger")
         self.assertEqual([m["kind"] for m in s.trace.markers], ["trigger"])
+
+    def test_single_trigger_keeps_the_window(self):
+        spec = triggers.parse("emcy node=2", mode="single", pre_s=0.1, post_s=0.0)
+        s, r = self.recorder(trigger=spec)
+        r.start()
+        self.assertTrue(self.wait_for(lambda: r.state == "recording"))
+        now = int(time.time() * 1e6)
+        self.fake.push([Frame(now + i * 100000, 0x182, bytes([i, 0, 0, 0])) for i in range(5)] +
+                       [Frame(now + 450000, 0x82, bytes.fromhex("1050010000000000")),
+                        Frame(now + 460000, 0x182, bytes(4))])
+        r.wait(3)
+        self.assertEqual(r.message, "stopped by the trigger")
+        # Only the 100 ms before the hit and the hit itself: 0x182 at 400 ms, the EMCY.
+        self.assertEqual([f.time_us - now for f in s.trace], [400000, 450000])
+        self.assertEqual(r.info()["trimmed"], 5)
+        self.assertEqual(s.analysis.frames, 2)
+        self.assertEqual(s.analysis.series["pingpong_TPDO1.UNSIGNED32_sent_from_slave"].values.tolist(), [4.0])
 
     def test_normal_trigger_autosaves(self):
         folder = tempfile.mkdtemp()

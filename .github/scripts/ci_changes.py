@@ -3,8 +3,9 @@
 (documentation and specs only: skip the build and test jobs), and the
 protocol areas the code changes touch.
 
-  ci_changes.py <base> <head>   prints code=, areas=, canopen= and j1939=,
-                                and the changed files on stderr
+  ci_changes.py [--main-push] <base> <head>
+      prints code=, areas=, canopen=, j1939= and ui=, and the changed files
+      on stderr; --main-push: a push to main (ui=true)
 
 The documentation allow-list is openspec/**, docs/** and Markdown outside
 test/, config/ and tools/ (fixtures and packaged files a test may read).
@@ -14,6 +15,10 @@ Anything else, the workflows included, is code. A missing or unknown base
 Areas: each code path is "canopen", "j1939" or "shared" by the rules in
 .github/ci/areas.txt. canopen=true when a CANopen or shared path changed (the
 CANopen-only jobs and steps run), j1939=true likewise for J1939.
+
+UI: ui=true when a changed path matches a rule in .github/ci/ui-paths.txt
+(the configurator page tests run), on a push to main and when the base is
+unknown.
 """
 
 import fnmatch
@@ -24,6 +29,7 @@ import sys
 NOT_DOCS_MD = ("test/", "config/", "tools/")
 AREAS = ("canopen", "j1939", "shared")
 RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci", "areas.txt")
+UI_RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci", "ui-paths.txt")
 
 
 def is_docs(path):
@@ -64,6 +70,19 @@ def areas(paths, rules):
     return {area_of(p, rules) for p in paths if not is_docs(p)}
 
 
+def load_ui_rules(path=UI_RULES_FILE):
+    with open(path) as f:
+        return [p for p in (line.split("#", 1)[0].strip() for line in f) if p]
+
+
+def is_ui(paths, rules):
+    """Whether the configurator page tests run: a path matches a rule, or
+    the paths are unknown."""
+    if paths is None:
+        return True
+    return any(fnmatch.fnmatchcase(p, pattern) for p in paths for pattern in rules)
+
+
 def changed(base, head):
     if not base or set(base) == {"0"}:
         return None
@@ -75,6 +94,8 @@ def changed(base, head):
 
 
 def main(argv):
+    main_push = "--main-push" in argv[1:]
+    argv = [a for a in argv if a != "--main-push"]
     paths = changed(argv[1] if len(argv) > 1 else "", argv[2] if len(argv) > 2 else "HEAD")
     code = paths is None or is_code(paths)
     rules = load_rules()
@@ -88,6 +109,7 @@ def main(argv):
     print("areas=" + ",".join(a for a in AREAS if a in found))
     print(f"canopen={'true' if shared or 'canopen' in found else 'false'}")
     print(f"j1939={'true' if shared or 'j1939' in found else 'false'}")
+    print(f"ui={'true' if main_push or is_ui(paths, load_ui_rules()) else 'false'}")
 
 
 if __name__ == "__main__":

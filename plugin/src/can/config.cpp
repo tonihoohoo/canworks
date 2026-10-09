@@ -117,6 +117,9 @@ std::vector<uint8_t> le_bytes(uint64_t v, unsigned bytes) {
   return out;
 }
 
+const char* const kNotBridgeConfig =
+    "not a bridge config: canworks-bridge serves a version 2 config with a top-level 'bridge' object";
+
 class Parser {
  public:
   Parser(const std::string& path, const ImageLimits& limits, const std::string& eds_fallback_dir,
@@ -287,7 +290,7 @@ class Parser {
       return false;
     }
     unsigned limit = limits_.buffer_size;
-    if (out.index >= limit) {
+    if (byte_mode_ ? out.index + location_bytes(out) > limit : out.index >= limit) {
       error(where, std::string(key) + " " + out.str() +
                        " lies outside the runtime I/O image (index must be below " +
                        std::to_string(limit) + ")");
@@ -518,11 +521,13 @@ class Parser {
                     "\"role\": \"slave\")");
       if (cJSON_GetObjectItemCaseSensitive(root, "gateway"))
         error("", "field 'gateway' needs schema_version: 2");
-      for (const char* key : {"protocol", "j1939", "raw"})
+      for (const char* key : {"protocol", "j1939", "raw", "bridge"})
         if (cJSON_GetObjectItemCaseSensitive(root, key))
           error("", std::string("field '") + key + "' needs schema_version 2");
+      if (limits_.bridge_host && !cJSON_GetObjectItemCaseSensitive(root, "bridge"))
+        error("", kNotBridgeConfig);
       check_known(root, "", {"$schema", "schema_version", "adapter", "interface", "bitrate", "master", "nodes",
-                             "role", "slave", "gateway", "protocol", "j1939", "raw"});
+                             "role", "slave", "gateway", "protocol", "j1939", "raw", "bridge"});
       Config cfg = blank(set);
       cfg.work_dir = set.config_dir + "/.canworks";
       parse_network(root, cfg);
@@ -532,7 +537,13 @@ class Parser {
     }
 
     // Version 2: networks[] and one diagnostics object for all of them.
-    check_known(root, "", {"$schema", "schema_version", "networks", "diagnostics", "gateway"});
+    check_known(root, "", {"$schema", "schema_version", "networks", "diagnostics", "gateway", "bridge"});
+    // A bridge config's locations are byte-addressed from the first one on.
+    byte_mode_ = cJSON_GetObjectItemCaseSensitive(root, "bridge") != nullptr;
+    if (byte_mode_ && !limits_.bridge_host)
+      error("", "this is a Modbus bridge config (it has a 'bridge' object): run it with canworks-bridge, not the "
+                "OpenPLC plugin");
+    if (!byte_mode_ && limits_.bridge_host) error("", kNotBridgeConfig);
     static const char* const kMoved[][2] = {{"adapter", "networks[].adapter"},
                                             {"master", "networks[].master"},
                                             {"nodes", "networks[].nodes"},
@@ -626,6 +637,7 @@ class Parser {
       ++i;
     }
     prefix_.clear();
+    if (byte_mode_) parse_bridge(root, set);
     check_networks(set);
     check_raw_ownership(set);
     parse_gateway(root, set);
@@ -660,6 +672,7 @@ class Parser {
     to.diag_port = from.diag_port;
     to.diag_bind = from.diag_bind;
     to.diag_allow_changes = from.diag_allow_changes;
+    to.diag_allow_config_upload = from.diag_allow_config_upload;
   }
 
   static std::string lower(std::string s) {
@@ -740,6 +753,7 @@ class Parser {
       if (!cfg.network.empty()) who += " (" + cfg.network + ")";
       collect_uses(cfg, who + " ", uses);
     }
+    bridge_uses(set.bridge, uses);
     report_overlaps(uses, "networks");
   }
 
@@ -1392,7 +1406,7 @@ class Parser {
             "(configurator: Online access, Upgrade or New token; or canworks-diag hash-token)");
       return;
     }
-    check_known(d, w, {"token_verifier", "port", "bind", "allow_changes"});
+    check_known(d, w, {"token_verifier", "port", "bind", "allow_changes", "allow_config_upload"});
     std::string text;
     if (get_string(d, "token_verifier", w, true, text)) {
       std::string why;
@@ -1412,6 +1426,7 @@ class Parser {
       m.diag_bind = bind;
     }
     get_bool(d, "allow_changes", w, m.diag_allow_changes);
+    get_bool(d, "allow_config_upload", w, m.diag_allow_config_upload);
   }
 
   void parse_node_options(const cJSON* node, const Config& cfg, NodeConfig& n, const std::string& w) {
@@ -1504,8 +1519,12 @@ class Parser {
         n.interpolation_period_us = (unsigned)period;
     }
     double v = 0;
-    if (get_number(axis, "scale_numerator", aw, -2147483648.0, 2147483647.0, v) && v != std::floor(v))
-      error(aw, "field 'scale_numerator' must be an integer");
+    if (get_number(axis, "scale_numerator", aw, -2147483648.0, 2147483647.0, v)) {
+      if (v != std::floor(v))
+        error(aw, "field 'scale_numerator' must be an integer");
+      else if (v == 0)
+        error(aw, "field 'scale_numerator' must not be 0");
+    }
     if (get_number(axis, "scale_denominator", aw, 1.0, 4294967295.0, v) && v != std::floor(v))
       error(aw, "field 'scale_denominator' must be an integer");
     if (get_number(axis, "scale_factor", aw, -DBL_MAX, DBL_MAX, v) && v == 0)
@@ -2293,6 +2312,7 @@ class Parser {
   struct Use {
     IecLocation loc;
     std::string who;
+    unsigned nbytes = 0;  // a bridge block's size; 0: the location's own
   };
 
   void check_overlaps(const Config& cfg) {
@@ -2302,10 +2322,222 @@ class Parser {
   }
 
   void report_overlaps(const std::vector<Use>& uses, const std::string& where) {
+    if (byte_mode_) return report_byte_overlaps(uses, where);
     for (size_t i = 0; i < uses.size(); ++i)
       for (size_t j = i + 1; j < uses.size(); ++j)
         if (uses[i].loc.overlaps(uses[j].loc))
           error(where, uses[i].who + " and " + uses[j].who + " both map to " + uses[i].loc.str());
+  }
+
+  // A bridge config (modbus-bridge "Byte-addressed locations"): word and
+  // larger locations start at an even byte; two locations clash when their
+  // bytes overlap, except bits of one byte with different bit numbers.
+  void report_byte_overlaps(const std::vector<Use>& uses, const std::string& where) {
+    auto first = [](const Use& u) { return u.loc.index; };
+    auto count = [](const Use& u) { return u.nbytes ? u.nbytes : location_bytes(u.loc); };
+    for (const Use& u : uses)
+      if (!u.nbytes && u.loc.size != IecSize::X && u.loc.size != IecSize::B && u.loc.index % 2)
+        error(where, u.who + " " + u.loc.str() + " must start at an even byte: word locations are whole Modbus "
+                                                "registers");
+    for (size_t i = 0; i < uses.size(); ++i)
+      for (size_t j = i + 1; j < uses.size(); ++j) {
+        const Use& a = uses[i];
+        const Use& b = uses[j];
+        if (a.loc.area != b.loc.area) continue;
+        if (a.loc.size == IecSize::X && b.loc.size == IecSize::X) {
+          if (a.loc.overlaps(b.loc)) error(where, a.who + " and " + b.who + " both map to " + a.loc.str());
+          continue;
+        }
+        uint32_t lo = std::max(first(a), first(b));
+        uint32_t hi = std::min(first(a) + count(a), first(b) + count(b));
+        if (lo >= hi) continue;
+        std::string bytes;
+        for (uint32_t k = lo; k < hi; ++k) bytes += (k == lo ? "" : " and ") + std::to_string(k);
+        error(where, a.who + " (" + a.loc.str() + ") and " + b.who + " (" + b.loc.str() + ") overlap in " +
+                         (a.loc.area == IecArea::Input ? "input" : "output") + " byte" + (hi - lo > 1 ? "s " : " ") +
+                         bytes);
+      }
+  }
+
+  // The bridge's own blocks as location uses.
+  static void bridge_uses(const BridgeConfig& b, std::vector<Use>& uses) {
+    if (b.has_status) uses.push_back({b.status_location, "bridge status_location", kBridgeStatusBytes});
+    if (b.has_control) uses.push_back({b.control_location, "bridge control_location", kBridgeControlBytes});
+    for (const auto& l : b.live_lists)
+      uses.push_back({l.location, "bridge live list of " + l.network_name, kBridgeLiveListBytes});
+    if (b.has_sdo_bridge) {
+      uses.push_back({b.sdo_request, "bridge sdo_bridge_location.request", kBridgeSdoBytes});
+      uses.push_back({b.sdo_response, "bridge sdo_bridge_location.response", kBridgeSdoBytes});
+    }
+  }
+
+  // ---- the Modbus bridge (modbus-bridge spec) ----
+
+  // A byte location of a bridge block in the right area.
+  bool block_location(const cJSON* obj, const char* key, const std::string& w, IecArea area, unsigned nbytes,
+                      IecLocation& out) {
+    if (!cJSON_GetObjectItemCaseSensitive(obj, key)) return false;
+    if (!get_location(obj, key, w, false, out)) return false;
+    if (out.size != IecSize::B || out.area != area) {
+      error(w, std::string(key) + " must be " + (area == IecArea::Input ? "an input" : "an output") +
+                   " byte location (%" + (area == IecArea::Input ? "I" : "Q") + "B...) where its " +
+                   std::to_string(nbytes) + "-byte block starts, not " + out.str());
+      return false;
+    }
+    if (out.index + nbytes > limits_.buffer_size) {
+      error(w, std::string(key) + " " + out.str() + ": its " + std::to_string(nbytes) +
+                   "-byte block ends outside the image (" + std::to_string(limits_.buffer_size) + " bytes)");
+      return false;
+    }
+    return true;
+  }
+
+  static bool valid_address_or_prefix(const std::string& text) {
+    std::string host = text;
+    size_t slash = text.find('/');
+    long max_bits = 32;
+    if (slash != std::string::npos) host = text.substr(0, slash);
+    unsigned char buf[16];
+    if (inet_pton(AF_INET, host.c_str(), buf) == 1)
+      max_bits = 32;
+    else if (inet_pton(AF_INET6, host.c_str(), buf) == 1)
+      max_bits = 128;
+    else
+      return false;
+    if (slash == std::string::npos) return true;
+    std::string p = text.substr(slash + 1);
+    char* end = nullptr;
+    long bits = std::strtol(p.c_str(), &end, 10);
+    return !p.empty() && !*end && bits >= 0 && bits <= max_bits;
+  }
+
+  void parse_bridge(const cJSON* root, ConfigSet& set) {
+    const cJSON* b = cJSON_GetObjectItemCaseSensitive(root, "bridge");
+    const std::string w = "bridge";
+    if (!cJSON_IsObject(b)) {
+      error("", "field 'bridge' must be an object");
+      return;
+    }
+    BridgeConfig& c = set.bridge;
+    c.enabled = true;
+    check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "writers", "readers", "watchdog_ms",
+                       "on_client_loss", "status_location", "control_location", "live_lists",
+                       "sdo_bridge_location", "sdo_bridge_write"});
+    if (get_string(b, "listen", w, true, c.listen)) {
+      bool v6 = !c.listen.empty() && c.listen[0] == '[';
+      size_t colon = v6 ? c.listen.find("]:") : c.listen.rfind(':');
+      std::string host = colon == std::string::npos ? "" : c.listen.substr(v6 ? 1 : 0, v6 ? colon - 1 : colon);
+      std::string port = colon == std::string::npos ? "" : c.listen.substr(colon + (v6 ? 2 : 1));
+      char* end = nullptr;
+      long pn = std::strtol(port.c_str(), &end, 10);
+      unsigned char buf[16];
+      bool host_ok = inet_pton(v6 ? AF_INET6 : AF_INET, host.c_str(), buf) == 1;
+      if (!host_ok || port.empty() || *end || pn < 1 || pn > 65535)
+        error(w, "field 'listen' must be address:port with a numeric address, such as 0.0.0.0:502 or [::]:502, not \"" +
+                     c.listen + "\"");
+    }
+    uint64_t v;
+    if (get_uint(b, "unit_id", w, false, 255, v)) c.unit_id = (unsigned)v;
+    std::string order;
+    if (get_string(b, "word_order", w, false, order)) {
+      if (order == "low_first")
+        c.low_first = true;
+      else if (order != "high_first")
+        error(w, "field 'word_order' must be \"high_first\" or \"low_first\"");
+    }
+    if (get_uint(b, "max_clients", w, false, 64, v)) {
+      if (v < 1) error(w, "field 'max_clients' must be 1-64");
+      c.max_clients = (unsigned)v;
+    }
+    for (const char* key : {"writers", "readers"}) {
+      const cJSON* list = cJSON_GetObjectItemCaseSensitive(b, key);
+      if (!list) continue;
+      if (!cJSON_IsArray(list)) {
+        error(w, std::string("field '") + key + "' must be a list of addresses or prefixes");
+        continue;
+      }
+      const cJSON* it;
+      cJSON_ArrayForEach(it, list) {
+        if (!cJSON_IsString(it) || !valid_address_or_prefix(it->valuestring)) {
+          error(w, std::string("field '") + key + "': " + (cJSON_IsString(it) ? "\"" + std::string(it->valuestring) + "\"" : "an entry") +
+                       " is not an IPv4 or IPv6 address or prefix");
+          continue;
+        }
+        (std::strcmp(key, "writers") == 0 ? c.writers : c.readers).push_back(it->valuestring);
+      }
+    }
+    if (get_uint(b, "watchdog_ms", w, false, 60000, v)) c.watchdog_ms = (unsigned)v;
+    std::string loss;
+    if (get_string(b, "on_client_loss", w, false, loss)) {
+      if (loss == "zero")
+        c.on_client_loss = BridgeConfig::Loss::Zero;
+      else if (loss == "hold")
+        c.on_client_loss = BridgeConfig::Loss::Hold;
+      else if (loss != "stop")
+        error(w, "field 'on_client_loss' must be \"stop\", \"zero\" or \"hold\"");
+    }
+    c.has_status = block_location(b, "status_location", w, IecArea::Input, kBridgeStatusBytes, c.status_location);
+    c.has_control =
+        block_location(b, "control_location", w, IecArea::Output, kBridgeControlBytes, c.control_location);
+    const cJSON* lists = cJSON_GetObjectItemCaseSensitive(b, "live_lists");
+    if (lists && !cJSON_IsArray(lists)) error(w, "field 'live_lists' must be a list");
+    int li = 0;
+    const cJSON* l;
+    const cJSON* list_items = cJSON_IsArray(lists) ? lists : nullptr;
+    cJSON_ArrayForEach(l, list_items) {
+      std::string lw = w + ".live_lists[" + std::to_string(li++) + "]";
+      if (!cJSON_IsObject(l)) {
+        error(lw, "must be an object");
+        continue;
+      }
+      check_known(l, lw, {"network", "location"});
+      BridgeLiveList ll;
+      bool ok = get_string(l, "network", lw, true, ll.network_name);
+      if (ok) {
+        int found = -1;
+        for (const auto& n : set.networks)
+          if (n.network == ll.network_name) found = (int)n.network_index;
+        if (found < 0) {
+          error(lw, "network \"" + ll.network_name + "\" is not in the config");
+          ok = false;
+        } else if (!set.networks[found].is_canopen() || set.networks[found].is_slave()) {
+          error(lw, "network \"" + ll.network_name + "\" is not a CANopen master network; a live list lists a "
+                    "master's nodes");
+          ok = false;
+        } else {
+          ll.network = (unsigned)found;
+        }
+      }
+      if (!cJSON_GetObjectItemCaseSensitive(l, "location")) {
+        error(lw, "missing required field 'location'");
+        ok = false;
+      } else if (!block_location(l, "location", lw, IecArea::Input, kBridgeLiveListBytes, ll.location)) {
+        ok = false;
+      }
+      if (ok) c.live_lists.push_back(ll);
+    }
+    const cJSON* sdo = cJSON_GetObjectItemCaseSensitive(b, "sdo_bridge_location");
+    if (sdo) {
+      std::string sw = w + ".sdo_bridge_location";
+      if (!cJSON_IsObject(sdo)) {
+        error(w, "field 'sdo_bridge_location' must be an object with 'request' and 'response'");
+      } else {
+        check_known(sdo, sw, {"request", "response"});
+        for (const char* key : {"request", "response"})
+          if (!cJSON_GetObjectItemCaseSensitive(sdo, key)) error(sw, std::string("missing required field '") + key + "'");
+        bool rq = block_location(sdo, "request", sw, IecArea::Output, kBridgeSdoBytes, c.sdo_request);
+        bool rs = block_location(sdo, "response", sw, IecArea::Input, kBridgeSdoBytes, c.sdo_response);
+        c.has_sdo_bridge = rq && rs;
+      }
+    }
+    get_bool(b, "sdo_bridge_write", w, c.sdo_bridge_write);
+    if (c.sdo_bridge_write && !sdo) warning(w, "'sdo_bridge_write' has no effect without 'sdo_bridge_location'");
+    // The bridge has no PLC cycle.
+    for (const auto& n : set.networks)
+      if (n.is_canopen() && !n.is_slave() && n.master.sync_plc_cycle)
+        error("networks[" + std::to_string(n.network_index) + "]: master",
+              "\"sync_source\": \"plc_cycle\" needs a PLC cycle, which the Modbus bridge does not have: use "
+              "\"sync_period_us\" (timer SYNC)");
   }
 
   // Every IEC location of one network; `p` goes in front of each name.
@@ -2389,6 +2621,7 @@ class Parser {
   std::vector<std::string>& warnings_;
   std::string prefix_;  // "networks[i]" while parsing a version 2 network
   unsigned version_ = 1;
+  bool byte_mode_ = false;  // a bridge config: byte-addressed locations
   unsigned network_index_ = 0;  // the network being parsed
   // PDO entries without iec_location, for report_unlocated().
   struct Unlocated {
@@ -2410,6 +2643,23 @@ std::string dir_of(const std::string& path) {
 }
 
 }  // namespace
+
+std::vector<ImageUse> image_uses(const ConfigSet& set) {
+  std::vector<std::string> errors, warnings;
+  Parser p(set.path, ImageLimits(), "", errors, warnings);
+  std::vector<Parser::Use> uses;
+  for (const auto& cfg : set.networks) p.collect_uses(cfg, "", uses);
+  size_t data = uses.size();
+  Parser::bridge_uses(set.bridge, uses);
+  std::vector<ImageUse> out;
+  for (size_t i = 0; i < uses.size(); ++i) {
+    const auto& u = uses[i];
+    out.push_back({u.loc, u.nbytes ? u.nbytes : location_bytes(u.loc), i >= data, u.who});
+  }
+  return out;
+}
+
+unsigned location_bytes(const IecLocation& loc) { return loc.size == IecSize::X ? 1 : iec_size_bits(loc.size) / 8; }
 
 std::string sync_needed_message(unsigned transmission, bool from_eds) {
   return "transmission type " + std::to_string(transmission) + (from_eds ? " (from the EDS)" : "") +

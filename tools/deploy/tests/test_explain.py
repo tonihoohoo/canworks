@@ -257,7 +257,8 @@ class Layers(unittest.TestCase):
         self.assertEqual(candump_text(parse_frame("705#r1")), "705#R1")
         self.assertTrue(parse_frame("18FF0017#01").ext)
         for bad, why in (("185#2500E", "whole bytes"), ("185", "ID#DATA"), ("800#00", "11 bits"),
-                         ("185#00010203040506070809", "8 data bytes"), ("1G5#00", "hexadecimal")):
+                         ("185#00010203040506070809", "8 data bytes"), ("1G5#00", "identifier 1G5 is not hex"),
+                         ("#00", "the identifier is missing"), ("185#zz", "the data zz is not hex bytes")):
             with self.assertRaises(ValueError) as cm:
                 parse_frame(bad)
             self.assertIn(why, str(cm.exception))

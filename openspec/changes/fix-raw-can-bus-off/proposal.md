@@ -14,5 +14,5 @@ A bus-off test on the bench (a plain CAN network at 250 kbit/s on a 500 kbit/s b
 ## Impact
 
 - Specs: `can-plc-frames` (cyclic frames, receivers), `can-raw-messages` (bus state log).
-- Code: `plugin/src/can/can_plc_api.h`, `plugin/src/can/raw/` (plc_frames, raw_io, raw_runtime), `plugin/src/canopen/bus_monitor.cpp`, `library/generate.py` and `library/src/can_common.inc` (regenerated blocks and editor library, tools 0.46.4).
+- Code: `plugin/src/can/can_plc_api.h`, `plugin/src/can/raw/` (plc_frames, raw_io, raw_runtime), `plugin/src/canopen/bus_monitor.cpp`, `library/generate.py` and `library/src/can_common.inc` (regenerated blocks and editor library, tools 0.48.1).
 - Docs: `docs/raw-can.md`, `docs/config.md`.

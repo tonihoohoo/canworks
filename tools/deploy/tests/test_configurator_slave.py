@@ -166,7 +166,8 @@ class Gateway(Running):
         saved = json.loads(read(os.path.join(self.folder, "canworks.json")))
         self.assertEqual(saved, json.loads(read(os.path.join(GATEWAY, "canopen_config.json"))))
         self.assertEqual(list(saved)[:3], ["schema_version", "networks", "gateway"])
-        self.assertEqual(list(saved["gateway"]["routes"][0]), ["name", "slave", "field"])
+        # The file's own key order stays (fix-gui-test-findings A18).
+        self.assertEqual(list(saved["gateway"]["routes"][0]), ["slave", "field", "name"])
 
     def test_check_names_the_route(self):
         self.cfg["gateway"]["routes"][0]["field"]["node"] = 9

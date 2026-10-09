@@ -872,6 +872,13 @@ int run_fixture_file(const std::string& file) {
   CHECK_MSG(doc != nullptr, file);
   if (!doc) return 0;
   const cJSON* base = cJSON_GetObjectItemCaseSensitive(doc, "base");
+  // "host": "bridge": the cases load as canworks-bridge loads them.
+  const cJSON* host = cJSON_GetObjectItemCaseSensitive(doc, "host");
+  ImageLimits limits;
+  if (cJSON_IsString(host) && std::string(host->valuestring) == "bridge") {
+    limits.bridge_host = true;
+    limits.buffer_size = 8192;
+  }
   const cJSON* c;
   int count = 0;
   set_log_sink(silent);
@@ -886,7 +893,7 @@ int run_fixture_file(const std::string& file) {
 #endif
     ConfigSet set;
     std::vector<std::string> errors;
-    bool ok = parse_config_set(text, fixtures + "/eds/canworks.json", ImageLimits(), set, errors, "/nonexistent");
+    bool ok = parse_config_set(text, fixtures + "/eds/canworks.json", limits, set, errors, "/nonexistent");
     std::vector<std::string> warnings = set.warnings;
     for (auto& cfg : set.networks) {
       if (ok) {
@@ -937,6 +944,37 @@ TEST(shared_fixtures) { CHECK(run_fixture_file("cases.json") > 20); }
 TEST(shared_fixtures_v2) { CHECK(run_fixture_file("cases-v2.json") > 15); }
 
 TEST(shared_fixtures_j1939) { CHECK(run_fixture_file("cases-j1939.json") > 30); }
+
+TEST(shared_fixtures_bridge) { CHECK(run_fixture_file("cases-bridge.json") > 30); }
+
+// The OpenPLC plugin refuses a bridge config, and canworks-bridge a plain one.
+TEST(bridge_config_hosts) {
+  std::string fixtures = FIXTURES_DIR;
+  cJSON* doc = cJSON_Parse(read(fixtures + "/config/cases-bridge.json").c_str());
+  char* text = cJSON_Print(cJSON_GetObjectItemCaseSensitive(doc, "base"));
+  set_log_sink(silent);
+  ConfigSet set;
+  std::vector<std::string> errors;
+  CHECK(!parse_config_set(text, fixtures + "/eds/canworks.json", ImageLimits(), set, errors, "/nonexistent"));
+  CHECK_MSG(has_error(errors, "this is a Modbus bridge config (it has a 'bridge' object): run it with canworks-bridge, "
+                              "not the OpenPLC plugin"), join(errors));
+  std::free(text);
+  cJSON* plain = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(doc, "base"), true);
+  cJSON_DeleteItemFromObjectCaseSensitive(plain, "bridge");
+  text = cJSON_Print(plain);
+  ImageLimits bridge;
+  bridge.bridge_host = true;
+  bridge.buffer_size = 8192;
+  ConfigSet set2;
+  errors.clear();
+  CHECK(!parse_config_set(text, fixtures + "/eds/canworks.json", bridge, set2, errors, "/nonexistent"));
+  CHECK_MSG(has_error(errors, "not a bridge config: canworks-bridge serves a version 2 config with a top-level 'bridge' "
+                              "object"), join(errors));
+  std::free(text);
+  cJSON_Delete(plain);
+  cJSON_Delete(doc);
+  set_log_sink(nullptr);
+}
 
 // ---------------------------------------------------------------------------
 // SocketCAN link setup on a mocked rtnetlink layer (canopen-master-bringup)

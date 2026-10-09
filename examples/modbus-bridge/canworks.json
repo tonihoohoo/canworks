@@ -1,0 +1,90 @@
+{
+  "$schema": "https://github.com/tonihoohoo/canworks/schema/canworks.v2.schema.json",
+  "schema_version": 2,
+  "networks": [
+    {
+      "name": "field",
+      "adapter": { "type": "socketcan", "interface": "sim0", "bitrate": 250000, "simulate": true },
+      "master": {
+        "node_id": 1,
+        "heartbeat_ms": 100,
+        "sync_period_us": 20000,
+        "state_location": "%IB14",
+        "bus_state_location": "%IB15"
+      },
+      "nodes": [
+        {
+          "node_id": 5,
+          "name": "rtd",
+          "eds": "rtd8.eds",
+          "heartbeat_ms": 100,
+          "heartbeat_timeout_ms": 300,
+          "status_location": "%IX16.0",
+          "state_location": "%IB17",
+          "emcy_code_location": "%IW20",
+          "tx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "timeout_ms": 200,
+              "timeout_location": "%IX16.2",
+              "entries": [
+                { "index": "0x7130", "subindex": 1, "type": "INTEGER16", "iec_location": "%IW0" },
+                { "index": "0x7130", "subindex": 2, "type": "INTEGER16", "iec_location": "%IW2" },
+                { "index": "0x7130", "subindex": 3, "type": "INTEGER16", "iec_location": "%IW4" },
+                { "index": "0x7130", "subindex": 4, "type": "INTEGER16", "iec_location": "%IW6" }
+              ]
+            }
+          ]
+        },
+        {
+          "node_id": 6,
+          "name": "dio",
+          "eds": "dio16.eds",
+          "heartbeat_ms": 100,
+          "heartbeat_timeout_ms": 300,
+          "status_location": "%IX16.1",
+          "state_location": "%IB18",
+          "emcy_code_location": "%IW22",
+          "tx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                { "index": "0x6000", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%IB8" },
+                { "index": "0x6000", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%IB9" },
+                { "index": "0x6401", "subindex": 1, "type": "INTEGER16", "iec_location": "%IW10" },
+                { "index": "0x6401", "subindex": 2, "type": "INTEGER16", "iec_location": "%IW12" }
+              ]
+            }
+          ],
+          "rx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                { "index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB0" },
+                { "index": "0x6200", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%QB1" },
+                { "index": "0x6411", "subindex": 1, "type": "INTEGER16", "iec_location": "%QW2" },
+                { "index": "0x6411", "subindex": 2, "type": "INTEGER16", "iec_location": "%QW4" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "bridge": {
+    "listen": "0.0.0.0:1502",
+    "unit_id": 1,
+    "word_order": "high_first",
+    "max_clients": 16,
+    "watchdog_ms": 1000,
+    "on_client_loss": "stop",
+    "status_location": "%IB24",
+    "control_location": "%QB6",
+    "live_lists": [ { "network": "field", "location": "%IB32" } ],
+    "sdo_bridge_location": { "request": "%QB12", "response": "%IB48" },
+    "sdo_bridge_write": false
+  }
+}

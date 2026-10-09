@@ -301,6 +301,9 @@ struct MasterConfig {
   unsigned diag_port = 7531;
   std::string diag_bind = "0.0.0.0";
   bool diag_allow_changes = false;
+  // put_config may replace the bridge's config (modbus-bridge); needs
+  // diag_allow_changes too.
+  bool diag_allow_config_upload = false;
 };
 
 // The CAN adapter: "socketcan" (an existing interface) or "slcan" (the plugin
@@ -464,6 +467,55 @@ struct Config {
   std::vector<std::string> notes;
 };
 
+// The Modbus bridge (modbus-bridge spec): a config with a top-level
+// "bridge" object is a bridge config, served by canworks-bridge; its
+// locations are byte-addressed (%IW2 is input bytes 2 and 3).
+struct BridgeLiveList {
+  std::string network_name;
+  unsigned network = 0;  // index in ConfigSet::networks
+  IecLocation location;  // %IBn, 16 bytes
+};
+
+struct BridgeConfig {
+  bool enabled = false;
+  std::string listen;  // "address:port"
+  unsigned unit_id = 1;
+  bool low_first = false;  // word_order "low_first"
+  unsigned max_clients = 16;
+  std::vector<std::string> writers, readers;
+  unsigned watchdog_ms = 1000;  // 0: no watchdog
+  enum class Loss { Stop, Zero, Hold };
+  Loss on_client_loss = Loss::Stop;
+  bool has_status = false;
+  IecLocation status_location;  // %IBn, 8 bytes
+  bool has_control = false;
+  IecLocation control_location;  // %QBn, 6 bytes
+  std::vector<BridgeLiveList> live_lists;
+  bool has_sdo_bridge = false;
+  IecLocation sdo_request;   // %QBn, 14 bytes
+  IecLocation sdo_response;  // %IBn, 14 bytes
+  bool sdo_bridge_write = false;
+};
+
+constexpr unsigned kBridgeStatusBytes = 8;
+constexpr unsigned kBridgeControlBytes = 6;
+constexpr unsigned kBridgeLiveListBytes = 16;
+constexpr unsigned kBridgeSdoBytes = 14;
+
+// Bytes a location covers in a byte-addressed image (a bit: its byte).
+unsigned location_bytes(const IecLocation& loc);
+
+// Every location of a config: the networks' (PDO entries, status, J1939,
+// raw) and the bridge's blocks, with the bytes each covers.
+struct ImageUse {
+  IecLocation loc;
+  unsigned nbytes = 0;
+  bool bridge_block = false;
+  std::string who;
+};
+struct ConfigSet;
+std::vector<ImageUse> image_uses(const ConfigSet& set);
+
 // Whether anything is simulated: a simulated network or a simulated node.
 bool simulates_anything(const Config& cfg);
 
@@ -475,6 +527,8 @@ struct ConfigSet {
   unsigned schema_version = 1;
   std::vector<Config> networks;
   GatewayConfig gateway;
+  BridgeConfig bridge;
+  bool byte_addressed() const { return bridge.enabled; }
   // Findings of the parser (each names the file and JSON path).
   std::vector<std::string> warnings;
   std::vector<std::string> notes;
@@ -488,6 +542,9 @@ struct ImageLimits {
   // simulator runtime image): every network is parsed as a simulated network,
   // whatever its adapter.simulate says (docs/local-runtime.md).
   bool force_simulate = false;
+  // The host is the Modbus bridge: only bridge configs load. Otherwise (the
+  // OpenPLC plugin) a bridge config is refused.
+  bool bridge_host = false;
 };
 
 // Whether the value of CANWORKS_FORCE_SIMULATE forces simulation: exactly "1".

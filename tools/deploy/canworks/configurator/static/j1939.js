@@ -224,6 +224,16 @@ function j1939Dbc(j) {
 }
 
 async function importDbc(file) {
+  // A network has one DBC: the trace decodes its frames with it.
+  const j = j1939Of(S.config);
+  const pgns = (j.rx || []).length + (j.tx || []).length;
+  if (j.dbc && j.dbc !== file.name && pgns) {
+    const v = await modal(`The network's ${pgns} PGN${pgns === 1 ? "" : "s"} come from ${j.dbc}. A network has one DBC file, which ` +
+      `the trace decodes its frames with: importing ${file.name} makes it the network's DBC, and the PGNs from ${j.dbc} that ` +
+      `${file.name} does not have are no longer described by it.`,
+    [["cancel", `Keep ${j.dbc}`], ["replace", `Use ${file.name}`]]);
+    if (v !== "replace") return;
+  }
   const data = await fileBase64(file);
   let res;
   try {
@@ -361,9 +371,8 @@ function j1939Message(dir, m, i) {
       field("Name", base + ".name", "text", { placeholder: "none" }),
       ...grid),
     el("div", { class: "table-scroll" }, el("table", { class: "j1939-signals" },
-      el("thead", null, el("tr", null, thCells(["Signal", "Start bit", "Bits", "Byte order", "Signed", "Scale", "Offset", "Unit", "PLC location"]
-        .concat(dir === "rx" ? ["Valid input"] : [], [""])))),
-      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: dir === "rx" ? 11 : 10, class: "muted" }, "No signals."))))),
+      el("thead", null, el("tr", null, thCells(["Signal", "Start bit", "Bits", "Byte order", "Signed", "Scale", "Offset", "Unit", ""]))),
+      el("tbody", null, rows.length ? rows.flat() : el("tr", null, el("td", { colspan: 9, class: "muted" }, "No signals."))))),
     el("button", { type: "button", class: "small", dataset: { j1939AddSignal: `${dir}:${i}` }, onclick: () => addSignal(dir, i) }, "Add signal"));
 }
 
@@ -377,7 +386,12 @@ function j1939Signal(dir, base, s, k) {
   signed.checked = s.signed === true;
   signed.addEventListener("change", () => setPath(sp + ".signed", signed.checked || undefined));
   const who = s.name || `signal ${k + 1}`;
-  return el("tr", { dataset: { path: sp } },
+  // Two lines per signal, so the table fits next to Problems: the layout,
+  // then the PLC locations with their labels.
+  const loc = (label, input, button, path) => el("div", null, el("span", { class: "hint" }, label),
+    el("span", { class: "row" }, input, button),
+    el("span", { class: "field-msg", dataset: { for: path } }), declNote(path));
+  return [el("tr", { dataset: { path: sp } },
     el("td", null, cellInput(sp + ".name", "Signal name", null), el("span", { class: "field-msg", dataset: { for: sp } }),
       el("span", { class: "field-msg", dataset: { for: sp + ".name" } })),
     cell(cellInput(sp + ".start_bit", `Start bit of ${who}`, intValue), sp + ".start_bit"),
@@ -387,14 +401,13 @@ function j1939Signal(dir, base, s, k) {
     cell(cellInput(sp + ".scale", `Scale of ${who}`, realValue, "1"), sp + ".scale"),
     cell(cellInput(sp + ".offset", `Offset of ${who}`, realValue, "0"), sp + ".offset"),
     cell(cellInput(sp + ".unit", `Unit of ${who}`, null), sp + ".unit"),
-    el("td", null, el("span", { class: "row" }, cellInput(sp + ".iec_location", `PLC location of ${who}`, null, J1939_DIR[dir].area + "…"),
-      suggestButton(sp + ".iec_location", "j1939_" + dir, s.length, who)),
-    el("span", { class: "field-msg", dataset: { for: sp + ".iec_location" } }), declNote(sp + ".iec_location")),
-    dir === "rx" ? el("td", null, el("span", { class: "row" }, cellInput(sp + ".valid_location", `Valid input of ${who}`, null, "%IX…"),
-      suggestButton(sp + ".valid_location", "j1939_valid", undefined, who + " valid")),
-    el("span", { class: "field-msg", dataset: { for: sp + ".valid_location" } }), declNote(sp + ".valid_location")) : null,
     el("td", null, el("button", { type: "button", title: "Remove", "aria-label": `Remove signal ${who}`,
-      onclick: () => { getPath(base + ".signals").splice(k, 1); changed(true); } }, "✕")));
+      onclick: () => { getPath(base + ".signals").splice(k, 1); changed(true); } }, "✕"))),
+  el("tr", { class: "j1939-locations" }, el("td", { colspan: 9 }, el("div", { class: "j1939-locs" },
+    loc("PLC location", cellInput(sp + ".iec_location", `PLC location of ${who}`, null, J1939_DIR[dir].area + "…"),
+      suggestButton(sp + ".iec_location", "j1939_" + dir, s.length, who), sp + ".iec_location"),
+    dir === "rx" ? loc("Valid input", cellInput(sp + ".valid_location", `Valid input of ${who}`, null, "%IX…"),
+      suggestButton(sp + ".valid_location", "j1939_valid", undefined, who + " valid"), sp + ".valid_location") : null)))];
 }
 
 // A message by hand: the first proprietary PGN (0xFF00 up) the direction has not.

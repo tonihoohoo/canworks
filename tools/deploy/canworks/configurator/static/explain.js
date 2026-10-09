@@ -168,7 +168,9 @@ function fxIdentifier(I) {
   else if (id.configured_text) lines.push(id.configured_text);
   else if (id.what) lines.push(`0x${id.text_id}: ${id.what}.`);
   return el("section", { class: "fx-layer" }, el("h3", null, "Identifier: who and what"),
-    el("p", { class: "muted" }, id.width === 11
+    el("p", { class: "muted" }, id.width === 11 && I.m.protocol === "j1939"
+      ? "An 11-bit identifier. J1939 uses 29-bit identifiers only, so this frame belongs to another protocol."
+      : id.width === 11
       ? "The 11-bit identifier names the message and is its priority. CANopen splits it into a 4-bit function code (what kind of message) and a 7-bit node ID (which device)."
       : "A 29-bit extended identifier. CANopen uses 11-bit identifiers, so this frame belongs to another protocol."),
     row, lines.map((t) => el("p", null, t)), el("p", { class: "muted fx-small" }, id.priority));
@@ -188,7 +190,8 @@ function fxData(I) {
       : "This frame has no data bytes: the identifier alone is the message."));
     return sec;
   }
-  sec.append(el("p", { class: "muted" }, "One row per byte, most significant bit on the left as in the hex value. The small number is the CANopen bit number, counted from bit 0 of byte 0. Numbers are little-endian: the low byte comes first."));
+  sec.append(el("p", { class: "muted" }, `One row per byte, most significant bit on the left as in the hex value. The small number is the ${m.protocol === "j1939" ? "bit number" : "CANopen bit number"}, counted from bit 0 of byte 0. ` +
+    (m.protocol === "j1939" ? "Numbers are little-endian unless the DBC says otherwise: the low byte comes first." : "Numbers are little-endian: the low byte comes first.")));
   const grid = el("table", { class: "fx-bytes", dataset: { fx: "grid" } },
     el("thead", null, el("tr", null, el("th"), [7, 6, 5, 4, 3, 2, 1, 0].map((i) => el("th", { scope: "col" }, "b" + i)), el("th"))),
     el("tbody", null, I.bytes.map((v, bi) => el("tr", null, el("th", { scope: "row" }, "byte " + bi),
@@ -349,7 +352,7 @@ function fxExplainData(I, bi, i) {
   const weight = k != null ? (k < 31 ? String(2 ** k) : "2^" + k) : null;
   fxShow(I, "Data bit", f ? fxColor(f.group) : null, name ? `${name} = ${v ? "set" : "clear"}` : `Bit ${pb} = ${v}`, [
     ["Byte and bit", `byte ${bi}, bit ${i} (weight ${1 << i} in the byte)`],
-    ["CANopen bit", String(pb)],
+    [m.protocol === "j1939" ? "Bit number" : "CANopen bit", String(pb)],
     f && ["Field", f.name], f && f.length > 1 && ["Bit of the field", `${k} of ${f.length} (weight ${weight})`],
     f && f.value && ["Field value", f.value],
     f && f.location && ["PLC", fxPlcBit(f, k)],
@@ -708,7 +711,15 @@ function fxLabBody(extra) {
 
 function renderFrameLab(view) {
   const L = FX.lab;
-  const input = el("input", { type: "text", spellcheck: "false", autocomplete: "off", placeholder: "705#7F", "aria-label": "Frame (ID#DATA)",
+  // Another network: the frame and its result belonged to the previous one.
+  const net = S.model ? netName(S.config) : "";
+  if (L.net !== undefined && L.net !== net) {
+    Object.assign(L, { frame: "", built: null, form: {} });
+    clearErrorBanner();
+  }
+  L.net = net;
+  const j1939 = !!S.model && isJ1939(S.config);
+  const input = el("input", { type: "text", spellcheck: "false", autocomplete: "off", placeholder: j1939 ? "18FF0000#0102" : "705#7F", "aria-label": "Frame (ID#DATA)",
     value: L.frame, dataset: { fx: "lab-frame" } });
   input.style.width = "24ch";
   const go = () => { L.frame = input.value.trim(); fxLabExplain(L.frame); };
@@ -720,13 +731,16 @@ function renderFrameLab(view) {
     el("p", { class: "fx-note", dataset: { fx: "nothing-sent" } }, "Nothing here is sent: the Frame lab explains frames on this PC only. It needs no runtime, no adapter and no trace."),
     el("section", { class: "fx-lab-section" },
       el("h3", null, "Explain a frame"),
-      el("p", { class: "muted" }, "Type or paste a frame as ID#DATA in hex, as candump writes it: 185#2500EA00, 705#7F, 701#R for a remote request, 8 digits for an extended identifier."),
+      el("p", { class: "muted" }, j1939
+        ? "Type or paste a frame as ID#DATA in hex, as candump writes it: 18FF0000#D204F664, 18EAFF80#00EE00; J1939 identifiers have 8 digits."
+        : "Type or paste a frame as ID#DATA in hex, as candump writes it: 185#2500EA00, 705#7F, 701#R for a remote request, 8 digits for an extended identifier."),
       el("div", { class: "toolbar" }, input, el("button", { type: "button", class: "primary", dataset: { fx: "lab-explain" }, onclick: go }, "Explain"), rate),
       el("div", { id: "fx-lab-error", class: "fx-error", role: "status" })),
     el("section", { class: "fx-lab-section" }, el("h3", null, "Example frames from this configuration"),
       el("div", { id: "fx-lab-examples", dataset: { fx: "examples" } }, el("p", { class: "muted" }, "Loading…"))),
-    el("details", { class: "fx-lab-section", open: L.builderOpen ? true : null, ontoggle: (e) => { L.builderOpen = e.target.open; } },
-      el("summary", null, el("h3", { class: "inline-h" }, "Build a frame")), el("div", { id: "fx-lab-builder" })),
+    // The builder makes CANopen frames only.
+    ...(j1939 ? [] : [el("details", { class: "fx-lab-section", open: L.builderOpen ? true : null, ontoggle: (e) => { L.builderOpen = e.target.open; } },
+      el("summary", null, el("h3", { class: "inline-h" }, "Build a frame")), el("div", { id: "fx-lab-builder" }))]),
     el("details", { class: "fx-lab-section", open: L.arbOpen ? true : null, ontoggle: (e) => { L.arbOpen = e.target.open; } },
       el("summary", null, el("h3", { class: "inline-h" }, "Arbitration: two frames at once")), fxArbitrationForm()),
     el("div", { id: "fx-lab-inspector", class: "fx-host", dataset: { fx: "lab-inspector" } }));
@@ -757,7 +771,7 @@ async function fxLabLoad() {
     groups.get(x.group).push(x);
   }
   fxFill($("#fx-lab-examples"), 
-    ex.warnings && ex.warnings.length ? el("p", { class: "muted" }, ex.warnings.join(" ")) : null,
+    ex.warnings && ex.warnings.length ? el("p", { class: "muted" }, ex.warnings.map(humanise).join(" ")) : null,
     [...groups].map(([g, xs]) => el("div", { class: "fx-examples" }, el("span", { class: "fx-group-name" }, g),
       xs.map((x) => el("button", { type: "button", class: "chip", dataset: { fxExample: x.label }, onclick: () => fxLabFrames(x.frames, x.label) }, x.label)))));
   fxBuilder();
@@ -782,7 +796,9 @@ async function fxLabExplain(text) {
   try {
     r = await api("POST", "/api/explain", fxLabBody({ frame: text }));
   } catch (e) {
+    if (box._fxSeq !== my) return;
     if (err) err.textContent = e.message;
+    fxFill(box);
     return;
   }
   if (box._fxSeq !== my) return;
@@ -856,17 +872,21 @@ function fxBuilder() {
 
 async function fxBuild() {
   const L = FX.lab, F = L.form;
-  const hexNum = (v) => (v == null || v === "" ? v : /^0x/i.test(v) ? v : "0x" + v);
   const body = { what: L.what };
-  if (L.what === "sdo") Object.assign(body, { node: F.node || "1", index: hexNum(F.index || "1017"), subindex: F.subindex || "0", op: F.op || "read",
+  if (L.what === "sdo") Object.assign(body, { node: F.node || "1", index: F.index || "1017", subindex: F.subindex || "0", op: F.op || "read",
     value: F.value || "", type: F.type || "", segmented: !!F.segmented });
   else if (L.what === "pdo") Object.assign(body, { cob_id: Number(F.pdo || (L.pdos[0] || {}).cob_id), values: F.values || {} });
   else if (L.what === "nmt") Object.assign(body, { command: F.command || "start", node: F.target || 0 });
   else if (L.what === "heartbeat") Object.assign(body, { node: F.node || "1", state: F.state || "operational" });
-  else Object.assign(body, { node: F.node || "1", code: hexNum(F.code || "1000"), register: hexNum(F.register || "01"), manufacturer: F.manufacturer || "" });
+  else Object.assign(body, { node: F.node || "1", code: F.code || "1000", register: F.register || "01", manufacturer: F.manufacturer || "" });
   const err = $("#fx-build-error");
   let r;
-  try { r = await api("POST", "/api/explain/build", fxLabBody(body)); } catch (e) { if (err) err.textContent = e.message; return; }
+  try { r = await api("POST", "/api/explain/build", fxLabBody(body)); } catch (e) {
+    if (err) err.textContent = e.message;
+    const box = $("#fx-lab-inspector");
+    if (box) { box._fxSeq = (box._fxSeq || 0) + 1; fxFill(box); }
+    return;
+  }
   if (err) err.textContent = "";
   fxLabFrames(r.frames, (FX_BUILD.find(([v]) => v === L.what) || [0, "Built"])[1]);
 }

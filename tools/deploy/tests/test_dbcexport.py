@@ -207,6 +207,15 @@ class Pdos(unittest.TestCase):
             model(cfg)
         self.assertIn("TPDO 2", str(e.exception))
 
+    def test_gateway_routed_entry(self):
+        # Virtual-plant io: a gateway route feeds node 6's 0x6411:1, which
+        # has no PLC location in the version 2 config.
+        path = os.path.join(REPO, "examples", "virtual-plant", "canworks", "canworks.json")
+        files, _ = dbcexport.export_networks(load(path), path, network="io")
+        lines = [ln for ln in files[0][1].splitlines() if ln.startswith("CM_ SG_ 518 ")]
+        self.assertTrue(any('"0x6411:1 INTEGER16 (gateway route, no PLC location)' in ln for ln in lines), lines)
+        self.assertTrue(any('"0x6411:2 INTEGER16 -> %QW110' in ln for ln in lines), lines)
+
 
 class Notes(unittest.TestCase):
     """Units, scales, value names and note texts of the merged notes

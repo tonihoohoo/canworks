@@ -22,7 +22,7 @@ class SendFrames(Online):
     def test_checked_before_sending(self):
         with FakePlugin(allow_changes=True) as fp:
             self.connect(fp)
-            for body, why in (({"id": "XYZ"}, "not hexadecimal"), ({"id": "800"}, "out of range"),
+            for body, why in (({"id": "XYZ"}, "must be hex"), ({"id": "800"}, "out of range"),
                               ({"id": "60A", "data": "00 11 22 33 44 55 66 77 88"}, "at most 8"),
                               ({"id": "60A", "rtr": True}, "DLC"), ({"id": "60A", "period_ms": 5}, "10-60000"),
                               ({"id": "60A", "period_ms": 100, "count": 0.5}, "count")):
