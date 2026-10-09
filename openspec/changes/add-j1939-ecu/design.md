@@ -156,7 +156,7 @@ A status request for a J1939 network answers with the same top-level fields as a
 
 ```json
 "j1939": {
-  "state": 1, "state_name": "claimed", "address": 128, "name": "0x80000000820004D2",
+  "state": 1, "state_name": "claimed", "address": 128, "name": "0x80008200000004D2",
   "ecus": [ { "address": 0, "name": "0x0000000000000001", "age_ms": 12 } ],
   "rx": [ { "pgn": 65280, "source": 0, "sources": [0], "age_ms": 12, "timed_out": false,
             "timeouts": 0, "count": 1234,
