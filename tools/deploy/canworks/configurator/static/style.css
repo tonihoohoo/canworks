@@ -86,6 +86,7 @@ ul.folders { list-style: none; padding: 0; margin: 8px 0 0; border: 1px solid va
 ul.folders li { padding: 5px 10px; border-bottom: 1px solid var(--line); cursor: pointer; display: flex; gap: 8px; }
 ul.folders li:last-child { border-bottom: 0; }
 ul.folders li:hover { background: var(--hover); }
+ul.folders li [data-forget] { margin-left: auto; }
 .tag { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--hover); color: var(--muted); }
 main#editor { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; grid-template-areas: "side view problems"; min-height: calc(100vh - var(--header-h)); }
 #side { grid-area: side; }

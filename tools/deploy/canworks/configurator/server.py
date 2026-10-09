@@ -166,6 +166,23 @@ def canonical(cfg):
     return cfg
 
 
+def keep_order(new, old):
+    """`new` with the keys of each object in the order `old` (the file on
+    disk) has them, so a save changes only the lines of what changed. Keys
+    `old` lacks go after the key that precedes them in `new`; lists match
+    item by item."""
+    if isinstance(new, dict) and isinstance(old, dict):
+        keys = [k for k in old if k in new]
+        for i, k in enumerate(new):
+            if k not in old:
+                before = next((p for p in reversed(list(new)[:i]) if p in keys), None)
+                keys.insert(keys.index(before) + 1 if before is not None else 0, k)
+        return {k: keep_order(new[k], old.get(k)) for k in keys}
+    if isinstance(new, list) and isinstance(old, list):
+        return [keep_order(v, old[i] if i < len(old) else None) for i, v in enumerate(new)]
+    return new
+
+
 def _canonical_network(cfg):
     if isinstance(cfg.get("adapter"), dict):
         cfg["adapter"] = _ordered(cfg["adapter"], "adapter")
@@ -355,6 +372,14 @@ class ApiError(Exception):
         self.body = dict(error=message, **extra)
 
 
+def folder_error(e, doing, folder):
+    """An OSError as one sentence naming the folder: "cannot read the
+    folder /x: permission denied"."""
+    reason = (e.strerror or str(e)).lower() if isinstance(e, OSError) else str(e)
+    return ApiError(403 if isinstance(e, PermissionError) else 500,
+                    "cannot %s the folder %s: %s" % (doing, folder, reason))
+
+
 class Session:
     """What the page is editing. One user, one folder at a time."""
 
@@ -403,6 +428,13 @@ class Session:
             return  # the "Commission a device" scratch folder
         items = [r for r in self.recent() if r["path"] != self.folder]
         items.insert(0, {"path": self.folder, "mode": self.mode})
+        self._write_recent(items)
+
+    def forget(self, path):
+        """Drops a folder from Recent (one that was moved or deleted)."""
+        self._write_recent([r for r in self.recent() if r["path"] != path])
+
+    def _write_recent(self, items):
         try:
             os.makedirs(config_dir(), exist_ok=True)
             tmp = os.path.join(config_dir(), "recent.json.tmp")
@@ -413,8 +445,16 @@ class Session:
             pass  # a convenience only
 
     # -- open / close -------------------------------------------------------
-    def open(self, path, mode="auto"):
+    def open(self, path, mode="auto", new=None):
+        """Opens a folder. `new` False ("Open standalone config") wants an
+        existing canworks.json, True ("New standalone config") refuses one;
+        None (Recent, the command line) takes either."""
         path = os.path.abspath(os.path.expanduser(path or ""))
+        try:
+            if os.path.isdir(path):
+                os.listdir(path)  # what is in it can only be told when it can be read
+        except OSError as e:
+            raise folder_error(e, "read", path)
         is_project = os.path.isfile(os.path.join(path, "project.json"))
         if mode == "auto":
             mode = "project" if is_project else "standalone"
@@ -429,14 +469,36 @@ class Session:
                 raise ApiError(422, "%s is an editor project; open it as a project" % path, is_project=True)
             if os.path.exists(path) and not os.path.isdir(path):
                 raise ApiError(422, "%s is not a folder" % path)
+            if new is False and not os.path.isdir(path):
+                raise ApiError(404, "%s does not exist" % path)
+            if new is False and not os.path.isfile(os.path.join(path, CONFIG)):
+                raise ApiError(404, "%s has no %s; pick New standalone config to start one there" % (path, CONFIG),
+                               no_config=True)
+            if new is True and os.path.isfile(os.path.join(path, CONFIG)):
+                raise ApiError(409, "%s already has a %s" % (path, CONFIG), has_config=True, path=path)
         else:
             raise ApiError(400, "unknown mode %r" % mode)
+        # Read what state() reads before anything changes: an unreadable
+        # folder leaves the page where it was.
+        folder = os.path.join(path, "canworks") if mode == "project" else path
+        try:
+            if os.path.isdir(folder):
+                os.listdir(folder)
+            for f in (os.path.join(folder, CONFIG), os.path.join(folder, simulation.SIM_FILE)):
+                if os.path.isfile(f):
+                    open(f, "rb").close()
+        except OSError as e:
+            raise folder_error(e, "read", folder)
         self.mode, self.folder = mode, path
         self.commission = False
         self.pending.clear()
         self.descriptions.clear()
         self.pending_dbc.clear()
-        self.reload()
+        try:
+            self.reload()
+        except OSError as e:
+            self.close()
+            raise folder_error(e, "read", folder)
         self.remember()
 
     def commission_device(self):
@@ -487,7 +549,9 @@ class Session:
         try:
             with open(self.config_path, encoding="utf-8") as f:
                 cfg = json.load(f)
-        except (OSError, ValueError) as e:
+        except OSError as e:
+            return empty_config(), [], "%s cannot be read: %s" % (self.config_path, (e.strerror or str(e)).lower())
+        except ValueError as e:
             return empty_config(), [], "%s cannot be read: %s" % (self.config_path, e)
         cfg, notices = migrate(cfg)
         return cfg, notices, None
@@ -526,6 +590,15 @@ class Session:
                 "default_start": layout.DEFAULT_START, "commission": self.commission}
         if not self.mode:
             return base
+        try:
+            return self._state(base)
+        except OSError as e:
+            # The folder became unreadable: back to the start page, with why.
+            error = folder_error(e, "read", self.canopen_dir).body["error"]
+            self.close()
+            return dict(base, mode=None, commission=False, open_error=error)
+
+    def _state(self, base):
         cfg, notices, error = self.read_config()
         sim = simulation.read(self.sim_path)
         sim_eds = simulation.eds_files(self.canopen_dir)
@@ -907,7 +980,7 @@ class Session:
             if name in self.descriptions:
                 out[name] = self.descriptions[name]
                 continue
-            path = os.path.join(self.canopen_dir, description_name(name))
+            path = description_path(self.canopen_dir, name)
             try:
                 with open(path, encoding="utf-8") as f:
                     desc = json.load(f)
@@ -939,7 +1012,7 @@ class Session:
             raise ApiError(422, str(e))
         data = text.encode("utf-8")
         target = os.path.join(self.canopen_dir, name)
-        built = name in self.descriptions or os.path.isfile(os.path.join(self.canopen_dir, description_name(name)))
+        built = name in self.descriptions or os.path.isfile(description_path(self.canopen_dir, name))
         if not replace and not built and name not in self.pending and os.path.isfile(target):
             with open(target, "rb") as f:
                 if f.read() != data:
@@ -1018,6 +1091,12 @@ class Session:
                            % (checked["errors"], "" if checked["errors"] == 1 else "s"), check=checked)
         if not overwrite and self.changed_on_disk():
             raise ApiError(409, "%s changed on disk after it was loaded" % self.config_path, changed_on_disk=True)
+        try:
+            return self._save(cfg, checked)
+        except OSError as e:
+            raise folder_error(e, "write to", self.canopen_dir)
+
+    def _save(self, cfg, checked):
         os.makedirs(self.canopen_dir, exist_ok=True)
         written = []
         referenced = {n["eds"] for n in contract.eds_users(cfg)}
@@ -1031,7 +1110,7 @@ class Session:
             os.replace(tmp, target)
             written.append(target)
             if name in self.descriptions:
-                target = os.path.join(self.canopen_dir, description_name(name))
+                target = description_path(self.canopen_dir, name)
                 with open(target + ".tmp", "w", encoding="utf-8") as f:
                     json.dump(self.descriptions[name], f, indent=2, ensure_ascii=False)
                     f.write("\n")
@@ -1045,9 +1124,15 @@ class Session:
                     f.write(data)
                 os.replace(target + ".tmp", target)
                 written.append(target)
+        out = canonical(cfg)
+        try:
+            with open(self.config_path, encoding="utf-8") as f:
+                out = keep_order(out, json.load(f))
+        except (OSError, ValueError):
+            pass  # a new file, or one that cannot be read: the fixed order
         tmp = self.config_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(canonical(cfg), f, indent=2, ensure_ascii=False)
+            json.dump(out, f, indent=2, ensure_ascii=False)
             f.write("\n")
         os.replace(tmp, self.config_path)
         written.append(self.config_path)
@@ -1076,6 +1161,12 @@ class Session:
                            % (len(problems), "" if len(problems) == 1 else "s"), problems=problems)
         if not overwrite and self.sim_changed_on_disk():
             raise ApiError(409, "%s changed on disk after it was loaded" % self.sim_path, changed_on_disk=True)
+        try:
+            return self._save_simulation(doc)
+        except OSError as e:
+            raise folder_error(e, "write to", self.canopen_dir)
+
+    def _save_simulation(self, doc):
         os.makedirs(self.canopen_dir, exist_ok=True)
         written = []
         wanted = set(simulation.extra_eds(doc))
@@ -1101,19 +1192,42 @@ class Session:
         if not os.path.isfile(os.path.join(target, "project.json")):
             raise ApiError(422, "%s is not an OpenPLC Editor project (it has no project.json)" % target)
         if os.path.lexists(os.path.join(target, "canworks")) and not replace:
-            raise ApiError(409, "%s already has a canopen folder" % target, exists=True)
+            raise ApiError(409, "%s already has a canworks/ folder" % target, exists=True)
         with open(self.config_path, encoding="utf-8") as f:
             cfg = json.load(f)
         result = contract.check_config(cfg, self.config_path)
         if not result.ok:
             raise ApiError(422, "\n".join(result.errors))
         try:
-            written, converted = project_mod.write(cfg, self.config_path, target, force=replace)
+            written, converted = project_mod.write(cfg, self.config_path, target, force=replace,
+                                                   sim_path=self._sim_to_move())
         except project_mod.ProjectError as e:
             raise ApiError(422, str(e))
+        written += self._move_descriptions(cfg, os.path.join(target, project_mod.DIR))
         self.open(target, "project")
         return {"written": written, "converted": converted}
 
+
+    def _sim_to_move(self):
+        """The simulation file that goes along into a project, or None."""
+        if self.sim_changed_on_disk():
+            raise ApiError(409, "save the simulation before moving the config into a project", unsaved=True)
+        return self.sim_path if os.path.isfile(self.sim_path) else None
+
+    def _move_descriptions(self, cfg, target):
+        """Copies the description of each slave network's EDS (what Build
+        the EDS shows) into a project's canworks/ folder: the paths written."""
+        written = []
+        for net in contract.networks(cfg):
+            eds = (net.get("slave") or {}).get("eds") if net["role"] == "slave" else None
+            if not isinstance(eds, str) or not eds:
+                continue
+            src = description_path(os.path.dirname(self.eds_path(eds)), os.path.basename(eds))
+            dst = os.path.join(target, os.path.basename(src))
+            if os.path.isfile(src) and not os.path.exists(dst):
+                shutil.copyfile(src, dst)
+                written.append(dst)
+        return written
 
     # -- a new editor project around a standalone config --------------------
     def new_project(self, parent, name, interval=None, sdo_blocks=False):
@@ -1145,9 +1259,11 @@ class Session:
         try:
             path, decls = editorproject.create(cfg, self.config_path, target,
                                                interval=interval or editorproject.DEFAULT_INTERVAL,
-                                               runtime_address=address, sdo_blocks=sdo_blocks)
+                                               runtime_address=address, sdo_blocks=sdo_blocks,
+                                               sim_path=self._sim_to_move())
         except editorproject.NewProjectError as e:
             raise ApiError(422, str(e))
+        self._move_descriptions(cfg, os.path.join(path, project_mod.DIR))
         self.open(path, "project")
         out = {"project": path, "declared": len(decls)}
         if sdo_blocks:
@@ -1178,6 +1294,15 @@ def description_name(eds_name):
     return eds_name + ".json"
 
 
+def description_path(folder, eds_name):
+    """The description of a slave EDS in folder: <name>.eds.json, or
+    <stem>_eds.json as `canworks-deploy slave-eds` examples name it, when
+    that one is there."""
+    other = os.path.join(folder, os.path.splitext(eds_name)[0] + "_eds.json")
+    path = os.path.join(folder, description_name(eds_name))
+    return other if not os.path.isfile(path) and os.path.isfile(other) else path
+
+
 def slave_eds_name(device_name):
     """An EDS file name from a device name: "OpenPLC slave" -> openplc-slave.eds."""
     stem = re.sub(r"[^a-z0-9]+", "-", str(device_name or "").lower()).strip("-")
@@ -1192,7 +1317,7 @@ def list_folders(path):
     try:
         names = sorted(os.listdir(path), key=str.lower)
     except OSError as e:
-        raise ApiError(403, "%s cannot be listed: %s" % (path, e))
+        raise folder_error(e, "list", path)
     for name in names:
         full = os.path.join(path, name)
         if name.startswith(".") or not os.path.isdir(full):
@@ -1335,8 +1460,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("GET", "/api/folders"):
                     out = list_folders(query.get("path", [None])[0])
                 elif route == ("POST", "/api/open"):
-                    s.open(body.get("path"), body.get("mode", "auto"))
+                    s.open(body.get("path"), body.get("mode", "auto"), body.get("new"))
                     out = s.state()
+                elif route == ("POST", "/api/recent/forget"):
+                    s.forget(body.get("path"))
+                    out = {"recent": s.recent()}
                 elif route == ("POST", "/api/commission"):
                     s.commission_device()
                     self.server.adapter_allow = False
@@ -1425,6 +1553,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.wfile.flush()
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
         except ApiError as e:
+            self._send(e.status, e.body)
+        except OSError as e:
+            if not e.filename:  # pragma: no cover
+                traceback.print_exc()
+                return self._send(500, {"error": UNEXPECTED_ERROR})
+            # A file the configurator could not read or write: say which.
+            e = folder_error(e, "use", os.path.dirname(os.path.abspath(e.filename)))
             self._send(e.status, e.body)
         except Exception:  # pragma: no cover - the page gets one sentence, the terminal the details
             traceback.print_exc()
