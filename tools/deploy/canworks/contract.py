@@ -290,8 +290,7 @@ def _location_text(pattern):
         return None
     area = {"Ii": "input", "Qq": "output"}.get(m.group(1), "input or output")
     letter = m.group(1)[0]
-    sizes = [s for s in "XBWDL" if "[%s%s]" % (s, s.lower()) in m.group(2) or "[" + s in m.group(2)
-             or (s != "X" and "[BbWwDdLl]" in m.group(2))]
+    sizes = [s for s in "XBWDL" if "[%s%s]" % (s, s.lower()) in m.group(2) or (s != "X" and "[BbWwDdLl]" in m.group(2))]
     if len(sizes) == 1:
         size, example = LOCATION_SIZES[sizes[0]]
         return "an %s %s such as %%%s%s" % (area, size, letter, example)

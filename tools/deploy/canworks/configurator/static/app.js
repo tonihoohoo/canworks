@@ -2267,7 +2267,8 @@ function pdoField(label, path, dflt, help) {
     const t = input.value.trim();
     setPath(path, t === "" ? undefined : /^[0-9]+$/.test(t) ? parseInt(t, 10) : t);
   });
-  return el("label", null, label, input, hint(help || (dflt ? "Empty: " + dflt : null)));
+  return el("label", null, label, input, hint(help || (dflt ? "Empty: " + dflt : null)),
+    el("span", { class: "field-msg", dataset: { for: path } }));
 }
 
 // The CiA 301 default COB-ID the plugin uses when cob_id is left out (PDOs 1-4).
