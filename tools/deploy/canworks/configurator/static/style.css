@@ -24,7 +24,7 @@
 * { box-sizing: border-box; }
 summary { min-height: 24px; }
 body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 3; flex-wrap: wrap; }  /* its menus open over the message bar */
 h1 { font-size: 16px; margin: 0; }
 h2 { font-size: 15px; margin: 0 0 8px; }
 h3, h2.side-caption { font-size: 13px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
@@ -52,8 +52,11 @@ input[type=checkbox], input[type=radio] { width: 20px; height: 20px; min-width: 
 .menu .menu-row { display: flex; gap: 4px; align-items: center; }
 .menu .menu-row select { flex: 1; }
 .menu .menu-row .item { width: auto; }
-.file-button { display: inline-block; margin: 6px 0; }
-.file-button input { display: none; }
+.file-button { display: inline-block; margin: 6px 0; position: relative; }
+/* The file input is invisible over its label, not display:none: Tab reaches it, Enter or Space opens the picker. */
+.file-button input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.file-button:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.grid > .file-button { align-self: start; justify-self: start; }
 label.inline { display: inline-flex; gap: 4px; align-items: center; }
 input[type=text], input[type=number], input[type=search], select, textarea { font: inherit; padding: 4px 6px; min-height: 24px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--text); min-width: 0; }
 input.invalid, select.invalid { border-color: var(--error); background: var(--error-bg); }
@@ -85,8 +88,11 @@ main#start { max-width: 900px; margin: 20px auto; padding: 0 16px; display: grid
 ul.folders { list-style: none; padding: 0; margin: 8px 0 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); max-height: 320px; overflow: auto; }
 ul.folders li { padding: 5px 10px; border-bottom: 1px solid var(--line); cursor: pointer; display: flex; gap: 8px; }
 ul.folders li:last-child { border-bottom: 0; }
+ul.folders li:has(> button.folder) { padding: 0; }
+ul.folders button.folder { flex: 1; min-width: 0; display: flex; gap: 8px; padding: 5px 10px; border: 0; border-radius: 0; background: none; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+ul.folders button.folder:hover { background: var(--hover); }
 ul.folders li:hover { background: var(--hover); }
-ul.folders li [data-forget] { margin-left: auto; }
+ul.folders li [data-forget] { margin: 3px 6px 3px auto; align-self: center; }
 .tag { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--hover); color: var(--muted); }
 main#editor { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; grid-template-areas: "side view problems"; min-height: calc(100vh - var(--header-h)); }
 #side { grid-area: side; }
@@ -147,7 +153,7 @@ details.picker > div { margin-top: 8px; }
 .grid label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); }
 .grid label.check { flex-direction: row; align-items: center; color: var(--text); }
 .grid > p.wide { grid-column: 1 / -1; margin: 0; }
-fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 16px; padding: 10px 14px; background: var(--panel); }
+fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 16px; padding: 10px 14px; background: var(--panel); min-width: 0; }
 legend { font-weight: 600; padding: 0 4px; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -186,12 +192,19 @@ ul.pdo-map li .tag { margin-left: 6px; }
 .sdo-var-fields label.num input { width: 100%; }
 .toolbar { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
 .objects { max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+/* Gateway routes: the selects as wide as their choice, the field end on two lines. */
+table.routes select { field-sizing: content; min-width: 8ch; }
+table.routes td > select { display: block; margin-top: 4px; }
+table.routes td:first-child input { min-width: 12ch; }
+/* The slave's bound objects: the location and the name as wide as their text. */
+table.slave-objects td input[type=text] { field-sizing: content; min-width: 9ch; }
+table.slave-objects td .hint { display: block; }
 textarea.block { width: 100%; min-height: 160px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); max-width: 520px; }
 dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; margin: 12px 0 0; }
 /* Narrow windows: problems as a strip under the header, the side list as a bar. */
 @media (max-width: 1100px) {
-  main#editor { grid-template-columns: minmax(0, 1fr); grid-template-areas: "problems" "side" "view"; }
+  main#editor { grid-template-columns: minmax(0, 1fr); grid-template-areas: "problems" "side" "view"; grid-template-rows: auto auto 1fr; }  /* only the view grows */
   #problems { border: 0; border-bottom: 1px solid var(--line); padding: 4px 16px; }
   #problems-box > summary { cursor: pointer; margin: 4px 0; }
   #problems-box > summary::before { content: "▸"; color: var(--muted); }
@@ -241,7 +254,7 @@ input.index { width: 80px; }
 /* Trace view: the problems pane gives its room to the trace. */
 main#editor.wide-view { grid-template-columns: 220px minmax(0, 1fr); grid-template-areas: "side view"; }
 main#editor.wide-view #problems { display: none; }
-@media (max-width: 1100px) { main#editor.wide-view { grid-template-columns: minmax(0, 1fr); grid-template-areas: "side" "view"; } }
+@media (max-width: 1100px) { main#editor.wide-view { grid-template-columns: minmax(0, 1fr); grid-template-areas: "side" "view"; grid-template-rows: auto 1fr; } }
 .send-fields { border: 0; padding: 0; margin: 8px 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .send-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 4px 20px; }
 .send-lists h4 { margin: 8px 0 4px; }
@@ -584,6 +597,9 @@ tr.group-row th { text-align: left; font-weight: 600; padding-top: 6px; }
 /* J1939 networks (j1939.js): signal tables, the DBC message picker, the claim state online. */
 table.j1939-signals input[type=text] { min-width: 4.5em; }
 table.j1939-signals td .row input[type=text] { min-width: 6em; }
+table.j1939-signals tr[data-path] > td { border-bottom: 0; }
+.j1939-locs { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+.j1939-locs > div { display: flex; flex-direction: column; gap: 3px; }
 dialog:has(.j1939-picker) { max-width: min(960px, 92vw); }
 .j1939-picker { max-height: 60vh; overflow: auto; }
 .j1939-picker td select { min-width: 8em; }

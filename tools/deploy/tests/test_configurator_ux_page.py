@@ -336,6 +336,115 @@ class Probes(Layout):
         pg.wait_for_selector("#sim-body")
         self.assertEqual(pg.get_attribute("#sim-body", "role"), "tabpanel")
 
+    # -- fix-gui-test-findings: keyboard reach and focus return -------------
+    def test_keyboard_walk(self):
+        pg = self.page
+        self.open()
+        pg.click("#btn-close")
+        pg.wait_for_selector("#start:not([hidden])")
+        # Folder entries and Recent are buttons in the Tab order; Enter on Recent opens it.
+        pg.wait_for_function("() => S.browserPath !== null")  # the home folder's listing is in
+        pg.fill("#browser-path", self.dir)
+        pg.click("#browser-go")
+        pg.wait_for_selector("#browser-list button.folder:has-text('rtd-monitor')")
+        pg.focus("#browser-list li:last-child button")
+        pg.keyboard.press("Tab")
+        self.assertEqual(pg.evaluate("() => document.activeElement.closest('#recent') !== null"), True)
+        self.assertIn(self.project, pg.evaluate("() => document.activeElement.textContent"))
+        # ↑ reaching "/" is disabled: the focus moves to the path field.
+        pg.fill("#browser-path", os.path.dirname(self.dir))
+        pg.click("#browser-go")
+        pg.wait_for_function("(p) => document.querySelector('#browser-path').value === p", arg=os.path.dirname(self.dir))
+        for _ in range(12):
+            if pg.is_disabled("#browser-up"):
+                break
+            pg.focus("#browser-up")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(150)
+        self.assertEqual(pg.input_value("#browser-path"), "/")
+        self.assertEqual(self.active(), "browser-path")
+        pg.focus("#recent button.folder")
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector("#editor:not([hidden])")
+        # Enter and Space on a node keep the focus on it.
+        pg.focus('#node-list [data-node="1"]')
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector('#view h2:has-text("Node 23")')
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.node"), "1")
+        pg.keyboard.press("Tab")
+        pg.keyboard.press("Space")
+        pg.wait_for_selector('#view h2:has-text("Node 5")')
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.node"), "2")
+        # Tab from the last node reaches "Add node from EDS…"; Enter opens the file picker.
+        pg.keyboard.press("Tab")
+        self.assertEqual(self.active(), "eds-input")
+        with pg.expect_file_chooser() as fc:
+            pg.keyboard.press("Space")
+        fc.value.set_files(os.path.join(RTD, "rtd8.eds"))
+        pg.wait_for_selector('#node-list [data-node="3"]')
+        # Startup SDO writes: ↓ and ↑ keep the focus with the moved write; Add focuses its value.
+        self.node(2)
+        first = pg.inner_text('#view tr[data-path="nodes[2].sdo[0]"] > td >> nth=0')
+        pg.focus('tr[data-path="nodes[2].sdo[0]"] button[title="Down"]')
+        pg.keyboard.press("Enter")
+        self.assertEqual(pg.inner_text('#view tr[data-path="nodes[2].sdo[1]"] > td >> nth=0'), first)
+        self.assertEqual(pg.evaluate("() => [document.activeElement.closest('tr').dataset.path, document.activeElement.title]"),
+                         ["nodes[2].sdo[1]", "Down"])
+        pg.keyboard.press("Shift+Tab")
+        pg.keyboard.press("Enter")  # ↑ to the top: its ↑ is disabled, so the focus is on its ↓
+        self.assertEqual(pg.inner_text('#view tr[data-path="nodes[2].sdo[0]"] > td >> nth=0'), first)
+        self.assertEqual(pg.evaluate("() => [document.activeElement.closest('tr').dataset.path, document.activeElement.title]"),
+                         ["nodes[2].sdo[0]", "Down"])
+        count = pg.locator('#view tr[data-path^="nodes[2].sdo["]').count()
+        pg.click('details[data-section="sdo"] button[data-sdo] >> nth=0')
+        self.assertEqual(self.active(), "nodes[2].sdo[%d].value" % count)
+        # Menus close when the focus leaves them, and on Escape from outside.
+        pg.focus("#menu-export > summary")
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector("#menu-export[open]")
+        for _ in range(8):
+            pg.keyboard.press("Tab")
+            if pg.evaluate("() => !document.querySelector('#menu-export').contains(document.activeElement)"):
+                break
+        pg.wait_for_selector("#menu-export:not([open])")
+        pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
+        pg.keyboard.press("Escape")
+        pg.wait_for_selector("#menu-export:not([open])")
+
+    # -- fix-gui-test-findings: exports ---------------------------------------
+    def test_export_running_state_and_repeated_failures(self):
+        pg = self.page
+        self.open()
+        pg.wait_for_selector("#problem-count:has-text('5 problems')")
+        # Slow exports, and a DBC export that fails with a new finding each time.
+        pg.evaluate("""() => {
+          const f = window.fetch;
+          let n = 0;
+          window.fetch = (u, o) => {
+            if (!String(u).includes('/api/export_')) return f(u, o);
+            const r = String(u).endsWith('/api/export_dbc')
+              ? Promise.resolve(new Response(JSON.stringify({ items: [{ level: 'error', message: 'DBC finding ' + (++n), paths: [] }], errors: 1 }),
+                  { headers: { 'Content-Type': 'application/json' } }))
+              : f(u, o);
+            return new Promise((done) => setTimeout(() => done(r), 700));
+          };
+        }""")
+        for k in range(3):
+            pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
+            pg.click("#btn-export-dbc")
+            pg.wait_for_selector("#menu-export > summary:has-text('Exporting…')")
+            self.assertEqual(pg.get_attribute("#menu-export > summary", "aria-busy"), "true")
+            pg.wait_for_selector("#banner.error:has-text('DBC export stopped')")
+            pg.wait_for_selector("#menu-export > summary:text-is('Export')")
+            texts = pg.eval_on_selector_all("#problem-list li", "ls => ls.map((l) => l.textContent)")
+            self.assertEqual([t for t in texts if "DBC finding" in t], ["DBC finding %d" % (k + 1)], texts)
+            self.assertEqual(self.problems(), "6 problems")
+        # A failing DCF export replaces the DBC export's finding too.
+        pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
+        pg.click("#btn-export-all")
+        pg.wait_for_selector("#banner.error:has-text('DCF export stopped')")
+        self.assertNotIn("DBC finding", pg.inner_text("#problem-list"))
+
     # -- 4.2 node page sections ----------------------------------------------
     def test_node_page_sections(self):
         pg = self.page

@@ -17,6 +17,7 @@
  "tests.test_configurator_explain_page.Inspector": 3.9,
  "tests.test_configurator_frames_page.DetectPage": 9.0,
  "tests.test_configurator_frames_page.SendPanel": 13.4,
+ "tests.test_configurator_layout.Examples": 22.0,
  "tests.test_configurator_layout.Layout": 87.0,
  "tests.test_configurator_localbus_page.AdapterPage": 9.4,
  "tests.test_configurator_localbus_page.DetectPage": 17.6,

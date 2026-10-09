@@ -99,6 +99,7 @@ function modal(text, buttons, extra) {
       menu.append(el("button", { type: "button", class: [o.primary ? "primary" : "", o.danger ? "danger" : ""].join(" ").trim() || null,
         dataset: { value }, onclick: () => done(value) }, label));
     }
+    if (!dlg.open) dlg.opener = document.activeElement;
     dlg.showModal();
     const fields = "input:not([type=checkbox]), select, textarea";
     const field = !extra || !extra.querySelector ? null : extra.matches(fields) ? extra : extra.querySelector(fields);
@@ -777,10 +778,10 @@ function renderStart() {
   }[S.startMode];
   const recent = $("#recent");
   recent.replaceChildren(...(S.state.recent.length ? S.state.recent.map((r) =>
-    el("li", { onclick: () => openFolder(r.path, r.mode) }, r.path,
-      el("span", { class: "tag" }, r.mode === "project" ? "project" : "standalone"),
+    el("li", null, el("button", { type: "button", class: "folder", onclick: () => openFolder(r.path, r.mode) }, r.path,
+      el("span", { class: "tag" }, r.mode === "project" ? "project" : "standalone")),
       el("button", { type: "button", class: "small", dataset: { forget: r.path }, "aria-label": "Remove " + r.path + " from Recent",
-        title: "Remove from Recent (the folder stays)", onclick: (e) => { e.stopPropagation(); forgetRecent(r.path); } }, "Remove")))
+        title: "Remove from Recent (the folder stays)", onclick: () => forgetRecent(r.path) }, "Remove")))
     : [el("li", { class: "muted" }, "Nothing opened yet")]));
   if (!S.browserPath) browse(S.state.home);
 }
@@ -803,12 +804,14 @@ async function browse(path) {
     // A path typed while the listing loaded (the first one, of the home
     // folder, starts with the page) stays: Open uses the field.
     if ($("#browser-path").value === typed) $("#browser-path").value = r.path;
+    // ↑ at the top folder is disabled: its focus goes to the path field.
+    if (!r.parent && document.activeElement === $("#browser-up")) $("#browser-path").focus();
     $("#browser-up").disabled = !r.parent;
     $("#browser-up").onclick = () => browse(r.parent);
-    $("#browser-list").replaceChildren(...r.entries.map((e) => el("li", {
-      ondblclick: () => browse(e.path), onclick: () => browse(e.path), title: e.path,
+    $("#browser-list").replaceChildren(...r.entries.map((e) => el("li", null, el("button", {
+      type: "button", class: "folder", onclick: () => browse(e.path), title: e.path,
     }, "📁 " + e.name, e.project ? el("span", { class: "tag" }, "editor project") : null,
-    e.config ? el("span", { class: "tag" }, "canworks.json") : null)));
+    e.config ? el("span", { class: "tag" }, "canworks.json") : null))));
     if (!r.entries.length) $("#browser-list").append(el("li", { class: "muted" }, "No subfolders"));
   } catch (e) {
     // The old list is not the typed folder's: drop it.
@@ -868,6 +871,13 @@ function render() {
   $("#editor").classList.toggle("commission", commission);
   $("#menu-project").hidden = S.state.mode !== "standalone" || commission;
   $("#btn-export-node").disabled = !S.view.startsWith("node:");
+  // Exports that do not apply are not offered: no DCF of a slave or J1939
+  // network (none at all without a CANopen master network), no DBC of a slave.
+  if (S.model) {
+    $("#btn-export-all").hidden = !S.model.networks.some(dcfNetwork);
+    $("#btn-export-node").hidden = !dcfNetwork(S.config);
+    $("#btn-export-dbc").closest(".menu-row").hidden = isSlave(S.config);
+  }
   if (commission && !["online", "scan", "trace", "framelab"].includes(S.view)) S.view = "online";
   // A J1939 network has no nodes, bus scan or simulated devices.
   if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "scan" || S.view === "simulation")) S.view = "bus";
@@ -901,6 +911,8 @@ function renderSide() {
   // The node list: one button per node (name and error count, nothing
   // else), the open node marked as current.
   const list = $("#node-list");
+  // Enter or Space on a node rebuilds the list: the focus goes to its new button.
+  const had = document.activeElement && list.contains(document.activeElement) ? document.activeElement.dataset : null;
   const item = (active, attrs, ...kids) => el("li", null, el("button", Object.assign({ type: "button",
     class: "nav-item" + (active ? " active" : ""), "aria-current": active ? "true" : null }, attrs), ...kids));
   list.replaceChildren(...(S.config.nodes || []).map((n, i) => item(S.view === "node:" + i,
@@ -911,6 +923,8 @@ function renderSide() {
     list.append(item(S.view === "bus", { dataset: { slave: "1" }, onclick: () => showView("bus") },
       el("span", { class: "name" }, `${s.node_id === null ? "LSS" : s.node_id ?? "?"} slave device (this PLC)`)));
   } else if (!(S.config.nodes || []).length && !isJ1939(S.config)) list.append(el("li", { class: "muted" }, "No nodes yet"));
+  const again = had && list.querySelector(had.node !== undefined ? `[data-node="${had.node}"]` : had.slave ? "[data-slave]" : null);
+  if (again) again.focus();
   fillCounts(countProblems());
   const j1939 = isJ1939(S.config);
   $("#eds-input").closest("label").hidden = isSlave(S.config) || j1939;
@@ -1473,8 +1487,8 @@ function slaveObjects(eds) {
     return el("tr", { dataset: { object: `${o.index}:${o.subindex ?? 0}` } },
       el("td", null, `${o.index}:${o.subindex ?? 0}`),
       el("td", null, info ? info.name : el("span", { class: "field-msg" }, "not in the EDS")),
-      el("td", null, info ? info.type || "" : ""),
-      el("td", null, info ? `${info.access}: ` + (dir === "input" ? "master writes, PLC input (%I)" : dir === "output" ? "PLC writes, master reads (%Q)" : "cannot be bound") : ""),
+      el("td", null, info ? info.type || "" : "",
+        info ? hint(`${info.access}: ` + (dir === "input" ? "PLC input (%I)" : dir === "output" ? "PLC output (%Q)" : "cannot be bound")) : null),
       el("td", null, el("span", { class: "row" }, field("", path + ".iec_location", "text",
         { placeholder: dir === "output" ? "%Q…" : "%I…" }).querySelector("input"), suggest),
         el("span", { class: "field-msg", dataset: { for: path + ".iec_location" } }),
@@ -1490,9 +1504,9 @@ function slaveObjects(eds) {
     el("option", { value: k }, `${o.index}:${o.subindex} ${o.name} (${o.type}, ${o.access})`)));
   fs.append(el("p", { class: "muted" }, "Objects the master writes (AccessType rww or rw) are PLC inputs; objects the " +
       "program writes (ro or rwr) are PLC outputs the master reads. The name is optional and names the variable."),
-    el("div", { class: "objects" }, el("table", null,
-      el("thead", null, el("tr", null, thCells(["Object", "EDS name", "Type", "Direction", "PLC location", "Name", ""]))),
-      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 7, class: "muted" }, "No objects bound yet."))))),
+    el("div", { class: "objects" }, el("table", { class: "slave-objects" },
+      el("thead", null, el("tr", null, thCells(["Object", "EDS name", "Type and direction", "PLC location", "Name", ""]))),
+      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 6, class: "muted" }, "No objects bound yet."))))),
     free.length ? el("div", { class: "toolbar" }, pick, el("button", { type: "button", dataset: { bind: "1" },
       onclick: async () => {
         const o = free[Number(pick.value)];
@@ -1553,7 +1567,7 @@ function slaveBuilder() {
       el("label", null, "Revision number", input(d, "revision_number", "Revision number", "num", { placeholder: "from the content" }),
         hint("Empty: derived from the objects, so a changed dictionary gets a new revision.")),
       el("label", null, "Heartbeat (ms)", input(d, "heartbeat_ms", "Heartbeat", "num", { placeholder: "1000" })),
-      el("label", null, "Layout", layoutSel,
+      el("label", { class: "span2" }, "Layout", layoutSel,
         hint(cia401 ? "Device type 401: digital I/O as UNSIGNED8 (0x6000/0x6200), analog as INTEGER16 (0x6401/0x6411)."
           : "From the master in 0x2000 and up, to the master in 0x2100 and up, one ARRAY per type."))),
     el("div", { class: "objects" }, el("table", null,
@@ -1727,9 +1741,10 @@ function gatewayRoutes(g, masters, upperEds) {
   const slaveObjs = upperEds && upperEds.objects ? upperEds.objects.filter((o) => BINDABLE[o.access] && o.type && num(o.index) >= 0x2000) : [];
   const rows = g.routes.map((rt, j) => {
     const path = `gateway.routes[${j}]`;
+    const who = `route ${rt.name || j + 1}`;
     rt.slave = rt.slave || {};
     rt.field = rt.field || {};
-    const objSel = el("select", { dataset: { path: path + ".slave" }, "aria-label": "Slave object" },
+    const objSel = el("select", { dataset: { path: path + ".slave" }, "aria-label": `Slave object of ${who}` },
       el("option", { value: "" }, "(pick)"),
       slaveObjs.map((o, k) => el("option", { value: k }, `${o.index}:${o.subindex} ${o.name} (${o.access})`)));
     const cur = slaveObjs.findIndex((o) => sameObject(o.index, o.subindex, rt.slave.index, rt.slave.subindex));
@@ -1741,13 +1756,13 @@ function gatewayRoutes(g, masters, upperEds) {
       rt.slave = o ? { index: o.index, subindex: o.subindex } : {};
       changed();
     });
-    const netSel = el("select", { dataset: { path: path + ".field.network" }, "aria-label": "Field network" },
+    const netSel = el("select", { dataset: { path: path + ".field.network" }, "aria-label": `Field network of ${who}` },
       el("option", { value: "" }, "(pick)"), masters.map((n) => el("option", { value: netName(n) }, netName(n))));
     netSel.value = rt.field.network || "";
     netSel.addEventListener("change", () => { rt.field = { network: netSel.value }; changed(true); });
     const net = masters.find((n) => netName(n) === rt.field.network);
     const nodes = net ? net.nodes || [] : [];
-    const nodeSel = el("select", { dataset: { path: path + ".field.node" }, "aria-label": "Field node" },
+    const nodeSel = el("select", { dataset: { path: path + ".field.node" }, "aria-label": `Field node of ${who}` },
       el("option", { value: "" }, "(pick)"), nodes.map((n) => el("option", { value: n.node_id }, `${n.node_id} ${n.name || ""}`)));
     nodeSel.value = rt.field.node === undefined ? "" : String(rt.field.node);
     nodeSel.addEventListener("change", () => {
@@ -1756,7 +1771,7 @@ function gatewayRoutes(g, masters, upperEds) {
     });
     const node = nodes.find((n) => num(n.node_id) === num(rt.field.node));
     const entries = node ? fieldEntries(node) : [];
-    const entrySel = el("select", { dataset: { path: path + ".field" }, "aria-label": "Field PDO entry" },
+    const entrySel = el("select", { dataset: { path: path + ".field" }, "aria-label": `Field PDO entry of ${who}` },
       el("option", { value: "" }, "(pick)"), entries.map((e, k) => el("option", { value: k }, e.label)));
     const ce = entries.findIndex((e) => sameObject(e.index, e.subindex, rt.field.index, rt.field.subindex));
     entrySel.value = ce >= 0 ? String(ce) : "";
@@ -1766,11 +1781,14 @@ function gatewayRoutes(g, masters, upperEds) {
       changed(true);
     });
     const e = ce >= 0 ? entries[ce] : null;
+    // The field end in one cell, the PDO entry and its direction under
+    // the network and node, so the table fits next to Problems.
     return el("tr", { dataset: { route: j } },
-      el("td", null, field("", path + ".name", "text", { placeholder: `route${j + 1}` }).querySelector("input")),
-      el("td", null, objSel), el("td", null, netSel), el("td", null, nodeSel), el("td", null, entrySel),
-      el("td", null, e ? (e.dir === "up" ? "up: node to upper master" : "down: upper master to node") : ""),
-      el("td", null, el("button", { type: "button", onclick: () => { g.routes.splice(j, 1); changed(true); } }, "Remove"),
+      el("td", null, field(`Name of route ${j + 1}`, path + ".name", "text", { placeholder: `route${j + 1}` }).querySelector("input")),
+      el("td", null, objSel),
+      el("td", null, el("span", { class: "row" }, netSel, nodeSel), entrySel,
+        e ? hint(e.dir === "up" ? "up: node to upper master" : "down: upper master to node") : null),
+      el("td", null, el("button", { type: "button", "aria-label": `Remove ${who}`, onclick: () => { g.routes.splice(j, 1); changed(true); } }, "Remove"),
         el("span", { class: "field-msg", dataset: { for: path } })));
   });
   return el("fieldset", null, el("legend", null, "Routes"),
@@ -1778,9 +1796,9 @@ function gatewayRoutes(g, masters, upperEds) {
       "or a slave object the upper master writes (rww) down to a field RPDO entry, of the same type. An RPDO entry a route writes " +
       "needs no PLC location: one writer per object."),
     upperEds ? null : el("p", { class: "field-msg" }, "Build or pick the upper network's EDS to pick slave objects."),
-    el("div", { class: "objects" }, el("table", null,
-      el("thead", null, el("tr", null, thCells(["Name", "Slave object", "Network", "Node", "PDO entry", "Direction", ""]))),
-      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 7, class: "muted" }, "No routes yet."))))),
+    el("div", { class: "objects" }, el("table", { class: "routes" },
+      el("thead", null, el("tr", null, thCells(["Name", "Slave object", "Field network, node and PDO entry", ""]))),
+      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 4, class: "muted" }, "No routes yet."))))),
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { addRoute: "1" },
       onclick: () => { g.routes.push({ slave: {}, field: {} }); changed(true); } }, "Add route")));
 }
@@ -5734,6 +5752,8 @@ async function addSdo(i, index, subindex) {
   n.sdo.push({ index: hex4(ix), subindex: sx, type, value });
   banner(listed ? `${hex4(ix)}:${sx} is already written at startup; added again, and the last write wins.` : "", listed);
   changed(true);
+  const field = document.querySelector(`#view input[data-path="nodes[${i}].sdo[${n.sdo.length - 1}].value"]`);
+  if (field) field.focus();
 }
 
 async function addSdoVar(i, index, subindex, direction) {
@@ -5763,6 +5783,11 @@ function moveSdo(i, j, d) {
   const list = S.config.nodes[i].sdo;
   [list[j], list[j + d]] = [list[j + d], list[j]];
   changed(true);
+  // The focus stays with the moved write: on the same arrow, or the other one at the end of the list.
+  const row = document.querySelector(`#view tr[data-path="nodes[${i}].sdo[${j + d}]"]`);
+  const arrow = (t) => row && row.querySelector(`button[title="${t}"]:not(:disabled)`);
+  const b = arrow(d < 0 ? "Up" : "Down") || arrow(d < 0 ? "Down" : "Up");
+  if (b) b.focus();
 }
 
 // ---------------------------------------------------------------------------
@@ -5797,6 +5822,8 @@ async function runCheck() {
 
 // The open tab's network name when the draft has several (exports name it).
 function tabNetwork() { return several() ? netName(S.config) : null; }
+// A network with DCFs: a CANopen master network.
+function dcfNetwork(net) { return !!net && !isSlave(net) && !isJ1939(net); }
 
 // Exports the draft (saved or not) as CiA 306 DCF files: one node's file,
 // or every node's in a zip. With several networks: the open tab's nodes, or
@@ -5805,7 +5832,7 @@ function tabNetwork() { return several() ? netName(S.config) : null; }
 async function exportDcf(nodeId, network) {
   const one = nodeId !== undefined;
   if (one && !Number.isInteger(nodeId)) { banner("Give the node a node ID first.", true); return; }
-  if (!one && several()) {
+  if (!one && several() && dcfNetwork(S.config)) {
     const label = netLabel(S.config, S.net);
     const v = await modal(`Export the DCF files of network ${label}, or of every network (a folder per network in the zip)?`,
       [["tab", `Network ${label}`], ["all", "All networks", true], ["cancel", "Cancel"]]);
@@ -5899,7 +5926,10 @@ async function exportDbc() {
 // hints do not go blank.
 function exportProblems(r, cfg) {
   const fresh = normCheck(r, fileVersion(cfg));
-  const prev = S.check || {};
+  // The config check's, not an earlier export's: a failed export's findings
+  // replace the previous export's.
+  const prev = (S.check && S.check.base) || S.check || {};
+  fresh.base = prev;
   const key = (it) => readable(it.message) + "|" + JSON.stringify(it.paths || []);
   if (prev.items) {
     const seen = new Set(prev.items.map(key));
@@ -6312,7 +6342,8 @@ function wire() {
   $("#browser-open").onclick = startOpen;
   // busy() restores the caption it found ("Save"); the button's real state follows the save.
   $("#btn-save").onclick = () => busy($("#btn-save"), "Saving…", () => save(false)).then(updateSave);
-  const exporting = (id, fn) => { $(id).onclick = () => busy($(id), "Exporting…", fn); };
+  // The menu closes on a pick: its caption shows that the export runs.
+  const exporting = (id, fn) => { $(id).onclick = () => busy($("#menu-export > summary"), "Exporting…", fn); };
   exporting("#btn-export-all", () => exportDcf());
   exporting("#btn-export-node", () => {
     const n = S.view.startsWith("node:") ? S.config.nodes[Number(S.view.slice(5))] : null;
@@ -6346,6 +6377,15 @@ function wire() {
     if ($("#modal").open) return; // the close event of a dialog since opened again
     const r = modalResolve; modalResolve = null; if (r) r(null);
   });
+  // A dialog opened from a menu item: the menu closed, so focus goes to its summary.
+  $("#modal").addEventListener("close", () => {
+    let o = $("#modal").opener;
+    const menu = o && o.closest ? o.closest("details.menu") : null;
+    if (menu && !menu.open) o = menu.querySelector("summary");
+    const a = document.activeElement;
+    const lost = !a || a === document.body || a.offsetParent === null || a.closest("dialog");
+    if (lost && o && o.isConnected && o.offsetParent !== null) o.focus();
+  });
   document.addEventListener("keydown", undoKeys);
   wireTheme();
   wireProblems();
@@ -6373,7 +6413,12 @@ function wireMenus() {
       else if (e.key === "ArrowUp") { e.preventDefault(); (items[k - 1] || items[items.length - 1]).focus(); }
     });
     for (const b of m.querySelectorAll(".item")) b.addEventListener("click", () => close(m));
+    // Tab out of an open menu closes it.
+    m.addEventListener("focusout", (e) => { if (m.open && !(e.relatedTarget && m.contains(e.relatedTarget))) close(m); });
   }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") for (const m of menus) if (m.open && !m.contains(document.activeElement)) close(m);
+  });
   document.addEventListener("click", (e) => {
     for (const m of menus) if (m.open && !m.contains(e.target)) close(m);
   });
