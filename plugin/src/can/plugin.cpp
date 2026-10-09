@@ -200,7 +200,7 @@ void prepare() {
   }
   st->nets.resize(st->set.networks.size());
   for (size_t i = 0; i < st->set.networks.size(); ++i)
-    if (st->set.networks[i].is_plain()) st->nets[i] = canworks_raw::make_plain_runtime(st->raws[i].get(), CANOPEN_PLUGIN_VERSION);
+    if (st->set.networks[i].is_plain()) st->nets[i] = canworks_raw::make_plain_runtime(st->raws[i].get(), CANWORKS_PLUGIN_VERSION);
 #if CANWORKS_WITH_CANOPEN
   if (!canopen_create(st->set, g_rt.base_tick_ns, CANWORKS_PLUGIN_VERSION, st->canopen, st->nets)) return;
 #endif
