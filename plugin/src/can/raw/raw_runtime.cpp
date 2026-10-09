@@ -110,21 +110,21 @@ bool RawRuntime::prepare_adapter() {
   return false;
 }
 
-void RawRuntime::bus_info(canworks_can_bus_info& info) {
+bool RawRuntime::bus_info(canworks_can_bus_info& info) {
   if (cfg_.adapter.simulate) {
     info.state = 0;
-    return;
+    return true;
   }
   LinkInfo li;
   if (!link_ops_ || link_ops_->get(cfg_.adapter.interface, li) < 0 || !li.up) {
     info.state = 4;
-    return;
+    return true;
   }
   info.state = li.has_can_state ? static_cast<uint8_t>(li.can_state > 3 ? 4 : li.can_state) : 0;
-  if (li.has_berr) {
-    info.tx_errors = static_cast<uint8_t>(li.tx_errors > 255 ? 255 : li.tx_errors);
-    info.rx_errors = static_cast<uint8_t>(li.rx_errors > 255 ? 255 : li.rx_errors);
-  }
+  if (!li.has_berr) return false;
+  info.tx_errors = static_cast<uint8_t>(li.tx_errors > 255 ? 255 : li.tx_errors);
+  info.rx_errors = static_cast<uint8_t>(li.rx_errors > 255 ? 255 : li.rx_errors);
+  return true;
 }
 
 void RawRuntime::start() {
@@ -144,7 +144,7 @@ void RawRuntime::start() {
       return true;
     };
   }
-  hooks.bus_info = [this](canworks_can_bus_info& info) { bus_info(info); };
+  hooks.bus_info = [this](canworks_can_bus_info& info) { return bus_info(info); };
   if (adapter_) hooks.prepare = [this] { return prepare_adapter(); };
   hooks.host_frames_received = cfg_.is_plain();
   // Waiting for the interface is worth a line only when the network has

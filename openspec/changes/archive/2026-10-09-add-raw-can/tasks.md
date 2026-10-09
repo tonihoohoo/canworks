@@ -53,7 +53,8 @@
 
 - [x] 9.1 Pi adapter as the PLC on the CANopen bench network with one raw send and one raw receive message next to the CANopen node; the PC adapter plays a plain CAN device with `canworks-sim`; check values both ways, the node still boots and runs, and the timeout bit when the PC device stops.
   - 2026-10-09: passed with `cansend` on the Pi host playing the plain CAN device (the PC adapter is on another computer).
-- [ ] 9.2 Program blocks on the bench: `CAN_SEND` confirmation, `CAN_SEND_CYCLIC` at 10 ms with a 50 ms scan (period checked in a PC trace), `CAN_RECEIVE` draining a burst, `CAN_BUS_INFO` after unplugging the other adapter (error passive or bus-off).
-  - 2026-10-09 retest after fix-raw-can-hw-findings: everything but the unplug step passed (cyclic period 10.00 ms average); the unplug step needs someone at the bench.
+- [x] 9.2 Program blocks on the bench: `CAN_SEND` confirmation, `CAN_SEND_CYCLIC` at 10 ms with a 50 ms scan (period checked in a PC trace), `CAN_RECEIVE` draining a burst, `CAN_BUS_INFO` after unplugging the other adapter (error passive or bus-off).
+  - 2026-10-09 retest after fix-raw-can-hw-findings: passed (cyclic period 10.00 ms average).
+  - 2026-10-09 unplug (other device's cable pulled): the bus went error passive (not bus-off, as expected without acknowledgement) and every block recovered by itself after the replug. Found and fixed: `CAN_SEND` ended with `ERROR_ID` 5 on a full kernel queue, and `TX_ERRORS`/`ERROR_FRAMES` stayed 0 on an adapter without driver counters. Bus-off itself is not tried.
 - [ ] 9.3 Listen-only plain network on the Pi: the PC adapter sends, the PLC receives, and a PC trace shows no acknowledgement or frame from the Pi when the PC adapter is the only other device. Put the bench's usual project back afterwards.
   - 2026-10-09: listen-only mode set, frames received, nothing sent, program sends refused. The "no acknowledgement" part needs a bus where the PC adapter is the only other device.
