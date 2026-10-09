@@ -927,7 +927,7 @@ function renderSide() {
   if (isSlave(S.config)) {
     const s = S.config.slave || {};
     list.append(item(S.view === "bus", { dataset: { slave: "1" }, onclick: () => showView("bus") },
-      el("span", { class: "name" }, `${s.node_id === null ? "LSS" : s.node_id ?? "?"} slave device (this PLC)`)));
+      el("span", { class: "name" }, `${s.node_id === null ? "LSS" : s.node_id ?? "?"} slave (this PLC)`)));
   } else if (!(S.config.nodes || []).length && !isJ1939(S.config) && !isPlain(S.config)) list.append(el("li", { class: "muted" }, "No nodes yet"));
   const again = had && list.querySelector(had.node !== undefined ? `[data-node="${had.node}"]` : had.slave ? "[data-slave]" : null);
   if (again) again.focus();
@@ -2779,7 +2779,8 @@ function renderSdos(i, eds) {
     const twice = list.map((o, x) => x).filter((x) => x !== j && sameObject(list[x].index, list[x].subindex, s.index, s.subindex));
     return el("tr", { dataset: { path: sp } },
       el("td", null, `${s.index}:${s.subindex ?? 0}`),
-      el("td", null, info ? info.name : el("span", { class: "field-msg warning" }, "not in the EDS"), noteLine(note),
+      el("td", null, info ? info.name : el("span", { class: "field-msg warning" }, "not in the EDS"),
+        info && notesEditable(n.eds) ? " " : null, info ? noteButton(info, render) : null, noteLine(note),
         twice.length ? el("span", { class: "field-msg warning", dataset: { twice: "1" } },
           ` also written in row ${twice.map((x) => x + 1).join(", ")}; the last write wins`) : null),
       el("td", null, typeCell),
@@ -2790,8 +2791,7 @@ function renderSdos(i, eds) {
         el("button", { type: "button", title: "Up", "aria-label": `Move ${s.index}:${s.subindex ?? 0} up`, disabled: j === 0, onclick: () => moveSdo(i, j, -1) }, "↑"),
         el("button", { type: "button", title: "Down", "aria-label": `Move ${s.index}:${s.subindex ?? 0} down`, disabled: j === list.length - 1, onclick: () => moveSdo(i, j, 1) }, "↓"),
         el("button", { type: "button", title: "Remove", "aria-label": `Remove the write of ${s.index}:${s.subindex ?? 0}`,
-          onclick: () => { list.splice(j, 1); changed(true); removedBanner(`the startup write of ${s.index}:${s.subindex ?? 0}`); } }, "✕"),
-        info ? noteButton(info, render) : null)));
+          onclick: () => { list.splice(j, 1); changed(true); removedBanner(`the startup write of ${s.index}:${s.subindex ?? 0}`); } }, "✕"))));
   });
   fs.append(el("table", null, el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Value", ""]))),
     el("tbody", null, rows)));

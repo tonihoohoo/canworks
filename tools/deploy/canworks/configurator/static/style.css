@@ -200,8 +200,8 @@ table.routes td:first-child input { min-width: 12ch; }
 table.slave-objects td input[type=text] { field-sizing: content; min-width: 9ch; }
 table.slave-objects td .hint { display: block; }
 /* The EDS builder: the object name as wide as its text, the numbers narrow. */
-table.slave-builder td:first-child input { field-sizing: content; min-width: 10ch; }
-table.slave-builder td input[data-desc=default], table.slave-builder td input[data-desc=low], table.slave-builder td input[data-desc=high] { width: 7ch; min-width: 0; }
+table.slave-builder td:first-child input { field-sizing: content; min-width: 9ch; }
+table.slave-builder td input[data-desc=default], table.slave-builder td input[data-desc=low], table.slave-builder td input[data-desc=high] { width: 6ch; min-width: 0; }
 textarea.block { width: 100%; min-height: 160px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); max-width: 520px; }
 dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; margin: 12px 0 0; }
