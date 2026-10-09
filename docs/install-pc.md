@@ -83,7 +83,7 @@ canworks-deploy --help
 
 Without installing: `PYTHONPATH=tools/deploy python3 -m canworks --help` (needs `python3 -m pip install jsonschema`).
 
-Debian 12 and later, Ubuntu 23.04 and later and other distributions that mark their Python as externally managed (PEP 668) refuse a plain `pip install` with "externally-managed-environment". Use uv as above, pipx (`sudo apt install pipx`), or a virtual environment (`python3 -m venv ~/.venvs/canopen && ~/.venvs/canworks/bin/pip install ./tools/deploy`).
+Debian 12 and later, Ubuntu 23.04 and later and other distributions that mark their Python as externally managed (PEP 668) refuse a plain `pip install` with "externally-managed-environment". Use uv as above, pipx (`sudo apt install pipx`), or a virtual environment (`python3 -m venv ~/.venvs/canworks && ~/.venvs/canworks/bin/pip install ./tools/deploy`).
 
 ## Releases
 

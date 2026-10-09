@@ -28,7 +28,7 @@ The script:
 
 - installs the [editor hook](#the-editors-build-and-upload): the hook's checks go into `/opt/canworks/venv` next to the deploy tool, the hook to `/opt/canworks/lib/python/`, and one file, `canworks_hook.pth`, into the runtime's Python environment (`venvs/runtime`). `--no-editor-hook` leaves it out (and removes it if it was installed).
 
-It changes no file the runtime's git checkout tracks (`plugins.conf` is the runtime's own untracked, runtime-managed file). Running it again rebuilds the plugin and still leaves exactly one `canopen` line. It records the runtime commit it built against in `/opt/canworks/lib/runtime-commit` and warns when the runtime has changed since: the plugin interface is not versioned, so re-run the script after updating the runtime. When the runtime runs in Docker it installs in [Docker mode](#docker-installs) instead.
+It changes no file the runtime's git checkout tracks (`plugins.conf` is the runtime's own untracked, runtime-managed file). Running it again rebuilds the plugin and still leaves exactly one `canworks` line. It records the runtime commit it built against in `/opt/canworks/lib/runtime-commit` and warns when the runtime has changed since: the plugin interface is not versioned, so re-run the script after updating the runtime. When the runtime runs in Docker it installs in [Docker mode](#docker-installs) instead.
 
 The line survives runtime updates as long as `plugins.conf` is kept: the runtime only recreates it from `plugins_default.conf` when it is missing.
 
