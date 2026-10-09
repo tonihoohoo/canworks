@@ -30,6 +30,9 @@ class Mapping(unittest.TestCase):
             "schema/canopen.v2.schema.json": "schema/canworks.v2.schema.json",
             "schema/canopen-sim.v1.schema.json": "schema/canworks-sim.v1.schema.json",
             "out/.canopen/net": "out/.canworks/net",
+            'open("canopen.v%d.schema.json" % v)': 'open("canworks.v%d.schema.json" % v)',
+            "`canopen.v${from}.schema.json`": "`canworks.v${from}.schema.json`",
+            "schema/canopen-machine.v1.schema.json": "schema/canworks-machine.v1.schema.json",
             "library/openplc_canopen.stlib": "library/canworks.stlib",
         }
         for old, new in cases.items():
@@ -41,6 +44,12 @@ class Mapping(unittest.TestCase):
                      "tonihoohoo/openplc-canopen-private", "CANopen master", "plugin/src/canopen/",
                      "the canopen-local-runtime spec", "# rename-keep: /opt/openplc-canopen"):
             self.assertEqual(rn.rename_text(text), text, text)
+
+    def test_project_folder_path(self):
+        self.assertEqual(rn.rename_path("examples/gantry-cell/canopen/servo402.eds"),
+                         "examples/gantry-cell/canworks/servo402.eds")
+        self.assertEqual(rn.rename_path("plugin/src/canopen/master.cpp"), "plugin/src/canopen/master.cpp")
+        self.assertEqual(rn.rename_path("canopen/x.json"), "canworks/x.json")
 
     def test_cmake_target_only_in_build_files(self):
         self.assertEqual(rn.rename_text("--target canopen_plugin", build=True), "--target canworks_plugin")

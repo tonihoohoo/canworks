@@ -52,7 +52,8 @@ RULES = [
     (r"OPENPLC_CANOPEN_", "CANWORKS_"),
     (r"CANOPEN_FORCE_SIMULATE", "CANWORKS_FORCE_SIMULATE"),
     (r"libcanopen_plugin", "libcanworks_plugin"),
-    (r"(?<![\w-])canopen(-sim)?\.v(\d)\.schema", r"canworks\1.v\2.schema"),
+    # Schema files, also where the version is filled in (%d, ${v}).
+    (r"(?<![\w-])canopen(-sim|-machine)?\.v(\d+|%d|\$\{\w+\})\.schema", r"canworks\1.v\2.schema"),
     (r"(?<![\w.-])canopen\.json", "canworks.json"),
     (r"(?<![\w.])\.canopen(?=[/'\"`\s)]|$)", ".canworks"),
     (r"(?<!lely\.com/)(?<!src/)(?<![\w.-])canopen/", "canworks/"),
@@ -66,7 +67,8 @@ BUILD_FILE = re.compile(r"(^|/)(CMakeLists\.txt|[^/]*\.cmake|[^/]*\.sh|[^/]*\.ya
 
 # Old names --check reports.
 OLD = re.compile(r"openplc[-_]canopen(?!-private)|OPENPLC_CANOPEN_|CANOPEN_FORCE_SIMULATE|libcanopen_plugin"
-                 r"|(?<![\w.-])canopen\.json|conf/canopen/")
+                 r"|(?<![\w.-])canopen\.json|conf/canopen/"
+                 r"|(?<![\w-])canopen(-sim|-machine)?\.v(\d+|%d|\$\{\w+\})\.schema")
 
 _RULES = [(re.compile(p), r) for p, r in RULES]
 _BUILD = [(re.compile(p), r) for p, r in BUILD_RULES]
@@ -86,7 +88,12 @@ def rename_text(text, build=False):
     return "".join(out)
 
 
+# A project's config folder (examples/*/canopen/); not plugin sources.
+PROJECT_FOLDER = re.compile(r"^(?!plugin/)(.+/)?canopen(?=/)")
+
+
 def rename_path(path):
+    path = PROJECT_FOLDER.sub(lambda m: (m.group(1) or "") + "canworks", path)
     return "/".join(rename_text(part) for part in path.split("/"))
 
 
@@ -134,7 +141,7 @@ def check(root):
     for path in tracked(root):
         if skipped(path) or (pending and path.startswith("openspec/specs/")):
             continue
-        if OLD.search(path):
+        if OLD.search(path) or PROJECT_FOLDER.match(path):
             found.append("%s: path" % path)
         text = read(root, path)
         if text is None:
