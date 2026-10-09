@@ -7,7 +7,7 @@ name = "canworks-editor-hook"
 version = "0.1.0"
 description = "Applies the CANopen config in an OpenPLC Editor project when the editor uploads it to a stock OpenPLC Runtime v4"
 requires-python = ">=3.8"
-dependencies = ["canworks-deploy"]
+dependencies = ["canworks"]
 
 [tool.setuptools]
 packages = ["canworks_hook"]
