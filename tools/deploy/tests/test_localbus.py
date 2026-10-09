@@ -501,6 +501,67 @@ class AdapterList(unittest.TestCase):
                 mock.patch.object(adapter_mod.sys, "platform", "win32"):
             self.assertEqual(adapter_mod._usb_adapters(), [])
 
+    def test_gs_usb_retune_and_release(self):
+        # A new bit rate is set on the open USB handle (no close and reopen,
+        # which resets the USB device), and closing lets go of the interface.
+        from types import ModuleType, SimpleNamespace
+        from openplc_canopen_deploy.localbus import adapter as adapter_mod
+
+        calls = []
+
+        class Usb:
+            def ctrl_transfer(self, *args):
+                calls.append(("mode", args[1], args[4]))
+
+            def reset(self):
+                calls.append(("usb reset",))
+
+        class Dev:
+            device_capability = SimpleNamespace(fclk_can=48000000)
+            device_flags = 0x10
+
+            def __init__(self):
+                self.gs_usb = Usb()
+
+            def stop(self):
+                calls.append(("stop",))
+
+            def set_timing(self, **kw):
+                calls.append(("timing", kw["brp"]))
+
+        class DeviceMode:
+            def __init__(self, mode, flags):
+                self.mode, self.flags = mode, flags
+
+            def pack(self):
+                return (self.mode, self.flags)
+
+        class Bus:
+            def __init__(self):
+                self.gs_usb, self._bitrate = Dev(), 250000
+
+            def shutdown(self):
+                calls.append(("shutdown",))
+
+        pkg, mod, structs = ModuleType("gs_usb"), ModuleType("gs_usb.gs_usb"), ModuleType("gs_usb.gs_usb_structures")
+        mod._GS_USB_BREQ_MODE, mod.GS_CAN_MODE_START = 2, 1
+        structs.DeviceMode = DeviceMode
+        usb, util = ModuleType("usb"), ModuleType("usb.util")
+        util.dispose_resources = lambda dev: calls.append(("dispose", dev))
+        usb.util = util
+        bus = Bus()
+        lock = mock.Mock()
+        opened = adapter_mod.Opened(parse("gs_usb:0"), bus, 250000, lock)
+        with mock.patch.dict("sys.modules", {"gs_usb": pkg, "gs_usb.gs_usb": mod, "gs_usb.gs_usb_structures": structs,
+                                             "usb": usb, "usb.util": util}):
+            self.assertTrue(opened.retune(500000))
+            self.assertEqual(calls, [("stop",), ("timing", 6), ("mode", 2, (1, 0x10))])
+            self.assertEqual((opened.bitrate, bus._bitrate), (500000, 500000))
+            del calls[:]
+            opened.close()
+        self.assertEqual(calls, [("shutdown",), ("dispose", bus.gs_usb.gs_usb)])
+        lock.release.assert_called_once_with()
+
     def test_gs_usb_open_outside_linux(self):
         # Opened by USB bus and address (so closing does not start the adapter
         # again), and its start does not try to detach a kernel driver.
