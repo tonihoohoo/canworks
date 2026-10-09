@@ -11,6 +11,7 @@ from ..bustrace.model import Frame
 
 MAX_RATE = 1000       # frames per second, on the plugin and on an adapter
 BATCH = 500           # frames per `replay` request
+MAX_FRAMES = 200000   # frames of one replay through the plugin
 
 
 class ReplayError(ValueError):
@@ -141,6 +142,17 @@ def play_on_bus(bus, p, loop=False, stop=None, clock=time.monotonic, sleep=time.
     """Sends the plan on a python-can bus with its timing; `stop()` true ends
     it. Returns the number of frames sent."""
     import can
+
+    def send(f):
+        bus.send(can.Message(arbitration_id=f.can_id, is_extended_id=f.ext, is_remote_frame=f.rtr,
+                             dlc=f.dlc, data=b"" if f.rtr else f.data))
+
+    return play(send, p, loop, stop, clock, sleep)
+
+
+def play(send, p, loop=False, stop=None, clock=time.monotonic, sleep=time.sleep):
+    """Calls send(frame) for each frame of the plan with its timing; `stop()`
+    true ends it. Returns the number of frames sent."""
     sent = 0
     while True:
         start = clock()
@@ -150,8 +162,7 @@ def play_on_bus(bus, p, loop=False, stop=None, clock=time.monotonic, sleep=time.
             wait = start + off / 1e6 - clock()
             if wait > 0:
                 sleep(wait)
-            bus.send(can.Message(arbitration_id=f.can_id, is_extended_id=f.ext, is_remote_frame=f.rtr,
-                                 dlc=f.dlc, data=b"" if f.rtr else f.data))
+            send(f)
             sent += 1
         if not loop:
             return sent

@@ -602,6 +602,8 @@ void DiagServer::run() {
     // wakes the loop when it is due.
     int timeout = waiting_capture ? 200 : 1000;
     if (!jobs_.empty()) timeout = std::min<int>(timeout, static_cast<int>(service_jobs(clock::now()).count()));
+    if (!replays_.empty())
+      timeout = std::min<int>(timeout, static_cast<int>(service_replays(clock::now()).count()));
     int r = poll(fds.data(), fds.size(), timeout);
     if (r < 0 && errno != EINTR) {
       log_error("diagnostics: poll failed: %s; diagnostics stop", std::strerror(errno));
@@ -666,6 +668,7 @@ void DiagServer::run() {
     if (listen_fd_ >= 0 && (fds[1].revents & POLLIN)) accept_clients();
     update_capture(clock::now());
     if (!jobs_.empty() || !ended_.empty()) service_jobs(clock::now());
+    if (!replays_.empty() || !ended_replays_.empty()) service_replays(clock::now());
   }
 }
 
@@ -932,7 +935,8 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
     return;
   }
   if (c.authed && (r.op == "send_frame" || r.op == "send_frame_stop" || r.op == "detect_bitrate" ||
-                   r.op == "detect_bitrate_status")) {
+                   r.op == "detect_bitrate_status" || r.op == "replay" || r.op == "replay_status" ||
+                   r.op == "replay_stop")) {
     handle_tx(c, net, r.op, r.id, req);
     cJSON_Delete(req);
     return;
@@ -1363,6 +1367,7 @@ void DiagServer::handle_tx(Client& c, size_t net, const std::string& op, const s
     return;
   }
   if (op == "detect_bitrate") return handle_detect(c, net, id, req);
+  if (op.compare(0, 6, "replay") == 0) return handle_replay(c, net, op, id, req);
   // send_frame_stop: one of this connection's jobs, or all of them; ended
   // jobs are reported too, so a client learns why its job stopped.
   uint64_t job = 0, v = 0;
@@ -1621,6 +1626,10 @@ void DiagServer::end_job(size_t i, const std::string& reason, std::chrono::stead
 
 void DiagServer::end_client_jobs(uint64_t client, const std::string& reason) {
   auto now = std::chrono::steady_clock::now();
+  for (size_t i = replays_.size(); i-- > 0;)
+    if (replays_[i].client == client) end_replay(i, reason, now);
+  for (size_t i = ended_replays_.size(); i-- > 0;)
+    if (ended_replays_[i].client == client) ended_replays_.erase(ended_replays_.begin() + static_cast<long>(i));
   for (size_t i = jobs_.size(); i-- > 0;)
     if (jobs_[i].client == client) end_job(i, reason, now);
   for (size_t i = ended_.size(); i-- > 0;)
@@ -1648,6 +1657,267 @@ void DiagServer::publish_jobs(size_t net) {
   chans_[net].hub->set_send_jobs(t ? t : "[]");
   cJSON_free(t);
   cJSON_Delete(list);
+}
+
+namespace {
+
+cJSON* replay_json(bool running, uint64_t sent, size_t queued, uint64_t rounds,
+                   const std::string& reason) {
+  cJSON* res = cJSON_CreateObject();
+  cJSON_AddBoolToObject(res, "running", running);
+  cJSON_AddNumberToObject(res, "sent", double(sent));
+  cJSON_AddNumberToObject(res, "queued", double(queued));
+  cJSON_AddNumberToObject(res, "rounds", double(rounds));
+  if (!reason.empty()) cJSON_AddStringToObject(res, "reason", reason.c_str());
+  return res;
+}
+
+// One frame of a `replay` batch: {t_us, id, dlc, data, extended, rtr}.
+bool replay_frame(const cJSON* o, uint64_t& t_us, RawFrame& f, std::string& why) {
+  uint64_t v = 0;
+  if (!cJSON_IsObject(o)) {
+    why = "each frame must be an object";
+    return false;
+  }
+  if (!get_uint(o, "t_us", uint64_t(1) << 40, t_us, why) || !get_bool(o, "extended", f.ext, why) ||
+      !get_bool(o, "rtr", f.rtr, why) || !get_uint(o, "id", f.ext ? 0x1FFFFFFF : 0x7FF, v, why))
+    return false;
+  f.id = static_cast<uint32_t>(v);
+  const cJSON* data = cJSON_GetObjectItemCaseSensitive(o, "data");
+  std::vector<uint8_t> bytes;
+  if (data && (!cJSON_IsString(data) || (data->valuestring[0] && !parse_hex(data->valuestring, bytes)))) {
+    why = "field 'data' must be hexadecimal bytes";
+    return false;
+  }
+  if (bytes.size() > 8 || (f.rtr && !bytes.empty())) {
+    why = f.rtr ? "a remote frame has no data" : "a CAN frame carries at most 8 data bytes";
+    return false;
+  }
+  f.dlc = static_cast<uint8_t>(bytes.size());
+  if (cJSON_GetObjectItemCaseSensitive(o, "dlc")) {
+    if (!get_uint(o, "dlc", 8, v, why)) return false;
+    if (!f.rtr && v != bytes.size()) {
+      why = "field 'dlc' does not match the data";
+      return false;
+    }
+    f.dlc = static_cast<uint8_t>(v);
+  }
+  std::copy(bytes.begin(), bytes.end(), f.data);
+  return true;
+}
+
+}  // namespace
+
+void DiagServer::handle_replay(Client& c, size_t net, const std::string& op, const std::string& id,
+                               const cJSON* req) {
+  auto now = std::chrono::steady_clock::now();
+  Replay* mine = nullptr;
+  size_t mine_i = 0;
+  for (size_t i = 0; i < replays_.size(); ++i)
+    if (replays_[i].net == net && replays_[i].client == c.serial) {
+      mine = &replays_[i];
+      mine_i = i;
+    }
+  if (op == "replay_status" || op == "replay_stop") {
+    if (mine) {
+      if (op == "replay_stop") {
+        Replay r = *mine;
+        end_replay(mine_i, "stopped", now);
+        c.out += diag_ok(id, replay_json(false, r.sent, r.frames.size(), r.rounds, "stopped"));
+      } else {
+        c.out += diag_ok(id, replay_json(true, mine->sent, mine->frames.size(), mine->rounds, ""));
+      }
+      return;
+    }
+    for (size_t i = ended_replays_.size(); i-- > 0;) {
+      const Replay& r = ended_replays_[i];
+      if (r.net != net || r.client != c.serial) continue;
+      c.out += diag_ok(id, replay_json(false, r.sent, r.pos, r.rounds, r.reason));
+      return;
+    }
+    c.out += diag_error(id, "no replay of this connection on this network");
+    return;
+  }
+
+  // replay: the first batch starts it, later ones (same connection) add to it.
+  DiagHub& hub = *chans_[net].hub;
+  const Config& cfg = hub.config();
+  std::string why;
+  bool force = false, more = false, loop = false;
+  if (!get_bool(req, "force", force, why) || !get_bool(req, "more", more, why) || !get_bool(req, "loop", loop, why)) {
+    c.out += diag_error(id, why);
+    return;
+  }
+  const cJSON* list = cJSON_GetObjectItemCaseSensitive(req, "frames");
+  if (!cJSON_IsArray(list) || cJSON_GetArraySize(list) < 1 ||
+      static_cast<size_t>(cJSON_GetArraySize(list)) > kReplayBatch) {
+    c.out += diag_error(id, "field 'frames' must hold 1-" + std::to_string(kReplayBatch) + " frames");
+    return;
+  }
+  if (!settings().diag_allow_changes) {
+    c.out += diag_error(id, "changes not allowed");
+    return;
+  }
+  if (cfg.adapter.listen_only) {
+    c.out += diag_error(id, "network \"" + cfg.network + "\" is listen-only: nothing is sent on it");
+    return;
+  }
+  if (cfg.adapter.simulate && !chans_[net].sink) {
+    c.out += diag_error(id, "sending frames is not available on this simulated network");
+    return;
+  }
+  if (!mine) {
+    for (const auto& r : replays_)
+      if (r.net == net) {
+        c.out += diag_error(id, "a replay of " + r.peer + " is running on this network (one per network)");
+        return;
+      }
+    if (!hub.can_send() || hub.sweep_busy()) {
+      c.out += diag_error(id, "no bus");
+      return;
+    }
+  } else if (!mine->more) {
+    c.out += diag_error(id, "this replay has all its frames ('more' was false)");
+    return;
+  }
+  std::vector<std::pair<uint64_t, RawFrame>> batch;
+  uint64_t last = mine && !mine->frames.empty() ? mine->frames.back().first : 0;
+  std::string forced_reason;
+  for (const cJSON* o = list->child; o; o = o->next) {
+    uint64_t t = 0;
+    RawFrame f;
+    if (!replay_frame(o, t, f, why)) {
+      c.out += diag_error(id, "frame " + std::to_string(batch.size() + 1) + ": " + why);
+      return;
+    }
+    if (t < last) {
+      c.out += diag_error(id, "frame " + std::to_string(batch.size() + 1) + ": 't_us' goes back in time");
+      return;
+    }
+    last = t;
+    std::string reason = force_reason(net, f);
+    if (!reason.empty()) {
+      if (!force && !(mine && mine->forced)) {
+        c.out += diag_error(id, reason + "; force needed");
+        return;
+      }
+      if (forced_reason.empty()) forced_reason = reason;
+    }
+    batch.emplace_back(t, f);
+  }
+  size_t before = mine ? mine->frames.size() : 0;
+  if (before + batch.size() > kReplayMaxFrames) {
+    c.out += diag_error(id, "a replay holds at most " + std::to_string(kReplayMaxFrames) + " frames");
+    return;
+  }
+  // The limit over any second, across the batch boundary.
+  std::vector<uint64_t> times;
+  if (mine)
+    for (size_t k = before > kReplayMaxRate ? before - kReplayMaxRate : 0; k < before; ++k)
+      times.push_back(mine->frames[k].first);
+  for (const auto& b : batch) times.push_back(b.first);
+  for (size_t hi = kReplayMaxRate; hi < times.size(); ++hi)
+    if (times[hi] - times[hi - kReplayMaxRate] < 1000000) {
+      c.out += diag_error(id, "more than " + std::to_string(kReplayMaxRate) + " frames in one second (at " +
+                                  std::to_string(times[hi] / 1000) + " ms); the limit is " +
+                                  std::to_string(kReplayMaxRate) + " frames per second");
+      return;
+    }
+  if (!mine) {
+    Replay r;
+    r.net = net;
+    r.client = c.serial;
+    r.peer = c.peer;
+    r.forced = force;
+    r.loop = loop;
+    r.started = r.round_start = now;
+    // Times count from the first frame.
+    uint64_t t0 = batch.front().first;
+    for (auto& b : batch) b.first -= t0;
+    replays_.push_back(r);
+    mine = &replays_.back();
+    log_info("%sdiagnostics: replay started by %s%s%s", net_prefix(net).c_str(), c.peer.c_str(),
+             loop ? " (looping)" : "", forced_reason.empty() ? "" : (" (forced: " + forced_reason + ")").c_str());
+  }
+  mine->frames.insert(mine->frames.end(), batch.begin(), batch.end());
+  mine->more = more;
+  c.out += diag_ok(id, replay_json(true, mine->sent, mine->frames.size(), mine->rounds, ""));
+  service_replays(now);
+}
+
+std::chrono::milliseconds DiagServer::service_replays(std::chrono::steady_clock::time_point now) {
+  using std::chrono::microseconds;
+  using std::chrono::milliseconds;
+  milliseconds wait(1000);
+  for (size_t i = replays_.size(); i-- > 0;) {
+    Replay& r = replays_[i];
+    if (now - r.started >= kJobTimeLimit) {
+      end_replay(i, "time limit", now);
+      continue;
+    }
+    if (!chans_[r.net].hub->attached() || chans_[r.net].hub->sweep_busy()) {
+      end_replay(i, "no bus", now);
+      continue;
+    }
+    for (;;) {
+      if (r.pos == r.frames.size()) {
+        if (r.more) break;  // waits for the next batch
+        if (!r.loop || r.frames.empty()) {
+          end_replay(i, "done", now);
+          break;
+        }
+        // The next round keeps the recorded gap of the last two frames.
+        uint64_t n = r.frames.size();
+        uint64_t gap = n > 1 ? r.frames[n - 1].first - r.frames[n - 2].first : 1000;
+        r.round_start += microseconds(r.frames.back().first + std::max<uint64_t>(gap, 1000));
+        r.pos = 0;
+        ++r.rounds;
+      }
+      auto due = r.round_start + microseconds(r.frames[r.pos].first);
+      if (due > now) {
+        auto ms = std::chrono::duration_cast<milliseconds>(due - now + microseconds(999));
+        if (ms < wait) wait = ms;
+        break;
+      }
+      // Far behind (the thread was busy): no burst to catch up.
+      if (now - due > milliseconds(100) && r.blocked_since == std::chrono::steady_clock::time_point{})
+        r.round_start += std::chrono::duration_cast<std::chrono::steady_clock::duration>(now - due);
+      int rc = send_now(r.net, r.frames[r.pos].second);
+      if (rc == -ENOBUFS) {
+        if (r.blocked_since == std::chrono::steady_clock::time_point{}) r.blocked_since = now;
+        if (now - r.blocked_since >= std::chrono::seconds(1)) {
+          end_replay(i, "transmit queue full", now);
+        } else if (milliseconds(1) < wait) {
+          wait = milliseconds(1);
+        }
+        break;
+      }
+      if (rc < 0) {
+        end_replay(i, "cannot send: " + errno_text(rc), now);
+        break;
+      }
+      r.blocked_since = {};
+      ++r.sent;
+      ++r.pos;
+    }
+  }
+  for (size_t i = ended_replays_.size(); i-- > 0;)
+    if (now - ended_replays_[i].ended >= kEndedKeep) ended_replays_.erase(ended_replays_.begin() + static_cast<long>(i));
+  return wait;
+}
+
+void DiagServer::end_replay(size_t i, const std::string& reason, std::chrono::steady_clock::time_point now) {
+  Replay r = std::move(replays_[i]);
+  replays_.erase(replays_.begin() + static_cast<long>(i));
+  log_info("%sdiagnostics: replay of %s ended: %s, %llu frame%s sent", net_prefix(r.net).c_str(), r.peer.c_str(),
+           reason.c_str(), (unsigned long long)r.sent, r.sent == 1 ? "" : "s");
+  if (reason == "client disconnected") return;
+  r.reason = reason;
+  r.ended = now;
+  size_t queued = r.frames.size();
+  std::vector<std::pair<uint64_t, RawFrame>>().swap(r.frames);
+  r.pos = queued;  // the frame count, for replay_status
+  ended_replays_.push_back(std::move(r));
 }
 
 void DiagServer::handle_detect(Client& c, size_t net, const std::string& id, const cJSON* req) {

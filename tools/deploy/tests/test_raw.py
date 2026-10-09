@@ -200,3 +200,75 @@ class ReplayTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReplayCli(unittest.TestCase):
+    """canworks-diag replay --adapter on a python-can virtual bus."""
+
+    def test_adapter_replay(self):
+        try:
+            import can
+        except ImportError:
+            self.skipTest("python-can not installed")
+        import os
+        from canworks.bustrace import formats
+        from canworks.bustrace.model import Frame, Trace
+        from .helpers import tmpdir
+        from .test_localbus import channel, cli
+        d = tmpdir(self)
+        t = Trace()
+        t.extend([Frame(0, 0x321, b"\x11"), Frame(5000, 0x322, b""), Frame(10000, 0x205, b"\x01")])
+        path = os.path.join(d, "bus.asc")
+        with open(path, "w") as f:
+            formats.write_asc(t, f)
+        ch = channel()
+        rx = can.Bus(interface="virtual", channel=ch)
+        self.addCleanup(rx.shutdown)
+        base = ("--adapter", "virtual:" + ch, "--bitrate", "250")
+        code, _, err = cli(*base, "replay", path)
+        self.assertEqual(code, 1)
+        self.assertIn("changes not allowed", err)
+        code, out, err = cli(*base, "--allow-changes", "replay", path)
+        self.assertEqual(code, 0, err)
+        self.assertIn("replaying 3 frames", out)
+        self.assertIn("replay ended: done, 3 frames sent", out)
+        got = [rx.recv(1) for _ in range(3)]
+        self.assertEqual([(m.arbitration_id, bytes(m.data)) for m in got],
+                         [(0x321, b"\x11"), (0x322, b""), (0x205, b"\x01")])
+        code, _, err = cli(*base, "--allow-changes", "replay", path, "--rate", "5000")
+        self.assertEqual(code, 2)
+        self.assertIn("at most 1000", err)
+
+
+class StatusText(unittest.TestCase):
+    """canworks-diag status of a plain CAN network, from an answer shaped as
+    the plugin's (DiagHub::offline_answer + RawRuntime::status)."""
+
+    ANSWER = {
+        "version": "0.45.0", "uptime_s": 12, "config_sha256": "ab" * 32, "network": "cab", "protocols": ["canopen", "j1939", "none"],
+        "session": False, "protocol": "none", "simulated_network": True, "simulation_forced": False,
+        "listen_only": False, "bus": {"interface": "simulated", "bitrate": 250000, "state": 1},
+        "send_jobs": [], "bitrate_sweep": {"running": False},
+        "raw": {"running": True, "listen_only": False, "confirm": "echo", "frames_sent": 40, "frames_received": 81,
+                "bus_load": 0.031, "program": {"receivers": 1, "cyclic_jobs": 0, "frames_sent": 2, "dropped": 0},
+                "rx": [{"message": "joystick (0x180)", "count": 80, "short_frames": 0, "seen": True,
+                        "timed_out": False, "age_ms": 9, "last_id": 384, "last_dlc": 2, "last_data": "10 00"},
+                       {"message": "lamp_ack (0x181)", "count": 0, "short_frames": 0, "seen": False,
+                        "timed_out": True}],
+                "tx": [{"message": "lamp (0x200)", "count": 40}],
+                "simulated_devices": ["joystick"]}}
+
+    def test_plain_status(self):
+        import io
+        from canworks import diag
+        out = io.StringIO()
+        diag._print_status(self.ANSWER, out)
+        text = out.getvalue()
+        self.assertIn("plain CAN network on simulated, 250 kbit/s (simulated", text)
+        self.assertIn("raw CAN: running, 40 frames sent, 81 received, bus load 3 %", text)
+        self.assertIn("program blocks: 1 receiver, 0 cyclic jobs, 2 frames sent, 0 dropped", text)
+        self.assertIn("simulated plain CAN devices: joystick", text)
+        self.assertRegex(text, r"joystick \(0x180\)\s+80\s+9 ms ago\s+0x180 \[2\] 10 00")
+        self.assertRegex(text, r"lamp_ack \(0x181\)\s+0\s+never received")
+        self.assertRegex(text, r"lamp \(0x200\)\s+40\s+-")
+        self.assertNotIn("master node", text)
