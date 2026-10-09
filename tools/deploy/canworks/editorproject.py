@@ -10,7 +10,7 @@ This module then changes only what `create` cannot set:
                                  and for each CiA 402 axis node the axis, its
                                  drive bridge and the bridge call
     canworks/                     the config and its files (project.write())
-    project.json                 with sdo_blocks or a cyclic CiA 402 axis: the canworks library
+    project.json                 with blocks or a cyclic CiA 402 axis: the canworks library
                                  enabled (sdolibrary.enable_in_project())
 
 The project is created in place (the editor records its path), so a failure
@@ -137,7 +137,7 @@ def with_axes(cfg, decls, interval=DEFAULT_INTERVAL):
 
 def uses_library(cfg):
     """Whether the program needs the canworks library without
-    --sdo-blocks: a cyclic CiA 402 axis (its CO402_Cyclic* blocks)."""
+    --blocks: a cyclic CiA 402 axis (its CO402_Cyclic* blocks)."""
     return any(axis.is_cyclic(n) for n in contract.all_nodes(cfg))
 
 
@@ -154,7 +154,7 @@ def program(cfg, config_path, interval=DEFAULT_INTERVAL):
 
 
 def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_address=None, progress=None,
-           sdo_blocks=False, sim_path=None):
+           blocks=False, sim_path=None):
     """Creates the project. Returns (project folder, located declarations). The config
     (and the simulation file sim_path, when given) must already have passed
     the deploy tool's checks."""
@@ -194,7 +194,7 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
     try:
         _patch(project_dir, decls, body, runtime_address)
         project_mod.write(cfg, config_path, project_dir, sim_path=sim_path)
-        if sdo_blocks or uses_library(cfg):
+        if blocks or uses_library(cfg):
             sdolibrary.enable_in_project(project_dir)
     except (OSError, ValueError, project_mod.ProjectError, NewProjectError, sdolibrary.LibraryError) as e:
         shutil.rmtree(project_dir, ignore_errors=True)

@@ -21,7 +21,7 @@ import sys
 
 TYPES = {
     "BOOL": "IEC_BOOL", "USINT": "IEC_USINT", "UINT": "IEC_UINT", "UDINT": "IEC_UDINT", "TIME": "IEC_TIME",
-    "LWORD": "IEC_LWORD", "LREAL": "IEC_LREAL", "STRING": "IEC_STRING", "BYTE": "IEC_BYTE",
+    "LWORD": "IEC_LWORD", "LREAL": "IEC_LREAL", "STRING": "IEC_STRING", "BYTE": "IEC_BYTE", "ULINT": "IEC_ULINT",
 }
 ARRAY = re.compile(r"ARRAY\s*\[\s*(\d+)\s*\.\.\s*(\d+)\s*\]\s+OF\s+(\w+)", re.I)
 

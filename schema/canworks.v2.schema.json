@@ -49,8 +49,8 @@
           "pattern": "^[A-Za-z][A-Za-z0-9_]{0,15}$"
         },
         "protocol": {
-          "description": "\"canopen\" (default) or \"j1939\" (docs/j1939.md). A J1939 network has 'adapter' and 'j1939', and none of 'role', 'master', 'nodes' and 'slave'.",
-          "enum": [ "canopen", "j1939" ]
+          "description": "\"canopen\" (default), \"j1939\" (docs/j1939.md) or \"none\" (docs/raw-can.md). A J1939 network has 'adapter' and 'j1939', and none of 'role', 'master', 'nodes' and 'slave'. A plain CAN network (\"none\") has 'adapter' and optionally 'raw', and nothing else.",
+          "enum": [ "canopen", "j1939", "none" ]
         },
         "role": {
           "description": "\"master\" (default): OpenPLC is the network's NMT master, with 'master' and 'nodes'. \"slave\": OpenPLC is one CANopen device under another master, with 'slave' instead (docs/slave.md).",
@@ -69,11 +69,27 @@
           "items": { "$ref": "#/$defs/field_node" }
         },
         "slave": { "$ref": "#/$defs/slave" },
-        "j1939": { "$ref": "#/$defs/j1939" }
+        "j1939": { "$ref": "#/$defs/j1939" },
+        "raw": { "$ref": "#/$defs/raw" }
       },
       "allOf": [
         { "not": { "anyOf": [ { "required": [ "interface" ] }, { "required": [ "bitrate" ] } ] } },
         {
+          "if": { "properties": { "protocol": { "const": "none" } }, "required": [ "protocol" ] },
+          "then": {
+            "description": "A plain CAN network has an adapter and its raw messages, and none of the CANopen or J1939 keys.",
+            "required": [ "adapter" ],
+            "not": { "anyOf": [ { "required": [ "role" ] }, { "required": [ "master" ] }, { "required": [ "nodes" ] }, { "required": [ "slave" ] }, { "required": [ "j1939" ] } ] }
+          },
+          "else": {
+            "description": "Only a plain CAN network is listen-only.",
+            "properties": { "adapter": { "not": { "properties": { "listen_only": { "const": true } }, "required": [ "listen_only" ] } } }
+          }
+        },
+        {
+          "if": { "properties": { "protocol": { "const": "none" } }, "required": [ "protocol" ] },
+          "then": {},
+          "else": {
           "if": { "properties": { "protocol": { "const": "j1939" } }, "required": [ "protocol" ] },
           "then": {
             "description": "A J1939 network has an adapter and a j1939 object, none of the CANopen keys, and runs on a real or vcan interface, not on the simulated bus.",
@@ -95,8 +111,78 @@
               "not": { "required": [ "slave" ] }
             }
           }
+          }
         }
       ]
+    },
+    "raw": {
+      "description": "Raw CAN messages of the network (docs/raw-can.md): frames received into %I and sent from %Q, on any network. The plugin and the deploy tool check the fields themselves, with their own messages; unknown fields are ignored with a warning.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "dbc": { "description": "The DBC file the messages came from, relative to the config file (for the tools; the plugin does not read it).", "type": "string" },
+        "program_override_protocol": { "description": "The program's CAN_SEND and CAN_SEND_CYCLIC may use identifiers the network's protocol uses.", "type": "boolean" },
+        "rx": { "description": "Messages received into the PLC.", "type": "array", "items": { "$ref": "#/$defs/raw_rx" } },
+        "tx": { "description": "Messages the PLC sends.", "type": "array", "items": { "$ref": "#/$defs/raw_tx" } }
+      }
+    },
+    "raw_id": { "description": "The CAN identifier: 0..0x7FF, or 0..0x1FFFFFFF with extended.", "type": "integer", "minimum": 0, "maximum": 536870911 },
+    "raw_signal": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "start_bit": { "description": "As in a DBC file; for big byte order the most significant bit.", "type": "integer", "minimum": 0, "maximum": 63 },
+        "length": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "byte_order": { "enum": [ "little", "big" ] },
+        "signed": { "type": "boolean" },
+        "iec_location": { "description": "The raw value's PLC location: %IX/%QX for 1 bit, else the smallest of byte, word, double word or long word that holds it.", "type": "string" },
+        "scale": { "description": "For the tools only.", "type": "number" },
+        "offset": { "description": "For the tools only.", "type": "number" },
+        "unit": { "description": "For the tools only.", "type": "string" },
+        "minimum": { "description": "For the tools only.", "type": "number" },
+        "maximum": { "description": "For the tools only.", "type": "number" },
+        "comment": { "description": "For the tools only.", "type": "string" }
+      },
+      "required": [ "start_bit", "length", "iec_location" ]
+    },
+    "raw_rx": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "id": { "$ref": "#/$defs/raw_id" },
+        "extended": { "type": "boolean" },
+        "mask": { "description": "Identifier bits that must match (default: all).", "type": "integer", "minimum": 0, "maximum": 536870911 },
+        "rtr": { "type": "boolean" },
+        "dlc": { "description": "Only frames with this DLC (default: any that holds the signals).", "type": "integer", "minimum": 0, "maximum": 8 },
+        "timeout_ms": { "description": "status_location goes FALSE after this long without the message (0: never).", "type": "integer", "minimum": 0, "maximum": 600000 },
+        "status_location": { "description": "%IX: TRUE while the message arrives.", "type": "string" },
+        "counter_location": { "description": "%IW: counts received frames.", "type": "string" },
+        "id_location": { "description": "%ID: the last frame's identifier (with a mask).", "type": "string" },
+        "dlc_location": { "description": "%IB: the last frame's DLC.", "type": "string" },
+        "data_location": { "description": "%IL: the last frame's 8 data bytes, byte 0 lowest.", "type": "string" },
+        "signals": { "type": "array", "items": { "$ref": "#/$defs/raw_signal" } }
+      },
+      "required": [ "id" ]
+    },
+    "raw_tx": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "id": { "$ref": "#/$defs/raw_id" },
+        "extended": { "type": "boolean" },
+        "rtr": { "type": "boolean" },
+        "dlc": { "description": "Default: the smallest that holds the signals.", "type": "integer", "minimum": 0, "maximum": 8 },
+        "fill": { "description": "The value of bytes no signal covers.", "type": "integer", "minimum": 0, "maximum": 255 },
+        "period_ms": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "on_change": { "type": "boolean" },
+        "min_gap_ms": { "type": "integer", "minimum": 0, "maximum": 60000 },
+        "override_protocol": { "description": "Send on an identifier the network's protocol uses.", "type": "boolean" },
+        "trigger_location": { "description": "%QX: a rising edge sends the message.", "type": "string" },
+        "enable_location": { "description": "%QX: FALSE stops sending.", "type": "string" },
+        "data_location": { "description": "%QL: the 8 data bytes, byte 0 lowest.", "type": "string" },
+        "signals": { "type": "array", "items": { "$ref": "#/$defs/raw_signal" } }
+      },
+      "required": [ "id" ]
     },
     "j1939": {
       "description": "A J1939 network (docs/j1939.md): the PLC's ECU identity, the PGNs it receives into %I, the PGNs it sends from %Q and the requests it sends. Signals reach the PLC as raw integers; scale, offset and unit are for the tools and the generated declarations.",

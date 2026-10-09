@@ -38,6 +38,7 @@ extern "C" {
 #include "log.h"
 #include "runtime_version.h"
 #include "network_runtime.h"
+#include "raw/raw_runtime.h"
 #if CANWORKS_WITH_CANOPEN
 #include "canopen_runtime.h"
 #endif
@@ -57,6 +58,9 @@ struct PluginState {
 #if CANWORKS_WITH_CANOPEN
   std::shared_ptr<CanopenShared> canopen;  // the gateway link; outlives the networks
 #endif
+  // Each network's raw CAN path (raw messages, program frames); destroyed
+  // after nets, whose plain CAN networks point into it.
+  std::vector<std::unique_ptr<canworks_raw::RawRuntime>> raws;
   std::vector<std::unique_ptr<NetworkRuntime>> nets;  // one per network, in config order
   std::unique_ptr<DiagServer> server;
 };
@@ -93,6 +97,7 @@ void close_plc_requests() {
 void stop_all() {
   if (!g_state) return;
   if (g_state->server) g_state->server->stop();
+  for (auto& r : g_state->raws) r->stop();
   for (auto& n : g_state->nets) n->stop();
 }
 
@@ -103,6 +108,7 @@ void teardown() {
   if (g_state) {
     g_state->server.reset();
     g_state->nets.clear();  // before the gateway link they use
+    g_state->raws.clear();
   }
   g_state.reset();
 }
@@ -165,6 +171,10 @@ void prepare() {
     return;
   }
   for (auto& cfg : st->set.networks) {
+    if (cfg.is_plain()) {
+      canworks_raw::log_plain_loaded(st->set, cfg);
+      continue;
+    }
 #if CANWORKS_WITH_J1939
     if (cfg.is_j1939()) {
       j1939_log_loaded(st->set, cfg);
@@ -176,7 +186,21 @@ void prepare() {
 #endif
   }
 
+  // The raw paths first: a simulated CANopen network's bus thread serves
+  // the bridge its raw path registers.
+  for (auto& cfg : st->set.networks) {
+    ScopedLogPrefix prefix(prefix_of(cfg));
+    std::unique_ptr<canworks_raw::RawRuntime> raw(new canworks_raw::RawRuntime(cfg));
+    if (!raw->make(st->set, errors)) {
+      for (const auto& e : errors) log_error("%s", e.c_str());
+      log_error("raw CAN of this network rejected; canworks inactive, CAN interface not opened");
+      return;
+    }
+    st->raws.push_back(std::move(raw));
+  }
   st->nets.resize(st->set.networks.size());
+  for (size_t i = 0; i < st->set.networks.size(); ++i)
+    if (st->set.networks[i].is_plain()) st->nets[i] = canworks_raw::make_plain_runtime(st->raws[i].get(), CANWORKS_PLUGIN_VERSION);
 #if CANWORKS_WITH_CANOPEN
   if (!canopen_create(st->set, g_rt.base_tick_ns, CANWORKS_PLUGIN_VERSION, st->canopen, st->nets)) return;
 #endif
@@ -190,7 +214,12 @@ void prepare() {
     }
   if (st->set.networks[0].master.has_diagnostics) {
     std::vector<DiagHub*> hubs;
-    for (auto& n : st->nets) hubs.push_back(n->hub());
+    for (size_t i = 0; i < st->nets.size(); ++i) {
+      DiagHub* h = st->nets[i]->hub();
+      hubs.push_back(h);
+      canworks_raw::RawRuntime* raw = st->raws[i].get();
+      if (h && !st->set.networks[i].is_plain()) h->set_raw_status([raw] { return raw->status(); });
+    }
     st->server.reset(new DiagServer(hubs));
     for (size_t i = 0; i < st->nets.size(); ++i) {
       if (auto src = st->nets[i]->trace_source()) st->server->set_trace_source(std::move(src), i);
@@ -225,6 +254,7 @@ PLUGIN_API int start_loop(void) {
   prepare();
   if (!g_state) return -1;
   for (auto& n : g_state->nets) n->start();
+  for (auto& r : g_state->raws) r->start();
   if (g_state->server) g_state->server->start();
   g_exchange.store(true, std::memory_order_release);
   open_plc_requests(g_state->set);
@@ -246,11 +276,13 @@ PLUGIN_API void cleanup(void) {
 PLUGIN_API void cycle_start(void) {
   if (!g_exchange.load(std::memory_order_acquire)) return;
   for (auto& n : g_state->nets) n->cycle_start(g_rt);
+  for (auto& r : g_state->raws) r->cycle_start(g_rt);
 }
 
 PLUGIN_API void cycle_end(void) {
   if (!g_exchange.load(std::memory_order_acquire)) return;
   for (auto& n : g_state->nets) n->cycle_end(g_rt);
+  for (auto& r : g_state->raws) r->cycle_end(g_rt);
 }
 
 // The SDO function blocks of the PLC program's CANopen library find this with
@@ -264,5 +296,9 @@ PLUGIN_API const void* canopen_plc_api(uint32_t version) {
   return nullptr;
 #endif
 }
+
+// The PLC program's CAN_* frame blocks find this the same way
+// (spec can-plc-frames, can_plc_api.h).
+PLUGIN_API const void* canworks_can_api(uint32_t version) { return canworks_can_api_table(version); }
 
 }  // extern "C"

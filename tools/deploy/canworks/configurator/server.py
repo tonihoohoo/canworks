@@ -40,7 +40,7 @@ from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, parse_location
 from ..userdirs import config_dir
 from ..j1939 import dbc as j1939_dbc
-from . import cia402map, declare, layout, online, params, scan, simulation, tracing
+from . import cia402map, declare, layout, online, params, rawpage, scan, simulation, tracing
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 TOKEN_HEADER = "X-CANopen-Token"
@@ -782,6 +782,29 @@ class Session:
                 raise ApiError(400, "picks must be {index, direction \"rx\" or \"tx\"} of the DBC's messages")
         return {"entries": out}
 
+    def raw_page(self, op, body):
+        """The CAN messages page's requests (rawpage.py)."""
+        cfg = body.get("config")
+        if op != "dbc" and not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        try:
+            if op == "suggest":
+                return rawpage.suggest(cfg, body.get("network", 0), body.get("kind"), body.get("index"), self.uses,
+                                       body.get("start"))
+            if op == "st":
+                return rawpage.st_call(cfg, body.get("network", 0), body.get("kind"), body.get("index"))
+            text = body.get("text")
+            if not isinstance(text, str):
+                raise ApiError(400, "text must be the DBC file's text")
+            if op == "dbc":
+                return rawpage.dbc_messages(text)
+            picks = body.get("picks")
+            if not isinstance(picks, dict):
+                raise ApiError(400, "picks must map message names to receive or send")
+            return rawpage.dbc_import(cfg, body.get("network", 0), text, picks, self.uses, body.get("start"))
+        except rawpage.RawPageError as e:
+            raise ApiError(422 if op in ("dbc", "dbc_import") else 400, str(e))
+
     # -- checks -------------------------------------------------------------
     def check(self, cfg, allow_overlap=False, task_interval=None, notes=None):
         if not isinstance(cfg, dict):
@@ -1226,7 +1249,7 @@ class Session:
 
 
     # -- a new editor project around a standalone config --------------------
-    def new_project(self, parent, name, interval=None, sdo_blocks=False):
+    def new_project(self, parent, name, interval=None, blocks=False):
         if self.mode != "standalone":
             raise ApiError(400, "only a standalone config can become a new editor project")
         if self.pending or self.pending_dbc or self.changed_on_disk() or not os.path.isfile(self.config_path):
@@ -1255,12 +1278,12 @@ class Session:
         try:
             path, decls = editorproject.create(cfg, self.config_path, target,
                                                interval=interval or editorproject.DEFAULT_INTERVAL,
-                                               runtime_address=address, sdo_blocks=sdo_blocks)
+                                               runtime_address=address, blocks=blocks)
         except editorproject.NewProjectError as e:
             raise ApiError(422, str(e))
         self.open(path, "project")
         out = {"project": path, "declared": len(decls)}
-        if sdo_blocks:
+        if blocks:
             out["library_ok"], out["library"] = sdolibrary.ensure_installed()
         return out
 
@@ -1483,6 +1506,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._need_open(s)
                     out = s.dbc_entries(body.get("config"), body.get("network", 0), body.get("name"),
                                         body.get("picks"))
+                elif route in (("POST", "/api/raw/suggest"), ("POST", "/api/raw/st"), ("POST", "/api/raw/dbc"),
+                               ("POST", "/api/raw/dbc_import")):
+                    self._need_open(s)
+                    out = s.raw_page(route[1].rsplit("/", 1)[1], body)
                 elif route == ("POST", "/api/check"):
                     self._need_open(s)
                     out = s.check(body.get("config"), bool(body.get("allow_overlap")), body.get("task_interval"),
@@ -1527,7 +1554,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/new_project"):
                     self._need_open(s)
                     out = s.new_project(body.get("parent"), body.get("name"), body.get("interval"),
-                                        bool(body.get("sdo_blocks")))
+                                        bool(body.get("blocks")))
                     out["state"] = s.state()
                 elif route == ("POST", "/api/quit"):
                     quitting = True

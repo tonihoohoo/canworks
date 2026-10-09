@@ -562,6 +562,46 @@ def _pdo(F, f, dec, p):
     return meaning + ".", notes
 
 
+def _raw(F, f, dec):
+    """The signals of the raw messages a frame matches, as fields."""
+    from ..raw import signals as sig
+    shown, names = [], []
+    for kind, m in dec.raw.matches(f.can_id, f.ext, f.rtr):
+        names.append("%s (%s)" % (m.get("name") or "0x%X" % m["id"], {"rx": "the PLC receives it",
+                                                                      "tx": "the PLC sends it"}.get(kind, "DBC")))
+        for j, s in enumerate(m.get("signals") or []):
+            big = s.get("byte_order") == "big"
+            if not sig.fits(s["start_bit"], s["length"], big, len(F.data)):
+                continue
+            v = sig.unpack(F.data, s["start_bit"], s["length"], big, bool(s.get("signed")))
+            scaled = v * s.get("scale", 1) + s.get("offset", 0) if ("scale" in s or "offset" in s) else None
+            unit = s.get("unit") or ""
+            value = "%d" % v + (" (%g%s)" % (scaled, " " + unit if unit else "") if scaled is not None else "")
+            name = s.get("name") or "s%d" % j
+            loc = s.get("location")
+            text = "Signal %s, %d bit%s from bit %d, %s%s.%s" % (
+                name, s["length"], "" if s["length"] == 1 else "s", s["start_bit"],
+                "big-endian (Motorola)" if big else "little-endian (Intel)", ", signed" if s.get("signed") else "",
+                " In the PLC program: %s." % loc if loc else "")
+            if big:
+                # One field per byte the signal touches (its bits are contiguous inside each byte).
+                by_byte = {}
+                for p in sig.bit_positions(s["start_bit"], s["length"], True):
+                    by_byte.setdefault(p // 8, []).append(p)
+                for k in sorted(by_byte):
+                    lo = min(by_byte[k])
+                    F.add(name, lo, len(by_byte[k]), value, text, signal=name, location=loc)
+            else:
+                F.add(name, s["start_bit"], s["length"], value, text, signal=name, location=loc,
+                      how=le_how(F.data, s["start_bit"], s["length"]) if s["length"] > 8 or s["start_bit"] % 8 or
+                      s["length"] % 8 else None)
+            shown.append("%s = %s" % (name, value))
+    meaning = "Raw message %s" % " and ".join(names)
+    if shown:
+        meaning += ": " + ", ".join(shown[:4]) + (", ..." if len(shown) > 4 else "")
+    return meaning + "."
+
+
 def _lss(F, request):
     cs = F.byte(0)
     name = T.LSS_COMMANDS.get(cs, "unknown command")
@@ -656,6 +696,25 @@ def explain(f, decoder=None, bitrate=None, context=None):
         meaning, classes = _error_frame(F, f)
         out.update(kind="error", title="Error frame", meaning=meaning, about=T.ABOUT["error"],
                    error_classes=classes, fields=F.done(), wire=None)
+        return out
+    raw = dec.decode_raw(f) if hasattr(dec, "decode_raw") else None
+    if raw is not None or getattr(dec, "protocol", "canopen") == "none":
+        # A configured raw message, or any frame of a plain CAN network.
+        ident = identifier_layer(f, dec)
+        for b in ident["bits"]:
+            b["part"] = "id"
+        ident.update(function_code=None, node=None, math=None, node_label=None, message=raw.name if raw else None,
+                     what="raw CAN message of the configuration" if raw else "not configured on this network",
+                     configured=raw is not None)
+        meaning = _raw(F, f, dec) if raw else "Frame %s with %s; not configured on this plain CAN network." % (
+            ("0x%08X" if f.ext else "0x%03X") % f.can_id, _bytes(len(f.data)))
+        if not raw and f.data and not f.rtr:
+            F.add("Data", 0, len(f.data) * 8, hexbytes(f.data), "Unknown data.")
+        if f.rtr:
+            notes.append("A remote request carries no data: the RTR bit asks the owner of the identifier to send it.")
+        out.update(identifier=ident, kind="raw" if raw else "other", title=raw.name if raw else "Unknown frame",
+                   meaning=meaning, about=T.ABOUT["raw" if raw else "other"], fields=F.done(),
+                   wire=wire(f.can_id, f.ext, f.rtr, b"" if f.rtr else f.data, f.dlc, bitrate))
         return out
     if f.ext and getattr(dec, "protocol", "canopen") == "j1939":
         # A J1939 network: the identifier splits into priority, PGN and

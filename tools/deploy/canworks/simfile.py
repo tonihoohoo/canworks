@@ -19,6 +19,7 @@ from jsonschema.exceptions import best_match
 from . import contract
 from . import eds as eds_mod
 from . import simmachine as machine_mod
+from .raw import signals as raw_signals
 
 SUPPORTED_VERSION = 2
 FILE_NAME = "simulation.json"
@@ -691,10 +692,23 @@ def referenced_files(data, path):
 
 def _all_sources(data):
     """(json path parts, source) of every value source: devices' and
-    scenario steps', in every part of the file."""
+    scenario steps', in every part of the file, and the plain CAN devices'
+    signals."""
     for at, body in bodies(data):
         for parts, src in _body_sources(body):
             yield at + parts, src
+    for parts, src in _raw_sources(data):
+        yield parts, src
+
+
+def _raw_sources(data):
+    for i, d in enumerate(data.get("raw_devices") or [] if isinstance(data, dict) else []):
+        if not isinstance(d, dict):
+            continue
+        for j, snd in enumerate(d.get("send") or []):
+            for k, sg in enumerate(snd.get("signals") or [] if isinstance(snd, dict) else []):
+                if isinstance(sg, dict) and isinstance(sg.get("source"), dict):
+                    yield ["raw_devices", i, "send", j, "signals", k, "source"], sg["source"]
 
 
 def _body_sources(data):
@@ -835,6 +849,7 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
         err(where, msg)
     if r.errors:
         return r
+    raw_names = _check_raw_devices(data, path, cfg, err)
     if version >= 2:
         # One section per network (as the plugin): each checked against its
         # own network's nodes, messages naming the section.
@@ -858,8 +873,10 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
                         % (name, ", ".join(n or "unnamed" for n in names)))
                     continue
                 net = nets[names.index(name)]
-                net_cfg = {"adapter": net["adapter"], "master": net["master"], "nodes": net["nodes"]}
-            _check_body(body, path, net_cfg, config_path, eds_paths, s_err, s_warn, network=name)
+                net_cfg = {"adapter": net["adapter"], "master": net["master"], "nodes": net["nodes"],
+                           "protocol": net["protocol"]}
+            _check_body(body, path, net_cfg, config_path, eds_paths, s_err, s_warn, network=name,
+                        raw=raw_names.get(name, raw_names.get(None, set())))
         return r
     if several_networks(cfg):
         # As the plugin: a version 1 file serves a configuration with one network.
@@ -868,15 +885,69 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
                  "several networks run with their default behaviour")
         return r
     if isinstance(cfg, dict) and contract.version_of(cfg) != 1:
+        nets = contract.networks(cfg)
         try:
             cfg = contract.network_config(cfg)
         except ValueError:
             pass
-    _check_body(data, path, cfg, config_path, eds_paths, err, warn)
+        if nets and isinstance(cfg, dict):
+            cfg = dict(cfg, protocol=nets[0]["protocol"])
+    _check_body(data, path, cfg, config_path, eds_paths, err, warn, raw=set().union(*raw_names.values()))
     return r
 
 
-def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None):
+def _check_raw_devices(data, path, cfg, err):
+    """The checks of `raw_devices` the schema cannot express; returns
+    {network name (None: no network given): set of device names}."""
+    nets = contract.networks(cfg) if isinstance(cfg, dict) else []
+    names = [section_name(n) for n in nets]
+    out = {}
+    seen = set()
+    for i, d in enumerate(data.get("raw_devices") or []):
+        w = "raw_devices[%d]" % i
+        if d["name"] in seen:
+            err(w + ".name", "another plain CAN device is also called '%s'" % d["name"])
+        seen.add(d["name"])
+        net = d.get("network")
+        if net is None and len(nets) > 1:
+            err(w, "'network' is required when the configuration has several networks (%s)" % ", ".join(names),
+                [w + ".network"])
+        elif net is not None and nets and net not in names:
+            err(w + ".network", "there is no network '%s' in the configuration (networks: %s)"
+                % (net, ", ".join(n or "unnamed" for n in names)))
+        out.setdefault(net, set()).add(d["name"])
+        for j, snd in enumerate(d.get("send") or []):
+            length = snd.get("dlc", len(snd.get("data") or []))
+            if "dlc" in snd and snd["dlc"] < len(snd.get("data") or []):
+                err("%s.send[%d].dlc" % (w, j), "'dlc' is shorter than 'data'")
+            if "dlc" not in snd and not snd.get("data") and not snd.get("rtr"):
+                err("%s.send[%d]" % (w, j), "needs 'dlc' or 'data'", ["%s.send[%d].dlc" % (w, j)])
+            if snd.get("extended") is not True and snd["id"] > 0x7FF:
+                err("%s.send[%d].id" % (w, j), "0x%X is above 0x7FF; set 'extended' for a 29-bit identifier" % snd["id"])
+            for k, sg in enumerate(snd.get("signals") or []):
+                at = "%s.send[%d].signals[%d]" % (w, j, k)
+                if not raw_signals.fits(sg["start_bit"], sg["length"], sg.get("byte_order") == "big", length):
+                    err(at, "does not fit the frame's %d bytes" % length, [at + ".start_bit"])
+                src = sg["source"]
+                if isinstance(src, dict) and isinstance(src.get("expr"), str):
+                    try:
+                        parse(src["expr"], lambda device, index, sub: "a plain CAN device has no objects to refer to")
+                    except ExprError as e:
+                        err(at + ".source.expr", "expression %r, position %d: %s" % (src["expr"], e.position, e.message))
+                if isinstance(src, dict) and isinstance(src.get("csv"), dict):
+                    file = _resolve_path(src["csv"]["file"], os.path.dirname(os.path.abspath(path)))
+                    if not os.path.isfile(file):
+                        err(at + ".source.csv.file", "CSV file %s not found (file: \"%s\")" % (file, src["csv"]["file"]))
+        for j, rp in enumerate(d.get("replies") or []):
+            on = rp["on"]
+            if "mask" in on and len(on["mask"]) != len(on.get("data") or []):
+                err("%s.replies[%d].on.mask" % (w, j), "'mask' must have as many bytes as 'data'")
+    if len(nets) == 1 and None in out:
+        out.setdefault(names[0], set()).update(out[None])
+    return out
+
+
+def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None, raw=frozenset()):
     """The checks of one part (a version 1 file or a version 2 section)
     against one network's config (or None)."""
     base = os.path.dirname(os.path.abspath(path))
@@ -975,8 +1046,18 @@ def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None
     machine = _check_machine(data, base, cfg, devices, network, err, warn)
 
     # Scenarios.
+    plain = isinstance(cfg, dict) and cfg.get("protocol") == "none"
     for name, sc in (data.get("scenarios") or {}).items():
         for at, step in _steps(sc.get("steps") or [], ["scenarios", name, "steps"]):
+            if "device" in step:
+                if step["device"] not in raw:
+                    err(_where(at) + ".device", "no plain CAN device '%s' on this network (raw_devices: %s)"
+                        % (step["device"], ", ".join(sorted(raw)) or "none"))
+                continue
+            if plain and not ("log" in step or "repeat" in step):
+                err(_where(at), "on a plain CAN network a scenario step is a 'fault' or 'clear' on a 'device', "
+                                "a 'log' or a 'repeat'")
+                continue
             _check_step(step, at, devices, err, warn, base, machine)
 
 

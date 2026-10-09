@@ -49,6 +49,7 @@
 #include "eds_check.h"
 #include "eds_lint.h"
 #include "log.h"
+#include "raw/raw_devices.h"
 #include "sim_config.h"
 #include "sim_engine.h"
 #include "sim_file.h"
@@ -424,6 +425,83 @@ bool prepare_interface(const Options& o, bool& real) {
   return true;
 }
 
+// ---- plain CAN devices (raw_devices) on the session's bus ----
+
+// Runs the simulation file's plain CAN devices on a channel of the loop:
+// every frame from the bus goes to them, a timer sends what falls due.
+// Scenario steps on them come from the engine (raw_device_action).
+class LoopRawDevices {
+ public:
+  LoopRawDevices(canopen_sim::Host& host, std::unique_ptr<canworks_raw::RawSimDevices> devices)
+      : devices_(std::move(devices)), exec_(host.exec()) {
+    chan_ = host.make_channel();
+    timer_ = host.make_timer();
+    wait_.reset(new lely::io::TimerWait(exec_, [this](int, std::error_code ec) {
+      if (ec || stopped_) return;
+      send_due();
+      if (!stopped_) timer_->submit_wait(*wait_);
+    }));
+  }
+  ~LoopRawDevices() { stop(); }
+
+  void start() {
+    devices_->start(now_ms());
+    read_next();
+    timer_->settime(std::chrono::milliseconds(1), std::chrono::milliseconds(1));
+    timer_->submit_wait(*wait_);
+  }
+  void stop() {
+    if (stopped_) return;
+    stopped_ = true;
+    timer_->cancel(*wait_);
+  }
+  canworks_raw::RawSimDevices& devices() { return *devices_; }
+
+ private:
+  static uint64_t now_ms() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::steady_clock::now().time_since_epoch())
+                                     .count());
+  }
+  void read_next() {
+    if (stopped_) return;
+    chan_->submit_read(&msg_, nullptr, nullptr, exec_, [this](int result, std::error_code ec) {
+      if (ec || stopped_) return;
+      if (result == 1) {
+        canworks_can_frame f{};
+        bool ext = (msg_.flags & CAN_FLAG_IDE) != 0;
+        f.id = msg_.id & (ext ? 0x1FFFFFFFu : 0x7FFu);
+        f.flags = static_cast<uint8_t>((ext ? CANWORKS_CAN_EXTENDED : 0) | ((msg_.flags & CAN_FLAG_RTR) ? CANWORKS_CAN_RTR : 0));
+        f.dlc = msg_.len > 8 ? 8 : msg_.len;
+        if (!(msg_.flags & CAN_FLAG_RTR)) std::memcpy(f.data, msg_.data, f.dlc);
+        devices_->on_frame(f, now_ms());
+      }
+      read_next();
+    });
+  }
+  void send_due() {
+    std::vector<canworks_can_frame> out;
+    devices_->due(now_ms(), out);
+    for (const auto& f : out) {
+      can_msg m = CAN_MSG_INIT;
+      m.id = f.id;
+      m.flags = ((f.flags & CANWORKS_CAN_EXTENDED) ? CAN_FLAG_IDE : 0) | ((f.flags & CANWORKS_CAN_RTR) ? CAN_FLAG_RTR : 0);
+      m.len = f.dlc > 8 ? 8 : f.dlc;
+      if (!(f.flags & CANWORKS_CAN_RTR)) std::memcpy(m.data, f.data, m.len);
+      std::error_code ec;
+      chan_->write(m, 0, ec);  // a full queue: lost, as on a real bus
+    }
+  }
+
+  std::unique_ptr<canworks_raw::RawSimDevices> devices_;
+  ev_exec_t* exec_;
+  std::unique_ptr<lely::io::CanChannelBase> chan_;
+  std::unique_ptr<lely::io::TimerBase> timer_;
+  std::unique_ptr<lely::io::TimerWait> wait_;
+  can_msg msg_ = CAN_MSG_INIT;
+  bool stopped_ = false;
+};
+
 // ---- the session: config, devices, loop, engine ----
 
 class Session {
@@ -540,7 +618,14 @@ class Session {
       if (!errors.empty()) return report("");
       say("simulation file " + sim_path);
     }
-    if (specs.empty() && file.extra.empty()) return report("no device to simulate");
+    // Plain CAN devices of the file for this network.
+    std::unique_ptr<canworks_raw::RawSimDevices> raw(new canworks_raw::RawSimDevices);
+    if (!sim_path.empty()) {
+      std::string net = have_cfg ? sim_network_name(cfg) : file.section;
+      // The engine runs the scenarios, also their steps on these devices.
+      if (!raw->load(sim_path, net, false, false, errors)) return report("cannot load " + sim_path);
+    }
+    if (specs.empty() && file.extra.empty() && !raw->size()) return report("no device to simulate");
 
     // The interface, and the free node ID check on a real bus.
     const bool virtual_bus = std::getenv("CANWORKS_SIM_VIRTUAL_BUS") != nullptr &&
@@ -627,8 +712,17 @@ class Session {
       opt.state_dir = o.state_dir;
       opt.version = CANWORKS_PLUGIN_VERSION;
       opt.simulated_network = virtual_bus;
-      size_t count = specs.size() + file.extra.size();
+      size_t count = specs.size() + file.extra.size() + raw->size();
       sim_.reset(new canopen_sim::Simulator(*host_, specs, file, opt));
+      if (raw->size()) {
+        raw_.reset(new LoopRawDevices(*host_, std::move(raw)));
+        LoopRawDevices* r = raw_.get();
+        sim_->raw_device_action = [r](const std::string& device, const std::string& action, const std::string& what,
+                                      int dlc, std::string& err) {
+          return r->devices().request(device, action, what, dlc, err);
+        };
+        raw_->start();
+      }
       sim_->on_scenario_end = [this](const canopen_sim::ScenarioResult& r) {
         if (on_end) on_end(r);
       };
@@ -655,10 +749,12 @@ class Session {
     done_ = true;
     server_.reset();
     if (sim_) sim_->Stop();
+    if (raw_) raw_->stop();
     ctx_->shutdown();
     for (int i = 0; i < 100 && !loop_->stopped(); ++i) loop_->run_for(kSlice);
     loop_->stop();
     sim_.reset();
+    raw_.reset();
     host_.reset();
     vbus_.reset();
     clock_timer_.reset();
@@ -675,6 +771,7 @@ class Session {
   std::unique_ptr<lely::io::VirtualCanController> vbus_;
   std::unique_ptr<canopen_sim::LoopHost> host_;
   std::unique_ptr<canopen_sim::Simulator> sim_;
+  std::unique_ptr<LoopRawDevices> raw_;
   std::unique_ptr<ControlServer> server_;
   bool done_ = false;
 };

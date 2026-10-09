@@ -7,7 +7,10 @@ SDO object names and types come from the nodes' EDS files. Without a config
 (or with one that does not check) the predefined connection set of CiA 301
 is used. A trace records one network: with several networks in the config
 the decoder takes the traced network's nodes (`network`). A J1939 network
-(`"protocol": "j1939"`) gets a j1939.J1939Decoder instead.
+(`"protocol": "j1939"`) gets a j1939.J1939Decoder instead. Raw messages of
+the network's `raw` object (spec can-raw-messages) decode on every network
+where the protocol does not use the identifier; a plain CAN network
+(`"protocol": "none"`) decodes nothing else.
 
     dec = Decoder.from_config(cfg, config_path, names=dbcexport.plc_names(uses), network="drives")
     d = dec.decode(frame)   # Decoded: kind, node, name, text, signals
@@ -24,7 +27,7 @@ from .model import Frame
 
 # J1939 kinds (j1939.py) come last so the CANopen codes stay as they were.
 KINDS = ("nmt", "sync", "time", "emcy", "heartbeat", "sdo", "pdo", "lss", "error", "gap", "other",
-         "pgn", "claim", "request", "ack", "tp")
+         "pgn", "claim", "request", "ack", "tp", "raw")
 # Kinds whose frames a later frame's decoding depends on (segmented SDO
 # transfers, J1939 transport sessions): decoded again before a window.
 CONTEXT_KINDS = ("sdo", "tp")
@@ -132,16 +135,21 @@ def error_frame_text(f):
     return " ".join(classes) or "error frame"
 
 
-def j1939_network(cfg, network=None):
+def network_entry(cfg, network=None):
     """The contract.networks() entry of `network` (or of the config's only
-    network) when its protocol is "j1939", else None."""
+    network), else None."""
     if not isinstance(cfg, dict):
         return None
     nets = contract.networks(cfg)
     found = [n for n in nets if n["name"] == network] if network is not None else nets if len(nets) == 1 else []
-    if found and found[0]["json"].get("protocol") == "j1939":
-        return found[0]
-    return None
+    return found[0] if found else None
+
+
+def j1939_network(cfg, network=None):
+    """The contract.networks() entry of `network` (or of the config's only
+    network) when its protocol is "j1939", else None."""
+    net = network_entry(cfg, network)
+    return net if net is not None and net["json"].get("protocol") == "j1939" else None
 
 
 class Decoder:
@@ -160,7 +168,32 @@ class Decoder:
         self.sync_window_us = None
         self.sync_period_us = None
         self.warnings = []
+        self.raw = None        # raw.decode.RawDecoder of the network's raw messages
+        self.raw_owner = None  # use(id, ext): what the protocol uses an identifier for
         self.reset()
+
+    def attach_raw(self, net):
+        """The raw messages of a contract.networks() entry."""
+        from ..raw import ownership
+        from ..raw.decode import RawDecoder
+        raw = net["json"].get("raw") if isinstance(net["json"].get("raw"), dict) else None
+        if raw and (raw.get("rx") or raw.get("tx")):
+            self.raw = RawDecoder(raw)
+            self.raw_owner = ownership.protocol_use(net)
+
+    def decode_raw(self, f):
+        """A Decoded for a frame of a configured raw message, else None."""
+        if self.raw is None or f.gap or f.err:
+            return None
+        if self.raw_owner is not None and self.raw_owner(f.can_id, f.ext):
+            return None
+        found = self.raw.decode(f.can_id, f.ext, f.data, f.rtr)
+        if not found:
+            return None
+        sigs = [("%s.%s" % (name, sname), scaled if scaled is not None else value)
+                for name, values in found for sname, value, scaled, _ in values]
+        return Decoded("raw", None, " / ".join(name for name, _ in found),
+                       self.raw.text(f.can_id, f.ext, f.data, f.rtr), sigs)
 
     @classmethod
     def from_config(cls, cfg, config_path, eds_paths=None, names=None, network=None):
@@ -171,10 +204,19 @@ class Decoder:
         d = cls()
         if not cfg:
             return d
+        entry = network_entry(cfg, network)
+        if entry is not None and entry["json"].get("protocol") == "none":
+            d = PlainDecoder()
+            d.attach_raw(entry)
+            return d
         net = j1939_network(cfg, network)
         if net is not None:
             from .j1939 import J1939Decoder
-            return J1939Decoder.from_network(net, config_path)
+            d = J1939Decoder.from_network(net, config_path)
+            d.attach_raw(net)
+            return d
+        if entry is not None:
+            d.attach_raw(entry)
         try:
             cfg = contract.network_config(cfg, network)
         except ValueError as e:
@@ -262,11 +304,16 @@ class Decoder:
         return diag.hex_bytes(data) or "(empty)"
 
     def signal_keys(self):
-        """[(key, label, node)] of every decodable PDO signal."""
+        """[(key, label, node)] of every decodable PDO and raw message signal."""
         out = []
         for p in sorted(self.pdos.values(), key=lambda p: p.cob_id):
             for key, name, *_ in p.signals:
                 out.append((key, "%s %s" % (p.name, name), p.node))
+        for _, m in (self.raw.entries if self.raw is not None else []):
+            mname = m.get("name") or "0x%X" % m["id"]
+            for j, sg in enumerate(m.get("signals") or []):
+                sname = sg.get("name") or "s%d" % j
+                out.append(("%s.%s" % (mname, sname), "%s %s" % (mname, sname), None))
         return out
 
     # -- decoding -------------------------------------------------------------
@@ -275,6 +322,9 @@ class Decoder:
             return Decoded("gap", text="capture restarted (frames may be missing)")
         if f.err:
             return Decoded("error", name="error frame", text=error_frame_text(f))
+        r = self.decode_raw(f)
+        if r is not None:
+            return r
         if f.ext:
             return Decoded("other")
         cid = f.can_id
@@ -535,3 +585,15 @@ def decode_all(decoder, frames):
 
 
 __all__ = ["Decoder", "Decoded", "decode_all", "signal_value", "j1939_network", "KINDS", "CONTEXT_KINDS", "Frame"]
+
+
+class PlainDecoder(Decoder):
+    """A plain CAN network (protocol "none"): its raw messages, nothing else."""
+
+    protocol = "none"
+
+    def decode(self, f):
+        if f.gap or f.err:
+            return super().decode(f)
+        r = self.decode_raw(f)
+        return r if r is not None else Decoded("other")

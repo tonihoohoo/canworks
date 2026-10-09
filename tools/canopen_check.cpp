@@ -61,8 +61,8 @@ int main(int argc, char** argv) {
   for (const auto& w : set.warnings) std::printf("warning: %s\n", w.c_str());
   for (const auto& m : set.notes) std::printf("note: %s\n", m.c_str());
   for (auto& cfg : set.networks) {
-    // A J1939 network has no EDS files.
-    bool ok = checked && (cfg.is_j1939() || (run_eds_lint(cfg, default_edslint_python(), cfg.work_dir, errors) &&
+    // A J1939 or plain CAN network has no EDS files.
+    bool ok = checked && (cfg.is_j1939() || cfg.is_plain() || (run_eds_lint(cfg, default_edslint_python(), cfg.work_dir, errors) &&
                                              check_eds_files(cfg, errors)));
     for (const auto& w : cfg.warnings) std::printf("warning: %s%s\n", set.several() ? (cfg.network + ": ").c_str() : "", w.c_str());
     for (const auto& m : cfg.notes) std::printf("note: %s%s\n", set.several() ? (cfg.network + ": ").c_str() : "", m.c_str());
@@ -83,6 +83,13 @@ int main(int argc, char** argv) {
       std::printf("ok: %s adapter %s, %u bit/s, J1939 ECU at address %u, %zu received, %zu sent, %zu requested PGN(s)\n",
                   cfg.adapter.type.c_str(), cfg.adapter.interface.c_str(), cfg.adapter.bitrate, j.ecu.address,
                   j.rx.size(), j.tx.size(), j.requests.size());
+      if (!cfg.raw.empty()) std::printf("    raw CAN: %zu received, %zu sent message(s)\n", cfg.raw.rx.size(), cfg.raw.tx.size());
+      continue;
+    }
+    if (cfg.is_plain()) {
+      std::printf("ok: %s adapter %s, %u bit/s, plain CAN network%s, %zu received, %zu sent message(s)\n",
+                  cfg.adapter.type.c_str(), cfg.adapter.interface.c_str(), cfg.adapter.bitrate,
+                  cfg.adapter.listen_only ? " (listen-only)" : "", cfg.raw.rx.size(), cfg.raw.tx.size());
       continue;
     }
     if (cfg.is_slave()) {
@@ -97,13 +104,14 @@ int main(int argc, char** argv) {
     std::printf("ok: %s adapter %s, %u bit/s, master node ID %u, %zu slave(s)\n", cfg.adapter.type.c_str(),
                 cfg.adapter.interface.c_str(), cfg.adapter.bitrate, cfg.master.node_id, cfg.nodes.size());
     for (const auto& n : cfg.nodes) std::printf("    %s: EDS %s\n", n.label().c_str(), n.eds_path.c_str());
+    if (!cfg.raw.empty()) std::printf("    raw CAN: %zu received, %zu sent message(s)\n", cfg.raw.rx.size(), cfg.raw.tx.size());
   }
   if (set.gateway.enabled)
     std::printf("ok: gateway, upper network %s, %zu route(s)\n", set.networks[set.gateway.upper].network.c_str(),
                 set.gateway.routes.size());
   if (!run_dcfgen) return 0;
   for (const auto& cfg : set.networks) {
-    if (cfg.is_slave() || cfg.is_j1939()) continue;  // the slave runs its EDS as it is; J1939 has none
+    if (cfg.is_slave() || cfg.is_j1939() || cfg.is_plain()) continue;  // the slave runs its EDS as it is; J1939 and plain CAN have none
     if (set.several()) std::printf("network %s\n", cfg.network.c_str());
     GeneratedConfig gen;
     if (!generate_device_config(cfg, default_dcfgen(), gen, errors)) {

@@ -2,7 +2,7 @@
 
 The plugin can open a small encrypted channel (TLS) that shows the live CANopen network to the engineering PC: node states, boot results and errors, emergency history, SDO variable values, the bus state. With permission it also reads and writes any object by SDO, sends NMT commands, scans the bus for devices, and sets node IDs and bit rates of devices with LSS. The configurator's [online view and scan page](configurator.md#online-view) and the `canworks-diag` command use it.
 
-With permission it can also send raw CAN frames by hand and find the bit rate of an unknown bus ([Raw frames and bit rate](#raw-frames-and-bit-rate)).
+With permission it can also send raw CAN frames by hand, replay a recorded trace and find the bit rate of an unknown bus ([Raw frames and bit rate](#raw-frames-and-bit-rate)).
 
 It is off unless the config has `master.diagnostics` ([config.md](config.md#online-diagnostics)). The plugin listens only while the PLC runs, and nothing a client does touches the PLC scan: every request is served by the CAN thread between its own work (trace requests by the diagnostics thread), and a slow or stalled client is cut off instead of waited for.
 
@@ -157,7 +157,8 @@ canworks-diag --sim 127.0.0.1 sim test --scenario sensor-break --junit results.x
   - Nothing is stored in the device's memory unless the request says `store: true` (`--store`); without it a power cycle undoes the change.
   - One LSS request runs at a time, shared with the boot-time assignment of nodes with `lss.assign` ([config.md](config.md#lss)); a request while one runs answers `LSS busy`. Each request ends with all devices switched back to LSS waiting and is logged with the client's address. PDOs, heartbeats and SDO traffic of the configured nodes go on meanwhile.
 
-- **Raw frames and bit rate detection** (both need `allow_changes`): see [Raw frames and bit rate](#raw-frames-and-bit-rate).
+- **Raw frames, replay and bit rate detection** (all need `allow_changes`): see [Raw frames and bit rate](#raw-frames-and-bit-rate).
+- **Raw CAN messages** ([raw-can.md](raw-can.md)): on a network with raw messages or program frame blocks the status has `raw`: running, listen-only, how the plugin confirms its own frames (`echo`), frames sent and received, bus load in percent, the program's receivers, cyclic jobs and dropped frames, simulated plain CAN devices, and per received message its count, age, timeout and last frame and per sent message its count and last error. `status` prints them as a RECEIVE and a SEND table. A [plain CAN network](raw-can.md#plain-can-networks) answers with `"protocol": "none"`, its bus and this part only.
 
 - **Device parameters** (`backup`, `compare`, `restore`, `store`): see [Replacing a device](#replacing-a-device). They run on the PC over the SDO read and write above, one SDO at a time, so they need no newer plugin. The node's EDS comes from `--config canworks.json` (default `canworks/canworks.json` when it exists) or `--eds FILE` for a node that is not configured. With several networks, `--network NAME` picks both the network the SDOs go to and the node's EDS, name and bit rate from that network of the config; a config with several networks needs it even when the runtime runs one.
 
@@ -202,6 +203,12 @@ Guards:
 - `--force` is needed when the identifier is one the configured network uses (NMT, SYNC, TIME, LSS, the master's heartbeat and EMCY, and for every configured node its EMCY, its PDOs, its SDO channels and its heartbeat), and while any configured node is OPERATIONAL. The refusal says which (`0x202 is RPDO1 of node 2 (pingpong) on network can0; force needed`). The bench case, an unconfigured device with nothing running, needs no `--force`.
 - At most 50 single frames per second per connection, cyclic periods of 10 ms or more, at most 8 cyclic jobs per network. A cyclic job ends after 10 minutes, when its connection closes, or when a write fails (`transmit queue full`: usually no other device acknowledges the frames).
 - Every frame, and every cyclic job's start and end, is logged with the client's address, and forced ones with the reason.
+
+### Replaying a trace
+
+`replay FILE` plays a recorded trace onto the network through the plugin: a candump log, a Vector ASC, PEAK TRC or pcapng file, or a canworks trace. The frames go out with their recorded spacing, or evenly at `--rate N` frames per second, once or with `--loop` until Ctrl-C; the command prints the frames sent and why the replay ended. `--adapter` plays the file on a USB adapter on the PC instead (with `--config`, the configured network's identifiers need `--force` there too).
+
+It has the guards of `send`: `allow_changes`, `--force` for identifiers the network uses and while a node is OPERATIONAL (checked for every frame before anything is sent), and a listen-only network refuses it. At most 1000 frames per second, 200000 frames per replay, and one replay per network at a time; a replay ends when its connection closes or after 10 minutes, as a cyclic job does. The plugin logs who started it and how it ended. A replay that falls more than 100 ms behind (a full transmit queue) goes on from where it is instead of sending the backlog at once.
 
 ### Finding the bit rate
 

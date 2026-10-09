@@ -23,7 +23,7 @@ installs it into the editor as its Library Manager does; restart the editor if i
 canworks-deploy library --out .      # writes canworks.stlib
 ```
 
-Each `deploy-v` release also carries `canworks.stlib`. Then enable the library in the project (the editor's Library Manager, or `canworks-deploy library --project <project folder>`). A project made with `--new-project ... --sdo-blocks`, or with **Enable CANopen SDO blocks** in the configurator's New editor project dialog, has it enabled already, and the library is installed into the editor if it is missing or older.
+Each `deploy-v` release also carries `canworks.stlib`. Then enable the library in the project (the editor's Library Manager, or `canworks-deploy library --project <project folder>`). A project made with `--new-project ... --blocks`, or with **Enable the canworks function blocks** in the configurator's New editor project dialog, has it enabled already, and the library is installed into the editor if it is missing or older.
 
 The blocks need the canworks plugin on the runtime from the same release or later, built with CANopen. Without it (or with a plugin built `--without-canopen`), or while CANopen is off, they end with `ERROR_ID` 4.
 

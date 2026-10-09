@@ -7,7 +7,8 @@
 
 const TRACE_KINDS = [["nmt", "NMT"], ["sync", "SYNC"], ["time", "TIME"], ["emcy", "EMCY"], ["heartbeat", "Heartbeat"],
   ["sdo", "SDO"], ["pdo", "PDO"], ["lss", "LSS"], ["error", "Error"], ["gap", "Gap"], ["other", "Other"],
-  ["pgn", "J1939 PGN"], ["claim", "Address claim"], ["request", "Request"], ["ack", "ACK/NACK"], ["tp", "Transport"]];
+  ["pgn", "J1939 PGN"], ["claim", "Address claim"], ["request", "Request"], ["ack", "ACK/NACK"], ["tp", "Transport"],
+  ["raw", "Raw message"]];
 const TRACE_FORMATS = [["pcapng", "pcapng (Wireshark)"], ["candump", "candump log"], ["asc", "Vector ASC"],
   ["blf", "Vector BLF"], ["trc", "PEAK TRC 2.1"], ["csv", "CSV, decoded"]];
 const TRACE_STATES = { idle: "not recording", connecting: "connecting…", recording: "recording",

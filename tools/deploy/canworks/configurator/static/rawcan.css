@@ -1,0 +1,23 @@
+/* CAN messages page (rawcan.js). Signal colours work on both themes: the
+   cell text stays the theme's own colour on a translucent fill. */
+.raw-table tbody tr[data-raw] { cursor: pointer; }
+.raw-table tbody tr.selected { background: var(--accent); color: var(--accent-text); }
+.raw-table tbody tr.selected button { color: inherit; border-color: currentColor; }
+.raw-editor { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 10px 14px; margin: 10px 0 16px; }
+.raw-signals td input { width: 100%; min-width: 4em; }
+.raw-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--line); }
+.raw-grid-wrap { margin-top: 10px; overflow-x: auto; }
+.raw-grid { width: auto; font-variant-numeric: tabular-nums; }
+.raw-grid th { font-weight: normal; color: var(--muted); padding-right: 8px; text-align: left; white-space: nowrap; }
+.raw-bit { width: 2.4em; text-align: center; border: 1px solid var(--line); font-size: 11px; }
+.raw-bit.raw-out { opacity: .4; }
+.raw-bit.raw-clash { outline: 2px solid var(--error); outline-offset: -2px; }
+.raw-c0 { background: rgba(31, 119, 180, .35); }
+.raw-c1 { background: rgba(255, 127, 14, .35); }
+.raw-c2 { background: rgba(44, 160, 44, .35); }
+.raw-c3 { background: rgba(214, 39, 40, .3); }
+.raw-c4 { background: rgba(148, 103, 189, .35); }
+.raw-c5 { background: rgba(140, 86, 75, .35); }
+.raw-c6 { background: rgba(227, 119, 194, .35); }
+.raw-c7 { background: rgba(188, 189, 34, .4); }
+.raw-import { max-height: 50vh; overflow: auto; }

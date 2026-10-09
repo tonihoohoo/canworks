@@ -15,6 +15,7 @@
 
 #include "iec_location.h"
 #include "j1939_config.h"
+#include "raw/config.h"
 #include "secure_channel.h"
 
 namespace canopen_plugin {
@@ -321,15 +322,19 @@ struct AdapterConfig {
   // The runtime environment forced simulation (ImageLimits::force_simulate);
   // `simulate` is then true whatever the file says.
   bool simulation_forced = false;
+  // The controller only listens: it never acknowledges or sends a frame
+  // (protocol "none" only, can-raw-messages "Listen-only networks").
+  bool listen_only = false;
 };
 
 // What a network is: the CANopen master of its nodes, or one CANopen device
 // (NMT slave) on a bus another master runs (canopen-slave-device spec).
 enum class NetworkRole { Master, Slave };
 
-// The protocol a network runs (`protocol`, version 2 only).
-enum class Protocol { CANopen, J1939 };
-const char* protocol_name(Protocol p);  // "canopen", "j1939"
+// The protocol a network runs (`protocol`, version 2 only). None: a plain
+// CAN network with raw messages only (can-raw-messages spec).
+enum class Protocol { CANopen, J1939, None };
+const char* protocol_name(Protocol p);  // "canopen", "j1939", "none"
 // Whether this plugin was built with the protocol (CANWORKS_WITH_* options),
 // and the built-in protocols as "canopen, j1939".
 bool protocol_built_in(Protocol p);
@@ -439,6 +444,8 @@ struct Config {
   std::string log_prefix;
   Protocol protocol = Protocol::CANopen;
   bool is_j1939() const { return protocol == Protocol::J1939; }
+  bool is_canopen() const { return protocol == Protocol::CANopen; }
+  bool is_plain() const { return protocol == Protocol::None; }
   NetworkRole role = NetworkRole::Master;
   bool is_slave() const { return role == NetworkRole::Slave; }
   AdapterConfig adapter;
@@ -448,6 +455,8 @@ struct Config {
   SlaveConfig slave;  // slave networks only
   std::vector<NodeConfig> nodes;
   J1939Config j1939;  // J1939 networks only
+  // Raw CAN messages, on a network of any protocol (can-raw-messages spec).
+  canworks_raw::RawConfig raw;
   // Non-fatal findings (deprecated keys, unknown fields), each naming the
   // file and the JSON path. The plugin logs them as warnings.
   std::vector<std::string> warnings;

@@ -113,6 +113,11 @@ class Simulator {
   bool ScenarioRunning() const;
   const std::vector<Scenario>& Scenarios() const { return file_.scenarios; }
   std::function<void(const ScenarioResult&)> on_scenario_end;
+  // Fault and clear steps on plain CAN devices (`device`): who runs those
+  // devices does the step (the plugin's raw path, the standalone runner).
+  std::function<bool(const std::string& device, const std::string& action, const std::string& what, int dlc,
+                     std::string& err)>
+      raw_device_action;
 
   // Every started device (no conflict, powered) is OPERATIONAL.
   bool AllOperational() const;

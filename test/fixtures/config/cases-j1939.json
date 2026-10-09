@@ -97,7 +97,7 @@
       "patch": [["set", "networks/1/protocol", "nmea2000"]],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: field 'protocol' must be \"canopen\" or \"j1939\""]
+      "messages": ["networks[1]: field 'protocol' must be \"canopen\", \"j1939\" or \"none\""]
     },
     {
       "name": "j1939: J1939 network with nodes",

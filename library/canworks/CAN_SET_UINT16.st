@@ -1,0 +1,31 @@
+(*
+ * CAN_SET_UINT16: writes VALUE into DATA[OFFSET..OFFSET+1] with the byte
+ * order of CAN_GET_UINT16. FALSE (nothing written) when the bytes do not fit.
+ *)
+FUNCTION CAN_SET_UINT16 : BOOL
+VAR_IN_OUT
+  DATA : ARRAY[0..7] OF BYTE;
+END_VAR
+VAR_INPUT
+  OFFSET : USINT;
+  MOTOROLA : BOOL;
+  VALUE : UINT;
+END_VAR
+VAR
+  i : INT;
+  v : WORD;
+END_VAR
+  IF USINT_TO_INT(OFFSET) + 2 > 8 THEN
+    CAN_SET_UINT16 := FALSE;
+    RETURN;
+  END_IF;
+  v := UINT_TO_WORD(VALUE);
+  FOR i := 0 TO 1 DO
+    IF MOTOROLA THEN
+      DATA[USINT_TO_INT(OFFSET) + 1 - i] := WORD_TO_BYTE(SHR(v, INT_TO_UINT(8 * i)));
+    ELSE
+      DATA[USINT_TO_INT(OFFSET) + i] := WORD_TO_BYTE(SHR(v, INT_TO_UINT(8 * i)));
+    END_IF;
+  END_FOR;
+  CAN_SET_UINT16 := TRUE;
+END_FUNCTION

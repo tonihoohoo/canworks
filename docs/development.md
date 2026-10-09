@@ -24,7 +24,7 @@ test/commissioning/run.sh                       # write a configuration to one d
 test/localbus/run.sh                            # the PC tools on vcan0 without a runtime
 test/simulator/run.sh                           # canworks-sim against the plugin (needs vcan1)
 test/trace/run.sh                               # bus trace and its export formats
-test/rawframes/run.sh                           # raw frames sent by hand, bit rate detection refusals
+test/rawframes/run.sh                           # raw frames sent by hand, raw messages, replay, bit rate detection refusals
 test/bus/run.sh                                 # bus state byte with vcan0 taken down and up
 test/slcan/run.sh                               # slcan adapter (needs the slcan module and vcan1)
 test/j1939/run.sh                               # the J1939 ECU against the J1939 simulator (needs can-j1939)
@@ -71,7 +71,8 @@ CMakeLists.txt     builds libcanworks_plugin.so; the runtime's install.sh builds
 plugin/            native plugin source: src/can/ the shared CAN core (config, adapters, bit rate
                    detection, trace, raw frames, diagnostics server, entry points), src/canopen/ the
                    CANopen master, slave and gateway on Lely, src/j1939/ the J1939 ECU (address claim,
-                   kernel sockets, signals), src/canopen/sim/ the device simulator
+                   kernel sockets, signals), src/can/raw/ raw CAN messages, plain networks
+                   and the frame blocks' interface, src/canopen/sim/ the device simulator
                    engine (simulated devices, value sources, expressions, CiA 402 drive model, faults,
                    scenarios, the machine model), used by the plugin and canworks-sim
 schema/            the config contract (JSON Schema 2020-12): canworks.v1.schema.json (one network),
@@ -81,7 +82,8 @@ schema/            the config contract (JSON Schema 2020-12): canworks.v1.schema
 examples/          virtual-plant/: the fully virtual example project of docs/tour.md (four simulated
                    networks, a demo program, a simulation file with test scenarios); gantry-cell/: a
                    simulated XYZ gantry with a pick-and-place program (docs/simulator.md); j1939/: a J1939
-                   ECU config and its DBC file (docs/j1939.md)
+                   ECU config and its DBC file (docs/j1939.md); raw-can/: a plain CAN network with
+                   its DBC file and simulated devices (docs/raw-can.md)
 config/            example configurations: config/pingpong/ (the ping-pong slave),
                    config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404), each with
                    an example simulation.json, config/two-networks/ (two ping-pong networks on
@@ -97,9 +99,10 @@ tools/deploy/      the PC tools (Python, one package): canworks-deploy, canworks
 docker/local-runtime/ the local simulator runtime image (stock runtime + plugin, forced simulation) and
                    the pinned upstream runtime version
 tools/editor-hook/ the runtime-side hook that keeps CANopen on with the editor's Build and upload
-library/           the canworks editor library (SDO function blocks): generate.py writes the
+library/           the canworks editor library (SDO, CAN frame and CiA 402 blocks, ST helpers): generate.py writes the
                    block sources, build.sh builds the .stlib the deploy tool carries
 test/unit/         unit tests: config validation, EDS checks, dcfgen, process image
+test/can_raw/       raw CAN tests: config messages, the frame blocks' interface, signal packing, ST helpers
 test/j1939_unit/   J1939 unit tests: NAME, signals, address claim, the engine on a fake socket
 test/j1939/        the plugin's J1939 ECU against canworks-j1939-sim on vcan0, and two simulators
 test/sim/          master against Lely slaves and simulated devices on an in-process virtual CAN bus
@@ -118,7 +121,7 @@ test/commissioning/ writing a configuration to one device from the PC on vcan0
 test/localbus/     the PC tools straight on a SocketCAN interface (no runtime) on vcan0
 test/simulator/    canworks-sim against the plugin on vcan0 and vcan1
 test/trace/        bus trace recording, filters and export formats on vcan0
-test/rawframes/    raw frames sent by hand (guards, cyclic jobs) on vcan0 and the simulated bus
+test/rawframes/    raw frames sent by hand (guards, cyclic jobs), raw messages and replay on vcan0 and the simulated bus
 test/bus/          the bus state byte while vcan0 goes down and up
 test/networks/     two networks on vcan0 and vcan1, one of them losing its node
 test/slcan/        the slcan adapter against a fake CANable on a pseudo-terminal, bridged to vcan1
@@ -137,7 +140,7 @@ test/pc-tools/     the release tag check; test/ci/: the CI change classification
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
 docs/              tour.md (the guided tour of the virtual example), config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
-                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, j1939.md, local-runtime.md, network-docs.md, plc-sdo.md, simulator.md, slave.md,
+                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, j1939.md, local-runtime.md, network-docs.md, plc-sdo.md, raw-can.md, simulator.md, slave.md,
                    trace.md, development.md (this page)
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
 ```

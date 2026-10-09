@@ -6,7 +6,7 @@ Lets one PLC run several CANopen networks, one master per CAN interface, from on
 ## Requirements
 
 ### Requirement: Network list
-A version 2 config SHALL hold a `networks` list of 1 to 8 entries. Each CANopen entry SHALL have an `adapter`, a `master` and a `nodes` list with the same fields and meaning as the version 1 top level, and MAY have a `name`. A J1939 entry (`"protocol": "j1939"`) SHALL have an `adapter` and a `j1939` object as `j1939-config` defines. A version 1 config SHALL be read as one CANopen network with no name.
+A version 2 config SHALL hold a `networks` list of 1 to 8 entries. Each CANopen entry SHALL have an `adapter`, a `master` and a `nodes` list with the same fields and meaning as the version 1 top level, and MAY have a `name`. A J1939 entry (`"protocol": "j1939"`) SHALL have an `adapter` and a `j1939` object as `j1939-config` defines. A plain CAN entry (`"protocol": "none"`) SHALL have an `adapter` and MAY have a `raw` object as `can-raw-messages` defines. Any entry MAY have a `raw` object. A version 1 config SHALL be read as one CANopen network with no name.
 
 #### Scenario: Two networks
 - **WHEN** a version 2 config has networks on `can0` (nodes 2 and 3) and `can1` (nodes 2 and 10)
@@ -23,6 +23,10 @@ A version 2 config SHALL hold a `networks` list of 1 to 8 entries. Each CANopen 
 #### Scenario: CANopen and J1939 networks
 - **WHEN** a version 2 config has a CANopen network on `can0` and a J1939 network on `can1`
 - **THEN** the plugin loads it and logs one line for the CANopen network as above and one for the J1939 network naming its interface, bit rate, address and numbers of received and sent PGNs
+
+#### Scenario: CANopen and plain CAN networks
+- **WHEN** a version 2 config has a CANopen network on `can0` with two raw messages and a plain CAN network on `can1`
+- **THEN** the plugin loads it, the CANopen line also gives the number of raw messages, and the plain network's line names its interface, bit rate and numbers of received and sent raw messages
 
 ### Requirement: Network names
 A network's `name` SHALL match `[A-Za-z][A-Za-z0-9_]*` and be at most 16 characters; without `name`, the network SHALL be named after its adapter's `interface` when the interface name matches that pattern, and the config SHALL be rejected otherwise. Names SHALL be unique in the file, compared without case.

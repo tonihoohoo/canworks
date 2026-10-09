@@ -12,6 +12,7 @@
 #include "bus.h"
 #include "log.h"
 #include "network.h"
+#include "raw_bridge_server.h"
 
 namespace canopen_plugin {
 
@@ -135,6 +136,11 @@ void SlaveBus::run_session() {
       log_info("opened %s, starting the CANopen slave (node ID %u)", where.c_str(), slave.node_id());
     slave.SetDiag(hub_);
     FdWake gw_wake(poll, gw_ ? gw_->fd(cfg_.network_index) : -1, [&slave] { slave.ServiceGateway(); });
+    // The raw path on the virtual bus (raw_bridge_server.h).
+    std::unique_ptr<RawBridgeServer> raw_bridge;
+    if (virt)
+      if (auto bridge = canworks_raw::sim_bridge(cfg_.network_index))
+        raw_bridge.reset(new RawBridgeServer(ctx, poll, exec, *vbus, bridge, nullptr));
     slave.Start();
     if (hub_) hub_->attach();
     int slices_after_shutdown = 0;

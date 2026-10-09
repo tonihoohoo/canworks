@@ -7,6 +7,7 @@
 <title>canworks configurator</title>
 <link rel="stylesheet" href="uplot/uPlot.min.css">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="rawcan.css">
 </head>
 <body>
 <header id="top">
@@ -73,6 +74,7 @@
     <ul id="node-list" data-config="1"></ul>
     <label class="file-button" data-config="1">Add node from EDS… <input id="eds-input" type="file" accept=".eds,.EDS"></label>
     <button id="nav-gateway" type="button" data-view="gateway" class="nav-item" hidden>Gateway</button>
+    <button id="nav-raw" type="button" data-view="raw" class="nav-item" data-config="1">CAN messages</button>
     <button type="button" data-view="declarations" class="nav-item" data-config="1">Variable declarations</button>
     <h2 class="side-caption">Runtime</h2>
     <button type="button" data-view="online" class="nav-item">Online</button>
@@ -99,5 +101,6 @@
 <script src="explain.js"></script>
 <script src="sim.js"></script>
 <script src="j1939.js"></script>
+<script src="rawcan.js"></script>
 </body>
 </html>

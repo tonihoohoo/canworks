@@ -624,6 +624,22 @@ class Client:
         lists each with its "sent" count and "reason"."""
         return self.request("send_frame_stop", **({} if job is None else {"job": job}))
 
+    def replay(self, frames, more=False, loop=False, force=False):
+        """One batch of a replay (raw.replay.batches): the first starts it,
+        `more` says another follows. The answer has "running", "sent" and
+        "queued"."""
+        fields = {"frames": frames}
+        for key, v in (("more", more), ("loop", loop), ("force", force)):
+            if v:
+                fields[key] = True
+        return self.request("replay", **fields)
+
+    def replay_status(self):
+        return self.request("replay_status")
+
+    def replay_stop(self):
+        return self.request("replay_stop")
+
     def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False, disturb_bus=False,
                        lone_device=False, probe=None):
         """Starts a bit rate sweep (unless one runs) and returns its progress."""
@@ -788,7 +804,7 @@ def _network_arg(p, text="the network to talk to (needed when the runtime runs s
 # too, but goes over every network without it).
 NETWORK_COMMANDS = ("emcy", "sdo-read", "sdo-write", "nmt", "scan", "lss-find", "lss-inquire", "lss-set-id",
                     "lss-set-bitrate", "trace", "backup", "compare", "restore", "store", "send", "send-stop",
-                    "detect-bitrate", "configure", "restore-defaults", "pdo-test")
+                    "detect-bitrate", "configure", "restore-defaults", "pdo-test", "replay")
 
 
 def _int_range(what, lo, hi):
@@ -909,6 +925,20 @@ def parser():
     ss = sub.add_parser("send-stop", help="stop cyclic send jobs of this connection (for scripts that keep one)")
     ss.add_argument("job", nargs="?", type=_int_range("job", 0, 0xFFFFFFFF), metavar="JOB",
                     help="the job number (default: every job of this connection)")
+    rp = sub.add_parser("replay", help="play a recorded trace onto the bus (needs allow_changes)",
+                        description="Sends the data and remote frames of a trace file (.asc, .trc, .log, .pcapng "
+                                    "or a canworks trace) with their recorded spacing, or evenly at --rate, until "
+                                    "the end, Ctrl-C or, with --loop, Ctrl-C only. At most 1000 frames per second. "
+                                    "Identifiers the network uses, and any frame while a node is OPERATIONAL, "
+                                    "need --force. A listen-only network refuses it.")
+    rp.add_argument("file", metavar="FILE", help="the trace to replay")
+    rp.add_argument("--rate", type=float, metavar="FPS",
+                    help="send the frames evenly at this many frames per second instead (at most 1000)")
+    rp.add_argument("--loop", action="store_true", help="start again at the end, until Ctrl-C")
+    rp.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
+                    help="send even when the network uses an identifier or a node is OPERATIONAL")
+    rp.add_argument("--config", metavar="canworks.json",
+                    help="--adapter: the configured nodes' identifiers need --force")
     db = sub.add_parser("detect-bitrate", help="find the bus's bit rate by listening (needs allow_changes)",
                         description="Stops CANopen on the network, listens in listen-only mode at each bit rate "
                                     "and starts CANopen again; nodes boot again afterwards. Nothing is sent. "
@@ -1128,9 +1158,63 @@ def format_sync(sy):
 
 
 def _print_status(st, out):
+    _print_protocol_status(st, out)
+    if st.get("raw"):
+        _print_raw_status(st["raw"], out)
+
+
+def _print_raw_status(raw, out):
+    """The raw CAN part of a status answer: config messages, the program's
+    frame blocks and simulated plain CAN devices."""
+    prog = raw.get("program") or {}
+    line = "raw CAN: %s, %s frames sent, %s received, bus load %.0f %%" % (
+        "running" if raw.get("running") else "not running", raw.get("frames_sent", 0),
+        raw.get("frames_received", 0), float(raw.get("bus_load") or 0))
+    if raw.get("listen_only"):
+        line += ", listen-only"
+    out.write(line + "\n")
+    if prog.get("receivers") or prog.get("cyclic_jobs") or prog.get("frames_sent"):
+        out.write("program blocks: %s receiver%s, %s cyclic job%s, %s frames sent, %s dropped\n" % (
+            prog.get("receivers", 0), "" if prog.get("receivers") == 1 else "s", prog.get("cyclic_jobs", 0),
+            "" if prog.get("cyclic_jobs") == 1 else "s", prog.get("frames_sent", 0), prog.get("dropped", 0)))
+    if raw.get("simulated_devices"):
+        out.write("simulated plain CAN devices: %s\n" % ", ".join(raw["simulated_devices"]))
+    rows = [("RECEIVE", "COUNT", "STATE", "LAST")]
+    for m in raw.get("rx") or []:
+        if not m.get("seen"):
+            state, last = "never received", "-"
+        else:
+            state = "TIMED OUT" if m.get("timed_out") else "%s ms ago" % m.get("age_ms")
+            last = "%s [%s] %s" % (("0x%08X" if (m.get("last_id") or 0) > 0x7FF else "0x%03X") % (m.get("last_id") or 0),
+                                   m.get("last_dlc"), m.get("last_data") or "")
+        if m.get("short_frames"):
+            state += ", %s short" % m["short_frames"]
+        rows.append((str(m.get("message")), str(m.get("count", 0)), state, last))
+    if len(rows) > 1:
+        _table(rows, out, "")
+    rows = [("SEND", "COUNT", "ERROR")]
+    for m in raw.get("tx") or []:
+        rows.append((str(m.get("message")), str(m.get("count", 0)), m.get("error") or "-"))
+    if len(rows) > 1:
+        _table(rows, out, "")
+
+
+def _print_protocol_status(st, out):
     bus = st.get("bus") or {}
     m = st.get("master") or {}
     j1939 = st.get("protocol") == "j1939"
+    plain = st.get("protocol") == "none"
+    if plain:
+        out.write("plugin %s, up %d s, config %s\n" % (st.get("version"), int(st.get("uptime_s") or 0),
+                                                       (st.get("config_sha256") or "?")[:12]))
+        out.write("plain CAN network on %s, %s kbit/s%s\n" % (
+            bus.get("interface"), (bus.get("bitrate") or 0) // 1000,
+            " (simulated: no CAN interface is used)" if st.get("simulated_network") else ""))
+        for j in st.get("send_jobs") or []:
+            out.write("send job %s: %s every %s ms, %s sent\n" % (
+                j.get("job"), ("0x%08X" if j.get("ext") else "0x%03X") % (j.get("id") or 0), j.get("period_ms"),
+                j.get("sent", 0)))
+        return
     if not st.get("session", True) and not j1939:
         out.write("no CANopen session: the CAN interface %s is missing or down\n" % (bus.get("interface") or "?"))
     out.write("plugin %s, up %d s, config %s\n" % (st.get("version"), int(st.get("uptime_s") or 0),
@@ -1957,6 +2041,86 @@ def _send(client, args, out):
     return {"job": job, "stopped": stopped}
 
 
+def _replay(client, args, out):
+    """replay: the trace's frames through the channel, or with --adapter
+    straight onto the PC's adapter."""
+    from .raw import replay as rp
+    try:
+        p = rp.plan(rp.load(args.file), args.rate)
+    except (OSError, rp.ReplayError) as e:
+        raise DiagError("usage", "cannot replay %s: %s" % (args.file, e))
+    force = bool(getattr(args, "force", False))
+    if getattr(args, "adapter", None):
+        return _replay_local(client, args, p, force, out)
+    if len(p) > rp.MAX_FRAMES:
+        raise DiagError("usage", "the trace has %d frames; a replay through the runtime holds at most %d"
+                                 % (len(p), rp.MAX_FRAMES))
+    batches = rp.batches(p)
+    try:
+        for i, b in enumerate(batches):
+            res = client.replay(b["frames"], more=i + 1 < len(batches), loop=args.loop, force=force)
+    except DiagError as e:
+        if i:
+            client.replay_stop()
+        if needs_force(e):
+            raise DiagError("refused", "%s; add --force to replay it anyway" % e)
+        raise
+    if not args.json:
+        out.write("replaying %d frames (%.1f s)%s; Ctrl-C stops\n" % (
+            len(p), p[-1][0] / 1e6, ", looping" if args.loop else ""))
+        out.flush()
+    try:
+        while res.get("running"):
+            time.sleep(0.5)
+            res = client.replay_status()
+            if not args.json and sys.stderr.isatty():
+                sys.stderr.write("\r%s of %d sent " % (res.get("sent"), len(p)))
+    except KeyboardInterrupt:
+        res = client.replay_stop()
+    finally:
+        if not args.json and sys.stderr.isatty():
+            sys.stderr.write("\r" + " " * 40 + "\r")
+    if not args.json:
+        out.write("replay ended: %s, %s frames sent\n" % (res.get("reason"), res.get("sent")))
+    if res.get("reason") not in ("done", "stopped"):
+        raise DiagError("refused", "the replay ended early: %s" % res.get("reason"))
+    return res
+
+
+def _replay_local(client, args, p, force, out):
+    """--adapter: the channel's guards on this PC, then the frames on the
+    adapter's transmit path (they show in a trace as Tx)."""
+    from .localbus import client as lc
+    from .raw import replay as rp
+    if not client.allow_changes:
+        raise DiagError("refused", "changes not allowed (start with --allow-changes)")
+    if not force:
+        for key in sorted({(f.can_id, f.ext) for _, f in p}):
+            reason = lc._force_reason(client, *key)
+            if reason:
+                raise DiagError("refused", "%s; add --force to replay it anyway" % reason)
+    if not args.json:
+        out.write("replaying %d frames (%.1f s) on %s%s; Ctrl-C stops\n" % (
+            len(p), p[-1][0] / 1e6, client.where, ", looping" if args.loop else ""))
+        out.flush()
+
+    def send(f):
+        client.core.transmit(f.can_id, b"" if f.rtr else f.data, ext=f.ext, rtr=f.rtr, dlc=f.dlc)
+
+    reason = "done"
+    sent = 0
+    try:
+        sent = rp.play(send, p, loop=args.loop)
+    except KeyboardInterrupt:
+        reason = "stopped"
+    except Exception as e:  # the adapter went away
+        raise DiagError("refused", "the replay ended early: %s" % e)
+    res = {"running": False, "sent": sent, "queued": len(p), "reason": reason}
+    if not args.json:
+        out.write("replay ended: %s%s\n" % (reason, ", %d frames sent" % sent if reason == "done" else ""))
+    return res
+
+
 def _send_stop(client, args, out):
     res = client.send_frame_stop(args.job)
     if not args.json:
@@ -2153,9 +2317,10 @@ def run(args, out=sys.stdout):
             res = _commissioning(client, args, out)
         elif args.command == "pdo-test":
             res = _pdo_test(client, args, out)
-        elif args.command in ("send", "send-stop", "detect-bitrate"):
+        elif args.command in ("send", "send-stop", "detect-bitrate", "replay"):
             try:
-                res = {"send": _send, "send-stop": _send_stop, "detect-bitrate": _detect}[args.command](
+                res = {"send": _send, "send-stop": _send_stop, "detect-bitrate": _detect,
+                       "replay": _replay}[args.command](
                     client, args, out)
             except DiagError as e:
                 if too_old(e):

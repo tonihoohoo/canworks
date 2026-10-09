@@ -3514,6 +3514,45 @@ TEST(sim_simulated_scenario) {
   delete sim;
 }
 
+// Fault and clear steps on plain CAN devices go to whoever runs them.
+TEST(sim_scenario_plain_can_device_steps) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"scenarios": {
+    "joy": {"steps": [
+      {"device": "joystick", "fault": {"stop": true}},
+      {"after_ms": 10, "device": "joystick", "fault": {"wrong_dlc": 2}},
+      {"device": "joystick", "clear": "all"}]},
+    "pedal": {"steps": [{"device": "pedal", "clear": "stop"}]}}})"));
+  std::vector<std::string> calls;
+  sim->simulator().raw_device_action = [&calls](const std::string& device, const std::string& action,
+                                                const std::string& what, int dlc, std::string& err) {
+    if (device != "joystick") {
+      err = "no plain CAN device \"" + device + "\" is simulated on this network";
+      return false;
+    }
+    calls.push_back(action + " " + what + " " + std::to_string(dlc));
+    return true;
+  };
+  sim->net().Start();
+  std::string err;
+  CHECK(sim->simulator().StartScenario("joy", err));
+  CHECK(sim->RunUntil([] { return !sim->scenario_results().empty(); }, seconds(5)));
+  CHECK(!sim->scenario_results().empty() && sim->scenario_results()[0].passed);
+  CHECK(calls == std::vector<std::string>({"fault stop -1", "fault wrong_dlc 2", "clear all -1"}));
+  CHECK(logged("scenario joy: fault wrong_dlc on plain CAN device joystick"));
+  CHECK(sim->simulator().StartScenario("pedal", err));
+  CHECK(sim->RunUntil([] { return sim->scenario_results().size() == 2; }, seconds(5)));
+  if (sim->scenario_results().size() == 2)
+    CHECK_MSG(sim->scenario_results()[1].message.find("no plain CAN device \"pedal\"") != std::string::npos,
+              sim->scenario_results()[1].message);
+  delete sim;
+}
+
 // A node with simulate: false next to simulated ones stays absent.
 TEST(sim_simulated_subset) {
   clear_logs();

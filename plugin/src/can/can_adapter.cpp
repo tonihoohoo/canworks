@@ -90,6 +90,10 @@ void parse_linkinfo(const rtattr* linkinfo, LinkInfo& out) {
           std::memcpy(&st, RTA_DATA(d), sizeof(st));
           out.has_can_state = true;
           out.can_state = st;
+        } else if (d->rta_type == IFLA_CAN_CTRLMODE && RTA_PAYLOAD(d) >= sizeof(can_ctrlmode)) {
+          can_ctrlmode cm;
+          std::memcpy(&cm, RTA_DATA(d), sizeof(cm));
+          out.listen_only = (cm.flags & CAN_CTRLMODE_LISTENONLY) != 0;
         } else if (d->rta_type == IFLA_CAN_BERR_COUNTER && RTA_PAYLOAD(d) >= sizeof(can_berr_counter)) {
           can_berr_counter bc;
           std::memcpy(&bc, RTA_DATA(d), sizeof(bc));
@@ -305,6 +309,28 @@ class TtySerialOps : public SerialOps {
 };
 
 // ---------------------------------------------------------------------------
+// Listen-only mode (plain CAN networks, can-raw-messages "Listen-only
+// networks"): set while the link is down, after the bit rate. A driver
+// without the mode leaves the controller acknowledging frames; the raw path
+// still sends nothing, which the log says once. Returns 0 or a negative errno.
+
+int apply_listen_only(LinkOps* ops, const AdapterConfig& cfg, const LinkInfo& li, bool& unsupported) {
+  if (!cfg.listen_only && !li.listen_only) return 0;
+  int rc = ops->set_listen_only(cfg.interface, cfg.listen_only);
+  if (rc == -EOPNOTSUPP && cfg.listen_only) {
+    if (!unsupported)
+      log_warn("CAN interface %s has no listen-only mode: the controller still acknowledges frames on the bus; "
+               "nothing is sent from this network",
+               cfg.interface.c_str());
+    unsupported = true;
+    return 0;
+  }
+  if (rc < 0) return rc;
+  if (cfg.listen_only) log_info("CAN interface %s set to listen-only mode", cfg.interface.c_str());
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
 // SocketCAN backend
 
 class SocketCanAdapter : public CanAdapter {
@@ -333,6 +359,12 @@ class SocketCanAdapter : public CanAdapter {
                    name, li.bitrate, cfg_.bitrate);
         warned_rate_ = true;
       }
+      if (cfg_.listen_only && li.kind == "can" && !li.listen_only && !no_listen_only_) {
+        log_warn("CAN interface %s is not in listen-only mode and configure_link is false, so it is left as it is: "
+                 "the controller acknowledges frames on the bus; nothing is sent from this network",
+                 name);
+        no_listen_only_ = true;
+      }
       if (li.up) return AdapterState::Ready;
       problem_ = "CAN interface " + cfg_.interface + " is down (configure_link is false)";
       return AdapterState::Down;
@@ -346,15 +378,19 @@ class SocketCanAdapter : public CanAdapter {
       return AdapterState::Ready;
     }
 
-    if (li.up && li.bitrate == cfg_.bitrate) return AdapterState::Ready;
-    if (li.up) {
+    bool mode_ok = li.listen_only == cfg_.listen_only || (cfg_.listen_only && no_listen_only_);
+    if (li.up && li.bitrate == cfg_.bitrate && mode_ok) return AdapterState::Ready;
+    if (li.up && li.bitrate != cfg_.bitrate) {
       log_warn("CAN interface %s runs at %u bit/s but the config says %u bit/s; taking it down to change the "
                "bit rate",
                name, li.bitrate, cfg_.bitrate);
-      if ((rc = ops_->set_up(cfg_.interface, false)) < 0) return failed("cannot take down", rc);
+    } else if (li.up) {
+      log_info("CAN interface %s: taking it down to turn listen-only mode %s", name, cfg_.listen_only ? "on" : "off");
     }
+    if (li.up && (rc = ops_->set_up(cfg_.interface, false)) < 0) return failed("cannot take down", rc);
     long restart = cfg_.has_restart_ms ? static_cast<long>(cfg_.restart_ms) : -1;
     if ((rc = ops_->set_bitrate(cfg_.interface, cfg_.bitrate, restart)) < 0) return failed("cannot configure", rc);
+    if ((rc = apply_listen_only(ops_.get(), cfg_, li, no_listen_only_)) < 0) return failed("cannot configure", rc);
     if ((rc = ops_->set_up(cfg_.interface, true)) < 0) return failed("cannot bring up", rc);
     if (cfg_.has_restart_ms)
       log_info("set CAN interface %s to %u bit/s (restart-ms %u) and brought it up", name, cfg_.bitrate,
@@ -384,6 +420,7 @@ class SocketCanAdapter : public CanAdapter {
   std::unique_ptr<LinkOps> ops_;
   std::string problem_;
   bool warned_rate_ = false;
+  bool no_listen_only_ = false;  // the driver has no listen-only mode
 };
 
 // ---------------------------------------------------------------------------
@@ -481,19 +518,23 @@ class SlcanAdapter : public CanAdapter {
  private:
   AdapterState configure(const LinkInfo& li) {
     if (li.kind != "can") return old_kernel();
-    if (li.up && li.bitrate == cfg_.bitrate) return AdapterState::Ready;
+    bool mode_ok = li.listen_only == cfg_.listen_only || (cfg_.listen_only && no_listen_only_);
+    if (li.up && li.bitrate == cfg_.bitrate && mode_ok) return AdapterState::Ready;
     int rc;
     if (li.up && (rc = ops_->set_up(cfg_.interface, false)) < 0) return failed("cannot take down", rc);
     if ((rc = ops_->set_bitrate(cfg_.interface, cfg_.bitrate, -1)) < 0) {
       if (rc == -EOPNOTSUPP) return old_kernel();
       return failed("cannot configure", rc);
     }
+    if ((rc = apply_listen_only(ops_.get(), cfg_, li, no_listen_only_)) < 0) return failed("cannot configure", rc);
     if ((rc = ops_->set_txqlen(cfg_.interface, kSlcanTxQueueLen)) < 0) return failed("cannot configure", rc);
     if ((rc = ops_->set_up(cfg_.interface, true)) < 0) return failed("cannot bring up", rc);
     log_info("set CAN interface %s (slcan on %s) to %u bit/s, txqueuelen %u, and brought it up",
              cfg_.interface.c_str(), cfg_.device.c_str(), cfg_.bitrate, kSlcanTxQueueLen);
     return AdapterState::Ready;
   }
+
+  bool no_listen_only_ = false;
 
   AdapterState old_kernel() {
     close_device();

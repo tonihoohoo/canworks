@@ -1,0 +1,31 @@
+(*
+ * CAN_SET_UINT32: writes VALUE into DATA[OFFSET..OFFSET+3] with the byte
+ * order of CAN_GET_UINT32. FALSE (nothing written) when the bytes do not fit.
+ *)
+FUNCTION CAN_SET_UINT32 : BOOL
+VAR_IN_OUT
+  DATA : ARRAY[0..7] OF BYTE;
+END_VAR
+VAR_INPUT
+  OFFSET : USINT;
+  MOTOROLA : BOOL;
+  VALUE : UDINT;
+END_VAR
+VAR
+  i : INT;
+  v : DWORD;
+END_VAR
+  IF USINT_TO_INT(OFFSET) + 4 > 8 THEN
+    CAN_SET_UINT32 := FALSE;
+    RETURN;
+  END_IF;
+  v := UDINT_TO_DWORD(VALUE);
+  FOR i := 0 TO 3 DO
+    IF MOTOROLA THEN
+      DATA[USINT_TO_INT(OFFSET) + 3 - i] := DWORD_TO_BYTE(SHR(v, INT_TO_UINT(8 * i)));
+    ELSE
+      DATA[USINT_TO_INT(OFFSET) + i] := DWORD_TO_BYTE(SHR(v, INT_TO_UINT(8 * i)));
+    END_IF;
+  END_FOR;
+  CAN_SET_UINT32 := TRUE;
+END_FUNCTION

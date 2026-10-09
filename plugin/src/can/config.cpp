@@ -16,6 +16,7 @@
 #include <unistd.h>
 
 #include "cJSON.h"
+#include "frame_tx.h"
 #include "sha256.h"
 
 namespace canopen_plugin {
@@ -517,11 +518,11 @@ class Parser {
                     "\"role\": \"slave\")");
       if (cJSON_GetObjectItemCaseSensitive(root, "gateway"))
         error("", "field 'gateway' needs schema_version: 2");
-      for (const char* key : {"protocol", "j1939"})
+      for (const char* key : {"protocol", "j1939", "raw"})
         if (cJSON_GetObjectItemCaseSensitive(root, key))
           error("", std::string("field '") + key + "' needs schema_version 2");
       check_known(root, "", {"$schema", "schema_version", "adapter", "interface", "bitrate", "master", "nodes",
-                             "role", "slave", "gateway", "protocol", "j1939"});
+                             "role", "slave", "gateway", "protocol", "j1939", "raw"});
       Config cfg = blank(set);
       cfg.work_dir = set.config_dir + "/.canworks";
       parse_network(root, cfg);
@@ -563,7 +564,7 @@ class Parser {
       if (!cJSON_IsObject(net)) {
         error("", "must be an object");
       } else {
-        check_known(net, "", {"name", "protocol", "role", "adapter", "master", "nodes", "slave", "j1939"});
+        check_known(net, "", {"name", "protocol", "role", "adapter", "master", "nodes", "slave", "j1939", "raw"});
         for (const char* old_key : {"interface", "bitrate"})
           if (cJSON_GetObjectItemCaseSensitive(net, old_key))
             error("", std::string("field '") + old_key + "' belongs in 'adapter' in schema_version 2");
@@ -574,12 +575,15 @@ class Parser {
         std::string protocol = "canopen";
         const cJSON* pj = cJSON_GetObjectItemCaseSensitive(net, "protocol");
         if (pj && (!cJSON_IsString(pj) || (std::strcmp(pj->valuestring, "canopen") != 0 &&
-                                           std::strcmp(pj->valuestring, "j1939") != 0))) {
-          error("", "field 'protocol' must be \"canopen\" or \"j1939\"");
+                                           std::strcmp(pj->valuestring, "j1939") != 0 &&
+                                           std::strcmp(pj->valuestring, "none") != 0))) {
+          error("", "field 'protocol' must be \"canopen\", \"j1939\" or \"none\"");
         } else if (pj) {
           protocol = pj->valuestring;
         }
-        cfg.protocol = protocol == "j1939" ? Protocol::J1939 : Protocol::CANopen;
+        cfg.protocol = protocol == "j1939"  ? Protocol::J1939
+                       : protocol == "none" ? Protocol::None
+                                            : Protocol::CANopen;
         if (pj && !protocol_built_in(cfg.protocol))
           error("", std::string(cfg.is_j1939() ? "J1939" : "CANopen") + " is not built into this plugin (built with: " +
                         built_in_protocols() + ")");
@@ -589,12 +593,14 @@ class Parser {
         std::string role = "master";
         if (cfg.is_j1939()) {
           parse_j1939_network(net, cfg);
+        } else if (cfg.is_plain()) {
+          parse_plain_network(net, cfg);
         } else if (cJSON_GetObjectItemCaseSensitive(net, "j1939")) {
           error("", "field 'j1939' belongs to a J1939 network (\"protocol\": \"j1939\")");
         }
-        if (!cfg.is_j1939() && get_string(net, "role", "", false, role) && role != "master" && role != "slave")
+        if (cfg.is_canopen() && get_string(net, "role", "", false, role) && role != "master" && role != "slave")
           error("", "field 'role' must be \"master\" or \"slave\", not \"" + role + "\"");
-        if (cfg.is_j1939()) {
+        if (!cfg.is_canopen()) {
           // Parsed above.
         } else if (role == "slave") {
           cfg.role = NetworkRole::Slave;
@@ -604,6 +610,10 @@ class Parser {
             error("", "field 'slave' belongs to a slave network (\"role\": \"slave\"), not a master network");
           parse_network(net, cfg);
         }
+        if (cfg.adapter.listen_only && !cfg.is_plain())
+          error("adapter", "field 'listen_only' needs a plain CAN network (\"protocol\": \"none\"): a " +
+                               std::string(cfg.is_j1939() ? "J1939" : "CANopen") + " network must send");
+        parse_raw_object(net, cfg);
         if (!named && !cfg.adapter.interface.empty()) {
           if (valid_network_name(cfg.adapter.interface))
             cfg.network = cfg.adapter.interface;
@@ -617,6 +627,7 @@ class Parser {
     }
     prefix_.clear();
     check_networks(set);
+    check_raw_ownership(set);
     parse_gateway(root, set);
     report_unlocated(set);
     if (set.networks.size() > 1)
@@ -959,6 +970,47 @@ class Parser {
                                         ecu.state_location);
     ecu.has_address_location = j_location(e, "address_location", w, IecArea::Input, IecSize::B,
                                           "a byte input (%IB)", ecu.address_location);
+  }
+
+  // ---- Plain CAN networks and raw messages (can-raw-messages spec) ----
+
+  void parse_plain_network(const cJSON* net, Config& cfg) {
+    for (const char* key : {"role", "master", "nodes", "slave", "j1939"})
+      if (cJSON_GetObjectItemCaseSensitive(net, key))
+        error("", std::string("field '") + key + "' does not belong to a plain CAN network (\"protocol\": \"none\"), "
+                  "which has only 'adapter' and 'raw'");
+    parse_adapter(net, cfg.adapter);
+    if (limits_.force_simulate) {
+      cfg.adapter.simulate = true;
+      cfg.adapter.simulation_forced = true;
+    }
+  }
+
+  // The network's `raw` object; its messages name their place in the file as
+  // "networks[0].raw.rx[1]", as the PC tools' checks do.
+  void parse_raw_object(const cJSON* net, Config& cfg) {
+    std::vector<std::string> errors, warnings;
+    std::string at = "networks[" + std::to_string(cfg.network_index) + "].raw";
+    canworks_raw::parse_raw(cJSON_GetObjectItemCaseSensitive(net, "raw"), at, cfg.adapter.listen_only, cfg.raw,
+                            errors, warnings);
+    for (const auto& e : errors) errors_.push_back(path_ + ": " + e);
+    for (const auto& w : warnings) warnings_.push_back(path_ + ": " + w);
+    if (cfg.is_plain() && cfg.raw.empty())
+      cfg.notes.push_back("network has no raw messages; it serves the program's CAN_* blocks, traces and diagnostics");
+  }
+
+  // Sent raw messages on identifiers the network's protocol uses need
+  // override_protocol (design Decision 7).
+  void check_raw_ownership(ConfigSet& set) {
+    for (auto& cfg : set.networks) {
+      if (cfg.raw.tx.empty()) continue;
+      std::vector<std::string> errors, overrides;
+      const Config& c = cfg;
+      canworks_raw::check_protocol_ids(
+          cfg.raw, [&c](uint32_t id, bool ext) { return protocol_id_use(c, id, ext); }, errors, overrides);
+      for (const auto& e : errors) errors_.push_back(path_ + ": " + e);
+      for (const auto& o : overrides) cfg.notes.push_back(o);
+    }
   }
 
   void parse_j1939_network(const cJSON* net, Config& cfg) {
@@ -1478,8 +1530,10 @@ class Parser {
         return;
       }
       check_known(adapter, w,
-                  {"type", "interface", "bitrate", "configure_link", "restart_ms", "device", "serial_baudrate", "simulate"});
+                  {"type", "interface", "bitrate", "configure_link", "restart_ms", "device", "serial_baudrate", "simulate",
+                   "listen_only"});
       get_bool(adapter, "simulate", w, a.simulate);
+      get_bool(adapter, "listen_only", w, a.listen_only);
       if (!get_string(adapter, "type", w, true, a.type)) return;
       if (a.type != "socketcan" && a.type != "slcan") {
         error(w, "adapter type \"" + a.type + "\" is not supported (supported: socketcan, slcan)");
@@ -1913,7 +1967,9 @@ class Parser {
     }
     if (!set.networks[up].is_slave()) {
       error(w, "upper network \"" + upper + "\" must be a slave network (\"role\": \"slave\"); it is a " +
-                   (set.networks[up].is_j1939() ? "J1939 network" : "master network"));
+                   (set.networks[up].is_j1939()   ? "J1939 network"
+                    : set.networks[up].is_plain() ? "plain CAN network"
+                                                  : "master network"));
       return;
     }
     g.enabled = true;
@@ -2004,8 +2060,9 @@ class Parser {
         continue;
       }
       const Config& field = set.networks[fn];
-      if (field.is_slave() || field.is_j1939()) {
-        error(fw, "network \"" + fnet + "\" is a " + (field.is_j1939() ? "J1939" : "slave") +
+      if (!field.is_canopen() || field.is_slave()) {
+        error(fw, "network \"" + fnet + "\" is a " +
+                      (field.is_j1939() ? "J1939" : field.is_plain() ? "plain CAN" : "slave") +
                       " network; a route's field end is on a CANopen master network");
         continue;
       }
@@ -2253,6 +2310,10 @@ class Parser {
 
   // Every IEC location of one network; `p` goes in front of each name.
   void collect_uses(const Config& cfg, const std::string& p, std::vector<Use>& uses) {
+    std::vector<std::pair<IecLocation, std::string>> raw;
+    canworks_raw::raw_locations(cfg.raw, raw);
+    for (const auto& r : raw) uses.push_back({r.first, r.second});
+    if (cfg.is_plain()) return;
     if (cfg.is_j1939()) {
       const J1939Config& j = cfg.j1939;
       if (j.ecu.has_state_location) uses.push_back({j.ecu.state_location, p + "ECU state"});
@@ -2435,12 +2496,15 @@ bool load_config(const std::string& path, const ImageLimits& limits,
 }
 
 bool GatewayConfig::is_field(const Config& c) const {
-  return !c.is_slave() && !c.is_j1939() && (int)c.network_index != upper_master;
+  return !c.is_slave() && c.is_canopen() && (int)c.network_index != upper_master;
 }
 
-const char* protocol_name(Protocol p) { return p == Protocol::J1939 ? "j1939" : "canopen"; }
+const char* protocol_name(Protocol p) {
+  return p == Protocol::J1939 ? "j1939" : p == Protocol::None ? "none" : "canopen";
+}
 
 bool protocol_built_in(Protocol p) {
+  if (p == Protocol::None) return true;  // raw CAN is part of the core
 #if CANWORKS_WITH_CANOPEN
   if (p == Protocol::CANopen) return true;
 #endif

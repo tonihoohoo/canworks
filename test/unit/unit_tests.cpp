@@ -4741,6 +4741,85 @@ TEST(diag_send_frame_read_only) {
   CHECK(f.count() == 0);
 }
 
+TEST(diag_replay) {
+  TxFixture f;
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  // Two batches; the second arrives while the first plays.
+  std::string a = c.ask(
+      R"({"op":"replay","more":true,"frames":[{"t_us":0,"id":291,"dlc":1,"data":"aa"},{"t_us":20000,"id":292,"dlc":0,"data":""}]})");
+  CHECK_MSG(has(a, R"("running":true)") && has(a, R"("queued":2)"), a);
+  a = c.ask(R"({"op":"replay","frames":[{"t_us":40000,"id":419430401,"extended":true,"rtr":true,"dlc":4}]})");
+  CHECK_MSG(has(a, R"("queued":3)"), a);
+  for (int i = 0; i < 100 && f.count() < 3; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  CHECK_MSG(f.count() == 3, std::to_string(f.count()));
+  CHECK(f.sent[0].id == 0x123 && f.sent[0].dlc == 1 && f.sent[0].data[0] == 0xAA && f.sent[1].dlc == 0);
+  CHECK(f.sent[2].ext && f.sent[2].rtr && f.sent[2].dlc == 4);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  a = c.ask(R"({"op":"replay_status"})");
+  CHECK_MSG(has(a, R"("running":false)") && has(a, R"("sent":3)") && has(a, R"("reason":"done")"), a);
+  CHECK(diag_log_count("diagnostics: replay started by 127.0.0.1") == 1);
+  CHECK(diag_log_count("diagnostics: replay of 127.0.0.1 ended: done, 3 frames sent") == 1);
+  // Guards: protocol identifiers need force, the rate limit, time order.
+  a = c.ask(R"({"op":"replay","frames":[{"t_us":0,"id":514,"data":"01"}]})");
+  CHECK_MSG(has(a, "0x202 is RPDO1 of node 2 (pingpong) on network can0; force needed"), a);
+  // 1000 frames in half a second pass, the 1001st within that second does not.
+  auto batch = [](int from, int n, bool more) {
+    std::string t = std::string(R"({"op":"replay",)") + (more ? R"("more":true,)" : "") + R"("frames":[)";
+    for (int i = from; i < from + n; ++i)
+      t += std::string(i > from ? "," : "") + R"({"t_us":)" + std::to_string(i * 500) + R"(,"id":1})";
+    return t + "]}";
+  };
+  CHECK(has(c.ask(batch(0, 500, true)), R"("queued":500)"));
+  CHECK(has(c.ask(batch(500, 500, true)), R"("queued":1000)"));
+  a = c.ask(batch(1000, 2, true));
+  CHECK_MSG(has(a, "more than 1000 frames in one second") && has(a, "1000 frames per second"), a);
+  CHECK(has(c.ask(R"({"op":"replay","more":true,"frames":[{"t_us":1,"id":1}]})"), "'t_us' goes back in time"));
+  // One replay per network.
+  {
+    DiagClient other(f.server->port());
+    other.ask(R"({"op":"hello","token":"secret"})");
+    CHECK(has(other.ask(R"({"op":"replay","frames":[{"t_us":0,"id":1}]})"), "a replay of 127.0.0.1 is running"));
+    CHECK(has(other.ask(R"({"op":"replay_stop"})"), "no replay of this connection"));
+  }
+  a = c.ask(R"({"op":"replay_stop"})");
+  CHECK_MSG(has(a, R"("reason":"stopped")"), a);
+  // Looping, and the end with the client.
+  {
+    DiagClient other(f.server->port());
+    other.ask(R"({"op":"hello","token":"secret"})");
+    size_t before = f.count();
+    a = other.ask(R"({"op":"replay","loop":true,"frames":[{"t_us":0,"id":5},{"t_us":10000,"id":6}]})");
+    CHECK_MSG(has(a, R"("running":true)"), a);
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    a = other.ask(R"({"op":"replay_status"})");
+    CHECK_MSG(has(a, R"("running":true)") && !has(a, R"("rounds":0)"), a);
+    CHECK(f.count() - before >= 4);
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  CHECK(diag_log_count("ended: client disconnected") == 1);
+  // Bad fields.
+  CHECK(has(c.ask(R"({"op":"replay","frames":[]})"), "1-500 frames"));
+  CHECK(has(c.ask(R"({"op":"replay","frames":[{"id":1}]})"), "frame 1: missing field 't_us'"));
+  CHECK(has(c.ask(R"({"op":"replay","frames":[{"t_us":0,"id":1,"dlc":2,"data":"01"}]})"), "'dlc' does not match"));
+}
+
+TEST(diag_replay_refusals) {
+  TxFixture f(false);
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  CHECK(has(c.ask(R"({"op":"replay","frames":[{"t_us":0,"id":1}]})"), "changes not allowed"));
+  TxFixture g;
+  g.cfg.adapter.listen_only = true;
+  CHECK(wait_port(*g.server));
+  DiagClient d(g.server->port());
+  d.ask(R"({"op":"hello","token":"secret"})");
+  CHECK(has(d.ask(R"({"op":"replay","frames":[{"t_us":0,"id":1}]})"), "is listen-only"));
+  CHECK(g.count() == 0);
+}
+
 TEST(diag_send_frame_cyclic_jobs) {
   TxFixture f;
   CHECK(wait_port(*f.server));
