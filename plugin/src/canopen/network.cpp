@@ -568,7 +568,13 @@ void Network::ReportIdentity(uint8_t id, char es) {
     std::string key = std::string(1, es) + (read ? std::to_string(value) : "?");
     if (key == n.identity_logged) return;
     n.identity_logged = key;
-    if (read)
+    if (read && value == expected)
+      // The boot's own read of the object failed (an SDO abort, or another
+      // master answering on the same channel), not the device check.
+      log_error("%s: the boot could not check the %s (status %c), which reads %u (0x%08X) as expected now: "
+                "is another CANopen master on the bus?",
+                label.c_str(), field, es, value, value);
+    else if (read)
       log_error("%s: wrong device: %s %u (0x%08X), expected %u (0x%08X) from %s", label.c_str(), field, value, value,
                 expected, expected, source.c_str());
     else

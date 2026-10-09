@@ -24,6 +24,8 @@ sudo scripts/install-bridge.sh
 
 This builds Lely CANopen and dcfgen into `/opt/canworks`, builds `canworks-bridge` into `/opt/canworks/bin`, installs the systemd template unit `canworks-bridge@.service` and creates `/etc/canworks-bridge/`. `--without-canopen` builds J1939 only, `--without-j1939` CANopen only, as for the plugin ([install-stock.md](install-stock.md)). The build needs the OpenPLC runtime's plugin headers (not the runtime itself): the script downloads them, or `--runtime-dir DIR` uses a checkout you have. `--uninstall` stops every bridge and removes the unit and the binary; the configs stay unless you add `--purge`.
 
+On a device whose OpenPLC runtime runs in Docker (upstream's managed install), `/opt/canworks` belongs to the runtime's container, which made its Python environment; install the bridge into a prefix of its own, `sudo scripts/install-bridge.sh --prefix /opt/canworks-bridge` (the script refuses the container's prefix and says so). The paths below then start with `/opt/canworks-bridge`.
+
 Each service instance runs one config:
 
 ```sh
@@ -34,7 +36,9 @@ sudo systemctl enable --now canworks-bridge@line1
 journalctl -u canworks-bridge@line1
 ```
 
-Several instances run side by side, each with its own CAN interfaces and Modbus port, for example `canworks-bridge@press` on `can0` and port 502 and `canworks-bridge@feeder` on `can1` and port 1502. One CAN interface belongs to one process: a second bridge, or the OpenPLC plugin, that names an interface already in use logs `CAN interface can0 is owned by another canworks process (process ID 812); not touching it` and leaves that network off. The lock files are in `/run/canworks` (`CANWORKS_LOCK_DIR`); a plugin inside the runtime's Docker container has its own `/run`, so do not run a bridge and that plugin on one interface.
+Several instances run side by side, each with its own CAN interfaces and Modbus port, for example `canworks-bridge@press` on `can0` and port 502 and `canworks-bridge@feeder` on `can1` and port 1502. One CAN interface belongs to one process: a second bridge, or the OpenPLC plugin, that names an interface already in use logs `CAN interface can0 is owned by another canworks process (process ID 812); not touching it` and leaves that network off. The lock is an abstract Unix socket per interface, so it also holds between a bridge on the host and the plugin in the runtime's Docker container, which runs on the host network.
+
+To hand an interface from a Docker runtime to a bridge, stop the runtime's bootloader before the runtime, or the bootloader starts the runtime again within seconds: `docker stop openplc-bootloader openplc-runtime`, and `docker start openplc-runtime openplc-bootloader` to give it back.
 
 ### Container image
 

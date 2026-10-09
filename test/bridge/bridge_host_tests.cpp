@@ -370,18 +370,20 @@ TEST(map_matches_the_pc_tools) {
 }
 
 TEST(interface_lock) {
-  char tmpl[] = "/tmp/canworks-lock-XXXXXX";
-  std::string dir = mkdtemp(tmpl);
-  setenv("CANWORKS_LOCK_DIR", dir.c_str(), 1);
-  canopen_plugin::InterfaceLock a, b;
+  std::string prefix = "canworks-test-" + std::to_string(getpid()) + ":";
+  setenv("CANWORKS_LOCK_PREFIX", prefix.c_str(), 1);
+  canopen_plugin::InterfaceLock a, b, c;
   std::string problem;
   EXPECT(a.acquire("vcan9", problem));
   EXPECT(!b.acquire("vcan9", problem));
-  EXPECT(problem.find("owned by another canworks process") != std::string::npos);
+  EXPECT(problem.find("owned by another canworks process (process ID " + std::to_string(getpid()) + ")") !=
+         std::string::npos);
+  EXPECT(c.acquire("vcan8", problem));  // another interface is free
   a.release();
   EXPECT(b.acquire("vcan9", problem));
   b.release();
-  unsetenv("CANWORKS_LOCK_DIR");
+  c.release();
+  unsetenv("CANWORKS_LOCK_PREFIX");
 }
 
 TEST(rejects_plain_configs) {

@@ -44,7 +44,7 @@
 
 ## 8. Hardware
 
-- [ ] 8.1 Pi: bridge with node 23 on `can0`; a Modbus client on the Mac reads inputs, writes outputs (node reacts), stops writing (outputs stop after 1 s), uses the control block (NMT stop/start node 23) and reads 0x1018:1 through the SDO bridge registers. Use a clean PLC start afterwards; the OpenPLC plugin and the bridge must not run on `can0` at the same time.
+- [x] 8.1 Pi: bridge with node 23 on `can0`; a Modbus client on the Mac reads inputs, writes outputs (node reacts), stops writing (outputs stop after 1 s), uses the control block (NMT stop/start node 23) and reads 0x1018:1 through the SDO bridge registers. Use a clean PLC start afterwards; the OpenPLC plugin and the bridge must not run on `can0` at the same time. Passed 2026-10-09 from the Windows PC instead of the Mac (outputs: only the output the device is configured for reads back, as expected); the run found the follow-ups fixed in the next change (lock across Docker, the identity log line, the bridge prefix next to a Docker runtime).
 
 ## 9. Docs
 
