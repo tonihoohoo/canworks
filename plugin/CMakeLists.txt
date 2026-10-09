@@ -4,6 +4,13 @@
 # Lely CANopen is found with pkg-config (distro packages), falling back to
 # /opt/canworks/lely (override with -DLELY_PREFIX=).
 
+# The protocols built in (canopen-networks "Protocols built into the plugin").
+option(CANWORKS_WITH_CANOPEN "Build CANopen into the plugin (needs Lely CANopen and dcfgen)" ON)
+option(CANWORKS_WITH_J1939 "Build J1939 into the plugin (Linux kernel J1939 sockets)" ON)
+if(NOT CANWORKS_WITH_CANOPEN AND NOT CANWORKS_WITH_J1939)
+  message(FATAL_ERROR "build at least one protocol: CANWORKS_WITH_CANOPEN or CANWORKS_WITH_J1939")
+endif()
+
 set(LELY_PREFIX "/opt/canworks/lely" CACHE PATH "Lely CANopen install prefix (fallback)")
 # Where scripts/build-lely.sh put Lely and the dcfgen venv (<prefix>/venv).
 set(CANOPEN_PREFIX "/opt/canworks" CACHE PATH "Install prefix of Lely and dcfgen")
@@ -21,6 +28,7 @@ add_library(canopen_core STATIC
     src/can/log.cpp
     src/can/iec_location.cpp
     src/can/config.cpp
+    src/j1939/j1939_config.cpp
     src/canopen/eds_check.cpp
     src/canopen/eds_lint.cpp
     src/canopen/dcf_gen.cpp
@@ -63,6 +71,7 @@ target_include_directories(canopen_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/can
     ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen
     ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/sim
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/j1939
     ${NATIVE_DIR}/cjson
     ${OPENPLC_ROOT}/core/src/drivers
     ${OPENPLC_ROOT}/core/src/lib
@@ -70,6 +79,8 @@ target_include_directories(canopen_core PUBLIC
 )
 target_compile_options(canopen_core PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_compile_definitions(canopen_core PRIVATE CANOPEN_PREFIX="${CANOPEN_PREFIX}")
+target_compile_definitions(canopen_core PUBLIC CANWORKS_WITH_CANOPEN=$<BOOL:${CANWORKS_WITH_CANOPEN}>
+                           CANWORKS_WITH_J1939=$<BOOL:${CANWORKS_WITH_J1939}>)
 target_link_directories(canopen_core PUBLIC ${LELY_LIBRARY_DIRS})
 target_link_libraries(canopen_core PUBLIC ${LELY_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto pthread)
 

@@ -517,8 +517,11 @@ class Parser {
                     "\"role\": \"slave\")");
       if (cJSON_GetObjectItemCaseSensitive(root, "gateway"))
         error("", "field 'gateway' needs schema_version: 2");
+      for (const char* key : {"protocol", "j1939"})
+        if (cJSON_GetObjectItemCaseSensitive(root, key))
+          error("", std::string("field '") + key + "' needs schema_version 2");
       check_known(root, "", {"$schema", "schema_version", "adapter", "interface", "bitrate", "master", "nodes",
-                             "role", "slave", "gateway"});
+                             "role", "slave", "gateway", "protocol", "j1939"});
       Config cfg = blank(set);
       cfg.work_dir = set.config_dir + "/.canworks";
       parse_network(root, cfg);
@@ -560,7 +563,7 @@ class Parser {
       if (!cJSON_IsObject(net)) {
         error("", "must be an object");
       } else {
-        check_known(net, "", {"name", "role", "adapter", "master", "nodes", "slave"});
+        check_known(net, "", {"name", "protocol", "role", "adapter", "master", "nodes", "slave", "j1939"});
         for (const char* old_key : {"interface", "bitrate"})
           if (cJSON_GetObjectItemCaseSensitive(net, old_key))
             error("", std::string("field '") + old_key + "' belongs in 'adapter' in schema_version 2");
@@ -568,10 +571,32 @@ class Parser {
         if (named && !valid_network_name(cfg.network))
           error("", "network name \"" + cfg.network + "\" must start with a letter and hold only letters, digits "
                     "and '_', at most 16 characters");
+        std::string protocol = "canopen";
+        const cJSON* pj = cJSON_GetObjectItemCaseSensitive(net, "protocol");
+        if (pj && (!cJSON_IsString(pj) || (std::strcmp(pj->valuestring, "canopen") != 0 &&
+                                           std::strcmp(pj->valuestring, "j1939") != 0))) {
+          error("", "field 'protocol' must be \"canopen\" or \"j1939\"");
+        } else if (pj) {
+          protocol = pj->valuestring;
+        }
+        cfg.protocol = protocol == "j1939" ? Protocol::J1939 : Protocol::CANopen;
+        if (pj && !protocol_built_in(cfg.protocol))
+          error("", std::string(cfg.is_j1939() ? "J1939" : "CANopen") + " is not built into this plugin (built with: " +
+                        built_in_protocols() + ")");
+        else if (!pj && !protocol_built_in(Protocol::CANopen))
+          error("", "CANopen is not built into this plugin (built with: " + built_in_protocols() +
+                        "); a network without 'protocol' is a CANopen network");
         std::string role = "master";
-        if (get_string(net, "role", "", false, role) && role != "master" && role != "slave")
+        if (cfg.is_j1939()) {
+          parse_j1939_network(net, cfg);
+        } else if (cJSON_GetObjectItemCaseSensitive(net, "j1939")) {
+          error("", "field 'j1939' belongs to a J1939 network (\"protocol\": \"j1939\")");
+        }
+        if (!cfg.is_j1939() && get_string(net, "role", "", false, role) && role != "master" && role != "slave")
           error("", "field 'role' must be \"master\" or \"slave\", not \"" + role + "\"");
-        if (role == "slave") {
+        if (cfg.is_j1939()) {
+          // Parsed above.
+        } else if (role == "slave") {
           cfg.role = NetworkRole::Slave;
           parse_slave_network(net, cfg);
         } else {
@@ -705,6 +730,339 @@ class Parser {
       collect_uses(cfg, who + " ", uses);
     }
     report_overlaps(uses, "networks");
+  }
+
+  // ---- J1939 networks (j1939-config spec) ----
+
+  // An integer field of a J1939 object; false when it is missing or not a
+  // non-negative integer (the latter is an error). Ranges are checked by the
+  // caller, so the message can name the J1939 range.
+  bool j_uint(const cJSON* obj, const char* key, const std::string& where, uint64_t& out) {
+    const cJSON* item = cJSON_GetObjectItemCaseSensitive(obj, key);
+    if (!item) return false;
+    if (!cJSON_IsNumber(item) || item->valuedouble < 0 ||
+        item->valuedouble != (double)(uint64_t)item->valuedouble) {
+      error(where, std::string("field '") + key + "' must be a non-negative integer");
+      return false;
+    }
+    out = (uint64_t)item->valuedouble;
+    return true;
+  }
+
+  // As j_uint, then within lo..hi ("address 254 is out of range 0..253").
+  bool j_range(const cJSON* obj, const char* key, const std::string& where, uint64_t lo, uint64_t hi,
+               uint64_t& out, const std::string& extra = "") {
+    if (!j_uint(obj, key, where, out)) return false;
+    if (out < lo || out > hi) {
+      error(where, std::string(key) + " " + std::to_string(out) + " is out of range " + std::to_string(lo) + ".." +
+                       std::to_string(hi) + extra);
+      return false;
+    }
+    return true;
+  }
+
+  // A 64-bit value written as a string ("0x00000000000004D2") or an integer.
+  bool j_uint64(const cJSON* obj, const char* key, const std::string& where, uint64_t& out) {
+    const cJSON* item = cJSON_GetObjectItemCaseSensitive(obj, key);
+    if (!item) return false;
+    if (cJSON_IsString(item) && item->valuestring[0] && item->valuestring[0] != '-') {
+      errno = 0;
+      char* end = nullptr;
+      out = std::strtoull(item->valuestring, &end, 0);
+      if (*end == '\0' && errno == 0) return true;
+    } else if (cJSON_IsNumber(item)) {
+      return j_uint(obj, key, where, out);
+    }
+    error(where, std::string("field '") + key + "' must be a 64-bit unsigned integer, decimal or 0x hex");
+    return false;
+  }
+
+  bool j_location(const cJSON* obj, const char* key, const std::string& where, IecArea area, IecSize size,
+                  const char* what, IecLocation& out) {
+    if (!cJSON_GetObjectItemCaseSensitive(obj, key)) return false;
+    if (!get_location(obj, key, where, false, out)) return false;
+    if (out.area != area || out.size != size) {
+      error(where, std::string(key) + " " + out.str() + " must be " + what);
+      return false;
+    }
+    return true;
+  }
+
+  bool j_pgn(const cJSON* obj, const std::string& where, uint32_t& out) {
+    uint64_t v;
+    if (!cJSON_GetObjectItemCaseSensitive(obj, "pgn")) {
+      error(where, "field 'pgn' is missing");
+      return false;
+    }
+    if (!j_range(obj, "pgn", where, 0, kJ1939MaxPgn, v, " (0x3FFFF)")) return false;
+    out = (uint32_t)v;
+    if (j1939_pdu1(out) && (out & 0xFF))
+      error(where, "PGN " + j1939_pgn_text(out) +
+                       " is a PDU1 PGN: its low byte must be 0 (the destination is given separately)");
+    return true;
+  }
+
+  bool j_destination(const cJSON* obj, const std::string& where, unsigned& out) {
+    uint64_t v;
+    if (!j_uint(obj, "destination", where, v)) return false;
+    if (v > kJ1939MaxAddress && v != kJ1939Global) {
+      error(where, "destination " + std::to_string(v) + " is out of range 0..253 or 255 (global)");
+      return false;
+    }
+    out = (unsigned)v;
+    return true;
+  }
+
+  void parse_j1939_signals(const cJSON* msg, const std::string& where, bool rx, std::vector<J1939Signal>& out) {
+    const cJSON* arr = cJSON_GetObjectItemCaseSensitive(msg, "signals");
+    if (!arr) {
+      error(where, "field 'signals' is missing");
+      return;
+    }
+    if (!cJSON_IsArray(arr)) {
+      error(where, "field 'signals' must be an array");
+      return;
+    }
+    int i = 0;
+    const cJSON* sj;
+    cJSON_ArrayForEach(sj, arr) {
+      std::string sw = where + ": signals[" + std::to_string(i++) + "]";
+      if (!cJSON_IsObject(sj)) {
+        error(sw, "must be an object");
+        continue;
+      }
+      check_known(sj, sw, {"name", "start_bit", "length", "byte_order", "signed", "scale", "offset", "unit",
+                           "iec_location", "valid_location"});
+      J1939Signal s;
+      if (!get_string(sj, "name", sw, true, s.name)) continue;
+      const std::string me = "signal " + s.name;
+      bool ok = true;
+      uint64_t v;
+      if (!cJSON_GetObjectItemCaseSensitive(sj, "start_bit")) {
+        error(where, me + ": field 'start_bit' is missing");
+        ok = false;
+      } else if (j_range(sj, "start_bit", where + ": " + me, 0, kJ1939MaxLength * 8 - 1, v)) {
+        s.start_bit = (unsigned)v;
+      } else {
+        ok = false;
+      }
+      if (!cJSON_GetObjectItemCaseSensitive(sj, "length")) {
+        error(where, me + ": field 'length' is missing");
+        ok = false;
+      } else if (j_range(sj, "length", where + ": " + me, 1, 64, v)) {
+        s.length = (unsigned)v;
+      } else {
+        ok = false;
+      }
+      std::string order;
+      if (get_string(sj, "byte_order", sw, false, order)) {
+        if (order == "big")
+          s.big_endian = true;
+        else if (order != "little")
+          error(where, me + ": field 'byte_order' must be \"little\" or \"big\", not \"" + order + "\"");
+      }
+      get_bool(sj, "signed", sw, s.is_signed);
+      get_number(sj, "scale", sw, -1e300, 1e300, s.scale);
+      get_number(sj, "offset", sw, -1e300, 1e300, s.offset);
+      get_string(sj, "unit", sw, false, s.unit);
+      if (!cJSON_GetObjectItemCaseSensitive(sj, "iec_location")) {
+        error(where, me + ": field 'iec_location' is missing");
+        ok = false;
+      } else if (get_location(sj, "iec_location", where + ": " + me, false, s.location)) {
+        if (rx && s.location.area != IecArea::Input) {
+          error(where, me + ": location " + s.location.str() + " must be an input (%I)");
+          ok = false;
+        } else if (!rx && s.location.area != IecArea::Output) {
+          error(where, me + ": location " + s.location.str() + " must be an output (%Q)");
+          ok = false;
+        } else if (ok && (s.location.size == IecSize::X ? s.length != 1
+                                                        : s.length > iec_size_bits(s.location.size))) {
+          error(where, me + " (" + std::to_string(s.length) + " bit" + (s.length == 1 ? "" : "s") +
+                           ") does not fit location " + s.location.str() + " (" +
+                           std::to_string(iec_size_bits(s.location.size)) + " bit)");
+          ok = false;
+        }
+      } else {
+        ok = false;
+      }
+      if (cJSON_GetObjectItemCaseSensitive(sj, "valid_location")) {
+        if (!rx)
+          error(where, me + ": field 'valid_location' is only for received signals (rx)");
+        else
+          s.has_valid_location = j_location(sj, "valid_location", where + ": " + me, IecArea::Input, IecSize::X,
+                                            "a bit input (%IX)", s.valid_location);
+      }
+      if (ok) out.push_back(s);
+    }
+  }
+
+  void parse_j1939_ecu(const cJSON* j, J1939Ecu& ecu) {
+    const std::string w = "j1939: ecu";
+    const cJSON* e = cJSON_GetObjectItemCaseSensitive(j, "ecu");
+    if (!e) {
+      error("j1939", "field 'ecu' is missing");
+      return;
+    }
+    if (!cJSON_IsObject(e)) {
+      error("j1939", "field 'ecu' must be an object");
+      return;
+    }
+    check_known(e, w, {"name", "address", "address_range", "state_location", "address_location"});
+    uint64_t v;
+    const cJSON* n = cJSON_GetObjectItemCaseSensitive(e, "name");
+    if (!n) {
+      error(w, "field 'name' is missing");
+    } else if (!cJSON_IsObject(n)) {
+      error(w, "field 'name' must be an object of NAME fields");
+    } else {
+      const std::string nw = w + ": name";
+      check_known(n, nw, {"identity_number", "manufacturer_code", "ecu_instance", "function_instance", "function",
+                          "vehicle_system", "vehicle_system_instance", "industry_group", "arbitrary_address_capable"});
+      J1939Name& nm = ecu.name;
+      if (j_range(n, "identity_number", nw, 0, 0x1FFFFF, v)) nm.identity_number = (uint32_t)v;
+      if (j_range(n, "manufacturer_code", nw, 0, 2047, v)) nm.manufacturer_code = (uint16_t)v;
+      if (j_range(n, "ecu_instance", nw, 0, 7, v)) nm.ecu_instance = (uint8_t)v;
+      if (j_range(n, "function_instance", nw, 0, 31, v)) nm.function_instance = (uint8_t)v;
+      if (j_range(n, "function", nw, 0, 255, v)) nm.function = (uint8_t)v;
+      if (j_range(n, "vehicle_system", nw, 0, 127, v)) nm.vehicle_system = (uint8_t)v;
+      if (j_range(n, "vehicle_system_instance", nw, 0, 15, v)) nm.vehicle_system_instance = (uint8_t)v;
+      if (j_range(n, "industry_group", nw, 0, 7, v)) nm.industry_group = (uint8_t)v;
+      get_bool(n, "arbitrary_address_capable", nw, nm.arbitrary_address_capable);
+    }
+    if (!cJSON_GetObjectItemCaseSensitive(e, "address"))
+      error(w, "field 'address' is missing");
+    else if (j_range(e, "address", w, 0, kJ1939MaxAddress, v))
+      ecu.address = (unsigned)v;
+    const cJSON* r = cJSON_GetObjectItemCaseSensitive(e, "address_range");
+    if (r) {
+      const cJSON* lo = cJSON_GetArrayItem(r, 0);
+      const cJSON* hi = cJSON_GetArrayItem(r, 1);
+      auto addr = [](const cJSON* x) { return cJSON_IsNumber(x) && x->valuedouble >= 0 && x->valuedouble <= 253 &&
+                                              x->valuedouble == (double)(int)x->valuedouble; };
+      char* text = cJSON_PrintUnformatted(r);
+      std::string shown = text ? text : "?";
+      cJSON_free(text);
+      for (size_t k = 0; k < shown.size(); ++k)
+        if (shown[k] == ',') shown.insert(++k, " ");
+      if (!cJSON_IsArray(r) || cJSON_GetArraySize(r) != 2 || !addr(lo) || !addr(hi) ||
+          lo->valuedouble > hi->valuedouble) {
+        error(w, "address_range " + shown + " must be [low, high] within 0..253");
+      } else {
+        ecu.has_range = true;
+        ecu.range_low = (unsigned)lo->valuedouble;
+        ecu.range_high = (unsigned)hi->valuedouble;
+        if (!ecu.name.arbitrary_address_capable)
+          error(w, "address_range needs a NAME with arbitrary_address_capable true");
+      }
+    }
+    ecu.has_state_location = j_location(e, "state_location", w, IecArea::Input, IecSize::B, "a byte input (%IB)",
+                                        ecu.state_location);
+    ecu.has_address_location = j_location(e, "address_location", w, IecArea::Input, IecSize::B,
+                                          "a byte input (%IB)", ecu.address_location);
+  }
+
+  void parse_j1939_network(const cJSON* net, Config& cfg) {
+    for (const char* key : {"role", "master", "nodes", "slave"})
+      if (cJSON_GetObjectItemCaseSensitive(net, key))
+        error("", std::string("field '") + key + "' belongs to a CANopen network; a J1939 network has 'j1939'");
+    parse_adapter(net, cfg.adapter);
+    if (cfg.adapter.simulate)
+      error("", "J1939 networks run on SocketCAN or slcan interfaces; use a vcan interface for simulation, not "
+                "adapter.simulate");
+    else if (limits_.force_simulate)
+      error("", "J1939 networks need the Linux kernel's J1939 support and cannot run on the simulated bus this "
+                "runtime forces (CANWORKS_FORCE_SIMULATE=1); run them on a vcan interface on a Linux runtime");
+    const cJSON* j = cJSON_GetObjectItemCaseSensitive(net, "j1939");
+    if (!j) {
+      error("", "a J1939 network needs a 'j1939' object");
+      return;
+    }
+    if (!cJSON_IsObject(j)) {
+      error("", "field 'j1939' must be an object");
+      return;
+    }
+    check_known(j, "j1939", {"ecu", "dbc", "rx", "tx", "requests"});
+    J1939Config& jc = cfg.j1939;
+    parse_j1939_ecu(j, jc.ecu);
+    get_string(j, "dbc", "j1939", false, jc.dbc);
+    uint64_t v;
+    for (const char* list : {"rx", "tx", "requests"}) {
+      const cJSON* arr = cJSON_GetObjectItemCaseSensitive(j, list);
+      if (arr && !cJSON_IsArray(arr)) {
+        error("j1939", std::string("field '") + list + "' must be an array");
+        continue;
+      }
+      int i = 0;
+      const cJSON* m;
+      cJSON_ArrayForEach(m, arr) {
+        std::string w = std::string("j1939: ") + list + "[" + std::to_string(i++) + "]";
+        if (!cJSON_IsObject(m)) {
+          error(w, "must be an object");
+          continue;
+        }
+        if (std::strcmp(list, "rx") == 0) {
+          check_known(m, w, {"pgn", "name", "source", "source_name", "source_name_mask", "timeout_ms",
+                             "status_location", "signals"});
+          J1939Rx r;
+          j_pgn(m, w, r.pgn);
+          get_string(m, "name", w, false, r.name);
+          bool src = cJSON_GetObjectItemCaseSensitive(m, "source") != nullptr;
+          bool src_name = cJSON_GetObjectItemCaseSensitive(m, "source_name") != nullptr;
+          if (src && src_name) {
+            error(w, "give 'source' or 'source_name', not both");
+          } else if (src) {
+            if (j_range(m, "source", w, 0, kJ1939MaxAddress, v)) {
+              r.has_source = true;
+              r.source = (unsigned)v;
+            }
+          } else if (src_name) {
+            r.has_source_name = j_uint64(m, "source_name", w, r.source_name);
+          }
+          if (cJSON_GetObjectItemCaseSensitive(m, "source_name_mask")) {
+            if (!src_name)
+              error(w, "field 'source_name_mask' needs 'source_name'");
+            else
+              j_uint64(m, "source_name_mask", w, r.source_name_mask);
+          }
+          if (j_range(m, "timeout_ms", w, 0, kJ1939MaxPeriodMs, v)) r.timeout_ms = (unsigned)v;
+          r.has_status_location = j_location(m, "status_location", w, IecArea::Input, IecSize::X,
+                                             "a bit input (%IX)", r.status_location);
+          parse_j1939_signals(m, w, true, r.signals);
+          jc.rx.push_back(r);
+        } else if (std::strcmp(list, "tx") == 0) {
+          check_known(m, w, {"pgn", "name", "priority", "destination", "length", "period_ms", "min_gap_ms",
+                             "signals"});
+          J1939Tx t;
+          bool pgn_ok = j_pgn(m, w, t.pgn);
+          get_string(m, "name", w, false, t.name);
+          if (j_range(m, "priority", w, 0, 7, v)) t.priority = (unsigned)v;
+          if (j_destination(m, w, t.destination)) {
+            t.has_destination = true;
+            if (pgn_ok && !j1939_pdu1(t.pgn))
+              error(w, "PGN " + j1939_pgn_text(t.pgn) + " is a PDU2 PGN and always broadcast; remove 'destination'");
+          }
+          if (j_range(m, "length", w, 1, kJ1939MaxLength, v)) {
+            t.has_length = true;
+            t.length = (unsigned)v;
+          }
+          if (j_range(m, "period_ms", w, 0, kJ1939MaxPeriodMs, v)) t.period_ms = (unsigned)v;
+          if (j_range(m, "min_gap_ms", w, 0, kJ1939MaxPeriodMs, v)) t.min_gap_ms = (unsigned)v;
+          parse_j1939_signals(m, w, false, t.signals);
+          jc.tx.push_back(t);
+        } else {
+          check_known(m, w, {"pgn", "destination", "period_ms"});
+          J1939Request q;
+          j_pgn(m, w, q.pgn);
+          j_destination(m, w, q.destination);
+          if (!cJSON_GetObjectItemCaseSensitive(m, "period_ms"))
+            error(w, "field 'period_ms' is missing");
+          else if (j_range(m, "period_ms", w, kJ1939MinRequestPeriodMs, kJ1939MaxPeriodMs, v))
+            q.period_ms = (unsigned)v;
+          jc.requests.push_back(q);
+        }
+      }
+    }
+    check_j1939(jc, [this](const std::string& where, const std::string& msg) { error(where, msg); });
   }
 
   // Parses one network: the version 1 top level, or one networks[] entry.
@@ -1554,7 +1912,8 @@ class Parser {
       return;
     }
     if (!set.networks[up].is_slave()) {
-      error(w, "upper network \"" + upper + "\" must be a slave network (\"role\": \"slave\"); it is a master network");
+      error(w, "upper network \"" + upper + "\" must be a slave network (\"role\": \"slave\"); it is a " +
+                   (set.networks[up].is_j1939() ? "J1939 network" : "master network"));
       return;
     }
     g.enabled = true;
@@ -1645,8 +2004,9 @@ class Parser {
         continue;
       }
       const Config& field = set.networks[fn];
-      if (field.is_slave()) {
-        error(fw, "network \"" + fnet + "\" is a slave network; a route's field end is on a master network");
+      if (field.is_slave() || field.is_j1939()) {
+        error(fw, "network \"" + fnet + "\" is a " + (field.is_j1939() ? "J1939" : "slave") +
+                      " network; a route's field end is on a CANopen master network");
         continue;
       }
       if ((int)fn == g.upper_master) {
@@ -1893,6 +2253,22 @@ class Parser {
 
   // Every IEC location of one network; `p` goes in front of each name.
   void collect_uses(const Config& cfg, const std::string& p, std::vector<Use>& uses) {
+    if (cfg.is_j1939()) {
+      const J1939Config& j = cfg.j1939;
+      if (j.ecu.has_state_location) uses.push_back({j.ecu.state_location, p + "ECU state"});
+      if (j.ecu.has_address_location) uses.push_back({j.ecu.address_location, p + "ECU address"});
+      for (const auto& r : j.rx) {
+        std::string m = p + "PGN " + std::to_string(r.pgn);
+        if (r.has_status_location) uses.push_back({r.status_location, m + " status_location"});
+        for (const auto& s : r.signals) {
+          uses.push_back({s.location, m + " signal " + s.name});
+          if (s.has_valid_location) uses.push_back({s.valid_location, m + " signal " + s.name + " valid_location"});
+        }
+      }
+      for (const auto& t : j.tx)
+        for (const auto& s : t.signals) uses.push_back({s.location, p + "PGN " + std::to_string(t.pgn) + " signal " + s.name});
+      return;
+    }
     if (cfg.is_slave()) {
       const SlaveConfig& s = cfg.slave;
       if (s.has_state_location) uses.push_back({s.state_location, p + "slave state_location"});
@@ -2059,7 +2435,26 @@ bool load_config(const std::string& path, const ImageLimits& limits,
 }
 
 bool GatewayConfig::is_field(const Config& c) const {
-  return !c.is_slave() && (int)c.network_index != upper_master;
+  return !c.is_slave() && !c.is_j1939() && (int)c.network_index != upper_master;
+}
+
+const char* protocol_name(Protocol p) { return p == Protocol::J1939 ? "j1939" : "canopen"; }
+
+bool protocol_built_in(Protocol p) {
+#if CANWORKS_WITH_CANOPEN
+  if (p == Protocol::CANopen) return true;
+#endif
+#if CANWORKS_WITH_J1939
+  if (p == Protocol::J1939) return true;
+#endif
+  return false;
+}
+
+std::string built_in_protocols() {
+  std::string s;
+  for (Protocol p : {Protocol::CANopen, Protocol::J1939})
+    if (protocol_built_in(p)) s += std::string(s.empty() ? "" : ", ") + protocol_name(p);
+  return s;
 }
 
 bool force_simulate_from_env(const char* value) { return value && std::strcmp(value, "1") == 0; }

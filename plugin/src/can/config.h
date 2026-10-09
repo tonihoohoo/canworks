@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "iec_location.h"
+#include "j1939_config.h"
 #include "secure_channel.h"
 
 namespace canopen_plugin {
@@ -326,6 +327,14 @@ struct AdapterConfig {
 // (NMT slave) on a bus another master runs (canopen-slave-device spec).
 enum class NetworkRole { Master, Slave };
 
+// The protocol a network runs (`protocol`, version 2 only).
+enum class Protocol { CANopen, J1939 };
+const char* protocol_name(Protocol p);  // "canopen", "j1939"
+// Whether this plugin was built with the protocol (CANWORKS_WITH_* options),
+// and the built-in protocols as "canopen, j1939".
+bool protocol_built_in(Protocol p);
+std::string built_in_protocols();
+
 // One object of the slave's own dictionary bound to one PLC location. The
 // direction comes from the EDS access type (check_eds_files): objects the
 // master writes (rww, rw) are PLC inputs, objects it reads (ro, rwr) PLC
@@ -428,6 +437,8 @@ struct Config {
   // Put in front of the network's log lines ("drives"), empty when the file
   // has one network.
   std::string log_prefix;
+  Protocol protocol = Protocol::CANopen;
+  bool is_j1939() const { return protocol == Protocol::J1939; }
   NetworkRole role = NetworkRole::Master;
   bool is_slave() const { return role == NetworkRole::Slave; }
   AdapterConfig adapter;
@@ -436,6 +447,7 @@ struct Config {
   MasterConfig master;
   SlaveConfig slave;  // slave networks only
   std::vector<NodeConfig> nodes;
+  J1939Config j1939;  // J1939 networks only
   // Non-fatal findings (deprecated keys, unknown fields), each naming the
   // file and the JSON path. The plugin logs them as warnings.
   std::vector<std::string> warnings;

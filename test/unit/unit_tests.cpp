@@ -916,6 +916,8 @@ TEST(shared_fixtures) { CHECK(run_fixture_file("cases.json") > 20); }
 
 TEST(shared_fixtures_v2) { CHECK(run_fixture_file("cases-v2.json") > 15); }
 
+TEST(shared_fixtures_j1939) { CHECK(run_fixture_file("cases-j1939.json") > 30); }
+
 // ---------------------------------------------------------------------------
 // SocketCAN link setup on a mocked rtnetlink layer (canopen-master-bringup)
 
