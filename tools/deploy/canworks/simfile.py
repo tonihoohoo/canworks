@@ -18,7 +18,7 @@ from jsonschema.exceptions import best_match
 
 from . import contract
 from . import eds as eds_mod
-from . import machine as machine_mod
+from . import simmachine as machine_mod
 
 SUPPORTED_VERSION = 2
 FILE_NAME = "simulation.json"

@@ -1,5 +1,5 @@
 build/
-# the vendored three.js build of the Machine view is source, not a build output
+# the vendored three.js build of the Machine tab is source, not a build output
 !/tools/deploy/canworks/configurator/static/three/build/
 .canworks/
 __pycache__/

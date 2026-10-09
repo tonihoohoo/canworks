@@ -12,15 +12,15 @@ import unittest
 
 import jsonschema
 
-from canworks import bundle, machine, project, simfile
+from canworks import bundle, project, simfile, simmachine
 
-from .fake_machine import FakeMachine, FakeMachineError
+from .fake_sim_machine import FakeMachine, FakeMachineError
 from .fake_sim import FakeSim
 from .helpers import REPO, editor_bundle, tmpdir, zip_contents
 from .test_deploy import deploy
 
 EXAMPLE = os.path.join(REPO, "examples", "gantry-cell", "canworks")
-SCHEMAS = ("canworks-machine.v1.schema.json", "canworks-sim.v2.schema.json")
+SCHEMAS = ("canworks-sim-machine.v1.schema.json", "canworks-sim.v2.schema.json")
 
 
 def example_machine():
@@ -70,7 +70,7 @@ class Gantry:
 
 class Schema(unittest.TestCase):
     def setUp(self):
-        self.v = jsonschema.Draft202012Validator(machine.schema())
+        self.v = jsonschema.Draft202012Validator(simmachine.schema())
 
     def test_schema_copies_match(self):
         # The package ships a copy of schema/; it must not drift.
@@ -85,14 +85,14 @@ class Schema(unittest.TestCase):
                 jsonschema.Draft202012Validator.check_schema(json.load(f))
 
     def test_example_machine_is_valid(self):
-        self.assertEqual(machine.schema_problems(example_machine()), [])
-        self.assertEqual(machine.structure_problems(example_machine()), [])
+        self.assertEqual(simmachine.schema_problems(example_machine()), [])
+        self.assertEqual(simmachine.structure_problems(example_machine()), [])
 
     def test_refused(self):
         def bad(change):
             m = example_machine()
             change(m)
-            return machine.schema_problems(m)
+            return simmachine.schema_problems(m)
 
         cases = {
             "unknown key": lambda m: m.update(colour="red"),
@@ -125,9 +125,9 @@ class Schema(unittest.TestCase):
         m = example_machine()
         m["visual"]["lamps"] = {"brightness": 2}
         m["visual"]["table"]["legs"] = 4
-        self.assertEqual(machine.schema_problems(m), [])
+        self.assertEqual(simmachine.schema_problems(m), [])
         m.pop("visual")
-        self.assertEqual(machine.schema_problems(m), [])
+        self.assertEqual(simmachine.schema_problems(m), [])
 
     def test_simulation_file_v2_machine_keys(self):
         v = jsonschema.Draft202012Validator(simfile.schema(2))
@@ -169,8 +169,8 @@ class Structure(unittest.TestCase):
     def problems(self, change):
         m = example_machine()
         change(m)
-        self.assertEqual(machine.schema_problems(m), [])
-        return "\n".join("%s: %s" % p for p in machine.structure_problems(m))
+        self.assertEqual(simmachine.schema_problems(m), [])
+        return "\n".join("%s: %s" % p for p in simmachine.structure_problems(m))
 
     def test_travel_limits_and_hard_stops_in_order(self):
         self.assertIn("joints.x.travel: must be [low, high] with low < high",
@@ -210,16 +210,16 @@ class Structure(unittest.TestCase):
     def test_fault_shapes(self):
         m = example_machine()
         for f in ({"jam": True}, {"stuck": "off"}, {"slip": True}, {"feeder": "empty"}, {"misaligned_mm": 8}):
-            self.assertIsNone(machine.fault_problem(f), f)
-        self.assertIn("one of jam", machine.fault_problem({"jam": True, "slip": True}))
-        self.assertIn("unknown machine fault \"melt\"", machine.fault_problem({"melt": True}))
-        self.assertEqual(machine.fault_element_problem(m, "z", {"jam": True}), None)
-        self.assertEqual(machine.fault_element_problem(m, "part_at_pick", {"jam": True}),
+            self.assertIsNone(simmachine.fault_problem(f), f)
+        self.assertIn("one of jam", simmachine.fault_problem({"jam": True, "slip": True}))
+        self.assertIn("unknown machine fault \"melt\"", simmachine.fault_problem({"melt": True}))
+        self.assertEqual(simmachine.fault_element_problem(m, "z", {"jam": True}), None)
+        self.assertEqual(simmachine.fault_element_problem(m, "part_at_pick", {"jam": True}),
                          "\"jam\" is a fault of a joint, not of part_at_pick")
-        self.assertEqual(machine.fault_element_problem(m, "infeed", {"feeder": "stop"}), None)
-        self.assertEqual(machine.fault_element_problem(m, "w", {"jam": True}), "the machine has no element \"w\"")
-        self.assertIsNone(machine.clear_element_problem(m, "all", "all"))
-        self.assertIn("not a machine fault", machine.clear_element_problem(m, "z", "slip"))
+        self.assertEqual(simmachine.fault_element_problem(m, "infeed", {"feeder": "stop"}), None)
+        self.assertEqual(simmachine.fault_element_problem(m, "w", {"jam": True}), "the machine has no element \"w\"")
+        self.assertIsNone(simmachine.clear_element_problem(m, "all", "all"))
+        self.assertIn("not a machine fault", simmachine.clear_element_problem(m, "z", "slip"))
 
 
 class Checks(Gantry, unittest.TestCase):
@@ -415,7 +415,7 @@ class Doubles(unittest.TestCase):
         self.assertEqual(set(s["parts"][0]), {"id", "kind", "position", "yaw", "state"})
         self.assertEqual(set(s["conveyors"]["infeed"]), {"running", "travel"})
         self.assertEqual(set(s["fixtures"]["pallet"]), {"offset", "ready", "changing", "filled"})
-        self.assertEqual(set(s["counters"]), set(machine.COUNTERS))
+        self.assertEqual(set(s["counters"]), set(simmachine.COUNTERS))
         self.assertEqual(m.snapshot(1.1)["seq"], 2)
         self.assertLess(len(json.dumps(m.snapshot(100))), 16 * 1024)
 

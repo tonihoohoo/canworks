@@ -1,5 +1,5 @@
-"""The configurator's Machine view in a real browser without WebGL
-(add-machine-sim task 3.6): the scene built from the gantry example's machine
+"""The configurator's Machine tab of the Simulation view in a real browser
+without WebGL (add-machine-sim task 3.6): the scene built from the gantry example's machine
 file (machine_scene.js, three.js builds geometry without a GL context), pose
 from a snapshot, interpolation over uneven answers, the panel against the
 fake runtime's machine, the no-WebGL message, fault buttons on a read-only
@@ -17,7 +17,7 @@ import unittest
 from canworks import diag
 from canworks.configurator import server as srv
 
-from .fake_machine import FakeMachine
+from .fake_sim_machine import FakeMachine
 from .fake_sim_page import TOKEN, FakeSim
 from .helpers import REPO
 from .test_configurator_layout import CONTRAST, FIT_CHECK, TARGETS, audit
@@ -37,7 +37,7 @@ NO_WEBGL = """(() => {
 @unittest.skipIf(sync_playwright is None and not REQUIRED, "Playwright for Python is not installed")
 class Base(unittest.TestCase):
     """The gantry-cell example as an editor project's canworks/ folder, the
-    Machine view open. fake: run the fake runtime with the example's machine;
+    Machine tab open. fake: run the fake runtime with the example's machine;
     allow: its diagnostics allow changes."""
 
     fake = False
@@ -91,14 +91,15 @@ class Base(unittest.TestCase):
         pg.fill("#browser-path", cls.project)
         pg.click("#browser-open")
         pg.wait_for_selector("#editor:not([hidden])")
-        pg.click('button[data-view="machine"]')
+        pg.click('button[data-view="simulation"]')
+        pg.click('button[data-sim-tab="machine"]')
         try:
             pg.wait_for_selector('[data-machine="state"]')
         except Exception:
             # Say what the page showed, and leave no browser running for the next class.
             shown = pg.evaluate("document.querySelector('#machine-view, #view')?.innerText || ''")
             cls.tearDownClass()
-            raise AssertionError("the Machine view did not open: %r; page errors: %s; console: %s"
+            raise AssertionError("the Machine tab did not open: %r; page errors: %s; console: %s"
                                  % (shown[:500], cls.errors, cls.console[:10]))
 
     @classmethod
@@ -280,7 +281,10 @@ class Offline(Base):
         self.assertEqual(self.text('[data-machine-counter="placed"]'), "0")
         self.assertTrue(pg.is_disabled('[data-machine-fault="z:jam"]'))
         self.assertIn("offline", self.text('[data-machine="fault-reason"]'))
-        self.assertTrue(pg.is_visible('#nav-machine'))
+        # Machine is the fourth tab of Simulation, not a sidebar item.
+        self.assertEqual(pg.eval_on_selector_all("button[data-sim-tab]", "els => els.map(e => e.innerText)"),
+                         ["Live values", "Simulation file", "Scenarios", "Machine"])
+        self.assertEqual(pg.locator('#side button[data-view="machine"], #nav-machine').count(), 0)
 
 
 class Live(Base):

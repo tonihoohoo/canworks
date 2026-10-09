@@ -526,7 +526,7 @@ details.steps > summary { cursor: pointer; font-weight: 600; min-height: 24px; l
 .steps-table td { padding: 2px 8px 2px 0; }
 tr.group-row th { text-align: left; font-weight: 600; padding-top: 6px; }
 
-/* Machine view (machine_view.js): the 3D stage and the panel beside it */
+/* Machine tab (machine_view.js): the 3D stage and the panel beside it */
 #machine-view .toolbar > button[aria-pressed="true"] { background: var(--hover); font-weight: 600; }
 .machine-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; align-items: start; }
 @media (max-width: 1280px) { .machine-main { grid-template-columns: minmax(0, 1fr); } }

@@ -1,6 +1,6 @@
 # three.js 0.169.0 (vendored)
 
-The configurator's Machine view draws the machine with
+The configurator's Machine tab (Simulation view) draws the machine with
 [three.js](https://threejs.org/) 0.169.0 by the three.js authors, MIT
 license (see LICENSE). The files are from the npm package `three@0.169.0`
 (tarball sha256 c86d0937570fb425d981e156ddf919c43dbc45d4e91fd7c8dd0de56723b3ec71):

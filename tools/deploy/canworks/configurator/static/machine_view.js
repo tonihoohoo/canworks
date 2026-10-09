@@ -1,10 +1,10 @@
-// Machine view (canopen-machine-view; docs/machine.md): the 3D machine of a
+// Machine tab of the Simulation view (canopen-machine-view; docs/simulator.md): the 3D machine of a
 // network's machine file, drawn with three.js from machine_scene.js, and a
 // panel beside it with the axes, the machine's I/O bits, counters, faults
 // and the machine fault buttons. Offline it shows the machine at home from
 // GET /api/sim/machine; online it polls POST /api/sim/machine (sim_machine)
 // with one request in flight and draws a fixed delay behind the newest
-// answer. Without WebGL only the panel runs. Loaded by sim.js (renderMachine)
+// answer. Without WebGL only the panel runs. Loaded by sim.js (simMachineTab)
 // with a dynamic import; uses app.js helpers (el, api, banner).
 import { THREE, JOINTS, buildMachine, machineSpec, homeSnapshot, SnapshotBuffer, toolPoint } from "./machine_scene.js";
 import { OrbitControls } from "./three/addons/controls/OrbitControls.js";

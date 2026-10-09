@@ -10,7 +10,7 @@ canworks-sim on 127.0.0.1. For the CLI and configurator tests.
 Scenarios move on by polls: every sim_status or sim_scenario_list moves each
 running scenario one poll closer to its outcome (FakeSim.add_scenario).
 
-With a machine (FakeSim(machine=FakeMachine(...)), fake_machine.py, or
+With a machine (FakeSim(machine=FakeMachine(...)), fake_sim_machine.py, or
 sim.set_machine(machine file dict)) sim_machine answers its snapshot at the
 sim's clock (seconds since it was made, or sim.clock = lambda: t), and
 sim_fault / sim_clear with "machine" reach it; without one sim_machine
@@ -25,7 +25,7 @@ import time
 from canworks import simfile
 from canworks.simclient import READ_OPS
 
-from . import fake_machine
+from . import fake_sim_machine
 from . import fake_tls
 
 FAULT_KINDS = ("emcy", "heartbeat", "power", "reset", "nmt_state", "sdo_abort", "sdo_delay",
@@ -46,7 +46,7 @@ class FakeSim:
     def __init__(self, simulated_network=True, interface="simulated", machine=None):
         self.simulated_network = simulated_network
         self.interface = interface
-        self.machine = machine  # a fake_machine.FakeMachine, or None
+        self.machine = machine  # a fake_sim_machine.FakeMachine, or None
         self.machine_file = "machine.json"
         start = time.monotonic()
         self.clock = lambda: time.monotonic() - start
@@ -77,7 +77,7 @@ class FakeSim:
 
     def set_machine(self, machine, network="motion", file="machine.json", **kw):
         """Runs a FakeMachine of a machine file (a dict) on this sim."""
-        self.machine = fake_machine.FakeMachine(machine, network, **kw)
+        self.machine = fake_sim_machine.FakeMachine(machine, network, **kw)
         self.machine_file = file
         return self.machine
 
@@ -190,7 +190,7 @@ class FakeSim:
                 if not isinstance(req.get("fault"), str):
                     raise SimRefused("\"fault\" must be a machine fault name or \"all\"")
                 self.machine.clear(el, req["fault"], self.clock())
-        except fake_machine.FakeMachineError as e:
+        except fake_sim_machine.FakeMachineError as e:
             raise SimRefused(str(e))
         return {}
 

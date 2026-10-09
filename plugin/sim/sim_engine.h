@@ -176,7 +176,7 @@ class Simulator {
   bool order_dirty_ = true;
   bool rpdo_posted_ = false;
   std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
-  // The machine model (docs/machine.md).
+  // The machine model (docs/simulator.md, Simulated machine).
   std::unique_ptr<MachineIoImpl> machine_io_;
   std::unique_ptr<MachineModel> machine_;
   Clock::time_point machine_next_, machine_last_;

@@ -31,7 +31,7 @@ The plugin's behaviour is set in the config file; [docs/config.md](docs/config.m
 - **Gateway:** a slave network and master networks in one config, with routes that copy values between upper-network objects and field PDO entries in the plugin, without the PLC program, plus field node status, EMCY forwarding, behaviour on loss of the upper master and an SDO bridge ([docs/gateway.md](docs/gateway.md)).
 - **Online diagnostics** (opt-in, encrypted with TLS; the token never crosses the network): a channel for the PC tools below. Nothing a client does touches the PLC scan.
 - **Simulated devices** ([docs/simulator.md](docs/simulator.md)): any node, or the whole network, can be simulated from its EDS, so a project and its PLC program run without the real devices or any CAN hardware. Simulated devices boot, answer SDO, exchange PDOs, send heartbeats and EMCY and store parameters as their EDS describes; their values can follow waveforms, formulas across devices, recorded CSV data, a CiA 401 loopback, a CiA 404 slow movement or a CiA 402 drive model; faults (EMCY, lost heartbeat, power loss, SDO aborts and delays, wrong identity, ...) come on command or from timed scenarios that also test the program's reaction. Two switches in the config pick what is simulated: the network (`adapter.simulate`) and each node (`simulate`), in any mix with real devices.
-- **Simulated machine** ([docs/machine.md](docs/machine.md)): a simulated network can carry an XYZ gantry with a gripper, a conveyor with a feeder, sensors and a pallet with slots on top of its simulated drives and I/O. The program's drive moves and outputs move parts, and the machine sets the drives' home and limit switches, their load and the sensor inputs; jams, stuck sensors and feeder faults come on command or from scenarios. The configurator's **Machine** view shows it in 3D. [`examples/gantry-cell`](examples/gantry-cell/README.md) is a complete project with a pick-and-place program.
+- **Simulated machine** ([docs/simulator.md](docs/simulator.md#simulated-machine)): a simulated network can carry an XYZ gantry with a gripper, a conveyor with a feeder, sensors and a pallet with slots on top of its simulated drives and I/O. The program's drive moves and outputs move parts, and the machine sets the drives' home and limit switches, their load and the sensor inputs; jams, stuck sensors and feeder faults come on command or from scenarios. The **Machine** tab of the configurator's **Simulation** view shows it in 3D. [`examples/gantry-cell`](examples/gantry-cell/README.md) is a complete project with a pick-and-place program.
 
 ## On the engineering PC
 
@@ -62,10 +62,10 @@ plugin/sim/        the device simulator engine (simulated devices, value sources
 schema/            the config contract (JSON Schema 2020-12): canworks.v1.schema.json (one network),
                    canworks.v2.schema.json (several networks, slave networks, the gateway), and
                    canworks-sim.v1/v2.schema.json for the simulation file (v2: a section per network),
-                   canworks-machine.v1.schema.json for the machine file
+                   canworks-sim-machine.v1.schema.json for the machine file
 examples/          virtual-plant/: the fully virtual example project of docs/tour.md (four simulated
                    networks, a demo program, a simulation file with test scenarios); gantry-cell/: a
-                   simulated XYZ gantry with a pick-and-place program (docs/machine.md)
+                   simulated XYZ gantry with a pick-and-place program (docs/simulator.md)
 config/            example configurations: config/pingpong/ (the ping-pong slave),
                    config/rtd-sensor/ (a simulated 8-channel RTD module, CiA 404), each with
                    an example simulation.json, config/two-networks/ (two ping-pong networks on
@@ -114,7 +114,7 @@ test/pc-tools/     the release tag check; test/ci/: the CI change classification
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
 docs/              tour.md (the guided tour of the virtual example), config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
-                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, local-runtime.md, machine.md, network-docs.md, plc-sdo.md, simulator.md, slave.md,
+                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, local-runtime.md, network-docs.md, plc-sdo.md, simulator.md, slave.md,
                    trace.md
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
 ```

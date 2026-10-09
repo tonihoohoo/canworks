@@ -1,6 +1,6 @@
 # Gantry cell: a simulated machine with three CiA 402 axes
 
-An OpenPLC Editor project that runs on the [local simulator runtime](../../docs/local-runtime.md) with no CAN adapter and no devices. Its one network is simulated, and a [machine model](../../docs/machine.md) sits on top of the simulated devices: an XYZ gantry with a gripper picks boxes from the end of a conveyor and places them on a 3 × 3 pallet, which a pallet changer swaps when it is full. The configurator's **Machine** view shows it in 3D. [docs/tour.md](../../docs/tour.md#15-machine) walks through it.
+An OpenPLC Editor project that runs on the [local simulator runtime](../../docs/local-runtime.md) with no CAN adapter and no devices. Its one network is simulated, and a [simulated machine](../../docs/simulator.md#simulated-machine) sits on top of the simulated devices: an XYZ gantry with a gripper picks boxes from the end of a conveyor and places them on a 3 × 3 pallet, which a pallet changer swaps when it is full. The **Machine** tab of the configurator's **Simulation** view shows it in 3D. [docs/tour.md](../../docs/tour.md#15-simulated-machine) walks through it.
 
 ## The network
 
@@ -8,11 +8,11 @@ An OpenPLC Editor project that runs on the [local simulator runtime](../../docs/
 |---|---|---|
 | `motion` | `sim1`, 500 kbit/s | The master with SYNC from the PLC cycle. Nodes 4 `x`, 5 `y` and 6 `z` (SD-402, CiA 402) as PLCopen axes in cyclic synchronous position mode, 1000 counts per mm, homing method 21 on the home switch. Node 10 `io` (DIO-16, CiA 401): output byte 0x6200:1 runs the conveyor (bit 0), closes the gripper (bit 1) and asks for a pallet change (bit 2); input byte 0x6000:1 reports a part at the pick position (bit 3), the gripper holding a part (bit 4) and a pallet in place (bit 5). |
 
-The diagnostics channel is on with changes allowed, so the Machine view's fault buttons work. Its token is `gantry-cell-demo`; that is fine on your own PC, but set a token of your own (the configurator's **Online access**) before the config goes anywhere else.
+The diagnostics channel is on with changes allowed, so the Machine tab's fault buttons work. Its token is `gantry-cell-demo`; that is fine on your own PC, but set a token of your own (the configurator's **Online access**) before the config goes anywhere else.
 
 ## The machine
 
-`canworks/machine.json` describes the cell ([docs/machine.md](../../docs/machine.md) is the reference):
+`canworks/machine.json` describes the cell ([docs/simulator.md](../../docs/simulator.md#simulated-machine) is the reference):
 
 - joints `x` (0 to 900 mm), `y` (0 to 600 mm) and `z` (0 to 300 mm, down), each with a home flag at 0, limit switches 5 mm beyond the travel and hard stops at 12 mm; `z` carries the load of the gripper and the part;
 - a gripper whose fingers close along x in 120 ms;
