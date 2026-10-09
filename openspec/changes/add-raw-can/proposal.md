@@ -30,7 +30,7 @@ Raw CAN is not a third protocol module. It is part of the shared CAN core that `
   - `CAN_SEND_CYCLIC`: a frame sent by the plugin at a fixed period, independent of the scan
   - `CAN_RECEIVE`: a receiver with identifier and mask and a queue, read one frame per call
   - `CAN_BUS_INFO`: bus state, error counters, bus load and frame counts
-  - ST functions for bit and byte packing (`CAN_GET_BITS`, `CAN_SET_BITS`, little- and big-endian integer and REAL helpers) and J1939 identifier helpers
+  - ST functions for bit and byte packing (`CAN_GET_BITS`, `CAN_SET_BITS`, 16- and 32-bit integer helpers in either byte order) and J1939 identifier helpers
 - **Diagnostics channel**: status of raw messages, program receivers and cyclic jobs; raw `tx` identifiers join the `send_frame` guard map; a `replay` operation and `canworks-diag replay FILE` play a recorded trace onto a network or a PC adapter.
 - **PC tools**:
   - DBC import into raw messages (cantools, shared with J1939), DBC export of raw messages

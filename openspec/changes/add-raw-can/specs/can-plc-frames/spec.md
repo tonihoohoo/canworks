@@ -2,9 +2,11 @@
 
 ### Requirement: CAN frame function blocks
 The editor library `canworks` SHALL provide the function blocks `CAN_SEND`, `CAN_SEND_CYCLIC`, `CAN_RECEIVE` and `CAN_BUS_INFO`. Every block SHALL have the input `NETWORK : USINT`, picking the network by its place in the configuration's `networks` list (0 the first), and the outputs `ERROR : BOOL` and `ERROR_ID : UINT`. They SHALL work on networks of every protocol, including `none`. The pins SHALL be:
-- `CAN_SEND`: in `EXECUTE : BOOL`, `ID : UDINT`, `EXTENDED : BOOL`, `RTR : BOOL`, `DLC : USINT`, `DATA : ARRAY[0..7] OF BYTE`, `TIMEOUT : TIME`; out `BUSY : BOOL`, `DONE : BOOL`.
-- `CAN_SEND_CYCLIC`: in `ENABLE : BOOL`, `ID : UDINT`, `EXTENDED : BOOL`, `DLC : USINT`, `DATA : ARRAY[0..7] OF BYTE`, `PERIOD : TIME`; out `ACTIVE : BOOL`, `COUNT : UDINT`.
-- `CAN_RECEIVE`: in `ENABLE : BOOL`, `ID : UDINT`, `MASK : UDINT`, `EXTENDED : BOOL`, `DEPTH : UINT`; out `ACTIVE : BOOL`, `NEW : BOOL`, `RX_ID : UDINT`, `RX_EXTENDED : BOOL`, `RX_RTR : BOOL`, `RX_DLC : USINT`, `RX_DATA : ARRAY[0..7] OF BYTE`, `TIMESTAMP : ULINT`, `QUEUED : UINT`, `OVERFLOW : BOOL`, `DROPPED : UDINT`.
+- `CAN_SEND`: in `EXECUTE : BOOL`, `ID : UDINT`, `EXTENDED : BOOL`, `RTR : BOOL`, `DLC : USINT`, `TIMEOUT : TIME`; in-out `DATA : ARRAY[0..7] OF BYTE`; out `BUSY : BOOL`, `DONE : BOOL`.
+- `CAN_SEND_CYCLIC`: in `ENABLE : BOOL`, `ID : UDINT`, `EXTENDED : BOOL`, `DLC : USINT`, `PERIOD : TIME`; in-out `DATA : ARRAY[0..7] OF BYTE`; out `ACTIVE : BOOL`, `COUNT : UDINT`.
+- `CAN_RECEIVE`: in `ENABLE : BOOL`, `ID : UDINT`, `MASK : UDINT`, `ANY : BOOL`, `EXTENDED : BOOL`, `DEPTH : UINT`; in-out `RX_DATA : ARRAY[0..7] OF BYTE`; out `ACTIVE : BOOL`, `NEW : BOOL`, `RX_ID : UDINT`, `RX_EXTENDED : BOOL`, `RX_RTR : BOOL`, `RX_DLC : USINT`, `TIMESTAMP : ULINT`, `QUEUED : UINT`, `OVERFLOW : BOOL`, `DROPPED : UDINT`.
+
+The frame data pins are in-out, as the SDO blocks' `BUFFER`, because that is how the editor passes arrays to C++ blocks.
 - `CAN_BUS_INFO`: out `STATE : USINT` (0 error active, 1 warning, 2 error passive, 3 bus-off, 4 interface down or missing), `TX_ERRORS : UINT`, `RX_ERRORS : UINT`, `BUS_OFF_COUNT : UDINT`, `BUS_LOAD : USINT` (percent over the last second), `RX_COUNT : UDINT`, `TX_COUNT : UDINT`, `ERROR_FRAMES : UDINT`.
 
 #### Scenario: Send one frame
@@ -38,7 +40,7 @@ While `ENABLE` is TRUE, `CAN_SEND_CYCLIC` SHALL have the plugin send the frame e
 - **THEN** the block reports `ERROR` with `ERROR_ID` 3 and sends nothing
 
 ### Requirement: Receivers
-While `ENABLE` is TRUE, `CAN_RECEIVE` SHALL hold a receiver that queues, in arrival order, every frame on the network with the given format whose `(identifier AND MASK) = (ID AND MASK)`, up to `DEPTH` frames (`0` meaning 32, at most 256). `ID`, `MASK`, `EXTENDED` and `DEPTH` SHALL be taken when `ENABLE` rises. Each call SHALL take at most one frame from the queue: `NEW` TRUE with that frame's identifier, flags, DLC, data and kernel receive time (UTC microseconds) in the outputs, or `NEW` FALSE with the outputs of the last frame kept. `QUEUED` SHALL give the frames still waiting. A frame arriving at a full queue SHALL be dropped, set `OVERFLOW` until `ENABLE` falls, and count in `DROPPED`. Frames the plugin itself sends SHALL NOT be queued. `ENABLE` FALSE SHALL close the receiver and discard its queue. A network SHALL have at most 32 receivers.
+While `ENABLE` is TRUE, `CAN_RECEIVE` SHALL hold a receiver that queues, in arrival order, every frame on the network with the given format whose `(identifier AND MASK) = (ID AND MASK)`, up to `DEPTH` frames (`0` meaning 32, at most 256). `MASK` 0 SHALL mean every identifier bit (only `ID` itself); `ANY` SHALL take every frame of the format. `ID`, `MASK`, `ANY`, `EXTENDED` and `DEPTH` SHALL be taken when `ENABLE` rises. Each call SHALL take at most one frame from the queue: `NEW` TRUE with that frame's identifier, flags, DLC, data and kernel receive time (UTC microseconds) in the outputs, or `NEW` FALSE with the outputs of the last frame kept. `QUEUED` SHALL give the frames still waiting. A frame arriving at a full queue SHALL be dropped, set `OVERFLOW` until `ENABLE` falls, and count in `DROPPED`. Frames the plugin itself sends SHALL NOT be queued. `ENABLE` FALSE SHALL close the receiver and discard its queue. A network SHALL have at most 32 receivers.
 
 #### Scenario: Drain in one scan
 - **WHEN** five matching frames arrived since the last scan and the program calls `WHILE rx.NEW DO ... rx(); END_WHILE` after a first `rx()` call
@@ -47,6 +49,10 @@ While `ENABLE` is TRUE, `CAN_RECEIVE` SHALL hold a receiver that queues, in arri
 #### Scenario: Range receiver
 - **WHEN** a receiver has `ID := 16#600`, `MASK := 16#780` and frames 0x605, 0x705 and 0x67F arrive
 - **THEN** the receiver gets 0x605 and 0x67F and not 0x705
+
+#### Scenario: One identifier
+- **WHEN** a receiver has `ID := 16#123` and `MASK` left at 0, and frames 0x123 and 0x124 arrive
+- **THEN** the receiver gets only 0x123
 
 #### Scenario: Queue full
 - **WHEN** a receiver with `DEPTH := 4` gets six frames before the program reads it
@@ -81,14 +87,14 @@ The frame blocks SHALL never wait for CAN traffic, allocate memory or write the 
 
 ### Requirement: ST helper functions
 The library SHALL provide ST functions that need no plugin:
-- `CAN_GET_BITS(DATA, START_BIT, LENGTH, BIG_ENDIAN, SIGNED) : LINT` and `CAN_SET_BITS(DATA, START_BIT, LENGTH, BIG_ENDIAN, VALUE)` (in-out `DATA`), with bit numbering as DBC files use it
-- `CAN_GET_UINT16_LE`/`_BE`, `CAN_GET_UINT32_LE`/`_BE`, `CAN_GET_REAL_LE`/`_BE` and matching `CAN_SET_*` for byte-aligned values at a byte offset
+- `CAN_GET_BITS(DATA, START_BIT, BIT_LENGTH, MOTOROLA, SIGNED) : LINT` and `CAN_SET_BITS(DATA, START_BIT, BIT_LENGTH, MOTOROLA, VALUE) : BOOL` (in-out `DATA`), with bit numbering as DBC files use it (`MOTOROLA` FALSE: little-endian, TRUE: big-endian); `CAN_SET_BITS` SHALL return FALSE and write nothing when a bit falls outside the 8 bytes
+- `CAN_GET_UINT16(DATA, OFFSET, MOTOROLA) : UINT`, `CAN_GET_UINT32(...) : UDINT` and `CAN_SET_UINT16` / `CAN_SET_UINT32(DATA, OFFSET, MOTOROLA, VALUE) : BOOL` for byte-aligned values at a byte offset
 - `CAN_J1939_ID(PRIORITY, PGN, SOURCE, DESTINATION) : UDINT`, `CAN_J1939_PGN(ID) : UDINT` and `CAN_J1939_SOURCE(ID) : USINT`
 
 Their results SHALL equal the plugin's signal packing for the same layouts.
 
 #### Scenario: Unpack a signal
-- **WHEN** a program calls `CAN_GET_BITS(rx.RX_DATA, 0, 12, FALSE, TRUE)` on data `FF 0F 00 00 00 00 00 00`
+- **WHEN** a program calls `CAN_GET_BITS(DATA := buf, START_BIT := 0, BIT_LENGTH := 12, MOTOROLA := FALSE, SIGNED := TRUE)` on data `FF 0F 00 00 00 00 00 00`
 - **THEN** the result is -1
 
 #### Scenario: Build a J1939 identifier
