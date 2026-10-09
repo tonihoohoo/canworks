@@ -34,6 +34,9 @@ The `canopen_check` binary and `canopen_plugin` namespace keep their names (CANo
 ### 5. Fault kind `nmt-state`
 `canworks-sim` and the simulation file already use `nmt-state`/`nmt_state`; only the diag client differs. `nmt` in `canworks-diag` is also the NMT command to a real node, so the longer name avoids two meanings.
 
+### 6. Start page wording
+Name OpenPLC where the choice depends on it (the Editor project, "before an OpenPLC Editor project exists", "no OpenPLC runtime"), and not elsewhere: the header stays "canworks configurator", since the tools also work with no PLC. Commissioning is CANopen only today (no J1939 in `commission.js`), so its card says so. A 2 × 2 grid (`repeat(2, 1fr)`, one column below the narrow breakpoint) keeps four cards even instead of 3 + 1; four in a row would squeeze the longer texts at 1000 px.
+
 ## Risks / Trade-offs
 
 - [Docs branch conflicts] → this change does not edit `docs/` or README until `docs/review-refresh` is merged; then it changes only the lines its own behaviour makes wrong (plc-sdo error 6 row, network-docs JSON id and J1939, slave.md state dir variable, development.md test variables, simulator fault kind).

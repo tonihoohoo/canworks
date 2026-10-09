@@ -24,13 +24,19 @@
 
 - [ ] 5.1 `bustrace/j1939.load_dbc()`: an `ImportError` of cantools becomes `ValueError("cantools is not installed; reinstall the PC tools")`, so the caller warns and goes on; test with cantools hidden (`sys.modules["cantools"] = None`).
 
-## 6. Docs, README, version, CI
+## 6. Configurator start page
 
-- [ ] 6.1 After `docs/review-refresh` is merged, rebase and update only the lines this change makes wrong: `docs/plc-sdo.md` error 6 row, `docs/network-docs.md` (J1939, JSON id and version), `docs/slave.md` state dir variable, `docs/development.md` test variables, the simulator fault kind in `docs/simulator.md` and `docs/diagnostics.md`, and README if it lists the HTML export as CANopen only.
-- [ ] 6.2 Bump the PC tools minor version; release notes.
-- [ ] 6.3 CI time: state wall and summed job time against the median of the last 5 green `main` runs in the PR body; new tests go into existing jobs.
-- [ ] 6.4 Banned-word check on the branch (`--files` and `--range origin/main..HEAD`).
+- [ ] 6.1 `index.html`: purpose line, the four choice texts from the proposal, `canworks-token` meta (and `app.js` reading it); `app.js`: folder browser titles and the "not an editor project" message say "OpenPLC Editor project".
+- [ ] 6.2 `style.css`: `.start-choices` as a 2 × 2 grid, one column below the narrow breakpoint; check light and dark.
+- [ ] 6.3 Tests: start page scenario in the configurator page tests (four choices in two rows at 1280 px, titles), `Layout.fits()` on the start page at 1000/1280/1440 and phone width; screenshot before and after in the PR.
 
-## 7. Hardware
+## 7. Docs, README, version, CI
 
-- [ ] 7.1 On the bench PLC with a config that has a CANopen and a J1939 network (or the J1939 test config plus a CANopen network), an SDO block with `NETWORK` set to the J1939 network ends with `ERROR_ID` 6 in its first call.
+- [ ] 7.1 After `docs/review-refresh` is merged, rebase and update only the lines this change makes wrong: `docs/plc-sdo.md` error 6 row, `docs/network-docs.md` (J1939, JSON id and version), `docs/slave.md` state dir variable, `docs/development.md` test variables, the simulator fault kind in `docs/simulator.md` and `docs/diagnostics.md`, `docs/configurator.md` start page text, and README if it lists the HTML export as CANopen only.
+- [ ] 7.2 Bump the PC tools minor version; release notes.
+- [ ] 7.3 CI time: state wall and summed job time against the median of the last 5 green `main` runs in the PR body; new tests go into existing jobs.
+- [ ] 7.4 Banned-word check on the branch (`--files` and `--range origin/main..HEAD`).
+
+## 8. Hardware
+
+- [ ] 8.1 On the bench PLC with a config that has a CANopen and a J1939 network (or the J1939 test config plus a CANopen network), an SDO block with `NETWORK` set to the J1939 network ends with `ERROR_ID` 6 in its first call.
