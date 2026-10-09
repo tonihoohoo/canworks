@@ -1,7 +1,7 @@
 # can-raw-messages Specification
 
 ## Purpose
-TBD - created by archiving change add-raw-can. Update Purpose after archive.
+How plain CAN messages from the config run on any network and on plain CAN networks: received frames into `%I` locations, sent frames from `%Q` locations, listen-only, protocol identifier ownership, and the checks the plugin and tools apply.
 
 ## Requirements
 

@@ -1,7 +1,7 @@
 # can-plc-frames Specification
 
 ## Purpose
-TBD - created by archiving change add-raw-can. Update Purpose after archive.
+How the PLC program sends and receives any CAN frame through the `canworks` library blocks (`CAN_SEND`, `CAN_SEND_CYCLIC`, `CAN_RECEIVE`, `CAN_BUS_INFO`) and the ST bit and byte helpers, and how the plugin serves them without touching the scan.
 
 ## Requirements
 
