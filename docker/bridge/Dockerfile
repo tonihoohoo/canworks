@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # canworks-bridge, the Modbus TCP bridge (docs/modbus-bridge.md), as a
 # container image. Build from the repository root:
 #
@@ -11,9 +10,12 @@
 #
 # The build stage runs scripts/install-bridge.sh; the final stage holds
 # /opt/canworks (canworks-bridge, Lely CANopen, dcfgen and the EDS lint) on
-# the same Debian release.
+# the same Debian release. The base comes through Google's Docker Hub mirror,
+# since anonymous Docker Hub pulls from CI runners hit its rate limit
+# (--build-arg DEBIAN=debian pulls from Docker Hub itself).
 
-FROM debian:bookworm AS build
+ARG DEBIAN=mirror.gcr.io/library/debian
+FROM ${DEBIAN}:bookworm AS build
 ARG TOOLS_VERSION=dev
 COPY . /src
 # .git is not in the build context: the bridge reports the tools version.
@@ -25,7 +27,7 @@ RUN CANWORKS_PLUGIN_VERSION="${TOOLS_VERSION}" CANWORKS_SYSTEMCTL=true CANWORKS_
     rm -rf /opt/canworks/src /root/.cache && \
     find /opt/canworks -name __pycache__ -prune -exec rm -rf {} +
 
-FROM debian:bookworm-slim
+FROM ${DEBIAN}:bookworm-slim
 ARG TOOLS_VERSION=dev
 RUN apt-get update -qq && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends libssl3 python3 iproute2 && \
