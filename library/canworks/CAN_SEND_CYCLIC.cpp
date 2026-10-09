@@ -46,6 +46,7 @@ struct frame {
 struct rx_info {
   unsigned short queued;
   unsigned char overflow;
+  unsigned char bus_down;
   unsigned int dropped;
 };
 struct bus {
@@ -179,6 +180,9 @@ void loop() {
       ERROR = true;
       ERROR_ID = t ? err : static_cast<unsigned short>(can_frames::err_not_running);
       cf_handle = 0;
+    } else {
+      ERROR = err != 0;  // 7 while the bus is off; the job stays
+      ERROR_ID = err;
     }
   } else if (!ENABLE && cf_prev) {
     if (t && cf_handle) t->cyc_stop(cf_handle);

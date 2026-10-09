@@ -55,6 +55,7 @@ struct frame {
 struct rx_info {
   unsigned short queued;
   unsigned char overflow;
+  unsigned char bus_down;
   unsigned int dropped;
 };
 struct bus {
@@ -197,6 +198,10 @@ void loop() {
       ERROR = true;
       ERROR_ID = static_cast<unsigned short>(-r);
       cf_handle = 0;
+    }
+    if (cf_handle) {
+      ERROR = info.bus_down != 0;  // 7 while the bus is off; the receiver stays
+      ERROR_ID = ERROR ? static_cast<unsigned short>(can_frames::err_bus) : 0;
     }
     QUEUED = info.queued;
     OVERFLOW = info.overflow != 0;

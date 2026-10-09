@@ -155,8 +155,8 @@ void BusMonitor::on_change(uint8_t from, uint8_t to, clock::time_point now) {
       if (cfg_.adapter.has_restart_ms)
         log_error("CAN interface %s is bus-off; the kernel restarts it after %u ms", name, cfg_.adapter.restart_ms);
       else
-        log_error("CAN interface %s is bus-off; it stays bus-off until it is restarted (set adapter.restart_ms to "
-                  "let the kernel restart it)",
+        log_error("CAN interface %s is bus-off; it stays bus-off unless the adapter recovers by itself or is "
+                  "restarted (set adapter.restart_ms to let the kernel restart it)",
                   name);
       break;
   }

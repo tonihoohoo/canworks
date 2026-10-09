@@ -86,10 +86,14 @@ uint16_t PlcPort::check_send(const canworks_can_frame& f) const {
   if (rules_.listen_only) return CANWORKS_CAN_ERR_LISTEN_ONLY;
   if (!rules_.override_protocol && rules_.owned && rules_.owned(f.id, (f.flags & CANWORKS_CAN_EXTENDED) != 0))
     return CANWORKS_CAN_ERR_PROTOCOL;
+  if (bus_down()) return CANWORKS_CAN_ERR_BUS;
+  return 0;
+}
+
+bool PlcPort::bus_down() const {
   uint32_t s = bus_seq_.load(std::memory_order_acquire);
   uint8_t state = bus_.state;
-  if (!(s & 1u) && (state == 3 || state == 4)) return CANWORKS_CAN_ERR_BUS;
-  return 0;
+  return !(s & 1u) && (state == 3 || state == 4);
 }
 
 // --- Receivers ---
@@ -149,6 +153,7 @@ int PlcPort::rx_read(uint32_t handle, canworks_can_frame* frame, canworks_can_rx
   info->queued = static_cast<uint16_t>(head - tail);
   info->dropped = dropped;
   info->overflow = dropped != 0;
+  info->bus_down = bus_down();
   return got;
 }
 
@@ -403,6 +408,7 @@ int PlcPort::cyc_update(uint32_t handle, const canworks_can_frame* frame, uint32
   j.frame = f;
   j.period_us = period_us;
   j.seq.fetch_add(1, std::memory_order_release);
+  if (bus_down()) *error_id = CANWORKS_CAN_ERR_BUS;  // the job stays; COUNT resumes when the bus is back
   return 0;
 }
 

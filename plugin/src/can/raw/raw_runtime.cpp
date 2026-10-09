@@ -147,6 +147,19 @@ void RawRuntime::start() {
   hooks.bus_info = [this](canworks_can_bus_info& info) { return bus_info(info); };
   if (adapter_) hooks.prepare = [this] { return prepare_adapter(); };
   hooks.host_frames_received = cfg_.is_plain();
+  if (cfg_.is_plain() && !bridge_) {
+    std::string prefix = prefix_;
+    hooks.log_bus = [prefix](int level, const std::string& line) {
+      ScopedLogPrefix p(prefix);
+      if (level >= 2)
+        log_error("%s", line.c_str());
+      else if (level == 1)
+        log_warn("%s", line.c_str());
+      else
+        log_info("%s", line.c_str());
+    };
+    hooks.restart_ms = cfg_.adapter.has_restart_ms ? cfg_.adapter.restart_ms : 0;
+  }
   // Waiting for the interface is worth a line only when the network has
   // raw messages or is the plain network's own: otherwise nothing waits.
   if (engine_ || cfg_.is_plain()) {

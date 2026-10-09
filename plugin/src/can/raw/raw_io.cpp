@@ -232,6 +232,57 @@ void RawIo::update_bus(uint64_t now) {
   if (!info.bus_off_count) info.bus_off_count = bus_offs_;
   info.bus_load = bus_load_;
   port_->publish_bus(info);
+  if (hooks_.log_bus) log_bus_state(info, now);
+}
+
+namespace {
+constexpr unsigned kBusLogsPerSecond = 5;
+const char* const kStateNames[] = {"error-active", "error-warning", "error-passive", "bus-off", "down"};
+}  // namespace
+
+void RawIo::log_bus_state(const canworks_can_bus_info& info, uint64_t now) {
+  const std::string where = "CAN interface " + link_->where();
+  bool window_over = now - log_window_start_ >= 1000000;
+  if (log_suppressed_ && window_over) {
+    hooks_.log_bus(1, where + ": bus state changed " + std::to_string(log_window_changes_) +
+                          " times in one second, now " + kStateNames[logged_state_ > 4 ? 4 : logged_state_]);
+    log_suppressed_ = false;
+  }
+  if (window_over) {
+    log_window_start_ = now;
+    log_window_changes_ = 0;
+  }
+  uint8_t to = info.state > 4 ? 4 : info.state;
+  uint8_t from = logged_state_;
+  uint32_t new_offs = have_bus_offs_ && info.bus_off_count >= logged_bus_offs_ ? info.bus_off_count - logged_bus_offs_ : 0;
+  have_bus_offs_ = true;
+  logged_bus_offs_ = info.bus_off_count;
+  bool change = to != from;
+  logged_state_ = to;
+  // Down and back up is the link's own business (logged when it reopens).
+  bool quiet = !change || to == 4 || (from == 4 && to == 0);
+  bool hidden_off = new_offs && to != 3;
+  if (quiet && !hidden_off) return;
+  if (++log_window_changes_ > kBusLogsPerSecond) {
+    log_suppressed_ = true;
+    return;
+  }
+  if (!quiet) {
+    if (to == 0) {
+      hooks_.log_bus(0, where + " is error-active again");
+    } else if (to == 3) {
+      hooks_.log_bus(2, where + " is bus-off; " +
+                            (hooks_.restart_ms ? "the kernel restarts it after " + std::to_string(hooks_.restart_ms) + " ms"
+                                               : std::string("without adapter.restart_ms it stays bus-off unless the "
+                                                             "adapter recovers by itself")));
+    } else {
+      hooks_.log_bus(1, where + " is " + kStateNames[to] +
+                            " (TX/RX error counters high; check wiring, termination and bit rate)");
+    }
+  }
+  if (hidden_off)
+    hooks_.log_bus(2, where + " went bus-off " + std::to_string(new_offs) + (new_offs == 1 ? " time" : " times") +
+                          " and recovered");
 }
 
 int RawIo::next_timeout(uint64_t now) {

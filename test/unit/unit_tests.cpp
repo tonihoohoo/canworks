@@ -1442,8 +1442,8 @@ TEST(bus_monitor_states_and_counters) {
   f.li().bus_off = 1;
   f.tick();
   CHECK(f.state() == 4 && f.tx() == 255 && f.bus_offs() == 1);
-  CHECK_MSG(has_error(g_log, "E: CAN interface can0 is bus-off; it stays bus-off until it is restarted (set "
-                             "adapter.restart_ms"),
+  CHECK_MSG(has_error(g_log, "E: CAN interface can0 is bus-off; it stays bus-off unless the adapter recovers "
+                             "by itself or is restarted (set adapter.restart_ms"),
             join(g_log));
 
   f.li().can_state = CAN_STATE_ERROR_ACTIVE;

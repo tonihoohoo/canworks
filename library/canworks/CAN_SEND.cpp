@@ -48,6 +48,7 @@ struct frame {
 struct rx_info {
   unsigned short queued;
   unsigned char overflow;
+  unsigned char bus_down;
   unsigned int dropped;
 };
 struct bus {
