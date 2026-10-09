@@ -13,7 +13,7 @@ from .helpers import REPO, pingpong_config, tmpdir
 from .test_deploy import deploy
 
 RTD = os.path.join(REPO, "config", "rtd-sensor")
-CANOPEN_CHECK = os.environ.get("CANOPEN_CHECK", os.path.join(REPO, "build", "canopen_check"))
+CANWORKS_CHECK = os.environ.get("CANWORKS_CHECK", os.path.join(REPO, "build", "canopen_check"))
 
 
 def read(path):
@@ -97,7 +97,7 @@ class IntoProject(unittest.TestCase):
         os.remove(os.path.join(self.project, "project.json"))
         code, _, err = deploy("--config", pingpong_config(self.dir), "--into-project", self.project)
         self.assertEqual(code, 1)
-        self.assertIn("not an OpenPLC editor project", err)
+        self.assertIn("not an OpenPLC Editor project", err)
 
     def test_cp1252_eds_converted(self):
         # The pingpong EDS with a CP1252 degree sign and euro sign in names.
@@ -115,15 +115,15 @@ class IntoProject(unittest.TestCase):
         stored = read(os.path.join(self.canopen, "cpp-slave.eds"))
         self.assertEqual(stored.decode("utf-8"), cp.decode("cp1252"))
         self.assertNotIn(b"\xef\xbf\xbd", stored)
-        if not os.access(CANOPEN_CHECK, os.X_OK):
-            self.skipTest("canopen_check not built (%s)" % CANOPEN_CHECK)
+        if not os.access(CANWORKS_CHECK, os.X_OK):
+            self.skipTest("canopen_check not built (%s)" % CANWORKS_CHECK)
         for cfg_path in (config, os.path.join(self.canopen, "canworks.json")):
-            r = subprocess.run([CANOPEN_CHECK, "--no-dcfgen", cfg_path], capture_output=True, text=True)
+            r = subprocess.run([CANWORKS_CHECK, "--no-dcfgen", cfg_path], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_canopen_check_runs_the_lint(self):
-        if not os.access(CANOPEN_CHECK, os.X_OK):
-            self.skipTest("canopen_check not built (%s)" % CANOPEN_CHECK)
+        if not os.access(CANWORKS_CHECK, os.X_OK):
+            self.skipTest("canopen_check not built (%s)" % CANWORKS_CHECK)
         lint = os.path.join(REPO, "test", "fixtures", "eds", "lint")
         config = pingpong_config(self.dir)
         eds = os.path.join(self.dir, "cpp-slave.eds")
@@ -133,7 +133,7 @@ class IntoProject(unittest.TestCase):
                  ("octet-string.eds", 0, "note: node 2 (pingpong): EDS cpp-slave.eds read through a prepared copy"))
         for name, code, line in cases:
             shutil.copy(os.path.join(lint, name), eds)
-            r = subprocess.run([CANOPEN_CHECK, "--no-dcfgen", config], capture_output=True, text=True)
+            r = subprocess.run([CANWORKS_CHECK, "--no-dcfgen", config], capture_output=True, text=True)
             self.assertEqual(r.returncode, code, r.stdout + r.stderr)
             self.assertIn(line, r.stdout)
 

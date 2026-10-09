@@ -5,7 +5,7 @@
   "sha256": "065abc0f69a472cccb3071ee76bf6ec0bdd5d6ebf0869049f96e4c78a97f067e",
   "text": "{\n  \"schema_version\": 2,\n  \"networks\": [\n    {\n      \"name\": \"field\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n      \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n      \"nodes\": [\n        {\n          \"node_id\": 2,\n          \"name\": \"pingpong\",\n          \"eds\": \"cpp-slave.eds\",\n          \"heartbeat_ms\": 100,\n          \"heartbeat_timeout_ms\": 300,\n          \"status_location\": \"%IX10.0\",\n          \"tx_pdos\": [\n            { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID100\" } ] }\n          ],\n          \"rx_pdos\": [\n            { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\" } ] }\n          ]\n        }\n      ]\n    },\n    {\n      \"name\": \"upper\",\n      \"role\": \"slave\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan1\", \"bitrate\": 250000 },\n      \"slave\": {\n        \"node_id\": 20,\n        \"eds\": \"openplc-gateway.eds\",\n        \"objects\": [\n          { \"index\": \"0x2100\", \"subindex\": 1, \"iec_location\": \"%QX300.0\" }\n        ],\n        \"comm_ok_location\": \"%IX300.0\"\n      }\n    }\n  ],\n  \"gateway\": {\n    \"upper\": \"upper\",\n    \"routes\": [\n      { \"slave\": { \"index\": \"0x2101\", \"subindex\": 1 },\n        \"field\": { \"network\": \"field\", \"node\": 2, \"index\": \"0x4001\", \"subindex\": 0 }, \"name\": \"pong\" },\n      { \"slave\": { \"index\": \"0x2000\", \"subindex\": 1 },\n        \"field\": { \"network\": \"field\", \"node\": 2, \"index\": \"0x4000\", \"subindex\": 0 }, \"name\": \"ping\" }\n    ],\n    \"status\": { \"index\": \"0x5E00\" },\n    \"emcy_forward\": true,\n    \"on_upper_loss\": \"zero\",\n    \"sdo_bridge\": true\n  }\n}\n"
  },
- "doc_schema_version": 1,
+ "doc_schema_version": 2,
  "gateway": {
   "emcy_forward": true,
   "on_upper_loss": "zero",
@@ -721,6 +721,7 @@
      "startup_sdos": []
     }
    ],
+   "protocol": "canopen",
    "role": "master",
    "settings": [
     {
@@ -1353,6 +1354,7 @@
      "startup_sdos": []
     }
    ],
+   "protocol": "canopen",
    "role": "slave",
    "settings": [
     {
@@ -1413,10 +1415,10 @@
    ]
   }
  ],
- "title": "CANopen network documentation",
+ "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.44.0"
+  "version": "0.45.0"
  },
  "warnings": []
 }

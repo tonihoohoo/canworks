@@ -25,7 +25,7 @@ class OnlineBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.pw = sync_playwright().start()
-        exe = os.environ.get("CANOPEN_CHROMIUM")
+        exe = os.environ.get("CANWORKS_CHROMIUM")
         try:
             cls.browser = cls.pw.chromium.launch(**({"executable_path": exe} if exe else {}))
         except Exception as e:  # pragma: no cover

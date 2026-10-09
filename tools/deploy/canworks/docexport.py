@@ -23,8 +23,8 @@ from . import __version__, bundle, contract, dbcexport, dcfexport, edslint, edit
 from . import eds as eds_mod
 from .iec import CO_TYPE_BY_CODE, parse_location
 
-DOC_SCHEMA_VERSION = 1
-DEFAULT_TITLE = "CANopen network documentation"
+DOC_SCHEMA_VERSION = 2
+DEFAULT_TITLE = "CAN network documentation"
 OD_OPTIONS = ("used", "all")
 LOAD_WARNING_PCT = 60.0
 # The master looks for changed event-driven outputs this often without SYNC
@@ -85,6 +85,13 @@ def shown_path(value):
     """A file reference as the document shows it: the config's own relative
     value, only the file name of an absolute one (no paths of this PC)."""
     return os.path.basename(value) if os.path.isabs(value) else value.replace("\\", "/")
+
+
+def frame_bits_ext(dlc):
+    """Bits of a 29-bit identifier data frame, as frame_bits: 64 fixed bits
+    + 8 per data byte + the stuff bits of the 54 + 8n stuffed bits + the
+    3-bit interframe space."""
+    return 67 + 8 * dlc + (54 + 8 * dlc - 1) // 4
 
 
 def frame_bits(dlc, rtr=False):
@@ -987,6 +994,218 @@ class _NoSync:
     sync_cycles = 1
 
 
+J1939_PGN_REQUEST = 0xEA00
+J1939_PGN_CLAIM = 0xEE00
+J1939_NAME_LABELS = (("identity_number", "Identity number"), ("manufacturer_code", "Manufacturer code"),
+                     ("ecu_instance", "ECU instance"), ("function_instance", "Function instance"),
+                     ("function", "Function"), ("vehicle_system", "Vehicle system"),
+                     ("vehicle_system_instance", "Vehicle system instance"), ("industry_group", "Industry group"))
+
+
+def _j1939_address(value):
+    if value is None:
+        return "any"
+    return "global (255)" if value == contract.J1939_GLOBAL else str(value)
+
+
+def _j1939_frames(length):
+    """(frames, how) a message of `length` bytes takes on the bus: one frame
+    up to 8 bytes, else the transport protocol's announce and data packets."""
+    if length <= 8:
+        return 1, ""
+    packets = (length + 6) // 7
+    return packets + 1, "%d bytes: transport protocol, announce + %d data packets" % (length, packets)
+
+
+def _j1939_dbc(j, config_path):
+    """The network's DBC (j1939/dbc.Imported) for names, comments and cycle
+    times the config lacks, or None with the reason."""
+    if not j["dbc"]:
+        return None, None
+    from .j1939 import dbc as j1939_dbc
+    path = os.path.join(os.path.dirname(os.path.abspath(config_path)), j["dbc"])
+    try:
+        import cantools  # noqa: F401 - only to say why the DBC is left out
+    except ImportError:
+        return None, "cantools is not installed"
+    try:
+        return j1939_dbc.load(path), None
+    except (OSError, j1939_dbc.ImportFailed) as e:
+        return None, getattr(e, "strerror", None) or str(e)
+
+
+def _j1939_network(net, config_path, names, several, warnings):
+    """A J1939 network (j1939-config): the ECU, its messages and signals, the
+    periodic requests, the frame map and the bus load, all from the config
+    (and its DBC for names, comments and received cycle times)."""
+    from .j1939 import dbc as j1939_dbc
+    nname, a = net["name"], net["adapter"]
+    label = (nname + ": ") if several else ""
+    net_anchor = anchor("net", nname or "network")
+    bitrate = _u(a.get("bitrate"), 0) or 0
+    j = contract.parse_j1939(net["json"])
+    ecu = j["ecu"] or {}
+    own = ecu.get("address")
+    own = contract.J1939_NULL_ADDRESS if own is None else own
+    dbc, dbc_problem = _j1939_dbc(j, config_path)
+    if dbc_problem:
+        warnings.append("%sthe DBC %s is not read (%s): names and cycle times come from the configuration only"
+                        % (label, j["dbc"], dbc_problem))
+    model = j1939_dbc.build(net, config_path, names)
+
+    def from_dbc(pgn, source=None):
+        if dbc is None:
+            return None
+        found = dbc.find(pgn)
+        same = [m for m in found if source is not None and m["source"] == source]
+        return (same or found or [None])[0]
+
+    rows = []
+
+    def add(label_, value):
+        rows.append({"label": label_, "value": value, "object": ""})
+
+    add("Adapter", "%s %s" % (a.get("type", "socketcan"), a.get("interface") or (
+        shown_path(a["device"]) if a.get("device") else "")))
+    if a.get("bitrate"):
+        add("Bitrate", "%d kbit/s" % (bitrate // 1000))
+    add("Protocol", "J1939: OpenPLC is one ECU on the bus")
+    name = ecu.get("name") or {}
+    add("ECU NAME", "0x%016X" % contract.j1939_name_value(name))
+    for key, text in J1939_NAME_LABELS:
+        add("NAME: " + text, str(name.get(key, 0)))
+    add("NAME: Arbitrary address capable", "yes" if name.get("arbitrary_address_capable") else "no")
+    add("Preferred address", _j1939_address(ecu.get("address")))
+    if ecu.get("address_range"):
+        add("Address range", "%d..%d (claimed in turn when the preferred address is taken)" % tuple(
+            ecu["address_range"]))
+    add("DBC file", shown_path(j["dbc"]) if j["dbc"] else "none")
+
+    locations = []
+    for key, what in (("state_location", "ECU state (address claim)"),
+                      ("address_location", "address the ECU holds now")):
+        if ecu.get(key) is not None:
+            loc = str(ecu[key])
+            locations.append({"location": loc, "what": what, "variables": _plc_names(names, loc)})
+
+    requested = {r["pgn"]: r for r in j["requests"]}
+    messages, frames, unknown_rate = [], [], []
+    cyclic_bits = worst_bits = 0.0
+    for (key, entry), msg in zip([("rx", m) for m in j["rx"]] + [("tx", m) for m in j["tx"]], model.messages):
+        rx = key == "rx"
+        pgn = entry["pgn"]
+        d = from_dbc(pgn, entry.get("source") if rx else own)
+        mname = entry["name"] or (d["name"] if d else "") or "PGN %d" % pgn
+        length = msg.length
+        count, tp = _j1939_frames(length)
+        bits = frame_bits_ext(8) * count if count > 1 else frame_bits_ext(length)
+        msg_anchor = anchor("pgn", nname, key, pgn, entry.get("source") if rx and entry.get("source") is not None
+                            else "")
+        cyc = worst = 0.0
+        if rx:
+            cycle = d["cycle_ms"] if d and d.get("cycle_ms") else None
+            req = requested.get(pgn)
+            if cycle:
+                cyc = worst = _per(cycle)
+                trigger = "every %d ms (DBC)" % cycle
+            elif req:
+                cyc = worst = _per(req["period_ms"])
+                trigger = "answer to the PLC's request every %d ms" % req["period_ms"]
+            else:
+                trigger = "rate unknown; not counted"
+                unknown_rate.append(mname)
+            source = (_j1939_address(entry["source"]) if entry["source"] is not None else
+                      "NAME 0x%016X" % entry["source_name"] if entry["source_name"] is not None else "any")
+            producer, consumers = (d["sender"] if d and d.get("sender") else "ECU " + source), ["PLC"]
+            dest = "PLC (%s)" % _j1939_address(own) if contract.j1939_pdu1(pgn) else "global (255)"
+        else:
+            if entry["period_ms"]:
+                cyc = worst = _per(entry["period_ms"])
+                trigger = "every %d ms" % entry["period_ms"]
+            elif entry["min_gap_ms"]:
+                worst = _per(entry["min_gap_ms"])
+                trigger = "on change and on request, at most every %d ms" % entry["min_gap_ms"]
+            else:
+                trigger = "on change and on request; not counted"
+            source, dest = "PLC (%s)" % _j1939_address(own), _j1939_address(entry["destination"])
+            producer, consumers = "PLC", [dest]
+        if tp:
+            trigger += "; " + tp
+        cyclic_bits += bits * cyc
+        worst_bits += bits * worst
+        status = None
+        if rx and entry["status_location"] is not None:
+            loc = str(entry["status_location"])
+            status = {"location": loc, "variables": _plc_names(names, loc)}
+        dsig = {s["name"]: s for s in (d["signals"] if d else [])}
+        signals = []
+        for sg in entry["signals"]:
+            loc = str(sg["location"])
+            valid = str(sg["valid_location"]) if sg["valid_location"] is not None else ""
+            signals.append({"name": sg["name"], "start_bit": sg["start_bit"], "length": sg["length"],
+                            "byte_order": "big" if sg["big_endian"] else "little", "signed": sg["signed"],
+                            "scale": sg["scale"], "offset": sg["offset"], "unit": sg["unit"],
+                            "location": loc, "variables": _plc_names(names, loc), "valid_location": valid,
+                            "valid_variables": _plc_names(names, valid) if valid else [],
+                            "comment": dsig.get(sg["name"], {}).get("comment", "")})
+        messages.append({
+            "direction": key, "pgn": pgn, "name": mname, "anchor": msg_anchor, "can_id": msg.cob_id,
+            "priority": None if rx else entry["priority"], "source": source, "destination": dest,
+            "length": length, "period_ms": None if rx else entry["period_ms"],
+            "timeout_ms": entry["timeout_ms"] if rx else None, "min_gap_ms": None if rx else entry["min_gap_ms"],
+            "trigger": trigger, "status": status, "comment": d["comment"] if d else "", "signals": signals})
+        frames.append({"cob_id": msg.cob_id, "name": mname, "kind": key, "producer": producer,
+                       "consumers": consumers, "dlc": min(length, 8), "bits": bits, "trigger": trigger,
+                       "rate_cyclic": round(cyc, 4), "rate_worst": round(worst, 4),
+                       "load_cyclic": _pct(bits, cyc, bitrate), "load_worst": _pct(bits, worst, bitrate),
+                       "notes": "", "link": msg_anchor, "duplicate": False})
+
+    claim = j1939_dbc.join_id(contract.J1939_DEFAULT_PRIORITY, J1939_PGN_CLAIM, own, contract.J1939_GLOBAL)
+    frames.append({"cob_id": claim, "name": "Address Claimed", "kind": "claim", "producer": "PLC",
+                   "consumers": ["global (255)"], "dlc": 8, "bits": frame_bits_ext(8),
+                   "trigger": "at start and when another ECU claims the address", "rate_cyclic": 0.0,
+                   "rate_worst": 0.0, "load_cyclic": None, "load_worst": None, "notes": "", "link": "",
+                   "duplicate": False})
+    requests = []
+    for r in j["requests"]:
+        rid = j1939_dbc.join_id(contract.J1939_DEFAULT_PRIORITY, J1939_PGN_REQUEST, own, r["destination"])
+        target = _j1939_address(r["destination"])
+        bits, rate = frame_bits_ext(3), _per(r["period_ms"])
+        cyclic_bits += bits * rate
+        worst_bits += bits * rate
+        answer = next((m for m in messages if m["direction"] == "rx" and m["pgn"] == r["pgn"]), None)
+        requests.append({"pgn": r["pgn"], "destination": target, "period_ms": r["period_ms"], "can_id": rid,
+                         "answer": answer["name"] if answer else "", "link": answer["anchor"] if answer else ""})
+        frames.append({"cob_id": rid, "name": "Request PGN %d" % r["pgn"], "kind": "request", "producer": "PLC",
+                       "consumers": [target], "dlc": 3, "bits": bits, "trigger": "every %d ms" % r["period_ms"],
+                       "rate_cyclic": round(rate, 4), "rate_worst": round(rate, 4),
+                       "load_cyclic": _pct(bits, rate, bitrate), "load_worst": _pct(bits, rate, bitrate),
+                       "notes": "", "link": "", "duplicate": False})
+    frames.sort(key=lambda f: (f["cob_id"], f["name"]))
+    notes = []
+    if unknown_rate:
+        notes.append("%d received message%s ha%s no known rate (no cycle time in the DBC and no periodic request) "
+                     "and %s left out of the totals: %s." % (
+                         len(unknown_rate), "" if len(unknown_rate) == 1 else "s",
+                         "s" if len(unknown_rate) == 1 else "ve", "is" if len(unknown_rate) == 1 else "are",
+                         ", ".join(unknown_rate)))
+    worst = round(100.0 * worst_bits / bitrate, 2) if bitrate else None
+    if worst is not None and worst > LOAD_WARNING_PCT:
+        warnings.append("%sestimated worst-case bus load %.1f %% is above %d %%" % (label, worst, LOAD_WARNING_PCT))
+    io = []
+    for key, who, path, text in contract.location_uses(net):
+        io.append({"key": list(key), "location": text, "network": nname, "who": who, "path": path,
+                   "variables": _plc_names(names, text)})
+    return {
+        "name": nname, "anchor": net_anchor, "role": "j1939", "protocol": "j1939", "master_node_id": None,
+        "interface": a.get("interface") or a.get("type", ""), "bitrate": bitrate, "address": ecu.get("address"),
+        "settings": rows, "locations": locations, "frames": frames,
+        "bus_load": {"cyclic": round(100.0 * cyclic_bits / bitrate, 2) if bitrate else None, "worst": worst,
+                     "unbounded": [], "notes": notes, "sync_ms": None, "plc_cycle_ms": None},
+        "nodes": [], "messages": messages, "requests": requests, "io": io,
+    }
+
+
 def _gateway(cfg, networks):
     """The gateway section (canopen-gateway) of a config, or None."""
     g = cfg.get("gateway") if isinstance(cfg.get("gateway"), dict) else None
@@ -1044,6 +1263,9 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
     networks = []
     gateway_cfg = cfg.get("gateway") if isinstance(cfg.get("gateway"), dict) else None
     for net in nets:
+        if net["role"] == "j1939":
+            networks.append(_j1939_network(net, config_path, names, several, warnings))
+            continue
         if net["role"] == "slave":
             networks.append(_slave_network(net, paths, names, od, embed_eds, plc_cycle_ms, several, warnings,
                                            gateway_cfg and {
@@ -1051,6 +1273,8 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
             continue
         one = contract.network_config(cfg, net["name"] if net["path"] else None)
         networks.append(_network(net, one, config_path, paths, names, od, embed_eds, plc_cycle_ms, several, warnings))
+    for n in networks:
+        n.setdefault("protocol", "canopen")
     gateway = _gateway(cfg, networks) if network is None else None
     io = sorted((r for n in networks for r in n["io"]), key=lambda r: (r["key"], r["network"], r["who"]))
     for n in networks:

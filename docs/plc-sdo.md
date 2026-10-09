@@ -87,7 +87,7 @@ A reply longer than 254 characters ends with `ERROR_ID` 7; read it with `CO_SDO_
 | 3 | The node is not available: configured, but lost or failed to boot |
 | 4 | CANopen is not running (no plugin, no config, or CANopen switched off) |
 | 5 | Too many transfers at once (64 across all blocks) |
-| 6 | Invalid input: node outside 1..127, a `NETWORK` the config does not have or that is a slave network, a `SIZE` the block cannot send, `SIZE := 0` without an EDS type |
+| 6 | Invalid input: node outside 1..127, a `NETWORK` the config does not have or that is a slave or J1939 network (refused at once, nothing is sent), a `SIZE` the block cannot send, `SIZE := 0` without an EDS type |
 | 7 | The data does not fit the block's output (a reply longer than 8 bytes for `CO_SDO_READ`, 254 characters for a string, 1024 bytes for bytes) |
 | 8 | Cancelled: the PLC stopped or CANopen restarted during the transfer (the runtime log says how many transfers a stop cancelled), or the block did not collect its result within 10 s |
 

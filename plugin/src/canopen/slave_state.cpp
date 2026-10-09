@@ -11,8 +11,8 @@
 
 #include "cJSON.h"
 
-#ifndef CANOPEN_PREFIX
-#define CANOPEN_PREFIX "/opt/canworks"
+#ifndef CANWORKS_PREFIX
+#define CANWORKS_PREFIX "/opt/canworks"
 #endif
 
 namespace canopen_plugin {
@@ -58,9 +58,9 @@ bool make_dirs(const std::string& dir) {
 }  // namespace
 
 std::string default_slave_state_dir() {
-  const char* env = std::getenv("CANOPEN_STATE_DIR");
+  const char* env = std::getenv("CANWORKS_STATE_DIR");
   if (env && *env) return env;
-  return CANOPEN_PREFIX "/state";
+  return CANWORKS_PREFIX "/state";
 }
 
 std::string slave_state_path(const std::string& dir, const std::string& network) {

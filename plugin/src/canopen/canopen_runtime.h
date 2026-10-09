@@ -34,9 +34,9 @@ class CanopenShared;
 bool canopen_create(ConfigSet& set, uint64_t base_tick_ns, const char* version,
                     std::shared_ptr<CanopenShared>& shared, std::vector<std::unique_ptr<NetworkRuntime>>& out);
 
-// The SDO function blocks' request channel (canopen-plc-sdo): opened for
-// `networks` networks while the PLC runs.
-void canopen_open_plc_requests(unsigned networks);
+// The SDO function blocks' request channel (canopen-plc-sdo): opened while
+// the PLC runs, for the CANopen master networks of `set`.
+void canopen_open_plc_requests(const ConfigSet& set);
 void canopen_close_plc_requests();
 const void* canopen_plc_api_table(uint32_t version);
 

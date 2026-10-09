@@ -13,7 +13,7 @@ endif()
 
 set(LELY_PREFIX "/opt/canworks/lely" CACHE PATH "Lely CANopen install prefix (fallback)")
 # Where scripts/build-lely.sh put Lely and the dcfgen venv (<prefix>/venv).
-set(CANOPEN_PREFIX "/opt/canworks" CACHE PATH "Install prefix of Lely and dcfgen")
+set(CANWORKS_PREFIX "/opt/canworks" CACHE PATH "Install prefix of Lely and dcfgen")
 if(CANWORKS_WITH_CANOPEN)
   find_package(PkgConfig REQUIRED)
   set(ENV{PKG_CONFIG_PATH} "${LELY_PREFIX}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
@@ -106,28 +106,28 @@ target_include_directories(canopen_core PUBLIC
     ${LELY_INCLUDE_DIRS}
 )
 target_compile_options(canopen_core PRIVATE -Wall -Wextra -Wno-unused-parameter)
-target_compile_definitions(canopen_core PRIVATE CANOPEN_PREFIX="${CANOPEN_PREFIX}")
+target_compile_definitions(canopen_core PRIVATE CANWORKS_PREFIX="${CANWORKS_PREFIX}")
 target_compile_definitions(canopen_core PUBLIC CANWORKS_WITH_CANOPEN=$<BOOL:${CANWORKS_WITH_CANOPEN}>
                            CANWORKS_WITH_J1939=$<BOOL:${CANWORKS_WITH_J1939}>)
 target_link_directories(canopen_core PUBLIC ${LELY_LIBRARY_DIRS})
 target_link_libraries(canopen_core PUBLIC ${LELY_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto pthread)
 
-# The plugin version the diagnostics channel reports: $CANOPEN_PLUGIN_VERSION
+# The plugin version the diagnostics channel reports: $CANWORKS_PLUGIN_VERSION
 # when set (the local simulator runtime image, built without .git), else git.
-if(DEFINED ENV{CANOPEN_PLUGIN_VERSION})
-  set(CANOPEN_PLUGIN_VERSION "$ENV{CANOPEN_PLUGIN_VERSION}")
+if(DEFINED ENV{CANWORKS_PLUGIN_VERSION})
+  set(CANWORKS_PLUGIN_VERSION "$ENV{CANWORKS_PLUGIN_VERSION}")
 else()
 execute_process(COMMAND git describe --always --tags --dirty
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                OUTPUT_VARIABLE CANOPEN_PLUGIN_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+                OUTPUT_VARIABLE CANWORKS_PLUGIN_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 endif()
-if(NOT CANOPEN_PLUGIN_VERSION)
-  set(CANOPEN_PLUGIN_VERSION "unknown")
+if(NOT CANWORKS_PLUGIN_VERSION)
+  set(CANWORKS_PLUGIN_VERSION "unknown")
 endif()
 
 add_library(canworks_plugin SHARED src/can/plugin.cpp)
-target_compile_definitions(canworks_plugin PRIVATE CANOPEN_PLUGIN_VERSION="${CANOPEN_PLUGIN_VERSION}"
-                           CANOPEN_PREFIX="${CANOPEN_PREFIX}")
+target_compile_definitions(canworks_plugin PRIVATE CANWORKS_PLUGIN_VERSION="${CANWORKS_PLUGIN_VERSION}"
+                           CANWORKS_PREFIX="${CANWORKS_PREFIX}")
 target_link_libraries(canworks_plugin PRIVATE canopen_core ${CMAKE_DL_LIBS})
 # Keep cJSON and the core symbols private to the plugin.
 target_link_options(canworks_plugin PRIVATE -Wl,--exclude-libs,ALL)
@@ -157,7 +157,7 @@ add_executable(canworks-sim
     ${PROJECT_SOURCE_DIR}/tools/sim/sim_commands.cpp
     ${PROJECT_SOURCE_DIR}/tools/sim/control.cpp
 )
-target_compile_definitions(canworks-sim PRIVATE CANOPEN_PLUGIN_VERSION="${CANOPEN_PLUGIN_VERSION}")
+target_compile_definitions(canworks-sim PRIVATE CANWORKS_PLUGIN_VERSION="${CANWORKS_PLUGIN_VERSION}")
 target_compile_options(canworks-sim PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(canworks-sim PRIVATE canopen_core)
 set_target_properties(canworks-sim PROPERTIES

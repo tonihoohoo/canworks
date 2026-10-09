@@ -174,7 +174,7 @@ build_in_image() {
     say "Building in $image (this takes a while on a Raspberry Pi)"
     docker run --rm --network host \
         -v "$PREFIX:$CONTAINER_PREFIX" -v "$SRC_COPY:/src" \
-        -e CANOPEN_IMAGE="$image" -e CANOPEN_IMAGE_ID="$image_id" \
+        -e CANWORKS_IMAGE="$image" -e CANWORKS_IMAGE_ID="$image_id" \
         --entrypoint bash "$image" /src/scripts/install-stock.sh "${args[@]}" ||
         die "the build in $image failed; the runtime container was not changed"
     rm -rf "${SRC_COPY:?}"
@@ -405,9 +405,9 @@ BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
 say "Building the plugin ($PROTOCOLS) against $RUNTIME_DIR ($COMMIT)"
 on_off() { [ "$1" -eq 1 ] && echo ON || echo OFF; }
-cmake -S "$REPO" -B "$BUILD_DIR" -DOPENPLC_ROOT="$RUNTIME_DIR" -DCANOPEN_BUILD_TESTS=OFF \
+cmake -S "$REPO" -B "$BUILD_DIR" -DOPENPLC_ROOT="$RUNTIME_DIR" -DCANWORKS_BUILD_TESTS=OFF \
     -DCANWORKS_WITH_CANOPEN="$(on_off "$WITH_CANOPEN")" -DCANWORKS_WITH_J1939="$(on_off "$WITH_J1939")" \
-    -DLELY_PREFIX="$PREFIX/lely" -DCANOPEN_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release >/dev/null
+    -DLELY_PREFIX="$PREFIX/lely" -DCANWORKS_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release >/dev/null
 TARGETS=(canworks_plugin)
 [ "$WITH_CANOPEN" -eq 0 ] || TARGETS+=(canworks-sim)
 cmake --build "$BUILD_DIR" --target "${TARGETS[@]}" -j"$(nproc)" >/dev/null
@@ -432,9 +432,9 @@ echo "$COMMIT" > "$COMMIT_FILE"
 
 if [ "$IN_IMAGE" -eq 1 ]; then
     # Checked by the editor hook at webserver start and by the plugin.
-    printf '%s\n%s\n%s\n' "$RUNTIME_VERSION" "${CANOPEN_IMAGE:-unknown}" "${CANOPEN_IMAGE_ID:-unknown}" \
+    printf '%s\n%s\n%s\n' "$RUNTIME_VERSION" "${CANWORKS_IMAGE:-unknown}" "${CANWORKS_IMAGE_ID:-unknown}" \
         > "$LIB_DIR/runtime-version"
-    say "Built for runtime $RUNTIME_VERSION (${CANOPEN_IMAGE:-unknown})"
+    say "Built for runtime $RUNTIME_VERSION (${CANWORKS_IMAGE:-unknown})"
 fi
 
 # --- plugins.conf -------------------------------------------------------------

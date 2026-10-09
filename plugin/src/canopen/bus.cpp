@@ -84,11 +84,11 @@ bool Bus::wait_for(std::chrono::milliseconds d) {
 void Bus::thread_main() {
   pthread_setname_np(pthread_self(), "canopen_bus");
   set_thread_log_prefix(cfg_.log_prefix.empty() ? "" : cfg_.log_prefix + ": ");
-  if (cfg_.master.sync_plc_cycle && !std::getenv("CANOPEN_BUS_NO_FIFO")) {
+  if (cfg_.master.sync_plc_cycle && !std::getenv("CANWORKS_BUS_NO_FIFO")) {
     // PLC-cycle SYNC: the SYNC should follow the frame closely, so the bus
     // thread runs at the level of the runtime's highest task priority (below
     // its dispatcher). Without the right to do so it runs as before.
-    // CANOPEN_BUS_NO_FIFO skips this, to measure what it gains.
+    // CANWORKS_BUS_NO_FIFO skips this, to measure what it gains.
     sched_param sp{};
     sp.sched_priority = kSyncPriority;
     int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);

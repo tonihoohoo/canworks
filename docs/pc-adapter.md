@@ -20,7 +20,7 @@ A SocketCAN interface that is already up is used at its own bit rate. One that i
 
 ## The bit rate
 
-There is no default: a wrong bit rate disturbs every device on the bus. Give `--bitrate KBIT`, or `--config` with a `canworks.json`, whose network's `adapter.bitrate` is then used (`--network` picks one of several networks). The configurator starts with the config's bit rate and says when the chosen one differs; under **Commission a device**, which has no config, no rate is picked until you pick one or press **Detect**.
+There is no default: a wrong bit rate disturbs every device on the bus. Give `--bitrate KBIT`, or `--config` with a `canworks.json`, whose network's `adapter.bitrate` is then used (`--network` picks one of several networks). The configurator starts with the config's bit rate and says when the chosen one differs; under **Commission a CANopen device**, which has no config, no rate is picked until you pick one or press **Detect**.
 
 ## First steps
 
@@ -35,7 +35,7 @@ canworks-diag --adapter slcan:COM5 --bitrate 250 --allow-changes lss-set-id 0x36
 canworks-diag --adapter slcan:COM5 --bitrate 250 trace -o bench.pcapng --duration 60
 ```
 
-The commands are the ones of [diagnostics.md](diagnostics.md), with `--adapter` in place of `--runtime`; no token is needed. In the configurator, pick **USB adapter on this PC** in the online view's connect box (see [configurator.md](configurator.md#usb-adapter-on-this-pc)), or press **Commission a device** on the start page to work with a device without any project.
+The commands are the ones of [diagnostics.md](diagnostics.md), with `--adapter` in place of `--runtime`; no token is needed. In the configurator, pick **USB adapter on this PC** in the online view's connect box (see [configurator.md](configurator.md#usb-adapter-on-this-pc)), or press **Commission a CANopen device** on the start page to work with a device without any project.
 
 ## Changes are off until you allow them
 
@@ -73,7 +73,7 @@ In the configurator, **Detect** next to the bit rate in the USB adapter connect 
 
 ## Commissioning one device
 
-A device on the bench, with only the adapter and the device on the bus, from new to ready for the machine. Every step is optional and none runs by itself; in the configurator, **Commission a device** shows them as a Steps panel, and every change made through the page goes into a log that **Save log** downloads (`node12-commissioning-<time>.txt`: UTC time, node, what was done and the result, with the device's identity and EDS at the top, no host names or tokens).
+A device on the bench, with only the adapter and the device on the bus, from new to ready for the machine. Every step is optional and none runs by itself; in the configurator, **Commission a CANopen device** shows them as a Steps panel, and every change made through the page goes into a log that **Save log** downloads (`node12-commissioning-<time>.txt`: UTC time, node, what was done and the result, with the device's identity and EDS at the top, no host names or tokens).
 
 ```sh
 D="canworks-diag --adapter slcan:COM5"

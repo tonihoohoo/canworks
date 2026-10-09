@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# The local simulator runtime (canopen-local-runtime, docs/local-runtime.md):
+# The local simulator runtime (docs/local-runtime.md; spec canopen-local-runtime):
 # upstream's OpenPLC Runtime v4 image with the CANopen plugin, dcfgen, the
 # device simulator and the editor hook built in, every CANopen network forced
 # to run simulated. Build from the repository root:
@@ -20,7 +20,7 @@ ARG RUNTIME_IMAGE
 ARG TOOLS_VERSION=dev
 COPY . /src
 # .git is not in the build context: the plugin reports the tools version.
-RUN CANOPEN_IMAGE="${RUNTIME_IMAGE}" CANOPEN_IMAGE_ID="${RUNTIME_IMAGE}" CANOPEN_PLUGIN_VERSION="${TOOLS_VERSION}" \
+RUN CANWORKS_IMAGE="${RUNTIME_IMAGE}" CANWORKS_IMAGE_ID="${RUNTIME_IMAGE}" CANWORKS_PLUGIN_VERSION="${TOOLS_VERSION}" \
         bash /src/scripts/install-stock.sh --in-image && \
     # Build-only: Lely's sources and pip's caches.
     rm -rf /opt/canworks/src /root/.cache && \

@@ -111,7 +111,7 @@ jobs:
         run: |
           cmake -B build-canopen -DOPENPLC_ROOT="$PWD/upstream-runtime" -DCANWORKS_WITH_J1939=OFF
           cmake --build build-canopen -j"$(nproc)"
-          CANOPEN_EDSLINT=python3 PYTHONPATH="$PWD/tools/deploy" ctest --test-dir build-canopen --output-on-failure -j4
+          CANWORKS_EDSLINT=python3 PYTHONPATH="$PWD/tools/deploy" ctest --test-dir build-canopen --output-on-failure -j4
           # A J1939 config is refused by name.
           if build-canopen/canopen_check --no-dcfgen examples/j1939/canworks.json; then
             echo "::error::the CANopen-only build accepted a J1939 config"; exit 1

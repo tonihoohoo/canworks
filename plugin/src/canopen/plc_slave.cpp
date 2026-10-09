@@ -262,7 +262,6 @@ void PlcSlave::Period() {
   if (periods_ % 10 == 0) {
     ServiceBridge();
     ServiceDiag();
-    RefusePlcRequests();
   }
   if (periods_ % 100 == 0) {
     if (gw_) ServiceGateway();  // in case a wake was missed
@@ -550,14 +549,6 @@ void PlcSlave::ServiceBridge() {
     if (co_sub_t* s = co_dev_find_sub(d, b, 8)) co_sub_set_val_u8(s, kBridgeAborted);
   }
   Changed(b, 8);
-}
-
-void PlcSlave::RefusePlcRequests() {
-  // The program's SDO blocks address master networks; a request that names
-  // this one ends at once instead of timing out.
-  std::vector<PlcRequests::Job> jobs;
-  PlcRequests::instance().take(cfg_.network_index, jobs);
-  for (const auto& j : jobs) PlcRequests::instance().finish(j.handle, CANOPEN_PLC_ERR_INPUT, 0, nullptr, 0);
 }
 
 // ---------------------------------------------------------------------------

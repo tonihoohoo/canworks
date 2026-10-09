@@ -103,7 +103,7 @@ jobs:
 
       - name: Unit and virtual-bus tests (one ctest test per simulation case, run in parallel)
         env:
-          CANOPEN_REQUIRE_STRUCPP: "1"
+          CANWORKS_REQUIRE_STRUCPP: "1"
         run: ctest --test-dir build --output-on-failure -j4
 
       - uses: actions/setup-python@v5
@@ -249,7 +249,7 @@ jobs:
       - name: PLC program SDO blocks on vcan0 (a PLC stop cancels a transfer in flight)
         if: steps.vcan.outcome == 'success' && matrix.group == 3 && needs.changes.outputs.canopen == 'true'
         env:
-          CANOPEN_EDSLINT: python3
+          CANWORKS_EDSLINT: python3
           PYTHONPATH: tools/deploy
         run: |
           test/plc_sdo/lookup_check.sh build/test/plc_sdo_lookup_check build/plugins/libcanworks_plugin.so \
@@ -327,8 +327,8 @@ jobs:
 
       - name: Deploy tool and configurator tests (shared fixtures, bundle, clash check, stub runtime, server, DCF export parity, DBC export)
         env:
-          CANOPEN_REQUIRE_PARITY: "1"  # the DCF export is compared with build/canopen_check --dump-writes
-          CANOPEN_REQUIRE_TSHARK: ${{ steps.bustrace.outputs.here == 'true' && '1' || '' }}
+          CANWORKS_REQUIRE_PARITY: "1"  # the DCF export is compared with build/canopen_check --dump-writes
+          CANWORKS_REQUIRE_TSHARK: ${{ steps.bustrace.outputs.here == 'true' && '1' || '' }}
         run: >
           python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3
           --start tools/deploy/tests --top tools/deploy --exclude 'test_configurator_(.*page|layout)$'
@@ -407,7 +407,7 @@ jobs:
         # Split by recorded class times (.github/ci/page-test-times.json; a class not in it counts as the
         # median). Each shard prints its "class times:" line; refresh the file from those when shards drift.
         env:
-          CANOPEN_REQUIRE_BROWSER: "1"  # fail instead of skipping without Playwright/Chromium
+          CANWORKS_REQUIRE_BROWSER: "1"  # fail instead of skipping without Playwright/Chromium
         run: >
           python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3
           --start tools/deploy/tests --top tools/deploy --timings .github/ci/page-test-times.json

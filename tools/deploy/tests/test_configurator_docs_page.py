@@ -3,7 +3,7 @@
 in print and PDF, its sorting, filtering and deep links, and the
 configurator's "Export documentation" action. Needs the Python Playwright
 package and a Chromium it can launch; skipped without them, unless
-CANOPEN_REQUIRE_BROWSER=1 (CI)."""
+CANWORKS_REQUIRE_BROWSER=1 (CI)."""
 
 import datetime
 import json
@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover
 
 RTD = os.path.join(REPO, "config", "rtd-sensor")
 FIXTURE = os.path.join(REPO, "test", "fixtures", "editor-project")
-REQUIRED = os.environ.get("CANOPEN_REQUIRE_BROWSER") == "1"
+REQUIRED = os.environ.get("CANWORKS_REQUIRE_BROWSER") == "1"
 NOW = datetime.datetime(2026, 1, 2, 3, 4)
 
 
@@ -43,7 +43,7 @@ class Browser(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.pw = sync_playwright().start()
-        exe = os.environ.get("CANOPEN_CHROMIUM")
+        exe = os.environ.get("CANWORKS_CHROMIUM")
         try:
             cls.browser = cls.pw.chromium.launch(**({"executable_path": exe} if exe else {}))
         except Exception as e:  # pragma: no cover
@@ -83,7 +83,7 @@ class Document(Browser):
         self.assertEqual([u for u in requests if not u.startswith("file:")], [])
         self.assertTrue(pg.is_visible("#node-4"))
         self.assertTrue(pg.is_visible("svg.topo"))
-        self.assertEqual(pg.evaluate("JSON.parse(document.getElementById('canopen-doc').textContent)"
+        self.assertEqual(pg.evaluate("JSON.parse(document.getElementById('canworks-doc').textContent)"
                                      ".networks[0].nodes[0].node_id"), 4)
 
     def test_without_script(self):

@@ -24,12 +24,13 @@ EDS_DIR = os.path.join(FIXTURES, "eds")
 FIXTURE_CONFIG = os.path.join(EDS_DIR, "canworks.json")
 EDITOR_PROJECT = os.path.join(FIXTURES, "editor-project")
 GOLDEN = os.path.join(os.path.dirname(__file__), "data", "doc")
-EXAMPLES = ("rtd-sensor", "cia402-drive", "two-networks", "pingpong", "slave", "gateway")
+EXAMPLES = ("rtd-sensor", "cia402-drive", "two-networks", "pingpong", "slave", "gateway", "j1939")
+J1939_EXAMPLE = os.path.join(REPO, "examples", "j1939", "canworks.json")
 NOW = datetime.datetime(2026, 1, 2, 3, 4)
 
 
 def example(name):
-    path = os.path.join(REPO, "config", name, "canopen_config.json")
+    path = J1939_EXAMPLE if name == "j1939" else os.path.join(REPO, "config", name, "canopen_config.json")
     with open(path, encoding="utf-8") as f:
         return json.load(f), path
 
@@ -96,7 +97,7 @@ def check_html(test, text):
 
 
 def island(text):
-    m = re.search(r'<script type="application/json" id="canopen-doc">(.*?)</script>', text, re.S)
+    m = re.search(r'<script type="application/json" id="canworks-doc">(.*?)</script>', text, re.S)
     return json.loads(m.group(1).replace("<\\/", "</"))
 
 
@@ -112,7 +113,7 @@ class Model(unittest.TestCase):
         locs = [r["location"] for r in m["io"]]
         for loc in ["%IW100", "%IW101", "%IW102", "%IW103", "%IB100", "%IB101", "%IB102", "%IB103", "%IX10.0"]:
             self.assertIn(loc, locs)
-        self.assertEqual(m["doc_schema_version"], 1)
+        self.assertEqual(m["doc_schema_version"], 2)
         self.assertEqual(m["warnings"], [])
 
     def test_error_stops(self):
@@ -368,7 +369,8 @@ class Html(unittest.TestCase):
         cfg, path = example("rtd-sensor")
         text, _ = docexport.export(cfg, path, now=NOW)
         data = island(text)
-        self.assertEqual(data["doc_schema_version"], 1)
+        self.assertEqual(data["doc_schema_version"], 2)
+        self.assertEqual(data["networks"][0]["protocol"], "canopen")
         [node] = data["networks"][0]["nodes"]
         t1 = pdo(node, "TPDO", 1)
         self.assertEqual((node["node_id"], t1["cob_id"], len(t1["entries"])), (5, 0x185, 4))
@@ -396,6 +398,84 @@ class Html(unittest.TestCase):
     def test_title(self):
         text, _ = docexport.export(base_config(), FIXTURE_CONFIG, title="Line 3 <A>", now=NOW)
         self.assertIn("<title>Line 3 &lt;A&gt;</title>", text)
+        text, _ = docexport.export(base_config(), FIXTURE_CONFIG, now=NOW)
+        self.assertIn("<title>CAN network documentation</title>", text)
+
+
+class J1939Networks(unittest.TestCase):
+    def test_j1939_example(self):
+        cfg, path = example("j1939")
+        m = build(cfg, path)
+        [net] = m["networks"]
+        self.assertEqual((net["protocol"], net["role"], net["master_node_id"], net["nodes"]), ("j1939", "j1939", None, []))
+        settings = {r["label"]: r["value"] for r in net["settings"]}
+        self.assertEqual(settings["Preferred address"], "128")
+        self.assertTrue(settings["Address range"].startswith("128..135"))
+        rx = {x["pgn"]: x for x in net["messages"] if x["direction"] == "rx"}
+        tx = {x["pgn"]: x for x in net["messages"] if x["direction"] == "tx"}
+        p = rx[65280]
+        self.assertEqual(p["name"], "Pressures")
+        sig = {g["name"]: g for g in p["signals"]}
+        self.assertEqual((sig["Pressure"]["location"], sig["Pressure"]["scale"], sig["Pressure"]["unit"]),
+                         ("%IW210", 0.1, "bar"))
+        self.assertEqual((sig["Temp"]["start_bit"], sig["Temp"]["length"], sig["Temp"]["signed"],
+                          sig["Temp"]["unit"], sig["Temp"]["location"], sig["Temp"]["valid_location"]),
+                         (16, 8, True, "degC", "%IB204", "%IX202.2"))
+        self.assertEqual((tx[65281]["name"], tx[65281]["period_ms"], tx[65281]["can_id"]),
+                         ("Setpoints", 100, 0x18FF0180))
+        self.assertEqual(tx[61184]["min_gap_ms"], 50)
+        self.assertEqual(net["requests"][0]["pgn"], 65282)
+        self.assertIn("Address Claimed", [f["name"] for f in net["frames"]])
+        # A received message counts at its DBC cycle time or the request's period.
+        self.assertGreater(frame(net, "Pressures")["rate_cyclic"], 0)
+        self.assertEqual(frame(net, "ComponentInfo")["rate_cyclic"], 1.0)
+        self.assertGreater(frame(net, "ComponentInfo")["bits"], docexport.frame_bits_ext(8) * 5)  # 34 bytes
+        self.assertEqual(net["bus_load"]["notes"], [])
+        self.assertIn("%IW210", [r["location"] for r in m["io"]])
+
+    def test_received_message_without_a_rate(self):
+        cfg, path = example("j1939")
+        cfg["networks"][0]["j1939"]["requests"] = []
+        m = build(cfg, path)
+        net = m["networks"][0]
+        self.assertEqual(frame(net, "ComponentInfo")["rate_cyclic"], 0)
+        self.assertIn("1 received message has no known rate", net["bus_load"]["notes"][0])
+
+    def test_frame_bits_ext(self):
+        self.assertEqual(docexport.frame_bits_ext(8), 67 + 64 + (54 + 64 - 1) // 4)
+
+    def test_mixed_config(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        two, two_path = example("two-networks")
+        shutil.copy(os.path.join(os.path.dirname(two_path), "cpp-slave.eds"), tmp)
+        cfg, _ = example("j1939")
+        shutil.copy(os.path.join(os.path.dirname(J1939_EXAMPLE), "machine.dbc"), tmp)
+        cfg["networks"].insert(0, two["networks"][0])
+        path = os.path.join(tmp, "canworks.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+        m = build(cfg, path)
+        self.assertEqual([(n["name"], n["protocol"]) for n in m["networks"]], [("io", "canopen"), ("machine", "j1939")])
+        nets = {r["network"] for r in m["io"]}
+        self.assertEqual(nets, {"io", "machine"})
+        keys = [tuple(r["key"]) for r in m["io"]]
+        self.assertEqual(keys, sorted(keys))
+        text = docwriter.write(m)
+        self.assertIn("CANopen · vcan0", text)
+        self.assertIn("J1939 · can0", text)
+        self.assertIn('id="pgn-machine-rx-65280-0"', text)
+
+    def test_without_cantools(self):
+        import sys
+        saved = sys.modules.get("cantools")
+        sys.modules["cantools"] = None
+        self.addCleanup(lambda: sys.modules.pop("cantools") if saved is None else sys.modules.__setitem__(
+            "cantools", saved))
+        cfg, path = example("j1939")
+        m = build(cfg, path)
+        self.assertIn("cantools is not installed", " ".join(m["warnings"]))
+        self.assertEqual(m["networks"][0]["messages"][0]["name"], "Pressures")
 
 
 class SlaveNetworks(unittest.TestCase):

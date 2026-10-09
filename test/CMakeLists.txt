@@ -24,7 +24,7 @@ target_compile_definitions(unit_tests PRIVATE PINGPONG_DIR="${PINGPONG_DIR}" FIX
 target_link_libraries(unit_tests PRIVATE canopen_core)
 add_test(NAME unit_tests COMMAND unit_tests)
 # The plugin's EDS lint runs this checkout's deploy tool module (stdlib only).
-set(EDSLINT_ENV "CANOPEN_EDSLINT=python3" "PYTHONPATH=${PROJECT_SOURCE_DIR}/tools/deploy")
+set(EDSLINT_ENV "CANWORKS_EDSLINT=python3" "PYTHONPATH=${PROJECT_SOURCE_DIR}/tools/deploy")
 set_tests_properties(unit_tests PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
 
 # The editor's ST-to-C++ compiler package, the version OpenPLC Editor 4.3.2
@@ -69,7 +69,7 @@ target_link_libraries(sim_tests PRIVATE canopen_core)
 # drive_cyclic_demo.st) run in sim_cia402_demo and sim_cia402_cyclic when
 # STruC++, the editor's compiler, is given: -DSTRUCPP=$(scripts/fetch-strucpp.sh).
 # Without it those cases say they were not built, and fail when
-# CANOPEN_REQUIRE_STRUCPP=1 (CI).
+# CANWORKS_REQUIRE_STRUCPP=1 (CI).
 set(STRUCPP "" CACHE FILEPATH "strucpp command (scripts/fetch-strucpp.sh), for the CiA 402 simulation test")
 set(CIA402_DIR ${PROJECT_SOURCE_DIR}/config/cia402-drive)
 target_include_directories(sim_tests PRIVATE drive cia402)
@@ -97,12 +97,12 @@ if(STRUCPP)
   # The cyclic synchronous demo (sim_cia402_cyclic), with the CO402_Cyclic*
   # blocks of the packaged canworks library. Its runtime namespace and
   # C entry points are renamed so that it links next to drive_demo.
-  set(CANOPEN_STLIB_DIR ${PROJECT_SOURCE_DIR}/tools/deploy/canworks/library)
+  set(CANWORKS_STLIB_DIR ${PROJECT_SOURCE_DIR}/tools/deploy/canworks/library)
   add_custom_command(
     OUTPUT ${CIA402_GEN}/drive_cyclic_demo.cpp ${CIA402_GEN}/drive_cyclic_demo.hpp
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CIA402_GEN}
-    COMMAND ${STRUCPP} ${CIA402_DIR}/drive_cyclic_demo.st -L ${CANOPEN_STLIB_DIR} -o ${CIA402_GEN}/drive_cyclic_demo.cpp
-    DEPENDS ${CIA402_DIR}/drive_cyclic_demo.st ${CANOPEN_STLIB_DIR}/canworks.stlib
+    COMMAND ${STRUCPP} ${CIA402_DIR}/drive_cyclic_demo.st -L ${CANWORKS_STLIB_DIR} -o ${CIA402_GEN}/drive_cyclic_demo.cpp
+    DEPENDS ${CIA402_DIR}/drive_cyclic_demo.st ${CANWORKS_STLIB_DIR}/canworks.stlib
     COMMENT "STruC++: config/cia402-drive/drive_cyclic_demo.st")
   add_library(cia402_cyclic_program STATIC cia402/program_host.cpp ${CIA402_GEN}/drive_cyclic_demo.cpp)
   set_target_properties(cia402_cyclic_program PROPERTIES CXX_STANDARD 17)
@@ -119,8 +119,8 @@ if(STRUCPP)
   add_custom_command(
     OUTPUT ${GANTRY_GEN}/gantry.cpp ${GANTRY_GEN}/gantry.hpp
     COMMAND ${CMAKE_COMMAND} -E make_directory ${GANTRY_GEN}
-    COMMAND ${STRUCPP} ${GANTRY_DIR}/pous/programs/main.st -L ${CANOPEN_STLIB_DIR} -o ${GANTRY_GEN}/gantry.cpp
-    DEPENDS ${GANTRY_DIR}/pous/programs/main.st ${CANOPEN_STLIB_DIR}/canworks.stlib
+    COMMAND ${STRUCPP} ${GANTRY_DIR}/pous/programs/main.st -L ${CANWORKS_STLIB_DIR} -o ${GANTRY_GEN}/gantry.cpp
+    DEPENDS ${GANTRY_DIR}/pous/programs/main.st ${CANWORKS_STLIB_DIR}/canworks.stlib
     COMMENT "STruC++: examples/gantry-cell/pous/programs/main.st")
   add_library(gantry_program STATIC cia402/program_host.cpp ${GANTRY_GEN}/gantry.cpp)
   set_target_properties(gantry_program PROPERTIES CXX_STANDARD 17)

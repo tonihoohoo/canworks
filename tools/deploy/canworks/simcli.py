@@ -205,7 +205,7 @@ def add_parser(sub):
     k.add_argument("--off-ms", type=_positive("--off-ms", 3600000), help="cycle: how long it stays off")
     k = kind("reset", "the device resets itself")
     k.add_argument("what", choices=("node", "comm"))
-    k = kind("nmt", "the device changes its NMT state by itself")
+    k = kind("nmt-state", "the device changes its NMT state by itself")
     k.add_argument("state", choices=("stopped", "preop", "operational"))
     k = kind("sdo-abort", "abort SDO transfers of an object")
     k.add_argument("object", type=obj, metavar="OBJ")
@@ -288,7 +288,7 @@ def fault_object(args):
         return f
     if k == "reset":
         return {"reset": args.what}
-    if k == "nmt":
+    if k == "nmt-state":
         return {"nmt_state": args.state}
     if k == "sdo-abort":
         f = {"object": args.object, "code": args.code}

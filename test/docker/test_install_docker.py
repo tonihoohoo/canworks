@@ -194,7 +194,7 @@ class Installer(unittest.TestCase):
         self.assertEqual(len(run), 1)
         self.assertIn("ghcr.io/autonomy-logic/openplc-runtime:v4.2.4 /src/scripts/install-stock.sh --in-image", run[0])
         self.assertIn("-v %s" % self.bind, run[0])
-        self.assertIn("CANOPEN_IMAGE_ID=sha256:feed", run[0])
+        self.assertIn("CANWORKS_IMAGE_ID=sha256:feed", run[0])
         # The PLC restart is announced before the container goes.
         self.assertIn("the PLC stops now", p.stdout)
         self.assertEqual(calls[-2:], ["rm -f openplc-runtime", "restart openplc-bootloader"])

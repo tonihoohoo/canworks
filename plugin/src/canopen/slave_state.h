@@ -21,7 +21,7 @@ struct SlaveStore {
   uint8_t lss_id = 0;  // 0: none stored
 };
 
-// $CANOPEN_STATE_DIR, else <install prefix>/state.
+// $CANWORKS_STATE_DIR, else <install prefix>/state.
 std::string default_slave_state_dir();
 
 // <dir>/<network>.json ("slave" for an unnamed network).

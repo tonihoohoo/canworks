@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="canopen-token" content="{{TOKEN}}">
+<meta name="canworks-token" content="{{TOKEN}}">
 <title>canworks configurator</title>
 <link rel="stylesheet" href="uplot/uPlot.min.css">
 <link rel="stylesheet" href="style.css">
@@ -34,7 +34,7 @@
         <div class="menu-row"><select id="dbc-sdo" aria-label="SDO frames in the DBC file" title="SDO frames in the DBC file">
           <option value="none">No SDO frames</option><option value="config">SDO: configured objects</option><option value="all">SDO: all EDS objects</option>
         </select><button id="btn-export-dbc" type="button" class="item" title="The network as a DBC file for CAN bus tools (PDOs, heartbeat, EMCY, NMT, SYNC)">DBC</button></div>
-        <button id="btn-export-html" type="button" class="item" title="One HTML document of every network for people: topology, COB-ID map, bus load, nodes, PDO layouts, boot SDO writes and PLC I/O">Documentation</button>
+        <button id="btn-export-html" type="button" class="item" title="One HTML document of every network for people: CANopen topology, COB-ID map, nodes, PDO layouts and boot SDO writes; J1939 ECU, messages and signals; bus load and PLC I/O">Documentation</button>
       </div>
     </details>
     <button id="btn-save" type="button" class="primary" data-config="1">Save</button>
@@ -43,11 +43,12 @@
 <div id="sim-banner" role="note" hidden></div>
 <div id="banner" role="status" hidden><span id="banner-text"></span><button id="banner-close" type="button" title="Close" aria-label="Close message">✕</button></div>
 <main id="start" hidden>
+  <p id="start-intro" class="start-intro">Configure CANopen and J1939 networks for OpenPLC Runtime v4, or commission a CANopen device from this PC.</p>
   <section class="start-choices">
-    <button id="start-project" type="button" class="choice"><strong>Open editor project</strong><span>Edit the project's canworks/ folder. Addresses are checked against the rest of the project.</span></button>
-    <button id="start-standalone" type="button" class="choice"><strong>Open standalone config</strong><span>A folder with canworks.json and its EDS files, before a project exists.</span></button>
-    <button id="start-new" type="button" class="choice"><strong>New standalone config</strong><span>Start an empty config in a folder; it is created when you first save.</span></button>
-    <button id="start-commission" type="button" class="choice"><strong>Commission a device</strong><span>A USB CAN adapter on this PC, no PLC and no config: scan, LSS, object dictionary, parameter backup, trace.</span></button>
+    <button id="start-project" type="button" class="choice"><strong>Open OpenPLC Editor project</strong><span>Edit the canworks/ folder of an OpenPLC Editor project. PLC addresses are checked against the project's program.</span></button>
+    <button id="start-standalone" type="button" class="choice"><strong>Open standalone config</strong><span>A folder with canworks.json and its EDS or DBC files, before an OpenPLC Editor project exists.</span></button>
+    <button id="start-new" type="button" class="choice"><strong>New standalone config</strong><span>Start an empty config in a folder. Move it into an OpenPLC Editor project when you have one.</span></button>
+    <button id="start-commission" type="button" class="choice"><strong>Commission a CANopen device</strong><span>A USB CAN adapter on this PC, no OpenPLC runtime and no config: scan, LSS, object dictionary, parameter backup, trace.</span></button>
   </section>
   <section class="browser">
     <h2 id="browser-title">Choose a folder</h2>

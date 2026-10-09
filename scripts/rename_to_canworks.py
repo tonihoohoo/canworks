@@ -14,7 +14,7 @@ block names and links to Lely's CANopen documentation.
 
 A line containing `rename-keep` is left alone, so code that has to name an
 old install (the install script's cleanup) can do so. Archived OpenSpec
-changes, this script, its test, the rename change itself and the
+changes, changes in flight, this script, its test and the
 toolkit-names spec (which lists the retired names) are skipped.
 Running the script twice changes nothing the second time.
 """
@@ -29,7 +29,7 @@ KEEP = "rename-keep"
 
 SKIP_PREFIXES = (
     "openspec/changes/archive/",
-    "openspec/changes/rename-to-canworks/",
+    "openspec/changes/",  # changes in flight may name the names they retire
 )
 SKIP_FILES = {
     "LICENSE",
@@ -37,6 +37,11 @@ SKIP_FILES = {
     "scripts/rename_to_canworks.py",
     "test/ci/test_rename.py",
 }
+
+# The CANOPEN_ settings (fix-docs-review-gaps).
+SETTINGS = ("STATE_DIR", "DCFGEN", "GENERATED_CONF", "BUS_NO_FIFO", "PLUGIN_VERSION", "PREFIX", "BUILD_TESTS",
+            "STLIB_DIR", "IMAGE_ID", "IMAGE", "CHECK", "CHROMIUM", "EDSLINT", "EDITOR_CLI", "REQUIRE_BROWSER",
+            "REQUIRE_PARITY", "REQUIRE_STRUCPP", "REQUIRE_TSHARK", "SCREENSHOTS", "UPDATE_GOLDEN", "AXE_REPORT")
 
 # Text rules, applied in order to every line (and, for paths, to the path).
 RULES = [
@@ -53,6 +58,11 @@ RULES = [
     (r"openplc-canopen(?![-\w])", "canworks"),
     (r"OPENPLC_CANOPEN_", "CANWORKS_"),
     (r"CANOPEN_FORCE_SIMULATE", "CANWORKS_FORCE_SIMULATE"),
+    # Every other setting read from outside the code (environment variables,
+    # CMake options and cache variables, Docker build arguments); header
+    # guards and the CANOPEN_PLC_* SDO API keep their names.
+    (r"(?:(?<=-D)|\b)CANOPEN_(%s)\b" % "|".join(SETTINGS), r"CANWORKS_\1"),
+    (r"(?<![\w-])canopen-(token|doc-theme|doc)(?![\w-])", r"canworks-\1"),
     (r"libcanopen_plugin", "libcanworks_plugin"),
     # Schema files, also where the version is filled in (%d, ${v}).
     (r"(?<![\w-])canopen(-sim|-machine)?\.v(\d+|%d|\$\{\w+\})\.schema", r"canworks\1.v\2.schema"),
@@ -70,6 +80,7 @@ BUILD_FILE = re.compile(r"(^|/)(CMakeLists\.txt|[^/]*\.cmake|[^/]*\.sh|[^/]*\.ya
 
 # Old names --check reports.
 OLD = re.compile(r"openplc[-_]canopen(?!-private)|OPENPLC_CANOPEN_|CANOPEN_FORCE_SIMULATE|libcanopen_plugin"
+                 r"|(?:(?<=-D)|\b)CANOPEN_(%s)\b|(?<![\w-])canopen-(token|doc-theme|doc)(?![\w-])" % "|".join(SETTINGS) +
                  r"|(?<![\w.-])canopen(\\)?\.json|conf/canopen/"
                  r"|(?<![\w-])canopen(-sim|-machine)?\.v(\d+|%d|\$\{\w+\})\.schema")
 

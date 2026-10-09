@@ -422,7 +422,7 @@ class Session:
             if not os.path.isdir(path):
                 raise ApiError(404, "%s does not exist" % path)
             if not is_project:
-                raise ApiError(422, "%s is not an OpenPLC editor project (it has no project.json)" % path,
+                raise ApiError(422, "%s is not an OpenPLC Editor project (it has no project.json)" % path,
                                not_a_project=True, path=path)
         elif mode == "standalone":
             if os.path.isfile(os.path.join(path, "project.json")):
@@ -1099,7 +1099,7 @@ class Session:
             raise ApiError(409, "save the config before moving it into a project", unsaved=True)
         target = os.path.abspath(os.path.expanduser(target or ""))
         if not os.path.isfile(os.path.join(target, "project.json")):
-            raise ApiError(422, "%s is not an OpenPLC editor project (it has no project.json)" % target)
+            raise ApiError(422, "%s is not an OpenPLC Editor project (it has no project.json)" % target)
         if os.path.lexists(os.path.join(target, "canworks")) and not replace:
             raise ApiError(409, "%s already has a canopen folder" % target, exists=True)
         with open(self.config_path, encoding="utf-8") as f:
@@ -1483,7 +1483,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         def view():
             p = settings.project(folder)
             return {"token": p.get("token"), "host": p.get("host") or "", "eds_library": settings.eds_library,
-                    "connected": conn.connected, "target": p.get("target") or "runtime",
+                    "connected": conn.connected, "target": "adapter" if s.commission else p.get("target") or "runtime",
                     "adapter": p.get("adapter") or "", "adapter_bitrate": p.get("adapter_bitrate"),
                     "allow_changes": self.server.adapter_allow, "commission": bool(s.commission)}
 
@@ -1497,6 +1497,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 target = body.get("target")
                 if target not in ("runtime", "adapter"):
                     raise ApiError(422, "target must be runtime or adapter")
+                if s.commission and target != "adapter":
+                    raise ApiError(422, "Commission a device works through a USB adapter on this PC")
                 settings.update_project(folder, target=None if target == "runtime" else target)
                 self.server.adapter_allow = False
                 conn.close()

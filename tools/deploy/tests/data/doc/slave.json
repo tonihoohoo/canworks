@@ -5,7 +5,7 @@
   "sha256": "47987390fed78b8158915489dca434834e5dab51d09dabfedd32a9c824567016",
   "text": "{\n  \"schema_version\": 2,\n  \"networks\": [\n    {\n      \"name\": \"line\",\n      \"role\": \"slave\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan1\", \"bitrate\": 250000 },\n      \"slave\": {\n        \"node_id\": 10,\n        \"eds\": \"openplc-slave.eds\",\n        \"objects\": [\n          { \"index\": \"0x2000\", \"subindex\": 1, \"iec_location\": \"%IW300\", \"name\": \"speed_setpoint\" },\n          { \"index\": \"0x2001\", \"subindex\": 1, \"iec_location\": \"%IB300\" },\n          { \"index\": \"0x2002\", \"subindex\": 1, \"iec_location\": \"%IX300.0\" },\n          { \"index\": \"0x2100\", \"subindex\": 1, \"iec_location\": \"%QW300\" },\n          { \"index\": \"0x2100\", \"subindex\": 2, \"iec_location\": \"%QW301\" },\n          { \"index\": \"0x2101\", \"subindex\": 1, \"iec_location\": \"%QW302\" }\n        ],\n        \"inputs_on_loss\": \"zero\",\n        \"state_location\": \"%IB301\",\n        \"comm_ok_location\": \"%IX300.1\",\n        \"sync_count_location\": \"%IW301\",\n        \"emcy_code_location\": \"%QW303\",\n        \"error_register_location\": \"%QB300\"\n      }\n    }\n  ]\n}\n"
  },
- "doc_schema_version": 1,
+ "doc_schema_version": 2,
  "gateway": null,
  "generated": "2026-01-02 03:04",
  "io": [
@@ -702,6 +702,7 @@
      "startup_sdos": []
     }
    ],
+   "protocol": "canopen",
    "role": "slave",
    "settings": [
     {
@@ -757,10 +758,10 @@
    ]
   }
  ],
- "title": "CANopen network documentation",
+ "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.44.0"
+  "version": "0.45.0"
  },
  "warnings": []
 }

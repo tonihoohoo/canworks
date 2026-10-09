@@ -2,23 +2,23 @@
 check it, and upload it to an OpenPLC Runtime v4.
 
   canworks-deploy --bundle <project>/build/"OpenPLC Runtime v4"/src \\
-      --config canopen_config.json --runtime 192.168.1.20 --user openplc --fingerprint AB:CD:...
+      --config canworks.json --runtime 192.168.1.20 --user openplc --fingerprint AB:CD:...
 
 The runtime switches the CANopen plugin on because the upload carries
 conf/canworks.json, exactly as it does for EtherCAT. See docs/deploy.md.
 
-  canworks-deploy --config canopen_config.json --into-project <project>
+  canworks-deploy --config canworks.json --into-project <project>
 
 copies the config and its EDS files into the project's canworks/ folder
 instead, for runtimes with the editor hook (docs/install-stock.md).
 
-  canworks-deploy --config canopen_config.json --export-dcf <dir>
+  canworks-deploy --config canworks.json --export-dcf <dir>
 
 writes each node's configuration as a CiA 306 DCF (node_<id>.dcf) into
 <dir>, checked against CiA 306, and uploads nothing. With several networks
 each network's files go into <dir>/<network>/; --network NAME exports one.
 
-  canworks-deploy --config canopen_config.json --export-dbc bus.dbc [--dbc-sdo config]
+  canworks-deploy --config canworks.json --export-dbc bus.dbc [--dbc-sdo config]
 
 writes the network's PDOs, heartbeat, EMCY, NMT and SYNC (and optionally its
 SDO frames) as a DBC file for CAN bus tools, and uploads nothing. With
@@ -26,13 +26,14 @@ several networks it writes bus_<network>.dbc per network; --network NAME
 writes only that network to bus.dbc. A J1939 network's DBC holds its rx and
 tx parameter groups with 29-bit identifiers (VFrameFormat J1939PG).
 
-  canworks-deploy --config canopen_config.json --export-html network.html [--doc-od all] [--doc-embed-eds]
+  canworks-deploy --config canworks.json --export-html network.html [--doc-od all] [--doc-embed-eds]
 
 writes one HTML document of the networks for people: topology, settings,
 COB-ID map, bus-load estimate, every node's identity, PDO layouts, boot SDO
-writes and PLC addresses (docs/network-docs.md). Uploads nothing.
+writes, J1939 messages and signals, and PLC addresses (docs/network-docs.md).
+Uploads nothing.
 
-  canworks-deploy --config canopen_config.json --new-project <dir> [--task-interval T#10ms]
+  canworks-deploy --config canworks.json --new-project <dir> [--task-interval T#10ms]
 
 creates an OpenPLC Editor project in <dir> with openplc-cli create: target
 OpenPLC Runtime v4, the config in its canworks/ folder, and a program main
@@ -108,8 +109,9 @@ def parser():
                      help="write the network as a DBC file for CAN bus tools (PDOs, heartbeat, EMCY, NMT, SYNC) "
                           "instead of deploying; nothing is built or uploaded")
     src.add_argument("--export-html", metavar="FILE",
-                     help="write an HTML document of the networks (topology, COB-ID map, bus load, nodes, PDOs, "
-                          "boot SDO writes, PLC I/O) instead of deploying; nothing is built or uploaded")
+                     help="write an HTML document of the networks (CANopen: topology, COB-ID map, bus load, nodes, "
+                          "PDOs, boot SDO writes; J1939: ECU, messages, signals, frame map, bus load; PLC I/O) "
+                          "instead of deploying; nothing is built or uploaded")
     src.add_argument("--new-project", metavar="DIR",
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
                           "and declares its I/O in the program main")
@@ -138,7 +140,7 @@ def parser():
     p.add_argument("--target", default=DEFAULT_TARGET,
                    help="board target for --project (default: %(default)s)")
     p.add_argument("--config", required=True, metavar="FILE",
-                   help="the CANopen config (canopen_config.json); EDS paths are relative to it")
+                   help="the config (canworks.json); EDS and DBC paths are relative to it")
     p.add_argument("--runtime", metavar="HOST[:PORT]",
                    help="the runtime to upload to (HTTPS, default port 8443); `local` is the local simulator "
                         "runtime of canworks-sim-runtime, with its saved user, password and fingerprint")

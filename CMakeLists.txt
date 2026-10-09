@@ -2,13 +2,13 @@
 #
 # Built against the headers of a stock runtime checkout
 # (Autonomy-Logic/openplc-runtime); scripts/install-stock.sh does this on a
-# device with -DCANOPEN_BUILD_TESTS=OFF.
+# device with -DCANWORKS_BUILD_TESTS=OFF.
 #
 # Development build:
 #   cmake -B build -DOPENPLC_ROOT=/path/to/openplc-runtime && cmake --build build
 #   ctest --test-dir build
 # This also builds canopen_check, the tests and the ping-pong slave unless
-# -DCANOPEN_BUILD_TESTS=OFF.
+# -DCANWORKS_BUILD_TESTS=OFF.
 
 cmake_minimum_required(VERSION 3.13)
 project(canworks C CXX)
@@ -31,11 +31,11 @@ if(NOT DEFINED OPENPLC_ROOT OR NOT EXISTS "${OPENPLC_ROOT}/core/src/drivers/plug
 endif()
 message(STATUS "canworks plugin - OpenPLC root: ${OPENPLC_ROOT}")
 
-option(CANOPEN_BUILD_TESTS "Build canopen_check, the tests and the ping-pong slave" ON)
+option(CANWORKS_BUILD_TESTS "Build canopen_check, the tests and the ping-pong slave" ON)
 
 add_subdirectory(plugin)
 
-if(CANOPEN_BUILD_TESTS)
+if(CANWORKS_BUILD_TESTS)
     enable_testing()
     if(CANWORKS_WITH_CANOPEN)
         add_executable(canopen_check tools/canopen_check.cpp)

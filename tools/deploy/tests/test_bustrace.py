@@ -111,7 +111,7 @@ class Formats(unittest.TestCase):
                           ("csv", "sample.csv")):
             got = written(t, fmt, dec).decode("utf-8").replace(__version__, "VERSION")
             path = os.path.join(GOLDEN, name)
-            if os.environ.get("CANOPEN_UPDATE_GOLDEN"):
+            if os.environ.get("CANWORKS_UPDATE_GOLDEN"):
                 with open(path, "w", encoding="utf-8", newline="") as f:
                     f.write(got)
             with open(path, encoding="utf-8", newline="") as f:
@@ -219,8 +219,8 @@ class Formats(unittest.TestCase):
 
     def test_wireshark_decodes_canopen(self):
         if not shutil.which("tshark"):
-            if os.environ.get("CANOPEN_REQUIRE_TSHARK") == "1":
-                self.fail("tshark is not installed (CANOPEN_REQUIRE_TSHARK=1)")
+            if os.environ.get("CANWORKS_REQUIRE_TSHARK") == "1":
+                self.fail("tshark is not installed (CANWORKS_REQUIRE_TSHARK=1)")
             self.skipTest("tshark is not installed")
         d = self.tmp()
         path = os.path.join(d, "x.pcapng")

@@ -89,20 +89,26 @@ def _summary(model):
     for net in model["networks"]:
         load = net["bus_load"]
         pdos = sum(len(n["pdos"]) for n in net["nodes"])
-        if net["role"] == "slave":
+        stats = "<span><b>%d</b> PDOs</span>" % pdos
+        if net["role"] == "j1939":
+            rx = sum(1 for m in net["messages"] if m["direction"] == "rx")
+            first = "<b>%d</b> received" % rx
+            stats = "<span><b>%d</b> sent</span>" % (len(net["messages"]) - rx)
+        elif net["role"] == "slave":
             dev = net["nodes"][0]
             first = "<b>slave</b> %s" % ("node %d" % dev["node_id"] if dev["node_id"] is not None else "LSS")
         else:
             first = "<b>%d</b> nodes" % len(net["nodes"])
         tiles.append(
             '<a class="tile" href="#%s"><span class="tile-title">%s</span>'
-            '<span class="tile-sub">%s · %s</span>'
-            '<span class="stats"><span>%s</span><span><b>%d</b> PDOs</span></span>'
+            '<span class="tile-sub">%s · %s · %s</span>'
+            '<span class="stats"><span>%s</span>%s</span>'
             '<span class="loadrow"><span>Cyclic load</span><b>%s</b>%s</span>'
             '<span class="loadrow"><span>Worst case</span><b>%s</b>%s</span></a>' % (
-                _attr(net["anchor"]), E(net["name"] or "Network"), E(net["interface"]),
+                _attr(net["anchor"]), E(net["name"] or "Network"),
+                "J1939" if net["protocol"] == "j1939" else "CANopen", E(net["interface"]),
                 E("%d kbit/s" % (net["bitrate"] // 1000) if net["bitrate"] else "bitrate not set"),
-                first, pdos, _pct(load["cyclic"]), _meter(load["cyclic"]), _pct(load["worst"]),
+                first, stats, _pct(load["cyclic"]), _meter(load["cyclic"]), _pct(load["worst"]),
                 _meter(load["worst"])))
     warns = "".join("<li>%s</li>" % E(w) for w in model["warnings"])
     checks = ('<ul class="warnings">%s</ul>' % warns) if warns else '<p class="ok-text">No warnings.</p>'
@@ -373,7 +379,93 @@ def _node(node):
     return "".join(parts)
 
 
+def _num(v):
+    return "%g" % v if isinstance(v, float) else str(v)
+
+
+def _j1939_message(m):
+    chips = ['<span class="chip">ID <code>%08X</code></span>' % m["can_id"],
+             '<span class="chip">%s %s → %s</span>' % ("From" if m["direction"] == "rx" else "Sent",
+                                                       E(m["source"]), E(m["destination"])),
+             '<span class="chip">%d byte%s</span>' % (m["length"], "" if m["length"] == 1 else "s")]
+    if m["priority"] is not None:
+        chips.append('<span class="chip">Priority %d</span>' % m["priority"])
+    if m["timeout_ms"]:
+        chips.append('<span class="chip">Receive timeout %d ms</span>' % m["timeout_ms"])
+    if m["min_gap_ms"]:
+        chips.append('<span class="chip">Minimum gap %d ms</span>' % m["min_gap_ms"])
+    chips.append('<span class="chip">%s</span>' % E(m["trigger"]))
+    if m["status"]:
+        chips.append('<span class="chip">Status %s</span>' % _loc(m["status"]["location"], m["status"]["variables"]))
+    rows = []
+    for sg in m["signals"]:
+        rows.append([E(sg["name"]), str(sg["start_bit"]), str(sg["length"]), E(sg["byte_order"]),
+                     "yes" if sg["signed"] else "no", _num(sg["scale"]), _num(sg["offset"]), E(sg["unit"]),
+                     _loc(sg["location"], sg["variables"]), _loc(sg["valid_location"], sg["valid_variables"]),
+                     E(sg["comment"])])
+    return ('<div class="pdo" id="%s"><h5>PGN %d %s <span class="muted">%s</span></h5>%s<div class="chips">%s</div>%s'
+            '</div>' % (_attr(m["anchor"]), m["pgn"], E(m["name"]),
+                        "received" if m["direction"] == "rx" else "sent by the PLC",
+                        '<p class="small">%s</p>' % E(m["comment"]) if m["comment"] else "", "".join(chips),
+                        _table(["Signal", "Start bit", "Bits", "Byte order", "Signed", "Scale", "Offset", "Unit",
+                                "PLC", "Valid bit", "Comment"], rows, numeric=(1, 2))))
+
+
+def _j1939_network(net):
+    parts = ['<section class="network" id="%s"><h2>%s <span class="muted">J1939</span></h2>' % (
+        _attr(net["anchor"]), E("Network " + net["name"] if net["name"] else "Network"))]
+    parts.append('<h3 id="%s-settings">ECU and bus settings</h3>' % _attr(net["anchor"]))
+    parts.append(_kv(net["settings"]))
+    if net["locations"]:
+        parts.append("<h4>ECU status in the PLC</h4>")
+        parts.append(_table(["PLC", "Holds"], [[_loc(l["location"], l["variables"]), E(l["what"])]
+                                               for l in net["locations"]]))
+    target = net["anchor"] + "-frames"
+    rows = []
+    for f in net["frames"]:
+        name = E(f["name"])
+        if f["link"]:
+            name = '<a href="#%s">%s</a>' % (_attr(f["link"]), name)
+        rows.append(["<code>%08X</code>" % f["cob_id"], name, '<span class="kind k-%s">%s</span>' % (
+            _attr(f["kind"]), E(f["kind"])), E(f["producer"]), E(", ".join(f["consumers"])), str(f["dlc"]),
+            E(f["trigger"]), str(f["bits"]), _pct(f["load_cyclic"]) if f["load_cyclic"] else "",
+            _pct(f["load_worst"]) if f["load_worst"] else ""])
+    parts.append('<h3 id="%s">Frame map</h3><p class="muted">Every frame this ECU sends or takes, sorted by its 29-bit '
+                 'identifier. Bits include worst-case bit stuffing and the interframe space; a message longer than '
+                 '8 bytes counts all its transport protocol frames.</p>%s<div id="%s-t">%s</div>' % (
+                     _attr(target), _filter(target + "-t"), _attr(target),
+                     _table(["Identifier", "Frame", "Type", "Producer", "Consumers", "DLC", "Period / trigger",
+                             "Bits", "Cyclic load", "Worst load"], rows, "sortable", numeric=(5, 7, 8, 9))))
+    load = net["bus_load"]
+    parts.append('<h3 id="%s-load">Bus load estimate</h3><div class="load-cards">' % _attr(net["anchor"]))
+    for label, v, text in (("Cyclic", load["cyclic"], "periodic messages and requests"),
+                           ("Worst case", load["worst"], "cyclic plus messages sent on change at their minimum gap")):
+        parts.append('<div class="load-card"><span class="tile-sub">%s</span><b>%s</b>%s<span class="muted">%s'
+                     '</span></div>' % (E(label), _pct(v), _meter(v), E(text)))
+    parts.append("</div>")
+    if load["notes"]:
+        parts.append('<ul class="warnings">%s</ul>' % "".join("<li>%s</li>" % E(n) for n in load["notes"]))
+    parts.append(
+        '<p class="muted small">An estimate from the configuration, not a measurement: each frame counts '
+        '67 + 8 × DLC bits plus worst-case stuff bits (29-bit identifier), times its rate, divided by the bitrate. '
+        'Sent messages count at their period; received ones at the DBC cycle time, or at the period of the '
+        'PLC\'s request for them. Address claims are not counted.</p>')
+    for key, title in (("rx", "Received messages"), ("tx", "Sent messages")):
+        msgs = [m for m in net["messages"] if m["direction"] == key]
+        parts.append('<h3 id="%s-%s">%s</h3>' % (_attr(net["anchor"]), key, title))
+        parts.append("".join(_j1939_message(m) for m in msgs) or '<p class="muted">None.</p>')
+    parts.append('<h3 id="%s-requests">Periodic requests</h3>' % _attr(net["anchor"]))
+    parts.append(_table(["PGN", "Destination", "Every", "Answered by"], [[
+        str(r["pgn"]), E(r["destination"]), "%d ms" % r["period_ms"],
+        '<a href="#%s">%s</a>' % (_attr(r["link"]), E(r["answer"])) if r["link"] else ""] for r in net["requests"]],
+        numeric=(0,), empty="The PLC requests nothing periodically."))
+    parts.append("</section>")
+    return "".join(parts)
+
+
 def _network(net):
+    if net["role"] == "j1939":
+        return _j1939_network(net)
     parts = ['<section class="network" id="%s"><h2>%s</h2>' % (_attr(net["anchor"]), E(
         "Network " + net["name"] if net["name"] else "Network"))]
     parts.append(_topology(net))
@@ -447,6 +539,9 @@ def _toc(model):
     for net in model["networks"]:
         sub = "".join('<li><a href="#%s">%s</a></li>' % (_attr(n["anchor"]), E(_device_title(n)))
                       for n in sorted(net["nodes"], key=lambda n: n["node_id"] or 0))
+        if net["role"] == "j1939":
+            sub = "".join('<li><a href="#%s-%s">%s</a></li>' % (_attr(net["anchor"]), key, text) for key, text in (
+                ("rx", "Received messages"), ("tx", "Sent messages"), ("requests", "Periodic requests")))
         items.append('<li><a href="#%s">%s</a><ul>%s</ul></li>' % (
             _attr(net["anchor"]), E("Network " + net["name"] if net["name"] else "Network"), sub))
     if model.get("gateway"):
@@ -470,7 +565,7 @@ def write(model):
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
             "<meta name=\"generator\" content=\"%s %s\"><title>%s</title><style>%s</style></head>"
             "<body><div class=\"layout\">%s<main>%s%s<footer class=\"foot\">%s · %s · generated %s</footer></main>"
-            "</div><script type=\"application/json\" id=\"canopen-doc\">%s</script><script>%s</script></body></html>\n"
+            "</div><script type=\"application/json\" id=\"canworks-doc\">%s</script><script>%s</script></body></html>\n"
             % (E(model["tool"]["name"]), E(model["tool"]["version"]), E(title), CSS, _toc(model), head,
                "".join(body), E(title), E(model["config"]["file"]), E(model["generated"]), data, JS))
 
@@ -569,7 +664,7 @@ a{color:inherit;text-decoration:none}h2,h3,h4,h5{break-after:avoid}.seg{-webkit-
 JS = """
 (function(){
 var root=document.documentElement;
-function store(v){try{if(v)localStorage.setItem('canopen-doc-theme',v);return localStorage.getItem('canopen-doc-theme')}catch(e){return null}}
+function store(v){try{if(v)localStorage.setItem('canworks-doc-theme',v);return localStorage.getItem('canworks-doc-theme')}catch(e){return null}}
 var saved=store();if(saved)root.setAttribute('data-theme',saved);
 var t=document.querySelector('[data-theme-toggle]');
 if(t)t.addEventListener('click',function(){var dark=root.getAttribute('data-theme')?root.getAttribute('data-theme')==='dark':matchMedia('(prefers-color-scheme: dark)').matches;

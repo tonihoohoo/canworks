@@ -3,7 +3,7 @@ period field in a real browser, against the fake diagnostics channel
 (add-device-parameters tasks 4.2-4.4). Needs Playwright, like
 test_configurator_page.py.
 
-With CANOPEN_SCREENSHOTS=DIR the tests also save the screenshots of task 4.5
+With CANWORKS_SCREENSHOTS=DIR the tests also save the screenshots of task 4.5
 there (light and dark)."""
 
 import base64
@@ -19,7 +19,7 @@ from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD, load
 from .test_parameters import NODE, FakeDevice
 
-SHOTS = os.environ.get("CANOPEN_SCREENSHOTS")
+SHOTS = os.environ.get("CANWORKS_SCREENSHOTS")
 
 
 class ParamsPage(OnlineBase):

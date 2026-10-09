@@ -3,7 +3,7 @@
 // Python modules as canworks-deploy.
 "use strict";
 
-const TOKEN = document.querySelector('meta[name="canopen-token"]').content;
+const TOKEN = document.querySelector('meta[name="canworks-token"]').content;
 const BITRATES = [10000, 20000, 50000, 125000, 250000, 500000, 800000, 1000000];
 const TYPES = ["BOOLEAN", "INTEGER8", "INTEGER16", "INTEGER32", "INTEGER64", "UNSIGNED8", "UNSIGNED16",
   "UNSIGNED32", "UNSIGNED64", "REAL32", "REAL64"];
@@ -724,7 +724,7 @@ function renderStart() {
     $(id).classList.toggle("selected", S.startMode === mode);
   }
   $("#browser-title").textContent = {
-    project: "Choose the editor project folder",
+    project: "Choose the OpenPLC Editor project folder",
     standalone: "Choose the standalone config folder",
     new: "Choose where the new config goes (a new or empty folder)",
   }[S.startMode];
@@ -3174,7 +3174,10 @@ async function saveOnline(values) {
 }
 
 // Runtime or USB adapter: the choice above the connect form.
+// The Runtime / USB adapter choice; none in Commission a device, which works
+// through a USB adapter only.
 function targetChoice() {
+  if (S.state.commission) return null;
   const box = el("div", { class: "toolbar", role: "radiogroup", "aria-label": "Connect to" });
   for (const [value, label] of [["runtime", "Runtime"], ["adapter", "USB adapter on this PC"]]) {
     const r = el("input", { type: "radio", name: "online-target", value, dataset: { online: "target-" + value } });
@@ -3296,7 +3299,7 @@ async function adapterDetect(input, rate, button, msg, disturb, alone) {
 
 // What the online view and the scan page need before they can connect, or null.
 function onlineSetup(view) {
-  if (S.online.target === "adapter") {
+  if (S.online.target === "adapter" || S.state.commission) {
     if (S.onlineForm || !S.online.adapter) { adapterForm(view); return false; }
     return true;
   }

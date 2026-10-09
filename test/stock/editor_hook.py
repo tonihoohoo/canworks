@@ -218,7 +218,7 @@ def child_uploads(args):
         results[name]["generated_conf"] = os.path.abspath(os.path.join("core", "generated", "conf"))
         if name == "a" and args.canopen_check:
             e = results[name]["canworks"]
-            env = dict(os.environ, CANOPEN_GENERATED_CONF=results[name]["generated_conf"])
+            env = dict(os.environ, CANWORKS_GENERATED_CONF=results[name]["generated_conf"])
             r = subprocess.run([args.canopen_check, "--no-dcfgen", e["config"]], env=env,
                                capture_output=True, text=True)
             results[name]["check"] = {"code": r.returncode, "out": r.stdout + r.stderr}

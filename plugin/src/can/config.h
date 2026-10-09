@@ -485,7 +485,7 @@ struct ImageLimits {
 bool force_simulate_from_env(const char* value);
 
 // Where the stock runtime extracts an upload's conf/ tree:
-// $CANOPEN_GENERATED_CONF if set, else <working directory>/core/generated/conf
+// $CANWORKS_GENERATED_CONF if set, else <working directory>/core/generated/conf
 // (the runtime runs from its checkout).
 // Transmission types that only act on SYNC (CiA 301): 0-240 synchronous,
 // 252 synchronous RTR.

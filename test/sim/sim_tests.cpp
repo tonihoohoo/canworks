@@ -4010,9 +4010,9 @@ TEST(sim_plc_sdo_node_absent_at_start) {
 
 TEST(sim_cia402_demo) {
 #ifndef CIA402_PROGRAM
-  const char* need = std::getenv("CANOPEN_REQUIRE_STRUCPP");
+  const char* need = std::getenv("CANWORKS_REQUIRE_STRUCPP");
   std::printf("    not built: configure with -DSTRUCPP=$(scripts/fetch-strucpp.sh) to run the CiA 402 demo program\n");
-  CHECK_MSG(!(need && std::string(need) == "1"), "CANOPEN_REQUIRE_STRUCPP=1 but the CiA 402 program was not built");
+  CHECK_MSG(!(need && std::string(need) == "1"), "CANWORKS_REQUIRE_STRUCPP=1 but the CiA 402 program was not built");
 #else
   clear_logs();
   std::string dir = make_dir(read(std::string(CIA402_DIR) + "/canopen_config.json"),
@@ -4078,9 +4078,9 @@ TEST(sim_cia402_demo) {
 
 TEST(sim_cia402_cyclic) {
 #ifndef CIA402_PROGRAM
-  const char* need = std::getenv("CANOPEN_REQUIRE_STRUCPP");
+  const char* need = std::getenv("CANWORKS_REQUIRE_STRUCPP");
   std::printf("    not built: configure with -DSTRUCPP=$(scripts/fetch-strucpp.sh) to run the cyclic demo program\n");
-  CHECK_MSG(!(need && std::string(need) == "1"), "CANOPEN_REQUIRE_STRUCPP=1 but the cyclic program was not built");
+  CHECK_MSG(!(need && std::string(need) == "1"), "CANWORKS_REQUIRE_STRUCPP=1 but the cyclic program was not built");
 #else
   clear_logs();
   std::string dir = make_dir(read(std::string(CIA402_DIR) + "/canopen_config_cyclic.json"),
@@ -4204,9 +4204,9 @@ TEST(sim_cia402_cyclic_period_warning) {
 
 TEST(sim_gantry_demo) {
 #ifndef CIA402_PROGRAM
-  const char* need = std::getenv("CANOPEN_REQUIRE_STRUCPP");
+  const char* need = std::getenv("CANWORKS_REQUIRE_STRUCPP");
   std::printf("    not built: configure with -DSTRUCPP=$(scripts/fetch-strucpp.sh) to run the gantry demo program\n");
-  CHECK_MSG(!(need && std::string(need) == "1"), "CANOPEN_REQUIRE_STRUCPP=1 but the gantry program was not built");
+  CHECK_MSG(!(need && std::string(need) == "1"), "CANWORKS_REQUIRE_STRUCPP=1 but the gantry program was not built");
 #else
   clear_logs();
   std::string ex = std::string(GANTRY_DIR) + "/canworks/";
@@ -4452,7 +4452,7 @@ TEST(sim_two_networks) {
 
   // The SDO blocks reach each network by its NETWORK number.
   static CO_SDO_READ_INST rd[3];
-  PlcRequests::instance().open(2);
+  PlcRequests::instance().open(0x3);
   sim->SetProgram([] {
     for (auto& b : rd) co_sdo_read_call(&b);
   });

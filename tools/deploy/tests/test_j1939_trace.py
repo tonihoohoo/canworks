@@ -237,6 +237,17 @@ class Cli(unittest.TestCase):
             self.assertIn(name, out)
         self.assertIn("On the wire at 250 kbit/s\n", out)  # the network's bit rate
 
+    def test_explain_without_cantools(self):
+        self.project()
+        import sys
+        saved = sys.modules.get("cantools")
+        sys.modules["cantools"] = None  # import fails as when it is not installed
+        self.addCleanup(lambda: sys.modules.pop("cantools") if saved is None else sys.modules.__setitem__("cantools", saved))
+        code, out, err = run("explain", "18FF0000#0102", "--network", "machine")
+        self.assertEqual(code, 0, err)
+        self.assertIn("decoding without the DBC machine.dbc: cantools is not installed", err)
+        self.assertIn("Pressures (PGN 65280) from 0", out)
+
     def test_explain_a_trace_frame(self):
         self.project()
         code, out, err = run("explain", "--trace", TRACE, "--index", "13", "--network", "machine", "--format", "json")
