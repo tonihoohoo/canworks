@@ -99,6 +99,7 @@ function modal(text, buttons, extra) {
       menu.append(el("button", { type: "button", class: [o.primary ? "primary" : "", o.danger ? "danger" : ""].join(" ").trim() || null,
         dataset: { value }, onclick: () => done(value) }, label));
     }
+    if (!dlg.open) dlg.opener = document.activeElement;
     dlg.showModal();
     const field = extra && extra.querySelector ? extra.querySelector("input:not([type=checkbox]), select, textarea") : null;
     (field || menu.firstElementChild).focus();
@@ -730,8 +731,8 @@ function renderStart() {
   }[S.startMode];
   const recent = $("#recent");
   recent.replaceChildren(...(S.state.recent.length ? S.state.recent.map((r) =>
-    el("li", { onclick: () => openFolder(r.path, r.mode) }, r.path,
-      el("span", { class: "tag" }, r.mode === "project" ? "project" : "standalone")))
+    el("li", null, el("button", { type: "button", class: "folder", onclick: () => openFolder(r.path, r.mode) }, r.path,
+      el("span", { class: "tag" }, r.mode === "project" ? "project" : "standalone"))))
     : [el("li", { class: "muted" }, "Nothing opened yet")]));
   if (!S.browserPath) browse(S.state.home);
 }
@@ -744,12 +745,14 @@ async function browse(path) {
     // A path typed while the listing loaded (the first one, of the home
     // folder, starts with the page) stays: Open uses the field.
     if ($("#browser-path").value === typed) $("#browser-path").value = r.path;
+    // ↑ at the top folder is disabled: its focus goes to the path field.
+    if (!r.parent && document.activeElement === $("#browser-up")) $("#browser-path").focus();
     $("#browser-up").disabled = !r.parent;
     $("#browser-up").onclick = () => browse(r.parent);
-    $("#browser-list").replaceChildren(...r.entries.map((e) => el("li", {
-      ondblclick: () => browse(e.path), onclick: () => browse(e.path), title: e.path,
+    $("#browser-list").replaceChildren(...r.entries.map((e) => el("li", null, el("button", {
+      type: "button", class: "folder", onclick: () => browse(e.path), title: e.path,
     }, "📁 " + e.name, e.project ? el("span", { class: "tag" }, "editor project") : null,
-    e.config ? el("span", { class: "tag" }, "canworks.json") : null)));
+    e.config ? el("span", { class: "tag" }, "canworks.json") : null))));
     if (!r.entries.length) $("#browser-list").append(el("li", { class: "muted" }, "No subfolders"));
   } catch (e) {
     banner(e.message, true);
@@ -833,6 +836,8 @@ function renderSide() {
   // The node list: one button per node (name and error count, nothing
   // else), the open node marked as current.
   const list = $("#node-list");
+  // Enter or Space on a node rebuilds the list: the focus goes to its new button.
+  const had = document.activeElement && list.contains(document.activeElement) ? document.activeElement.dataset : null;
   const item = (active, attrs, ...kids) => el("li", null, el("button", Object.assign({ type: "button",
     class: "nav-item" + (active ? " active" : ""), "aria-current": active ? "true" : null }, attrs), ...kids));
   list.replaceChildren(...(S.config.nodes || []).map((n, i) => item(S.view === "node:" + i,
@@ -843,6 +848,8 @@ function renderSide() {
     list.append(item(S.view === "bus", { dataset: { slave: "1" }, onclick: () => showView("bus") },
       el("span", { class: "name" }, `${s.node_id === null ? "LSS" : s.node_id ?? "?"} slave device (this PLC)`)));
   } else if (!(S.config.nodes || []).length && !isJ1939(S.config)) list.append(el("li", { class: "muted" }, "No nodes yet"));
+  const again = had && list.querySelector(had.node !== undefined ? `[data-node="${had.node}"]` : had.slave ? "[data-slave]" : null);
+  if (again) again.focus();
   fillCounts(countProblems());
   const j1939 = isJ1939(S.config);
   $("#eds-input").closest("label").hidden = isSlave(S.config) || j1939;
@@ -5495,6 +5502,8 @@ async function addSdo(i, index, subindex) {
   n.sdo.push({ index: hex4(ix), subindex: sx, type, value });
   banner("");
   changed(true);
+  const field = document.querySelector(`#view input[data-path="nodes[${i}].sdo[${n.sdo.length - 1}].value"]`);
+  if (field) field.focus();
 }
 
 async function addSdoVar(i, index, subindex, direction) {
@@ -5524,6 +5533,11 @@ function moveSdo(i, j, d) {
   const list = S.config.nodes[i].sdo;
   [list[j], list[j + d]] = [list[j + d], list[j]];
   changed(true);
+  // The focus stays with the moved write: on the same arrow, or the other one at the end of the list.
+  const row = document.querySelector(`#view tr[data-path="nodes[${i}].sdo[${j + d}]"]`);
+  const arrow = (t) => row && row.querySelector(`button[title="${t}"]:not(:disabled)`);
+  const b = arrow(d < 0 ? "Up" : "Down") || arrow(d < 0 ? "Down" : "Up");
+  if (b) b.focus();
 }
 
 // ---------------------------------------------------------------------------
@@ -6094,6 +6108,15 @@ function wire() {
   for (const b of document.querySelectorAll("#side .nav-item")) b.onclick = () => showView(b.dataset.view);
   $("#banner-close").onclick = () => banner("");
   $("#modal").addEventListener("cancel", () => { const r = modalResolve; modalResolve = null; if (r) r(null); });
+  // A dialog opened from a menu item: the menu closed, so focus goes to its summary.
+  $("#modal").addEventListener("close", () => {
+    let o = $("#modal").opener;
+    const menu = o && o.closest ? o.closest("details.menu") : null;
+    if (menu && !menu.open) o = menu.querySelector("summary");
+    const a = document.activeElement;
+    const lost = !a || a === document.body || a.offsetParent === null || a.closest("dialog");
+    if (lost && o && o.isConnected && o.offsetParent !== null) o.focus();
+  });
   document.addEventListener("keydown", undoKeys);
   wireTheme();
   wireProblems();
@@ -6121,7 +6144,12 @@ function wireMenus() {
       else if (e.key === "ArrowUp") { e.preventDefault(); (items[k - 1] || items[items.length - 1]).focus(); }
     });
     for (const b of m.querySelectorAll(".item")) b.addEventListener("click", () => close(m));
+    // Tab out of an open menu closes it.
+    m.addEventListener("focusout", (e) => { if (m.open && !(e.relatedTarget && m.contains(e.relatedTarget))) close(m); });
   }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") for (const m of menus) if (m.open && !m.contains(document.activeElement)) close(m);
+  });
   document.addEventListener("click", (e) => {
     for (const m of menus) if (m.open && !m.contains(e.target)) close(m);
   });
