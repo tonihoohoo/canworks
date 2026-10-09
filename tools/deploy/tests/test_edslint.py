@@ -16,6 +16,7 @@ from .helpers import tmpdir
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, "..", "..", "..", "test", "fixtures", "eds")
 LINT = os.path.join(FIXTURES, "lint")
+REPO_GATEWAY = os.path.join(os.path.dirname(__file__), "..", "..", "..", "config", "gateway")
 DRIVES = os.path.join(FIXTURES, "drives")
 DRIVE_FILES = ("servo-drive.eds", "fixed-drive.eds")
 
@@ -289,6 +290,20 @@ class Lint(unittest.TestCase):
         _, corrections, r = edslint.check(read(os.path.join(LINT, "real-decimal.eds")), 1)
         self.assertIsNone(r.read_error)
         self.assertEqual([c.kind for c in corrections], ["real"])
+
+    def test_mapping_to_a_missing_object_is_named(self):
+        # A backup's live RPDO mapping can name an object the EDS lacks.
+        with open(os.path.join(REPO_GATEWAY, "cpp-slave.eds"), encoding="utf-8") as f:
+            text = f.read().replace("[1600sub1]\nParameterName=Application object 1\nDataType=0x0007\nAccessType=rw\n"
+                                    "DefaultValue=0x40000020", "[1600sub1]\nParameterName=Application object 1\n"
+                                    "DataType=0x0007\nAccessType=rw\nDefaultValue=0x20620101")
+        self.assertIn("0x20620101", text)
+        path = os.path.join(tmpdir(self), "missing.eds")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        r = edslint.lint_file(path, 23)
+        self.assertEqual(r.read_error, "dcfgen cannot read the file: an entry refers to object 0x2062, which the file "
+                                       "does not have (a PDO mapping, for example)")
 
     def test_non_utf8_without_prepare(self):
         r = edslint.lint_file(os.path.join(LINT, "cp1252.eds"), 1)
