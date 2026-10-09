@@ -30,7 +30,8 @@ tx parameter groups with 29-bit identifiers (VFrameFormat J1939PG).
 
 writes one HTML document of the networks for people: topology, settings,
 COB-ID map, bus-load estimate, every node's identity, PDO layouts, boot SDO
-writes and PLC addresses (docs/network-docs.md). Uploads nothing.
+writes, J1939 messages and signals, and PLC addresses (docs/network-docs.md).
+Uploads nothing.
 
   canworks-deploy --config canworks.json --new-project <dir> [--task-interval T#10ms]
 
@@ -108,8 +109,9 @@ def parser():
                      help="write the network as a DBC file for CAN bus tools (PDOs, heartbeat, EMCY, NMT, SYNC) "
                           "instead of deploying; nothing is built or uploaded")
     src.add_argument("--export-html", metavar="FILE",
-                     help="write an HTML document of the networks (topology, COB-ID map, bus load, nodes, PDOs, "
-                          "boot SDO writes, PLC I/O) instead of deploying; nothing is built or uploaded")
+                     help="write an HTML document of the networks (CANopen: topology, COB-ID map, bus load, nodes, "
+                          "PDOs, boot SDO writes; J1939: ECU, messages, signals, frame map, bus load; PLC I/O) "
+                          "instead of deploying; nothing is built or uploaded")
     src.add_argument("--new-project", metavar="DIR",
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
                           "and declares its I/O in the program main")

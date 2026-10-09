@@ -115,6 +115,23 @@ class Page(unittest.TestCase):
         self.page.wait_for_selector("#banner:has-text('Saved')")
 
     # -- tests --------------------------------------------------------------
+    def test_start_page(self):
+        pg = self.page
+        pg.set_viewport_size({"width": 1280, "height": 900})
+        pg.wait_for_selector("#start-project")
+        self.assertIn("OpenPLC Runtime v4", pg.inner_text("#start-intro"))
+        titles = [pg.inner_text("#%s strong" % i) for i in ("start-project", "start-standalone", "start-new",
+                                                           "start-commission")]
+        self.assertEqual(titles, ["Open OpenPLC Editor project", "Open standalone config", "New standalone config",
+                                  "Commission a CANopen device"])
+        # Two rows of two: no card alone on a row.
+        tops = pg.eval_on_selector_all(".start-choices .choice", "cs => cs.map(c => Math.round(c.getBoundingClientRect().top))")
+        self.assertEqual(len(set(tops)), 2, tops)
+        self.assertEqual(tops[0], tops[1])
+        self.assertEqual(tops[2], tops[3])
+        pg.click("#start-project")
+        self.assertEqual(pg.inner_text("#browser-title"), "Choose the OpenPLC Editor project folder")
+
     def test_rtd_node_in_a_project(self):
         pg = self.page
         self.assertTrue(pg.is_visible("#start-project"))

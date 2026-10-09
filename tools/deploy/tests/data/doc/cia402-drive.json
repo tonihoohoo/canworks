@@ -5,7 +5,7 @@
   "sha256": "d5aa87c3caba4f7e80adb1d0af187a409297860d662b7b4649397d7489c8eb45",
   "text": "{\n  \"schema_version\": 1,\n  \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 500000 },\n  \"master\": { \"node_id\": 1, \"heartbeat_ms\": 100 },\n  \"nodes\": [\n    {\n      \"node_id\": 4,\n      \"name\": \"drive\",\n      \"eds\": \"servo402.eds\",\n      \"heartbeat_ms\": 50,\n      \"heartbeat_timeout_ms\": 200,\n      \"status_location\": \"%IX10.0\",\n      \"axis\": { \"scale_numerator\": 1, \"scale_denominator\": 1, \"scale_factor\": 1.0 },\n      \"rx_pdos\": [\n        {\n          \"number\": 1,\n          \"entries\": [\n            { \"index\": \"0x6040\", \"subindex\": 0, \"type\": \"UNSIGNED16\", \"iec_location\": \"%QW100\" },\n            { \"index\": \"0x6060\", \"subindex\": 0, \"type\": \"INTEGER8\", \"iec_location\": \"%QB100\" }\n          ]\n        },\n        {\n          \"number\": 2,\n          \"entries\": [\n            { \"index\": \"0x607A\", \"subindex\": 0, \"type\": \"INTEGER32\", \"iec_location\": \"%QD100\" },\n            { \"index\": \"0x6081\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%QD101\" }\n          ]\n        },\n        {\n          \"number\": 3,\n          \"entries\": [\n            { \"index\": \"0x60FF\", \"subindex\": 0, \"type\": \"INTEGER32\", \"iec_location\": \"%QD102\" }\n          ]\n        }\n      ],\n      \"tx_pdos\": [\n        {\n          \"number\": 1,\n          \"entries\": [\n            { \"index\": \"0x6041\", \"subindex\": 0, \"type\": \"UNSIGNED16\", \"iec_location\": \"%IW100\" },\n            { \"index\": \"0x6061\", \"subindex\": 0, \"type\": \"INTEGER8\", \"iec_location\": \"%IB100\" }\n          ]\n        },\n        {\n          \"number\": 2,\n          \"entries\": [\n            { \"index\": \"0x6064\", \"subindex\": 0, \"type\": \"INTEGER32\", \"iec_location\": \"%ID100\" }\n          ]\n        },\n        {\n          \"number\": 3,\n          \"entries\": [\n            { \"index\": \"0x606C\", \"subindex\": 0, \"type\": \"INTEGER32\", \"iec_location\": \"%ID101\" }\n          ]\n        }\n      ],\n      \"sdo\": [\n        { \"index\": \"0x6083\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"value\": 20000 },\n        { \"index\": \"0x6084\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"value\": 20000 },\n        { \"index\": \"0x6098\", \"subindex\": 0, \"type\": \"INTEGER8\", \"value\": 35 }\n      ]\n    }\n  ]\n}\n"
  },
- "doc_schema_version": 1,
+ "doc_schema_version": 2,
  "gateway": null,
  "generated": "2026-01-02 03:04",
  "io": [
@@ -1602,6 +1602,7 @@
      ]
     }
    ],
+   "protocol": "canopen",
    "role": "master",
    "settings": [
     {
@@ -1652,7 +1653,7 @@
    ]
   }
  ],
- "title": "CANopen network documentation",
+ "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
   "version": "0.44.0"

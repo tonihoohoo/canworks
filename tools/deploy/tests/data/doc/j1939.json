@@ -1,0 +1,686 @@
+{
+ "config": {
+  "file": "canworks.json",
+  "schema_version": 2,
+  "sha256": "a6c0b110a5fcdea53eec3c59e76d14ce3d70f9aa722b3f77b44b339e25af1f6f",
+  "text": "{\n  \"$schema\": \"https://github.com/tonihoohoo/canworks/schema/canworks.v2.schema.json\",\n  \"schema_version\": 2,\n  \"networks\": [\n    {\n      \"name\": \"machine\",\n      \"protocol\": \"j1939\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"can0\", \"bitrate\": 250000 },\n      \"j1939\": {\n        \"ecu\": {\n          \"name\": { \"identity_number\": 1234, \"manufacturer_code\": 0, \"function\": 130, \"industry_group\": 0, \"arbitrary_address_capable\": true },\n          \"address\": 128,\n          \"address_range\": [ 128, 135 ],\n          \"state_location\": \"%IB200\",\n          \"address_location\": \"%IB201\"\n        },\n        \"dbc\": \"machine.dbc\",\n        \"rx\": [\n          {\n            \"pgn\": 65280, \"name\": \"Pressures\", \"source\": 0, \"timeout_ms\": 300, \"status_location\": \"%IX202.0\",\n            \"signals\": [\n              { \"name\": \"Pressure\", \"start_bit\": 0, \"length\": 16, \"scale\": 0.1, \"unit\": \"bar\", \"iec_location\": \"%IW210\", \"valid_location\": \"%IX202.1\" },\n              { \"name\": \"Temp\", \"start_bit\": 16, \"length\": 8, \"signed\": true, \"unit\": \"degC\", \"iec_location\": \"%IB204\", \"valid_location\": \"%IX202.2\" },\n              { \"name\": \"Level\", \"start_bit\": 24, \"length\": 8, \"scale\": 0.4, \"unit\": \"%\", \"iec_location\": \"%IB205\" },\n              { \"name\": \"PumpOn\", \"start_bit\": 32, \"length\": 2, \"iec_location\": \"%IB206\" }\n            ]\n          },\n          {\n            \"pgn\": 65282, \"name\": \"ComponentInfo\", \"source\": 0, \"status_location\": \"%IX202.3\",\n            \"signals\": [\n              { \"name\": \"Hours\", \"start_bit\": 0, \"length\": 32, \"scale\": 0.05, \"unit\": \"h\", \"iec_location\": \"%ID210\" },\n              { \"name\": \"Starts\", \"start_bit\": 32, \"length\": 16, \"iec_location\": \"%IW212\" },\n              { \"name\": \"Serial\", \"start_bit\": 240, \"length\": 32, \"iec_location\": \"%ID211\" }\n            ]\n          }\n        ],\n        \"tx\": [\n          {\n            \"pgn\": 65281, \"name\": \"Setpoints\", \"priority\": 6, \"period_ms\": 100,\n            \"signals\": [\n              { \"name\": \"Setpoint\", \"start_bit\": 0, \"length\": 16, \"unit\": \"rpm\", \"iec_location\": \"%QW210\" },\n              { \"name\": \"Run\", \"start_bit\": 16, \"length\": 2, \"iec_location\": \"%QB204\" }\n            ]\n          },\n          {\n            \"pgn\": 61184, \"name\": \"Command\", \"priority\": 6, \"destination\": 0, \"period_ms\": 0, \"min_gap_ms\": 50,\n            \"signals\": [\n              { \"name\": \"Mode\", \"start_bit\": 0, \"length\": 8, \"iec_location\": \"%QB205\" }\n            ]\n          }\n        ],\n        \"requests\": [\n          { \"pgn\": 65282, \"destination\": 0, \"period_ms\": 1000 }\n        ]\n      }\n    }\n  ]\n}\n"
+ },
+ "doc_schema_version": 2,
+ "gateway": null,
+ "generated": "2026-01-02 03:04",
+ "io": [
+  {
+   "key": [
+    "I",
+    "B",
+    200
+   ],
+   "location": "%IB200",
+   "network": "machine",
+   "path": "networks[0].j1939.ecu.state_location",
+   "variables": [],
+   "who": "ECU state"
+  },
+  {
+   "key": [
+    "I",
+    "B",
+    201
+   ],
+   "location": "%IB201",
+   "network": "machine",
+   "path": "networks[0].j1939.ecu.address_location",
+   "variables": [],
+   "who": "ECU address"
+  },
+  {
+   "key": [
+    "I",
+    "B",
+    204
+   ],
+   "location": "%IB204",
+   "network": "machine",
+   "path": "networks[0].j1939.rx[0].signals[1].iec_location",
+   "variables": [],
+   "who": "PGN 65280 signal Temp"
+  },
+  {
+   "key": [
+    "I",
+    "B",
+    205
+   ],
+   "location": "%IB205",
+   "network": "machine",
+   "path": "networks[0].j1939.rx[0].signals[2].iec_location",
+   "variables": [],
+   "who": "PGN 65280 signal Level"
+  },
+  {
+   "key": [
+    "I",
+    "B",
+    206
+   ],
+   "location": "%IB206",
+   "network": "machine",
+   "path": "networks[0].j1939.rx[0].signals[3].iec_location",
+   "variables": [],
+   "who": "PGN 65280 signal PumpOn"
+  },
+  {
+   "key": [
+    "I",
+    "D",
+    210
+   ],
+   "location": "%ID210",
+   "network": "machine",
+   "path": "networks[0].j1939.rx[1].signals[0].iec_location",
+   "variables": [],
+   "who": "PGN 65282 signal Hours"
+  },
+  {
+   "key": [
+    "I",
+    "D",
+    211
+   ],
+   "location": "%ID211",
+   "network": "machine",
+   "path": "networks[0].j1939.rx[1].signals[2].iec_location",
+   "variables": [],
+   "who": "PGN 65282 signal Serial"
+  },
+  {
+   "key": [
+    "I",
+    "W",
+    210
+   ],
+   "location": "%IW210",
+   "network": "machine",
+   "path": "networks[0].j1939.rx[0].signals[0].iec_location",
+   "variables": [],
+   "who": "PGN 65280 signal Pressure"
+  },
+  {
+   "key": [
+    "I",
+    "W",
+    212
+   ],
+   "location": "%IW212",
+   "network": "machine",
+   "path": "networks[0].j1939.rx[1].signals[1].iec_location",
+   "variables": [],
+   "who": "PGN 65282 signal Starts"
+  },
+  {
+   "key": [
+    "I",
+    "X",
+    1616
+   ],
+   "location": "%IX202.0",
+   "network": "machine",
+   "path": "networks[0].j1939.rx[0].status_location",
+   "variables": [],
+   "who": "PGN 65280 status_location"
+  },
+  {
+   "key": [
+    "I",
+    "X",
+    1617
+   ],
+   "location": "%IX202.1",
+   "network": "machine",
+   "path": "networks[0].j1939.rx[0].signals[0].valid_location",
+   "variables": [],
+   "who": "PGN 65280 signal Pressure valid_location"
+  },
+  {
+   "key": [
+    "I",
+    "X",
+    1618
+   ],
+   "location": "%IX202.2",
+   "network": "machine",
+   "path": "networks[0].j1939.rx[0].signals[1].valid_location",
+   "variables": [],
+   "who": "PGN 65280 signal Temp valid_location"
+  },
+  {
+   "key": [
+    "I",
+    "X",
+    1619
+   ],
+   "location": "%IX202.3",
+   "network": "machine",
+   "path": "networks[0].j1939.rx[1].status_location",
+   "variables": [],
+   "who": "PGN 65282 status_location"
+  },
+  {
+   "key": [
+    "Q",
+    "B",
+    204
+   ],
+   "location": "%QB204",
+   "network": "machine",
+   "path": "networks[0].j1939.tx[0].signals[1].iec_location",
+   "variables": [],
+   "who": "PGN 65281 signal Run"
+  },
+  {
+   "key": [
+    "Q",
+    "B",
+    205
+   ],
+   "location": "%QB205",
+   "network": "machine",
+   "path": "networks[0].j1939.tx[1].signals[0].iec_location",
+   "variables": [],
+   "who": "PGN 61184 signal Mode"
+  },
+  {
+   "key": [
+    "Q",
+    "W",
+    210
+   ],
+   "location": "%QW210",
+   "network": "machine",
+   "path": "networks[0].j1939.tx[0].signals[0].iec_location",
+   "variables": [],
+   "who": "PGN 65281 signal Setpoint"
+  }
+ ],
+ "networks": [
+  {
+   "address": 128,
+   "anchor": "net-machine",
+   "bitrate": 250000,
+   "bus_load": {
+    "cyclic": 1.71,
+    "notes": [],
+    "plc_cycle_ms": null,
+    "sync_ms": null,
+    "unbounded": [],
+    "worst": 2.99
+   },
+   "frames": [
+    {
+     "bits": 110,
+     "cob_id": 417988736,
+     "consumers": [
+      "0"
+     ],
+     "dlc": 3,
+     "duplicate": false,
+     "kind": "request",
+     "link": "",
+     "load_cyclic": 0.044,
+     "load_worst": 0.044,
+     "name": "Request PGN 65282",
+     "notes": "",
+     "producer": "PLC",
+     "rate_cyclic": 1.0,
+     "rate_worst": 1.0,
+     "trigger": "every 1000 ms"
+    },
+    {
+     "bits": 160,
+     "cob_id": 418316160,
+     "consumers": [
+      "global (255)"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "claim",
+     "link": "",
+     "load_cyclic": null,
+     "load_worst": null,
+     "name": "Address Claimed",
+     "notes": "",
+     "producer": "PLC",
+     "rate_cyclic": 0.0,
+     "rate_worst": 0.0,
+     "trigger": "at start and when another ECU claims the address"
+    },
+    {
+     "bits": 160,
+     "cob_id": 418316416,
+     "consumers": [
+      "0"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "tx",
+     "link": "pgn-machine-tx-61184",
+     "load_cyclic": 0.0,
+     "load_worst": 1.28,
+     "name": "Command",
+     "notes": "",
+     "producer": "PLC",
+     "rate_cyclic": 0.0,
+     "rate_worst": 20.0,
+     "trigger": "on change and on request, at most every 50 ms"
+    },
+    {
+     "bits": 160,
+     "cob_id": 419364864,
+     "consumers": [
+      "PLC"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "rx",
+     "link": "pgn-machine-rx-65280-0",
+     "load_cyclic": 0.64,
+     "load_worst": 0.64,
+     "name": "Pressures",
+     "notes": "",
+     "producer": "Engine",
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "every 100 ms (DBC)"
+    },
+    {
+     "bits": 160,
+     "cob_id": 419365248,
+     "consumers": [
+      "global (255)"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "tx",
+     "link": "pgn-machine-tx-65281",
+     "load_cyclic": 0.64,
+     "load_worst": 0.64,
+     "name": "Setpoints",
+     "notes": "",
+     "producer": "PLC",
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "every 100 ms"
+    },
+    {
+     "bits": 960,
+     "cob_id": 419365376,
+     "consumers": [
+      "PLC"
+     ],
+     "dlc": 8,
+     "duplicate": false,
+     "kind": "rx",
+     "link": "pgn-machine-rx-65282-0",
+     "load_cyclic": 0.384,
+     "load_worst": 0.384,
+     "name": "ComponentInfo",
+     "notes": "",
+     "producer": "Engine",
+     "rate_cyclic": 1.0,
+     "rate_worst": 1.0,
+     "trigger": "answer to the PLC's request every 1000 ms; 34 bytes: transport protocol, announce + 5 data packets"
+    }
+   ],
+   "interface": "can0",
+   "locations": [
+    {
+     "location": "%IB200",
+     "variables": [],
+     "what": "ECU state (address claim)"
+    },
+    {
+     "location": "%IB201",
+     "variables": [],
+     "what": "address the ECU holds now"
+    }
+   ],
+   "master_node_id": null,
+   "messages": [
+    {
+     "anchor": "pgn-machine-rx-65280-0",
+     "can_id": 419364864,
+     "comment": "Pressures, temperature and level from the engine ECU (address 0).",
+     "destination": "global (255)",
+     "direction": "rx",
+     "length": 8,
+     "min_gap_ms": null,
+     "name": "Pressures",
+     "period_ms": null,
+     "pgn": 65280,
+     "priority": null,
+     "signals": [
+      {
+       "byte_order": "little",
+       "comment": "",
+       "length": 16,
+       "location": "%IW210",
+       "name": "Pressure",
+       "offset": 0,
+       "scale": 0.1,
+       "signed": false,
+       "start_bit": 0,
+       "unit": "bar",
+       "valid_location": "%IX202.1",
+       "valid_variables": [],
+       "variables": []
+      },
+      {
+       "byte_order": "little",
+       "comment": "",
+       "length": 8,
+       "location": "%IB204",
+       "name": "Temp",
+       "offset": 0,
+       "scale": 1,
+       "signed": true,
+       "start_bit": 16,
+       "unit": "degC",
+       "valid_location": "%IX202.2",
+       "valid_variables": [],
+       "variables": []
+      },
+      {
+       "byte_order": "little",
+       "comment": "",
+       "length": 8,
+       "location": "%IB205",
+       "name": "Level",
+       "offset": 0,
+       "scale": 0.4,
+       "signed": false,
+       "start_bit": 24,
+       "unit": "%",
+       "valid_location": "",
+       "valid_variables": [],
+       "variables": []
+      },
+      {
+       "byte_order": "little",
+       "comment": "",
+       "length": 2,
+       "location": "%IB206",
+       "name": "PumpOn",
+       "offset": 0,
+       "scale": 1,
+       "signed": false,
+       "start_bit": 32,
+       "unit": "",
+       "valid_location": "",
+       "valid_variables": [],
+       "variables": []
+      }
+     ],
+     "source": "0",
+     "status": {
+      "location": "%IX202.0",
+      "variables": []
+     },
+     "timeout_ms": 300,
+     "trigger": "every 100 ms (DBC)"
+    },
+    {
+     "anchor": "pgn-machine-rx-65282-0",
+     "can_id": 419365376,
+     "comment": "Component data, 40 bytes (transport protocol), sent on request.",
+     "destination": "global (255)",
+     "direction": "rx",
+     "length": 34,
+     "min_gap_ms": null,
+     "name": "ComponentInfo",
+     "period_ms": null,
+     "pgn": 65282,
+     "priority": null,
+     "signals": [
+      {
+       "byte_order": "little",
+       "comment": "",
+       "length": 32,
+       "location": "%ID210",
+       "name": "Hours",
+       "offset": 0,
+       "scale": 0.05,
+       "signed": false,
+       "start_bit": 0,
+       "unit": "h",
+       "valid_location": "",
+       "valid_variables": [],
+       "variables": []
+      },
+      {
+       "byte_order": "little",
+       "comment": "",
+       "length": 16,
+       "location": "%IW212",
+       "name": "Starts",
+       "offset": 0,
+       "scale": 1,
+       "signed": false,
+       "start_bit": 32,
+       "unit": "",
+       "valid_location": "",
+       "valid_variables": [],
+       "variables": []
+      },
+      {
+       "byte_order": "little",
+       "comment": "",
+       "length": 32,
+       "location": "%ID211",
+       "name": "Serial",
+       "offset": 0,
+       "scale": 1,
+       "signed": false,
+       "start_bit": 240,
+       "unit": "",
+       "valid_location": "",
+       "valid_variables": [],
+       "variables": []
+      }
+     ],
+     "source": "0",
+     "status": {
+      "location": "%IX202.3",
+      "variables": []
+     },
+     "timeout_ms": 0,
+     "trigger": "answer to the PLC's request every 1000 ms; 34 bytes: transport protocol, announce + 5 data packets"
+    },
+    {
+     "anchor": "pgn-machine-tx-65281",
+     "can_id": 419365248,
+     "comment": "Speed setpoint and run command from the PLC (address 128).",
+     "destination": "global (255)",
+     "direction": "tx",
+     "length": 8,
+     "min_gap_ms": 0,
+     "name": "Setpoints",
+     "period_ms": 100,
+     "pgn": 65281,
+     "priority": 6,
+     "signals": [
+      {
+       "byte_order": "little",
+       "comment": "",
+       "length": 16,
+       "location": "%QW210",
+       "name": "Setpoint",
+       "offset": 0,
+       "scale": 1,
+       "signed": false,
+       "start_bit": 0,
+       "unit": "rpm",
+       "valid_location": "",
+       "valid_variables": [],
+       "variables": []
+      },
+      {
+       "byte_order": "little",
+       "comment": "",
+       "length": 2,
+       "location": "%QB204",
+       "name": "Run",
+       "offset": 0,
+       "scale": 1,
+       "signed": false,
+       "start_bit": 16,
+       "unit": "",
+       "valid_location": "",
+       "valid_variables": [],
+       "variables": []
+      }
+     ],
+     "source": "PLC (128)",
+     "status": null,
+     "timeout_ms": null,
+     "trigger": "every 100 ms"
+    },
+    {
+     "anchor": "pgn-machine-tx-61184",
+     "can_id": 418316416,
+     "comment": "Operating mode command to the engine ECU (PDU1, destination 0).",
+     "destination": "0",
+     "direction": "tx",
+     "length": 8,
+     "min_gap_ms": 50,
+     "name": "Command",
+     "period_ms": 0,
+     "pgn": 61184,
+     "priority": 6,
+     "signals": [
+      {
+       "byte_order": "little",
+       "comment": "",
+       "length": 8,
+       "location": "%QB205",
+       "name": "Mode",
+       "offset": 0,
+       "scale": 1,
+       "signed": false,
+       "start_bit": 0,
+       "unit": "",
+       "valid_location": "",
+       "valid_variables": [],
+       "variables": []
+      }
+     ],
+     "source": "PLC (128)",
+     "status": null,
+     "timeout_ms": null,
+     "trigger": "on change and on request, at most every 50 ms"
+    }
+   ],
+   "name": "machine",
+   "nodes": [],
+   "protocol": "j1939",
+   "requests": [
+    {
+     "answer": "ComponentInfo",
+     "can_id": 417988736,
+     "destination": "0",
+     "link": "pgn-machine-rx-65282-0",
+     "period_ms": 1000,
+     "pgn": 65282
+    }
+   ],
+   "role": "j1939",
+   "settings": [
+    {
+     "label": "Adapter",
+     "object": "",
+     "value": "socketcan can0"
+    },
+    {
+     "label": "Bitrate",
+     "object": "",
+     "value": "250 kbit/s"
+    },
+    {
+     "label": "Protocol",
+     "object": "",
+     "value": "J1939: OpenPLC is one ECU on the bus"
+    },
+    {
+     "label": "ECU NAME",
+     "object": "",
+     "value": "0x80008200000004D2"
+    },
+    {
+     "label": "NAME: Identity number",
+     "object": "",
+     "value": "1234"
+    },
+    {
+     "label": "NAME: Manufacturer code",
+     "object": "",
+     "value": "0"
+    },
+    {
+     "label": "NAME: ECU instance",
+     "object": "",
+     "value": "0"
+    },
+    {
+     "label": "NAME: Function instance",
+     "object": "",
+     "value": "0"
+    },
+    {
+     "label": "NAME: Function",
+     "object": "",
+     "value": "130"
+    },
+    {
+     "label": "NAME: Vehicle system",
+     "object": "",
+     "value": "0"
+    },
+    {
+     "label": "NAME: Vehicle system instance",
+     "object": "",
+     "value": "0"
+    },
+    {
+     "label": "NAME: Industry group",
+     "object": "",
+     "value": "0"
+    },
+    {
+     "label": "NAME: Arbitrary address capable",
+     "object": "",
+     "value": "yes"
+    },
+    {
+     "label": "Preferred address",
+     "object": "",
+     "value": "128"
+    },
+    {
+     "label": "Address range",
+     "object": "",
+     "value": "128..135 (claimed in turn when the preferred address is taken)"
+    },
+    {
+     "label": "DBC file",
+     "object": "",
+     "value": "machine.dbc"
+    }
+   ]
+  }
+ ],
+ "title": "CAN network documentation",
+ "tool": {
+  "name": "canworks-deploy",
+  "version": "0.44.0"
+ },
+ "warnings": []
+}

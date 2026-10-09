@@ -5,7 +5,7 @@
   "sha256": "1d5383c1e5f15c545f7543a03dd8ab10281bf704e1b6e82147df64ecd4706a5b",
   "text": "{\n  \"schema_version\": 2,\n  \"networks\": [\n    {\n      \"name\": \"io\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n      \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n      \"nodes\": [\n        {\n          \"node_id\": 2,\n          \"name\": \"pingpong\",\n          \"eds\": \"cpp-slave.eds\",\n          \"heartbeat_ms\": 100,\n          \"heartbeat_timeout_ms\": 300,\n          \"status_location\": \"%IX10.0\",\n          \"tx_pdos\": [\n            { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID100\" } ] }\n          ],\n          \"rx_pdos\": [\n            { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%QD100\" } ] }\n          ]\n        }\n      ]\n    },\n    {\n      \"name\": \"drives\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan1\", \"bitrate\": 125000 },\n      \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n      \"nodes\": [\n        {\n          \"node_id\": 2,\n          \"name\": \"pingpong\",\n          \"eds\": \"cpp-slave.eds\",\n          \"heartbeat_ms\": 100,\n          \"heartbeat_timeout_ms\": 300,\n          \"status_location\": \"%IX10.1\",\n          \"tx_pdos\": [\n            { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID101\" } ] }\n          ],\n          \"rx_pdos\": [\n            { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%QD101\" } ] }\n          ]\n        }\n      ]\n    }\n  ]\n}\n"
  },
- "doc_schema_version": 1,
+ "doc_schema_version": 2,
  "gateway": null,
  "generated": "2026-01-02 03:04",
  "io": [
@@ -709,6 +709,7 @@
      "startup_sdos": []
     }
    ],
+   "protocol": "canopen",
    "role": "master",
    "settings": [
     {
@@ -1384,6 +1385,7 @@
      "startup_sdos": []
     }
    ],
+   "protocol": "canopen",
    "role": "master",
    "settings": [
     {
@@ -1434,7 +1436,7 @@
    ]
   }
  ],
- "title": "CANopen network documentation",
+ "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
   "version": "0.44.0"
