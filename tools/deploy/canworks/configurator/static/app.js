@@ -2906,8 +2906,11 @@ function ownWriteWarnings(index, sub) {
     if (pluginObject(index)) out.push(`The network's master may write ${hex4(index)} when it configures this device; your value lasts until then.`);
     const bound = slaveBindText(index, sub);
     if (bound) out.push(`${hex4(index)}:${sub} is bound to ${bound}; whatever writes it there (the program, the master's PDOs or the gateway) overwrites your value.`);
-  } else if (pluginObject(index)) {
-    out.push(`The plugin configures ${hex4(index)} itself when the node boots; your value lasts until the next boot.`);
+  } else {
+    if (pluginObject(index)) out.push(`The plugin configures ${hex4(index)} itself when the node boots; your value lasts until the next boot.`);
+    const e = odEntryCached(S.onlineNode, index, sub);
+    const rx = e ? (e.pdo || []).filter((m) => /^RPDO/.test(m.pdo)) : [];
+    if (rx.length) out.push(`${hex4(index)}:${sub} is in ${rx.map(odPdoText).join(" and ")}: the PLC program writes it through the PDO every cycle, so your value is overwritten at once.`);
   }
   return out;
 }
@@ -3393,7 +3396,7 @@ function onlineSetup(view) {
       ", save, and upload the program to the runtime."));
     return false;
   }
-  if (!S.online.host || !S.online.token || !S.online.tokenOk) {
+  if (S.onlineForm || !S.online.host || !S.online.token || !S.online.tokenOk) {
     const host = hostField();
     const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } },
       S.online.token && !S.online.tokenOk ? "The token on this PC does not match the config." : "");
@@ -3421,6 +3424,7 @@ function onlineSetup(view) {
               : "Enter the access token of this project to connect (Copy token on the PC that turned online access on).";
             return;
           }
+          S.onlineForm = false;
           render();
         } }, "Connect"))));
     return false;
@@ -3465,8 +3469,23 @@ async function pollOnline(seq) {
     delete conn.dataset.html;  // the next good poll rewrites the line
     put(conn, text, age !== null && live.childElementCount ? el("div", { class: "online-note", dataset: { online: "stale-age" } }, `Last data ${age} s ago; the values below are not live.`) : null);
     live.classList.toggle("stale", !!live.childElementCount);
+    // The open node's panel too: greyed, with the age of its values.
+    const node = $("#online-node");
+    const nodeAge = (a) => `Connection lost: the values on this page are from ${a} s ago.`;
+    if (node && node.childElementCount) {
+      node.classList.add("stale");
+      const note = node.querySelector("[data-online=node-stale]");
+      if (note) note.textContent = nodeAge(age ?? 0);
+      else node.prepend(el("div", { class: "online-note error", dataset: { online: "node-stale" } }, nodeAge(age ?? 0)));
+    }
     clearTimeout(S.onlineAgeTimer);
-    if (age !== null) S.onlineAgeTimer = setTimeout(() => { if (seq === S.onlineSeq && S.view === "online") { const a = document.querySelector("[data-online=stale-age]"); if (a) a.textContent = `Last data ${age + 1} s ago; the values below are not live.`; } }, 1000);
+    if (age !== null) S.onlineAgeTimer = setTimeout(() => {
+      if (seq !== S.onlineSeq || S.view !== "online") return;
+      const a = document.querySelector("[data-online=stale-age]");
+      if (a) a.textContent = `Last data ${age + 1} s ago; the values below are not live.`;
+      const b = document.querySelector("[data-online=node-stale]");
+      if (b) b.textContent = nodeAge(age + 1);
+    }, 1000);
     S.onlineTimer = setTimeout(() => pollOnline(seq), 2000);
     return;
   }
@@ -3474,6 +3493,9 @@ async function pollOnline(seq) {
   S.onlineLastAt = Date.now();
   clearTimeout(S.onlineAgeTimer);
   live.classList.remove("stale");
+  $("#online-node").classList.remove("stale");
+  const staleNote = document.querySelector("[data-online=node-stale]");
+  if (staleNote) staleNote.remove();
   runtimeNetworks(r);
   const st = r.status;
   NO_CHANGES = st.local ? ADAPTER_NO_CHANGES : RUNTIME_NO_CHANGES;
@@ -3493,7 +3515,7 @@ async function pollOnline(seq) {
     "Upload the saved config with the deploy tool (canworks deploy) or the editor's Build and upload with the CANopen hook."));
   if (S.dirty) notes.push(el("div", { class: "online-note" }, "This page has unsaved changes; the runtime runs what was uploaded."));
   if (st.simulation_forced) notes.push(el("div", { class: "online-note warning", dataset: { online: "forced" } },
-    "This runtime simulates every network (the local simulator runtime): no CAN interface is used, whatever the adapter settings say."));
+    `This runtime simulates every network${/^local$/i.test((S.online.host || "").trim()) ? " (the local simulator runtime)" : ""}: no CAN interface is used, whatever the adapter settings say.`));
   conn.className = "online-conn ok";
   // The connection line is a live region: it is rewritten only when it changes.
   const line = el("div", null, `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${protocol} session up ${Math.floor(st.uptime_s || 0)} s, ` +
@@ -3517,7 +3539,7 @@ async function pollOnline(seq) {
     const boot = n.boot_error ? `error ${n.boot_error}: ${n.boot_error_text || ""}` : n.booted ? "booted" : "not booted";
     const hold = n.hold === "none" ? "" : `held ${n.hold === "stopped" ? "STOPPED" : "PRE-OPERATIONAL"} by ${n.hold_by === "operator" ? "operator" : "the program"}`;
     const em = n.emcy && n.emcy.count ? `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})` : "";
-    const vars = (n.sdo_variables || []).map((v) => `${v.name} = ${v.raw}${v.status > 1 ? " (" + sdoStatus(v) + ")" : ""}`).join(", ");
+    const vars = (n.sdo_variables || []).map((v) => `${v.name} = ${v.raw}${v.status > 2 ? " (" + sdoStatus(v) + ")" : ""}`).join(", ");
     const stale = (n.pdo_timeouts || []).filter((t) => t.timed_out).map((t) => `TPDO ${t.tpdo} timed out (${t.count})`);
     return el("tr", rowAttrs(() => { S.onlineNode = n.node_id; renderOnlineNode(); pollHighlight(); },
       { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id }, "aria-label": `Open node ${n.node_id}` }),
@@ -3528,7 +3550,7 @@ async function pollOnline(seq) {
     el("td", { class: n.boot_error ? "bad" : null }, boot + (n.retry_pending ? " (retrying)" : "")),
     el("td", null, hold), el("td", null, em), el("td", null, vars));
   });
-  $("#online-live").replaceChildren(
+  patchLive($("#online-live"), [
     el("table", { class: "online-bus" }, el("tbody", null,
       el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, `${bus.interface || "?"}: ${BUS_STATES[bus.state] || bus.state || "?"}`),
         el("th", null, "TX / RX errors"), el("td", null, `${bus.tx_errors ?? "-"} / ${bus.rx_errors ?? "-"}`),
@@ -3538,7 +3560,7 @@ async function pollOnline(seq) {
         el("td", { colspan: 7, dataset: { online: "sync" } }, syncText(st.sync))) : null)),
     el("table", { class: "online-nodes" },
       el("thead", null, el("tr", null, thCells(["Node", "Name", "State", "Status bit", "Boot", "Hold", "Last EMCY", "SDO variables"]))),
-      el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No nodes in the configuration the runtime runs."))])));
+      el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No nodes in the configuration the runtime runs."))]))]);
   const tbox = document.querySelector("[data-online='pdo-timeouts']");
   if (tbox) tbox.replaceChildren(pdoTimeoutTable((st.nodes || []).find((n) => n.node_id === S.onlineNode)));
   if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
@@ -3593,13 +3615,34 @@ function slaveBindText(index, sub) {
   return "";
 }
 
-function slavePdoTable(list, dir) {
+// {key: [PDO marks]} of the slave's own dictionary, from the mappings in
+// force (the status answer's tpdos and rpdos), as the master's od_entries
+// gives them for a configured node.
+function slavePdoMarks(s) {
+  const out = {};
+  for (const [list, kind] of [[s.tpdos, "TPDO"], [s.rpdos, "RPDO"]]) {
+    for (const p of list || []) {
+      if ((Number(p.cob_id) >>> 0) & 0x80000000) continue;  // switched off
+      let bit = 0;
+      for (const e of p.entries || []) {
+        const key = odKey(e.index, e.subindex);
+        if (e.index >= 0x0008) (out[key] = out[key] || []).push({ pdo: kind + p.number, bits: [bit, bit + e.bits - 1] });
+        bit += e.bits;
+      }
+    }
+  }
+  return out;
+}
+
+function slavePdoTable(list, dir, id) {
   const title = dir === "tx" ? "TPDOs (sent by this device)" : "RPDOs (received from the master)";
   const rows = (list || []).map((p) => {
     const cob = Number(p.cob_id) >>> 0;
     const off = (cob & 0x80000000) !== 0;
     const entries = (p.entries || []).map((e) => {
-      const bound = slaveBindText(e.index, e.subindex);
+      // Bound in the draft, else the dictionary's name (the gateway's status objects).
+      const known = odEntryCached(id, e.index, e.subindex);
+      const bound = slaveBindText(e.index, e.subindex) || (known ? known.name : "");
       return el("div", null, `${hex4(e.index)}:${e.subindex} (${e.bits} bit${e.bits === 1 ? "" : "s"})`, bound ? el("span", { class: "muted" }, "  " + bound) : null);
     });
     return el("tr", { class: off ? "muted" : null, dataset: { slavePdo: `${dir}${p.number}` } },
@@ -3620,10 +3663,10 @@ function slaveLive(r) {
   const id = s.node_id || null;
   const em = s.emcy_code ? `${hex4(s.emcy_code)} ${emcyClass(s.emcy_code)}` : "none";
   const g = st.gateway;
-  $("#online-live").replaceChildren(
+  patchLive($("#online-live"), [
     el("p", { class: "muted", dataset: { online: "slave-note" } }, SLAVE_MASTER_ONLY),
     el("table", { class: "online-bus" }, el("tbody", null,
-      el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, st.bus.interface),
+      el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, st.bus.interface + (st.simulated_network ? " (simulated)" : "")),
         el("th", null, "This device"), el("td", { dataset: { online: "slave-node" } }, id ? `node ${id}` : "waiting for a node ID (LSS)"),
         el("th", null, "State"), el("td", { class: "state-" + s.state, dataset: { online: "slave-state" } }, slaveStateName(s.state))),
       el("tr", null, el("th", null, "Communication OK"), el("td", { class: s.comm_ok ? null : "bad", dataset: { online: "slave-comm" } }, s.comm_ok ? "TRUE" : "FALSE"),
@@ -3634,7 +3677,12 @@ function slaveLive(r) {
         el("th", null, "Upper master"), el("td", { class: g.upper_ok ? "state-5" : "bad", dataset: { online: "gw-upper" } },
           g.upper_ok ? "present" : "missing (no heartbeat, or not started)"),
         el("th", null, "Forwarded errors"), el("td", { dataset: { online: "gw-errors" } }, `${g.forwarded_errors} active`)) : null)),
-    slavePdoTable(s.tpdos, "tx"), slavePdoTable(s.rpdos, "rx"));
+    slavePdoTable(s.tpdos, "tx", id), slavePdoTable(s.rpdos, "rx", id)]);
+  // The dictionary's names for the PDO tables, once.
+  if (id && !(S.odEntries || {})[id] && !S.odFetching && nodeSource(id)) {
+    S.odFetching = true;
+    odEntries(id).catch(() => {}).finally(() => { S.odFetching = false; });
+  }
   $("#online-lss").replaceChildren();
   S.lssAllow = undefined;
   const allow = r.hello.allow_changes;
@@ -3680,11 +3728,11 @@ function localLive(r, conn) {
     el("td", { class: n.state === null ? "muted" : "state-" + n.state }, n.state === null ? "not heard" : stateName(n.state)),
     el("td", null, n.last_heard_s === null ? "-" : `${n.last_heard_s.toFixed(1)} s ago`), el("td", null, em));
   });
-  $("#online-live").replaceChildren(
+  patchLive($("#online-live"), [
     el("table", { class: "online-nodes", dataset: { online: "local-nodes" } },
       el("thead", null, el("tr", null, thCells(["Node", "Name", "State", "Heard", "Last EMCY"]))),
       el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 5, class: "muted" },
-        "No node heard yet. Nodes without a heartbeat show up in a scan (Scan the bus)."))])));
+        "No node heard yet. Nodes without a heartbeat show up in a scan (Scan the bus)."))]))]);
 }
 
 // An online request that LSS refuses while another master runs on the bus:
@@ -3740,7 +3788,7 @@ function renderLss(allow) {
     dataset: { online: "lss-find" }, onclick: () => runLssFind(true) }, "Find a device without node ID");
   box.replaceChildren(el("fieldset", { dataset: { online: "lss" } }, el("legend", null, "Unconfigured devices (LSS)"),
     el("p", { class: "muted" }, "Devices without DIP switches get their node ID and bit rate over the bus (LSS, CiA 305). " +
-      "Find one device that has no node ID yet, then set its node ID or bit rate. PDOs of the configured nodes keep running."),
+      "Find one device that has no node ID yet, then set its node ID or bit rate." + (S.state.commission ? "" : " PDOs of the configured nodes keep running.")),
     allow ? null : el("p", { class: "field-msg warning", dataset: { online: "lss-no-changes" } }, NO_CHANGES),
     el("div", { class: "toolbar" }, find, status), result));
   if (allow && S.lssDevice) showLssDevice(S.lssDevice);
@@ -3816,12 +3864,17 @@ async function lssSetId(d, match) {
   const free = lowestFreeNodeId();
   if (free) idInput.value = String(free);
   const store = storeBox();
-  const v = await modal(`Set the node ID of the device with serial number ${hex8(d.serial_number)}.`,
-    [["set", "Set node ID", true], ["cancel", "Cancel"]],
-    el("div", null, el("label", { class: "inline" }, "Node ID ", idInput), el("div", null, store)));
-  if (v !== "set") return;
-  const node = Number(idInput.value);
-  if (!(node >= 1 && node <= 127)) { banner("The node ID must be 1-127.", true); return; }
+  const idMsg = el("p", { class: "field-msg", dataset: { online: "lss-node-id-msg" } });
+  const form = el("div", null, el("label", { class: "inline" }, "Node ID ", idInput), idMsg, el("div", null, store));
+  let node;
+  for (;;) {  // an invalid node ID shows the dialog again, with the reason
+    const v = await modal(`Set the node ID of the device with serial number ${hex8(d.serial_number)}.`,
+      [["set", "Set node ID", true], ["cancel", "Cancel"]], form);
+    if (v !== "set") return;
+    node = Number(idInput.value);
+    if (/^\s*\d+\s*$/.test(idInput.value) && node >= 1 && node <= 127) break;
+    idMsg.textContent = "The node ID must be 1-127.";
+  }
   let r;
   try {
     r = await apiForce("/api/online/lss_set_id", { address: lssAddress(d), node, store: store.querySelector("input").checked, port: diagPort() });
@@ -3865,8 +3918,37 @@ function pollHighlight() {
   for (const tr of document.querySelectorAll("tr[data-online-node]")) tr.classList.toggle("active", Number(tr.dataset.onlineNode) === S.onlineNode);
 }
 
+// Puts a poll's parts into the live box in place of the last poll's: a part
+// that did not change stays, and a node table keeps its rows (keyed by node
+// ID) with new cells, so keyboard focus and a pending click stay on a row.
+function patchLive(live, parts) {
+  const old = [...live.children];
+  const same = old.length === parts.length && parts.every((p, k) => p.tagName === old[k].tagName &&
+    p.className === old[k].className && p.dataset.online === old[k].dataset.online);
+  if (!same) { live.replaceChildren(...parts); return; }
+  parts.forEach((p, k) => {
+    const o = old[k];
+    if (o.innerHTML === p.innerHTML) return;
+    const ob = o.tagName === "TABLE" && o.tBodies[0], nb = p.tagName === "TABLE" && p.tBodies[0];
+    if (!ob || !nb || !nb.querySelector("tr[data-online-node]") || o.tHead.innerHTML !== p.tHead.innerHTML) { o.replaceWith(p); return; }
+    const rows = new Map([...ob.rows].filter((tr) => tr.dataset.onlineNode).map((tr) => [tr.dataset.onlineNode, tr]));
+    const want = [...nb.rows].map((tr) => {
+      const was = rows.get(tr.dataset.onlineNode);
+      if (!was) return tr;
+      rows.delete(tr.dataset.onlineNode);
+      if (was.className !== tr.className) was.className = tr.className;
+      if (was.innerHTML !== tr.innerHTML) was.replaceChildren(...tr.childNodes);
+      return was;
+    });
+    for (const tr of [...ob.rows]) if (!want.includes(tr)) tr.remove();
+    want.forEach((tr, i) => { if (ob.rows[i] !== tr) ob.insertBefore(tr, ob.rows[i] || null); });
+  });
+}
+
+// An SDO variable's status byte in words (docs/config.md): 2 (done) and
+// below need none.
 function sdoStatus(v) {
-  return v.abort_code ? "abort " + hex8(v.abort_code) : "status " + v.status;
+  return v.abort_code ? "abort " + hex8(v.abort_code) : { 3: "aborted", 4: "node not available" }[v.status] || "status " + v.status;
 }
 
 function emcyClass(code) {
@@ -3935,11 +4017,13 @@ async function renderOnlineNode() {
 function pdoTimeoutTable(n) {
   const list = (n && n.pdo_timeouts) || [];
   if (!list.length) return el("p", { class: "muted" }, "No TPDO of this node has a receive timeout.");
+  // The plugin times a PDO out only while the node is OPERATIONAL.
+  const up = n.state === 5;
   return el("table", null,
     el("thead", null, el("tr", null, thCells(["TPDO", "Timeout", "Now", "Timeouts", "Last PDO"]))),
     el("tbody", null, list.map((t) => el("tr", { dataset: { pdoTimeoutRow: t.tpdo } },
       el("td", null, String(t.tpdo)), el("td", null, `${t.timeout_ms} ms`),
-      el("td", { class: t.timed_out ? "bad" : null }, t.timed_out ? "timed out" : "receiving"),
+      el("td", { class: t.timed_out ? "bad" : up ? null : "muted" }, t.timed_out ? "timed out" : up ? "receiving" : `not monitored (node ${stateName(n.state)})`),
       el("td", null, String(t.count)),
       el("td", null, t.since_ms === null || t.since_ms === undefined ? "never" : `${t.since_ms} ms ago`)))));
 }
@@ -4022,6 +4106,7 @@ function sdoPanel(id, n, allow) {
   const write = async () => {
     const t = target();
     if (!t) return;
+    if (!onlineIsSlave() && nodeSource(id)) await odEntries(id).catch(() => null);  // its PDO marks
     const warn = [];
     warn.push(...ownWriteWarnings(t.index, t.subindex));
     const owner = n && (n.sdo_variables || []).find((v) => (v.direction || "read") === "write" && sameObject(v.index, v.subindex, t.index, t.subindex));
@@ -4033,8 +4118,11 @@ function sdoPanel(id, n, allow) {
       if (v !== "write") return;
     }
     out.replaceChildren(el("span", { class: "muted" }, "Writing…"));
-    try { show(await api("POST", "/api/online/sdo_write", Object.assign(t, { value: value.value })), "write"); }
-    catch (e) { out.replaceChildren(el("span", { class: "field-msg" }, e.message)); }
+    try {
+      const r = await api("POST", "/api/online/sdo_write", Object.assign(t, { value: value.value }));
+      if (r.success) odTake(id, null, [odKey(t.index, t.subindex)]);
+      show(r, "write");
+    } catch (e) { out.replaceChildren(el("span", { class: "field-msg" }, e.message)); }
   };
   return el("fieldset", { dataset: { online: "sdo" } }, el("legend", null, "SDO"),
     el("div", { class: "toolbar" }, filter, pick),
@@ -4093,6 +4181,12 @@ async function odEntries(id) {
   const data = await api("POST", "/api/online/od_entries", src);
   S.odEntries[id] = { key, data };
   return data;
+}
+
+// A node's object dictionary entry when its entries were loaded, else null.
+function odEntryCached(id, index, sub) {
+  const c = (S.odEntries || {})[id];
+  return c ? c.data.entries.find((e) => sameObject(e.index, e.subindex, index, sub)) || null : null;
 }
 
 function nodeLive(id) {
@@ -4234,6 +4328,32 @@ function odState(id) {
     bitsOpen: {}, openGroups: [], openObjects: [], at: {}, changedAt: {}, mm: {}, hist: [], keep: {} });
 }
 
+// Puts an od_read answer's values and failures into a node's tab state.
+function odStore(st, res, watchRound) {
+  const now = Date.now();
+  for (const v of res.values || []) {
+    const key = odKey(v.index, v.subindex);
+    const old = st.values[key];
+    if (watchRound && old && !old.error && old.data !== v.data) st.changedAt[key] = now;
+    st.values[key] = { data: v.data, text: v.text };
+    st.at[key] = now;
+  }
+  for (const f of res.failures || []) {
+    st.values[odKey(f.index, f.subindex)] = { error: (f.abort_code !== null && f.abort_code !== undefined ? `Abort ${hex8(f.abort_code)}: ` : "") + f.error };
+    st.at[odKey(f.index, f.subindex)] = now;
+  }
+}
+
+// After a write, a restore or a compare: the values it read (an od_read
+// answer, or null) and the keys it wrote, whose shown value is no longer
+// the device's; the open object dictionary tab shows them at once.
+function odTake(id, res, written) {
+  const st = odState(id);
+  for (const key of written || []) { delete st.values[key]; delete st.at[key]; }
+  if (res) odStore(st, res);
+  if (st.refreshMarks) st.refreshMarks();
+}
+
 function intInfo(type) {
   const m = /^(INTEGER|UNSIGNED)(\d+)$/.exec(type || "");
   return m ? { signed: m[1] === "INTEGER", bytes: Number(m[2]) / 8 } : null;
@@ -4330,14 +4450,15 @@ function keepValue(e, v) {
 function keepInConfig(id, e, v) {
   const i = (S.config.nodes || []).findIndex((x) => num(x.node_id) === id);
   const n = S.config.nodes[i];
-  const value = keepValue(e, v);
-  if (i < 0 || value === null) return;
+  const value = i < 0 ? null : keepValue(e, v);
+  if (value === null) return false;
   n.sdo = n.sdo || [];
   const j = n.sdo.findIndex((s) => sameObject(s.index, s.subindex, e.index, e.subindex));
   if (j >= 0) n.sdo[j].value = value;
   else n.sdo.push({ index: hex4(e.index), subindex: e.subindex, type: e.type, value });
   changed();
   banner(`Node ${id}: startup SDO ${hex4(e.index)}:${e.subindex} = ${value} ${j >= 0 ? "changed" : "added"} in the configuration. Save to keep it.`);
+  return true;
 }
 
 function csvField(s) { s = String(s ?? ""); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
@@ -4367,6 +4488,12 @@ function odBuild(box, id, n, allow, data) {
   const summary = el("div", { class: "muted", dataset: { online: "od-summary" } });
   const is402 = () => odIs402(id, byKey);
   if (st.plot) { st.plot.destroy(); st.plot = null; }
+  // A slave's own dictionary: its PDO marks from the mappings in force.
+  const slaveNow = data.slave && S.onlineLast && S.onlineLast.status && S.onlineLast.status.slave;
+  if (slaveNow) {
+    const marks = slavePdoMarks(slaveNow);
+    for (const e of data.entries) e.pdo = marks[odKey(e.index, e.subindex)];
+  }
 
   const marksOf = (e) => {
     const key = odKey(e.index, e.subindex);
@@ -4442,7 +4569,14 @@ function odBuild(box, id, n, allow, data) {
       c.value.append(el("div", { class: "od-keep" }, why
         ? el("span", { class: "muted", dataset: { online: "od-keep-reason" } }, "Not kept in the configuration: " + why)
         : el("button", { type: "button", class: "small", dataset: { online: "od-keep" }, title: "Add this value as a startup SDO, so the node gets it at every boot (nothing is stored on the device)",
-          onclick: () => { delete st.keep[key]; keepInConfig(id, e, v); showValue(key); } }, "Keep in configuration")));
+          onclick: () => {
+            // The value written, not the read-back: a PDO may have overwritten that.
+            const kept = typeof st.keep[key] === "string" ? { data: st.keep[key] } : v;
+            delete st.keep[key];
+            if (keepInConfig(id, e, kept)) e.config = true;
+            showValue(key);
+            applyFilter();
+          } }, "Keep in configuration")));
     }
   };
   const updateObject = (index) => {
@@ -4463,18 +4597,7 @@ function odBuild(box, id, n, allow, data) {
       failed ? el("span", { class: "tag warn-tag" }, `${failed} not readable`) : null);
   };
   const setReading = (res, watchRound) => {
-    const now = Date.now();
-    for (const v of res.values || []) {
-      const key = odKey(v.index, v.subindex);
-      const old = st.values[key];
-      if (watchRound && old && !old.error && old.data !== v.data) st.changedAt[key] = now;
-      st.values[key] = { data: v.data, text: v.text };
-      st.at[key] = now;
-    }
-    for (const f of res.failures || []) {
-      st.values[odKey(f.index, f.subindex)] = { error: (f.abort_code !== null && f.abort_code !== undefined ? `Abort ${hex8(f.abort_code)}: ` : "") + f.error };
-      st.at[odKey(f.index, f.subindex)] = now;
-    }
+    odStore(st, res, watchRound);
     const touched = new Set();
     for (const v of (res.values || []).concat(res.failures || [])) { showValue(odKey(v.index, v.subindex)); touched.add(v.index); }
     for (const i of touched) updateObject(i);
@@ -4552,11 +4675,11 @@ function odBuild(box, id, n, allow, data) {
     if (st.plot && st.plotKeys === sig && graphBox.contains(st.plot.root)) { st.plot.setData(data); return; }
     if (st.plot) st.plot.destroy();
     put(graphBox);
-    const muted = themeColor("--muted"), line = themeColor("--line");
+    const muted = themeColor("--muted"), line = themeColor("--line"), colors = seriesColors();
     st.plotKeys = sig;
     st.plot = new uPlot({ width, height: 220, legend: { show: true, live: true },
       series: [{ label: "t (s)" }].concat(keys.map((k, i) => ({ label: `${hex4(byKey[k].index)}:${byKey[k].subindex} ${byKey[k].sub_name || byKey[k].name}`,
-        stroke: SERIES_COLORS[i % SERIES_COLORS.length], width: 1.5, spanGaps: true }))),
+        stroke: colors[i % colors.length], width: 1.5, spanGaps: true }))),
       scales: { x: { time: false } },
       axes: [{ stroke: muted, grid: { stroke: line, width: 1 }, ticks: { stroke: line }, label: "seconds", labelSize: 18 },
         { stroke: muted, grid: { stroke: line, width: 1 }, ticks: { stroke: line }, size: 60 }] }, data, graphBox);
@@ -4632,7 +4755,7 @@ function odBuild(box, id, n, allow, data) {
       title: !allow ? NO_CHANGES : !e.writable ? "Read-only in the EDS (" + e.access + ")" : null,
       onclick: () => odEdit(id, n, e, cells[key], readKeys, (wrote) => {
         cells[key].editing = false;
-        if (wrote) st.keep[key] = true;
+        if (wrote) st.keep[key] = wrote;
         showValue(key);
       }) }, "Edit");
     const tr = el("tr", { class: isSub ? "od-sub" : "od-var", dataset: { odKey: key, odObject: String(e.index) } },
@@ -4812,7 +4935,14 @@ function odBuild(box, id, n, allow, data) {
     summary.textContent = `${r.read} read, ${r.failed} not readable${r.cancelled ? ", cancelled" : ""}.` + (r.stopped ? " Stopped: " + r.stopped + "." : "");
     applyFilter();
   };
-  st.refreshMarks = () => { if (box.isConnected) { renderChips(); for (const key of Object.keys(cells)) showValue(key); applyFilter(); } };
+  st.refreshMarks = () => {
+    if (!box.isConnected) return;
+    renderChips();
+    for (const key of Object.keys(cells)) showValue(key);
+    for (const i of Object.keys(objRows)) updateObject(Number(i));
+    applyFilter();
+    renderWatch();
+  };
   put(box,
     allow ? null : el("p", { class: "field-msg warning", dataset: { online: "od-read-only" } }, "Read-only: " + NO_CHANGES),
     data.note ? el("p", { class: "field-msg warning" }, data.note) : null,
@@ -4880,12 +5010,14 @@ function odEdit(id, n, e, cell, readKeys, done) {
       if (ans !== "write") return;
     }
     msg.textContent = "Writing…";
+    let written;
     try {
       const r = await api("POST", "/api/online/sdo_write", { node: id, index: e.index, subindex: e.subindex, type: e.type, value: input.value, port: diagPort() });
       if (!r.success) { msg.textContent = r.abort_code !== undefined ? `Abort ${hex8(r.abort_code)}: ${r.abort_text}` : r.reason; return; }
+      written = r.data;
     } catch (err) { msg.textContent = err.message; return; }
     try { await readKeys([[e.index, e.subindex]]); } catch (err) { banner(err.message, true); }
-    done(true);
+    done(written || true);
   };
   input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") write(); if (ev.key === "Escape") done(false); });
   put(cell.value, input, el("button", { type: "button", class: "small primary", dataset: { online: "od-write" }, onclick: write }, "Write"),
@@ -4927,7 +5059,8 @@ function paramsPanel(id, n, allow) {
 
   // Compare
   const ref = el("select", { "aria-label": "Compare against", dataset: { online: "compare-ref" } },
-    el("option", { value: "file" }, "a backup file"), el("option", { value: "config", disabled: !n }, "the configuration"),
+    el("option", { value: "file" }, "a backup file"),
+    n && !S.state.commission ? el("option", { value: "config" }, "the configuration") : null,
     el("option", { value: "eds" }, "the EDS defaults"));
   const cmpFile = el("input", { type: "file", accept: ".dcf,.DCF,.eds,.EDS", "aria-label": "Backup file", dataset: { online: "compare-file" } });
   const ro = el("input", { type: "checkbox", dataset: { online: "compare-ro" } });
@@ -4957,6 +5090,7 @@ function paramsPanel(id, n, allow) {
     const st = odState(id);
     const rows = {};
     for (const x of r.rows) rows[odKey(x.index, x.subindex)] = x;
+    if (r.reading) odStore(st, r.reading);  // the values the compare read
     st.compare = { rows, label: r.reference === "file" ? (compareName || "a backup file") : r.reference === "config" ? "the configuration" : "the EDS defaults",
       short: r.reference === "file" ? "backup" : r.reference === "config" ? "config" : "EDS default" };
     if (st.refreshMarks) st.refreshMarks();
@@ -5023,8 +5157,8 @@ function paramsPanel(id, n, allow) {
   resumeJob(id, ["backup", "compare", "restore_plan", "restore", "configure", "configure_verify"], status, (j, resumed) => {
     if (j.kind === "backup") showBackup(j, resumed);
     else if (j.kind === "compare") compareDone(j);
-    else if (j.kind === "restore") showRestore(j.result, out);
-    else if (j.kind === "configure") showConfigure(j.result, out);
+    else if (j.kind === "restore") showRestore(j.result, out, id);
+    else if (j.kind === "configure") showConfigure(j.result, out, id);
     else if (j.kind === "configure_verify") showVerify(j.result, out);
     else restoreDialog(id, j, status, out);
   });
@@ -5063,11 +5197,12 @@ async function restoreDialog(id, j, status, out) {
   }
   if (await go !== "restore") return;
   startJob("/api/online/restore", Object.assign(nodeSource(id), { plan: j.id, hold: hold.checked, ignore_identity: other.checked }), status,
-    (r) => showRestore(r.result, out));
+    (r) => showRestore(r.result, out, id));
 }
 
-function showRestore(r, out) {
+function showRestore(r, out, id) {
   if (!r) return;
+  odTake(id, null, r.written.concat(r.failed).map((w) => odKey(w.index, w.subindex)));
   put(out, el("p", { dataset: { online: "restore-done" } },
     `${r.written.length} written, ${r.failed.length} failed${r.cancelled ? ", cancelled" : ""}.`),
   ...r.failed.map((f) => el("p", { class: "field-msg" }, `${hex4(f.index)}:${f.subindex} ${f.name}: ${f.error}`)),
@@ -5098,10 +5233,12 @@ function renderScan(view) {
   lib.value = S.online.eds_library || "";
   lib.addEventListener("change", async () => {
     try { S.online = Object.assign(S.online, await api("POST", "/api/online/settings", { eds_library: lib.value.trim() })); banner(""); }
-    catch (e) { banner(e.message, true); }
+    catch (e) { banner(e.message, true); return; }
+    if (S.scanResult && S.onlineOpen) runScan(false);  // the shown devices, matched against the new folder
   });
   view.append(el("div", { class: "grid" }, el("label", null, "EDS library folder", lib,
-    hint("Optional. Found devices are matched against the EDS files here (and its subfolders) and in the project's canopen folder. Kept on this PC."))));
+    hint("Optional. Found devices are matched against the EDS files here (and its subfolders)" +
+      (S.state.commission ? "" : " and in the project's canopen folder") + ". Kept on this PC."))));
   if (!onlineSetup(view)) return;
   if (onlineIsSlave()) {
     view.append(el("div", { class: "toolbar" }, netPicker()),
@@ -5300,7 +5437,7 @@ async function runScan(start) {
     S.onlineTimer = setTimeout(() => runScan(false), 300);
     return;
   }
-  if (!r.nodes) { progress.textContent = "No scan has run on this runtime yet."; return; }
+  if (!r.nodes) { progress.textContent = `No scan has run on this ${S.online.target === "adapter" || S.state.commission ? "adapter connection" : "runtime"} yet.`; return; }
   const note = r.note ? ` ${r.note.charAt(0).toUpperCase() + r.note.slice(1)}.` : "";
   progress.textContent = `Scanned ${String(r.finished_at || "").replace("T", " ").replace(/\.\d+Z$/, " UTC")} in ${Number(r.seconds || 0).toFixed(1)} s.${note}`;
   S.scanResult = r;
@@ -5320,8 +5457,10 @@ function showScan(r) {
       d.revision_number !== undefined ? hex8(d.revision_number) : "",
       d.serial_number !== undefined ? `${d.serial_number} (${hex8(d.serial_number)})` : "",
       d.device_name || ""];
+    // A device added from this scan: in the draft, not yet on the runtime.
+    const added = d.match === "not configured" && configNode(d.node_id);
     const match = el("td", { class: d.match === "configured" ? "ok-text" : d.match === "not configured" ? null : "bad" },
-      d.match + (d.config_name ? ` as ${d.config_name}` : ""));
+      added ? `added${added.name ? " as " + added.name : ""} (not saved yet)` : d.match + (d.config_name ? ` as ${d.config_name}` : ""));
     rows.push(el("tr", { dataset: { scanNode: d.node_id } }, cells.map((c) => el("td", null, c)), match,
       el("td", null, scanAction(d), useForNode(d))));
   }
@@ -5341,7 +5480,7 @@ function scanAction(d) {
         el("td", null, d[k] !== undefined ? hex8(d[k]) : "-")))));
   }
   if (d.match !== "not configured") return "";
-  if (configNode(d.node_id)) return el("span", { class: "muted" }, "added (not saved yet)");
+  if (configNode(d.node_id)) return "";
   const m = d.eds_matches || [];
   if (S.state.commission) {  // no config to add to: only the object dictionary
     if (!m.length) {  // the device's EDS from a file instead, for its object dictionary
@@ -5424,11 +5563,13 @@ async function addScannedNode(d, match, file, identity, lss) {
   }
   S.config.nodes = S.config.nodes || [];
   S.config.nodes.push(node);
-  // The new node's page opens, with a way back to the scan (its results stay).
+  // The new node's page opens, with a way back to where the device was
+  // found: the scan (its results stay) or, after LSS, the online view.
   S.view = "node:" + (S.config.nodes.length - 1);
   S.focusName = S.config.nodes.length - 1;
   banner(el("div", null, el("div", null, `Added node ${d.node_id} (${res.name}). Map its PDOs here, then save. `,
-    el("button", { type: "button", class: "link", dataset: { online: "back-to-scan" }, onclick: () => showView("scan") }, "Back to the scan")),
+    lss ? el("button", { type: "button", class: "link", dataset: { online: "back-to-online" }, onclick: () => showView("online") }, "Back to the online view")
+      : el("button", { type: "button", class: "link", dataset: { online: "back-to-scan" }, onclick: () => showView("scan") }, "Back to the scan")),
   importReport(res)));
   changed(true);
 }
@@ -5438,6 +5579,7 @@ async function addScannedNode(d, match, file, identity, lss) {
 // gets its serial number and LSS assignment.
 function useForNode(d) {
   if (d.serial_number === undefined || d.vendor_id === undefined || d.product_code === undefined) return null;
+  if (d.match === "not configured" && configNode(d.node_id)) return null;  // just added as that node
   const nodes = (S.config.nodes || []).map((n, i) => [n, i]).filter(([n]) => {
     const dev = (edsFor(n) || {}).device;
     if (!dev || dev.vendor_id !== d.vendor_id || dev.product_code !== d.product_code) return false;

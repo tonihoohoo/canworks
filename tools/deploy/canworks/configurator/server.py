@@ -1331,6 +1331,27 @@ def list_folders(path):
             "config": os.path.isfile(os.path.join(path, CONFIG))}
 
 
+def folder_nodes(path):
+    """{"nodes": [node IDs]} of the first network of the config in a project
+    or standalone config folder, for "Add to a config…" before it opens the
+    folder; no IDs when the folder has no config yet."""
+    if not isinstance(path, str) or not path.strip():
+        raise ApiError(400, "path must be a folder")
+    try:
+        with open(params.config_file(path.strip()), encoding="utf-8") as f:
+            nets = contract.networks(json.load(f))
+    except (params.Refused, OSError, ValueError, TypeError, AttributeError):
+        return {"nodes": []}
+    nodes = nets[0]["nodes"] if nets else []
+    ids = []
+    for n in nodes if isinstance(nodes, list) else []:
+        try:
+            ids.append(int(str(n.get("node_id")), 0))
+        except (AttributeError, ValueError):
+            pass
+    return {"nodes": ids}
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "canworks-config/" + __version__
 
@@ -1459,6 +1480,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = save_ui(body)
                 elif route == ("GET", "/api/folders"):
                     out = list_folders(query.get("path", [None])[0])
+                elif route == ("POST", "/api/folder_nodes"):
+                    out = folder_nodes(body.get("path"))
                 elif route == ("POST", "/api/open"):
                     s.open(body.get("path"), body.get("mode", "auto"), body.get("new"))
                     out = s.state()
@@ -1792,6 +1815,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except ValueError as e:
                     raise ApiError(422, str(e))
                 res = call(lambda c: c.sdo_write(node, index, sub, data, timeout_ms))
+                if res.get("success"):
+                    res["data"] = diag.hex_bytes(data)  # what was written, for Keep in configuration
             else:
                 res = call(lambda c: c.sdo_read(node, index, sub, timeout_ms))
                 if res.get("success"):
