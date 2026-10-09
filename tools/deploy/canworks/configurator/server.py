@@ -53,7 +53,7 @@ UNEXPECTED_ERROR = "The configurator hit an error; see its terminal."
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
     "": ["$schema", "schema_version", "adapter", "master", "nodes", "networks", "gateway", "diagnostics"],
-    "network": ["name", "role", "adapter", "master", "nodes", "slave"],
+    "network": ["name", "protocol", "role", "adapter", "master", "nodes", "slave", "j1939"],
     "adapter": ["type", "simulate", "interface", "bitrate", "configure_link", "restart_ms"],
     "master": ["node_id", "sync_period_us", "heartbeat_ms", "eds_lint", "strict_eds", "bus_state_location",
                "tx_error_count_location", "rx_error_count_location", "bus_off_count_location", "state_location",

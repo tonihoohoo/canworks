@@ -51,7 +51,8 @@ def area_size(direction, type_name):
 def canopen_uses(cfg):
     """[(json path, Location)] for every iec_location, node diagnostic
     location, SDO variable location and master diagnostic location in a config,
-    and every slave binding and slave status location, over every network of
+    every slave binding and slave status location, and every J1939
+    network's locations, over every network of
     a version 2 file (paths "networks[i]. ..."; unparseable values are left
     to the contract check)."""
     out = []
@@ -59,6 +60,10 @@ def canopen_uses(cfg):
         return out
     for net in contract.networks(cfg):
         at = net["path"] + "." if net["path"] else ""
+        if net["role"] == "j1939":
+            # The ECU state and address, rx status, signal and valid locations.
+            out += [(path, parse_location(text)) for _, _, path, text in contract.location_uses(net)]
+            continue
         out += _network_uses(net["master"], net["nodes"], at)
         out += _slave_uses(net["slave"], at)
     return out
