@@ -521,6 +521,45 @@ def _gateway(model):
                                       rows, "sortable", empty="No routes.")))
 
 
+FUNCTIONS = {4: "4 read input registers", 16: "16 write multiple registers"}
+
+
+def _modbus(model):
+    m = model.get("modbus")
+    if not m:
+        return ""
+    loss = {"stop": "outputs stop (no RPDOs or transmit messages; SYNC and inputs go on)",
+            "zero": "outputs are sent as 0 once, then stop", "hold": "outputs keep their last values"}
+    settings = [
+        {"label": "Listens on", "value": m["listen"]},
+        {"label": "Unit ID", "value": str(m["unit_id"])},
+        {"label": "32- and 64-bit values", "value": "high word first" if m["word_order"] == "high_first"
+         else "low word first"},
+        {"label": "Clients at once", "value": str(m["max_clients"])},
+        {"label": "Watchdog", "value": "%d ms" % m["watchdog_ms"] if m["watchdog_ms"] else "off"},
+        {"label": "When writes stop", "value": loss.get(m["on_client_loss"], m["on_client_loss"])},
+        {"label": "Clients that may write", "value": ", ".join(m["writers"]) or "every client"},
+        {"label": "Clients that may connect", "value": ", ".join(m["readers"]) or "every client"},
+        {"label": "SDO writes through the registers", "value": "allowed" if m["sdo_bridge_write"] else "refused"},
+        {"label": "Image", "value": "%d input bytes, %d output bytes" % (m["input_bytes"], m["output_bytes"])},
+    ]
+    rows = [[E(r["table"]), '<span class="num">%d</span>' % r["address"], '<span class="num">%d</span>' % r["count"],
+             _loc(r["location"]), E(r["name"]), E(r["network"] or "–"), E(r["type"]),
+             E(" ".join(str(x) for x in (r["scale"] and "× %s" % r["scale"], r["offset"] and "+ %s" % r["offset"],
+                                         r["unit"]) if x))]
+            for r in m["registers"]]
+    channels = [[E(FUNCTIONS.get(c["function"], str(c["function"]))), str(c["start"]), str(c["count"]),
+                 E(c["direction"])] for c in m["channels"]]
+    return ('<section id="modbus"><h2>Modbus register map</h2><p class="muted">canworks-bridge serves this config as '
+            'Modbus TCP registers: input byte n is input register n/2 (even byte the high byte), %%IXn.b discrete '
+            'input n×8+b; outputs map to holding registers and coils the same way.</p>%s<h3>Registers</h3>%s'
+            '<div id="modbus-t">%s</div><h3>Suggested client channels</h3>%s</section>' % (
+                _kv(settings), _filter("modbus-t"),
+                _table(["Table", "Address", "Registers", "PLC address", "Name", "Network", "Type", "Scaling"], rows,
+                       "sortable", empty="No registers."),
+                _table(["Function", "Start", "Count", "Direction"], channels, empty="No channels.")))
+
+
 def _io(model):
     rows = [[_loc(r["location"]), E(r["network"]) or "–", E(r["who"]), _vars(r["variables"]),
              "<code>%s</code>" % E(r["path"])] for r in model["io"]]
@@ -550,6 +589,8 @@ def _toc(model):
             _attr(net["anchor"]), E("Network " + net["name"] if net["name"] else "Network"), sub))
     if model.get("gateway"):
         items.append('<li><a href="#gateway">Gateway</a></li>')
+    if model.get("modbus"):
+        items.append('<li><a href="#modbus">Modbus register map</a></li>')
     items.append('<li><a href="#io">PLC I/O</a></li><li><a href="#config">Configuration file</a></li>')
     return '<nav class="toc" aria-label="Contents"><p class="toc-title">Contents</p><ul>%s</ul></nav>' % "".join(items)
 
@@ -563,7 +604,7 @@ def write(model):
             '</button><button type="button" data-print>Print</button></div></header>' % (
                 E(title), E(model["config"]["file"]), E(model["config"]["sha256"][:16]), E(model["generated"]),
                 E(model["tool"]["name"]), E(model["tool"]["version"])))
-    body = [_summary(model)] + [_network(n) for n in model["networks"]] + [_gateway(model), _io(model),
+    body = [_summary(model)] + [_network(n) for n in model["networks"]] + [_gateway(model), _modbus(model), _io(model),
                                                                           _appendix(model)]
     return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"

@@ -195,6 +195,15 @@ class Pack(unittest.TestCase):
         self.assertFalse([b for b in gaps if b + 1 in gaps], gaps)
 
 
+class SharedMap(unittest.TestCase):
+    def test_example_map_fixture_is_current(self):
+        # test/bridge/bridge_host_tests.cpp checks this map against the bridge.
+        cfg = load(os.path.join(REPO, "examples", "modbus-bridge", "canworks.json"))
+        with open(os.path.join(REPO, "test", "fixtures", "modbus", "example-map.json"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), modbusmap.to_json(cfg, modbusmap.register_map(cfg)),
+                             "regenerate test/fixtures/modbus/example-map.json with modbusmap.to_json")
+
+
 class Export(unittest.TestCase):
     def run_cli(self, *argv):
         out, err = io.StringIO(), io.StringIO()

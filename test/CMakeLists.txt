@@ -283,7 +283,8 @@ set_tests_properties(bridge_tests PROPERTIES TIMEOUT 60)
 # TCP client (modbus-bridge).
 add_executable(bridge_host_tests bridge/bridge_host_tests.cpp ${PROJECT_SOURCE_DIR}/plugin/src/bridge/bridge_host.cpp)
 target_include_directories(bridge_host_tests PRIVATE common)
-target_compile_definitions(bridge_host_tests PRIVATE EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/modbus-bridge")
+target_compile_definitions(bridge_host_tests PRIVATE EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/modbus-bridge"
+                           FIXTURES_DIR="${FIXTURES_DIR}")
 target_link_libraries(bridge_host_tests PRIVATE canopen_core canworks_bridge_proto)
 add_test(NAME bridge_host_tests COMMAND bridge_host_tests)
 set_tests_properties(bridge_host_tests PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")
@@ -291,3 +292,5 @@ set_tests_properties(bridge_host_tests PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDS
 add_test(NAME bridge_upload COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/bridge/upload_test.py
          $<TARGET_FILE:canworks-bridge> ${PROJECT_SOURCE_DIR}/examples/modbus-bridge)
 set_tests_properties(bridge_upload PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")
+# scripts/install-bridge.sh with a stub systemctl.
+add_test(NAME bridge_install COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/bridge/install_test.sh $<TARGET_FILE:canworks-bridge>)

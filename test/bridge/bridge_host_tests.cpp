@@ -41,6 +41,14 @@ void capture(canopen_plugin::LogLevel, const char* msg) {
   g_log.push_back(msg);
 }
 
+int count_logged(const std::string& text) {
+  std::lock_guard<std::mutex> l(g_log_mu);
+  int n = 0;
+  for (const auto& s : g_log)
+    if (s.find(text) != std::string::npos) ++n;
+  return n;
+}
+
 bool logged(const std::string& text) {
   std::lock_guard<std::mutex> l(g_log_mu);
   for (const auto& s : g_log)
@@ -255,6 +263,110 @@ TEST(sdo_bridge_read_and_refused_write) {
     return r.size() == 6 && r[0] == 2;
   }, 3000));
   EXPECT(r.size() == 6 && (r[1] >> 8) == 3 && r[2] == 0x0800 && r[3] == 0x0020);
+}
+
+// Rising edges are seen between written snapshots: rewriting the same value
+// is no new edge (modbus-bridge "Outputs").
+TEST(cyclic_rewrite_is_no_edge) {
+  Host h([](cJSON* r) {
+    set_number(bridge_of(r), "watchdog_ms", 0);
+    cJSON* node = cJSON_GetArrayItem(
+        cJSON_GetObjectItem(cJSON_GetArrayItem(cJSON_GetObjectItem(r, "networks"), 0), "nodes"), 0);
+    cJSON_AddStringToObject(node, "nmt_command_location", "%QB26");
+  });
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  const std::string reset = "NMT RESET NODE (from the program)";
+  int before = count_logged(reset);
+  EXPECT(write(c, 13, {129 << 8}));
+  EXPECT(wait_for([&] { return count_logged(reset) == before + 1; }));
+  for (int i = 0; i < 5; ++i) {
+    EXPECT(write(c, 13, {129 << 8}));
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  }
+  EXPECT(count_logged(reset) == before + 1);
+  EXPECT(write(c, 13, {0}));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  EXPECT(write(c, 13, {129 << 8}));
+  EXPECT(wait_for([&] { return count_logged(reset) == before + 2; }));
+}
+
+// Without SYNC, event-driven RPDOs carry a write at once: the simulated
+// device echoes %QW2 on %IW10 within a few milliseconds (its TPDO has a
+// 10 ms inhibit time, hence the pause between writes).
+TEST(event_driven_output_without_sync) {
+  Host h([](cJSON* r) {
+    set_number(bridge_of(r), "watchdog_ms", 0);
+    cJSON* net = cJSON_GetArrayItem(cJSON_GetObjectItem(r, "networks"), 0);
+    cJSON_DeleteItemFromObject(cJSON_GetObjectItem(net, "master"), "sync_period_us");
+    cJSON* node;
+    cJSON_ArrayForEach(node, cJSON_GetObjectItem(net, "nodes")) {
+      for (const char* key : {"tx_pdos", "rx_pdos"}) {
+        cJSON* pdo;
+        cJSON_ArrayForEach(pdo, cJSON_GetObjectItem(node, key)) set_number(pdo, "transmission", 255);
+      }
+    }
+  });
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  int worst = 0;
+  for (uint16_t v = 1; v <= 20; ++v) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    auto t0 = std::chrono::steady_clock::now();
+    EXPECT(write(c, 1, {static_cast<uint16_t>(v * 100)}));
+    EXPECT(wait_for([&] { return reg(c, 5) == v * 100; }, 1000));
+    int ms = static_cast<int>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count());
+    worst = std::max(worst, ms);
+  }
+  std::printf("  write to echo, worst of 20: %d ms\n", worst);
+  EXPECT(worst < 50);
+}
+
+// The register map the PC tools compute (modbusmap.py, fixture made from the
+// example by test_modbusmap) is the one the bridge serves.
+TEST(map_matches_the_pc_tools) {
+  Host h;
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  cJSON* map = cJSON_Parse(read_file(std::string(FIXTURES_DIR) + "/modbus/example-map.json").c_str());
+  EXPECT(map != nullptr);
+  if (!map) return;
+  EXPECT(cJSON_GetObjectItem(map, "input_bytes")->valueint == static_cast<int>(h.host.image().input_size()));
+  EXPECT(cJSON_GetObjectItem(map, "output_bytes")->valueint == static_cast<int>(h.host.image().output_size()));
+  std::vector<canopen_plugin::ImageUse> uses = canopen_plugin::image_uses(h.host.set());
+  int rows = 0;
+  const cJSON* r;
+  cJSON_ArrayForEach(r, cJSON_GetObjectItem(map, "registers")) {
+    ++rows;
+    std::string loc = cJSON_GetObjectItem(r, "location")->valuestring;
+    std::string table = cJSON_GetObjectItem(r, "table")->valuestring;
+    int address = cJSON_GetObjectItem(r, "address")->valueint;
+    int count = cJSON_GetObjectItem(r, "count")->valueint;
+    bool found = false;
+    for (const auto& u : uses) {
+      if (u.loc.str() != loc) continue;
+      found = true;
+      bool in = u.loc.area == canopen_plugin::IecArea::Input;
+      if (u.loc.size == canopen_plugin::IecSize::X) {
+        EXPECT(table == (in ? "discrete input" : "coil"));
+        EXPECT(address == static_cast<int>(u.loc.index * 8 + u.loc.bit));
+        EXPECT(count == 1);
+      } else {
+        EXPECT(table == (in ? "input register" : "holding register"));
+        EXPECT(address == static_cast<int>(u.loc.index / 2));
+        EXPECT(count == static_cast<int>((u.loc.index % 2 + u.nbytes + 1) / 2));
+      }
+    }
+    if (!found) std::printf("  %s is not a location of the bridge\n", loc.c_str());
+    EXPECT(found);
+  }
+  EXPECT(rows == static_cast<int>(uses.size()));
+  cJSON_Delete(map);
 }
 
 TEST(interface_lock) {

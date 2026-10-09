@@ -19,7 +19,7 @@ import os
 import struct
 import tempfile
 
-from . import __version__, bundle, contract, dbcexport, dcfexport, edslint, editorproject
+from . import __version__, bridgecheck, bundle, contract, dbcexport, dcfexport, edslint, editorproject, modbusmap
 from . import notes as notes_mod
 from . import eds as eds_mod
 from .iec import CO_TYPE_BY_CODE, parse_location
@@ -1259,6 +1259,21 @@ def _gateway(cfg, networks):
             "sdo_bridge_write": bool(g.get("sdo_bridge_write"))}
 
 
+def _modbus(cfg):
+    """The Modbus register map section (modbus-bridge-map) of a bridge config."""
+    b = cfg["bridge"]
+    rows = modbusmap.register_map(cfg)
+    ins, outs = modbusmap.image_sizes(rows)
+    return {"listen": b.get("listen", ""), "unit_id": _u(b.get("unit_id"), 1),
+            "word_order": b.get("word_order", "high_first"), "max_clients": _u(b.get("max_clients"), 16),
+            "watchdog_ms": _u(b.get("watchdog_ms"), 1000), "on_client_loss": b.get("on_client_loss", "stop"),
+            "writers": list(b.get("writers") or []), "readers": list(b.get("readers") or []),
+            "sdo_bridge_write": bool(b.get("sdo_bridge_write")), "input_bytes": ins, "output_bytes": outs,
+            "registers": rows,
+            "channels": [{"function": f, "start": st, "count": c, "direction": d}
+                         for f, st, c, d in modbusmap.suggest_channels(rows)]}
+
+
 def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None, od="used", embed_eds=False,
           plc_cycle_ms=None, now=None, notes=None):
     """The document model of a config. `names`: {location: [PLC variable
@@ -1311,7 +1326,7 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     raw = _without_token(raw, cfg)
     now = now or datetime.datetime.now()
-    return {
+    model = {
         "doc_schema_version": DOC_SCHEMA_VERSION,
         "title": title or DEFAULT_TITLE,
         "generated": now.strftime("%Y-%m-%d %H:%M"),
@@ -1323,6 +1338,9 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
         "gateway": gateway,
         "io": io,
     }
+    if network is None and bridgecheck.is_bridge_config(cfg):
+        model["modbus"] = _modbus(cfg)
+    return model
 
 
 def _without_token(text, cfg):

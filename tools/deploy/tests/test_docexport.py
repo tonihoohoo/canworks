@@ -535,6 +535,27 @@ class SlaveNetworks(unittest.TestCase):
         self.assertIsNone(build(cfg, path, network="field")["gateway"])
 
 
+class Modbus(unittest.TestCase):
+    def test_bridge_config_has_the_register_map(self):
+        path = os.path.join(REPO, "examples", "modbus-bridge", "canworks.json")
+        with open(path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        model = build(cfg, path)
+        m = model["modbus"]
+        self.assertEqual((m["listen"], m["input_bytes"], m["output_bytes"]), ("0.0.0.0:1502", 62, 26))
+        first = m["registers"][0]
+        self.assertEqual((first["table"], first["address"], first["location"]), ("input register", 0, "%IW0"))
+        self.assertEqual(m["channels"][0], {"function": 4, "start": 0, "count": 31, "direction": "input"})
+        text, _ = docexport.export(cfg, path, now=NOW)
+        self.assertIn('id="modbus"', text)
+        self.assertIn('href="#modbus"', text)
+        self.assertIn("4 read input registers", text)
+
+    def test_plain_config_has_none(self):
+        cfg, path = example("pingpong")
+        self.assertNotIn("modbus", build(cfg, path))
+
+
 class Golden(unittest.TestCase):
     """The document model of each example config (UPDATE_GOLDEN=1 rewrites)."""
 

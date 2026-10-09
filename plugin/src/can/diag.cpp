@@ -778,7 +778,8 @@ void DiagServer::process_input(Client& c) {
     if (it != auth_failed_.end() && std::chrono::steady_clock::now() < it->second + kLoginBackoff) return;
   }
   // One request at a time per connection keeps the answers in order.
-  const size_t max_line = c.authed ? kMaxAuthedLine : kMaxLine;
+  // Only a host that takes configs reads the long put_config line.
+  const size_t max_line = c.authed && host_.put_config ? kMaxAuthedLine : kMaxLine;
   while (!c.closing && !c.waiting) {
     size_t nl = c.in.find('\n');
     if (nl == std::string::npos) {

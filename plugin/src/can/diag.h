@@ -194,7 +194,8 @@ class DiagServer {
  public:
   static constexpr unsigned kMaxClients = 4;
   static constexpr size_t kMaxLine = 16384;
-  // After the login: a put_config line carries the files in base64.
+  // After the login on a host that takes configs: a put_config line carries
+  // the files in base64.
   static constexpr size_t kMaxUploadBytes = 8 * 1024 * 1024;
   static constexpr size_t kMaxAuthedLine = kMaxUploadBytes / 3 * 4 + 64 * 1024;
   static constexpr size_t kMaxSendBuffer = 256 * 1024;
