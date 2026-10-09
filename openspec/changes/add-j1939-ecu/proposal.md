@@ -71,7 +71,7 @@ This change assumes `rename-to-canworks` has landed and uses its command names.
 
 - **Plugin**: new `plugin/src/j1939/` (config, ECU, socket wrapper). Shared adapter, trace, diag and process-image files move to `plugin/src/can/` when first touched. `config.cpp` dispatches on `protocol`. No new third-party C/C++ dependency (kernel UAPI headers only).
 - **PC tools**: new `j1939/` package (dbc import, decode, sim), configurator static pages, `bustrace/decode.py` dispatch. New runtime dependencies: `can-j1939` (pulls numpy) and `cantools`. Both MIT.
-- **Schema**: `schema/canopen.v2.schema.json` gains the optional `protocol` and `j1939` (additive within version 2).
+- **Schema**: `schema/canworks.v2.schema.json` gains the optional `protocol` and `j1939` (additive within version 2).
 - **Not supported in this change**:
   - J1939 on the in-process simulated bus (`adapter.simulate: true` is rejected on a J1939 network; use vcan)
   - the local sim runtime on Docker Desktop (until its kernel is checked for `can-j1939`)

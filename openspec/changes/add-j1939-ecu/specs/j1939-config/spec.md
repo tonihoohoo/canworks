@@ -66,7 +66,7 @@ A J1939 network SHALL NOT share its interface or serial device with any other ne
 - **THEN** the file is rejected with an error saying J1939 networks run on SocketCAN or slcan interfaces and to use vcan for simulation
 
 ### Requirement: J1939 in the schema and writers
-`schema/canopen.v2.schema.json` SHALL describe `protocol` and the `j1939` object. Tools that write a config SHALL write version 2 whenever any network is a J1939 network. The example `examples/j1939/canopen.json` SHALL validate, and it SHALL use only proprietary PGNs (0xEF00, 0xFF00..0xFFFF).
+`schema/canworks.v2.schema.json` SHALL describe `protocol` and the `j1939` object. Tools that write a config SHALL write version 2 whenever any network is a J1939 network. The example `examples/j1939/canworks.json` SHALL validate, and it SHALL use only proprietary PGNs (0xEF00, 0xFF00..0xFFFF).
 
 #### Scenario: Only a J1939 network
 - **WHEN** the configurator saves a config whose one network is J1939

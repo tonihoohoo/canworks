@@ -30,7 +30,7 @@ Decisions from the exploration (2026-10-08): both ECU roles in slice 1, the Linu
 
 ### 1. One plugin, protocol per network
 
-The `protocol` field selects the engine per network. This keeps one config file (`conf/canopen.json`, on-device name kept by the rename), one deploy injection, one diagnostics port and one clash check, and the plugin line in `plugins.conf` is unchanged.
+The `protocol` field selects the engine per network. This keeps one config file (`conf/canworks.json` after the rename), one deploy injection, one diagnostics port, one clash check and one `canworks` line in `plugins.conf`.
 
 *Alternative:* a second plugin `j1939`. Rejected: it would need a second config path through the editor upload (a hand-added plugin does not survive uploads), a second diag port, and cross-plugin clash checks.
 
