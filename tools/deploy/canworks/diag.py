@@ -545,6 +545,13 @@ class Client:
     def status(self):
         return self.request("status")
 
+    def put_config(self, files, timeout=120.0):
+        """canworks-bridge: a new config ({path: bytes}, "canworks.json" the
+        config itself). The bridge checks it and answers {"restarting": true,
+        "upload": number}, then restarts on it."""
+        return self.request("put_config", timeout=timeout,
+                            files={k: base64.b64encode(v).decode("ascii") for k, v in files.items()})
+
     def emcy(self, node):
         return self.request("emcy", node=node)
 
@@ -1161,6 +1168,28 @@ def _print_status(st, out):
     _print_protocol_status(st, out)
     if st.get("raw"):
         _print_raw_status(st["raw"], out)
+    if st.get("bridge"):
+        out.write(bridge_status_line(st["bridge"]) + "\n")
+
+
+def bridge_status_line(b):
+    """The Modbus bridge part of a status answer (canworks-bridge) as one line."""
+    if b.get("state") == "running":
+        state = "outputs running"
+        if b.get("watchdog_left_ms") is not None:
+            state += ", watchdog %s ms left" % b["watchdog_left_ms"]
+    else:
+        state = "outputs off (%s, on client loss %s)" % (b.get("reason") or "?", b.get("on_client_loss") or "?")
+    clients = b.get("clients") or []
+    who = ", ".join("%s%s %s requests" % (c.get("address"), " (writer)" if c.get("writer") else "", c.get("requests", 0))
+                    for c in clients)
+    line = "Modbus bridge on %s, unit %s: %s; %d client%s%s" % (
+        b.get("listen"), b.get("unit_id"), state, len(clients), "" if len(clients) == 1 else "s",
+        ": " + who if who else "")
+    up = b.get("last_upload")
+    if isinstance(up, dict):
+        line += "; last config upload: %s" % up.get("result")
+    return line
 
 
 def _print_raw_status(raw, out):

@@ -1,0 +1,36 @@
+name: Modbus bridge image
+
+# The canworks-bridge container image (docker/bridge/Dockerfile) built and
+# checked (version, the example config) when a pull request touches what goes
+# into it; publishing is release-deploy.yml's job.
+on:
+  pull_request:
+    paths:
+      - "docker/bridge/**"
+      - "scripts/install-bridge.sh"
+      - "scripts/build-lely.sh"
+      - ".github/workflows/bridge-image.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: bridge-image-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  amd64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -f docker/bridge/Dockerfile --build-arg TOOLS_VERSION=ci -t canworks-bridge:ci .
+
+      - name: The bridge runs and accepts the example
+        run: |
+          docker run --rm canworks-bridge:ci --version
+          docker run --rm -v "$PWD/examples/modbus-bridge:/etc/canworks-bridge" canworks-bridge:ci \
+            --config /etc/canworks-bridge/canworks.json --check-only

@@ -266,23 +266,25 @@ void Network::DiagNmt(const DiagRequest& r) {
     diag_->answer(r.seq, diag_error(r.id, "node " + std::to_string(r.node) + " is not in the configuration"));
     return;
   }
-  NodeState& n = it->second;
-  unsigned id = r.node;
-  std::string by = "diagnostics client " + r.peer;
+  std::string note = OperatorNmt(r.node, it->second, r.command, "diagnostics client " + r.peer);
   cJSON* res = cJSON_CreateObject();
-  if (r.command == "stop" || r.command == "preop") {
-    n.hold = r.command == "stop" ? Hold::Stopped : Hold::Preop;
+  if (!note.empty()) cJSON_AddStringToObject(res, "note", note.c_str());
+  diag_->answer(r.seq, diag_ok(r.id, res));
+}
+
+std::string Network::OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by) {
+  if (command == "stop" || command == "preop") {
+    n.hold = command == "stop" ? Hold::Stopped : Hold::Preop;
     n.hold_by_operator = true;
     if (n.cfg->boot && !n.booted) {
       log_info("%s: NMT %s requested by %s; sent when the node has booted", n.cfg->label().c_str(),
-               r.command == "stop" ? "STOP" : "ENTER PRE-OPERATIONAL", by.c_str());
-      cJSON_AddStringToObject(res, "note", "the node has not booted; the hold applies once it has");
-    } else {
-      log_info("%s: NMT %s requested by %s", n.cfg->label().c_str(),
-               r.command == "stop" ? "STOP" : "ENTER PRE-OPERATIONAL", by.c_str());
-      SendHold(id, n);
+               command == "stop" ? "STOP" : "ENTER PRE-OPERATIONAL", by.c_str());
+      return "the node has not booted; the hold applies once it has";
     }
-  } else if (r.command == "start") {
+    log_info("%s: NMT %s requested by %s", n.cfg->label().c_str(), command == "stop" ? "STOP" : "ENTER PRE-OPERATIONAL",
+             by.c_str());
+    SendHold(id, n);
+  } else if (command == "start") {
     n.hold = Hold::None;
     n.hold_by_operator = false;
     if (n.booted || !n.cfg->boot) {
@@ -291,12 +293,12 @@ void Network::DiagNmt(const DiagRequest& r) {
     } else {
       log_info("%s: hold released by %s; the node has not booted, so the master starts it when it has",
                n.cfg->label().c_str(), by.c_str());
-      cJSON_AddStringToObject(res, "note", "the node has not booted; the master starts it when it has");
+      return "the node has not booted; the master starts it when it has";
     }
   } else {
-    ResetNode(id, n, r.command == "reset-comm", by.c_str());
+    ResetNode(id, n, command == "reset-comm", by.c_str());
   }
-  diag_->answer(r.seq, diag_ok(r.id, res));
+  return "";
 }
 
 // ---------------------------------------------------------------------------

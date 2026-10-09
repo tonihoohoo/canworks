@@ -13,6 +13,7 @@ Requests whose Host is not loopback are refused (DNS rebinding).
 
 import argparse
 import base64
+import copy
 import hashlib
 import http.server
 import io
@@ -31,13 +32,13 @@ import urllib.parse
 import webbrowser
 import zipfile
 
-from .. import __version__, axis, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, parameters, project as project_mod, sdolibrary
+from .. import __version__, axis, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, modbusmap, parameters, project as project_mod, sdolibrary
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequences as sequences_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
-from ..iec import CO_TYPES, parse_location
+from ..iec import CO_TYPES, element_str, parse_location
 from ..userdirs import config_dir
 from ..j1939 import dbc as j1939_dbc
 from . import cia402map, declare, layout, online, params, rawpage, scan, simulation, tracing
@@ -53,7 +54,7 @@ UNEXPECTED_ERROR = "The configurator hit an error; see its terminal."
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
-    "": ["$schema", "schema_version", "adapter", "master", "nodes", "networks", "gateway", "diagnostics"],
+    "": ["$schema", "schema_version", "adapter", "master", "nodes", "networks", "gateway", "bridge", "diagnostics"],
     "network": ["name", "protocol", "role", "adapter", "master", "nodes", "slave", "j1939"],
     "adapter": ["type", "simulate", "interface", "bitrate", "configure_link", "restart_ms"],
     "master": ["node_id", "sync_period_us", "heartbeat_ms", "eds_lint", "strict_eds", "bus_state_location",
@@ -86,6 +87,9 @@ ORDER = {
                 "sdo_bridge_write"],
     "route": ["name", "slave", "field"],
     "route_field": ["network", "node", "index", "subindex"],
+    "bridge": list(bridgecheck.KEYS),
+    "live_list": ["network", "location"],
+    "sdo_bridge_location": ["request", "response"],
 }
 
 
@@ -158,6 +162,12 @@ def canonical(cfg):
                     for key, kind in (("slave", "entry"), ("field", "route_field")):
                         if isinstance(rt.get(key), dict):
                             rt[key] = _ordered(rt[key], kind)
+    if isinstance(cfg.get("bridge"), dict):
+        b = cfg["bridge"] = _ordered(cfg["bridge"], "bridge")
+        if isinstance(b.get("live_lists"), list):
+            b["live_lists"] = [_ordered(e, "live_list") for e in b["live_lists"]]
+        if isinstance(b.get("sdo_bridge_location"), dict):
+            b["sdo_bridge_location"] = _ordered(b["sdo_bridge_location"], "sdo_bridge_location")
     if isinstance(cfg.get("diagnostics"), dict):
         cfg["diagnostics"] = _ordered(cfg["diagnostics"], "diagnostics")
     if isinstance(cfg.get("networks"), list):
@@ -212,9 +222,10 @@ def lowest_version(cfg):
     contract): a version 2 file with one network that has no name of its own
     (none, or its interface's) becomes version 1, its diagnostics back in the
     master. Anything else comes back as it is, also a file the checks will
-    refuse, so they report it as the user wrote it."""
+    refuse, so they report it as the user wrote it. A bridge config stays
+    version 2: the bridge object needs it."""
     if not isinstance(cfg, dict) or cfg.get("schema_version") != 2 or not isinstance(cfg.get("networks"), list) \
-            or len(cfg["networks"]) != 1 or not isinstance(cfg["networks"][0], dict):
+            or len(cfg["networks"]) != 1 or not isinstance(cfg["networks"][0], dict) or "bridge" in cfg:
         return cfg
     net = cfg["networks"][0]
     adapter, master, name = net.get("adapter"), net.get("master"), net.get("name")
@@ -816,7 +827,9 @@ class Session:
             items += self.notes_problems(cfg, notes)
         except (OSError, ValueError, TypeError, AttributeError):
             pass  # notes are documentation: they never stop a check
-        extra, declared = layout.project_checks(cfg, self.uses, allow_overlap)
+        # A bridge config does not run in OpenPLC: the project's addresses are not its addresses.
+        extra, declared = layout.project_checks(cfg, [] if modbusmap.is_bridge_config(cfg) else self.uses,
+                                                allow_overlap)
         items += extra
         # A cyclic axis's fCycleTime line: the task interval the page gives.
         cycle_s = editorproject.interval_seconds(editorproject.DEFAULT_INTERVAL)
@@ -1141,6 +1154,134 @@ class Session:
         new, mapped, missing = cia402map.map_objects(n, info, layout.taken(cfg, self.uses), start, changes)
         return {"node": new, "mapped": mapped, "missing": missing, "changes": changes}
 
+    # -- Modbus bridge (canopen-configurator "Modbus bridge target") ---------
+    @staticmethod
+    def _bridge_config(cfg):
+        if not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        if not modbusmap.is_bridge_config(cfg):
+            raise ApiError(400, "not a bridge config: it has no top-level \"bridge\" object")
+        return cfg
+
+    def bridge_map(self, cfg):
+        """The register map of the draft for the bridge page: {rows,
+        channels, input_bytes, output_bytes}, or {rows: [], problem} when
+        the locations break the byte rules (Check says where)."""
+        self._bridge_config(cfg)
+        try:
+            rows = modbusmap.register_map(cfg)
+        except modbusmap.MapError as e:
+            return {"rows": [], "channels": [], "problem": str(e)}
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return {"rows": [], "channels": [], "problem": "the config cannot be read for the register map (see Problems)"}
+        inputs, outputs = modbusmap.image_sizes(rows)
+        return {"rows": rows, "input_bytes": inputs, "output_bytes": outputs,
+                "channels": [{"function": f, "start": st, "count": c, "direction": d}
+                             for f, st, c, d in modbusmap.suggest_channels(rows)]}
+
+    def bridge_pack(self, cfg):
+        """The draft with every location packed for Modbus (modbusmap.pack)."""
+        self._bridge_config(cfg)
+        try:
+            return {"config": modbusmap.pack(cfg)}
+        except modbusmap.MapError as e:
+            raise ApiError(400, str(e))
+
+    # The bridge blocks Suggest places: (area, bytes).
+    BRIDGE_BLOCKS = {"status_location": ("I", bridgecheck.STATUS_BYTES),
+                     "control_location": ("Q", bridgecheck.CONTROL_BYTES),
+                     "live_list": ("I", bridgecheck.LIVE_LIST_BYTES),
+                     "sdo_request": ("Q", bridgecheck.SDO_BYTES),
+                     "sdo_response": ("I", bridgecheck.SDO_BYTES)}
+
+    def bridge_suggest(self, cfg, block, index=None):
+        """A free place for one bridge block: the first even byte after the
+        packed data (data and status locations) of its area where the whole
+        block overlaps nothing. `block` is a key of BRIDGE_BLOCKS, `index`
+        the live list's. The block's own location is left out, so Suggest
+        can also move it."""
+        self._bridge_config(cfg)
+        if block not in self.BRIDGE_BLOCKS:
+            raise ApiError(400, "block must be one of: " + ", ".join(self.BRIDGE_BLOCKS))
+        cfg = copy.deepcopy(cfg)
+        b = cfg["bridge"]
+        if block == "live_list":
+            lists = b.get("live_lists")
+            try:
+                entry = lists[int(index)]
+            except (IndexError, TypeError, ValueError):
+                raise ApiError(400, "no live list %r" % index)
+            if not isinstance(entry, dict):
+                raise ApiError(400, "no live list %r" % index)
+            entry.pop("location", None)
+        elif block.startswith("sdo_"):
+            if isinstance(b.get("sdo_bridge_location"), dict):
+                b["sdo_bridge_location"].pop(block[4:], None)
+        else:
+            b.pop(block, None)
+        try:
+            items = modbusmap.collect(cfg)
+        except modbusmap.MapError as e:
+            raise ApiError(400, str(e))
+        area, nbytes = self.BRIDGE_BLOCKS[block]
+        mine = [it for it in items if it.loc.area == area]
+        end = max((it.loc.index + it.nbytes for it in mine if it.kind != "bridge"), default=0)
+        pos = end + end % 2
+        ranges = sorted((it.loc.index, it.loc.index + it.nbytes) for it in mine)
+        moved = True
+        while moved:
+            moved = False
+            for lo, hi in ranges:
+                if lo < pos + nbytes and pos < hi:
+                    pos = hi + hi % 2
+                    moved = True
+        if pos + nbytes > bridgecheck.IMAGE_BYTES:
+            raise ApiError(400, "no free %d-byte range left in the %s image" % (nbytes, "input" if area == "I" else "output"))
+        return {"location": "%%%sB%d" % (area, pos)}
+
+    MAP_TYPES = {"csv": "text/csv", "json": "application/json", "st": "text/plain"}
+
+    def export_modbus_map(self, cfg, fmt):
+        """The register map file `canworks-deploy --export-modbus-map
+        map.<fmt>` writes for the draft (saved or not): `<folder>_modbus.<fmt>`,
+        base64 in `data`. When the locations break the byte rules: the
+        /api/check shape, and no file."""
+        self._bridge_config(cfg)
+        if fmt not in self.MAP_TYPES:
+            raise ApiError(400, "format must be csv, json or st")
+        try:
+            rows = modbusmap.register_map(cfg)
+        except modbusmap.MapError as e:
+            return {"items": [{"level": "error", "message": str(e), "paths": []}], "errors": 1}
+        text = modbusmap.to_csv(rows) if fmt == "csv" else modbusmap.to_json(cfg, rows) if fmt == "json" \
+            else modbusmap.to_st(cfg, rows)
+        folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
+        return {"items": [], "errors": 0, "name": "%s_modbus.%s" % (folder, fmt),
+                "content_type": self.MAP_TYPES[fmt], "rows": len(rows),
+                "data": base64.b64encode(text.encode("utf-8")).decode("ascii")}
+
+    def pack_openplc(self, cfg, start=None):
+        """The draft with every location repacked for OpenPLC's per-type
+        tables, as Suggest places them: per area and size in file order from
+        `start` (layout.DEFAULT_START), skipping the editor project's
+        addresses. The bridge's own blocks are left alone."""
+        if not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        try:
+            start = layout.DEFAULT_START if start in (None, "") else int(start)
+        except (TypeError, ValueError):
+            raise ApiError(400, "start must be a number")
+        out = copy.deepcopy(cfg)
+        used = {u.key() for u in self.uses}
+        nxt = {}
+        for holder, key, loc in location_slots(out):
+            element = nxt.get((loc.area, loc.size), start * 8 if loc.size == "X" else start)
+            while (loc.area, loc.size, element) in used:
+                element += 1
+            holder[key] = element_str(loc.area, loc.size, element)
+            nxt[(loc.area, loc.size)] = element + 1
+        return {"config": out}
+
     # -- save ---------------------------------------------------------------
     def save(self, cfg, allow_overlap=False, overwrite=False, notes=None):
         cfg = lowest_version(cfg)
@@ -1291,6 +1432,29 @@ class Session:
 # J1939 locations /api/place suggests: direction -> (area, size letter).
 J1939_PLACES = {"j1939_state": ("I", "B"), "j1939_address": ("I", "B"), "j1939_status": ("I", "X"),
                 "j1939_valid": ("I", "X")}
+
+
+def location_slots(cfg):
+    """[(dict, key, Location)] of every %I and %Q location of a config, in
+    file order: each `iec_location` and `*_location` value (the rule of
+    modbusmap.collect), the bridge object and the diagnostics left out."""
+    out = []
+
+    def walk(value):
+        if isinstance(value, dict):
+            for key, sub in value.items():
+                if isinstance(sub, str) and (key == "iec_location" or key.endswith("_location")):
+                    loc = parse_location(sub)
+                    if loc is not None and loc.area in "IQ":
+                        out.append((value, key, loc))
+                elif isinstance(sub, (dict, list)):
+                    walk(sub)
+        elif isinstance(value, list):
+            for sub in value:
+                walk(sub)
+
+    walk({k: v for k, v in cfg.items() if k not in ("bridge", "diagnostics")})
+    return out
 
 
 def _bitrate_arg(v):
@@ -1535,6 +1699,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/export_eds"):
                     self._need_open(s)
                     out = s.export_eds(body.get("config"), body.get("network", 0))
+                elif route == ("POST", "/api/bridge/map"):
+                    self._need_open(s)
+                    out = s.bridge_map(body.get("config"))
+                elif route == ("POST", "/api/bridge/pack"):
+                    self._need_open(s)
+                    out = s.bridge_pack(body.get("config"))
+                elif route == ("POST", "/api/bridge/suggest"):
+                    self._need_open(s)
+                    out = s.bridge_suggest(body.get("config"), body.get("block"), body.get("index"))
+                elif route == ("POST", "/api/bridge/export"):
+                    self._need_open(s)
+                    out = s.export_modbus_map(body.get("config"), body.get("format"))
+                elif route == ("POST", "/api/pack_openplc"):
+                    self._need_open(s)
+                    out = s.pack_openplc(body.get("config"), body.get("start"))
                 elif route == ("POST", "/api/map_cia402"):
                     self._need_open(s)
                     out = s.map_cia402(body.get("config"), body.get("node"), body.get("start"),

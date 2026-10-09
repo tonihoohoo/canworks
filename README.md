@@ -65,6 +65,10 @@ A network with `"protocol": "j1939"` makes the PLC an ECU ([docs/j1939.md](docs/
 
 Plain CAN messages run on any network, next to CANopen or J1939, or on a plain CAN network (`"protocol": "none"`, optionally listen-only) that carries nothing else ([docs/raw-can.md](docs/raw-can.md)). Received messages put DBC-style signals on `%I` locations with a timeout bit, counter and last frame; sent ones come from `%Q` locations periodically, on change or on a trigger bit. Identifiers the protocol uses need an explicit override. From the program, `CAN_SEND`, `CAN_SEND_CYCLIC`, `CAN_RECEIVE` and `CAN_BUS_INFO` and ST bit and byte helpers in the `canworks` library send and receive any frame when the program decides. [`examples/raw-can`](examples/raw-can/canworks.json) is a plain network with its DBC file and simulated devices.
 
+### Modbus TCP bridge for any PLC or program
+
+`canworks-bridge` runs the same CANopen, J1939 and raw CAN networks without OpenPLC and serves their values as Modbus TCP registers, so any PLC, SCADA or program with a Modbus client can use them ([docs/modbus-bridge.md](docs/modbus-bridge.md)). The config is a normal `canworks.json` with a `bridge` object; its `%I`/`%Q` locations become input and holding registers, discrete inputs and coils by one fixed rule. A watchdog stops or holds the outputs when the client goes away, and status, control, live list and SDO request registers come along. `canworks-deploy --export-modbus-map` writes the register map as CSV, JSON or IEC 61131-3 ST for the client side, and `canworks-deploy --bridge HOST` uploads a new config to a running bridge. It installs as a systemd service (`scripts/install-bridge.sh`) or runs from the `canworks-bridge` container image; [`examples/modbus-bridge`](examples/modbus-bridge/canworks.json) is a simulated example.
+
 ### Simulation
 
 - **Simulated devices** ([docs/simulator.md](docs/simulator.md)): any node, or a whole network, can be simulated from its EDS, so a project and its program run without the real devices or CAN hardware. Values can follow waveforms, formulas, recorded CSV data or a CiA 402 drive model; faults (EMCY, lost heartbeat, power loss, SDO aborts, wrong identity, ...) come on command or from timed scenarios that test the program's reaction.
@@ -78,7 +82,7 @@ Five commands in one package, for Windows, macOS and Linux ([docs/install-pc.md]
 | Command | What it does |
 | --- | --- |
 | `canworks-config` | The configurator, a local web page ([docs/configurator.md](docs/configurator.md)). Add nodes from their EDS, map PDO entries to PLC addresses checked against the editor project, set up slave, gateway, J1939 and plain CAN networks, and raw CAN messages with DBC import. Device notes explain objects (text, unit, scale, value meanings, bit names): built-in for CiA 301/401/402, plus a notes file per EDS you fill from the manual; they show in the object dictionary browser, the SDO lists, the HTML docs and the DBC export. Its **Online** view shows the live network (states, EMCY, SDO, NMT, bus scan, LSS, object dictionary browser, parameter backup and restore, PDO test, bit rate detection); **Trace** records and decodes the bus ([docs/trace.md](docs/trace.md)); the frame inspector and **Frame lab** explain every bit of a frame ([docs/frame-inspector.md](docs/frame-inspector.md)); **Commission a CANopen device** works on a USB adapter without any project. |
-| `canworks-deploy` | Adds the config to an editor build and uploads it ([docs/deploy.md](docs/deploy.md)); checks a config offline; creates an editor project from a config (`--blocks` enables the SDO and CAN frame blocks); installs the `canworks` editor library; exports DCF, DBC and an offline HTML documentation of the CANopen and J1939 networks ([docs/network-docs.md](docs/network-docs.md)). |
+| `canworks-deploy` | Adds the config to an editor build and uploads it ([docs/deploy.md](docs/deploy.md)); checks a config offline; creates an editor project from a config (`--blocks` enables the SDO and CAN frame blocks); installs the `canworks` editor library; exports DCF, DBC and an offline HTML documentation of the CANopen and J1939 networks ([docs/network-docs.md](docs/network-docs.md)); exports the Modbus register map of a bridge config (`--export-modbus-map`) and uploads it to a running bridge (`--bridge HOST`, [docs/modbus-bridge.md](docs/modbus-bridge.md)). |
 | `canworks-diag` | The online functions from a terminal ([docs/diagnostics.md](docs/diagnostics.md)): parameter backup, compare and restore as CiA 306 DCF, writing a configuration to a device, LSS, raw frames, `replay` of a recorded trace, bit rate detection, trace with export to pcapng, candump, ASC, BLF, TRC or CSV, simulator control, and `explain` for a frame bit by bit. |
 | `canworks-sim-runtime` | The local simulator runtime in a container (Docker Engine, Podman or Colima; amd64 and arm64) ([docs/local-runtime.md](docs/local-runtime.md)). |
 | `canworks-j1939-sim` | Plays one node of a J1939 DBC file on a SocketCAN interface or USB adapter, with address claim, cycle times, ramps and scenarios ([docs/j1939.md](docs/j1939.md#simulator)). |
@@ -90,6 +94,7 @@ On the runtime host, `canworks-sim` runs simulated CANopen devices on a SocketCA
 - **PLC side:** Linux with SocketCAN (`slcan` adapters need Linux 6.0 or later), OpenPLC Runtime v4 as a native install (`install.sh --native`) or upstream's managed Docker install ([docs/install-stock.md](docs/install-stock.md#docker-installs)). The runtime stays unmodified; `install-stock.sh` also installs an editor hook so the editor's **Build and upload** keeps the plugin on.
 - **CANopen:** master and slave roles, one role per CAN interface; no flying master, MPDO or SRDO, and no program download into OpenPLC as a slave.
 - **Raw CAN:** classic CAN only (no CAN FD), raw integer signals, no multiplexed DBC messages.
+- **Modbus bridge:** Linux with SocketCAN, Modbus TCP server only (no RTU), one config per bridge process, and a CAN interface is used by either the bridge or the OpenPLC plugin, not both ([docs/modbus-bridge.md](docs/modbus-bridge.md#limits)).
 - **J1939:** one ECU per interface, raw integer signals, no diagnostic messages (DM1 ...) or multiplexed DBC messages yet ([docs/j1939.md](docs/j1939.md#limits)).
 
 ## Documentation
@@ -108,6 +113,7 @@ On the runtime host, `canworks-sim` runs simulated CANopen devices on a SocketCA
 | Slave and gateway | [slave.md](docs/slave.md), [gateway.md](docs/gateway.md) |
 | J1939 | [j1939.md](docs/j1939.md) |
 | Raw CAN messages and frame blocks | [raw-can.md](docs/raw-can.md) |
+| Modbus TCP bridge for any PLC or program | [modbus-bridge.md](docs/modbus-bridge.md) |
 | Simulation and the local runtime | [simulator.md](docs/simulator.md), [local-runtime.md](docs/local-runtime.md) |
 | Building, testing, CI and the repository layout | [development.md](docs/development.md) |
 
@@ -125,7 +131,7 @@ uv run --no-project --python 3.12 --with jsonschema --with cantools python -m un
 uv run --no-project --python 3.12 python test/pc-tools/smoke.py "$(sed -n 's/^version = "\(.*\)"/\1/p' tools/deploy/pyproject.toml)"
 ```
 
-A `deploy-v<version>` release publishes the tools as a wheel on GitHub and the local simulator runtime image `ghcr.io/tonihoohoo/canworks-sim-runtime:<version>` (`release-deploy.yml`).
+A `deploy-v<version>` release publishes the tools as a wheel on GitHub and the local simulator runtime image `ghcr.io/tonihoohoo/canworks-sim-runtime:<version>` and the Modbus bridge image `ghcr.io/tonihoohoo/canworks-bridge:<version>` (`release-deploy.yml`).
 
 ## License
 

@@ -15,6 +15,7 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include "iface_lock.h"
 #include "log.h"
 #include "slcan_sweep.h"
 
@@ -601,14 +602,50 @@ std::unique_ptr<LinkOps> make_netlink_ops() { return std::unique_ptr<LinkOps>(ne
 
 std::unique_ptr<SerialOps> make_serial_ops() { return std::unique_ptr<SerialOps>(new TtySerialOps); }
 
+namespace {
+
+// Takes the interface lock (iface_lock.h) before the first bring-up and
+// keeps it until release(): a second canworks process on the interface is
+// refused with the owner's process ID, and retries like a missing interface.
+class LockedAdapter : public CanAdapter {
+ public:
+  explicit LockedAdapter(std::unique_ptr<CanAdapter> inner) : inner_(std::move(inner)) {}
+  AdapterState prepare() override {
+    lock_problem_.clear();
+    if (!lock_.acquire(inner_->interface(), lock_problem_)) return AdapterState::Failed;
+    return inner_->prepare();
+  }
+  std::string problem() const override { return lock_problem_.empty() ? inner_->problem() : lock_problem_; }
+  const std::string& interface() const override { return inner_->interface(); }
+  void release() override {
+    inner_->release();
+    lock_.release();
+  }
+  LinkOps* link_ops() override { return inner_->link_ops(); }
+  bool sweep_on_device(const std::function<void(LinkOps&, SweepListener&)>& run, bool disturb_bus,
+                       std::string& error) override {
+    return inner_->sweep_on_device(run, disturb_bus, error);
+  }
+
+ private:
+  std::unique_ptr<CanAdapter> inner_;
+  InterfaceLock lock_;
+  std::string lock_problem_;
+};
+
+}  // namespace
+
 std::unique_ptr<CanAdapter> make_adapter(const AdapterConfig& cfg, std::unique_ptr<LinkOps> ops,
                                          std::unique_ptr<SerialOps> serial) {
   if (!ops) ops = make_netlink_ops();
+  std::unique_ptr<CanAdapter> a;
   if (cfg.type == "slcan") {
     if (!serial) serial = make_serial_ops();
-    return std::unique_ptr<CanAdapter>(new SlcanAdapter(cfg, std::move(ops), std::move(serial)));
+    a.reset(new SlcanAdapter(cfg, std::move(ops), std::move(serial)));
+  } else {
+    a.reset(new SocketCanAdapter(cfg, std::move(ops)));
   }
-  return std::unique_ptr<CanAdapter>(new SocketCanAdapter(cfg, std::move(ops)));
+  return std::unique_ptr<CanAdapter>(new LockedAdapter(std::move(a)));
 }
 
 }  // namespace canopen_plugin
