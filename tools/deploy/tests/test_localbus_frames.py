@@ -540,6 +540,16 @@ class Detect(Base):
         self.assertIn("no listen-only here", str(e.exception))
         self.assertTrue(c.status()["local"])
 
+    def test_cli_opens_only_for_the_sweep(self):
+        # No connection at a guessed rate first: every open is the sweep's,
+        # listen-only, and --bitrate is not needed.
+        from .test_localbus import cli
+        code, out, err = cli("--adapter", "virtual:" + self.ch, "detect-bitrate", "--per-rate-ms", "100")
+        self.assertEqual(code, 0, err)
+        self.assertIn("250 kbit/s detected", out)
+        self.assertTrue(self.opened)
+        self.assertTrue(all(listen_only for _, listen_only in self.opened), self.opened)
+
     def test_cli(self):
         from .test_localbus import cli
         code, out, err = cli("--adapter", "virtual:" + self.ch, "--bitrate", "250", "detect-bitrate",
