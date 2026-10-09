@@ -10,6 +10,7 @@ import itertools
 import json
 import os
 import shutil
+import statistics
 import tempfile
 import threading
 import time
@@ -240,7 +241,9 @@ class Claim(Base):
         for v in values:
             self.assertTrue(0 <= v["Pressure"] <= 6425.5 and -125 <= v["Temp"] <= 125 and v["PumpOn"] in (0, 1), v)
         gaps = [b[1].timestamp - a[1].timestamp for a, b in zip(got, got[1:])]
-        self.assertAlmostEqual(sum(gaps) / len(gaps), 0.1, delta=0.03)  # GenMsgCycleTime 100 ms
+        # GenMsgCycleTime 100 ms. The median: a runner that stalls the sender
+        # once makes one long gap (the scheduler does not burst to catch up).
+        self.assertAlmostEqual(statistics.median(gaps), 0.1, delta=0.03)
 
     def test_veto_wait(self):
         s = self.sim("PLC", 128)

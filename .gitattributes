@@ -12,6 +12,7 @@ tools/deploy/tests/data/trace/* -text
 # Example configs: the HTML document golden files embed their text and SHA-256,
 # so keep them LF on every checkout (Windows autocrlf would add CR).
 config/**/*.json text eol=lf
+examples/**/*.json text eol=lf
 
 # Frame explanation golden text: LF on every checkout (Windows autocrlf would
 # add CR and the comparison is byte for byte).

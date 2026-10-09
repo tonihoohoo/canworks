@@ -32,6 +32,17 @@ def iso(t):
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t)) + ".%03dZ" % int((t % 1) * 1000)
 
 
+def _sleep_until(deadline):
+    """Sleeps until time.monotonic() reaches `deadline`. One sleep is not
+    enough on Windows: time.sleep is finer than the monotonic clock there
+    (15.6 ms ticks), so it can end a tick before the deadline reads as past."""
+    while True:
+        wait = deadline - time.monotonic()
+        if wait <= 0:
+            return
+        time.sleep(wait)
+
+
 class Core:
     def __init__(self, opened, listen_s=LISTEN_S):
         self.opened = opened
@@ -218,9 +229,7 @@ class Core:
     def wait_listened(self):
         """Until the adapter has listened LISTEN_S: what the bus shows (another
         master, heartbeats) is known only then."""
-        wait = self.listen_until - time.monotonic()
-        if wait > 0:
-            time.sleep(wait)
+        _sleep_until(self.listen_until)
 
     def wait_foreign_sdo(self, node):
         """Let another client's SDO transfer to `node` end before ours starts."""
@@ -228,9 +237,7 @@ class Core:
         with self.lock:
             t = self.foreign_sdo.get(node)
         if t is not None:
-            wait = t + FOREIGN_SDO_S - time.monotonic()
-            if wait > 0:
-                time.sleep(wait)
+            _sleep_until(t + FOREIGN_SDO_S)
 
     # -- trace ------------------------------------------------------------------
     def trace_add(self):
