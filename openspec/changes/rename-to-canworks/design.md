@@ -7,7 +7,7 @@ The project is one public repository (`tonihoohoo/openplc-canopen`, Apache-2.0) 
 3. **On-device contracts:** the plugin name in `plugins.conf`, `libcanopen_plugin.so`, `/opt/openplc-canopen`, `conf/canopen.json`, the editor project's `canopen/` folder, the editor hook module the runtime spec starts, and diag port 7531.
 4. **History:** archived OpenSpec changes, release tags, and the private repo.
 
-The name `opencan-plc` was chosen on 2026-10-08. There is one user today, so a hard cut would be possible. Aliases are cheap, though, and existing scripts and venvs use the old command names.
+The name `canworks` was chosen on 2026-10-09, after `opencan-plc` (2026-10-08) was dropped because the tools also work with no PLC and CODESYS may become a target. There is one user today, so a hard cut would be possible. Aliases are cheap, though, and existing scripts and venvs use the old command names.
 
 ## Goals / Non-Goals
 
@@ -28,21 +28,21 @@ The name `opencan-plc` was chosen on 2026-10-08. There is one user today, so a h
 
 | Old | New |
 |---|---|
-| repo `tonihoohoo/openplc-canopen` | `tonihoohoo/opencan-plc` |
-| distribution `openplc-canopen-deploy` | `opencan-plc` |
-| module `openplc_canopen_deploy` | `opencan_plc` |
-| wheel `openplc_canopen_deploy-<v>-…whl` | `opencan_plc-<v>-…whl` |
-| `openplc-canopen-deploy` | `opencan-deploy` |
-| `openplc-canopen-config` | `opencan-config` |
-| `openplc-canopen-diag` | `opencan-diag` |
-| `openplc-canopen-sim-runtime` | `opencan-sim-runtime` |
-| image `ghcr.io/<owner>/openplc-canopen-sim-runtime` | `ghcr.io/<owner>/opencan-plc-sim-runtime` |
-| container `openplc-canopen-sim-runtime` | `opencan-sim-runtime` |
-| settings folder `openplc-canopen` | `opencan-plc` |
-| `OPENPLC_CANOPEN_<X>` (PC tools) | `OPENCAN_<X>` |
-| editor hook distribution `openplc-canopen-editor-hook` | `opencan-plc-editor-hook` (its module stays) |
+| repo `tonihoohoo/openplc-canopen` | `tonihoohoo/canworks` |
+| distribution `openplc-canopen-deploy` | `canworks` |
+| module `openplc_canopen_deploy` | `canworks` |
+| wheel `openplc_canopen_deploy-<v>-…whl` | `canworks-<v>-…whl` |
+| `openplc-canopen-deploy` | `canworks-deploy` |
+| `openplc-canopen-config` | `canworks-config` |
+| `openplc-canopen-diag` | `canworks-diag` |
+| `openplc-canopen-sim-runtime` | `canworks-sim-runtime` |
+| image `ghcr.io/<owner>/openplc-canopen-sim-runtime` | `ghcr.io/<owner>/canworks-sim-runtime` |
+| container `openplc-canopen-sim-runtime` | `canworks-sim-runtime` |
+| settings folder `openplc-canopen` | `canworks` |
+| `OPENPLC_CANOPEN_<X>` (PC tools) | `CANWORKS_<X>` |
+| editor hook distribution `openplc-canopen-editor-hook` | `canworks-editor-hook` (its module stays) |
 
-The commands drop the `-plc` suffix because `opencan-plc-config` is long to type, while the package and repo keep the full name. `OPENPLC_CANOPEN_SIM_*` variables that only the plugin's C++ build or the simulator read on the device stay unchanged, because they are on-device.
+Commands are `canworks-<tool>`; one name for repo, distribution, module, image and settings folder keeps it simple. `OPENPLC_CANOPEN_SIM_*` variables that only the plugin's C++ build or the simulator read on the device stay unchanged, because they are on-device.
 
 ### 2. Aliases are thin entry points
 
@@ -58,8 +58,8 @@ Each old command is a console-script entry point to a small wrapper. The wrapper
 
 ### 5. A script makes the commit
 
-`scripts/rename_to_opencan.py` performs these steps:
-- `git mv tools/deploy/openplc_canopen_deploy tools/deploy/opencan_plc`
+`scripts/rename_to_canworks.py` performs these steps:
+- `git mv tools/deploy/openplc_canopen_deploy tools/deploy/canworks`
 - applies the text mapping to tracked files, excluding `openspec/changes/archive/**`, `LICENSE`, and the on-device names, using an explicit allow-list of patterns rather than a blind replace
 - adds the alias entry points and the fallbacks, which are hand-written code in a second commit, not script output
 
@@ -68,7 +68,7 @@ It is idempotent: running it twice changes nothing. `--check` exits non-zero if 
 ### 6. In-flight branches
 
 The change merges when no other PR is open, or right after the open ones merge. A branch that still exists afterwards does this:
-1. `python3 scripts/rename_to_opencan.py` on the branch (from the renamed `main`), then commit.
+1. `python3 scripts/rename_to_canworks.py` on the branch (from the renamed `main`), then commit.
 2. `git merge origin/main`. What is left to resolve are real content conflicts, not names.
 
 The PR's tasks include posting this recipe once in the project, so other threads pick it up.
@@ -79,9 +79,9 @@ The PR merges first, while `main` still lives at the old URL (the new links reso
 
 ## Risks / Trade-offs
 
-- [The pip upgrade path breaks because the distribution name changes, so `pip install -U openplc-canopen-deploy` stays on 0.40.0] → README and the 0.41.0 release notes give `pip uninstall openplc-canopen-deploy && pip install opencan_plc-….whl` and the uv equivalents. Old 0.40.0 installs keep working against new runtimes, because the protocol is unchanged.
+- [The pip upgrade path breaks because the distribution name changes, so `pip install -U openplc-canopen-deploy` stays on 0.40.0] → README and the 0.41.0 release notes give `pip uninstall openplc-canopen-deploy && pip install canworks-….whl` and the uv equivalents. Old 0.40.0 installs keep working against new runtimes, because the protocol is unchanged.
 - [A blind text replace hits on-device names, so `/opt/openplc-canopen` would break installs] → the script uses explicit patterns, plus a test that `install-stock.sh` still installs to `/opt/openplc-canopen` and the plugin still registers as `canopen`.
-- [ghcr.io package visibility: a new package name starts private] → task to set `opencan-plc-sim-runtime` public after the first push. The local-runtime CI job checks an anonymous pull.
+- [ghcr.io package visibility: a new package name starts private] → task to set `canworks-sim-runtime` public after the first push. The local-runtime CI job checks an anonymous pull.
 - [Rename churn on open PRs] → merge timing in Decision 6.
 
 ## Migration Plan
