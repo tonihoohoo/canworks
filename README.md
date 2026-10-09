@@ -9,8 +9,6 @@ canworks has two halves:
 - **A runtime plugin for OpenPLC v4** that makes the PLC a CANopen master, slave or gateway, or a J1939 ECU, over SocketCAN. It is built on [Lely CANopen](https://gitlab.com/lely_industries/lely-core) and the Linux kernel's J1939 stack, and installs next to an unmodified upstream runtime.
 - **PC tools for Windows, macOS and Linux**: a configurator in the browser, a deploy tool, command-line diagnostics, a bus trace, device simulators and a local runtime in a container. They work through the PLC or straight through a USB CAN adapter on the PC, with no PLC at all.
 
-![The configurator's gateway page in the virtual example](docs/images/tour-gateway.png)
-
 ## How it works
 
 You describe the network in one JSON file (`canworks.json`, usually written by the configurator): the nodes, their EDS files, and which PDO entry goes to which PLC address (`%IX`, `%IB`, `%IW`, `%ID`, `%IL` and the `%Q` equivalents). The file travels with the PLC program, either in the editor project's `canworks/` folder or through `canworks-deploy`.
