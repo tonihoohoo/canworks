@@ -56,3 +56,71 @@ bool signal_not_available_or_error(uint64_t raw, unsigned length) {
 }
 
 }  // namespace canopen_plugin
+
+namespace canworks_can {
+
+namespace {
+int next_pos(int pos, bool big_endian) {
+  if (!big_endian) return pos + 1;
+  return pos % 8 == 0 ? pos + 15 : pos - 1;
+}
+}  // namespace
+
+bool signal_fits(unsigned start_bit, unsigned length, bool big_endian, unsigned bytes) {
+  if (length == 0 || length > 64) return false;
+  int pos = static_cast<int>(start_bit);
+  for (unsigned i = 0; i < length; ++i) {
+    if (pos < 0 || pos >= static_cast<int>(8 * bytes)) return false;
+    pos = next_pos(pos, big_endian);
+  }
+  return true;
+}
+
+unsigned signal_last_byte(unsigned start_bit, unsigned length, bool big_endian) {
+  int pos = static_cast<int>(start_bit);
+  unsigned last = 0;
+  for (unsigned i = 0; i < length; ++i) {
+    if (pos >= 0 && static_cast<unsigned>(pos / 8) > last) last = static_cast<unsigned>(pos / 8);
+    pos = next_pos(pos, big_endian);
+  }
+  return last;
+}
+
+uint64_t unpack_signal(const uint8_t* data, unsigned bytes, unsigned start_bit, unsigned length, bool big_endian) {
+  uint64_t v = 0;
+  int pos = static_cast<int>(start_bit);
+  for (unsigned i = 0; i < length && i < 64; ++i) {
+    uint64_t bit = 0;
+    if (pos >= 0 && pos < static_cast<int>(8 * bytes)) bit = (data[pos / 8] >> (pos % 8)) & 1u;
+    if (big_endian)
+      v = (v << 1) | bit;
+    else
+      v |= bit << i;
+    pos = next_pos(pos, big_endian);
+  }
+  return v;
+}
+
+int64_t sign_extend(uint64_t value, unsigned length) {
+  if (length == 0 || length >= 64) return static_cast<int64_t>(value);
+  uint64_t sign = uint64_t{1} << (length - 1);
+  value &= (uint64_t{1} << length) - 1;
+  return static_cast<int64_t>((value ^ sign) - sign);
+}
+
+void pack_signal(uint8_t* data, unsigned start_bit, unsigned length, bool big_endian, uint64_t value) {
+  int pos = static_cast<int>(start_bit);
+  for (unsigned i = 0; i < length && i < 64; ++i) {
+    unsigned shift = big_endian ? length - 1 - i : i;
+    if (pos >= 0 && pos < 64) {
+      uint8_t mask = static_cast<uint8_t>(1u << (pos % 8));
+      if ((value >> shift) & 1u)
+        data[pos / 8] |= mask;
+      else
+        data[pos / 8] &= static_cast<uint8_t>(~mask);
+    }
+    pos = next_pos(pos, big_endian);
+  }
+}
+
+}  // namespace canworks_can

@@ -966,8 +966,8 @@ class Page(unittest.TestCase):
         os.makedirs(user_data)
         os.environ["OPENPLC_EDITOR_USER_DATA"] = user_data
         self.addCleanup(os.environ.pop, "OPENPLC_EDITOR_USER_DATA", None)
-        self.assertFalse(pg.is_checked('#modal-extra input[aria-label="Enable CANopen SDO blocks"]'))
-        pg.check('#modal-extra input[aria-label="Enable CANopen SDO blocks"]')
+        self.assertFalse(pg.is_checked('#modal-extra input[aria-label="Enable the canworks function blocks"]'))
+        pg.check('#modal-extra input[aria-label="Enable the canworks function blocks"]')
         pg.fill('#modal-extra input[aria-label="Project name"]', "rtd-monitor")
         pg.click("#modal-buttons button[data-value=create]")
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")

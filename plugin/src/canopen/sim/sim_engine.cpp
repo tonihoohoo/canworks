@@ -1471,6 +1471,14 @@ bool Simulator::StepRun(Run& r, Clock::time_point now) {
     }
     return advance();
   }
+  if ((a == "fault" || a == "clear") && !s.device.empty()) {
+    std::string err;
+    if (!raw_device_action) return fail("no plain CAN device \"" + s.device + "\" is simulated on this network");
+    if (!raw_device_action(s.device, a, a == "fault" ? s.device_fault : s.clear, s.device_dlc, err)) return fail(err);
+    Log(Host::Level::Info, "scenario " + r.sc.name + ": " + a + " " + (a == "fault" ? s.device_fault : s.clear) +
+                               " on plain CAN device " + s.device);
+    return advance();
+  }
   if ((a == "fault" || a == "clear") && !s.machine.empty()) {
     if (!machine_) return fail("this network has no machine");
     std::string err;

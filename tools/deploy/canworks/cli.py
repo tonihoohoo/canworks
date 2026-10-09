@@ -37,8 +37,8 @@ Uploads nothing.
 
 creates an OpenPLC Editor project in <dir> with openplc-cli create: target
 OpenPLC Runtime v4, the config in its canworks/ folder, and a program main
-declaring every CANopen location. Uploads nothing. With --sdo-blocks the
-project also enables the canworks library (the CO_SDO_* blocks).
+declaring every CANopen location. Uploads nothing. With --blocks the
+project also enables the canworks library (the CO_SDO_* and CAN_* blocks).
 
 A simulation file (simulation.json next to the config, or --sim FILE) is
 checked and travels with the config (docs/simulator.md). A config that
@@ -115,9 +115,9 @@ def parser():
     src.add_argument("--new-project", metavar="DIR",
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
                           "and declares its I/O in the program main")
-    p.add_argument("--sdo-blocks", action="store_true",
-                   help="with --new-project: enable the canworks library (SDO function blocks for the "
-                        "program) in the project, and install it into the editor if it is missing or older")
+    p.add_argument("--blocks", action="store_true",
+                   help="with --new-project: enable the canworks library (SDO and CAN frame function "
+                        "blocks for the program) in the project, and install it into the editor if it is missing or older")
     p.add_argument("--task-interval", metavar="T#...",
                    help="with --new-project: the task interval (default: %s)" % editorproject.DEFAULT_INTERVAL)
     p.add_argument("--dbc-sdo", choices=dbcexport.SDO_OPTIONS,
@@ -227,9 +227,9 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     interval = getattr(args, "task_interval", None)
     if interval and not new_project:
         raise Failure("--task-interval needs --new-project")
-    sdo_blocks = getattr(args, "sdo_blocks", False)
-    if sdo_blocks and not new_project:
-        raise Failure("--sdo-blocks needs --new-project")
+    blocks = getattr(args, "blocks", False)
+    if blocks and not new_project:
+        raise Failure("--blocks needs --new-project")
     if new_project and (args.runtime or args.output or args.check_only):
         raise Failure("--new-project only creates an editor project; leave out --runtime, --output and --check-only")
     if not into and not export_dir and not dbc_file and not html_file and not new_project and not args.check_only \
@@ -334,14 +334,14 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         try:
             path, decls = editorproject.create(cfg, args.config, new_project,
                                                interval=interval or editorproject.DEFAULT_INTERVAL, progress=out,
-                                               sim_path=sim_path, sdo_blocks=sdo_blocks)
+                                               sim_path=sim_path, blocks=blocks)
         except editorproject.NewProjectError as e:
             raise Failure(str(e))
         out("created %s with %d CANopen variable%s declared in main" % (path, len(decls),
                                                                        "" if len(decls) == 1 else "s"))
-        if sdo_blocks or editorproject.uses_library(cfg):
+        if blocks or editorproject.uses_library(cfg):
             out("the project enables the %s library (%s)"
-                % (sdolibrary.NAME, "CO_SDO_* blocks" if sdo_blocks else "CO402_Cyclic* blocks"))
+                % (sdolibrary.NAME, "CO_SDO_* and CAN_* blocks" if blocks else "CO402_Cyclic* blocks"))
             ok, message = sdolibrary.ensure_installed()
             (out if ok else err)(message if ok else "warning: " + message)
         return 0

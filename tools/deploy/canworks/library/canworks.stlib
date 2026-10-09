@@ -4,7 +4,307 @@
     "name": "canworks",
     "version": "0.0.0",
     "namespace": "canworks",
-    "functions": [],
+    "functions": [
+      {
+        "name": "CAN_GET_BITS",
+        "returnType": "LINT",
+        "parameters": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "direction": "inout"
+          },
+          {
+            "name": "START_BIT",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "BIT_LENGTH",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "MOTOROLA",
+            "type": "BOOL",
+            "direction": "input"
+          },
+          {
+            "name": "SIGNED",
+            "type": "BOOL",
+            "direction": "input"
+          },
+          {
+            "name": "I",
+            "type": "INT",
+            "direction": "input"
+          },
+          {
+            "name": "POS",
+            "type": "INT",
+            "direction": "input"
+          },
+          {
+            "name": "BITV",
+            "type": "LWORD",
+            "direction": "input"
+          },
+          {
+            "name": "V",
+            "type": "LWORD",
+            "direction": "input"
+          }
+        ]
+      },
+      {
+        "name": "CAN_GET_UINT16",
+        "returnType": "UINT",
+        "parameters": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "direction": "inout"
+          },
+          {
+            "name": "OFFSET",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "MOTOROLA",
+            "type": "BOOL",
+            "direction": "input"
+          },
+          {
+            "name": "I",
+            "type": "INT",
+            "direction": "input"
+          },
+          {
+            "name": "V",
+            "type": "WORD",
+            "direction": "input"
+          }
+        ]
+      },
+      {
+        "name": "CAN_GET_UINT32",
+        "returnType": "UDINT",
+        "parameters": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "direction": "inout"
+          },
+          {
+            "name": "OFFSET",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "MOTOROLA",
+            "type": "BOOL",
+            "direction": "input"
+          },
+          {
+            "name": "I",
+            "type": "INT",
+            "direction": "input"
+          },
+          {
+            "name": "V",
+            "type": "DWORD",
+            "direction": "input"
+          }
+        ]
+      },
+      {
+        "name": "CAN_J1939_ID",
+        "returnType": "UDINT",
+        "parameters": [
+          {
+            "name": "PRIORITY",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "PGN",
+            "type": "UDINT",
+            "direction": "input"
+          },
+          {
+            "name": "SOURCE",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "DESTINATION",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "P",
+            "type": "UDINT",
+            "direction": "input"
+          }
+        ]
+      },
+      {
+        "name": "CAN_J1939_PGN",
+        "returnType": "UDINT",
+        "parameters": [
+          {
+            "name": "ID",
+            "type": "UDINT",
+            "direction": "input"
+          },
+          {
+            "name": "P",
+            "type": "UDINT",
+            "direction": "input"
+          }
+        ]
+      },
+      {
+        "name": "CAN_J1939_SOURCE",
+        "returnType": "USINT",
+        "parameters": [
+          {
+            "name": "ID",
+            "type": "UDINT",
+            "direction": "input"
+          }
+        ]
+      },
+      {
+        "name": "CAN_SET_BITS",
+        "returnType": "BOOL",
+        "parameters": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "direction": "inout"
+          },
+          {
+            "name": "START_BIT",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "BIT_LENGTH",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "MOTOROLA",
+            "type": "BOOL",
+            "direction": "input"
+          },
+          {
+            "name": "VALUE",
+            "type": "LINT",
+            "direction": "input"
+          },
+          {
+            "name": "I",
+            "type": "INT",
+            "direction": "input"
+          },
+          {
+            "name": "POS",
+            "type": "INT",
+            "direction": "input"
+          },
+          {
+            "name": "SHIFT",
+            "type": "INT",
+            "direction": "input"
+          },
+          {
+            "name": "V",
+            "type": "LWORD",
+            "direction": "input"
+          },
+          {
+            "name": "B",
+            "type": "BYTE",
+            "direction": "input"
+          }
+        ]
+      },
+      {
+        "name": "CAN_SET_UINT16",
+        "returnType": "BOOL",
+        "parameters": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "direction": "inout"
+          },
+          {
+            "name": "OFFSET",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "MOTOROLA",
+            "type": "BOOL",
+            "direction": "input"
+          },
+          {
+            "name": "VALUE",
+            "type": "UINT",
+            "direction": "input"
+          },
+          {
+            "name": "I",
+            "type": "INT",
+            "direction": "input"
+          },
+          {
+            "name": "V",
+            "type": "WORD",
+            "direction": "input"
+          }
+        ]
+      },
+      {
+        "name": "CAN_SET_UINT32",
+        "returnType": "BOOL",
+        "parameters": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "direction": "inout"
+          },
+          {
+            "name": "OFFSET",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "MOTOROLA",
+            "type": "BOOL",
+            "direction": "input"
+          },
+          {
+            "name": "VALUE",
+            "type": "UDINT",
+            "direction": "input"
+          },
+          {
+            "name": "I",
+            "type": "INT",
+            "direction": "input"
+          },
+          {
+            "name": "V",
+            "type": "DWORD",
+            "direction": "input"
+          }
+        ]
+      }
+    ],
     "functionBlocks": [
       {
         "name": "CO402_CYCLICMOVEABSOLUTE",
@@ -297,6 +597,286 @@
             "type": "TON"
           }
         ]
+      },
+      {
+        "name": "CAN_BUS_INFO",
+        "inputs": [
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "STATE",
+            "type": "USINT"
+          },
+          {
+            "name": "TX_ERRORS",
+            "type": "UINT"
+          },
+          {
+            "name": "RX_ERRORS",
+            "type": "UINT"
+          },
+          {
+            "name": "BUS_OFF_COUNT",
+            "type": "UDINT"
+          },
+          {
+            "name": "BUS_LOAD",
+            "type": "USINT"
+          },
+          {
+            "name": "RX_COUNT",
+            "type": "UDINT"
+          },
+          {
+            "name": "TX_COUNT",
+            "type": "UDINT"
+          },
+          {
+            "name": "ERROR_FRAMES",
+            "type": "UDINT"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [],
+        "implementation": "cpp",
+        "sourceFile": "CAN_BUS_INFO.cpp"
+      },
+      {
+        "name": "CAN_RECEIVE",
+        "inputs": [
+          {
+            "name": "ENABLE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "ID",
+            "type": "UDINT"
+          },
+          {
+            "name": "MASK",
+            "type": "UDINT"
+          },
+          {
+            "name": "ANY",
+            "type": "BOOL"
+          },
+          {
+            "name": "EXTENDED",
+            "type": "BOOL"
+          },
+          {
+            "name": "DEPTH",
+            "type": "UINT"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "ACTIVE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NEW",
+            "type": "BOOL"
+          },
+          {
+            "name": "RX_ID",
+            "type": "UDINT"
+          },
+          {
+            "name": "RX_EXTENDED",
+            "type": "BOOL"
+          },
+          {
+            "name": "RX_RTR",
+            "type": "BOOL"
+          },
+          {
+            "name": "RX_DLC",
+            "type": "USINT"
+          },
+          {
+            "name": "TIMESTAMP",
+            "type": "ULINT"
+          },
+          {
+            "name": "QUEUED",
+            "type": "UINT"
+          },
+          {
+            "name": "OVERFLOW",
+            "type": "BOOL"
+          },
+          {
+            "name": "DROPPED",
+            "type": "UDINT"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "RX_DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "arrayDimensions": [
+              {
+                "start": 0,
+                "end": 7
+              }
+            ],
+            "elementTypeName": "BYTE"
+          }
+        ],
+        "implementation": "cpp",
+        "sourceFile": "CAN_RECEIVE.cpp"
+      },
+      {
+        "name": "CAN_SEND",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "ID",
+            "type": "UDINT"
+          },
+          {
+            "name": "EXTENDED",
+            "type": "BOOL"
+          },
+          {
+            "name": "RTR",
+            "type": "BOOL"
+          },
+          {
+            "name": "DLC",
+            "type": "USINT"
+          },
+          {
+            "name": "TIMEOUT",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "arrayDimensions": [
+              {
+                "start": 0,
+                "end": 7
+              }
+            ],
+            "elementTypeName": "BYTE"
+          }
+        ],
+        "implementation": "cpp",
+        "sourceFile": "CAN_SEND.cpp"
+      },
+      {
+        "name": "CAN_SEND_CYCLIC",
+        "inputs": [
+          {
+            "name": "ENABLE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "ID",
+            "type": "UDINT"
+          },
+          {
+            "name": "EXTENDED",
+            "type": "BOOL"
+          },
+          {
+            "name": "DLC",
+            "type": "USINT"
+          },
+          {
+            "name": "PERIOD",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "ACTIVE",
+            "type": "BOOL"
+          },
+          {
+            "name": "COUNT",
+            "type": "UDINT"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "arrayDimensions": [
+              {
+                "start": 0,
+                "end": 7
+              }
+            ],
+            "elementTypeName": "BYTE"
+          }
+        ],
+        "implementation": "cpp",
+        "sourceFile": "CAN_SEND_CYCLIC.cpp"
       },
       {
         "name": "CO_SDO_READ",
@@ -804,6 +1384,19 @@
     "headers": [],
     "isBuiltin": false,
     "sourceFiles": [
+      "CAN_BUS_INFO.cpp",
+      "CAN_GET_BITS.st",
+      "CAN_GET_UINT16.st",
+      "CAN_GET_UINT32.st",
+      "CAN_J1939_ID.st",
+      "CAN_J1939_PGN.st",
+      "CAN_J1939_SOURCE.st",
+      "CAN_RECEIVE.cpp",
+      "CAN_SEND.cpp",
+      "CAN_SEND_CYCLIC.cpp",
+      "CAN_SET_BITS.st",
+      "CAN_SET_UINT16.st",
+      "CAN_SET_UINT32.st",
       "CO402_CyclicMoveAbsolute.st",
       "CO402_CyclicPosition.st",
       "CO402_CyclicTorque.st",
@@ -934,6 +1527,137 @@
           "name": "AXIS_REF_SM3"
         }
       ]
+    },
+    {
+      "name": "CAN_GET_BITS",
+      "kind": "function",
+      "header": "IEC_LINT CAN_GET_BITS(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT START_BIT, IEC_USINT BIT_LENGTH, IEC_BOOL MOTOROLA, IEC_BOOL SIGNED);",
+      "cpp": "IEC_LINT CAN_GET_BITS(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT START_BIT, IEC_USINT BIT_LENGTH, IEC_BOOL MOTOROLA, IEC_BOOL SIGNED) {\n    IEC_LINT CAN_GET_BITS_result;\n    IEC_INT I;\n    IEC_INT POS;\n    IEC_LWORD BITV;\n    IEC_LWORD V;\n    V = 0;\n    POS = TO_INT(START_BIT);\n    for (I = 0; I <= TO_INT(BIT_LENGTH) - 1; I++) {\n        if ((POS >= 0) & (POS < 64)) {\n            BITV = TO_LWORD((SHR(DATA.at(POS / 8), TO_UINT(POS % 8))) & (0x01));\n        } else {\n            BITV = 0;\n        }\n        if (MOTOROLA) {\n            V = (SHL(V, 1)) | (BITV);\n            if (POS % 8 == 0) {\n                POS = POS + 15;\n            } else {\n                POS = POS - 1;\n            }\n        } else {\n            V = (V) | (SHL(BITV, TO_UINT(I)));\n            POS = POS + 1;\n        }\n    }\n    if (((SIGNED) & (BIT_LENGTH > 0)) & (BIT_LENGTH < 64)) {\n        if (((SHR(V, TO_UINT(BIT_LENGTH) - 1)) & (0x01)) == 1) {\n            V = (V) | (SHL(static_cast<IEC_LWORD>(0xFFFFFFFFFFFFFFFF), TO_UINT(BIT_LENGTH)));\n        }\n    }\n    CAN_GET_BITS_result = TO_LINT(V);\n    return CAN_GET_BITS_result;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHL"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "SHR"
+        }
+      ]
+    },
+    {
+      "name": "CAN_GET_UINT16",
+      "kind": "function",
+      "header": "IEC_UINT CAN_GET_UINT16(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT OFFSET, IEC_BOOL MOTOROLA);",
+      "cpp": "IEC_UINT CAN_GET_UINT16(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT OFFSET, IEC_BOOL MOTOROLA) {\n    IEC_UINT CAN_GET_UINT16_result;\n    IEC_INT I;\n    IEC_WORD V;\n    V = 0;\n    if (TO_INT(OFFSET) + 2 <= 8) {\n        for (I = 0; I <= 1; I++) {\n            if (MOTOROLA) {\n                V = (SHL(V, 8)) | (TO_WORD(DATA.at(TO_INT(OFFSET) + I)));\n            } else {\n                V = (V) | (SHL(TO_WORD(DATA.at(TO_INT(OFFSET) + I)), TO_UINT(8 * I)));\n            }\n        }\n    }\n    CAN_GET_UINT16_result = TO_UINT(V);\n    return CAN_GET_UINT16_result;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHL"
+        },
+        {
+          "library": "oscat-basic",
+          "name": "OFFSET"
+        }
+      ]
+    },
+    {
+      "name": "CAN_GET_UINT32",
+      "kind": "function",
+      "header": "IEC_UDINT CAN_GET_UINT32(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT OFFSET, IEC_BOOL MOTOROLA);",
+      "cpp": "IEC_UDINT CAN_GET_UINT32(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT OFFSET, IEC_BOOL MOTOROLA) {\n    IEC_UDINT CAN_GET_UINT32_result;\n    IEC_INT I;\n    IEC_DWORD V;\n    V = 0;\n    if (TO_INT(OFFSET) + 4 <= 8) {\n        for (I = 0; I <= 3; I++) {\n            if (MOTOROLA) {\n                V = (SHL(V, 8)) | (TO_DWORD(DATA.at(TO_INT(OFFSET) + I)));\n            } else {\n                V = (V) | (SHL(TO_DWORD(DATA.at(TO_INT(OFFSET) + I)), TO_UINT(8 * I)));\n            }\n        }\n    }\n    CAN_GET_UINT32_result = TO_UDINT(V);\n    return CAN_GET_UINT32_result;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHL"
+        },
+        {
+          "library": "oscat-basic",
+          "name": "OFFSET"
+        }
+      ]
+    },
+    {
+      "name": "CAN_J1939_ID",
+      "kind": "function",
+      "header": "IEC_UDINT CAN_J1939_ID(IEC_USINT PRIORITY, IEC_UDINT PGN, IEC_USINT SOURCE, IEC_USINT DESTINATION);",
+      "cpp": "IEC_UDINT CAN_J1939_ID(IEC_USINT PRIORITY, IEC_UDINT PGN, IEC_USINT SOURCE, IEC_USINT DESTINATION) {\n    IEC_UDINT CAN_J1939_ID_result;\n    IEC_UDINT P;\n    P = (PGN) & (0x3FFFF);\n    if (((SHR(P, 8)) & (0xFF)) < 240) {\n        P = (((P) & (0x3FF00))) | (TO_UDINT(DESTINATION));\n    }\n    CAN_J1939_ID_result = ((SHL((TO_UDINT(PRIORITY)) & (0x7), 26)) | (SHL(P, 8))) | (TO_UDINT(SOURCE));\n    return CAN_J1939_ID_result;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHL"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "SHR"
+        }
+      ]
+    },
+    {
+      "name": "CAN_J1939_PGN",
+      "kind": "function",
+      "header": "IEC_UDINT CAN_J1939_PGN(IEC_UDINT ID);",
+      "cpp": "IEC_UDINT CAN_J1939_PGN(IEC_UDINT ID) {\n    IEC_UDINT CAN_J1939_PGN_result;\n    IEC_UDINT P;\n    P = (SHR(ID, 8)) & (0x3FFFF);\n    if (((SHR(P, 8)) & (0xFF)) < 240) {\n        P = (P) & (0x3FF00);\n    }\n    CAN_J1939_PGN_result = P;\n    return CAN_J1939_PGN_result;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHR"
+        }
+      ]
+    },
+    {
+      "name": "CAN_J1939_SOURCE",
+      "kind": "function",
+      "header": "IEC_USINT CAN_J1939_SOURCE(IEC_UDINT ID);",
+      "cpp": "IEC_USINT CAN_J1939_SOURCE(IEC_UDINT ID) {\n    IEC_USINT CAN_J1939_SOURCE_result;\n    CAN_J1939_SOURCE_result = TO_USINT((ID) & (0xFF));\n    return CAN_J1939_SOURCE_result;\n}\n",
+      "deps": []
+    },
+    {
+      "name": "CAN_SET_BITS",
+      "kind": "function",
+      "header": "IEC_BOOL CAN_SET_BITS(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT START_BIT, IEC_USINT BIT_LENGTH, IEC_BOOL MOTOROLA, IEC_LINT VALUE);",
+      "cpp": "IEC_BOOL CAN_SET_BITS(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT START_BIT, IEC_USINT BIT_LENGTH, IEC_BOOL MOTOROLA, IEC_LINT VALUE) {\n    IEC_BOOL CAN_SET_BITS_result;\n    IEC_INT I;\n    IEC_INT POS;\n    IEC_INT SHIFT;\n    IEC_LWORD V;\n    IEC_BYTE B;\n    POS = TO_INT(START_BIT);\n    for (I = 0; I <= TO_INT(BIT_LENGTH) - 1; I++) {\n        if ((POS < 0) | (POS > 63)) {\n            CAN_SET_BITS_result = false;\n            return CAN_SET_BITS_result;\n        }\n        if (MOTOROLA) {\n            if (POS % 8 == 0) {\n                POS = POS + 15;\n            } else {\n                POS = POS - 1;\n            }\n        } else {\n            POS = POS + 1;\n        }\n    }\n    V = TO_LWORD(VALUE);\n    POS = TO_INT(START_BIT);\n    for (I = 0; I <= TO_INT(BIT_LENGTH) - 1; I++) {\n        if (MOTOROLA) {\n            SHIFT = TO_INT(BIT_LENGTH) - 1 - I;\n        } else {\n            SHIFT = I;\n        }\n        B = SHL(static_cast<IEC_BYTE>(1), TO_UINT(POS % 8));\n        if (((SHR(V, TO_UINT(SHIFT))) & (0x01)) == 1) {\n            DATA.at(POS / 8) = (DATA.at(POS / 8)) | (B);\n        } else {\n            DATA.at(POS / 8) = (DATA.at(POS / 8)) & (~B);\n        }\n        if (MOTOROLA) {\n            if (POS % 8 == 0) {\n                POS = POS + 15;\n            } else {\n                POS = POS - 1;\n            }\n        } else {\n            POS = POS + 1;\n        }\n    }\n    CAN_SET_BITS_result = true;\n    return CAN_SET_BITS_result;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHL"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "SHR"
+        }
+      ]
+    },
+    {
+      "name": "CAN_SET_UINT16",
+      "kind": "function",
+      "header": "IEC_BOOL CAN_SET_UINT16(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT OFFSET, IEC_BOOL MOTOROLA, IEC_UINT VALUE);",
+      "cpp": "IEC_BOOL CAN_SET_UINT16(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT OFFSET, IEC_BOOL MOTOROLA, IEC_UINT VALUE) {\n    IEC_BOOL CAN_SET_UINT16_result;\n    IEC_INT I;\n    IEC_WORD V;\n    if (TO_INT(OFFSET) + 2 > 8) {\n        CAN_SET_UINT16_result = false;\n        return CAN_SET_UINT16_result;\n    }\n    V = TO_WORD(VALUE);\n    for (I = 0; I <= 1; I++) {\n        if (MOTOROLA) {\n            DATA.at(TO_INT(OFFSET) + 1 - I) = TO_BYTE(SHR(V, TO_UINT(8 * I)));\n        } else {\n            DATA.at(TO_INT(OFFSET) + I) = TO_BYTE(SHR(V, TO_UINT(8 * I)));\n        }\n    }\n    CAN_SET_UINT16_result = true;\n    return CAN_SET_UINT16_result;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHR"
+        },
+        {
+          "library": "oscat-basic",
+          "name": "OFFSET"
+        }
+      ]
+    },
+    {
+      "name": "CAN_SET_UINT32",
+      "kind": "function",
+      "header": "IEC_BOOL CAN_SET_UINT32(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT OFFSET, IEC_BOOL MOTOROLA, IEC_UDINT VALUE);",
+      "cpp": "IEC_BOOL CAN_SET_UINT32(Array1D<IEC_BYTE, 0, 7>& DATA, IEC_USINT OFFSET, IEC_BOOL MOTOROLA, IEC_UDINT VALUE) {\n    IEC_BOOL CAN_SET_UINT32_result;\n    IEC_INT I;\n    IEC_DWORD V;\n    if (TO_INT(OFFSET) + 4 > 8) {\n        CAN_SET_UINT32_result = false;\n        return CAN_SET_UINT32_result;\n    }\n    V = TO_DWORD(VALUE);\n    for (I = 0; I <= 3; I++) {\n        if (MOTOROLA) {\n            DATA.at(TO_INT(OFFSET) + 3 - I) = TO_BYTE(SHR(V, TO_UINT(8 * I)));\n        } else {\n            DATA.at(TO_INT(OFFSET) + I) = TO_BYTE(SHR(V, TO_UINT(8 * I)));\n        }\n    }\n    CAN_SET_UINT32_result = true;\n    return CAN_SET_UINT32_result;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHR"
+        },
+        {
+          "library": "oscat-basic",
+          "name": "OFFSET"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -959,6 +1683,58 @@
     }
   ],
   "sources": [
+    {
+      "fileName": "CAN_BUS_INFO.cpp",
+      "source": "FUNCTION_BLOCK CAN_BUS_INFO\nVAR_INPUT\n  NETWORK : USINT;\nEND_VAR\nVAR_OUTPUT\n  STATE : USINT;\n  TX_ERRORS : UINT;\n  RX_ERRORS : UINT;\n  BUS_OFF_COUNT : UDINT;\n  BUS_LOAD : USINT;\n  RX_COUNT : UDINT;\n  TX_COUNT : UDINT;\n  ERROR_FRAMES : UDINT;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\nEND_VAR\n// Shared code of the canworks CAN frame blocks (spec can-plc-frames).\n// library/generate.py copies it into every CAN_* block's source for the same\n// reason as common.inc: the editor grafts each C++ block into one\n// c_blocks_code.cpp. The same rules apply: nothing here uses a pin or local\n// name (pins are upper case, this code lower case), and no system header is\n// included after the pin defines.\n#ifndef CAN_FRAMES_COMMON_INCLUDED\n#define CAN_FRAMES_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace can_frames {\n\n// The plugin's C interface, version 1 (plugin/src/can/can_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned char flag_extended = 0x01, flag_rtr = 0x02;\nstruct frame {\n  unsigned int id;\n  unsigned char flags;\n  unsigned char dlc;\n  unsigned char data[8];\n  unsigned long long time_us;\n};\nstruct rx_info {\n  unsigned short queued;\n  unsigned char overflow;\n  unsigned int dropped;\n};\nstruct bus {\n  unsigned char state;\n  unsigned short tx_errors;\n  unsigned short rx_errors;\n  unsigned int bus_off_count;\n  unsigned char bus_load;\n  unsigned int rx_count;\n  unsigned int tx_count;\n  unsigned int error_frames;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*rx_open)(unsigned char network, unsigned int id, unsigned int mask, unsigned char flags,\n                          unsigned short depth, unsigned short* error_id);\n  int (*rx_read)(unsigned int handle, frame* f, rx_info* info);\n  void (*rx_close)(unsigned int handle);\n  unsigned int (*tx_send)(unsigned char network, const frame* f, unsigned int timeout_ms, unsigned short* error_id);\n  int (*tx_poll)(unsigned int handle, unsigned short* error_id);\n  unsigned int (*cyc_start)(unsigned char network, const frame* f, unsigned int period_us, unsigned short* error_id);\n  int (*cyc_update)(unsigned int handle, const frame* f, unsigned int period_us, unsigned int* count,\n                    unsigned short* error_id);\n  void (*cyc_stop)(unsigned int handle);\n  int (*bus_info)(unsigned char network, bus* info, unsigned short* error_id);\n};\nenum { err_not_running = 1, err_input = 3, err_cancelled = 8 };\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DCAN_FRAMES_TEST_ENTRY.)\n#ifdef CAN_FRAMES_TEST_ENTRY\n}  // namespace can_frames\nextern \"C\" const void* CAN_FRAMES_TEST_ENTRY(unsigned int version);\nnamespace can_frames {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CAN_FRAMES_TEST_ENTRY\n  entry_t entry = CAN_FRAMES_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_can_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to milliseconds / microseconds; 0 and negative give 0.\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\ninline unsigned int time_us(long long ns) {\n  if (ns <= 0) return 0;\n  long long us = (ns + 999) / 1000;\n  return us > 4000000000LL ? 4000000000u : static_cast<unsigned int>(us);\n}\n\ninline unsigned char flags(bool extended, bool rtr) {\n  return static_cast<unsigned char>((extended ? flag_extended : 0) | (rtr ? flag_rtr : 0));\n}\n\n// PLCopen handshake of one CAN_SEND instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace can_frames\n#endif\n// CAN_BUS_INFO: bus state, error counters, bus load and frame counts of a network\n// Generated by library/generate.py; edit that file or src/can_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  const can_frames::api_v1* t = can_frames::api();\n  can_frames::bus b = {};\n  b.state = 4;\n  unsigned short err = can_frames::err_not_running;\n  int st = t ? t->bus_info(NETWORK, &b, &err) : 2;\n  STATE = b.state;\n  TX_ERRORS = b.tx_errors;\n  RX_ERRORS = b.rx_errors;\n  BUS_OFF_COUNT = b.bus_off_count;\n  BUS_LOAD = b.bus_load;\n  RX_COUNT = b.rx_count;\n  TX_COUNT = b.tx_count;\n  ERROR_FRAMES = b.error_frames;\n  ERROR = st != 0;\n  ERROR_ID = st != 0 ? err : 0;\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CAN_GET_BITS.st",
+      "source": "(*\n * CAN_GET_BITS: a signal's raw value from a frame's data (spec\n * can-plc-frames, \"ST helper functions\"). Bit numbering as DBC files use it:\n * little-endian (Intel, MOTOROLA FALSE) signals start at their least\n * significant bit, big-endian (Motorola) signals at their most significant\n * bit, bit 0 being the least significant bit of byte 0. BIT_LENGTH 1..64; SIGNED sign-extends.\n * Bits outside the 8 bytes read as 0.\n *)\nFUNCTION CAN_GET_BITS : LINT\nVAR_IN_OUT\n  DATA : ARRAY[0..7] OF BYTE;\nEND_VAR\nVAR_INPUT\n  START_BIT : USINT;\n  BIT_LENGTH : USINT;\n  MOTOROLA : BOOL;\n  SIGNED : BOOL;\nEND_VAR\nVAR\n  i : INT;\n  pos : INT;\n  bitv : LWORD;\n  v : LWORD;\nEND_VAR\n  v := 0;\n  pos := USINT_TO_INT(START_BIT);\n  FOR i := 0 TO USINT_TO_INT(BIT_LENGTH) - 1 DO\n    IF pos >= 0 AND pos < 64 THEN\n      bitv := BYTE_TO_LWORD(SHR(DATA[pos / 8], INT_TO_UINT(pos MOD 8)) AND 16#01);\n    ELSE\n      bitv := 0;\n    END_IF;\n    IF MOTOROLA THEN\n      v := SHL(v, 1) OR bitv;\n      IF pos MOD 8 = 0 THEN\n        pos := pos + 15;\n      ELSE\n        pos := pos - 1;\n      END_IF;\n    ELSE\n      v := v OR SHL(bitv, INT_TO_UINT(i));\n      pos := pos + 1;\n    END_IF;\n  END_FOR;\n  IF SIGNED AND BIT_LENGTH > 0 AND BIT_LENGTH < 64 THEN\n    IF (SHR(v, USINT_TO_UINT(BIT_LENGTH) - 1) AND 16#01) = 1 THEN\n      v := v OR SHL(LWORD#16#FFFFFFFFFFFFFFFF, USINT_TO_UINT(BIT_LENGTH));\n    END_IF;\n  END_IF;\n  CAN_GET_BITS := LWORD_TO_LINT(v);\nEND_FUNCTION\n"
+    },
+    {
+      "fileName": "CAN_GET_UINT16.st",
+      "source": "(*\n * CAN_GET_UINT16: the 16-bit unsigned value in DATA[OFFSET..OFFSET+1],\n * least significant byte first, or most significant first with MOTOROLA.\n * 0 when the bytes do not fit in the frame.\n *)\nFUNCTION CAN_GET_UINT16 : UINT\nVAR_IN_OUT\n  DATA : ARRAY[0..7] OF BYTE;\nEND_VAR\nVAR_INPUT\n  OFFSET : USINT;\n  MOTOROLA : BOOL;\nEND_VAR\nVAR\n  i : INT;\n  v : WORD;\nEND_VAR\n  v := 0;\n  IF USINT_TO_INT(OFFSET) + 2 <= 8 THEN\n    FOR i := 0 TO 1 DO\n      IF MOTOROLA THEN\n        v := SHL(v, 8) OR BYTE_TO_WORD(DATA[USINT_TO_INT(OFFSET) + i]);\n      ELSE\n        v := v OR SHL(BYTE_TO_WORD(DATA[USINT_TO_INT(OFFSET) + i]), INT_TO_UINT(8 * i));\n      END_IF;\n    END_FOR;\n  END_IF;\n  CAN_GET_UINT16 := WORD_TO_UINT(v);\nEND_FUNCTION\n"
+    },
+    {
+      "fileName": "CAN_GET_UINT32.st",
+      "source": "(*\n * CAN_GET_UINT32: the 32-bit unsigned value in DATA[OFFSET..OFFSET+3],\n * least significant byte first, or most significant first with MOTOROLA.\n * 0 when the bytes do not fit in the frame.\n *)\nFUNCTION CAN_GET_UINT32 : UDINT\nVAR_IN_OUT\n  DATA : ARRAY[0..7] OF BYTE;\nEND_VAR\nVAR_INPUT\n  OFFSET : USINT;\n  MOTOROLA : BOOL;\nEND_VAR\nVAR\n  i : INT;\n  v : DWORD;\nEND_VAR\n  v := 0;\n  IF USINT_TO_INT(OFFSET) + 4 <= 8 THEN\n    FOR i := 0 TO 3 DO\n      IF MOTOROLA THEN\n        v := SHL(v, 8) OR BYTE_TO_DWORD(DATA[USINT_TO_INT(OFFSET) + i]);\n      ELSE\n        v := v OR SHL(BYTE_TO_DWORD(DATA[USINT_TO_INT(OFFSET) + i]), INT_TO_UINT(8 * i));\n      END_IF;\n    END_FOR;\n  END_IF;\n  CAN_GET_UINT32 := DWORD_TO_UDINT(v);\nEND_FUNCTION\n"
+    },
+    {
+      "fileName": "CAN_J1939_ID.st",
+      "source": "(*\n * CAN_J1939_ID: the 29-bit identifier of a J1939 frame (send it with\n * EXTENDED := TRUE). For a PDU1 PGN (PF below 240) DESTINATION goes into the\n * PS byte; for a PDU2 PGN it is ignored.\n *)\nFUNCTION CAN_J1939_ID : UDINT\nVAR_INPUT\n  PRIORITY : USINT;\n  PGN : UDINT;\n  SOURCE : USINT;\n  DESTINATION : USINT;\nEND_VAR\nVAR\n  p : UDINT;\nEND_VAR\n  p := PGN AND 16#3FFFF;\n  IF (SHR(p, 8) AND 16#FF) < 240 THEN\n    p := (p AND 16#3FF00) OR USINT_TO_UDINT(DESTINATION);\n  END_IF;\n  CAN_J1939_ID := SHL(USINT_TO_UDINT(PRIORITY) AND 16#7, 26) OR SHL(p, 8) OR USINT_TO_UDINT(SOURCE);\nEND_FUNCTION\n"
+    },
+    {
+      "fileName": "CAN_J1939_PGN.st",
+      "source": "(*\n * CAN_J1939_PGN: the PGN of a 29-bit J1939 identifier; for a PDU1 PGN (PF\n * below 240) the destination byte is cleared.\n *)\nFUNCTION CAN_J1939_PGN : UDINT\nVAR_INPUT\n  ID : UDINT;\nEND_VAR\nVAR\n  p : UDINT;\nEND_VAR\n  p := SHR(ID, 8) AND 16#3FFFF;\n  IF (SHR(p, 8) AND 16#FF) < 240 THEN\n    p := p AND 16#3FF00;\n  END_IF;\n  CAN_J1939_PGN := p;\nEND_FUNCTION\n"
+    },
+    {
+      "fileName": "CAN_J1939_SOURCE.st",
+      "source": "(* CAN_J1939_SOURCE: the source address byte of a 29-bit J1939 identifier. *)\nFUNCTION CAN_J1939_SOURCE : USINT\nVAR_INPUT\n  ID : UDINT;\nEND_VAR\n  CAN_J1939_SOURCE := UDINT_TO_USINT(ID AND 16#FF);\nEND_FUNCTION\n"
+    },
+    {
+      "fileName": "CAN_RECEIVE.cpp",
+      "source": "FUNCTION_BLOCK CAN_RECEIVE\nVAR_INPUT\n  ENABLE : BOOL;\n  NETWORK : USINT;\n  ID : UDINT;\n  MASK : UDINT;\n  ANY : BOOL;\n  EXTENDED : BOOL;\n  DEPTH : UINT;\nEND_VAR\nVAR_IN_OUT\n  RX_DATA : ARRAY[0..7] OF BYTE;\nEND_VAR\nVAR_OUTPUT\n  ACTIVE : BOOL;\n  NEW : BOOL;\n  RX_ID : UDINT;\n  RX_EXTENDED : BOOL;\n  RX_RTR : BOOL;\n  RX_DLC : USINT;\n  TIMESTAMP : ULINT;\n  QUEUED : UINT;\n  OVERFLOW : BOOL;\n  DROPPED : UDINT;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\nEND_VAR\nVAR\n  cf_handle : UDINT;\n  cf_prev : BOOL;\nEND_VAR\n// Shared code of the canworks CAN frame blocks (spec can-plc-frames).\n// library/generate.py copies it into every CAN_* block's source for the same\n// reason as common.inc: the editor grafts each C++ block into one\n// c_blocks_code.cpp. The same rules apply: nothing here uses a pin or local\n// name (pins are upper case, this code lower case), and no system header is\n// included after the pin defines.\n#ifndef CAN_FRAMES_COMMON_INCLUDED\n#define CAN_FRAMES_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace can_frames {\n\n// The plugin's C interface, version 1 (plugin/src/can/can_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned char flag_extended = 0x01, flag_rtr = 0x02;\nstruct frame {\n  unsigned int id;\n  unsigned char flags;\n  unsigned char dlc;\n  unsigned char data[8];\n  unsigned long long time_us;\n};\nstruct rx_info {\n  unsigned short queued;\n  unsigned char overflow;\n  unsigned int dropped;\n};\nstruct bus {\n  unsigned char state;\n  unsigned short tx_errors;\n  unsigned short rx_errors;\n  unsigned int bus_off_count;\n  unsigned char bus_load;\n  unsigned int rx_count;\n  unsigned int tx_count;\n  unsigned int error_frames;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*rx_open)(unsigned char network, unsigned int id, unsigned int mask, unsigned char flags,\n                          unsigned short depth, unsigned short* error_id);\n  int (*rx_read)(unsigned int handle, frame* f, rx_info* info);\n  void (*rx_close)(unsigned int handle);\n  unsigned int (*tx_send)(unsigned char network, const frame* f, unsigned int timeout_ms, unsigned short* error_id);\n  int (*tx_poll)(unsigned int handle, unsigned short* error_id);\n  unsigned int (*cyc_start)(unsigned char network, const frame* f, unsigned int period_us, unsigned short* error_id);\n  int (*cyc_update)(unsigned int handle, const frame* f, unsigned int period_us, unsigned int* count,\n                    unsigned short* error_id);\n  void (*cyc_stop)(unsigned int handle);\n  int (*bus_info)(unsigned char network, bus* info, unsigned short* error_id);\n};\nenum { err_not_running = 1, err_input = 3, err_cancelled = 8 };\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DCAN_FRAMES_TEST_ENTRY.)\n#ifdef CAN_FRAMES_TEST_ENTRY\n}  // namespace can_frames\nextern \"C\" const void* CAN_FRAMES_TEST_ENTRY(unsigned int version);\nnamespace can_frames {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CAN_FRAMES_TEST_ENTRY\n  entry_t entry = CAN_FRAMES_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_can_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to milliseconds / microseconds; 0 and negative give 0.\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\ninline unsigned int time_us(long long ns) {\n  if (ns <= 0) return 0;\n  long long us = (ns + 999) / 1000;\n  return us > 4000000000LL ? 4000000000u : static_cast<unsigned int>(us);\n}\n\ninline unsigned char flags(bool extended, bool rtr) {\n  return static_cast<unsigned char>((extended ? flag_extended : 0) | (rtr ? flag_rtr : 0));\n}\n\n// PLCopen handshake of one CAN_SEND instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace can_frames\n#endif\n// CAN_RECEIVE: queues matching frames while ENABLE is TRUE; each call takes one (NEW)\n// Generated by library/generate.py; edit that file or src/can_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  const can_frames::api_v1* t = can_frames::api();\n  NEW = false;\n  if (ENABLE && !cf_prev) {\n    ERROR = false;\n    ERROR_ID = 0;\n    QUEUED = 0;\n    OVERFLOW = false;\n    DROPPED = 0;\n    unsigned short err = can_frames::err_not_running;\n    unsigned int max = EXTENDED ? 0x1FFFFFFFu : 0x7FFu;\n    unsigned int mask = ANY ? 0u : (MASK ? static_cast<unsigned int>(MASK) : max);\n    cf_handle = t ? t->rx_open(NETWORK, ID, mask, can_frames::flags(EXTENDED, false), DEPTH, &err) : 0;\n    if (!cf_handle) {\n      ERROR = true;\n      ERROR_ID = err;\n    }\n  } else if (!ENABLE && cf_prev) {\n    if (t && cf_handle) t->rx_close(cf_handle);\n    cf_handle = 0;\n    ERROR = false;\n    ERROR_ID = 0;\n  }\n  if (ENABLE && cf_handle && t) {\n    can_frames::frame f = {};\n    can_frames::rx_info info = {};\n    int r = t->rx_read(cf_handle, &f, &info);\n    if (r == 1) {\n      NEW = true;\n      RX_ID = f.id;\n      RX_EXTENDED = (f.flags & can_frames::flag_extended) != 0;\n      RX_RTR = (f.flags & can_frames::flag_rtr) != 0;\n      RX_DLC = f.dlc;\n      for (unsigned i = 0; i < 8; ++i) RX_DATA[i] = f.data[i];\n      TIMESTAMP = f.time_us;\n    } else if (r < 0) {\n      ERROR = true;\n      ERROR_ID = static_cast<unsigned short>(-r);\n      cf_handle = 0;\n    }\n    QUEUED = info.queued;\n    OVERFLOW = info.overflow != 0;\n    DROPPED = info.dropped;\n  }\n  ACTIVE = cf_handle != 0;\n  cf_prev = ENABLE;\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CAN_SEND.cpp",
+      "source": "FUNCTION_BLOCK CAN_SEND\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  ID : UDINT;\n  EXTENDED : BOOL;\n  RTR : BOOL;\n  DLC : USINT;\n  TIMEOUT : TIME;\nEND_VAR\nVAR_IN_OUT\n  DATA : ARRAY[0..7] OF BYTE;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\nEND_VAR\nVAR\n  cf_handle : UDINT;\n  cf_prev : BOOL;\n  cf_phase : USINT;\nEND_VAR\n// Shared code of the canworks CAN frame blocks (spec can-plc-frames).\n// library/generate.py copies it into every CAN_* block's source for the same\n// reason as common.inc: the editor grafts each C++ block into one\n// c_blocks_code.cpp. The same rules apply: nothing here uses a pin or local\n// name (pins are upper case, this code lower case), and no system header is\n// included after the pin defines.\n#ifndef CAN_FRAMES_COMMON_INCLUDED\n#define CAN_FRAMES_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace can_frames {\n\n// The plugin's C interface, version 1 (plugin/src/can/can_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned char flag_extended = 0x01, flag_rtr = 0x02;\nstruct frame {\n  unsigned int id;\n  unsigned char flags;\n  unsigned char dlc;\n  unsigned char data[8];\n  unsigned long long time_us;\n};\nstruct rx_info {\n  unsigned short queued;\n  unsigned char overflow;\n  unsigned int dropped;\n};\nstruct bus {\n  unsigned char state;\n  unsigned short tx_errors;\n  unsigned short rx_errors;\n  unsigned int bus_off_count;\n  unsigned char bus_load;\n  unsigned int rx_count;\n  unsigned int tx_count;\n  unsigned int error_frames;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*rx_open)(unsigned char network, unsigned int id, unsigned int mask, unsigned char flags,\n                          unsigned short depth, unsigned short* error_id);\n  int (*rx_read)(unsigned int handle, frame* f, rx_info* info);\n  void (*rx_close)(unsigned int handle);\n  unsigned int (*tx_send)(unsigned char network, const frame* f, unsigned int timeout_ms, unsigned short* error_id);\n  int (*tx_poll)(unsigned int handle, unsigned short* error_id);\n  unsigned int (*cyc_start)(unsigned char network, const frame* f, unsigned int period_us, unsigned short* error_id);\n  int (*cyc_update)(unsigned int handle, const frame* f, unsigned int period_us, unsigned int* count,\n                    unsigned short* error_id);\n  void (*cyc_stop)(unsigned int handle);\n  int (*bus_info)(unsigned char network, bus* info, unsigned short* error_id);\n};\nenum { err_not_running = 1, err_input = 3, err_cancelled = 8 };\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DCAN_FRAMES_TEST_ENTRY.)\n#ifdef CAN_FRAMES_TEST_ENTRY\n}  // namespace can_frames\nextern \"C\" const void* CAN_FRAMES_TEST_ENTRY(unsigned int version);\nnamespace can_frames {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CAN_FRAMES_TEST_ENTRY\n  entry_t entry = CAN_FRAMES_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_can_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to milliseconds / microseconds; 0 and negative give 0.\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\ninline unsigned int time_us(long long ns) {\n  if (ns <= 0) return 0;\n  long long us = (ns + 999) / 1000;\n  return us > 4000000000LL ? 4000000000u : static_cast<unsigned int>(us);\n}\n\ninline unsigned char flags(bool extended, bool rtr) {\n  return static_cast<unsigned char>((extended ? flag_extended : 0) | (rtr ? flag_rtr : 0));\n}\n\n// PLCopen handshake of one CAN_SEND instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace can_frames\n#endif\n// CAN_SEND: sends one frame on a rising EXECUTE; DONE once it is confirmed on the bus\n// Generated by library/generate.py; edit that file or src/can_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = cf_prev;\n  unsigned char phase = cf_phase;\n  can_frames::step s = can_frames::begin(EXECUTE, prev, phase);\n  cf_prev = prev;\n  cf_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  const can_frames::api_v1* t = can_frames::api();\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    unsigned short err = 0;\n    unsigned int handle = 0;\n    can_frames::frame f = {};\n    f.id = ID;\n    f.flags = can_frames::flags(EXTENDED, RTR);\n    f.dlc = DLC;\n    for (unsigned i = 0; i < 8; ++i) f.data[i] = static_cast<unsigned char>(DATA[i]);\n    if (DLC > 8) {\n      err = can_frames::err_input;\n    } else if (!t) {\n      err = can_frames::err_not_running;\n    } else {\n      handle = t->tx_send(NETWORK, &f, can_frames::time_ms(TIMEOUT), &err);\n    }\n    if (handle) {\n      cf_handle = handle;\n      BUSY = true;\n      cf_phase = can_frames::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      cf_phase = can_frames::phase_ended;\n    }\n  }\n  if (cf_phase == can_frames::phase_busy) {\n    unsigned short err = can_frames::err_not_running;\n    int st = t ? t->tx_poll(cf_handle, &err) : 2;\n    if (st != 0) {\n      BUSY = false;\n      cf_handle = 0;\n      cf_phase = can_frames::phase_ended;\n      if (st == 1) {\n        DONE = true;\n      } else {\n        ERROR = true;\n        ERROR_ID = err;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CAN_SEND_CYCLIC.cpp",
+      "source": "FUNCTION_BLOCK CAN_SEND_CYCLIC\nVAR_INPUT\n  ENABLE : BOOL;\n  NETWORK : USINT;\n  ID : UDINT;\n  EXTENDED : BOOL;\n  DLC : USINT;\n  PERIOD : TIME;\nEND_VAR\nVAR_IN_OUT\n  DATA : ARRAY[0..7] OF BYTE;\nEND_VAR\nVAR_OUTPUT\n  ACTIVE : BOOL;\n  COUNT : UDINT;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\nEND_VAR\nVAR\n  cf_handle : UDINT;\n  cf_prev : BOOL;\nEND_VAR\n// Shared code of the canworks CAN frame blocks (spec can-plc-frames).\n// library/generate.py copies it into every CAN_* block's source for the same\n// reason as common.inc: the editor grafts each C++ block into one\n// c_blocks_code.cpp. The same rules apply: nothing here uses a pin or local\n// name (pins are upper case, this code lower case), and no system header is\n// included after the pin defines.\n#ifndef CAN_FRAMES_COMMON_INCLUDED\n#define CAN_FRAMES_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace can_frames {\n\n// The plugin's C interface, version 1 (plugin/src/can/can_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned char flag_extended = 0x01, flag_rtr = 0x02;\nstruct frame {\n  unsigned int id;\n  unsigned char flags;\n  unsigned char dlc;\n  unsigned char data[8];\n  unsigned long long time_us;\n};\nstruct rx_info {\n  unsigned short queued;\n  unsigned char overflow;\n  unsigned int dropped;\n};\nstruct bus {\n  unsigned char state;\n  unsigned short tx_errors;\n  unsigned short rx_errors;\n  unsigned int bus_off_count;\n  unsigned char bus_load;\n  unsigned int rx_count;\n  unsigned int tx_count;\n  unsigned int error_frames;\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*rx_open)(unsigned char network, unsigned int id, unsigned int mask, unsigned char flags,\n                          unsigned short depth, unsigned short* error_id);\n  int (*rx_read)(unsigned int handle, frame* f, rx_info* info);\n  void (*rx_close)(unsigned int handle);\n  unsigned int (*tx_send)(unsigned char network, const frame* f, unsigned int timeout_ms, unsigned short* error_id);\n  int (*tx_poll)(unsigned int handle, unsigned short* error_id);\n  unsigned int (*cyc_start)(unsigned char network, const frame* f, unsigned int period_us, unsigned short* error_id);\n  int (*cyc_update)(unsigned int handle, const frame* f, unsigned int period_us, unsigned int* count,\n                    unsigned short* error_id);\n  void (*cyc_stop)(unsigned int handle);\n  int (*bus_info)(unsigned char network, bus* info, unsigned short* error_id);\n};\nenum { err_not_running = 1, err_input = 3, err_cancelled = 8 };\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DCAN_FRAMES_TEST_ENTRY.)\n#ifdef CAN_FRAMES_TEST_ENTRY\n}  // namespace can_frames\nextern \"C\" const void* CAN_FRAMES_TEST_ENTRY(unsigned int version);\nnamespace can_frames {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef CAN_FRAMES_TEST_ENTRY\n  entry_t entry = CAN_FRAMES_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_can_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to milliseconds / microseconds; 0 and negative give 0.\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\ninline unsigned int time_us(long long ns) {\n  if (ns <= 0) return 0;\n  long long us = (ns + 999) / 1000;\n  return us > 4000000000LL ? 4000000000u : static_cast<unsigned int>(us);\n}\n\ninline unsigned char flags(bool extended, bool rtr) {\n  return static_cast<unsigned char>((extended ? flag_extended : 0) | (rtr ? flag_rtr : 0));\n}\n\n// PLCopen handshake of one CAN_SEND instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace can_frames\n#endif\n// CAN_SEND_CYCLIC: has the plugin send a frame every PERIOD while ENABLE is TRUE\n// Generated by library/generate.py; edit that file or src/can_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  const can_frames::api_v1* t = can_frames::api();\n  can_frames::frame f = {};\n  f.id = ID;\n  f.flags = can_frames::flags(EXTENDED, false);\n  f.dlc = DLC;\n  for (unsigned i = 0; i < 8; ++i) f.data[i] = static_cast<unsigned char>(DATA[i]);\n  unsigned short err = 0;\n  if (ENABLE && !cf_prev) {\n    ERROR = false;\n    ERROR_ID = 0;\n    COUNT = 0;\n    cf_handle = 0;\n    if (!t) {\n      err = can_frames::err_not_running;\n    } else if (DLC > 8) {\n      err = can_frames::err_input;\n    } else {\n      cf_handle = t->cyc_start(NETWORK, &f, can_frames::time_us(PERIOD), &err);\n    }\n    if (!cf_handle) {\n      ERROR = true;\n      ERROR_ID = err;\n    }\n  } else if (ENABLE && cf_handle) {\n    unsigned int count = 0;\n    int st = t ? t->cyc_update(cf_handle, &f, can_frames::time_us(PERIOD), &count, &err) : 2;\n    COUNT = count;\n    if (st != 0) {\n      ERROR = true;\n      ERROR_ID = t ? err : static_cast<unsigned short>(can_frames::err_not_running);\n      cf_handle = 0;\n    }\n  } else if (!ENABLE && cf_prev) {\n    if (t && cf_handle) t->cyc_stop(cf_handle);\n    cf_handle = 0;\n    ERROR = false;\n    ERROR_ID = 0;\n  }\n  ACTIVE = cf_handle != 0;\n  cf_prev = ENABLE;\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "CAN_SET_BITS.st",
+      "source": "(*\n * CAN_SET_BITS: writes a signal's raw value into a frame's data, with the bit\n * numbering of CAN_GET_BITS; the other bits stay as they are. Returns TRUE,\n * or FALSE (and writes nothing) when a bit would fall outside the 8 bytes.\n *)\nFUNCTION CAN_SET_BITS : BOOL\nVAR_IN_OUT\n  DATA : ARRAY[0..7] OF BYTE;\nEND_VAR\nVAR_INPUT\n  START_BIT : USINT;\n  BIT_LENGTH : USINT;\n  MOTOROLA : BOOL;\n  VALUE : LINT;\nEND_VAR\nVAR\n  i : INT;\n  pos : INT;\n  shift : INT;\n  v : LWORD;\n  b : BYTE;\nEND_VAR\n  (* First pass: every bit inside the frame? *)\n  pos := USINT_TO_INT(START_BIT);\n  FOR i := 0 TO USINT_TO_INT(BIT_LENGTH) - 1 DO\n    IF pos < 0 OR pos > 63 THEN\n      CAN_SET_BITS := FALSE;\n      RETURN;\n    END_IF;\n    IF MOTOROLA THEN\n      IF pos MOD 8 = 0 THEN\n        pos := pos + 15;\n      ELSE\n        pos := pos - 1;\n      END_IF;\n    ELSE\n      pos := pos + 1;\n    END_IF;\n  END_FOR;\n  v := LINT_TO_LWORD(VALUE);\n  pos := USINT_TO_INT(START_BIT);\n  FOR i := 0 TO USINT_TO_INT(BIT_LENGTH) - 1 DO\n    IF MOTOROLA THEN\n      shift := USINT_TO_INT(BIT_LENGTH) - 1 - i;\n    ELSE\n      shift := i;\n    END_IF;\n    b := SHL(BYTE#1, INT_TO_UINT(pos MOD 8));\n    IF (SHR(v, INT_TO_UINT(shift)) AND 16#01) = 1 THEN\n      DATA[pos / 8] := DATA[pos / 8] OR b;\n    ELSE\n      DATA[pos / 8] := DATA[pos / 8] AND NOT b;\n    END_IF;\n    IF MOTOROLA THEN\n      IF pos MOD 8 = 0 THEN\n        pos := pos + 15;\n      ELSE\n        pos := pos - 1;\n      END_IF;\n    ELSE\n      pos := pos + 1;\n    END_IF;\n  END_FOR;\n  CAN_SET_BITS := TRUE;\nEND_FUNCTION\n"
+    },
+    {
+      "fileName": "CAN_SET_UINT16.st",
+      "source": "(*\n * CAN_SET_UINT16: writes VALUE into DATA[OFFSET..OFFSET+1] with the byte\n * order of CAN_GET_UINT16. FALSE (nothing written) when the bytes do not fit.\n *)\nFUNCTION CAN_SET_UINT16 : BOOL\nVAR_IN_OUT\n  DATA : ARRAY[0..7] OF BYTE;\nEND_VAR\nVAR_INPUT\n  OFFSET : USINT;\n  MOTOROLA : BOOL;\n  VALUE : UINT;\nEND_VAR\nVAR\n  i : INT;\n  v : WORD;\nEND_VAR\n  IF USINT_TO_INT(OFFSET) + 2 > 8 THEN\n    CAN_SET_UINT16 := FALSE;\n    RETURN;\n  END_IF;\n  v := UINT_TO_WORD(VALUE);\n  FOR i := 0 TO 1 DO\n    IF MOTOROLA THEN\n      DATA[USINT_TO_INT(OFFSET) + 1 - i] := WORD_TO_BYTE(SHR(v, INT_TO_UINT(8 * i)));\n    ELSE\n      DATA[USINT_TO_INT(OFFSET) + i] := WORD_TO_BYTE(SHR(v, INT_TO_UINT(8 * i)));\n    END_IF;\n  END_FOR;\n  CAN_SET_UINT16 := TRUE;\nEND_FUNCTION\n"
+    },
+    {
+      "fileName": "CAN_SET_UINT32.st",
+      "source": "(*\n * CAN_SET_UINT32: writes VALUE into DATA[OFFSET..OFFSET+3] with the byte\n * order of CAN_GET_UINT32. FALSE (nothing written) when the bytes do not fit.\n *)\nFUNCTION CAN_SET_UINT32 : BOOL\nVAR_IN_OUT\n  DATA : ARRAY[0..7] OF BYTE;\nEND_VAR\nVAR_INPUT\n  OFFSET : USINT;\n  MOTOROLA : BOOL;\n  VALUE : UDINT;\nEND_VAR\nVAR\n  i : INT;\n  v : DWORD;\nEND_VAR\n  IF USINT_TO_INT(OFFSET) + 4 > 8 THEN\n    CAN_SET_UINT32 := FALSE;\n    RETURN;\n  END_IF;\n  v := UDINT_TO_DWORD(VALUE);\n  FOR i := 0 TO 3 DO\n    IF MOTOROLA THEN\n      DATA[USINT_TO_INT(OFFSET) + 3 - i] := DWORD_TO_BYTE(SHR(v, INT_TO_UINT(8 * i)));\n    ELSE\n      DATA[USINT_TO_INT(OFFSET) + i] := DWORD_TO_BYTE(SHR(v, INT_TO_UINT(8 * i)));\n    END_IF;\n  END_FOR;\n  CAN_SET_UINT32 := TRUE;\nEND_FUNCTION\n"
+    },
     {
       "fileName": "CO402_CyclicMoveAbsolute.st",
       "source": "(*\n * CO402_CyclicMoveAbsolute: a point-to-point move in cyclic synchronous\n * position mode (CiA 402 mode 8) on an axis of the editor's PLCopen motion\n * library (spec canopen-cia402-axis). The set-points come from the editor\n * library's S-curve trajectory planner (FB_S7RTT_Plan), one\n * per PLC cycle (Axis.fCycleTime), so the program plans the move instead of\n * the drive.\n *\n * Call it every scan while it is in use, after the axis's drive bridge and\n * with MC_Power enabled. On a rising Execute it sets the target position to\n * the actual position, selects mode 8 (operation stays enabled), plans the\n * move from the actual position at standstill once 0x6061 shows 8, and sends\n * the trajectory's positions. Done: the trajectory has ended and the actual\n * position is within Window of Position (Window 0: one drive increment).\n * Execute FALSE stops writing (the drive holds the last set-point): drop it\n * at standstill or hand the axis to MC_Halt.\n *\n * ErrorID: 1 drive not enabled, 2 mode not reached within ModeTimeout (or\n * left), 4 axis in error stop (fault or drive lost), 5 Velocity,\n * Acceleration or Jerk not above 0, or no trajectory.\n *)\nFUNCTION_BLOCK CO402_CyclicMoveAbsolute\nVAR_IN_OUT\n  Axis : AXIS_REF_SM3;\nEND_VAR\nVAR_INPUT\n  Execute : BOOL;\n  Position : LREAL;      (* target [u] *)\n  Velocity : LREAL;      (* [u/s], above 0 *)\n  Acceleration : LREAL;  (* [u/s2], above 0 *)\n  Jerk : LREAL;          (* [u/s3], above 0 *)\n  Window : LREAL := 0.0; (* in-position window [u], 0 = one increment *)\n  ModeTimeout : TIME := T#500ms;\nEND_VAR\nVAR_OUTPUT\n  Done : BOOL;\n  Busy : BOOL;\n  InSync : BOOL;\n  Error : BOOL;\n  ErrorID : UINT;\nEND_VAR\nVAR\n  iState : INT;  (* 0 idle, 10 selecting the mode, 20 moving, 30 done, 99 error *)\n  plan : FB_S7RTT_Plan;\n  start : ST_MotionState;\n  limits : ST_MotionLimits;\n  fSet : LREAL;\n  fT : LREAL;\n  fElapsed : LREAL;\n  fDuration : LREAL;\n  fWindow : LREAL;\n  fActual : LREAL;\n  i : INT;\n  tMode : TON;\nEND_VAR\n  IF NOT Execute THEN\n    iState := 0;\n  ELSIF iState = 0 THEN\n    ErrorID := 0;\n    IF Axis.bError OR NOT Axis.bCommunication THEN\n      ErrorID := 4;\n    ELSIF (Axis.Drive.StatusWord AND UINT#16#006F) <> UINT#16#0027 THEN\n      ErrorID := 1;\n    ELSIF Velocity <= 0.0 OR Acceleration <= 0.0 OR Jerk <= 0.0 THEN\n      ErrorID := 5;\n    ELSE\n      Axis.Drive.Target_Position := Axis.Drive.Position_Actual_Value;\n      Axis.Drive.Modes_of_operation := SINT#8;\n      iState := 10;\n    END_IF\n    IF ErrorID <> 0 THEN iState := 99; END_IF\n  END_IF\n\n  IF iState = 10 OR iState = 20 OR iState = 30 THEN\n    IF Axis.bError OR NOT Axis.bCommunication THEN\n      ErrorID := 4; iState := 99;\n    ELSIF (Axis.Drive.StatusWord AND UINT#16#006F) <> UINT#16#0027 THEN\n      ErrorID := 1; iState := 99;\n    ELSIF iState <> 10 AND Axis.Drive.Modes_of_operation_display <> SINT#8 THEN\n      ErrorID := 2; iState := 99;\n    END_IF\n  END_IF\n  tMode(IN := iState = 10, PT := ModeTimeout);\n  fActual := DINT_TO_LREAL(Axis.Drive.Position_Actual_Value) / Axis.fIncPerUnit;\n  IF iState = 10 THEN\n    Axis.Drive.Modes_of_operation := SINT#8;\n    Axis.Drive.Target_Position := Axis.Drive.Position_Actual_Value;\n    IF Axis.Drive.Modes_of_operation_display = SINT#8 THEN\n      start.fPos := fActual;\n      start.fVel := 0.0;\n      start.fAcc := 0.0;\n      start.fDuration := 0.0;\n      limits.fVelMax := Velocity;\n      limits.fAccMax := Acceleration;\n      limits.fJerkMax := Jerk;\n      plan(Execute := FALSE);\n      plan(Execute := TRUE, ModeVelocity := FALSE, StartState := start, TargetPos := Position, TargetVel := 0.0,\n           Limits := limits);\n      fDuration := 0.0;\n      FOR i := 1 TO plan.SegmentCount DO\n        fDuration := fDuration + plan.Trajectory[i].fDuration;\n      END_FOR\n      fElapsed := 0.0;\n      IF plan.Error THEN\n        ErrorID := 5; iState := 99;\n      ELSE\n        iState := 20;\n      END_IF\n    ELSIF tMode.Q THEN\n      ErrorID := 2; iState := 99;\n    END_IF\n  END_IF\n  IF iState = 20 THEN\n    fElapsed := fElapsed + Axis.fCycleTime;\n    IF fElapsed >= fDuration OR plan.SegmentCount <= 0 THEN\n      Axis.Drive.Target_Position := LREAL_TO_DINT(Position * Axis.fIncPerUnit);\n      iState := 30;\n    ELSE\n      (* the planner's segment at fElapsed: p = p0 + v0 t + a0 t^2/2 + j t^3/6 *)\n      fT := fElapsed;\n      fSet := Position;\n      FOR i := 1 TO plan.SegmentCount DO\n        IF fT <= plan.Trajectory[i].fDuration THEN\n          fSet := plan.Trajectory[i].fPos + plan.Trajectory[i].fVel * fT + 0.5 * plan.Trajectory[i].fAcc * fT * fT\n                  + plan.Trajectory[i].fJerk * fT * fT * fT / 6.0;\n          EXIT;\n        END_IF\n        fT := fT - plan.Trajectory[i].fDuration;\n      END_FOR\n      Axis.Drive.Target_Position := LREAL_TO_DINT(fSet * Axis.fIncPerUnit);\n    END_IF\n  END_IF\n  IF iState = 30 THEN\n    Axis.Drive.Target_Position := LREAL_TO_DINT(Position * Axis.fIncPerUnit);\n  END_IF\n\n  fWindow := Window;\n  IF fWindow <= 0.0 THEN fWindow := 1.0 / ABS(Axis.fIncPerUnit); END_IF\n  Done := iState = 30 AND ABS(fActual - Position) <= fWindow;\n  InSync := iState = 20 OR iState = 30;\n  Busy := (iState = 10 OR iState = 20 OR iState = 30) AND NOT Done;\n  Error := iState = 99;\n  IF iState = 0 THEN ErrorID := 0; END_IF\nEND_FUNCTION_BLOCK\n"

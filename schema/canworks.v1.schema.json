@@ -232,6 +232,10 @@
         "simulate": {
           "description": "true: the network is simulated (docs/simulator.md). No CAN interface or serial device is used; the other adapter fields are kept and checked. A master network and a slave network with the same interface name share one simulated bus (docs/slave.md, Simulated bus).",
           "type": "boolean"
+        },
+        "listen_only": {
+          "description": "true: the controller only listens and never acknowledges or sends a frame. Plain CAN networks (\"protocol\": \"none\", schema_version 2) only (docs/raw-can.md, Listen-only networks).",
+          "type": "boolean"
         }
       },
       "required": [

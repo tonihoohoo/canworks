@@ -1,0 +1,115 @@
+// Shared code of the canworks CAN frame blocks (spec can-plc-frames).
+// library/generate.py copies it into every CAN_* block's source for the same
+// reason as common.inc: the editor grafts each C++ block into one
+// c_blocks_code.cpp. The same rules apply: nothing here uses a pin or local
+// name (pins are upper case, this code lower case), and no system header is
+// included after the pin defines.
+#ifndef CAN_FRAMES_COMMON_INCLUDED
+#define CAN_FRAMES_COMMON_INCLUDED
+extern "C" void* dlopen(const char* file, int mode) noexcept(true);
+extern "C" void* dlsym(void* handle, const char* name) noexcept(true);
+
+namespace can_frames {
+
+// The plugin's C interface, version 1 (plugin/src/can/can_plc_api.h).
+const unsigned api_version = 1;
+const unsigned char flag_extended = 0x01, flag_rtr = 0x02;
+struct frame {
+  unsigned int id;
+  unsigned char flags;
+  unsigned char dlc;
+  unsigned char data[8];
+  unsigned long long time_us;
+};
+struct rx_info {
+  unsigned short queued;
+  unsigned char overflow;
+  unsigned int dropped;
+};
+struct bus {
+  unsigned char state;
+  unsigned short tx_errors;
+  unsigned short rx_errors;
+  unsigned int bus_off_count;
+  unsigned char bus_load;
+  unsigned int rx_count;
+  unsigned int tx_count;
+  unsigned int error_frames;
+};
+struct api_v1 {
+  unsigned int size;
+  unsigned int (*rx_open)(unsigned char network, unsigned int id, unsigned int mask, unsigned char flags,
+                          unsigned short depth, unsigned short* error_id);
+  int (*rx_read)(unsigned int handle, frame* f, rx_info* info);
+  void (*rx_close)(unsigned int handle);
+  unsigned int (*tx_send)(unsigned char network, const frame* f, unsigned int timeout_ms, unsigned short* error_id);
+  int (*tx_poll)(unsigned int handle, unsigned short* error_id);
+  unsigned int (*cyc_start)(unsigned char network, const frame* f, unsigned int period_us, unsigned short* error_id);
+  int (*cyc_update)(unsigned int handle, const frame* f, unsigned int period_us, unsigned int* count,
+                    unsigned short* error_id);
+  void (*cyc_stop)(unsigned int handle);
+  int (*bus_info)(unsigned char network, bus* info, unsigned short* error_id);
+};
+enum { err_not_running = 1, err_input = 3, err_cancelled = 8 };
+
+// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests
+// link the blocks into one process with the plugin code and name the entry
+// point with -DCAN_FRAMES_TEST_ENTRY.)
+#ifdef CAN_FRAMES_TEST_ENTRY
+}  // namespace can_frames
+extern "C" const void* CAN_FRAMES_TEST_ENTRY(unsigned int version);
+namespace can_frames {
+#endif
+inline const api_v1* api() {
+  static const api_v1* table = nullptr;
+  if (table) return table;
+  typedef const void* (*entry_t)(unsigned int);
+#ifdef CAN_FRAMES_TEST_ENTRY
+  entry_t entry = CAN_FRAMES_TEST_ENTRY;
+#else
+  void* lib = dlopen("libcanworks_plugin.so", 0x2 | 0x4);
+  if (!lib) return nullptr;
+  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, "canworks_can_api"));
+#endif
+  if (!entry) return nullptr;
+  const api_v1* t = static_cast<const api_v1*>(entry(api_version));
+  if (t && t->size >= sizeof(api_v1)) table = t;
+  return table;
+}
+
+// TIME (nanoseconds) to milliseconds / microseconds; 0 and negative give 0.
+inline unsigned int time_ms(long long ns) {
+  if (ns <= 0) return 0;
+  long long ms = (ns + 999999) / 1000000;
+  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);
+}
+inline unsigned int time_us(long long ns) {
+  if (ns <= 0) return 0;
+  long long us = (ns + 999) / 1000;
+  return us > 4000000000LL ? 4000000000u : static_cast<unsigned int>(us);
+}
+
+inline unsigned char flags(bool extended, bool rtr) {
+  return static_cast<unsigned char>((extended ? flag_extended : 0) | (rtr ? flag_rtr : 0));
+}
+
+// PLCopen handshake of one CAN_SEND instance, as co_sdo::begin.
+enum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };
+struct step {
+  bool start;
+  bool clear;
+};
+inline step begin(bool execute, bool& prev, unsigned char& phase) {
+  step s{false, false};
+  bool rising = execute && !prev;
+  prev = execute;
+  if (phase == phase_ended && !execute) {
+    s.clear = true;
+    phase = phase_idle;
+  }
+  if (rising && phase != phase_busy) s.start = true;
+  return s;
+}
+
+}  // namespace can_frames
+#endif

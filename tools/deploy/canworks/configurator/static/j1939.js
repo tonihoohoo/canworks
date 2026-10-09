@@ -78,14 +78,35 @@ function protocolField() {
     el("div", { class: "grid" }, choice("This network runs", "protocol", [
       { value: undefined, label: "CANopen", help: "Default. A CANopen master with its nodes, or a CANopen slave device." },
       { value: "j1939", label: "J1939", help: "The PLC is an ECU on a J1939 network: it claims an address, receives and sends parameter groups (PGNs), usually from a DBC file." },
+      { value: "none", label: "Plain CAN", help: "No protocol: only the network's CAN messages (raw frames) run on it, for devices that speak neither CANopen nor J1939." },
     ], { onChange: switchProtocol, dataset: { j1939: "protocol" } })));
 }
 
 // Switching drops the other protocol's settings (asked first when there are any).
 async function switchProtocol(protocol) {
   const net = S.config;
-  if ((protocol === "j1939") === isJ1939(net)) return;
+  const current = net.protocol || "canopen";
+  protocol = protocol || "canopen";
+  if (protocol === current) return;
   const label = netLabel(net, S.net);
+  if (current === "none" || protocol === "none") {
+    // Plain CAN keeps the CAN messages (raw); the other protocol's settings go.
+    const k = (net.nodes || []).length;
+    const j = net.j1939 || {};
+    const lose = protocol === "none" ? (k || isSlave(net) || (j.rx || []).length || (j.tx || []).length) : false;
+    if (lose) {
+      const v = await modal(`Make network ${label} a plain CAN network? Its ${current === "j1939" ? "ECU and PGNs" : "CANopen settings" + (k ? ` and its ${k} node${k === 1 ? "" : "s"}` : "")} are dropped. Its CAN messages stay.`,
+        [["none", "Make it plain CAN", true], ["cancel", "Cancel"]]);
+      if (v !== "none") { render(); return; }
+    }
+    for (const key of ["role", "master", "nodes", "slave", "j1939"]) delete net[key];
+    if (net.adapter) delete net.adapter.listen_only;
+    if (protocol === "none") net.protocol = "none";
+    else if (protocol === "j1939") { net.protocol = "j1939"; net.j1939 = newJ1939Network().j1939; }
+    else { delete net.protocol; net.master = { node_id: 1, sync_period_us: 10000 }; net.nodes = []; }
+    changed(true);
+    return;
+  }
   if (protocol === "j1939") {
     const k = (net.nodes || []).length;
     if (k || isSlave(net)) {

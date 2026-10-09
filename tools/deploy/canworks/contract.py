@@ -19,6 +19,8 @@ from . import eds as eds_mod
 from . import edslint
 from .eds import sync_needed_message, transmission_needs_sync
 from .iec import CO_TYPES, parse_location, type_fits, SIZE_BITS
+from .raw import contract as raw_contract
+from .raw import ownership
 
 SUPPORTED_VERSION = 2
 MAX_NETWORKS = 8
@@ -88,6 +90,10 @@ def networks(cfg):
         if not isinstance(name, str) or not name:
             iface = adapter.get("interface")
             name = iface if isinstance(iface, str) and NETWORK_NAME.match(iface) else ""
+        if net.get("protocol") == "none":
+            out.append({"name": name, "index": i, "path": "networks[%d]" % i, "role": "plain", "protocol": "none",
+                        "adapter": adapter, "master": {}, "nodes": [], "slave": {}, "j1939": {}, "json": net})
+            continue
         if is_j1939(net):
             # Never a CANopen network: no master, nodes or slave, whatever the
             # entry holds (the checks report those keys).
@@ -554,7 +560,7 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
 
 # Top-level keys a version 1 file may not have.
 V2_ONLY_KEYS = ("role", "slave", "gateway")
-J1939_V2_KEYS = ("protocol", "j1939")
+J1939_V2_KEYS = ("protocol", "j1939", "raw")
 
 MOVED_V1_KEYS = (("adapter", "networks[].adapter"), ("master", "networks[].master"), ("nodes", "networks[].nodes"),
                  ("interface", "networks[].adapter.interface"), ("bitrate", "networks[].adapter.bitrate"))
@@ -601,17 +607,23 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             continue
         before = len(r.errors)
         j1939 = is_j1939(net)
-        if "protocol" in net and net["protocol"] not in ("canopen", "j1939"):
-            err(prefix, 'field \'protocol\' must be "canopen" or "j1939"', [prefix + ".protocol"])
-        role = "j1939" if j1939 else "slave" if net.get("role") == "slave" else "master"
-        if j1939:
+        plain = net.get("protocol") == "none"
+        if "protocol" in net and net["protocol"] not in ("canopen", "j1939", "none"):
+            err(prefix, 'field \'protocol\' must be "canopen", "j1939" or "none"', [prefix + ".protocol"])
+        role = "j1939" if j1939 else "plain" if plain else "slave" if net.get("role") == "slave" else "master"
+        if plain:
+            for key in CANOPEN_KEYS + ("j1939",):
+                if key in net:
+                    err(prefix, "field '%s' does not belong to a plain CAN network (\"protocol\": \"none\"), which "
+                                "has only 'adapter' and 'raw'" % key, [prefix + "." + key])
+        elif j1939:
             for key in CANOPEN_KEYS:
                 if key in net:
                     err(prefix, "field '%s' belongs to a CANopen network; a J1939 network has 'j1939'" % key,
                         [prefix + "." + key])
         elif "j1939" in net:
             err(prefix, 'field \'j1939\' belongs to a J1939 network ("protocol": "j1939")', [prefix + ".j1939"])
-        if j1939:
+        if j1939 or plain:
             pass
         elif role == "slave":
             for key in ("master", "nodes"):
@@ -637,6 +649,10 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             (p == [] and e.validator == "not") or
             (p == ["master"] and e.validator == "not") or
             p[:1] == ["protocol"] or
+            # The raw object's own checks give the plugin's words.
+            p[:1] == ["raw"] or
+            (p == ["adapter"] and e.validator == "not") or
+            (plain and (not p or p[0] in ("j1939",) + CANOPEN_KEYS)) or
             # A J1939 network's own checks below give the plugin's words for
             # everything but its adapter; a CANopen network's j1939 object is
             # reported above.
@@ -646,15 +662,39 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
         name = net.get("name") if isinstance(net.get("name"), str) and net.get("name") else adapter.get("interface")
         _check_network(r, net, prefix, 2, errors, diag=diag, before=before, role=role, routed=routed,
                        net_name=name if isinstance(name, str) else "", slaves=slaves, net_index=i, **args)
+        raw_errors, raw_warnings, _ = raw_contract.check_raw(net.get("raw"), prefix + ".raw",
+                                                             adapter.get("listen_only") is True)
+        for m in raw_errors:
+            r.add("error", "%s: %s" % (args["path"], m), [_raw_path(m)])
+        for m in raw_warnings:
+            r.add("warning", "%s: %s" % (args["path"], m), [_raw_path(m)])
         iface = adapter.get("interface")
         if "name" not in net and isinstance(iface, str) and iface and not NETWORK_NAME.match(iface):
             err(prefix, 'interface "%s" is not usable as a network name; give the network a \'name\'' % iface,
                 [prefix + ".adapter.interface"])
     _check_across_networks(r, cfg, err)
+    # Sent raw messages on identifiers the protocol uses (after the checks
+    # across networks, as in the plugin).
+    for n in networks(cfg):
+        raw = n["json"].get("raw")
+        if not isinstance(raw, dict) or not raw.get("tx"):
+            continue
+        listen = n["adapter"].get("listen_only") is True
+        e1, _, _ = raw_contract.check_raw(raw, n["path"] + ".raw", listen)
+        if e1:
+            continue  # reported above
+        errs, _, _ = raw_contract.check_raw(raw, n["path"] + ".raw", listen, ownership.protocol_use(n))
+        for m in errs:
+            r.add("error", "%s: %s" % (args["path"], m), [_raw_path(m)])
     # The gateway's own checks read the section's fields, so they run only
     # once its shape is right (the schema errors above say what is not).
     if "gateway" in cfg and not any(list(e.absolute_path)[:1] == ["gateway"] for e in schema_errors):
         _check_gateway(cfg, err, warn, slaves)
+
+
+def _raw_path(message):
+    """The JSON path a raw check message starts with."""
+    return message.split(":", 1)[0]
 
 
 def routed_entries(cfg):
@@ -750,6 +790,15 @@ def location_uses(net, prefix=""):
         if loc is not None:
             out.append(((loc.area, loc.size, loc.element), prefix + who, base + at, str(loc)))
 
+    # Raw messages first, named by their place in the file as the plugin does.
+    raw = (net.get("json") or {}).get("raw")
+    if net["path"] and isinstance(raw, dict):
+        for text, at in raw_contract.locations(raw, net["path"] + ".raw"):
+            loc = parse_location(text)
+            if loc is not None:
+                out.append(((loc.area, loc.size, loc.element), at, at, str(loc)))
+    if net.get("role") == "plain":
+        return out
     if net.get("role") == "j1939":
         _j1939_location_uses(net.get("j1939") or {}, add)
         return out
@@ -879,6 +928,12 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     err("adapter", "missing required field 'device'", ["adapter.device"])
                 elif isinstance(a["device"], str) and a["device"] and not a["device"].startswith("/"):
                     err("adapter", "field 'device' must be an absolute path such as /dev/ttyACM0", ["adapter.device"])
+    if has_adapter and isinstance(cfg["adapter"], dict) and cfg["adapter"].get("listen_only") is True \
+            and role != "plain":
+        err("adapter", "field 'listen_only' needs a plain CAN network (\"protocol\": \"none\"): a %s network must "
+                       "send" % ("J1939" if role == "j1939" else "CANopen"), ["adapter.listen_only"])
+    if has_adapter:
+        pass
     elif old_iface or old_rate:
         warn("", "top-level 'interface' and 'bitrate' are deprecated; move them into "
                  '"adapter": {"type": "socketcan", ...}')
@@ -935,6 +990,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             err(pdo_msg[0], pdo_msg[1], [where])
             continue
         err(where, e.message)
+
+    if role == "plain":
+        return
 
     if role == "j1939":
         a = cfg.get("adapter")

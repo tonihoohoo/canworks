@@ -19,8 +19,10 @@
 #include "can_adapter.h"
 #include "log.h"
 #include "network.h"
+#include "raw_bridge_server.h"
 #include "sim_config.h"
 #include "sim_host.h"
+#include "raw/raw_devices.h"
 
 namespace canopen_plugin {
 
@@ -278,6 +280,12 @@ void Bus::run_session() {
       opt.store = sim_->store;
       opt.simulated_network = virt;
       simulator.reset(new canopen_sim::Simulator(*sim_host, specs, sim_->file, opt));
+      // Plain CAN devices run in the network's raw path (raw_devices.h).
+      unsigned index = cfg_.network_index;
+      simulator->raw_device_action = [index](const std::string& device, const std::string& action,
+                                             const std::string& what, int dlc, std::string& err) {
+        return canworks_raw::sim_device_action(index, device, action, what, dlc, err);
+      };
       std::vector<std::string> errors;
       if (!simulator->Start(errors)) {
         for (const auto& e : errors) log_error("simulation: %s", e.c_str());
@@ -351,6 +359,19 @@ void Bus::run_session() {
           }
         }
       }));
+    }
+    // The raw path (raw messages, program frames, plain CAN devices) on the
+    // virtual bus; its own frames show as Tx in a trace.
+    std::unique_ptr<RawBridgeServer> raw_bridge;
+    if (virt) {
+      if (auto bridge = canworks_raw::sim_bridge(cfg_.network_index)) {
+        const bool tapped = static_cast<bool>(tap_chan);
+        raw_bridge.reset(new RawBridgeServer(ctx, poll, exec, *vbus, bridge, [&, tapped](const can_msg& m, bool own) {
+          if (!own || !tapped) return;
+          if (injected.size() >= 64) injected.pop_front();
+          injected.push_back(m);
+        }));
+      }
     }
     net.Start();
     SyncWake sync_wake(poll, image_.sync_fd(), net);

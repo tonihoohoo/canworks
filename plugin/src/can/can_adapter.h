@@ -42,6 +42,7 @@ struct LinkInfo {
   bool has_berr = false;       // IFLA_CAN_BERR_COUNTER present (driver reports counters)
   unsigned tx_errors = 0;
   unsigned rx_errors = 0;
+  bool listen_only = false;    // IFLA_CAN_CTRLMODE has CAN_CTRLMODE_LISTENONLY, kind "can" only
   bool has_stats = false;      // IFLA_INFO_XSTATS (struct can_device_stats) present
   uint32_t bus_off = 0;        // can_device_stats.bus_off: bus-off events since the link was created
 };

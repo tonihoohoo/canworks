@@ -1,0 +1,80 @@
+{
+  "comment": [
+    "Shared fixtures for the `raw` object of a network (spec can-raw-messages), checked the same way by the",
+    "plugin (test/can_raw) and the PC tools (tools/deploy/tests/test_raw.py). Each case parses `raw` at",
+    "networks[0].raw; `errors` / `warnings` list text every message of that kind must contain, in order of",
+    "appearance; an empty `errors` means the object is valid. `protocol_ids` names identifiers the network's",
+    "protocol uses (as \"0x205\": \"RPDO1 of node 5\") for the ownership check."
+  ],
+  "cases": [
+    {
+      "name": "example from the design",
+      "raw": {
+        "dbc": "cab.dbc",
+        "rx": [
+          { "name": "Joystick", "id": 291, "dlc": 8, "timeout_ms": 300, "status_location": "%IX300.0",
+            "counter_location": "%IW302",
+            "signals": [ { "name": "X", "start_bit": 0, "length": 12, "signed": true, "scale": 0.1, "unit": "%",
+                           "iec_location": "%IW304" } ] },
+          { "name": "AnyBattery", "id": 1536, "mask": 2032, "id_location": "%ID308", "data_location": "%IL312" }
+        ],
+        "tx": [
+          { "name": "Lamps", "id": 1281, "dlc": 2, "period_ms": 100, "on_change": true, "min_gap_ms": 10,
+            "enable_location": "%QX300.0",
+            "signals": [ { "name": "Red", "start_bit": 0, "length": 1, "iec_location": "%QX300.1" } ] },
+          { "name": "Wake", "id": 1282, "rtr": true, "dlc": 0, "trigger_location": "%QX300.2" }
+        ]
+      },
+      "errors": [],
+      "warnings": []
+    },
+    { "name": "11-bit identifier too large", "raw": { "rx": [ { "id": 2048 } ] },
+      "errors": [ "networks[0].raw.rx[0].id: must be 0..0x7FF (11-bit identifier" ] },
+    { "name": "extended identifier", "raw": { "rx": [ { "id": 2048, "extended": true } ] }, "errors": [] },
+    { "name": "extended identifier too large", "raw": { "rx": [ { "id": 536870912, "extended": true } ] },
+      "errors": [ "networks[0].raw.rx[0].id: must be 0..0x1FFFFFFF (29-bit identifier)" ] },
+    { "name": "location too small",
+      "raw": { "rx": [ { "id": 1, "signals": [ { "name": "Speed", "start_bit": 0, "length": 12, "iec_location": "%IB10" } ] } ] },
+      "errors": [ "networks[0].raw.rx[0].signals[0].iec_location: signal Speed of 12 bits needs a word" ] },
+    { "name": "signal past the dlc",
+      "raw": { "rx": [ { "id": 1, "dlc": 2, "signals": [ { "start_bit": 8, "length": 16, "iec_location": "%IW10" } ] } ] },
+      "errors": [ "reaches past the message's dlc (2 bytes)" ] },
+    { "name": "signal past 8 bytes, big-endian",
+      "raw": { "rx": [ { "id": 1, "signals": [ { "start_bit": 63, "length": 16, "byte_order": "big", "iec_location": "%IW10" } ] } ] },
+      "errors": [ "reaches past 8 bytes" ] },
+    { "name": "bad byte order",
+      "raw": { "rx": [ { "id": 1, "signals": [ { "start_bit": 0, "length": 8, "byte_order": "middle", "iec_location": "%IB10" } ] } ] },
+      "errors": [ "byte_order: must be \"little\" or \"big\"" ] },
+    { "name": "sent signal on an input", "raw": { "tx": [ { "id": 1, "period_ms": 10,
+        "signals": [ { "start_bit": 0, "length": 8, "iec_location": "%IB1" } ] } ] },
+      "errors": [ "a sent signal needs an output (%Q)" ] },
+    { "name": "received status of the wrong size", "raw": { "rx": [ { "id": 1, "status_location": "%IB1" } ] },
+      "errors": [ "status_location: status_location must be a %IX location" ] },
+    { "name": "send entry without timing", "raw": { "tx": [ { "id": 1 } ] },
+      "errors": [ "networks[0].raw.tx[0]: needs period_ms, on_change or trigger_location to be sent" ] },
+    { "name": "period out of range", "raw": { "tx": [ { "id": 1, "period_ms": 0 } ] },
+      "errors": [ "period_ms: must be a whole number 1..60000", "needs period_ms, on_change or trigger_location" ] },
+    { "name": "same identifier sent twice", "raw": { "tx": [ { "id": 1, "period_ms": 10 }, { "id": 1, "on_change": true } ] },
+      "errors": [ "networks[0].raw.tx[1]: identifier 0x1 is also sent by networks[0].raw.tx[0]" ] },
+    { "name": "same number, other format", "raw": { "tx": [ { "id": 1, "period_ms": 10 }, { "id": 1, "extended": true, "period_ms": 10 } ] },
+      "errors": [] },
+    { "name": "remote frame with signals", "raw": { "tx": [ { "id": 1, "rtr": true, "period_ms": 10,
+        "signals": [ { "start_bit": 0, "length": 8, "iec_location": "%QB1" } ] } ] },
+      "errors": [ "a remote frame carries no data" ] },
+    { "name": "listen-only network sends", "listen_only": true, "raw": { "tx": [ { "id": 1, "period_ms": 10 } ] },
+      "errors": [ "networks[0].raw.tx: a listen-only network cannot send" ] },
+    { "name": "listen-only network receives", "listen_only": true, "raw": { "rx": [ { "id": 1 } ] }, "errors": [] },
+    { "name": "unknown field", "raw": { "rx": [ { "id": 1, "colour": "red" } ] },
+      "errors": [], "warnings": [ "networks[0].raw.rx[0].colour: unknown field 'colour' is ignored" ] },
+    { "name": "overlapping signals", "raw": { "rx": [ { "id": 1, "signals": [
+        { "name": "A", "start_bit": 0, "length": 8, "iec_location": "%IB1" },
+        { "name": "B", "start_bit": 4, "length": 8, "iec_location": "%IB2" } ] } ] },
+      "errors": [], "warnings": [ "signal B overlaps another signal" ] },
+    { "name": "protocol identifier", "protocol_ids": { "0x205": "RPDO1 of node 5" },
+      "raw": { "tx": [ { "name": "Fake", "id": 517, "period_ms": 10 } ] },
+      "errors": [ "networks[0].raw.tx[0]: 0x205 is RPDO1 of node 5; set override_protocol to send it as a raw message" ] },
+    { "name": "protocol identifier overridden", "protocol_ids": { "0x205": "RPDO1 of node 5" },
+      "raw": { "tx": [ { "name": "Fake", "id": 517, "period_ms": 10, "override_protocol": true } ] },
+      "errors": [] }
+  ]
+}

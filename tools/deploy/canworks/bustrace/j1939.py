@@ -315,6 +315,9 @@ class J1939Decoder(Decoder):
     def decode(self, f):
         if f.gap or f.err:
             return super().decode(f)
+        r = self.decode_raw(f)
+        if r is not None:
+            return r
         if not f.ext:
             return Decoded("other", None, "", "11-bit frame on a J1939 network")
         s = split_id(f.can_id)

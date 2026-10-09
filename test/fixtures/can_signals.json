@@ -1,0 +1,1085 @@
+{
+ "comment": "Raw signal vectors decoded and encoded with cantools (scaling off). 'packed' is the value packed into zero bytes. Used by the C++, ST and Python packers.",
+ "cases": [
+  {
+   "start_bit": 0,
+   "length": 12,
+   "big_endian": false,
+   "signed": true,
+   "data": "ff0f000000000000",
+   "value": -1,
+   "packed": "ff0f000000000000"
+  },
+  {
+   "start_bit": 7,
+   "length": 16,
+   "big_endian": true,
+   "signed": false,
+   "data": "1234000000000000",
+   "value": 4660,
+   "packed": "1234000000000000"
+  },
+  {
+   "start_bit": 0,
+   "length": 64,
+   "big_endian": false,
+   "signed": false,
+   "data": "0102030405060708",
+   "value": 578437695752307201,
+   "packed": "0102030405060708"
+  },
+  {
+   "start_bit": 7,
+   "length": 64,
+   "big_endian": true,
+   "signed": true,
+   "data": "8000000000000001",
+   "value": -9223372036854775807,
+   "packed": "8000000000000001"
+  },
+  {
+   "start_bit": 3,
+   "length": 1,
+   "big_endian": false,
+   "signed": false,
+   "data": "0800000000000000",
+   "value": 1,
+   "packed": "0800000000000000"
+  },
+  {
+   "start_bit": 60,
+   "length": 4,
+   "big_endian": false,
+   "signed": true,
+   "data": "00000000000000f0",
+   "value": -1,
+   "packed": "00000000000000f0"
+  },
+  {
+   "start_bit": 46,
+   "length": 16,
+   "big_endian": false,
+   "signed": false,
+   "data": "0d3756759e59a946",
+   "value": 6821,
+   "packed": "000000000040a906"
+  },
+  {
+   "start_bit": 32,
+   "length": 9,
+   "big_endian": true,
+   "signed": false,
+   "data": "299905be9353ef31",
+   "value": 339,
+   "packed": "0000000001530000"
+  },
+  {
+   "start_bit": 47,
+   "length": 15,
+   "big_endian": true,
+   "signed": false,
+   "data": "4d70f71d3f058589",
+   "value": 706,
+   "packed": "0000000000058400"
+  },
+  {
+   "start_bit": 1,
+   "length": 17,
+   "big_endian": true,
+   "signed": true,
+   "data": "affef7d256fcbd17",
+   "value": -133,
+   "packed": "03fef60000000000"
+  },
+  {
+   "start_bit": 34,
+   "length": 15,
+   "big_endian": false,
+   "signed": false,
+   "data": "11c1b73c672500d6",
+   "value": 2393,
+   "packed": "0000000064250000"
+  },
+  {
+   "start_bit": 43,
+   "length": 16,
+   "big_endian": false,
+   "signed": false,
+   "data": "3e672e5ad1c1f297",
+   "value": 65112,
+   "packed": "0000000000c0f207"
+  },
+  {
+   "start_bit": 12,
+   "length": 15,
+   "big_endian": true,
+   "signed": true,
+   "data": "b05c320ec004370e",
+   "value": -3896,
+   "packed": "001c320000000000"
+  },
+  {
+   "start_bit": 6,
+   "length": 16,
+   "big_endian": true,
+   "signed": true,
+   "data": "9760d5fb443d6044",
+   "value": 11969,
+   "packed": "1760800000000000"
+  },
+  {
+   "start_bit": 24,
+   "length": 16,
+   "big_endian": true,
+   "signed": true,
+   "data": "c78bedb179be581e",
+   "value": -17185,
+   "packed": "0000000179be0000"
+  },
+  {
+   "start_bit": 20,
+   "length": 7,
+   "big_endian": true,
+   "signed": false,
+   "data": "ec0a6a30055a015a",
+   "value": 40,
+   "packed": "00000a0000000000"
+  },
+  {
+   "start_bit": 41,
+   "length": 9,
+   "big_endian": false,
+   "signed": false,
+   "data": "1599eff0ffa677f8",
+   "value": 467,
+   "packed": "0000000000a60300"
+  },
+  {
+   "start_bit": 25,
+   "length": 1,
+   "big_endian": true,
+   "signed": false,
+   "data": "9fba6d07b5ecb28e",
+   "value": 1,
+   "packed": "0000000200000000"
+  },
+  {
+   "start_bit": 25,
+   "length": 3,
+   "big_endian": true,
+   "signed": false,
+   "data": "ad3c83ed1e60d4b5",
+   "value": 2,
+   "packed": "0000000100000000"
+  },
+  {
+   "start_bit": 21,
+   "length": 17,
+   "big_endian": true,
+   "signed": false,
+   "data": "74f44f9d73c68d9c",
+   "value": 31979,
+   "packed": "00000f9d60000000"
+  },
+  {
+   "start_bit": 31,
+   "length": 32,
+   "big_endian": false,
+   "signed": true,
+   "data": "2496df02ad23ce72",
+   "value": -442742950,
+   "packed": "00000000ad23ce72"
+  },
+  {
+   "start_bit": 6,
+   "length": 31,
+   "big_endian": true,
+   "signed": true,
+   "data": "10d73412969d80ee",
+   "value": 282539026,
+   "packed": "10d7341200000000"
+  },
+  {
+   "start_bit": 28,
+   "length": 32,
+   "big_endian": false,
+   "signed": true,
+   "data": "7a633fc5c0d0ca28",
+   "value": -1934816244,
+   "packed": "000000c0c0d0ca08"
+  },
+  {
+   "start_bit": 7,
+   "length": 2,
+   "big_endian": false,
+   "signed": false,
+   "data": "e3ac4891c107d733",
+   "value": 1,
+   "packed": "8000000000000000"
+  },
+  {
+   "start_bit": 14,
+   "length": 16,
+   "big_endian": false,
+   "signed": true,
+   "data": "4b854f81e7c48806",
+   "value": 1342,
+   "packed": "00804f0100000000"
+  },
+  {
+   "start_bit": 6,
+   "length": 8,
+   "big_endian": true,
+   "signed": true,
+   "data": "fda75cdc052ed64f",
+   "value": -5,
+   "packed": "7d80000000000000"
+  },
+  {
+   "start_bit": 51,
+   "length": 7,
+   "big_endian": false,
+   "signed": true,
+   "data": "d17931b797472f07",
+   "value": -27,
+   "packed": "0000000000002803"
+  },
+  {
+   "start_bit": 42,
+   "length": 17,
+   "big_endian": false,
+   "signed": true,
+   "data": "7b6a3cb750ee2f33",
+   "value": 52219,
+   "packed": "0000000000ec2f03"
+  },
+  {
+   "start_bit": 11,
+   "length": 12,
+   "big_endian": true,
+   "signed": true,
+   "data": "cd543ac3dfb547d2",
+   "value": 1082,
+   "packed": "00043a0000000000"
+  },
+  {
+   "start_bit": 17,
+   "length": 31,
+   "big_endian": false,
+   "signed": false,
+   "data": "7a0ef4fd303c1afe",
+   "value": 504921850,
+   "packed": "0000f4fd303c0000"
+  },
+  {
+   "start_bit": 15,
+   "length": 3,
+   "big_endian": true,
+   "signed": true,
+   "data": "645358ec0131e6aa",
+   "value": 2,
+   "packed": "0040000000000000"
+  },
+  {
+   "start_bit": 3,
+   "length": 17,
+   "big_endian": true,
+   "signed": true,
+   "data": "fe52e40ce2463580",
+   "value": -13732,
+   "packed": "0e52e00000000000"
+  },
+  {
+   "start_bit": 45,
+   "length": 12,
+   "big_endian": true,
+   "signed": false,
+   "data": "2e8384c3e860892d",
+   "value": 2082,
+   "packed": "0000000000208800"
+  },
+  {
+   "start_bit": 40,
+   "length": 12,
+   "big_endian": false,
+   "signed": false,
+   "data": "636acfcdc60322a9",
+   "value": 515,
+   "packed": "0000000000030200"
+  },
+  {
+   "start_bit": 13,
+   "length": 8,
+   "big_endian": true,
+   "signed": true,
+   "data": "aea3308397608dfe",
+   "value": -116,
+   "packed": "0023000000000000"
+  },
+  {
+   "start_bit": 9,
+   "length": 15,
+   "big_endian": false,
+   "signed": false,
+   "data": "0e74104a6d78268c",
+   "value": 2106,
+   "packed": "0074100000000000"
+  },
+  {
+   "start_bit": 27,
+   "length": 7,
+   "big_endian": false,
+   "signed": false,
+   "data": "9847ae65e7820815",
+   "value": 108,
+   "packed": "0000006003000000"
+  },
+  {
+   "start_bit": 12,
+   "length": 32,
+   "big_endian": false,
+   "signed": false,
+   "data": "4e15e7e7c3677c47",
+   "value": 2084470385,
+   "packed": "0010e7e7c3070000"
+  },
+  {
+   "start_bit": 28,
+   "length": 2,
+   "big_endian": true,
+   "signed": true,
+   "data": "9c8450d6ac7f79ef",
+   "value": -2,
+   "packed": "0000001000000000"
+  },
+  {
+   "start_bit": 35,
+   "length": 8,
+   "big_endian": false,
+   "signed": false,
+   "data": "976beb2ab80e3d23",
+   "value": 215,
+   "packed": "00000000b8060000"
+  },
+  {
+   "start_bit": 17,
+   "length": 17,
+   "big_endian": false,
+   "signed": true,
+   "data": "2952f85e03042bdc",
+   "value": -20612,
+   "packed": "0000f85e03000000"
+  },
+  {
+   "start_bit": 39,
+   "length": 24,
+   "big_endian": true,
+   "signed": true,
+   "data": "01c5e864f9b3c0d5",
+   "value": -412736,
+   "packed": "00000000f9b3c000"
+  },
+  {
+   "start_bit": 63,
+   "length": 7,
+   "big_endian": true,
+   "signed": false,
+   "data": "9c5ce32556c36a72",
+   "value": 57,
+   "packed": "0000000000000072"
+  },
+  {
+   "start_bit": 13,
+   "length": 33,
+   "big_endian": false,
+   "signed": true,
+   "data": "b12ce94d6257775c",
+   "value": 3138547529,
+   "packed": "0020e94d62170000"
+  },
+  {
+   "start_bit": 57,
+   "length": 7,
+   "big_endian": false,
+   "signed": false,
+   "data": "8f9116f8e125472d",
+   "value": 22,
+   "packed": "000000000000002c"
+  },
+  {
+   "start_bit": 18,
+   "length": 9,
+   "big_endian": false,
+   "signed": true,
+   "data": "f30a4217e6f83837",
+   "value": -48,
+   "packed": "0000400700000000"
+  },
+  {
+   "start_bit": 5,
+   "length": 2,
+   "big_endian": false,
+   "signed": false,
+   "data": "3907355a1218d164",
+   "value": 1,
+   "packed": "2000000000000000"
+  },
+  {
+   "start_bit": 39,
+   "length": 2,
+   "big_endian": false,
+   "signed": true,
+   "data": "1881c5111975d17b",
+   "value": -2,
+   "packed": "0000000000010000"
+  },
+  {
+   "start_bit": 1,
+   "length": 17,
+   "big_endian": true,
+   "signed": false,
+   "data": "fd99d097bfbd1b4e",
+   "value": 52456,
+   "packed": "0199d00000000000"
+  },
+  {
+   "start_bit": 49,
+   "length": 2,
+   "big_endian": true,
+   "signed": true,
+   "data": "a8b4c782f8b3c912",
+   "value": 1,
+   "packed": "0000000000000100"
+  },
+  {
+   "start_bit": 63,
+   "length": 2,
+   "big_endian": true,
+   "signed": false,
+   "data": "3527394d2cff6803",
+   "value": 0,
+   "packed": "0000000000000000"
+  },
+  {
+   "start_bit": 8,
+   "length": 48,
+   "big_endian": true,
+   "signed": true,
+   "data": "c1d2e23483f51133",
+   "value": 124357590026393,
+   "packed": "0000e23483f51132"
+  },
+  {
+   "start_bit": 49,
+   "length": 12,
+   "big_endian": false,
+   "signed": true,
+   "data": "13f45fec1edfd9ea",
+   "value": 1388,
+   "packed": "000000000000d80a"
+  },
+  {
+   "start_bit": 43,
+   "length": 15,
+   "big_endian": true,
+   "signed": false,
+   "data": "e41ba775d5bf0b9e",
+   "value": 30812,
+   "packed": "00000000000f0b80"
+  },
+  {
+   "start_bit": 5,
+   "length": 31,
+   "big_endian": true,
+   "signed": true,
+   "data": "cdea5704d22b3f42",
+   "value": 466923017,
+   "packed": "0dea570480000000"
+  },
+  {
+   "start_bit": 31,
+   "length": 15,
+   "big_endian": true,
+   "signed": true,
+   "data": "9c5df9ceb97e3615",
+   "value": -6308,
+   "packed": "000000ceb8000000"
+  },
+  {
+   "start_bit": 25,
+   "length": 15,
+   "big_endian": false,
+   "signed": true,
+   "data": "d3c1db89d509c9f0",
+   "value": -5436,
+   "packed": "00000088d5000000"
+  },
+  {
+   "start_bit": 55,
+   "length": 2,
+   "big_endian": false,
+   "signed": true,
+   "data": "d69c0ef4215a3936",
+   "value": 0,
+   "packed": "0000000000000000"
+  },
+  {
+   "start_bit": 18,
+   "length": 12,
+   "big_endian": true,
+   "signed": true,
+   "data": "98bbea0bdd2ec4dc",
+   "value": 1047,
+   "packed": "0000020b80000000"
+  },
+  {
+   "start_bit": 39,
+   "length": 17,
+   "big_endian": false,
+   "signed": true,
+   "data": "82c0cf2769bd91ea",
+   "value": -56454,
+   "packed": "0000000000bd9100"
+  },
+  {
+   "start_bit": 1,
+   "length": 8,
+   "big_endian": false,
+   "signed": true,
+   "data": "108ca6e552eaaced",
+   "value": 8,
+   "packed": "1000000000000000"
+  },
+  {
+   "start_bit": 26,
+   "length": 24,
+   "big_endian": true,
+   "signed": false,
+   "data": "50fee83123f7be43",
+   "value": 2391799,
+   "packed": "0000000123f7b800"
+  },
+  {
+   "start_bit": 6,
+   "length": 7,
+   "big_endian": false,
+   "signed": false,
+   "data": "cd50efa2ed945ece",
+   "value": 67,
+   "packed": "c010000000000000"
+  },
+  {
+   "start_bit": 51,
+   "length": 2,
+   "big_endian": false,
+   "signed": false,
+   "data": "c36bcbd70f1cc396",
+   "value": 0,
+   "packed": "0000000000000000"
+  },
+  {
+   "start_bit": 36,
+   "length": 8,
+   "big_endian": false,
+   "signed": true,
+   "data": "6ba2a3cee1288eb9",
+   "value": -114,
+   "packed": "00000000e0080000"
+  },
+  {
+   "start_bit": 21,
+   "length": 3,
+   "big_endian": false,
+   "signed": true,
+   "data": "041fe09ed3ab21d5",
+   "value": -1,
+   "packed": "0000e00000000000"
+  },
+  {
+   "start_bit": 17,
+   "length": 24,
+   "big_endian": true,
+   "signed": true,
+   "data": "aeed0d8cdf812fa5",
+   "value": 6502368,
+   "packed": "0000018cdf800000"
+  },
+  {
+   "start_bit": 33,
+   "length": 17,
+   "big_endian": false,
+   "signed": true,
+   "data": "27915b9d933710a3",
+   "value": 7113,
+   "packed": "0000000092370000"
+  },
+  {
+   "start_bit": 16,
+   "length": 16,
+   "big_endian": true,
+   "signed": false,
+   "data": "f0f73ad6daca6b56",
+   "value": 27501,
+   "packed": "000000d6da000000"
+  },
+  {
+   "start_bit": 12,
+   "length": 8,
+   "big_endian": false,
+   "signed": true,
+   "data": "378adfd3575a62cc",
+   "value": -8,
+   "packed": "00800f0000000000"
+  },
+  {
+   "start_bit": 13,
+   "length": 7,
+   "big_endian": false,
+   "signed": false,
+   "data": "9d083d5d9be5e2d9",
+   "value": 104,
+   "packed": "00000d0000000000"
+  },
+  {
+   "start_bit": 44,
+   "length": 7,
+   "big_endian": false,
+   "signed": true,
+   "data": "344b17021b24f1d1",
+   "value": 18,
+   "packed": "0000000000200100"
+  },
+  {
+   "start_bit": 2,
+   "length": 1,
+   "big_endian": true,
+   "signed": false,
+   "data": "c82efc21eb1c096f",
+   "value": 0,
+   "packed": "0000000000000000"
+  },
+  {
+   "start_bit": 28,
+   "length": 15,
+   "big_endian": false,
+   "signed": true,
+   "data": "36a66600bed9a6a6",
+   "value": 7136,
+   "packed": "00000000be010000"
+  },
+  {
+   "start_bit": 20,
+   "length": 16,
+   "big_endian": false,
+   "signed": true,
+   "data": "40cccbef865711b6",
+   "value": 28412,
+   "packed": "0000c0ef06000000"
+  },
+  {
+   "start_bit": 52,
+   "length": 8,
+   "big_endian": true,
+   "signed": false,
+   "data": "e3901ecb814986fc",
+   "value": 55,
+   "packed": "00000000000006e0"
+  },
+  {
+   "start_bit": 12,
+   "length": 17,
+   "big_endian": true,
+   "signed": true,
+   "data": "b1dbf8d878649400",
+   "value": -16499,
+   "packed": "001bf8d000000000"
+  },
+  {
+   "start_bit": 49,
+   "length": 12,
+   "big_endian": false,
+   "signed": false,
+   "data": "6e29c6fabc5eef4e",
+   "value": 1911,
+   "packed": "000000000000ee0e"
+  },
+  {
+   "start_bit": 37,
+   "length": 1,
+   "big_endian": true,
+   "signed": true,
+   "data": "7f52e6bfc0b0bd18",
+   "value": 0,
+   "packed": "0000000000000000"
+  },
+  {
+   "start_bit": 46,
+   "length": 7,
+   "big_endian": false,
+   "signed": false,
+   "data": "6a6dd8119d643e71",
+   "value": 121,
+   "packed": "0000000000401e00"
+  },
+  {
+   "start_bit": 35,
+   "length": 2,
+   "big_endian": true,
+   "signed": false,
+   "data": "42bd0ccf3fdfe560",
+   "value": 3,
+   "packed": "000000000c000000"
+  },
+  {
+   "start_bit": 28,
+   "length": 2,
+   "big_endian": true,
+   "signed": false,
+   "data": "7d433db4afe2c38f",
+   "value": 2,
+   "packed": "0000001000000000"
+  },
+  {
+   "start_bit": 6,
+   "length": 2,
+   "big_endian": true,
+   "signed": true,
+   "data": "3557200723b672ec",
+   "value": 1,
+   "packed": "2000000000000000"
+  },
+  {
+   "start_bit": 8,
+   "length": 16,
+   "big_endian": false,
+   "signed": false,
+   "data": "4c1cba0d516fd102",
+   "value": 47644,
+   "packed": "001cba0000000000"
+  },
+  {
+   "start_bit": 13,
+   "length": 1,
+   "big_endian": true,
+   "signed": true,
+   "data": "170a49c1ac9ac4c6",
+   "value": 0,
+   "packed": "0000000000000000"
+  },
+  {
+   "start_bit": 28,
+   "length": 32,
+   "big_endian": false,
+   "signed": true,
+   "data": "c1afc30438195d4c",
+   "value": -976120960,
+   "packed": "0000000038195d0c"
+  },
+  {
+   "start_bit": 7,
+   "length": 15,
+   "big_endian": true,
+   "signed": true,
+   "data": "0697d4cc4fa91275",
+   "value": 843,
+   "packed": "0696000000000000"
+  },
+  {
+   "start_bit": 18,
+   "length": 2,
+   "big_endian": true,
+   "signed": false,
+   "data": "f20b7a772961fcd0",
+   "value": 1,
+   "packed": "0000020000000000"
+  },
+  {
+   "start_bit": 17,
+   "length": 15,
+   "big_endian": false,
+   "signed": false,
+   "data": "190f3b82eeb2f52d",
+   "value": 16669,
+   "packed": "00003a8200000000"
+  },
+  {
+   "start_bit": 19,
+   "length": 8,
+   "big_endian": true,
+   "signed": true,
+   "data": "60c077cc3fd8a343",
+   "value": 124,
+   "packed": "000007c000000000"
+  },
+  {
+   "start_bit": 0,
+   "length": 7,
+   "big_endian": false,
+   "signed": false,
+   "data": "fc920ed40f2b04e3",
+   "value": 124,
+   "packed": "7c00000000000000"
+  },
+  {
+   "start_bit": 16,
+   "length": 15,
+   "big_endian": false,
+   "signed": false,
+   "data": "87f58617d26b9192",
+   "value": 6022,
+   "packed": "0000861700000000"
+  },
+  {
+   "start_bit": 18,
+   "length": 9,
+   "big_endian": false,
+   "signed": false,
+   "data": "d38eaab13428f023",
+   "value": 106,
+   "packed": "0000a80100000000"
+  },
+  {
+   "start_bit": 31,
+   "length": 17,
+   "big_endian": true,
+   "signed": true,
+   "data": "f9a87c52b4731d5f",
+   "value": 42344,
+   "packed": "00000052b4000000"
+  },
+  {
+   "start_bit": 9,
+   "length": 3,
+   "big_endian": false,
+   "signed": false,
+   "data": "094f58b99eb7f33f",
+   "value": 7,
+   "packed": "000e000000000000"
+  },
+  {
+   "start_bit": 28,
+   "length": 17,
+   "big_endian": false,
+   "signed": true,
+   "data": "eb2f8c6bcf69258e",
+   "value": 40182,
+   "packed": "00000060cf090000"
+  },
+  {
+   "start_bit": 50,
+   "length": 7,
+   "big_endian": true,
+   "signed": false,
+   "data": "05f29ed1f8edf676",
+   "value": 103,
+   "packed": "0000000000000670"
+  },
+  {
+   "start_bit": 3,
+   "length": 32,
+   "big_endian": true,
+   "signed": false,
+   "data": "435bd0c0b136ed99",
+   "value": 901581835,
+   "packed": "035bd0c0b0000000"
+  },
+  {
+   "start_bit": 31,
+   "length": 1,
+   "big_endian": true,
+   "signed": true,
+   "data": "ea5ab98d6a543ef4",
+   "value": -1,
+   "packed": "0000008000000000"
+  },
+  {
+   "start_bit": 13,
+   "length": 7,
+   "big_endian": false,
+   "signed": true,
+   "data": "fedf265f0e295ac9",
+   "value": 54,
+   "packed": "00c0060000000000"
+  },
+  {
+   "start_bit": 21,
+   "length": 31,
+   "big_endian": false,
+   "signed": true,
+   "data": "fd4a71fb69abd73e",
+   "value": 1029394395,
+   "packed": "000060fb69ab0700"
+  },
+  {
+   "start_bit": 12,
+   "length": 48,
+   "big_endian": true,
+   "signed": false,
+   "data": "ed8e318f39920ade",
+   "value": 124848152809558,
+   "packed": "000e318f39920ac0"
+  },
+  {
+   "start_bit": 44,
+   "length": 16,
+   "big_endian": false,
+   "signed": false,
+   "data": "22cec1547f94a9ae",
+   "value": 60057,
+   "packed": "000000000090a90e"
+  },
+  {
+   "start_bit": 55,
+   "length": 9,
+   "big_endian": true,
+   "signed": true,
+   "data": "ee5af4cea71c807c",
+   "value": -256,
+   "packed": "0000000000008000"
+  },
+  {
+   "start_bit": 46,
+   "length": 15,
+   "big_endian": false,
+   "signed": false,
+   "data": "60fb03f39a280312",
+   "value": 18444,
+   "packed": "0000000000000312"
+  },
+  {
+   "start_bit": 23,
+   "length": 2,
+   "big_endian": true,
+   "signed": false,
+   "data": "38bae2acddbd6fcb",
+   "value": 3,
+   "packed": "0000c00000000000"
+  },
+  {
+   "start_bit": 25,
+   "length": 17,
+   "big_endian": false,
+   "signed": false,
+   "data": "0422259fa086021d",
+   "value": 86095,
+   "packed": "0000009ea0020000"
+  },
+  {
+   "start_bit": 2,
+   "length": 33,
+   "big_endian": true,
+   "signed": false,
+   "data": "ea8665d4feb16b5e",
+   "value": 2711188799,
+   "packed": "028665d4fc000000"
+  },
+  {
+   "start_bit": 15,
+   "length": 8,
+   "big_endian": true,
+   "signed": false,
+   "data": "12734c825d17a5e5",
+   "value": 115,
+   "packed": "0073000000000000"
+  },
+  {
+   "start_bit": 37,
+   "length": 24,
+   "big_endian": false,
+   "signed": true,
+   "data": "a00006e2909909f7",
+   "value": -4698932,
+   "packed": "0000000080990917"
+  },
+  {
+   "start_bit": 35,
+   "length": 24,
+   "big_endian": false,
+   "signed": false,
+   "data": "7db79f74690ca13b",
+   "value": 7610765,
+   "packed": "00000000680ca103"
+  },
+  {
+   "start_bit": 52,
+   "length": 12,
+   "big_endian": true,
+   "signed": true,
+   "data": "ae88f02fb33441cc",
+   "value": 230,
+   "packed": "00000000000001cc"
+  },
+  {
+   "start_bit": 21,
+   "length": 2,
+   "big_endian": true,
+   "signed": false,
+   "data": "470fe4cabade2338",
+   "value": 2,
+   "packed": "0000200000000000"
+  },
+  {
+   "start_bit": 30,
+   "length": 31,
+   "big_endian": false,
+   "signed": false,
+   "data": "0ad575cc99ecfdb7",
+   "value": 1610068583,
+   "packed": "000000c099ecfd17"
+  },
+  {
+   "start_bit": 26,
+   "length": 8,
+   "big_endian": false,
+   "signed": false,
+   "data": "269e5defd155c75d",
+   "value": 123,
+   "packed": "000000ec01000000"
+  },
+  {
+   "start_bit": 17,
+   "length": 31,
+   "big_endian": true,
+   "signed": false,
+   "data": "989d8e6aae8b8084",
+   "value": 1297469808,
+   "packed": "0000026aae8b8000"
+  },
+  {
+   "start_bit": 10,
+   "length": 1,
+   "big_endian": true,
+   "signed": true,
+   "data": "cf3188e3b3bf4a64",
+   "value": 0,
+   "packed": "0000000000000000"
+  },
+  {
+   "start_bit": 17,
+   "length": 16,
+   "big_endian": false,
+   "signed": false,
+   "data": "f325dc0b71f18d3f",
+   "value": 34286,
+   "packed": "0000dc0b01000000"
+  },
+  {
+   "start_bit": 18,
+   "length": 3,
+   "big_endian": true,
+   "signed": true,
+   "data": "79a983e884d09e5e",
+   "value": 3,
+   "packed": "0000030000000000"
+  },
+  {
+   "start_bit": 26,
+   "length": 8,
+   "big_endian": false,
+   "signed": false,
+   "data": "1b3ac91fe61be044",
+   "value": 135,
+   "packed": "0000001c02000000"
+  }
+ ]
+}

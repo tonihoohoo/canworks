@@ -57,6 +57,8 @@ ABOUT = {
     "error": ("An error frame is the CAN controller's report of a bus problem. SocketCAN delivers it as a frame "
               "whose identifier says the error class and whose data gives the details. It is not a frame that "
               "was on the bus."),
+    "raw": ("A raw CAN message of the configuration (its `raw` object): the plugin sends or receives it as it "
+            "is, with the signals the configuration gives. It belongs to no protocol."),
     "other": "This identifier is not one of the CANopen predefined identifiers and not configured, so its data has "
              "no known meaning.",
     "ext": ("An extended (29-bit) identifier. CANopen uses 11-bit identifiers; extended frames on the same bus come "

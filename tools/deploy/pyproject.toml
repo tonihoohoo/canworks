@@ -22,7 +22,7 @@ canworks-j1939-sim = "canworks.j1939.sim:main"
 
 [tool.setuptools]
 packages = ["canworks", "canworks.bustrace", "canworks.localbus", "canworks.configurator", "canworks._lely_dcf",
-            "canworks.j1939"]
+            "canworks.j1939", "canworks.raw"]
 
 [tool.setuptools.package-data]
 canworks = ["schema/*.json", "library/*.stlib"]

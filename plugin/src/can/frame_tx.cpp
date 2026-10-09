@@ -89,6 +89,25 @@ std::string cob_id_use(const Config& cfg, uint32_t id, bool ext) {
   return "";
 }
 
+std::string protocol_id_use(const Config& cfg, uint32_t id, bool ext) {
+  if (cfg.is_plain()) return "";
+  if (cfg.is_j1939()) {
+    if (!ext) return "";
+    unsigned sa = id & 0xFF;
+    const J1939Ecu& e = cfg.j1939.ecu;
+    if (sa == e.address || (e.has_range && sa >= e.range_low && sa <= e.range_high))
+      return "a J1939 frame from the ECU's address " + std::to_string(sa);
+    return "";
+  }
+  return cob_id_use(cfg, id, ext);
+}
+
+std::string raw_id_use(const Config& cfg, uint32_t id, bool ext) {
+  for (const auto& m : cfg.raw.tx)
+    if (m.id == id && m.extended == ext) return "raw message " + m.label();
+  return "";
+}
+
 // ---------------------------------------------------------------------------
 // CAN_RAW socket
 
