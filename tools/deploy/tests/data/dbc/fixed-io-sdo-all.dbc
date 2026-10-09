@@ -35,7 +35,7 @@ BO_ 1538 pingpong_SDO_Rx: 8 Master
  SG_ Device_type m4096 : 32|32@1+ (1,0) [0|4294967295] "" pingpong
  SG_ Error_register m4097 : 32|8@1+ (1,0) [0|255] "" pingpong
  SG_ COB_ID_SYNC_message m4101 : 32|32@1+ (1,0) [0|4294967295] "" pingpong
- SG_ Producer_heartbeat_time m4119 : 32|16@1+ (1,0) [0|65535] "" pingpong
+ SG_ Producer_heartbeat_time m4119 : 32|16@1+ (1,0) [0|65535] "ms" pingpong
  SG_ Identity_object_Highest_sub_index_supported m4120 : 32|8@1+ (1,0) [0|255] "" pingpong
  SG_ Identity_object_Vendor_ID m69656 : 32|32@1+ (1,0) [0|4294967295] "" pingpong
  SG_ Identity_object_Product_code m135192 : 32|32@1+ (1,0) [0|4294967295] "" pingpong
@@ -72,7 +72,7 @@ BO_ 1410 pingpong_SDO_Tx: 8 pingpong
  SG_ Device_type m4096 : 32|32@1+ (1,0) [0|4294967295] "" Master
  SG_ Error_register m4097 : 32|8@1+ (1,0) [0|255] "" Master
  SG_ COB_ID_SYNC_message m4101 : 32|32@1+ (1,0) [0|4294967295] "" Master
- SG_ Producer_heartbeat_time m4119 : 32|16@1+ (1,0) [0|65535] "" Master
+ SG_ Producer_heartbeat_time m4119 : 32|16@1+ (1,0) [0|65535] "ms" Master
  SG_ Identity_object_Highest_sub_index_supported m4120 : 32|8@1+ (1,0) [0|255] "" Master
  SG_ Identity_object_Vendor_ID m69656 : 32|32@1+ (1,0) [0|4294967295] "" Master
  SG_ Identity_object_Product_code m135192 : 32|32@1+ (1,0) [0|4294967295] "" Master
@@ -121,32 +121,32 @@ CM_ BO_ 130 "node 2 emergency";
 CM_ BO_ 1538 "node 2 SDO request (client to server)";
 CM_ SG_ 1538 Command "SDO command specifier. Only expedited transfers (up to 4 bytes) decode; on an abort (0x80) bytes 4-7 hold the abort code, shown as the object's data.";
 CM_ SG_ 1538 Object "index + subindex * 65536 (bytes 1-3 of the frame)";
-CM_ SG_ 1538 Device_type "0x1000:0 UNSIGNED32";
-CM_ SG_ 1538 Error_register "0x1001:0 UNSIGNED8";
-CM_ SG_ 1538 COB_ID_SYNC_message "0x1005:0 UNSIGNED32";
-CM_ SG_ 1538 Producer_heartbeat_time "0x1017:0 UNSIGNED16, startup SDO, value 100";
-CM_ SG_ 1538 Identity_object_Highest_sub_index_supported "0x1018:0 UNSIGNED8";
-CM_ SG_ 1538 Identity_object_Vendor_ID "0x1018:1 UNSIGNED32";
-CM_ SG_ 1538 Identity_object_Product_code "0x1018:2 UNSIGNED32";
-CM_ SG_ 1538 Identity_object_Revision_number "0x1018:3 UNSIGNED32";
-CM_ SG_ 1538 Identity_object_Serial_number "0x1018:4 UNSIGNED32";
-CM_ SG_ 1538 RPDO_communication_parameter_Highest_sub_index_supported "0x1400:0 UNSIGNED8";
-CM_ SG_ 1538 RPDO_communication_parameter_COB_ID_used_by_RPDO "0x1400:1 UNSIGNED32";
-CM_ SG_ 1538 RPDO_communication_parameter_Transmission_type "0x1400:2 UNSIGNED8";
-CM_ SG_ 1538 RPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO "0x1600:0 UNSIGNED8";
-CM_ SG_ 1538 RPDO_mapping_parameter_Application_object_1 "0x1600:1 UNSIGNED32";
-CM_ SG_ 1538 RPDO_mapping_parameter_Application_object_2 "0x1600:2 UNSIGNED32";
-CM_ SG_ 1538 TPDO_communication_parameter_Highest_sub_index_supported "0x1800:0 UNSIGNED8";
-CM_ SG_ 1538 TPDO_communication_parameter_COB_ID_used_by_TPDO "0x1800:1 UNSIGNED32";
-CM_ SG_ 1538 TPDO_communication_parameter_Transmission_type "0x1800:2 UNSIGNED8";
-CM_ SG_ 1538 TPDO_communication_parameter_Highest_sub_index_supported_1801_0 "0x1801:0 UNSIGNED8";
-CM_ SG_ 1538 TPDO_communication_parameter_COB_ID_used_by_TPDO_1801_1 "0x1801:1 UNSIGNED32";
-CM_ SG_ 1538 TPDO_communication_parameter_Transmission_type_1801_2 "0x1801:2 UNSIGNED8";
-CM_ SG_ 1538 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO "0x1A00:0 UNSIGNED8";
-CM_ SG_ 1538 TPDO_mapping_parameter_Application_object_1 "0x1A00:1 UNSIGNED32";
-CM_ SG_ 1538 TPDO_mapping_parameter_Application_object_2 "0x1A00:2 UNSIGNED32";
-CM_ SG_ 1538 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO_1A01_0 "0x1A01:0 UNSIGNED8";
-CM_ SG_ 1538 TPDO_mapping_parameter_Application_object_1_1A01_1 "0x1A01:1 UNSIGNED32";
+CM_ SG_ 1538 Device_type "0x1000:0 UNSIGNED32; Device type: the device profile number in the low 16 bits, profile-specific information in the high 16 bits";
+CM_ SG_ 1538 Error_register "0x1001:0 UNSIGNED8; Error register: a summary of the device's current errors, one bit per kind";
+CM_ SG_ 1538 COB_ID_SYNC_message "0x1005:0 UNSIGNED32; COB-ID of the SYNC message; bit 30 set means this device sends SYNC";
+CM_ SG_ 1538 Producer_heartbeat_time "0x1017:0 UNSIGNED16, startup SDO, value 100; Producer heartbeat time: how often the device sends its heartbeat; 0 means no heartbeat";
+CM_ SG_ 1538 Identity_object_Highest_sub_index_supported "0x1018:0 UNSIGNED8; Number of identity entries";
+CM_ SG_ 1538 Identity_object_Vendor_ID "0x1018:1 UNSIGNED32; Vendor ID, assigned by CiA";
+CM_ SG_ 1538 Identity_object_Product_code "0x1018:2 UNSIGNED32; Product code, set by the vendor";
+CM_ SG_ 1538 Identity_object_Revision_number "0x1018:3 UNSIGNED32; Revision number: major revision in the high 16 bits, minor in the low 16 bits";
+CM_ SG_ 1538 Identity_object_Serial_number "0x1018:4 UNSIGNED32; Serial number";
+CM_ SG_ 1538 RPDO_communication_parameter_Highest_sub_index_supported "0x1400:0 UNSIGNED8; Receive PDO communication parameters: how this device receives one PDO";
+CM_ SG_ 1538 RPDO_communication_parameter_COB_ID_used_by_RPDO "0x1400:1 UNSIGNED32; COB-ID of the receive PDO; bit 31 set means the PDO is off";
+CM_ SG_ 1538 RPDO_communication_parameter_Transmission_type "0x1400:2 UNSIGNED8; Transmission type: 0-240 the received data is applied at the next SYNC, 254 and 255 at once";
+CM_ SG_ 1538 RPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO "0x1600:0 UNSIGNED8; Number of mapped objects; set it to 0 before changing the mapping";
+CM_ SG_ 1538 RPDO_mapping_parameter_Application_object_1 "0x1600:1 UNSIGNED32; Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7";
+CM_ SG_ 1538 RPDO_mapping_parameter_Application_object_2 "0x1600:2 UNSIGNED32; Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7";
+CM_ SG_ 1538 TPDO_communication_parameter_Highest_sub_index_supported "0x1800:0 UNSIGNED8; Transmit PDO communication parameters: when and how this device sends one PDO";
+CM_ SG_ 1538 TPDO_communication_parameter_COB_ID_used_by_TPDO "0x1800:1 UNSIGNED32; COB-ID of the transmit PDO; bit 31 set means the PDO is off";
+CM_ SG_ 1538 TPDO_communication_parameter_Transmission_type "0x1800:2 UNSIGNED8; Transmission type: 1-240 sent every N SYNCs, 0 at a SYNC after a change, 254 and 255 on change or timer";
+CM_ SG_ 1538 TPDO_communication_parameter_Highest_sub_index_supported_1801_0 "0x1801:0 UNSIGNED8; Transmit PDO communication parameters: when and how this device sends one PDO";
+CM_ SG_ 1538 TPDO_communication_parameter_COB_ID_used_by_TPDO_1801_1 "0x1801:1 UNSIGNED32; COB-ID of the transmit PDO; bit 31 set means the PDO is off";
+CM_ SG_ 1538 TPDO_communication_parameter_Transmission_type_1801_2 "0x1801:2 UNSIGNED8; Transmission type: 1-240 sent every N SYNCs, 0 at a SYNC after a change, 254 and 255 on change or timer";
+CM_ SG_ 1538 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO "0x1A00:0 UNSIGNED8; Number of mapped objects; set it to 0 before changing the mapping";
+CM_ SG_ 1538 TPDO_mapping_parameter_Application_object_1 "0x1A00:1 UNSIGNED32; Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7";
+CM_ SG_ 1538 TPDO_mapping_parameter_Application_object_2 "0x1A00:2 UNSIGNED32; Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7";
+CM_ SG_ 1538 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO_1A01_0 "0x1A01:0 UNSIGNED8; Number of mapped objects; set it to 0 before changing the mapping";
+CM_ SG_ 1538 TPDO_mapping_parameter_Application_object_1_1A01_1 "0x1A01:1 UNSIGNED32; Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7";
 CM_ SG_ 1538 Read_inputs_8_bit_Highest_sub_index_supported "0x6000:0 UNSIGNED8";
 CM_ SG_ 1538 Read_inputs_8_bit_Read_inputs_0x1 "0x6000:1 UNSIGNED8";
 CM_ SG_ 1538 Read_inputs_8_bit_Read_inputs_0x2 "0x6000:2 UNSIGNED8";
@@ -157,32 +157,32 @@ CM_ SG_ 1538 Write_outputs_8_bit_Write_outputs_0x2 "0x6200:2 UNSIGNED8";
 CM_ BO_ 1410 "node 2 SDO response (server to client)";
 CM_ SG_ 1410 Command "SDO command specifier. Only expedited transfers (up to 4 bytes) decode; on an abort (0x80) bytes 4-7 hold the abort code, shown as the object's data.";
 CM_ SG_ 1410 Object "index + subindex * 65536 (bytes 1-3 of the frame)";
-CM_ SG_ 1410 Device_type "0x1000:0 UNSIGNED32";
-CM_ SG_ 1410 Error_register "0x1001:0 UNSIGNED8";
-CM_ SG_ 1410 COB_ID_SYNC_message "0x1005:0 UNSIGNED32";
-CM_ SG_ 1410 Producer_heartbeat_time "0x1017:0 UNSIGNED16, startup SDO, value 100";
-CM_ SG_ 1410 Identity_object_Highest_sub_index_supported "0x1018:0 UNSIGNED8";
-CM_ SG_ 1410 Identity_object_Vendor_ID "0x1018:1 UNSIGNED32";
-CM_ SG_ 1410 Identity_object_Product_code "0x1018:2 UNSIGNED32";
-CM_ SG_ 1410 Identity_object_Revision_number "0x1018:3 UNSIGNED32";
-CM_ SG_ 1410 Identity_object_Serial_number "0x1018:4 UNSIGNED32";
-CM_ SG_ 1410 RPDO_communication_parameter_Highest_sub_index_supported "0x1400:0 UNSIGNED8";
-CM_ SG_ 1410 RPDO_communication_parameter_COB_ID_used_by_RPDO "0x1400:1 UNSIGNED32";
-CM_ SG_ 1410 RPDO_communication_parameter_Transmission_type "0x1400:2 UNSIGNED8";
-CM_ SG_ 1410 RPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO "0x1600:0 UNSIGNED8";
-CM_ SG_ 1410 RPDO_mapping_parameter_Application_object_1 "0x1600:1 UNSIGNED32";
-CM_ SG_ 1410 RPDO_mapping_parameter_Application_object_2 "0x1600:2 UNSIGNED32";
-CM_ SG_ 1410 TPDO_communication_parameter_Highest_sub_index_supported "0x1800:0 UNSIGNED8";
-CM_ SG_ 1410 TPDO_communication_parameter_COB_ID_used_by_TPDO "0x1800:1 UNSIGNED32";
-CM_ SG_ 1410 TPDO_communication_parameter_Transmission_type "0x1800:2 UNSIGNED8";
-CM_ SG_ 1410 TPDO_communication_parameter_Highest_sub_index_supported_1801_0 "0x1801:0 UNSIGNED8";
-CM_ SG_ 1410 TPDO_communication_parameter_COB_ID_used_by_TPDO_1801_1 "0x1801:1 UNSIGNED32";
-CM_ SG_ 1410 TPDO_communication_parameter_Transmission_type_1801_2 "0x1801:2 UNSIGNED8";
-CM_ SG_ 1410 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO "0x1A00:0 UNSIGNED8";
-CM_ SG_ 1410 TPDO_mapping_parameter_Application_object_1 "0x1A00:1 UNSIGNED32";
-CM_ SG_ 1410 TPDO_mapping_parameter_Application_object_2 "0x1A00:2 UNSIGNED32";
-CM_ SG_ 1410 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO_1A01_0 "0x1A01:0 UNSIGNED8";
-CM_ SG_ 1410 TPDO_mapping_parameter_Application_object_1_1A01_1 "0x1A01:1 UNSIGNED32";
+CM_ SG_ 1410 Device_type "0x1000:0 UNSIGNED32; Device type: the device profile number in the low 16 bits, profile-specific information in the high 16 bits";
+CM_ SG_ 1410 Error_register "0x1001:0 UNSIGNED8; Error register: a summary of the device's current errors, one bit per kind";
+CM_ SG_ 1410 COB_ID_SYNC_message "0x1005:0 UNSIGNED32; COB-ID of the SYNC message; bit 30 set means this device sends SYNC";
+CM_ SG_ 1410 Producer_heartbeat_time "0x1017:0 UNSIGNED16, startup SDO, value 100; Producer heartbeat time: how often the device sends its heartbeat; 0 means no heartbeat";
+CM_ SG_ 1410 Identity_object_Highest_sub_index_supported "0x1018:0 UNSIGNED8; Number of identity entries";
+CM_ SG_ 1410 Identity_object_Vendor_ID "0x1018:1 UNSIGNED32; Vendor ID, assigned by CiA";
+CM_ SG_ 1410 Identity_object_Product_code "0x1018:2 UNSIGNED32; Product code, set by the vendor";
+CM_ SG_ 1410 Identity_object_Revision_number "0x1018:3 UNSIGNED32; Revision number: major revision in the high 16 bits, minor in the low 16 bits";
+CM_ SG_ 1410 Identity_object_Serial_number "0x1018:4 UNSIGNED32; Serial number";
+CM_ SG_ 1410 RPDO_communication_parameter_Highest_sub_index_supported "0x1400:0 UNSIGNED8; Receive PDO communication parameters: how this device receives one PDO";
+CM_ SG_ 1410 RPDO_communication_parameter_COB_ID_used_by_RPDO "0x1400:1 UNSIGNED32; COB-ID of the receive PDO; bit 31 set means the PDO is off";
+CM_ SG_ 1410 RPDO_communication_parameter_Transmission_type "0x1400:2 UNSIGNED8; Transmission type: 0-240 the received data is applied at the next SYNC, 254 and 255 at once";
+CM_ SG_ 1410 RPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO "0x1600:0 UNSIGNED8; Number of mapped objects; set it to 0 before changing the mapping";
+CM_ SG_ 1410 RPDO_mapping_parameter_Application_object_1 "0x1600:1 UNSIGNED32; Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7";
+CM_ SG_ 1410 RPDO_mapping_parameter_Application_object_2 "0x1600:2 UNSIGNED32; Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7";
+CM_ SG_ 1410 TPDO_communication_parameter_Highest_sub_index_supported "0x1800:0 UNSIGNED8; Transmit PDO communication parameters: when and how this device sends one PDO";
+CM_ SG_ 1410 TPDO_communication_parameter_COB_ID_used_by_TPDO "0x1800:1 UNSIGNED32; COB-ID of the transmit PDO; bit 31 set means the PDO is off";
+CM_ SG_ 1410 TPDO_communication_parameter_Transmission_type "0x1800:2 UNSIGNED8; Transmission type: 1-240 sent every N SYNCs, 0 at a SYNC after a change, 254 and 255 on change or timer";
+CM_ SG_ 1410 TPDO_communication_parameter_Highest_sub_index_supported_1801_0 "0x1801:0 UNSIGNED8; Transmit PDO communication parameters: when and how this device sends one PDO";
+CM_ SG_ 1410 TPDO_communication_parameter_COB_ID_used_by_TPDO_1801_1 "0x1801:1 UNSIGNED32; COB-ID of the transmit PDO; bit 31 set means the PDO is off";
+CM_ SG_ 1410 TPDO_communication_parameter_Transmission_type_1801_2 "0x1801:2 UNSIGNED8; Transmission type: 1-240 sent every N SYNCs, 0 at a SYNC after a change, 254 and 255 on change or timer";
+CM_ SG_ 1410 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO "0x1A00:0 UNSIGNED8; Number of mapped objects; set it to 0 before changing the mapping";
+CM_ SG_ 1410 TPDO_mapping_parameter_Application_object_1 "0x1A00:1 UNSIGNED32; Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7";
+CM_ SG_ 1410 TPDO_mapping_parameter_Application_object_2 "0x1A00:2 UNSIGNED32; Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7";
+CM_ SG_ 1410 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO_1A01_0 "0x1A01:0 UNSIGNED8; Number of mapped objects; set it to 0 before changing the mapping";
+CM_ SG_ 1410 TPDO_mapping_parameter_Application_object_1_1A01_1 "0x1A01:1 UNSIGNED32; Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7";
 CM_ SG_ 1410 Read_inputs_8_bit_Highest_sub_index_supported "0x6000:0 UNSIGNED8";
 CM_ SG_ 1410 Read_inputs_8_bit_Read_inputs_0x1 "0x6000:1 UNSIGNED8";
 CM_ SG_ 1410 Read_inputs_8_bit_Read_inputs_0x2 "0x6000:2 UNSIGNED8";
@@ -199,6 +199,12 @@ BA_ "GenMsgCycleTime" BO_ 514 100;
 VAL_ 1794 NMT_State 0 "Boot-up" 4 "Stopped" 5 "Operational" 127 "Pre-operational" ;
 VAL_ 1538 Command 34 "Download" 35 "Download 4 bytes" 39 "Download 3 bytes" 43 "Download 2 bytes" 47 "Download 1 byte" 64 "Upload request" 128 "Abort" ;
 VAL_ 1538 Object 4096 "0x1000:0 Device_type" 4097 "0x1001:0 Error_register" 4101 "0x1005:0 COB_ID_SYNC_message" 4119 "0x1017:0 Producer_heartbeat_time" 4120 "0x1018:0 Identity_object_Highest_sub_index_supported" 69656 "0x1018:1 Identity_object_Vendor_ID" 135192 "0x1018:2 Identity_object_Product_code" 200728 "0x1018:3 Identity_object_Revision_number" 266264 "0x1018:4 Identity_object_Serial_number" 5120 "0x1400:0 RPDO_communication_parameter_Highest_sub_index_supported" 70656 "0x1400:1 RPDO_communication_parameter_COB_ID_used_by_RPDO" 136192 "0x1400:2 RPDO_communication_parameter_Transmission_type" 5632 "0x1600:0 RPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO" 71168 "0x1600:1 RPDO_mapping_parameter_Application_object_1" 136704 "0x1600:2 RPDO_mapping_parameter_Application_object_2" 6144 "0x1800:0 TPDO_communication_parameter_Highest_sub_index_supported" 71680 "0x1800:1 TPDO_communication_parameter_COB_ID_used_by_TPDO" 137216 "0x1800:2 TPDO_communication_parameter_Transmission_type" 6145 "0x1801:0 TPDO_communication_parameter_Highest_sub_index_supported_1801_0" 71681 "0x1801:1 TPDO_communication_parameter_COB_ID_used_by_TPDO_1801_1" 137217 "0x1801:2 TPDO_communication_parameter_Transmission_type_1801_2" 6656 "0x1A00:0 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO" 72192 "0x1A00:1 TPDO_mapping_parameter_Application_object_1" 137728 "0x1A00:2 TPDO_mapping_parameter_Application_object_2" 6657 "0x1A01:0 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO_1A01_0" 72193 "0x1A01:1 TPDO_mapping_parameter_Application_object_1_1A01_1" 24576 "0x6000:0 Read_inputs_8_bit_Highest_sub_index_supported" 90112 "0x6000:1 Read_inputs_8_bit_Read_inputs_0x1" 155648 "0x6000:2 Read_inputs_8_bit_Read_inputs_0x2" 221184 "0x6000:3 Read_inputs_8_bit_Read_inputs_0x3" 25088 "0x6200:0 Write_outputs_8_bit_Highest_sub_index_supported" 90624 "0x6200:1 Write_outputs_8_bit_Write_outputs_0x1" 156160 "0x6200:2 Write_outputs_8_bit_Write_outputs_0x2" ;
+VAL_ 1538 RPDO_communication_parameter_Transmission_type 0 "synchronous" 1 "synchronous" 254 "event-driven, manufacturer-specific" 255 "event-driven, device profile" ;
+VAL_ 1538 TPDO_communication_parameter_Transmission_type 0 "synchronous, acyclic (at a SYNC after a change)" 1 "synchronous, every SYNC" 252 "synchronous, on RTR only" 253 "on RTR only" 254 "event-driven, manufacturer-specific" 255 "event-driven, device profile" ;
+VAL_ 1538 TPDO_communication_parameter_Transmission_type_1801_2 0 "synchronous, acyclic (at a SYNC after a change)" 1 "synchronous, every SYNC" 252 "synchronous, on RTR only" 253 "on RTR only" 254 "event-driven, manufacturer-specific" 255 "event-driven, device profile" ;
 VAL_ 1410 Command 66 "Upload" 67 "Upload 4 bytes" 71 "Upload 3 bytes" 75 "Upload 2 bytes" 79 "Upload 1 byte" 96 "Download response" 128 "Abort" ;
 VAL_ 1410 Object 4096 "0x1000:0 Device_type" 4097 "0x1001:0 Error_register" 4101 "0x1005:0 COB_ID_SYNC_message" 4119 "0x1017:0 Producer_heartbeat_time" 4120 "0x1018:0 Identity_object_Highest_sub_index_supported" 69656 "0x1018:1 Identity_object_Vendor_ID" 135192 "0x1018:2 Identity_object_Product_code" 200728 "0x1018:3 Identity_object_Revision_number" 266264 "0x1018:4 Identity_object_Serial_number" 5120 "0x1400:0 RPDO_communication_parameter_Highest_sub_index_supported" 70656 "0x1400:1 RPDO_communication_parameter_COB_ID_used_by_RPDO" 136192 "0x1400:2 RPDO_communication_parameter_Transmission_type" 5632 "0x1600:0 RPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO" 71168 "0x1600:1 RPDO_mapping_parameter_Application_object_1" 136704 "0x1600:2 RPDO_mapping_parameter_Application_object_2" 6144 "0x1800:0 TPDO_communication_parameter_Highest_sub_index_supported" 71680 "0x1800:1 TPDO_communication_parameter_COB_ID_used_by_TPDO" 137216 "0x1800:2 TPDO_communication_parameter_Transmission_type" 6145 "0x1801:0 TPDO_communication_parameter_Highest_sub_index_supported_1801_0" 71681 "0x1801:1 TPDO_communication_parameter_COB_ID_used_by_TPDO_1801_1" 137217 "0x1801:2 TPDO_communication_parameter_Transmission_type_1801_2" 6656 "0x1A00:0 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO" 72192 "0x1A00:1 TPDO_mapping_parameter_Application_object_1" 137728 "0x1A00:2 TPDO_mapping_parameter_Application_object_2" 6657 "0x1A01:0 TPDO_mapping_parameter_Number_of_mapped_application_objects_in_PDO_1A01_0" 72193 "0x1A01:1 TPDO_mapping_parameter_Application_object_1_1A01_1" 24576 "0x6000:0 Read_inputs_8_bit_Highest_sub_index_supported" 90112 "0x6000:1 Read_inputs_8_bit_Read_inputs_0x1" 155648 "0x6000:2 Read_inputs_8_bit_Read_inputs_0x2" 221184 "0x6000:3 Read_inputs_8_bit_Read_inputs_0x3" 25088 "0x6200:0 Write_outputs_8_bit_Highest_sub_index_supported" 90624 "0x6200:1 Write_outputs_8_bit_Write_outputs_0x1" 156160 "0x6200:2 Write_outputs_8_bit_Write_outputs_0x2" ;
+VAL_ 1410 RPDO_communication_parameter_Transmission_type 0 "synchronous" 1 "synchronous" 254 "event-driven, manufacturer-specific" 255 "event-driven, device profile" ;
+VAL_ 1410 TPDO_communication_parameter_Transmission_type 0 "synchronous, acyclic (at a SYNC after a change)" 1 "synchronous, every SYNC" 252 "synchronous, on RTR only" 253 "on RTR only" 254 "event-driven, manufacturer-specific" 255 "event-driven, device profile" ;
+VAL_ 1410 TPDO_communication_parameter_Transmission_type_1801_2 0 "synchronous, acyclic (at a SYNC after a change)" 1 "synchronous, every SYNC" 252 "synchronous, on RTR only" 253 "on RTR only" 254 "event-driven, manufacturer-specific" 255 "event-driven, device profile" ;
 VAL_ 0 Command 1 "Start" 2 "Stop" 128 "Enter pre-operational" 129 "Reset node" 130 "Reset communication" ;

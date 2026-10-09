@@ -710,6 +710,10 @@ class Page(unittest.TestCase):
         pg.wait_for_selector(row)
         self.assertEqual(pg.locator(row + " select[data-value-pick]").count(), 0)
         pg.click(row + ' button[data-note-edit]')
+        # The dialog fits without a horizontal scroll bar.
+        self.assertFalse(pg.evaluate("""() => { for (let x = document.querySelector('#modal .note-editor');
+            x && x.id !== 'modal'; x = x.parentElement) if (x.scrollWidth > x.clientWidth + 1) return x.id || x.className || x.tagName;
+            const m = document.querySelector('#modal'); return m.scrollWidth > m.clientWidth + 1 ? 'modal' : false; }"""))
         pg.fill('#modal [data-note-field="text"]', "Sensor type of the channel")
         pg.fill('#modal [data-note-field="values"]', "1 = two-wire\n30 = four-wire")
         pg.click('#modal button[data-value="save"]')

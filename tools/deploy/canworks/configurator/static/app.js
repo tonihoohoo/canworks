@@ -2683,7 +2683,7 @@ function renderSdos(i, eds) {
       el("td", null, typeCell),
       el("td", null, pick, value, meaning, el("span", { class: "field-msg", dataset: { for: sp + ".value" } }),
         el("span", { class: "field-msg", dataset: { for: sp } }), el("span", { class: "field-msg", dataset: { for: sp + ".type" } }),
-        info && info.default ? el("span", { class: "muted" }, " EDS default " + info.default) : null),
+        info && info.default ? el("span", { class: "muted" }, " · EDS default " + info.default) : null),
       el("td", null, el("span", { class: "btn-group" },
         el("button", { type: "button", title: "Up", "aria-label": `Move ${s.index}:${s.subindex ?? 0} up`, disabled: j === 0, onclick: () => moveSdo(i, j, -1) }, "↑"),
         el("button", { type: "button", title: "Down", "aria-label": `Move ${s.index}:${s.subindex ?? 0} down`, disabled: j === list.length - 1, onclick: () => moveSdo(i, j, 1) }, "↓"),

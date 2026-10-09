@@ -229,6 +229,13 @@ class Notes(unittest.TestCase):
         self.assertRegex(text, r'SG_ \w+ : 0\|16@1- \(0\.01,0\) \[[^]]*\] "bar"')
         self.assertRegex(text, r'VAL_ 389 \w+ -32768 "open circuit" ;')
 
+    def test_sdo_signals(self):
+        # Notes also reach the SDO frames' signals (here the startup SDO 0x1017).
+        m = model(base_config(), sdo="config", notes=self.notes({"0x1017": {"values": {"0": "off"}}}))
+        sig = signal(message(m, "pingpong_SDO_Rx"), "Producer_heartbeat_time")
+        self.assertEqual((sig.unit, sig.values), ("ms", [(0, "off")]))
+        self.assertIn("startup SDO, value 100; Producer heartbeat time", sig.comment)
+
     def test_unchanged_without_notes(self):
         plain = model(load(RTD), RTD, notes=self.notes({}))
         tpdo = message(plain, "rtd_TPDO1")
