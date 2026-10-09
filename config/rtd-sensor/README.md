@@ -7,6 +7,7 @@ A test setup with a measuring device instead of the Lely tutorial slave: **RTD-8
 | `rtd8.eds` | The module's EDS, written by `make_eds.py` (`python3 config/rtd-sensor/make_eds.py > config/rtd-sensor/rtd8.eds`). |
 | `canopen_config.json` | The master's config: node 5, the PDO map, startup SDOs. |
 | `rtd_monitor.st` | Starter PLC program: scales the temperatures and raises an alarm. |
+| `simulation.json` | A simulation file for the simulated node 5: value sources for AI0-AI3 and the scenarios `alarm` and `sensor-break` ([docs/simulator.md](../../docs/simulator.md#the-simulation-file)). |
 
 ## The device
 

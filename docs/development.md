@@ -21,6 +21,8 @@ test/fixed/run.sh                               # ... against a device with a fi
 test/lss/run.sh                                 # LSS node ID assignment
 test/params/run.sh                              # device parameter backup, compare and restore
 test/commissioning/run.sh                       # write a configuration to one device, PDO test
+test/localbus/run.sh                            # the PC tools on vcan0 without a runtime
+test/simulator/run.sh                           # canworks-sim against the plugin (needs vcan1)
 test/trace/run.sh                               # bus trace and its export formats
 test/rawframes/run.sh                           # raw frames sent by hand, bit rate detection refusals
 test/bus/run.sh                                 # bus state byte with vcan0 taken down and up
@@ -87,7 +89,8 @@ config/            example configurations: config/pingpong/ (the ping-pong slave
                    config/cia402-drive/ (a made-up CiA 402 drive as a PLCopen axis, with a demo program),
                    config/slave/ (OpenPLC as slave node 10, its EDS description and a demo program),
                    config/gateway/ (the ping-pong node on a field network, OpenPLC as a gateway above it)
-tools/             canopen_check: validates a config and its EDS files without starting the PLC
+tools/             canopen_check.cpp: validates a config and its EDS files without starting the PLC;
+                   tools/sim/: canworks-sim, the standalone device simulator for the runtime host
 tools/deploy/      the PC tools (Python, one package): canworks-deploy, canworks-config
                    (the configurator), canworks-diag (online diagnostics, parameters, trace),
                    canworks-j1939-sim (the J1939 ECU simulator)
@@ -112,6 +115,8 @@ test/fixed/        a fixed-mapping I/O module against the plugin on vcan0
 test/lss/          LSS node ID assignment to a slave without a node ID on vcan0
 test/params/       device parameter backup, compare and restore on vcan0
 test/commissioning/ writing a configuration to one device from the PC on vcan0
+test/localbus/     the PC tools straight on a SocketCAN interface (no runtime) on vcan0
+test/simulator/    canworks-sim against the plugin on vcan0 and vcan1
 test/trace/        bus trace recording, filters and export formats on vcan0
 test/rawframes/    raw frames sent by hand (guards, cyclic jobs) on vcan0 and the simulated bus
 test/bus/          the bus state byte while vcan0 goes down and up
@@ -121,6 +126,7 @@ test/plc_sdo/      the SDO blocks compiled as the editor does, finding the real 
 test/host/         canopen_host: loads the plugin .so with a stand-in PLC scan; plugin lifecycle tests
 test/link/         link_check: the SocketCAN link setup on a real interface
 test/dump/         canopen_check --dump-writes against a checked-in list (DCF export parity)
+test/common/       helpers shared by the C++ tests (checks, a fake runtime)
 test/fixtures/     config and EDS fixtures shared by the plugin's and the deploy tool's tests
                    (test/fixtures/eds/drives/: two made-up CiA 402 drives)
 test/stock/        install-stock.sh, the editor hook and the upstream runtime's upload rules, end to end

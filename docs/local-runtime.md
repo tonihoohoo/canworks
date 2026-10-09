@@ -51,15 +51,15 @@ Diagnostics:   canworks-diag --runtime local status   (configurator: host "local
 Every CANopen network runs simulated here: no CAN interface is used.
 ```
 
-The container restarts with the engine (unless stopped) and listens only on this PC (`127.0.0.1`): the runtime on port 8443 and the CANopen diagnostics on port 7531. `--port` and `--diag-port` choose others; the diagnostics port is published as the same number inside the container, so a config for `--diag-port 7532` sets `master.diagnostics.port` to 7532.
+The container restarts with the engine (unless stopped) and listens only on this PC (`127.0.0.1`): the runtime on port 8443 and the CANopen diagnostics on port 7531. `--port` and `--diag-port` choose others; the diagnostics port is published as the same number inside the container, so a config for `--diag-port 7532` sets `master.diagnostics.port` (in a version 2 file, the top-level `diagnostics.port`) to 7532.
 
 ## Use it
 
 [tour.md](tour.md) takes you through [`examples/virtual-plant`](../examples/virtual-plant/README.md) on the local simulator runtime step by step: every feature that does not need hardware, in one project.
 
 - **Editor:** type the address `localhost:8443` with the printed user and password (the device settings' search does not list the local runtime, since it scans the network rather than this PC; typing the address connects), then **Build and Upload** a project with a `canworks/` folder ([install-stock.md](install-stock.md)). The runtime log shows the CANopen start, and the debugger shows the values of the simulated devices. Simulated values follow the project's simulation file ([simulator.md](simulator.md)).
-- **Deploy tool:** `canworks-deploy --runtime local --config canworks/canworks.json --project .` reads the address, user, password and fingerprint from `local-runtime.json`; `--user`/`--password` still win. It skips the question about uploading a non-simulated config, since nothing real is driven here.
-- **Diagnostics and configurator:** `canworks-diag --runtime local status`, and in the configurator's online access the **Local simulator runtime** button (host `local`). The project's config needs `master.diagnostics` with a token as for any runtime ([diagnostics.md](diagnostics.md)); the plugin's default `bind` (`0.0.0.0`) and port (7531) fit the container.
+- **Deploy tool:** `canworks-deploy --runtime local --config canworks/canworks.json --project .` reads the address, user, password and fingerprint from `local-runtime.json`; `--user` (with `$OPENPLC_PASSWORD` or a prompt for its password) and `--ca`, `--fingerprint` or `--insecure` still win. It skips the question about uploading a non-simulated config, since nothing real is driven here.
+- **Diagnostics and configurator:** `canworks-diag --runtime local status`, and in the configurator's online access the **Local simulator runtime** button (host `local`). The project's config needs `master.diagnostics` (in a version 2 file, the top-level `diagnostics`) with a token as for any runtime ([diagnostics.md](diagnostics.md)); the plugin's default `bind` (`0.0.0.0`) and port (7531) fit the container.
 
 Other commands:
 
@@ -76,6 +76,7 @@ canworks-sim-runtime remove [--data]            # delete the container; --data a
 ## Limits
 
 - Every CANopen network runs simulated, whatever `adapter.simulate` and the adapter settings say: the image sets `CANWORKS_FORCE_SIMULATE=1`, and the runtime log, `canworks-diag status` and the configurator's online view say so. A real CAN adapter cannot be reached from a container on Windows or macOS anyway.
+- J1939 networks do not run here: they need the Linux kernel's J1939 support, and the plugin refuses a J1939 network on the forced simulated bus. Run them on a Linux runtime, on a CAN or `vcan` interface, with `canworks-j1939-sim` playing the other ECUs ([j1939.md](j1939.md#simulator)).
 - A simulated device behaves like a real one when it fails: a fault that stops its heartbeat (the ping-pong example's `device-hangs` scenario) makes the master report the node lost and boot it again, which resets the device's objects to their EDS defaults. A program that feeds a device's value back to it, like the ping-pong program, can then carry two counts at once (the value seems to jump between them) until the PLC is stopped and started.
 - No real-time timing: the PLC cycle and the simulated bus run at the speed of a PC container, which is fine for logic and I/O but says nothing about jitter on the real target.
 - On a Linux PC with a SocketCAN interface, experts can run the image with `-e CANWORKS_FORCE_SIMULATE=0 --network host` and the interface's capabilities; `canworks-sim-runtime` does not do this.

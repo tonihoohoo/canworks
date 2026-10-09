@@ -1,6 +1,6 @@
 # Bus trace
 
-A bus trace records every CAN frame on the runtime's CANopen interface, received and sent, with its time stamp, and shows it decoded as CANopen: NMT, SYNC, TIME, EMCY with its CiA 301 class, heartbeats with the node state, SDO requests and answers with the object name from the EDS (segmented and block transfers joined into one line when they end), LSS, and PDOs with their signal names and values (the PLC variable names in an editor project). It is read from the plugin's [diagnostics channel](diagnostics.md), so it needs online access set up, but nothing else on the PLC: no extra software on the Raspberry Pi, nothing written to its SD card, and the PLC scan is not touched.
+A bus trace records every CAN frame on the runtime's CAN interface, received and sent, with its time stamp, and shows it decoded as CANopen: NMT, SYNC, TIME, EMCY with its CiA 301 class, heartbeats with the node state, SDO requests and answers with the object name from the EDS (segmented and block transfers joined into one line when they end), LSS, and PDOs with their signal names and values (the PLC variable names in an editor project). On a [J1939 network](j1939.md#diagnostics-and-trace) the frames are decoded as J1939 instead: priority, PGN, source and destination, signals with the DBC's names, scaled values and units, address claims with their NAME fields, requests, acknowledgements and transport protocol sessions (BAM and RTS/CTS, joined into one message on their last frame). It is read from the plugin's [diagnostics channel](diagnostics.md), so it needs online access set up, but nothing else on the PLC: no extra software on the Raspberry Pi, nothing written to its SD card, and the PLC scan is not touched.
 
 Record from the configurator's [Trace view](configurator.md#trace), or with `canworks-diag trace` on any PC with the deploy tool ([install-pc.md](install-pc.md)).
 
@@ -44,7 +44,7 @@ Wireshark shows the frames as plain CAN until told the bus is CANopen: **Analyze
 
 ## Triggers
 
-A trigger watches the trace while it is recorded, on the PC, and fires when its condition matches. It is one condition, or two joined by AND (both within a time window, 100 ms by default) or THEN (the second after the first, within the window; window 0: any time after).
+A trigger watches the trace while it is recorded, on the PC, and fires when its condition matches. It is one condition, or two joined by AND (both within a time window, 100 ms by default; `a && b` on the command line) or THEN (the second after the first, within the window; window 0: any time after; `a -> b`).
 
 | Condition | Matches | CLI form |
 |---|---|---|

@@ -16,7 +16,7 @@ Nothing in the inspector or the Frame lab sends anything to the bus.
 
 **What it says.** One sentence with the decoded meaning, using the node names, PDO mapping and PLC addresses of the configuration ("Node 5 (rtd) sends TPDO1: %IW100 = 37, %IW101 = 234."), plus a short text about the kind of message.
 
-**Identifier.** The 11 identifier bits, split into the 4-bit function code (what kind of message) and the 7-bit node ID (which device), with the sum that builds it (`0x185 = 3 × 0x80 + 5`). A PDO or TIME identifier set in the configuration is shown as configured, without the split. The identifier is also the priority on the bus: the lowest one wins.
+**Identifier.** The 11 identifier bits, split into the 4-bit function code (what kind of message) and the 7-bit node ID (which device), with the sum that builds it (`0x185 = 3 × 0x80 + 5`). A PDO or TIME identifier set in the configuration is shown as configured, without the split. The identifier is also the priority on the bus: the lowest one wins. On a [J1939 network](j1939.md#diagnostics-and-trace) a 29-bit identifier splits instead into priority, reserved and data page bits, PDU format, PDU specific (the destination address, or a group extension from PDU format 240 up) and source address, with the PGN worked out from them.
 
 **Data bits.** One row per byte, the most significant bit on the left as in the hex value, each bit coloured by the field it belongs to and numbered with its CANopen bit number (bit 0 of byte 0 is bit 0). The field list below gives each field's value and how it is worked out, for example `bytes 0-1 = 25 00, low byte first, so read backwards: 0x0025`. CANopen numbers are little-endian. Every bit belongs to a field; unused bits say so.
 
@@ -30,7 +30,7 @@ SocketCAN adapters hand over finished frames. The wire layer is rebuilt from the
 
 ## Frames it knows
 
-NMT commands, SYNC (with or without counter), TIME, EMCY (error code class, error register bits, manufacturer data), heartbeat and boot-up, node guarding, SDO (expedited, segmented and block transfers, every command specifier bit, abort codes), LSS, PDOs (EDS types, signed and float values, bit mappings, PLC addresses and, in a project, PLC variable names), SocketCAN error frames (error classes, controller and protocol details, error counters), remote requests and extended frames. An SDO segment explained from a trace is placed in its transfer: object, segment number, expected and received toggle bit and the bytes so far.
+NMT commands, SYNC (with or without counter), TIME, EMCY (error code class, error register bits, manufacturer data), heartbeat and boot-up, node guarding, SDO (expedited, segmented and block transfers, every command specifier bit, abort codes), LSS, PDOs (EDS types, signed and float values, bit mappings, PLC addresses and, in a project, PLC variable names), SocketCAN error frames (error classes, controller and protocol details, error counters), remote requests and extended frames. An SDO segment explained from a trace is placed in its transfer: object, segment number, expected and received toggle bit and the bytes so far. On a J1939 network: parameter groups with the DBC's signals, scale and units, Address Claimed with its NAME fields, Request, Acknowledgement and transport protocol frames (TP.CM, TP.DT).
 
 ## Sequences
 
@@ -69,6 +69,9 @@ canworks-diag explain --trace boot.pcapng --index 120 --config canworks/canworks
 
 # The wire layer at another bit rate
 canworks-diag explain 080# --bitrate 1000000
+
+# A J1939 frame, split into priority, PGN and addresses, decoded with the network's DBC
+canworks-diag explain 18FF0017#0102 --config canworks/canworks.json --network machine
 ```
 
 The bit rate comes from `--bitrate`, else the config's network, else the trace file, else 500 kbit/s (and the output says it is assumed). Frames over 8 data bytes are refused: only classic CAN is supported. The text output draws the byte grid with a letter per field and the wire bits with stuff bits in brackets:

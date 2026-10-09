@@ -60,7 +60,7 @@ Then upload as on a native install (the runtime's certificate is new with each n
 What differs from a native install:
 
 - **Restarts keep everything.** A reboot or `docker restart openplc-runtime` keeps the container, so the program, `plugins.conf` and CANopen come back as they were.
-- **New runtime containers lose the program.** The compiled program and `plugins.conf` live inside the container, so a new one (this script, a version change or a repair) starts with the PLC empty and `plugins.conf` from the runtime's defaults. The editor hook records the `canopen` line after each upload in `/opt/canworks/lib/plugins-line` and puts it back when the webserver starts (before the first upload it adds the line disabled), but the program itself has to be uploaded again. Each new container also makes a new self-signed certificate.
+- **New runtime containers lose the program.** The compiled program and `plugins.conf` live inside the container, so a new one (this script, a version change or a repair) starts with the PLC empty and `plugins.conf` from the runtime's defaults. The editor hook records the `canworks` line after each upload in `/opt/canworks/lib/plugins-line` and puts it back when the webserver starts (before the first upload it adds the line disabled), but the program itself has to be uploaded again. Each new container also makes a new self-signed certificate.
 - **Runtime version changes.** The plugin interface is not versioned, so after the editor or the bootloader moves the device to another runtime version CANopen stays **off** and the PLC runs without it. The runtime log says so:
 
   ```
@@ -68,7 +68,7 @@ What differs from a native install:
   ```
 
   Run `sudo scripts/install-stock.sh` again (it rebuilds in the new image), then upload the program again. The plugin makes the same check when it starts, in case the hook did not run. An upload to the mismatched runtime fails in `canworks-deploy` with the same message.
-- `--no-editor-hook` is not available: the hook is what keeps the `canopen` line across containers.
+- `--no-editor-hook` is not available: the hook is what keeps the `canworks` line across containers.
 
 `sudo scripts/install-stock.sh --uninstall` removes the two spec entries, recreates the runtime container and removes `/opt/canworks/lib/` (`--purge`: all of `/opt/canworks`).
 
@@ -87,8 +87,8 @@ The container also needs upstream's `--privileged --network host -v /dev:/dev` f
 
 On every program upload the runtime extracts the zip to `core/generated/` and looks at `core/generated/conf/*.json`:
 
-- an upload made with `canworks-deploy` carries `conf/canworks.json`: the runtime enables `canopen` and copies the config to `/opt/canworks/lib/canworks.json`. The plugin finds the EDS files the upload carried under `core/generated/conf/canworks/eds/` and logs the path it used;
-- an upload without it makes the runtime disable `canopen`, unless the [editor hook](#the-editors-build-and-upload) finds a config in the project. The PLC then runs without CANopen, and the runtime log says the plugin was disabled because no config was found.
+- an upload made with `canworks-deploy` carries `conf/canworks.json`: the runtime enables `canworks` and copies the config to `/opt/canworks/lib/canworks.json`. The plugin finds the EDS files the upload carried under `core/generated/conf/canworks/eds/` and logs the path it used;
+- an upload without it makes the runtime disable `canworks`, unless the [editor hook](#the-editors-build-and-upload) finds a config in the project. The PLC then runs without CANopen, and the runtime log says the plugin was disabled because no config was found.
 
 CI runs the upstream runtime's own upload code (`analyze_zip`, `safe_extract`, `update_plugin_configurations` from `development`) on a deployed bundle and on a plain one to check both cases (`test/stock/run.sh`).
 
@@ -102,7 +102,7 @@ The editor (4.3 and later) sends the whole project folder with every **Build and
 canworks-deploy --config config/rtd-sensor/canopen_config.json --into-project ~/Documents/workspace/rtd-monitor
 ```
 
-This runs the deploy tool's checks and writes `canworks/canworks.json` and the EDS files to the project (`--force` replaces an existing `canworks/`). EDS files are stored as UTF-8, because the editor sends project files as UTF-8 text; one in CP1252/Latin-1 is converted. Then press **Build and upload** in the editor as usual. After a successful build, before the runtime reports success, the hook copies the config to `core/generated/conf/` and the runtime enables `canopen` by its own rules. The build log says `CANopen: config taken from the project snapshot (canworks/canworks.json, 1 EDS file)`. A [simulation file](simulator.md#the-simulation-file) `canworks/simulation.json` travels too, with its extra devices' EDS files and its CSV files, checked against the config and written in the deploy tool's layout; a bad one rejects the whole config like any other check, and the build log warns when the config simulates devices.
+This runs the deploy tool's checks and writes `canworks/canworks.json` and the EDS files to the project (`--force` replaces an existing `canworks/`). EDS files are stored as UTF-8, because the editor sends project files as UTF-8 text; one in CP1252/Latin-1 is converted. Then press **Build and upload** in the editor as usual. After a successful build, before the runtime reports success, the hook copies the config to `core/generated/conf/` and the runtime enables `canworks` by its own rules. The build log says `CANopen: config taken from the project snapshot (canworks/canworks.json, 1 EDS file)`. A [simulation file](simulator.md#the-simulation-file) `canworks/simulation.json` travels too, with its extra devices' EDS files and its CSV files, checked against the config and written in the deploy tool's layout; a bad one rejects the whole config like any other check, and the build log warns when the config simulates devices.
 
 - A project without `canworks/` switches CANopen off, as without the hook.
 - An upload made with `canworks-deploy` wins: its `conf/canworks.json` is used and the project's is ignored. The runtime then drops the project snapshot it kept from the editor's last upload, so the editor cannot read the project back from the device until its next **Build and upload**.

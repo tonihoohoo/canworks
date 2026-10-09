@@ -25,13 +25,13 @@ canworks-deploy library --out .      # writes canworks.stlib
 
 Each `deploy-v` release also carries `canworks.stlib`. Then enable the library in the project (the editor's Library Manager, or `canworks-deploy library --project <project folder>`). A project made with `--new-project ... --sdo-blocks`, or with **Enable CANopen SDO blocks** in the configurator's New editor project dialog, has it enabled already, and the library is installed into the editor if it is missing or older.
 
-The blocks need the CANopen plugin on the runtime from the same release or later. Without it, or while CANopen is off, they end with `ERROR_ID` 4.
+The blocks need the canworks plugin on the runtime from the same release or later, built with CANopen. Without it (or with a plugin built `--without-canopen`), or while CANopen is off, they end with `ERROR_ID` 4.
 
 ## Using a block
 
 Every block has the same handshake:
 
-- Inputs: `EXECUTE : BOOL`, `NETWORK : USINT` (the network's place in the config's `networks` list, from 0; leave it unset, which is 0, with one network), `NODE : USINT` (1..127), `INDEX : UINT`, `SUBINDEX : USINT`, `TIMEOUT : TIME` (`T#0s` means 1 s).
+- Inputs: `EXECUTE : BOOL`, `NETWORK : USINT` (the network's place in the config's `networks` list, from 0, counting slave and J1939 networks too, though only a CANopen master network's nodes can be reached; leave it unset, which is 0, with one network), `NODE : USINT` (1..127), `INDEX : UINT`, `SUBINDEX : USINT`, `TIMEOUT : TIME` (`T#0s` means 1 s).
 - Outputs: `BUSY`, `DONE`, `ERROR : BOOL`, `ERROR_ID : UINT`, `ABORT_CODE : UDINT`.
 - A rising edge on `EXECUTE` starts one transfer. `BUSY` is TRUE until it ends; then `DONE` or `ERROR` is TRUE (and the data outputs are set) for as long as `EXECUTE` stays TRUE, or for one scan if it is already FALSE. Setting `EXECUTE` FALSE clears `DONE` and `ERROR`. A new rising edge while `BUSY` is ignored.
 - Call the instance on every scan while it is busy. The scan never waits: the transfer runs on the bus thread.
@@ -87,7 +87,7 @@ A reply longer than 254 characters ends with `ERROR_ID` 7; read it with `CO_SDO_
 | 3 | The node is not available: configured, but lost or failed to boot |
 | 4 | CANopen is not running (no plugin, no config, or CANopen switched off) |
 | 5 | Too many transfers at once (64 across all blocks) |
-| 6 | Invalid input: node outside 1..127, a `NETWORK` the config does not have, a `SIZE` the block cannot send, `SIZE := 0` without an EDS type |
+| 6 | Invalid input: node outside 1..127, a `NETWORK` the config does not have or that is a slave network, a `SIZE` the block cannot send, `SIZE := 0` without an EDS type |
 | 7 | The data does not fit the block's output (a reply longer than 8 bytes for `CO_SDO_READ`, 254 characters for a string, 1024 bytes for bytes) |
 | 8 | Cancelled: the PLC stopped or CANopen restarted during the transfer (the runtime log says how many transfers a stop cancelled), or the block did not collect its result within 10 s |
 
