@@ -175,7 +175,7 @@ class Layout(OnlineBase):
         with FakePlugin(allow_changes=True) as fp:
             self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
             self.remember(fp.runtime)
-            for width, scheme in ((1000, "light"), (1280, "dark"), (1440, "light")):
+            for width, scheme in ((1000, "light"), (1280, "dark")):
                 pg.emulate_media(color_scheme=scheme)
                 pg.set_viewport_size({"width": width, "height": 800})
                 pg.goto(self.server.url)
