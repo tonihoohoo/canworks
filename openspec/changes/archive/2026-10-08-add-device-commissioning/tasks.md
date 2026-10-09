@@ -38,5 +38,8 @@
 ## 7. Hardware checks (manual)
 
 - [ ] 7.1 Lone device: with the PLC's CANopen stopped and only the bench device and one adapter on the bus (any second adapter's interface down), `detect-bitrate` without `--lone-device` reports `silent` with the hint, and `--lone-device` detects the device's rate; then with `--probe sdo:NODE`. The device runs normally afterwards.
-- [ ] 7.2 On the bench device from the PC tools on an adapter: back it up, `configure` from a config node with a changed TPDO event timer and a startup SDO, read-back verified, PDO test shows its TPDO values, power-cycle without store and `--verify-only` lists the differences, then `restore` from the backup (nothing is stored on the device in this test).
-- [ ] 7.3 Configurator on a PC with the adapter: Commission a device through the Steps panel, Save log, Add to a config.
+  - Partly passed 2026-10-09 on a gs_usb adapter: `--lone-device --rates 500` and `--rates 500,250` detect 500 kbit/s and the device runs normally afterwards. Open: `--probe sdo:NODE`, and the non-lone sweep (needs a listen-only adapter). A sweep step at 1000 kbit/s leaves gs_usb on macOS deaf until replugged (follow-up).
+- [x] 7.2 On the bench device from the PC tools on an adapter: back it up, `configure` from a config node with a changed TPDO event timer and a startup SDO, read-back verified, PDO test shows its TPDO values, power-cycle without store and `--verify-only` lists the differences, then `restore` from the backup (nothing is stored on the device in this test).
+  - Passed 2026-10-09 on a gs_usb adapter at 500 kbit/s. An NMT reset stood in for the power cycle. `restore --include-comm` writes no PDO objects, so the reset is what undid the PDO changes (follow-up).
+- [x] 7.3 Configurator on a PC with the adapter: Commission a device through the Steps panel, Save log, Add to a config.
+  - Passed 2026-10-09 on a gs_usb adapter (Bit rate step skipped, rate known; device without LSS).
