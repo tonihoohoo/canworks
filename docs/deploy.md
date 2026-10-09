@@ -186,6 +186,10 @@ Overlaps inside `canworks.json` are errors, as in the plugin.
 
 An empty config, such as the zero-byte `conf/ethercat.json` the editor writes into every build, has no addresses and is skipped quietly. A config that is not valid JSON gets a warning that its addresses are not checked.
 
+## A Modbus bridge
+
+A config with a top-level `bridge` object runs on [canworks-bridge](modbus-bridge.md), not in OpenPLC: the tool refuses to upload it to a runtime and says so. `--bridge HOST[:PORT]` uploads it to a running bridge over its diagnostics channel (`--token` or `--token-file`), and `--export-modbus-map FILE.csv|.json|.st` writes its register map for the Modbus client ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config)).
+
 ## The local simulator runtime
 
 `--runtime local` deploys to the [local simulator runtime](local-runtime.md) on this PC (`canworks-sim-runtime start`): the tool takes its address, user, password and certificate fingerprint from the saved `local-runtime.json`, so no `--fingerprint` or password is needed (`--user`, `$OPENPLC_PASSWORD` and the certificate options still win when given). Every network runs simulated there, so the tool says so and does not ask the [simulated-config question](#simulated-devices). Without a local runtime it stops with `no local runtime: run canworks-sim-runtime start first`.

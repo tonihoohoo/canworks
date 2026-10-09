@@ -47,7 +47,7 @@ The exploration of 2026-10-09 (project notes `research/modbus-bridge-2026-10-09.
 ## Impact
 
 - **Order**: applies after `add-j1939-ecu` and `add-raw-can` have merged. Both move the shared core (`plugin/src/can/`, process image, protocol registration) that the host layer separates from OpenPLC.
-- **Plugin source**: a host interface in `plugin/src/can/host.h` with an OpenPLC host (today's behaviour) and a bridge host. The OpenPLC coupling (`plugin_runtime_args_t`: image read/write, image lock, logger) moves behind it. New `plugin/src/bridge/` (Modbus TCP server, byte image, watchdog, control, main). No new third-party dependency; no libmodbus.
+- **Plugin source**: the bridge host drives the shared engine and emulates the OpenPLC runtime interface (`plugin_runtime_args_t`: image read/write, image lock, logger) over its byte image, so the OpenPLC path does not change. New `plugin/src/bridge/` (Modbus TCP server, byte image, watchdog, control, main). No new third-party dependency; no libmodbus.
 - **PC tools**: `canworks/modbusmap.py`, configurator panel; minor version bump.
 - **Not in this change**:
   - mailboxes for raw frames and J1939 one-shot sends or requests

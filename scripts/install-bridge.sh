@@ -166,6 +166,8 @@ Wants=network-online.target
 ExecStart=$BIN --config $CONF_DIR/%i/canworks.json
 Restart=on-failure
 RestartSec=2
+# Port 502 and the CAN link setup (bit rate) need these; the service runs as root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
 # The CAN interface locks (one canworks process per interface).
 RuntimeDirectory=canworks
 RuntimeDirectoryPreserve=yes

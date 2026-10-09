@@ -247,6 +247,8 @@ A wrong proof closes the connection without an answer; the next login from that 
 
 The login answer carries `protocol` (2), `version`, `allow_changes`, `master_node_id` (the first network's), `protocols` (`canopen`, `j1939`: the protocols the plugin was built with) and `networks`: the networks in config order, each `{"name", "interface", "bitrate", "protocol", "role", "master_node_id"}` (a slave network has `"role": "slave"` and `node_id`, null while it waits for LSS, instead of `master_node_id`, see [slave.md](slave.md#diagnostics); a J1939 network has `"role": "ecu"` and its `address`), the name empty for a version 1 config.
 
+It also carries `host`, the program serving the channel: `openplc` for the plugin, `bridge` for [canworks-bridge](modbus-bridge.md). A bridge's `status` answers have a `bridge` part (output state, watchdog, Modbus clients, `last_upload`), and a bridge whose config has `allow_config_upload: true` says so in the hello and takes `put_config` (`files`: published names mapped to base64 contents, at most 8 MB; `canworks.json` is the config itself), which needs `allow_changes` too and answers `upload` and `restarting`, or the reasons the config was rejected ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config)).
+
 Every request after the hello may carry `network`, the name of the network it is for. With one network it may be left out. With several, a request without it answers `network required (io, drives)` and one with a name the plugin does not run `unknown network 'x' (io, drives)`. A client sends `network` only when the hello lists more than one network, so it also talks to an older plugin. Then:
 
 | `op` | Fields | Result |

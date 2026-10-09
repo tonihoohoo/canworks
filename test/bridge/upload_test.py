@@ -120,6 +120,17 @@ def main():
         with open(os.path.join(work, "canworks.json")) as f:
             check(json.load(f)["bridge"]["watchdog_ms"] == 500, "the running config file stays")
 
+        # A config that names an EDS the upload leaves out: the answer names it.
+        missing = files_of(work, new)
+        del missing["rtd8.eds"]
+        c = connect(dport, token)
+        try:
+            c.put_config(missing)
+            check(False, "an upload without its EDS is refused")
+        except diag.DiagError as e:
+            check("rtd8.eds" in str(e), "an upload without its EDS names the missing file")
+        c.close()
+
         # A config that passes but does not start (its Modbus port is taken):
         # the previous files come back and run.
         taken = socket.socket()

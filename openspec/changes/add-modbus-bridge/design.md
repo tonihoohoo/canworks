@@ -32,12 +32,12 @@ Vendor manuals (17 products, see the project notes) show the common gateway shap
 
 ### 1. One bridge, same engine, new host
 
-`canworks-bridge` is a second executable over the same core and protocol folders. A host interface `plugin/src/can/host.h` replaces direct use of `plugin_runtime_args_t`:
-- write input locations (from the bus side) and read output locations (to the bus side)
+`canworks-bridge` is a second executable over the same core and protocol folders. The networks already run in one shared engine (`plugin/src/can/engine.*`) that the plugin entry points call. The bridge host drives that same engine and gives it what OpenPLC gives the plugin, through the existing `plugin_runtime_args_t` interface emulated over the bridge's byte image:
+- input locations written from the bus side and output locations read to the bus side
 - the logger
-- the "PLC running" state that starts and stops outputs
+- the "outputs running" state that starts and stops outputs, and a cycle-end call after each accepted write
 
-The OpenPLC host keeps today's behaviour exactly. The bridge host implements it on a byte image (Decision 3) and the Modbus server. Protocols, diagnostics, trace and the simulated bus are unchanged and do not know which host runs them.
+The OpenPLC path keeps today's behaviour exactly, since nothing in it changes. The bridge host implements the interface on a byte image (Decision 3) and the Modbus server. Emulating the existing interface instead of adding a new host layer keeps the protocol code and its tests untouched. Protocols, diagnostics, trace and the simulated bus are unchanged and do not know which host runs them.
 
 *Alternatives:*
 - **One bridge per protocol.** Rejected: it duplicates the server, watchdog, status, diagnostics and packaging. It also cannot share one bus between a protocol and raw messages, and blocks later routing between protocols.
@@ -160,7 +160,7 @@ A write needs `sdo_bridge_write: true`; otherwise it ends aborted with 0x0800002
 
 ### 10. Config upload over the diagnostics channel
 
-`put_config` carries the config and every file it names (EDS, DBC, simulation file) as one archive, limited to 8 MB. It needs `allow_changes` and the new `diagnostics.allow_config_upload`.
+`put_config` carries the config and every file it names (EDS, DBC, simulation file) as a map of relative file names to base64 contents, at most 8 MB in all; names must stay inside the config folder. It needs `allow_changes` and the new `diagnostics.allow_config_upload`.
 
 The bridge then:
 - runs the full config check on the new files in a staging folder
@@ -207,4 +207,4 @@ The aim is that a client needs as few requests as possible.
 - **Modbus TCP has no authentication.** Mitigated by allowlists, a separate writers list and docs that say to keep the bridge on a machine network. TLS is a later option.
 - **Byte addressing differs from OpenPLC addressing.** A config moves between plugin and bridge only through the configurator's target switch, which repacks the locations. Since the project is not in real use, no automatic conversion is kept.
 - **Port 502 and capabilities.** The unit grants `CAP_NET_BIND_SERVICE`; the container maps the port.
-- **Host layer refactor touches every protocol path.** The OpenPLC host must behave byte for byte as before; the existing plugin tests are the guard, and no plugin test changes in this change except the new lock.
+- **The bridge emulates the runtime interface.** The protocol paths stay as they are; the existing plugin tests are the guard, and the bridge tests check that the emulation gives the same map the PC tools compute.
