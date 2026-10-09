@@ -9,4 +9,4 @@
 
 ## 2. Hardware
 
-- [ ] 2.1 Repeat add-raw-can task 9.2 on the bench: `CAN_SEND` ends with `DONE`, blocks enabled from the first scan start, the diagnostics status shows `confirm: echo` on the USB adapter, `cansend` frames reach `CAN_RECEIVE` on a plain network
+- [x] 2.1 Repeat add-raw-can task 9.2 on the bench: `CAN_SEND` ends with `DONE`, blocks enabled from the first scan start, the diagnostics status shows `confirm: echo` on the USB adapter, `cansend` frames reach `CAN_RECEIVE` on a plain network
