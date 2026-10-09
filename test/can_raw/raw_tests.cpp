@@ -21,6 +21,7 @@
 #include "can/raw/raw_devices.h"
 #include "can/raw/raw_io.h"
 #include "can/raw/raw_link.h"
+#include "canopen/sim/sim_raw.h"
 #include "can/signals.h"
 #include "check.hpp"
 
@@ -589,8 +590,10 @@ TEST(raw_io_on_a_simulated_plain_network) {
   std::vector<std::string> errors;
   CHECK(devices.load_text(R"({"raw_devices": [{"name": "joystick",
       "send": [{"id": 384, "dlc": 4, "period_ms": 10, "data": [0, 0, 42, 0]}],
-      "replies": [{"on": {"id": 2016, "data": [2, 1, 12]}, "send": {"id": 2024, "data": [4, 65, 12]}}]}]})",
-                          "simulation.json", ".", "plain", false, errors));
+      "replies": [{"on": {"id": 2016, "data": [2, 1, 12]}, "send": {"id": 2024, "data": [4, 65, 12]}}]}],
+      "scenarios": {"stop": {"autostart": true, "steps": [{"at_ms": 300, "device": "joystick", "fault": {"stop": true}},
+                                                          {"log": "joystick stopped"}]}}})",
+                          "simulation.json", ".", "plain", false, true, errors));
   CHECK(errors.empty() && devices.size() == 1);
   PlcPort port(1);
   port.set_rules(PortRules{});
@@ -625,9 +628,40 @@ TEST(raw_io_on_a_simulated_plain_network) {
   CHECK(replied && f.dlc == 3 && f.data[1] == 65);
   CHECK(joy == 42 && status == 1);
   CHECK(io.frames_sent() > 0 && io.frames_received() > 0);
+  // The scenario stops the device: the message times out.
+  for (int i = 0; i < 300 && status != 0; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  CHECK(status == 0);
+  // A step from the CANopen simulator (here: by hand) brings it back.
+  set_sim_devices(1, &devices);
+  std::string why;
+  CHECK(!sim_device_action(1, "pedal", "clear", "stop", -1, why) && why.find("no plain CAN device \"pedal\"") == 0);
+  CHECK(!sim_device_action(2, "joystick", "clear", "stop", -1, why));
+  CHECK(sim_device_action(1, "joystick", "clear", "stop", -1, why));
+  for (int i = 0; i < 200 && status != 1; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  CHECK(status == 1);
+  set_sim_devices(1, nullptr);
   io.stop();
   CHECK(!port.running());
   set_port(1, nullptr);
+}
+
+TEST(raw_scenarios_parse) {
+  std::vector<canopen_sim::RawScenario> sc;
+  std::vector<std::string> errors;
+  cJSON* j = cJSON_Parse(R"({"a": {"steps": [{"node": 5, "fault": {"heartbeat": "stop"}}]},
+                            "b": {"steps": [{"device": "x", "fault": {"wrong_dlc": 9}}]},
+                            "c": {"steps": [{"device": "x", "clear": "all", "after_ms": 10},
+                                            {"repeat": {"count": 2, "steps": [{"log": "hi"}]}}]}})");
+  CHECK(!canopen_sim::parse_raw_scenarios(j, sc, errors));
+  cJSON_Delete(j);
+  auto has = [&](const std::string& m) {
+    for (const auto& e : errors)
+      if (e.find(m) == 0) return true;
+    return false;
+  };
+  CHECK(has("scenarios.a.steps[0]: unknown key \"node\""));
+  CHECK(has("scenarios.b.steps[0].fault: \"wrong_dlc\" must be an integer 0-8"));
+  CHECK(sc.size() == 1 && sc[0].name == "c" && sc[0].steps[1].steps.size() == 1 && sc[0].steps[1].count == 2);
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

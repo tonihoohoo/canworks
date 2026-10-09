@@ -374,3 +374,231 @@ std::string raw_frame_text(const RawFrame& f) {
 }
 
 }  // namespace canopen_sim
+
+namespace canopen_sim {
+
+bool raw_device_action(RawDevice& d, const std::string& action, const std::string& what, int dlc, uint64_t now_ms,
+                       std::string& err) {
+  if (action == "fault" && what == "stop") {
+    d.power_off();
+  } else if (action == "fault" && what == "wrong_dlc" && dlc >= 0 && dlc <= 8) {
+    d.set_dlc_fault(dlc);
+  } else if (action == "clear" && (what == "stop" || what == "all")) {
+    if (!d.powered()) d.power_on(now_ms);
+    if (what == "all") d.set_dlc_fault(-1);
+  } else if (action == "clear" && what == "wrong_dlc") {
+    d.set_dlc_fault(-1);
+  } else {
+    err = "unknown " + action + " \"" + what + "\" for a plain CAN device";
+    return false;
+  }
+  return true;
+}
+
+namespace {
+
+bool parse_raw_steps(Ctx& c, const cJSON* arr, std::vector<RawScenarioStep>& out);
+
+bool parse_raw_step(Ctx& c, const cJSON* o, RawScenarioStep& s) {
+  if (!cJSON_IsObject(o)) return c.fail("must be an object");
+  bool ok = keys(c, o, {"device", "at_ms", "after_ms", "fault", "clear", "log", "repeat"});
+  uint64_t v = 0;
+  if (get_uint(c, o, "at_ms", 0, 0x7FFFFFFF, v, false) && cJSON_GetObjectItemCaseSensitive(o, "at_ms")) {
+    s.has_at = true;
+    s.at_ms = static_cast<unsigned>(v);
+  }
+  if (get_uint(c, o, "after_ms", 0, 0x7FFFFFFF, v, false) && cJSON_GetObjectItemCaseSensitive(o, "after_ms")) {
+    s.has_after = true;
+    s.after_ms = static_cast<unsigned>(v);
+  }
+  if (s.has_at && s.has_after) ok = c.fail("a step has \"at_ms\" or \"after_ms\", not both");
+  int actions = 0;
+  for (const char* a : {"fault", "clear", "log", "repeat"})
+    if (cJSON_GetObjectItemCaseSensitive(o, a)) {
+      ++actions;
+      s.action = a;
+    }
+  if (actions != 1)
+    return c.fail("a step on a plain CAN network needs one action: \"fault\" or \"clear\" with \"device\", "
+                  "\"log\" or \"repeat\"");
+  const cJSON* a = cJSON_GetObjectItemCaseSensitive(o, s.action.c_str());
+  const cJSON* dev = cJSON_GetObjectItemCaseSensitive(o, "device");
+  if (s.action == "fault" || s.action == "clear") {
+    if (!cJSON_IsString(dev) || !*dev->valuestring) return c.fail("\"" + s.action + "\" needs \"device\"");
+    s.device = dev->valuestring;
+    if (s.action == "clear") {
+      if (!cJSON_IsString(a) || (std::strcmp(a->valuestring, "stop") != 0 &&
+                                 std::strcmp(a->valuestring, "wrong_dlc") != 0 && std::strcmp(a->valuestring, "all") != 0))
+        return c.fail("\"clear\" must be \"stop\", \"wrong_dlc\" or \"all\"");
+      s.what = a->valuestring;
+      return ok;
+    }
+    const cJSON* stop = cJSON_GetObjectItemCaseSensitive(a, "stop");
+    const cJSON* dlc = cJSON_GetObjectItemCaseSensitive(a, "wrong_dlc");
+    if (!cJSON_IsObject(a) || cJSON_GetArraySize(a) != 1 || (!cJSON_IsTrue(stop) && !dlc))
+      return c.fail("\"fault\" must be {\"stop\": true} or {\"wrong_dlc\": 0-8}");
+    if (stop) {
+      s.what = "stop";
+      return ok;
+    }
+    Ctx fc{at(c.path, "fault"), c.errors};
+    if (!get_uint(fc, a, "wrong_dlc", 0, 8, v, true)) return false;
+    s.what = "wrong_dlc";
+    s.dlc = static_cast<int>(v);
+    return ok;
+  }
+  if (dev) ok = c.fail("\"device\" belongs to a \"fault\" or \"clear\" step");
+  if (s.action == "log") {
+    if (!cJSON_IsString(a)) return c.fail("\"log\" must be text");
+    s.log = a->valuestring;
+    return ok;
+  }
+  Ctx rc{at(c.path, "repeat"), c.errors};
+  if (!cJSON_IsObject(a)) return c.fail("\"repeat\" must be an object with \"steps\"");
+  ok = keys(rc, a, {"count", "steps"}) && ok;
+  if (get_uint(rc, a, "count", 0, 0x7FFFFFFF, v, false) && cJSON_GetObjectItemCaseSensitive(a, "count"))
+    s.count = static_cast<unsigned>(v);
+  return parse_raw_steps(rc, cJSON_GetObjectItemCaseSensitive(a, "steps"), s.steps) && ok;
+}
+
+bool parse_raw_steps(Ctx& c, const cJSON* arr, std::vector<RawScenarioStep>& out) {
+  if (!cJSON_IsArray(arr) || !arr->child) return c.fail("\"steps\" must be a non-empty list");
+  bool ok = true;
+  size_t i = 0;
+  for (const cJSON* o = arr->child; o; o = o->next, ++i) {
+    Ctx sc{at(c.path, "steps", i), c.errors};
+    RawScenarioStep s;
+    if (parse_raw_step(sc, o, s))
+      out.push_back(std::move(s));
+    else
+      ok = false;
+  }
+  return ok;
+}
+
+void collect_devices(const std::vector<RawScenarioStep>& steps, std::vector<std::string>& out) {
+  for (const auto& s : steps) {
+    if (!s.device.empty()) out.push_back(s.device);
+    collect_devices(s.steps, out);
+  }
+}
+
+}  // namespace
+
+bool parse_raw_scenarios(const cJSON* scenarios, std::vector<RawScenario>& out, std::vector<std::string>& errors) {
+  size_t before = errors.size();
+  if (!cJSON_IsObject(scenarios)) {
+    errors.push_back("scenarios: must be an object of name -> scenario");
+    return false;
+  }
+  for (const cJSON* o = scenarios->child; o; o = o->next) {
+    Ctx c{std::string("scenarios.") + o->string, errors};
+    if (!cJSON_IsObject(o)) {
+      c.fail("must be an object");
+      continue;
+    }
+    keys(c, o, {"autostart", "test", "description", "steps"});
+    RawScenario sc;
+    sc.name = o->string;
+    get_bool(c, o, "autostart", sc.autostart);
+    if (parse_raw_steps(c, cJSON_GetObjectItemCaseSensitive(o, "steps"), sc.steps)) out.push_back(std::move(sc));
+  }
+  return errors.size() == before;
+}
+
+void RawScenarioRunner::start(const RawScenario& sc, uint64_t now_ms) {
+  std::vector<std::string> names;
+  collect_devices(sc.steps, names);
+  for (const auto& n : names) {
+    bool found = false;
+    for (RawDevice* d : devices_) found = found || d->name() == n;
+    if (!found) {
+      if (log_) log_("scenario " + sc.name + ": no plain CAN device \"" + n + "\" is simulated on this network; not started");
+      return;
+    }
+  }
+  Run r;
+  r.name = sc.name;
+  r.start = r.prev_end = now_ms;
+  Frame f;
+  f.steps = &sc.steps;
+  r.stack.push_back(f);
+  runs_.push_back(std::move(r));
+  if (log_) log_("scenario " + sc.name + " started");
+}
+
+bool RawScenarioRunner::due_at(const Run& r, uint64_t& at) const {
+  const Frame& f = r.stack.back();
+  if (f.i >= f.steps->size()) return false;
+  const RawScenarioStep& s = (*f.steps)[f.i];
+  at = s.has_at ? r.start + s.at_ms : s.has_after ? r.prev_end + s.after_ms : 0;
+  return true;
+}
+
+void RawScenarioRunner::step(uint64_t now_ms) {
+  for (size_t k = runs_.size(); k-- > 0;) {
+    Run& r = runs_[k];
+    // A bounded number of steps per call: "repeat forever" without times
+    // cannot hang the I/O thread.
+    for (int n = 0; n < 1000; ++n) {
+      Frame& f = r.stack.back();
+      if (f.i >= f.steps->size()) {
+        if (f.forever || f.remaining) {
+          if (!f.forever) --f.remaining;
+          f.i = 0;
+          continue;
+        }
+        r.stack.pop_back();
+        if (r.stack.empty()) break;
+        r.stack.back().i++;
+        continue;
+      }
+      uint64_t at = 0;
+      due_at(r, at);
+      if (at > now_ms) break;
+      const RawScenarioStep& s = (*f.steps)[f.i];
+      if (s.action == "repeat") {
+        Frame nf;
+        nf.steps = &s.steps;
+        nf.forever = s.count == 0;
+        nf.remaining = s.count ? s.count - 1 : 0;
+        r.stack.push_back(nf);
+        continue;
+      }
+      if (s.action == "log") {
+        if (log_) log_("scenario " + r.name + ": " + s.log);
+      } else {
+        for (RawDevice* d : devices_) {
+          if (d->name() != s.device) continue;
+          std::string err;
+          if (!raw_device_action(*d, s.action, s.what, s.dlc, now_ms, err) && log_)
+            log_("scenario " + r.name + ": " + err);
+          else if (log_)
+            log_("scenario " + r.name + ": " + s.action + " " + s.what + " on plain CAN device " + s.device);
+        }
+      }
+      r.prev_end = now_ms;
+      f.i++;
+    }
+    if (r.stack.empty()) {
+      if (log_) log_("scenario " + r.name + " ended");
+      runs_.erase(runs_.begin() + static_cast<long>(k));
+    }
+  }
+}
+
+uint64_t RawScenarioRunner::next_in(uint64_t now_ms) const {
+  uint64_t next = UINT64_MAX;
+  for (const Run& r : runs_) {
+    uint64_t at = 0;
+    if (!due_at(r, at)) {
+      next = 0;  // a frame ends or repeats: at once
+      continue;
+    }
+    uint64_t d = at > now_ms ? at - now_ms : 0;
+    if (d < next) next = d;
+  }
+  return next;
+}
+
+}  // namespace canopen_sim

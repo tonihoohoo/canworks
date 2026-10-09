@@ -11,6 +11,7 @@
 #define CANOPEN_SIM_RAW_H
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <random>
 #include <string>
@@ -118,6 +119,64 @@ class RawDevice {
   int dlc_fault_ = -1;
   uint64_t start_ms_ = 0;
   uint64_t sent_ = 0;
+};
+
+// A scenario step on a device: fault "stop" (power_off) or "wrong_dlc"
+// (`dlc`), clear "stop" (power_on), "wrong_dlc" or "all". False with `err`
+// for an unknown action.
+bool raw_device_action(RawDevice& d, const std::string& action, const std::string& what, int dlc, uint64_t now_ms,
+                       std::string& err);
+
+// Scenarios on a plain CAN network, where no CANopen simulator runs: steps
+// with "device" and "fault" or "clear", "log" and "repeat", timed with
+// "at_ms" or "after_ms" (docs/simulator.md, "Plain CAN devices").
+struct RawScenarioStep {
+  bool has_at = false, has_after = false;
+  unsigned at_ms = 0, after_ms = 0;
+  std::string action;  // fault, clear, log, repeat
+  std::string device, what;  // fault: stop | wrong_dlc; clear: stop | wrong_dlc | all
+  int dlc = -1;
+  std::string log;
+  unsigned count = 1;  // repeat: 0 = forever
+  std::vector<RawScenarioStep> steps;
+};
+
+struct RawScenario {
+  std::string name;
+  bool autostart = false;
+  std::vector<RawScenarioStep> steps;
+};
+
+// Parses a network's "scenarios" object; errors name the scenario and step.
+bool parse_raw_scenarios(const cJSON* scenarios, std::vector<RawScenario>& out, std::vector<std::string>& errors);
+
+class RawScenarioRunner {
+ public:
+  using Log = std::function<void(const std::string&)>;
+  RawScenarioRunner(std::vector<RawDevice*> devices, Log log) : devices_(std::move(devices)), log_(std::move(log)) {}
+  void start(const RawScenario& sc, uint64_t now_ms);
+  // Runs the steps that are due.
+  void step(uint64_t now_ms);
+  // Milliseconds until a step falls due (UINT64_MAX: none).
+  uint64_t next_in(uint64_t now_ms) const;
+  bool running() const { return !runs_.empty(); }
+
+ private:
+  struct Frame {
+    const std::vector<RawScenarioStep>* steps;
+    size_t i = 0;
+    unsigned remaining = 0;
+    bool forever = false;
+  };
+  struct Run {
+    std::string name;
+    uint64_t start = 0, prev_end = 0;
+    std::vector<Frame> stack;
+  };
+  bool due_at(const Run& r, uint64_t& at) const;
+  std::vector<RawDevice*> devices_;
+  Log log_;
+  std::vector<Run> runs_;
 };
 
 // The bytes of `f` as "0x123 [2] 01 02" (for logs and status answers).

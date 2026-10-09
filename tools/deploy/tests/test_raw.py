@@ -322,3 +322,59 @@ class TraceDecoding(unittest.TestCase):
         self.assertEqual(d.decode(Frame(0, 0x3F0, b"\x01")).kind, "raw")
         # The protocol keeps the identifiers it uses.
         self.assertNotEqual(d.decode(Frame(0, 0x182, b"\x01")).kind, "raw")
+
+
+class SimFile(unittest.TestCase):
+    """raw_devices and device steps in the simulation file (simfile.py)."""
+
+    CFG = {"schema_version": 2, "networks": [
+        {"name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "can1", "bitrate": 250000,
+                                                         "simulate": True}}]}
+
+    def check(self, data, cfg=None):
+        from canworks import simfile
+        d = tmpdir_(self)
+        path = os.path.join(d, "simulation.json")
+        return simfile.check(data, path, cfg or self.CFG, os.path.join(d, "canworks.json"))
+
+    def joystick(self, **extra):
+        dev = {"name": "joystick", "send": [{"id": 0x180, "dlc": 2, "period_ms": 100, "signals": [
+            {"name": "x", "start_bit": 0, "length": 16, "signed": True,
+             "source": {"sine": {"min": -1000, "max": 1000, "period_s": 4}}}]}],
+            "replies": [{"on": {"id": 0x7E0, "data": [2, 1, 12]}, "send": {"id": 0x7E8, "data": [4, 65, 12]}}]}
+        dev.update(extra)
+        return dev
+
+    def test_accepted(self):
+        data = {"schema_version": 2, "raw_devices": [self.joystick()], "networks": {"cab": {"scenarios": {"stop": {
+            "steps": [{"at_ms": 1000, "device": "joystick", "fault": {"stop": True}},
+                      {"repeat": {"count": 2, "steps": [{"after_ms": 100, "device": "joystick",
+                                                         "fault": {"wrong_dlc": 1}},
+                                                        {"device": "joystick", "clear": "all"}]}}]}}}}}
+        r = self.check(data)
+        self.assertEqual(r.errors, [])
+
+    def test_refusals(self):
+        bad_signal = self.joystick()
+        bad_signal["send"][0]["signals"][0]["start_bit"] = 8
+        data = {"schema_version": 2, "raw_devices": [bad_signal, self.joystick(network="nope")],
+                "networks": {"cab": {"scenarios": {"s": {"steps": [
+                    {"device": "pedal", "fault": {"stop": True}},
+                    {"node": 5, "fault": {"heartbeat": "stop"}}]}}}}}
+        text = "\n".join(self.check(data).errors)
+        self.assertIn("raw_devices[0].send[0].signals[0]: does not fit the frame's 2 bytes", text)
+        self.assertIn("raw_devices[1].name: another plain CAN device is also called 'joystick'", text)
+        self.assertIn("raw_devices[1].network: there is no network 'nope'", text)
+        self.assertIn("steps[0].device: no plain CAN device 'pedal' on this network (raw_devices: joystick)", text)
+        self.assertIn("steps[1]: on a plain CAN network a scenario step is a 'fault' or 'clear' on a 'device'", text)
+        # The schema: a device fault is stop or wrong_dlc.
+        data = {"schema_version": 2, "raw_devices": [self.joystick()], "networks": {"cab": {"scenarios": {"s": {
+            "steps": [{"device": "joystick", "fault": {"wrong_dlc": 9}}]}}}}}
+        self.assertTrue(self.check(data).errors)
+        data = {"raw_devices": [{"name": "x"}]}
+        self.assertTrue(self.check(data).errors)  # neither send nor replies
+
+
+def tmpdir_(test):
+    from .helpers import tmpdir
+    return tmpdir(test)

@@ -11,6 +11,7 @@
 #include <limits>
 #include <sstream>
 
+#include "../log.h"
 #include "cJSON.h"
 #include "sim_raw.h"
 
@@ -55,7 +56,7 @@ canworks_can_frame from_sim(const canopen_sim::RawFrame& r) {
 RawSimDevices::RawSimDevices() : rng_(1) {}
 RawSimDevices::~RawSimDevices() = default;
 
-bool RawSimDevices::load(const std::string& path, const std::string& network, bool several,
+bool RawSimDevices::load(const std::string& path, const std::string& network, bool several, bool scenarios,
                          std::vector<std::string>& errors) {
   std::ifstream in(path);
   if (!in) {
@@ -66,12 +67,16 @@ bool RawSimDevices::load(const std::string& path, const std::string& network, bo
   ss << in.rdbuf();
   size_t slash = path.rfind('/');
   std::string dir = slash == std::string::npos ? "." : path.substr(0, slash);
-  return load_text(ss.str(), path, dir.empty() ? "/" : dir, network, several, errors);
+  return load_text(ss.str(), path, dir.empty() ? "/" : dir, network, several, scenarios, errors);
 }
 
 bool RawSimDevices::load_text(const std::string& json, const std::string& path, const std::string& dir,
-                              const std::string& network, bool several, std::vector<std::string>& errors) {
+                              const std::string& network, bool several, bool scenarios,
+                              std::vector<std::string>& errors) {
   devices_.clear();
+  names_.clear();
+  scenarios_.clear();
+  runner_.reset();
   cJSON* root = cJSON_Parse(json.c_str());
   if (!root) {
     errors.push_back(path + ": not valid JSON");
@@ -79,10 +84,17 @@ bool RawSimDevices::load_text(const std::string& json, const std::string& path, 
   }
   std::unique_ptr<cJSON, void (*)(cJSON*)> guard(root, cJSON_Delete);
   const cJSON* list = cJSON_GetObjectItemCaseSensitive(root, "raw_devices");
-  if (!list) return true;
-  std::vector<canopen_sim::RawDeviceSpec> specs;
   std::vector<std::string> errs;
-  bool ok = canopen_sim::parse_raw_devices(list, specs, errs);
+  bool ok = true;
+  if (scenarios) {
+    // The network's section (version 2) or the file itself (version 1).
+    const cJSON* nets = cJSON_GetObjectItemCaseSensitive(root, "networks");
+    const cJSON* sec = cJSON_IsObject(nets) ? cJSON_GetObjectItemCaseSensitive(nets, network.c_str()) : root;
+    const cJSON* sc = sec ? cJSON_GetObjectItemCaseSensitive(sec, "scenarios") : nullptr;
+    if (sc) ok = canopen_sim::parse_raw_scenarios(sc, scenarios_, errs);
+  }
+  std::vector<canopen_sim::RawDeviceSpec> specs;
+  if (list) ok = canopen_sim::parse_raw_devices(list, specs, errs) && ok;
   NoObjects resolver;
   for (size_t i = 0; i < specs.size(); ++i) {
     if (specs[i].network.empty() && several) {
@@ -97,18 +109,53 @@ bool RawSimDevices::load_text(const std::string& json, const std::string& path, 
     devices_.push_back(std::move(d));
   }
   for (const auto& e : errs) errors.push_back(path + ": " + e);
-  if (!ok) devices_.clear();
+  if (!ok) {
+    devices_.clear();
+    scenarios_.clear();
+    return false;
+  }
+  for (const auto& d : devices_) names_.push_back(d->name());
+  std::vector<canopen_sim::RawDevice*> raw;
+  for (auto& d : devices_) raw.push_back(d.get());
+  runner_.reset(new canopen_sim::RawScenarioRunner(raw, [](const std::string& m) {
+    canopen_plugin::log_info("simulation: %s", m.c_str());
+  }));
   return ok;
 }
 
-std::vector<std::string> RawSimDevices::names() const {
-  std::vector<std::string> n;
-  for (const auto& d : devices_) n.push_back(d->name());
-  return n;
-}
+std::vector<std::string> RawSimDevices::names() const { return names_; }
 
 void RawSimDevices::start(uint64_t now_ms) {
   for (auto& d : devices_) d->power_on(now_ms);
+  if (runner_)
+    for (const auto& sc : scenarios_)
+      if (sc.autostart) runner_->start(sc, now_ms);
+}
+
+bool RawSimDevices::request(const std::string& device, const std::string& action, const std::string& what, int dlc,
+                            std::string& err) {
+  if (std::find(names_.begin(), names_.end(), device) == names_.end()) {
+    err = "no plain CAN device \"" + device + "\" is simulated on this network";
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  requests_.push_back(Request{device, action, what, dlc});
+  return true;
+}
+
+void RawSimDevices::apply_requests(uint64_t now_ms) {
+  std::vector<Request> todo;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    todo.swap(requests_);
+  }
+  for (const auto& r : todo)
+    for (auto& d : devices_)
+      if (d->name() == r.device) {
+        std::string err;
+        if (!canopen_sim::raw_device_action(*d, r.action, r.what, r.dlc, now_ms, err))
+          canopen_plugin::log_warn("simulation: %s", err.c_str());
+      }
 }
 
 void RawSimDevices::on_frame(const canworks_can_frame& f, uint64_t now_ms) {
@@ -118,6 +165,8 @@ void RawSimDevices::on_frame(const canworks_can_frame& f, uint64_t now_ms) {
 }
 
 void RawSimDevices::due(uint64_t now_ms, std::vector<canworks_can_frame>& out) {
+  apply_requests(now_ms);
+  if (runner_) runner_->step(now_ms);
   NoObjectsContext ctx;
   ctx.rng = &rng_;
   std::vector<canopen_sim::RawFrame> frames;
@@ -126,9 +175,39 @@ void RawSimDevices::due(uint64_t now_ms, std::vector<canworks_can_frame>& out) {
 }
 
 uint64_t RawSimDevices::next_in(uint64_t now_ms) const {
-  uint64_t next = std::numeric_limits<uint64_t>::max();
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!requests_.empty()) return 0;
+  }
+  uint64_t next = runner_ ? runner_->next_in(now_ms) : std::numeric_limits<uint64_t>::max();
   for (const auto& d : devices_) next = std::min(next, d->next_in(now_ms));
   return next;
+}
+
+namespace {
+std::mutex g_registry_mutex;
+std::vector<RawSimDevices*>& registry() {
+  static std::vector<RawSimDevices*> r;
+  return r;
+}
+}  // namespace
+
+void set_sim_devices(unsigned network, RawSimDevices* devices) {
+  std::lock_guard<std::mutex> lock(g_registry_mutex);
+  auto& r = registry();
+  if (r.size() <= network) r.resize(network + 1, nullptr);
+  r[network] = devices;
+}
+
+bool sim_device_action(unsigned network, const std::string& device, const std::string& action,
+                       const std::string& what, int dlc, std::string& err) {
+  std::lock_guard<std::mutex> lock(g_registry_mutex);
+  auto& r = registry();
+  if (network >= r.size() || !r[network]) {
+    err = "no plain CAN device \"" + device + "\" is simulated on this network";
+    return false;
+  }
+  return r[network]->request(device, action, what, dlc, err);
 }
 
 std::string find_simulation_file(const std::string& config_dir, const std::string& fallback_dir) {

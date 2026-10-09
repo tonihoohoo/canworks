@@ -22,6 +22,7 @@
 #include "raw_bridge_server.h"
 #include "sim_config.h"
 #include "sim_host.h"
+#include "raw/raw_devices.h"
 
 namespace canopen_plugin {
 
@@ -279,6 +280,12 @@ void Bus::run_session() {
       opt.store = sim_->store;
       opt.simulated_network = virt;
       simulator.reset(new canopen_sim::Simulator(*sim_host, specs, sim_->file, opt));
+      // Plain CAN devices run in the network's raw path (raw_devices.h).
+      unsigned index = cfg_.network_index;
+      simulator->raw_device_action = [index](const std::string& device, const std::string& action,
+                                             const std::string& what, int dlc, std::string& err) {
+        return canworks_raw::sim_device_action(index, device, action, what, dlc, err);
+      };
       std::vector<std::string> errors;
       if (!simulator->Start(errors)) {
         for (const auto& e : errors) log_error("simulation: %s", e.c_str());

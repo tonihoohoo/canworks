@@ -40,6 +40,7 @@ RawRuntime::~RawRuntime() {
   stop();
   set_port(index_, nullptr);
   if (bridge_ && !bridge_->loopback()) set_sim_bridge(index_, nullptr);
+  if (devices_) set_sim_devices(index_, nullptr);
   if (adapter_) adapter_->release();
 }
 
@@ -78,13 +79,14 @@ bool RawRuntime::make(const ConfigSet& set, std::vector<std::string>& errors) {
     devices_.reset(new RawSimDevices);
     if (!path.empty()) {
       std::string name = cfg_.network.empty() ? cfg_.adapter.interface : cfg_.network;
-      if (!devices_->load(path, name, set.several(), errors)) return false;
+      if (!devices_->load(path, name, set.several(), cfg_.is_plain(), errors)) return false;
     }
     bridge_ = std::make_shared<SimBridge>(cfg_.is_plain());
     if (cfg_.is_plain())
       injector_ = std::make_shared<SimFrameInjector>();
     else
       set_sim_bridge(index_, bridge_);
+    set_sim_devices(index_, devices_.get());
   } else {
     if (cfg_.is_plain()) adapter_ = make_adapter(cfg_.adapter);
     link_ops_ = make_netlink_ops();
