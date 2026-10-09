@@ -1,10 +1,10 @@
 ## 0. Order
 
-- [ ] 0.1 Apply after `rename-to-canworks` has merged; rebase this branch on the renamed `main` (paths below use the new names).
+- [x] 0.1 Apply after `rename-to-canworks` has merged; rebase this branch on the renamed `main` (paths below use the new names).
 
 ## 1. Config and schema
 
-- [ ] 1.1 Extend `schema/canworks.v2.schema.json` (and the packaged copy) with `protocol` and the `j1939` object; add `examples/j1939/canworks.json` and `examples/j1939/machine.dbc` with proprietary PGNs only; verify both validate and existing examples still do.
+- [x] 1.1 Extend `schema/canworks.v2.schema.json` (and the packaged copy) with `protocol` and the `j1939` object; add `examples/j1939/canworks.json` and `examples/j1939/machine.dbc` with proprietary PGNs only; verify both validate and existing examples still do.
 - [ ] 1.2 Plugin config: parse `protocol` and `j1939` into a `J1939Config` (new `plugin/src/j1939/config.*`), every check from `j1939-config` and design Decision 10, J1939 locations in the cross-network clash check; verify with C++ unit tests, one per rejection message.
 - [ ] 1.3 PC tools contract: the same checks in Python with shared fixtures (`test/fixtures/config/cases-j1939.json`) used by both C++ and Python tests; writers pick version 2 for J1939.
 

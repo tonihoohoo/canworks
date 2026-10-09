@@ -56,9 +56,11 @@ The configurator's **Simulated** switches and **Simulation** view set up and dri
 
 ```
 CMakeLists.txt     builds libcanworks_plugin.so; the runtime's install.sh builds it from here
-plugin/            native plugin source
-plugin/sim/        the device simulator engine (simulated devices, value sources, expressions,
-                   CiA 402 drive model, faults, scenarios, the machine model), used by the plugin and canworks-sim
+plugin/            native plugin source: src/can/ the shared CAN core (config, adapters, bit rate
+                   detection, trace, raw frames, diagnostics server, entry points), src/canopen/ the
+                   CANopen master, slave and gateway on Lely, src/canopen/sim/ the device simulator
+                   engine (simulated devices, value sources, expressions, CiA 402 drive model, faults,
+                   scenarios, the machine model), used by the plugin and canworks-sim
 schema/            the config contract (JSON Schema 2020-12): canworks.v1.schema.json (one network),
                    canworks.v2.schema.json (several networks, slave networks, the gateway), and
                    canworks-sim.v1/v2.schema.json for the simulation file (v2: a section per network),

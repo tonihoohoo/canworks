@@ -4,7 +4,7 @@ The DCF is the node's EDS (the prepared copy the plugin uses) with a
 ParameterValue on every sub-object the plugin writes during the node's
 configuration download, a [DeviceComissioning] section and updated [FileInfo]
 keys. The download is built the way the plugin builds it on the PLC
-(plugin/src/dcf_gen.cpp): the dcfgen input of make_dcfgen_yaml(), Lely
+(plugin/src/canopen/dcf_gen.cpp): the dcfgen input of make_dcfgen_yaml(), Lely
 dcfgen's own Slave/Master code (vendored as _lely_dcf/dcfgen_cli.py), then
 the plugin's post-processing of generate_device_config(). CI compares the
 result with `canopen_check --dump-writes` for the fixture configs.

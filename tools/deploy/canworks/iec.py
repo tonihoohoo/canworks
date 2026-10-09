@@ -1,6 +1,6 @@
 """IEC 61131-3 located addresses (%IX10.0, %QW100, %MD5) and CANopen types.
 
-Mirrors plugin/src/iec_location.{h,cpp}. Each size letter is its own table in
+Mirrors plugin/src/can/iec_location.{h,cpp}. Each size letter is its own table in
 the OpenPLC image (bool_input, byte_input, int_input, dint_input, lint_input,
 and the output and memory equivalents), so locations of different sizes never
 overlap: %IW100 and %ID100 are different variables.

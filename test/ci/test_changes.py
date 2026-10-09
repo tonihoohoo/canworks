@@ -22,7 +22,7 @@ class Classify(unittest.TestCase):
         self.assertFalse(ci.is_code(["docs/deploy.md", "README.md", ".claude/skills/a/SKILL.md"]))
 
     def test_source_is_code(self):
-        self.assertTrue(ci.is_code(["docs/deploy.md", "src/canopen_plugin.cpp"]))
+        self.assertTrue(ci.is_code(["docs/deploy.md", "plugin/src/can/plugin.cpp"]))
 
     def test_workflow_is_code(self):
         self.assertTrue(ci.is_code([".github/workflows/ci.yml"]))

@@ -10,7 +10,7 @@
 // The object dictionary, NMT, heartbeat, guarding, SDO server, PDOs, SYNC
 // and EMCY all come from Lely, driven by the EDS. Everything runs on the
 // event loop thread the device was created on. The device simulator's
-// devices (plugin/sim) build on this class too, with Options to behave like
+// devices (plugin/src/canopen/sim) build on this class too, with Options to behave like
 // a free-standing device.
 
 #ifndef CANOPEN_SLAVE_DEVICE_H

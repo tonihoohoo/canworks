@@ -1,5 +1,5 @@
 """TLS and the SCRAM login for the fake servers (fake_diag.py, fake_sim.py),
-as the plugin does them (plugin/src/secure_channel.h). The certificate in
+as the plugin does them (plugin/src/can/secure_channel.h). The certificate in
 data/tls is a test certificate; the real plugin makes a new one whenever it
 starts."""
 

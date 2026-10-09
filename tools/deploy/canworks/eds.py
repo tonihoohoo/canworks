@@ -1,6 +1,6 @@
 """EDS (CiA 306) reading and the checks the plugin runs at load.
 
-Mirrors plugin/src/eds_check.cpp, message for message: the shared fixtures in
+Mirrors plugin/src/canopen/eds_check.cpp, message for message: the shared fixtures in
 test/fixtures/ run through both. The plugin reads EDS files with Lely; this
 module reads the parts the checks need (object list, DataType, AccessType,
 PDOMapping) with configparser.

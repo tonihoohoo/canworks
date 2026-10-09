@@ -2,7 +2,7 @@
 the checks the plugin runs that the schema cannot express.
 
 Messages that the plugin also produces use the plugin's wording (see
-plugin/src/config.cpp); the shared fixtures in test/fixtures/config/ hold both
+plugin/src/can/config.cpp); the shared fixtures in test/fixtures/config/ hold both
 to it.
 """
 

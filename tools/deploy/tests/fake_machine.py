@@ -1,4 +1,4 @@
-"""A stand-in for the simulator's machine model (plugin/sim/sim_machine.cpp):
+"""A stand-in for the simulator's machine model (plugin/src/canopen/sim/sim_machine.cpp):
 FakeMachine is built from a machine file and gives `sim_machine` answers
 shaped as the simulator's, with the gantry running a pick-and-place cycle
 over time. For the configurator's server and page tests; FakeSim answers

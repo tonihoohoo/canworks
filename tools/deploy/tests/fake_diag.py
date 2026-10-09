@@ -1,4 +1,4 @@
-"""A stand-in for the plugin's diagnostics channel (plugin/src/diag.cpp), for
+"""A stand-in for the plugin's diagnostics channel (plugin/src/can/diag.cpp), for
 the CLI and configurator tests. Speaks protocol 2 (TLS and the SCRAM login,
 fake_tls.py) on 127.0.0.1, and tells a plain client to update.
 

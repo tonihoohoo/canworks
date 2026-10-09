@@ -1,4 +1,4 @@
-// Unit tests of the machine model (plugin/sim/sim_machine.cpp) on a virtual
+// Unit tests of the machine model (plugin/src/canopen/sim/sim_machine.cpp) on a virtual
 // clock: three CiA 402 drive models on fake object dictionaries, a fake I/O
 // module, and a small pick-and-place sequence standing in for the PLC.
 

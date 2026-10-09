@@ -1,4 +1,4 @@
-// canopen_plugin.cpp - OpenPLC Runtime v4 native plugin entry points.
+// plugin.cpp - OpenPLC Runtime v4 native plugin entry points.
 //
 // Lifecycle (core/src/drivers/plugin_driver.c): init() on every PLC start,
 // then start_loop(); stop_loop() on PLC stop; cleanup() on unload. init() may

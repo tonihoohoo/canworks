@@ -62,7 +62,7 @@ SILENT_HINT = ("The bus was silent. A listening adapter sends no acknowledge, so
 
 
 # ---------------------------------------------------------------------------
-# The SCRAM-SHA-256 login (plugin/src/secure_channel.h has the same math).
+# The SCRAM-SHA-256 login (plugin/src/can/secure_channel.h has the same math).
 
 
 def _b64(data):
