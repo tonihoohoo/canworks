@@ -30,7 +30,7 @@ uv tool install --python 3.12 canworks-<version>-py3-none-any.whl
 
 Without a release file, uv installs the newest code straight from GitHub; this needs no git: `uv tool install --force "canworks @ https://github.com/tonihoohoo/canworks/archive/refs/heads/main.zip#subdirectory=tools/deploy"`. If uv cannot install its own Python on the PC (seen on a Windows IoT LTSC build), point `--python` at a Python 3.8 or newer that is already installed instead.
 
-uv downloads Python 3.12 if the PC has none, puts the tools in their own environment, and links the four commands into its bin folder (`%USERPROFILE%\.local\bin` on Windows, `~/.local/bin` on macOS and Linux). If it warns that the folder is not on PATH, run `uv tool update-shell` and open a new terminal. Check:
+uv downloads Python 3.12 if the PC has none, puts the tools in their own environment, and links the five commands into its bin folder (`%USERPROFILE%\.local\bin` on Windows, `~/.local/bin` on macOS and Linux). If it warns that the folder is not on PATH, run `uv tool update-shell` and open a new terminal. Check:
 
 ```sh
 canworks-deploy --version

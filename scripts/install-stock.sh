@@ -120,8 +120,9 @@ setup_j1939_module() {
     if "$MODPROBE" can-j1939 2>/dev/null; then
         say "Kernel module can-j1939 loaded (and at every boot: $MODULES_LOAD)"
     else
-        echo "warning: the kernel module can-j1939 could not be loaded; J1939 networks stay down until it is" \
-             "(modprobe can-j1939; on Ubuntu it is in linux-modules-extra-\$(uname -r))" >&2
+        echo "warning: the kernel module can-j1939 could not be loaded: J1939 networks need a kernel with the" \
+             "can-j1939 module and stay down until it loads (on Ubuntu it is in linux-modules-extra-\$(uname -r));" \
+             "CANopen is not affected" >&2
     fi
 }
 

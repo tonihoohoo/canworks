@@ -377,11 +377,11 @@ TEST(j1939_engine_receives) {
   r.image.copy_to_plc(r.rt);
   CHECK(r.img.int_in[0] == 0x2710 && r.img.lint_in[1] == 0xFFFFFFFFFFFFFFF6ULL);
   CHECK(r.img.bool_in[10][0] == 1 && r.img.bool_in[10][1] == 1);
-  // Not available: the value holds raw, valid drops.
+  // Not available: valid drops and the value keeps its last one.
   r.message(0xFF00, 0x10, 255, {0xFF, 0xFF, 0x05, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 520);
   r.engine.tick(r.at(521));
   r.image.copy_to_plc(r.rt);
-  CHECK(r.img.bool_in[10][0] == 0 && r.img.lint_in[1] == 5);
+  CHECK(r.img.bool_in[10][0] == 0 && r.img.int_in[0] == 0x2710 && r.img.lint_in[1] == 5);
   // Supervision: nothing for 300 ms.
   r.engine.tick(r.at(819));
   r.image.copy_to_plc(r.rt);

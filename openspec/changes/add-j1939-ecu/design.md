@@ -38,13 +38,13 @@ The `protocol` field selects the engine per network. This keeps one config file 
 - Bit rate detection, trace, raw frames and the one-network-per-interface check need one owner of the adapters. CANopen and J1939 on one bus later also needs a single owner.
 - Separate plugins would mean two diag ports and cross-plugin clash checks.
 
-**Layout inside the plugin.** Shared CAN core in `plugin/src/can/` (adapter and link setup, bit rate sweep, bus monitor, trace capture, raw frames, diagnostics server, process image, IEC locations, plugin entry points). One folder per protocol: `plugin/src/canopen/` (Lely master, slave, gateway, DCF) and `plugin/src/j1939/`. A protocol registers a small interface with the core:
-- parse and check its network config
-- create its bus thread
-- add its status to the diag answer
-- list its IEC locations for the clash check
+**Layout inside the plugin.** Shared CAN core in `plugin/src/can/`: adapter and link setup, bit rate sweep, trace capture, raw frames, the diagnostics server, the image copies (`image_io`), IEC locations, the config model and parser for every network kind, and the plugin entry points. One folder per protocol: `plugin/src/canopen/` (Lely master, slave, gateway, DCF, device simulator, bus monitor) and `plugin/src/j1939/` (its config model and checks, address claim, sockets, engine). Each protocol makes its running networks behind one interface, `NetworkRuntime` in `can/network_runtime.h`:
+- start and stop its bus thread
+- the scan hooks (inputs to the image, outputs into a snapshot)
+- its diagnostics hub, which its bus thread answers (the status answer comes from the protocol)
+- trace sources and frame injection of simulated networks
 
-The core never includes protocol headers. A later protocol adds a folder and a registration, with no core change.
+The entry points include a protocol's runtime header only under that protocol's build option. The config parser and the diagnostics server know each protocol's network kind (the parse branch, the hello fields, refusing CANopen-only operations on a J1939 network). A later protocol adds a folder, a parse branch and a `NetworkRuntime`.
 
 **Build options.** CMake options `CANWORKS_WITH_CANOPEN` and `CANWORKS_WITH_J1939`, both ON by default; at least one must be ON. A build without CANopen does not need Lely or dcfgen. The plugin's status and log name the protocols it was built with. A config whose network uses a protocol that is not built in is rejected as a config error naming the protocol. The install script builds both by default and takes `--without-canopen` / `--without-j1939`.
 

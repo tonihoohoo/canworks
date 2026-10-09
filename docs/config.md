@@ -60,7 +60,7 @@ canopen_check /etc/canworks/canopen_config.json
 
 ## Several networks (`schema_version` 2)
 
-One PLC can drive up to 8 CAN networks, each on its own adapter, with its own master, bit rate, SYNC and nodes. Such a file has `"schema_version": 2` and a `networks` list instead of the top-level `adapter`, `master` and `nodes`; [`config/two-networks`](../config/two-networks/canopen_config.json) is an example:
+One PLC can drive up to 8 CAN networks, each on its own adapter, with its own master, bit rate, SYNC and nodes. A network with `"protocol": "j1939"` is a J1939 ECU instead of a CANopen master or slave, with a `j1939` object in place of `master` and `nodes` ([j1939.md](j1939.md)). Such a file has `"schema_version": 2` and a `networks` list instead of the top-level `adapter`, `master` and `nodes`; [`config/two-networks`](../config/two-networks/canopen_config.json) is an example:
 
 ```json
 {
