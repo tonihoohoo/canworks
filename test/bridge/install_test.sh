@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/install-bridge.sh with a stub systemctl and a prebuilt binary
-# (modbus-bridge "Packaging"): the unit, the binary, uninstall and purge.
+# (modbus-bridge "Packaging"): the unit, the binary, uninstall and purge, and
+# a prefix whose venv the runtime's Docker container made.
 #
 #   test/bridge/install_test.sh CANWORKS_BRIDGE
 
@@ -26,7 +27,6 @@ export CANWORKS_UNIT_DIR="$T/units" CANWORKS_BRIDGE_CONF_DIR="$T/etc" CANWORKS_S
 check '[ -x "$T/opt/bin/canworks-bridge" ]' "the binary is installed"
 check 'grep -q "^ExecStart=$T/opt/bin/canworks-bridge --config $T/etc/%i/canworks.json$" "$T/units/canworks-bridge@.service"' \
     "the unit runs one config per instance"
-check 'grep -q "^RuntimeDirectory=canworks$" "$T/units/canworks-bridge@.service"' "the unit keeps the lock folder"
 check 'grep -qx "daemon-reload" "$T/calls"' "systemd reloads the units"
 check '[ -d "$T/etc" ]' "the config folder exists"
 check 'grep -qx can-j1939 "$T/modules/canworks-j1939.conf"' "can-j1939 loads at boot"
@@ -41,4 +41,15 @@ check '[ ! -e "$T/units/canworks-bridge@.service" ] && [ ! -e "$T/opt/bin/canwor
 check '[ -f "$T/etc/line1/canworks.json" ]' "uninstall keeps the configs"
 "$REPO/scripts/install-bridge.sh" --prefix "$T/opt" --uninstall --purge > "$T/out"
 check '[ ! -e "$T/etc" ]' "--purge removes the configs"
+
+# A prefix whose venv another Python made (the runtime's Docker container).
+mkdir -p "$T/docker/venv/bin"
+printf 'home = /usr/local/bin\nversion = 3.0.1\n' > "$T/docker/venv/pyvenv.cfg"
+ln -s "$(command -v python3)" "$T/docker/venv/bin/python"
+if "$REPO/scripts/install-bridge.sh" --prefix "$T/docker" --no-deps --without-canopen --binary "$BIN_SRC" > "$T/out" 2>&1; then
+    check false "a container's venv is refused"
+else
+    check 'grep -q "made with Python 3.0 but runs as" "$T/out" && grep -q -- "--prefix /opt/canworks-bridge" "$T/out"' \
+        "a container's venv is refused with the way out"
+fi
 exit $fail

@@ -412,7 +412,7 @@ When a mandatory node is lost later, the master resets that node (default), stop
 
 ### Identity check and boot error byte
 
-When a node's identity does not match, the plugin reads the node's 0x1018 and logs one line per wrong device, for example `node 5 (rtd): wrong device: product code 1029 (0x00000405), expected 1028 (0x00000404) from rtd8.eds`. It keeps retrying quietly, without resetting the node, and logs again only when another device answers. The right device then boots normally.
+When a node's identity does not match, the plugin reads the node's 0x1018 and logs one line per wrong device, for example `node 5 (rtd): wrong device: product code 1029 (0x00000405), expected 1028 (0x00000404) from rtd8.eds`. It keeps retrying quietly, without resetting the node, and logs again only when another device answers. The right device then boots normally. When 0x1018 reads the expected value after all, the boot's own read failed rather than the check, and the line says so instead: `the boot could not check the vendor ID (status D), which reads ... as expected now: is another CANopen master on the bus?`.
 
 `boot_error_location` holds the CiA 302 error status letter as its ASCII code:
 

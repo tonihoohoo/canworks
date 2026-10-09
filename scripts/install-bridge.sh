@@ -112,6 +112,16 @@ if [ "$DEPS" -eq 1 ]; then
         build-essential cmake pkg-config autoconf automake libtool git curl python3 python3-venv libssl-dev >/dev/null
 fi
 mkdir -p "$PREFIX/bin"
+# A prefix the OpenPLC runtime's Docker container set up (install-stock.sh
+# with a managed install) has a venv made by the container's Python, which
+# the host's Python cannot use. Leave it to the container.
+if [ -f "$PREFIX/venv/pyvenv.cfg" ] && [ -x "$PREFIX/venv/bin/python" ]; then
+    made=$(sed -n 's/^version[_info]* *= *\([0-9]*\.[0-9]*\).*/\1/p' "$PREFIX/venv/pyvenv.cfg" | head -n1)
+    runs=$("$PREFIX/venv/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)
+    if [ -n "$made" ] && [ "$made" != "$runs" ]; then
+        die "$PREFIX/venv was made with Python $made but runs as ${runs:-nothing} here (a prefix the runtime's Docker container uses?); install the bridge into its own prefix: --prefix /opt/canworks-bridge"
+    fi
+fi
 if [ "$WITH_CANOPEN" -eq 1 ]; then
     if [ -z "$BINARY" ] || [ ! -x "$PREFIX/venv/bin/dcfgen" ]; then
         "$REPO/scripts/build-lely.sh" --prefix "$PREFIX" --ref "$LELY_REF"
@@ -168,9 +178,6 @@ Restart=on-failure
 RestartSec=2
 # Port 502 and the CAN link setup (bit rate) need these; the service runs as root.
 AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
-# The CAN interface locks (one canworks process per interface).
-RuntimeDirectory=canworks
-RuntimeDirectoryPreserve=yes
 
 [Install]
 WantedBy=multi-user.target
