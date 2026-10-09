@@ -1685,6 +1685,65 @@ def _local_client(args):
                              network=args.network, timeout=args.timeout)
 
 
+class _SweepOnly:
+    """detect-bitrate on --adapter: the sweep opens the adapter itself, at each
+    rate. No connection at --bitrate comes first: on a bus at another rate it
+    would send error frames, and some adapters (gs_usb) stay bus-off after
+    that until they are plugged in again. --bitrate (or --config) only names
+    the expected rate."""
+
+    def __init__(self, args):
+        from . import localbus
+        from .localbus import configinfo
+        try:
+            self.spec = localbus.parse(args.adapter, args.adapter_option)
+        except localbus.AdapterError as e:
+            raise DiagError("usage", str(e))
+        self.configured = args.bitrate
+        if not self.configured and getattr(args, "config", None):
+            try:
+                bitrate = configinfo.load(args.config, args.network)[0]
+            except (OSError, ValueError) as e:
+                raise DiagError("usage", "cannot use %s: %s" % (args.config, e))
+            self.configured = bitrate // 1000 if bitrate else None
+        self.allow_changes = args.allow_changes
+        self.networks = [{"name": args.network or "", "interface": str(self.spec), "role": "local"}]
+        self.sweep = None
+
+    def connect(self):
+        pass
+
+    def several(self):
+        return False
+
+    def close(self):
+        if self.sweep is not None and self.sweep.running:
+            self.sweep.stop()
+
+    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False, disturb_bus=False,
+                       lone_device=False, probe=None):
+        from .localbus import adapter as adapter_mod
+        from .localbus import sweep as sweep_mod
+        if lone_device and not self.allow_changes:
+            raise DiagError("refused", "changes not allowed (the lone-device sweep joins the bus at every rate; "
+                                       "start with --allow-changes)")
+        if not lone_device and self.spec.kind not in adapter_mod.LISTEN_ONLY:
+            raise DiagError("refused", "%s (%s adapters; slcan, PCAN and SocketCAN have one); with only one device "
+                                       "on the bus, use the lone-device sweep (--lone-device)"
+                            % (adapter_mod.NO_LISTEN_ONLY, self.spec.kind))
+        self.sweep = sweep_mod.Sweep(self.spec, rates, per_rate_ms or 1000, rounds or 1,
+                                     configured_kbit=self.configured, disturb_bus=disturb_bus,
+                                     lone_device=lone_device, probe=probe)
+        try:
+            self.sweep.start()
+        except adapter_mod.AdapterError as e:
+            raise DiagError("refused", str(e))
+        return self.sweep.status()
+
+    def detect_bitrate_status(self):
+        return self.sweep.status()
+
+
 def _adapters(args, out):
     from . import localbus
     found = localbus.list_adapters()
@@ -1900,7 +1959,10 @@ def run(args, out=sys.stdout):
         raise DiagError("usage", "give --runtime HOST[:PORT], or --adapter TYPE:CHANNEL for a CAN adapter on this PC")
     if args.command == "trace":
         return _trace(args, out)
-    if args.adapter:
+    if args.adapter and args.command == "detect-bitrate":
+        client = _SweepOnly(args)
+        host = str(client.spec)
+    elif args.adapter:
         client = _local_client(args)
         host = str(client.spec)
     else:
