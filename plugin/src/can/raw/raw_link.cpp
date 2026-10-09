@@ -72,6 +72,23 @@ uint64_t utc_us(const timeval& tv) {
   return static_cast<uint64_t>(tv.tv_sec) * 1000000u + static_cast<uint64_t>(tv.tv_usec);
 }
 
+}  // namespace
+
+LinkFrame error_link_frame(uint32_t can_id, const uint8_t* data) {
+  LinkFrame lf;
+  lf.error = true;
+  lf.error_class = can_id & CAN_ERR_MASK;
+  // Drivers that predate CAN_ERR_CNT (gs_usb) fill the counters of
+  // controller-problem frames without it.
+  if (lf.error_class & (kErrCounters | kErrCtrl)) {
+    lf.tx_errors = data[6];
+    lf.rx_errors = data[7];
+  }
+  return lf;
+}
+
+namespace {
+
 // --- The CAN_RAW socket ---
 
 class SocketLink : public RawLink {
@@ -149,14 +166,7 @@ class SocketLink : public RawLink {
       ssize_t r = recvmsg(fd_, &msg, MSG_DONTWAIT);
       if (r < static_cast<ssize_t>(sizeof c)) return;
       if (c.can_id & CAN_ERR_FLAG) {
-        LinkFrame lf;
-        lf.error = true;
-        lf.error_class = c.can_id & CAN_ERR_MASK;
-        if (lf.error_class & kErrCounters) {
-          lf.tx_errors = c.data[6];
-          lf.rx_errors = c.data[7];
-        }
-        out.push_back(lf);
+        out.push_back(error_link_frame(c.can_id, c.data));
         continue;
       }
       uint64_t t = 0;

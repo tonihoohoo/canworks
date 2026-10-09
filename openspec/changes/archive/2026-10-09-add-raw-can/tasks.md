@@ -56,5 +56,6 @@
 - [x] 9.2 Program blocks on the bench: `CAN_SEND` confirmation, `CAN_SEND_CYCLIC` at 10 ms with a 50 ms scan (period checked in a PC trace), `CAN_RECEIVE` draining a burst, `CAN_BUS_INFO` after unplugging the other adapter (error passive or bus-off).
   - 2026-10-09 retest after fix-raw-can-hw-findings: passed (cyclic period 10.00 ms average).
   - 2026-10-09 unplug (other device's cable pulled): the bus went error passive (not bus-off, as expected without acknowledgement) and every block recovered by itself after the replug. Found and fixed: `CAN_SEND` ended with `ERROR_ID` 5 on a full kernel queue, and `TX_ERRORS`/`ERROR_FRAMES` stayed 0 on an adapter without driver counters. Bus-off itself is not tried.
+  - 2026-10-09 unplug retest after those fixes: `CAN_SEND` ends with 6, error frames counted, recovery as before; `TX_ERRORS` stayed 0 because gs_usb sets the counters without CAN_ERR_CNT (fixed after the run).
 - [ ] 9.3 Listen-only plain network on the Pi: the PC adapter sends, the PLC receives, and a PC trace shows no acknowledgement or frame from the Pi when the PC adapter is the only other device. Put the bench's usual project back afterwards.
   - 2026-10-09: listen-only mode set, frames received, nothing sent, program sends refused. The "no acknowledgement" part needs a bus where the PC adapter is the only other device.

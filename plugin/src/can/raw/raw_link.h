@@ -45,8 +45,12 @@ struct LinkFrame {
 };
 
 // Error frame classes (linux/can/error.h).
+constexpr uint32_t kErrCtrl = 0x00000004u;  // controller problem (state changes)
 constexpr uint32_t kErrBusOff = 0x00000040u;
 constexpr uint32_t kErrCounters = 0x00000200u;  // data[6]/data[7] hold the tx/rx error counters
+
+// The LinkFrame of an error frame with this identifier and data.
+LinkFrame error_link_frame(uint32_t can_id, const uint8_t* data);
 
 // A kernel-style receive filter: frames whose identifier matches `id` under
 // `mask`, with the extended and RTR flags as in SocketCAN.
