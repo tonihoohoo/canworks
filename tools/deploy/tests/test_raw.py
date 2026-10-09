@@ -8,7 +8,7 @@ import unittest
 
 from canworks import contract as _contract  # noqa: F401 - import order of the package
 from canworks.configurator.declare import identifier
-from canworks.raw import assist, contract, declare, signals
+from canworks.raw import assist, contract, declare, replay, signals
 from canworks.raw.decode import RawDecoder
 
 try:
@@ -155,6 +155,47 @@ class AssistTests(unittest.TestCase):
                       "MOTOROLA := FALSE, SIGNED := TRUE);", st)
         st = assist.st_call(raw["tx"][0], "tx")
         self.assertIn("tx_Lamps(EXECUTE := Lamps_go, ID := 16#501, DLC := 3, DATA := Lamps_data);", st)
+
+
+
+class ReplayTests(unittest.TestCase):
+    def test_trc_plan_batches_and_adapter(self):
+        import io
+        from canworks.bustrace import formats
+        from canworks.bustrace.model import Frame, Trace
+        t = Trace()
+        t.extend([Frame(1000000, 0x123, b"\x01\x02"), Frame(1010000, 0x18FF0080, bytes(8), ext=True),
+                  Frame(1015000, 0x7E0, b"", rtr=True, dlc=2), Frame(1020000, 0, b"\x00" * 8, err=True)])
+        out = io.StringIO()
+        formats.write_trc(t, out)
+        frames = replay.read_trc(out.getvalue())
+        self.assertEqual([(f.time_us, f.can_id, f.ext, f.rtr, f.dlc) for f in frames],
+                         [(0, 0x123, False, False, 2), (10000, 0x18FF0080, True, False, 8), (15000, 0x7E0, False, True, 2)])
+        p = replay.plan(frames)
+        self.assertEqual([off for off, _ in p], [0, 10000, 15000])
+        self.assertEqual([off for off, _ in replay.plan(frames, rate=100)], [0, 10000, 20000])
+        b = replay.batches(p, size=2)
+        self.assertEqual(len(b), 2)
+        self.assertEqual(b[0]["frames"][0], {"id": 0x123, "dlc": 2, "data": "0102", "t_us": 0})
+        self.assertEqual(b[1]["frames"][0], {"id": 0x7E0, "dlc": 2, "rtr": True, "t_us": 15000})
+        with self.assertRaises(replay.ReplayError):
+            replay.plan([Frame(i * 100, 1, b"") for i in range(1001)])
+        with self.assertRaises(replay.ReplayError):
+            replay.plan(frames, rate=5000)
+        try:
+            import can
+        except ImportError:
+            return
+        tx = can.Bus(interface="virtual", channel="replay-test")
+        rx = can.Bus(interface="virtual", channel="replay-test")
+        try:
+            self.assertEqual(replay.play_on_bus(tx, p, sleep=lambda s: None), 3)
+            got = [rx.recv(1) for _ in range(3)]
+            self.assertEqual([(m.arbitration_id, m.is_extended_id, m.is_remote_frame) for m in got],
+                             [(0x123, False, False), (0x18FF0080, True, False), (0x7E0, False, True)])
+        finally:
+            tx.shutdown()
+            rx.shutdown()
 
 
 if __name__ == "__main__":
