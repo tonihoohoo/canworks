@@ -81,7 +81,7 @@ class J1939Inspector(TraceBase):
         pg.set_input_files('input[data-trace="open-input"]', TRACE)
         pg.wait_for_selector("#trace-rows .trace-row")
         kinds = pg.eval_on_selector_all("[data-trace-kind]", "es => es.map(e => e.dataset.traceKind)")
-        self.assertEqual(kinds, ["error", "gap", "other", "pgn", "claim", "request", "ack", "tp"])
+        self.assertEqual(kinds, ["error", "gap", "other", "pgn", "claim", "request", "ack", "tp", "raw"])
         self.assertEqual(pg.locator('[data-trace-tab="sequences"]').count(), 0)
         # Identifiers: a transport ID is named after its message.
         pg.click('[data-trace-tab="ids"]')

@@ -21,7 +21,7 @@ const COND_TYPES = [["frame", "Frame"], ["emcy", "EMCY"], ["state", "Node state"
   ["error_frame", "Error frame"]];
 // A J1939 network shows only its kinds and conditions, a CANopen one only its own.
 const J1939_KINDS = ["pgn", "claim", "request", "ack", "tp"];
-const SHARED_KINDS = ["error", "gap", "other"];
+const SHARED_KINDS = ["error", "gap", "other", "raw"];
 const J1939_CONDS = ["frame", "signal", "bus", "error_frame"];
 function traceJ1939() { return isJ1939(onlineConfig()); }
 function traceKinds() {

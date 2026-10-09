@@ -157,7 +157,7 @@ class Pages(TraceBase):
         self.opened()
         # A CANopen network offers no J1939 kinds.
         kinds = pg.eval_on_selector_all("[data-trace-kind]", "es => es.map(e => e.dataset.traceKind)")
-        self.assertEqual(kinds, ["nmt", "sync", "time", "emcy", "heartbeat", "sdo", "pdo", "lss", "error", "gap", "other"])
+        self.assertEqual(kinds, ["nmt", "sync", "time", "emcy", "heartbeat", "sdo", "pdo", "lss", "error", "gap", "other", "raw"])
         for lo, hi in (("180", "1FF"), ("0x180", "0x1ff")):
             pg.fill('[data-trace-filter="id_from"]', lo)
             pg.fill('[data-trace-filter="id_to"]', hi)

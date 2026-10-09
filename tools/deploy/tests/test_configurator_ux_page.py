@@ -325,12 +325,9 @@ class Probes(Layout):
         pg.keyboard.press("PageUp")
         pg.wait_for_function("() => document.querySelector('#trace-rows .trace-row').classList.contains('selected')")
         audit(pg, "trace with a file")
-        # The decoding note uses the Problems pane's words, without a path.
-        note = pg.inner_text("[data-trace=warning]")
-        self.assertTrue(note.startswith("Decoding without the config's PDOs: "), note)
-        self.assertIn("Node 5 rtd, TPDO 2, 0x6150:1: type UNSIGNED8 (8 bit) does not fit location %IW320 (16 bit)", note)
-        self.assertNotIn(self.dir, note)
-        self.assertNotIn("nodes[", note)
+        # A location that does not fit is a config problem, not a decoding one:
+        # the trace keeps the config's PDOs and shows no decoding note.
+        self.assertEqual(pg.locator("[data-trace=warning]").count(), 0)
         # Simulation rows are buttons too.
         pg.click('button[data-view="simulation"]')
         pg.wait_for_selector("#sim-body")
