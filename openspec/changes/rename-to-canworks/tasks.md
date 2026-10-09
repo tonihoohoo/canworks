@@ -1,33 +1,31 @@
 ## 1. Timing
 
-- [ ] 1.1 Before applying, check that no other pull request is open (today #39 and the `propose/add-machine-sim` branch). If any is, wait for it to merge, or agree with its thread to replay the rename on its branch (design Decision 6).
+- [ ] 1.1 Before applying, check that no other pull request is open (today #39 and the `propose/add-machine-sim` branch). If any is, wait for it to merge, or agree with its thread to replay the rename on its branch (design Decision 4).
 
 ## 2. Rename script
 
-- [ ] 2.1 Write `scripts/rename_to_canworks.py` with the mapping table from design Decision 1, using explicit patterns and excluding `openspec/changes/archive/**`, `LICENSE`, on-device names (`/opt/openplc-canopen`, `libcanopen_plugin.so`, plugin name `canopen`, `conf/canopen.json`, the editor hook module, `OPENPLC_CANOPEN_SIM_*`) and the alias definitions; add `--check`; verify that it is idempotent with a unit test in `.github/scripts/` tests (run twice, second run changes nothing).
-- [ ] 2.2 Run the script and commit its output alone ("rename: script output"), including `openspec/specs/` and the package directory move.
+- [ ] 2.1 Write `scripts/rename_to_canworks.py` with the mapping from design Decision 1: path moves (package, hook, schemas, library) and explicit text patterns, excluding `openspec/changes/archive/**`, `LICENSE` and the CANopen-specific names (`canopen-*` capabilities, CANopen example configs, CANopen block names); add `--check`. Verify with a unit test that it is idempotent (second run changes nothing) and leaves a CANopen capability path untouched.
+- [ ] 2.2 Run the script and commit its output alone ("rename: script output"), including `openspec/specs/`.
 
-## 3. Compatibility code (hand-written commit)
+## 3. Hand edits (second commit)
 
-- [ ] 3.1 Alias entry points for the four old commands plus `openplc-canopen-runtime` (stderr hint, same main); verify with a deploy-tool test comparing stdout and exit status of old and new names.
-- [ ] 3.2 Environment variable lookup helper (`CANWORKS_*` first, then `OPENPLC_CANOPEN_*`) used by every PC-tools read; verify with tests for the token and engine variables.
-- [ ] 3.3 Settings folder copy-on-first-use in `userdirs.py`; verify with tests on all three platform layouts (temp HOME/APPDATA/XDG).
-- [ ] 3.4 Local runtime: list of earlier container names, newest first; image name `canworks-sim-runtime`; verify with `test_localruntime.py` cases for takeover from `openplc-canopen-sim-runtime` and from `openplc-canopen-runtime`.
-- [ ] 3.5 Editor hook distribution `canworks-editor-hook` depending on `canworks`; check that `install-stock.sh` and the Docker spec still install to `/opt/openplc-canopen` and register `canopen`, with tests asserting both.
+- [ ] 3.1 Remove the `openplc-canopen-runtime` alias entry point and its local-runtime takeover code for the 0.30 name (no compatibility layer); update `test_localruntime.py`.
+- [ ] 3.2 `install-stock.sh` and `docker_spec.py`: remove a leftover `canopen` line, `/opt/openplc-canopen` and old runtime-spec entries, one line each; verify in the Docker-mode stub test and the stock install test.
+- [ ] 3.3 Check that config examples, schema `$id`s and the editor hook's folder lookup (`canworks/canworks.json`) all agree; run the full local suite (C++ ctest, deploy tool, editor hook, configurator page tests).
 
 ## 4. CI, release and docs
 
-- [ ] 4.1 Workflows: wheel name, image name, package paths in `test_shard.py`, labels in `docker/local-runtime/Dockerfile`; add `rename_to_canworks.py --check` to the tools job (no new job, so CI time is unchanged); compare wall time with the median of the last 5 green main runs and state it in the PR.
-- [ ] 4.2 README: new name in the title and intro ("Open CAN toolkit: configure, commission, diagnose, trace and simulate CANopen and J1939 networks, with runtime plugins for OpenPLC"), an "Upgrading from openplc-canopen" section (pip/uv uninstall + install, aliases, settings copy); update `docs/install-pc.md`, `docs/local-runtime.md`, `docs/install-stock.md` and the configurator page title.
-- [ ] 4.3 Bump the PC tools to 0.41.0; the release notes text names the renamed wheel and image.
+- [ ] 4.1 Workflows: wheel and image names, package paths in `test_shard.py`, labels in `docker/local-runtime/Dockerfile`; `rename_to_canworks.py --check` in the tools job (no new job). State the CI wall time against the median of the last 5 green main runs in the PR.
+- [ ] 4.2 README: title "canworks", tagline "Open CAN toolkit: configure, commission, diagnose, trace and simulate CANopen and J1939 networks, with runtime plugins for OpenPLC", a short "Renamed from openplc-canopen" note (reinstall tools, re-run the installer, rename the project folder); update `docs/` and the configurator page title.
+- [ ] 4.3 Bump the PC tools to 0.41.0; release notes name the new wheel and image.
 - [ ] 4.4 Run the banned-word check on the branch (`--files` and `--range origin/main..HEAD`).
 
 ## 5. After merge
 
-- [ ] 5.1 The owner renames the repository to `canworks` in GitHub Settings; then verify that the old clone URL redirects and the new docs links resolve.
+- [ ] 5.1 The owner renames the repository to `canworks` in GitHub Settings; then verify that the old clone URL redirects.
 - [ ] 5.2 After `deploy-v0.41.0` publishes, set the `canworks-sim-runtime` package public; verify an anonymous `docker pull`.
-- [ ] 5.3 Post the in-flight branch recipe (design Decision 6) in the project chat once, and update project memory with the new names.
+- [ ] 5.3 Post the in-flight branch recipe once in the project chat; update project memory with the new names.
 
-## 6. Hardware check
+## 6. Bench
 
-- [ ] 6.1 On the engineering PC: upgrade the tools from 0.40.0, check that `openplc-canopen-diag status` prints the hint and works against the bench PLC, the saved runtime and token are carried over, and `canworks-sim-runtime update` takes over the old local runtime with the same login.
+- [ ] 6.1 Reinstall the PC tools on the engineering PC; re-run `install-stock.sh` on the bench PLC (check that the cleanup lines appear and only `canworks` is in `plugins.conf`); rename the template project's `canopen/` folder to `canworks/`, redeploy, and check that the nodes boot and the configurator connects.
