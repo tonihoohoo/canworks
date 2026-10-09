@@ -1,4 +1,4 @@
-"""openplc-canopen-diag sim against the fake plugin and the fake standalone
+"""canworks-diag sim against the fake plugin and the fake standalone
 simulator (canopen-online-diagnostics: simulator commands)."""
 
 import contextlib
@@ -9,7 +9,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from unittest import mock
 
-from openplc_canopen_deploy import diag, simcli
+from canworks import diag, simcli
 
 from .fake_diag import TOKEN, FakePlugin, closed_port
 from .fake_sim import FakeSim, FakeSimServer

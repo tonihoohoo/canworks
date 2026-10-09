@@ -1,4 +1,4 @@
-"""Network documentation export (openplc_canopen_deploy.docexport and
+"""Network documentation export (canworks.docexport and
 docwriter): the document model against the DBC and DCF exports, the bus-load
 estimate, privacy, stable output, the HTML (well-formed, self-contained, the
 JSON island), golden models of the example configs and the CLI."""
@@ -16,12 +16,12 @@ import shutil
 import tempfile
 import unittest
 
-from openplc_canopen_deploy import cli, dbcexport, dcfexport, docexport, docwriter
+from canworks import cli, dbcexport, dcfexport, docexport, docwriter
 
 from .test_contract import FIXTURES, REPO, load_cases
 
 EDS_DIR = os.path.join(FIXTURES, "eds")
-FIXTURE_CONFIG = os.path.join(EDS_DIR, "canopen.json")
+FIXTURE_CONFIG = os.path.join(EDS_DIR, "canworks.json")
 EDITOR_PROJECT = os.path.join(FIXTURES, "editor-project")
 GOLDEN = os.path.join(os.path.dirname(__file__), "data", "doc")
 EXAMPLES = ("rtd-sensor", "cia402-drive", "two-networks", "pingpong", "slave", "gateway")
@@ -249,12 +249,12 @@ class Model(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp)
         project = os.path.join(tmp, "proj")
         shutil.copytree(EDITOR_PROJECT, project)
-        shutil.copytree(EDS_DIR, os.path.join(project, "canopen"))
+        shutil.copytree(EDS_DIR, os.path.join(project, "canworks"))
         cfg = base_config()
         cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID10"
         with open(os.path.join(project, "pous", "programs", "main.st"), "a", encoding="utf-8") as f:
             f.write("\nPROGRAM other\n  VAR\n    ping AT %ID10 : UDINT;\n  END_VAR\nEND_PROGRAM\n")
-        path = os.path.join(project, "canopen", "canopen.json")
+        path = os.path.join(project, "canworks", "canworks.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         [net] = build(cfg, path, names=dbcexport.project_names(path))["networks"]
@@ -331,11 +331,11 @@ class Privacy(unittest.TestCase):
     def test_no_token_or_absolute_paths(self):
         tmp = tempfile.mkdtemp(prefix="plantdocs-")
         self.addCleanup(shutil.rmtree, tmp)
-        folder = os.path.join(tmp, "canopen")
+        folder = os.path.join(tmp, "canworks")
         shutil.copytree(EDS_DIR, folder)
         cfg = base_config()
         cfg["master"]["diagnostics"] = {"token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="}
-        path = os.path.join(folder, "canopen.json")
+        path = os.path.join(folder, "canworks.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         text, _ = docexport.export(cfg, path, embed_eds=True, now=NOW)
@@ -471,7 +471,7 @@ class Cli(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         shutil.copytree(EDS_DIR, os.path.join(tmp, "eds"))
-        path = os.path.join(tmp, "eds", "canopen.json")
+        path = os.path.join(tmp, "eds", "canworks.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         return tmp, path

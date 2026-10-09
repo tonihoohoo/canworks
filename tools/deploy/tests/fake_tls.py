@@ -11,7 +11,7 @@ import secrets
 import socket
 import ssl
 
-from openplc_canopen_deploy import diag
+from canworks import diag
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CERT = os.path.join(HERE, "data", "tls", "test-cert.pem")

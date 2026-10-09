@@ -1,8 +1,8 @@
-// sim_tool.h - openplc-canopen-sim, the standalone simulator
-// (docs/simulator.md, "openplc-canopen-sim"): its modes and shared helpers.
+// sim_tool.h - canworks-sim, the standalone simulator
+// (docs/simulator.md, "canworks-sim"): its modes and shared helpers.
 
-#ifndef OPENPLC_CANOPEN_SIM_TOOL_H
-#define OPENPLC_CANOPEN_SIM_TOOL_H
+#ifndef CANWORKS_SIM_TOOL_H
+#define CANWORKS_SIM_TOOL_H
 
 #include <string>
 #include <vector>
@@ -37,9 +37,9 @@ class Args {
   size_t i_ = 0;
 };
 
-// Run mode: openplc-canopen-sim [CONFIG] [options].
+// Run mode: canworks-sim [CONFIG] [options].
 int run_main(Args& args);
-// Test mode: openplc-canopen-sim test ...
+// Test mode: canworks-sim test ...
 int test_main(Args& args);
 // Control subcommands (status, get, set, ...): `cmd` is the subcommand.
 int command_main(const std::string& cmd, Args& args);
@@ -49,4 +49,4 @@ void print_usage(bool full);
 
 }  // namespace sim_tool
 
-#endif  // OPENPLC_CANOPEN_SIM_TOOL_H
+#endif  // CANWORKS_SIM_TOOL_H

@@ -1,6 +1,6 @@
-# SDO from the PLC program: the `openplc_canopen` library
+# SDO from the PLC program: the `canworks` library
 
-The `openplc_canopen` library gives the PLC program eight function blocks that read or write any object of any node over SDO while the network runs. They are for transfers the program decides on at run time: a recipe parameter, a device name to log, a calibration table. For an object the program reads or writes all the time, an [SDO variable](config.md#sdo-variables) in the config is simpler, since it needs no code. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network.
+The `canworks` library gives the PLC program eight function blocks that read or write any object of any node over SDO while the network runs. They are for transfers the program decides on at run time: a recipe parameter, a device name to log, a calibration table. For an object the program reads or writes all the time, an [SDO variable](config.md#sdo-variables) in the config is simpler, since it needs no code. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network.
 
 | Block | Data | For |
 |---|---|---|
@@ -14,16 +14,16 @@ The `openplc_canopen` library gives the PLC program eight function blocks that r
 The PC tools carry the library in the version that matches them. On the PC with OpenPLC Editor:
 
 ```sh
-openplc-canopen-deploy library --install
+canworks-deploy library --install
 ```
 
 installs it into the editor as its Library Manager does; restart the editor if it is open. Or write the file and add it in the editor's Library Manager with "install from file":
 
 ```sh
-openplc-canopen-deploy library --out .      # writes openplc_canopen.stlib
+canworks-deploy library --out .      # writes canworks.stlib
 ```
 
-Each `deploy-v` release also carries `openplc_canopen.stlib`. Then enable the library in the project (the editor's Library Manager, or `openplc-canopen-deploy library --project <project folder>`). A project made with `--new-project ... --sdo-blocks`, or with **Enable CANopen SDO blocks** in the configurator's New editor project dialog, has it enabled already, and the library is installed into the editor if it is missing or older.
+Each `deploy-v` release also carries `canworks.stlib`. Then enable the library in the project (the editor's Library Manager, or `canworks-deploy library --project <project folder>`). A project made with `--new-project ... --sdo-blocks`, or with **Enable CANopen SDO blocks** in the configurator's New editor project dialog, has it enabled already, and the library is installed into the editor if it is missing or older.
 
 The blocks need the CANopen plugin on the runtime from the same release or later. Without it, or while CANopen is off, they end with `ERROR_ID` 4.
 

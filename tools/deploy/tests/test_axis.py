@@ -7,9 +7,9 @@ import os
 import re
 import unittest
 
-from openplc_canopen_deploy import axis, contract, editorproject
-from openplc_canopen_deploy.configurator import cia402map, layout, server
-from openplc_canopen_deploy.eds import Eds
+from canworks import axis, contract, editorproject
+from canworks.configurator import cia402map, layout, server
+from canworks.eds import Eds
 
 from .helpers import REPO
 

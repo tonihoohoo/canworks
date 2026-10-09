@@ -8,7 +8,7 @@ import sys
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy import editorproject
+from canworks import editorproject
 
 from .helpers import REPO, fake_editor_cli, pingpong_config, tmpdir
 
@@ -70,9 +70,9 @@ class Create(unittest.TestCase):
         self.assertTrue(main.endswith("  END_VAR\n\n%s\n\nEND_PROGRAM" % editorproject.BODY), main)
         self.assertEqual(len(decls), 9)
         self.assertEqual(main.count(" AT %"), 9)
-        canopen = load(os.path.join(self.target, "canopen", "canopen.json"))
+        canopen = load(os.path.join(self.target, "canworks", "canworks.json"))
         self.assertEqual(canopen["nodes"][0]["eds"], "rtd8.eds")
-        self.assertTrue(os.path.isfile(os.path.join(self.target, "canopen", "rtd8.eds")))
+        self.assertTrue(os.path.isfile(os.path.join(self.target, "canworks", "rtd8.eds")))
         for d in ("pous/functions", "pous/function-blocks", "datatypes"):
             self.assertTrue(os.path.isdir(os.path.join(self.target, d)))
 
@@ -88,9 +88,9 @@ class Create(unittest.TestCase):
         for p in node["tx_pdos"]:
             for e in p["entries"]:
                 del e["iec_location"]
-        with mock.patch("openplc_canopen_deploy.contract.check_config") as check:
+        with mock.patch("canworks.contract.check_config") as check:
             check.return_value = mock.Mock(ok=True, errors=[])
-            with mock.patch("openplc_canopen_deploy.project.contract.check_config", check):
+            with mock.patch("canworks.project.contract.check_config", check):
                 editorproject.create(cfg, RTD_CONFIG, self.target)
         main = read(os.path.join(self.target, "pous", "programs", "main.st"))
         self.assertTrue(main.startswith("PROGRAM main\n  VAR\n  END_VAR\n"), main)
@@ -123,7 +123,7 @@ class Create(unittest.TestCase):
         self.assertFalse(os.path.exists(self.target))
 
     def test_failure_after_create_removes_folder(self):
-        with mock.patch("openplc_canopen_deploy.project.write",
+        with mock.patch("canworks.project.write",
                         side_effect=editorproject.project_mod.ProjectError("disk full")):
             with self.assertRaisesRegex(editorproject.NewProjectError, "disk full.*removed"):
                 editorproject.create(load(RTD_CONFIG), RTD_CONFIG, self.target)

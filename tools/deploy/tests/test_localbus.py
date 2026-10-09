@@ -16,11 +16,11 @@ from unittest import mock
 
 import can
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.bustrace.model import RECORD_SIZE, Frame
-from openplc_canopen_deploy.localbus import AdapterError, LocalBus, parse
-from openplc_canopen_deploy.localbus import client as client_mod
-from openplc_canopen_deploy.localbus import core as core_mod
+from canworks import diag
+from canworks.bustrace.model import RECORD_SIZE, Frame
+from canworks.localbus import AdapterError, LocalBus, parse
+from canworks.localbus import client as client_mod
+from canworks.localbus import core as core_mod
 
 from .fake_canopen import FakeDevice, Peer
 from .helpers import REPO
@@ -78,7 +78,7 @@ class AdapterSpec(unittest.TestCase):
         self.assertIn("bit rate", str(e.exception))
 
     def test_one_tool_per_adapter(self):
-        from openplc_canopen_deploy.localbus import adapter
+        from canworks.localbus import adapter
         spec = parse("virtual:lock-test")
         lock = adapter._Lock(spec)
         self.assertTrue(lock.acquire())
@@ -386,14 +386,14 @@ class Trace(Base):
 
 
 def cli(*argv):
-    """openplc-canopen-diag with its exit status, stdout and stderr."""
+    """canworks-diag with its exit status, stdout and stderr."""
     out, err = io.StringIO(), io.StringIO()
     with redirect_stderr(err), mock.patch.object(core_mod, "LISTEN_S", 0.05):
         try:
             args = diag.parser().parse_args(list(argv))
             code = diag.run(args, out)
         except diag.DiagError as e:
-            err.write("openplc-canopen-diag: %s\n" % e)
+            err.write("canworks-diag: %s\n" % e)
             code = 2 if e.kind == "usage" else 1
         except SystemExit as e:
             code = e.code
@@ -477,7 +477,7 @@ class Cli(Base):
 class AdapterList(unittest.TestCase):
     def _usb(self, ids, platform="darwin"):
         from types import SimpleNamespace
-        from openplc_canopen_deploy.localbus import adapter as adapter_mod
+        from canworks.localbus import adapter as adapter_mod
         devices = [SimpleNamespace(idVendor=v, idProduct=p) for v, p in ids]
         usb = SimpleNamespace(core=SimpleNamespace(find=lambda find_all: iter(devices)))
         with mock.patch.dict("sys.modules", {"usb": usb, "usb.core": usb.core}), \
@@ -496,7 +496,7 @@ class AdapterList(unittest.TestCase):
         self.assertEqual(self._usb([(0x1D50, 0x606F)], platform="linux"), [])  # a SocketCAN link there
 
     def test_no_pyusb(self):
-        from openplc_canopen_deploy.localbus import adapter as adapter_mod
+        from canworks.localbus import adapter as adapter_mod
         with mock.patch.dict("sys.modules", {"usb": None, "usb.core": None}), \
                 mock.patch.object(adapter_mod.sys, "platform", "win32"):
             self.assertEqual(adapter_mod._usb_adapters(), [])
@@ -505,7 +505,7 @@ class AdapterList(unittest.TestCase):
         # A new bit rate is set on the open USB handle (no close and reopen,
         # which resets the USB device), and closing lets go of the interface.
         from types import ModuleType, SimpleNamespace
-        from openplc_canopen_deploy.localbus import adapter as adapter_mod
+        from canworks.localbus import adapter as adapter_mod
 
         calls = []
 
@@ -566,7 +566,7 @@ class AdapterList(unittest.TestCase):
         # Opened by USB bus and address (so closing does not start the adapter
         # again), and its start does not try to detach a kernel driver.
         from types import ModuleType, SimpleNamespace
-        from openplc_canopen_deploy.localbus import adapter as adapter_mod
+        from canworks.localbus import adapter as adapter_mod
 
         class Dev:
             def is_kernel_driver_active(self, interface):

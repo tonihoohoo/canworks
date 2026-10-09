@@ -34,7 +34,7 @@ The simulation file (version 2) names it per network, relative to itself:
 }
 ```
 
-The deploy tool carries it into the upload with the simulation file. Its JSON Schema is [`schema/canopen-machine.v1.schema.json`](../schema/canopen-machine.v1.schema.json). Units are millimetres: x and y on the table, heights above the table top. An I/O binding is always `{ "node": 10, "object": "0x6200:1", "bit": 1 }`. Outputs (conveyor run, gripper close, change request) must be objects the master writes, inputs (sensors, gripped, change ready) objects it does not write.
+The deploy tool carries it into the upload with the simulation file. Its JSON Schema is [`schema/canworks-machine.v1.schema.json`](../schema/canworks-machine.v1.schema.json). Units are millimetres: x and y on the table, heights above the table top. An I/O binding is always `{ "node": 10, "object": "0x6200:1", "bit": 1 }`. Outputs (conveyor run, gripper close, change request) must be objects the master writes, inputs (sensors, gripped, change ready) objects it does not write.
 
 | Key | What it is |
 |---|---|

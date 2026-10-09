@@ -4,7 +4,7 @@
 #
 #   test/networks/run.sh [--build-dir build] [--seconds 12]
 #
-# Loads the real libcanopen_plugin.so through canopen_host with
+# Loads the real libcanworks_plugin.so through canopen_host with
 # config/two-networks and the program `%QD100 := %ID100 + 1`,
 # `%QD101 := %ID101 + 1`. Passes (exit 0) when both status bits are TRUE and
 # both counters keep counting, the log names each network in its lines, and
@@ -31,7 +31,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/pingpong_slave"
 for f in "$PLUGIN" "$HOST" "$SLAVE"; do
@@ -79,10 +79,10 @@ check_log "\[CANOPEN\] io: loaded .* vcan0, 125000 bit/s"
 check_log "\[CANOPEN\] drives: loaded .* vcan1, 125000 bit/s"
 check_log "\[CANOPEN\] drives: node 2 (pingpong) is operational"
 for d in io drives; do
-    if [ -f "$WORK/.canopen/$d/master.dcf" ]; then
-        echo "==> .canopen/$d/master.dcf generated"
+    if [ -f "$WORK/.canworks/$d/master.dcf" ]; then
+        echo "==> .canworks/$d/master.dcf generated"
     else
-        echo "FAIL: no .canopen/$d/master.dcf" >&2
+        echo "FAIL: no .canworks/$d/master.dcf" >&2
         RC=1
     fi
 done

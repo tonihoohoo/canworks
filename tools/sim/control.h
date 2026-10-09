@@ -10,8 +10,8 @@
 // secure_channel.h (the plugin always); a simulator without a token (on
 // loopback only) speaks plain lines and wants no hello.
 
-#ifndef OPENPLC_CANOPEN_SIM_CONTROL_H
-#define OPENPLC_CANOPEN_SIM_CONTROL_H
+#ifndef CANWORKS_SIM_CONTROL_H
+#define CANWORKS_SIM_CONTROL_H
 
 #include <functional>
 #include <memory>
@@ -114,4 +114,4 @@ std::string answer_error(const cJSON* answer);
 
 }  // namespace sim_tool
 
-#endif  // OPENPLC_CANOPEN_SIM_CONTROL_H
+#endif  // CANWORKS_SIM_CONTROL_H

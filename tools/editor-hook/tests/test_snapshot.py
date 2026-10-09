@@ -1,4 +1,4 @@
-"""snapshot.materialize(): the project's canopen/ folder from an editor
+"""snapshot.materialize(): the project's canworks/ folder from an editor
 project snapshot into the upload's conf/ directory."""
 
 import importlib.util
@@ -13,8 +13,8 @@ import unittest
 import zipfile
 from unittest import mock
 
-from openplc_canopen_deploy import contract, simfile
-from openplc_canopen_hook import snapshot
+from canworks import contract, simfile
+from canworks_hook import snapshot
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 FIXTURES = os.path.join(REPO, "test", "fixtures")
@@ -34,14 +34,14 @@ def read(path):
 
 
 def rtd_project():
-    """The RTD sensor config as a project's canopen/ folder: {name: bytes}."""
+    """The RTD sensor config as a project's canworks/ folder: {name: bytes}."""
     with open(os.path.join(RTD, "canopen_config.json"), encoding="utf-8") as f:
         cfg = json.load(f)
     eds = cfg["nodes"][0]["eds"]
     cfg["nodes"][0]["eds"] = "eds/" + os.path.basename(eds)
     return {
-        "canopen/canopen.json": json.dumps(cfg, indent=2).encode(),
-        "canopen/eds/" + os.path.basename(eds): read(os.path.join(RTD, eds)),
+        "canworks/canworks.json": json.dumps(cfg, indent=2).encode(),
+        "canworks/eds/" + os.path.basename(eds): read(os.path.join(RTD, eds)),
     }
 
 
@@ -90,16 +90,16 @@ class Materialize(Base):
         project = rtd_project()
         applied, messages = snapshot.materialize(self.snapshot(project, prefix), self.conf)
         self.assertTrue(applied, messages)
-        self.assertEqual(self.conf_files(), ["canopen.json", "canopen/eds/rtd8.eds", "ethercat.json"])
-        with open(os.path.join(self.conf, "canopen.json"), encoding="utf-8") as f:
+        self.assertEqual(self.conf_files(), ["canworks.json", "canworks/eds/rtd8.eds", "ethercat.json"])
+        with open(os.path.join(self.conf, "canworks.json"), encoding="utf-8") as f:
             cfg = json.load(f)
-        self.assertEqual(cfg["nodes"][0]["eds"], "canopen/eds/rtd8.eds")
-        self.assertEqual(read(os.path.join(self.conf, "canopen", "eds", "rtd8.eds")),
-                         project["canopen/eds/rtd8.eds"])
+        self.assertEqual(cfg["nodes"][0]["eds"], "canworks/eds/rtd8.eds")
+        self.assertEqual(read(os.path.join(self.conf, "canworks", "eds", "rtd8.eds")),
+                         project["canworks/eds/rtd8.eds"])
         self.assertEqual(messages[-1], ("INFO", "CANopen: config taken from the project snapshot "
-                                                "(canopen/canopen.json, 1 EDS file)"))
+                                                "(canworks/canworks.json, 1 EDS file)"))
         # The written config passes the deploy tool's checks where it now lives.
-        r = contract.check_config(cfg, os.path.join(self.conf, "canopen.json"))
+        r = contract.check_config(cfg, os.path.join(self.conf, "canworks.json"))
         self.assertTrue(r.ok, r.errors)
 
     def test_project_at_zip_root(self):
@@ -109,31 +109,31 @@ class Materialize(Base):
         self.check_applied("rtd-monitor/")
 
     def test_stale_files_replaced(self):
-        os.makedirs(os.path.join(self.conf, "canopen", "eds"))
-        with open(os.path.join(self.conf, "canopen", "eds", "old.eds"), "w") as f:
+        os.makedirs(os.path.join(self.conf, "canworks", "eds"))
+        with open(os.path.join(self.conf, "canworks", "eds", "old.eds"), "w") as f:
             f.write("old")
         self.check_applied("")
 
     def test_program_file(self):
         project = rtd_project()
-        cfg = json.loads(project["canopen/canopen.json"])
+        cfg = json.loads(project["canworks/canworks.json"])
         cfg["nodes"][0].update(software_file="fw/rtd.hex", software_version=2)
-        project["canopen/canopen.json"] = json.dumps(cfg).encode()
-        project["canopen/fw/rtd.hex"] = b":10010000214601360121470136007EFE09D2190140\n"
+        project["canworks/canworks.json"] = json.dumps(cfg).encode()
+        project["canworks/fw/rtd.hex"] = b":10010000214601360121470136007EFE09D2190140\n"
         applied, messages = snapshot.materialize(self.snapshot(project), self.conf)
         self.assertTrue(applied, messages)
-        self.assertIn("canopen/fw/rtd.hex", self.conf_files())
-        with open(os.path.join(self.conf, "canopen.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["nodes"][0]["software_file"], "canopen/fw/rtd.hex")
-        self.assertEqual(read(os.path.join(self.conf, "canopen", "fw", "rtd.hex")), project["canopen/fw/rtd.hex"])
+        self.assertIn("canworks/fw/rtd.hex", self.conf_files())
+        with open(os.path.join(self.conf, "canworks.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["nodes"][0]["software_file"], "canworks/fw/rtd.hex")
+        self.assertEqual(read(os.path.join(self.conf, "canworks", "fw", "rtd.hex")), project["canworks/fw/rtd.hex"])
 
     def test_program_file_corrupted_by_the_editor(self):
         project = rtd_project()
-        cfg = json.loads(project["canopen/canopen.json"])
+        cfg = json.loads(project["canworks/canworks.json"])
         cfg["nodes"][0].update(software_file="fw/rtd.bin", software_version=2)
-        project["canopen/canopen.json"] = json.dumps(cfg).encode()
-        project["canopen/fw/rtd.bin"] = b"\x02\x00" + "\ufffd".encode() + b"\x00"
-        self.assertIgnored(project, "canopen/fw/rtd.bin was corrupted")
+        project["canworks/canworks.json"] = json.dumps(cfg).encode()
+        project["canworks/fw/rtd.bin"] = b"\x02\x00" + "\ufffd".encode() + b"\x00"
+        self.assertIgnored(project, "canworks/fw/rtd.bin was corrupted")
 
     def test_no_canopen_folder(self):
         path = self.snapshot({"src/main.st": b"PROGRAM main END_PROGRAM"})
@@ -153,40 +153,40 @@ class Materialize(Base):
 
     def test_missing_eds(self):
         project = rtd_project()
-        del project["canopen/eds/rtd8.eds"]
-        self.assertIgnored(project, "canopen/eds/rtd8.eds is missing from the project")
+        del project["canworks/eds/rtd8.eds"]
+        self.assertIgnored(project, "canworks/eds/rtd8.eds is missing from the project")
 
     def test_invalid_json(self):
         project = rtd_project()
-        project["canopen/canopen.json"] = b'{"nodes": [}'
-        self.assertIgnored(project, "canopen/canopen.json is not valid JSON")
+        project["canworks/canworks.json"] = b'{"nodes": [}'
+        self.assertIgnored(project, "canworks/canworks.json is not valid JSON")
 
     def test_schema_failure(self):
         project = rtd_project()
-        cfg = json.loads(project["canopen/canopen.json"])
+        cfg = json.loads(project["canworks/canworks.json"])
         cfg["nodes"][0]["node_id"] = 200
-        project["canopen/canopen.json"] = json.dumps(cfg).encode()
-        self.assertIgnored(project, "canopen/canopen.json: nodes[0]")
+        project["canworks/canworks.json"] = json.dumps(cfg).encode()
+        self.assertIgnored(project, "canworks/canworks.json: nodes[0]")
 
     def test_paths_outside_canopen(self):
         for bad in ("../rtd8.eds", "/etc/rtd8.eds", "eds/../../x.eds", "C:/x.eds",
                     "eds\\rtd8.eds", "./eds/rtd8.eds"):
             with self.subTest(bad):
                 project = rtd_project()
-                cfg = json.loads(project["canopen/canopen.json"])
+                cfg = json.loads(project["canworks/canworks.json"])
                 cfg["nodes"][0]["eds"] = bad
-                project["canopen/canopen.json"] = json.dumps(cfg).encode()
+                project["canworks/canworks.json"] = json.dumps(cfg).encode()
                 self.assertIgnored(project, "invalid EDS path")
 
     def test_symlink_entries(self):
         project = rtd_project()
-        eds = project.pop("canopen/eds/rtd8.eds")
-        self.assertIgnored(project, "canopen/eds/rtd8.eds is missing",
-                           symlinks=[("canopen/eds/rtd8.eds", b"/etc/passwd")])
-        project["canopen/eds/rtd8.eds"] = eds
-        cfg = project.pop("canopen/canopen.json")
-        self.assertIgnored(project, "canopen/canopen.json is not a regular file",
-                           symlinks=[("canopen/canopen.json", b"/etc/passwd")])
+        eds = project.pop("canworks/eds/rtd8.eds")
+        self.assertIgnored(project, "canworks/eds/rtd8.eds is missing",
+                           symlinks=[("canworks/eds/rtd8.eds", b"/etc/passwd")])
+        project["canworks/eds/rtd8.eds"] = eds
+        cfg = project.pop("canworks/canworks.json")
+        self.assertIgnored(project, "canworks/canworks.json is not a regular file",
+                           symlinks=[("canworks/canworks.json", b"/etc/passwd")])
         del cfg
 
     def test_size_cap(self):
@@ -196,30 +196,30 @@ class Materialize(Base):
 
     def test_same_name_different_eds(self):
         project = rtd_project()
-        cfg = json.loads(project["canopen/canopen.json"])
+        cfg = json.loads(project["canworks/canworks.json"])
         node = dict(cfg["nodes"][0], node_id=6, name="rtd2", eds="other/rtd8.eds")
         for pdo in node.get("tx_pdos", []) + node.get("rx_pdos", []):
             for e in pdo["entries"]:
                 e["iec_location"] = e["iec_location"].replace("%IW10", "%IW20").replace("%IB10", "%IB20")
         node.pop("status_location", None)
         cfg["nodes"].append(node)
-        project["canopen/canopen.json"] = json.dumps(cfg).encode()
-        project["canopen/other/rtd8.eds"] = project["canopen/eds/rtd8.eds"] + b"; changed\n"
+        project["canworks/canworks.json"] = json.dumps(cfg).encode()
+        project["canworks/other/rtd8.eds"] = project["canworks/eds/rtd8.eds"] + b"; changed\n"
         self.assertIgnored(project, "two different EDS files are both named rtd8.eds")
 
 
 class Simulation(Base):
-    """canopen/simulation.json travels with the config, in the deploy
+    """canworks/simulation.json travels with the config, in the deploy
     tool's layout."""
 
     def project(self, sim=None, simulate=False):
         project = rtd_project()
         if simulate:
-            cfg = json.loads(project["canopen/canopen.json"])
+            cfg = json.loads(project["canworks/canworks.json"])
             cfg["adapter"]["simulate"] = True
-            project["canopen/canopen.json"] = json.dumps(cfg).encode()
-        project["canopen/devices/pingpong.eds"] = read(os.path.join(FIXTURES, "eds", "cpp-slave.eds"))
-        project["canopen/data/temp.csv"] = b"time,value\n0,200\n10,260\n"
+            project["canworks/canworks.json"] = json.dumps(cfg).encode()
+        project["canworks/devices/pingpong.eds"] = read(os.path.join(FIXTURES, "eds", "cpp-slave.eds"))
+        project["canworks/data/temp.csv"] = b"time,value\n0,200\n10,260\n"
         if sim is None:
             sim = {
                 "schema_version": 1,
@@ -228,95 +228,95 @@ class Simulation(Base):
                     "0x7130:2": {"csv": {"file": "data/temp.csv", "interpolate": "linear", "loop": True}}}}},
                 "extra_devices": [{"node": 40, "name": "pp", "eds": "devices/pingpong.eds"}],
             }
-        project["canopen/simulation.json"] = json.dumps(sim).encode()
+        project["canworks/simulation.json"] = json.dumps(sim).encode()
         return project
 
     def test_carried_and_rewritten(self):
         project = self.project(simulate=True)
         applied, messages = snapshot.materialize(self.snapshot(project), self.conf)
         self.assertTrue(applied, messages)
-        self.assertEqual(self.conf_files(), ["canopen.json", "canopen/eds/pingpong.eds", "canopen/eds/rtd8.eds",
-                                             "canopen/sim/temp.csv", "canopen/simulation.json", "ethercat.json"])
-        with open(os.path.join(self.conf, "canopen", "simulation.json"), encoding="utf-8") as f:
+        self.assertEqual(self.conf_files(), ["canworks.json", "canworks/eds/pingpong.eds", "canworks/eds/rtd8.eds",
+                                             "canworks/sim/temp.csv", "canworks/simulation.json", "ethercat.json"])
+        with open(os.path.join(self.conf, "canworks", "simulation.json"), encoding="utf-8") as f:
             sim = json.load(f)
         self.assertEqual(sim["extra_devices"][0]["eds"], "eds/pingpong.eds")
         self.assertEqual(sim["nodes"]["5"]["sources"]["0x7130:2"]["csv"]["file"], "sim/temp.csv")
         self.assertEqual(sim["nodes"]["5"]["sources"]["0x7130:1"],
-                         json.loads(project["canopen/simulation.json"])["nodes"]["5"]["sources"]["0x7130:1"])
-        self.assertEqual(read(os.path.join(self.conf, "canopen", "eds", "pingpong.eds")),
-                         project["canopen/devices/pingpong.eds"])
-        self.assertEqual(read(os.path.join(self.conf, "canopen", "sim", "temp.csv")),
-                         project["canopen/data/temp.csv"])
-        self.assertIn(("INFO", "CANopen: simulation file carried (canopen/simulation.json, 1 extra device EDS "
+                         json.loads(project["canworks/simulation.json"])["nodes"]["5"]["sources"]["0x7130:1"])
+        self.assertEqual(read(os.path.join(self.conf, "canworks", "eds", "pingpong.eds")),
+                         project["canworks/devices/pingpong.eds"])
+        self.assertEqual(read(os.path.join(self.conf, "canworks", "sim", "temp.csv")),
+                         project["canworks/data/temp.csv"])
+        self.assertIn(("INFO", "CANopen: simulation file carried (canworks/simulation.json, 1 extra device EDS "
                                "file, 1 CSV file)"), messages)
         sims = [t for level, t in messages if level == "WARNING" and "simulates devices" in t]
         self.assertEqual(len(sims), 1, messages)
         self.assertIn("the network is simulated", sims[0])
         # The written simulation file passes the deploy tool's checks where it now lives.
-        with open(os.path.join(self.conf, "canopen.json"), encoding="utf-8") as f:
+        with open(os.path.join(self.conf, "canworks.json"), encoding="utf-8") as f:
             cfg = json.load(f)
-        _, r = simfile.check_file(os.path.join(self.conf, "canopen", "simulation.json"), cfg,
-                                  os.path.join(self.conf, "canopen.json"))
+        _, r = simfile.check_file(os.path.join(self.conf, "canworks", "simulation.json"), cfg,
+                                  os.path.join(self.conf, "canworks.json"))
         self.assertTrue(r.ok, r.errors)
 
     def test_carried_when_nothing_is_simulated(self):
         applied, messages = snapshot.materialize(self.snapshot(self.project()), self.conf)
         self.assertTrue(applied, messages)
-        self.assertIn("canopen/simulation.json", self.conf_files())
+        self.assertIn("canworks/simulation.json", self.conf_files())
         self.assertFalse([t for _, t in messages if "simulates devices" in t], messages)
         self.assertIn("the config simulates nothing", messages[-1][1])
 
     def test_bad_simulation_file_rejects_the_config(self):
         sim = {"schema_version": 1, "nodes": {"5": {"sources": {"0x7130:1": {"constant": 1}}}}, "bogus": 1}
-        self.assertIgnored(self.project(sim), "canopen/simulation.json: ")
+        self.assertIgnored(self.project(sim), "canworks/simulation.json: ")
         # Schema-valid, but the object is not in the node's EDS.
         sim = {"schema_version": 1, "nodes": {"5": {"sources": {"0x7FFF:1": {"constant": 1}}}}}
-        self.assertIgnored(self.project(sim), "canopen/simulation.json: ")
+        self.assertIgnored(self.project(sim), "canworks/simulation.json: ")
 
     def test_invalid_json(self):
         project = self.project()
-        project["canopen/simulation.json"] = b"{"
-        self.assertIgnored(project, "canopen/simulation.json is not valid JSON")
+        project["canworks/simulation.json"] = b"{"
+        self.assertIgnored(project, "canworks/simulation.json is not valid JSON")
 
     def test_missing_csv(self):
         project = self.project()
-        del project["canopen/data/temp.csv"]
-        self.assertIgnored(project, "canopen/data/temp.csv is missing from the project "
-                                    "(named by canopen/simulation.json)")
+        del project["canworks/data/temp.csv"]
+        self.assertIgnored(project, "canworks/data/temp.csv is missing from the project "
+                                    "(named by canworks/simulation.json)")
 
     def test_paths_outside_canopen(self):
         for bad in ("../pingpong.eds", "/etc/pingpong.eds", "devices/../../x.eds", "./devices/pingpong.eds"):
             with self.subTest(bad):
-                sim = json.loads(self.project()["canopen/simulation.json"])
+                sim = json.loads(self.project()["canworks/simulation.json"])
                 sim["extra_devices"][0]["eds"] = bad
-                self.assertIgnored(self.project(sim), "canopen/simulation.json: invalid EDS path")
-        sim = json.loads(self.project()["canopen/simulation.json"])
+                self.assertIgnored(self.project(sim), "canworks/simulation.json: invalid EDS path")
+        sim = json.loads(self.project()["canworks/simulation.json"])
         sim["nodes"]["5"]["sources"]["0x7130:2"]["csv"]["file"] = "../temp.csv"
-        self.assertIgnored(self.project(sim), "canopen/simulation.json: invalid CSV file path")
+        self.assertIgnored(self.project(sim), "canworks/simulation.json: invalid CSV file path")
 
     def test_size_cap(self):
         project = self.project()
-        project["canopen/data/temp.csv"] = b"time,value\n" + b"0,1\n" * 4096
-        size = sum(len(v) for k, v in project.items() if k != "canopen/data/temp.csv")
+        project["canworks/data/temp.csv"] = b"time,value\n" + b"0,1\n" * 4096
+        size = sum(len(v) for k, v in project.items() if k != "canworks/data/temp.csv")
         with mock.patch.object(snapshot, "MAX_TOTAL_BYTES", size + 1024):
             self.assertIgnored(project, "larger than")
 
     def test_extra_device_eds_name_clash(self):
         project = self.project()
-        project["canopen/devices/rtd8.eds"] = project.pop("canopen/devices/pingpong.eds")
-        sim = json.loads(project["canopen/simulation.json"])
+        project["canworks/devices/rtd8.eds"] = project.pop("canworks/devices/pingpong.eds")
+        sim = json.loads(project["canworks/simulation.json"])
         sim["extra_devices"][0]["eds"] = "devices/rtd8.eds"
-        project["canopen/simulation.json"] = json.dumps(sim).encode()
+        project["canworks/simulation.json"] = json.dumps(sim).encode()
         self.assertIgnored(project, "two different EDS files are both named rtd8.eds")
 
     def test_no_simulation_file_leaves_none_behind(self):
-        os.makedirs(os.path.join(self.conf, "canopen", "sim"))
+        os.makedirs(os.path.join(self.conf, "canworks", "sim"))
         for name in ("simulation.json", os.path.join("sim", "old.csv")):
-            with open(os.path.join(self.conf, "canopen", name), "w") as f:
+            with open(os.path.join(self.conf, "canworks", name), "w") as f:
                 f.write("{}")
         applied, messages = snapshot.materialize(self.snapshot(rtd_project()), self.conf)
         self.assertTrue(applied, messages)
-        self.assertEqual(self.conf_files(), ["canopen.json", "canopen/eds/rtd8.eds", "ethercat.json"])
+        self.assertEqual(self.conf_files(), ["canworks.json", "canworks/eds/rtd8.eds", "ethercat.json"])
         self.assertFalse([t for _, t in messages if "simulat" in t], messages)
 
 
@@ -326,44 +326,44 @@ class MachineFile(Base):
     is its interface)."""
 
     def project(self, sim=None, machine=None):
-        gantry = os.path.join(REPO, "examples", "gantry-cell", "canopen")
-        project = {"canopen/" + n: read(os.path.join(gantry, n)) for n in ("servo402.eds", "dio16.eds", "machine.json")}
-        with open(os.path.join(gantry, "canopen.json"), encoding="utf-8") as f:
+        gantry = os.path.join(REPO, "examples", "gantry-cell", "canworks")
+        project = {"canworks/" + n: read(os.path.join(gantry, n)) for n in ("servo402.eds", "dio16.eds", "machine.json")}
+        with open(os.path.join(gantry, "canworks.json"), encoding="utf-8") as f:
             net = json.load(f)["networks"][0]
         cfg = {"schema_version": 1, "adapter": net["adapter"], "master": net["master"], "nodes": net["nodes"]}
-        project["canopen/canopen.json"] = json.dumps(cfg).encode()
+        project["canworks/canworks.json"] = json.dumps(cfg).encode()
         if machine is not None:
-            project["canopen/machine.json"] = json.dumps(machine).encode()
+            project["canworks/machine.json"] = json.dumps(machine).encode()
         sim = sim or {"schema_version": 2, "networks": {"sim1": {"machine": "machine.json"}}}
-        project["canopen/simulation.json"] = json.dumps(sim).encode()
+        project["canworks/simulation.json"] = json.dumps(sim).encode()
         return project
 
     def test_carried(self):
         project = self.project()
         applied, messages = snapshot.materialize(self.snapshot(project), self.conf)
         self.assertTrue(applied, messages)
-        self.assertIn("canopen/machine.json", self.conf_files())
-        self.assertEqual(read(os.path.join(self.conf, "canopen", "machine.json")), project["canopen/machine.json"])
-        with open(os.path.join(self.conf, "canopen", "simulation.json"), encoding="utf-8") as f:
+        self.assertIn("canworks/machine.json", self.conf_files())
+        self.assertEqual(read(os.path.join(self.conf, "canworks", "machine.json")), project["canworks/machine.json"])
+        with open(os.path.join(self.conf, "canworks", "simulation.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["networks"]["sim1"]["machine"], "machine.json")
-        self.assertIn(("INFO", "CANopen: simulation file carried (canopen/simulation.json, 0 extra device EDS "
+        self.assertIn(("INFO", "CANopen: simulation file carried (canworks/simulation.json, 0 extra device EDS "
                                "files, 0 CSV files, machine file machine.json)"), messages)
 
     def test_in_a_subfolder(self):
         project = self.project({"schema_version": 2, "networks": {"sim1": {"machine": "cells/gantry.json"}}})
-        project["canopen/cells/gantry.json"] = project.pop("canopen/machine.json")
+        project["canworks/cells/gantry.json"] = project.pop("canworks/machine.json")
         applied, messages = snapshot.materialize(self.snapshot(project), self.conf)
         self.assertTrue(applied, messages)
-        self.assertIn("canopen/cells/gantry.json", self.conf_files())
+        self.assertIn("canworks/cells/gantry.json", self.conf_files())
 
     def test_missing_bad_or_outside(self):
         project = self.project()
-        del project["canopen/machine.json"]
-        self.assertIgnored(project, "canopen/machine.json is missing from the project "
-                                    "(named by canopen/simulation.json)")
+        del project["canworks/machine.json"]
+        self.assertIgnored(project, "canworks/machine.json is missing from the project "
+                                    "(named by canworks/simulation.json)")
         self.assertIgnored(self.project({"schema_version": 2, "networks": {"sim1": {"machine": "../m.json"}}}),
-                           "canopen/simulation.json: invalid machine file path")
-        with open(os.path.join(REPO, "examples", "gantry-cell", "canopen", "machine.json"), encoding="utf-8") as f:
+                           "canworks/simulation.json: invalid machine file path")
+        with open(os.path.join(REPO, "examples", "gantry-cell", "canworks", "machine.json"), encoding="utf-8") as f:
             machine = json.load(f)
         machine["joints"]["x"]["node"] = 10
         self.assertIgnored(self.project(machine=machine), "joint x: node 10 (io) has no `axis`")
@@ -371,8 +371,8 @@ class MachineFile(Base):
 
 class IntoProject(Base):
     def test_into_project_output_is_applied(self):
-        # What openplc-canopen-deploy --into-project writes, as the editor zips it.
-        from openplc_canopen_deploy import project
+        # What canworks-deploy --into-project writes, as the editor zips it.
+        from canworks import project
         proj = os.path.join(self.tmp, "proj")
         os.makedirs(proj)
         with open(os.path.join(proj, "project.json"), "w") as f:
@@ -381,8 +381,8 @@ class IntoProject(Base):
         with open(config, encoding="utf-8") as f:
             project.write(json.load(f), config, proj)
         files = {}
-        for name in os.listdir(os.path.join(proj, "canopen")):
-            files["canopen/" + name] = read(os.path.join(proj, "canopen", name))
+        for name in os.listdir(os.path.join(proj, "canworks")):
+            files["canworks/" + name] = read(os.path.join(proj, "canworks", name))
         applied, messages = snapshot.materialize(self.snapshot(files), self.conf)
         self.assertTrue(applied, messages)
 
@@ -392,16 +392,16 @@ class Encoding(Base):
         # A Latin-1 EDS as editor 4.3.2 puts it into the snapshot: read as
         # UTF-8 with replacement (fs.readFile(path, 'utf-8')), then encoded.
         project = rtd_project()
-        latin1 = project["canopen/eds/rtd8.eds"].replace(
+        latin1 = project["canworks/eds/rtd8.eds"].replace(
             b"[DeviceInfo]", "; Temperatur in \u00b0C\n[DeviceInfo]".encode("latin-1"), 1)
         self.assertIn(b"\xb0", latin1)
-        project["canopen/eds/rtd8.eds"] = latin1.decode("utf-8", "replace").encode("utf-8")
-        text = self.assertIgnored(project, "canopen/eds/rtd8.eds is not UTF-8")
+        project["canworks/eds/rtd8.eds"] = latin1.decode("utf-8", "replace").encode("utf-8")
+        text = self.assertIgnored(project, "canworks/eds/rtd8.eds is not UTF-8")
         self.assertIn("--into-project", text)
 
     def test_utf8_eds_accepted(self):
         project = rtd_project()
-        project["canopen/eds/rtd8.eds"] = project["canopen/eds/rtd8.eds"].replace(
+        project["canworks/eds/rtd8.eds"] = project["canworks/eds/rtd8.eds"].replace(
             b"[DeviceInfo]", "; Temperatur in \u00b0C\n[DeviceInfo]".encode("utf-8"), 1)
         applied, messages = snapshot.materialize(self.snapshot(project), self.conf)
         self.assertTrue(applied, messages)
@@ -409,16 +409,16 @@ class Encoding(Base):
 
 class Precedence(Base):
     def test_uploaded_config_wins(self):
-        os.makedirs(os.path.join(self.conf, "canopen", "eds"))
-        files = {"canopen.json": b'{"deployed": true}\n', "canopen/eds/a.eds": b"deployed eds"}
+        os.makedirs(os.path.join(self.conf, "canworks", "eds"))
+        files = {"canworks.json": b'{"deployed": true}\n', "canworks/eds/a.eds": b"deployed eds"}
         for name, data in files.items():
             with open(os.path.join(self.conf, name), "wb") as f:
                 f.write(data)
         applied, messages = snapshot.materialize(self.snapshot(rtd_project()), self.conf)
         self.assertFalse(applied)
-        self.assertEqual(messages, [("INFO", "CANopen: the upload carries conf/canopen.json; "
+        self.assertEqual(messages, [("INFO", "CANopen: the upload carries conf/canworks.json; "
                                              "the project snapshot is not used")])
-        self.assertEqual(self.conf_files(), ["canopen.json", "canopen/eds/a.eds", "ethercat.json"])
+        self.assertEqual(self.conf_files(), ["canworks.json", "canworks/eds/a.eds", "ethercat.json"])
         for name, data in files.items():
             self.assertEqual(read(os.path.join(self.conf, name)), data)
 
@@ -429,11 +429,11 @@ class SharedFixtures(Base):
     def test_cases(self):
         doc = load_cases()
         eds_dir = os.path.join(FIXTURES, "eds")
-        eds = {"canopen/" + n: read(os.path.join(eds_dir, n)) for n in os.listdir(eds_dir) if n.endswith(".eds")}
-        eds.update({"canopen/fw/" + n: read(os.path.join(eds_dir, "fw", n)) for n in os.listdir(os.path.join(eds_dir, "fw"))})
-        eds.update({"canopen/lint/" + n: read(os.path.join(eds_dir, "lint", n))
+        eds = {"canworks/" + n: read(os.path.join(eds_dir, n)) for n in os.listdir(eds_dir) if n.endswith(".eds")}
+        eds.update({"canworks/fw/" + n: read(os.path.join(eds_dir, "fw", n)) for n in os.listdir(os.path.join(eds_dir, "fw"))})
+        eds.update({"canworks/lint/" + n: read(os.path.join(eds_dir, "lint", n))
                     for n in os.listdir(os.path.join(eds_dir, "lint")) if n.endswith(".eds")})
-        eds.update({"canopen/drives/" + n: read(os.path.join(eds_dir, "drives", n))
+        eds.update({"canworks/drives/" + n: read(os.path.join(eds_dir, "drives", n))
                     for n in os.listdir(os.path.join(eds_dir, "drives")) if n.endswith(".eds")})
         rejected = 0
         for case in doc["cases"]:
@@ -441,9 +441,9 @@ class SharedFixtures(Base):
                 shutil.rmtree(self.conf)
                 os.makedirs(self.conf)
                 cfg = patched(doc["base"], case["patch"])
-                files = dict(eds, **{"canopen/canopen.json": json.dumps(cfg).encode()})
+                files = dict(eds, **{"canworks/canworks.json": json.dumps(cfg).encode()})
                 applied, messages = snapshot.materialize(self.snapshot(files), self.conf)
-                tool = contract.check_config(cfg, "canopen/canopen.json", eds_dir=eds_dir)
+                tool = contract.check_config(cfg, "canworks/canworks.json", eds_dir=eds_dir)
                 text = "\n".join(t for _, t in messages)
                 self.assertEqual(applied, tool.ok, text)
                 self.assertEqual(applied, case["verdict"] == "accept", text)
@@ -452,9 +452,9 @@ class SharedFixtures(Base):
                 # all of its errors, or the EDS check that stopped it.
                 if not applied:
                     rejected += 1
-                    if reason.endswith("is missing from the project (named by canopen/canopen.json)"):
+                    if reason.endswith("is missing from the project (named by canworks/canworks.json)"):
                         self.assertIn("not found", "; ".join(tool.errors))  # a file the config names
-                    elif reason.startswith("canopen/canopen.json: "):
+                    elif reason.startswith("canworks/canworks.json: "):
                         self.assertEqual(reason, "; ".join(tool.errors))
                     else:
                         self.assertIn(reason, "; ".join(tool.errors))
@@ -468,28 +468,28 @@ class ChildProcess(Base):
 
     def setUp(self):
         super().setUp()
-        env = {"OPENPLC_CANOPEN_PYTHON": sys.executable,
+        env = {"CANWORKS_PYTHON": sys.executable,
                "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)}
         patcher = mock.patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
 
     def test_applied(self):
-        import openplc_canopen_hook as hook
+        import canworks_hook as hook
         messages = hook.run_materialize(self.snapshot(rtd_project()), self.conf)
         self.assertEqual(messages[-1][0], "INFO")
         self.assertIn("config taken from the project snapshot", messages[-1][1])
-        self.assertIn("canopen.json", self.conf_files())
+        self.assertIn("canworks.json", self.conf_files())
 
     def test_no_snapshot_no_process(self):
-        import openplc_canopen_hook as hook
+        import canworks_hook as hook
         with mock.patch.object(subprocess, "run") as run:
             self.assertEqual(hook.run_materialize(os.path.join(self.tmp, "none.zip"), self.conf), [])
         run.assert_not_called()
 
     def test_helper_failure(self):
-        import openplc_canopen_hook as hook
-        with mock.patch.dict(os.environ, {"OPENPLC_CANOPEN_PYTHON": "/bin/false"}):
+        import canworks_hook as hook
+        with mock.patch.dict(os.environ, {"CANWORKS_PYTHON": "/bin/false"}):
             with self.assertRaises(RuntimeError) as cm:
                 hook.run_materialize(self.snapshot(rtd_project()), self.conf)
         self.assertIn("exited with 1", str(cm.exception))

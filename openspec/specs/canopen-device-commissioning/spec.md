@@ -6,10 +6,10 @@ Commissioning and configuring one CANopen device on its own from the PC tools an
 ## Requirements
 
 ### Requirement: Write a configuration to a device
-The PC tools SHALL write a node's configuration to a live device over SDO from one of two sources: a node of a `canopen.json` (the writes the plugin makes to that node at boot, in the same order) or a CiA 306 DCF (every entry with access `rw`, `rwr` or `rww` that has a `ParameterValue`, with `$NODEID` resolved by the target node ID). They SHALL leave out, and list with the reason, 0x1010, 0x1011, 0x1F50 to 0x1F57, DOMAIN entries and DCF entries without an access type. It SHALL run on the PC over `sdo_read`, `sdo_write` and `nmt`, on a runtime and on a USB adapter, and SHALL need allow-changes.
+The PC tools SHALL write a node's configuration to a live device over SDO from one of two sources: a node of a `canworks.json` (the writes the plugin makes to that node at boot, in the same order) or a CiA 306 DCF (every entry with access `rw`, `rwr` or `rww` that has a `ParameterValue`, with `$NODEID` resolved by the target node ID). They SHALL leave out, and list with the reason, 0x1010, 0x1011, 0x1F50 to 0x1F57, DOMAIN entries and DCF entries without an access type. It SHALL run on the PC over `sdo_read`, `sdo_write` and `nmt`, on a runtime and on a USB adapter, and SHALL need allow-changes.
 
 #### Scenario: Configure from a config node over an adapter
-- **WHEN** node 5 of a standalone config maps TPDO1 to two entries and has one startup SDO, and the user runs `openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 --allow-changes configure 5 --config canopen.json --from-node 5 --yes` against a device at node 5
+- **WHEN** node 5 of a standalone config maps TPDO1 to two entries and has one startup SDO, and the user runs `canworks-diag --adapter slcan:COM5 --bitrate 250 --allow-changes configure 5 --config canworks.json --from-node 5 --yes` against a device at node 5
 - **THEN** the device's 0x1A00 mapping, its 0x1800 parameters and the startup SDO entry hold the config's values, and the result says "verified"
 
 #### Scenario: Configure from a DCF
@@ -46,7 +46,7 @@ A configuration write SHALL be refused, with nothing written, when the device's 
 - **THEN** the request is refused naming product code with both values
 
 #### Scenario: Node the runtime configures
-- **WHEN** `openplc-canopen-diag --runtime plc.local --allow-changes configure 5 --dcf node5.dcf` runs and node 5 is in the runtime's config
+- **WHEN** `canworks-diag --runtime plc.local --allow-changes configure 5 --dcf node5.dcf` runs and node 5 is in the runtime's config
 - **THEN** it is refused, saying the master writes node 5's configuration at every boot
 
 #### Scenario: Different node ID
@@ -68,7 +68,7 @@ A configuration write SHALL NOT write 0x1010 or 0x1011 on its own. With `--store
 - **THEN** 0x1010 is not written and the result says the store was skipped because of the failure
 
 ### Requirement: Restore defaults command
-`openplc-canopen-diag restore-defaults NODE [--subindex N] [--reset] [--yes]` and the configurator's "Restore defaults…" SHALL write the "load" signature to 0x1011 (subindex 1 by default) after asking, only with allow-changes and only when the EDS lists that subindex. With `--reset` they SHALL then send NMT reset node. The result SHALL say whether the device accepted it and that the defaults take effect at the next reset or power cycle when no reset was sent.
+`canworks-diag restore-defaults NODE [--subindex N] [--reset] [--yes]` and the configurator's "Restore defaults…" SHALL write the "load" signature to 0x1011 (subindex 1 by default) after asking, only with allow-changes and only when the EDS lists that subindex. With `--reset` they SHALL then send NMT reset node. The result SHALL say whether the device accepted it and that the defaults take effect at the next reset or power cycle when no reset was sent.
 
 #### Scenario: Back to factory settings
 - **WHEN** the user runs `restore-defaults 5 --reset` and confirms

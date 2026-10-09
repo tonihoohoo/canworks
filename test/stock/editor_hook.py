@@ -12,9 +12,9 @@ does it, before any runtime module is imported):
 
 Uploads, in one interpreter like the webserver, following handle_upload_file
 and the real run_compile with stub compile scripts:
-  a) editor upload, snapshot with canopen/  -> enabled before SUCCESS, from the snapshot
+  a) editor upload, snapshot with canworks/  -> enabled before SUCCESS, from the snapshot
   b) deploy-tool bundle (+ another snapshot) -> enabled with the uploaded config
-  c) snapshot without canopen/               -> disabled
+  c) snapshot without canworks/               -> disabled
   d) no snapshot                             -> disabled
   e) a) with a failed build                  -> disabled, nothing taken from the snapshot
 Exit status 0 when all hold.
@@ -38,7 +38,7 @@ EDS = "rtd8.eds"
 def canopen_entry(plugins_conf):
     with open(plugins_conf, encoding="utf-8") as f:
         for line in f:
-            if line.startswith("canopen,"):
+            if line.startswith("canworks,"):
                 name, path, enabled, ptype, config, *_ = line.rstrip("\n").split(",")
                 return {"path": path, "enabled": enabled == "1", "config": config}
     return None
@@ -64,7 +64,7 @@ def make_inputs(work):
                     os.path.join(work, "in", "plain.zip"))
     editor_bundle(os.path.join(work, "in", "src"), {"ethercat.json": ethercat})
     deployed = os.path.join(work, "in", "deployed.zip")
-    subprocess.run([sys.executable, "-m", "openplc_canopen_deploy", "--bundle", os.path.join(work, "in", "src"),
+    subprocess.run([sys.executable, "-m", "canworks", "--bundle", os.path.join(work, "in", "src"),
                     "--config", os.path.join(REPO, "config", "pingpong", "canopen_config.json"),
                     "--check-only", "--output", deployed],
                    env=dict(os.environ, PYTHONPATH=os.path.join(REPO, "tools", "deploy")),
@@ -84,7 +84,7 @@ def make_inputs(work):
                 z.writestr(n, data)
         return path
 
-    with_canopen = snapshot("with-canopen.zip", {"canopen/canopen.json": json.dumps(cfg), "canopen/" + EDS: eds})
+    with_canopen = snapshot("with-canopen.zip", {"canworks/canworks.json": json.dumps(cfg), "canworks/" + EDS: eds})
     without = snapshot("without-canopen.zip", {})
     return {"plain": plain, "deployed": deployed, "snap_canopen": with_canopen, "snap_plain": without}
 
@@ -117,8 +117,8 @@ def child_env(work):
 def child_loader(args):
     import importlib
     child_env(args.work)
-    import openplc_canopen_hook  # what openplc_canopen_hook.pth runs
-    openplc_canopen_hook.install()
+    import canworks_hook  # what canworks_hook.pth runs
+    canworks_hook.install()
     sys.path.insert(0, args.runtime_dir)
     if args.find_spec_only:
         importlib.util.find_spec("webserver.app")
@@ -130,9 +130,9 @@ def child_loader(args):
     except ImportError:
         update_plugin_configurations = None
     print(json.dumps({"patched": getattr(getattr(pm, "update_plugin_configurations", None),
-                                         "_openplc_canopen_hook", False),
+                                         "_canworks_hook", False),
                       "imported_name_patched": getattr(update_plugin_configurations,
-                                                       "_openplc_canopen_hook", False)}))
+                                                       "_canworks_hook", False)}))
     return 0
 
 
@@ -149,8 +149,8 @@ class StubRuntimeManager:
 
 def child_uploads(args):
     child_env(args.work)
-    import openplc_canopen_hook
-    openplc_canopen_hook.install()
+    import canworks_hook
+    canworks_hook.install()
     sys.path.insert(0, args.runtime_dir)
     import webserver.plcapp_management as pm
     from webserver import project_snapshot
@@ -162,9 +162,9 @@ def child_uploads(args):
     os.makedirs(os.path.join(work, "scripts"))
     os.makedirs(os.path.join(work, "lib"))
     os.chdir(work)
-    lib = os.path.join(work, "lib", "libcanopen_plugin.so")
+    lib = os.path.join(work, "lib", "libcanworks_plugin.so")
     with open("plugins.conf", "w") as f:
-        f.write("canopen,%s,0,1,%s,\n" % (lib, os.path.join(work, "lib", "canopen.json")))
+        f.write("canworks,%s,0,1,%s,\n" % (lib, os.path.join(work, "lib", "canworks.json")))
     with open(os.path.join("scripts", "compile-clean.sh"), "w") as f:
         f.write("echo cleaned\n")
 
@@ -174,7 +174,7 @@ def child_uploads(args):
     class Watched(type(build_state)):
         def __setattr__(self, key, value):
             if key == "status" and value == BuildStatus.SUCCESS:
-                at_success["canopen"] = canopen_entry("plugins.conf")
+                at_success["canworks"] = canopen_entry("plugins.conf")
             super().__setattr__(key, value)
 
     build_state.__class__ = Watched
@@ -200,12 +200,12 @@ def child_uploads(args):
                     {"formatVersion": 1, "projectName": "rtd-monitor"}))
         build_state.status = BuildStatus.COMPILING
         run_compile(StubRuntimeManager(), cwd=extract)
-        return {"status": build_state.status.name, "canopen": canopen_entry("plugins.conf"),
-                "at_success": at_success.get("canopen"), "logs": list(build_state.logs),
+        return {"status": build_state.status.name, "canworks": canopen_entry("plugins.conf"),
+                "at_success": at_success.get("canworks"), "logs": list(build_state.logs),
                 "conf": sorted(os.path.relpath(os.path.join(r, n), extract)
                                for r, _, files in os.walk(os.path.join(extract, "conf")) for n in files),
-                "lib_config": open(os.path.join(work, "lib", "canopen.json")).read()
-                if os.path.exists(os.path.join(work, "lib", "canopen.json")) else None}
+                "lib_config": open(os.path.join(work, "lib", "canworks.json")).read()
+                if os.path.exists(os.path.join(work, "lib", "canworks.json")) else None}
 
     results = {}
     for name, program, snapshot, ok in (("a", "plain", "snap_canopen", True),
@@ -217,7 +217,7 @@ def child_uploads(args):
         results[name] = upload(inputs[program], inputs[snapshot] if snapshot else None, ok)
         results[name]["generated_conf"] = os.path.abspath(os.path.join("core", "generated", "conf"))
         if name == "a" and args.canopen_check:
-            e = results[name]["canopen"]
+            e = results[name]["canworks"]
             env = dict(os.environ, CANOPEN_GENERATED_CONF=results[name]["generated_conf"])
             r = subprocess.run([args.canopen_check, "--no-dcfgen", e["config"]], env=env,
                                capture_output=True, text=True)
@@ -230,12 +230,12 @@ def child_uploads(args):
 
 def run_child(args, work, *extra, runtime=None):
     env = dict(os.environ, PYTHONPATH=os.pathsep.join(HOOK_PATHS),
-               OPENPLC_CANOPEN_PYTHON=sys.executable)
+               CANWORKS_PYTHON=sys.executable)
     cmd = [sys.executable, __file__, "--child", "--runtime-dir", runtime or args.runtime_dir, "--work", work]
     if args.canopen_check:
         cmd += ["--canopen-check", args.canopen_check]
     p = subprocess.run(cmd + list(extra), env=env, capture_output=True, text=True)
-    hook_lines = [l for l in p.stderr.splitlines() if l.startswith("[openplc-canopen editor hook]")]
+    hook_lines = [l for l in p.stderr.splitlines() if l.startswith("[canworks editor hook]")]
     if p.returncode != 0:
         print(p.stdout + p.stderr)
         raise SystemExit("FAIL: child exited with %d" % p.returncode)
@@ -308,38 +308,38 @@ def main():
         a = r[name]
         expect(a["status"] == "SUCCESS", "%s: build SUCCESS" % name)
         expect(a["at_success"] and a["at_success"]["enabled"], "%s: canopen enabled when status turned SUCCESS" % name)
-        expect(log_has(a, "[INFO] CANopen: config taken from the project snapshot (canopen/canopen.json, 1 EDS file)"),
+        expect(log_has(a, "[INFO] CANopen: config taken from the project snapshot (canworks/canworks.json, 1 EDS file)"),
                "%s: build log names the snapshot" % name)
-        expect(sorted(a["conf"]) == ["conf/canopen.json", "conf/canopen/eds/" + EDS, "conf/ethercat.json"],
+        expect(sorted(a["conf"]) == ["conf/canworks.json", "conf/canworks/eds/" + EDS, "conf/ethercat.json"],
                "%s: conf/ holds the config and EDS %s" % (name, a["conf"]))
-        expect(a["lib_config"] and json.loads(a["lib_config"])["nodes"][0]["eds"] == "canopen/eds/" + EDS,
-               "%s: config next to the library names canopen/eds/%s" % (name, EDS))
+        expect(a["lib_config"] and json.loads(a["lib_config"])["nodes"][0]["eds"] == "canworks/eds/" + EDS,
+               "%s: config next to the library names canworks/eds/%s" % (name, EDS))
     if "check" in r["a"]:
         c = r["a"]["check"]
-        expect(c["code"] == 0 and os.path.join(r["a"]["generated_conf"], "canopen", "eds") in c["out"],
+        expect(c["code"] == 0 and os.path.join(r["a"]["generated_conf"], "canworks", "eds") in c["out"],
                "a: canopen_check loads the config with its EDS from core/generated/conf")
         if c["code"] != 0:
             print(c["out"])
 
     b = r["b"]
-    deployed_cfg = json.loads(zipfile.ZipFile(inputs["deployed"]).read("conf/canopen.json"))
-    expect(b["status"] == "SUCCESS" and b["canopen"]["enabled"], "b: canopen enabled")
+    deployed_cfg = json.loads(zipfile.ZipFile(inputs["deployed"]).read("conf/canworks.json"))
+    expect(b["status"] == "SUCCESS" and b["canworks"]["enabled"], "b: canopen enabled")
     expect(json.loads(b["lib_config"]) == deployed_cfg, "b: with the uploaded config, not the snapshot's")
     expect(not log_has(b, "config taken from the project snapshot")
-           and log_has(b, "the upload carries conf/canopen.json"), "b: snapshot not used")
+           and log_has(b, "the upload carries conf/canworks.json"), "b: snapshot not used")
 
     c = r["c"]
-    expect(c["status"] == "SUCCESS" and not c["canopen"]["enabled"], "c: canopen disabled")
-    expect(log_has(c, "Disabled plugin 'canopen' (no config file found)"), "c: log says no config was found")
+    expect(c["status"] == "SUCCESS" and not c["canworks"]["enabled"], "c: canopen disabled")
+    expect(log_has(c, "Disabled plugin 'canworks' (no config file found)"), "c: log says no config was found")
     expect(not any("CANopen:" in l for l in c["logs"]), "c: no hook messages")
 
     e = r["e"]
-    expect(e["status"] == "FAILED" and not e["canopen"]["enabled"], "e: build FAILED, canopen disabled")
-    expect(not log_has(e, "config taken from the project snapshot") and "conf/canopen.json" not in e["conf"],
+    expect(e["status"] == "FAILED" and not e["canworks"]["enabled"], "e: build FAILED, canopen disabled")
+    expect(not log_has(e, "config taken from the project snapshot") and "conf/canworks.json" not in e["conf"],
            "e: nothing taken from the snapshot")
 
     d = r["d"]
-    expect(d["status"] == "SUCCESS" and not d["canopen"]["enabled"], "d: no snapshot, canopen disabled")
+    expect(d["status"] == "SUCCESS" and not d["canworks"]["enabled"], "d: no snapshot, canopen disabled")
 
     shutil.rmtree(work, ignore_errors=True)
     print("OK" if not failures else "%d failure(s)" % len(failures))

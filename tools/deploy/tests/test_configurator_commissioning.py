@@ -10,7 +10,7 @@ import struct
 import time
 import unittest
 
-from openplc_canopen_deploy import dcfexport
+from canworks import dcfexport
 
 from .test_commissioning import FIXED_IO, IDENTITY, RTD, fixed_io_od, rtd_od
 from .test_configurator_localbus import AdapterTarget as _Target

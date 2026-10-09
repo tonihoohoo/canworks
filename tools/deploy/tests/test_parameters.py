@@ -11,9 +11,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy import eds as eds_mod
-from openplc_canopen_deploy import parameters as P
+from canworks import diag
+from canworks import eds as eds_mod
+from canworks import parameters as P
 
 from . import fake_diag
 from .helpers import REPO
@@ -515,7 +515,7 @@ def two_network_config(folder):
          "master": {"node_id": 1},
          "nodes": [{"node_id": 2, "name": name, "eds": os.path.basename(eds)}]}
         for net, name, eds in ((TWO_NETWORKS[0], "rtd", RTD_EDS), (TWO_NETWORKS[1], "drive", SERVO_EDS))]}
-    path = os.path.join(folder, "canopen.json")
+    path = os.path.join(folder, "canworks.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f)
     return path

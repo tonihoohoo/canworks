@@ -3,7 +3,7 @@
 # does not exist, so the plugin starts but no device ever answers.
 # With --stop-check as a sixth argument the config stays on vcan0 (which
 # must exist and be up) and a PLC stop during a transfer is checked too.
-#   lookup_check.sh <lookup_check> <libcanopen_plugin.so> <program.so> <config dir> <scratch dir> [--stop-check]
+#   lookup_check.sh <lookup_check> <libcanworks_plugin.so> <program.so> <config dir> <scratch dir> [--stop-check]
 set -eu
 check=$1 plugin=$2 program=$3 config=$4 dir=$5 mode=${6:-}
 rm -rf "$dir"

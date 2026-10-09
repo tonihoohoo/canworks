@@ -6,7 +6,7 @@
 #
 # Starts the tutorial ping-pong slave as an LSS device without a node ID
 # (test/lss/lss_slave, EDS test/fixtures/eds/lss-slave.eds with serial
-# number 0x00001234), then loads the real libcanopen_plugin.so through
+# number 0x00001234), then loads the real libcanworks_plugin.so through
 # canopen_host with the ping-pong program and node 2 configured with
 # "serial_number" and "lss": { "assign": true }. Passes (exit 0) when the
 # plugin logs that it assigned node ID 2, the ping-pong runs on node 2
@@ -34,7 +34,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/lss_slave"
 for f in "$PLUGIN" "$HOST" "$SLAVE"; do

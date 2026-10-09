@@ -104,7 +104,7 @@ PROGRAM main
     step            : INT;    (* 0 power on, 5 CSP mode, 10 home, 20 move, 30 dwell, 90 fault reset *)
   END_VAR
 
-(* CiA 402 axes from canopen/canopen.json: keep these lines first *)
+(* CiA 402 axes from canworks/canworks.json: keep these lines first *)
 motion_drive.iRatioTechUnitsNum := DINT#1;
 motion_drive.dwRatioTechUnitsDenom := DWORD#1;
 motion_drive.fScalefactor := LREAL#1.0;
@@ -122,7 +122,7 @@ motion_drive_bridge(Axis := motion_drive,
                     diTargetVelocity => motion_drive_Target_velocity,
                     iTargetTorque => motion_drive_Target_torque);
 
-(* CANopen I/O declared from canopen/canopen.json *)
+(* CANopen I/O declared from canworks/canworks.json *)
 
 (* Temperature, alarm and the I/O loopback on network io *)
 cycles := cycles + 1;

@@ -14,8 +14,8 @@ import threading
 import unittest
 import zipfile
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.configurator import server as srv
+from canworks import diag
+from canworks.configurator import server as srv
 
 from .fake_diag import TOKEN, TWO_NETWORKS, FakePlugin
 from .helpers import PINGPONG, REPO, tmpdir
@@ -47,8 +47,8 @@ class NetworksPage(unittest.TestCase):
     def setUp(self):
         self.dir = tmpdir(self)
         self.cfg_dir = os.path.join(self.dir, "cfg")
-        os.environ["OPENPLC_CANOPEN_CONFIG_DIR"] = self.cfg_dir
-        self.addCleanup(os.environ.pop, "OPENPLC_CANOPEN_CONFIG_DIR", None)
+        os.environ["CANWORKS_CONFIG_DIR"] = self.cfg_dir
+        self.addCleanup(os.environ.pop, "CANWORKS_CONFIG_DIR", None)
         # A standalone config folder: no editor project addresses to clash with.
         self.folder = os.path.join(self.dir, "plant")
         os.makedirs(self.folder)
@@ -70,7 +70,7 @@ class NetworksPage(unittest.TestCase):
     # -- helpers ------------------------------------------------------------
     @property
     def config_path(self):
-        return os.path.join(self.folder, "canopen.json")
+        return os.path.join(self.folder, "canworks.json")
 
     def write(self, cfg):
         with open(self.config_path, "w", encoding="utf-8") as f:

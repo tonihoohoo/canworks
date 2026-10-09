@@ -113,7 +113,7 @@ For each configured PDO the node sheet SHALL show its number and direction, COB-
 - **THEN** all three objects appear in the layout and two are shown as not used by the PLC
 
 #### Scenario: PLC variable names
-- **WHEN** the export runs on an editor project's `canopen/canopen.json` and `%IW100` is declared as `rtd_ch1`
+- **WHEN** the export runs on an editor project's `canworks/canworks.json` and `%IW100` is declared as `rtd_ch1`
 - **THEN** the PDO table shows `rtd_ch1` next to `%IW100`
 
 #### Scenario: Receive timeout shown

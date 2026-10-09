@@ -74,13 +74,13 @@ struct NetworkState {
 // runtime, across PLC stop and start (docs/simulator.md).
 std::shared_ptr<canopen_sim::StoreMap> g_sim_store = std::make_shared<canopen_sim::StoreMap>();
 
-// The simulation file for `cfg`: next to the config, or in the canopen/
+// The simulation file for `cfg`: next to the config, or in the canworks/
 // folder of the runtime's generated conf/ (where an upload puts it). "" = none.
 std::string find_sim_file(const Config& cfg) {
-  std::vector<std::string> c = {cfg.config_dir + "/simulation.json", cfg.config_dir + "/canopen/simulation.json"};
+  std::vector<std::string> c = {cfg.config_dir + "/simulation.json", cfg.config_dir + "/canworks/simulation.json"};
   std::string fb = default_eds_fallback_dir();
   if (!fb.empty()) {
-    c.push_back(fb + "/canopen/simulation.json");
+    c.push_back(fb + "/canworks/simulation.json");
     c.push_back(fb + "/simulation.json");
   }
   for (const auto& p : c)
@@ -159,7 +159,7 @@ void prepare() {
   auto st = std::unique_ptr<PluginState>(new PluginState);
   ImageLimits limits;
   limits.buffer_size = g_rt.buffer_size > 0 ? static_cast<unsigned>(g_rt.buffer_size) : 1024;
-  limits.force_simulate = force_simulate_from_env(getenv("CANOPEN_FORCE_SIMULATE"));
+  limits.force_simulate = force_simulate_from_env(getenv("CANWORKS_FORCE_SIMULATE"));
 
   std::vector<std::string> errors;
   bool loaded = load_config_set(path, limits, st->set, errors);
@@ -175,7 +175,7 @@ void prepare() {
     if (!loaded) continue;
     if (cfg.is_slave()) log_info("%s: EDS %s", cfg.slave.label().c_str(), cfg.slave.eds_path.c_str());
     if (cfg.adapter.simulation_forced)
-      log_warn("simulation forced by the runtime environment (CANOPEN_FORCE_SIMULATE=1): this network runs "
+      log_warn("simulation forced by the runtime environment (CANWORKS_FORCE_SIMULATE=1): this network runs "
                "simulated, whatever its adapter settings say; no CAN interface is opened");
     for (const auto& n : cfg.nodes) log_info("%s: EDS %s", n.label().c_str(), n.eds_path.c_str());
     size_t warned = cfg.warnings.size(), noted = cfg.notes.size(), failed = errors.size();
@@ -430,7 +430,7 @@ PLUGIN_API void cycle_end(void) {
 }
 
 // The SDO function blocks of the PLC program's CANopen library find this with
-// dlopen("libcanopen_plugin.so", RTLD_NOLOAD) + dlsym (spec canopen-plc-sdo).
+// dlopen("libcanworks_plugin.so", RTLD_NOLOAD) + dlsym (spec canopen-plc-sdo).
 PLUGIN_API const void* canopen_plc_api(uint32_t version) { return plc_api_table(version); }
 
 }  // extern "C"

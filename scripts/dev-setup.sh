@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Development setup: builds Lely CANopen (C/C++ libraries + dcfgen) into
-# /opt/openplc-canopen, installs the deploy tool from this checkout into its
+# /opt/canworks, installs the deploy tool from this checkout into its
 # venv in editable mode (the plugin runs its EDS lint) and brings up a
 # virtual CAN interface vcan0.
 #
@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-PREFIX=/opt/openplc-canopen
+PREFIX=/opt/canworks
 LELY_REF=${LELY_REF:-88848aa28599ea5d6d7e766a9ffa2054446821b5}
 SETUP_VCAN=1
 

@@ -6,7 +6,7 @@ A network with `"role": "slave"` makes the PLC one node of a CANopen network tha
 
 ## Steps
 
-1. Describe the objects the two sides exchange in a short JSON file, and generate the EDS from it with `openplc-canopen-deploy slave-eds` ([below](#the-eds)) or with **Build the EDS** in the configurator ([configurator.md](configurator.md#slave-networks)).
+1. Describe the objects the two sides exchange in a short JSON file, and generate the EDS from it with `canworks-deploy slave-eds` ([below](#the-eds)) or with **Build the EDS** in the configurator ([configurator.md](configurator.md#slave-networks)).
 2. Add a network with `"role": "slave"`, its adapter, the node ID the other master expects, the EDS, and a PLC location for each object the program uses.
 3. Deploy as usual: the deploy tool and the editor hook carry the EDS with the config, and the plugin runs that file.
 4. Import the same EDS into the other master's configuration tool (**Export EDS** in the configurator gives it a name from the device name). The file the other master imports and the file the plugin runs are the same bytes.
@@ -57,7 +57,7 @@ So the master can only ever reach `%I` locations. A location of the wrong area, 
 - The slave obeys NMT start, stop, pre-operational, reset node and reset communication, addressed to its node ID or broadcast; PDOs move only in OPERATIONAL. Its SDO server answers uploads and downloads (expedited, segmented and block) for every object the EDS allows.
 - A value the master writes to a bound input, by RPDO or SDO, reaches the PLC at the next scan start; with several writes in one scan the newest wins. Inputs keep their last value while the node is not OPERATIONAL or the master's heartbeat is lost, unless `inputs_on_loss` is `"zero"`.
 - At the end of each scan changed output values go into the dictionary: synchronous TPDOs carry them at the next SYNC, event-driven TPDOs that map them are sent (inhibit time applies), and an SDO upload returns them. From the program to the bus takes at most one scan plus 1 ms. On entering OPERATIONAL every event-driven TPDO is sent once, so the master has all values without waiting for a change.
-- A "save" the master writes to 0x1010 stores the selected ranges in a state file outside the uploaded project, `<prefix>/state/<network>.json` (`/opt/openplc-canopen/state` on a native install and on the Docker install's bind-mounted prefix; the environment variable `CANOPEN_STATE_DIR` overrides the directory), so an upload does not lose them; a "load" to 0x1011 deletes them. Stored values (also 0x1020, so a master that checks the configuration date can skip its download) are applied after every start and reset node while the EDS is unchanged; with a changed EDS they are ignored with a warning.
+- A "save" the master writes to 0x1010 stores the selected ranges in a state file outside the uploaded project, `<prefix>/state/<network>.json` (`/opt/canworks/state` on a native install and on the Docker install's bind-mounted prefix; the environment variable `CANOPEN_STATE_DIR` overrides the directory), so an upload does not lose them; a "load" to 0x1011 deletes them. Stored values (also 0x1020, so a master that checks the configuration date can skip its download) are applied after every start and reset node while the EDS is unchanged; with a changed EDS they are ignored with a warning.
 - With `"node_id": null` the slave starts without a node ID and waits for an LSS master: it answers switch, identify and fastscan by its 0x1018 identity (fastscan only while it has no node ID, as CiA 305 has it) and keeps an ID stored by LSS in the state file. An LSS bit rate change is answered as not supported: the adapter's bit rate comes from the config.
 - A frame from another device with the slave's own node ID is logged once per PLC start.
 
@@ -73,7 +73,7 @@ So the master can only ever reach `%I` locations. A location of the wrong area, 
 
 ## The EDS
 
-`openplc-canopen-deploy slave-eds` writes a CiA 306 EDS from a JSON description ([deploy.md](deploy.md#the-slave-eds)):
+`canworks-deploy slave-eds` writes a CiA 306 EDS from a JSON description ([deploy.md](deploy.md#the-slave-eds)):
 
 ```json
 {

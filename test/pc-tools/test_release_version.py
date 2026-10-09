@@ -18,10 +18,10 @@ spec.loader.exec_module(release_version)
 
 def fake_package(pyproject, module):
     d = tempfile.mkdtemp()
-    os.makedirs(os.path.join(d, "openplc_canopen_deploy"))
+    os.makedirs(os.path.join(d, "canworks"))
     with open(os.path.join(d, "pyproject.toml"), "w") as f:
         f.write('[project]\nname = "x"\nversion = "%s"\n' % pyproject)
-    with open(os.path.join(d, "openplc_canopen_deploy", "__init__.py"), "w") as f:
+    with open(os.path.join(d, "canworks", "__init__.py"), "w") as f:
         f.write('__version__ = "%s"\n' % module)
     return d
 

@@ -1,6 +1,6 @@
 (*
  * config/cia402-drive/drive_cyclic_demo.st against the drive model, with
- * the cyclic blocks of the packaged openplc_canopen library. Run by
+ * the cyclic blocks of the packaged canworks library. Run by
  * test/cia402/run.sh. The demo counts its times in task cycles, so one loop
  * pass is one 10 ms cycle and one SYNC.
  *)

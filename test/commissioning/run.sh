@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Writing a configuration to one device from the PC
 # (canopen-device-commissioning) on a SocketCAN interface (vcan0 by default):
-# openplc-canopen-diag --adapter socketcan:vcan0, no runtime.
+# canworks-diag --adapter socketcan:vcan0, no runtime.
 #
 #   test/commissioning/run.sh [--build-dir build] [--iface vcan0]
 #
@@ -14,7 +14,7 @@
 #    with --store survives a power cycle, restore-defaults --reset brings the
 #    EDS values back, a DCF of another product and one for another node ID
 #    are refused, and a PDO test with SYNC from the PC receives TPDO1.
-# 2. The real libcanopen_plugin.so in canopen_host as master of node 5:
+# 2. The real libcanworks_plugin.so in canopen_host as master of node 5:
 #    configure through the plugin's diagnostics channel is refused, because
 #    the plugin writes node 5's configuration at every boot.
 #
@@ -38,9 +38,9 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
-SIM="$BUILD/bin/openplc-canopen-sim"
+SIM="$BUILD/bin/canworks-sim"
 for f in "$PLUGIN" "$HOST" "$SIM"; do
     [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
@@ -59,12 +59,12 @@ cleanup() {
 trap cleanup EXIT
 
 export PYTHONPATH="$ROOT/tools/deploy${PYTHONPATH:+:$PYTHONPATH}"
-export OPENPLC_CANOPEN_TOKEN=commissioning-test-token
+export CANWORKS_TOKEN=commissioning-test-token
 PORT=7543
 SIMPORT=7544
-LOCAL=(python3 -m openplc_canopen_deploy.diag --adapter "socketcan:$IFACE" --bitrate 125)
-CHANGE=(python3 -m openplc_canopen_deploy.diag --adapter "socketcan:$IFACE" --bitrate 125 --allow-changes)
-REMOTE=(python3 -m openplc_canopen_deploy.diag --runtime "127.0.0.1:$PORT")
+LOCAL=(python3 -m canworks.diag --adapter "socketcan:$IFACE" --bitrate 125)
+CHANGE=(python3 -m canworks.diag --adapter "socketcan:$IFACE" --bitrate 125 --allow-changes)
+REMOTE=(python3 -m canworks.diag --runtime "127.0.0.1:$PORT")
 
 fail() {
     echo "FAIL: $*" >&2
@@ -77,18 +77,18 @@ fail() {
 cp "$ROOT/config/rtd-sensor/rtd8.eds" "$WORK/"
 python3 - "$ROOT/config/rtd-sensor/canopen_config.json" "$WORK/canopen_config.json" "$IFACE" "$PORT" <<'PY'
 import json, os, sys
-from openplc_canopen_deploy.diag import token_verifier
+from canworks.diag import token_verifier
 cfg = json.load(open(sys.argv[1]))
 cfg["adapter"]["interface"] = sys.argv[3]
 cfg["adapter"]["configure_link"] = False
 cfg["master"]["diagnostics"] = {
-    "token_verifier": token_verifier(os.environ["OPENPLC_CANOPEN_TOKEN"]),
+    "token_verifier": token_verifier(os.environ["CANWORKS_TOKEN"]),
     "port": int(sys.argv[4]), "bind": "127.0.0.1", "allow_changes": True}
 # A remap: TPDO1 with two of its four entries.
 cfg["nodes"][0]["tx_pdos"][0]["entries"] = cfg["nodes"][0]["tx_pdos"][0]["entries"][:2]
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
 PY
-python3 -c 'import sys; from openplc_canopen_deploy import cli; sys.exit(cli.main(sys.argv[1:]))' \
+python3 -c 'import sys; from canworks import cli; sys.exit(cli.main(sys.argv[1:]))' \
     --config "$WORK/canopen_config.json" --export-dcf "$WORK/dcf" > "$WORK/export.log" 2>&1 \
     || { cat "$WORK/export.log"; fail "DCF export"; }
 DCF="$WORK/dcf/node_5.dcf"

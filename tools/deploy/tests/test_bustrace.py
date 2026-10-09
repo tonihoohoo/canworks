@@ -1,7 +1,7 @@
-"""Bus traces (openplc_canopen_deploy.bustrace, canopen-bus-trace spec): file
+"""Bus traces (canworks.bustrace, canopen-bus-trace spec): file
 formats (golden files, round trips, python-can and Wireshark when installed),
 CANopen decoding, statistics, triggers, the recorder against the fake
-diagnostics channel, and `openplc-canopen-diag trace` / `convert`."""
+diagnostics channel, and `canworks-diag trace` / `convert`."""
 
 import contextlib
 import copy
@@ -15,12 +15,12 @@ import threading
 import time
 import unittest
 
-from openplc_canopen_deploy import __version__, diag
-from openplc_canopen_deploy.bustrace import formats, triggers
-from openplc_canopen_deploy.bustrace.decode import Decoder, decode_all, signal_value
-from openplc_canopen_deploy.bustrace.model import RECORD_SIZE, Frame, Trace
-from openplc_canopen_deploy.bustrace.recorder import Recorder, Session
-from openplc_canopen_deploy.bustrace.stats import Analysis, frame_bits
+from canworks import __version__, diag
+from canworks.bustrace import formats, triggers
+from canworks.bustrace.decode import Decoder, decode_all, signal_value
+from canworks.bustrace.model import RECORD_SIZE, Frame, Trace
+from canworks.bustrace.recorder import Recorder, Session
+from canworks.bustrace.stats import Analysis, frame_bits
 
 from .fake_diag import TOKEN, TWO_NETWORKS, FakePlugin
 from .test_contract import FIXTURES, REPO, load_cases
@@ -82,7 +82,7 @@ def two_network_config(folder):
         {"name": "io", "adapter": pp["adapter"], "master": pp["master"], "nodes": pp["nodes"]},
         {"name": "drives", "adapter": {"type": "socketcan", "interface": "vcan1", "bitrate": 500000},
          "master": {"node_id": 1}, "nodes": [drive]}]}
-    path = os.path.join(folder, "canopen.json")
+    path = os.path.join(folder, "canworks.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f)
     return cfg, path
@@ -314,16 +314,16 @@ class Decoding(unittest.TestCase):
     def test_bad_config_falls_back(self):
         cfg = copy.deepcopy(load_cases()["base"])
         cfg["nodes"][0]["eds"] = "missing.eds"
-        dec = Decoder.from_config(cfg, os.path.join(FIXTURES, "eds", "canopen.json"))
+        dec = Decoder.from_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"))
         self.assertTrue(dec.warnings)
         self.assertEqual(dec.decode(Frame(0, 0x702, b"\x05")).text, "node 2 (pingpong) OPERATIONAL")
 
     def test_plc_variable_names(self):
-        from openplc_canopen_deploy import dbcexport
+        from canworks import dbcexport
         cfg = copy.deepcopy(load_cases()["base"])
         cfg["nodes"][0]["tx_pdos"] = [{"entries": [
             {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID10"}]}]
-        dec = Decoder.from_config(cfg, os.path.join(FIXTURES, "eds", "canopen.json"),
+        dec = Decoder.from_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"),
                                   names={"%ID10": ["valve_status"]})
         d = dec.decode(Frame(0, 0x182, (7).to_bytes(4, "little")))
         self.assertEqual(d.text, "valve_status=7")
@@ -692,7 +692,7 @@ class Cli(unittest.TestCase):
                 self.assertEqual(diag.main(base + ["--config", PINGPONG, "--trigger", "signal no_such_signal>0"]), 2)
                 self.assertEqual(diag.main(base + ["--trigger", "signal x>0"]), 2)
             self.assertIn("no signal 'no_such_signal'; the config's signals are: pingpong_", err.getvalue())
-            self.assertIn("--config canopen.json", err.getvalue())
+            self.assertIn("--config canworks.json", err.getvalue())
 
     def test_old_plugin_fails(self):
         with FakePlugin() as fake:

@@ -421,7 +421,7 @@ class Sim {
     std::vector<std::string> errors;
     // As the plugin's start: config, EDS lint (prepared copies), EDS checks, dcfgen.
     ok_ = load_config(dir + "/canopen_config.json", ImageLimits(), cfg_, errors) &&
-          run_eds_lint(cfg_, default_edslint_python(), cfg_.config_dir + "/.canopen", errors) &&
+          run_eds_lint(cfg_, default_edslint_python(), cfg_.config_dir + "/.canworks", errors) &&
           check_eds_files(cfg_, errors);
     if (ok_ && base_tick_us) resolve_interpolation_periods(cfg_, base_tick_us);
     ok_ = ok_ && generate_device_config(cfg_, default_dcfgen(), gen_, errors);
@@ -3700,7 +3700,7 @@ TEST(sim_simulated_cpu_budget) {
   delete sim;
 }
 
-// The SDO function blocks of library/openplc_canopen, built with the editor's
+// The SDO function blocks of library/canworks, built with the editor's
 // glue, find the master's API table through this (CO_SDO_TEST_ENTRY) instead
 // of dlopen; test/plc_sdo/lookup_check covers the dlopen route.
 extern "C" const void* canopen_plc_api_test(uint32_t version) { return plc_api_table(version); }
@@ -4070,7 +4070,7 @@ TEST(sim_cia402_demo) {
 // ---------------------------------------------------------------------------
 // Cyclic synchronous CiA 402 (add-cia402-cyclic-modes): the cyclic demo
 // (config/cia402-drive/drive_cyclic_demo.st with the CO402_Cyclic* blocks of
-// the openplc_canopen library) as the PLC program, SYNC from the PLC cycle,
+// the canworks library) as the PLC program, SYNC from the PLC cycle,
 // against the in-plugin simulated drive: 0x60C2 written from the base tick,
 // the sequence ends without a fault and without an oversized CSP step; the
 // PLC stops, the drive's SYNC watchdog faults it, and after the restart the
@@ -4209,8 +4209,8 @@ TEST(sim_gantry_demo) {
   CHECK_MSG(!(need && std::string(need) == "1"), "CANOPEN_REQUIRE_STRUCPP=1 but the gantry program was not built");
 #else
   clear_logs();
-  std::string ex = std::string(GANTRY_DIR) + "/canopen/";
-  std::string dir = make_dir(read(ex + "canopen.json"), {{"servo402.eds", read(ex + "servo402.eds")},
+  std::string ex = std::string(GANTRY_DIR) + "/canworks/";
+  std::string dir = make_dir(read(ex + "canworks.json"), {{"servo402.eds", read(ex + "servo402.eds")},
                                                          {"dio16.eds", read(ex + "dio16.eds")},
                                                          {"machine.json", read(ex + "machine.json")}});
   static Sim* sim;
@@ -4435,8 +4435,8 @@ TEST(sim_two_networks) {
   }
   // Each network generates into its own folder.
   struct stat st;
-  CHECK(stat((dir + "/.canopen/io/master.dcf").c_str(), &st) == 0);
-  CHECK(stat((dir + "/.canopen/drives/master.dcf").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canworks/io/master.dcf").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canworks/drives/master.dcf").c_str(), &st) == 0);
   // Node 2 on both buses, each with its own master.
   sim->StartSlave(0, dir + "/cpp-slave.eds");
   sim->StartSlave(1, dir + "/cpp-slave.eds");

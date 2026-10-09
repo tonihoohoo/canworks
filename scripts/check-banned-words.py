@@ -4,7 +4,7 @@
 The words are kept out of the repository: one extended regular expression per
 line (case-insensitive, '#' lines and blank lines ignored), read from the file
 in $BANNED_WORDS_FILE, else from $BANNED_WORDS (CI passes a repository secret
-there), else from ~/.config/openplc-canopen/banned-words.txt. Without a list
+there), else from ~/.config/canworks/banned-words.txt. Without a list
 the check says so and passes.
 
 Findings name the place and the number of the list line that matched, never
@@ -24,7 +24,7 @@ import re
 import subprocess
 import sys
 
-DEFAULT_LIST = os.path.join(os.path.expanduser("~"), ".config", "openplc-canopen", "banned-words.txt")
+DEFAULT_LIST = os.path.join(os.path.expanduser("~"), ".config", "canworks", "banned-words.txt")
 
 
 def load_patterns():

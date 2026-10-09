@@ -422,8 +422,8 @@ struct Config {
   // adapter's interface name.
   std::string network;
   unsigned network_index = 0;
-  // Where dcfgen's output and the prepared EDS copies go: <config dir>/.canopen
-  // for a version 1 file, <config dir>/.canopen/<network> for version 2.
+  // Where dcfgen's output and the prepared EDS copies go: <config dir>/.canworks
+  // for a version 1 file, <config dir>/.canworks/<network> for version 2.
   std::string work_dir;
   // Put in front of the network's log lines ("drives"), empty when the file
   // has one network.
@@ -463,13 +463,13 @@ struct ConfigSet {
 // Limits of the runtime's I/O image, from plugin_runtime_args_t.
 struct ImageLimits {
   unsigned buffer_size = 1024;
-  // Set from the runtime environment (CANOPEN_FORCE_SIMULATE=1, the local
+  // Set from the runtime environment (CANWORKS_FORCE_SIMULATE=1, the local
   // simulator runtime image): every network is parsed as a simulated network,
   // whatever its adapter.simulate says (docs/local-runtime.md).
   bool force_simulate = false;
 };
 
-// Whether the value of CANOPEN_FORCE_SIMULATE forces simulation: exactly "1".
+// Whether the value of CANWORKS_FORCE_SIMULATE forces simulation: exactly "1".
 bool force_simulate_from_env(const char* value);
 
 // Where the stock runtime extracts an upload's conf/ tree:

@@ -1,4 +1,4 @@
-"""The openplc_canopen editor library in the deploy tool (add-plc-sdo-blocks
+"""The canworks editor library in the deploy tool (add-plc-sdo-blocks
 tasks 4.1, 4.2 and 4.5)."""
 
 import json
@@ -6,7 +6,7 @@ import os
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy import __version__, editorproject, sdolibrary
+from canworks import __version__, editorproject, sdolibrary
 
 from .helpers import fake_editor_cli, pingpong_config, tmpdir
 from .test_deploy import deploy
@@ -24,7 +24,7 @@ def load(path):
 class Archive(unittest.TestCase):
     def test_packaged_library(self):
         data = sdolibrary.archive()
-        self.assertEqual(data["manifest"]["name"], "openplc_canopen")
+        self.assertEqual(data["manifest"]["name"], "canworks")
         self.assertEqual(data["manifest"]["version"], __version__)
         self.assertEqual(sorted(sdolibrary.block_names()), BLOCKS)
         # Every block's source travels in the archive (the editor shows it and
@@ -37,7 +37,7 @@ class Archive(unittest.TestCase):
     def test_write(self):
         d = tmpdir(self)
         path = sdolibrary.write(d)
-        self.assertEqual(path, os.path.join(d, "openplc_canopen.stlib"))
+        self.assertEqual(path, os.path.join(d, "canworks.stlib"))
         self.assertEqual(load(path)["manifest"]["version"], __version__)
         with self.assertRaises(sdolibrary.LibraryError):
             sdolibrary.write(os.path.join(d, "missing"))
@@ -63,10 +63,10 @@ class Install(unittest.TestCase):
     def test_new_registry(self):
         self.assertIsNone(sdolibrary.installed_version(self.ud))
         path = sdolibrary.install(self.ud)
-        self.assertEqual(path, os.path.join(self.ud, "libraries", "openplc_canopen", "openplc_canopen.stlib"))
+        self.assertEqual(path, os.path.join(self.ud, "libraries", "canworks", "canworks.stlib"))
         reg = load(os.path.join(self.ud, "libraries", "registry.json"))
         self.assertEqual(reg["formatVersion"], "1.0")
-        entry = reg["libraries"]["openplc_canopen"]
+        entry = reg["libraries"]["canworks"]
         self.assertEqual((entry["version"], entry["stlibPath"], entry["origin"]), (__version__, path, "stlib"))
         self.assertRegex(entry["installedAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
         self.assertEqual(sdolibrary.installed_version(self.ud), __version__)
@@ -76,11 +76,11 @@ class Install(unittest.TestCase):
         other = {"version": "1.0.0", "installedAt": "x", "stlibPath": "/y", "origin": "stlib"}
         with open(os.path.join(self.ud, "libraries", "registry.json"), "w") as f:
             json.dump({"formatVersion": "1.0", "libraries": {"other": other,
-                                                             "openplc_canopen": dict(other, version="0.1.0")}}, f)
+                                                             "canworks": dict(other, version="0.1.0")}}, f)
         sdolibrary.install(self.ud)
         reg = load(os.path.join(self.ud, "libraries", "registry.json"))
         self.assertEqual(reg["libraries"]["other"], other)
-        self.assertEqual(reg["libraries"]["openplc_canopen"]["version"], __version__)
+        self.assertEqual(reg["libraries"]["canworks"]["version"], __version__)
 
     def test_bad_registry_untouched(self):
         os.makedirs(os.path.join(self.ud, "libraries"))
@@ -98,7 +98,7 @@ class Install(unittest.TestCase):
 
     def test_registered_file_missing(self):
         sdolibrary.install(self.ud)
-        os.remove(os.path.join(self.ud, "libraries", "openplc_canopen", "openplc_canopen.stlib"))
+        os.remove(os.path.join(self.ud, "libraries", "canworks", "canworks.stlib"))
         self.assertIsNone(sdolibrary.installed_version(self.ud))
 
 
@@ -106,7 +106,7 @@ def editor_project(d):
     os.makedirs(d)
     with open(os.path.join(d, "project.json"), "w") as f:
         json.dump({"meta": {"name": "p"}, "data": {"pous": [], "libraries": [
-            {"name": "other", "version": "1.0.0"}, {"name": "openplc_canopen", "version": "0.1.0"}]}}, f)
+            {"name": "other", "version": "1.0.0"}, {"name": "canworks", "version": "0.1.0"}]}}, f)
     return d
 
 
@@ -118,7 +118,7 @@ class EnableInProject(unittest.TestCase):
         proj = load(os.path.join(d, "project.json"))
         self.assertEqual(proj["meta"], {"name": "p"})
         self.assertEqual(proj["data"]["libraries"], [{"name": "other", "version": "1.0.0"},
-                                                     {"name": "openplc_canopen", "version": __version__}])
+                                                     {"name": "canworks", "version": __version__}])
 
     def test_not_a_project(self):
         d = tmpdir(self)
@@ -138,8 +138,8 @@ class Cli(unittest.TestCase):
     def test_library_out_and_install(self):
         code, out, err = deploy("library", "--out", self.dir, "--install", env=self.env)
         self.assertEqual(code, 0, err)
-        self.assertIn("wrote %s" % os.path.join(self.dir, "openplc_canopen.stlib"), out)
-        self.assertIn("installed openplc_canopen %s into the editor" % __version__, out)
+        self.assertIn("wrote %s" % os.path.join(self.dir, "canworks.stlib"), out)
+        self.assertIn("installed canworks %s into the editor" % __version__, out)
         self.assertEqual(sdolibrary.installed_version(self.ud), __version__)
 
     def test_library_list(self):
@@ -150,7 +150,7 @@ class Cli(unittest.TestCase):
         d = editor_project(os.path.join(self.dir, "p"))
         code, out, err = deploy("library", "--project", d, env=self.env)
         self.assertEqual(code, 0, err)
-        self.assertIn("enabled openplc_canopen in %s" % d, out)
+        self.assertIn("enabled canworks in %s" % d, out)
         self.assertIn("library --install", err)
 
     def test_library_needs_an_action(self):
@@ -164,12 +164,12 @@ class Cli(unittest.TestCase):
         code, out, err = deploy("--config", config, "--new-project", target, "--sdo-blocks", env=self.env)
         self.assertEqual(code, 0, err)
         self.assertEqual(load(os.path.join(target, "project.json"))["data"]["libraries"],
-                         [{"name": "openplc_canopen", "version": __version__}])
-        self.assertIn("installed openplc_canopen %s into the editor" % __version__, out)
+                         [{"name": "canworks", "version": __version__}])
+        self.assertIn("installed canworks %s into the editor" % __version__, out)
         # A second project finds the library installed.
         code, out, err = deploy("--config", config, "--new-project", target + "2", "--sdo-blocks", env=self.env)
         self.assertEqual(code, 0, err)
-        self.assertIn("openplc_canopen %s is installed in the editor" % __version__, out)
+        self.assertIn("canworks %s is installed in the editor" % __version__, out)
 
     def test_new_project_without_editor(self):
         config = pingpong_config(self.dir)
@@ -179,7 +179,7 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("library --out DIR", err)
         self.assertEqual(load(os.path.join(target, "project.json"))["data"]["libraries"][0]["name"],
-                         "openplc_canopen")
+                         "canworks")
 
     def test_new_project_without_option(self):
         config = pingpong_config(self.dir)
@@ -203,7 +203,7 @@ class CreateDirect(unittest.TestCase):
             config = pingpong_config(d)
             path, _ = editorproject.create(load(config), config, os.path.join(d, "x"), sdo_blocks=True)
         self.assertEqual(load(os.path.join(path, "project.json"))["data"]["libraries"][0]["name"],
-                         "openplc_canopen")
+                         "canworks")
 
 
 if __name__ == "__main__":

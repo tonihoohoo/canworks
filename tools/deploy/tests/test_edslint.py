@@ -9,7 +9,7 @@ import json
 import os
 import unittest
 
-from openplc_canopen_deploy import edslint
+from canworks import edslint
 
 from .helpers import tmpdir
 

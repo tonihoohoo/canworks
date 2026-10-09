@@ -8,8 +8,8 @@
 #    cell.eds from cell_eds.json (slave-eds --gateway)
 # 2. the deploy tool's check with no warning beyond the simulation notice,
 #    and the exports: HTML network document, DCF files, DBC file
-# 3. the program compiles with STruC++ and the openplc_canopen library
-# 4. `openplc-canopen-sim-runtime start`, the example deployed with
+# 3. the program compiles with STruC++ and the canworks library
+# 4. `canworks-sim-runtime start`, the example deployed with
 #    `--runtime local`: every configured node OPERATIONAL (node 20 on host
 #    included), node 7 given its node ID by LSS, the gateway started by the
 #    stand-in master
@@ -45,27 +45,27 @@ ok() { echo "  ok   $*"; }
 fail() { echo "  FAIL $*"; FAILS=$((FAILS + 1)); }
 
 WORK=$(mktemp -d)
-export OPENPLC_CANOPEN_CONFIG_DIR="$WORK/settings"
-export OPENPLC_CANOPEN_ENGINE="$ENGINE"
-export OPENPLC_CANOPEN_TOKEN=virtual-plant-demo  # the example's documented demo token
-RT=(openplc-canopen-sim-runtime)
+export CANWORKS_CONFIG_DIR="$WORK/settings"
+export CANWORKS_ENGINE="$ENGINE"
+export CANWORKS_TOKEN=virtual-plant-demo  # the example's documented demo token
+RT=(canworks-sim-runtime)
 cleanup() {
     "${RT[@]}" remove --data >/dev/null 2>&1
     rm -rf "$WORK"
 }
 trap cleanup EXIT
-logs() { local text; text=$("$ENGINE" logs openplc-canopen-sim-runtime 2>&1); printf '%s\n' "$text"; }
+logs() { local text; text=$("$ENGINE" logs canworks-sim-runtime 2>&1); printf '%s\n' "$text"; }
 in_logs() { local text; text=$(logs); grep -q "$1" <<<"$text"; }
-CONFIG="$EXAMPLE/canopen/canopen.json"
+CONFIG="$EXAMPLE/canworks/canworks.json"
 
 echo "1. generated files are up to date"
 python3 "$EXAMPLE/make_dio16_eds.py" > "$WORK/dio16.eds"
-cmp -s "$WORK/dio16.eds" "$EXAMPLE/canopen/dio16.eds" && ok "dio16.eds" ||
+cmp -s "$WORK/dio16.eds" "$EXAMPLE/canworks/dio16.eds" && ok "dio16.eds" ||
     fail "dio16.eds differs from make_dio16_eds.py's output"
-cp "$EXAMPLE/canopen/"* "$WORK/" && mkdir -p "$WORK/gen"
-if openplc-canopen-deploy slave-eds "$EXAMPLE/canopen/cell_eds.json" -o "$WORK/gen/cell.eds" \
+cp "$EXAMPLE/canworks/"* "$WORK/" && mkdir -p "$WORK/gen"
+if canworks-deploy slave-eds "$EXAMPLE/canworks/cell_eds.json" -o "$WORK/gen/cell.eds" \
         --gateway "$CONFIG" > "$WORK/slave-eds.log" 2>&1; then
-    cmp -s "$WORK/gen/cell.eds" "$EXAMPLE/canopen/cell.eds" && ok "cell.eds" ||
+    cmp -s "$WORK/gen/cell.eds" "$EXAMPLE/canworks/cell.eds" && ok "cell.eds" ||
         fail "cell.eds differs from slave-eds --gateway's output"
 else
     cat "$WORK/slave-eds.log"; fail "slave-eds"
@@ -73,7 +73,7 @@ fi
 
 echo "2. check and exports"
 mkdir -p "$WORK/dcf"
-if openplc-canopen-deploy --export-html "$WORK/network.html" --config "$CONFIG" > "$WORK/html.log" 2>&1; then
+if canworks-deploy --export-html "$WORK/network.html" --config "$CONFIG" > "$WORK/html.log" 2>&1; then
     ok "HTML network document ($(wc -c < "$WORK/network.html") bytes)"
 else
     cat "$WORK/html.log"; fail "export HTML"
@@ -81,13 +81,13 @@ fi
 # The checks print one warning for a simulated config; anything else is new.
 warnings=$(grep "^warning:" "$WORK/html.log" | grep -v "this config simulates devices")
 [ -z "$warnings" ] && ok "no warning beyond the simulation notice" || fail "warnings: $warnings"
-openplc-canopen-deploy --export-dcf "$WORK/dcf" --config "$CONFIG" > "$WORK/dcf.log" 2>&1 &&
+canworks-deploy --export-dcf "$WORK/dcf" --config "$CONFIG" > "$WORK/dcf.log" 2>&1 &&
     ok "DCF files: $(cd "$WORK/dcf" && ls | tr '\n' ' ')" || { cat "$WORK/dcf.log"; fail "export DCF"; }
-openplc-canopen-deploy --export-dbc "$WORK/plant.dbc" --config "$CONFIG" > "$WORK/dbc.log" 2>&1 &&
+canworks-deploy --export-dbc "$WORK/plant.dbc" --config "$CONFIG" > "$WORK/dbc.log" 2>&1 &&
     ok "DBC file" || { cat "$WORK/dbc.log"; fail "export DBC"; }
 
 echo "3. the program compiles"
-LIBRARY="$ROOT/tools/deploy/openplc_canopen_deploy/library"
+LIBRARY="$ROOT/tools/deploy/canworks/library"
 if "$STRUCPP" "$EXAMPLE/pous/programs/main.st" -L "$LIBRARY" -o "$WORK/main.cpp" > "$WORK/strucpp.log" 2>&1; then
     ok "main.st with STruC++"
 else
@@ -105,7 +105,7 @@ for _ in $(seq 1 15); do
     "${RT[@]}" status 2>&1 | grep -q "PLC: EMPTY" && break
     sleep 1
 done
-if openplc-canopen-deploy --bundle "$WORK/bundle" --config "$CONFIG" --runtime local > "$WORK/deploy.log" 2>&1; then
+if canworks-deploy --bundle "$WORK/bundle" --config "$CONFIG" --runtime local > "$WORK/deploy.log" 2>&1; then
     ok "deployed with --runtime local"
 else
     cat "$WORK/deploy.log"; fail "deploy"
@@ -129,10 +129,10 @@ canopen_errors=$(logs | grep "ERROR" | grep "CANOPEN")
 [ -z "$canopen_errors" ] && ok "no CANopen error in the log" || { head <<<"$canopen_errors"; fail "CANopen errors in the log"; }
 
 echo "5. diagnostics"
-st=$(openplc-canopen-diag --runtime local status 2>&1)
+st=$(canworks-diag --runtime local status 2>&1)
 grep -qi "gateway" <<<"$st" && ok "status shows the gateway" || fail "diag status: $st"
 grep -q "upper master present" <<<"$st" && ok "the gateway sees its upper master" || fail "diag status: $st"
-found=$(openplc-canopen-diag --runtime local lss-find --network io 2>&1)
+found=$(canworks-diag --runtime local lss-find --network io 2>&1)
 grep -q "serial 0x00001BBB" <<<"$found" && ok "LSS fastscan finds the spare device, not a configured one" || fail "lss-find: $found"
 
 echo "6. test scenarios"
@@ -143,7 +143,7 @@ for net in io motion; do
     for t in ${TESTS[$net]}; do scenarios+=(--scenario "$t"); done
     junit=()
     [ -n "${JUNIT_DIR:-}" ] && mkdir -p "$JUNIT_DIR" && junit=(--junit "$JUNIT_DIR/virtual-example-$net.xml")
-    if openplc-canopen-diag --runtime local sim test --network "$net" "${scenarios[@]}" --timeout 120 \
+    if canworks-diag --runtime local sim test --network "$net" "${scenarios[@]}" --timeout 120 \
             "${junit[@]}" > "$WORK/test-$net.log" 2>&1; then
         ok "network $net: $(tr '\n' ' ' < "$WORK/test-$net.log")"
     else

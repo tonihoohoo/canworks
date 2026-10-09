@@ -12,8 +12,8 @@ import shutil
 import threading
 import unittest
 
-from openplc_canopen_deploy import docexport
-from openplc_canopen_deploy.configurator import server as srv
+from canworks import docexport
+from canworks.configurator import server as srv
 
 from .helpers import REPO, tmpdir
 
@@ -168,8 +168,8 @@ class Document(Browser):
 class Configurator(Browser):
     def setUp(self):
         super().setUp()
-        os.environ["OPENPLC_CANOPEN_CONFIG_DIR"] = os.path.join(self.dir, "cfg")
-        self.addCleanup(os.environ.pop, "OPENPLC_CANOPEN_CONFIG_DIR", None)
+        os.environ["CANWORKS_CONFIG_DIR"] = os.path.join(self.dir, "cfg")
+        self.addCleanup(os.environ.pop, "CANWORKS_CONFIG_DIR", None)
         self.server = srv.Server()
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
@@ -196,7 +196,7 @@ class Configurator(Browser):
         with open(dl.value.path(), encoding="utf-8") as f:
             text = f.read()
         self.assertIn('id="node-5"', text)
-        self.assertFalse(os.path.exists(os.path.join(self.project, "canopen", "canopen.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.project, "canworks", "canworks.json")))
         pg.wait_for_selector("#banner:has-text('Exported rtd-monitor.html')")
         # A problem: nothing downloads, the Problems pane says why.
         pg.fill('input[data-path="nodes[0].node_id"]', "1")

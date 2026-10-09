@@ -8,7 +8,7 @@ import os
 import shutil
 import unittest
 
-from openplc_canopen_deploy import simfile
+from canworks import simfile
 
 from .helpers import REPO, tmpdir
 
@@ -140,7 +140,7 @@ class Fixture:
                      {"index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB100"}]}]},
             ],
         }
-        self.config = write_json(os.path.join(self.dir, "canopen.json"), self.cfg)
+        self.config = write_json(os.path.join(self.dir, "canworks.json"), self.cfg)
         self.sim = {
             "schema_version": 1,
             "tick_ms": 10,
@@ -250,16 +250,16 @@ class Checks(unittest.TestCase):
         data = {"schema_version": 2, "networks": {
             "io": {"extra_devices": [{"node": 40, "eds": "a.eds"}]},
             "drives": {"nodes": {"4": {"sources": {"0x6064:0": {"csv": {"file": "d.csv", "column": 1}}}}}}}}
-        files = simfile.referenced_files(data, "/p/canopen/simulation.json")
-        self.assertEqual(files["eds"], {"a.eds": "/p/canopen/a.eds"})
-        self.assertEqual(files["csv"], {"d.csv": "/p/canopen/d.csv"})
-        out = simfile.rewrite(data, "/p/canopen/simulation.json", lambda p: "eds/x.eds", lambda p: "csv/y.csv")
+        files = simfile.referenced_files(data, "/p/canworks/simulation.json")
+        self.assertEqual(files["eds"], {"a.eds": "/p/canworks/a.eds"})
+        self.assertEqual(files["csv"], {"d.csv": "/p/canworks/d.csv"})
+        out = simfile.rewrite(data, "/p/canworks/simulation.json", lambda p: "eds/x.eds", lambda p: "csv/y.csv")
         self.assertEqual(out["networks"]["io"]["extra_devices"][0]["eds"], "eds/x.eds")
         self.assertEqual(out["networks"]["drives"]["nodes"]["4"]["sources"]["0x6064:0"]["csv"]["file"], "csv/y.csv")
 
     def test_virtual_example(self):
         # examples/virtual-plant: a version 2 file with a section per network.
-        config = os.path.join(REPO, "examples", "virtual-plant", "canopen", "canopen.json")
+        config = os.path.join(REPO, "examples", "virtual-plant", "canworks", "canworks.json")
         with open(config, encoding="utf-8") as f:
             cfg = json.load(f)
         data, r = simfile.check_file(os.path.join(os.path.dirname(config), "simulation.json"), cfg, config)

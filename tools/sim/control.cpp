@@ -353,7 +353,7 @@ void ControlServer::handle_line(Client& c, const std::string& raw) {
     cJSON_Delete(req);
     return;
   } else if (c.mode != 2 && !token_.empty()) {
-    answer = error_line(id, "this simulator needs an encrypted connection; update openplc-canopen-diag");
+    answer = error_line(id, "this simulator needs an encrypted connection; update canworks-diag");
     c.closing = true;
   } else if (op == "hello") {
     if (c.greeted) {

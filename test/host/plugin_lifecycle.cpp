@@ -2,7 +2,7 @@
 // (core/src/drivers/plugin_driver.c): init() for every plugin in plugins.conf,
 // enabled or not; start_loop() only for enabled ones.
 //
-//   plugin_lifecycle <libcanopen_plugin.so> <scratch dir>
+//   plugin_lifecycle <libcanworks_plugin.so> <scratch dir>
 //
 // With a config whose EDS is missing (what the last CANopen upload leaves next
 // to the library once a project without CANopen is uploaded), a disabled
@@ -80,16 +80,16 @@ F sym(void* h, const char* name) {
 
 int main(int argc, char** argv) {
   if (argc != 3) {
-    std::fprintf(stderr, "usage: %s <libcanopen_plugin.so> <scratch dir>\n", argv[0]);
+    std::fprintf(stderr, "usage: %s <libcanworks_plugin.so> <scratch dir>\n", argv[0]);
     return 2;
   }
-  const std::string config = std::string(argv[2]) + "/canopen.json";
+  const std::string config = std::string(argv[2]) + "/canworks.json";
   {
     std::ofstream f(config);
     f << R"({"schema_version": 1,
              "adapter": {"type": "socketcan", "interface": "vcan0", "bitrate": 125000},
              "master": {"node_id": 1, "sync_period_us": 100000},
-             "nodes": [{"node_id": 5, "name": "rtd", "eds": "canopen/eds/missing.eds",
+             "nodes": [{"node_id": 5, "name": "rtd", "eds": "canworks/eds/missing.eds",
                         "tx_pdos": [{"entries": [{"index": "0x7130", "subindex": 1, "type": "INTEGER16",
                                                   "iec_location": "%IW100"}]}]}]})";
   }
@@ -135,7 +135,7 @@ int main(int argc, char** argv) {
   expect(logged("configuration rejected"), "the config is rejected");
   cleanup();
 
-  const std::string absent = std::string(argv[2]) + "/absent/canopen.json";
+  const std::string absent = std::string(argv[2]) + "/absent/canworks.json";
   std::printf("enabled plugin, no config file at the configured path:\n");
   g_logs.clear();
   rt = args(absent);
@@ -176,7 +176,7 @@ int main(int argc, char** argv) {
   auto run_simulated = [&](const std::string& node_extra, int seconds, unsigned& last,
                            const std::string& adapter_extra = R"(, "simulate": true)") {
     {
-      std::ofstream f(sim_dir + "/canopen.json");
+      std::ofstream f(sim_dir + "/canworks.json");
       f << R"({"schema_version": 1,
                "adapter": {"type": "socketcan", "interface": "nonexistent0", "bitrate": 125000)"
         << adapter_extra << R"(},
@@ -190,7 +190,7 @@ int main(int argc, char** argv) {
     }
     g_logs.clear();
     img.reset(new fake_runtime::Image);
-    rt = args(sim_dir + "/canopen.json");
+    rt = args(sim_dir + "/canworks.json");
     expect(init(rt.get()) == 0, "init returns 0");
     rt.reset();
     expect(start_loop() == 0, "start_loop starts CANopen");
@@ -229,9 +229,9 @@ int main(int argc, char** argv) {
 
   // The local simulator runtime image: a real-adapter config runs simulated.
   std::printf("simulation forced by the environment:\n");
-  setenv("CANOPEN_FORCE_SIMULATE", "1", 1);
+  setenv("CANWORKS_FORCE_SIMULATE", "1", 1);
   status = run_simulated("", 3, last, "");
-  unsetenv("CANOPEN_FORCE_SIMULATE");
+  unsetenv("CANWORKS_FORCE_SIMULATE");
   expect(logged("WARN") && logged("simulation forced by the runtime environment"), "a warning says simulation is forced");
   expect(logged("the CAN network is SIMULATED"), "the network is announced as simulated");
   expect(status && last > 5, "the node is operational and the round trip runs");
@@ -241,7 +241,7 @@ int main(int argc, char** argv) {
   // section drives its own network's devices only.
   auto run_two = [&](const std::string& sim_json, int seconds) {
     {
-      std::ofstream f(sim_dir + "/canopen.json");
+      std::ofstream f(sim_dir + "/canworks.json");
       f << R"({"schema_version": 2, "networks": [
                {"name": "io", "adapter": {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true},
                 "master": {"node_id": 1, "sync_period_us": 20000},
@@ -257,7 +257,7 @@ int main(int argc, char** argv) {
     }
     g_logs.clear();
     img.reset(new fake_runtime::Image);
-    rt = args(sim_dir + "/canopen.json");
+    rt = args(sim_dir + "/canworks.json");
     expect(init(rt.get()) == 0, "init returns 0");
     rt.reset();
     bool started = start_loop() == 0;
@@ -305,7 +305,7 @@ int main(int argc, char** argv) {
       std::ofstream out(sim_dir + "/openplc-gateway.eds", std::ios::binary);
       out << in.rdbuf();
     }
-    std::ofstream f(sim_dir + "/canopen.json");
+    std::ofstream f(sim_dir + "/canworks.json");
     f << R"({"schema_version": 2, "networks": [
       {"name": "field", "adapter": {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true},
        "master": {"node_id": 1, "sync_period_us": 20000},
@@ -339,7 +339,7 @@ int main(int argc, char** argv) {
     }
     g_logs.clear();
     img.reset(new fake_runtime::Image);
-    rt = args(sim_dir + "/canopen.json");
+    rt = args(sim_dir + "/canworks.json");
     expect(init(rt.get()) == 0, "init returns 0");
     rt.reset();
     bool started = start_loop() == 0;
@@ -385,7 +385,7 @@ int main(int argc, char** argv) {
   // tick; the program's tasks are read before start_loop().
   std::printf("PLC-cycle SYNC, base tick read at start_loop:\n");
   {
-    std::ofstream f(sim_dir + "/canopen.json");
+    std::ofstream f(sim_dir + "/canworks.json");
     f << R"({"schema_version": 1,
              "adapter": {"type": "socketcan", "interface": "nonexistent0", "bitrate": 125000, "simulate": true},
              "master": {"node_id": 1, "sync_source": "plc_cycle"},
@@ -394,7 +394,7 @@ int main(int argc, char** argv) {
   }
   g_logs.clear();
   base_tick_ns = 20000000ULL;
-  rt = args(sim_dir + "/canopen.json");
+  rt = args(sim_dir + "/canworks.json");
   rt->base_tick_ns = base_tick_ns;
   expect(init(rt.get()) == 0, "init returns 0");
   rt.reset();

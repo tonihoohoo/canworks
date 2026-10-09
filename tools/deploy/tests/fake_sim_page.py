@@ -1,7 +1,7 @@
 """A small stand-in for the simulator's control requests (docs/simulator.md,
 "Control protocol") for the configurator's Simulation view tests: either the
 plugin's diagnostics channel with its simulated devices (hello with
-allow_changes) or a standalone openplc-canopen-sim (hello with simulator:
+allow_changes) or a standalone canworks-sim (hello with simulator:
 true). With a token it speaks TLS and the SCRAM login (fake_tls.py), without
 one plain lines, on 127.0.0.1, and records every request.
 

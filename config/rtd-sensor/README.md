@@ -54,7 +54,7 @@ build/test/sensor_slave vcan0 config/rtd-sensor/rtd8.eds 5 --blank-pdos \
 Then build `rtd_monitor.st` in the editor (Build only) and deploy it with this config:
 
 ```sh
-openplc-canopen-deploy --bundle "<project>/build/OpenPLC Runtime v4/src" \
+canworks-deploy --bundle "<project>/build/OpenPLC Runtime v4/src" \
     --config config/rtd-sensor/canopen_config.json --runtime plc.local --fingerprint <runtime cert SHA-256>
 ```
 

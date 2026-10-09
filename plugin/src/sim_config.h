@@ -1,6 +1,6 @@
 // sim_config.h - simulated devices from a canopen_config.json
 // (docs/simulator.md): which nodes, built how, and the free node ID check on
-// a real interface. Shared by the plugin and openplc-canopen-sim.
+// a real interface. Shared by the plugin and canworks-sim.
 
 #ifndef CANOPEN_SIM_CONFIG_H
 #define CANOPEN_SIM_CONFIG_H

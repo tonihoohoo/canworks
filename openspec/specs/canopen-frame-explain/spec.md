@@ -1,7 +1,7 @@
 # canopen-frame-explain Specification
 
 ## Purpose
-Explaining CAN and CANopen frames bit by bit on the PC: the four-layer explanation (meaning, identifier, data bits, frame on the wire) shared by the configurator, the command-line client and the network document, the frame builder and `openplc-canopen-diag explain`.
+Explaining CAN and CANopen frames bit by bit on the PC: the four-layer explanation (meaning, identifier, data bits, frame on the wire) shared by the configurator, the command-line client and the network document, the frame builder and `canworks-diag explain`.
 
 ## Requirements
 
@@ -103,14 +103,14 @@ The tools SHALL build frames for explanation from: an SDO read or write (expedit
 - **THEN** no frame is built and the field says the value is out of range 0 to 255
 
 ### Requirement: Explain in the command-line client
-`openplc-canopen-diag explain` SHALL explain one or more frames given in candump syntax (`ID#DATA`, `ID#R` for remote frames, 8 hex digits for extended identifiers) or one frame of a trace file (`--trace FILE --index N`, with SDO context from the trace). Options SHALL select the configuration (`--config`), the network (`--network`), the bit rate (`--bitrate`) and the output (`--format text`, the default, or `json`). Text output SHALL show the meaning, the identifier split, a byte-by-bit grid with each field marked and a legend, the field list with values and working, and the wire summary with the wire bits and stuff bits marked. JSON output SHALL be the explanation model. The command SHALL need no runtime.
+`canworks-diag explain` SHALL explain one or more frames given in candump syntax (`ID#DATA`, `ID#R` for remote frames, 8 hex digits for extended identifiers) or one frame of a trace file (`--trace FILE --index N`, with SDO context from the trace). Options SHALL select the configuration (`--config`), the network (`--network`), the bit rate (`--bitrate`) and the output (`--format text`, the default, or `json`). Text output SHALL show the meaning, the identifier split, a byte-by-bit grid with each field marked and a legend, the field list with values and working, and the wire summary with the wire bits and stuff bits marked. JSON output SHALL be the explanation model. The command SHALL need no runtime.
 
 #### Scenario: Explain a heartbeat
-- **WHEN** a user runs `openplc-canopen-diag explain 705#05`
+- **WHEN** a user runs `canworks-diag explain 705#05`
 - **THEN** it prints that node 5 is operational, the identifier as function code 14 and node 5, the state and toggle bit fields, and the wire summary
 
 #### Scenario: Bad frame syntax
-- **WHEN** a user runs `openplc-canopen-diag explain 185#2500E`
+- **WHEN** a user runs `canworks-diag explain 185#2500E`
 - **THEN** the command exits with an error saying the data needs whole bytes
 
 #### Scenario: Frame longer than classic CAN

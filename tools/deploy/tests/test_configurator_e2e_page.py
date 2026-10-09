@@ -8,7 +8,7 @@ import json
 import os
 import shutil
 
-from openplc_canopen_deploy import diag
+from canworks import diag
 
 from .fake_diag import TOKEN, FakePlugin
 from .helpers import REPO

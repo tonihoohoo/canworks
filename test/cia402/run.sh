@@ -10,7 +10,7 @@
 #   test_demo.st     config/cia402-drive/drive_demo.st
 #   test_cyclic.st   main as generated for config/cia402-drive/
 #                    canopen_config_cyclic.json, with the cyclic synchronous
-#                    blocks of the packaged openplc_canopen library
+#                    blocks of the packaged canworks library
 #   test_cyclic_demo.st  config/cia402-drive/drive_cyclic_demo.st
 #
 #   test/cia402/run.sh [--strucpp PATH]
@@ -38,7 +38,7 @@ trap 'rm -rf "$WORK"' EXIT
 # The program the generator writes, from the example config and a scaled copy.
 PYTHONPATH="$REPO/tools/deploy" python3 - "$REPO/config/cia402-drive/canopen_config.json" "$WORK" <<'PY'
 import json, sys
-from openplc_canopen_deploy import editorproject
+from canworks import editorproject
 path, out = sys.argv[1], sys.argv[2]
 with open(path, encoding="utf-8") as f:
     cfg = json.load(f)
@@ -55,9 +55,9 @@ with open(out + "/main_cyclic.st", "w", encoding="utf-8") as f:
 PY
 
 status=0
-# The cyclic blocks come from the packaged openplc_canopen library (built
-# from library/openplc_canopen by library/build.sh), as in an editor project.
-LIBRARY=(-L "$REPO/tools/deploy/openplc_canopen_deploy/library")
+# The cyclic blocks come from the packaged canworks library (built
+# from library/canworks by library/build.sh), as in an editor project.
+LIBRARY=(-L "$REPO/tools/deploy/canworks/library")
 run() {
     local program="$1" tests="$2" log="$WORK/$(basename "$2" .st).log"
     shift 2

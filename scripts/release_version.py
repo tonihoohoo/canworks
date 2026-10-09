@@ -25,7 +25,7 @@ def package_versions(deploy=DEPLOY):
     """(pyproject.toml version, __version__) of the tools package."""
     with open(os.path.join(deploy, "pyproject.toml"), encoding="utf-8") as f:
         pyproject = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.M).group(1)
-    with open(os.path.join(deploy, "openplc_canopen_deploy", "__init__.py"), encoding="utf-8") as f:
+    with open(os.path.join(deploy, "canworks", "__init__.py"), encoding="utf-8") as f:
         module = re.search(r'^__version__\s*=\s*"([^"]+)"', f.read(), re.M).group(1)
     return pyproject, module
 
@@ -34,7 +34,7 @@ def package_version(deploy=DEPLOY):
     """The package version, or a ValueError when the two files disagree."""
     pyproject, module = package_versions(deploy)
     if pyproject != module:
-        raise ValueError("pyproject.toml says %s but openplc_canopen_deploy.__version__ says %s" % (pyproject, module))
+        raise ValueError("pyproject.toml says %s but canworks.__version__ says %s" % (pyproject, module))
     return pyproject
 
 

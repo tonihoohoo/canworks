@@ -9,8 +9,8 @@ import shutil
 import threading
 import unittest
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.configurator import server as srv
+from canworks import diag
+from canworks.configurator import server as srv
 
 from .fake_sim_page import TOKEN, FakeSim
 from .helpers import tmpdir
@@ -60,11 +60,11 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.dir = tmpdir(self)
         self.cfg_dir = os.path.join(self.dir, "cfg")
-        os.environ["OPENPLC_CANOPEN_CONFIG_DIR"] = self.cfg_dir
-        self.addCleanup(os.environ.pop, "OPENPLC_CANOPEN_CONFIG_DIR", None)
+        os.environ["CANWORKS_CONFIG_DIR"] = self.cfg_dir
+        self.addCleanup(os.environ.pop, "CANWORKS_CONFIG_DIR", None)
         self.project = os.path.join(self.dir, "rtd-monitor")
         shutil.copytree(FIXTURE, self.project)
-        self.canopen = os.path.join(self.project, "canopen")
+        self.canopen = os.path.join(self.project, "canworks")
         os.makedirs(self.canopen)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), self.canopen)
         self.server = srv.Server()
@@ -83,7 +83,7 @@ class Base(unittest.TestCase):
 
     @property
     def config_path(self):
-        return os.path.join(self.canopen, "canopen.json")
+        return os.path.join(self.canopen, "canworks.json")
 
     @property
     def sim_path(self):

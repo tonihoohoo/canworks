@@ -15,7 +15,7 @@
 //   SaltedPassword = PBKDF2-HMAC-SHA-256(token, salt, iterations)
 //   ClientKey = HMAC(SaltedPassword, "Client Key"), StoredKey = SHA-256(ClientKey)
 //   ServerKey = HMAC(SaltedPassword, "Server Key")
-//   AuthMessage = "openplc-canopen-diag/2," cnonce "," snonce "," salt "," iterations "," cbind
+//   AuthMessage = "canworks-diag/2," cnonce "," snonce "," salt "," iterations "," cbind
 //     (nonces, salt and cbind in base64; cbind = SHA-256 of the certificate's DER)
 //   ClientProof = ClientKey XOR HMAC(StoredKey, AuthMessage)
 //   ServerSignature = HMAC(ServerKey, AuthMessage)

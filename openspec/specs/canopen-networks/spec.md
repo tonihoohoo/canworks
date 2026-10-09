@@ -93,7 +93,7 @@ With more than one network, every log line about a network, its master, its bus 
 - **THEN** the log line reads `drives: node 10 (...) ...` with the same text as for a single network after the prefix
 
 ### Requirement: Generated files per network
-With a version 2 config, each network's dcfgen output and prepared EDS copies SHALL go into `.canopen/<network name>/` next to the config, and SHALL be reused while that network's part of the config and its EDS files are unchanged. A version 1 config SHALL keep using `.canopen/`.
+With a version 2 config, each network's dcfgen output and prepared EDS copies SHALL go into `.canworks/<network name>/` next to the config, and SHALL be reused while that network's part of the config and its EDS files are unchanged. A version 1 config SHALL keep using `.canworks/`.
 
 #### Scenario: Change one network only
 - **WHEN** only a PDO on network `io` changes between two PLC starts

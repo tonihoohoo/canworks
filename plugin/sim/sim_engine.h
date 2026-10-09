@@ -3,7 +3,7 @@
 //
 // The engine runs on one Lely event loop, which its host owns: the plugin's
 // bus thread (simulated network, or simulated nodes on a real interface) or
-// the standalone openplc-canopen-sim. The host gives it timers and CAN
+// the standalone canworks-sim. The host gives it timers and CAN
 // channels; everything the engine does happens in callbacks on that loop,
 // and every public method must be called from the loop's thread.
 

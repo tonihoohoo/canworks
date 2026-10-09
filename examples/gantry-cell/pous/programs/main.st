@@ -1,8 +1,8 @@
-(* Gantry cell demo for examples/gantry-cell/canopen/canopen.json (network
+(* Gantry cell demo for examples/gantry-cell/canworks/canworks.json (network
    motion: axes x, y, z on nodes 4, 5, 6 in cyclic synchronous position mode,
    the I/O module on node 10; SYNC from the PLC cycle, task interval T#10ms).
    The VAR block down to the demo's variables and the first lines of the body
-   are what openplc-canopen-deploy --new-project --task-interval T#10ms writes
+   are what canworks-deploy --new-project --task-interval T#10ms writes
    for this config, with x_online, y_online and z_online in place of the
    generated x_ok_2, y_ok and z_ok; the rest is the demo. *)
 PROGRAM main
@@ -84,7 +84,7 @@ PROGRAM main
                                     90 fault reset, 95 recover *)
   END_VAR
 
-(* CiA 402 axes from canopen/canopen.json: keep these lines first *)
+(* CiA 402 axes from canworks/canworks.json: keep these lines first *)
 x.iRatioTechUnitsNum := DINT#1000;
 x.dwRatioTechUnitsDenom := DWORD#1;
 x.fScalefactor := LREAL#1.0;

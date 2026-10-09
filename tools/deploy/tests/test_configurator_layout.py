@@ -11,8 +11,8 @@ import os
 import shutil
 import threading
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.configurator import server as srv
+from canworks import diag
+from canworks.configurator import server as srv
 
 from .fake_diag import TOKEN, FakePlugin
 from .helpers import REPO
@@ -132,7 +132,7 @@ class Layout(OnlineBase):
             {"index": "0x1017", "subindex": 0, "type": "UNSIGNED16", "direction": "write",
              "name": "heartbeat_setpoint", "iec_location": "%QW301"},
         ]
-        canopen = os.path.join(self.project, "canopen")
+        canopen = os.path.join(self.project, "canworks")
         shutil.copy(os.path.join(REPO, "test", "fixtures", "eds", "fixed-io.eds"), canopen)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), canopen)
         self.cfg["nodes"].append({"node_id": 23, "name": "valve", "eds": "fixed-io.eds", "rx_pdos": [
@@ -219,7 +219,7 @@ class Layout(OnlineBase):
         folder = os.path.join(self.dir, "standalone")
         os.makedirs(folder)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), folder)
-        shutil.copy(os.path.join(RTD, "canopen_config.json"), os.path.join(folder, "canopen.json"))
+        shutil.copy(os.path.join(RTD, "canopen_config.json"), os.path.join(folder, "canworks.json"))
         for width in (1000, 1280, 1440):
             pg.set_viewport_size({"width": width, "height": 800})
             pg.goto(self.server.url)
@@ -402,7 +402,7 @@ class Layout(OnlineBase):
             text = f.read()
         text = re.sub(r"(?m)^ParameterName=(\S+)\s*$", lambda m: "ParameterName=%s_Highest_subindex_supported_by_this_device"
                       % m.group(1).replace(" ", "_"), text)
-        long_eds = os.path.join(self.project, "canopen", "long-names.eds")
+        long_eds = os.path.join(self.project, "canworks", "long-names.eds")
         with open(long_eds, "w", encoding="latin-1") as f:
             f.write(text)
         self.cfg["nodes"][2]["eds"] = "long-names.eds"

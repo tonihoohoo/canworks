@@ -3,7 +3,7 @@
 The DCF and DBC exports are for other tools. The network documentation is for the people who commission, maintain or review a CANopen installation: one HTML file that shows the whole configured network, built from the config and the EDS files on the engineering PC, with no PLC, runtime or bus needed.
 
 ```sh
-openplc-canopen-deploy --config canopen_config.json --export-html network.html
+canworks-deploy --config canopen_config.json --export-html network.html
 ```
 
 In the configurator, **Documentation** in the header's Export menu downloads the same document for the config as the page shows it, saved or not ([configurator.md](configurator.md#export-documentation)).
@@ -34,7 +34,7 @@ Every value comes from the code the deploy tool, the DCF export and the DBC expo
 - **PLC I/O cross-reference:** every PLC address the configuration uses, sorted by address, with network, node, what it is and the config field.
 - **Appendix:** the config file itself (with the diagnostics token hash removed).
 
-In an editor project (`--config <project>/canopen/canopen.json`, or the configurator in project mode), PLC addresses show the names of the located variables declared at them.
+In an editor project (`--config <project>/canworks/canworks.json`, or the configurator in project mode), PLC addresses show the names of the located variables declared at them.
 
 ![A node: identity, settings, PDO layout](images/network-docs-node.png)
 

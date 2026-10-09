@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy.localbus import core as core_mod
+from canworks.localbus import core as core_mod
 
 from .fake_canopen import FakeDevice, Peer
 from .helpers import PINGPONG

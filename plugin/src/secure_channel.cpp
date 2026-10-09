@@ -106,7 +106,7 @@ bool bytes_equal(const Bytes& a, const Bytes& b) {
 bool parse_scram_verifier(const std::string& text, ScramVerifier& out, std::string& why) {
   const std::string prefix = "SCRAM-SHA-256$";
   why = "must look like SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey> "
-        "(openplc-canopen-diag hash-token prints it)";
+        "(canworks-diag hash-token prints it)";
   if (text.compare(0, prefix.size(), prefix) != 0) return false;
   std::string rest = text.substr(prefix.size());
   size_t dollar = rest.find('$');
@@ -152,7 +152,7 @@ ScramVerifier make_scram_verifier(const std::string& token, const Bytes& salt, u
 
 std::string scram_auth_message(const std::string& cnonce_b64, const std::string& snonce_b64,
                                const std::string& salt_b64, unsigned iterations, const Bytes& cbind) {
-  return "openplc-canopen-diag/2," + cnonce_b64 + "," + snonce_b64 + "," + salt_b64 + "," +
+  return "canworks-diag/2," + cnonce_b64 + "," + snonce_b64 + "," + salt_b64 + "," +
          std::to_string(iterations) + "," + b64_encode(cbind);
 }
 
@@ -195,7 +195,7 @@ bool TlsIdentity::create(std::string& why) {
     X509_gmtime_adj(X509_getm_notAfter(x), 10L * 365 * 24 * 3600);
     X509_set_pubkey(x, key);
     X509_NAME* name = X509_get_subject_name(x);
-    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("openplc-canopen-diag"),
+    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("canworks-diag"),
                                -1, -1, 0);
     X509_set_issuer_name(x, name);
     ok = X509_sign(x, key, EVP_sha256()) > 0;

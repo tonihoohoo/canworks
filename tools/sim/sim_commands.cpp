@@ -431,17 +431,17 @@ int command_main(const std::string& cmd, Args& args) {
     unsigned port = 0;
     if (!split_host_port(target, kControlPort, host, port)) usage("--sim takes HOST[:PORT], not \"" + target + "\"");
     if (!resolve_token(token, token_file, nullptr, tok, err)) {
-      std::fprintf(stderr, "openplc-canopen-sim: %s\n", err.c_str());
+      std::fprintf(stderr, "canworks-sim: %s\n", err.c_str());
       return kExitUsage;
     }
     ControlClient client;
     if (!client.connect(host, port, tok, err)) {
-      std::fprintf(stderr, "openplc-canopen-sim: %s\n", err.c_str());
+      std::fprintf(stderr, "canworks-sim: %s\n", err.c_str());
       return kExitUsage;
     }
     cJSON* ans = client.request(req, err);
     if (!ans) {
-      std::fprintf(stderr, "openplc-canopen-sim: %s\n", err.c_str());
+      std::fprintf(stderr, "canworks-sim: %s\n", err.c_str());
       return kExitUsage;
     }
     struct AnsGuard {
@@ -451,7 +451,7 @@ int command_main(const std::string& cmd, Args& args) {
     if (json) std::printf("%s\n", json_text(ans).c_str());
     std::string ae = answer_error(ans);
     if (!ae.empty()) {
-      std::fprintf(stderr, "openplc-canopen-sim %s: %s\n", cmd.c_str(), ae.c_str());
+      std::fprintf(stderr, "canworks-sim %s: %s\n", cmd.c_str(), ae.c_str());
       return kExitFailed;
     }
     if (json) return kExitOk;
@@ -468,7 +468,7 @@ int command_main(const std::string& cmd, Args& args) {
     }
     return kExitOk;
   } catch (const UsageError& e) {
-    std::fprintf(stderr, "openplc-canopen-sim %s: %s\n", cmd.c_str(), e.message.c_str());
+    std::fprintf(stderr, "canworks-sim %s: %s\n", cmd.c_str(), e.message.c_str());
     return kExitUsage;
   }
 }

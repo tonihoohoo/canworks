@@ -520,7 +520,7 @@ class Parser {
       check_known(root, "", {"$schema", "schema_version", "adapter", "interface", "bitrate", "master", "nodes",
                              "role", "slave", "gateway"});
       Config cfg = blank(set);
-      cfg.work_dir = set.config_dir + "/.canopen";
+      cfg.work_dir = set.config_dir + "/.canworks";
       parse_network(root, cfg);
       report_unlocated(set);
       set.networks.push_back(cfg);
@@ -597,7 +597,7 @@ class Parser {
     if (set.networks.size() > 1)
       for (auto& cfg : set.networks) cfg.log_prefix = cfg.network;
     for (auto& cfg : set.networks)
-      cfg.work_dir = set.config_dir + "/.canopen/" + (cfg.network.empty() ? std::to_string(cfg.network_index)
+      cfg.work_dir = set.config_dir + "/.canworks/" + (cfg.network.empty() ? std::to_string(cfg.network_index)
                                                                          : cfg.network);
     return errors_.size() == before;
   }
@@ -979,7 +979,7 @@ class Parser {
     if (cJSON_GetObjectItemCaseSensitive(d, "token_sha256")) {
       error(w + ".token_sha256",
             "the diagnostics channel is encrypted now and needs a 'token_verifier' instead: set the token again "
-            "(configurator: Online access, Upgrade or New token; or openplc-canopen-diag hash-token)");
+            "(configurator: Online access, Upgrade or New token; or canworks-diag hash-token)");
       return;
     }
     check_known(d, w, {"token_verifier", "port", "bind", "allow_changes"});

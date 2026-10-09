@@ -1,6 +1,6 @@
 # Online diagnostics
 
-The plugin can open a small encrypted channel (TLS) that shows the live CANopen network to the engineering PC: node states, boot results and errors, emergency history, SDO variable values, the bus state. With permission it also reads and writes any object by SDO, sends NMT commands, scans the bus for devices, and sets node IDs and bit rates of devices with LSS. The configurator's [online view and scan page](configurator.md#online-view) and the `openplc-canopen-diag` command use it.
+The plugin can open a small encrypted channel (TLS) that shows the live CANopen network to the engineering PC: node states, boot results and errors, emergency history, SDO variable values, the bus state. With permission it also reads and writes any object by SDO, sends NMT commands, scans the bus for devices, and sets node IDs and bit rates of devices with LSS. The configurator's [online view and scan page](configurator.md#online-view) and the `canworks-diag` command use it.
 
 With permission it can also send raw CAN frames by hand and find the bit rate of an unknown bus ([Raw frames and bit rate](#raw-frames-and-bit-rate)).
 
@@ -8,41 +8,41 @@ It is off unless the config has `master.diagnostics` ([config.md](config.md#onli
 
 ## Setting it up
 
-1. In the configurator, turn on **Online access** under **Bus and master**, save, and upload the program as usual. Or, by hand: choose a token, run `openplc-canopen-diag hash-token` and put the printed verifier in `master.diagnostics.token_verifier`.
+1. In the configurator, turn on **Online access** under **Bus and master**, save, and upload the program as usual. Or, by hand: choose a token, run `canworks-diag hash-token` and put the printed verifier in `master.diagnostics.token_verifier`.
 2. The runtime log shows `diagnostics listen on 0.0.0.0:7531, read-only, encrypted (TLS)` when the PLC starts.
-3. Open **Online** in the configurator, or run `openplc-canopen-diag --runtime plc.local status`.
+3. Open **Online** in the configurator, or run `canworks-diag --runtime plc.local status`.
 
-## `openplc-canopen-diag`
+## `canworks-diag`
 
-Installed with the deploy tool ([install-pc.md](install-pc.md)). The token comes from `--token`, `--token-file FILE`, the `OPENPLC_CANOPEN_TOKEN` environment variable, or a prompt. `--json` prints the plugin's answer as it came. A refused or failed request exits with status 1 and the reason.
+Installed with the deploy tool ([install-pc.md](install-pc.md)). The token comes from `--token`, `--token-file FILE`, the `CANWORKS_TOKEN` environment variable, or a prompt. `--json` prints the plugin's answer as it came. A refused or failed request exits with status 1 and the reason.
 
 ```sh
-export OPENPLC_CANOPEN_TOKEN=...                 # Copy token in the configurator
-openplc-canopen-diag --runtime plc.local status
-openplc-canopen-diag --runtime plc.local emcy 23
-openplc-canopen-diag --runtime plc.local sdo-read 23 0x1018 4 --type UNSIGNED32
-openplc-canopen-diag --runtime plc.local sdo-write 23 0x2010 1 1 --type UNSIGNED8    # needs allow_changes
-openplc-canopen-diag --runtime plc.local nmt 23 stop                                 # start | stop | preop | reset | reset-comm
-openplc-canopen-diag --runtime plc.local scan
-openplc-canopen-diag --runtime plc.local lss-find [--vendor 0x360 --product 0x1]   # needs allow_changes
-openplc-canopen-diag --runtime plc.local lss-inquire 0x360 0x1 0 0x1234           # VENDOR PRODUCT REVISION SERIAL
-openplc-canopen-diag --runtime plc.local lss-set-id 0x360 0x1 0 0x1234 12 [--store]
-openplc-canopen-diag --runtime plc.local lss-set-bitrate 0x360 0x1 0 0x1234 250 [--store]
-openplc-canopen-diag --runtime plc.local trace -o run.pcapng --duration 60         # see trace.md
-openplc-canopen-diag convert run.pcapng run.asc
-openplc-canopen-diag --runtime plc.local backup 23 [-o node23.dcf]                 # all parameters into a DCF
-openplc-canopen-diag --runtime plc.local compare 23 --with node23.dcf            # or --with-config, --with-eds-defaults
-openplc-canopen-diag --runtime plc.local restore 23 node23.dcf [--dry-run]       # needs allow_changes; never stores
-openplc-canopen-diag --runtime plc.local store 23 [--subindex 1]                 # writes "save" to 0x1010; asks first
-openplc-canopen-diag --runtime plc.local configure 23 --dcf node23.dcf [--dry-run]  # write a configuration; see below
-openplc-canopen-diag --runtime plc.local restore-defaults 23 [--reset]            # writes "load" to 0x1011; asks first
-openplc-canopen-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"    # needs allow_changes; see below
-openplc-canopen-diag --runtime plc.local send 0x123 AA 55 --period-ms 100 --count 50  # cyclic
-openplc-canopen-diag --runtime plc.local detect-bitrate [--rates 125,250,500]     # needs allow_changes
-openplc-canopen-diag --adapter slcan:COM5 --allow-changes detect-bitrate --lone-device  # one device on the bench
-openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 --allow-changes pdo-test 23 --sync 100  # adapter only
-openplc-canopen-diag hash-token                                                       # prints a token_verifier
-openplc-canopen-diag explain 185#2500EA00 --config canopen/canopen.json             # every bit of a frame; no runtime
+export CANWORKS_TOKEN=...                 # Copy token in the configurator
+canworks-diag --runtime plc.local status
+canworks-diag --runtime plc.local emcy 23
+canworks-diag --runtime plc.local sdo-read 23 0x1018 4 --type UNSIGNED32
+canworks-diag --runtime plc.local sdo-write 23 0x2010 1 1 --type UNSIGNED8    # needs allow_changes
+canworks-diag --runtime plc.local nmt 23 stop                                 # start | stop | preop | reset | reset-comm
+canworks-diag --runtime plc.local scan
+canworks-diag --runtime plc.local lss-find [--vendor 0x360 --product 0x1]   # needs allow_changes
+canworks-diag --runtime plc.local lss-inquire 0x360 0x1 0 0x1234           # VENDOR PRODUCT REVISION SERIAL
+canworks-diag --runtime plc.local lss-set-id 0x360 0x1 0 0x1234 12 [--store]
+canworks-diag --runtime plc.local lss-set-bitrate 0x360 0x1 0 0x1234 250 [--store]
+canworks-diag --runtime plc.local trace -o run.pcapng --duration 60         # see trace.md
+canworks-diag convert run.pcapng run.asc
+canworks-diag --runtime plc.local backup 23 [-o node23.dcf]                 # all parameters into a DCF
+canworks-diag --runtime plc.local compare 23 --with node23.dcf            # or --with-config, --with-eds-defaults
+canworks-diag --runtime plc.local restore 23 node23.dcf [--dry-run]       # needs allow_changes; never stores
+canworks-diag --runtime plc.local store 23 [--subindex 1]                 # writes "save" to 0x1010; asks first
+canworks-diag --runtime plc.local configure 23 --dcf node23.dcf [--dry-run]  # write a configuration; see below
+canworks-diag --runtime plc.local restore-defaults 23 [--reset]            # writes "load" to 0x1011; asks first
+canworks-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"    # needs allow_changes; see below
+canworks-diag --runtime plc.local send 0x123 AA 55 --period-ms 100 --count 50  # cyclic
+canworks-diag --runtime plc.local detect-bitrate [--rates 125,250,500]     # needs allow_changes
+canworks-diag --adapter slcan:COM5 --allow-changes detect-bitrate --lone-device  # one device on the bench
+canworks-diag --adapter slcan:COM5 --bitrate 250 --allow-changes pdo-test 23 --sync 100  # adapter only
+canworks-diag hash-token                                                       # prints a token_verifier
+canworks-diag explain 185#2500EA00 --config canworks/canworks.json             # every bit of a frame; no runtime
 ```
 
 `explain` needs no runtime: it explains frames given in candump syntax, or frame `--index` of a `--trace` file, layer by layer, as text or `--format json` ([frame-inspector.md](frame-inspector.md#command-line)).
@@ -52,11 +52,11 @@ With several CAN networks ([config.md](config.md), `schema_version: 2`) every co
 On a slave network ([slave.md](slave.md#diagnostics)) `status` prints the plugin's own device instead of a master and nodes: its node ID (or that it waits for LSS), NMT state, communication OK, SYNC count, EMCY code and error register, each TPDO and RPDO in force with its COB-ID, transmission type and mapped objects, and on a gateway's upper network the gateway's route count, whether the upper master is there and the active forwarded errors. `sdo-read` and `sdo-write` with the slave's own node ID read and write its dictionary; the other commands exit with status 1 saying that they need a master network.
 
 ```sh
-openplc-canopen-diag --runtime plc.local status                                   # every network
-openplc-canopen-diag --runtime plc.local status --network drives
-openplc-canopen-diag --runtime plc.local sdo-read 2 0x1018 1 --network drives      # node 2 on drives, not on io
-openplc-canopen-diag --runtime plc.local backup 2 --network drives                 # drives' node 2 EDS and bit rate
-openplc-canopen-diag --runtime plc.local trace -o drives.pcapng --network drives --config canopen/canopen.json
+canworks-diag --runtime plc.local status                                   # every network
+canworks-diag --runtime plc.local status --network drives
+canworks-diag --runtime plc.local sdo-read 2 0x1018 1 --network drives      # node 2 on drives, not on io
+canworks-diag --runtime plc.local backup 2 --network drives                 # drives' node 2 EDS and bit rate
+canworks-diag --runtime plc.local trace -o drives.pcapng --network drives --config canworks/canworks.json
 ```
 
 `--runtime` takes `HOST` or `HOST:PORT` (default port 7531), or `local` for the [local simulator runtime](local-runtime.md) on this PC (`localhost` and the diagnostics port it publishes; the token comes from the project as for any runtime). `status` says when the runtime forces every network simulated (`simulation forced by the runtime`). Types are the CiA 301 names (`UNSIGNED16`, `INTEGER32`, `REAL32`, `VISIBLE_STRING`, `OCTET_STRING`, ...); `sdo-read` without `--type` prints hex bytes, and `sdo-write` takes hex bytes for `OCTET_STRING` and `DOMAIN`.
@@ -66,11 +66,11 @@ openplc-canopen-diag --runtime plc.local trace -o drives.pcapng --network drives
 With `--adapter TYPE:CHANNEL` in place of `--runtime` the commands go straight to the bus through a CAN adapter on the PC, with no runtime and no token ([pc-adapter.md](pc-adapter.md)):
 
 ```sh
-openplc-canopen-diag adapters                                                      # what is plugged in
-openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 status
-openplc-canopen-diag --adapter slcan:/dev/tty.usbmodem14101 --bitrate 250 scan --config canopen/canopen.json
-openplc-canopen-diag --adapter socketcan:can0 --bitrate 500 --allow-changes sdo-write 5 0x2000 2 1000 --type UNSIGNED16
-openplc-canopen-diag --adapter slcan:COM5 backup 5 --config canopen/canopen.json --network io
+canworks-diag adapters                                                      # what is plugged in
+canworks-diag --adapter slcan:COM5 --bitrate 250 status
+canworks-diag --adapter slcan:/dev/tty.usbmodem14101 --bitrate 250 scan --config canworks/canworks.json
+canworks-diag --adapter socketcan:can0 --bitrate 500 --allow-changes sdo-write 5 0x2000 2 1000 --type UNSIGNED16
+canworks-diag --adapter slcan:COM5 backup 5 --config canworks/canworks.json --network io
 ```
 
 | Option | |
@@ -95,21 +95,21 @@ What differs from a runtime:
 
 ### Simulated devices: `sim`
 
-`openplc-canopen-diag sim ...` controls [simulated devices](simulator.md): the plugin's, with `--runtime HOST` (token as above; everything but `status`, `get` and `scenario list` needs `allow_changes`), or a standalone `openplc-canopen-sim`, with `--sim HOST[:PORT]` (default port 7532; token only when the simulator has one, from `--token` or `--token-file`). Without either it talks to the standalone simulator on `127.0.0.1:7532`. With several networks, `--network NAME` after `sim` picks the network whose simulated devices to talk to. These options may also follow the subcommand.
+`canworks-diag sim ...` controls [simulated devices](simulator.md): the plugin's, with `--runtime HOST` (token as above; everything but `status`, `get` and `scenario list` needs `allow_changes`), or a standalone `canworks-sim`, with `--sim HOST[:PORT]` (default port 7532; token only when the simulator has one, from `--token` or `--token-file`). Without either it talks to the standalone simulator on `127.0.0.1:7532`. With several networks, `--network NAME` after `sim` picks the network whose simulated devices to talk to. These options may also follow the subcommand.
 
 ```sh
-openplc-canopen-diag --runtime plc.local sim status
-openplc-canopen-diag --runtime plc.local sim get 5 0x7130:1 0x7130:2           # or: get 5 --pdo
-openplc-canopen-diag --runtime plc.local sim set 5 0x7130:1 450                # once; a value source moves it again
-openplc-canopen-diag --runtime plc.local sim override 5 0x7130:1 1500          # held until released
-openplc-canopen-diag --runtime plc.local sim release 5 [0x7130:1]              # without objects: all of node 5
-openplc-canopen-diag --runtime plc.local sim source 5 0x7130:2 '{"sine": {"min": 200, "max": 260, "period_s": 10}}'
-openplc-canopen-diag --runtime plc.local sim source 5 0x7130:2 none
-openplc-canopen-diag sim fault 5 emcy 0x5000 --register 1 --runtime plc.local
-openplc-canopen-diag --runtime plc.local sim clear 5 emcy                      # or: clear 5 all
-openplc-canopen-diag --runtime plc.local sim status --network drives          # one of several networks
-openplc-canopen-diag --sim 127.0.0.1 sim scenario list                         # start NAME | stop NAME
-openplc-canopen-diag --sim 127.0.0.1 sim test --scenario sensor-break --junit results.xml
+canworks-diag --runtime plc.local sim status
+canworks-diag --runtime plc.local sim get 5 0x7130:1 0x7130:2           # or: get 5 --pdo
+canworks-diag --runtime plc.local sim set 5 0x7130:1 450                # once; a value source moves it again
+canworks-diag --runtime plc.local sim override 5 0x7130:1 1500          # held until released
+canworks-diag --runtime plc.local sim release 5 [0x7130:1]              # without objects: all of node 5
+canworks-diag --runtime plc.local sim source 5 0x7130:2 '{"sine": {"min": 200, "max": 260, "period_s": 10}}'
+canworks-diag --runtime plc.local sim source 5 0x7130:2 none
+canworks-diag sim fault 5 emcy 0x5000 --register 1 --runtime plc.local
+canworks-diag --runtime plc.local sim clear 5 emcy                      # or: clear 5 all
+canworks-diag --runtime plc.local sim status --network drives          # one of several networks
+canworks-diag --sim 127.0.0.1 sim scenario list                         # start NAME | stop NAME
+canworks-diag --sim 127.0.0.1 sim test --scenario sensor-break --junit results.xml
 ```
 
 `NODE` is a node ID or the name of an extra device. Objects are written `0xIIII:S` (`0xIIII` is subindex 0). Values are numbers (decimal, `0x` hex or with a decimal point; `true` and `false` are 1 and 0); anything else is sent as a string, for VISIBLE_STRING objects. A source is the JSON of the simulation file's value sources, or `none` to remove it.
@@ -139,13 +139,13 @@ openplc-canopen-diag --sim 127.0.0.1 sim test --scenario sensor-break --junit re
 
 ## What it offers
 
-- **Status**: plugin version, time since the CANopen session started, the SHA-256 of the loaded `canopen.json`, the master's node ID and NMT state, the bus state and error counters (whether or not their PLC locations are configured), the SYNC source (`none`, `timer` with `period_us`, or `plc_cycle` with `cycles`) with the number of SYNCs sent, the last, shortest and longest interval between them in microseconds, cycles merged into one SYNC (`skipped`) and late synchronous PDOs (`late_pdos`, see [config.md](config.md#sync-from-the-plc-cycle)), `simulated_network` (true when `adapter.simulate` is on), and per configured node whether it is `simulated` (false, with `sim_conflict` true, when it is marked simulated but a real device on the bus already uses its node ID), its NMT state, status bit, whether it booted, the boot error letter with Lely's text, whether a boot retry is pending, the hold in force and who set it, its last EMCY and how many it sent, each SDO variable's raw value, status and abort code, and `pdo_timeouts`: one entry per TPDO with a [receive timeout](config.md#receive-timeout) giving `tpdo`, `timeout_ms`, `timed_out`, `count` (timeouts so far) and `since_ms` (time since its last PDO, `null` before the first), and for a cyclic CiA 402 axis the interpolation time period the plugin wrote to 0x60C2 (`interpolation_period_us`, see [cia402.md](cia402.md#cyclic-synchronous-modes)). The CLI prints these as `node 23 TPDO 1: TIMED OUT (timeout 200 ms, 2 timeout(s), last PDO 1800 ms ago)`. Between CANopen sessions (interface missing or down) the answer has `"session": false`, bus state 0 and every node 0.
+- **Status**: plugin version, time since the CANopen session started, the SHA-256 of the loaded `canworks.json`, the master's node ID and NMT state, the bus state and error counters (whether or not their PLC locations are configured), the SYNC source (`none`, `timer` with `period_us`, or `plc_cycle` with `cycles`) with the number of SYNCs sent, the last, shortest and longest interval between them in microseconds, cycles merged into one SYNC (`skipped`) and late synchronous PDOs (`late_pdos`, see [config.md](config.md#sync-from-the-plc-cycle)), `simulated_network` (true when `adapter.simulate` is on), and per configured node whether it is `simulated` (false, with `sim_conflict` true, when it is marked simulated but a real device on the bus already uses its node ID), its NMT state, status bit, whether it booted, the boot error letter with Lely's text, whether a boot retry is pending, the hold in force and who set it, its last EMCY and how many it sent, each SDO variable's raw value, status and abort code, and `pdo_timeouts`: one entry per TPDO with a [receive timeout](config.md#receive-timeout) giving `tpdo`, `timeout_ms`, `timed_out`, `count` (timeouts so far) and `since_ms` (time since its last PDO, `null` before the first), and for a cyclic CiA 402 axis the interpolation time period the plugin wrote to 0x60C2 (`interpolation_period_us`, see [cia402.md](cia402.md#cyclic-synchronous-modes)). The CLI prints these as `node 23 TPDO 1: TIMED OUT (timeout 200 ms, 2 timeout(s), last PDO 1800 ms ago)`. Between CANopen sessions (interface missing or down) the answer has `"session": false`, bus state 0 and every node 0.
 - **EMCY history**: the last 16 emergency messages of a configured node, newest first, with UTC time, code, error register and manufacturer bytes. Recorded before the log's rate limit, so a burst is complete here even when the log summarizes it.
 - **SDO read and write**: any node ID except the master's, configured or not, any object, up to 4096 bytes, timeout 10-10000 ms (default 1000). Requests to a configured node wait for its boot configuration and for the program's triggered SDO variables, and go before its periodic SDO variable reads. Writes are logged with the client's address. A write to an object an SDO variable or the boot configuration also writes lasts until that next write: the program and the config win.
 - **NMT** (configured nodes only): `stop` and `preop` hold the node there, also across a reboot, like the program's NMT command byte; `start` releases the hold. Whichever comes last wins: the program changing its byte replaces an operator's hold, and the other way round. `reset` and `reset-comm` reboot the node and the master configures it again. Each is logged with the client's address.
 - **Scan**: node IDs 1-127 except the master's, 8 at a time, 100 ms per probe of 0x1018:1, then vendor ID, product code, revision, serial number, device type and device name from those that answered. A configured node that is booting is reported as booting and not disturbed. Each device is compared with the config: the node's `revision_number` and `serial_number` identity check and the 0x1F85-0x1F88 values first, then the vendor ID and product code of its EDS. About 2 seconds on a quiet bus. One scan runs at a time; a client asking while one runs gets its progress. Devices in STOPPED do not answer SDO and are not found. The master must be PRE-OPERATIONAL or OPERATIONAL.
 
-- **Bus trace**: every CAN frame on the bus, received and sent, with the kernel's time stamp, for the configurator's [Trace view](configurator.md#trace) and `openplc-canopen-diag trace` ([trace.md](trace.md)). Read-only: the token is enough, `allow_changes` is not needed. The plugin opens a second, receive-only socket on the CAN interface while at least one client traces, keeps the newest 65536 frames in a ring, and each tracing client fetches what is new. Up to 16 ID/mask filters per client limit what is recorded (the plugin records the union of all clients' filters), and error frames are recorded on request.
+- **Bus trace**: every CAN frame on the bus, received and sent, with the kernel's time stamp, for the configurator's [Trace view](configurator.md#trace) and `canworks-diag trace` ([trace.md](trace.md)). Read-only: the token is enough, `allow_changes` is not needed. The plugin opens a second, receive-only socket on the CAN interface while at least one client traces, keeps the newest 65536 frames in a ring, and each tracing client fetches what is new. Up to 16 ID/mask filters per client limit what is recorded (the plugin records the union of all clients' filters), and error frames are recorded on request.
 
 - **LSS commissioning** (CiA 305, all need `allow_changes`): for devices without DIP switches, which get their node ID and bit rate over the bus. A device is addressed by its LSS address: vendor ID, product code, revision and serial number (0x1018:1-4).
   - *Find* searches with LSS fastscan for one device that has no node ID, optionally only devices with a given vendor ID and product code. It runs in the background like the scan: about 13 seconds when nothing answers, less when a device does. The result is the device's address and its node ID (255: none). One device at a time: give it a node ID, then find the next.
@@ -157,7 +157,7 @@ openplc-canopen-diag --sim 127.0.0.1 sim test --scenario sensor-break --junit re
 
 - **Raw frames and bit rate detection** (both need `allow_changes`): see [Raw frames and bit rate](#raw-frames-and-bit-rate).
 
-- **Device parameters** (`backup`, `compare`, `restore`, `store`): see [Replacing a device](#replacing-a-device). They run on the PC over the SDO read and write above, one SDO at a time, so they need no newer plugin. The node's EDS comes from `--config canopen.json` (default `canopen/canopen.json` when it exists) or `--eds FILE` for a node that is not configured. With several networks, `--network NAME` picks both the network the SDOs go to and the node's EDS, name and bit rate from that network of the config; a config with several networks needs it even when the runtime runs one.
+- **Device parameters** (`backup`, `compare`, `restore`, `store`): see [Replacing a device](#replacing-a-device). They run on the PC over the SDO read and write above, one SDO at a time, so they need no newer plugin. The node's EDS comes from `--config canworks.json` (default `canworks/canworks.json` when it exists) or `--eds FILE` for a node that is not configured. With several networks, `--network NAME` picks both the network the SDOs go to and the node's EDS, name and bit rate from that network of the config; a config with several networks needs it even when the runtime runs one.
 
 - **Several networks**: one channel serves all networks of the config, with one port, one token, one `allow_changes` and one client limit. Each request acts on one network. Scans, LSS requests, traces, holds, EMCY history and `no bus` are per network: a scan on one network does not make a scan on another answer busy, and a network whose interface is missing answers `no bus` while the others answer normally.
 
@@ -221,7 +221,7 @@ The plugin makes a new key and self-signed certificate in memory each time it op
 SaltedPassword  = PBKDF2-HMAC-SHA-256(token, salt, iterations)
 ClientKey       = HMAC(SaltedPassword, "Client Key")     StoredKey = SHA-256(ClientKey)
 ServerKey       = HMAC(SaltedPassword, "Server Key")
-AuthMessage     = "openplc-canopen-diag/2," cnonce "," snonce "," salt "," iterations "," cbind
+AuthMessage     = "canworks-diag/2," cnonce "," snonce "," salt "," iterations "," cbind
                   (nonces, salt and cbind in base64; cbind = SHA-256 of the server certificate's DER)
 ClientProof     = ClientKey XOR HMAC(StoredKey, AuthMessage)
 ServerSignature = HMAC(ServerKey, AuthMessage)
@@ -234,7 +234,7 @@ ServerSignature = HMAC(ServerKey, AuthMessage)
 {"id": 2, "ok": true, "result": {"protocol": 2, "signature": "<ServerSignature, base64>", "version": "...", ...}}
 ```
 
-A wrong proof closes the connection without an answer; the next login from that address is answered a second later at the earliest. The client checks `signature` before it uses anything else; `openplc-canopen-diag` and the configurator drop a connection whose signature is wrong ("could not prove it knows this project's token"). A connection that does not start with a TLS handshake (a client from before the encrypted channel) gets one line, `this runtime needs an encrypted connection; update openplc-canopen-diag`, and is closed.
+A wrong proof closes the connection without an answer; the next login from that address is answered a second later at the earliest. The client checks `signature` before it uses anything else; `canworks-diag` and the configurator drop a connection whose signature is wrong ("could not prove it knows this project's token"). A connection that does not start with a TLS handshake (a client from before the encrypted channel) gets one line, `this runtime needs an encrypted connection; update canworks-diag`, and is closed.
 
 The login answer carries `protocol` (2), `version`, `allow_changes`, `master_node_id` (the first network's) and `networks`: the networks in config order, each `{"name", "interface", "bitrate", "role", "master_node_id"}` (a slave network has `"role": "slave"` and `node_id`, null while it waits for LSS, instead of `master_node_id`; see [slave.md](slave.md#diagnostics)), the name empty for a version 1 config.
 
@@ -288,8 +288,8 @@ A trace ends when its client sends `trace_stop`, disconnects, or sends no `trace
 ## Security
 
 - The channel is encrypted (TLS) and the login is SCRAM-SHA-256 bound to the TLS certificate: the token never crosses the network, a captured login cannot be replayed, and a machine in the middle can neither read nor change requests. Clients never fall back to an unencrypted connection.
-- `canopen.json` holds only the token's verifier (`token_verifier`), which travels with the project. It does not let anyone log in, but like any password hash it lets a short, guessable token be found by trying words; use a random token (the configurator makes one of 192 bits).
-- A config from before the encrypted channel has `token_sha256` instead; the plugin refuses it with a message saying to set the token again. In the configurator, **Online access** offers **Upgrade**, which keeps the token when this PC knows it; otherwise use **New token** or **Enter token…**. By hand: `openplc-canopen-diag hash-token` prints a `token_verifier` for a token. An older `openplc-canopen-diag` cannot connect to an updated plugin, and an updated one cannot connect to an older plugin ("too old for encrypted diagnostics"); update both.
+- `canworks.json` holds only the token's verifier (`token_verifier`), which travels with the project. It does not let anyone log in, but like any password hash it lets a short, guessable token be found by trying words; use a random token (the configurator makes one of 192 bits).
+- A config from before the encrypted channel has `token_sha256` instead; the plugin refuses it with a message saying to set the token again. In the configurator, **Online access** offers **Upgrade**, which keeps the token when this PC knows it; otherwise use **New token** or **Enter token…**. By hand: `canworks-diag hash-token` prints a `token_verifier` for a token. An older `canworks-diag` cannot connect to an updated plugin, and an updated one cannot connect to an older plugin ("too old for encrypted diagnostics"); update both.
 - Read-only is the default. With `allow_changes`, anyone with the token can write any object of any node, stop or reset configured nodes, and change any LSS device's node ID or bit rate; leave it off outside commissioning.
 - Set `bind` to the PLC's address on the network the engineering PC uses, so the port is not open on other networks the PLC is connected to, or firewall port 7531 so only the engineering PCs reach it.
 - Sending frames and bit rate detection need `allow_changes`; frames on identifiers the network uses, and both while a node is OPERATIONAL, also need `force`. A forced frame can disturb a running machine as much as any other device on the bus could. Leave `allow_changes` off outside commissioning.

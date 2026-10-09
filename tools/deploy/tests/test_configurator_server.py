@@ -1,4 +1,4 @@
-"""openplc-canopen-config's local server, over HTTP
+"""canworks-config's local server, over HTTP
 (add-canopen-configurator tasks 3.1-3.3)."""
 
 import base64
@@ -13,7 +13,7 @@ import threading
 import time
 import unittest
 
-from openplc_canopen_deploy.configurator import server as srv
+from canworks.configurator import server as srv
 
 from .helpers import PINGPONG, REPO, editor_bundle, fake_editor_cli, tmpdir
 
@@ -45,8 +45,8 @@ class Running(unittest.TestCase):
 
     def setUp(self):
         self.dir = tmpdir(self)
-        os.environ["OPENPLC_CANOPEN_CONFIG_DIR"] = os.path.join(self.dir, "cfg")
-        self.addCleanup(os.environ.pop, "OPENPLC_CANOPEN_CONFIG_DIR", None)
+        os.environ["CANWORKS_CONFIG_DIR"] = os.path.join(self.dir, "cfg")
+        self.addCleanup(os.environ.pop, "CANWORKS_CONFIG_DIR", None)
         self.server = srv.Server()
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
@@ -109,7 +109,7 @@ class Access(Running):
         self.open_project()
         status, _, _ = self.request("POST", "/api/save", {"config": srv.empty_config()}, token=False)
         self.assertEqual(status, 403)
-        self.assertFalse(os.path.exists(os.path.join(self.project, "canopen")))
+        self.assertFalse(os.path.exists(os.path.join(self.project, "canworks")))
 
     def test_unexpected_error_is_one_sentence(self):
         """A bug in a handler answers 500 with one plain sentence; the
@@ -201,7 +201,7 @@ class OpenAndModes(Running):
         self.assertEqual(state["mode"], "project")
         self.assertFalse(state["config_exists"])
         self.assertEqual(state["config"]["nodes"], [])
-        self.assertFalse(os.path.exists(os.path.join(self.project, "canopen")))
+        self.assertFalse(os.path.exists(os.path.join(self.project, "canworks")))
         self.assertIn({"file": "devices/remote/ecat-bus.json", "kind": "device", "location": "%ID100",
                        "name": "drive1", "path": "ethercatConfig.devices[0].channelMappings[0].iecLocation"},
                       state["project_uses"])
@@ -225,10 +225,10 @@ class OpenAndModes(Running):
         self.assertEqual(data["parent"], os.path.dirname(self.dir))
 
     def test_old_style_keys_shown_as_adapter(self):
-        os.makedirs(os.path.join(self.project, "canopen"))
+        os.makedirs(os.path.join(self.project, "canworks"))
         cfg = {"interface": "vcan0", "bitrate": 125000, "master": {"node_id": 1, "sync_period_us": 100000},
                "nodes": []}
-        with open(os.path.join(self.project, "canopen", "canopen.json"), "w") as f:
+        with open(os.path.join(self.project, "canworks", "canworks.json"), "w") as f:
             json.dump(cfg, f)
         state = self.open_project()
         self.assertEqual(state["config"]["adapter"],
@@ -237,11 +237,11 @@ class OpenAndModes(Running):
         self.assertIn("old top-level", state["notices"][0])
 
     def test_strict_eds_shown_as_eds_lint(self):
-        os.makedirs(os.path.join(self.project, "canopen"))
+        os.makedirs(os.path.join(self.project, "canworks"))
         for strict, mode in ((False, "off"), (True, "all")):
             cfg = srv.empty_config()
             cfg["master"] = {"node_id": 1, "sync_period_us": 10000, "strict_eds": strict, "heartbeat_ms": 100}
-            with open(os.path.join(self.project, "canopen", "canopen.json"), "w") as f:
+            with open(os.path.join(self.project, "canworks", "canworks.json"), "w") as f:
                 json.dump(cfg, f)
             state = self.open_project()
             self.assertEqual(state["config"]["master"],
@@ -249,7 +249,7 @@ class OpenAndModes(Running):
             self.assertIn("old 'strict_eds'", state["notices"][0])
         # The default as a field is shown as the default (no field).
         cfg["master"] = {"node_id": 1, "sync_period_us": 10000, "eds_lint": "communication"}
-        with open(os.path.join(self.project, "canopen", "canopen.json"), "w") as f:
+        with open(os.path.join(self.project, "canworks", "canworks.json"), "w") as f:
             json.dump(cfg, f)
         self.assertEqual(self.open_project()["config"]["master"], {"node_id": 1, "sync_period_us": 10000})
 
@@ -274,7 +274,7 @@ class EdsImport(Running):
         cfg["nodes"] = [{"node_id": 2, "eds": "vendor.eds", "tx_pdos": [{"entries": [
             {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         self.ok("POST", "/api/save", {"config": cfg})
-        saved = read(os.path.join(self.project, "canopen", "vendor.eds"))
+        saved = read(os.path.join(self.project, "canworks", "vendor.eds"))
         self.assertEqual(saved.decode("utf-8"), text)
 
     def test_not_an_eds(self):
@@ -286,8 +286,8 @@ class EdsImport(Running):
         self.assertIn("0x1000/0x1018", data["error"])
 
     def test_same_name_conflict(self):
-        os.makedirs(os.path.join(self.project, "canopen"))
-        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canopen", "rtd8.eds"))
+        os.makedirs(os.path.join(self.project, "canworks"))
+        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks", "rtd8.eds"))
         status, data, _ = self.eds(os.path.join(RTD, "rtd8.eds"))
         self.assertEqual(status, 409)
         self.assertEqual(data["conflict"], "rtd8.eds")
@@ -296,7 +296,7 @@ class EdsImport(Running):
         status, data, _ = self.eds(os.path.join(RTD, "rtd8.eds"), on_conflict="replace")
         self.assertEqual(data["name"], "rtd8.eds")
         # Nothing on disk changed before a save.
-        self.assertEqual(read(os.path.join(self.project, "canopen", "rtd8.eds")),
+        self.assertEqual(read(os.path.join(self.project, "canworks", "rtd8.eds")),
                          read(os.path.join(PINGPONG, "cpp-slave.eds")))
 
     def test_lint_accepted_findings(self):
@@ -335,10 +335,10 @@ class EdsImport(Running):
         self.assertEqual([f["object"] for f in data["lint"]["accepted"]], ["0x1A00 sub 0"])
 
     def test_lint_mode_of_the_saved_config(self):
-        os.makedirs(os.path.join(self.project, "canopen"), exist_ok=True)
+        os.makedirs(os.path.join(self.project, "canworks"), exist_ok=True)
         cfg = srv.empty_config()
         cfg["master"]["strict_eds"] = True
-        with open(os.path.join(self.project, "canopen", "canopen.json"), "w") as f:
+        with open(os.path.join(self.project, "canworks", "canworks.json"), "w") as f:
             json.dump(cfg, f)
         self.open_project()
         status, data, _ = self.eds(os.path.join(LINT, "signed-hex.eds"))
@@ -357,7 +357,7 @@ class CheckAndSave(Running):
         self.assertEqual(self.eds(os.path.join(RTD, "rtd8.eds"))[0], 200)
         self.cfg = srv.empty_config()
         self.cfg["nodes"] = [rtd_node()]
-        self.canopen = os.path.join(self.project, "canopen")
+        self.canopen = os.path.join(self.project, "canworks")
 
     def snapshot(self):
         out = {}
@@ -428,15 +428,15 @@ class CheckAndSave(Running):
         [item] = [i for i in allowed["items"] if i.get("overlap_allowed")]
         self.assertEqual(item["level"], "warning")
         self.ok("POST", "/api/save", {"config": self.cfg, "allow_overlap": True})
-        self.assertTrue(os.path.isfile(os.path.join(self.canopen, "canopen.json")))
+        self.assertTrue(os.path.isfile(os.path.join(self.canopen, "canworks.json")))
 
     def test_save_writes_only_canopen(self):
         before = self.snapshot()
         data = self.ok("POST", "/api/save", {"config": self.cfg})
         after = self.snapshot()
         changed = {k for k in set(before) | set(after) if before.get(k) != after.get(k)}
-        self.assertEqual(changed, {os.path.join("canopen", "canopen.json"), os.path.join("canopen", "rtd8.eds")})
-        self.assertEqual(sorted(os.path.basename(p) for p in data["written"]), ["canopen.json", "rtd8.eds"])
+        self.assertEqual(changed, {os.path.join("canworks", "canworks.json"), os.path.join("canworks", "rtd8.eds")})
+        self.assertEqual(sorted(os.path.basename(p) for p in data["written"]), ["canworks.json", "rtd8.eds"])
 
     def test_export_dcf_one_node_unsaved(self):
         # The draft (EDS only imported, nothing saved) exports; the project
@@ -523,7 +523,7 @@ class CheckAndSave(Running):
         cfg = state["config"]
         cfg["nodes"][0]["heartbeat_ms"] = 200
         self.ok("POST", "/api/save", {"config": cfg})
-        saved = json.loads(read(os.path.join(self.canopen, "canopen.json")))
+        saved = json.loads(read(os.path.join(self.canopen, "canworks.json")))
         self.assertEqual(saved["x_note"], {"by": "hand"})
         self.assertEqual(saved["nodes"][0]["x_comment"], "keep me")
         self.assertEqual(saved["nodes"][0]["heartbeat_ms"], 200)
@@ -531,7 +531,7 @@ class CheckAndSave(Running):
 
     def test_changed_on_disk(self):
         self.ok("POST", "/api/save", {"config": self.cfg})
-        path = os.path.join(self.canopen, "canopen.json")
+        path = os.path.join(self.canopen, "canworks.json")
         doc = json.loads(read(path))
         doc["master"]["sync_period_us"] = 20000
         time.sleep(0.01)
@@ -551,7 +551,7 @@ class CheckAndSave(Running):
         self.cfg["master"]["sync_period_us"] = 10000
         self.cfg["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": "0x1E"}]
         self.ok("POST", "/api/save", {"config": self.cfg})
-        saved = json.loads(read(os.path.join(self.canopen, "canopen.json")))
+        saved = json.loads(read(os.path.join(self.canopen, "canworks.json")))
         self.assertEqual(saved["adapter"], self.cfg["adapter"])
         self.assertEqual(saved["nodes"][0]["sdo"][0],
                          {"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": "0x1E"})
@@ -565,14 +565,14 @@ class CheckAndSave(Running):
 
     def test_deploy_tool_accepts_the_result(self):
         self.ok("POST", "/api/save", {"config": self.cfg})
-        before = read(os.path.join(self.canopen, "canopen.json"))
+        before = read(os.path.join(self.canopen, "canworks.json"))
         env = dict(os.environ, PYTHONPATH=DEPLOY)
         bundle = editor_bundle(os.path.join(self.dir, "bundle"))
-        r = subprocess.run([sys.executable, "-m", "openplc_canopen_deploy", "--bundle", bundle, "--config",
-                            os.path.join(self.canopen, "canopen.json"), "--check-only"],
+        r = subprocess.run([sys.executable, "-m", "canworks", "--bundle", bundle, "--config",
+                            os.path.join(self.canopen, "canworks.json"), "--check-only"],
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(read(os.path.join(self.canopen, "canopen.json")), before)
+        self.assertEqual(read(os.path.join(self.canopen, "canworks.json")), before)
 
     def test_place(self):
         self.cfg["nodes"][0]["tx_pdos"] = []
@@ -633,7 +633,7 @@ class Networks(Running):
         self.folder = os.path.join(self.dir, "plant")
         os.makedirs(self.folder)
         shutil.copy(os.path.join(TWO, "cpp-slave.eds"), self.folder)
-        self.path = os.path.join(self.folder, "canopen.json")
+        self.path = os.path.join(self.folder, "canworks.json")
         self.two = json.loads(read(os.path.join(TWO, "canopen_config.json")))
         self.two["diagnostics"] = {"token_verifier": FIXTURE_VERIFIER, "port": 7600}
 
@@ -769,13 +769,13 @@ class Standalone(Running):
         # Not saved yet: moving is refused.
         self.assertEqual(self.request("POST", "/api/move", {"project": self.project})[0], 409)
         self.ok("POST", "/api/save", {"config": cfg})
-        self.assertTrue(os.path.isfile(os.path.join(folder, "canopen.json")))
+        self.assertTrue(os.path.isfile(os.path.join(folder, "canworks.json")))
         self.assertTrue(os.path.isfile(os.path.join(folder, "rtd8.eds")))
         data = self.ok("POST", "/api/move", {"project": self.project})
         self.assertEqual(data["state"]["mode"], "project")
         self.assertEqual(data["state"]["folder"], self.project)
         self.assertTrue(data["state"]["project_uses"])
-        moved = json.loads(read(os.path.join(self.project, "canopen", "canopen.json")))
+        moved = json.loads(read(os.path.join(self.project, "canworks", "canworks.json")))
         self.assertEqual(moved["nodes"][0]["eds"], "rtd8.eds")
         # Address checks now run against the project.
         moved["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW200"
@@ -789,13 +789,13 @@ class Standalone(Running):
         cfg = srv.empty_config()
         cfg["nodes"] = [rtd_node()]
         self.ok("POST", "/api/save", {"config": cfg})
-        os.makedirs(os.path.join(self.project, "canopen"))
+        os.makedirs(os.path.join(self.project, "canworks"))
         status, data, _ = self.request("POST", "/api/move", {"project": self.project})
         self.assertEqual(status, 409)
         self.assertTrue(data["exists"])
-        self.assertEqual(os.listdir(os.path.join(self.project, "canopen")), [])
+        self.assertEqual(os.listdir(os.path.join(self.project, "canworks")), [])
         self.ok("POST", "/api/move", {"project": self.project, "replace": True})
-        self.assertTrue(os.path.isfile(os.path.join(self.project, "canopen", "canopen.json")))
+        self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "canworks.json")))
 
 
 class NewProject(Running):
@@ -837,7 +837,7 @@ class NewProject(Running):
         args = json.loads(read(os.path.join(self.dir, "cli-args.json")))
         self.assertIn("--time=T#10ms", args)
         # Every CANopen entry now shows as declared in the project.
-        cfg = json.loads(read(os.path.join(target, "canopen", "canopen.json")))
+        cfg = json.loads(read(os.path.join(target, "canworks", "canworks.json")))
         check = self.ok("POST", "/api/check", {"config": cfg})
         self.assertEqual(check["errors"], 0, check["items"])
         self.assertEqual(len(check["declared"]), 5)
@@ -867,7 +867,7 @@ class NewProject(Running):
 class Command(unittest.TestCase):
     def test_help_as_documented(self):
         env = dict(os.environ, PYTHONPATH=DEPLOY)
-        r = subprocess.run([sys.executable, "-m", "openplc_canopen_deploy.configurator.server", "--help"],
+        r = subprocess.run([sys.executable, "-m", "canworks.configurator.server", "--help"],
                            capture_output=True, text=True, env=env, timeout=30)
         self.assertEqual(r.returncode, 0)
         self.assertIn("--no-browser", r.stdout)
@@ -876,8 +876,8 @@ class Command(unittest.TestCase):
         d = tmpdir(self)
         f = os.path.join(d, "file")
         open(f, "w").close()
-        env = dict(os.environ, PYTHONPATH=DEPLOY, OPENPLC_CANOPEN_CONFIG_DIR=os.path.join(d, "cfg"))
-        r = subprocess.run([sys.executable, "-m", "openplc_canopen_deploy.configurator.server", f, "--no-browser"],
+        env = dict(os.environ, PYTHONPATH=DEPLOY, CANWORKS_CONFIG_DIR=os.path.join(d, "cfg"))
+        r = subprocess.run([sys.executable, "-m", "canworks.configurator.server", f, "--no-browser"],
                            capture_output=True, text=True, env=env, timeout=30)
         self.assertEqual(r.returncode, 2)
         self.assertIn("is not a folder", r.stderr)
@@ -886,8 +886,8 @@ class Command(unittest.TestCase):
         d = tmpdir(self)
         project = os.path.join(d, "p")
         shutil.copytree(FIXTURE, project)
-        env = dict(os.environ, PYTHONPATH=DEPLOY, OPENPLC_CANOPEN_CONFIG_DIR=os.path.join(d, "cfg"))
-        p = subprocess.Popen([sys.executable, "-m", "openplc_canopen_deploy.configurator.server", project,
+        env = dict(os.environ, PYTHONPATH=DEPLOY, CANWORKS_CONFIG_DIR=os.path.join(d, "cfg"))
+        p = subprocess.Popen([sys.executable, "-m", "canworks.configurator.server", project,
                               "--no-browser"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         try:
             line = p.stdout.readline()

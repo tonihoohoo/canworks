@@ -1,9 +1,9 @@
 /* canopen_plc_api.h - the C interface the PLC program's CANopen function
- * blocks (library/openplc_canopen) use to run SDO transfers through the
+ * blocks (library/canworks) use to run SDO transfers through the
  * loaded plugin. See the spec canopen-plc-sdo.
  *
  * The blocks find the plugin the runtime has loaded with
- * dlopen("libcanopen_plugin.so", RTLD_NOW | RTLD_NOLOAD) (the plugin's SONAME)
+ * dlopen("libcanworks_plugin.so", RTLD_NOW | RTLD_NOLOAD) (the plugin's SONAME)
  * and call canopen_plc_api(CANOPEN_PLC_API_VERSION), which returns the
  * function table for that version or NULL. Both functions are called on the
  * PLC scan thread: they never wait on CAN traffic, allocate or log.

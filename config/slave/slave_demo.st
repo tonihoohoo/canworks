@@ -5,7 +5,7 @@
    and raises an EMCY while the temperature is too high.
 
    Paste into a Structured Text POU in the OpenPLC editor (target OpenPLC
-   Runtime v4), Build only, then deploy with openplc-canopen-deploy and
+   Runtime v4), Build only, then deploy with canworks-deploy and
    config/slave/canopen_config.json. *)
 PROGRAM slave_demo
   VAR

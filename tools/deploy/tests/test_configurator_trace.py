@@ -5,8 +5,8 @@ import base64
 import os
 import time
 
-from openplc_canopen_deploy.bustrace import formats
-from openplc_canopen_deploy.bustrace.model import Frame
+from canworks.bustrace import formats
+from canworks.bustrace.model import Frame
 
 from .test_bustrace import T0, sample_trace, written
 from .test_configurator_online import Online

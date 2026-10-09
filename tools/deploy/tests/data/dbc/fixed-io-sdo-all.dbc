@@ -109,7 +109,7 @@ BO_ 0 NMT: 2 Master
 
 BO_ 128 SYNC: 0 Master
 
-CM_ "CANopen network of canopen.json, exported by openplc-canopen-deploy TEST";
+CM_ "CANopen network of canworks.json, exported by canworks-deploy TEST";
 CM_ BO_ 386 "node 2 TPDO 1, transmission 1 from EDS";
 CM_ SG_ 386 Read_inputs_8_bit_Read_inputs_0x1 "0x6000:1 UNSIGNED8 (not used by the PLC)";
 CM_ SG_ 386 Read_inputs_8_bit_Read_inputs_0x2 "0x6000:2 UNSIGNED8 -> %IB40";

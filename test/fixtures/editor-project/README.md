@@ -13,4 +13,4 @@ one of each place a project uses IEC locations:
 | Global variable `run_lamp`, bound to the alias `lamp` (`project.json`) | none (an alias, not a location) |
 | Program variable `door_ok` (`pous/programs/main.st`) | `%IX10.1` |
 
-There is no `canopen/` folder: tests copy the fixture and create it.
+There is no `canworks/` folder: tests copy the fixture and create it.

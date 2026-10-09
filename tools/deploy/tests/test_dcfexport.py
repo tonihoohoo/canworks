@@ -1,4 +1,4 @@
-"""DCF export (openplc_canopen_deploy.dcfexport): the download list, the DCF
+"""DCF export (canworks.dcfexport): the download list, the DCF
 text, its validation, and parity with the plugin's own download list
 (canopen_check --dump-writes)."""
 
@@ -15,13 +15,13 @@ import tempfile
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy import cli, dcfexport, edslint
+from canworks import cli, dcfexport, edslint
 
 from .test_contract import FIXTURES, REPO, load_cases, patched
 
 NOW = datetime.datetime(2026, 10, 4, 13, 5)
 EDS_DIR = os.path.join(FIXTURES, "eds")
-FIXTURE_CONFIG = os.path.join(EDS_DIR, "canopen.json")
+FIXTURE_CONFIG = os.path.join(EDS_DIR, "canworks.json")
 
 
 def base_config():
@@ -68,7 +68,7 @@ class Loader(unittest.TestCase):
         # Neither em, yaml nor pkg_resources is needed (the deploy tool
         # depends on jsonschema only).
         code = ("import sys; sys.modules.update(em=None, yaml=None, pkg_resources=None)\n"
-                "from openplc_canopen_deploy import dcfexport\n"
+                "from canworks import dcfexport\n"
                 "for k in ('em', 'yaml', 'pkg_resources'): sys.modules.pop(k)\n"
                 "print(dcfexport.dcfgen_cli().Slave.__name__)")
         out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
@@ -185,7 +185,7 @@ class Writer(unittest.TestCase):
         self.assertEqual(info["LastEDS"], "cpp-slave.eds")
         self.assertEqual(info["ModificationDate"], "10-04-2026")
         self.assertEqual(info["ModificationTime"], "01:05PM")
-        self.assertTrue(info["ModifiedBy"].startswith("openplc-canopen-deploy "))
+        self.assertTrue(info["ModifiedBy"].startswith("canworks-deploy "))
 
     def test_compact_array_values(self):
         text = export(compact_config())["node_2.dcf"]
@@ -201,7 +201,7 @@ class Writer(unittest.TestCase):
             f.write(data)
         cfg = base_config()
         cfg["nodes"][0]["eds"] = "crlf.eds"
-        text = export(cfg, os.path.join(tmp, "canopen.json"))["node_2.dcf"]
+        text = export(cfg, os.path.join(tmp, "canworks.json"))["node_2.dcf"]
         self.assertEqual(text.count("\n"), text.count("\r\n"))
 
     def test_value_forms(self):
@@ -262,7 +262,7 @@ class Validation(unittest.TestCase):
         cfg["nodes"][0]["eds"] = "slow.eds"
         cfg["adapter"]["bitrate"] = 1000000
         with self.assertRaises(dcfexport.ExportFailed) as cm:
-            export(cfg, os.path.join(tmp, "canopen.json"))
+            export(cfg, os.path.join(tmp, "canworks.json"))
         text = "\n".join(m for m, _ in cm.exception.problems)
         self.assertIn("[DeviceComissioning] Baudrate", text)
         self.assertIn("does not support 1000 kbit/s", text)
@@ -323,7 +323,7 @@ class Cli(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         shutil.copytree(EDS_DIR, os.path.join(tmp, "eds"))
-        path = os.path.join(tmp, "eds", "canopen.json")
+        path = os.path.join(tmp, "eds", "canworks.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         return tmp, path
@@ -414,7 +414,7 @@ class Parity(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         shutil.copytree(EDS_DIR, os.path.join(tmp, "eds"))
-        path = os.path.join(tmp, "eds", "canopen.json")
+        path = os.path.join(tmp, "eds", "canworks.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         return path

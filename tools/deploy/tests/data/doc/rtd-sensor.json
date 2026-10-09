@@ -595,8 +595,8 @@
       "file": "rtd8.eds",
       "lss_supported": true,
       "product_name": "RTD-8 temperature input module",
-      "sha256": "ca916dabe47765176f6d016d3fdef11c61c8d9a2c08613512db373a5a90f0975",
-      "vendor_name": "openplc-canopen test devices"
+      "sha256": "ba1e8f658df50a207627c1ed0aeb737f233d461e7f889f906d847498e5b87108",
+      "vendor_name": "canworks test devices"
      },
      "ident": "rtd",
      "identity": [
@@ -1272,8 +1272,8 @@
  ],
  "title": "CANopen network documentation",
  "tool": {
-  "name": "openplc-canopen-deploy",
-  "version": "0.41.0"
+  "name": "canworks-deploy",
+  "version": "0.42.0"
  },
  "warnings": []
 }

@@ -8,7 +8,7 @@ import os
 import shutil
 import unittest
 
-from openplc_canopen_deploy.configurator import simulation
+from canworks.configurator import simulation
 
 from . import fake_sim_page
 from .fake_diag import TOKEN, FakePlugin
@@ -17,7 +17,7 @@ from .fake_sim import FakeSim
 from .helpers import REPO
 from .test_configurator_server import Running
 
-EXAMPLE = os.path.join(REPO, "examples", "gantry-cell", "canopen")
+EXAMPLE = os.path.join(REPO, "examples", "gantry-cell", "canworks")
 SIM = {"schema_version": 2, "networks": {"motion": {"machine": "machine.json"}}}
 
 
@@ -27,7 +27,7 @@ class Machine(Running):
     def setUp(self):
         super().setUp()
         self.open_project()
-        self.canopen = os.path.join(self.project, "canopen")
+        self.canopen = os.path.join(self.project, "canworks")
         shutil.rmtree(self.canopen, ignore_errors=True)
         shutil.copytree(EXAMPLE, self.canopen)
         self.sim_path = os.path.join(self.canopen, "simulation.json")

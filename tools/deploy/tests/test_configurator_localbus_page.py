@@ -9,10 +9,10 @@ import time
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy.localbus import adapter as adapter_mod
-from openplc_canopen_deploy.localbus import core as core_mod
-from openplc_canopen_deploy.localbus import parse
-from openplc_canopen_deploy.localbus import sweep as sweep_mod
+from canworks.localbus import adapter as adapter_mod
+from canworks.localbus import core as core_mod
+from canworks.localbus import parse
+from canworks.localbus import sweep as sweep_mod
 
 from .fake_canopen import FakeDevice, Peer
 from .helpers import REPO

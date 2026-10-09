@@ -14,8 +14,8 @@ import tempfile
 import threading
 import unittest
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.configurator import server as srv
+from canworks import diag
+from canworks.configurator import server as srv
 
 from .fake_machine import FakeMachine
 from .fake_sim_page import TOKEN, FakeSim
@@ -23,7 +23,7 @@ from .helpers import REPO
 from .test_configurator_layout import CONTRAST, FIT_CHECK, TARGETS, audit
 from .test_configurator_page import FIXTURE, REQUIRED, load, sync_playwright
 
-EXAMPLE = os.path.join(REPO, "examples", "gantry-cell", "canopen")
+EXAMPLE = os.path.join(REPO, "examples", "gantry-cell", "canworks")
 
 # No WebGL in this browser: the view runs as on a PC with WebGL turned off.
 NO_WEBGL = """(() => {
@@ -36,7 +36,7 @@ NO_WEBGL = """(() => {
 
 @unittest.skipIf(sync_playwright is None and not REQUIRED, "Playwright for Python is not installed")
 class Base(unittest.TestCase):
-    """The gantry-cell example as an editor project's canopen/ folder, the
+    """The gantry-cell example as an editor project's canworks/ folder, the
     Machine view open. fake: run the fake runtime with the example's machine;
     allow: its diagnostics allow changes."""
 
@@ -58,15 +58,15 @@ class Base(unittest.TestCase):
         cls.dir = tempfile.mkdtemp(prefix="canopen-machine-page-")
         cls.cfg_dir = os.path.join(cls.dir, "cfg")
         os.makedirs(cls.cfg_dir)
-        cls.env = os.environ.get("OPENPLC_CANOPEN_CONFIG_DIR")
-        os.environ["OPENPLC_CANOPEN_CONFIG_DIR"] = cls.cfg_dir
+        cls.env = os.environ.get("CANWORKS_CONFIG_DIR")
+        os.environ["CANWORKS_CONFIG_DIR"] = cls.cfg_dir
         cls.project = os.path.join(cls.dir, "gantry")
         shutil.copytree(FIXTURE, cls.project)
-        canopen = os.path.join(cls.project, "canopen")
+        canopen = os.path.join(cls.project, "canworks")
         shutil.copytree(EXAMPLE, canopen)
-        cfg = load(os.path.join(canopen, "canopen.json"))
+        cfg = load(os.path.join(canopen, "canworks.json"))
         cfg["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN), "allow_changes": cls.allow}
-        with open(os.path.join(canopen, "canopen.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(canopen, "canworks.json"), "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
         cls.sim = None
         if cls.fake:
@@ -111,9 +111,9 @@ class Base(unittest.TestCase):
         if cls.sim:
             cls.sim.__exit__(None, None, None)
         if cls.env is None:
-            os.environ.pop("OPENPLC_CANOPEN_CONFIG_DIR", None)
+            os.environ.pop("CANWORKS_CONFIG_DIR", None)
         else:
-            os.environ["OPENPLC_CANOPEN_CONFIG_DIR"] = cls.env
+            os.environ["CANWORKS_CONFIG_DIR"] = cls.env
         shutil.rmtree(cls.dir, ignore_errors=True)
 
     def tearDown(self):

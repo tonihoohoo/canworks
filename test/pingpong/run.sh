@@ -4,7 +4,7 @@
 #   test/pingpong/run.sh [--build-dir build] [--iface vcan0] [--seconds 10] [--no-slave] [--plc-cycle]
 #
 # Starts the tutorial ping-pong slave (node 2), then loads the real
-# libcanopen_plugin.so through canopen_host, which drives it with the PLC
+# libcanworks_plugin.so through canopen_host, which drives it with the PLC
 # program %QD100 := %ID100 + 1. Passes (exit 0) when the node status bit
 # %IX10.0 is TRUE and %ID100 keeps counting up, and (with candump) the
 # config's startup SDO (0x1017 := 100) is the last SDO download to node 2
@@ -40,7 +40,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/pingpong_slave"
 for f in "$PLUGIN" "$HOST" "$SLAVE"; do

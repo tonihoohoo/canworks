@@ -5,7 +5,7 @@
 #
 #   test/slave/run.sh [--build-dir build] [--seconds 12]
 #
-# Loads the real libcanopen_plugin.so through canopen_host with the program
+# Loads the real libcanworks_plugin.so through canopen_host with the program
 # `%QW10 := %IW10 + 1` (master) and `%QW300 := %IW300` (slave echo). Passes
 # (exit 0) when the master boots node 10, the slave reports communication OK
 # and the counter keeps counting through both networks, and the log shows the
@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 for f in "$PLUGIN" "$HOST"; do
     [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }

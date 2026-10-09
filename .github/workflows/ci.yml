@@ -85,7 +85,7 @@ jobs:
       - name: Cache STruC++ (the editor's ST compiler, for the CiA 402 tests)
         uses: actions/cache@v4
         with:
-          path: ~/.cache/openplc-canopen/strucpp
+          path: ~/.cache/canworks/strucpp
           key: strucpp-${{ runner.os }}-${{ hashFiles('scripts/fetch-strucpp.sh') }}
 
       - name: Fetch STruC++
@@ -138,7 +138,7 @@ jobs:
           # what the vcan steps start: the plugin, the standalone simulator and the helper programs
           # (not unit_tests, sim_tests, sim_unit_tests or slave_tests, which run in the plugin job)
           targets: >-
-            canopen_plugin openplc-canopen-sim canopen_check canopen_host pingpong_slave lss_slave
+            canworks_plugin canworks-sim canopen_check canopen_host pingpong_slave lss_slave
             sensor_slave link_check sdo_program plc_sdo_lookup_check
 
       - uses: actions/setup-python@v5
@@ -241,7 +241,7 @@ jobs:
           CANOPEN_EDSLINT: python3
           PYTHONPATH: tools/deploy
         run: |
-          test/plc_sdo/lookup_check.sh build/test/plc_sdo_lookup_check build/plugins/libcanopen_plugin.so \
+          test/plc_sdo/lookup_check.sh build/test/plc_sdo_lookup_check build/plugins/libcanworks_plugin.so \
             build/test/sdo_program.so config/pingpong "$RUNNER_TEMP/plc_sdo_stop" --stop-check
 
       - name: Standalone device simulator next to the plugin on vcan0 (and real-bus checks on vcan1)
@@ -300,13 +300,13 @@ jobs:
         if: steps.bustrace.outputs.here == 'true'
         uses: actions/cache@v4
         with:
-          path: ~/.cache/openplc-canopen/apt-tshark
+          path: ~/.cache/canworks/apt-tshark
           key: apt-tshark-${{ steps.bustrace.outputs.image }}
 
       - name: tshark (test_bustrace checks that Wireshark decodes the exported pcapng as CANopen)
         if: steps.bustrace.outputs.here == 'true'
         timeout-minutes: 8
-        run: python3 .github/scripts/apt_install.py --debs ~/.cache/openplc-canopen/apt-tshark tshark
+        run: python3 .github/scripts/apt_install.py --debs ~/.cache/canworks/apt-tshark tshark
 
       - name: Deploy tool and configurator tests (shared fixtures, bundle, clash check, stub runtime, server, DCF export parity, DBC export)
         env:
@@ -366,7 +366,7 @@ jobs:
         with:
           path: |
             ~/.cache/ms-playwright
-            ~/.cache/openplc-canopen/apt-playwright
+            ~/.cache/canworks/apt-playwright
           key: playwright-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}
 
       - name: Chromium for the configurator page tests
@@ -384,7 +384,7 @@ jobs:
           deps=$({ sed -n 's/.*--no-install-recommends //p' <<<"$plan" | tr -d '"'
                    sed -n 's/^  \([a-z0-9][^ ]*\)$/\1/p' <<<"$plan"; } | xargs)
           test -n "$deps" || { echo "no package list from playwright install-deps --dry-run" >&2; exit 1; }
-          python3 .github/scripts/apt_install.py --debs ~/.cache/openplc-canopen/apt-playwright --no-install-recommends $deps
+          python3 .github/scripts/apt_install.py --debs ~/.cache/canworks/apt-playwright --no-install-recommends $deps
 
       - name: Configurator page and layout tests
         # Split by recorded class times (.github/ci/page-test-times.json; a class not in it counts as the

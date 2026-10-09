@@ -5,7 +5,7 @@
 # bundled libraries include the PLCopen SoftMotion blocks the editor offers.
 # Nothing is committed; the package is cached in <dir>.
 #
-#   scripts/fetch-strucpp.sh [--dir ~/.cache/openplc-canopen/strucpp]
+#   scripts/fetch-strucpp.sh [--dir ~/.cache/canworks/strucpp]
 #
 # Prints the path of the strucpp command. Needs curl, Node.js 22 or later and
 # npm (for the compiler's one dependency).
@@ -14,7 +14,7 @@ set -euo pipefail
 
 VERSION=0.7.0
 SHA256=8d78ae92d931b87c06145520222d1491206f424c147ec66ea84653cb8b0e1be5
-DIR="${XDG_CACHE_HOME:-$HOME/.cache}/openplc-canopen/strucpp"
+DIR="${XDG_CACHE_HOME:-$HOME/.cache}/canworks/strucpp"
 while [ $# -gt 0 ]; do
     case "$1" in
         --dir) DIR="$2"; shift ;;

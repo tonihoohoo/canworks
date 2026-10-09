@@ -7,9 +7,9 @@ import json
 import os
 import unittest
 
-from openplc_canopen_deploy import contract
-from openplc_canopen_deploy.configurator import declare, layout, scan
-from openplc_canopen_deploy.eds import Eds
+from canworks import contract
+from canworks.configurator import declare, layout, scan
+from canworks.eds import Eds
 
 from .helpers import PINGPONG, REPO, pingpong_config, tmpdir
 
@@ -48,7 +48,7 @@ class EdsMetadata(unittest.TestCase):
         self.assertNotIn(0x1018, {i for i, _, _ in eds.mappable()})
 
     def test_direction_rules(self):
-        from openplc_canopen_deploy.eds import SubObject
+        from canworks.eds import SubObject
         self.assertEqual(SubObject(7, "rw", True).directions, ("input", "output"))
         self.assertEqual(SubObject(7, "rwr", True).directions, ("input",))
         self.assertEqual(SubObject(7, "rww", True).directions, ("output",))
@@ -124,7 +124,7 @@ class ProjectScan(unittest.TestCase):
 
     def test_skips_canopen_and_build(self):
         d = tmpdir(self)
-        for sub in ("canopen", "build"):
+        for sub in ("canworks", "build"):
             os.makedirs(os.path.join(d, sub))
             with open(os.path.join(d, sub, "x.json"), "w") as f:
                 json.dump({"iec_location": "%IW1"}, f)
@@ -204,7 +204,7 @@ class Layout(unittest.TestCase):
         self.assertEqual(items[0]["level"], "warning")
 
     def test_project_checks_c_macro_name(self):
-        from openplc_canopen_deploy.iec import parse_location
+        from canworks.iec import parse_location
         uses = [scan.Use("pous/programs/main.st", "line 10", parse_location("%IX10.0"), "variable", "x_ok")]
         items, _ = layout.project_checks({"nodes": []}, uses)
         self.assertEqual([i["level"] for i in items], ["error"])

@@ -1,7 +1,7 @@
 # canopen-configurator Specification
 
 ## Purpose
-A local GUI on the engineering PC that creates and edits the CANopen config of an OpenPLC Editor project (its `canopen/` folder), so CANopen nodes can be added and mapped to PLC addresses without hand-writing JSON or changing the editor.
+A local GUI on the engineering PC that creates and edits the CANopen config of an OpenPLC Editor project (its `canworks/` folder), so CANopen nodes can be added and mapped to PLC addresses without hand-writing JSON or changing the editor.
 
 ## Requirements
 
@@ -9,15 +9,15 @@ A local GUI on the engineering PC that creates and edits the CANopen config of a
 Started without arguments, the configurator SHALL open a start page offering: open an editor project, open a standalone config folder, or create a new standalone config. The page SHALL let the user browse local folders and SHALL list recently opened ones. A path given on the command line SHALL open directly, as a project when the folder has `project.json` and as a standalone config otherwise. The current mode SHALL always be visible.
 
 #### Scenario: Start page
-- **WHEN** `openplc-canopen-config` runs without arguments
+- **WHEN** `canworks-config` runs without arguments
 - **THEN** the browser shows the start page with the three choices and the recent folders
 
 #### Scenario: Open a project from the start page
-- **WHEN** the user chooses "open editor project" and picks `~/Documents/workspace/rtd-monitor`, which has `canopen/canopen.json`
+- **WHEN** the user chooses "open editor project" and picks `~/Documents/workspace/rtd-monitor`, which has `canworks/canworks.json`
 - **THEN** the page shows that config with the mode "project rtd-monitor"
 
 #### Scenario: Project without a config
-- **WHEN** the user opens an editor project that has no `canopen/` folder
+- **WHEN** the user opens an editor project that has no `canworks/` folder
 - **THEN** the page shows an empty config and the project folder is unchanged until the user saves
 
 #### Scenario: Not an editor project
@@ -25,14 +25,14 @@ Started without arguments, the configurator SHALL open a start page offering: op
 - **THEN** the page says it is not an editor project and offers to open it as a standalone config instead
 
 ### Requirement: Standalone config before a project exists
-In standalone mode the configurator SHALL edit `canopen.json` and its EDS files in a plain folder, creating the folder on first save, with every check except the editor-project address checks, which the page SHALL show as skipped. The page SHALL offer "move into project", which runs the deploy tool's `--into-project` checks, copies the config into the picked project's `canopen/` folder and switches to project mode. The deploy tool's `--config` SHALL accept the folder unchanged.
+In standalone mode the configurator SHALL edit `canworks.json` and its EDS files in a plain folder, creating the folder on first save, with every check except the editor-project address checks, which the page SHALL show as skipped. The page SHALL offer "move into project", which runs the deploy tool's `--into-project` checks, copies the config into the picked project's `canworks/` folder and switches to project mode. The deploy tool's `--config` SHALL accept the folder unchanged.
 
 #### Scenario: Configure first, project later
-- **WHEN** the user creates a new standalone config in `~/canopen/rtd`, adds the RTD node and saves, then later chooses "move into project" and picks `~/Documents/workspace/rtd-monitor`
-- **THEN** the project gets `canopen/canopen.json` and the EDS, the page switches to project mode and runs the address checks against the project
+- **WHEN** the user creates a new standalone config in `~/canworks/rtd`, adds the RTD node and saves, then later chooses "move into project" and picks `~/Documents/workspace/rtd-monitor`
+- **THEN** the project gets `canworks/canworks.json` and the EDS, the page switches to project mode and runs the address checks against the project
 
 #### Scenario: Project already has a config
-- **WHEN** the picked project already has a `canopen/` folder
+- **WHEN** the picked project already has a `canworks/` folder
 - **THEN** nothing is copied until the user confirms replacing it
 
 ### Requirement: Local access only
@@ -51,7 +51,7 @@ The configurator SHALL listen only on the loopback interface and SHALL reject an
 - **THEN** the configurator opens no network connection
 
 ### Requirement: Import an EDS
-Adding a node SHALL start from an EDS file the user picks. The configurator SHALL check that it is a CiA 306 EDS the deploy tool accepts, store it under `canopen/` as UTF-8 (converting from Latin-1/CP1252 when it is not valid UTF-8) and refer to it by a path relative to `canopen/`. A different file with the same name SHALL NOT be overwritten silently.
+Adding a node SHALL start from an EDS file the user picks. The configurator SHALL check that it is a CiA 306 EDS the deploy tool accepts, store it under `canworks/` as UTF-8 (converting from Latin-1/CP1252 when it is not valid UTF-8) and refer to it by a path relative to `canworks/`. A different file with the same name SHALL NOT be overwritten silently.
 
 At import, the configurator SHALL also run the checks the PLC runs before dcfgen, on the same prepared copy (see `canopen-master-bringup`, "Prepared EDS copy"): dcfgen's EDS read and lint, and Lely's EDS parse rules, sorting the lint findings as the plugin does (see `canopen-master-bringup`, "EDS lint scope") under the config's `eds_lint` setting. The import SHALL show:
 - that the file is readable, when nothing below applies;
@@ -62,14 +62,14 @@ The import SHALL be refused, showing the reason, and no node SHALL be added, whe
 
 #### Scenario: Latin-1 vendor EDS
 - **WHEN** the user imports `vendor.eds`, encoded in Latin-1 with `°C` in a ParameterName
-- **THEN** on save `canopen/vendor.eds` is valid UTF-8 with the same text and the node's `eds` is `vendor.eds`
+- **THEN** on save `canworks/vendor.eds` is valid UTF-8 with the same text and the node's `eds` is `vendor.eds`
 
 #### Scenario: Not an EDS
 - **WHEN** the user picks a file without objects 0x1000 and 0x1018
 - **THEN** the import is refused with the reason and no node is added
 
 #### Scenario: Same name, different content
-- **WHEN** an imported EDS has the same name as a different EDS already in `canopen/`
+- **WHEN** an imported EDS has the same name as a different EDS already in `canworks/`
 - **THEN** the user is asked to replace it or keep both under a new name, and nothing is overwritten without that choice
 
 #### Scenario: Vendor EDS with findings in profile objects
@@ -85,7 +85,7 @@ The configurator SHALL edit the `socketcan` adapter: interface name, bit rate ch
 
 #### Scenario: Set up can0 at 250 kbit/s
 - **WHEN** the user sets interface `can0`, bit rate 250000, leaves "configure link" on, sets restart 100 ms and saves
-- **THEN** `canopen.json` has `adapter` `{"type": "socketcan", "interface": "can0", "bitrate": 250000, "configure_link": true, "restart_ms": 100}`
+- **THEN** `canworks.json` has `adapter` `{"type": "socketcan", "interface": "can0", "bitrate": 250000, "configure_link": true, "restart_ms": 100}`
 
 #### Scenario: Bit rate outside CiA 301
 - **WHEN** a loaded config has `bitrate: 300000`
@@ -161,7 +161,7 @@ Every setting the plugin defaults when it is left out SHALL show that default on
 
 #### Scenario: Defaults shown
 - **WHEN** node 5 has TPDO 1 with no `cob_id` and no `transmission`, and a heartbeat of 100 ms with no timeout
-- **THEN** the COB-ID field shows `0x185`, the transmission dropdown shows "1: every SYNC (default)", and the timeout field shows `300`, and none of these values is written to `canopen.json`
+- **THEN** the COB-ID field shows `0x185`, the transmission dropdown shows "1: every SYNC (default)", and the timeout field shows `300`, and none of these values is written to `canworks.json`
 
 #### Scenario: Supervision method
 - **WHEN** the user picks node guarding for a node that has a heartbeat set
@@ -239,7 +239,7 @@ Before saving, the configurator SHALL run the deploy tool's checks: contract sch
 - **THEN** the Save button reads "Save (overlaps allowed)" and saving writes the config
 
 ### Requirement: Save only the project's canopen folder
-Saving SHALL write `canopen/canopen.json` and the imported EDS files under `canopen/`, and no other file. `canopen.json` SHALL be replaced atomically, carry `schema_version` 1 and keep fields the configurator does not know. The saved folder SHALL be accepted unchanged by the deploy tool's `--config` and by the editor-upload hook.
+Saving SHALL write `canworks/canworks.json` and the imported EDS files under `canworks/`, and no other file. `canworks.json` SHALL be replaced atomically, carry `schema_version` 1 and keep fields the configurator does not know. The saved folder SHALL be accepted unchanged by the deploy tool's `--config` and by the editor-upload hook.
 
 #### Scenario: Unknown field kept
 - **WHEN** a loaded config has a field the configurator does not know and the user changes a heartbeat and saves
@@ -247,14 +247,14 @@ Saving SHALL write `canopen/canopen.json` and the imported EDS files under `cano
 
 #### Scenario: Only canopen is touched
 - **WHEN** the user saves
-- **THEN** no file outside `canopen/` is created or modified
+- **THEN** no file outside `canworks/` is created or modified
 
 #### Scenario: Deploy tool reads the result
-- **WHEN** `openplc-canopen-deploy --config <project>/canopen/canopen.json` runs on a saved config
+- **WHEN** `canworks-deploy --config <project>/canworks/canworks.json` runs on a saved config
 - **THEN** its checks pass with no change to the file
 
 ### Requirement: Changes made outside the configurator
-If `canopen/canopen.json` changed on disk after the configurator loaded it, saving SHALL NOT overwrite it without the user confirming, and the user SHALL be able to reload the file from disk instead.
+If `canworks/canworks.json` changed on disk after the configurator loaded it, saving SHALL NOT overwrite it without the user confirming, and the user SHALL be able to reload the file from disk instead.
 
 #### Scenario: Edited in a text editor meanwhile
 - **WHEN** the file was edited by hand after the page loaded and the user presses save
@@ -359,7 +359,7 @@ The master settings SHALL have an "Online access" section that turns `master.dia
 
 #### Scenario: Enable online access
 - **WHEN** the user turns on online access in a project and saves
-- **THEN** `canopen.json` has `master.diagnostics` with `token_verifier` and neither the token nor `token_sha256`, and the configurator's settings hold the token for this project
+- **THEN** `canworks.json` has `master.diagnostics` with `token_verifier` and neither the token nor `token_sha256`, and the configurator's settings hold the token for this project
 
 #### Scenario: Token from another PC
 - **WHEN** the project already has `token_verifier` and this PC has no token for it
@@ -367,10 +367,10 @@ The master settings SHALL have an "Online access" section that turns `master.dia
 
 #### Scenario: Upgrade an old project
 - **WHEN** the project has `token_sha256`, this PC holds its token, and the user presses **Upgrade** and saves
-- **THEN** `canopen.json` has a `token_verifier` for the same token and no `token_sha256`, and the copied token still works after the next upload
+- **THEN** `canworks.json` has a `token_verifier` for the same token and no `token_sha256`, and the copied token still works after the next upload
 
 ### Requirement: Online view
-With online access set up, the configurator SHALL offer an online view that connects to the runtime over the encrypted channel, refreshes about twice a second, and shows the bus state and counters, the master state, and for each node its state, status bit, boot result with error text, retry and hold state, last EMCY with class, SDO variable values and status, and a mark on each monitored TPDO that is timed out with its timeout count, using the node names from the config. Opening a node SHALL show its EMCY history with times and CiA 301 error classes, and for each monitored TPDO its timeout, count and time since its last PDO. When the runtime's config fingerprint differs from the saved `canopen.json`, the view SHALL say that the runtime runs a different configuration. Connection failures SHALL be shown with the reason (host unreachable, port closed, wrong token, runtime could not prove the token, plugin too old for encryption, no CANopen session) and retried. While retrying after a connection that was working, the last values SHALL stay visible but greyed, with the age of the last data shown and updated, so stale values are never mistaken for live ones. The different-configuration note SHALL say how to upload the saved config (the deploy tool command) so it can be acted on. The connection line SHALL be a polite live region.
+With online access set up, the configurator SHALL offer an online view that connects to the runtime over the encrypted channel, refreshes about twice a second, and shows the bus state and counters, the master state, and for each node its state, status bit, boot result with error text, retry and hold state, last EMCY with class, SDO variable values and status, and a mark on each monitored TPDO that is timed out with its timeout count, using the node names from the config. Opening a node SHALL show its EMCY history with times and CiA 301 error classes, and for each monitored TPDO its timeout, count and time since its last PDO. When the runtime's config fingerprint differs from the saved `canworks.json`, the view SHALL say that the runtime runs a different configuration. Connection failures SHALL be shown with the reason (host unreachable, port closed, wrong token, runtime could not prove the token, plugin too old for encryption, no CANopen session) and retried. While retrying after a connection that was working, the last values SHALL stay visible but greyed, with the age of the last data shown and updated, so stale values are never mistaken for live ones. The different-configuration note SHALL say how to upload the saved config (the deploy tool command) so it can be acted on. The connection line SHALL be a polite live region.
 
 #### Scenario: Watch a node come back
 - **WHEN** the online view is open and node 23's cable is plugged back in
@@ -408,7 +408,7 @@ For each node the online view SHALL offer an SDO panel: pick an object from the 
 - **THEN** a dialog says the node's PDOs stop until it is started again, with Cancel as the default, and nothing is sent until the user confirms
 
 ### Requirement: Scan the bus and add nodes
-The configurator SHALL offer a scan page that runs a network scan through the runtime, shows progress, and lists each found device with node ID, vendor ID (with the vendor name when the EDS gives it), product code, revision, serial number, device name and its match against the config. For each device the page SHALL look for EDS files whose `[DeviceInfo]` VendorNumber and ProductNumber match, in the project's `canopen/` folder and in an optional EDS library folder set in the configurator's settings, preferring an exact RevisionNumber match. A not-configured device with a matching EDS SHALL be addable as a node with that node ID and EDS (imported into `canopen/` as an EDS import would), with an option to also set its identity check from the scanned values; a device without a matching EDS SHALL offer to pick an EDS file. Adding a node from the scan page SHALL open the new node's page with its name field focused, as "Add node from EDS…" does, and the message bar SHALL offer a way back to the scan results, which SHALL be kept. A "configured, different device" result SHALL show the differing fields side by side. Added nodes SHALL be saved only when the user saves.
+The configurator SHALL offer a scan page that runs a network scan through the runtime, shows progress, and lists each found device with node ID, vendor ID (with the vendor name when the EDS gives it), product code, revision, serial number, device name and its match against the config. For each device the page SHALL look for EDS files whose `[DeviceInfo]` VendorNumber and ProductNumber match, in the project's `canworks/` folder and in an optional EDS library folder set in the configurator's settings, preferring an exact RevisionNumber match. A not-configured device with a matching EDS SHALL be addable as a node with that node ID and EDS (imported into `canworks/` as an EDS import would), with an option to also set its identity check from the scanned values; a device without a matching EDS SHALL offer to pick an EDS file. Adding a node from the scan page SHALL open the new node's page with its name field focused, as "Add node from EDS…" does, and the message bar SHALL offer a way back to the scan results, which SHALL be kept. A "configured, different device" result SHALL show the differing fields side by side. Added nodes SHALL be saved only when the user saves.
 
 #### Scenario: Add a found sensor
 - **WHEN** the scan finds node 40 (vendor 0x000000AB, product 0x00001234) not configured, and the EDS library folder has an EDS with those numbers
@@ -465,7 +465,7 @@ The page header SHALL offer a Light / Dark / Auto choice. Auto SHALL follow the 
 
 #### Scenario: Nothing written to the project
 - **WHEN** the user changes the theme and saves the config
-- **THEN** `canopen.json` and the project folder are unchanged by the theme choice
+- **THEN** `canworks.json` and the project folder are unchanged by the theme choice
 
 ### Requirement: Fields and buttons fit their content
 On every view, at window widths from 1000 px up, no input, dropdown or button SHALL clip its value, placeholder, selected choice or label, and no view SHALL need horizontal scrolling. Dropdowns SHALL be as wide as their longest choice up to the width of their column. A button SHALL NOT wrap its label. Buttons that belong to one row (move up, move down, remove; Read and Write) SHALL stay on one line, and an object picker's "by hand" index, subindex and Add controls SHALL stay together. Buttons in table rows SHALL be vertically centred with the row's text.
@@ -554,8 +554,8 @@ The page header SHALL have an "Export DBC" action. It SHALL run the `canopen-dbc
 In standalone mode the page SHALL offer "New editor project" next to "move into project". It SHALL ask for a parent folder (prefilled with the home folder, as "move into project" does), a project name, the task interval (default `T#20ms`) and whether to enable the CANopen SDO blocks (unchecked by default), create the project as `canopen-editor-project` describes, and then switch to project mode on the new project. It SHALL require the config to be saved first and SHALL show the reason when creation is refused. The standalone folder SHALL be left unchanged.
 
 #### Scenario: Create and switch
-- **WHEN** the user has saved a standalone config in `~/canopen/rtd`, chooses "New editor project", picks `~/workspace` and the name `rtd-monitor`
-- **THEN** `~/workspace/rtd-monitor` is created with the config in its `canopen/` folder and `main` declaring its I/O, and the page shows mode "project rtd-monitor" with every CANopen entry marked as declared
+- **WHEN** the user has saved a standalone config in `~/canworks/rtd`, chooses "New editor project", picks `~/workspace` and the name `rtd-monitor`
+- **THEN** `~/workspace/rtd-monitor` is created with the config in its `canworks/` folder and `main` declaring its I/O, and the page shows mode "project rtd-monitor" with every CANopen entry marked as declared
 
 #### Scenario: SDO blocks enabled
 - **WHEN** the user ticks "Enable CANopen SDO blocks" in the dialog
@@ -888,7 +888,7 @@ The configurator SHALL have a **Simulation** view that connects to the runtime's
 
 #### Scenario: Save behaviour
 - **WHEN** a user gives 0x6401:1 a sine in the view and presses **Save to simulation file**
-- **THEN** `canopen/simulation.json` has that source and the next simulated start uses it
+- **THEN** `canworks/simulation.json` has that source and the next simulated start uses it
 
 #### Scenario: Save one network's section
 - **WHEN** the config has networks `io` and `motion`, the picker shows `motion`, and the user saves a drive setting for node 4
@@ -959,11 +959,11 @@ The slave device page SHALL edit node ID (or LSS), the EDS (pick a file, or buil
 - **THEN** the row suggests a free `%QW` location and refuses an `%I` one
 
 ### Requirement: Build the slave EDS in the configurator
-The page SHALL have an object list editor (name, type, direction, default, limits), identity fields and a layout choice, and SHALL generate the EDS with the same generator as `slave-eds` into the project's `canopen/` folder, then offer to bind every generated object to suggested locations.
+The page SHALL have an object list editor (name, type, direction, default, limits), identity fields and a layout choice, and SHALL generate the EDS with the same generator as `slave-eds` into the project's `canworks/` folder, then offer to bind every generated object to suggested locations.
 
 #### Scenario: Build and bind
 - **WHEN** the user enters four objects, generates and accepts the suggested bindings
-- **THEN** `canopen/` has the EDS and the config binds all four objects
+- **THEN** `canworks/` has the EDS and the config binds all four objects
 
 ### Requirement: Export the slave EDS
 The page SHALL have an **Export EDS** button that saves the slave's EDS for import into the other master's tool, with a file name from the device name.

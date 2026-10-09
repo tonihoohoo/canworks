@@ -7,7 +7,7 @@
 # driven by its EDS (config/rtd-sensor/rtd8.eds), with every PDO
 # mapping blank, so the only PDO map the device ends up with is the one the
 # master writes from config/rtd-sensor/canopen_config.json. Then loads the real
-# libcanopen_plugin.so through canopen_host with the rtd program. Passes (exit
+# libcanworks_plugin.so through canopen_host with the rtd program. Passes (exit
 # 0) when the node status bit %IX10.0 is TRUE and %IW100-%IW103 follow the
 # simulated temperatures, and (with candump) TPDO 1 carries the four 16-bit
 # temperatures, TPDO 2 the four status bytes, and the device's TPDO 3 and 4
@@ -39,7 +39,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/sensor_slave"
 for f in "$PLUGIN" "$HOST" "$SLAVE"; do

@@ -8,7 +8,7 @@
     "dataTypes": [],
     "libraries": [
       {
-        "name": "openplc_canopen",
+        "name": "canworks",
         "version": "0.38.0"
       }
     ],

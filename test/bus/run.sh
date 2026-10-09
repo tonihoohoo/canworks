@@ -3,7 +3,7 @@
 #
 #   test/bus/run.sh [--build-dir build] [--iface vcan0]
 #
-# Loads the real libcanopen_plugin.so through canopen_host with the ping-pong
+# Loads the real libcanworks_plugin.so through canopen_host with the ping-pong
 # config plus master.bus_state_location %IB110, then takes the interface down
 # and brings it up again (sudo). Passes (exit 0) when %IB110 reads 1 while
 # the bus runs, 0 while the interface is down, and 1 again after it is back.
@@ -30,7 +30,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanopen_plugin.so"
+PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 for f in "$PLUGIN" "$HOST"; do
     [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }

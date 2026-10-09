@@ -1,12 +1,12 @@
 # canopen-plc-sdo Specification
 
 ## Purpose
-SDO transfers the PLC program starts at run time: the `openplc_canopen` editor library's function blocks read or write any object of any node through the running CANopen plugin, without stalling the scan.
+SDO transfers the PLC program starts at run time: the `canworks` editor library's function blocks read or write any object of any node through the running CANopen plugin, without stalling the scan.
 
 ## Requirements
 
 ### Requirement: SDO function blocks
-The editor library `openplc_canopen` SHALL provide the function blocks `CO_SDO_READ`, `CO_SDO_WRITE`, `CO_SDO_READ_REAL`, `CO_SDO_WRITE_REAL`, `CO_SDO_READ_STRING`, `CO_SDO_WRITE_STRING`, `CO_SDO_READ_BYTES` and `CO_SDO_WRITE_BYTES`. Every block SHALL have the inputs `EXECUTE : BOOL`, `NETWORK : USINT`, `NODE : USINT`, `INDEX : UINT`, `SUBINDEX : USINT` and `TIMEOUT : TIME` (`T#0s` meaning 1 s), and the outputs `BUSY : BOOL`, `DONE : BOOL`, `ERROR : BOOL`, `ERROR_ID : UINT` and `ABORT_CODE : UDINT`. The data pins SHALL be:
+The editor library `canworks` SHALL provide the function blocks `CO_SDO_READ`, `CO_SDO_WRITE`, `CO_SDO_READ_REAL`, `CO_SDO_WRITE_REAL`, `CO_SDO_READ_STRING`, `CO_SDO_WRITE_STRING`, `CO_SDO_READ_BYTES` and `CO_SDO_WRITE_BYTES`. Every block SHALL have the inputs `EXECUTE : BOOL`, `NETWORK : USINT`, `NODE : USINT`, `INDEX : UINT`, `SUBINDEX : USINT` and `TIMEOUT : TIME` (`T#0s` meaning 1 s), and the outputs `BUSY : BOOL`, `DONE : BOOL`, `ERROR : BOOL`, `ERROR_ID : UINT` and `ABORT_CODE : UDINT`. The data pins SHALL be:
 - `CO_SDO_READ`: out `DATA : LWORD`, `SIZE : UINT`; `CO_SDO_WRITE`: in `DATA : LWORD`, `SIZE : USINT`.
 - `CO_SDO_READ_REAL`: out `VALUE : LREAL`; `CO_SDO_WRITE_REAL`: in `VALUE : LREAL`, `SIZE : USINT`.
 - `CO_SDO_READ_STRING`: out `VALUE : STRING`; `CO_SDO_WRITE_STRING`: in `VALUE : STRING`.
@@ -163,7 +163,7 @@ The blocks SHALL reach the plugin the runtime has already loaded, by its library
 - **THEN** every block ends with `ERROR_ID` 4, and the plugin logs once that the program's CANopen library needs a newer plugin, naming both versions
 
 #### Scenario: Plugin installed under another prefix
-- **WHEN** the plugin was installed with `install-stock.sh --prefix /usr/local/openplc-canopen`
+- **WHEN** the plugin was installed with `install-stock.sh --prefix /usr/local/canworks`
 - **THEN** the blocks find it and transfers work
 
 ### Requirement: Writes to objects the plugin configures
@@ -181,12 +181,12 @@ The plugin SHALL log an aborted or timed-out program transfer with the node, the
 - **THEN** the log shows that abort once
 
 ### Requirement: Library delivery
-The library SHALL be built from its editor library project in this repository into `openplc_canopen.stlib`. Each `deploy-v` release SHALL carry that file, `openplc-canopen-deploy library --out DIR` SHALL write the copy that matches the installed tools into `DIR`, `openplc-canopen-deploy library --install` SHALL install that copy into OpenPLC Editor on the same computer as the editor's Library Manager does, and `openplc-canopen-deploy library --project DIR` SHALL enable it in an editor project. The library's version SHALL equal the deploy package version. Installing it once with the editor's Library Manager ("install from file") SHALL make the blocks appear in the editor's library tree for every project that enables it.
+The library SHALL be built from its editor library project in this repository into `canworks.stlib`. Each `deploy-v` release SHALL carry that file, `canworks-deploy library --out DIR` SHALL write the copy that matches the installed tools into `DIR`, `canworks-deploy library --install` SHALL install that copy into OpenPLC Editor on the same computer as the editor's Library Manager does, and `canworks-deploy library --project DIR` SHALL enable it in an editor project. The library's version SHALL equal the deploy package version. Installing it once with the editor's Library Manager ("install from file") SHALL make the blocks appear in the editor's library tree for every project that enables it.
 
 #### Scenario: Install in the editor
-- **WHEN** the user runs `openplc-canopen-deploy library --out .` and installs the written file in OpenPLC Editor 4.3.2
-- **THEN** the library tree lists `openplc_canopen` with the eight blocks, and a project that enables it and calls `CO_SDO_READ` builds for OpenPLC Runtime v4
+- **WHEN** the user runs `canworks-deploy library --out .` and installs the written file in OpenPLC Editor 4.3.2
+- **THEN** the library tree lists `canworks` with the eight blocks, and a project that enables it and calls `CO_SDO_READ` builds for OpenPLC Runtime v4
 
 #### Scenario: Install from the command line
-- **WHEN** the user runs `openplc-canopen-deploy library --install` on a PC where OpenPLC Editor has run, then restarts the editor
-- **THEN** the editor's library list shows `openplc_canopen` with the tools' version, and libraries installed before are still listed
+- **WHEN** the user runs `canworks-deploy library --install` on a PC where OpenPLC Editor has run, then restarts the editor
+- **THEN** the editor's library list shows `canworks` with the tools' version, and libraries installed before are still listed

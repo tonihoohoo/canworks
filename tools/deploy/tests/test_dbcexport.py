@@ -1,4 +1,4 @@
-"""DBC export (openplc_canopen_deploy.dbcexport): messages and signals from the
+"""DBC export (canworks.dbcexport): messages and signals from the
 config and the EDS files, names, the SDO option, the DBC text (golden files),
 and a strict load in cantools when it is installed."""
 
@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from openplc_canopen_deploy import cli, dbcexport
+from canworks import cli, dbcexport
 
 from .test_contract import FIXTURES, REPO, load_cases
 
@@ -22,7 +22,7 @@ except ImportError:  # CI installs it; locally the cantools test is skipped
     cantools = None
 
 EDS_DIR = os.path.join(FIXTURES, "eds")
-FIXTURE_CONFIG = os.path.join(EDS_DIR, "canopen.json")
+FIXTURE_CONFIG = os.path.join(EDS_DIR, "canworks.json")
 GOLDEN = os.path.join(os.path.dirname(__file__), "data", "dbc")
 RTD = os.path.join(REPO, "config", "rtd-sensor", "canopen_config.json")
 PINGPONG = os.path.join(REPO, "config", "pingpong", "canopen_config.json")
@@ -107,7 +107,7 @@ class Names(unittest.TestCase):
             text = f.read().replace("ParameterName=Read inputs 0x1", "ParameterName=Read inputs 8-bit 1")
         with open(os.path.join(tmp, "fixed-io.eds"), "w", encoding="utf-8") as f:
             f.write(text)
-        m = model(fixed_io_config(), os.path.join(tmp, "canopen.json"))
+        m = model(fixed_io_config(), os.path.join(tmp, "canworks.json"))
         self.assertEqual(message(m, "pingpong_TPDO1").signals[0].name, "Read_inputs_8_bit_1")
 
     def test_plc_variable_name(self):
@@ -125,7 +125,7 @@ class Names(unittest.TestCase):
         self.assertIn("(lamp, valve)", rpdo.signals[0].comment)
 
     def test_plc_names_from_editor_project(self):
-        from openplc_canopen_deploy.configurator import scan
+        from canworks.configurator import scan
         uses, _ = scan.scan(EDITOR_PROJECT)
         self.assertEqual(dbcexport.plc_names(uses).get("%IX10.1"), ["door_ok"])
 
@@ -134,12 +134,12 @@ class Names(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp)
         project = os.path.join(tmp, "proj")
         shutil.copytree(EDITOR_PROJECT, project)
-        os.makedirs(os.path.join(project, "canopen"))
-        self.assertEqual(dbcexport.project_names(os.path.join(project, "canopen", "canopen.json"))["%IX10.1"],
+        os.makedirs(os.path.join(project, "canworks"))
+        self.assertEqual(dbcexport.project_names(os.path.join(project, "canworks", "canworks.json"))["%IX10.1"],
                          ["door_ok"])
-        self.assertIsNone(dbcexport.project_names(os.path.join(project, "canopen.json")))
+        self.assertIsNone(dbcexport.project_names(os.path.join(project, "canworks.json")))
         os.remove(os.path.join(project, "project.json"))
-        self.assertIsNone(dbcexport.project_names(os.path.join(project, "canopen", "canopen.json")))
+        self.assertIsNone(dbcexport.project_names(os.path.join(project, "canworks", "canworks.json")))
 
 
 class Pdos(unittest.TestCase):
@@ -180,7 +180,7 @@ class Pdos(unittest.TestCase):
             text = f.read().replace("DefaultValue=0x60000108", "DefaultValue=0x00050008", 1)
         with open(os.path.join(tmp, "fixed-io.eds"), "w", encoding="utf-8") as f:
             f.write(text)
-        m = model(fixed_io_config(), os.path.join(tmp, "canopen.json"))
+        m = model(fixed_io_config(), os.path.join(tmp, "canworks.json"))
         tpdo = message(m, "pingpong_TPDO1")
         self.assertEqual([(s.start, s.length) for s in tpdo.signals], [(8, 8)])
         self.assertEqual(tpdo.length, 2)
@@ -340,7 +340,7 @@ class Cli(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         shutil.copytree(EDS_DIR, os.path.join(tmp, "eds"))
-        path = os.path.join(tmp, "eds", "canopen.json")
+        path = os.path.join(tmp, "eds", "canworks.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         return tmp, path
@@ -369,13 +369,13 @@ class Cli(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp)
         project = os.path.join(tmp, "proj")
         shutil.copytree(EDITOR_PROJECT, project)
-        shutil.copytree(EDS_DIR, os.path.join(project, "canopen"))
+        shutil.copytree(EDS_DIR, os.path.join(project, "canworks"))
         cfg = base_config()
         cfg["nodes"][0]["tx_pdos"] = [{"entries": [
             {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID10"}]}]
         with open(os.path.join(project, "pous", "programs", "main.st"), "a", encoding="utf-8") as f:
             f.write("\nPROGRAM other\n  VAR\n    ping AT %ID10 : UDINT;\n  END_VAR\nEND_PROGRAM\n")
-        path = os.path.join(project, "canopen", "canopen.json")
+        path = os.path.join(project, "canworks", "canworks.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         out_file = os.path.join(tmp, "bus.dbc")
@@ -451,7 +451,7 @@ class CantoolsStrict(unittest.TestCase):
                               {"index": "0x6041", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%IW10"}]}],
                           "rx_pdos": [{"number": 1, "entries": [
                               {"index": "0x6040", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%QW10"}]}]}]}
-        text, _ = dbcexport.export(cfg, os.path.join(tmp, "canopen.json"), sdo="all")
+        text, _ = dbcexport.export(cfg, os.path.join(tmp, "canworks.json"), sdo="all")
         db = cantools.database.load_string(text, strict=True)
         self.assertGreater(len(db.get_message_by_frame_id(0x603).signals), 100)
 

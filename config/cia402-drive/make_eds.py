@@ -75,13 +75,13 @@ def servo402():
     w = e.w
     w("[FileInfo]")
     for line in ("FileName=servo402.eds", "FileVersion=1", "FileRevision=1", "EDSVersion=4.0",
-                 "Description=Made-up CiA 402 servo drive for the openplc-canopen CiA 402 example",
-                 "CreationTime=12:00PM", "CreationDate=10-06-2026", "CreatedBy=openplc-canopen",
-                 "ModificationTime=12:00PM", "ModificationDate=10-06-2026", "ModifiedBy=openplc-canopen"):
+                 "Description=Made-up CiA 402 servo drive for the canworks CiA 402 example",
+                 "CreationTime=12:00PM", "CreationDate=10-06-2026", "CreatedBy=canworks",
+                 "ModificationTime=12:00PM", "ModificationDate=10-06-2026", "ModifiedBy=canworks"):
         w(line)
     w()
     w("[DeviceInfo]")
-    for line in ("VendorName=openplc-canopen example devices", "VendorNumber=0x00F0F402",
+    for line in ("VendorName=canworks example devices", "VendorNumber=0x00F0F402",
                  "ProductName=Example servo drive SD-402", "ProductNumber=0x00000402", "RevisionNumber=0x00010000",
                  "OrderCode=SD-402"):
         w(line)

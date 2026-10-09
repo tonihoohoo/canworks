@@ -9,18 +9,18 @@ Commissioning CANopen devices straight from the engineering PC through a USB CAN
 The PC tools package SHALL include a local bus backend that opens a CAN adapter on the PC and answers the diagnostics operations `hello`, `status`, `emcy`, `sdo_read`, `sdo_write`, `nmt`, `scan`, `scan_status`, `lss_find`, `lss_find_status`, `lss_inquire`, `lss_set_id`, `lss_set_bitrate`, `trace_start`, `trace_fetch`, `trace_stop`, `send_frame`, `send_frame_stop`, `detect_bitrate`, `detect_bitrate_status`, `pdo_test_start`, `pdo_test_set`, `pdo_test_status`, `pdo_test_stop`, `sync_start` and `sync_stop`, with the same request fields and result fields as the plugin's diagnostics channel except where this spec says otherwise. Any other operation SHALL answer `not available on a local adapter`. It SHALL need no OpenPLC Runtime, and no Python on the PC beyond what uv installs.
 
 #### Scenario: Read a device with no PLC
-- **WHEN** a CANopen device with node ID 5 is the only node on a bus with a USB adapter on the PC, and the user runs `openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 sdo-read 5 0x1018 1 --type UNSIGNED32`
+- **WHEN** a CANopen device with node ID 5 is the only node on a bus with a USB adapter on the PC, and the user runs `canworks-diag --adapter slcan:COM5 --bitrate 250 sdo-read 5 0x1018 1 --type UNSIGNED32`
 - **THEN** it prints the device's vendor ID, and no runtime is involved
 
 #### Scenario: Simulator op on a local adapter
-- **WHEN** `openplc-canopen-diag --adapter socketcan:can0 --bitrate 250 sim status` runs
+- **WHEN** `canworks-diag --adapter socketcan:can0 --bitrate 250 sim status` runs
 - **THEN** it exits with status 1 and says that this needs a runtime
 
 ### Requirement: Supported adapters
-The backend SHALL support `slcan` adapters (serial-line adapters such as a CANable with stock firmware) on Windows, macOS and Linux, and `socketcan` interfaces on Linux, selected as `TYPE:CHANNEL`. It SHALL pass any other adapter type that python-can knows to python-can, with `--adapter-option KEY=VALUE` options, and the documentation SHALL list those types as untested. `openplc-canopen-diag adapters` SHALL list the serial ports and python-can interfaces it finds, marking known slcan adapters.
+The backend SHALL support `slcan` adapters (serial-line adapters such as a CANable with stock firmware) on Windows, macOS and Linux, and `socketcan` interfaces on Linux, selected as `TYPE:CHANNEL`. It SHALL pass any other adapter type that python-can knows to python-can, with `--adapter-option KEY=VALUE` options, and the documentation SHALL list those types as untested. `canworks-diag adapters` SHALL list the serial ports and python-can interfaces it finds, marking known slcan adapters.
 
 #### Scenario: CANable on a Mac
-- **WHEN** a CANable with stock firmware is plugged into a Mac and the user runs `openplc-canopen-diag adapters`
+- **WHEN** a CANable with stock firmware is plugged into a Mac and the user runs `canworks-diag adapters`
 - **THEN** the list shows its `/dev/tty.usbmodem...` port as an slcan adapter, with the `--adapter slcan:...` text to use
 
 #### Scenario: Unknown adapter type
@@ -31,11 +31,11 @@ The backend SHALL support `slcan` adapters (serial-line adapters such as a CANab
 Opening an adapter SHALL need a bit rate from `--bitrate` or from the selected network's `adapter.bitrate` in `--config`. Without either, the command SHALL exit with status 1 and say so. On a SocketCAN interface that is already up, the interface's own bit rate SHALL be used and reported, and the interface SHALL NOT be reconfigured.
 
 #### Scenario: No bit rate
-- **WHEN** `openplc-canopen-diag --adapter slcan:COM5 scan` runs without `--bitrate` or `--config`
+- **WHEN** `canworks-diag --adapter slcan:COM5 scan` runs without `--bitrate` or `--config`
 - **THEN** it exits with status 1, says that the bit rate is needed, and sends nothing
 
 #### Scenario: Bit rate from the config
-- **WHEN** `--config canopen/canopen.json --network drives` is given and that network's `adapter.bitrate` is 500000
+- **WHEN** `--config canworks/canworks.json --network drives` is given and that network's `adapter.bitrate` is 500000
 - **THEN** the adapter is opened at 500 kbit/s
 
 ### Requirement: Guest on the bus
@@ -64,7 +64,7 @@ The backend SHALL detect another master from NMT command frames, SYNC frames, or
 `sdo_write`, `nmt` and the `lss_` operations except `lss_find_status` SHALL answer `changes not allowed` unless the session was opened with allow-changes (CLI `--allow-changes`, or the configurator's checkbox for this connection, which starts off and is not saved). The backend SHALL NOT write 0x1010 or send LSS store on its own. Storing SHALL happen only through `store` (which asks first) or an LSS request with `store: true`.
 
 #### Scenario: Read-only by default
-- **WHEN** `openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 nmt 5 stop` runs without `--allow-changes`
+- **WHEN** `canworks-diag --adapter slcan:COM5 --bitrate 250 nmt 5 stop` runs without `--allow-changes`
 - **THEN** it exits with status 1 with "changes not allowed (start with --allow-changes)" and sends no frame
 
 #### Scenario: LSS set ID does not store
@@ -100,25 +100,25 @@ On a local adapter `nmt` SHALL accept any node ID 1-127, send the command once a
 `trace_start`, `trace_fetch` and `trace_stop` SHALL record the adapter's received frames and the frames this tool sent (Tx flag set) in the plugin's 24-byte record format, in a ring of 65536 records, with up to 16 ID and mask filters and error frames on request when the adapter delivers them. Time stamps SHALL come from the adapter when it gives them, otherwise from the PC clock. Trace export (pcapng, candump, ASC, BLF, TRC, CSV) and the configurator's Trace view SHALL work unchanged.
 
 #### Scenario: Record from the PC
-- **WHEN** `openplc-canopen-diag --adapter socketcan:can0 --bitrate 250 trace -o bench.pcapng --duration 10` runs
+- **WHEN** `canworks-diag --adapter socketcan:can0 --bitrate 250 trace -o bench.pcapng --duration 10` runs
 - **THEN** `bench.pcapng` holds the bus frames of those 10 seconds with CANopen decoding available as for a runtime trace
 
 ### Requirement: Device parameters on a local adapter
 `backup`, `compare`, `restore` and `store` SHALL work on a local adapter as on a runtime, with the node's EDS from `--config` or `--eds`.
 
 #### Scenario: Back up before a PLC exists
-- **WHEN** `openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 backup 5 --eds valve.eds -o node5.dcf` runs
+- **WHEN** `canworks-diag --adapter slcan:COM5 --bitrate 250 backup 5 --eds valve.eds -o node5.dcf` runs
 - **THEN** `node5.dcf` is written as it would be through a runtime
 
 ### Requirement: One user of an adapter
 An adapter SHALL be opened by one tool at a time. A second tool opening it SHALL get `adapter in use (another tool has it open)`. The configurator SHALL close an adapter it no longer uses after the same idle time as a runtime connection.
 
 #### Scenario: Configurator holds the adapter
-- **WHEN** the configurator's online view uses `slcan:COM5` and the user runs `openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 status`
+- **WHEN** the configurator's online view uses `slcan:COM5` and the user runs `canworks-diag --adapter slcan:COM5 --bitrate 250 status`
 - **THEN** the CLI exits with status 1 and says that the adapter is in use
 
 ### Requirement: Command-line options for a local adapter
-`openplc-canopen-diag` SHALL take `--adapter TYPE:CHANNEL`, `--bitrate KBIT`, `--adapter-option KEY=VALUE` (repeatable), `--allow-changes` and `--force`. `--adapter` and `--runtime` SHALL be mutually exclusive. With `--adapter`, no token SHALL be asked for. `--network NAME` with `--config` SHALL pick the network whose bit rate and EDS files are used.
+`canworks-diag` SHALL take `--adapter TYPE:CHANNEL`, `--bitrate KBIT`, `--adapter-option KEY=VALUE` (repeatable), `--allow-changes` and `--force`. `--adapter` and `--runtime` SHALL be mutually exclusive. With `--adapter`, no token SHALL be asked for. `--network NAME` with `--config` SHALL pick the network whose bit rate and EDS files are used.
 
 #### Scenario: Both targets given
 - **WHEN** `--runtime plc.local --adapter slcan:COM5` are both given
@@ -142,7 +142,7 @@ CI SHALL test the backend on python-can's virtual bus with a fake device on ever
 On a local adapter, `send_frame` SHALL send one frame, or start a cyclic job, with the plugin's fields (`can_id`, `ext`, `rtr`, `dlc`, `data`, `period_ms`, `count`, `force`) and answers, through the backend's one transmit path, so the frames appear in a trace marked Tx. It SHALL be refused with "changes not allowed" unless the session allows changes. With changes allowed, it SHALL be refused unless the request carries `force: true` when the identifier is NMT, SYNC, TIME or LSS, or, with a config, the predefined EMCY, PDO, SDO or heartbeat identifier of a configured node, or while another master is detected on the bus, or while a node's last heartbeat within 30 seconds said OPERATIONAL; the refusal SHALL name the reason and end with "force needed". Extended identifiers SHALL never count as used. Single frames SHALL be limited to 50 per second per connection and cyclic jobs to 8 per adapter, with a period of 10-60000 ms; a job SHALL end after its count, on `send_frame_stop`, when its connection closes, when a send fails, or after 10 minutes. `send_frame_stop` SHALL stop the connection's own jobs and report each job's sent count and why it ended, also for a job that ended in the last 60 seconds. `status` SHALL list the adapter's cyclic jobs under `send_jobs`.
 
 #### Scenario: Frame to an unconfigured device
-- **WHEN** `openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 --allow-changes send 0x60A "40 18 10 01 00 00 00 00"` runs and no node is OPERATIONAL
+- **WHEN** `canworks-diag --adapter slcan:COM5 --bitrate 250 --allow-changes send 0x60A "40 18 10 01 00 00 00 00"` runs and no node is OPERATIONAL
 - **THEN** the frame is sent once and the command exits 0
 
 #### Scenario: Identifier of a configured node
@@ -161,7 +161,7 @@ On a local adapter, `send_frame` SHALL send one frame, or start a cyclic job, wi
 On a local adapter, `detect_bitrate` SHALL answer at once with progress and sweep in the background: for each requested rate (default 1000, 800, 500, 250, 125, 50, 20 and 10 kbit/s) and round (`rounds` 1-20, `per_rate_ms` 100-10000, default 1000) it SHALL open the adapter in listen-only mode and count valid frames, error frames (when the adapter reports them) and the first 16 identifiers, stop early after a round with a `detected` verdict, and then open the adapter again at the connection's bit rate so the connection keeps working. `detect_bitrate_status` SHALL return the progress and, when finished, the per-rate counts and the plugin's verdict (`detected`, `ambiguous`, `silent`, `failed`) computed by the same rules, with `matches_config` against the connection's bit rate; a `silent` verdict SHALL carry the hint that a lone device needs the lone-device sweep or a second device that acknowledges. Because listen-only sends nothing, not even an acknowledge, it SHALL need neither allow-changes nor `force`. Rates the adapter type cannot be set to (on slcan, any but 10, 20, 50, 100, 125, 250, 500, 750 and 1000 kbit/s) SHALL NOT be tried; the result SHALL list only the rates listened at and name the left-out ones in `skipped_kbit`, and a sweep with no rate left SHALL be refused naming them. It SHALL be refused with "busy" when another connection of the same tool uses the adapter. While it runs, other operations except `status` SHALL answer "no bus", and the adapter's cyclic jobs SHALL end. Listen-only SHALL be: on slcan, silent mode (`m1`, then `O`) when the firmware answers `m1` with CR, the channel opened with `L` instead of `O` when it refuses `m1` with an error (BEL), with `m0` sent when the channel is closed after silent mode and before a normal `O`; when the firmware leaves `m1` unanswered it cannot confirm listen-only, and the sweep SHALL be refused with a reason ending in "disturb_bus needed" unless the request has `disturb_bus: true`, which opens it with `m1` then `O`; PCAN with its listen-only parameter, and SocketCAN by setting the link to the rate with listen-only on, which needs root or CAP_NET_ADMIN, and setting it back to its bit rate, listen-only off and its up or down state afterwards. Without that permission the request SHALL be refused naming it and the `sudo` command; on a vcan interface it SHALL be refused with "no bit rate on a virtual bus"; on other adapter types, and on a driver that rejects listen-only, with "the adapter's driver has no listen-only mode".
 
 #### Scenario: Unknown bus from the PC
-- **WHEN** a device sends heartbeats at 250 kbit/s, a second device on the bus acknowledges its frames, and `openplc-canopen-diag --adapter slcan:COM5 --bitrate 500 detect-bitrate` runs
+- **WHEN** a device sends heartbeats at 250 kbit/s, a second device on the bus acknowledges its frames, and `canworks-diag --adapter slcan:COM5 --bitrate 500 detect-bitrate` runs
 - **THEN** it prints `250 kbit/s detected`, no frame and no acknowledge came from the PC during the sweep, and the adapter is open at 500 kbit/s again afterwards
 
 #### Scenario: Lone device without lone-device mode
@@ -191,7 +191,7 @@ The configurator's USB adapter connect box SHALL have "Detect" next to the bit r
 On a local adapter, `detect_bitrate` with `lone_device: true` (CLI `detect-bitrate --lone-device`) SHALL open the adapter in normal mode at each rate, so that it acknowledges frames, and count valid frames, error frames and identifiers as the listen-only sweep does, with the same verdict rules and early stop. With `probe` (`"lss"`, or `{"sdo": NODE}`; CLI `--probe lss` or `--probe sdo:NODE`) it SHALL send, when no valid frame came in the first half of the rate's listening time, one probe at that rate: for `lss`, LSS switch state global to configuration, inquire node ID, and switch state global back to waiting; for `sdo`, an SDO upload request of 0x1000 subindex 0 to the node. The sweep SHALL need allow-changes; it SHALL be refused, sending nothing, while another master is detected or when frames from more than one node ID were heard in the last 30 seconds; and when the detected rate shows more than one node ID, the result SHALL warn that the bus is not a lone device. The adapter SHALL be opened again at the connection's bit rate afterwards. On a runtime, `lone_device` SHALL be refused with "only on a USB adapter".
 
 #### Scenario: Lone device on the bench
-- **WHEN** the only device on the bus runs at 125 kbit/s with heartbeats and `openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 --allow-changes detect-bitrate --lone-device` runs
+- **WHEN** the only device on the bus runs at 125 kbit/s with heartbeats and `canworks-diag --adapter slcan:COM5 --bitrate 250 --allow-changes detect-bitrate --lone-device` runs
 - **THEN** it prints `125 kbit/s detected` and the adapter is open at 250 kbit/s again afterwards
 
 #### Scenario: Quiet device without node ID
@@ -206,7 +206,7 @@ On a local adapter, `detect_bitrate` with `lone_device: true` (CLI `detect-bitra
 On a local adapter, with allow-changes, `pdo_test_start` SHALL take a node and its PDO layout (TPDOs and RPDOs with COB-ID, transmission type, event timer and entries with index, subindex, bit length, type and name); the CLI and configurator SHALL build the layout from `--config` for a configured node or by reading the device's PDO communication and mapping objects over SDO, with names and types from the EDS, keeping only PDOs whose COB-ID has bit 31 clear. `pdo_test_status` SHALL return per TPDO the last reception time, count, the measured period and the decoded values, and per RPDO the values in force and the sent count. `pdo_test_set` SHALL set RPDO entry values by name or index and subindex; an event-driven RPDO (transmission type 254 or 255) SHALL be sent on each set and then every `repeat_ms` when given, and a synchronous RPDO (0-240) after each SYNC the PC sends. `sync_start` SHALL send SYNC every `period_ms` (1-10000) with an optional counter (2-240), on the COB-ID from the device's 0x1005 when read, else 0x080, and `sync_stop` SHALL stop it. These operations SHALL be refused while another master is detected unless the request has `force: true`, and SHALL stop, saying why, when another master appears, on `pdo_test_stop` or `sync_stop`, and when the connection closes. All frames SHALL go through the single transmit path. One PDO test per node and one SYNC producer per adapter SHALL run at a time.
 
 #### Scenario: Try a digital output module
-- **WHEN** node 5's RPDO1 maps 0x6200:01 (UNSIGNED8), the user starts node 5, starts a PDO test and runs `openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 --allow-changes pdo-test 5 --set 0x6200:01=0x0F`
+- **WHEN** node 5's RPDO1 maps 0x6200:01 (UNSIGNED8), the user starts node 5, starts a PDO test and runs `canworks-diag --adapter slcan:COM5 --bitrate 250 --allow-changes pdo-test 5 --set 0x6200:01=0x0F`
 - **THEN** one frame 0x205 with data `0F` is sent and the trace shows it as Tx
 
 #### Scenario: Read inputs with SYNC

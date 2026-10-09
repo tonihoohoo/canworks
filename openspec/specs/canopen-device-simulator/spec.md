@@ -6,7 +6,7 @@ A simulated CANopen device built from an EDS or DCF that behaves on the bus as t
 ## Requirements
 
 ### Requirement: Device built from its EDS or DCF
-A simulated device SHALL be built from one EDS or DCF file and a node ID. Its object dictionary, data types, access types, default values, PDO communication and mapping parameters, heartbeat or node guarding, SDO server, EMCY producer and identity (0x1018) SHALL be the ones the file describes. With a DCF, each `ParameterValue` SHALL be the object's starting value, so a parameter backup made with `openplc-canopen-diag backup` starts a device with the backed-up values. A file that fails the CiA 306 lint the plugin uses SHALL be refused with the lint's messages.
+A simulated device SHALL be built from one EDS or DCF file and a node ID. Its object dictionary, data types, access types, default values, PDO communication and mapping parameters, heartbeat or node guarding, SDO server, EMCY producer and identity (0x1018) SHALL be the ones the file describes. With a DCF, each `ParameterValue` SHALL be the object's starting value, so a parameter backup made with `canworks-diag backup` starts a device with the backed-up values. A file that fails the CiA 306 lint the plugin uses SHALL be refused with the lint's messages.
 
 #### Scenario: Device from an EDS
 - **WHEN** a device is simulated from `config/rtd-sensor/rtd8.eds` as node 5

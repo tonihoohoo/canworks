@@ -34,8 +34,8 @@ def run(*args):
 
 
 def configurator(out):
-    env = dict(os.environ, OPENPLC_CANOPEN_CONFIG_DIR=os.path.join(out, "config-dir"))
-    p = subprocess.Popen([tool("openplc-canopen-config"), "--no-browser"], stdout=subprocess.PIPE,
+    env = dict(os.environ, CANWORKS_CONFIG_DIR=os.path.join(out, "config-dir"))
+    p = subprocess.Popen([tool("canworks-config"), "--no-browser"], stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, universal_newlines=True, env=env)
     try:
         deadline = time.time() + 60
@@ -68,10 +68,10 @@ def main(argv):
     version = argv[0]
     out = tempfile.mkdtemp(prefix="pc-tools-smoke-")
     try:
-        deploy = tool("openplc-canopen-deploy")
-        for name in ("openplc-canopen-deploy", "openplc-canopen-config", "openplc-canopen-diag"):
-            text = run(tool(name), "--version") if name != "openplc-canopen-diag" else run(tool(name), "--help")
-            if name != "openplc-canopen-diag" and version not in text:
+        deploy = tool("canworks-deploy")
+        for name in ("canworks-deploy", "canworks-config", "canworks-diag"):
+            text = run(tool(name), "--version") if name != "canworks-diag" else run(tool(name), "--help")
+            if name != "canworks-diag" and version not in text:
                 sys.exit("smoke: %s is not version %s" % (name, version))
         run(deploy, "--config", CONFIG, "--export-dcf", os.path.join(out, "dcf"))
         if not os.path.isfile(os.path.join(out, "dcf", "node_5.dcf")):

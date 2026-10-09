@@ -9,9 +9,9 @@ import os
 import shutil
 import time
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.bustrace import formats
-from openplc_canopen_deploy.bustrace.model import Frame
+from canworks import diag
+from canworks.bustrace import formats
+from canworks.bustrace.model import Frame
 
 from .fake_diag import TOKEN, FakePlugin
 from .helpers import PINGPONG
@@ -526,7 +526,7 @@ class CleanProject(OnlineBase):
         folder = os.path.join(self.dir, "standalone")
         os.makedirs(folder)
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), folder)
-        shutil.copy(self.config_path, os.path.join(folder, "canopen.json"))
+        shutil.copy(self.config_path, os.path.join(folder, "canworks.json"))
         pg.goto(self.server.url)
         pg.click("#start-standalone")
         pg.fill("#browser-path", folder)

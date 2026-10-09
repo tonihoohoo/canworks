@@ -2,9 +2,9 @@
 
 The CANopen plugin reads one JSON file, the config path given for the `canopen` entry in the runtime's `plugins.conf`. It describes the CAN adapter, the master, and every slave node with its EDS file, PDO entries and startup SDOs; a version 2 file can also make the PLC itself a [slave](#slave-networks) or a [gateway](#gateway). Each PDO entry is bound to one explicit PLC address; nothing is assigned automatically.
 
-The format is a versioned contract: [`schema/canopen.v1.schema.json`](../schema/canopen.v1.schema.json) (JSON Schema 2020-12) describes `schema_version` 1, the file with one CAN network, and [`schema/canopen.v2.schema.json`](../schema/canopen.v2.schema.json) describes `schema_version` 2, the file with [several networks](#several-networks-schema_version-2). The plugin, the deploy tool ([docs/deploy.md](deploy.md)) and any future editor GUI read and write the same file. The deploy tool and the editor hook deliver it with each upload as `conf/canopen.json`, and the runtime points `plugins.conf` at it.
+The format is a versioned contract: [`schema/canworks.v1.schema.json`](../schema/canworks.v1.schema.json) (JSON Schema 2020-12) describes `schema_version` 1, the file with one CAN network, and [`schema/canworks.v2.schema.json`](../schema/canworks.v2.schema.json) describes `schema_version` 2, the file with [several networks](#several-networks-schema_version-2). The plugin, the deploy tool ([docs/deploy.md](deploy.md)) and any future editor GUI read and write the same file. The deploy tool and the editor hook deliver it with each upload as `conf/canworks.json`, and the runtime points `plugins.conf` at it.
 
-At every PLC start the plugin validates the file, runs `dcfgen`'s EDS lint on each node's EDS ([EDS lint](#eds-lint)), checks each entry against the node's EDS, and runs Lely's `dcfgen` on the device to produce the master DCF and one concise DCF per slave. The output goes to a `.canopen/` directory next to the config file and is reused while the config and EDS files are unchanged.
+At every PLC start the plugin validates the file, runs `dcfgen`'s EDS lint on each node's EDS ([EDS lint](#eds-lint)), checks each entry against the node's EDS, and runs Lely's `dcfgen` on the device to produce the master DCF and one concise DCF per slave. The output goes to a `.canworks/` directory next to the config file and is reused while the config and EDS files are unchanged.
 
 ## Example (the Lely tutorial ping-pong slave)
 
@@ -42,7 +42,7 @@ With the PLC program `%QD100 := %ID100 + 1`, the slave echoes every value back a
 Check a file without starting the PLC:
 
 ```sh
-canopen_check /etc/openplc-canopen/canopen_config.json
+canopen_check /etc/canworks/canopen_config.json
 ```
 
 `canopen_check` runs the same validation, EDS checks and `dcfgen` step as the plugin and prints every problem it finds. It is built from `tools/` by the development build (see the README).
@@ -85,7 +85,7 @@ One PLC can drive up to 8 CAN networks, each on its own adapter, with its own ma
 
 Each network is checked as a version 1 file is: node IDs and COB-IDs need only be unique inside their network, so node 2 can exist on two networks. Across networks, two networks may not use the same `interface` or the same `slcan` `device`, and no two locations may overlap: all networks share the PLC's one I/O image. Messages name the network: `networks[1]: nodes[0]: ...`, and an overlap names both sides with their networks.
 
-An error in any network rejects the whole file and no interface is opened. Once running, each network has its own bus thread: a network whose adapter fails or whose node is lost does not stop the others. With several networks every log line starts with the network's name (`[CANOPEN] drives: node 2 (pingpong) is operational`), and the generated files go to `.canopen/<name>/` instead of `.canopen/`. A version 2 file with one network behaves as a version 1 file. The PLC program's SDO function blocks pick the network with their `NETWORK` input: 0 for the first network in the list, 1 for the second, and so on ([plc-sdo.md](plc-sdo.md)).
+An error in any network rejects the whole file and no interface is opened. Once running, each network has its own bus thread: a network whose adapter fails or whose node is lost does not stop the others. With several networks every log line starts with the network's name (`[CANOPEN] drives: node 2 (pingpong) is operational`), and the generated files go to `.canworks/<name>/` instead of `.canworks/`. A version 2 file with one network behaves as a version 1 file. The PLC program's SDO function blocks pick the network with their `NETWORK` input: 0 for the first network in the list, 1 for the second, and so on ([plc-sdo.md](plc-sdo.md)).
 
 A version 2 file needs the plugin and the deploy tool from the same release or later; an older plugin rejects it as a newer `schema_version`. Version 1 files load unchanged, and the configurator saves a config with one network as version 1.
 
@@ -105,7 +105,7 @@ A network with `"role": "slave"` makes the PLC a node of a network another maste
 | Field | Required | Meaning |
 |---|---|---|
 | `node_id` | yes | The slave's own node ID, 1-127, or `null` to start without one and wait for an LSS master to assign it. |
-| `eds` | yes | The slave's EDS, relative to the config file: written by `openplc-canopen-deploy slave-eds` ([deploy.md](deploy.md#the-slave-eds)) or by hand. The other master imports the same file. |
+| `eds` | yes | The slave's EDS, relative to the config file: written by `canworks-deploy slave-eds` ([deploy.md](deploy.md#the-slave-eds)) or by hand. The other master imports the same file. |
 | `eds_lint` | no | As [`master.eds_lint`](#eds-lint), for this EDS. A generated EDS passes `"all"`. |
 | `objects[]` | no | Bindings: `index`, `subindex` and `iec_location` of an object of the EDS, and an optional `name` for its variable. The direction comes from the object's `AccessType`: `rww` and `rw` (the master writes) need an `%I` location, `ro` and `rwr` (the program writes) a `%Q` location; `const` and `wo` objects cannot be bound. The location's size must fit the object's type, as for PDO entries. |
 | `inputs_on_loss` | no | `"hold"` (default): inputs keep their last value while the slave is not OPERATIONAL or the master's heartbeat is lost. `"zero"`: they read 0 then. |
@@ -188,13 +188,13 @@ Flashing candleLight (CANable updater, https://canable.io/updater/) turns the CA
 | `rx_error_count_location` | no | An input byte (`%IB...`) with the controller's receive error counter, clamped to 255. |
 | `bus_off_count_location` | no | An input word (`%IW...`) counting bus-off events since the PLC started; wraps at 65535. |
 | `state_location` | no | An input byte (`%IB...`) with the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED. The master stays PRE-OPERATIONAL while a mandatory node is missing or with `start: false`, and no node exchanges PDOs then. |
-| `diagnostics` | no | Turns on the diagnostics channel for the configurator's online view, its bus scan and `openplc-canopen-diag` (below, [Online diagnostics](#online-diagnostics)). Left out: the plugin opens no port. |
+| `diagnostics` | no | Turns on the diagnostics channel for the configurator's online view, its bus scan and `canworks-diag` (below, [Online diagnostics](#online-diagnostics)). Left out: the plugin opens no port. |
 
 The master also takes every option `dcfgen` offers for it (below, [Master options](#master-options)).
 
 ### EDS lint
 
-Many vendor EDS files break CiA 306 in objects nothing reads, most often a signed limit written as unsigned hex (`HighLimit=0xFF` on an INTEGER8). `dcfgen`'s own lint stops on every such finding, so the plugin runs the lint itself (the deploy tool's `openplc_canopen_deploy.edslint` module on Lely's `dcf` package, installed into `<prefix>/venv` by `install-stock.sh`) and decides by `eds_lint`:
+Many vendor EDS files break CiA 306 in objects nothing reads, most often a signed limit written as unsigned hex (`HighLimit=0xFF` on an INTEGER8). `dcfgen`'s own lint stops on every such finding, so the plugin runs the lint itself (the deploy tool's `canworks.edslint` module on Lely's `dcf` package, installed into `<prefix>/venv` by `install-stock.sh`) and decides by `eds_lint`:
 
 | `eds_lint` | What stops the load |
 |---|---|
@@ -204,7 +204,7 @@ Many vendor EDS files break CiA 306 in objects nothing reads, most often a signe
 
 A finding is limit-only when it is about a `LowLimit` or `HighLimit`, or about a `DefaultValue` or `ParameterValue` outside the object's own limits but inside its data type's range. Neither `dcfgen` nor the master enforces EDS limits; values the plugin writes are range-checked against the data type. Findings that do not stop the load are logged as one warning per EDS with their count and the first three. A load the lint stops logs an error naming the node, the EDS, each finding with its object, and the setting that would accept it. PDO-mapped objects keep the plugin's data type, access type and mappability checks in every mode. `dcfgen` itself always runs with `--no-strict`.
 
-Before the lint, the plugin makes a prepared copy of an EDS that needs one, `.canopen/eds/node_<id>.eds`, which its EDS checks and `dcfgen` then read. The original file is left unchanged. The corrections are lossless:
+Before the lint, the plugin makes a prepared copy of an EDS that needs one, `.canworks/eds/node_<id>.eds`, which its EDS checks and `dcfgen` then read. The original file is left unchanged. The corrections are lossless:
 
 - a file that is not valid UTF-8 is converted from CP1252;
 - `0x200+$NODEID` is rewritten `$NODEID+0x200` (the CiA 306 form, the only one `dcfgen` parses);
@@ -267,7 +267,7 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 
 | Field | Required | Meaning |
 |---|---|---|
-| `token_verifier` | yes | The access token's SCRAM-SHA-256 verifier, `SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>` (iterations 4096-1000000, a salt of at least 16 bytes). The token itself never goes in the file, and the verifier does not let anyone log in: the configurator generates the token and keeps it on the PC, and `openplc-canopen-diag hash-token` prints the verifier of a token you choose. The former `token_sha256` is refused: set the token again ([diagnostics.md](diagnostics.md#security)). |
+| `token_verifier` | yes | The access token's SCRAM-SHA-256 verifier, `SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>` (iterations 4096-1000000, a salt of at least 16 bytes). The token itself never goes in the file, and the verifier does not let anyone log in: the configurator generates the token and keeps it on the PC, and `canworks-diag hash-token` prints the verifier of a token you choose. The former `token_sha256` is refused: set the token again ([diagnostics.md](diagnostics.md#security)). |
 | `port` | no | TCP port the plugin listens on, 1024-65535, default 7531. |
 | `bind` | no | IPv4 address to listen on, default `0.0.0.0` (every interface). |
 | `allow_changes` | no | Default `false`: read-only. `true` also allows SDO writes and NMT commands from a client with the token. |
@@ -284,7 +284,7 @@ The two `simulate` switches give four combinations: everything simulated (`adapt
 |---|---|---|
 | `node_id` | yes | 1-127, unique, not the master's ID. |
 | `name` | no | Used in log messages. |
-| `eds` | yes | EDS file (CiA 306). A relative path is looked up next to the config file first, then in the runtime's `core/generated/conf/`, where a stock runtime extracts the uploaded `conf/` tree (the deploy tool puts EDS files under `conf/canopen/eds/`). The plugin logs the path it used. |
+| `eds` | yes | EDS file (CiA 306). A relative path is looked up next to the config file first, then in the runtime's `core/generated/conf/`, where a stock runtime extracts the uploaded `conf/` tree (the deploy tool puts EDS files under `conf/canworks/eds/`). The plugin logs the path it used. |
 | `heartbeat_ms` | no | Heartbeat period the slave is configured to produce; 0 switches its heartbeat off. Left out, the slave keeps the period its EDS gives (object 0x1017) and nothing is written. The master reports the node lost when no heartbeat arrives within `heartbeat_timeout_ms`. |
 | `heartbeat_timeout_ms` | no | Default 3 × `heartbeat_ms`, or 3 × the EDS heartbeat period when `heartbeat_ms` is left out. |
 | `guard_time_ms`, `life_time_factor` | no | Node guarding instead of heartbeat. Give both, and not together with `heartbeat_ms`. |
@@ -381,7 +381,7 @@ Rules, checked by the plugin and the deploy tool:
 - Two nodes cannot have the same LSS address (same EDS vendor ID and product code and the same serial number, unless both set different `revision_number` values).
 - An EDS that does not say `LSS_Supported=1` gives a warning, not an error: many EDS files leave it out although the device supports LSS.
 
-Without any node with `lss` and without diagnostics changes the master sends no LSS frame at all. To set the node ID or bit rate of a device by hand (commissioning, or a device that is not in the config yet), use the configurator's online view or `openplc-canopen-diag lss-...` ([diagnostics.md](diagnostics.md#what-it-offers)). Changing one device's bit rate takes effect at its next power cycle; set `adapter.bitrate` to match once all devices are set.
+Without any node with `lss` and without diagnostics changes the master sends no LSS frame at all. To set the node ID or bit rate of a device by hand (commissioning, or a device that is not in the config yet), use the configurator's online view or `canworks-diag lss-...` ([diagnostics.md](diagnostics.md#what-it-offers)). Changing one device's bit rate takes effect at its next power cycle; set `adapter.bitrate` to match once all devices are set.
 
 ### CiA 402 axis
 
@@ -431,7 +431,7 @@ Other letters come as Lely reports them; the log uses the same letters.
 
 With `software_file` and `software_version`, the master compares the node's program version (0x1F56 sub 1) with `software_version` at boot. When they differ it stops the node's program (0x1F51), downloads the file into 0x1F50 by SDO block transfer, starts the program again and checks the version once more. A node that still reports another version fails its boot. Without `software_version` the master never downloads, and the plugin warns.
 
-`software_file` is resolved like `eds`: next to the config file, then in the runtime's `core/generated/conf/`. The deploy tool ships it under `conf/canopen/fw/`. The editor's project upload sends project files as text and would corrupt a binary file, so the deploy tool refuses to copy a binary program into an editor project and the editor-upload hook refuses one that arrived corrupted: deploy a program file with `openplc-canopen-deploy --runtime`.
+`software_file` is resolved like `eds`: next to the config file, then in the runtime's `core/generated/conf/`. The deploy tool ships it under `conf/canworks/fw/`. The editor's project upload sends project files as text and would corrupt a binary file, so the deploy tool refuses to copy a binary program into an editor project and the editor-upload hook refuses one that arrived corrupted: deploy a program file with `canworks-deploy --runtime`.
 
 ## PDOs
 
@@ -476,7 +476,7 @@ A node can stay operational, with a working heartbeat, while one of its input PD
 ]
 ```
 
-Here the slave sends TPDO 1 at least every 100 ms; after 200 ms without it `%IX20.0` goes TRUE and `%IW100` reads 0 until the PDO is back. `openplc-canopen-diag status` and the configurator's online view show the timed-out PDOs and their counts (see [diagnostics](diagnostics.md)).
+Here the slave sends TPDO 1 at least every 100 ms; after 200 ms without it `%IX20.0` goes TRUE and `%IW100` reads 0 until the PDO is back. `canworks-diag status` and the configurator's online view show the timed-out PDOs and their counts (see [diagnostics](diagnostics.md)).
 
 ### Devices with a fixed PDO mapping
 

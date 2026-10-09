@@ -3,11 +3,11 @@
 # source scripts/build-lely.sh built: same commit, same files (the dcf package
 # and dcfgen's cli.py, vendored as dcfgen_cli.py).
 #
-#   scripts/check-lely-dcf.sh [--prefix /opt/openplc-canopen]
+#   scripts/check-lely-dcf.sh [--prefix /opt/canworks]
 
 set -euo pipefail
 
-PREFIX=/opt/openplc-canopen
+PREFIX=/opt/canworks
 while [ $# -gt 0 ]; do
     case "$1" in
         --prefix) PREFIX="$2"; shift ;;
@@ -17,7 +17,7 @@ while [ $# -gt 0 ]; do
 done
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-VENDORED="$REPO/tools/deploy/openplc_canopen_deploy/_lely_dcf"
+VENDORED="$REPO/tools/deploy/canworks/_lely_dcf"
 SRC="$PREFIX/src/lely-core/python/dcf-tools/dcf"
 
 want=$(cat "$VENDORED/VERSION")

@@ -5,9 +5,9 @@ OpenPLC as node 10 on a network another master runs (`"role": "slave"`, [docs/sl
 | File | What it is |
 |---|---|
 | `slave_eds.json` | The description the EDS is generated from: identity, heartbeat and the six objects. |
-| `openplc-slave.eds` | The slave's EDS, written by `openplc-canopen-deploy slave-eds config/slave/slave_eds.json -o config/slave/openplc-slave.eds`. The plugin runs it, and the other master's tool imports the same file. |
+| `openplc-slave.eds` | The slave's EDS, written by `canworks-deploy slave-eds config/slave/slave_eds.json -o config/slave/openplc-slave.eds`. The plugin runs it, and the other master's tool imports the same file. |
 | `canopen_config.json` | One slave network `line` on `vcan1`: node ID 10, the six objects bound to PLC locations, the status and EMCY locations. |
-| `slave_demo.st` | Starter PLC program with the declarations `openplc-canopen-deploy --new-project` writes. |
+| `slave_demo.st` | Starter PLC program with the declarations `canworks-deploy --new-project` writes. |
 
 ## The dictionary
 

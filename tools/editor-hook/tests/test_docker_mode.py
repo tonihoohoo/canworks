@@ -10,7 +10,7 @@ import tempfile
 import textwrap
 import unittest
 
-from openplc_canopen_hook import docker_mode
+from canworks_hook import docker_mode
 
 HOOK_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DEFAULT_CONF = "modbus,./x.so,0,1,./modbus.json,\nethercat,./e.so,0,1,./e.json,\n"
@@ -37,7 +37,7 @@ class Base(unittest.TestCase):
 
     def enabled_line(self):
         lib = os.path.join(self.prefix, "lib")
-        return "canopen,%s/libcanopen_plugin.so,1,1,%s/canopen.json," % (lib, lib)
+        return "canworks,%s/libcanworks_plugin.so,1,1,%s/canworks.json," % (lib, lib)
 
     def text(self):
         with open(self.conf) as f:
@@ -48,7 +48,7 @@ class Base(unittest.TestCase):
             return f.read().splitlines()
 
     def canopen(self):
-        return [l for l in self.lines() if l.startswith("canopen,")]
+        return [l for l in self.lines() if l.startswith("canworks,")]
 
 
 class AtStart(Base):
@@ -57,7 +57,7 @@ class AtStart(Base):
         msgs = docker_mode.at_start(self.prefix, self.conf, self.default, "v4.2.4")
         self.assertEqual(self.canopen(), [docker_mode.disabled_line(self.prefix)])
         self.assertEqual(self.lines()[:2], DEFAULT_CONF.splitlines())
-        self.assertIn("disabled canopen line", msgs[0][1])
+        self.assertIn("disabled canworks line", msgs[0][1])
 
     def test_new_container_restores_the_last_upload(self):
         self.stamp("v4.2.4")
@@ -133,24 +133,24 @@ class Loader(Base):
         super().setUp()
         self.stamp("v4.2.4")
         lib = os.path.join(self.prefix, "lib")
-        shutil.copytree(os.path.join(HOOK_ROOT, "openplc_canopen_hook"),
-                        os.path.join(lib, "python", "openplc_canopen_hook"),
+        shutil.copytree(os.path.join(HOOK_ROOT, "canworks_hook"),
+                        os.path.join(lib, "python", "canworks_hook"),
                         ignore=shutil.ignore_patterns("__pycache__"))
         os.makedirs(os.path.join(lib, "sitecustomize"))
         shutil.copy(os.path.join(HOOK_ROOT, "docker", "sitecustomize.py"), os.path.join(lib, "sitecustomize"))
-        # A stand-in webserver: prints the canopen line it finds at start.
+        # A stand-in webserver: prints the canworks line it finds at start.
         os.makedirs(os.path.join(self.rt, "webserver"))
         open(os.path.join(self.rt, "webserver", "__init__.py"), "w").close()
         with open(os.path.join(self.rt, "webserver", "app.py"), "w") as f:
             f.write(textwrap.dedent("""\
                 for line in open("plugins.conf"):
-                    if line.startswith("canopen,"):
+                    if line.startswith("canworks,"):
                         print("LINE " + line.strip())
                 """))
 
     def run_python(self, *args, extra_path=None, version="v4.2.4"):
         paths = [os.path.join(self.prefix, "lib", "sitecustomize")] + ([extra_path] if extra_path else [])
-        env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "OPENPLC_CANOPEN_PREFIX")}
+        env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "CANWORKS_PREFIX")}
         env.update(PYTHONPATH=os.pathsep.join(paths), RUNTIME_VERSION=version)
         return subprocess.run([sys.executable] + list(args), cwd=self.rt, env=env, capture_output=True, text=True)
 
@@ -158,7 +158,7 @@ class Loader(Base):
         p = self.run_python("-m", "webserver.app")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("LINE " + docker_mode.disabled_line(self.prefix), p.stdout)
-        self.assertIn("added a disabled canopen line", p.stderr)
+        self.assertIn("added a disabled canworks line", p.stderr)
 
     def test_version_mismatch_at_webserver_start(self):
         p = self.run_python("-m", "webserver.app", version="v4.2.5")
@@ -175,7 +175,7 @@ class Loader(Base):
         os.makedirs(other)
         with open(os.path.join(other, "sitecustomize.py"), "w") as f:
             f.write("import os\nos.environ['OTHER_SITECUSTOMIZE'] = '1'\n")
-        p = self.run_python("-c", "import os, openplc_canopen_hook as h; "
+        p = self.run_python("-c", "import os, canworks_hook as h; "
                                   "print(os.environ.get('OTHER_SITECUSTOMIZE'), h._state['docker'])",
                             extra_path=other)
         self.assertEqual(p.stdout.strip(), "1 True", p.stderr)

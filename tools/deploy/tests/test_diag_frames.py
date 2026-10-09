@@ -1,4 +1,4 @@
-"""openplc-canopen-diag send, send-stop and detect-bitrate against a fake
+"""canworks-diag send, send-stop and detect-bitrate against a fake
 plugin (add-raw-frames-bitrate-detect task 3.1)."""
 
 import io
@@ -7,7 +7,7 @@ import unittest
 from contextlib import redirect_stderr
 from unittest import mock
 
-from openplc_canopen_deploy import diag
+from canworks import diag
 
 from .fake_diag import TWO_NETWORKS, FakePlugin
 from .test_diag import run

@@ -10,8 +10,8 @@ import stat
 import time
 import unittest
 
-from openplc_canopen_deploy import diag
-from openplc_canopen_deploy.configurator import online
+from canworks import diag
+from canworks.configurator import online
 
 from .fake_diag import SLAVE_NETWORK, TOKEN, TWO_NETWORKS, FakePlugin, closed_port, slave_status
 from .helpers import PINGPONG, REPO, tmpdir
@@ -24,7 +24,7 @@ class Online(Running):
     def setUp(self):
         super().setUp()
         self.open_project()
-        self.canopen = os.path.join(self.project, "canopen")
+        self.canopen = os.path.join(self.project, "canworks")
 
     def save(self, cfg):
         status, data, _ = self.request("POST", "/api/save", {"config": cfg, "allow_overlap": True})
@@ -53,7 +53,7 @@ class Settings(Online):
         cfg = self.pingpong(diagnostics=False)
         cfg["master"]["diagnostics"] = {"token_verifier": r["token_verifier"]}
         self.save(cfg)
-        saved = read(os.path.join(self.canopen, "canopen.json"), "r")
+        saved = read(os.path.join(self.canopen, "canworks.json"), "r")
         self.assertIn(r["token_verifier"], saved)
         for root, _, names in os.walk(self.project):
             for name in names:
@@ -143,19 +143,19 @@ class Proxy(Online):
             self.assertEqual(r["status"]["nodes"][1]["boot_error"], "J")
             self.save(self.pingpong())
             self.assertEqual(self.ok("POST", "/api/online/status", {})["config"], "different")
-            raw = read(os.path.join(self.canopen, "canopen.json"))
+            raw = read(os.path.join(self.canopen, "canworks.json"))
             fp.status["config_sha256"] = hashlib.sha256(raw).hexdigest()
             self.assertEqual(self.ok("POST", "/api/online/status", {})["config"], "same")
             self.assertEqual(fp.connections, 1)  # kept open between refreshes
 
     def test_fingerprint_of_the_deployed_file(self):
         self.save(self.pingpong())
-        path = os.path.join(self.canopen, "canopen.json")
-        # What the deploy tool and the editor hook write as conf/canopen.json.
+        path = os.path.join(self.canopen, "canworks.json")
+        # What the deploy tool and the editor hook write as conf/canworks.json.
         import sys
         sys.path.insert(0, os.path.join(REPO, "tools", "editor-hook"))
         self.addCleanup(sys.path.remove, os.path.join(REPO, "tools", "editor-hook"))
-        from openplc_canopen_deploy import bundle
+        from canworks import bundle
         deployed, _ = bundle.rewrite(json.loads(read(path, "r")), path)
         text = json.dumps(deployed, indent=2) + "\n"
         self.assertIn(hashlib.sha256(text.encode()).hexdigest(), online.fingerprints(path))
@@ -274,7 +274,7 @@ class Scan(Online):
         m = found[40]["eds_matches"]
         self.assertEqual([x["name"] for x in m], ["rtd-rev2.eds", "rtd-rev1.eds"])  # exact revision first
         self.assertTrue(m[0]["revision_match"])
-        self.assertEqual(m[0]["vendor_name"], "openplc-canopen test devices")
+        self.assertEqual(m[0]["vendor_name"], "canworks test devices")
         self.assertEqual(found[41]["eds_matches"], [])
         self.assertEqual(found[2]["expected"], {"vendor_id": 0x360, "product_code": 0})
         self.assertEqual(found[2]["config_eds"], "cpp-slave.eds")
@@ -289,7 +289,7 @@ class Scan(Online):
                              "serial_number": 99})
         self.save(cfg)
         self.assertIn("rtd-rev2.eds", os.listdir(self.canopen))
-        # A file in canopen/ is used as it is.
+        # A file in canworks/ is used as it is.
         r = self.ok("POST", "/api/online/use_eds", {"path": os.path.join(self.canopen, "cpp-slave.eds")})
         self.assertEqual(r["name"], "cpp-slave.eds")
         self.assertEqual(self.request("POST", "/api/online/use_eds",
@@ -451,7 +451,7 @@ class SlaveNetwork(Online):
 
 class Helpers(unittest.TestCase):
     def test_device_info(self):
-        from openplc_canopen_deploy import eds
+        from canworks import eds
         info = eds.device_info(os.path.join(RTD, "rtd8.eds"))
         self.assertEqual((info["vendor_id"], info["product_code"], info["revision_number"]),
                          (0xF0F0F0, 0x404, 0x00010003))
