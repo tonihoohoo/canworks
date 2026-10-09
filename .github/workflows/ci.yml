@@ -292,7 +292,7 @@ jobs:
       - uses: ./.github/actions/build-plugin
         with:
           kernel-modules: "false"
-          targets: canopen_check  # the DCF parity check; the tests use nothing else from the build
+          targets: canopen_check  # the DCF and config parity checks; the tests use nothing else from the build
 
       - uses: actions/setup-python@v5
         with:
@@ -325,9 +325,9 @@ jobs:
         timeout-minutes: 8
         run: python3 .github/scripts/apt_install.py --debs ~/.cache/canworks/apt-tshark tshark
 
-      - name: Deploy tool and configurator tests (shared fixtures, bundle, clash check, stub runtime, server, DCF export parity, DBC export)
+      - name: Deploy tool and configurator tests (shared fixtures, bundle, clash check, stub runtime, server, DCF export and config parity, DBC export)
         env:
-          CANWORKS_REQUIRE_PARITY: "1"  # the DCF export is compared with build/canopen_check --dump-writes
+          CANWORKS_REQUIRE_PARITY: "1"  # build/canopen_check: --dump-writes against the DCF export, test/fixtures/config/bad against the checks
           CANWORKS_REQUIRE_TSHARK: ${{ steps.bustrace.outputs.here == 'true' && '1' || '' }}
         run: >
           python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3

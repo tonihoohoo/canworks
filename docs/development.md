@@ -32,6 +32,8 @@ test/j1939/run.sh                               # the J1939 ECU against the J193
 
 `-DCANWORKS_WITH_CANOPEN=OFF` or `-DCANWORKS_WITH_J1939=OFF` builds one protocol only; a J1939-only build needs no Lely.
 
+The configurator and the plugin refuse the same configs: `tools/deploy/tests/test_parity.py` runs every entry of `test/fixtures/config/bad/` (a config, and optionally its simulation file) through the deploy tool's checks and through `build/canopen_check --no-dcfgen`, and fails naming the entry when one of them accepts it. It skips without the build unless `CANWORKS_REQUIRE_PARITY=1`, as in CI. **A pull request that makes the plugin refuse something new adds a corpus file for it**, and the configurator's check that refuses it too.
+
 The CiA 402 tests use the editor's ST compiler, STruC++ (needs Node 22):
 
 ```sh
@@ -128,6 +130,7 @@ test/link/         link_check: the SocketCAN link setup on a real interface
 test/dump/         canopen_check --dump-writes against a checked-in list (DCF export parity)
 test/common/       helpers shared by the C++ tests (checks, a fake runtime)
 test/fixtures/     config and EDS fixtures shared by the plugin's and the deploy tool's tests
+                   (test/fixtures/config/bad/: configs both must refuse, the parity test's corpus)
                    (test/fixtures/eds/drives/: two made-up CiA 402 drives)
 test/stock/        install-stock.sh, the editor hook and the upstream runtime's upload rules, end to end
 test/docker/       install-stock.sh in Docker mode and the runtime spec edits

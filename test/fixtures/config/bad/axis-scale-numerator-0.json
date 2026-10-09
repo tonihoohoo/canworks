@@ -1,0 +1,52 @@
+{
+  "description": "A CiA 402 axis with scale numerator 0 (A14).",
+  "config": {
+    "schema_version": 1,
+    "adapter": {
+      "type": "socketcan",
+      "interface": "vcan0",
+      "bitrate": 125000
+    },
+    "master": {
+      "node_id": 1,
+      "sync_period_us": 100000
+    },
+    "nodes": [
+      {
+        "node_id": 2,
+        "name": "pingpong",
+        "eds": "drives/servo-drive.eds",
+        "heartbeat_ms": 100,
+        "status_location": "%IX10.0",
+        "tx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x6041",
+                "subindex": 0,
+                "type": "UNSIGNED16",
+                "iec_location": "%IW100"
+              }
+            ]
+          }
+        ],
+        "rx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x6040",
+                "subindex": 0,
+                "type": "UNSIGNED16",
+                "iec_location": "%QW100"
+              }
+            ]
+          }
+        ],
+        "sdo": [],
+        "axis": {
+          "scale_numerator": 0
+        }
+      }
+    ]
+  }
+}
