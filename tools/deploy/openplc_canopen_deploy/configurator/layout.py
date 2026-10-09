@@ -143,6 +143,16 @@ def pack(pdos, type_name, pdo_count):
     return None, "all %d PDOs of this direction are full (8 entries or 64 bits each)" % pdo_count
 
 
+# The runtime declares every variable in C++ under its upper-case name, after
+# the C library headers: a name that is one of their macros does not compile
+# (a node named x gives x_ok, which is X_OK from unistd.h).
+C_MACROS = frozenset("""
+    F_OK R_OK W_OK X_OK EOF NULL BUFSIZ FILENAME_MAX SEEK_SET SEEK_CUR SEEK_END
+    EXIT_SUCCESS EXIT_FAILURE RAND_MAX CHAR_BIT INT_MAX INT_MIN UINT_MAX
+    STDIN_FILENO STDOUT_FILENO STDERR_FILENO TRUE FALSE ERANGE EDOM EINVAL
+""".split())
+
+
 def project_checks(cfg, project_uses, allow_overlap=False):
     """Checks every CANopen location against the project's devices. Returns
     (items, declared): items as contract.Result.items, declared
@@ -151,6 +161,10 @@ def project_checks(cfg, project_uses, allow_overlap=False):
     for u in project_uses:
         by_key.setdefault(u.key(), []).append(u)
     items, declared = [], {}
+    for u in project_uses:
+        if u.kind == "variable" and u.name and u.name.upper() in C_MACROS:
+            items.append({"level": "error", "message": "%s: the runtime cannot compile a variable named %s (a C library macro of that name); rename it"
+                          % (u.describe(), u.name), "paths": []})
     for path, loc in canopen_uses(cfg):
         for u in by_key.get((loc.area, loc.size, loc.element), []):
             if u.kind == "variable":

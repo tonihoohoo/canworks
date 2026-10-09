@@ -42,6 +42,6 @@
 
 ## 7. Checks by hand
 
-- [ ] 7.1 Machine view on a real GPU: Windows (Chrome or Edge) and macOS (Safari or Chrome) at High; Low and the automatic fall back on an integrated GPU; WebGL turned off shows the panel only.
+- [ ] 7.1 Machine view on a real GPU: Windows (Chrome or Edge) and macOS (Safari or Chrome) at High; Low and the automatic fall back on an integrated GPU; WebGL turned off shows the panel only. macOS (Chrome, Apple GPU) passed 2026-10-09; Windows still open.
 - [ ] 7.2 Tour Machine chapter end to end on the local simulator runtime.
-- [ ] 7.3 Pi (simulated network, no hardware needed): run the example on the bench runtime and log the machine step time; it stays under 5 % of the step.
+- [x] 7.3 Pi (simulated network, no hardware needed): run the example on the bench runtime and log the machine step time; it stays under 5 % of the step. Passed 2026-10-09: step_us 5.3 µs average (0.27 % of the 2 ms step), 40.5 µs highest; fill-a-pallet passed on the Pi.

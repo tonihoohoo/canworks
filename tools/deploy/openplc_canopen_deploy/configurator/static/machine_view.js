@@ -576,6 +576,7 @@ export class MachineView {
     this.noticeEl.hidden = !auto;
     this.noticeEl.textContent = auto ? "Switched to Low: the view ran under 28 frames per second for 3 s on High. Pick High to try again." : "";
     this.watch.reset();
+    if (this.fpsEl) this.fpsEl.textContent = `… fps · ${q === "high" ? "High" : "Low"}`;
     if (this.gl) { this.buildComposer(); this.resize(); }
   }
 

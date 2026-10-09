@@ -5,7 +5,7 @@ import re
 from .. import contract
 from ..iec import parse_location
 from ..iec import CO_TYPES, type_fits
-from .layout import MASTER_LOCATIONS, NODE_LOCATIONS, SDO_VARIABLE_LOCATIONS, SIZE_TYPES, SLAVE_LOCATIONS
+from .layout import C_MACROS, MASTER_LOCATIONS, NODE_LOCATIONS, SDO_VARIABLE_LOCATIONS, SIZE_TYPES, SLAVE_LOCATIONS
 
 IEC_TYPE = {
     "BOOLEAN": "BOOL",
@@ -76,7 +76,7 @@ def declarations(cfg, object_name, declared, slave_object=None):
 
     def unique(base):
         name, n = base, 2
-        while name.lower() in names:
+        while name.lower() in names or name.upper() in C_MACROS:
             name = "%s_%d" % (base, n)
             n += 1
         names.add(name.lower())

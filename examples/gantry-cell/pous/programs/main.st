@@ -7,7 +7,7 @@
 PROGRAM main
   VAR
     can_master_state             : USINT AT %IB20; (* CANopen master state *)
-    x_ok                         : BOOL AT %IX10.0; (* node x (4): operational *)
+    x_online                     : BOOL AT %IX10.0; (* node x (4): operational *)
     x_emcy                       : WORD AT %IW105; (* node x (4): last EMCY code *)
     x_Statusword                 : UINT AT %IW100; (* node x (4) TPDO1 0x6041:0 Statusword *)
     x_Modes_of_operation_display : SINT AT %IB100; (* node x (4) TPDO1 0x6061:0 Modes of operation display *)
@@ -21,7 +21,7 @@ PROGRAM main
     x_Target_torque              : INT AT %QW101; (* node x (4) RPDO2 0x6071:0 Target torque *)
     x                            : AXIS_REF_SM3; (* node x (4): CiA 402 axis *)
     x_bridge                     : SM_Drive_GenericDS402; (* node x (4): drive bridge of axis x *)
-    y_ok                         : BOOL AT %IX10.1; (* node y (5): operational *)
+    y_online                     : BOOL AT %IX10.1; (* node y (5): operational *)
     y_emcy                       : WORD AT %IW115; (* node y (5): last EMCY code *)
     y_Statusword                 : UINT AT %IW110; (* node y (5) TPDO1 0x6041:0 Statusword *)
     y_Modes_of_operation_display : SINT AT %IB110; (* node y (5) TPDO1 0x6061:0 Modes of operation display *)
@@ -35,7 +35,7 @@ PROGRAM main
     y_Target_torque              : INT AT %QW111; (* node y (5) RPDO2 0x6071:0 Target torque *)
     y                            : AXIS_REF_SM3; (* node y (5): CiA 402 axis *)
     y_bridge                     : SM_Drive_GenericDS402; (* node y (5): drive bridge of axis y *)
-    z_ok                         : BOOL AT %IX10.2; (* node z (6): operational *)
+    z_online                     : BOOL AT %IX10.2; (* node z (6): operational *)
     z_emcy                       : WORD AT %IW125; (* node z (6): last EMCY code *)
     z_Statusword                 : UINT AT %IW120; (* node z (6) TPDO1 0x6041:0 Statusword *)
     z_Modes_of_operation_display : SINT AT %IB120; (* node z (6) TPDO1 0x6061:0 Modes of operation display *)
@@ -94,7 +94,7 @@ x_bridge(Axis := x,
          diActualPosition := x_Position_actual_value,
          diActualVelocity := x_Velocity_actual_value,
          iActualTorque := x_Torque_actual_value,
-         bOnline := x_ok,
+         bOnline := x_online,
          wControlWord => x_Controlword,
          siModes => x_Modes_of_operation,
          diTargetPosition => x_Target_position,
@@ -110,7 +110,7 @@ y_bridge(Axis := y,
          diActualPosition := y_Position_actual_value,
          diActualVelocity := y_Velocity_actual_value,
          iActualTorque := y_Torque_actual_value,
-         bOnline := y_ok,
+         bOnline := y_online,
          wControlWord => y_Controlword,
          siModes => y_Modes_of_operation,
          diTargetPosition => y_Target_position,
@@ -126,7 +126,7 @@ z_bridge(Axis := z,
          diActualPosition := z_Position_actual_value,
          diActualVelocity := z_Velocity_actual_value,
          iActualTorque := z_Torque_actual_value,
-         bOnline := z_ok,
+         bOnline := z_online,
          wControlWord => z_Controlword,
          siModes => z_Modes_of_operation,
          diTargetPosition => z_Target_position,
@@ -139,7 +139,7 @@ z_bridge(Axis := z,
    get the same S-curve scaled to their share of the distance, so they start
    and arrive together. Z starts down when XY is near its target and XY
    starts as soon as Z is clear of the parts. A drive fault (a jam, a hard
-   stop, the PLC stopping) resets the axes and recovers: Z up, then on with
+   stop) resets the axes after 2 s and recovers: Z up, then on with
    the part in hand or back to the conveyor. *)
 partAtPick := (io_Read_input_8_bit_1 AND USINT#16#08) <> 0;
 gripped := (io_Read_input_8_bit_1 AND USINT#16#10) <> 0;
@@ -154,6 +154,8 @@ statusZ(Axis := z, Enable := TRUE);
 IF (statusX.Errorstop OR statusY.Errorstop OR statusZ.Errorstop OR moveX.Error OR moveY.Error OR moveZ.Error)
    AND step > 0 AND step <> 90 THEN
   errors := errors + 1;
+  elapsed := 0.0;
+  tries := 0;
   step := 90;
 END_IF
 elapsed := elapsed + x.fCycleTime;
@@ -249,12 +251,16 @@ CASE step OF
     moveY(Axis := y, Execute := FALSE);
     moveZ(Axis := z, Execute := FALSE);
     change := FALSE;
-    (* A drive takes a fault reset on a rising edge, so retry every 50 scans while the fault is still there. *)
-    tries := tries + 1;
-    resetX(Axis := x, Execute := tries < 50);
-    resetY(Axis := y, Execute := tries < 50);
-    resetZ(Axis := z, Execute := tries < 50);
-    IF tries >= 50 THEN tries := 0; END_IF
+    (* Wait 2 s in the fault first, so a jam that is still there shows as a fault
+       and not as a reset every half second. A drive takes a fault reset on a
+       rising edge, so then retry every 50 scans while the fault is still there. *)
+    IF elapsed > 2.0 THEN
+      tries := tries + 1;
+    END_IF
+    resetX(Axis := x, Execute := tries > 0 AND tries < 50);
+    resetY(Axis := y, Execute := tries > 0 AND tries < 50);
+    resetZ(Axis := z, Execute := tries > 0 AND tries < 50);
+    IF tries >= 50 THEN tries := 1; END_IF
     IF resetX.Done AND resetY.Done AND resetZ.Done AND x.bCommunication AND y.bCommunication AND z.bCommunication THEN
       resetX(Axis := x, Execute := FALSE);
       resetY(Axis := y, Execute := FALSE);

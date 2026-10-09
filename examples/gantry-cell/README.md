@@ -29,7 +29,7 @@ The diagnostics channel is on with changes allowed, so the Machine view's fault 
 - closes the gripper and waits for "gripped" (1 s, else it tries the next part);
 - lifts Z and starts the XY move to the next slot as soon as the part is clear, lowers Z, opens the gripper;
 - with the pallet full, asks for a pallet change and waits for the empty pallet;
-- on any drive fault (a jam, a hard stop, the PLC stopping) releases the moves, resets the drives, lifts Z and carries on with the part in hand, or goes back to the conveyor.
+- on any drive fault (a jam, a hard stop) releases the moves, waits 2 s, resets the drives (again every half second while a fault stays), lifts Z and carries on with the part in hand, or goes back to the conveyor.
 
 ## Files
 

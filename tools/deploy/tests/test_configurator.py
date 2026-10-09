@@ -203,6 +203,13 @@ class Layout(unittest.TestCase):
         items, _ = layout.project_checks(cfg, uses, allow_overlap=True)
         self.assertEqual(items[0]["level"], "warning")
 
+    def test_project_checks_c_macro_name(self):
+        from openplc_canopen_deploy.iec import parse_location
+        uses = [scan.Use("pous/programs/main.st", "line 10", parse_location("%IX10.0"), "variable", "x_ok")]
+        items, _ = layout.project_checks({"nodes": []}, uses)
+        self.assertEqual([i["level"] for i in items], ["error"])
+        self.assertIn("x_ok", items[0]["message"])
+
 
 class Declarations(unittest.TestCase):
     def test_rtd(self):
@@ -346,6 +353,13 @@ class Declarations(unittest.TestCase):
             {"index": "0x6000", "subindex": 2, "type": "BOOLEAN", "iec_location": "%IX1.1"}]}]}]},
             lambda *a: "In", {})
         self.assertEqual([d["name"] for d in decls], ["node3_In", "node3_In_2"])
+
+    def test_names_avoid_c_macros(self):
+        # The runtime declares X_OK in C++, which unistd.h defines.
+        decls = declare.declarations({"nodes": [
+            {"node_id": 4, "name": "x", "status_location": "%IX10.0"},
+            {"node_id": 5, "name": "y", "status_location": "%IX10.1"}]}, lambda *a: None, {})
+        self.assertEqual([d["name"] for d in decls], ["x_ok_2", "y_ok"])
 
 
 if __name__ == "__main__":
