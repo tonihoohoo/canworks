@@ -316,7 +316,8 @@ table.od-tree { table-layout: fixed; width: 100%; }
 table.od-tree col.c-entry { width: 8.5em; }
 table.od-tree col.c-type { width: 9.5em; }
 table.od-tree col.c-value { width: 13em; }
-table.od-tree col.c-actions { width: 11em; }
+table.od-tree col.c-actions { width: 13.5em; }
+table.od-tree td.actions { white-space: normal; }
 table.od-tree col.c-watch { width: 3.5em; }
 table.od td.od-name, table.od td.od-type, table.od td.od-value { overflow-wrap: anywhere; }
 table.od-tree td.od-value strong { white-space: normal; }
