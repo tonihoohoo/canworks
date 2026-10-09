@@ -267,22 +267,30 @@ void RawIo::log_bus_state(const canworks_can_bus_info& info, uint64_t now) {
     log_suppressed_ = true;
     return;
   }
+  // One line per reading, so the limit above holds per line.
+  int level = 0;
+  std::string line;
   if (!quiet) {
     if (to == 0) {
-      hooks_.log_bus(0, where + " is error-active again");
+      line = where + " is error-active again";
     } else if (to == 3) {
-      hooks_.log_bus(2, where + " is bus-off; " +
-                            (hooks_.restart_ms ? "the kernel restarts it after " + std::to_string(hooks_.restart_ms) + " ms"
-                                               : std::string("without adapter.restart_ms it stays bus-off unless the "
-                                                             "adapter recovers by itself")));
+      level = 2;
+      line = where + " is bus-off; " +
+             (hooks_.restart_ms ? "the kernel restarts it after " + std::to_string(hooks_.restart_ms) + " ms"
+                                : std::string("without adapter.restart_ms it stays bus-off unless the adapter "
+                                              "recovers by itself"));
     } else {
-      hooks_.log_bus(1, where + " is " + kStateNames[to] +
-                            " (TX/RX error counters high; check wiring, termination and bit rate)");
+      level = 1;
+      line = where + " is " + kStateNames[to] + " (TX/RX error counters high; check wiring, termination and bit rate)";
     }
   }
-  if (hidden_off)
-    hooks_.log_bus(2, where + " went bus-off " + std::to_string(new_offs) + (new_offs == 1 ? " time" : " times") +
-                          " and recovered");
+  if (hidden_off) {
+    std::string offs = "went bus-off " + std::to_string(new_offs) + (new_offs == 1 ? " time" : " times") +
+                       " and recovered";
+    line = line.empty() ? where + " " + offs : line + "; since the last reading it " + offs;
+    level = 2;
+  }
+  hooks_.log_bus(level, line);
 }
 
 int RawIo::next_timeout(uint64_t now) {

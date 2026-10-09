@@ -34,7 +34,7 @@ The frame data pins are in-out, as the SDO blocks' `BUFFER`, because that is how
 - **THEN** only the first frame is sent
 
 ### Requirement: Cyclic frames
-While `ENABLE` is TRUE, `CAN_SEND_CYCLIC` SHALL have the plugin send the frame every `PERIOD` (1 ms to 60 s) from its own timer, whatever the PLC cycle time. `ID` and `EXTENDED` SHALL be taken when `ENABLE` rises; `DATA`, `DLC` and `PERIOD` SHALL be taken on every call and used from the next send. `COUNT` SHALL count frames sent since `ENABLE` rose. `ENABLE` FALSE, a PLC stop or a network restart SHALL stop the job. While `ENABLE` stays TRUE after a start failed or a job ended with `ERROR_ID` 1, 7 or 8, the block SHALL try to start the job again on every call, keeping `ERROR` and `ERROR_ID` until it succeeds; other errors SHALL need a new rising edge of `ENABLE`. A network SHALL have at most 16 cyclic jobs.
+While `ENABLE` is TRUE, `CAN_SEND_CYCLIC` SHALL have the plugin send the frame every `PERIOD` (1 ms to 60 s) from its own timer, whatever the PLC cycle time. `ID` and `EXTENDED` SHALL be taken when `ENABLE` rises; `DATA`, `DLC` and `PERIOD` SHALL be taken on every call and used from the next send. `COUNT` SHALL count frames sent since `ENABLE` rose. `ENABLE` FALSE, a PLC stop or a network restart SHALL stop the job. While `ENABLE` stays TRUE after a start failed or a job ended with `ERROR_ID` 1, 7 or 8, the block SHALL try to start the job again on every call, keeping `ERROR` and `ERROR_ID` until it succeeds; other errors SHALL need a new rising edge of `ENABLE`. While the network is bus-off or its interface is down, a running job SHALL stay and the block SHALL report `ERROR` with `ERROR_ID` 7 while `ACTIVE` stays TRUE; `ERROR` SHALL clear by itself when the bus is back. A network SHALL have at most 16 cyclic jobs.
 
 #### Scenario: Faster than the scan
 - **WHEN** the PLC cycle is 50 ms and a block runs with `PERIOD := T#10ms`
@@ -48,8 +48,12 @@ While `ENABLE` is TRUE, `CAN_SEND_CYCLIC` SHALL have the plugin send the frame e
 - **WHEN** a block has `ENABLE := TRUE` from the first scan and the network starts a few scans later
 - **THEN** the block reports `ERROR_ID` 1 until the network runs, then starts the job without a new rising edge of `ENABLE`
 
+#### Scenario: Bus-off while running
+- **WHEN** a job runs and the network goes bus-off, then error-passive again
+- **THEN** the block shows `ERROR` with `ERROR_ID` 7 and `ACTIVE` TRUE while the bus is off, and `ERROR` FALSE with `COUNT` counting on afterwards
+
 ### Requirement: Receivers
-While `ENABLE` is TRUE, `CAN_RECEIVE` SHALL hold a receiver that queues, in arrival order, every frame on the network with the given format whose `(identifier AND MASK) = (ID AND MASK)`, up to `DEPTH` frames (`0` meaning 32, at most 256). `MASK` 0 SHALL mean every identifier bit (only `ID` itself); `ANY` SHALL take every frame of the format. `ID`, `MASK`, `ANY`, `EXTENDED` and `DEPTH` SHALL be taken when `ENABLE` rises. Each call SHALL take at most one frame from the queue: `NEW` TRUE with that frame's identifier, flags, DLC, data and kernel receive time (UTC microseconds) in the outputs, or `NEW` FALSE with the outputs of the last frame kept. `QUEUED` SHALL give the frames still waiting. A frame arriving at a full queue SHALL be dropped, set `OVERFLOW` until `ENABLE` falls, and count in `DROPPED`. Frames the plugin itself sends SHALL NOT be queued. On a network with protocol `none`, frames other programs on the PLC host send SHALL be queued like frames from the bus. While `ENABLE` stays TRUE after opening failed or the receiver ended with `ERROR_ID` 1, 7 or 8, the block SHALL try to open it again on every call, keeping `ERROR` and `ERROR_ID` until it succeeds; other errors SHALL need a new rising edge of `ENABLE`. `ENABLE` FALSE SHALL close the receiver and discard its queue. A network SHALL have at most 32 receivers.
+While `ENABLE` is TRUE, `CAN_RECEIVE` SHALL hold a receiver that queues, in arrival order, every frame on the network with the given format whose `(identifier AND MASK) = (ID AND MASK)`, up to `DEPTH` frames (`0` meaning 32, at most 256). `MASK` 0 SHALL mean every identifier bit (only `ID` itself); `ANY` SHALL take every frame of the format. `ID`, `MASK`, `ANY`, `EXTENDED` and `DEPTH` SHALL be taken when `ENABLE` rises. Each call SHALL take at most one frame from the queue: `NEW` TRUE with that frame's identifier, flags, DLC, data and kernel receive time (UTC microseconds) in the outputs, or `NEW` FALSE with the outputs of the last frame kept. `QUEUED` SHALL give the frames still waiting. A frame arriving at a full queue SHALL be dropped, set `OVERFLOW` until `ENABLE` falls, and count in `DROPPED`. Frames the plugin itself sends SHALL NOT be queued. On a network with protocol `none`, frames other programs on the PLC host send SHALL be queued like frames from the bus. While `ENABLE` stays TRUE after opening failed or the receiver ended with `ERROR_ID` 1, 7 or 8, the block SHALL try to open it again on every call, keeping `ERROR` and `ERROR_ID` until it succeeds; other errors SHALL need a new rising edge of `ENABLE`. While the network is bus-off or its interface is down, an open receiver SHALL stay and the block SHALL report `ERROR` with `ERROR_ID` 7 while `ACTIVE` stays TRUE; `ERROR` SHALL clear by itself when the bus is back. `ENABLE` FALSE SHALL close the receiver and discard its queue. A network SHALL have at most 32 receivers.
 
 #### Scenario: Drain in one scan
 - **WHEN** five matching frames arrived since the last scan and the program calls `WHILE rx.NEW DO ... rx(); END_WHILE` after a first `rx()` call
@@ -74,6 +78,10 @@ While `ENABLE` is TRUE, `CAN_RECEIVE` SHALL hold a receiver that queues, in arri
 #### Scenario: Frame from another program on the PLC host
 - **WHEN** `cansend` on the PLC host sends a matching frame on the interface of a plain CAN network
 - **THEN** the receiver queues it and `CAN_BUS_INFO` counts it in `RX_COUNT`
+
+#### Scenario: Bus-off while receiving
+- **WHEN** a receiver is open and the network goes bus-off, then error-active again
+- **THEN** the block shows `ERROR` with `ERROR_ID` 7 and `ACTIVE` TRUE while the bus is off, and `ERROR` FALSE afterwards with the same receiver
 
 ### Requirement: Error IDs of the frame blocks
 The frame blocks SHALL report `ERROR_ID`:

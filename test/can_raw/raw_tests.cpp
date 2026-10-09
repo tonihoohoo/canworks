@@ -844,14 +844,16 @@ TEST(bus_state_log) {
   port.set_rules(PortRules{});
   set_port(1, &port);
   std::unique_ptr<HostLink> owned(new HostLink);
-  std::atomic<uint8_t> state{0};
-  std::atomic<uint32_t> offs{0};
+  // State and bus-off count change together (one reading sees both).
+  std::atomic<uint64_t> bus{0};
+  auto set_bus = [&](uint8_t state, uint32_t offs) { bus = (static_cast<uint64_t>(offs) << 8) | state; };
   std::mutex m;
   std::vector<std::string> lines;
   RawIoHooks hooks;
   hooks.bus_info = [&](canworks_can_bus_info& info) {
-    info.state = state;
-    info.bus_off_count = offs;
+    uint64_t v = bus;
+    info.state = static_cast<uint8_t>(v & 0xFF);
+    info.bus_off_count = static_cast<uint32_t>(v >> 8);
     return true;
   };
   hooks.log_bus = [&](int level, const std::string& line) {
@@ -871,20 +873,24 @@ TEST(bus_state_log) {
   RawIo io(std::move(owned), 500000, false, nullptr, &port, hooks);
   io.start();
   std::this_thread::sleep_for(std::chrono::milliseconds(150));
-  state = 3;
-  offs = 1;
+  set_bus(3, 1);
   CHECK(wait_lines(1));
-  state = 0;
+  set_bus(0, 1);
   CHECK(wait_lines(2));
-  offs = 3;  // two more, both over between readings
+  set_bus(0, 3);  // two more, both over between readings
   CHECK(wait_lines(3));
+  set_bus(2, 4);  // a state change and a hidden bus-off in one reading: one line
+  CHECK(wait_lines(4));
   io.stop();
   set_port(1, nullptr);
   std::lock_guard<std::mutex> l(m);
-  CHECK_MSG(lines.size() == 3, std::to_string(lines.size()));
+  CHECK_MSG(lines.size() == 4, std::to_string(lines.size()));
   CHECK(lines[0].find("2 CAN interface ") == 0 && lines[0].find("is bus-off; without adapter.restart_ms") != std::string::npos);
   CHECK(lines[1].find("0 ") == 0 && lines[1].find("is error-active again") != std::string::npos);
   CHECK(lines[2].find("2 ") == 0 && lines[2].find("went bus-off 2 times and recovered") != std::string::npos);
+  CHECK_MSG(lines[3].find("2 ") == 0 && lines[3].find("is error-passive") != std::string::npos &&
+                lines[3].find("; since the last reading it went bus-off 1 time and recovered") != std::string::npos,
+            lines[3]);
 }
 
 // Error frames as drivers send them: gs_usb sets the counters of a
