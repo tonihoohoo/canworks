@@ -388,14 +388,6 @@ Parsed parse(const char* json, bool listen_only = false) {
   return p;
 }
 
-bool has(const std::vector<std::string>& list, const std::string& text) {
-  for (const std::string& s : list)
-    if (s.find(text) != std::string::npos) return true;
-  std::printf("  no message containing \"%s\" in:\n", text.c_str());
-  for (const std::string& s : list) std::printf("    %s\n", s.c_str());
-  return false;
-}
-
 const char* kExample = R"({
   "rx": [ { "name": "Joystick", "id": 291, "dlc": 8, "timeout_ms": 300,
             "status_location": "%IX300.0", "counter_location": "%IW302",
@@ -424,35 +416,49 @@ TEST(raw_config_example) {
   CHECK(locs.size() == 8);
 }
 
-TEST(raw_config_rejections) {
-  CHECK(has(parse(R"({"rx":[{"id":2048}]})").errors, "networks[0].raw.rx[0].id: must be 0..0x7FF (11-bit identifier"));
-  CHECK(parse(R"({"rx":[{"id":2048,"extended":true}]})").ok);
-  CHECK(has(parse(R"({"rx":[{"id":1,"signals":[{"start_bit":0,"length":12,"iec_location":"%IB10"}]}]})").errors,
-            "needs a word"));
-  CHECK(has(parse(R"({"rx":[{"id":1,"dlc":2,"signals":[{"start_bit":8,"length":16,"iec_location":"%IW10"}]}]})").errors,
-            "reaches past the message's dlc (2 bytes)"));
-  CHECK(has(parse(R"({"tx":[{"id":1}]})").errors, "needs period_ms, on_change or trigger_location"));
-  CHECK(has(parse(R"({"tx":[{"id":1,"period_ms":10},{"id":1,"on_change":true}]})").errors,
-            "tx[1]: identifier 0x1 is also sent by networks[0].raw.tx[0]"));
-  CHECK(has(parse(R"({"tx":[{"id":1,"period_ms":10}]})", true).errors, "a listen-only network cannot send"));
-  CHECK(has(parse(R"({"tx":[{"id":1,"period_ms":10,"signals":[{"start_bit":0,"length":8,"iec_location":"%IB1"}]}]})")
-                .errors,
-            "needs an output (%Q)"));
-  CHECK(has(parse(R"({"rx":[{"id":1,"status_location":"%IB1"}]})").errors, "must be a %IX location"));
-  CHECK(has(parse(R"({"rx":[{"id":1,"colour":"red"}]})").warnings, "unknown field 'colour'"));
-}
-
-TEST(raw_config_protocol_ids) {
-  Parsed p = parse(R"({"tx":[{"name":"Fake","id":517,"period_ms":10},{"id":518,"period_ms":10}]})");
-  auto use = [](uint32_t id, bool ext) -> std::string { return !ext && id == 0x205 ? "RPDO1 of node 5" : ""; };
-  std::vector<std::string> errors, overrides;
-  canworks_raw::check_protocol_ids(p.cfg, use, errors, overrides);
-  CHECK(has(errors, "networks[0].raw.tx[0]: 0x205 is RPDO1 of node 5; set override_protocol to send it as a raw message"));
-  p = parse(R"({"tx":[{"name":"Fake","id":517,"period_ms":10,"override_protocol":true}]})");
-  errors.clear();
-  canworks_raw::check_protocol_ids(p.cfg, use, errors, overrides);
-  CHECK(errors.empty());
-  CHECK(has(overrides, "raw message Fake (0x205) overrides RPDO1 of node 5"));
+// Every case of test/fixtures/config/cases-raw.json (the PC tools run the
+// same file).
+TEST(raw_config_shared_cases) {
+  std::ifstream in(FIXTURES_DIR "/config/cases-raw.json");
+  std::stringstream ss;
+  ss << in.rdbuf();
+  cJSON* root = cJSON_Parse(ss.str().c_str());
+  CHECK(root != nullptr);
+  if (!root) return;
+  int n = 0;
+  for (const cJSON* c = cJSON_GetObjectItem(root, "cases")->child; c; c = c->next, ++n) {
+    std::string name = cJSON_GetObjectItem(c, "name")->valuestring;
+    bool listen_only = cJSON_IsTrue(cJSON_GetObjectItem(c, "listen_only"));
+    canworks_raw::RawConfig cfg;
+    std::vector<std::string> errors, warnings, overrides;
+    canworks_raw::parse_raw(cJSON_GetObjectItem(c, "raw"), "networks[0].raw", listen_only, cfg, errors, warnings);
+    const cJSON* ids = cJSON_GetObjectItem(c, "protocol_ids");
+    if (ids) {
+      auto use = [ids](uint32_t id, bool ext) -> std::string {
+        char key[16];
+        std::snprintf(key, sizeof key, "0x%X", id);
+        const cJSON* v = ext ? nullptr : cJSON_GetObjectItem(ids, key);
+        return v ? v->valuestring : "";
+      };
+      canworks_raw::check_protocol_ids(cfg, use, errors, overrides);
+    }
+    auto expect = [&](const char* key, const std::vector<std::string>& got) {
+      const cJSON* want = cJSON_GetObjectItem(c, key);
+      if (!want) return;
+      size_t k = 0;
+      for (const cJSON* w = want->child; w; w = w->next, ++k) {
+        bool ok = k < got.size() && got[k].find(w->valuestring) != std::string::npos;
+        CHECK_MSG(ok, name + ": " + key + "[" + std::to_string(k) + "] should contain \"" + w->valuestring + "\", got \"" +
+                          (k < got.size() ? got[k] : std::string("nothing")) + "\"");
+      }
+      CHECK_MSG(got.size() == k, name + ": " + std::to_string(got.size()) + " " + key + ", want " + std::to_string(k) +
+                                     (got.empty() ? "" : " (first: " + got[0] + ")"));
+    };
+    expect("errors", errors);
+    expect("warnings", warnings);
+  }
+  CHECK(n >= 20);
+  cJSON_Delete(root);
 }
 
 // --- Engine ---
