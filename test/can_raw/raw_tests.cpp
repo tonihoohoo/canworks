@@ -6,9 +6,22 @@
 #include <cstring>
 #include <thread>
 
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "cJSON.h"
 #include "can/can_plc_api.h"
+#include "can/raw/config.h"
+#include "can/raw/engine.h"
 #include "can/raw/plc_frames.h"
+#include "can/signals.h"
 #include "check.hpp"
+
+#ifndef FIXTURES_DIR
+#define FIXTURES_DIR "test/fixtures"
+#endif
 
 using namespace canworks_raw;
 
@@ -320,6 +333,236 @@ TEST(receivers_from_another_thread) {
   drain();
   CHECK(ordered);
   CHECK(seen + info.dropped == 20000);
+}
+
+// --- Signal packing (shared fixture, also used by the Python and ST packers) ---
+
+TEST(signal_vectors) {
+  std::ifstream in(FIXTURES_DIR "/can_signals.json");
+  std::stringstream ss;
+  ss << in.rdbuf();
+  cJSON* root = cJSON_Parse(ss.str().c_str());
+  CHECK(root != nullptr);
+  if (!root) return;
+  int n = 0;
+  const cJSON* cases = cJSON_GetObjectItem(root, "cases");
+  for (const cJSON* c = cases ? cases->child : nullptr; c; c = c->next, ++n) {
+    unsigned start = static_cast<unsigned>(cJSON_GetObjectItem(c, "start_bit")->valuedouble);
+    unsigned length = static_cast<unsigned>(cJSON_GetObjectItem(c, "length")->valuedouble);
+    bool big = cJSON_IsTrue(cJSON_GetObjectItem(c, "big_endian"));
+    bool sign = cJSON_IsTrue(cJSON_GetObjectItem(c, "signed"));
+    auto bytes = [](const char* hex, uint8_t* out) {
+      for (int i = 0; i < 8; ++i) out[i] = static_cast<uint8_t>(std::stoul(std::string(hex + 2 * i, 2), nullptr, 16));
+    };
+    uint8_t data[8], packed[8];
+    bytes(cJSON_GetObjectItem(c, "data")->valuestring, data);
+    bytes(cJSON_GetObjectItem(c, "packed")->valuestring, packed);
+    // The value may not be exact as a double above 2^53; compare via packing.
+    uint64_t raw = canworks_can::unpack_signal(data, 8, start, length, big);
+    uint8_t mine[8] = {};
+    canworks_can::pack_signal(mine, start, length, big, raw);
+    CHECK_MSG(std::memcmp(mine, packed, 8) == 0, "case " + std::to_string(n));
+    double want = cJSON_GetObjectItem(c, "value")->valuedouble;
+    double got = sign ? static_cast<double>(canworks_can::sign_extend(raw, length)) : static_cast<double>(raw);
+    CHECK_MSG(got == want, "case " + std::to_string(n));
+  }
+  CHECK(n >= 100);
+  cJSON_Delete(root);
+}
+
+// --- Raw config ---
+
+namespace {
+
+struct Parsed {
+  canworks_raw::RawConfig cfg;
+  std::vector<std::string> errors, warnings;
+  bool ok = false;
+};
+
+Parsed parse(const char* json, bool listen_only = false) {
+  Parsed p;
+  cJSON* j = cJSON_Parse(json);
+  p.ok = canworks_raw::parse_raw(j, "networks[0].raw", listen_only, p.cfg, p.errors, p.warnings);
+  cJSON_Delete(j);
+  return p;
+}
+
+bool has(const std::vector<std::string>& list, const std::string& text) {
+  for (const std::string& s : list)
+    if (s.find(text) != std::string::npos) return true;
+  std::printf("  no message containing \"%s\" in:\n", text.c_str());
+  for (const std::string& s : list) std::printf("    %s\n", s.c_str());
+  return false;
+}
+
+const char* kExample = R"({
+  "rx": [ { "name": "Joystick", "id": 291, "dlc": 8, "timeout_ms": 300,
+            "status_location": "%IX300.0", "counter_location": "%IW302",
+            "signals": [ { "name": "X", "start_bit": 0, "length": 12, "signed": true,
+                           "scale": 0.1, "unit": "%", "iec_location": "%IW304" } ] },
+          { "name": "AnyBattery", "id": 1536, "mask": 2032,
+            "id_location": "%ID308", "data_location": "%IL312" } ],
+  "tx": [ { "name": "Lamps", "id": 1281, "dlc": 2, "period_ms": 100,
+            "on_change": true, "min_gap_ms": 10, "enable_location": "%QX300.0",
+            "signals": [ { "name": "Red", "start_bit": 0, "length": 1, "iec_location": "%QX300.1" } ] },
+          { "name": "Wake", "id": 1282, "rtr": true, "dlc": 0, "trigger_location": "%QX300.2" } ] })";
+
+}  // namespace
+
+TEST(raw_config_example) {
+  Parsed p = parse(kExample);
+  CHECK(p.ok);
+  CHECK(p.errors.empty());
+  CHECK(p.warnings.empty());
+  CHECK(p.cfg.rx.size() == 2 && p.cfg.tx.size() == 2);
+  CHECK(p.cfg.rx[0].mask == 0x7FF && p.cfg.rx[1].mask == 0x7F0);
+  CHECK(p.cfg.rx[0].need == 8);
+  CHECK(p.cfg.tx[0].dlc == 2);
+  std::vector<std::pair<canopen_plugin::IecLocation, std::string>> locs;
+  canworks_raw::raw_locations(p.cfg, locs);
+  CHECK(locs.size() == 8);
+}
+
+TEST(raw_config_rejections) {
+  CHECK(has(parse(R"({"rx":[{"id":2048}]})").errors, "networks[0].raw.rx[0].id: must be 0..0x7FF (11-bit identifier"));
+  CHECK(parse(R"({"rx":[{"id":2048,"extended":true}]})").ok);
+  CHECK(has(parse(R"({"rx":[{"id":1,"signals":[{"start_bit":0,"length":12,"iec_location":"%IB10"}]}]})").errors,
+            "needs a word"));
+  CHECK(has(parse(R"({"rx":[{"id":1,"dlc":2,"signals":[{"start_bit":8,"length":16,"iec_location":"%IW10"}]}]})").errors,
+            "reaches past the message's dlc (2 bytes)"));
+  CHECK(has(parse(R"({"tx":[{"id":1}]})").errors, "needs period_ms, on_change or trigger_location"));
+  CHECK(has(parse(R"({"tx":[{"id":1,"period_ms":10},{"id":1,"on_change":true}]})").errors,
+            "tx[1]: identifier 0x1 is also sent by networks[0].raw.tx[0]"));
+  CHECK(has(parse(R"({"tx":[{"id":1,"period_ms":10}]})", true).errors, "a listen-only network cannot send"));
+  CHECK(has(parse(R"({"tx":[{"id":1,"period_ms":10,"signals":[{"start_bit":0,"length":8,"iec_location":"%IB1"}]}]})")
+                .errors,
+            "needs an output (%Q)"));
+  CHECK(has(parse(R"({"rx":[{"id":1,"status_location":"%IB1"}]})").errors, "must be a %IX location"));
+  CHECK(has(parse(R"({"rx":[{"id":1,"colour":"red"}]})").warnings, "unknown field 'colour'"));
+}
+
+TEST(raw_config_protocol_ids) {
+  Parsed p = parse(R"({"tx":[{"name":"Fake","id":517,"period_ms":10},{"id":518,"period_ms":10}]})");
+  auto use = [](uint32_t id, bool ext) -> std::string { return !ext && id == 0x205 ? "RPDO1 of node 5" : ""; };
+  std::vector<std::string> errors, overrides;
+  canworks_raw::check_protocol_ids(p.cfg, use, errors, overrides);
+  CHECK(has(errors, "networks[0].raw.tx[0]: 0x205 is RPDO1 of node 5; set override_protocol to send it as a raw message"));
+  p = parse(R"({"tx":[{"name":"Fake","id":517,"period_ms":10,"override_protocol":true}]})");
+  errors.clear();
+  canworks_raw::check_protocol_ids(p.cfg, use, errors, overrides);
+  CHECK(errors.empty());
+  CHECK(has(overrides, "raw message Fake (0x205) overrides RPDO1 of node 5"));
+}
+
+// --- Engine ---
+
+TEST(engine_receive) {
+  Parsed p = parse(kExample);
+  canworks_raw::RawEngine e(p.cfg);
+  CHECK(e.input_locations().size() == 5);
+  CHECK(e.on_frame(frame(0x123, {0xFF, 0x0F, 0, 0, 0, 0, 0, 0}), 1000));
+  // status, counter, X
+  CHECK(e.input_values()[0] == 1 && e.input_values()[1] == 1);
+  CHECK(static_cast<int16_t>(e.input_values()[2]) == -1);
+  // Range entry: last identifier and data.
+  e.on_frame(frame(0x603, {1}), 2000);
+  e.on_frame(frame(0x60A, {2, 3}), 3000);
+  CHECK(e.input_values()[3] == 0x60A);
+  CHECK(e.input_values()[4] == 0x0302);
+  CHECK(e.rx_status()[1].count == 2);
+  // Short frame.
+  CHECK(!e.on_frame(frame(0x123, {1, 2}), 4000));
+  CHECK(e.rx_status()[0].short_frames == 1);
+  // Timeout 300 ms after the last good frame.
+  CHECK(e.next_event_in(1000) == 300000);
+  CHECK(!e.check_timeouts(300000));
+  CHECK(e.check_timeouts(301000));
+  CHECK(e.input_values()[0] == 0);
+  CHECK(static_cast<int16_t>(e.input_values()[2]) == -1);  // value held
+}
+
+TEST(engine_send_periodic_and_on_change) {
+  Parsed p = parse(kExample);
+  canworks_raw::RawEngine e(p.cfg);
+  CHECK(e.output_locations().size() == 3);  // enable, Red, trigger
+  // order: Lamps.enable, Lamps.Red, Wake.trigger
+  uint64_t out[3] = {1, 0, 0};
+  std::vector<canworks_can_frame> frames;
+  std::vector<size_t> idx;
+  e.set_outputs(out, 0);
+  e.due(0, frames, idx);
+  CHECK(frames.empty());  // PLC not running
+  e.set_plc_running(true, 0);
+  e.due(0, frames, idx);
+  CHECK(frames.size() == 1 && frames[0].id == 0x501 && frames[0].dlc == 2 && frames[0].data[0] == 0);
+  frames.clear();
+  e.due(40000, frames, idx);
+  CHECK(frames.empty());
+  out[1] = 1;  // Red changes 40 ms after the last send
+  e.set_outputs(out, 40000);
+  e.due(40000, frames, idx);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 1);
+  frames.clear();
+  e.due(100000, frames, idx);
+  CHECK(frames.empty());  // next periodic is 100 ms after the change
+  e.due(140000, frames, idx);
+  CHECK(frames.size() == 1);
+  frames.clear();
+  // Change within min_gap waits for it.
+  out[1] = 0;
+  e.set_outputs(out, 145000);
+  e.due(145000, frames, idx);
+  CHECK(frames.empty());
+  CHECK(e.next_event_in(145000) == 5000);
+  e.due(150000, frames, idx);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 0);
+  frames.clear();
+  // Enable FALSE stops periodic sends.
+  out[0] = 0;
+  e.set_outputs(out, 151000);
+  e.due(400000, frames, idx);
+  CHECK(frames.empty());
+}
+
+TEST(engine_trigger_once) {
+  Parsed p = parse(kExample);
+  canworks_raw::RawEngine e(p.cfg);
+  uint64_t out[3] = {0, 0, 0};
+  e.set_outputs(out, 0);
+  e.set_plc_running(true, 0);
+  std::vector<canworks_can_frame> frames;
+  std::vector<size_t> idx;
+  e.due(0, frames, idx);
+  CHECK(frames.empty());
+  for (int scan = 0; scan < 3; ++scan) {
+    out[2] = 1;
+    e.set_outputs(out, 1000 * scan);
+    e.due(1000 * scan, frames, idx);
+  }
+  CHECK(frames.size() == 1);
+  CHECK(frames.size() == 1 && frames[0].id == 0x502 && (frames[0].flags & CANWORKS_CAN_RTR) && frames[0].dlc == 0);
+  e.set_plc_running(false, 5000);
+  out[2] = 0;
+  e.set_outputs(out, 6000);
+  out[2] = 1;
+  e.set_outputs(out, 7000);
+  frames.clear();
+  e.due(7000, frames, idx);
+  CHECK(frames.empty());  // PLC stopped
+}
+
+TEST(engine_big_endian_and_fill) {
+  Parsed p = parse(R"({"tx":[{"id":16,"dlc":4,"fill":255,"period_ms":10,
+     "signals":[{"start_bit":7,"length":16,"byte_order":"big","iec_location":"%QW1"}]}],
+     "rx":[{"id":17,"signals":[{"start_bit":7,"length":16,"byte_order":"big","iec_location":"%IW1"}]}]})");
+  CHECK(p.ok);
+  canworks_raw::RawEngine e(p.cfg);
+  uint64_t out[1] = {0x1234};
+  canworks_can_frame f = e.build(0, out);
+  CHECK(f.dlc == 4 && f.data[0] == 0x12 && f.data[1] == 0x34 && f.data[2] == 0xFF && f.data[3] == 0xFF && f.data[4] == 0);
+  e.on_frame(frame(17, {0x12, 0x34}), 0);
+  CHECK(e.input_values()[0] == 0x1234);
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }
