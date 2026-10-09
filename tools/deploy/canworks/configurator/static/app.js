@@ -803,6 +803,13 @@ function render() {
   $("#editor").classList.toggle("commission", commission);
   $("#menu-project").hidden = S.state.mode !== "standalone" || commission;
   $("#btn-export-node").disabled = !S.view.startsWith("node:");
+  // Exports that do not apply are not offered: no DCF of a slave or J1939
+  // network (none at all without a CANopen master network), no DBC of a slave.
+  if (S.model) {
+    $("#btn-export-all").hidden = !S.model.networks.some(dcfNetwork);
+    $("#btn-export-node").hidden = !dcfNetwork(S.config);
+    $("#btn-export-dbc").closest(".menu-row").hidden = isSlave(S.config);
+  }
   if (commission && !["online", "scan", "trace", "framelab"].includes(S.view)) S.view = "online";
   // A J1939 network has no nodes, bus scan or simulated devices.
   if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "scan" || S.view === "simulation")) S.view = "bus";
@@ -5572,6 +5579,8 @@ async function runCheck() {
 
 // The open tab's network name when the draft has several (exports name it).
 function tabNetwork() { return several() ? netName(S.config) : null; }
+// A network with DCFs: a CANopen master network.
+function dcfNetwork(net) { return !!net && !isSlave(net) && !isJ1939(net); }
 
 // Exports the draft (saved or not) as CiA 306 DCF files: one node's file,
 // or every node's in a zip. With several networks: the open tab's nodes, or
@@ -5580,7 +5589,7 @@ function tabNetwork() { return several() ? netName(S.config) : null; }
 async function exportDcf(nodeId, network) {
   const one = nodeId !== undefined;
   if (one && !Number.isInteger(nodeId)) { banner("Give the node a node ID first.", true); return; }
-  if (!one && several()) {
+  if (!one && several() && dcfNetwork(S.config)) {
     const label = netLabel(S.config, S.net);
     const v = await modal(`Export the DCF files of network ${label}, or of every network (a folder per network in the zip)?`,
       [["tab", `Network ${label}`], ["all", "All networks", true], ["cancel", "Cancel"]]);
@@ -5674,7 +5683,10 @@ async function exportDbc() {
 // hints do not go blank.
 function exportProblems(r, cfg) {
   const fresh = normCheck(r, fileVersion(cfg));
-  const prev = S.check || {};
+  // The config check's, not an earlier export's: a failed export's findings
+  // replace the previous export's.
+  const prev = (S.check && S.check.base) || S.check || {};
+  fresh.base = prev;
   const key = (it) => readable(it.message) + "|" + JSON.stringify(it.paths || []);
   if (prev.items) {
     const seen = new Set(prev.items.map(key));
@@ -6085,7 +6097,8 @@ function wire() {
   $("#browser-open").onclick = startOpen;
   // busy() restores the caption it found ("Save"); the button's real state follows the save.
   $("#btn-save").onclick = () => busy($("#btn-save"), "Saving…", () => save(false)).then(updateSave);
-  const exporting = (id, fn) => { $(id).onclick = () => busy($(id), "Exporting…", fn); };
+  // The menu closes on a pick: its caption shows that the export runs.
+  const exporting = (id, fn) => { $(id).onclick = () => busy($("#menu-export > summary"), "Exporting…", fn); };
   exporting("#btn-export-all", () => exportDcf());
   exporting("#btn-export-node", () => {
     const n = S.view.startsWith("node:") ? S.config.nodes[Number(S.view.slice(5))] : null;

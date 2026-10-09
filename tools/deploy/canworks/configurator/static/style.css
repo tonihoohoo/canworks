@@ -24,7 +24,7 @@
 * { box-sizing: border-box; }
 summary { min-height: 24px; }
 body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 3; flex-wrap: wrap; }  /* its menus open over the message bar */
 h1 { font-size: 16px; margin: 0; }
 h2 { font-size: 15px; margin: 0 0 8px; }
 h3, h2.side-caption { font-size: 13px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
