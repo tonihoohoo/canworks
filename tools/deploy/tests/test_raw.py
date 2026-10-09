@@ -272,3 +272,53 @@ class StatusText(unittest.TestCase):
         self.assertRegex(text, r"lamp_ack \(0x181\)\s+0\s+never received")
         self.assertRegex(text, r"lamp \(0x200\)\s+40\s+-")
         self.assertNotIn("master node", text)
+
+
+class TraceDecoding(unittest.TestCase):
+    """Raw messages in the bus trace and the frame inspector."""
+
+    RAW = {"rx": [{"name": "joystick", "id": 0x180, "dlc": 2, "signals": [
+        {"name": "x", "start_bit": 0, "length": 8, "signed": True, "scale": 0.5, "unit": "%", "location": "%IW70"},
+        {"name": "y", "start_bit": 15, "length": 8, "byte_order": "big"}]}],
+        "tx": [{"name": "lamp", "id": 0x18FF0010, "extended": True, "dlc": 1, "period_ms": 100}]}
+
+    def plain(self):
+        return {"schema_version": 2, "networks": [{"name": "cab", "protocol": "none",
+                                                   "adapter": {"interface": "can0", "bitrate": 250000},
+                                                   "raw": self.RAW}]}
+
+    def test_plain_network(self):
+        from canworks.bustrace import explain
+        from canworks.bustrace.decode import Decoder
+        from canworks.bustrace.model import Frame
+        d = Decoder.from_config(self.plain(), "/x/canworks.json", network="cab")
+        self.assertEqual(d.protocol, "none")
+        r = d.decode(Frame(0, 0x180, b"\xfe\x10"))
+        self.assertEqual((r.kind, r.name, r.text), ("raw", "joystick", "joystick x=-2 (-1 %) y=16"))
+        self.assertEqual(r.signals, [("joystick.x", -1.0), ("joystick.y", 16)])
+        self.assertEqual(d.decode(Frame(0, 0x18FF0010, b"\x01", ext=True)).name, "lamp")
+        # A plain network knows no CANopen: 0x181 is just a frame.
+        self.assertEqual(d.decode(Frame(0, 0x181, b"\x01")).kind, "other")
+        self.assertIn(("joystick.x", "joystick x", None), d.signal_keys())
+        e = explain.explain(Frame(0, 0x180, b"\xfe\x10"), d)
+        self.assertEqual((e["kind"], e["title"]), ("raw", "joystick"))
+        self.assertEqual([(f["name"], f["start"], f["length"], f["value"]) for f in e["fields"]],
+                         [("x", 0, 8, "-2 (-1 %)"), ("y", 8, 8, "16")])
+        self.assertIn("In the PLC program: %IW70.", e["fields"][0]["text"])
+        e = explain.explain(Frame(0, 0x182, b"\xfe"), d)
+        self.assertEqual(e["kind"], "other")
+        self.assertIn("0x182 with 1 data byte; not configured", e["meaning"])
+
+    def test_next_to_canopen(self):
+        from canworks.bustrace.decode import Decoder
+        from canworks.bustrace.model import Frame
+        from .helpers import pingpong_config
+        from .helpers import tmpdir
+        path = pingpong_config(tmpdir(self))
+        with open(path) as f:
+            cfg = json.load(f)
+        cfg["raw"] = {"rx": [{"name": "free", "id": 0x3F0, "dlc": 1}, {"name": "on_pdo", "id": 0x182, "dlc": 1}]}
+        d = Decoder.from_config(cfg, path)
+        self.assertEqual(d.decode(Frame(0, 0x3F0, b"\x01")).kind, "raw")
+        # The protocol keeps the identifiers it uses.
+        self.assertNotEqual(d.decode(Frame(0, 0x182, b"\x01")).kind, "raw")
