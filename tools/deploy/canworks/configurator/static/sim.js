@@ -131,7 +131,15 @@ function simFileOut() {
   }
   return out;
 }
-function simFileText() { return JSON.stringify(simFileOut()); }
+// JSON with the keys sorted, so a field removed and given again (the tick)
+// compares equal.
+function simCanon(x) {
+  const sorted = (v) => (Array.isArray(v) ? v.map(sorted) : v && typeof v === "object"
+    ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v);
+  return JSON.stringify(sorted(x));
+}
+
+function simFileText() { return simCanon(simFileOut()); }
 
 function simDirty() { return !!SIM.file && simFileText() !== SIM.saved; }
 
@@ -343,6 +351,13 @@ async function loadSimSettings() {
 
 async function renderSimulation(view) {
   document.querySelector("#editor").classList.add("wide-view");
+  // The picked device belongs to the network it was picked on.
+  const net = onlineNetwork();
+  if (SIM.net !== undefined && SIM.net !== net) {
+    Object.assign(SIM, { node: null, last: null, editing: null, rowKeys: "" });
+    clearErrorBanner();
+  }
+  SIM.net = net;
   if (!SIM.file) simLoad(); else simBind();
   const seq = SIM.seq;
   if (!SIM.settings) await loadSimSettings();
@@ -353,7 +368,7 @@ async function renderSimulation(view) {
   if (machineName()) pages.push(["machine", "Machine"]);
   else if (SIM.tab === "machine") SIM.tab = "live";
   const tabList = tabs(pages, SIM.tab,
-    (k) => { SIM.tab = k; SIM.rowKeys = ""; SIM.scenSig = ""; render(); }, { dataset: "simTab", panel: "sim-body", label: "Simulation pages" });
+    (k) => { SIM.tab = k; SIM.rowKeys = ""; SIM.scenSig = ""; clearErrorBanner(); render(); }, { dataset: "simTab", panel: "sim-body", label: "Simulation pages" });
   view.append(
     el("div", { class: "toolbar" }, el("h2", null, "Simulation"), el("div", { class: "spacer" }), simSaveBar()),
     simConnectBox(),
@@ -465,7 +480,7 @@ async function simPoll(seq) {
   SIM.last = r;
   const st = r.status || {};
   const devices = st.devices || [];
-  if (SIM.node === null && devices.length) SIM.node = simRef(devices[0]);
+  if (SIM.node === null || !devices.some((d) => String(simRef(d)) === String(SIM.node))) SIM.node = devices.length ? simRef(devices[0]) : null;
   const where = r.target === "simulator" ? `the simulator at ${(SIM.settings && SIM.settings.address) || "its address"}` : S.online.host;
   conn.className = "online-conn ok";
   conn.replaceChildren(`Connected to ${where}: ` +
@@ -494,11 +509,17 @@ function simExtraObjects(ref) {
   return [...keys];
 }
 
-function simPins(ref) { return ((SIM.settings && SIM.settings.pins) || {})[String(ref)] || []; }
+// Pins are kept per network and device: "io/5" (the device alone with one network).
+function simPinKey(ref) {
+  const net = onlineNetwork();
+  return net === null ? String(ref) : `${net}/${ref}`;
+}
+
+function simPins(ref) { return ((SIM.settings && SIM.settings.pins) || {})[simPinKey(ref)] || []; }
 
 async function simSetPins(ref, list) {
   const pins = Object.assign({}, SIM.settings.pins || {});
-  if (list.length) pins[String(ref)] = list; else delete pins[String(ref)];
+  if (list.length) pins[simPinKey(ref)] = list; else delete pins[simPinKey(ref)];
   try { SIM.settings = await api("POST", "/api/sim/settings", { pins }); } catch (e) { banner(e.message, true); }
   SIM.rowKeys = "";
   simUpdate();
@@ -606,7 +627,7 @@ function simDevicePanel() {
 }
 
 async function simInject(ref, fault, label) {
-  await simRequest("sim_fault", { node: ref, fault }, `${simRefText(ref)}: ${label} injected.`);
+  return simRequest("sim_fault", { node: ref, fault }, `${simRefText(ref)}: ${label} injected.`);
 }
 
 function simFaultForm(ref, kind) {
@@ -615,10 +636,10 @@ function simFaultForm(ref, kind) {
   const label = FAULT_KINDS.find((x) => x[0] === kind)[1].replace("…", "");
   const msg = el("span", { class: "field-msg" });
   put(box, el("div", { class: "sim-form", dataset: { simForm: kind } }, el("strong", null, label), f.el, el("div", { class: "toolbar" },
-    el("button", { type: "button", class: "primary", dataset: { sim: "inject" }, onclick: () => {
+    el("button", { type: "button", class: "primary", dataset: { sim: "inject" }, onclick: async () => {
       let fault;
       try { fault = f.value(); } catch (e) { msg.textContent = e.message; return; }
-      simInject(ref, fault, label);
+      if (await simInject(ref, fault, label) !== null) put(box);  // injected: the form closes
     } }, "Inject"),
     el("button", { type: "button", dataset: { sim: "at-start" }, title: "Add this fault to the device's faults at start in the simulation file", onclick: () => {
       let fault;
@@ -1418,7 +1439,7 @@ function simUpdateScenarios() {
     const elapsed = simRunState(name, st);
     const draft = simScenarios()[name];
     const saved = simSavedScenario(name);
-    const inFile = draft ? (saved === undefined ? "not saved yet" : JSON.stringify(saved) === JSON.stringify(draft) ? "yes" : "edited, not saved") : "no";
+    const inFile = draft ? (saved === undefined ? "not saved yet" : simCanon(saved) === simCanon(draft) ? "yes" : "edited, not saved") : "no";
     const state = st ? SIM_STATES[st.state] || st.state : "";
     const result = st && (st.state === "failed" || st.state === "passed" || st.message)
       ? [st.message || "", st.condition ? ` Condition: ${typeof st.condition === "string" ? st.condition : JSON.stringify(st.condition)}.` : "",
@@ -1492,7 +1513,7 @@ async function simStartScenario(name) {
   const draft = simScenarios()[name];
   const saved = simSavedScenario(name);
   const fields = { name };
-  if (draft && JSON.stringify(draft) !== JSON.stringify(saved)) fields.scenario = simClone(draft);
+  if (draft && simCanon(draft) !== simCanon(saved)) fields.scenario = simClone(draft);
   SIM.runs[name] = { state: null, start: null, end: null };
   const r = await simRequest("sim_scenario_start", fields, `Scenario ${name} started` + (fields.scenario ? " (as edited here, not saved)." : "."));
   if (r) { SIM.scenSig = ""; simUpdateScenarios(); }

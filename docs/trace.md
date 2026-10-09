@@ -10,7 +10,7 @@ A trace records one network. With several CAN networks in the config (`schema_ve
 
 ## Recording
 
-The plugin keeps the newest 65536 frames in memory while a client traces, and the PC fetches what is new every 100 ms. If the PC falls behind by more than that (a network hiccup on a busy bus), the frames it missed are counted as lost and marked in the trace. Frames the Pi's kernel dropped before the plugin read them are counted separately ("dropped by the PLC's kernel"). A trace on the PC holds up to 2 million frames (about 70 MB of memory); past that the oldest are dropped and the view says so.
+The plugin keeps the newest 65536 frames in memory while a client traces, and the PC fetches what is new every 100 ms. If the PC falls behind by more than that (a network hiccup on a busy bus), the frames it missed are counted as lost and marked in the trace. Frames the Pi's kernel dropped before the plugin read them are counted separately ("dropped by the PLC's kernel"). A trace on the PC holds up to 2 million frames (about 70 MB of memory); past that the oldest tenth is dropped at once, and the view says how many frames it holds and how many were dropped.
 
 Capture filters (ID and mask, up to 16) are applied on the runtime and limit what is recorded, for example `0x180/0x780` for all TPDO1s or `0x717/0x7FF` for node 23's heartbeat. Error frames (bus errors, error-passive, bus-off) are recorded on request; with an slcan adapter such as the CANable they need Linux 6.0 or later and adapter firmware that reports them.
 
@@ -60,9 +60,9 @@ A trigger watches the trace while it is recorded, on the PC, and fires when its 
 
 A signal is named by its key, `<PDO>.<signal>` (for example `valve_RPDO1.Output_1`), or by the signal name alone when only one PDO has it. The command line needs `--config` for signal conditions and uses the signal names from the EDS, as in its CSV; the configurator uses the PLC variable names of the editor project, as in its graph list. A name the config does not decode is refused with the list of signals, so a trigger never waits for a signal that cannot come.
 
-Heartbeat lost, boot error and bus state come from the plugin's status, which the PC reads every 500 ms. A count N fires on every Nth match.
+On a J1939 network the configurator offers the frame, signal, bus state and error frame conditions; the others are CANopen's. Heartbeat lost, boot error and bus state come from the plugin's status, which the PC reads every 500 ms. A count N fires on every Nth match.
 
-In **single** mode the recording stops once the post-trigger time (0-600 s) has passed after the first hit; the trace then holds what was recorded before (the pre-trigger time) and after it. In **normal** mode every hit puts a marker in the trace and the graph and recording goes on; with auto-save on, the pre/post window around each hit is written to its own file, named `<project>-trace-<UTC time>.<ext>`. The configurator writes them to the `traces` folder in its settings folder unless another folder is chosen; it refuses the project's `canworks/` folder, which travels with the PLC program.
+In **single** mode the recording stops once the post-trigger time (0-600 s) has passed after the first hit; the trace then holds only the window around the hit, the pre-trigger time before it and the post-trigger time after it, and the frames outside it are removed. In **normal** mode every hit puts a marker in the trace and the graph and recording goes on; with auto-save on, the pre/post window around each hit is written to its own file, named `<project>-trace-<UTC time>.<ext>`. The configurator writes them to the `traces` folder in its settings folder unless another folder is chosen, which must exist and be given as a full path; it refuses the project's `canworks/` folder, which travels with the PLC program.
 
 ## Explaining frames
 

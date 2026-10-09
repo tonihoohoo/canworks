@@ -57,6 +57,13 @@ class Files(Trace):
         self.assertEqual(text["total"], 2)
         ids = self.ok("POST", "/api/trace/frames", {"filter": {"id_from": 0x180, "id_to": 0x1FF, "dir": "rx"}})
         self.assertEqual(ids["total"], 5)
+        # Identifiers as the trace shows them: hex, with or without 0x.
+        for lo, hi in (("180", "1FF"), ("0x180", "0x1ff")):
+            hexed = self.ok("POST", "/api/trace/frames", {"filter": {"id_from": lo, "id_to": hi, "dir": "rx"}})
+            self.assertEqual(hexed["total"], 5, (lo, hi))
+        status, data, _ = self.request("POST", "/api/trace/frames", {"filter": {"id_from": "18G"}})
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "ID from must be a hex identifier, e.g. 180 or 0x180")
         at = self.ok("POST", "/api/trace/frames", {"at_us": T0 + 300000, "count": 10})
         self.assertEqual(at["rows"][at["focus"] - at["offset"]]["kind"], "emcy")
         table = self.ok("POST", "/api/trace/ids", {})["ids"]
@@ -86,10 +93,17 @@ class Files(Trace):
         self.assertTrue(r["path"].endswith(".blf") and os.path.isfile(r["path"]))
         status, data, _ = self.request("POST", "/api/trace/save", {"folder": self.canopen})
         self.assertEqual(status, 422)
-        self.assertIn("canopen folder", data["error"])
+        self.assertIn("canworks folder", data["error"])
         status, _, _ = self.request("POST", "/api/trace/trigger", {"trigger": {
             "conditions": [{"type": "error_frame"}], "autosave": {"format": "log", "folder": self.canopen}}})
         self.assertEqual(status, 422)
+        # Auto-save needs a full path to a folder that exists.
+        for folder, why in (("relative/dir", "is not a full path"), (os.path.join(self.dir, "nonexistent"),
+                                                                      "does not exist")):
+            status, data, _ = self.request("POST", "/api/trace/trigger", {"trigger": {
+                "conditions": [{"type": "error_frame"}], "autosave": {"format": "log", "folder": folder}}})
+            self.assertEqual(status, 422, folder)
+            self.assertIn(why, data["error"])
 
     def test_bad_files_and_clear(self):
         status, data, _ = self.request("POST", "/api/trace/open", {"name": "x.blf", "data": b64(b"LOGG" + bytes(200))})
@@ -160,6 +174,7 @@ class Live(Trace):
         self.assertEqual([m["kind"] for m in st["markers"]], ["trigger"])
         # Normal mode: markers and an auto-saved window per hit, recording goes on.
         folder = os.path.join(self.dir, "auto")
+        os.mkdir(folder)
         trig = {"conditions": [{"type": "frame", "id": "0x702"}], "mode": "normal", "pre_s": 1, "post_s": 0,
                 "autosave": {"format": "log", "folder": folder}}
         self.ok("POST", "/api/trace/start", {"trigger": trig})

@@ -18,6 +18,16 @@ const LANES = 4;
 const COND_TYPES = [["frame", "Frame"], ["emcy", "EMCY"], ["state", "Node state"], ["heartbeat_lost", "Heartbeat lost"],
   ["boot_error", "Boot error"], ["sdo_abort", "SDO abort"], ["signal", "Signal value"], ["bus", "Bus state"],
   ["error_frame", "Error frame"]];
+// A J1939 network shows only its kinds and conditions, a CANopen one only its own.
+const J1939_KINDS = ["pgn", "claim", "request", "ack", "tp"];
+const SHARED_KINDS = ["error", "gap", "other"];
+const J1939_CONDS = ["frame", "signal", "bus", "error_frame"];
+function traceJ1939() { return isJ1939(onlineConfig()); }
+function traceKinds() {
+  const j = traceJ1939();
+  return TRACE_KINDS.filter(([k]) => SHARED_KINDS.includes(k) || J1939_KINDS.includes(k) === j);
+}
+function condTypes() { return traceJ1939() ? COND_TYPES.filter(([k]) => J1939_CONDS.includes(k)) : COND_TYPES; }
 const SIGNAL_OPS = [">", "<", "=", "!=", "cross_up", "cross_down", "rising", "falling"];
 // Graph series colours, one set per theme (readable on the panel of each).
 const SERIES_COLORS = {
@@ -51,6 +61,11 @@ function stopTrace() {
   document.querySelector("#editor").classList.remove("wide-view");
 }
 
+// An error belongs to the tab or view it came from: a switch clears it.
+function clearErrorBanner() {
+  if ($("#banner").classList.contains("error")) banner("");
+}
+
 function traceT0() { return T.st && T.st.start_us != null ? T.st.start_us : 0; }
 
 function timeText(us) {
@@ -80,8 +95,25 @@ function onlineReady() {
 
 // ---------------------------------------------------------------------------
 
+// The graph's series, cursors and zoom belong to one network's trace.
+function dropSeries() {
+  T.chosen = [];
+  T.lane = {};
+  T.data = {};
+  T.zoom = null;
+  T.a = T.b = null;
+}
+
 function renderTrace(view) {
   document.querySelector("#editor").classList.add("wide-view");
+  const net = onlineNetwork();
+  if (T.net !== undefined && T.net !== net) {
+    dropSeries();
+    T.trigDraft = null;
+    clearErrorBanner();
+  }
+  if (traceJ1939() && T.tab === "sequences") T.tab = "frames";
+  T.net = net;
   const fileInput = el("input", { type: "file", accept: ".pcapng,.pcap,.log,.asc", dataset: { trace: "open-input" } });
   fileInput.addEventListener("change", () => {
     const f = fileInput.files[0];
@@ -116,8 +148,8 @@ function renderTrace(view) {
     captureSettings(),
     sendPanel(),
     el("div", { id: "trace-stats", class: "trace-stats", dataset: { trace: "stats" } }),
-    tabs([["frames", "Frames"], ["ids", "Identifiers"], ["graph", "Graph"], ["sequences", "Sequences"], ["trigger", "Trigger"]],
-      T.tab, (v) => { T.tab = v; renderTraceTab(); }, { class: "segmented trace-tabs", tab: "", dataset: "traceTab", panel: "trace-tab", label: "Trace pages" }),
+    tabs([["frames", "Frames"], ["ids", "Identifiers"], ["graph", "Graph"]].concat(traceJ1939() ? [] : [["sequences", "Sequences"]], [["trigger", "Trigger"]]),
+      T.tab, (v) => { T.tab = v; clearErrorBanner(); renderTraceTab(); }, { class: "segmented trace-tabs", tab: "", dataset: "traceTab", panel: "trace-tab", label: "Trace pages" }),
     el("div", { id: "trace-tab", role: "tabpanel", "aria-labelledby": "trace-tab-tab-" + T.tab }));
   T.lastFrames = -1;
   T.lastGeneration = -1;
@@ -165,6 +197,7 @@ async function pollTrace(seq, first) {
     const now = Date.now();
     if (first || !prev || st.generation !== T.lastGeneration) {
       if (st.generation !== T.lastGeneration && !first) { T.selected = null; T.zoom = null; T.a = T.b = null; }
+      if (prev && (prev.network || null) !== (st.network || null)) dropSeries();
       renderTraceTab();
     } else if (changed) {
       if (T.tab === "frames" && T.follow) refreshRows(true);
@@ -201,8 +234,12 @@ function showTraceHeader(st) {
       ". Opening, viewing and exporting trace files works without it."));
   }
   for (const w of st.warnings || []) parts.push(el("div", { class: "online-note warning", dataset: { trace: "warning" } }, humanise(w)));
-  if (st.dropped) parts.push(el("div", { class: "online-note warning" },
-    `The trace holds the newest ${Number(st.limit || 0).toLocaleString()} frames; ${Number(st.dropped).toLocaleString()} older frames were dropped.`));
+  const trimmed = rec.trimmed || 0;
+  if (trimmed) parts.push(el("div", { class: "online-note", dataset: { trace: "trimmed" } },
+    `Single trigger: the trace holds the pre/post window around the hit; ${trimmed.toLocaleString()} frames outside it were removed.`));
+  if (st.dropped) parts.push(el("div", { class: "online-note warning", dataset: { trace: "dropped" } },
+    `The trace holds the newest ${Number(st.frames || 0).toLocaleString()} frames (at most ${Number(st.limit || 0).toLocaleString()}; ` +
+    `past that the oldest tenth goes at once); ${Number(st.dropped).toLocaleString()} older frames were dropped.`));
   src.className = cls;
   src.replaceChildren(...parts);
   const sm = st.summary;
@@ -341,7 +378,9 @@ async function traceExport() {
 
 function renderFrames(box) {
   const f = T.filter;
-  const kinds = el("div", { class: "kind-chips" }, TRACE_KINDS.map(([k, label]) => {
+  const offered = traceKinds();
+  if (f.kinds) f.kinds = f.kinds.filter((k) => offered.some(([o]) => o === k));
+  const kinds = el("div", { class: "kind-chips" }, offered.map(([k, label]) => {
     const cb = el("input", { type: "checkbox", checked: (f.kinds || []).includes(k), dataset: { traceKind: k } });
     cb.onchange = () => {
       const set = new Set(f.kinds || []);
@@ -557,7 +596,7 @@ async function loadIds() {
 function seriesGroups() {
   const all = (T.st ? T.st.series : []).slice();
   const out = [["Bus", [{ key: "bus.rate", label: "Frames per second", kind: "bus" }, { key: "bus.load", label: "Bus load % (estimate)", kind: "bus" }]]];
-  const by = { signal: "PDO signals", status: "Status (polled)", event: "Events" };
+  const by = { signal: traceJ1939() ? "Message signals" : "PDO signals", status: "Status (polled)", event: "Events" };
   for (const kind of ["signal", "status", "event"]) {
     const list = all.filter((s) => s.kind === kind);
     if (list.length) out.push([by[kind], list]);
@@ -703,7 +742,7 @@ function drawPlots(width) {
           const a = u.posToVal(u.select.left, "x");
           const b = u.posToVal(u.select.left + u.select.width, "x");
           u.setSelect({ left: 0, width: 0, top: 0, height: 0 }, false);
-          T.justSelected = true;
+          T.justSelected = Date.now();
           T.zoom = [t0 + a * 1e6, t0 + b * 1e6];
           loadGraph();
         }],
@@ -714,7 +753,10 @@ function drawPlots(width) {
     box.append(holder);
     const plot = new uPlot(opts, data, holder);
     plot.over.addEventListener("click", (e) => {
-      if (T.justSelected) { T.justSelected = false; return; }
+      // The click that ends a drag-zoom (when the browser sends one) sets no cursor.
+      const dragged = T.justSelected && Date.now() - T.justSelected < 300;
+      T.justSelected = 0;
+      if (dragged) return;
       if (plot.cursor.left == null || plot.cursor.left < 0) return;
       const us = t0 + plot.posToVal(plot.cursor.left, "x") * 1e6;
       if (e.shiftKey) T.b = us; else T.a = us;
@@ -796,7 +838,7 @@ function showCursors() {
 
 // -- trigger ----------------------------------------------------------------
 
-function blankCondition(type) { return { type: type || "emcy" }; }
+function blankCondition(type) { return { type: type || (traceJ1939() ? "frame" : "emcy") }; }
 
 function triggerDraft() {
   if (!T.trigDraft) {
@@ -817,7 +859,7 @@ function triggerDraft() {
 function condEditor(c, k) {
   const d = triggerDraft();
   const type = el("select", { "aria-label": "Condition", dataset: { traceCond: k + ".type" } },
-    COND_TYPES.map(([v, l]) => el("option", { value: v, selected: c.type === v }, l)));
+    condTypes().map(([v, l]) => el("option", { value: v, selected: c.type === v }, l)));
   type.onchange = () => { d.conditions[k] = blankCondition(type.value); renderTrigger($("#trace-tab")); };
   const txt = (key, label, width) => {
     const i = el("input", { type: "text", spellcheck: "false", placeholder: label, "aria-label": label,
@@ -844,7 +886,7 @@ function condEditor(c, k) {
     ["operational", "OPERATIONAL"], ["preop", "PRE-OPERATIONAL"]], "any"));
   if (c.type === "signal") {
     const sigs = ((T.st && T.st.series) || []).filter((s) => s.kind === "signal");
-    fields.push(sel("key", "Signal", sigs.length ? sigs.map((s) => [s.key, s.label]) : [["", "no PDO signals in this config"]], sigs.length ? sigs[0].key : ""),
+    fields.push(sel("key", "Signal", sigs.length ? sigs.map((s) => [s.key, s.label]) : [["", traceJ1939() ? "no message signals in this config" : "no PDO signals in this config"]], sigs.length ? sigs[0].key : ""),
       sel("op", "Comparison", SIGNAL_OPS.map((o) => [o, o.replace("_", " ")]), ">"), txt("value", "value", "10ch"));
   }
   if (c.type === "bus") fields.push(sel("state", "Bus state", [["warning", "error-warning or worse"], ["passive", "error-passive or worse"], ["off", "bus-off"]], "warning"));
@@ -890,7 +932,7 @@ function renderTrigger(box) {
       el("div", { class: "row wrap" }, num("pre_s", "Pre-trigger s", { min: 0, step: "any" }), num("post_s", "Post-trigger s", { min: 0, max: 600, step: "any" })),
       el("div", { class: "row wrap" }, el("label", { class: "check inline" }, auto, "Auto-save each pre/post window as"), autoFmt),
       el("label", { class: "inline wide-label" }, el("span", null, "in folder"), autoDir),
-      el("p", { class: "hint" }, "Files are named <project>-trace-<UTC time>. The default folder is the configurator's settings folder; the project's canopen folder is refused, since it travels with the PLC program.")),
+      el("p", { class: "hint" }, "Files are named <project>-trace-<UTC time>. The default folder is the configurator's settings folder. Another folder must exist and be given as a full path; the project's canworks folder is refused, since it travels with the PLC program.")),
     el("div", { class: "toolbar" },
       el("button", { type: "button", class: "primary", dataset: { trace: "apply-trigger" }, onclick: applyTrigger }, "Apply trigger"),
       el("button", { type: "button", dataset: { trace: "remove-trigger" }, onclick: removeTrigger }, "Remove trigger")),
@@ -950,7 +992,8 @@ function sendBlocked() {
 }
 
 function sendFrameText(f) {
-  const id = String(f.id).replace(/^0x/i, "").toUpperCase();
+  // The jobs the server lists carry the identifier as a number.
+  const id = (typeof f.id === "number" ? f.id.toString(16) : String(f.id).replace(/^0x/i, "")).toUpperCase();
   if (f.rtr) return `${id} remote [${f.dlc || 0}]`;
   const data = (f.data || "").trim().toUpperCase();
   return `${id} [${data ? data.split(/\s+/).length : 0}] ${data}`.trim();
@@ -1112,6 +1155,8 @@ function sendLeave() {
 // "Send this frame" from a trace row: fills the panel.
 function sendThisFrame(x) {
   Object.assign(SEND, { open: true, id: x.id, ext: !!x.ext, rtr: !!x.rtr, dlc: x.dlc || 0, data: x.rtr ? "" : x.data, mode: "single" });
+  const old = document.querySelector("[data-trace=send-panel]");
+  if (old) old.open = true;  // drawSendPanel takes the open state from the panel it replaces
   drawSendPanel();
   const panel = document.querySelector("[data-trace=send-panel]");
   if (panel) panel.scrollIntoView({ block: "nearest" });

@@ -3,6 +3,7 @@
 display filters, graphs with cursors, triggers and the layout. Needs
 Playwright, like test_configurator_page.py."""
 
+import json
 import os
 import time
 
@@ -142,6 +143,91 @@ class Files(TraceBase):
         print("2M frames: opened in %.1f s, graphed in %.1f s (%d points)" % (opened, graphed, points))
 
 
+class Pages(TraceBase):
+    """Filters, the graph's cursors and the trigger tab on an opened file."""
+
+    def opened(self):
+        self.open()
+        self.trace_view()
+        self.page.set_input_files('input[data-trace="open-input"]', self.sample_file())
+        self.page.wait_for_selector("#trace-rows .trace-row")
+
+    def test_hex_identifier_filter(self):
+        pg = self.page
+        self.opened()
+        # A CANopen network offers no J1939 kinds.
+        kinds = pg.eval_on_selector_all("[data-trace-kind]", "es => es.map(e => e.dataset.traceKind)")
+        self.assertEqual(kinds, ["nmt", "sync", "time", "emcy", "heartbeat", "sdo", "pdo", "lss", "error", "gap", "other"])
+        for lo, hi in (("180", "1FF"), ("0x180", "0x1ff")):
+            pg.fill('[data-trace-filter="id_from"]', lo)
+            pg.fill('[data-trace-filter="id_to"]', hi)
+            pg.press('[data-trace-filter="id_to"]', "Tab")
+            self.wait_rows(5)  # the five TPDO1s of node 2 (0x182)
+            self.assertTrue(all("pingpong_TPDO1" in r for r in self.rows()), self.rows())
+
+    def test_first_click_after_a_drag_zoom_sets_cursor_a(self):
+        pg = self.page
+        self.opened()
+        pg.click('[data-trace-tab="graph"]')
+        pg.check('[data-trace-series="%s"]' % SIGNAL)
+        pg.wait_for_selector("#trace-plots .uplot")
+        box = pg.locator("#trace-plots .u-over").first.bounding_box()
+        y = box["y"] + box["height"] / 2
+        pg.mouse.move(box["x"] + box["width"] * 0.1, y)
+        pg.mouse.down()
+        pg.mouse.move(box["x"] + box["width"] * 0.6, y, steps=5)
+        pg.mouse.up()
+        pg.wait_for_timeout(600)  # the zoomed graph is drawn again
+        box = pg.locator("#trace-plots .u-over").first.bounding_box()
+        pg.mouse.click(box["x"] + box["width"] * 0.5, box["y"] + box["height"] / 2)
+        pg.wait_for_selector("[data-trace=delta-t]:has-text('A ')")
+
+    def test_trigger_folder_and_error_banner(self):
+        pg = self.page
+        self.opened()
+        pg.click('[data-trace-tab="trigger"]')
+        self.assertIn("project's canworks folder is refused", pg.inner_text("#trace-tab"))
+        pg.check('[data-trace-trig="autosave"]')
+        pg.fill('[data-trace-trig="autosave-folder"]', "relative/dir")
+        pg.click("[data-trace=apply-trigger]")
+        pg.wait_for_selector("#banner.error:has-text('is not a full path')")
+        pg.fill('[data-trace-trig="autosave-folder"]', os.path.join(self.dir, "nonexistent"))
+        pg.click("[data-trace=apply-trigger]")
+        pg.wait_for_selector("#banner.error:has-text('does not exist')")
+        # The error belongs to the trigger tab.
+        pg.click('[data-trace-tab="frames"]')
+        self.assertTrue(pg.is_hidden("#banner"))
+
+
+class Networks(TraceBase):
+    """A config with two networks: the trace's views follow the picked one."""
+
+    def setUp(self):
+        super().setUp()
+        io = dict(self.cfg, name="io")
+        io.pop("schema_version", None)
+        line = {"name": "line", "adapter": {"type": "socketcan", "interface": "can1", "bitrate": 125000},
+                "master": {"node_id": 1}, "nodes": [{"node_id": 3, "name": "other", "eds": "cpp-slave.eds"}]}
+        self.cfg = {"schema_version": 2, "networks": [io, line]}
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(self.cfg, f, indent=2)
+
+    def test_network_switch_drops_the_graph_series(self):
+        pg = self.page
+        self.open()
+        self.trace_view()
+        pg.set_input_files('input[data-trace="open-input"]', self.sample_file())
+        pg.wait_for_selector("#trace-rows .trace-row")
+        pg.click('[data-trace-tab="graph"]')
+        pg.check('[data-trace-series="%s"]' % SIGNAL)
+        pg.wait_for_selector("#trace-plots .uplot")
+        pg.select_option('[data-online="network"]', "line")
+        pg.wait_for_selector('[data-trace-series="bus.rate"]')
+        self.assertEqual(pg.locator("#trace-plots .uplot").count(), 0)
+        self.assertEqual(pg.locator("[data-trace-series]:checked").count(), 0)
+        self.assertEqual(pg.evaluate("T.chosen"), [])
+
+
 class Live(TraceBase):
     def setUp(self):
         super().setUp()
@@ -197,6 +283,7 @@ class Live(TraceBase):
         pg.wait_for_selector("text=Hit 1 at")
         # Normal mode with auto-save: every hit is a marker and a file, recording goes on.
         folder = os.path.join(self.dir, "auto")
+        os.mkdir(folder)
         pg.select_option('[data-trace-cond="0.type"]', "frame")
         pg.fill('[data-trace-cond="0.id"]', "0x702")
         pg.select_option('[data-trace-trig="mode"]', "normal")

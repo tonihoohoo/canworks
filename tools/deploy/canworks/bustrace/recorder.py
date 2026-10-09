@@ -82,6 +82,7 @@ class Recorder:
         self.offset_us = None  # PC clock - PLC clock (smallest seen)
         self.stop_at_us = None  # single mode: stop when frames reach this time
         self.pending_saves = []  # [(hit_us, until_us)]
+        self.trimmed = 0  # single mode: frames outside the pre/post window, removed at the stop
         self._stop = threading.Event()
         self._thread = None
         self._lost_total = 0
@@ -113,7 +114,7 @@ class Recorder:
         out = {"state": self.state, "message": self.message, "running": self.running,
                "saved": list(self.saved), "hits": list(self.engine.hits) if self.engine else [],
                "trigger": triggers.describe(self.engine.spec) if self.engine else None,
-               "lost": sum(n for _, n in t.lost), "kernel_drops": t.kernel_drops}
+               "lost": sum(n for _, n in t.lost), "kernel_drops": t.kernel_drops, "trimmed": self.trimmed}
         return out
 
     # -- the loop -------------------------------------------------------------
@@ -192,6 +193,8 @@ class Recorder:
                     pass
                 client.close()
             self._autosave_due(force=True)
+            if self.stop_at_us is not None:
+                self._keep_window()
             if self.state != "error":
                 self.state = "stopped"
             if self.on_stop:
@@ -264,6 +267,32 @@ class Recorder:
             self.pending_saves.append((time_us, time_us + post_us))
         if spec["mode"] == "single" and self.stop_at_us is None:
             self.stop_at_us = time_us + post_us
+
+    def _keep_window(self):
+        """Single mode: the trace keeps only the pre/post window around the
+        hit; the analysis is built again from it, the polled status series
+        keep their points in the window."""
+        spec = self.engine.spec
+        lo = self.stop_at_us - int(spec["post_s"] * 1e6) - int(spec["pre_s"] * 1e6)
+        s = self.session
+        with s.lock:
+            old = s.trace
+            part = old.sub(lo, self.stop_at_us)
+            if len(part) == len(old):
+                return
+            part.limit, part.kernel_drops, part.dropped = old.limit, old.kernel_drops, old.dropped
+            analysis = Analysis(s.decoder, s.analysis.bitrate)
+            for f in part:
+                analysis.feed(f)
+            for key, sr in s.analysis.series.items():
+                if sr.kind == "status":
+                    ts, vs = sr.range(lo, self.stop_at_us)
+                    kept = analysis.ensure_series(key, sr.label, sr.node, "status")
+                    for t, v in zip(ts, vs):
+                        if t >= lo:
+                            kept.add(t, v)
+            self.trimmed = len(old) - len(part)
+            s.trace, s.analysis = part, analysis
 
     def _autosave_due(self, force=False):
         if not self.engine or not self.engine.spec["autosave"]:

@@ -356,6 +356,13 @@ class Live(View):
         pg.click(form + 'button[data-sim="inject"]')
         self.assertEqual(self.wait_sent("sim_fault", 4)[-1]["fault"],
                          {"sdo_abort": {"object": "0x2000:1", "code": "0x08000020", "on": "write", "count": 1}})
+        # Injected: the form closes; opened again, it adds the fault to the faults at start.
+        pg.wait_for_selector(form, state="detached")
+        pg.click('button[data-sim-fault="sdo_abort"]')
+        pg.fill(form + 'input[data-sim-field="object"]', "0x2000:1")
+        pg.fill(form + 'input[data-sim-field="code"]', "0x08000020")
+        pg.select_option(form + 'select[data-sim-field="on"]', "write")
+        pg.fill(form + 'input[data-sim-field="count"]', "1")
         pg.click(form + 'button[data-sim="at-start"]')
         # A drive only gets drive inputs; this device is CiA 404.
         self.assertEqual(pg.locator('button[data-sim-fault="drive_input"]').count(), 0)
@@ -409,6 +416,41 @@ class Live(View):
         projects = load(os.path.join(self.cfg_dir, "online.json"))["projects"][self.project]
         self.assertEqual((projects["sim_target"], projects["sim_address"]), ("simulator", other.address))
         self.assertNotIn("sim", json.dumps(load(self.config_path)["master"]))
+
+
+class Networks(View):
+    """Two networks: the picked device and the pins belong to one network."""
+
+    def setUp(self):
+        super().setUp()
+        io = rtd_config()
+        io.pop("schema_version", None)
+        io["name"] = "io"
+        io["nodes"][0]["simulate"] = True
+        diagnostics = {"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True}
+        line = {"name": "line", "adapter": {"type": "socketcan", "interface": "can1", "bitrate": 125000},
+                "master": {"node_id": 1}, "nodes": [{"node_id": 6, "name": "n6", "eds": "rtd8.eds", "simulate": True}]}
+        self.write_config({"schema_version": 2, "diagnostics": diagnostics, "networks": [io, line]})
+
+    def test_network_switch_drops_the_node(self):
+        pg = self.page
+        self.sim_view()
+        pg.wait_for_selector('#sim-device h2:has-text("Node 5")')
+        pg.fill('input[data-sim="pin-typed"]', "0x2000:0")
+        pg.click('button[data-sim="pin"]')
+        pg.wait_for_selector(self.row("0x2000:0"))
+        pins = load(os.path.join(self.cfg_dir, "online.json"))["projects"][self.project]["sim_pins"]
+        self.assertEqual(pins, {"io/5": ["0x2000:0"]})
+        # The other network simulates node 6 only.
+        dev = dict(self.fake.devices[5], node=6, name="n6")
+        self.fake.devices = {6: dev}
+        self.fake.values = {(6, "0x7130:1"): (300, "INTEGER16")}
+        self.fake.pdo = {6: ["0x7130:1"]}
+        pg.click('.net-tab[data-net="1"]')
+        pg.wait_for_selector('#sim-device h2:has-text("Node 6")')
+        pg.wait_for_selector(self.row("0x7130:1") + ' [data-sim="value"]:has-text("300")')
+        self.assertEqual(pg.locator(self.row("0x2000:0")).count(), 0)  # io's pin stays on io
+        self.assertNotIn("?", pg.inner_text('[data-sim="device-state"]'))
 
 
 class ReadOnly(View):
@@ -578,3 +620,23 @@ class FileSections(Base):
         pg.wait_for_selector("#banner:has-text('Saved')")
         self.assertEqual(load(self.sim_path), {
             "schema_version": 2, "tick_ms": 20, "networks": {"io": {"nodes": {"5": {"default_behaviour": False}}}}})
+
+    def test_tick_field_and_its_problem(self):
+        pg = self.page
+        with open(self.sim_path, "w", encoding="utf-8") as f:
+            json.dump({"schema_version": 2, "tick_ms": 10, "networks": {"io": {"nodes": {"5": {}}}}}, f)
+        self.open()
+        self.file_tab()
+        tick = 'input[data-sim-field="file-tick"]'
+        state = '[data-sim="file-state"]'
+        pg.fill(tick, "")
+        pg.wait_for_selector(state + ':text-matches("^Unsaved changes")')
+        # The same number again is no change, wherever the field lands in the file.
+        pg.fill(tick, "10")
+        pg.wait_for_selector(state + ':text-matches("^Saved")')
+        pg.fill(tick, "abc")
+        pg.wait_for_selector(".sim-problems li")
+        pg.click('button[data-sim="save"]')
+        pg.wait_for_selector("#banner.error")
+        self.assertEqual(pg.eval_on_selector_all(".sim-problems li", "ls => ls.map(l => l.innerText)"),
+                         ["tick_ms: 'abc' is not of type 'integer'"])
