@@ -469,6 +469,20 @@ class Detect(Base):
             res = c.detect_bitrate_status()
         return res
 
+    def test_no_listen_only_refused_before_closing(self):
+        # A gs_usb adapter has no listen-only mode: the sweep is refused while
+        # the connection stays open, not closed and reopened at once.
+        c = self.client()
+        core = c.core
+        c.spec = adapter_mod.Spec("gs_usb", "0")
+        self.opened.clear()
+        with self.assertRaises(diag.DiagError) as e:
+            c.detect_bitrate(per_rate_ms=100)
+        self.assertIn("no listen-only mode", str(e.exception))
+        self.assertIn("lone-device", str(e.exception))
+        self.assertIs(c.core, core)
+        self.assertEqual(self.opened, [])
+
     def test_detects_and_reopens(self):
         c = self.client()  # read-only: listen-only needs no allow-changes
         c.trace_start()

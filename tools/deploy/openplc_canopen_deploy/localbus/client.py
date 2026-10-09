@@ -905,6 +905,11 @@ def _detect(c, f):
         raise DiagError("refused", "field 'per_rate_ms' must be 100-10000")
     rounds = _int(f.get("rounds", 1), "rounds", 1, 20)
     lone, probe = _lone_fields(c, f)
+    if not lone and c.spec.kind not in adapter_mod.LISTEN_ONLY:
+        # Refused before the adapter is closed for the sweep: closing and
+        # reopening a gs_usb adapter at once can leave it deaf on macOS.
+        raise DiagError("refused", "%s (%s adapters; slcan, PCAN and SocketCAN have one); with only one device "
+                                   "on the bus, use the lone-device sweep" % (adapter_mod.NO_LISTEN_ONLY, c.spec.kind))
     # Listen-only sends nothing, so neither allow-changes nor force; but the
     # adapter is closed for it, so no other view may be using it.
     core = c.core
