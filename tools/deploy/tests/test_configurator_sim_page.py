@@ -258,6 +258,9 @@ class Live(View):
         self.assertIn("Connected to %s: real network can0, 1 simulated device, changes allowed." % self.fake.address,
                       pg.inner_text("#sim-conn"))
         self.assertTrue(pg.is_hidden('[data-sim="readonly"]'))
+        # No machine file in this network's section: no Machine tab.
+        self.assertEqual(pg.eval_on_selector_all("button[data-sim-tab]", "els => els.map(e => e.dataset.simTab)"),
+                         ["live", "file", "scenarios"])
         self.assertIn("AI0_Input_PV", pg.inner_text(self.row("0x7130:1")))
         # Live values come in by themselves.
         self.fake.set_value(5, "0x7130:2", 233)

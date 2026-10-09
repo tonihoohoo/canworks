@@ -1726,7 +1726,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     problems = self._machine_problems(s, body.get("doc"))
             return {"problems": problems}
         if route == ("GET", "/api/sim/machine"):
-            # The machine file of the network's section, for the Machine view offline.
+            # The machine file of the network's section, for the Machine tab offline.
             name = body.get("network") or ""
             with s.lock:
                 doc = simulation.read(s.sim_path)["doc"]

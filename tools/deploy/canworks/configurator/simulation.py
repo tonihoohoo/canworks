@@ -5,7 +5,7 @@ The simulation file (canworks/simulation.json): reading it with the project,
 checking it against schema/canworks-sim.v1.schema.json (or v2, one section per
 network) and writing it with the
 configurator's save rules. The machine file a section names
-(canworks/machine.json) is read for the Machine view and checked with the
+(canworks/machine.json) is read for the Machine tab of the Simulation view and checked with the
 simulation file's problems. The live requests go to the runtime's simulated
 devices through the online access settings, or to a standalone simulator by
 address; its address and token are kept on this PC (online.json), never in the
@@ -19,7 +19,7 @@ import os
 import jsonschema
 from jsonschema.exceptions import best_match
 
-from .. import contract, diag, machine, simclient
+from .. import contract, diag, simclient, simmachine
 
 SIM_FILE = "simulation.json"
 DEFAULT_ADDRESS = "127.0.0.1:%d" % simclient.SIM_PORT
@@ -151,10 +151,10 @@ def read_machine(doc, sim_path, network):
         return out
     path = value if os.path.isabs(value) else os.path.join(os.path.dirname(os.path.abspath(sim_path)), value)
     try:
-        m = machine.load(path)
+        m = simmachine.load(path)
         if isinstance(m, dict):
             out["machine"] = m
-    except machine.MachineFileError as e:
+    except simmachine.MachineFileError as e:
         out["error"] = str(e)
     return out
 
