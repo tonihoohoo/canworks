@@ -39,7 +39,7 @@ openplc-canopen-diag --runtime plc.local restore-defaults 23 [--reset]          
 openplc-canopen-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"    # needs allow_changes; see below
 openplc-canopen-diag --runtime plc.local send 0x123 AA 55 --period-ms 100 --count 50  # cyclic
 openplc-canopen-diag --runtime plc.local detect-bitrate [--rates 125,250,500]     # needs allow_changes
-openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 --allow-changes detect-bitrate --lone-device  # one device on the bench
+openplc-canopen-diag --adapter slcan:COM5 --allow-changes detect-bitrate --lone-device  # one device on the bench
 openplc-canopen-diag --adapter slcan:COM5 --bitrate 250 --allow-changes pdo-test 23 --sync 100  # adapter only
 openplc-canopen-diag hash-token                                                       # prints a token_verifier
 openplc-canopen-diag explain 185#2500EA00 --config canopen/canopen.json             # every bit of a frame; no runtime
