@@ -103,6 +103,16 @@ class Base(unittest.TestCase):
         self.fail("no %s event with %r in %r" % (event, contains, [e[1] for e in s.events]))
 
 
+def tick_overshoot():
+    """How much longer than sim.TICK_S a timed wait takes here (the most of 5)."""
+    ev, late = threading.Event(), []
+    for _ in range(5):
+        t = time.monotonic()
+        ev.wait(sim.TICK_S)
+        late.append(time.monotonic() - t - sim.TICK_S)
+    return max(0.0, *late)
+
+
 def pf_is(pf, sa=None):
     return lambda m: (m.arbitration_id >> 16) & 0xFF == pf and (sa is None or m.arbitration_id & 0xFF == sa)
 
@@ -243,7 +253,12 @@ class Claim(Base):
         gaps = [b[1].timestamp - a[1].timestamp for a, b in zip(got, got[1:])]
         # GenMsgCycleTime 100 ms. The median: a runner that stalls the sender
         # once makes one long gap (the scheduler does not burst to catch up).
-        self.assertAlmostEqual(statistics.median(gaps), 0.1, delta=0.03)
+        # Never faster than the cycle time; slower by at most what this
+        # machine's timer adds to a scheduler tick (the macOS CI runners
+        # wake a 20 ms wait after 60-170 ms; elsewhere it is ~0).
+        median = statistics.median(gaps)
+        self.assertGreaterEqual(median, 0.1 - 0.03)
+        self.assertLessEqual(median, 0.1 + 0.03 + tick_overshoot(), gaps)
 
     def test_veto_wait(self):
         s = self.sim("PLC", 128)
