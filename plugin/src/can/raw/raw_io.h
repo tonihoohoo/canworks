@@ -37,8 +37,9 @@ struct RawIoHooks {
   std::function<bool(std::vector<uint64_t>&)> latest_outputs;
   // The PLC program runs.
   std::function<bool()> plc_running;
-  // Bus state and error counters (state 4 when down).
-  std::function<void(canworks_can_bus_info&)> bus_info;
+  // Bus state and error counters (state 4 when down); true when the driver
+  // gave the error counters.
+  std::function<bool(canworks_can_bus_info&)> bus_info;
   // Before each (re)open of the link: bring the interface up (plain CAN
   // networks own their adapter). False: not now, retry later.
   std::function<bool()> prepare;
@@ -104,6 +105,18 @@ class RawIo {
   uint64_t load_bits_ = 0;
   std::atomic<uint8_t> bus_load_{0};
   uint64_t next_bus_update_ = 0;
+  // From error frames (raw thread): their count, bus-offs and the last
+  // counters they carried.
+  uint32_t error_frames_ = 0;
+  uint32_t bus_offs_ = 0;
+  int frame_tx_errors_ = -1;
+  int frame_rx_errors_ = -1;
+  // A program frame the kernel had no room for (ENOBUFS: nothing takes
+  // frames off the bus, e.g. no other device acknowledges). Tried again
+  // every pass until it goes out or the block's TIMEOUT gives up on it.
+  bool held_ = false;
+  canworks_can_frame held_frame_{};
+  uint32_t held_tag_ = 0;
 };
 
 }  // namespace canworks_raw

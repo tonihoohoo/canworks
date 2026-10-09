@@ -56,7 +56,7 @@ class RawRuntime {
   const canopen_plugin::Config& config() const { return cfg_; }
 
  private:
-  void bus_info(canworks_can_bus_info& info);
+  bool bus_info(canworks_can_bus_info& info);
   bool prepare_adapter();
 
   const canopen_plugin::Config& cfg_;

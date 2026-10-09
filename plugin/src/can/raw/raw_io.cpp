@@ -101,6 +101,15 @@ void RawIo::set_filters() {
 }
 
 void RawIo::handle(const LinkFrame& lf, uint64_t now) {
+  if (lf.error) {
+    ++error_frames_;
+    if (lf.error_class & kErrBusOff) ++bus_offs_;
+    if (lf.tx_errors >= 0) {
+      frame_tx_errors_ = lf.tx_errors;
+      frame_rx_errors_ = lf.rx_errors;
+    }
+    return;
+  }
   const canworks_can_frame& f = lf.frame;
   load_bits_ += frame_bits(f);
   if (devices_) devices_->on_frame(f, now / 1000);
@@ -167,14 +176,25 @@ void RawIo::send_due(uint64_t now) {
     if (engine_->check_timeouts(now) && hooks_.publish_inputs) hooks_.publish_inputs(engine_->input_values());
   }
   if (!port_) return;
+  // False: the kernel had no room; hold the frame and try again next pass.
+  auto send_program = [this](const canworks_can_frame& f, uint32_t tag) {
+    int err = 0;
+    if (write_frame(f, err)) {
+      port_->tx_written(tag, false);  // the echo confirms it (also without IFF_ECHO: the kernel loops it back)
+      return true;
+    }
+    if (err == ENOBUFS || err == EAGAIN) return false;
+    port_->tx_failed(tag, err == ENETDOWN || err == ENODEV ? CANWORKS_CAN_ERR_BUS : CANWORKS_CAN_ERR_FULL);
+    return true;
+  };
+  if (held_ && (!port_->tx_pending(held_tag_) || send_program(held_frame_, held_tag_))) held_ = false;
   canworks_can_frame f;
   uint32_t tag;
-  while (port_->next_tx(f, tag)) {
-    int err = 0;
-    if (write_frame(f, err))
-      port_->tx_written(tag, false);  // the echo confirms it (also without IFF_ECHO: the kernel loops it back)
-    else
-      port_->tx_failed(tag, err == ENETDOWN || err == ENODEV ? CANWORKS_CAN_ERR_BUS : CANWORKS_CAN_ERR_FULL);
+  while (!held_ && port_->next_tx(f, tag)) {
+    if (send_program(f, tag)) continue;
+    held_ = true;
+    held_frame_ = f;
+    held_tag_ = tag;
   }
   canworks_can_frame due[CANWORKS_CAN_CYCLIC_JOBS];
   uint8_t jobs[CANWORKS_CAN_CYCLIC_JOBS];
@@ -199,7 +219,15 @@ void RawIo::update_bus(uint64_t now) {
   if (now < next_bus_update_ || !port_) return;
   next_bus_update_ = now + 100000;
   canworks_can_bus_info info{};
-  if (hooks_.bus_info) hooks_.bus_info(info);
+  bool counters = hooks_.bus_info && hooks_.bus_info(info);
+  // Without driver counters, the last error frame's counters while the bus
+  // is not error-active (once it is, they are stale).
+  if (!counters && info.state != 0 && frame_tx_errors_ >= 0) {
+    info.tx_errors = static_cast<uint16_t>(frame_tx_errors_);
+    info.rx_errors = static_cast<uint16_t>(frame_rx_errors_);
+  }
+  if (!info.error_frames) info.error_frames = error_frames_;
+  if (!info.bus_off_count) info.bus_off_count = bus_offs_;
   info.bus_load = bus_load_;
   port_->publish_bus(info);
 }
