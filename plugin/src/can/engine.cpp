@@ -29,13 +29,14 @@ Engine::~Engine() {
   raws_.clear();
 }
 
-bool Engine::prepare(const std::string& path, const ImageLimits& limits, uint64_t base_tick_ns, const char* version) {
+bool Engine::load(const std::string& path, const ImageLimits& limits, ConfigSet& set,
+                  std::vector<std::string>* problems) {
   log_info("protocols built in: %s", built_in_protocols().c_str());
   std::vector<std::string> errors;
-  bool loaded = load_config_set(path, limits, set_, errors);
-  for (const auto& w : set_.warnings) log_warn("%s", w.c_str());
-  for (const auto& m : set_.notes) log_info("%s", m.c_str());
-  for (auto& cfg : set_.networks) {
+  bool loaded = load_config_set(path, limits, set, errors);
+  for (const auto& w : set.warnings) log_warn("%s", w.c_str());
+  for (const auto& m : set.notes) log_info("%s", m.c_str());
+  for (auto& cfg : set.networks) {
     ScopedLogPrefix prefix(prefix_of(cfg));
     for (const auto& w : cfg.warnings) log_warn("%s", w.c_str());
     for (const auto& m : cfg.notes) log_info("%s", m.c_str());
@@ -44,14 +45,26 @@ bool Engine::prepare(const std::string& path, const ImageLimits& limits, uint64_
   // them leaves every network inactive (canopen-networks spec).
   bool checked = loaded;
 #if CANWORKS_WITH_CANOPEN
-  if (checked) checked = canopen_check(set_, errors);
+  if (checked) checked = canopen_check(set, errors);
 #endif
   if (!checked) {
     for (const auto& e : errors) log_error("%s", e.c_str());
     log_error("configuration rejected (%zu problem%s); canworks inactive, CAN interface not opened",
               errors.size(), errors.size() == 1 ? "" : "s");
+    if (problems) *problems = errors;
     return false;
   }
+  return true;
+}
+
+bool Engine::check(const std::string& path, const ImageLimits& limits, std::vector<std::string>* problems) {
+  ConfigSet set;
+  return load(path, limits, set, problems);
+}
+
+bool Engine::prepare(const std::string& path, const ImageLimits& limits, uint64_t base_tick_ns, const char* version) {
+  if (!load(path, limits, set_, nullptr)) return false;
+  std::vector<std::string> errors;
   for (auto& cfg : set_.networks) {
     if (cfg.is_plain()) {
       canworks_raw::log_plain_loaded(set_, cfg);
@@ -101,8 +114,10 @@ bool Engine::prepare(const std::string& path, const ImageLimits& limits, uint64_
       hubs.push_back(h);
       canworks_raw::RawRuntime* raw = raws_[i].get();
       if (h && !set_.networks[i].is_plain()) h->set_raw_status([raw] { return raw->status(); });
+      if (h) h->set_host_status(diag_host_.status_part);
     }
     server_.reset(new DiagServer(hubs));
+    server_->set_host(diag_host_);
     for (size_t i = 0; i < nets_.size(); ++i) {
       if (auto src = nets_[i]->trace_source()) server_->set_trace_source(std::move(src), i);
       if (auto inj = nets_[i]->frame_injector()) server_->set_frame_injector(inj, i);

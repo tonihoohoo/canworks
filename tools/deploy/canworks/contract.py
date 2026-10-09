@@ -15,6 +15,7 @@ import jsonschema
 from jsonschema.exceptions import best_match
 
 from . import axis as axis_mod
+from . import bridgecheck
 from . import eds as eds_mod
 from . import edslint
 from .eds import sync_needed_message, transmission_needs_sync
@@ -545,10 +546,10 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
             if key in cfg:
                 err("", "field '%s' needs schema_version 2: slave networks are entries of 'networks' with "
                         "\"role\": \"slave\"" % key, [key])
-        for key in J1939_V2_KEYS:
+        for key in J1939_V2_KEYS + ("bridge",):
             if key in cfg:
                 err("", "field '%s' needs schema_version 2" % key, [key])
-        found = [(where, key) for where, key in found if where not in V2_ONLY_KEYS + J1939_V2_KEYS]
+        found = [(where, key) for where, key in found if where not in V2_ONLY_KEYS + J1939_V2_KEYS + ("bridge",)]
         _check_network(r, cfg, "", 1, [(list(e.absolute_path), e) for e in schema_errors], **args)
     else:
         _check_v2(r, cfg, schema_errors, err, warn, args)
@@ -588,6 +589,8 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
         if len(p) >= 2 and p[0] == "networks" and isinstance(p[1], int):
             by_net.setdefault(p[1], []).append((p[2:], e))
             continue
+        if p[:1] == ["bridge"]:
+            continue  # the bridge checks below give the plugin's words
         where = json_path(p)
         if where == "" and e.validator in ("not", "required"):
             continue  # moved keys and a missing networks list, reported above
@@ -672,7 +675,8 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
         if "name" not in net and isinstance(iface, str) and iface and not NETWORK_NAME.match(iface):
             err(prefix, 'interface "%s" is not usable as a network name; give the network a \'name\'' % iface,
                 [prefix + ".adapter.interface"])
-    _check_across_networks(r, cfg, err)
+    bridge_uses = bridgecheck.check_bridge(cfg, networks(cfg), err, warn) if "bridge" in cfg else None
+    _check_across_networks(r, cfg, err, bridge_uses)
     # Sent raw messages on identifiers the protocol uses (after the checks
     # across networks, as in the plugin).
     for n in networks(cfg):
@@ -709,7 +713,7 @@ def routed_entries(cfg):
     return out
 
 
-def _check_across_networks(r, cfg, err):
+def _check_across_networks(r, cfg, err, bridge_uses=None):
     nets = networks(cfg)
     names, ifaces, devices, simulated = {}, {}, {}, {}
     label = {n["index"]: "networks[%d]" % n["index"] + (" (%s)" % n["name"] if n["name"] else "") for n in nets}
@@ -773,6 +777,11 @@ def _check_across_networks(r, cfg, err):
     for n in nets:
         who = "networks[%d]" % n["index"] + (" (%s)" % n["name"] if n["name"] else "")
         uses += location_uses(n, who + " ")
+    if bridge_uses is not None:
+        # A bridge config is byte-addressed (modbus-bridge).
+        located = [(parse_location(text), who, at, None) for _, who, at, text in uses] + bridge_uses
+        bridgecheck.report_byte_overlaps(located, "networks", err)
+        return
     for i, a in enumerate(uses):
         for b in uses[i + 1:]:
             if a[0] == b[0]:

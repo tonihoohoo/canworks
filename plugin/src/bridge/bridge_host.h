@@ -51,8 +51,15 @@ class BridgeHost {
   // Tests: listen here instead (127.0.0.1:0 for a free port).
   std::string listen_override;
   void stop();
-  // Only loads and checks the config (canworks-bridge --check-only).
-  static bool check(const std::string& config_path, const char* version);
+  // Only loads and checks the config (canworks-bridge --check-only);
+  // `problems`, when given, gets the reasons of a rejection.
+  static bool check(const std::string& config_path, std::vector<std::string>* problems = nullptr);
+
+  // A config uploaded over the diagnostics channel (put_config) was checked
+  // and staged: the main thread calls apply_upload(), which restarts on it,
+  // or on the previous files when it does not start.
+  bool upload_pending() const;
+  void apply_upload();
   bool running() const { return running_; }
 
   const canopen_plugin::ConfigSet& set() const { return engine_->set(); }
@@ -70,6 +77,8 @@ class BridgeHost {
   void leave_off(const char* why);
   void service_control(const uint8_t* out, Clock::time_point now);
   void write_blocks(Clock::time_point now);
+  unsigned put_config(const std::vector<std::pair<std::string, std::string>>& files, std::string& why);
+  std::string staged_path(const std::string& name) const;
 
   std::unique_ptr<canopen_plugin::Engine> engine_;
   ByteImage image_;
@@ -92,6 +101,14 @@ class BridgeHost {
   std::chrono::milliseconds zero_settle_{100};
   uint64_t outputs_seen_ = ~0ull;
   std::vector<uint8_t> out_copy_;
+
+  std::string config_path_, version_;
+  mutable std::mutex upload_mu_;
+  bool upload_pending_ = false;
+  std::vector<std::string> staged_;  // relative paths in the staging folder
+  std::string upload_result_;        // "", "started" or "restored"
+  std::string upload_detail_;
+  unsigned upload_number_ = 0;  // uploads accepted since the process started
 };
 
 }  // namespace canworks_bridge

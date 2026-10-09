@@ -235,6 +235,8 @@ void DiagHub::add_tx_status(cJSON* res) const {
   cJSON* sw = cJSON_AddObjectToObject(res, "bitrate_sweep");
   cJSON_AddBoolToObject(sw, "running", sweep_pending_ || sweep_running_);
   if (raw_status_) cJSON_AddItemToObject(res, "raw", raw_status_());
+  if (host_status_)
+    if (cJSON* part = host_status_()) cJSON_AddItemToObject(res, "bridge", part);
 }
 
 bool DiagHub::request_sweep(const SweepRequest& req) {
@@ -776,10 +778,11 @@ void DiagServer::process_input(Client& c) {
     if (it != auth_failed_.end() && std::chrono::steady_clock::now() < it->second + kLoginBackoff) return;
   }
   // One request at a time per connection keeps the answers in order.
+  const size_t max_line = c.authed ? kMaxAuthedLine : kMaxLine;
   while (!c.closing && !c.waiting) {
     size_t nl = c.in.find('\n');
     if (nl == std::string::npos) {
-      if (c.in.size() > kMaxLine) {
+      if (c.in.size() > max_line) {
         c.out += diag_error("", "request line too long");
         c.closing = true;
       }
@@ -788,7 +791,7 @@ void DiagServer::process_input(Client& c) {
     std::string line = c.in.substr(0, nl);
     c.in.erase(0, nl + 1);
     if (!line.empty() && line.back() == '\r') line.pop_back();
-    if (line.size() > kMaxLine) {
+    if (line.size() > max_line) {
       c.out += diag_error("", "request line too long");
       c.closing = true;
       return;
@@ -818,7 +821,9 @@ cJSON* DiagServer::hello_info() const {
   cJSON* res = cJSON_CreateObject();
   cJSON_AddNumberToObject(res, "protocol", kDiagProtocol);
   cJSON_AddStringToObject(res, "version", chans_[0].hub->version().c_str());
+  cJSON_AddStringToObject(res, "host", host_.name.c_str());
   cJSON_AddBoolToObject(res, "allow_changes", m.diag_allow_changes);
+  if (host_.put_config) cJSON_AddBoolToObject(res, "allow_config_upload", m.diag_allow_changes && m.diag_allow_config_upload);
   cJSON_AddNumberToObject(res, "master_node_id", m.node_id);
   diag_add_protocols(res);
   cJSON* list = cJSON_AddArrayToObject(res, "networks");
@@ -898,6 +903,78 @@ void DiagServer::handle_login(Client& c, const std::string& id, const std::strin
   c.out += diag_ok(id, res);
 }
 
+namespace {
+
+// A file name of an uploaded config: relative, inside the config's folder.
+bool safe_upload_path(const std::string& p) {
+  if (p.empty() || p.size() > 255 || p[0] == '/' || p.back() == '/') return false;
+  size_t start = 0;
+  while (start <= p.size()) {
+    size_t end = p.find('/', start);
+    if (end == std::string::npos) end = p.size();
+    std::string part = p.substr(start, end - start);
+    if (part.empty() || part == "." || part == ".." || part[0] == '.') return false;
+    for (char ch : part)
+      if (!(std::isalnum(static_cast<unsigned char>(ch)) || ch == '-' || ch == '_' || ch == '.' || ch == ' '))
+        return false;
+    start = end + 1;
+  }
+  return true;
+}
+
+}  // namespace
+
+void DiagServer::handle_put_config(Client& c, const std::string& id, const cJSON* req) {
+  const MasterConfig& m = settings();
+  if (!host_.put_config) {
+    c.out += diag_error(id, "this runtime takes no config over the diagnostics channel: upload the PLC program "
+                            "with canworks-deploy --runtime");
+    return;
+  }
+  if (!m.diag_allow_changes || !m.diag_allow_config_upload) {
+    c.out += diag_error(id, "config upload is off: the running config needs \"allow_changes\": true and "
+                            "\"allow_config_upload\": true in 'diagnostics'");
+    return;
+  }
+  const cJSON* files = cJSON_GetObjectItemCaseSensitive(req, "files");
+  if (!cJSON_IsObject(files) || !cJSON_GetObjectItemCaseSensitive(files, "canworks.json")) {
+    c.out += diag_error(id, "put_config needs 'files': {\"canworks.json\": base64, other files by their path}");
+    return;
+  }
+  std::vector<std::pair<std::string, std::string>> out;
+  size_t total = 0;
+  const cJSON* f;
+  cJSON_ArrayForEach(f, files) {
+    Bytes data;
+    if (!safe_upload_path(f->string)) {
+      c.out += diag_error(id, std::string("file name \"") + f->string + "\" is not a plain relative path");
+      return;
+    }
+    if (!cJSON_IsString(f) || !b64_decode(f->valuestring, data)) {
+      c.out += diag_error(id, std::string("file \"") + f->string + "\" is not base64");
+      return;
+    }
+    total += data.size();
+    if (total > kMaxUploadBytes) {
+      c.out += diag_error(id, "the files are larger than " + std::to_string(kMaxUploadBytes / (1024 * 1024)) + " MB");
+      return;
+    }
+    out.emplace_back(f->string, std::string(data.begin(), data.end()));
+  }
+  log_info("diagnostics: %s uploads a config (%zu file%s, %zu bytes)", c.peer.c_str(), out.size(),
+           out.size() == 1 ? "" : "s", total);
+  std::string why;
+  unsigned number = host_.put_config(out, why);
+  if (!number) {
+    c.out += diag_error(id, why);
+    return;
+  }
+  cJSON* res = cJSON_CreateObject();
+  cJSON_AddBoolToObject(res, "restarting", true);
+  cJSON_AddNumberToObject(res, "upload", number);
+  c.out += diag_ok(id, res);
+}
+
 void DiagServer::handle_line(Client& c, const std::string& line) {
   cJSON* req = cJSON_ParseWithLength(line.data(), line.size());
   if (!req || !cJSON_IsObject(req)) {
@@ -918,6 +995,11 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
   r.op = cJSON_IsString(opv) ? opv->valuestring : "";
   const MasterConfig& m = settings();
 
+  if (c.authed && r.op == "put_config") {
+    handle_put_config(c, r.id, req);
+    cJSON_Delete(req);
+    return;
+  }
   size_t net = 0;
   if (c.authed && r.op != "hello") {
     std::string why;

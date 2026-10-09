@@ -7,6 +7,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <cerrno>
 
 #include "cJSON.h"
 #include "log.h"
@@ -265,13 +270,12 @@ BridgeHost::~BridgeHost() {
   engine_.reset();
 }
 
-bool BridgeHost::check(const std::string& config_path, const char* version) {
-  canopen_plugin::Engine engine;
+bool BridgeHost::check(const std::string& config_path, std::vector<std::string>* problems) {
   canopen_plugin::ImageLimits limits;
   limits.buffer_size = kImageLimit;
   limits.bridge_host = true;
   limits.force_simulate = canopen_plugin::force_simulate_from_env(std::getenv("CANWORKS_FORCE_SIMULATE"));
-  return engine.prepare(config_path, limits, 1000000, version);
+  return canopen_plugin::Engine::check(config_path, limits, problems);
 }
 
 bool BridgeHost::start(const std::string& config_path, const char* version) {
@@ -281,6 +285,15 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   limits.buffer_size = kImageLimit;
   limits.bridge_host = true;
   limits.force_simulate = canopen_plugin::force_simulate_from_env(std::getenv("CANWORKS_FORCE_SIMULATE"));
+  config_path_ = config_path;
+  version_ = version;
+  canopen_plugin::DiagHost dh;
+  dh.name = "bridge";
+  dh.status_part = [this] { return status_json(); };
+  dh.put_config = [this](const std::vector<std::pair<std::string, std::string>>& files, std::string& why) {
+    return put_config(files, why);
+  };
+  engine_->set_diag_host(dh);
   if (!engine_->prepare(config_path, limits, 1000000, version)) return false;
   const canopen_plugin::ConfigSet& s = engine_->set();
   cfg_ = s.bridge;
@@ -497,7 +510,169 @@ cJSON* BridgeHost::status_json() const {
   }
   if (supervisor_ && cfg_.watchdog_ms && st == OutputState::kRunning)
     cJSON_AddNumberToObject(b, "watchdog_left_ms", static_cast<double>(supervisor_->left_ms(Clock::now())));
+  std::lock_guard<std::mutex> ul(upload_mu_);
+  if (!upload_result_.empty()) {
+    cJSON* u = cJSON_AddObjectToObject(b, "last_upload");
+    cJSON_AddNumberToObject(u, "number", upload_number_);
+    cJSON_AddStringToObject(u, "result", upload_result_.c_str());
+    cJSON_AddStringToObject(u, "detail", upload_detail_.c_str());
+  }
   return b;
+}
+
+// ---- config upload (put_config) ----
+
+namespace {
+
+std::string dir_of(const std::string& path) {
+  size_t slash = path.rfind('/');
+  return slash == std::string::npos ? "." : slash == 0 ? "/" : path.substr(0, slash);
+}
+
+std::string base_of(const std::string& path) {
+  size_t slash = path.rfind('/');
+  return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+bool make_dirs(const std::string& dir) {
+  std::string cur;
+  size_t i = 0;
+  while (i <= dir.size()) {
+    size_t j = dir.find('/', i);
+    if (j == std::string::npos) j = dir.size();
+    cur = dir.substr(0, j);
+    if (!cur.empty() && ::mkdir(cur.c_str(), 0755) != 0 && errno != EEXIST) return false;
+    i = j + 1;
+  }
+  return true;
+}
+
+void remove_tree(const std::string& path) {
+  struct stat st;
+  if (::lstat(path.c_str(), &st) != 0) return;
+  if (S_ISDIR(st.st_mode)) {
+    if (DIR* d = ::opendir(path.c_str())) {
+      while (dirent* e = ::readdir(d)) {
+        std::string n = e->d_name;
+        if (n != "." && n != "..") remove_tree(path + "/" + n);
+      }
+      ::closedir(d);
+    }
+    ::rmdir(path.c_str());
+  } else {
+    ::unlink(path.c_str());
+  }
+}
+
+bool write_file(const std::string& path, const std::string& data) {
+  if (!make_dirs(dir_of(path))) return false;
+  FILE* f = std::fopen(path.c_str(), "wb");
+  if (!f) return false;
+  bool ok = std::fwrite(data.data(), 1, data.size(), f) == data.size();
+  return std::fclose(f) == 0 && ok;
+}
+
+bool read_file(const std::string& path, std::string& out) {
+  FILE* f = std::fopen(path.c_str(), "rb");
+  if (!f) return false;
+  out.clear();
+  char buf[65536];
+  size_t n;
+  while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+  std::fclose(f);
+  return true;
+}
+
+bool copy_file(const std::string& from, const std::string& to) {
+  std::string data;
+  return read_file(from, data) && write_file(to, data);
+}
+
+}  // namespace
+
+// The uploaded "canworks.json" is the running config file, whatever its name.
+std::string BridgeHost::staged_path(const std::string& name) const {
+  return name == "canworks.json" ? base_of(config_path_) : name;
+}
+
+unsigned BridgeHost::put_config(const std::vector<std::pair<std::string, std::string>>& files, std::string& why) {
+  std::lock_guard<std::mutex> lock(upload_mu_);
+  if (upload_pending_) {
+    why = "a config upload is being applied; try again in a moment";
+    return 0;
+  }
+  const std::string stage = dir_of(config_path_) + "/.canworks-upload";
+  remove_tree(stage);
+  staged_.clear();
+  for (const auto& f : files) {
+    std::string rel = staged_path(f.first);
+    if (!write_file(stage + "/" + rel, f.second)) {
+      why = "cannot stage " + f.first + " in " + stage + ": " + std::strerror(errno);
+      remove_tree(stage);
+      return 0;
+    }
+    staged_.push_back(rel);
+  }
+  std::vector<std::string> problems;
+  if (!check(stage + "/" + base_of(config_path_), &problems)) {
+    remove_tree(stage);
+    why = "the uploaded config was rejected; the running config stays:";
+    for (const auto& p : problems) why += "\n" + p;
+    return 0;
+  }
+  upload_pending_ = true;
+  ++upload_number_;
+  log_info("canworks-bridge: uploaded config accepted; restarting on it");
+  return upload_number_;
+}
+
+bool BridgeHost::upload_pending() const {
+  std::lock_guard<std::mutex> lock(upload_mu_);
+  return upload_pending_;
+}
+
+void BridgeHost::apply_upload() {
+  std::vector<std::string> staged;
+  {
+    std::lock_guard<std::mutex> lock(upload_mu_);
+    if (!upload_pending_) return;
+    staged = staged_;
+  }
+  const std::string dir = dir_of(config_path_);
+  const std::string stage = dir + "/.canworks-upload";
+  const std::string backup = dir + "/.canworks-previous";
+  std::string path = config_path_, version = version_;
+  stop();
+  remove_tree(backup);
+  std::vector<std::string> created;
+  for (const auto& rel : staged) {
+    struct stat st;
+    if (::stat((dir + "/" + rel).c_str(), &st) == 0)
+      copy_file(dir + "/" + rel, backup + "/" + rel);
+    else
+      created.push_back(rel);
+  }
+  for (const auto& rel : staged) copy_file(stage + "/" + rel, dir + "/" + rel);
+  remove_tree(stage);
+  std::string result = "started", detail;
+  if (!start(path, version.c_str())) {
+    log_error("canworks-bridge: the uploaded config did not start; going back to the previous one");
+    for (const auto& rel : staged) {
+      if (std::find(created.begin(), created.end(), rel) != created.end())
+        ::unlink((dir + "/" + rel).c_str());
+      else
+        copy_file(backup + "/" + rel, dir + "/" + rel);
+    }
+    result = "restored";
+    detail = "the uploaded config did not start (see the log); the previous config runs again";
+    if (!start(path, version.c_str())) detail = "the uploaded config did not start, nor did the previous one";
+  } else {
+    detail = "the uploaded config runs";
+  }
+  std::lock_guard<std::mutex> lock(upload_mu_);
+  upload_pending_ = false;
+  upload_result_ = result;
+  upload_detail_ = detail;
 }
 
 }  // namespace canworks_bridge

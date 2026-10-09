@@ -520,6 +520,10 @@
             "allow_changes": {
               "description": "Allow SDO writes and NMT commands from clients (default false: read-only).",
               "type": "boolean"
+            },
+            "allow_config_upload": {
+              "description": "canworks-bridge only: allow a new config to be uploaded over the channel (canworks-deploy --bridge); needs allow_changes. Default false.",
+              "type": "boolean"
             }
           },
           "required": [

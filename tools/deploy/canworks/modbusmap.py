@@ -196,7 +196,7 @@ def check(items):
     problems = []
     for it in items:
         if it.loc.size in "WDL" and it.loc.index % 2:
-            problems.append("%s: %s must start at an even byte (word locations are whole registers)"
+            problems.append("%s %s must start at an even byte: word locations are whole Modbus registers"
                             % (it.name, it.text))
     for area in "IQ":
         owners = {}
@@ -216,8 +216,7 @@ def check(items):
                 for u in bits:
                     if u.loc.bit in seen and (id(seen[u.loc.bit]), id(u)) not in reported:
                         reported.add((id(seen[u.loc.bit]), id(u)))
-                        problems.append("%s (%s) and %s (%s) use the same bit"
-                                        % (seen[u.loc.bit].name, seen[u.loc.bit].text, u.name, u.text))
+                        problems.append("%s and %s both map to %s" % (seen[u.loc.bit].name, u.name, u.text))
                     seen.setdefault(u.loc.bit, u)
                 continue
             for i in range(len(users)):

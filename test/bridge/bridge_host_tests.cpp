@@ -275,13 +275,13 @@ TEST(interface_lock) {
 TEST(rejects_plain_configs) {
   canopen_plugin::set_log_sink(capture);
   std::string path = example_copy([](cJSON* r) { cJSON_DeleteItemFromObject(r, "bridge"); });
-  EXPECT(!BridgeHost::check(path, "test"));
+  EXPECT(!BridgeHost::check(path));
   EXPECT(logged("not a bridge config"));
   path = example_copy([](cJSON* r) {
     cJSON* m = cJSON_GetObjectItem(cJSON_GetArrayItem(cJSON_GetObjectItem(r, "networks"), 0), "master");
     cJSON_AddStringToObject(m, "sync_source", "plc_cycle");
   });
-  EXPECT(!BridgeHost::check(path, "test"));
+  EXPECT(!BridgeHost::check(path));
   EXPECT(logged("needs a PLC cycle"));
 }
 

@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
   canopen_plugin::canopen_init_logging();
 #endif
   if (check_only) {
-    bool ok = canworks_bridge::BridgeHost::check(config, CANWORKS_PLUGIN_VERSION);
+    bool ok = canworks_bridge::BridgeHost::check(config);
     std::fprintf(stderr, "canworks-bridge: config %s\n", ok ? "accepted" : "rejected");
     return ok ? 0 : 1;
   }
@@ -77,7 +77,13 @@ int main(int argc, char** argv) {
 
   canworks_bridge::BridgeHost host;
   if (!host.start(config, CANWORKS_PLUGIN_VERSION)) return 1;
-  while (!g_stop) usleep(50000);
+  while (!g_stop) {
+    usleep(50000);
+    if (host.upload_pending()) {
+      usleep(300000);  // the put_config answer goes out first
+      host.apply_upload();
+    }
+  }
   canopen_plugin::log_info("canworks-bridge: stopping");
   host.stop();
   return 0;

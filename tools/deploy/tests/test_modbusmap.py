@@ -97,7 +97,7 @@ class ByteChecks(unittest.TestCase):
         cfg["networks"][0]["nodes"][0]["status_location"] = "%IX11.4"
         modbusmap.register_map(cfg)
         cfg["networks"][0]["nodes"][0]["status_location"] = "%IX11.3"
-        with self.assertRaisesRegex(modbusmap.MapError, "use the same bit"):
+        with self.assertRaisesRegex(modbusmap.MapError, "both map to"):
             modbusmap.register_map(cfg)
 
     def test_bit_in_a_byte_location(self):

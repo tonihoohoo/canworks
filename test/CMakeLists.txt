@@ -287,3 +287,7 @@ target_compile_definitions(bridge_host_tests PRIVATE EXAMPLE_DIR="${PROJECT_SOUR
 target_link_libraries(bridge_host_tests PRIVATE canopen_core canworks_bridge_proto)
 add_test(NAME bridge_host_tests COMMAND bridge_host_tests)
 set_tests_properties(bridge_host_tests PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")
+# Its config upload over the diagnostics channel (put_config).
+add_test(NAME bridge_upload COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/bridge/upload_test.py
+         $<TARGET_FILE:canworks-bridge> ${PROJECT_SOURCE_DIR}/examples/modbus-bridge)
+set_tests_properties(bridge_upload PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")

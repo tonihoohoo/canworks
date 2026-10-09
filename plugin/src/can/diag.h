@@ -76,6 +76,19 @@ std::string hex_bytes(const std::vector<uint8_t>& data);
 // Adds "protocols", the protocols built into the plugin, to a status answer.
 void diag_add_protocols(cJSON* res);
 
+// What the program running the networks adds to the channel. The OpenPLC
+// plugin leaves the defaults; canworks-bridge names itself, adds its part
+// to status answers and takes uploaded configs (modbus-bridge).
+struct DiagHost {
+  std::string name = "openplc";  // "host" in the login answer
+  // Added as "bridge" to status answers (any thread); null: nothing.
+  std::function<cJSON*()> status_part;
+  // put_config (server thread): checks and stages `files` (path relative to
+  // the config's folder, contents); returns the upload's number when the
+  // host restarts on them, else 0 with `why`. Null: the host takes no configs.
+  std::function<unsigned(const std::vector<std::pair<std::string, std::string>>& files, std::string& why)> put_config;
+};
+
 // Thread-safe hand-off between the server thread and the bus thread.
 class DiagHub {
  public:
@@ -125,6 +138,9 @@ class DiagHub {
   // The network's raw CAN path status (raw/raw_runtime.h), set at config
   // load before the server starts.
   void set_raw_status(std::function<cJSON*()> f) { raw_status_ = std::move(f); }
+  // The host's part of status answers (DiagHost::status_part), set before
+  // the server starts.
+  void set_host_status(std::function<cJSON*()> f) { host_status_ = std::move(f); }
   // A plain CAN network has no bus thread: its raw path says whether frames
   // can be sent.
   void set_raw_running(std::function<bool()> f) { raw_running_ = std::move(f); }
@@ -162,6 +178,7 @@ class DiagHub {
   // Guarded by state_mutex_ (never held together with mutex_).
   mutable std::mutex state_mutex_;
   std::function<cJSON*()> raw_status_;
+  std::function<cJSON*()> host_status_;
   std::function<bool()> raw_running_;
   std::string operational_;
   std::string send_jobs_ = "[]";
@@ -177,6 +194,9 @@ class DiagServer {
  public:
   static constexpr unsigned kMaxClients = 4;
   static constexpr size_t kMaxLine = 16384;
+  // After the login: a put_config line carries the files in base64.
+  static constexpr size_t kMaxUploadBytes = 8 * 1024 * 1024;
+  static constexpr size_t kMaxAuthedLine = kMaxUploadBytes / 3 * 4 + 64 * 1024;
   static constexpr size_t kMaxSendBuffer = 256 * 1024;
   static constexpr std::chrono::seconds kHelloTimeout{10};
   static constexpr std::chrono::seconds kRetryListen{10};
@@ -212,6 +232,8 @@ class DiagServer {
   void set_frame_injector(std::shared_ptr<SimFrameInjector> injector, size_t network = 0) {
     chans_[network].sink = make_sim_frame_sink(std::move(injector));
   }
+  // Before start(): the host's name, status part and config upload.
+  void set_host(DiagHost host) { host_ = std::move(host); }
   // For tests: how the server reads a link (bit rate detection refusals).
   void set_link_ops(std::unique_ptr<LinkOps> ops) { link_ops_ = std::move(ops); }
 
@@ -315,6 +337,8 @@ class DiagServer {
   void refuse_login(Client& c);
   // What the login answers besides the signature.
   cJSON* hello_info() const;
+  // put_config: a new config for the host (canworks-deploy --bridge).
+  void handle_put_config(Client& c, const std::string& id, const cJSON* req);
   // Bytes still to send: plaintext plus encrypted bytes not sent yet.
   size_t pending(const Client& c) const;
   void drop_output(Client& c);
@@ -374,6 +398,7 @@ class DiagServer {
   uint64_t next_job_ = 1;
   uint64_t next_client_ = 1;
   std::unique_ptr<LinkOps> link_ops_;
+  DiagHost host_;
 };
 
 }  // namespace canopen_plugin
