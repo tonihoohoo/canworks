@@ -40,7 +40,53 @@ cmake -B build -DOPENPLC_ROOT=../openplc-runtime -DSTRUCPP=$(scripts/fetch-struc
 cmake --build build -j && build/test/sim_tests --exact sim_cia402_demo   # the demo program on the virtual bus
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of these on every pull request and push to `main` that changes code, the deploy tool, page and vcan tests spread over several runners (a new vcan test goes into the vcan group with the least test time, listed above the job; package installs go through `.github/scripts/apt_install.py`, which skips installed packages and retries a stalled mirror); its last job, `ci-ok`, is the one check a branch ruleset needs. A change that touches only documentation or specs runs just the OpenSpec validation; the build and test jobs are skipped. The vcan steps of one protocol are skipped when a change touches only the other protocol's files (`.github/ci/areas.txt`).
+CI (`.github/workflows/ci.yml`) runs all of these on every pull request and push to `main` that changes code, the deploy tool, page and vcan tests spread over several runners (a new vcan test goes into the vcan group with the least test time, listed above the job; package installs go through `.github/scripts/apt_install.py`, which skips installed packages and retries a stalled mirror); its last job, `ci-ok`, is the one check a branch ruleset needs. A change that touches only documentation or specs runs just the OpenSpec validation; the build and test jobs are skipped. The vcan steps of one protocol are skipped when a change touches only the other protocol's files (`.github/ci/areas.txt`). The configurator page tests run only when a change touches what the configurator uses: the PC tools package, the schemas, the shipped examples, the deploy tool tests or the CI files (`.github/ci/ui-paths.txt`); a push to `main` always runs them.
+
+## Browser coverage
+
+Three kinds of test check the configurator in ways the small page-test fixtures do not:
+
+- **Example sweep.** `tools/deploy/tests/test_configurator_examples_page.py` opens `examples/virtual-plant`, `gantry-cell` and `j1939` and visits every view of every network at 1280 px. It fails on a clipped field or button, a table or view that scrolls sideways, a console or page error, an HTTP error answer, or a "decoding without the config's PDOs" note, and names the example, network and view of each. It runs in the configurator page jobs; a new page-test class goes into `.github/ci/page-test-times.json` so the shards stay balanced.
+- **Validation parity.** A corpus of bad configs under `test/fixtures/config/bad/` goes through both the configurator's check and the plugin's loader (`canopen_check`) in the tools job; both must refuse each one.
+- **Browser run against the real plugin.** `test/browser/run.py`, below.
+
+## The plugin and the configurator without a CAN interface
+
+`canopen_host` loads the plugin the way the runtime does, with a stand-in PLC scan. With `CANWORKS_FORCE_SIMULATE=1` every network of the config runs on the plugin's simulated bus with its simulated devices, so no vcan, Docker or CAN adapter is needed (a container works). The stand-in scan does not run the example's ST program. Build the two targets, copy an example (the plugin writes its generated files next to the config), and start the host and the configurator:
+
+```sh
+cmake -B build -DOPENPLC_ROOT=../openplc-runtime
+cmake --build build -j --target canworks_plugin canopen_host
+cp -r examples/virtual-plant /tmp/vp
+CANWORKS_FORCE_SIMULATE=1 build/test/canopen_host build/plugins/libcanworks_plugin.so \
+    /tmp/vp/canworks/canworks.json 3600 > /tmp/vp-host.log 2>&1 &
+PYTHONPATH=tools/deploy python3 -c 'from canworks.configurator.server import main; main()' /tmp/vp
+```
+
+The diagnostics channel listens on 127.0.0.1 at the config's `diagnostics.port` (7531 by default; set another port in the copy to run several hosts). In the configurator, Online → host `127.0.0.1:7531`, token `virtual-plant-demo` (the example's demo token). The Simulation view then drives the simulated devices: faults, power off and on, TPDO stop. `PYTHONPATH=tools/deploy python3 -m canworks.diag --runtime 127.0.0.1 --token virtual-plant-demo status` (or `canworks-diag` when the PC tools are installed) reads the same channel from the command line.
+
+## Browser run against the real plugin
+
+`test/browser/run.py` does the setup above on a temporary copy of `examples/virtual-plant` (on a free diagnostics port) and drives the configurator in Chromium through these steps:
+
+1. Connect.
+2. Nodes 5, 6 and 7 OPERATIONAL in the node table.
+3. An SDO read and write on node 6.
+4. A heartbeat stop on node 6 seen online, then cleared.
+5. A TPDO stop on node 5 raising its timeout.
+6. A trace started, stopped and downloaded.
+7. A power off and on of node 5, after which the status still answers.
+8. The host stopping on SIGTERM.
+
+A failed step is reported with a screenshot and the run goes on. Locally (needs Playwright: `pip install jsonschema playwright`, and a Chromium from `python -m playwright install chromium` or named by `CANWORKS_CHROMIUM`):
+
+```sh
+cmake --build build -j --target canworks_plugin canopen_host
+test/browser/run.py --out /tmp/browser-run      # logs, screenshots and the downloaded trace in --out
+test/browser/run.py --headed                    # watch it
+```
+
+`.github/workflows/browser.yml` runs it weekly, on "Run workflow", and on pull requests that change the configurator's online or trace code, the diagnostics, the plugin's bus, network and diagnostics sources, or the simulator. It is a workflow of its own, so CI's time and `ci-ok` are unaffected; on a failure it keeps the logs and screenshots as the run's `browser-run` artifact.
 
 ## Integration tests (by hand, weekly, or locally)
 
@@ -124,6 +170,7 @@ test/networks/     two networks on vcan0 and vcan1, one of them losing its node
 test/slcan/        the slcan adapter against a fake CANable on a pseudo-terminal, bridged to vcan1
 test/plc_sdo/      the SDO blocks compiled as the editor does, finding the real plugin in-process
 test/host/         canopen_host: loads the plugin .so with a stand-in PLC scan; plugin lifecycle tests
+test/browser/      run.py: the configurator in Chromium against canopen_host on the simulated bus
 test/link/         link_check: the SocketCAN link setup on a real interface
 test/dump/         canopen_check --dump-writes against a checked-in list (DCF export parity)
 test/common/       helpers shared by the C++ tests (checks, a fake runtime)

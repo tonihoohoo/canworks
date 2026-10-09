@@ -23,6 +23,9 @@ jobs:
       # or shared code changed.
       canopen: ${{ steps.classify.outputs.canopen }}
       j1939: ${{ steps.classify.outputs.j1939 }}
+      # The configurator page tests' paths (.github/ci/ui-paths.txt) changed;
+      # always true on main.
+      ui: ${{ steps.classify.outputs.ui }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,7 +36,8 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: python3 .github/scripts/ci_changes.py "$BASE" "$HEAD" >> "$GITHUB_OUTPUT"
+          MAIN_PUSH: ${{ github.event_name == 'push' && '--main-push' || '' }}
+        run: python3 .github/scripts/ci_changes.py $MAIN_PUSH "$BASE" "$HEAD" >> "$GITHUB_OUTPUT"
 
   banned-words:
     # Words from a private list must not reach the repository. The list is
@@ -352,9 +356,10 @@ jobs:
 
   configurator-page:
     # The configurator's pages in Chromium, split over three runners by test
-    # class. Needs no plugin build.
+    # class. Needs no plugin build. Skipped when nothing the pages use changed
+    # (needs.changes.outputs.ui).
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.ui == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -415,7 +420,8 @@ jobs:
 
   ci-ok:
     # The one check a branch ruleset needs: green when every job above passed
-    # or was skipped on purpose (documentation-only changes), red otherwise.
+    # or was skipped on purpose (documentation-only changes, page tests when
+    # nothing the configurator uses changed), red otherwise.
     # Job names inside it can change without touching the ruleset.
     if: always()
     needs: [changes, banned-words, spec-check, plugin, vcan, tools, configurator-page]
