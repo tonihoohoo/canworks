@@ -230,4 +230,38 @@ TEST(can_bus_info) {
   CHECK(info.ERROR && info.ERROR_ID == CANWORKS_CAN_ERR_NETWORK && info.STATE == 4);
 }
 
+// Bus-off while a cyclic job and a receiver run: both show ERROR_ID 7 but
+// stay; the error clears when the bus is back.
+TEST(cyclic_and_receive_report_bus_off) {
+  Net n;
+  CAN_SEND_CYCLIC_INST cy;
+  cy.ID = 0x300;
+  cy.DLC = 1;
+  cy.PERIOD = 10LL * 1000000;
+  cy.ENABLE = true;
+  can_send_cyclic_call(&cy);
+  CAN_RECEIVE_INST rx;
+  rx.ANY = true;
+  rx.ENABLE = true;
+  can_receive_call(&rx);
+  CHECK(cy.ACTIVE && !cy.ERROR && rx.ACTIVE && !rx.ERROR);
+  canworks_can_bus_info b{};
+  b.state = 3;
+  n.port.publish_bus(b);
+  can_send_cyclic_call(&cy);
+  can_receive_call(&rx);
+  CHECK(cy.ACTIVE && cy.ERROR && cy.ERROR_ID == CANWORKS_CAN_ERR_BUS);
+  CHECK(rx.ACTIVE && rx.ERROR && rx.ERROR_ID == CANWORKS_CAN_ERR_BUS);
+  canworks_can_frame out[1];
+  uint8_t jobs[1];
+  CHECK(n.port.cyclic_due(1000, out, jobs, 1) == 1);  // the job still runs
+  n.port.cyclic_sent(jobs[0]);
+  b.state = 2;
+  n.port.publish_bus(b);
+  can_send_cyclic_call(&cy);
+  can_receive_call(&rx);
+  CHECK(cy.ACTIVE && !cy.ERROR && cy.ERROR_ID == 0 && cy.COUNT == 1);
+  CHECK(rx.ACTIVE && !rx.ERROR && rx.ERROR_ID == 0);
+}
+
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

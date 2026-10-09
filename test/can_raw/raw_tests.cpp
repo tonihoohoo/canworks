@@ -837,6 +837,56 @@ TEST(bus_info_from_error_frames) {
   set_port(1, nullptr);
 }
 
+// Plain networks log bus state changes; a bus-off the adapter left between
+// two readings shows as a rising count.
+TEST(bus_state_log) {
+  PlcPort port(1);
+  port.set_rules(PortRules{});
+  set_port(1, &port);
+  std::unique_ptr<HostLink> owned(new HostLink);
+  std::atomic<uint8_t> state{0};
+  std::atomic<uint32_t> offs{0};
+  std::mutex m;
+  std::vector<std::string> lines;
+  RawIoHooks hooks;
+  hooks.bus_info = [&](canworks_can_bus_info& info) {
+    info.state = state;
+    info.bus_off_count = offs;
+    return true;
+  };
+  hooks.log_bus = [&](int level, const std::string& line) {
+    std::lock_guard<std::mutex> l(m);
+    lines.push_back(std::to_string(level) + " " + line);
+  };
+  auto wait_lines = [&](size_t n) {
+    for (int i = 0; i < 100; ++i) {
+      {
+        std::lock_guard<std::mutex> l(m);
+        if (lines.size() >= n) return true;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return false;
+  };
+  RawIo io(std::move(owned), 500000, false, nullptr, &port, hooks);
+  io.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  state = 3;
+  offs = 1;
+  CHECK(wait_lines(1));
+  state = 0;
+  CHECK(wait_lines(2));
+  offs = 3;  // two more, both over between readings
+  CHECK(wait_lines(3));
+  io.stop();
+  set_port(1, nullptr);
+  std::lock_guard<std::mutex> l(m);
+  CHECK_MSG(lines.size() == 3, std::to_string(lines.size()));
+  CHECK(lines[0].find("2 CAN interface ") == 0 && lines[0].find("is bus-off; without adapter.restart_ms") != std::string::npos);
+  CHECK(lines[1].find("0 ") == 0 && lines[1].find("is error-active again") != std::string::npos);
+  CHECK(lines[2].find("2 ") == 0 && lines[2].find("went bus-off 2 times and recovered") != std::string::npos);
+}
+
 // Error frames as drivers send them: gs_usb sets the counters of a
 // controller-problem frame (0x04) without CAN_ERR_CNT; others set it.
 TEST(error_frame_counters) {

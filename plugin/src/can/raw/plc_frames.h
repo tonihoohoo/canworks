@@ -167,6 +167,8 @@ class PlcPort {
   uint32_t make_handle(unsigned kind, unsigned slot, uint32_t gen) const;
   bool split_handle(uint32_t handle, unsigned kind, unsigned& slot, uint32_t& gen) const;
   uint16_t check_send(const canworks_can_frame& f) const;
+  // The last published bus state is bus-off or down.
+  bool bus_down() const;
   void read_job(const Job& j, canworks_can_frame& f, uint32_t& period_us) const;
 
   uint8_t network_;

@@ -349,6 +349,9 @@ void loop() {
       ERROR = true;
       ERROR_ID = t ? err : static_cast<unsigned short>(can_frames::err_not_running);
       cf_handle = 0;
+    } else {
+      ERROR = err != 0;  // 7 while the bus is off; the job stays
+      ERROR_ID = err;
     }
   } else if (!ENABLE && cf_prev) {
     if (t && cf_handle) t->cyc_stop(cf_handle);
@@ -403,6 +406,10 @@ void loop() {
       ERROR = true;
       ERROR_ID = static_cast<unsigned short>(-r);
       cf_handle = 0;
+    }
+    if (cf_handle) {
+      ERROR = info.bus_down != 0;  // 7 while the bus is off; the receiver stays
+      ERROR_ID = ERROR ? static_cast<unsigned short>(can_frames::err_bus) : 0;
     }
     QUEUED = info.queued;
     OVERFLOW = info.overflow != 0;

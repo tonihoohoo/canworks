@@ -50,6 +50,10 @@ struct RawIoHooks {
   // stack shares the interface (plain CAN networks): the kernel marks its
   // frames the same way.
   bool host_frames_received = false;
+  // Bus state changes for the runtime log (0 info, 1 warning, 2 error). Only
+  // where no protocol stack logs them already (plain CAN networks).
+  std::function<void(int, const std::string&)> log_bus;
+  unsigned restart_ms = 0;  // adapter.restart_ms, 0 when not set
 };
 
 class RawIo {
@@ -79,6 +83,7 @@ class RawIo {
   void send_due(uint64_t now);
   bool write_frame(const canworks_can_frame& f, int& error, Origin origin = Origin::Own);
   void update_bus(uint64_t now);
+  void log_bus_state(const canworks_can_bus_info& info, uint64_t now);
   int next_timeout(uint64_t now);
 
   std::unique_ptr<RawLink> link_;
@@ -117,6 +122,14 @@ class RawIo {
   bool held_ = false;
   canworks_can_frame held_frame_{};
   uint32_t held_tag_ = 0;
+  // Bus state log: the last logged state and bus-off count, and at most
+  // kBusLogsPerSecond lines a second, the rest in one summary line.
+  uint8_t logged_state_ = 4;
+  bool have_bus_offs_ = false;
+  uint32_t logged_bus_offs_ = 0;
+  uint64_t log_window_start_ = 0;
+  unsigned log_window_changes_ = 0;
+  bool log_suppressed_ = false;
 };
 
 }  // namespace canworks_raw

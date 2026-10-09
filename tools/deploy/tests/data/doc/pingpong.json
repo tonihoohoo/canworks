@@ -762,7 +762,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.46.3"
+  "version": "0.46.4"
  },
  "warnings": []
 }

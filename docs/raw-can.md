@@ -134,7 +134,7 @@ IF tx.DONE THEN go := FALSE; END_IF;
 
 A rising edge of `EXECUTE` queues one frame with that call's inputs (`ID`, `EXTENDED`, `RTR`, `DLC`, `DATA`) and sets `BUSY`; edges and input changes while `BUSY` are ignored. `DONE` comes when the frame is confirmed on the bus, `ERROR` with `ERROR_ID` 6 when it is not within `TIMEOUT` (`T#0s` = 100 ms). The outputs stay while `EXECUTE` stays TRUE and for one call after it fell.
 
-What "confirmed" means depends on the adapter. SocketCAN drivers that echo sent frames (most USB adapters and on-chip controllers) echo a frame only once it was acknowledged on the bus, so `DONE` means another device took it. Without echo (vcan, some slcan firmware) `DONE` means the frame was handed to the driver. The diagnostics status shows which (`confirm: echo` or `confirm: write`). On a bus with no other device a frame is never acknowledged, and `CAN_SEND` ends with `ERROR_ID` 6. When the adapter's transmit queue is full meanwhile, the plugin keeps the program's frame and tries again until `TIMEOUT`, and `CAN_SEND_CYCLIC` keeps its job but `COUNT` stops until the bus takes frames again; `CAN_BUS_INFO` shows the state (usually 2, error passive).
+What "confirmed" means depends on the adapter. SocketCAN drivers that echo sent frames (most USB adapters and on-chip controllers) echo a frame only once it was acknowledged on the bus, so `DONE` means another device took it. Without echo (vcan, some slcan firmware) `DONE` means the frame was handed to the driver. The diagnostics status shows which (`confirm: echo` or `confirm: write`). On a bus with no other device a frame is never acknowledged, and `CAN_SEND` ends with `ERROR_ID` 6. When the adapter's transmit queue is full meanwhile, the plugin keeps the program's frame and tries again until `TIMEOUT`, and `CAN_SEND_CYCLIC` keeps its job but `COUNT` stops until the bus takes frames again; `CAN_BUS_INFO` shows the state (usually 2, error passive). While the bus is off, `CAN_SEND_CYCLIC` and `CAN_RECEIVE` also show it (see [Error IDs](#error-ids)).
 
 ### `CAN_SEND_CYCLIC`: a frame on a timer
 
@@ -174,7 +174,7 @@ While `ENABLE` is TRUE the plugin queues every frame of the given format whose `
 
 `STATE` (0 error active, 1 warning, 2 error passive, 3 bus-off, 4 interface down or missing), `TX_ERRORS`, `RX_ERRORS`, `BUS_OFF_COUNT`, `BUS_LOAD` (percent over the last second), `RX_COUNT`, `TX_COUNT`, `ERROR_FRAMES`.
 
-`ERROR_FRAMES` and `BUS_OFF_COUNT` count the driver's error frames. Drivers that report no error counters (gs_usb, for example) give `TX_ERRORS` and `RX_ERRORS` from the last error frame that carried them while the bus is not error active, and 0 once it is error active again.
+`ERROR_FRAMES` and `BUS_OFF_COUNT` count the driver's error frames. The plugin reads the state every 100 ms; `BUS_OFF_COUNT` also catches a bus-off the adapter left between two readings. Some USB adapters (gs_usb, for example) leave bus-off by themselves within milliseconds, so a wrong bit rate shows as `STATE` moving between 3, 2 and 0 and a fast-rising `BUS_OFF_COUNT`; others stay bus-off until the kernel restarts them (`adapter.restart_ms`, see [config.md](config.md)). On a plain CAN network the plugin logs every state change, as the CANopen master does for its network. Drivers that report no error counters (gs_usb, for example) give `TX_ERRORS` and `RX_ERRORS` from the last error frame that carried them while the bus is not error active, and 0 once it is error active again.
 
 ### Error IDs
 
@@ -191,6 +191,8 @@ While `ENABLE` is TRUE the plugin queues every frame of the given format whose `
 | 9 | The network is listen-only. |
 
 `CAN_SEND_CYCLIC` and `CAN_RECEIVE` whose `ENABLE` stays TRUE try to start again on every call after `ERROR_ID` 1, 7 or 8, so a block enabled from the first scan starts once the network runs, and comes back after a network restart. `ERROR` stays TRUE until it does; other errors need a new rising edge of `ENABLE`.
+
+While the bus is off or the interface is down (`STATE` 3 or 4), a running `CAN_SEND_CYCLIC` or `CAN_RECEIVE` shows `ERROR` with `ERROR_ID` 7 but stays `ACTIVE`: the cyclic job keeps its `COUNT` and sends again once the bus is back, and the receiver keeps its queue. `ERROR` clears by itself when the bus is back.
 
 The blocks never wait on the bus, allocate memory or log on the scan thread. A PLC stop ends every send with `ERROR_ID` 8, closes every receiver and stops every cyclic job.
 

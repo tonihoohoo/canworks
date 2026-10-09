@@ -60,6 +60,7 @@ typedef struct {
 typedef struct {
   uint16_t queued;  /* frames still waiting after this read */
   uint8_t overflow; /* frames were dropped since the receiver opened */
+  uint8_t bus_down; /* the bus is off or the interface down (receiver stays open) */
   uint32_t dropped;
 } canworks_can_rx_info;
 
@@ -91,8 +92,9 @@ typedef struct {
   int (*tx_poll)(uint32_t handle, uint16_t* error_id);
   /* Starts a cyclic job; its handle, or 0 with *error_id set. */
   uint32_t (*cyc_start)(uint8_t network, const canworks_can_frame* frame, uint32_t period_us, uint16_t* error_id);
-  /* New data, DLC and period from the next send; *count = frames sent. 0 ok,
-   * 2 error (*error_id; the job has ended). */
+  /* New data, DLC and period from the next send; *count = frames sent. 0 ok
+   * (*error_id 7 while the bus is off or down: the job stays), 2 error
+   * (*error_id; the job has ended). */
   int (*cyc_update)(uint32_t handle, const canworks_can_frame* frame, uint32_t period_us, uint32_t* count,
                     uint16_t* error_id);
   void (*cyc_stop)(uint32_t handle);
