@@ -121,7 +121,6 @@ class PlcSlave : public SlaveDevice {
   void ServiceDiag();
   void DiagStatus(const DiagRequest& r);
   void DiagSdo(const DiagRequest& r);
-  void RefusePlcRequests();
   void SetObject(uint16_t index, uint8_t subindex, uint64_t raw, CoType type, bool event);
 
   const Config& cfg_;

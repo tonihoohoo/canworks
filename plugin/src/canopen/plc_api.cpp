@@ -24,7 +24,9 @@ PlcRequests& PlcRequests::instance() {
 }
 
 uint16_t PlcRequests::validate(const canopen_plc_request& r) const {
-  if (r.network >= networks_.load(std::memory_order_acquire) || r.node < 1 || r.node > 127) return CANOPEN_PLC_ERR_INPUT;
+  if (r.network >= 32 || !(sdo_networks_.load(std::memory_order_acquire) >> r.network & 1u) || r.node < 1 ||
+      r.node > 127)
+    return CANOPEN_PLC_ERR_INPUT;
   if (r.kind > CANOPEN_PLC_BYTES) return CANOPEN_PLC_ERR_INPUT;
   if (!r.write) return 0;
   if (r.length > CANOPEN_PLC_MAX_DATA || (r.length && !r.data)) return CANOPEN_PLC_ERR_INPUT;
@@ -101,10 +103,10 @@ int PlcRequests::poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, u
   return s->res.error_id ? 2 : 1;
 }
 
-void PlcRequests::open(unsigned networks) {
+void PlcRequests::open(uint32_t sdo_networks) {
   std::lock_guard<std::mutex> lock(mutex_);
   for (auto& s : slots_) s.state = State::Free;
-  networks_.store(networks ? networks : 1, std::memory_order_release);
+  sdo_networks_.store(sdo_networks, std::memory_order_release);
   running_.store(true, std::memory_order_release);
 }
 

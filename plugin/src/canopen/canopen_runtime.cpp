@@ -301,7 +301,12 @@ bool canopen_create(ConfigSet& set, uint64_t base_tick_ns, const char* version,
   return true;
 }
 
-void canopen_open_plc_requests(unsigned networks) { PlcRequests::instance().open(networks); }
+void canopen_open_plc_requests(const ConfigSet& set) {
+  uint32_t masters = 0;
+  for (size_t i = 0; i < set.networks.size() && i < 32; ++i)
+    if (!set.networks[i].is_j1939() && !set.networks[i].is_slave()) masters |= 1u << i;
+  PlcRequests::instance().open(masters);
+}
 void canopen_close_plc_requests() { PlcRequests::instance().close(); }
 const void* canopen_plc_api_table(uint32_t version) { return plc_api_table(version); }
 

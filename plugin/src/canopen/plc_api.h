@@ -41,11 +41,12 @@ class PlcRequests {
   uint32_t start(const canopen_plc_request& req, uint16_t& error_id);
   int poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, uint32_t cap);
 
-  // Plugin lifecycle: open() when CANopen runs, with the number of networks
-  // (a request names one of them, 0 = the first in the config); close() when
-  // the PLC stops (every request is dropped, so their handles end with
-  // CANOPEN_PLC_ERR_CANCELLED).
-  void open(unsigned networks = 1);
+  // Plugin lifecycle: open() when CANopen runs, with the networks that take
+  // SDO requests as bits (bit i = network i in the config: the CANopen master
+  // networks; a request naming any other ends at once with
+  // CANOPEN_PLC_ERR_INPUT); close() when the PLC stops (every request is
+  // dropped, so their handles end with CANOPEN_PLC_ERR_CANCELLED).
+  void open(uint32_t sdo_networks = 1);
   void close();
   bool running() const { return running_.load(std::memory_order_acquire); }
 
@@ -86,7 +87,7 @@ class PlcRequests {
   uint32_t next_seq_ = 1;
   uint64_t next_order_ = 1;
   std::atomic<bool> running_{false};
-  std::atomic<unsigned> networks_{1};
+  std::atomic<uint32_t> sdo_networks_{1};
   std::atomic<uint32_t> unknown_version_{0};
   bool unknown_logged_ = false;
 };

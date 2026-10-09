@@ -43,6 +43,7 @@
 #include "eds_lint.h"
 #include "fake_runtime.hpp"
 #include "iec_location.h"
+#include "canopen_runtime.h"
 #include "plc_api.h"
 #include "log.h"
 #include "process_image.h"
@@ -3554,6 +3555,34 @@ TEST(runtime_version_guard) {
   rmdir(dir.c_str());
 }
 
+// SDO blocks reach only the CANopen master networks: a NETWORK that is a
+// J1939 or slave network is refused at start, like one the config lacks.
+TEST(plc_requests_only_master_networks) {
+  using canopen_plugin::PlcRequests;
+  ConfigSet set;
+  set.networks.resize(3);
+  set.networks[1].protocol = Protocol::J1939;
+  set.networks[2].role = NetworkRole::Slave;
+  canopen_open_plc_requests(set);
+  PlcRequests& q = PlcRequests::instance();
+  canopen_plc_request r{};
+  r.node = 5;
+  r.index = 0x1018;
+  r.subindex = 1;
+  uint16_t err = 0;
+  for (uint8_t network : {1, 2, 3}) {
+    r.network = network;
+    CHECK_MSG(q.start(r, err) == 0 && err == CANOPEN_PLC_ERR_INPUT, std::to_string(network));
+  }
+  r.network = 0;
+  uint32_t h = q.start(r, err);
+  CHECK(h != 0 && err == 0);
+  std::vector<PlcRequests::Job> jobs;
+  q.take(0, jobs);
+  CHECK(jobs.size() == 1);
+  q.close();
+}
+
 // The request slots behind the PLC program's SDO blocks (add-plc-sdo-blocks 2.6).
 TEST(plc_requests_slots_and_handles) {
   using canopen_plugin::PlcRequests;
@@ -3655,7 +3684,7 @@ TEST(plc_requests_per_network) {
   r.index = 0x1018;
   r.subindex = 1;
   uint16_t err = 0;
-  q.open(2);
+  q.open(0x3);
   canopen_plc_request second = r;
   second.network = 1;
   canopen_plc_request third = r;

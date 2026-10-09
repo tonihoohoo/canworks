@@ -4452,7 +4452,7 @@ TEST(sim_two_networks) {
 
   // The SDO blocks reach each network by its NETWORK number.
   static CO_SDO_READ_INST rd[3];
-  PlcRequests::instance().open(2);
+  PlcRequests::instance().open(0x3);
   sim->SetProgram([] {
     for (auto& b : rd) co_sdo_read_call(&b);
   });

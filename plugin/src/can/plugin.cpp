@@ -76,9 +76,11 @@ void runtime_sink(LogLevel level, const char* msg) {
   if (f) f("%s", msg);
 }
 
-void open_plc_requests(unsigned networks) {
+void open_plc_requests(const ConfigSet& set) {
 #if CANWORKS_WITH_CANOPEN
-  canopen_open_plc_requests(networks);
+  canopen_open_plc_requests(set);
+#else
+  (void)set;
 #endif
 }
 
@@ -225,7 +227,7 @@ PLUGIN_API int start_loop(void) {
   for (auto& n : g_state->nets) n->start();
   if (g_state->server) g_state->server->start();
   g_exchange.store(true, std::memory_order_release);
-  open_plc_requests(static_cast<unsigned>(g_state->nets.size()));
+  open_plc_requests(g_state->set);
   return 0;
 }
 
