@@ -17,6 +17,7 @@ canworks-deploy = "canworks.cli:main"
 canworks-config = "canworks.configurator.server:main"
 canworks-diag = "canworks.diag:main"
 canworks-sim-runtime = "canworks.localruntime:main"
+canworks-j1939-sim = "canworks.j1939.sim:main"
 
 [tool.setuptools]
 packages = ["canworks", "canworks.bustrace", "canworks.localbus", "canworks.configurator", "canworks._lely_dcf"]

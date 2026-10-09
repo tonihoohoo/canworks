@@ -439,11 +439,14 @@ def unsupported_rates(spec, rates_kbit):
     return []
 
 
-def open(spec, bitrate, listen_only=False, options=None, disturb_bus=False):  # noqa: A001 - the module's one entry point
+def open(spec, bitrate, listen_only=False, options=None, disturb_bus=False,  # noqa: A001 - the module's one entry point
+         shared=False):
     """Open `spec` (a Spec) at `bitrate` (bit/s), with `listen_only` without
     acknowledging or sending anything. An adapter that does not confirm
-    listen-only is refused (kind unconfirmed) unless `disturb_bus`. Raises
-    AdapterError."""
+    listen-only is refused (kind unconfirmed) unless `disturb_bus`. With
+    `shared`, a SocketCAN link or the in-process virtual bus is opened without
+    the one-tool lock, as several programs can use those at once (J1939
+    simulators side by side on vcan0). Raises AdapterError."""
     if listen_only and spec.kind not in LISTEN_ONLY:
         raise AdapterError("usage", "%s (%s adapters; slcan, PCAN and SocketCAN have one)" % (NO_LISTEN_ONLY,
                                                                                               spec.kind))
@@ -455,7 +458,8 @@ def open(spec, bitrate, listen_only=False, options=None, disturb_bus=False):  # 
     except ImportError:
         raise AdapterError("unreachable", "python-can is not installed; reinstall the PC tools")
     lock = _Lock(spec)
-    if not lock.acquire():
+    unlocked = shared and spec.kind in ("socketcan", "virtual") and not listen_only  # release() is then a no-op
+    if not unlocked and not lock.acquire():
         raise AdapterError("busy", "adapter %s in use (another tool has it open)" % spec)
     kwargs = dict(spec.options)
     kwargs.update(options or {})
