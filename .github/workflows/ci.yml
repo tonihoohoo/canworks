@@ -156,7 +156,7 @@ jobs:
 
       - name: Python dependencies of the vcan scripts (deploy tool modules, diagnostics, trace export, J1939 simulator)
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
-        run: python -m pip install -q jsonschema cantools python-can pyserial can-j1939
+        run: python -m pip install -q jsonschema cantools python-can pyserial ${{ matrix.group == 2 && 'can-j1939' || '' }}
 
       - name: Create vcan0 (down; the plugin's link setup brings it up)
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))

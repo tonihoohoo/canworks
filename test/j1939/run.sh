@@ -6,16 +6,16 @@
 #
 # Loads the real libcanworks_plugin.so through canopen_host (program j1939)
 # and runs the simulator as the Engine node at address 0, sending
-# ComponentInfo (40 bytes, BAM) every second with Starts=42. At 5 s it stops
+# ComponentInfo (40 bytes, BAM) every second with Starts=42. At 3 s it stops
 # the simulator and takes the interface down and up (sudo), then starts it
-# again; at 10 s it stops it for good, and a contender with a lower NAME
+# again; at 7 s it stops it for good, and a contender with a lower NAME
 # claims 128. Passes (exit 0) when the plugin's checks pass (claimed, no
 # bus, claimed again, moved to 129; Pressures values and the timeout bit;
-# Starts=42), the contender saw the plugin claim 129, and the simulator
-# received Setpoints (Run=1) and Command (PDU1 to address 0, Mode=3) from
-# 128 and the plugin's request for ComponentInfo. Needs the kernel module
-# can-j1939 (loaded with sudo when it is missing). Exit 1: a check failed;
-# 2: setup failed.
+# Starts=42), the contender saw the plugin claim 129 and received Setpoints
+# from 129, and the simulator received Setpoints (Run=1) and Command (PDU1
+# to address 0, Mode=3) from 128 and the plugin's request for ComponentInfo.
+# Needs the kernel module can-j1939 (loaded with sudo when it is missing).
+# Exit 1: a check failed; 2: setup failed.
 
 set -uo pipefail
 
@@ -88,19 +88,19 @@ stop_sim() {
 
 echo "==> The plugin's J1939 ECU and the simulated engine on $IFACE"
 start_sim 1
-"$HOST" "$PLUGIN" "$WORK/canworks.json" 14 j1939 > "$WORK/host.out" 2> "$WORK/host.log" &
+"$HOST" "$PLUGIN" "$WORK/canworks.json" 10 j1939 > "$WORK/host.out" 2> "$WORK/host.log" &
 HOST_PID=$!
-sleep 5
+sleep 3
 stop_sim
 echo "==> Interface $IFACE down and up"
 sudo ip link set "$IFACE" down
 sleep 1
 sudo ip link set "$IFACE" up
 start_sim 2
-sleep 4
+sleep 3
 stop_sim
 echo "==> A lower NAME takes address 128"
-"${SIM[@]}" --contend 128 --name-value 0x10 --interface "$IFACE" --log "$WORK/contend.log.jsonl" \
+"${SIM[@]}" --contend 128 --name-value 0x10 --dbc "$WORK/machine.dbc" --interface "$IFACE" --log "$WORK/contend.log.jsonl" \
     > "$WORK/contend.out" 2>&1 &
 SIM_PID=$!
 sleep 2
@@ -136,6 +136,8 @@ with open(os.path.join(work, "contend.log.jsonl")) as f:
     contend = [json.loads(line) for line in f if line.strip()]
 check(any(r["event"] == "claim_seen" and r.get("address") == 129 for r in contend),
       "the contender took 128 and saw the plugin claim 129")
+moved = [r for r in contend if r["event"] == "rx" and r["pgn"] == 65281 and r["source"] == 129 and "signals" in r]
+check(len(moved) >= 5, "Setpoints from 129 after the move (%d)" % len(moved))
 check(sum(1 for r in recs if r["event"] == "claimed") == 2, "the simulator claimed address 0 in both runs")
 check(sum(1 for r in rx(65281) if r["signals"].get("Run") == 1) >= 10,
       "Setpoints with Run=1 from 128 (%d)" % len(rx(65281)))
