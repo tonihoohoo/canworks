@@ -111,7 +111,7 @@ void fail(const std::string& m) { std::fprintf(stderr, "canworks-sim: %s\n", m.c
 void plugin_log(canopen_plugin::LogLevel l, const char* msg) {
   using canopen_plugin::LogLevel;
   std::string m = msg;
-  if (m.compare(0, 10, "[CANOPEN] ") == 0) m.erase(0, 10);
+  if (m.compare(0, 11, "[CANWORKS] ") == 0) m.erase(0, 11);
   if (m.compare(0, 6, "lely: ") == 0) {
     // Lely's own NMT and EMCY chatter (the engine logs state changes), and
     // the note about frames still queued when a device is powered off.

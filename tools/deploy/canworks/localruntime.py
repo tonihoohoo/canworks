@@ -398,7 +398,7 @@ def cmd_stop(args, out):
 
 def canopen_lines(log_text, limit=3):
     """The last CANopen lines of the runtime log."""
-    lines = [x.strip() for x in (log_text or "").splitlines() if "[CANOPEN]" in x]
+    lines = [x.strip() for x in (log_text or "").splitlines() if "[CANWORKS]" in x]
     return lines[-limit:]
 
 

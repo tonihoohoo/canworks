@@ -65,7 +65,7 @@ sleep 0.5
 RC=0
 echo "==> Running the plugin on vcan0 and vcan1 for ${SECONDS_RUN}s"
 "$HOST" "$PLUGIN" "$WORK/canopen_config.json" "$SECONDS_RUN" two 2> "$WORK/host.log" || RC=1
-grep -E "\[CANOPEN\]" "$WORK/host.log" | head -40
+grep -E "\[CANWORKS\]" "$WORK/host.log" | head -40
 
 check_log() {
     if grep -q -- "$1" "$WORK/host.log"; then
@@ -75,9 +75,9 @@ check_log() {
         RC=1
     fi
 }
-check_log "\[CANOPEN\] io: loaded .* vcan0, 125000 bit/s"
-check_log "\[CANOPEN\] drives: loaded .* vcan1, 125000 bit/s"
-check_log "\[CANOPEN\] drives: node 2 (pingpong) is operational"
+check_log "\[CANWORKS\] io: loaded .* vcan0, 125000 bit/s"
+check_log "\[CANWORKS\] drives: loaded .* vcan1, 125000 bit/s"
+check_log "\[CANWORKS\] drives: node 2 (pingpong) is operational"
 for d in io drives; do
     if [ -f "$WORK/.canworks/$d/master.dcf" ]; then
         echo "==> .canworks/$d/master.dcf generated"
@@ -95,8 +95,8 @@ if [ $? -ne 0 ]; then
     echo "FAIL: network io stopped counting while drives lost its node" >&2
     RC=1
 fi
-if grep -q "\[CANOPEN\] drives: node 2 (pingpong)" "$WORK/host2.log" && \
-   grep -E "\[CANOPEN\] drives: node 2 \(pingpong\).*(lost|heartbeat|not operational|no answer)" "$WORK/host2.log" >/dev/null; then
+if grep -q "\[CANWORKS\] drives: node 2 (pingpong)" "$WORK/host2.log" && \
+   grep -E "\[CANWORKS\] drives: node 2 \(pingpong\).*(lost|heartbeat|not operational|no answer)" "$WORK/host2.log" >/dev/null; then
     echo "==> drives reported its node lost"
 else
     echo "FAIL: drives did not report node 2 lost" >&2

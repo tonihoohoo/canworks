@@ -22,32 +22,10 @@
 #include <vector>
 
 #include "config.h"
+#include "image_io.h"
 #include "plugin_types.h"
 
 namespace canopen_plugin {
-
-// Single-producer/single-consumer triple buffer of fixed-size uint64 arrays.
-class TripleBuffer {
- public:
-  void resize(size_t n);
-  size_t size() const { return size_; }
-
-  // Producer: the buffer to fill, then publish().
-  uint64_t* back() { return bufs_[back_].data(); }
-  void publish();
-
-  // Consumer: returns the newest published snapshot (or the previous one if
-  // nothing new was published). Never blocks.
-  const uint64_t* latest(bool* fresh = nullptr);
-
- private:
-  static constexpr uint8_t kDirty = 0x4;
-  std::vector<uint64_t> bufs_[3];
-  size_t size_ = 0;
-  uint8_t back_ = 0;
-  uint8_t front_ = 1;
-  std::atomic<uint8_t> middle_{2};
-};
 
 struct Binding {
   unsigned node_id = 0;
@@ -69,11 +47,6 @@ struct SdoVarSlot {
   unsigned node_id = 0;
   SdoVariable var;
 };
-
-// One input location written through the runtime's journal (cycle_start),
-// and one output location read (cycle_end, with the image lock held).
-void image_write_input(const plugin_runtime_args_t& rt, const IecLocation& loc, uint64_t raw);
-uint64_t image_read_output(const plugin_runtime_args_t& rt, const IecLocation& loc);
 
 class ProcessImage {
  public:

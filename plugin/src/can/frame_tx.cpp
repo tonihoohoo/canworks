@@ -12,7 +12,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#if CANWORKS_WITH_CANOPEN
 #include <lely/can/msg.h>
+#endif
 
 namespace canopen_plugin {
 
@@ -199,6 +201,7 @@ void SimFrameInjector::drain(std::vector<RawFrame>& out) {
   queue_.clear();
 }
 
+#if CANWORKS_WITH_CANOPEN
 void raw_frame_to_msg(const RawFrame& f, can_msg& msg) {
   msg = CAN_MSG_INIT;
   msg.id = f.id;
@@ -206,6 +209,7 @@ void raw_frame_to_msg(const RawFrame& f, can_msg& msg) {
   msg.len = f.dlc;
   if (!f.rtr) std::memcpy(msg.data, f.data, f.dlc);
 }
+#endif
 
 // ---------------------------------------------------------------------------
 

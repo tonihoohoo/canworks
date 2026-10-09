@@ -72,6 +72,8 @@ struct DiagRequest {
 std::string diag_ok(const std::string& id, cJSON* result);  // takes ownership of result
 std::string diag_error(const std::string& id, const std::string& message);
 std::string hex_bytes(const std::vector<uint8_t>& data);
+// Adds "protocols", the protocols built into the plugin, to a status answer.
+void diag_add_protocols(cJSON* res);
 
 // Thread-safe hand-off between the server thread and the bus thread.
 class DiagHub {

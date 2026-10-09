@@ -14,21 +14,41 @@ endif()
 set(LELY_PREFIX "/opt/canworks/lely" CACHE PATH "Lely CANopen install prefix (fallback)")
 # Where scripts/build-lely.sh put Lely and the dcfgen venv (<prefix>/venv).
 set(CANOPEN_PREFIX "/opt/canworks" CACHE PATH "Install prefix of Lely and dcfgen")
-find_package(PkgConfig REQUIRED)
-set(ENV{PKG_CONFIG_PATH} "${LELY_PREFIX}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
-pkg_check_modules(LELY REQUIRED liblely-coapp liblely-co liblely-io2 liblely-ev liblely-util liblely-libc)
+if(CANWORKS_WITH_CANOPEN)
+  find_package(PkgConfig REQUIRED)
+  set(ENV{PKG_CONFIG_PATH} "${LELY_PREFIX}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+  pkg_check_modules(LELY REQUIRED liblely-coapp liblely-co liblely-io2 liblely-ev liblely-util liblely-libc)
+  message(STATUS "canworks plugin - CANopen with Lely CANopen ${LELY_liblely-coapp_VERSION} in ${LELY_LIBRARY_DIRS}")
+endif()
+if(CANWORKS_WITH_J1939)
+  message(STATUS "canworks plugin - J1939 on the kernel's CAN_J1939 sockets")
+endif()
 # TLS and the SCRAM login of the diagnostics channel (secure_channel.cpp).
 find_package(OpenSSL 3 REQUIRED COMPONENTS SSL Crypto)
-message(STATUS "CANopen plugin - Lely CANopen ${LELY_liblely-coapp_VERSION} in ${LELY_LIBRARY_DIRS}")
 
 set(NATIVE_DIR ${OPENPLC_ROOT}/core/src/drivers/plugins/native)
 
-# Everything except the entry points, so the tests can link it too.
-add_library(canopen_core STATIC
+# The protocol-neutral core: the config model, diagnostics channel, adapters,
+# traces and the image copies.
+set(CANWORKS_CORE_SOURCES
     src/can/log.cpp
     src/can/iec_location.cpp
+    src/can/image_io.cpp
     src/can/config.cpp
     src/j1939/j1939_config.cpp
+    src/can/diag.cpp
+    src/can/trace_capture.cpp
+    src/can/frame_tx.cpp
+    src/can/bitrate_sweep.cpp
+    src/can/slcan_sweep.cpp
+    src/can/sha256.cpp
+    src/can/secure_channel.cpp
+    src/can/can_adapter.cpp
+    src/can/runtime_version.cpp
+    ${NATIVE_DIR}/cjson/cJSON.c
+)
+set(CANWORKS_CANOPEN_SOURCES
+    src/canopen/canopen_runtime.cpp
     src/canopen/eds_check.cpp
     src/canopen/eds_lint.cpp
     src/canopen/dcf_gen.cpp
@@ -38,17 +58,8 @@ add_library(canopen_core STATIC
     src/canopen/network_lss.cpp
     src/canopen/network_plc.cpp
     src/canopen/plc_api.cpp
-    src/can/diag.cpp
-    src/can/trace_capture.cpp
-    src/can/frame_tx.cpp
-    src/can/bitrate_sweep.cpp
-    src/can/slcan_sweep.cpp
-    src/can/sha256.cpp
-    src/can/secure_channel.cpp
-    src/can/can_adapter.cpp
     src/canopen/bus.cpp
     src/canopen/bus_monitor.cpp
-    src/can/runtime_version.cpp
     src/canopen/slave_state.cpp
     src/canopen/slave_device.cpp
     src/canopen/plc_slave.cpp
@@ -65,8 +76,24 @@ add_library(canopen_core STATIC
     src/canopen/sim/sim_engine.cpp
     src/canopen/sim/sim_machine.cpp
     src/canopen/sim/sim_host.cpp
-    ${NATIVE_DIR}/cjson/cJSON.c
 )
+set(CANWORKS_J1939_SOURCES
+    src/j1939/j1939_signal.cpp
+    src/j1939/address_claim.cpp
+    src/j1939/j1939_socket.cpp
+    src/j1939/j1939_network.cpp
+    src/j1939/j1939_runtime.cpp
+)
+set(CANWORKS_SOURCES ${CANWORKS_CORE_SOURCES})
+if(CANWORKS_WITH_CANOPEN)
+  list(APPEND CANWORKS_SOURCES ${CANWORKS_CANOPEN_SOURCES})
+endif()
+if(CANWORKS_WITH_J1939)
+  list(APPEND CANWORKS_SOURCES ${CANWORKS_J1939_SOURCES})
+endif()
+
+# Everything except the entry points, so the tests can link it too.
+add_library(canopen_core STATIC ${CANWORKS_SOURCES})
 target_include_directories(canopen_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/can
     ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen
@@ -119,6 +146,7 @@ set_target_properties(canworks_plugin PROPERTIES
 )
 target_link_options(canworks_plugin PRIVATE -Wl,-soname,libcanworks_plugin.so)
 
+if(CANWORKS_WITH_CANOPEN)
 # canworks-sim, the standalone simulator (docs/simulator.md): the
 # simulator engine of canopen_core on a SocketCAN interface. It reports the
 # plugin's version.
@@ -136,3 +164,4 @@ set_target_properties(canworks-sim PROPERTIES
     BUILD_RPATH "${LELY_LIBRARY_DIRS}"
     INSTALL_RPATH "${LELY_LIBRARY_DIRS}"
 )
+endif()

@@ -86,7 +86,7 @@ class FakeEngine:
             had, self.volume = self.volume, False
             return done(0 if had else 1)
         if cmd == "logs":
-            return done(0, "[WARN] [CANOPEN] simulation forced by the runtime environment\n")
+            return done(0, "[WARN] [CANWORKS] simulation forced by the runtime environment\n")
         return done(1, err="unknown command")
 
     def runs(self):

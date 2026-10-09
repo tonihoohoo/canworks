@@ -970,7 +970,7 @@ std::vector<std::string> g_log;
 void capture(LogLevel level, const char* msg) {
   const char* l = level == LogLevel::Warn ? "W: " : level == LogLevel::Error ? "E: " : "I: ";
   std::string m = msg;
-  if (m.compare(0, 10, "[CANOPEN] ") == 0) m = m.substr(10);
+  if (m.compare(0, 11, "[CANWORKS] ") == 0) m = m.substr(11);
   g_log.push_back(std::string(l) + m);
 }
 
@@ -3787,9 +3787,9 @@ TEST(log_prefix_per_thread) {
   }
   log_info("after");
   set_log_sink(nullptr);
-  CHECK(diag_log_count("[CANOPEN] drives: node 10 (valve) lost") == 1);
-  CHECK(diag_log_count("[CANOPEN] other thread") == 1);
-  CHECK(diag_log_count("[CANOPEN] after") == 1);
+  CHECK(diag_log_count("[CANWORKS] drives: node 10 (valve) lost") == 1);
+  CHECK(diag_log_count("[CANWORKS] other thread") == 1);
+  CHECK(diag_log_count("[CANWORKS] after") == 1);
 }
 
 TEST(diag_server_two_networks) {
@@ -3812,9 +3812,9 @@ TEST(diag_server_two_networks) {
   CHECK(wait_port(server));
   DiagClient c(server.port());
   std::string hello = c.ask(R"({"op":"hello","token":"secret"})");
-  CHECK_MSG(hello.find(R"("protocol":2)") != std::string::npos &&
-                hello.find(R"("networks":[{"name":"io","interface":"vcan0","bitrate":125000,"role":"master","master_node_id":1},)"
-                           R"({"name":"vcan1","interface":"vcan1","bitrate":500000,"role":"master",)"
+  CHECK_MSG(hello.find(R"("protocol":2)") != std::string::npos && hello.find(R"("protocols":[)") != std::string::npos &&
+                hello.find(R"("networks":[{"name":"io","interface":"vcan0","bitrate":125000,"protocol":"canopen","role":"master","master_node_id":1},)"
+                           R"({"name":"vcan1","interface":"vcan1","bitrate":500000,"protocol":"canopen","role":"master",)"
                            R"("master_node_id":3}])") !=
                     std::string::npos,
             hello);
@@ -3869,7 +3869,7 @@ TEST(diag_server_slave_network) {
   CHECK(wait_port(server));
   DiagClient c(server.port());
   std::string hello = c.ask(R"({"op":"hello","token":"secret"})");
-  CHECK_MSG(hello.find(R"({"name":"line","interface":"vcan0","bitrate":250000,"role":"slave","node_id":10})") !=
+  CHECK_MSG(hello.find(R"({"name":"line","interface":"vcan0","bitrate":250000,"protocol":"canopen","role":"slave","node_id":10})") !=
                 std::string::npos,
             hello);
   std::string st = c.ask(R"({"op":"status","network":"line"})");

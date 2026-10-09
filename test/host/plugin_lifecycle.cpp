@@ -141,8 +141,8 @@ int main(int argc, char** argv) {
   rt = args(absent);
   expect(init(rt.get()) == 0, "init returns 0");
   rt.reset();
-  expect(start_loop() != 0, "start_loop reports that CANopen did not start");
-  expect(logged("WARN") && logged(absent.c_str()) && logged("CANopen inactive"),
+  expect(start_loop() != 0, "start_loop reports that canworks did not start");
+  expect(logged("WARN") && logged(absent.c_str()) && logged("canworks inactive"),
          "a warning names the expected path");
   expect(!logged("ERROR") && !logged("vcan0"), "no error, no CAN interface opened");
   cycle_start();

@@ -4,8 +4,10 @@
 #include <cstdio>
 #include <string>
 
+#if CANWORKS_WITH_CANOPEN
 #include <lely/util/diag.h>
 #include <lely/util/errnum.h>
+#endif
 
 namespace canopen_plugin {
 
@@ -21,7 +23,7 @@ thread_local std::string t_prefix;
 
 void vlog(LogLevel level, const char* fmt, va_list ap) {
   char buf[1024];
-  int n = std::snprintf(buf, sizeof(buf), "[CANOPEN] %s", t_prefix.c_str());
+  int n = std::snprintf(buf, sizeof(buf), "[CANWORKS] %s", t_prefix.c_str());
   if (n < 0 || n >= (int)sizeof(buf)) n = 0;
   std::vsnprintf(buf + n, sizeof(buf) - n, fmt, ap);
   g_sink(level, buf);
@@ -34,6 +36,7 @@ void set_log_sink(LogSink sink) { g_sink = sink ? sink : stderr_sink; }
 void set_thread_log_prefix(const std::string& prefix) { t_prefix = prefix; }
 const std::string& thread_log_prefix() { return t_prefix; }
 
+#if CANWORKS_WITH_CANOPEN
 namespace {
 
 LogLevel from_severity(diag_severity s) {
@@ -50,9 +53,9 @@ void lely_diag(void*, diag_severity severity, int errc, const char* format, va_l
   std::vsnprintf(msg, sizeof(msg), format, ap);
   char buf[1024];
   if (errc)
-    std::snprintf(buf, sizeof(buf), "[CANOPEN] %slely: %s: %s", t_prefix.c_str(), msg, errc2str(errc));
+    std::snprintf(buf, sizeof(buf), "[CANWORKS] %slely: %s: %s", t_prefix.c_str(), msg, errc2str(errc));
   else
-    std::snprintf(buf, sizeof(buf), "[CANOPEN] %slely: %s", t_prefix.c_str(), msg);
+    std::snprintf(buf, sizeof(buf), "[CANWORKS] %slely: %s", t_prefix.c_str(), msg);
   g_sink(from_severity(severity), buf);
 }
 
@@ -62,10 +65,10 @@ void lely_diag_at(void*, diag_severity severity, int errc, const floc* at, const
   std::vsnprintf(msg, sizeof(msg), format, ap);
   char buf[1024];
   if (at && at->filename)
-    std::snprintf(buf, sizeof(buf), "[CANOPEN] %slely: %s:%d:%d: %s", t_prefix.c_str(), at->filename, at->line,
+    std::snprintf(buf, sizeof(buf), "[CANWORKS] %slely: %s:%d:%d: %s", t_prefix.c_str(), at->filename, at->line,
                   at->column, msg);
   else
-    std::snprintf(buf, sizeof(buf), "[CANOPEN] %slely: %s", t_prefix.c_str(), msg);
+    std::snprintf(buf, sizeof(buf), "[CANWORKS] %slely: %s", t_prefix.c_str(), msg);
   (void)errc;
   g_sink(from_severity(severity), buf);
 }
@@ -76,6 +79,7 @@ void route_lely_diagnostics() {
   diag_set_handler(&lely_diag, nullptr);
   diag_at_set_handler(&lely_diag_at, nullptr);
 }
+#endif
 
 #define CANOPEN_DEFINE_LOG(name, level) \
   void name(const char* fmt, ...) {     \

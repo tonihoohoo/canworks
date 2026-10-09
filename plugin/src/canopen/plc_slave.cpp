@@ -584,6 +584,7 @@ void PlcSlave::DiagStatus(const DiagRequest& r) {
   cJSON_AddStringToObject(res, "version", diag_->version().c_str());
   cJSON_AddNumberToObject(res, "uptime_s", diag_->uptime_s());
   cJSON_AddStringToObject(res, "config_sha256", cfg_.file_sha256.c_str());
+  diag_add_protocols(res);
   cJSON_AddStringToObject(res, "network", cfg_.network.c_str());
   cJSON_AddStringToObject(res, "role", "slave");
   cJSON_AddBoolToObject(res, "session", true);

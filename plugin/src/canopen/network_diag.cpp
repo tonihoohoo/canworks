@@ -132,6 +132,7 @@ void Network::DiagStatus(const DiagRequest& r) {
   cJSON_AddNumberToObject(res, "uptime_s", diag_->uptime_s());
   cJSON_AddStringToObject(res, "config_sha256", cfg_.file_sha256.c_str());
   cJSON_AddStringToObject(res, "network", cfg_.network.c_str());
+  diag_add_protocols(res);
   cJSON_AddBoolToObject(res, "session", true);
   cJSON* m = cJSON_AddObjectToObject(res, "master");
   cJSON_AddNumberToObject(m, "node_id", cfg_.master.node_id);

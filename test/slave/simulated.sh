@@ -46,18 +46,18 @@ export CANOPEN_STATE_DIR="$WORK/state"
 RC=0
 "$BUILD/test/canopen_host" "$BUILD/plugins/libcanworks_plugin.so" "$WORK/canopen_config.json" "$SECONDS_RUN" slave \
     2> "$WORK/host.log" || RC=1
-grep -E "\[CANOPEN\]" "$WORK/host.log" | head -30
+grep -E "\[CANWORKS\]" "$WORK/host.log" | head -30
 for line in "line: .*opened simulated bus sim0, starting the CANopen slave (node ID 10)" \
             "line: .*NMT state OPERATIONAL (node ID 10)" \
             "plc: node 10 (openplc) is operational"; do
-    if grep -q -- "\[CANOPEN\] $line" "$WORK/host.log"; then
+    if grep -q -- "\[CANWORKS\] $line" "$WORK/host.log"; then
         echo "==> log: $line"
     else
         echo "FAIL: no log line with '$line'" >&2
         RC=1
     fi
 done
-if grep -q "\[CANOPEN\].*\(ERROR\|error\)" "$WORK/host.log"; then
+if grep -q "\[CANWORKS\].*\(ERROR\|error\)" "$WORK/host.log"; then
     echo "FAIL: errors in the log" >&2
     RC=1
 fi
