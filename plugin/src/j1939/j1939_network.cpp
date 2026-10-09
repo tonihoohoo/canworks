@@ -129,6 +129,9 @@ void J1939Engine::rebind(uint8_t address) {
 
 int J1939Engine::send(uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data, size_t len) {
   int r = socket_.send(pgn, destination, priority, data, len);
+  // The kernel takes a claimed address into use 250 ms after it sees the claim
+  // frame, which can be a little after our own 250 ms: such a send is retried.
+  if (r == -EADDRNOTAVAIL && settling_) return r;
   if (r < 0) {
     ++send_errors_;
     auto now = clock::now();
@@ -286,21 +289,24 @@ bool J1939Engine::build_tx(size_t i, const uint64_t* snap) {
   return !st.sent_once || st.next != st.data;
 }
 
-void J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now) {
+bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now) {
   const J1939Tx& t = j_.tx[i];
   TxState& st = tx_[i];
+  int r = send(t.pgn, destination, static_cast<uint8_t>(t.priority), st.next.data(), st.next.size());
+  if (r == -EADDRNOTAVAIL && settling_) return false;
+  if (r == 0) ++st.sent;
   st.data = st.next;
-  if (send(t.pgn, destination, static_cast<uint8_t>(t.priority), st.data.data(), st.data.size()) == 0) ++st.sent;
   st.sent_once = true;
   st.last_sent = now;
+  return true;
 }
 
 void J1939Engine::tick(clock::time_point now) {
   if (!bus_) return;
-  J1939ClaimState before = claimer_.state();
-  uint8_t before_addr = claimer_.address();
   claimer_.tick(now);
-  if (claimer_.state() != before || claimer_.address() != before_addr) {
+  // A claim seen on the bus changes the state too, so compare with what the PLC has.
+  if (image_.claim_state() != static_cast<uint8_t>(claimer_.state()) ||
+      image_.claim_address() != claimer_.address()) {
     image_.set_claim(claimer_.state(), claimer_.address());
     dirty_ = true;
   }
@@ -314,6 +320,7 @@ void J1939Engine::tick(clock::time_point now) {
     for (auto& q : req_) q.next_due = now;
   }
   was_claimed_ = claimed;
+  settling_ = claimed && now - claimed_at_ < std::chrono::seconds(1);
   // Receive supervision: before the first message the session's start counts.
   for (size_t i = 0; i < j_.rx.size(); ++i) {
     const J1939Rx& r = j_.rx[i];
@@ -337,8 +344,7 @@ void J1939Engine::tick(clock::time_point now) {
         bool changed = build_tx(i, snap);
         uint8_t dest = t.has_destination ? static_cast<uint8_t>(t.destination) : kJ1939Global;
         if (t.period_ms) {
-          if (now < st.next_due) continue;
-          send_tx(i, dest, now);
+          if (now < st.next_due || !send_tx(i, dest, now)) continue;
           st.next_due += std::chrono::milliseconds(t.period_ms);
           if (st.next_due <= now) st.next_due = now + std::chrono::milliseconds(t.period_ms);
         } else if (changed && (!st.sent_once || now - st.last_sent >= std::chrono::milliseconds(t.min_gap_ms))) {
@@ -352,7 +358,9 @@ void J1939Engine::tick(clock::time_point now) {
       RequestState& st = req_[i];
       if (now < st.next_due) continue;
       const uint8_t d[3] = {uint8_t(q.pgn), uint8_t(q.pgn >> 8), uint8_t(q.pgn >> 16)};
-      if (send(kPgnRequest, static_cast<uint8_t>(q.destination), 6, d, sizeof(d)) == 0) ++st.sent;
+      int r = send(kPgnRequest, static_cast<uint8_t>(q.destination), 6, d, sizeof(d));
+      if (r == -EADDRNOTAVAIL && settling_) continue;
+      if (r == 0) ++st.sent;
       st.next_due += std::chrono::milliseconds(q.period_ms);
       if (st.next_due <= now) st.next_due = now + std::chrono::milliseconds(q.period_ms);
     }

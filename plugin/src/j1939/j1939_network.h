@@ -133,7 +133,8 @@ class J1939Engine : private AddressClaimer::Actions {
   // Builds tx entry `i` from the output snapshot; true when its bytes differ
   // from the last sent (or it was not sent yet).
   bool build_tx(size_t i, const uint64_t* snap);
-  void send_tx(size_t i, uint8_t destination, clock::time_point now);
+  // False when the kernel has not taken the address into use yet: try again.
+  bool send_tx(size_t i, uint8_t destination, clock::time_point now);
   void on_request(const J1939Message& m, clock::time_point now);
   int send(uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data, size_t len);
   void rebind(uint8_t address);
@@ -148,6 +149,7 @@ class J1939Engine : private AddressClaimer::Actions {
   clock::time_point session_start_{};
   clock::time_point claimed_at_{};
   bool was_claimed_ = false;
+  bool settling_ = false;  // within 1 s of the claim
   std::string problem_ = "not started";
   std::vector<RxState> rx_;
   std::vector<TxState> tx_;

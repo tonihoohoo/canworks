@@ -438,6 +438,28 @@ TEST(j1939_engine_sends) {
   CHECK(r.socket.of(0xFF01).size() == 2);
 }
 
+TEST(j1939_engine_retries_before_the_kernel_takes_the_address) {
+  Rig r;
+  r.claim();
+  r.img.int_out[0] = 0x1234;
+  r.img.byte_out[4] = 7;
+  r.image.copy_from_plc(r.rt);
+  r.socket.send_result = -EADDRNOTAVAIL;
+  r.engine.tick(r.at(510));
+  CHECK(r.socket.of(0xFF01).size() == 1 && r.socket.of(0xFF02).size() == 1);
+  r.socket.send_result = 0;
+  r.engine.tick(r.at(511));
+  CHECK(r.socket.of(0xFF01).size() == 2 && r.socket.of(0xFF02).size() == 2);
+  CHECK(r.engine.send_errors() == 0);
+  // Later it is a failure like any other, and is not retried at once.
+  r.socket.send_result = -EADDRNOTAVAIL;
+  r.engine.tick(r.at(1611));
+  CHECK(r.engine.send_errors() >= 1);
+  size_t n = r.socket.of(0xFF01).size();
+  r.engine.tick(r.at(1612));
+  CHECK(r.socket.of(0xFF01).size() == n);
+}
+
 TEST(j1939_engine_answers_requests) {
   Rig r;
   r.claim();
@@ -476,6 +498,9 @@ TEST(j1939_engine_moves_on_contention) {
   uint8_t lower[8] = {1, 0, 0, 0, 0, 0, 0, 0};
   r.message(kPgnAddressClaimed, 128, 255, std::vector<uint8_t>(lower, lower + 8), 600);
   CHECK(r.socket.binds.back() == 129 && r.engine.state() == J1939ClaimState::Claiming);
+  r.engine.tick(r.at(601));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.byte_in[20] == 0 && r.img.byte_in[21] == 254);  // claiming: no address yet
   // Nothing is sent while the new claim stands open.
   r.img.int_out[0] = 1;
   r.image.copy_from_plc(r.rt);
@@ -486,6 +511,24 @@ TEST(j1939_engine_moves_on_contention) {
   CHECK(r.socket.of(0xFF01).size() == 1);
   r.image.copy_to_plc(r.rt);
   CHECK(r.img.byte_in[21] == 129);
+}
+
+TEST(j1939_engine_cannot_claim_on_contention) {
+  Rig r;
+  r.cfg.j1939.ecu.has_range = false;
+  r.claim();
+  uint8_t lower[8] = {1, 0, 0, 0, 0, 0, 0, 0};
+  r.message(kPgnAddressClaimed, 128, 255, std::vector<uint8_t>(lower, lower + 8), 600);
+  CHECK(r.engine.state() == J1939ClaimState::CannotClaim);
+  // Cannot Claim: the claim again, from the null address.
+  CHECK(r.socket.binds.back() == 254 && r.socket.of(kPgnAddressClaimed).size() == 2);
+  r.engine.tick(r.at(601));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.byte_in[20] == 2 && r.img.byte_in[21] == 254);
+  r.img.int_out[0] = 1;
+  r.image.copy_from_plc(r.rt);
+  r.engine.tick(r.at(700));
+  CHECK(r.socket.of(0xFF01).empty());
 }
 
 TEST(j1939_socket_problems) {
