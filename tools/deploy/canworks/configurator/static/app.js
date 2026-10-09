@@ -1549,7 +1549,7 @@ function slaveBuilder() {
   const rows = d.objects.map((o, k) => el("tr", { dataset: { descObject: k } },
     el("td", null, input(o, "name", "Object name")),
     el("td", null, sel(o, "type", "Type", (cia401 ? ["UNSIGNED8", "INTEGER16"] : TYPES).map((t) => [t, t]))),
-    el("td", null, sel(o, "direction", "Direction", [["from_master", "from the master (PLC input)"], ["to_master", "to the master (PLC output)"]])),
+    el("td", null, sel(o, "direction", "Direction", [["from_master", "input, from master"], ["to_master", "output, to master"]])),
     el("td", null, input(o, "default", "Default", "num", { placeholder: "0" })),
     el("td", null, input(o, "low", "Low limit", "num")),
     el("td", null, input(o, "high", "High limit", "num")),
@@ -1575,7 +1575,7 @@ function slaveBuilder() {
       el("label", { class: "span2" }, "Layout", layoutSel,
         hint(cia401 ? "Device type 401: digital I/O as UNSIGNED8 (0x6000/0x6200), analog as INTEGER16 (0x6401/0x6411)."
           : "From the master in 0x2000 and up, to the master in 0x2100 and up, one ARRAY per type."))),
-    el("div", { class: "objects" }, el("table", null,
+    el("div", { class: "objects" }, el("table", { class: "slave-builder" },
       el("thead", null, el("tr", null, thCells(["Name", "Type", "Direction", "Default", "Low", "High", ""]))),
       el("tbody", null, rows))),
     el("div", { class: "toolbar" },

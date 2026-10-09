@@ -527,7 +527,7 @@ class Scenarios(View):
         self.assertRegex(pg.inner_text(row + '[data-sim="scenario-time"]'), r"^\d+\.\d s$")
         # Saved, the scenario is started by name only.
         pg.click('button[data-sim="save"]')
-        pg.wait_for_selector("#banner:has-text('Saved')")
+        pg.wait_for_function("() => document.getElementById('banner-text').textContent.startsWith('Saved')")
         self.assertEqual(load(self.sim_path)["scenarios"], {"sensor-break": {"steps": steps}})
         pg.wait_for_selector(row + 'td:has-text("yes")')
         pg.click(row + 'button[data-sim="start-scenario"]')
@@ -635,7 +635,6 @@ class FileSections(Base):
         pg.wait_for_selector(state + ':text-matches("^Saved")')
         pg.fill(tick, "abc")
         pg.wait_for_selector(".sim-problems li")
-        pg.click('button[data-sim="save"]')
-        pg.wait_for_selector("#banner.error")
+        self.assertTrue(pg.is_disabled('button[data-sim="save"]'))
         self.assertEqual(pg.eval_on_selector_all(".sim-problems li", "ls => ls.map(l => l.innerText)"),
-                         ["tick_ms: 'abc' is not of type 'integer'"])
+                         ["tick_ms: tick ms must be a whole number"])
