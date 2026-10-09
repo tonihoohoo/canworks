@@ -12,7 +12,7 @@ The exploration of 2026-10-08 (project notes `research/j1939-2026-10-08.md`) set
 - the PC tools use **can-j1939** (MIT)
 - there is no real J1939 device on the bench, so hardware tests use a second adapter running a simulated ECU
 
-This change assumes `rename-to-opencan-plc` has landed and uses its command names.
+This change assumes `rename-to-canworks` has landed and uses its command names.
 
 ## What Changes
 
@@ -49,7 +49,7 @@ This change assumes `rename-to-opencan-plc` has landed and uses its command name
   - requests
 
   The frame inspector shows the J1939 identifier split.
-- **J1939 ECU simulator**: `opencan-j1939-sim` (can-j1939) plays an ECU from a DBC on a SocketCAN interface or a USB adapter. It claims an address, sends its messages with changing values and answers requests. It is used in CI on vcan and for the hardware tests.
+- **J1939 ECU simulator**: `canworks-j1939-sim` (can-j1939) plays an ECU from a DBC on a SocketCAN interface or a USB adapter. It claims an address, sends its messages with changing values and answers requests. It is used in CI on vcan and for the hardware tests.
 - **CI**: the change classifier learns protocol areas (CANopen, J1939, shared). CANopen-only pull requests skip J1939 tests and the reverse. J1939 vcan tests join the existing vcan groups (no new job). Wall time must not exceed the median of the last 5 green `main` runs.
 
 ## Capabilities
@@ -77,5 +77,5 @@ This change assumes `rename-to-opencan-plc` has landed and uses its command name
   - the local sim runtime on Docker Desktop (until its kernel is checked for `can-j1939`)
   - J1939 and CANopen on one physical bus
   - DM1/DM2/DM3/DM11, PLC function blocks, J1939-FD and ISOBUS (a later `add-j1939-diagnostics` change)
-- **Hardware**: Pi with its adapter as the PLC, a second adapter on the engineering PC running `opencan-j1939-sim` at 250 kbit/s, with the CANopen bench device off this segment.
+- **Hardware**: Pi with its adapter as the PLC, a second adapter on the engineering PC running `canworks-j1939-sim` at 250 kbit/s, with the CANopen bench device off this segment.
 - **Docs**: `docs/j1939.md`, README feature list, `examples/j1939/` with made-up proprietary PGNs only.

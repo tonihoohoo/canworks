@@ -9,7 +9,7 @@ The plugin today runs one bus thread per network (canopen-networks), each with a
 
 The PC tools carry a CANopen-specific contract and EDS layer and a protocol-neutral rest: adapter, bustrace recorder/formats, configurator shell, deploy/upload, clash check and the DBC writer.
 
-Decisions from the exploration (2026-10-08): both ECU roles in slice 1, the Linux kernel J1939 stack in the runtime, can-j1939 on the PC, one repository (renamed `opencan-plc` first), and no real J1939 device (simulator on a second adapter).
+Decisions from the exploration (2026-10-08): both ECU roles in slice 1, the Linux kernel J1939 stack in the runtime, can-j1939 on the PC, one repository (renamed `canworks` first), and no real J1939 device (simulator on a second adapter).
 
 ## Goals / Non-Goals
 
@@ -52,7 +52,7 @@ The claim state and current address go to the configured PLC locations and the d
 ### 3. Module loading and failure
 
 The plugin does not load modules (no CAP_SYS_MODULE in the runtime container). The install script:
-- writes `/etc/modules-load.d/opencan-j1939.conf` (`can-j1939`)
+- writes `/etc/modules-load.d/canworks-j1939.conf` (`can-j1939`)
 - runs `modprobe can-j1939` on the host, in both native and Docker mode
 
 `socket()` failing with `EPROTONOSUPPORT` makes that network fail at start with "J1939 needs the can-j1939 kernel module (modprobe can-j1939)". Other networks run, which follows canopen-networks "Networks run independently". This is a runtime failure, not a config error.
@@ -103,7 +103,7 @@ Writers use version 2 whenever a J1939 network exists (canopen-config-contract "
 
 ### 8. Simulator and tests
 
-`opencan-j1939-sim --dbc FILE --interface vcan0|--adapter slcan:PORT [--name …] [--address N] [--scenario FILE]` is built on can-j1939:
+`canworks-j1939-sim --dbc FILE --interface vcan0|--adapter slcan:PORT [--name …] [--address N] [--scenario FILE]` is built on can-j1939:
 - claims an address
 - sends every message whose DBC sender is the simulated node with ramping or scenario values
 - answers requests
@@ -117,7 +117,7 @@ CI coverage:
 ### 9. CI area classifier
 
 `.github/scripts/ci_changes.py` adds a third output, `areas`, a subset of `canopen,j1939,shared`, from path rules:
-- **j1939:** `plugin/src/j1939/**`, `tools/deploy/opencan_plc/j1939/**`, `test/j1939/**`, `examples/j1939/**`
+- **j1939:** `plugin/src/j1939/**`, `tools/deploy/canworks/j1939/**`, `test/j1939/**`, `examples/j1939/**`
 - **canopen:** Lely-bound plugin files, the EDS/DCF modules, `test/` CANopen folders
 - **shared:** everything else that is code
 

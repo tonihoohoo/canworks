@@ -5,7 +5,7 @@ For a J1939 network, a status request SHALL return, as of no more than 100 ms be
 
 #### Scenario: Timed-out PGN without a location
 - **WHEN** PGN 65280 has `timeout_ms` 300 and no `status_location`, and it has stopped arriving
-- **THEN** the status answer shows it timed out with a count of at least 1, and `opencan-diag status --network machine` prints a line saying so
+- **THEN** the status answer shows it timed out with a count of at least 1, and `canworks-diag status --network machine` prints a line saying so
 
 #### Scenario: Two senders of one PGN
 - **WHEN** ECUs 0 and 3 both send PGN 65280 and the `rx` entry has no source filter

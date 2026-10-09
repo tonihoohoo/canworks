@@ -1,6 +1,6 @@
 ## 0. Order
 
-- [ ] 0.1 Apply after `rename-to-opencan-plc` has merged; rebase this branch on the renamed `main` (paths below use the new names).
+- [ ] 0.1 Apply after `rename-to-canworks` has merged; rebase this branch on the renamed `main` (paths below use the new names).
 
 ## 1. Config and schema
 
@@ -11,7 +11,7 @@
 ## 2. Runtime J1939 engine
 
 - [ ] 2.1 Kernel socket wrapper (`plugin/src/j1939/socket.*`): RX socket with `SO_J1939_FILTER`, ECU socket bound to NAME/address, priority, `recvmsg` control data; map `EPROTONOSUPPORT` to the module message; verify with unit tests of the error mapping.
-- [ ] 2.2 Address claim state machine (design Decision 2), with state and address locations; verify on vcan against `opencan-j1939-sim --contend` (free, lost with range, lost without range, request for claim).
+- [ ] 2.2 Address claim state machine (design Decision 2), with state and address locations; verify on vcan against `canworks-j1939-sim --contend` (free, lost with range, lost without range, request for claim).
 - [ ] 2.3 Signal pack/unpack (little and big byte order, signed, 1..64 bits, not-available/error), unused bits 1; verify with C++ unit tests against cantools-encoded vectors stored as fixtures.
 - [ ] 2.4 RX path into the process image, source filters (address, NAME with mask), timeouts and status bits; TX path from the output snapshot (period, on change, min gap, TP over 8 bytes); request answers and NACK; periodic requests; verify on vcan with the simulator (values both ways, 1785-byte TP, request round trip, timeout bit).
 - [ ] 2.5 Bus loss and recovery (interface down, slcan unplug, bus-off) with re-claim; verify the vcan down/up case in CI.
@@ -23,13 +23,13 @@
 
 ## 4. Diagnostics
 
-- [ ] 4.1 J1939 network status in the diag protocol (protocol version unchanged, new fields only) and `opencan-diag status` output; verify with a vcan test and a client test against a recorded answer.
+- [ ] 4.1 J1939 network status in the diag protocol (protocol version unchanged, new fields only) and `canworks-diag status` output; verify with a vcan test and a client test against a recorded answer.
 
 ## 5. PC tools
 
-- [ ] 5.1 Add `can-j1939` and `cantools` dependencies; `opencan_plc/j1939/dbcimport.py`; verify with tests on a DBC with 29-bit and 11-bit messages.
+- [ ] 5.1 Add `can-j1939` and `cantools` dependencies; `canworks/j1939/dbcimport.py`; verify with tests on a DBC with 29-bit and 11-bit messages.
 - [ ] 5.2 Deploy checks and clash check for J1939; declarations with scale/unit comments; J1939 DBC export (cantools strict round trip); verify with tests.
-- [ ] 5.3 `opencan-j1939-sim` (claim, send, receive log, requests, contend, slcan and SocketCAN); verify on vcan in CI and with a python-can virtual bus in the tools tests.
+- [ ] 5.3 `canworks-j1939-sim` (claim, send, receive log, requests, contend, slcan and SocketCAN); verify on vcan in CI and with a python-can virtual bus in the tools tests.
 
 ## 6. Configurator
 
@@ -51,6 +51,6 @@
 
 ## 10. Hardware (bench PLC; skip and leave open when it is not reachable)
 
-- [ ] 10.1 Pi with its adapter as the PLC at 250 kbit/s on a segment without the CANopen node; a second adapter on the PC runs `opencan-j1939-sim` with the example DBC; check address claim, RX values into the PLC, TX values seen by the simulator, request round trip, and the timeout bit when the simulator stops.
+- [ ] 10.1 Pi with its adapter as the PLC at 250 kbit/s on a segment without the CANopen node; a second adapter on the PC runs `canworks-j1939-sim` with the example DBC; check address claim, RX values into the PLC, TX values seen by the simulator, request round trip, and the timeout bit when the simulator stops.
 - [ ] 10.2 Contention on the bench: the simulator contends for the PLC's address; the PLC moves within its range; with the range removed it reports "cannot claim" and goes silent.
 - [ ] 10.3 Unplug and replug the Pi's adapter; the network re-claims and resumes. Put the bench's usual project back afterwards.

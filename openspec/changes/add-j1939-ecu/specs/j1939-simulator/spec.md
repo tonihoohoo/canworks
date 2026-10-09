@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: J1939 ECU simulator command
-The PC tools SHALL install `opencan-j1939-sim`, which runs one simulated J1939 ECU on a SocketCAN interface or a USB CAN adapter. It claims an address with a NAME, sends every DBC message whose sender is the chosen node at its cycle time with values that ramp within each signal's range (or from a scenario file), and answers requests for those PGNs.
+The PC tools SHALL install `canworks-j1939-sim`, which runs one simulated J1939 ECU on a SocketCAN interface or a USB CAN adapter. It claims an address with a NAME, sends every DBC message whose sender is the chosen node at its cycle time with values that ramp within each signal's range (or from a scenario file), and answers requests for those PGNs.
 
 #### Scenario: Simulate an ECU on vcan
-- **WHEN** a user runs `opencan-j1939-sim --dbc machine.dbc --node Engine --interface vcan0 --address 0`
+- **WHEN** a user runs `canworks-j1939-sim --dbc machine.dbc --node Engine --interface vcan0 --address 0`
 - **THEN** vcan0 carries an Address Claimed from 0 and then the Engine's messages at their cycle times
 
 #### Scenario: Through a USB adapter

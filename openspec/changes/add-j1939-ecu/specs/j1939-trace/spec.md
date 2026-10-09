@@ -23,8 +23,8 @@ The frame inspector SHALL show a 29-bit J1939 identifier split into priority, re
 - **THEN** the inspector shows priority 6, PF 0xEF, destination 3, source 0x80 and PGN 0xEF00
 
 ### Requirement: J1939 in the command-line trace
-`opencan-diag trace` and `explain` SHALL use the J1939 decoding for J1939 networks.
+`canworks-diag trace` and `explain` SHALL use the J1939 decoding for J1939 networks.
 
 #### Scenario: Explain a claim
-- **WHEN** the user runs `opencan-diag explain 18EEFF80#D204000000820000 --network machine`
+- **WHEN** the user runs `canworks-diag explain 18EEFF80#D204000000820000 --network machine`
 - **THEN** the output names Address Claimed from 128 and the NAME fields
