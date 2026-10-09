@@ -19,11 +19,15 @@ Each J1939 message in the document SHALL list its signals with start bit, length
 - **THEN** PGN 65280's signal `Temp` shows start bit 16, length 8, signed, unit degC, `%IB204` and valid bit `%IX202.2`
 
 ### Requirement: J1939 frame map and bus load
-A J1939 network's frame map SHALL list the address claim and each configured message with its 29-bit identifier, producer, length, period and load share. Its bus-load estimate SHALL use extended-frame bits, count each sent message at its period, count a received message only when the DBC gives its cycle time, count a message longer than 8 bytes as its transport-protocol frames, and state how many received messages have no known rate.
+A J1939 network's frame map SHALL list the address claim, the requests and each message with its 29-bit identifier, producer, length, period and load share. Its bus load SHALL use extended-frame bits, count a sent message at its period (on change only: its minimum gap, worst case), a received one at its DBC cycle time or the PLC's request period, a message over 8 bytes as its transport-protocol frames, and state how many received messages have no known rate.
 
 #### Scenario: Received message without a rate
-- **WHEN** a J1939 network receives PGN 65282 and neither the config nor the DBC gives its cycle time
+- **WHEN** a J1939 network receives PGN 65282, the DBC gives it no cycle time and the network does not request it
 - **THEN** the bus-load total leaves it out and says that 1 received message has no known rate
+
+#### Scenario: Requested message
+- **WHEN** the J1939 example requests PGN 65282 every 1000 ms
+- **THEN** its 34-byte answer counts once a second as its transport protocol frames
 
 ## MODIFIED Requirements
 
