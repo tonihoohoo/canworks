@@ -3,7 +3,8 @@
    the I/O module on node 10; SYNC from the PLC cycle, task interval T#10ms).
    The VAR block down to the demo's variables and the first lines of the body
    are what openplc-canopen-deploy --new-project --task-interval T#10ms writes
-   for this config; the rest is the demo. *)
+   for this config, with x_online, y_online and z_online in place of the
+   generated x_ok_2, y_ok and z_ok; the rest is the demo. *)
 PROGRAM main
   VAR
     can_master_state             : USINT AT %IB20; (* CANopen master state *)
@@ -266,6 +267,7 @@ CASE step OF
       resetY(Axis := y, Execute := FALSE);
       resetZ(Axis := z, Execute := FALSE);
       tries := 0;
+      elapsed := 0.0;
       step := 95;
     END_IF
   95:
@@ -273,6 +275,13 @@ CASE step OF
        not homed yet: home again *)
     IF NOT homed THEN
       step := 0;
+    ELSIF elapsed > 5.0 THEN
+      (* Z did not get up: a jam closer to the target than the following
+         error window (0x6065) does not fault the drive. Power off and retry. *)
+      moveZ(Axis := z, Execute := FALSE);
+      errors := errors + 1;
+      elapsed := 0.0;
+      step := 90;
     ELSIF powerX.Status AND powerY.Status AND powerZ.Status THEN
       moveZ(Axis := z, Execute := TRUE, Position := 0.0, Velocity := 200.0, Acceleration := acc, Jerk := jerk, Window := 0.05);
       IF moveZ.Done THEN
