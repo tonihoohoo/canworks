@@ -798,7 +798,7 @@ TEST(eds_resolved_in_generated_conf) {
   // extracted the upload's EDS files under core/generated/conf/.
   std::string lib = tmpdir();
   std::string conf = tmpdir();
-  mkdir((conf + "/canopen").c_str(), 0755);
+  mkdir((conf + "/canworks").c_str(), 0755);
   mkdir((conf + "/canworks/eds").c_str(), 0755);
   write(conf + "/canworks/eds/cpp-slave.eds", read(std::string(PINGPONG_DIR) + "/cpp-slave.eds"));
   Config cfg;

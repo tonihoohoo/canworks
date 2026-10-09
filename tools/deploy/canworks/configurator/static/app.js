@@ -5724,7 +5724,7 @@ function fillCounts(c) {
 // name, the config path ("nodes[2]: tx_pdos[1]: entries[0]: ") and the node
 // the place label already names.
 function readable(m) {
-  let t = m.replace(/^[^:]*canopen\.json: /, "");
+  let t = m.replace(/^[^:]*canworks\.json: /, "");
   while (/^[a-z_]+(\[\d+\])?(\.[a-z_]+(\[\d+\])?)*: /.test(t)) t = t.replace(/^[^:]*: /, "");
   t = t.replace(/^node \d+( \([^)]*\))?(, |: )/, "");
   t = t.replace(/^object (0x[0-9A-Fa-f]+:\d+): /, "$1: ");
@@ -5741,7 +5741,7 @@ function humanise(m) {
   const head = lead ? lead[1].charAt(0).toUpperCase() + lead[1].slice(1) + ": " : "";
   let rest = lead ? lead[2] : m;
   if (/field 'nodes' lists no slave nodes/.test(rest)) return head + NO_NODES_TEXT;
-  rest = rest.replace(/^[^:\s]*canopen\.json: /, "");
+  rest = rest.replace(/^[^:\s]*canworks\.json: /, "");
   const segs = [];
   let mm;
   while ((mm = /^([a-z_]+(?:\[\d+\])?): /.exec(rest))) { segs.push(mm[1]); rest = rest.slice(mm[0].length); }

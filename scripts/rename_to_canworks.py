@@ -57,6 +57,7 @@ RULES = [
     # Schema files, also where the version is filled in (%d, ${v}).
     (r"(?<![\w-])canopen(-sim|-machine)?\.v(\d+|%d|\$\{\w+\})\.schema", r"canworks\1.v\2.schema"),
     (r"(?<![\w.-])canopen\.json", "canworks.json"),
+    (r"(?<![\w.-])canopen\\\.json", r"canworks\\.json"),  # in a regular expression
     (r"(?<![\w.])\.canopen(?=[/'\"`\s)]|$)", ".canworks"),
     (r"(?<!lely\.com/)(?<!src/)(?<![\w.-])canopen/", "canworks/"),
     (r"([\"'])canopen\1", r"\1canworks\1"),
@@ -69,7 +70,7 @@ BUILD_FILE = re.compile(r"(^|/)(CMakeLists\.txt|[^/]*\.cmake|[^/]*\.sh|[^/]*\.ya
 
 # Old names --check reports.
 OLD = re.compile(r"openplc[-_]canopen(?!-private)|OPENPLC_CANOPEN_|CANOPEN_FORCE_SIMULATE|libcanopen_plugin"
-                 r"|(?<![\w.-])canopen\.json|conf/canopen/"
+                 r"|(?<![\w.-])canopen(\\)?\.json|conf/canopen/"
                  r"|(?<![\w-])canopen(-sim|-machine)?\.v(\d+|%d|\$\{\w+\})\.schema")
 
 _RULES = [(re.compile(p), r) for p, r in RULES]

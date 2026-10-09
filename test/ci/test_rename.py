@@ -30,6 +30,7 @@ class Mapping(unittest.TestCase):
             "schema/canopen.v2.schema.json": "schema/canworks.v2.schema.json",
             "schema/canopen-sim.v1.schema.json": "schema/canworks-sim.v1.schema.json",
             "out/.canopen/net": "out/.canworks/net",
+            r"m.replace(/^[^:]*canopen\.json: /, '')": r"m.replace(/^[^:]*canworks\.json: /, '')",
             'open("canopen.v%d.schema.json" % v)': 'open("canworks.v%d.schema.json" % v)',
             "`canopen.v${from}.schema.json`": "`canworks.v${from}.schema.json`",
             "schema/canopen-machine.v1.schema.json": "schema/canworks-machine.v1.schema.json",
