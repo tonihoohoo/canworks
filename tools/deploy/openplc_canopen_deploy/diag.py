@@ -53,6 +53,7 @@ DETECT_RATES = (1000, 800, 500, 250, 125, 50, 20, 10)  # kbit/s, the order a bit
 FORCE_NEEDED = "force needed"  # the end of a refusal the request may be repeated with force: true
 DISTURB_NEEDED = "disturb_bus needed"  # ... with disturb_bus: true (an adapter that does not confirm listen-only)
 TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
+LONE_SILENT = "No answer at any bit rate: check the wiring, the termination and the device's power."
 SILENT_HINT = ("The bus was silent. A listening adapter sends no acknowledge, so frames only count when "
                "another device acknowledges them: with one device on the bus, add a second device or a second "
                "adapter in normal mode, or, with a USB adapter on the PC and nothing else on the bus, use the "
@@ -712,7 +713,7 @@ def verdict_text(res):
         cands = res.get("candidates") or []
         return "ambiguous: frames at %s kbit/s" % ", ".join(str(c) for c in cands) if cands else "ambiguous"
     if v == "silent":
-        return SILENT_HINT
+        return LONE_SILENT if res.get("lone_device") else SILENT_HINT
     if v == "failed":
         return "the sweep failed: %s" % (res.get("error") or "no reason given")
     return "no result"

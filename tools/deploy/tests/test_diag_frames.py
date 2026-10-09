@@ -45,6 +45,7 @@ class Values(unittest.TestCase):
         self.assertEqual(diag.verdict_text({"verdict": "ambiguous", "candidates": [250, 500]}),
                          "ambiguous: frames at 250, 500 kbit/s")
         self.assertIn("power-cycle", diag.verdict_text({"verdict": "silent"}))
+        self.assertEqual(diag.verdict_text({"verdict": "silent", "lone_device": True}), diag.LONE_SILENT)
         self.assertEqual(diag.verdict_text({"verdict": "failed", "error": "the adapter's driver has no listen-only "
                                                                           "mode"}),
                          "the sweep failed: the adapter's driver has no listen-only mode")

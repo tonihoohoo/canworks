@@ -58,7 +58,7 @@ The tools listen for a second before their first frame. A bus that carries NMT c
 - No simulated devices, no CiA 402 axes, no PLC values: those need the runtime.
 - `status` shows only what the bus showed since connecting: node states from heartbeats, the last EMCY per node. No bus error counters; the adapter's own state (active, passive) shows when python-can reports it.
 - One tool per adapter: a second configurator or CLI on the same adapter gets "adapter ... in use". The configurator keeps the adapter open while its online view is open; the CLI for one command.
-- Types other than `slcan` and `socketcan` are untested, except `gs_usb` on macOS (scan, object dictionary, watch and backup read-only on one adapter). gs_usb has no listen-only mode here, so `detect-bitrate` does not take it.
+- Types other than `slcan` and `socketcan` are untested, except `gs_usb` on macOS (scan, object dictionary, watch and backup read-only on one adapter). gs_usb has no listen-only mode here, so `detect-bitrate` takes it only with `--lone-device`; a new bit rate is set on the open adapter, because closing and reopening it can leave it receiving nothing on macOS until it is plugged in again.
 
 ## Sending frames and finding the bit rate
 

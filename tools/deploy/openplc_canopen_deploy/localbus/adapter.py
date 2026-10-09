@@ -354,6 +354,35 @@ def _gs_usb_options(spec, kwargs):
     kwargs["bus"], kwargs["address"] = devices[index].bus, devices[index].address
 
 
+def _gs_usb_retune(bus, bitrate):
+    """A new bit rate on an open gs_usb adapter, on the same USB handle: stop
+    the CAN channel, set the timing, start it again. Closing and opening the
+    adapter instead resets the USB device each time, which on macOS can leave
+    it receiving nothing until it is plugged in again."""
+    import can
+    from gs_usb.gs_usb import _GS_USB_BREQ_MODE, GS_CAN_MODE_START
+    from gs_usb.gs_usb_structures import DeviceMode
+    dev = bus.gs_usb
+    dev.stop()
+    timing = can.BitTiming.from_sample_point(f_clock=dev.device_capability.fclk_can, bitrate=bitrate,
+                                             sample_point=87.5)
+    dev.set_timing(prop_seg=1, phase_seg1=timing.tseg1 - 1, phase_seg2=timing.tseg2, sjw=timing.sjw,
+                   brp=timing.brp)
+    dev.gs_usb.ctrl_transfer(0x41, _GS_USB_BREQ_MODE, 0, 0, DeviceMode(GS_CAN_MODE_START, dev.device_flags).pack())
+    if hasattr(bus, "_bitrate"):
+        bus._bitrate = bitrate
+
+
+def _gs_usb_release(bus):
+    """Lets go of a closed gs_usb adapter's USB interface, so this process
+    can open it again (python-can's gs_usb leaves it claimed)."""
+    try:
+        import usb.util
+        usb.util.dispose_resources(bus.gs_usb.gs_usb)
+    except Exception:  # pyusb missing, or the adapter unplugged meanwhile
+        pass
+
+
 class Opened:
     """An open adapter: `bus` (a python-can Bus), the bit rate in use, and the
     lock that keeps other tools off it."""
@@ -366,6 +395,14 @@ class Opened:
     def retune(self, bitrate):
         """Changes the bit rate without closing the adapter where the adapter
         can (slcan: no new serial connection). False: close and open again."""
+        if self.spec.kind == "gs_usb" and hasattr(self.bus, "gs_usb"):
+            try:
+                _gs_usb_retune(self.bus, bitrate)
+            except Exception as e:
+                raise AdapterError("unreachable", "cannot set adapter %s to %d kbit/s: %s"
+                                   % (self.spec, bitrate // 1000, e))
+            self.bitrate = bitrate
+            return True
         if self.spec.kind != "slcan" or not hasattr(self.bus, "set_bitrate"):
             return False
         try:
@@ -384,6 +421,8 @@ class Opened:
             self.bus.shutdown()
         except Exception:  # an adapter unplugged meanwhile
             pass
+        if self.spec.kind == "gs_usb":
+            _gs_usb_release(self.bus)
         err = ""
         if restore and self.restore:
             err = self.restore()
