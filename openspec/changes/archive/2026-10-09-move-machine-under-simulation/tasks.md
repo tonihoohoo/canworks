@@ -24,5 +24,5 @@
 ## 4. Verify
 
 - [x] 4.1 Local: tools tests, page tests, `ctest`, `openspec validate --all --strict`, banned-word check.
-- [ ] 4.2 CI green; wall and summed job time at or under the baseline from 0.1, both stated in the PR description.
+- [x] 4.2 CI green; wall and summed job time at or under the baseline from 0.1, both stated in the PR description. PR #46: 220 s wall, 1671 s summed.
 - [ ] 4.3 By hand on a PC: open the gantry example in the configurator, Simulation shows the Machine tab and the 3D view works offline and against the local simulator runtime.
