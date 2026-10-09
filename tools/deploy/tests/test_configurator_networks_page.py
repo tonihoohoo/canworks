@@ -138,6 +138,7 @@ class NetworksPage(unittest.TestCase):
         self.assertEqual(pg.inner_text("#btn-save"), "Saved")
         self.assertTrue(pg.is_disabled("#btn-save"))
         pg.click('#net-bar button[data-net-action="add"]')
+        pg.click('#modal button[data-value="canopen"]')
         self.assertEqual(self.tabs(), ["vcan0", "network 2"])
         self.assertEqual(pg.input_value('input[data-path="adapter.interface"]'), "")
         self.assertEqual(pg.inner_text("#node-list"), "No nodes yet")
