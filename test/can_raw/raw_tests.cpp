@@ -3,6 +3,8 @@
 // the C table the library blocks call. Needs no CAN interface or Lely.
 
 #include <atomic>
+#include <chrono>
+#include <memory>
 #include <cstring>
 #include <thread>
 
@@ -16,6 +18,9 @@
 #include "can/raw/config.h"
 #include "can/raw/engine.h"
 #include "can/raw/plc_frames.h"
+#include "can/raw/raw_devices.h"
+#include "can/raw/raw_io.h"
+#include "can/raw/raw_link.h"
 #include "can/signals.h"
 #include "check.hpp"
 
@@ -569,6 +574,60 @@ TEST(engine_big_endian_and_fill) {
   CHECK(f.dlc == 4 && f.data[0] == 0x12 && f.data[1] == 0x34 && f.data[2] == 0xFF && f.data[3] == 0xFF && f.data[4] == 0);
   e.on_frame(frame(17, {0x12, 0x34}), 0);
   CHECK(e.input_values()[0] == 0x1234);
+}
+
+// A simulated plain CAN network end to end: the I/O thread on a loopback
+// bridge, a simulated device sending periodically and answering a request,
+// config messages in and out, and a program receiver.
+TEST(raw_io_on_a_simulated_plain_network) {
+  Parsed p = parse(R"({"rx": [{"name": "Joy", "id": 384, "timeout_ms": 500, "status_location": "%IX0.0",
+                               "signals": [{"start_bit": 16, "length": 8, "iec_location": "%IB1"}]}],
+                       "tx": [{"name": "Ask", "id": 2016, "dlc": 3, "period_ms": 20, "data_location": "%QL0"}]})");
+  CHECK(p.ok);
+  RawEngine engine(p.cfg);
+  RawSimDevices devices;
+  std::vector<std::string> errors;
+  CHECK(devices.load_text(R"({"raw_devices": [{"name": "joystick",
+      "send": [{"id": 384, "dlc": 4, "period_ms": 10, "data": [0, 0, 42, 0]}],
+      "replies": [{"on": {"id": 2016, "data": [2, 1, 12]}, "send": {"id": 2024, "data": [4, 65, 12]}}]}]})",
+                          "simulation.json", ".", "plain", false, errors));
+  CHECK(errors.empty() && devices.size() == 1);
+  PlcPort port(1);
+  port.set_rules(PortRules{});
+  set_port(1, &port);
+  auto bridge = std::make_shared<SimBridge>(true);
+  std::atomic<uint64_t> joy{0}, status{0};
+  std::atomic<bool> have_out{false};
+  RawIoHooks hooks;
+  hooks.publish_inputs = [&](const std::vector<uint64_t>& v) {
+    status = v[0];
+    joy = v[1];
+  };
+  hooks.latest_outputs = [&](std::vector<uint64_t>& v) {
+    v[0] = 0x0C0102;  // bytes 02 01 0C: the device's request
+    return !have_out.exchange(true);
+  };
+  RawIo io(make_bridge_link(bridge), 500000, false, &engine, &port, hooks, &devices);
+  io.start();
+  uint16_t err = 0;
+  uint32_t h = 0;
+  for (int i = 0; i < 100 && !port.running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  CHECK(port.running());
+  h = port.rx_open(2024, 0x7FF, 0, 8, &err);
+  CHECK(h != 0);
+  canworks_can_frame f{};
+  canworks_can_rx_info info{};
+  bool replied = false;
+  for (int i = 0; i < 200 && !replied; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    replied = port.rx_read(h, &f, &info) == 1;
+  }
+  CHECK(replied && f.dlc == 3 && f.data[1] == 65);
+  CHECK(joy == 42 && status == 1);
+  CHECK(io.frames_sent() > 0 && io.frames_received() > 0);
+  io.stop();
+  CHECK(!port.running());
+  set_port(1, nullptr);
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

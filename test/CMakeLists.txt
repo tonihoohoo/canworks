@@ -12,6 +12,14 @@ if(CANWORKS_WITH_J1939)
   add_test(NAME j1939_unit_tests COMMAND j1939_unit_tests)
 endif()
 
+# Raw CAN (can-raw-messages, can-plc-frames): the frame port and its C table,
+# the raw config and engine, and the I/O thread on a simulated bus.
+add_executable(can_raw_tests can_raw/raw_tests.cpp)
+target_include_directories(can_raw_tests PRIVATE common)
+target_compile_definitions(can_raw_tests PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")
+target_link_libraries(can_raw_tests PRIVATE canopen_core)
+add_test(NAME can_raw_tests COMMAND can_raw_tests)
+
 # Everything below is CANopen (CANWORKS_WITH_CANOPEN).
 if(NOT CANWORKS_WITH_CANOPEN)
   return()
@@ -56,6 +64,24 @@ target_include_directories(sdo_blocks PUBLIC ${SDO_BLOCKS_DIR} ${STRUCPP_DIR}/pa
 # In one process with the master, the blocks call the API table directly.
 target_compile_definitions(sdo_blocks PRIVATE CO_SDO_TEST_ENTRY=canopen_plc_api_test)
 set_target_properties(sdo_blocks PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON)
+
+# The CAN_* frame blocks with the editor's glue, calling the frame port's
+# table directly (test/can_raw/blocks_tests.cpp).
+add_library(can_blocks OBJECT ${SDO_BLOCKS_DIR}/c_blocks_code.cpp)
+target_include_directories(can_blocks PUBLIC ${SDO_BLOCKS_DIR} ${STRUCPP_DIR}/package/src/runtime/include)
+target_compile_definitions(can_blocks PRIVATE CO_SDO_TEST_ENTRY=canopen_plc_api_test
+                           CAN_FRAMES_TEST_ENTRY=canworks_can_api_table)
+set_target_properties(can_blocks PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON)
+add_executable(can_blocks_tests can_raw/blocks_tests.cpp $<TARGET_OBJECTS:can_blocks>)
+target_include_directories(can_blocks_tests PRIVATE common ${SDO_BLOCKS_DIR} ${STRUCPP_DIR}/package/src/runtime/include)
+set_target_properties(can_blocks_tests PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON)
+target_link_libraries(can_blocks_tests PRIVATE canopen_core)
+add_dependencies(can_blocks_tests can_blocks)
+add_test(NAME can_blocks_tests COMMAND can_blocks_tests)
+# The CAN_ ST helper functions of the packaged library against the shared
+# signal vectors.
+add_test(NAME can_st_helpers COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/can_raw/st_helpers.py
+         ${STRUCPP_DIR}/package/src/runtime/include ${CMAKE_CURRENT_BINARY_DIR}/st_helpers)
 
 add_executable(sim_tests sim/sim_tests.cpp $<TARGET_OBJECTS:sdo_blocks>)
 target_include_directories(sim_tests PRIVATE common pingpong sensor ${SDO_BLOCKS_DIR}
@@ -176,7 +202,7 @@ target_link_libraries(canopen_host PRIVATE ${CMAKE_DL_LIBS})
 
 # The entry points as the runtime calls them for a disabled and an enabled plugin.
 add_executable(plugin_lifecycle host/plugin_lifecycle.cpp)
-target_include_directories(plugin_lifecycle PRIVATE common ${OPENPLC_ROOT}/core/src/drivers)
+target_include_directories(plugin_lifecycle PRIVATE common ${PROJECT_SOURCE_DIR}/plugin/src ${OPENPLC_ROOT}/core/src/drivers)
 target_link_libraries(plugin_lifecycle PRIVATE ${CMAKE_DL_LIBS})
 target_link_options(plugin_lifecycle PRIVATE -rdynamic)  # base_tick_ns, as the runtime exports it
 target_compile_definitions(plugin_lifecycle PRIVATE PINGPONG_DIR="${PINGPONG_DIR}")
@@ -192,7 +218,7 @@ target_link_libraries(link_check PRIVATE canopen_core)
 # The simulator engine's unit tests (expressions, sources, file, scenarios)
 # and its control channel.
 add_executable(sim_unit_tests sim_unit/sim_unit_tests.cpp sim_unit/sim_drive_tests.cpp sim_unit/sim_file_tests.cpp
-               sim_unit/sim_machine_tests.cpp
+               sim_unit/sim_machine_tests.cpp sim_unit/sim_raw_tests.cpp
                sim_unit/sim_control_tests.cpp ${PROJECT_SOURCE_DIR}/tools/sim/control.cpp)
 target_include_directories(sim_unit_tests PRIVATE common ${PROJECT_SOURCE_DIR}/tools/sim)
 target_compile_definitions(sim_unit_tests PRIVATE FIXTURES_DIR="${FIXTURES_DIR}" PINGPONG_DIR="${PINGPONG_DIR}" RTD_DIR="${RTD_DIR}")
