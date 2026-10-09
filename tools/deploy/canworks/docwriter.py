@@ -285,8 +285,12 @@ def _pdo(p):
                 "not used by the PLC" + ("" if p["kind"] == "TPDO" else ", sent as 0"))
         else:
             what = _loc(e["location"], e["variables"])
+        name = E(e["name"])
+        if e.get("note"):
+            name += '<div class="small muted">%s</div>' % E(e["note"])
         rows.append([str(e["bit"]), str(e["length"]), "<code>%s:%d</code>" % (hx(e["index"]), e["subindex"]),
-                     E(e["name"]), E(e["type"]), what])
+                     name, E(e["type"]) + (" <span class=\"muted\">%s</span>" % E(e["unit"]) if e.get("unit") else ""),
+                     what])
     direction = p.get("direction") or ("node → master" if p["kind"] == "TPDO" else "master → node")
     return ('<div class="pdo" id="%s"><h5>%s %d <span class="muted">%s · %d byte%s</span></h5>'
             '<div class="chips">%s</div>%s%s</div>' % (
@@ -346,10 +350,10 @@ def _node(node):
         if b["before"]:
             parts.append('<p class="small">Before the writes: %s.</p>' % E("; ".join(b["before"])))
         rows = [[str(i + 1), "<code>%s:%d</code>" % (hx(w["index"]), w["subindex"]), E(w["name"]),
-                 "<code>%s</code>" % E(w["value"]), E(w["meaning"]), E(w["access"]),
+                 E(w.get("note", "")), "<code>%s</code>" % E(w["value"]), E(w["meaning"]), E(w["access"]),
                  "<code>%s</code>" % E(w["eds_default"]) if w["eds_default"] else "", E(w["source"])]
                 for i, w in enumerate(b["writes"])]
-        parts.append(_table(["#", "Object", "Name", "Value", "Meaning", "Access", "EDS default", "From"], rows,
+        parts.append(_table(["#", "Object", "Name", "Note", "Value", "Meaning", "Access", "EDS default", "From"], rows,
                             "sortable", numeric=(0,), empty="Nothing is written: the node keeps its EDS values."))
         if b["after"]:
             parts.append('<p class="small">After the writes: %s.</p>' % E("; ".join(b["after"])))

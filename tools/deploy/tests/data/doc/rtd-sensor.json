@@ -321,6 +321,7 @@
         "index": 4119,
         "meaning": "heartbeat every 100 ms",
         "name": "Producer heartbeat time",
+        "note": "Producer heartbeat time: how often the device sends its heartbeat; 0 means no heartbeat",
         "source": "node settings",
         "subindex": 0,
         "value": "100 (0x0064)"
@@ -332,6 +333,7 @@
         "index": 6144,
         "meaning": "COB-ID 0x185, PDO switched off",
         "name": "TPDO 1 communication parameter / COB-ID used by TPDO",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484037 (0x80000185)"
@@ -343,6 +345,7 @@
         "index": 6144,
         "meaning": "transmission type: synchronous, every SYNC",
         "name": "TPDO 1 communication parameter / Transmission type",
+        "note": "Transmission type: 1-240 sent every N SYNCs, 0 at a SYNC after a change, 254 and 255 on change or timer",
         "source": "PDO configuration",
         "subindex": 2,
         "value": "1 (0x01)"
@@ -354,6 +357,7 @@
         "index": 6656,
         "meaning": "0 mapped objects",
         "name": "TPDO 1 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -365,6 +369,7 @@
         "index": 6656,
         "meaning": "maps 0x7130:1, 16 bits (AI Input PV / AI0_Input_PV)",
         "name": "TPDO 1 mapping parameter / Mapped object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1898971408 (0x71300110)"
@@ -376,6 +381,7 @@
         "index": 6656,
         "meaning": "maps 0x7130:2, 16 bits (AI Input PV / AI1_Input_PV)",
         "name": "TPDO 1 mapping parameter / Mapped object 2",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 2,
         "value": "1898971664 (0x71300210)"
@@ -387,6 +393,7 @@
         "index": 6656,
         "meaning": "maps 0x7130:3, 16 bits (AI Input PV / AI2_Input_PV)",
         "name": "TPDO 1 mapping parameter / Mapped object 3",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 3,
         "value": "1898971920 (0x71300310)"
@@ -398,6 +405,7 @@
         "index": 6656,
         "meaning": "maps 0x7130:4, 16 bits (AI Input PV / AI3_Input_PV)",
         "name": "TPDO 1 mapping parameter / Mapped object 4",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 4,
         "value": "1898972176 (0x71300410)"
@@ -409,6 +417,7 @@
         "index": 6656,
         "meaning": "4 mapped objects",
         "name": "TPDO 1 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "4 (0x04)"
@@ -420,6 +429,7 @@
         "index": 6144,
         "meaning": "COB-ID 0x185, PDO valid",
         "name": "TPDO 1 communication parameter / COB-ID used by TPDO",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "389 (0x00000185)"
@@ -431,6 +441,7 @@
         "index": 6145,
         "meaning": "COB-ID 0x285, PDO switched off",
         "name": "TPDO 2 communication parameter / COB-ID used by TPDO",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484293 (0x80000285)"
@@ -442,6 +453,7 @@
         "index": 6145,
         "meaning": "transmission type: synchronous, every SYNC",
         "name": "TPDO 2 communication parameter / Transmission type",
+        "note": "Transmission type: 1-240 sent every N SYNCs, 0 at a SYNC after a change, 254 and 255 on change or timer",
         "source": "PDO configuration",
         "subindex": 2,
         "value": "1 (0x01)"
@@ -453,6 +465,7 @@
         "index": 6657,
         "meaning": "0 mapped objects",
         "name": "TPDO 2 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "0 (0x00)"
@@ -464,6 +477,7 @@
         "index": 6657,
         "meaning": "maps 0x6150:1, 8 bits (AI Status / AI0_Status)",
         "name": "TPDO 2 mapping parameter / Mapped object 1",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "1632633096 (0x61500108)"
@@ -475,6 +489,7 @@
         "index": 6657,
         "meaning": "maps 0x6150:2, 8 bits (AI Status / AI1_Status)",
         "name": "TPDO 2 mapping parameter / Mapped object 2",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 2,
         "value": "1632633352 (0x61500208)"
@@ -486,6 +501,7 @@
         "index": 6657,
         "meaning": "maps 0x6150:3, 8 bits (AI Status / AI2_Status)",
         "name": "TPDO 2 mapping parameter / Mapped object 3",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 3,
         "value": "1632633608 (0x61500308)"
@@ -497,6 +513,7 @@
         "index": 6657,
         "meaning": "maps 0x6150:4, 8 bits (AI Status / AI3_Status)",
         "name": "TPDO 2 mapping parameter / Mapped object 4",
+        "note": "Mapped object: index in bits 16-31, sub-index in bits 8-15, length in bits in bits 0-7",
         "source": "PDO configuration",
         "subindex": 4,
         "value": "1632633864 (0x61500408)"
@@ -508,6 +525,7 @@
         "index": 6657,
         "meaning": "4 mapped objects",
         "name": "TPDO 2 mapping parameter / Number of mapped objects",
+        "note": "Number of mapped objects; set it to 0 before changing the mapping",
         "source": "PDO configuration",
         "subindex": 0,
         "value": "4 (0x04)"
@@ -519,6 +537,7 @@
         "index": 6145,
         "meaning": "COB-ID 0x285, PDO valid",
         "name": "TPDO 2 communication parameter / COB-ID used by TPDO",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "645 (0x00000285)"
@@ -530,6 +549,7 @@
         "index": 6146,
         "meaning": "COB-ID 0x385, PDO switched off",
         "name": "TPDO 3 communication parameter / COB-ID used by TPDO",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484549 (0x80000385)"
@@ -541,6 +561,7 @@
         "index": 6147,
         "meaning": "COB-ID 0x485, PDO switched off",
         "name": "TPDO 4 communication parameter / COB-ID used by TPDO",
+        "note": "COB-ID of the transmit PDO; bit 31 set means the PDO is off",
         "source": "PDO configuration",
         "subindex": 1,
         "value": "2147484805 (0x80000485)"
@@ -552,6 +573,7 @@
         "index": 24848,
         "meaning": "",
         "name": "AI Sensor Type / AI0_Sensor_Type",
+        "note": "",
         "source": "startup SDO",
         "subindex": 1,
         "value": "30 (0x001E)"
@@ -563,6 +585,7 @@
         "index": 24848,
         "meaning": "",
         "name": "AI Sensor Type / AI1_Sensor_Type",
+        "note": "",
         "source": "startup SDO",
         "subindex": 2,
         "value": "30 (0x001E)"
@@ -574,6 +597,7 @@
         "index": 24848,
         "meaning": "",
         "name": "AI Sensor Type / AI2_Sensor_Type",
+        "note": "",
         "source": "startup SDO",
         "subindex": 3,
         "value": "30 (0x001E)"
@@ -585,6 +609,7 @@
         "index": 24848,
         "meaning": "",
         "name": "AI Sensor Type / AI3_Sensor_Type",
+        "note": "",
         "source": "startup SDO",
         "subindex": 4,
         "value": "30 (0x001E)"
@@ -1035,8 +1060,10 @@
          "length": 16,
          "location": "%IW100",
          "name": "AI Input PV / AI0_Input_PV",
+         "note": "",
          "subindex": 1,
          "type": "INTEGER16",
+         "unit": "",
          "used": true,
          "variables": []
         },
@@ -1047,8 +1074,10 @@
          "length": 16,
          "location": "%IW101",
          "name": "AI Input PV / AI1_Input_PV",
+         "note": "",
          "subindex": 2,
          "type": "INTEGER16",
+         "unit": "",
          "used": true,
          "variables": []
         },
@@ -1059,8 +1088,10 @@
          "length": 16,
          "location": "%IW102",
          "name": "AI Input PV / AI2_Input_PV",
+         "note": "",
          "subindex": 3,
          "type": "INTEGER16",
+         "unit": "",
          "used": true,
          "variables": []
         },
@@ -1071,8 +1102,10 @@
          "length": 16,
          "location": "%IW103",
          "name": "AI Input PV / AI3_Input_PV",
+         "note": "",
          "subindex": 4,
          "type": "INTEGER16",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -1101,8 +1134,10 @@
          "length": 8,
          "location": "%IB100",
          "name": "AI Status / AI0_Status",
+         "note": "",
          "subindex": 1,
          "type": "UNSIGNED8",
+         "unit": "",
          "used": true,
          "variables": []
         },
@@ -1113,8 +1148,10 @@
          "length": 8,
          "location": "%IB101",
          "name": "AI Status / AI1_Status",
+         "note": "",
          "subindex": 2,
          "type": "UNSIGNED8",
+         "unit": "",
          "used": true,
          "variables": []
         },
@@ -1125,8 +1162,10 @@
          "length": 8,
          "location": "%IB102",
          "name": "AI Status / AI2_Status",
+         "note": "",
          "subindex": 3,
          "type": "UNSIGNED8",
+         "unit": "",
          "used": true,
          "variables": []
         },
@@ -1137,8 +1176,10 @@
          "length": 8,
          "location": "%IB103",
          "name": "AI Status / AI3_Status",
+         "note": "",
          "subindex": 4,
          "type": "UNSIGNED8",
+         "unit": "",
          "used": true,
          "variables": []
         }
@@ -1274,7 +1315,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.45.0"
+  "version": "0.46.0"
  },
  "warnings": []
 }

@@ -17,6 +17,7 @@ import re
 import tempfile
 
 from . import __version__, bundle, contract, edslint
+from . import notes as notes_mod
 from . import eds as eds_mod
 from .iec import CO_TYPES, CO_TYPE_BY_CODE, parse_location
 
@@ -49,8 +50,9 @@ class ExportFailed(Exception):
 
 class Signal:
     """A DBC signal. `start` is the DBC start bit (big byte order: the most
-    significant bit); scale, offset and unit are the J1939 export's, the
-    CANopen export leaves them at 1, 0 and ""."""
+    significant bit). The CANopen export takes scale, unit and value names
+    from the object's device notes (canopen-device-notes), else 1, "" and
+    none; its offset is 0."""
 
     def __init__(self, name, start, length, signed=False, float_kind=0, receivers=(), comment="",
                  mux=None, multiplexer=False, values=None, scale=1, offset=0, unit="", big_endian=False,
@@ -189,6 +191,30 @@ def _signal_type(type_name, length):
     return bool(type_name and type_name.startswith("INTEGER")), 0
 
 
+def file_notes(paths):
+    """The notes source of an export run from files: each EDS's notes file
+    next to it, over the built-in notes. `paths`: {eds value: EDS path}."""
+    def source(value, eds):
+        path = paths.get(value)
+        return notes_mod.Notes.for_eds(eds, value, path if path and os.path.isfile(path) else None)
+    return source
+
+
+def note_signal(note, signal, type_name):
+    """Unit, scale, value names and the note text of an object's merged note
+    on its signal."""
+    if not note:
+        return
+    if note.get("unit"):
+        signal.unit = note["unit"]
+    if isinstance(note.get("scale"), (int, float)) and not isinstance(note.get("scale"), bool) and note["scale"]:
+        signal.scale = note["scale"]
+    if note.get("values") and not signal.float_kind:
+        signal.values = sorted((int(v), t) for v, t in note["values"].items())
+    if note.get("text"):
+        signal.comment += "; " + note["text"]
+
+
 def _load_eds(cfg, config_path, eds_paths):
     paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
     out = []
@@ -279,7 +305,7 @@ def pdo_marks(n, eds):
     return out
 
 
-def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings):
+def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
     sync_us = _u(cfg["master"].get("sync_period_us"), 0)
     plc_cycle = cfg["master"].get("sync_source") == "plc_cycle"
     sync_cycles = _u(cfg["master"].get("sync_cycles"), 1) or 1
@@ -329,8 +355,11 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings):
                     what = "(not used by the PLC)"
                 else:
                     what = "(not used by the PLC, sent as 0 by the master)"
-                msg.signals.append(Signal(name, bit, length, signed, float_kind, [receiver],
-                                          "0x%04X:%d %s %s" % (index, sub, type_name or "unknown type", what)))
+                signal = Signal(name, bit, length, signed, float_kind, [receiver],
+                                "0x%04X:%d %s %s" % (index, sub, type_name or "unknown type", what))
+                if notes is not None and obj is not None:
+                    note_signal(notes.note(index, sub), signal, type_name)
+                msg.signals.append(signal)
                 bit += length
             msgs.append(msg)
     for s in n.get("sdo", []):
@@ -411,11 +440,12 @@ def _sdo_messages(n, node_name, eds, option):
     return msgs
 
 
-def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=False):
+def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=False, notes=None):
     """The DBC model of a config with one network. Raises ExportFailed with
     the config checks' errors; `checked`: the caller ran them, and the model's
     warnings are only the export's own. `names`: plc_names() of the editor
-    project, or None."""
+    project, or None. `notes`: a callable (eds value, Eds) -> notes.Notes;
+    default: each EDS's notes file next to it."""
     if sdo not in SDO_OPTIONS:
         raise ValueError("sdo must be one of %s" % ", ".join(SDO_OPTIONS))
     paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
@@ -428,10 +458,11 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
     eds_list = _load_eds(cfg, config_path, paths)
     pdos = _normalized_pdos(cfg)
     node_names = node_identifiers(cfg)
+    notes = notes or file_notes(paths)
     messages = []
     for n, eds, norm, node_name in zip(cfg["nodes"], eds_list, pdos, node_names):
         node_id = n_id(n)
-        messages += _pdo_messages(n, node_name, eds, norm, cfg, names, warnings)
+        messages += _pdo_messages(n, node_name, eds, norm, cfg, names, warnings, notes(n["eds"], eds))
         hb = Message(0x700 + node_id, "%s_Heartbeat" % node_name, 1, node_name, "node %d heartbeat" % node_id)
         hb.signals.append(Signal("NMT_State", 0, 7, receivers=[MASTER], values=NMT_STATES))
         messages.append(hb)
@@ -544,14 +575,14 @@ def write(model):
     return "\r\n".join(L) + "\r\n"
 
 
-def export(cfg, config_path, eds_paths=None, sdo="none", names=None):
+def export(cfg, config_path, eds_paths=None, sdo="none", names=None, notes=None):
     """(DBC text, warnings [str]) of a config with one network. Raises
     ExportFailed."""
-    model = build(cfg, config_path, eds_paths, sdo, names)
+    model = build(cfg, config_path, eds_paths, sdo, names, notes=notes)
     return write(model), model.warnings
 
 
-def export_networks(cfg, config_path, eds_paths=None, sdo="none", names=None, network=None):
+def export_networks(cfg, config_path, eds_paths=None, sdo="none", names=None, network=None, notes=None):
     """([(network name, DBC text)], warnings): one DBC per network, or only
     for the one `network` names; the name is "" for a version 1 file. A
     J1939 network's DBC comes from canworks/j1939/dbc.py. Every
@@ -584,7 +615,7 @@ def export_networks(cfg, config_path, eds_paths=None, sdo="none", names=None, ne
             model = j1939_dbc.build(net, config_path, names)
         elif net in masters:
             one = contract.network_config(cfg, net["name"] if net["path"] else None)
-            model = build(one, config_path, paths, sdo, names, checked=True)
+            model = build(one, config_path, paths, sdo, names, checked=True, notes=notes)
             if len(every) > 1:
                 model.comment = "CANopen network %s of %s, exported by canworks-deploy %s" % (
                     net["name"], os.path.basename(config_path), __version__)

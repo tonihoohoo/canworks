@@ -140,7 +140,8 @@ writes the configured network as a DBC file, so CAN bus tools that do not read E
 
 - one message per configured PDO, at the COB-ID the plugin uses (`cob_id`, `"auto"` or the CiA 301 default), sent by the node (TPDO) or by `Master` (RPDO); one signal per mapped object at its bit offset, little-endian, with its type, sign and range (REAL32/REAL64 as IEEE floats). A PDO that keeps the device's mapping is laid out from the EDS default mapping, including objects the PLC does not use; dummy entries are gaps;
 - each node's heartbeat (`NMT_State` with named states) and EMCY (`Error_Code`, `Error_Register`, `Manufacturer_Data`), the NMT command (`Command` with named commands, `Node_ID`) and, when the config has a SYNC period, SYNC;
-- comments naming each signal's object, type and PLC address, each PDO's transmission type, and a `GenMsgCycleTime` for synchronous PDOs (SYNC period times the transmission type).
+- comments naming each signal's object, type and PLC address, each PDO's transmission type, and a `GenMsgCycleTime` for synchronous PDOs (SYNC period times the transmission type);
+- from the object's [device notes](configurator.md#device-notes) (the notes file next to the EDS over the built-in CiA notes): the unit, the scale (factor) and value names (`VAL_`, not on float signals) of each signal, and the note text after the signal's comment.
 
 Signals are named after the object in the EDS: a plain object by its `ParameterName`, a sub-object by its parent's name and its own (`AI_Sensor_Type_Output_1`), without repeating the parent when the sub-object's name already starts with it. When `--config` is the `canworks/canworks.json` of an editor project, a signal whose PLC address has exactly one located variable in the project is named after that variable.
 

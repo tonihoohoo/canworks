@@ -234,11 +234,13 @@ class ParamsPage(OnlineBase):
             self.assertIn("generic error", bits)
             self.assertIn("communication error", bits)
             self.assertNotIn("voltage", bits)
-            # The CiA 402 statusword table (only for a CiA 402 device).
-            names = pg.evaluate("""() => [odBitNames({ index: 0x6041, subindex: 0, type: "UNSIGNED16" }, { data: "37 02" }, true),
-                                          odBitNames({ index: 0x6041, subindex: 0, type: "UNSIGNED16" }, { data: "37 02" }, false)]""")
+            # Bit names come from the entry's note (the built-in CiA 402 notes for a drive); no bits, no bit view.
+            names = pg.evaluate("""() => [odBitNames({ index: 0x6041, subindex: 0, type: "UNSIGNED16" }, { data: "37 02" },
+                                                     { bits: { 0: "ready to switch on", 1: "switched on", 2: "operation enabled",
+                                                               4: "voltage enabled", 5: "quick stop" } }),
+                                          odBitNames({ index: 0x6041, subindex: 0, type: "UNSIGNED16" }, { data: "37 02" }, {})]""")
             self.assertEqual(names[0], ["ready to switch on", "switched on", "operation enabled", "voltage enabled",
-                                        "quick stop", "remote"])
+                                        "quick stop", "bit 9"])
             self.assertIsNone(names[1])
             self.assertEqual(pg.evaluate("""() => [odPdoText({ pdo: "RPDO1", bits: [3, 3], location: "%QX100.3" }),
                                                    odPdoText({ pdo: "TPDO1", bits: [0, 15] })]"""),
@@ -380,6 +382,47 @@ class ParamsPage(OnlineBase):
             self.assertTrue(lines[1].startswith("0x6112:3,"))
             pg.click('button[data-online="od-compare-clear"]')
             self.assertEqual(pg.locator('input[data-od-filter="compare"]').count(), 0)
+
+    def test_notes_in_object_dictionary(self):
+        # Device notes (canopen-device-notes): text, meaning, scaled value, a
+        # value picker on edit and the note editor.
+        with open(os.path.join(self.project, "canworks", "rtd8.eds.notes.json"), "w", encoding="utf-8") as f:
+            json.dump({"format": "canworks-notes.v1", "objects": {
+                "0x6112:3": {"text": "Mode of channel 3", "values": {"0": "off", "2": "fast"}},
+                "0x6126:1": {"unit": "bar", "scale": 0.5}}}, f)
+        pg = self.page
+        with self.device() as fp:
+            fp.set(0x6112, 3, b"\x02")
+            self.open_node(fp, tab="od")
+            pg.wait_for_selector('details[data-od-group="profile"]')
+            pg.click('button[data-online="od-read-all"]')
+            pg.wait_for_selector('[data-online="od-summary"]:has-text("read, 0 not readable")')
+            row = 'tr[data-od-key="%d:3"]' % 0x6112
+            self.search("0x6112")
+            self.assertIn("Mode of channel 3", pg.inner_text(row))
+            self.assertIn("(fast)", pg.inner_text(row + ' [data-online="od-meaning"]'))
+            # The built-in CiA 301 note of the heartbeat time; the search finds note texts.
+            self.search("sends its heartbeat")
+            pg.wait_for_selector('tr[data-od-key="%d:0"]' % 0x1017, state="visible")
+            # Edit by name.
+            self.search("0x6112")
+            pg.click(row + ' button[data-online="od-edit"]')
+            pg.select_option(row + ' select[data-value-pick]', "0")
+            self.assertEqual(pg.input_value(row + ' input[data-online="od-input"]'), "0")
+            pg.click(row + ' button[data-online="od-write"]')
+            pg.wait_for_selector(row + ' [data-online="od-meaning"]:has-text("(off)")')
+            self.assertEqual(fp.value(0x6112, 3), b"\x00")
+            # The note editor keeps a draft edit; its button stays inside the actions column.
+            note_box = pg.locator(row + ' button[data-online="od-note-edit"]').bounding_box()
+            watch_box = pg.locator(row + ' td.od-watch').bounding_box()
+            self.assertLessEqual(note_box["x"] + note_box["width"], watch_box["x"])
+            pg.click(row + ' button[data-online="od-note-edit"]')
+            pg.fill('#modal [data-note-field="text"]', "Speed of channel 3")
+            pg.click('#modal button[data-value="save"]')
+            pg.wait_for_selector(row + ':has-text("Speed of channel 3")')
+            self.assertEqual(pg.evaluate("() => S.model.notes['rtd8.eds']['0x6112:3']"), {"text": "Speed of channel 3", "values": {"0": "off", "2": "fast"}})
+            self.search("0x6126")
+            self.assertIn("bar", pg.inner_text('tr[data-od-key="%d:1"]' % 0x6126))
 
     def test_read_only(self):
         pg = self.page

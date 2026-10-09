@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from canworks import cli, dbcexport
+from canworks import cli, dbcexport, notes
 
 from .test_contract import FIXTURES, REPO, load_cases
 
@@ -206,6 +206,34 @@ class Pdos(unittest.TestCase):
         with self.assertRaises(dbcexport.ExportFailed) as e:
             model(cfg)
         self.assertIn("TPDO 2", str(e.exception))
+
+
+class Notes(unittest.TestCase):
+    """Units, scales, value names and note texts of the merged notes
+    (canopen-device-notes, canopen-dbc-export)."""
+
+    def notes(self, objects):
+        doc = {"format": notes.FORMAT, "objects": objects}
+        return lambda value, eds: notes.Notes(eds, value, None, doc)
+
+    def test_scaled_signal_with_values_and_text(self):
+        m = model(load(RTD), RTD, notes=self.notes({
+            "0x7130": {"text": "Pressure", "unit": "bar", "scale": 0.01},
+            "0x7130:2": {"values": {"-32768": "open circuit"}}}))
+        tpdo = message(m, "rtd_TPDO1")
+        first, second = tpdo.signals[0], tpdo.signals[1]
+        self.assertEqual((first.unit, first.scale, first.values), ("bar", 0.01, []))
+        self.assertEqual(first.comment, "0x7130:1 INTEGER16 -> %IW100; Pressure")
+        self.assertEqual(second.values, [(-32768, "open circuit")])
+        text = dbcexport.write(m)
+        self.assertRegex(text, r'SG_ \w+ : 0\|16@1- \(0\.01,0\) \[[^]]*\] "bar"')
+        self.assertRegex(text, r'VAL_ 389 \w+ -32768 "open circuit" ;')
+
+    def test_unchanged_without_notes(self):
+        plain = model(load(RTD), RTD, notes=self.notes({}))
+        tpdo = message(plain, "rtd_TPDO1")
+        self.assertEqual([(s.unit, s.scale, s.values) for s in tpdo.signals], [("", 1, [])] * 4)
+        self.assertEqual(tpdo.signals[0].comment, "0x7130:1 INTEGER16 -> %IW100")
 
 
 class FixedFrames(unittest.TestCase):

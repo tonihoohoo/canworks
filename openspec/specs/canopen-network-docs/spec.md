@@ -110,7 +110,7 @@ Each node SHALL have a section with: node ID and name; the device's vendor name,
 - **THEN** its sheet shows the vendor ID, product code and revision from that file's `[DeviceInfo]` and the file's SHA-256
 
 ### Requirement: PDO details
-For each configured PDO the node sheet SHALL show its number and direction, COB-ID, transmission type (marked when taken from the EDS), inhibit time, event timer and SYNC start value where they apply, for a TPDO with `timeout_ms` the resolved receive timeout (marked "auto" when derived), `on_timeout` and the timeout bit's address, and whether the master writes the mapping or the device's mapping is kept. It SHALL show the mapping as a byte grid of the frame with each mapped object spanning its bits, and as a table with bit offset, length, object index and sub-index, the object's name from the EDS, data type, PLC address and, in editor-project mode, the PLC variable name. Mapped objects that no PLC address uses and dummy entries SHALL be shown as such.
+For each configured PDO the node sheet SHALL show its number and direction, COB-ID, transmission type (marked when taken from the EDS), inhibit time, event timer and SYNC start value where they apply, for a TPDO with `timeout_ms` the resolved receive timeout (marked "auto" when derived), `on_timeout` and the timeout bit's address, and whether the master writes the mapping or the device's mapping is kept. It SHALL show the mapping as a byte grid of the frame with each mapped object spanning its bits, and as a table with bit offset, length, object index and sub-index, the object's name from the EDS, its note `text` and unit when its merged note has them, data type, PLC address and, in editor-project mode, the PLC variable name. Mapped objects that no PLC address uses and dummy entries SHALL be shown as such.
 
 #### Scenario: Device mapping kept
 - **WHEN** a TPDO keeps the device's mapping and the config maps only one of its three objects
@@ -125,7 +125,7 @@ For each configured PDO the node sheet SHALL show its number and direction, COB-
 - **THEN** its details show "timeout 200 ms (auto), hold" and `%IX20.0`, and `%IX20.0` appears in the PLC I/O cross-reference
 
 ### Requirement: Boot configuration
-For each node the document SHALL list, in the order the master performs them, every SDO write of the node's boot configuration with object index and sub-index, the object's name, the value written (as a number and, for known objects such as COB-IDs and transmission types, its meaning), the object's access and EDS default, and where the write comes from (PDO configuration, node settings, startup SDO, configuration check). It SHALL list the boot steps that are not settings (restore defaults, program download, store) in their place. The list SHALL match the DCF export's writes for the node.
+For each node the document SHALL list, in the order the master performs them, every SDO write of the node's boot configuration with object index and sub-index, the object's name, the value written (as a number and, when the object's merged note (see `canopen-device-notes`) has a meaning for it, that meaning; for COB-IDs, the COB-ID bits), the note's unit and `text` when it has them, the object's access and EDS default, and where the write comes from (PDO configuration, node settings, startup SDO, configuration check). It SHALL list the boot steps that are not settings (restore defaults, program download, store) in their place. The list SHALL match the DCF export's writes for the node.
 
 #### Scenario: Startup SDO
 - **WHEN** node 5 has a startup SDO writing 30 to 0x6110 sub 1
@@ -134,6 +134,10 @@ For each node the document SHALL list, in the order the master performs them, ev
 #### Scenario: Same as DCF
 - **WHEN** the DCF export gives node 4 thirty-nine writes
 - **THEN** the boot list of node 4 has the same thirty-nine writes in the same order
+
+#### Scenario: Startup SDO with a note
+- **WHEN** node 7's notes give 0x2011:2 the text "What the valve does on a bus fault" and the value 1 "close", and a startup SDO writes 1 to it
+- **THEN** the boot list shows the write as `1 (close)` with that text
 
 ### Requirement: Slave networks
 A slave network (`"role": "slave"`, canopen-slave-device) SHALL have a network section in which OpenPLC is one device and another master runs the bus: its topology SHALL show the upper master and OpenPLC; its settings SHALL give the adapter, bitrate, role, own node ID (or that LSS assigns it), heartbeat produced and consumed, SYNC and EMCY COB-IDs from its EDS, the input behaviour on communication loss and the EDS lint; and a device section SHALL give the EDS file and SHA-256, the identity from the EDS, every bound object with its type, access, direction, PLC address, PLC variable and the PDO bits that carry it, the PDOs as the EDS defines them, the own status PLC addresses, and an object dictionary extract. Its COB-ID map SHALL list NMT, SYNC, the device's EMCY, heartbeat, SDO channels and PDOs. Its bus-load totals SHALL count only the frames the device times itself (its heartbeat, and event-driven TPDOs at most once per PLC scan when the PLC cycle is given), with a note that the upper master's frames and timing are not in the configuration. A slave network SHALL have no boot configuration.

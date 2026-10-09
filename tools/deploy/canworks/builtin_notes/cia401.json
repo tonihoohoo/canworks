@@ -1,0 +1,32 @@
+{
+  "format": "canworks-notes.v1",
+  "objects": {
+    "0x6000": {"text": "Digital inputs, 8 per sub-index: bit n is input n of the block"},
+    "0x6000:0": {"text": "Number of 8-input blocks"},
+    "0x6002": {"text": "Polarity of the digital inputs, 8 per sub-index: a set bit inverts that input"},
+    "0x6002:0": {"text": "Number of 8-input blocks"},
+    "0x6003": {"text": "Filter constant of the digital inputs, 8 per sub-index: a set bit filters that input"},
+    "0x6005": {"text": "Global interrupt enable of the digital inputs: on means a change of an input sends its PDO", "values": {"0": "off", "1": "on"}},
+    "0x6006": {"text": "Interrupt mask for any change of the digital inputs, 8 per sub-index"},
+    "0x6200": {"text": "Digital outputs, 8 per sub-index: bit n is output n of the block"},
+    "0x6200:0": {"text": "Number of 8-output blocks"},
+    "0x6202": {"text": "Polarity of the digital outputs, 8 per sub-index: a set bit inverts that output"},
+    "0x6206": {"text": "Error mode of the digital outputs, 8 per sub-index: a set bit makes that output take its error value on a device fault"},
+    "0x6207": {"text": "Error value of the digital outputs, 8 per sub-index: the value an output takes on a device fault when its error mode is on"},
+    "0x6208": {"text": "Filter mask of the digital outputs, 8 per sub-index: a cleared bit keeps that output from changing"},
+    "0x6401": {"text": "Analogue inputs, 16 bit, one per sub-index"},
+    "0x6401:0": {"text": "Number of analogue inputs"},
+    "0x6411": {"text": "Analogue outputs, 16 bit, one per sub-index"},
+    "0x6411:0": {"text": "Number of analogue outputs"},
+    "0x6421": {"text": "Interrupt trigger of the analogue inputs, one per sub-index: which conditions send the input's PDO"},
+    "0x6421:1": {"text": "Interrupt trigger of an analogue input", "bits": {"0": "upper limit exceeded", "1": "below lower limit", "2": "changed by more than delta", "3": "decreased by more than negative delta", "4": "increased by more than positive delta"}},
+    "0x6422": {"text": "Interrupt source of the analogue inputs: which inputs caused the last interrupt"},
+    "0x6423": {"text": "Global interrupt enable of the analogue inputs: on means an input's trigger sends its PDO", "values": {"0": "off", "1": "on"}},
+    "0x6424": {"text": "Interrupt upper limit of the analogue inputs, one per sub-index"},
+    "0x6425": {"text": "Interrupt lower limit of the analogue inputs, one per sub-index"},
+    "0x6426": {"text": "Interrupt delta of the analogue inputs, one per sub-index"},
+    "0x6443": {"text": "Error mode of the analogue outputs, one per sub-index: 1 makes the output take its error value on a device fault"},
+    "0x6443:1": {"text": "Error mode of an analogue output", "values": {"0": "keep the last value", "1": "take the error value"}},
+    "0x6444": {"text": "Error value of the analogue outputs, one per sub-index"}
+  }
+}

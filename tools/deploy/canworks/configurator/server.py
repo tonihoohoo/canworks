@@ -32,7 +32,7 @@ import webbrowser
 import zipfile
 
 from .. import __version__, axis, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, parameters, project as project_mod, sdolibrary
-from .. import slaveeds
+from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequences as sequences_mod, triggers as triggers_mod
@@ -295,7 +295,7 @@ def eds_summary(eds, path=None):
     objects = []
     for index, sub, o in eds.items():
         obj = {"index": "0x%04X" % index, "subindex": sub, "name": o.name, "type": o.type_name,
-               "type_code": o.data_type,
+               "type_code": o.data_type, "var": eds.object_types.get(index, 0x7) == 0x7,
                "access": o.access, "directions": list(o.directions) if o.type_name else [],
                "readable": o.access != "wo", "writable": o.writable, "default": o.default}
         # LowLimit/HighLimit as numbers (the Simulation view's sliders).
@@ -383,6 +383,11 @@ class Session:
     @property
     def sim_path(self):
         return os.path.join(self.canopen_dir, simulation.SIM_FILE)
+
+    def notes_eds_path(self, value):
+        """Where an EDS's notes file lives: next to it in the canopen folder,
+        also for an EDS imported but not saved yet."""
+        return value if os.path.isabs(value) else os.path.join(self.canopen_dir, value)
 
     def eds_path(self, value):
         if value in self.pending:
@@ -500,10 +505,110 @@ class Session:
                 out[name] = {"error": "EDS file %s not found" % path}
                 continue
             try:
-                out[name] = eds_summary(Eds.read(path), path)
+                eds = Eds.read(path)
+                out[name] = eds_summary(eds, path)
             except EdsError as e:
                 out[name] = {"error": "EDS file %s cannot be parsed: %s" % (path, e)}
+                continue
+            built = self.built_eds(name)
+            out[name]["notes"] = notes_mod.Notes.for_eds(
+                eds, name, None if built else self.notes_eds_path(name)).to_json()
+            out[name]["notes"]["editable"] = not built and not self.commission
         return out
+
+    def built_eds(self, name):
+        """Whether the configurator built this EDS (a slave network's own): it
+        gets built-in notes only and no notes file."""
+        return name in self.descriptions or os.path.isfile(os.path.join(self.canopen_dir, description_name(name)))
+
+    # -- device notes (spec canopen-device-notes) --------------------------
+    def notes_targets(self, cfg):
+        """{eds name: EDS path} of the EDS files of the draft that get a notes
+        file: in the canopen folder, not built by the configurator."""
+        out = {}
+        for name, path in self.eds_paths(cfg).items():
+            if os.path.isabs(name) or self.built_eds(name) or not os.path.isfile(path):
+                continue
+            out[name] = path
+        return out
+
+    def notes_problems(self, cfg, changes):
+        """Warnings of the notes files of the draft, with the page's unsaved edits."""
+        items = []
+        changes = changes if isinstance(changes, dict) else {}
+        for name, path in sorted(self.notes_targets(cfg).items()):
+            npath = notes_mod.notes_path(self.notes_eds_path(name))
+            fname = os.path.basename(npath)
+            doc, error = notes_mod.load(npath)
+            if error:
+                items.append({"level": "warning", "message": error + "; its notes are not used and it is not changed on save",
+                              "paths": [], "notes": name})
+                continue
+            if doc is None and not changes.get(name):
+                continue
+            try:
+                eds = Eds.read(path)
+            except EdsError:
+                continue
+            doc = notes_mod.update(doc or {"format": notes_mod.FORMAT, "objects": {}}, changes.get(name), eds)
+            items += [{"level": "warning", "message": m, "paths": [], "notes": name}
+                      for m in notes_mod.check(eds, doc, fname, name)]
+        return items
+
+    def save_notes(self, cfg, changes):
+        """Writes the notes file of each EDS of the draft: a new one (skeleton
+        plus edits) where there is none, the edits into an existing one, and
+        nothing into a file that cannot be read. Returns the files written."""
+        written = []
+        changes = changes if isinstance(changes, dict) else {}
+        for name, path in sorted(self.notes_targets(cfg).items()):
+            npath = notes_mod.notes_path(self.notes_eds_path(name))
+            doc, error = notes_mod.load(npath)
+            if error:
+                continue
+            try:
+                with open(path, encoding="utf-8") as f:
+                    text = f.read()
+                eds = Eds.read(name, text)
+            except (OSError, UnicodeDecodeError, EdsError):
+                continue
+            edits = changes.get(name) if isinstance(changes.get(name), dict) else None
+            if doc is not None and not edits:
+                continue
+            base = doc if doc is not None else notes_mod.skeleton(eds, name, eds_text=text)
+            new = notes_mod.update(base, edits, eds)
+            with open(npath + ".tmp", "w", encoding="utf-8") as f:
+                f.write(notes_mod.dumps(new))
+            os.replace(npath + ".tmp", npath)
+            written.append(npath)
+        return written
+
+    def notes_source(self, changes=None):
+        """The notes of the draft's EDS files for the exports: each one's notes
+        file over the built-in notes, with the page's unsaved edits."""
+        changes = changes if isinstance(changes, dict) else {}
+
+        def source(value, eds):
+            built = self.built_eds(value)
+            n = notes_mod.Notes.for_eds(eds, value, None if built else self.notes_eds_path(value))
+            return n.edited(changes.get(value) if not built and isinstance(changes.get(value), dict) else None)
+        return source
+
+    def export_notes(self, cfg, name, changes):
+        """The merged notes of one EDS of the draft (built-in and device, with
+        the page's edits) as a notes document."""
+        paths = self.eds_paths(cfg)
+        if name not in paths:
+            raise ApiError(422, "no node of the configuration uses the EDS %r" % name)
+        try:
+            eds = Eds.read(paths[name])
+        except (OSError, EdsError) as e:
+            raise ApiError(422, "EDS file %s cannot be read: %s" % (paths[name], e))
+        built = self.built_eds(name)
+        n = notes_mod.Notes.for_eds(eds, name, None if built else self.notes_eds_path(name))
+        edits = (changes or {}).get(name) if isinstance(changes, dict) else None
+        doc = {"format": notes_mod.FORMAT, "eds": notes_mod.identity(name, paths[name]), "objects": n.merged(edits)}
+        return {"name": os.path.basename(name) + ".merged" + notes_mod.SUFFIX, "data": notes_mod.dumps(doc)}
 
     def eds_paths(self, cfg):
         """{eds value: path} of every node of every network, and of every
@@ -589,7 +694,7 @@ class Session:
         self.pending[name] = data
         with open(os.path.join(self.pending_dir, name), "wb") as f:
             f.write(data)
-        return {"name": name, "converted": converted, "summary": eds_summary(eds, os.path.join(self.pending_dir, name)),
+        return {"name": name, "converted": converted, "summary": self.eds_info([name])[name],
                 "lint": {"mode": mode, "corrections": [c.to_json() for c in corrections],
                          "accepted": [f.to_json() for f in lint.accepted(mode)]}}
 
@@ -701,12 +806,16 @@ class Session:
             raise ApiError(422 if op in ("dbc", "dbc_import") else 400, str(e))
 
     # -- checks -------------------------------------------------------------
-    def check(self, cfg, allow_overlap=False, task_interval=None):
+    def check(self, cfg, allow_overlap=False, task_interval=None, notes=None):
         if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
         eds_paths = self.eds_paths(cfg)
         result = contract.check_config(cfg, self.config_path, eds_paths=eds_paths)
         items = list(result.items)
+        try:
+            items += self.notes_problems(cfg, notes)
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass  # notes are documentation: they never stop a check
         extra, declared = layout.project_checks(cfg, self.uses, allow_overlap)
         items += extra
         # A cyclic axis's fCycleTime line: the task interval the page gives.
@@ -781,7 +890,7 @@ class Session:
                 "files": sorted(files), "data": base64.b64encode(data).decode("ascii")}
 
     # -- DBC export ---------------------------------------------------------
-    def export_dbc(self, cfg, sdo="none", network=None):
+    def export_dbc(self, cfg, sdo="none", network=None, notes=None):
         """The draft as a DBC file (canopen-dbc-export): `<folder>.dbc`, or
         with several networks `<folder>_<network>.dbc` of the one `network`
         names, base64 in `data`, with the export's warnings as items. Signal
@@ -798,7 +907,7 @@ class Session:
         names = dbcexport.plc_names(self.uses) if self.mode == "project" else None
         try:
             texts, warnings = dbcexport.export_networks(cfg, self.config_path, eds_paths=self.eds_paths(cfg), sdo=sdo,
-                                                        names=names, network=network)
+                                                        names=names, network=network, notes=self.notes_source(notes))
         except dbcexport.ExportFailed as e:
             items = [{"level": "error", "message": m, "paths": p} for m, p in e.problems]
             return {"items": items, "errors": len(items)}
@@ -810,7 +919,7 @@ class Session:
                 "data": base64.b64encode(text.encode("ascii")).decode("ascii")}
 
     # -- network documentation ---------------------------------------------
-    def export_html(self, cfg):
+    def export_html(self, cfg, notes=None):
         """The draft as an HTML document of every network
         (canopen-network-docs): `<folder>.html`, base64 in `data`, with the
         export's warnings as items. PLC variable names and the PLC cycle come
@@ -823,7 +932,8 @@ class Session:
             text, warnings = docexport.export(
                 cfg, self.config_path, eds_paths=self.eds_paths(cfg),
                 names=dbcexport.plc_names(self.uses) if project else None,
-                plc_cycle_ms=docexport.project_cycle_ms(self.config_path) if project else None)
+                plc_cycle_ms=docexport.project_cycle_ms(self.config_path) if project else None,
+                notes=self.notes_source(notes))
         except docexport.ExportFailed as e:
             items = [{"level": "error", "message": m, "paths": p} for m, p in e.problems]
             return {"items": items, "errors": len(items)}
@@ -990,8 +1100,7 @@ class Session:
             bindings.append({"index": "0x%04X" % o["index"], "subindex": o["subindex"], "name": o["name"],
                              "iec_location": loc})
         objects = [dict(o, index="0x%04X" % o["index"]) for o in info["objects"]]
-        return {"name": name, "summary": eds_summary(Eds.read(os.path.join(self.pending_dir, name), text),
-                                                     os.path.join(self.pending_dir, name)),
+        return {"name": name, "summary": self.eds_info([name])[name],
                 "objects": objects, "bindings": bindings, "revision_number": info["revision_number"],
                 "routes": [{"index": "0x%04X" % r["index"], "subindex": r["subindex"]} for r in info["routes"]]}
 
@@ -1033,9 +1142,9 @@ class Session:
         return {"node": new, "mapped": mapped, "missing": missing, "changes": changes}
 
     # -- save ---------------------------------------------------------------
-    def save(self, cfg, allow_overlap=False, overwrite=False):
+    def save(self, cfg, allow_overlap=False, overwrite=False, notes=None):
         cfg = lowest_version(cfg)
-        checked = self.check(cfg, allow_overlap)
+        checked = self.check(cfg, allow_overlap, notes=notes)
         if checked["errors"]:
             raise ApiError(422, "the config has %d error%s; nothing was saved"
                            % (checked["errors"], "" if checked["errors"] == 1 else "s"), check=checked)
@@ -1074,6 +1183,7 @@ class Session:
             f.write("\n")
         os.replace(tmp, self.config_path)
         written.append(self.config_path)
+        written += self.save_notes(cfg, notes)
         for name in [n for n in self.pending if n in referenced]:
             del self.pending[name]
             self.descriptions.pop(name, None)
@@ -1402,13 +1512,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = s.raw_page(route[1].rsplit("/", 1)[1], body)
                 elif route == ("POST", "/api/check"):
                     self._need_open(s)
-                    out = s.check(body.get("config"), bool(body.get("allow_overlap")), body.get("task_interval"))
+                    out = s.check(body.get("config"), bool(body.get("allow_overlap")), body.get("task_interval"),
+                                  body.get("notes"))
                 elif route == ("POST", "/api/export_dbc"):
                     self._need_open(s)
-                    out = s.export_dbc(body.get("config"), body.get("sdo", "none"), body.get("network"))
+                    out = s.export_dbc(body.get("config"), body.get("sdo", "none"), body.get("network"), body.get("notes"))
                 elif route == ("POST", "/api/export_html"):
                     self._need_open(s)
-                    out = s.export_html(body.get("config"))
+                    out = s.export_html(body.get("config"), body.get("notes"))
                 elif route == ("POST", "/api/export_dcf"):
                     self._need_open(s)
                     out = s.export_dcf(body.get("config"), body.get("node"), body.get("network"))
@@ -1428,9 +1539,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._need_open(s)
                     out = s.map_cia402(body.get("config"), body.get("node"), body.get("start"),
                                        body.get("network", 0))
+                elif route == ("POST", "/api/export_notes"):
+                    self._need_open(s)
+                    out = s.export_notes(body.get("config"), body.get("eds"), body.get("notes"))
                 elif route == ("POST", "/api/save"):
                     self._need_open(s)
-                    out = s.save(body.get("config"), bool(body.get("allow_overlap")), bool(body.get("overwrite")))
+                    out = s.save(body.get("config"), bool(body.get("allow_overlap")), bool(body.get("overwrite")),
+                                 body.get("notes"))
                     out["state"] = s.state()
                 elif route == ("POST", "/api/move"):
                     self._need_open(s)
