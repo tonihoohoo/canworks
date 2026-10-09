@@ -49,7 +49,7 @@ void print_usage(bool full) {
   }
   std::printf(
       "\n"
-      "Run mode (CONFIG: a canopen_config.json; every node of it is simulated):\n"
+      "Run mode (CONFIG: a canworks.json; every CANopen node of it is simulated):\n"
       "  --iface NAME             SocketCAN interface (default vcan0)\n"
       "  --setup-vcan             create and bring up a missing vcan interface (needs root)\n"
       "  --real-bus               allow an interface that is not vcan (free node ID check, conflict guard)\n"
@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
   using namespace sim_tool;
   std::vector<std::string> words(argv + 1, argv + argc);
   if (!words.empty() && (words[0] == "--version" || words[0] == "-V")) {
-    std::printf("canworks-sim %s\n", CANOPEN_PLUGIN_VERSION);
+    std::printf("canworks-sim %s\n", CANWORKS_PLUGIN_VERSION);
     return kExitOk;
   }
   if (!words.empty() && (words[0] == "--help" || words[0] == "-h" || words[0] == "help")) {

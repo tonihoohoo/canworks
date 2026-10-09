@@ -1,6 +1,6 @@
 """The configurator page in a real browser (add-canopen-configurator tasks
 4.1 and 4.2). Needs the Python Playwright package and a Chromium it can
-launch; skipped without them, unless CANOPEN_REQUIRE_BROWSER=1 (CI)."""
+launch; skipped without them, unless CANWORKS_REQUIRE_BROWSER=1 (CI)."""
 
 import json
 import os
@@ -30,7 +30,7 @@ def load(path):
         return json.load(f)
 
 
-REQUIRED = os.environ.get("CANOPEN_REQUIRE_BROWSER") == "1"
+REQUIRED = os.environ.get("CANWORKS_REQUIRE_BROWSER") == "1"
 
 
 @unittest.skipIf(sync_playwright is None and not REQUIRED, "Playwright for Python is not installed")
@@ -38,7 +38,7 @@ class Page(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.pw = sync_playwright().start()
-        exe = os.environ.get("CANOPEN_CHROMIUM")
+        exe = os.environ.get("CANWORKS_CHROMIUM")
         try:
             cls.browser = cls.pw.chromium.launch(**({"executable_path": exe} if exe else {}))
         except Exception as e:  # pragma: no cover

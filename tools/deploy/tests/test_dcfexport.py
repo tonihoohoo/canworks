@@ -366,7 +366,7 @@ class Cli(unittest.TestCase):
 
 
 def _canopen_check():
-    path = os.environ.get("CANOPEN_CHECK") or os.path.join(REPO, "build", "canopen_check")
+    path = os.environ.get("CANWORKS_CHECK") or os.path.join(REPO, "build", "canopen_check")
     return path if os.path.isfile(path) and os.access(path, os.X_OK) else None
 
 
@@ -378,8 +378,8 @@ class Parity(unittest.TestCase):
     def setUp(self):
         self.check = _canopen_check()
         if not self.check:
-            if os.environ.get("CANOPEN_REQUIRE_PARITY") == "1":
-                self.fail("canopen_check not found (build it, or set CANOPEN_CHECK)")
+            if os.environ.get("CANWORKS_REQUIRE_PARITY") == "1":
+                self.fail("canopen_check not found (build it, or set CANWORKS_CHECK)")
             self.skipTest("canopen_check not built")
 
     def _dump(self, path):

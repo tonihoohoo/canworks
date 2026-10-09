@@ -35,6 +35,13 @@ class Mapping(unittest.TestCase):
             "`canopen.v${from}.schema.json`": "`canworks.v${from}.schema.json`",
             "schema/canopen-machine.v1.schema.json": "schema/canworks-machine.v1.schema.json",
             "library/openplc_canopen.stlib": "library/canworks.stlib",
+            'getenv("CANOPEN_STATE_DIR")': 'getenv("CANWORKS_STATE_DIR")',
+            "-DCANOPEN_BUILD_TESTS=OFF": "-DCANWORKS_BUILD_TESTS=OFF",
+            'os.environ.get("CANOPEN_CHROMIUM")': 'os.environ.get("CANWORKS_CHROMIUM")',
+            "CANOPEN_IMAGE_ID=x CANOPEN_IMAGE=y": "CANWORKS_IMAGE_ID=x CANWORKS_IMAGE=y",
+            '<meta name="canopen-token">': '<meta name="canworks-token">',
+            'id="canopen-doc"': 'id="canworks-doc"',
+            "'canopen-doc-theme'": "'canworks-doc-theme'",
         }
         for old, new in cases.items():
             self.assertEqual(rn.rename_text(old), new, old)
@@ -43,7 +50,8 @@ class Mapping(unittest.TestCase):
         for text in ("config/pingpong/canopen_config.json", "openspec/specs/canopen-pdo-io/spec.md",
                      "namespace canopen_plugin {", "https://opensource.lely.com/canopen/docs/",
                      "tonihoohoo/openplc-canopen-private", "CANopen master", "plugin/src/canopen/",
-                     "the canopen-local-runtime spec", "# rename-keep: /opt/openplc-canopen"):
+                     "the canopen-local-runtime spec", "# rename-keep: /opt/openplc-canopen",
+                     "CANOPEN_PLC_ERR_INPUT", "#define CANOPEN_SHA256_H", "CANOPEN_KEYS", "canopen-docker-install"):
             self.assertEqual(rn.rename_text(text), text, text)
 
     def test_project_folder_path(self):

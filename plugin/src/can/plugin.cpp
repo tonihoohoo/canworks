@@ -132,7 +132,7 @@ void prepare() {
     log_warn("no configuration at %s; canworks inactive", path.c_str());
     return;
   }
-  std::string mismatch = runtime_version_problem(CANOPEN_PREFIX "/lib/runtime-version", getenv("RUNTIME_VERSION"));
+  std::string mismatch = runtime_version_problem(CANWORKS_PREFIX "/lib/runtime-version", getenv("RUNTIME_VERSION"));
   if (!mismatch.empty()) {
     log_error("%s; canworks inactive, CAN interface not opened", mismatch.c_str());
     return;
@@ -178,10 +178,10 @@ void prepare() {
 
   st->nets.resize(st->set.networks.size());
 #if CANWORKS_WITH_CANOPEN
-  if (!canopen_create(st->set, g_rt.base_tick_ns, CANOPEN_PLUGIN_VERSION, st->canopen, st->nets)) return;
+  if (!canopen_create(st->set, g_rt.base_tick_ns, CANWORKS_PLUGIN_VERSION, st->canopen, st->nets)) return;
 #endif
 #if CANWORKS_WITH_J1939
-  j1939_create(st->set, CANOPEN_PLUGIN_VERSION, st->nets);
+  j1939_create(st->set, CANWORKS_PLUGIN_VERSION, st->nets);
 #endif
   for (auto& n : st->nets)
     if (!n) {  // the parser refuses protocols not built in; never here

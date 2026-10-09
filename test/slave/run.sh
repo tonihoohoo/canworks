@@ -75,9 +75,9 @@ cat > "$WORK/canopen_config.json" <<'JSON'
   ]
 }
 JSON
-export CANOPEN_STATE_DIR="$WORK/state"
+export CANWORKS_STATE_DIR="$WORK/state"
 # The slave's EDS goes through the deploy tool's lint, as on an install.
-export CANOPEN_EDSLINT="${CANOPEN_EDSLINT:-python3}"
+export CANWORKS_EDSLINT="${CANWORKS_EDSLINT:-python3}"
 export PYTHONPATH="$ROOT/tools/deploy${PYTHONPATH:+:$PYTHONPATH}"
 
 cangw -F

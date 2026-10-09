@@ -4,7 +4,7 @@ network picker of the online, scan and trace views against a fake plugin
 that runs two networks, and the exports per network. Needs Playwright, like
 test_configurator_page.py.
 
-With CANOPEN_SCREENSHOTS=DIR the tests also save screenshots of the network
+With CANWORKS_SCREENSHOTS=DIR the tests also save screenshots of the network
 bar in light and dark mode there (task 6.2)."""
 
 import json
@@ -22,7 +22,7 @@ from .helpers import PINGPONG, REPO, tmpdir
 from .test_configurator_page import REQUIRED, RTD, load, sync_playwright
 
 TWO = os.path.join(REPO, "config", "two-networks")
-SHOTS = os.environ.get("CANOPEN_SCREENSHOTS")
+SHOTS = os.environ.get("CANWORKS_SCREENSHOTS")
 
 
 @unittest.skipIf(sync_playwright is None and not REQUIRED, "Playwright for Python is not installed")
@@ -30,7 +30,7 @@ class NetworksPage(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.pw = sync_playwright().start()
-        exe = os.environ.get("CANOPEN_CHROMIUM")
+        exe = os.environ.get("CANWORKS_CHROMIUM")
         try:
             cls.browser = cls.pw.chromium.launch(**({"executable_path": exe} if exe else {}))
         except Exception as e:  # pragma: no cover

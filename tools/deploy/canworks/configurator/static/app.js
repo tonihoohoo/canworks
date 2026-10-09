@@ -3,7 +3,7 @@
 // Python modules as canworks-deploy.
 "use strict";
 
-const TOKEN = document.querySelector('meta[name="canopen-token"]').content;
+const TOKEN = document.querySelector('meta[name="canworks-token"]').content;
 const BITRATES = [10000, 20000, 50000, 125000, 250000, 500000, 800000, 1000000];
 const TYPES = ["BOOLEAN", "INTEGER8", "INTEGER16", "INTEGER32", "INTEGER64", "UNSIGNED8", "UNSIGNED16",
   "UNSIGNED32", "UNSIGNED64", "REAL32", "REAL64"];

@@ -41,7 +41,7 @@ cat > "$WORK/canopen_config.json" <<'JSON'
   ]
 }
 JSON
-export CANOPEN_STATE_DIR="$WORK/state"
+export CANWORKS_STATE_DIR="$WORK/state"
 
 RC=0
 "$BUILD/test/canopen_host" "$BUILD/plugins/libcanworks_plugin.so" "$WORK/canopen_config.json" "$SECONDS_RUN" slave \

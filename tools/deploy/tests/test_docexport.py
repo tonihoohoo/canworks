@@ -96,7 +96,7 @@ def check_html(test, text):
 
 
 def island(text):
-    m = re.search(r'<script type="application/json" id="canopen-doc">(.*?)</script>', text, re.S)
+    m = re.search(r'<script type="application/json" id="canworks-doc">(.*?)</script>', text, re.S)
     return json.loads(m.group(1).replace("<\\/", "</"))
 
 

@@ -184,13 +184,13 @@ class FindCli(unittest.TestCase):
         self.assertIsNone(editorproject.cli_command("openplc-cli-not-installed"))
 
 
-@unittest.skipUnless(os.environ.get("CANOPEN_EDITOR_CLI"),
-                     "set CANOPEN_EDITOR_CLI to a real openplc-cli to create and compile with the editor")
+@unittest.skipUnless(os.environ.get("CANWORKS_EDITOR_CLI"),
+                     "set CANWORKS_EDITOR_CLI to a real openplc-cli to create and compile with the editor")
 class RealEditor(unittest.TestCase):
     """Creates projects with the installed editor and builds them."""
 
     def test_create_and_compile(self):
-        cli = os.environ["CANOPEN_EDITOR_CLI"]
+        cli = os.environ["CANWORKS_EDITOR_CLI"]
         d = tmpdir(self)
         pp = os.path.join(d, "pp")
         os.makedirs(pp)

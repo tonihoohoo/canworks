@@ -84,7 +84,7 @@ def main():
         print("FAIL: canopen should be enabled with %s" % expected_config)
         failures += 1
     elif check:
-        env = dict(os.environ, CANOPEN_GENERATED_CONF=os.path.join(work, "core", "generated", "conf"))
+        env = dict(os.environ, CANWORKS_GENERATED_CONF=os.path.join(work, "core", "generated", "conf"))
         r = subprocess.run([check, "--no-dcfgen", e["config"]], env=env, capture_output=True, text=True)
         print("    " + r.stdout.strip().replace("\n", "\n    "))
         if r.returncode != 0 or os.path.join(work, "core/generated/conf/canworks/eds") not in r.stdout:

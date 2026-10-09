@@ -160,8 +160,8 @@ class Layout(OnlineBase):
     @classmethod
     def tearDownClass(cls):
         super().tearDownClass()
-        if cls.axe_report and os.environ.get("CANOPEN_AXE_REPORT"):
-            with open(os.environ["CANOPEN_AXE_REPORT"], "w", encoding="utf-8") as f:
+        if cls.axe_report and os.environ.get("CANWORKS_AXE_REPORT"):
+            with open(os.environ["CANWORKS_AXE_REPORT"], "w", encoding="utf-8") as f:
                 json.dump(cls.axe_report, f, indent=1)
 
     def node(self, k):

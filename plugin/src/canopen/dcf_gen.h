@@ -75,7 +75,7 @@ bool generate_device_config(const Config& cfg, const std::string& dcfgen,
 bool read_concise_dcf(const std::string& path, std::vector<SdoWrite>& out,
                       std::string& error);
 
-// The dcfgen to run: $CANOPEN_DCFGEN, else the installer's venv, else PATH.
+// The dcfgen to run: $CANWORKS_DCFGEN, else the installer's venv, else PATH.
 std::string default_dcfgen();
 
 }  // namespace canopen_plugin

@@ -89,12 +89,12 @@ std::string json_string(const cJSON* obj, const char* key) {
 }  // namespace
 
 std::string default_edslint_python() {
-  const char* env = std::getenv("CANOPEN_EDSLINT");
+  const char* env = std::getenv("CANWORKS_EDSLINT");
   if (env && *env) return env;
-#ifndef CANOPEN_PREFIX
-#define CANOPEN_PREFIX "/opt/canworks"
+#ifndef CANWORKS_PREFIX
+#define CANWORKS_PREFIX "/opt/canworks"
 #endif
-  const char* venv = CANOPEN_PREFIX "/venv/bin/python";
+  const char* venv = CANWORKS_PREFIX "/venv/bin/python";
   if (access(venv, X_OK) == 0) return venv;
   return "python3";
 }

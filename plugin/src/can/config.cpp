@@ -2357,7 +2357,7 @@ std::string sync_needed_message(unsigned transmission, bool from_eds) {
 }
 
 std::string default_eds_fallback_dir() {
-  const char* env = std::getenv("CANOPEN_GENERATED_CONF");
+  const char* env = std::getenv("CANWORKS_GENERATED_CONF");
   if (env && *env) return env;
   char cwd[4096];
   if (!getcwd(cwd, sizeof(cwd))) return "core/generated/conf";

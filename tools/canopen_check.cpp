@@ -1,8 +1,8 @@
-// canopen_check - validates a canopen_config.json the way the plugin does at
+// canopen_check - validates a canworks.json the way the plugin does at
 // PLC start (JSON, EDS lint, EDS files, dcfgen), without opening the CAN
 // interface. The EDS lint needs the deploy tool (default_edslint_python()).
 //
-//   canopen_check [--buffer-size N] [--no-dcfgen] [--dump-writes] <canopen_config.json>
+//   canopen_check [--buffer-size N] [--no-dcfgen] [--dump-writes] <canworks.json>
 //
 // Exit status 0 if the configuration would load.
 //
@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
       path = argv[i];
   }
   if (!path) {
-    std::fprintf(stderr, "usage: %s [--buffer-size N] [--no-dcfgen] [--dump-writes] <canopen_config.json>\n", argv[0]);
+    std::fprintf(stderr, "usage: %s [--buffer-size N] [--no-dcfgen] [--dump-writes] <canworks.json>\n", argv[0]);
     return 2;
   }
   route_lely_diagnostics();

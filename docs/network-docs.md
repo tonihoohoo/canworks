@@ -68,6 +68,6 @@ The tool runs the deploy checks first and writes nothing if they fail. Nothing i
 - Tables sort by any column (click the header); the COB-ID map, the PLC I/O list and the object dictionary extracts have a filter box. Sections have stable links such as `network.html#node-drives-4` (`#node-4` with one unnamed network) and `#pdo-drives-4-tpdo1`.
 - **Theme** switches between light and dark; by default the page follows the system.
 - **Print** (or the browser's print, "Save as PDF") gives a paginated document: no navigation, the object dictionary and config sections expanded, each network and node on a new page, table headers repeated.
-- The data behind the page is in the file as JSON (`<script type="application/json" id="canopen-doc">`, `doc_schema_version` 1), for scripts that want networks, nodes, frames, PDOs, boot writes and I/O without parsing HTML.
+- The data behind the page is in the file as JSON (`<script type="application/json" id="canworks-doc">`, `doc_schema_version` 1), for scripts that want networks, nodes, frames, PDOs, boot writes and I/O without parsing HTML.
 - Two exports of an unchanged config and EDS files differ only in the generation date, so they compare cleanly.
 - The document never holds the diagnostics token or its hash, or paths of the PC that exported it: files show as the config names them (an absolute path only by its file name).

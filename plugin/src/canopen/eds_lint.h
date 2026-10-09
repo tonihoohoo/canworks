@@ -29,7 +29,7 @@ namespace canopen_plugin {
 bool run_eds_lint(Config& cfg, const std::string& python, const std::string& work_dir,
                   std::vector<std::string>& errors);
 
-// $CANOPEN_EDSLINT, else the installer's venv python
+// $CANWORKS_EDSLINT, else the installer's venv python
 // (<prefix>/venv/bin/python, where install-stock.sh installs the deploy tool),
 // else python3 from PATH.
 std::string default_edslint_python();

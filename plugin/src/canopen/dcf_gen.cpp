@@ -359,12 +359,12 @@ bool read_concise_dcf(const std::string& path, std::vector<SdoWrite>& out, std::
 }
 
 std::string default_dcfgen() {
-  const char* env = std::getenv("CANOPEN_DCFGEN");
+  const char* env = std::getenv("CANWORKS_DCFGEN");
   if (env && *env) return env;
-#ifndef CANOPEN_PREFIX
-#define CANOPEN_PREFIX "/opt/canworks"
+#ifndef CANWORKS_PREFIX
+#define CANWORKS_PREFIX "/opt/canworks"
 #endif
-  const char* venv = CANOPEN_PREFIX "/venv/bin/dcfgen";
+  const char* venv = CANWORKS_PREFIX "/venv/bin/dcfgen";
   if (access(venv, X_OK) == 0) return venv;
   return "dcfgen";
 }

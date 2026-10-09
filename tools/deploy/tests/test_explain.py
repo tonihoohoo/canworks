@@ -266,7 +266,7 @@ class Layers(unittest.TestCase):
         dec = rtd_decoder()
         got = "\n".join(format_text(ex(t, dec, 125000)) for t in FRAMES)
         path = os.path.join(GOLDEN, "rtd-sensor.txt")
-        if os.environ.get("CANOPEN_UPDATE_GOLDEN"):
+        if os.environ.get("CANWORKS_UPDATE_GOLDEN"):
             os.makedirs(GOLDEN, exist_ok=True)
             with open(path, "w", encoding="utf-8", newline="") as f:
                 f.write(got)

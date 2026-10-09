@@ -470,7 +470,7 @@ def write(model):
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
             "<meta name=\"generator\" content=\"%s %s\"><title>%s</title><style>%s</style></head>"
             "<body><div class=\"layout\">%s<main>%s%s<footer class=\"foot\">%s · %s · generated %s</footer></main>"
-            "</div><script type=\"application/json\" id=\"canopen-doc\">%s</script><script>%s</script></body></html>\n"
+            "</div><script type=\"application/json\" id=\"canworks-doc\">%s</script><script>%s</script></body></html>\n"
             % (E(model["tool"]["name"]), E(model["tool"]["version"]), E(title), CSS, _toc(model), head,
                "".join(body), E(title), E(model["config"]["file"]), E(model["generated"]), data, JS))
 
@@ -569,7 +569,7 @@ a{color:inherit;text-decoration:none}h2,h3,h4,h5{break-after:avoid}.seg{-webkit-
 JS = """
 (function(){
 var root=document.documentElement;
-function store(v){try{if(v)localStorage.setItem('canopen-doc-theme',v);return localStorage.getItem('canopen-doc-theme')}catch(e){return null}}
+function store(v){try{if(v)localStorage.setItem('canworks-doc-theme',v);return localStorage.getItem('canworks-doc-theme')}catch(e){return null}}
 var saved=store();if(saved)root.setAttribute('data-theme',saved);
 var t=document.querySelector('[data-theme-toggle]');
 if(t)t.addEventListener('click',function(){var dark=root.getAttribute('data-theme')?root.getAttribute('data-theme')==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
