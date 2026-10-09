@@ -1169,7 +1169,7 @@ def _print_raw_status(raw, out):
     prog = raw.get("program") or {}
     line = "raw CAN: %s, %s frames sent, %s received, bus load %.0f %%" % (
         "running" if raw.get("running") else "not running", raw.get("frames_sent", 0),
-        raw.get("frames_received", 0), 100 * float(raw.get("bus_load") or 0))
+        raw.get("frames_received", 0), float(raw.get("bus_load") or 0))
     if raw.get("listen_only"):
         line += ", listen-only"
     out.write(line + "\n")

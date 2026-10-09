@@ -277,3 +277,79 @@ async function rawImportDbc() {
     banner(`Imported ${n} message${n === 1 ? "" : "s"}.` + (r.notes.length ? " " + r.notes.join("; ") + "." : ""), r.notes.length > 0);
   } catch (e) { banner(e.message, true); }
 }
+
+// --- Plain CAN networks (protocol "none") ---
+
+const isPlain = (net) => !!net && net.protocol === "none";
+
+function renderPlainBus(view) {
+  view.append(
+    el("h2", null, "Bus" + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
+    protocolField(),
+    el("fieldset", { dataset: { section: "network" } }, el("legend", null, "Network"),
+      el("div", { class: "grid" },
+        choice("Network", "adapter.simulate", [
+          { value: undefined, label: "Real", help: "The CAN adapter below." },
+          { value: true, label: "Simulated",
+            help: "A virtual bus inside the plugin: no CAN interface is used. Plain CAN devices from the Simulation view (simulation.json) send and answer on it. The adapter settings below are kept for switching back." },
+        ], { onChange: (v) => {
+          const ad = S.config.adapter || (S.config.adapter = {});
+          if (v === true) ad.simulate = true; else delete ad.simulate;
+          changed(true);
+        } }))),
+    adapterFieldset(),
+    el("p", { class: "muted" }, "Only plain CAN messages run on this network. Set them up under ",
+      el("button", { type: "button", class: "link", dataset: { go: "raw" }, onclick: () => showView("raw") }, "CAN messages"), "."),
+    onlineAccessSettings());
+}
+
+// The raw part of an online status answer: config messages and the
+// program's frame blocks, on any network.
+function rawLive(st) {
+  const box = $("#online-raw");
+  if (!box) return;
+  const raw = st.raw;
+  if (!raw || (!(raw.rx || []).length && !(raw.tx || []).length && !(raw.program || {}).receivers &&
+      !(raw.program || {}).cyclic_jobs && !(raw.program || {}).frames_sent && !(raw.simulated_devices || []).length)) {
+    box.replaceChildren();
+    return;
+  }
+  const prog = raw.program || {};
+  const idText = (v) => "0x" + (v || 0).toString(16).toUpperCase().padStart(v > 0x7FF ? 8 : 3, "0");
+  const rx = (raw.rx || []).map((m) => {
+    let state = !m.seen ? "never received" : m.timed_out ? "timed out" : `${m.age_ms} ms ago`;
+    if (m.short_frames) state += `, ${m.short_frames} short`;
+    return el("tr", { dataset: { rawRx: m.message } },
+      el("td", null, m.message), el("td", null, String(m.count ?? 0)),
+      el("td", { class: m.timed_out ? "bad" : null }, state),
+      el("td", { class: "mono" }, m.seen ? `${idText(m.last_id)} [${m.last_dlc}] ${m.last_data || ""}` : "-"));
+  });
+  const tx = (raw.tx || []).map((m) => el("tr", { dataset: { rawTx: m.message } },
+    el("td", null, m.message), el("td", null, String(m.count ?? 0)),
+    el("td", { class: m.error ? "bad" : null }, m.error || "-")));
+  const parts = [el("h3", null, "CAN messages"),
+    el("p", { dataset: { online: "raw" } }, `${raw.running ? "Running" : "Not running"}: ${raw.frames_sent ?? 0} frames sent, ` +
+      `${raw.frames_received ?? 0} received, bus load ${raw.bus_load ?? 0} %${raw.listen_only ? ", listen-only" : ""}.`)];
+  if (prog.receivers || prog.cyclic_jobs || prog.frames_sent)
+    parts.push(el("p", { dataset: { online: "raw-program" } },
+      `Program blocks: ${prog.receivers ?? 0} receivers, ${prog.cyclic_jobs ?? 0} cyclic jobs, ${prog.frames_sent ?? 0} frames sent, ${prog.dropped ?? 0} dropped.`));
+  if ((raw.simulated_devices || []).length)
+    parts.push(el("p", { dataset: { online: "raw-devices" } }, "Simulated plain CAN devices: " + raw.simulated_devices.join(", ") + "."));
+  if (rx.length) parts.push(el("table", { class: "od", dataset: { online: "raw-rx" } },
+    el("thead", null, el("tr", null, thCells(["Received message", "Count", "State", "Last frame"]))), el("tbody", null, rx)));
+  if (tx.length) parts.push(el("table", { class: "od", dataset: { online: "raw-tx" } },
+    el("thead", null, el("tr", null, thCells(["Sent message", "Count", "Error"]))), el("tbody", null, tx)));
+  box.replaceChildren(...parts);
+}
+
+// The bus row of a plain CAN network.
+function plainLive(st) {
+  const bus = st.bus || {};
+  $("#online-live").replaceChildren(
+    el("table", { class: "online-bus" }, el("tbody", null,
+      el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } },
+        `${bus.interface || "?"}: ${BUS_STATES[bus.state] || bus.state || "?"}` + (st.simulated_network ? " (simulated)" : "")),
+        el("th", null, "Bit rate"), el("td", null, bus.bitrate ? `${bus.bitrate / 1000} kbit/s` : "?"),
+        el("th", null, "TX / RX errors"), el("td", null, `${bus.tx_errors ?? "-"} / ${bus.rx_errors ?? "-"}`),
+        el("th", null, "Bus-off"), el("td", null, String(bus.bus_off_count ?? "-"))))));
+}

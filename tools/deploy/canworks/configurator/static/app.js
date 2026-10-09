@@ -578,18 +578,20 @@ function switchNet(i) {
 
 async function addNetwork() {
   const protocol = await modal("Add a network with its own CAN interface. Which protocol does it run?",
-    [["cancel", "Cancel"], ["j1939", "J1939 (an ECU)"], ["canopen", "CANopen (a master and nodes)", true]]);
-  if (protocol !== "canopen" && protocol !== "j1939") return;
+    [["cancel", "Cancel"], ["none", "Plain CAN (messages only)"], ["j1939", "J1939 (an ECU)"],
+      ["canopen", "CANopen (a master and nodes)", true]]);
+  if (protocol !== "canopen" && protocol !== "j1939" && protocol !== "none") return;
   const first = S.model.networks[0];
   const rate = first && first.adapter && Number.isInteger(first.adapter.bitrate) ? first.adapter.bitrate : 250000;
   // No interface: the user picks it (each network needs its own).
   S.model.networks.push(protocol === "j1939" ? newJ1939Network(rate)
+    : protocol === "none" ? { protocol: "none", adapter: { type: "socketcan", bitrate: rate } }
     : { adapter: { type: "socketcan", bitrate: rate }, master: { node_id: 1, sync_period_us: 10000 }, nodes: [] });
   openNet(S.model.networks.length - 1);
   S.onlineNet = null;
   S.view = "bus";
-  banner(`Added ${protocol === "j1939" ? "J1939 " : ""}network ${S.model.networks.length}. Enter its CAN interface (each network needs its own), then ` +
-    (protocol === "j1939" ? "its ECU identity and messages." : "add its nodes."));
+  banner(`Added ${protocol === "j1939" ? "J1939 " : protocol === "none" ? "plain CAN " : ""}network ${S.model.networks.length}. Enter its CAN interface (each network needs its own), then ` +
+    (protocol === "j1939" ? "its ECU identity and messages." : protocol === "none" ? "its messages on the CAN messages page." : "add its nodes."));
   changed(true);
 }
 
@@ -803,6 +805,7 @@ function render() {
   if (commission && !["online", "scan", "trace", "framelab"].includes(S.view)) S.view = "online";
   // A J1939 network has no nodes, bus scan or simulated devices.
   if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "scan" || S.view === "simulation")) S.view = "bus";
+  if (isPlain(S.config) && (S.view.startsWith("node:") || S.view === "scan")) S.view = "bus";
   renderSide();
   updateSimBanner();
   // The online view, the scan page and the simulation view share one connection.
@@ -815,7 +818,8 @@ function render() {
   const view = $("#view");
   view.replaceChildren();
   view.classList.toggle("indexed", S.view.startsWith("node:"));
-  if (S.view === "bus") (isJ1939(S.config) ? renderJ1939(view) : renderBus(view));
+  if (S.view === "bus") (isJ1939(S.config) ? renderJ1939(view) : isPlain(S.config) ? renderPlainBus(view) : renderBus(view));
+  else if (S.view === "raw") renderCanMessages(view);
   else if (S.view === "declarations") renderDeclarations(view);
   else if (S.view === "online") renderOnline(view);
   else if (S.view === "scan") renderScan(view);
@@ -842,13 +846,14 @@ function renderSide() {
     const s = S.config.slave || {};
     list.append(item(S.view === "bus", { dataset: { slave: "1" }, onclick: () => showView("bus") },
       el("span", { class: "name" }, `${s.node_id === null ? "LSS" : s.node_id ?? "?"} slave device (this PLC)`)));
-  } else if (!(S.config.nodes || []).length && !isJ1939(S.config)) list.append(el("li", { class: "muted" }, "No nodes yet"));
+  } else if (!(S.config.nodes || []).length && !isJ1939(S.config) && !isPlain(S.config)) list.append(el("li", { class: "muted" }, "No nodes yet"));
   fillCounts(countProblems());
   const j1939 = isJ1939(S.config);
-  $("#eds-input").closest("label").hidden = isSlave(S.config) || j1939;
-  $("#nodes-caption").hidden = j1939;
-  $("#nav-bus").textContent = j1939 ? "Bus and ECU" : "Bus and master";
-  $("#nav-scan").hidden = j1939;
+  const plain = isPlain(S.config);
+  $("#eds-input").closest("label").hidden = isSlave(S.config) || j1939 || plain;
+  $("#nodes-caption").hidden = j1939 || plain;
+  $("#nav-bus").textContent = j1939 ? "Bus and ECU" : plain ? "Bus" : "Bus and master";
+  $("#nav-scan").hidden = j1939 || plain;
   $("#nav-simulation").hidden = j1939;
   $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
   const unused = S.state.unused_eds || [];
@@ -3354,6 +3359,7 @@ function renderOnline(view) {
         onclick: () => { S.onlineForm = true; render(); } }, "Connection…")),
     el("div", { id: "online-conn", class: "online-conn" }, "Connecting to " + targetLabel() + "…"),
     el("div", { id: "online-live" }),
+    el("div", { id: "online-raw" }),
     el("div", { id: "online-lss" }),
     el("div", { id: "online-node" }));
   S.lssAllow = undefined;
@@ -3403,8 +3409,8 @@ async function pollOnline(seq) {
   }
   const notes = [];
   const bus = st.bus || {};
-  const protocol = st.protocol === "j1939" ? "J1939" : "CANopen";
-  if (!st.session) notes.push(el("div", { class: "online-note error" }, `No ${protocol} session: the CAN interface ${bus.interface || "of this network"} is missing or down on the runtime.`));
+  const protocol = st.protocol === "j1939" ? "J1939" : st.protocol === "none" ? "plain CAN" : "CANopen";
+  if (!st.session && st.protocol !== "none") notes.push(el("div", { class: "online-note error" }, `No ${protocol} session: the CAN interface ${bus.interface || "of this network"} is missing or down on the runtime.`));
   if (r.config === "different") notes.push(el("div", { class: "online-note warning", dataset: { online: "fingerprint" } },
     "The runtime runs a different configuration than the saved canworks.json (saved changes not uploaded yet, or another project). " +
     "Upload the saved config with the deploy tool (canworks deploy) or the editor's Build and upload with the CANopen hook."));
@@ -3413,9 +3419,15 @@ async function pollOnline(seq) {
     "This runtime simulates every network (the local simulator runtime): no CAN interface is used, whatever the adapter settings say."));
   conn.className = "online-conn ok";
   // The connection line is a live region: it is rewritten only when it changes.
-  const line = el("div", null, `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${protocol} session up ${Math.floor(st.uptime_s || 0)} s, ` +
+  const line = el("div", null, `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${st.protocol === "none" ? "plain CAN network" : protocol + " session"} up ${Math.floor(st.uptime_s || 0)} s, ` +
     (r.hello.allow_changes ? "changes allowed." : "read-only."), ...notes);
   if (conn.dataset.html !== line.innerHTML) { conn.dataset.html = line.innerHTML; conn.replaceChildren(...line.childNodes); }
+  rawLive(st);
+  if (st.protocol === "none") {
+    plainLive(st);
+    S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
+    return;
+  }
   if (st.protocol === "j1939") {
     j1939Live(st);
     S.onlineTimer = setTimeout(() => pollOnline(seq), 500);

@@ -250,7 +250,7 @@ class StatusText(unittest.TestCase):
         "listen_only": False, "bus": {"interface": "simulated", "bitrate": 250000, "state": 1},
         "send_jobs": [], "bitrate_sweep": {"running": False},
         "raw": {"running": True, "listen_only": False, "confirm": "echo", "frames_sent": 40, "frames_received": 81,
-                "bus_load": 0.031, "program": {"receivers": 1, "cyclic_jobs": 0, "frames_sent": 2, "dropped": 0},
+                "bus_load": 3, "program": {"receivers": 1, "cyclic_jobs": 0, "frames_sent": 2, "dropped": 0},
                 "rx": [{"message": "joystick (0x180)", "count": 80, "short_frames": 0, "seen": True,
                         "timed_out": False, "age_ms": 9, "last_id": 384, "last_dlc": 2, "last_data": "10 00"},
                        {"message": "lamp_ack (0x181)", "count": 0, "short_frames": 0, "seen": False,
