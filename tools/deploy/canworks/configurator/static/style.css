@@ -140,7 +140,7 @@ details.picker > summary { cursor: pointer; display: inline-block; font: inherit
 details.picker > summary::-webkit-details-marker { display: none; }
 details.picker > summary:hover { background: var(--hover); }
 details.picker > div { margin-top: 8px; }
-#online-live.stale { filter: grayscale(1); outline: 2px dashed var(--muted); outline-offset: 2px; }  /* greyed, still readable at AA */
+#online-live.stale, #online-node.stale { filter: grayscale(1); outline: 2px dashed var(--muted); outline-offset: 2px; }  /* greyed, still readable at AA */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 16px; margin-bottom: 14px; }
 .grid > .span2, .pdo-grid > .span2 { grid-column: span 2; }
 .grid label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); }

@@ -471,8 +471,9 @@ def handle(route, body, session, conn, jobs, client, node, library, host):
             keys = P.compare_keys(ctx.eds, reference, include_ro, only)
             reading = P.read_entries(client, node, keys, job.progress("reading"), lambda: job.cancel)
             rows = P.compare(ctx.eds, reading, reference, include_ro, only)
+            # The values read also refresh the page's object dictionary.
             return {"rows": rows, "summary": P.summary(rows), "stopped": reading.stopped,
-                    "reference": ref_kind}
+                    "reference": ref_kind, "reading": reading.to_json(P.entries(ctx.eds))}
         return {"job": jobs.start("compare", node, compare).to_json()}
     if path == "restore_plan":
         backup = file_arg(body, node)
