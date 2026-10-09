@@ -2359,7 +2359,8 @@ function pdoField(label, path, dflt, help) {
     const t = input.value.trim();
     setPath(path, t === "" ? undefined : /^[0-9]+$/.test(t) ? parseInt(t, 10) : t);
   });
-  return el("label", null, label, input, hint(help || (dflt ? "Empty: " + dflt : null)));
+  return el("label", null, label, input, hint(help || (dflt ? "Empty: " + dflt : null)),
+    el("span", { class: "field-msg", dataset: { for: path } }));
 }
 
 // The CiA 301 default COB-ID the plugin uses when cob_id is left out (PDOs 1-4).
@@ -6039,7 +6040,7 @@ function fillCounts(c) {
 function readable(m) {
   let t = m.replace(/^[^:]*canworks\.json: /, "");
   while (/^[a-z_]+(\[\d+\])?(\.[a-z_]+(\[\d+\])?)*: /.test(t)) t = t.replace(/^[^:]*: /, "");
-  t = t.replace(/^node \d+( \([^)]*\))?(, |: )/, "");
+  t = t.replace(/^node \d+( \([^)]*\))?( [TR]PDO \d+)?(, |: )/, "");
   t = t.replace(/^object (0x[0-9A-Fa-f]+:\d+): /, "$1: ");
   return t;
 }

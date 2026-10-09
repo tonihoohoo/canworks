@@ -671,10 +671,13 @@
           "type": "object",
           "properties": {
             "scale_numerator": {
-              "description": "Axis iRatioTechUnitsNum (DINT): increments per technical unit together with scale_denominator and scale_factor. Default 1.",
+              "description": "Axis iRatioTechUnitsNum (DINT), not 0: increments per technical unit together with scale_denominator and scale_factor. Default 1.",
               "type": "integer",
               "minimum": -2147483648,
-              "maximum": 2147483647
+              "maximum": 2147483647,
+              "not": {
+                "const": 0
+              }
             },
             "scale_denominator": {
               "description": "Axis dwRatioTechUnitsDenom (DWORD). Default 1.",

@@ -393,6 +393,7 @@ function simSaveBar() {
   const state = el("span", { class: "muted", dataset: { sim: "file-state" } });
   const btn = el("button", { type: "button", class: "primary", dataset: { sim: "save" }, onclick: () => simSave(false) }, "Save to simulation file");
   simShowFileState(state);
+  simSaveAllowed(btn);
   return el("span", { class: "row" }, state, btn);
 }
 
@@ -404,6 +405,15 @@ function simShowFileState(target) {
   t.textContent = (simDirty() ? "Unsaved changes" : exists ? "Saved" : "No simulation file yet") +
     (n ? ` · ${n} problem${n === 1 ? "" : "s"}` : "") + ` (${(S.state.mode === "project" ? "canworks/" : "") + "simulation.json"})`;
   t.classList.toggle("field-msg", n > 0);
+  const save = document.querySelector('[data-sim="save"]');
+  if (save) simSaveAllowed(save);
+}
+
+// The server refuses a file with errors; so does the button.
+function simSaveAllowed(btn) {
+  const errors = SIM.problems.filter((p) => p.level !== "warning").length;
+  btn.disabled = errors > 0;
+  btn.title = errors ? `${errors} error${errors === 1 ? "" : "s"} in the simulation file` : "";
 }
 
 function simConnectBox() {
@@ -695,6 +705,8 @@ function simPinPicker(ref) {
     el("button", { type: "button", dataset: { sim: "pin" }, onclick: () => {
       const key = simKey(typed.value.trim() || pick.value);
       if (!/^0x[0-9A-F]{4}:\d+$/.test(key)) { banner("Pick an object, or type it as 0xIIII:S.", true); return; }
+      const [index, sub] = simSplit(key);
+      if (eds && eds.objects && !objectInfo(eds, index, sub)) { banner(`${simRefText(ref)} has no object ${key} in its EDS.`, true); return; }
       const pins = simPins(ref);
       if (!pins.includes(key)) simSetPins(ref, pins.concat([key]));
       typed.value = "";
@@ -1076,7 +1088,13 @@ function faultFields(kind, f, ref) {
   if (kind === "tpdo_stop") {
     const [l, i] = simInput("TPDO number", f.tpdo_stop, "tpdo", { placeholder: "1" });
     box.append(l);
-    return { el: box, value: () => ({ tpdo_stop: simInt(i.value, "TPDO number", false, 1, 512) }) };
+    return { el: box, value() {
+      const n = simInt(i.value, "TPDO number", false, 1, 512);
+      // The device's EDS says which TPDOs it has (0x1800 + n - 1).
+      const eds = ref === undefined ? null : simEds(ref);
+      if (eds && eds.objects && !objectInfo(eds, 0x1800 + n - 1, 1)) throw new Error(`${simRefText(ref)} has no TPDO ${n} (its EDS has no object 0x${(0x1800 + n - 1).toString(16).toUpperCase()}).`);
+      return { tpdo_stop: n };
+    } };
   }
   if (kind === "identity") {
     const inputs = IDENTITY_KEYS.map(([k, label]) => { const [l, i] = simInput(label, p[k], k, { placeholder: "as in the EDS" }); box.append(l); return [k, label, i]; });

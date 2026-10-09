@@ -1,0 +1,97 @@
+{
+  "description": "Node 2's RPDO 1 on 0x183, node 3's TPDO 1 \"auto\" (A11).",
+  "config": {
+    "schema_version": 1,
+    "adapter": {
+      "type": "socketcan",
+      "interface": "vcan0",
+      "bitrate": 125000
+    },
+    "master": {
+      "node_id": 1,
+      "sync_period_us": 100000
+    },
+    "nodes": [
+      {
+        "node_id": 2,
+        "name": "pingpong",
+        "eds": "cpp-slave.eds",
+        "heartbeat_ms": 100,
+        "status_location": "%IX10.0",
+        "tx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4001",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%ID100"
+              }
+            ]
+          }
+        ],
+        "rx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4000",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%QD100"
+              }
+            ],
+            "cob_id": "0x183"
+          }
+        ],
+        "sdo": [
+          {
+            "index": "0x1017",
+            "subindex": 0,
+            "type": "UNSIGNED16",
+            "value": 100
+          }
+        ]
+      },
+      {
+        "node_id": 3,
+        "name": "second",
+        "eds": "cpp-slave.eds",
+        "heartbeat_ms": 100,
+        "status_location": "%IX10.1",
+        "tx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4001",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%ID104"
+              }
+            ],
+            "cob_id": "auto"
+          }
+        ],
+        "rx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4000",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%QD104"
+              }
+            ]
+          }
+        ],
+        "sdo": [
+          {
+            "index": "0x1017",
+            "subindex": 0,
+            "type": "UNSIGNED16",
+            "value": 100
+          }
+        ]
+      }
+    ]
+  }
+}
