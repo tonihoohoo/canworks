@@ -3694,6 +3694,39 @@ TEST(diag_server_trace_ops) {
   set_log_sink(nullptr);
 }
 
+// A plain CAN network has no bus thread that attaches its hub: it traces
+// while its raw path runs.
+TEST(diag_server_trace_on_a_plain_network) {
+  set_log_sink(diag_capture);
+  Config cfg = diag_config(false);
+  cfg.protocol = Protocol::None;
+  DiagHub hub(cfg, "test");
+  std::atomic<bool> running{false};
+  hub.set_raw_running([&running] { return running.load(); });
+  DiagServer server(hub);
+  std::atomic<bool> present{true};
+  std::atomic<int> opens{0};
+  std::vector<TraceFilter> kernel_filters;
+  auto* src = new FakeTraceSource(&present, &opens, &kernel_filters);
+  server.set_trace_source(std::unique_ptr<TraceSource>(src));
+  server.start();
+  CHECK(wait_port(server));
+  DiagClient c(server.port());
+  CHECK(c.ask(R"({"op":"hello","token":"secret"})").find("\"ok\":true") != std::string::npos);
+  CHECK(c.ask(R"({"op":"trace_start"})").find("no bus") != std::string::npos);
+  running = true;
+  std::string st = c.ask(R"({"op":"trace_start"})");
+  CHECK_MSG(st.find("\"ok\":true") != std::string::npos, st);
+  for (int i = 0; i < 100 && opens < 1; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  CHECK(opens == 1);
+  src->put(rec(0x390, 1));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  auto frames = decode_frames(c.ask(R"({"op":"trace_fetch","after":0})"));
+  CHECK(frames.size() == 1 && frames[0].id == 0x390);
+  server.stop();
+  set_log_sink(nullptr);
+}
+
 // ---------------------------------------------------------------------------
 // Runtime version guard (managed Docker install)
 

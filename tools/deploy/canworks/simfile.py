@@ -720,10 +720,10 @@ def csv_problem(value, base, roots):
     with lines of at most 4096 bytes."""
     file = _resolve_path(value, base)
     real = os.path.realpath(file)
-    if not os.path.exists(real):
-        return "CSV file %s not found (file: \"%s\")" % (file, value)
     if not any(real.startswith(os.path.join(os.path.realpath(r), "")) for r in roots if r):
         return "CSV file %s is outside the folders of the configuration and the simulation file" % file
+    if not os.path.exists(real):
+        return "CSV file %s not found (file: \"%s\")" % (file, value)
     try:
         st = os.stat(real)
     except OSError:
@@ -928,7 +928,7 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
         # own network's nodes, messages naming the section.
         nets = contract.networks(cfg) if isinstance(cfg, dict) else []
         names = [section_name(n) for n in nets]
-        for name, body in data["networks"].items():
+        for name, body in (data.get("networks") or {}).items():
             at = "networks.%s" % name
 
             def s_err(where, msg, paths=None, at=at):

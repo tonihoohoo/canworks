@@ -338,8 +338,10 @@ bool parse_options(Args& a, Options& o, bool test, std::string& err) {
     }
     return true;
   }
-  if (o.config.empty() && o.eds.empty()) {
-    err = "give a CONFIG (canworks.json) or --eds FILE --node ID";
+  // A --sim file alone may hold plain CAN devices (raw_devices); one without
+  // any is refused at load ("no device to simulate").
+  if (o.config.empty() && o.eds.empty() && o.sim_file.empty()) {
+    err = "give a CONFIG (canworks.json), --eds FILE --node ID or --sim FILE";
     return false;
   }
   if (o.has_nodes && o.config.empty()) {
@@ -588,8 +590,9 @@ class Session {
     if (!sim_path.empty()) {
       if (!canopen_sim::load_sim_file(sim_path, file, errors, have_cfg ? cfg.config_dir : std::string()))
         return report("cannot load " + sim_path);
-      if (file.schema_version >= 2) {
-        // A version 2 file: the config's network, or the file's only section.
+      // A version 2 file: the config's network, or the file's only section
+      // (without a config and without sections, it has raw_devices only).
+      if (file.schema_version >= 2 && (have_cfg || !file.networks.empty())) {
         std::string name;
         if (have_cfg) {
           name = sim_network_name(cfg);
@@ -633,7 +636,8 @@ class Session {
                              std::string(std::getenv("CANWORKS_SIM_VIRTUAL_BUS")) == "1";
     bool real = false;
     if (!virtual_bus && !prepare_interface(o, real)) return false;
-    if (real) {
+    // Plain CAN devices have no node ID: only CANopen devices need the check.
+    if (real && (!specs.empty() || !file.extra.empty())) {
       say("listening 1 s on " + o.iface + " for node IDs in use (real bus)");
       std::set<unsigned> seen;
       std::string err;
@@ -667,7 +671,8 @@ class Session {
         for (unsigned id : seen) ids += (ids.empty() ? "" : ", ") + std::to_string(id);
         say("node IDs in use on " + o.iface + ": " + ids);
       }
-      if (!left) return report("every node ID to simulate is taken on " + o.iface + "; nothing to simulate");
+      if (!left && !raw->size())
+        return report("every node ID to simulate is taken on " + o.iface + "; nothing to simulate");
     }
 
     // The control channel.

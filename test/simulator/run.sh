@@ -247,6 +247,34 @@ grep -q "node 23: node ID 23 is taken" "$WORK/real.log" && ok "--real-bus: node 
 "$SIM" status --sim 127.0.0.1:7541 > "$WORK/real-status.out"
 grep -q "node 23.*NODE ID CONFLICT" "$WORK/real-status.out" && grep -q "node 24.*power on" "$WORK/real-status.out" \
     && ok "status: node 23 conflict, node 24 on" || fail "status: $(cat "$WORK/real-status.out")"
+# Plain CAN devices only (a version 2 file without "networks"): no node ID
+# check, and they send on the real bus.
+cat > "$WORK/raw-only.json" <<'JSON'
+{ "schema_version": 2,
+  "raw_devices": [ { "name": "sensor", "send": [ { "id": 912, "dlc": 1, "period_ms": 50, "data": [7] } ] } ] }
+JSON
+CANWORKS_SIM_TREAT_AS_REAL=vcan1 "$SIM" --iface vcan1 --real-bus --sim "$WORK/raw-only.json" --port 7549 \
+    > "$WORK/raw-only.log" 2>&1 &
+RAW_PID=$!
+PIDS+=($RAW_PID)
+python3 - > "$WORK/raw-only.out" 2>&1 <<'PY'
+import socket, struct, time
+s = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
+s.bind(("vcan1",))
+s.settimeout(0.5)
+end = time.time() + 5
+while time.time() < end:
+    try:
+        f = s.recv(16)
+    except socket.timeout:
+        continue
+    if struct.unpack("<I", f[:4])[0] == 912:
+        print("seen 0x390")
+        break
+PY
+grep -q "seen 0x390" "$WORK/raw-only.out" && ok "--real-bus: a file of raw devices only sends" \
+    || fail "raw devices only on a real bus: $(cat "$WORK/raw-only.log")"
+kill "$RAW_PID" 2>/dev/null; wait "$RAW_PID" 2>/dev/null
 
 echo "==> 4. Simulated nodes in the plugin next to a real node on vcan0"
 python3 - "$WORK/canopen_config.json" "$WORK/mixed.json" "$WORK/conflict.json" <<'PY'
