@@ -5,6 +5,7 @@
 #   sudo scripts/install-stock.sh [--runtime-dir DIR] [--prefix /opt/canworks]
 #                                 [--lely-ref <commit>] [--no-deps] [--no-editor-hook]
 #                                 [--without-canopen | --without-j1939]
+#                                 [--with-link] [--without-discovery]
 #   sudo scripts/install-stock.sh --uninstall [--purge] [--runtime-dir DIR]
 #   sudo scripts/install-stock.sh --docker-image <image>   (hand-run container)
 #
@@ -46,6 +47,11 @@
 # again. --uninstall removes the spec entries again. --docker-image builds for a
 # runtime container you start yourself and prints the docker run flags.
 # See docs/install-stock.md.
+#
+# Remote access (docs/remote-access.md): the device is advertised on the local
+# network (mDNS, _canworks._tcp) unless --without-discovery; --with-link also
+# installs the remote link service (scripts/install-link.sh). --uninstall
+# removes both.
 
 set -euo pipefail
 
@@ -74,8 +80,11 @@ WITH_J1939=1
 # J1939 needs the kernel's can-j1939 module (overridable for the tests).
 MODULES_LOAD=${CANWORKS_MODULES_LOAD_DIR:-/etc/modules-load.d}/canworks-j1939.conf
 MODPROBE=${CANWORKS_MODPROBE:-modprobe}
+# Remote access (scripts/install-link.sh).
+WITH_LINK=0
+DISCOVERY=1
 
-usage() { sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,54p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -90,6 +99,8 @@ while [ $# -gt 0 ]; do
         --in-image) IN_IMAGE=1 ;;
         --without-canopen) WITH_CANOPEN=0 ;;
         --without-j1939) WITH_J1939=0 ;;
+        --with-link) WITH_LINK=1 ;;
+        --without-discovery) DISCOVERY=0 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
     esac
@@ -124,6 +135,25 @@ setup_j1939_module() {
         echo "warning: the kernel module can-j1939 could not be loaded: J1939 networks need a kernel with the" \
              "can-j1939 module and stay down until it loads (on Ubuntu it is in linux-modules-extra-\$(uname -r));" \
              "CANopen is not affected" >&2
+    fi
+}
+
+# The advertisement and, with --with-link, the remote link, on the host. The
+# runtime copies each uploaded config to <prefix>/lib/canworks.json (from inside
+# its Docker container too, through the bind of <prefix>); the link reads it there.
+setup_remote_access() {
+    if [ "$WITH_LINK" -eq 1 ]; then
+        "$REPO/scripts/install-link.sh" --config "$PREFIX/lib/canworks.json"
+    elif [ "$DISCOVERY" -eq 1 ]; then
+        "$REPO/scripts/install-link.sh" --without-link --config "$PREFIX/lib/canworks.json"
+    fi
+}
+
+remove_remote_access() {
+    if [ "$PURGE" -eq 1 ]; then
+        "$REPO/scripts/install-link.sh" --uninstall --purge
+    else
+        "$REPO/scripts/install-link.sh" --uninstall
     fi
 }
 
@@ -240,6 +270,7 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
             rm -rf "${PREFIX:?}/lib"
         fi
         rm -f "$MODULES_LOAD"
+        remove_remote_access
         say "Done. The runtime runs without canworks."
         exit 0
     fi
@@ -253,6 +284,7 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
     spec_tool add "$BOOTLOADER_SPEC" "$DOCKER_BIND" "$DOCKER_ENV" || die "could not update $BOOTLOADER_SPEC"
     setup_j1939_module
     recreate_runtime
+    setup_remote_access
     cat <<EOF
 ==> Done. canworks ($PROTOCOLS) is installed for $IMAGE and disabled until an upload enables it.
     Deploy a program with its canworks config (canworks-deploy, docs/deploy.md),
@@ -354,6 +386,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
     remove_editor_hook
     remove_sim_link
     rm -f "$MODULES_LOAD"
+    remove_remote_access
     if [ -x "$PREFIX/venv/bin/python" ]; then
         "$PREFIX/venv/bin/python" -m pip uninstall -q -y canworks >/dev/null 2>&1 || true
     fi
@@ -499,6 +532,8 @@ else
     AFTER_UPLOAD="The editor's own \"Build and upload\" switches canworks off until the next deploy
     (installed with --no-editor-hook)."
 fi
+
+setup_remote_access
 
 cat <<EOF
 ==> Done. The plugin ($PROTOCOLS) is installed but disabled.
