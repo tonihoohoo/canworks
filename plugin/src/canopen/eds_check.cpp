@@ -814,6 +814,13 @@ bool check_eds_files(Config& cfg, std::vector<std::string>& errors) {
     n.eds_vendor_id = co_dev_get_vendor_id(dev);
     n.eds_product_code = co_dev_get_product_code(dev);
     n.eds_revision_number = co_dev_get_revision(dev);
+    // emcy_cob_id "device" (the default) reads 0x1014 after a boot only when
+    // the EDS has it; a number or "eds" needs nothing from the EDS.
+    if (const co_sub_t* emcy = co_dev_find_sub(dev, 0x1014, 0)) {
+      uint64_t cob = 0;
+      n.eds_has_emcy = true;
+      if (sub_value(emcy, cob) && !(cob & 0x80000000u) && cob <= 0x7FF) n.eds_emcy_cob_id = static_cast<uint32_t>(cob);
+    }
     if (n.lss_assign && !co_dev_get_lss(dev))
       cfg.warnings.push_back(n.label() + ": its EDS does not say LSS_Supported=1; LSS assignment may not work with "
                                          "this device");

@@ -254,6 +254,83 @@ def render(name):
     return "\n".join(line for line in text.split("\n") if line.strip() or line == "") .replace("\n\n\n", "\n\n")
 
 
+# CO_RECV_EMCY (spec canopen-plc-sdo "EMCY receive block"): the network's EMCY
+# queue through the version 2 table, in the CAN_RECEIVE style (ENABLE, NEW,
+# QUEUED, OVERFLOW). Shares src/common.inc with the SDO blocks.
+EMCY_BODY = """\
+void loop() {
+  const co_sdo::api_v2* t = co_sdo::api2();
+  NEW = false;
+  bool rising = ENABLE && !co_prev;
+  if (rising) {
+    QUEUED = 0;
+    OVERFLOW = false;
+    LOST = 0;
+    ERROR = false;
+    ERROR_ID = 0;
+    co_begun = false;
+  } else if (!ENABLE && co_prev) {
+    co_begun = false;
+    QUEUED = 0;
+    OVERFLOW = false;
+    ERROR = false;
+    ERROR_ID = 0;
+  }
+  co_sdo::emcy_cursor cur = {static_cast<unsigned int>(co_session), static_cast<unsigned int>(co_next)};
+  // At the rising edge, and again on every call while CANopen is not running.
+  if (ENABLE && !co_begun && (rising || (ERROR && ERROR_ID == co_sdo::err_not_running))) {
+    int r = t ? t->emcy_begin(NETWORK, NODE, SKIP_OLD ? 1 : 0, &cur) : -co_sdo::err_not_running;
+    if (r == 0) {
+      co_begun = true;
+      ERROR = false;
+      ERROR_ID = 0;
+    } else {
+      ERROR = true;
+      ERROR_ID = static_cast<unsigned short>(-r);
+    }
+  }
+  if (ENABLE && co_begun && t) {
+    co_sdo::emcy e = {};
+    co_sdo::emcy_info info = {};
+    int r = t->emcy_read(NETWORK, NODE, &cur, &e, &info);
+    if (r == 1) {
+      NEW = true;
+      EMCY_NODE = e.node;
+      ERROR_CODE = e.error_code;
+      ERROR_REGISTER = e.error_register;
+      for (unsigned i = 0; i < 5; ++i) MSEF[i] = e.msef[i];
+      TIMESTAMP = e.time_us;
+    }
+    if (r < 0) {
+      // 8: the CANopen session restarted (shown for this call; reading goes
+      // on from the new session); 4: CANopen stopped (tried again).
+      ERROR = true;
+      ERROR_ID = static_cast<unsigned short>(-r);
+      if (-r != co_sdo::err_cancelled) co_begun = false;
+    } else {
+      ERROR = false;
+      ERROR_ID = 0;
+      LOST = LOST + info.lost;
+      if (info.lost) OVERFLOW = true;
+      QUEUED = info.queued;
+    }
+  }
+  co_session = cur.session;
+  co_next = cur.next;
+  ACTIVE = co_begun;
+  co_prev = ENABLE;
+}"""
+
+EMCY_BLOCK = (
+    "takes one EMCY of the network (NODE 0: every node) per call while ENABLE is TRUE (NEW)",
+    "  ENABLE : BOOL;\n  NETWORK : USINT;\n  NODE : USINT;\n  SKIP_OLD : BOOL;\n",
+    "  MSEF : ARRAY[0..4] OF BYTE;\n",
+    "  ACTIVE : BOOL;\n  NEW : BOOL;\n  EMCY_NODE : USINT;\n  ERROR_CODE : WORD;\n  ERROR_REGISTER : BYTE;\n"
+    "  TIMESTAMP : ULINT;\n  QUEUED : UINT;\n  OVERFLOW : BOOL;\n  LOST : UDINT;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n",
+    "  co_session : UDINT;\n  co_next : UDINT;\n  co_prev : BOOL;\n  co_begun : BOOL;\n",
+    EMCY_BODY)
+
+
 # The CAN frame blocks (spec can-plc-frames) share src/can_common.inc.
 CAN_COMMON = (HERE / "src" / "can_common.inc").read_text()
 
@@ -493,13 +570,14 @@ END_FUNCTION_BLOCK
 """
 
 
-def render_can(name):
-    summary, inputs, inouts, outputs, locals_, body = CAN_BLOCKS[name]
+def render_can(name, block=None, common=None, source="src/can_common.inc"):
+    summary, inputs, inouts, outputs, locals_, body = block or CAN_BLOCKS[name]
     text = CAN_TEMPLATE.format(
         name=name, summary=summary, inputs=inputs, outputs=outputs,
         inout_section=f"VAR_IN_OUT\n{inouts}VAR_END_MARK\n" if inouts else "",
         locals_section=f"VAR\n{locals_}VAR_END_MARK\n" if locals_ else "",
-        common=CAN_COMMON.rstrip("\n"), body=body)
+        common=(common or CAN_COMMON).rstrip("\n"), body=body)
+    text = text.replace("src/can_common.inc", source)
     return text.replace("VAR_END_MARK", "END" + "_VAR")
 
 
@@ -511,6 +589,7 @@ def main():
     OUT.mkdir(exist_ok=True)
     wanted = {f"{name}.cpp": render(name) for name in BLOCKS}
     wanted.update({f"{name}.cpp": render_can(name) for name in CAN_BLOCKS})
+    wanted["CO_RECV_EMCY.cpp"] = render_can("CO_RECV_EMCY", EMCY_BLOCK, COMMON, "src/common.inc")
     for fname, text in wanted.items():
         path = OUT / fname
         if path.exists() and path.read_text() == text:

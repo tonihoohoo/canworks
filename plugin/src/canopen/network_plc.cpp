@@ -85,7 +85,7 @@ uint16_t Network::ResolveWrite(unsigned id, ProgJob& p) {
 void Network::ServiceProgram(clock::time_point now) {
   PlcRequests& api = PlcRequests::instance();
   if (uint32_t v = api.take_unknown_version())
-    log_warn("the PLC program's CANopen library asks for SDO block API version %u, this plugin offers version %u; "
+    log_warn("the PLC program's CANopen library asks for CANopen block API version %u, this plugin offers version %u; "
              "update the plugin (install-stock.sh) or use the library that comes with it",
              v, CANOPEN_PLC_API_VERSION);
   api.expire(now);

@@ -1,16 +1,18 @@
 /* canopen_plc_api.h - the C interface the PLC program's CANopen function
- * blocks (library/canworks) use to run SDO transfers through the
- * loaded plugin. See the spec canopen-plc-sdo.
+ * blocks (library/canworks) use to run SDO transfers and read emergency
+ * messages through the loaded plugin. See the spec canopen-plc-sdo.
  *
  * The blocks find the plugin the runtime has loaded with
  * dlopen("libcanworks_plugin.so", RTLD_NOW | RTLD_NOLOAD) (the plugin's SONAME)
- * and call canopen_plc_api(CANOPEN_PLC_API_VERSION), which returns the
- * function table for that version or NULL. Both functions are called on the
- * PLC scan thread: they never wait on CAN traffic, allocate or log.
+ * and call canopen_plc_api(version), which returns the function table for
+ * that version or NULL. Version 2 begins with the fields of version 1; the
+ * SDO blocks ask for version 1 (so they run on an older plugin too),
+ * CO_RECV_EMCY for version 2. Every function is called on the PLC scan
+ * thread: they never wait on CAN traffic, allocate or log.
  *
  * The library carries a copy of these declarations (library/src/common.inc);
- * test/plc_sdo checks that the two agree. Change the layout only together
- * with a new version number. */
+ * test/plc_sdo/layout_check.cpp checks that the two agree. Change the layout
+ * only together with a new version number. */
 
 #ifndef CANOPEN_PLC_API_H
 #define CANOPEN_PLC_API_H
@@ -21,7 +23,8 @@
 extern "C" {
 #endif
 
-#define CANOPEN_PLC_API_VERSION 1u
+/* The newest version this header describes. */
+#define CANOPEN_PLC_API_VERSION 2u
 
 /* Kinds of data, as the block families name them. */
 enum {
@@ -76,6 +79,50 @@ typedef struct {
    * after a 1 or 2. */
   int (*poll)(uint32_t handle, canopen_plc_result* res, uint8_t* data, uint32_t cap);
 } canopen_plc_api_v1;
+
+/* Emergency messages kept per CANopen master network (CO_RECV_EMCY). */
+#define CANOPEN_PLC_EMCY_QUEUE 64u
+
+/* One emergency message of a configured node. */
+typedef struct {
+  uint64_t time_us;      /* receive time, UTC microseconds since 1970 */
+  uint32_t seq;          /* sequence number in the network's queue */
+  uint16_t error_code;
+  uint8_t node;
+  uint8_t error_register;
+  uint8_t msef[5];       /* manufacturer-specific bytes */
+  uint8_t reserved[3];
+} canopen_plc_emcy;
+
+/* A reader's position, kept by the block instance. */
+typedef struct {
+  uint32_t session;  /* the CANopen session it reads from */
+  uint32_t next;     /* the next sequence number it wants */
+} canopen_plc_emcy_cursor;
+
+typedef struct {
+  uint16_t queued;   /* matching messages still waiting for this reader */
+  uint16_t reserved;
+  uint32_t lost;     /* messages overwritten before this reader got to them, in this call */
+} canopen_plc_emcy_info;
+
+typedef struct {
+  uint32_t size; /* sizeof(canopen_plc_api_v2) */
+  uint32_t (*start)(const canopen_plc_request* req, uint16_t* error_id);
+  int (*poll)(uint32_t handle, canopen_plc_result* res, uint8_t* data, uint32_t cap);
+  /* Places *cursor at the oldest message still kept, or with skip_old at the
+   * next one to arrive. 0, or -ERROR_ID (CANOPEN_PLC_ERR_NOT_RUNNING,
+   * CANOPEN_PLC_ERR_INPUT for a network that is not a CANopen master network
+   * or a node above 127). node 0: every node. */
+  int (*emcy_begin)(uint8_t network, uint8_t node, uint8_t skip_old, canopen_plc_emcy_cursor* cursor);
+  /* Copies the oldest message at or after *cursor that matches node into
+   * *entry and moves the cursor past it: 1; none: 0; -ERROR_ID on an error
+   * (CANOPEN_PLC_ERR_CANCELLED once when the CANopen session restarted: the
+   * cursor then stands at the new session's oldest message). *info is filled
+   * on 0 and 1. */
+  int (*emcy_read)(uint8_t network, uint8_t node, canopen_plc_emcy_cursor* cursor, canopen_plc_emcy* entry,
+                   canopen_plc_emcy_info* info);
+} canopen_plc_api_v2;
 
 /* The table for `version`, or NULL when this plugin does not offer it. */
 const void* canopen_plc_api(uint32_t version);

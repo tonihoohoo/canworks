@@ -40,13 +40,47 @@ std::string raw_frame_text(const RawFrame& f) {
 
 namespace {
 
+std::mutex& emcy_mutex() {
+  static std::mutex m;
+  return m;
+}
+std::map<uint32_t, uint32_t>& emcy_in_use() {  // network << 8 | node -> COB-ID
+  static std::map<uint32_t, uint32_t> m;
+  return m;
+}
+
+}  // namespace
+
+void set_emcy_cob_in_use(unsigned network, unsigned node, uint32_t cob) {
+  std::lock_guard<std::mutex> lock(emcy_mutex());
+  uint32_t key = network << 8 | (node & 0xFF);
+  if (cob)
+    emcy_in_use()[key] = cob;
+  else
+    emcy_in_use().erase(key);
+}
+
+void clear_emcy_cob_in_use(unsigned network) {
+  std::lock_guard<std::mutex> lock(emcy_mutex());
+  auto& m = emcy_in_use();
+  for (auto it = m.begin(); it != m.end();) it = (it->first >> 8) == network ? m.erase(it) : std::next(it);
+}
+
+uint32_t emcy_cob_in_use(const Config& cfg, const NodeConfig& n) {
+  std::lock_guard<std::mutex> lock(emcy_mutex());
+  auto it = emcy_in_use().find(cfg.network_index << 8 | (n.node_id & 0xFF));
+  return it != emcy_in_use().end() ? it->second : n.emcy_cob_id();
+}
+
+namespace {
+
 // Whether a PDO COB-ID (bit 29: extended) is the identifier `id`.
 bool pdo_is(uint32_t cob, uint32_t id, bool ext) {
   const bool cob_ext = (cob & 0x20000000u) != 0;
   return cob_ext == ext && (cob & (cob_ext ? 0x1FFFFFFFu : 0x7FFu)) == id;
 }
 
-std::string node_use(const NodeConfig& n, uint32_t id, bool ext) {
+std::string node_use(const Config& cfg, const NodeConfig& n, uint32_t id, bool ext) {
   const std::string who = " of " + n.label();
   for (const auto& p : n.tx_pdos)
     if (pdo_is(n.tpdo_cob_id(p), id, ext)) return "TPDO" + std::to_string(p.number) + who;
@@ -54,7 +88,9 @@ std::string node_use(const NodeConfig& n, uint32_t id, bool ext) {
     if (pdo_is(n.rpdo_cob_id(p), id, ext)) return "RPDO" + std::to_string(p.number) + who;
   if (ext) return "";
   const uint32_t nid = n.node_id;
-  if (id == 0x80 + nid) return "EMCY" + who;
+  // The EMCY COB-ID in use (moved by the config or read from the device),
+  // and the predefined one, which the node falls back to after a reset.
+  if (id == (emcy_cob_in_use(cfg, n) & 0x7FF) || id == 0x80 + nid) return "EMCY" + who;
   for (unsigned k = 0; k < 4; ++k) {
     if (id == 0x180 + 0x100 * k + nid) return "TPDO" + std::to_string(k + 1) + who + " (predefined)";
     if (id == 0x200 + 0x100 * k + nid) return "RPDO" + std::to_string(k + 1) + who + " (predefined)";
@@ -72,7 +108,7 @@ std::string cob_id_use(const Config& cfg, uint32_t id, bool ext) {
     // Only a PDO can have an extended COB-ID here.
     if (cfg.is_slave()) return "";
     for (const auto& n : cfg.nodes) {
-      std::string use = node_use(n, id, true);
+      std::string use = node_use(cfg, n, id, true);
       if (!use.empty()) return use;
     }
     return "";
@@ -102,7 +138,7 @@ std::string cob_id_use(const Config& cfg, uint32_t id, bool ext) {
   if (id == 0x600 + mid) return "the request channel of the master's SDO server";
   if (id == 0x580 + mid) return "the response channel of the master's SDO server";
   for (const auto& n : cfg.nodes) {
-    std::string use = node_use(n, id, false);
+    std::string use = node_use(cfg, n, id, false);
     if (!use.empty()) return use;
   }
   return "";

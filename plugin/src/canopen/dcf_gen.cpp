@@ -532,8 +532,10 @@ bool strip_upload_files(const std::string& master_dcf) {
 // dcfgen lists an EMCY consumer (1028) only for the configured slaves whose
 // EDS has 1014. Every other node ID gets its predefined EMCY COB-ID
 // (0x80 + node ID) too, so the master sees, and can report, EMCY messages from
-// nodes that are not in the configuration.
-bool add_emcy_consumers(const std::string& master_dcf, unsigned master_id) {
+// nodes that are not in the configuration. A configured EMCY COB-ID
+// (emcy_cob_id, or a startup SDO to 0x1014) replaces the node's entry.
+bool add_emcy_consumers(const std::string& master_dcf, unsigned master_id,
+                        const std::map<unsigned, uint32_t>& fixed) {
   std::string text;
   if (!read_file(master_dcf, text)) return false;
   std::istringstream in(text);
@@ -541,6 +543,7 @@ bool add_emcy_consumers(const std::string& master_dcf, unsigned master_id) {
   std::map<unsigned, std::string> entries;
   bool in_section = false, done = false;
   auto flush = [&] {
+    for (const auto& f : fixed) entries[f.first] = hex(f.second, 8);
     // A slave whose EDS moves its EMCY onto another node's predefined COB-ID
     // keeps it; that other node ID gets no entry.
     std::set<unsigned long> used;
@@ -837,7 +840,10 @@ bool generate_device_config(const Config& cfg, const std::string& dcfgen, Genera
       errors.push_back("dcfgen produced no " + out.master_dcf);
       return false;
     }
-    if (!add_emcy_consumers(out.master_dcf, cfg.master.node_id)) {
+    std::map<unsigned, uint32_t> fixed_emcy;
+    for (const auto& n : cfg.nodes)
+      if (n.emcy_cob == NodeConfig::EmcyCob::Number || n.emcy_cob_from_sdo) fixed_emcy[n.node_id] = n.emcy_cob_config;
+    if (!add_emcy_consumers(out.master_dcf, cfg.master.node_id, fixed_emcy)) {
       errors.push_back("cannot update " + out.master_dcf);
       return false;
     }

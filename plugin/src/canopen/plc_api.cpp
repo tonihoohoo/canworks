@@ -3,6 +3,8 @@
 #include "plc_api.h"
 
 #include <algorithm>
+
+#include "plc_emcy.h"
 #include <cstring>
 
 namespace canopen_plugin {
@@ -196,12 +198,37 @@ int api_poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, uint32_t c
   return PlcRequests::instance().poll(handle, res, data, cap);
 }
 
+// EMCY reads (CO_RECV_EMCY): CANopen must run and the network must be one of
+// its master networks.
+int emcy_check(uint8_t network, uint8_t node) {
+  const PlcRequests& r = PlcRequests::instance();
+  if (!r.running()) return -CANOPEN_PLC_ERR_NOT_RUNNING;
+  if (!r.takes_network(network) || network >= EmcyQueues::kNetworks || node > 127) return -CANOPEN_PLC_ERR_INPUT;
+  return 0;
+}
+
+int api_emcy_begin(uint8_t network, uint8_t node, uint8_t skip_old, canopen_plc_emcy_cursor* cursor) {
+  if (int e = emcy_check(network, node)) return e;
+  if (!cursor) return -CANOPEN_PLC_ERR_INPUT;
+  EmcyQueues::instance().begin(network, skip_old != 0, *cursor);
+  return 0;
+}
+
+int api_emcy_read(uint8_t network, uint8_t node, canopen_plc_emcy_cursor* cursor, canopen_plc_emcy* entry,
+                  canopen_plc_emcy_info* info) {
+  if (int e = emcy_check(network, node)) return e;
+  if (!cursor || !entry || !info) return -CANOPEN_PLC_ERR_INPUT;
+  return EmcyQueues::instance().read(network, node, *cursor, *entry, *info);
+}
+
 const canopen_plc_api_v1 kApiV1 = {sizeof(canopen_plc_api_v1), api_start, api_poll};
+const canopen_plc_api_v2 kApiV2 = {sizeof(canopen_plc_api_v2), api_start, api_poll, api_emcy_begin, api_emcy_read};
 
 }  // namespace
 
 const void* plc_api_table(uint32_t version) {
   if (version == 1) return &kApiV1;
+  if (version == 2) return &kApiV2;
   PlcRequests::instance().note_unknown_version(version);
   return nullptr;
 }

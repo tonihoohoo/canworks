@@ -255,6 +255,12 @@ add_test(NAME plc_sdo_lookup
                  ${CMAKE_CURRENT_BINARY_DIR}/plc_sdo_lookup)
 set_tests_properties(plc_sdo_lookup PROPERTIES ENVIRONMENT "${EDSLINT_ENV}" TIMEOUT 120)
 
+# The library's copy of the C interface matches the plugin's header (sizes and
+# offsets, checked at compile time).
+add_executable(plc_api_layout_check plc_sdo/layout_check.cpp)
+target_include_directories(plc_api_layout_check PRIVATE ${PROJECT_SOURCE_DIR}/plugin/src/canopen)
+add_test(NAME plc_api_layout COMMAND plc_api_layout_check)
+
 # The library sources are what library/generate.py writes.
 add_test(NAME plc_sdo_sources_current COMMAND python3 ${PROJECT_SOURCE_DIR}/library/generate.py --check)
 # The .stlib the deploy tool carries is what strucpp builds from the sources

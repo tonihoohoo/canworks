@@ -20,7 +20,7 @@ VAR
   co_prev : BOOL;
   co_phase : USINT;
 END_VAR
-// Shared code of the canworks SDO function blocks (spec
+// Shared code of the canworks SDO function blocks and CO_RECV_EMCY (spec
 // canopen-plc-sdo). library/generate.py copies it into every block's source,
 // because the editor grafts each library C++ block into one
 // c_blocks_code.cpp and offers no other place for shared code; the include
@@ -37,7 +37,8 @@ extern "C" void* dlsym(void* handle, const char* name) noexcept(true);
 
 namespace co_sdo {
 
-// The plugin's C interface, version 1 (plugin/src/canopen/canopen_plc_api.h).
+// The plugin's C interface (plugin/src/canopen/canopen_plc_api.h), version 1
+// for the SDO blocks.
 const unsigned api_version = 1;
 const unsigned max_data = 1024;
 struct request {
@@ -62,8 +63,36 @@ struct api_v1 {
   unsigned int (*start)(const request* req, unsigned short* error_id);
   int (*poll)(unsigned int handle, result* res, unsigned char* data, unsigned int cap);
 };
+// Version 2 (CO_RECV_EMCY): version 1's fields, then the EMCY reads. The
+// SDO blocks keep asking for version 1, so they also run on an older plugin.
+const unsigned api_version_emcy = 2;
+struct emcy {
+  unsigned long long time_us;
+  unsigned int seq;
+  unsigned short error_code;
+  unsigned char node;
+  unsigned char error_register;
+  unsigned char msef[5];
+  unsigned char reserved[3];
+};
+struct emcy_cursor {
+  unsigned int session;
+  unsigned int next;
+};
+struct emcy_info {
+  unsigned short queued;
+  unsigned short reserved;
+  unsigned int lost;
+};
+struct api_v2 {
+  unsigned int size;
+  unsigned int (*start)(const request* req, unsigned short* error_id);
+  int (*poll)(unsigned int handle, result* res, unsigned char* data, unsigned int cap);
+  int (*emcy_begin)(unsigned char network, unsigned char node, unsigned char skip_old, emcy_cursor* cursor);
+  int (*emcy_read)(unsigned char network, unsigned char node, emcy_cursor* cursor, emcy* entry, emcy_info* info);
+};
 enum { kind_int = 0, kind_real = 1, kind_string = 2, kind_bytes = 3 };
-enum { err_not_running = 4, err_input = 6, err_too_big = 7 };
+enum { err_not_running = 4, err_input = 6, err_too_big = 7, err_cancelled = 8 };
 
 // The loaded plugin's table, looked up by its SONAME without loading it
 // again (RTLD_NOW | RTLD_NOLOAD). Looked up again on each start until found;
@@ -89,6 +118,24 @@ inline const api_v1* api() {
   if (!entry) return nullptr;
   const api_v1* t = static_cast<const api_v1*>(entry(api_version));
   if (t && t->size >= sizeof(api_v1)) table = t;
+  return table;
+}
+
+// The version 2 table, found the same way; null on a plugin without it.
+inline const api_v2* api2() {
+  static const api_v2* table = nullptr;
+  if (table) return table;
+  typedef const void* (*entry_t)(unsigned int);
+#ifdef CO_SDO_TEST_ENTRY
+  entry_t entry = CO_SDO_TEST_ENTRY;
+#else
+  void* lib = dlopen("libcanworks_plugin.so", 0x2 | 0x4);
+  if (!lib) return nullptr;
+  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, "canopen_plc_api"));
+#endif
+  if (!entry) return nullptr;
+  const api_v2* t = static_cast<const api_v2*>(entry(api_version_emcy));
+  if (t && t->size >= sizeof(api_v2)) table = t;
   return table;
 }
 

@@ -8,6 +8,7 @@
 #define CANOPEN_CONFIG_H
 
 #include <cstdint>
+#include <functional>
 #include <set>
 #include <string>
 #include <utility>
@@ -158,6 +159,24 @@ struct NodeConfig {
   IecLocation emcy_code_location;
   bool has_error_register_location = false;
   IecLocation error_register_location;
+  // emcy_cob_id (canopen-node-supervision "EMCY COB-ID setting"): the master
+  // reads the node's 0x1014 after each boot and listens on what it finds
+  // (Device, the default), keeps the EDS default (Eds), or uses a number.
+  enum class EmcyCob { Device, Eds, Number };
+  EmcyCob emcy_cob = EmcyCob::Device;
+  // The configured EMCY COB-ID: the number, or else the last startup SDO to
+  // 0x1014 sub-index 0 without bit 31 (check_emcy_cob_ids); 0 = none.
+  uint32_t emcy_cob_config = 0;
+  bool emcy_cob_from_sdo = false;  // emcy_cob_config came from a startup SDO
+  // From the EDS (check_eds_files): whether it has 0x1014, and its default
+  // COB-ID with $NODEID resolved (0: none).
+  bool eds_has_emcy = false;
+  uint32_t eds_emcy_cob_id = 0;
+  // The COB-ID the master listens on from the start: the configured one, else
+  // the EDS default, else 0x80 + node ID.
+  uint32_t emcy_cob_id() const;
+  // Whether the master reads 0x1014 after a boot.
+  bool reads_emcy_cob_id() const { return emcy_cob == EmcyCob::Device && boot && eds_has_emcy; }
   // Optional %QB byte through which the program sends NMT commands to the
   // node (CiA 301 codes: 0/1 run, 2 keep STOPPED, 128 keep PRE-OPERATIONAL,
   // a change to 129/130 resets the node/its communication once).
@@ -476,6 +495,16 @@ struct Config {
   // Facts worth logging at start (automatic COB-IDs), logged as info.
   std::vector<std::string> notes;
 };
+
+// A CiA 301 restricted CAN-ID (0x000-0x07F, 0x101-0x180, 0x581-0x5FF,
+// 0x601-0x67F, 0x6E0-0x6FF, 0x701-0x7FF), which no EMCY may use.
+bool restricted_can_id(uint32_t id);
+// What on the network already uses `id`, which node `n`'s EMCY would clash
+// with: SYNC, TIME, the master's EMCY, another configured node's EMCY (the
+// COB-ID `in_use` gives, by default NodeConfig::emcy_cob_id) or a configured
+// PDO; "" when nothing does.
+std::string emcy_cob_clash(const Config& cfg, const NodeConfig& n, uint32_t id,
+                           const std::function<uint32_t(const NodeConfig&)>& in_use = nullptr);
 
 // The Modbus bridge (modbus-bridge spec): a config with a top-level
 // "bridge" object is a bridge config, served by canworks-bridge; its

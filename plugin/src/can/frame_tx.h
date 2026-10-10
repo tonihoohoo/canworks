@@ -48,6 +48,16 @@ std::string raw_frame_text(const RawFrame& f);
 // PDOs come from its dictionary at run time (dictionary_id_uses()).
 std::string cob_id_use(const Config& cfg, uint32_t id, bool ext);
 
+// The EMCY COB-ID a CANopen master network listens on for a node when it
+// read another one from the node's 0x1014 than its configuration gives
+// (canopen-online-diagnostics "EMCY COB-ID in the status"): the bus thread
+// sets it (0 clears), cob_id_use() names that COB-ID as the node's EMCY.
+// clear_emcy_cob_in_use() drops a network's entries (a new session).
+void set_emcy_cob_in_use(unsigned network, unsigned node, uint32_t cob);
+void clear_emcy_cob_in_use(unsigned network);
+// The COB-ID in use for node `n` of `cfg`: the one set, else n.emcy_cob_id().
+uint32_t emcy_cob_in_use(const Config& cfg, const NodeConfig& n);
+
 // The key of an identifier in a map of identifiers: `id` with bit 31 set for
 // an extended one.
 inline uint32_t id_use_key(uint32_t id, bool ext) { return (id & 0x1FFFFFFFu) | (ext ? 0x80000000u : 0u); }
