@@ -94,7 +94,7 @@
  "tests.test_dcfexport.Cli": 0.1,
  "tests.test_dcfexport.Downloads": 0.2,
  "tests.test_dcfexport.Loader": 0.1,
- "tests.test_dcfexport.Parity": 27.3,
+ "tests.test_dcfexport.Parity": 12.1,
  "tests.test_dcfexport.Validation": 0.4,
  "tests.test_dcfexport.Writer": 0.2,
  "tests.test_deploy.Bundle": 0.3,

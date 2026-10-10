@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 
 from canworks import cli, dcfexport, edslint
@@ -382,8 +383,11 @@ class Parity(unittest.TestCase):
                 self.fail("canopen_check not found (build it, or set CANWORKS_CHECK)")
             self.skipTest("canopen_check not built")
 
-    def _dump(self, path):
-        out = subprocess.run([self.check, "--dump-writes", path], capture_output=True, text=True)
+    def _run_check(self, path):
+        return subprocess.run([self.check, "--dump-writes", path], capture_output=True, text=True)
+
+    def _dump(self, path, out=None):
+        out = out or self._run_check(path)
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         writes, steps = {}, {}
         for line in out.stdout.splitlines():
@@ -394,8 +398,8 @@ class Parity(unittest.TestCase):
                 steps.setdefault(int(p[1]), []).append(p[2])
         return writes, steps
 
-    def _compare(self, cfg, path):
-        writes, steps = self._dump(path)
+    def _compare(self, cfg, path, out=None):
+        writes, steps = self._dump(path, out)
         downloads = dcfexport.plugin_downloads(cfg, path)
         files = export(cfg, path)
         for node_id, d in downloads.items():
@@ -421,15 +425,19 @@ class Parity(unittest.TestCase):
 
     def test_fixture_cases(self):
         doc = load_cases()
-        count = 0
+        cases = []
         for case in doc["cases"]:
-            if case["verdict"] != "accept":
-                continue
-            with self.subTest(case["name"]):
+            if case["verdict"] == "accept":
                 cfg = patched(doc["base"], case["patch"])
-                self._compare(cfg, self._in_copy(cfg))
-                count += 1
-        self.assertGreater(count, 30)
+                cases.append((case["name"], cfg, self._in_copy(cfg)))
+        # canopen_check takes most of the time (up to a second of CPU per case): the
+        # runs go side by side, the comparisons stay in case order.
+        with ThreadPoolExecutor(os.cpu_count() or 2) as pool:
+            runs = [pool.submit(self._run_check, path) for _, _, path in cases]
+            for (name, cfg, path), run in zip(cases, runs):
+                with self.subTest(name):
+                    self._compare(cfg, path, run.result())
+        self.assertGreater(len(cases), 30)
 
     def test_compact_fixture(self):
         cfg = compact_config()
