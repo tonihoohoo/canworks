@@ -383,6 +383,7 @@ class Service:
             elif target == "unpair":
                 p = self.paired.remove(pc)
                 await send.write_all(encode({"ok": True}))
+                await _delivered(send)
                 log("PC %s unpaired itself" % ((p or {}).get("name") or pc[:10]))
                 self._drop_unpaired()
             elif target == "manage":
@@ -484,10 +485,11 @@ class Service:
         op = head.get("op")
         if op == "remove":
             p = self.paired.remove(str(head.get("pc") or ""))
+            await send.write_all(encode({"ok": True, "signature": sig, "removed": bool(p)}))
             if p:
+                await _delivered(send)  # it may be the asking PC's own connection
                 log("PC %s removed by %s" % (p.get("name") or p["id"][:10], pc[:10]))
                 self._drop_unpaired()
-            await send.write_all(encode({"ok": True, "signature": sig, "removed": bool(p)}))
         else:
             await send.write_all(encode({"ok": True, "signature": sig, "pcs": self.paired.pcs, "you": pc}))
 
@@ -495,6 +497,16 @@ class Service:
 async def _finish(send):
     try:
         await send.finish()
+    except Exception:
+        pass
+
+
+async def _delivered(send, timeout=2.0):
+    """Finish `send` and wait until the PC has received all of it: closing
+    the connection right after a write drops the data still in flight."""
+    await _finish(send)
+    try:
+        await asyncio.wait_for(send.stopped(), timeout)
     except Exception:
         pass
 
