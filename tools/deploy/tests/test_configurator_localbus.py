@@ -114,6 +114,26 @@ class AdapterTarget(Online):
         self.assertEqual(nodes[2]["match"], "configured")
         self.assertEqual(nodes[9]["match"], "not configured")
 
+    def test_error_field(self):
+        # The device error history (0x1003) on a USB adapter: read, clear
+        # refused without changes, then forced on a node heard OPERATIONAL.
+        d = self.device(2, heartbeat_s=0.05, nmt_state=5,
+                        od={(0x1003, 0): b"\x01", (0x1003, 1): (0x125000).to_bytes(4, "little")})
+        self.use_adapter()
+        r = self.ok("POST", "/api/online/error_field", {"node": 2})
+        self.assertEqual((r["count"], r["entries"][0]["code"], r["entries"][0]["info"]), (1, 0x5000, 0x12))
+        status, data, _ = self.request("POST", "/api/online/error_field_clear", {"node": 2})
+        self.assertEqual(status, 422)
+        self.assertIn("changes not allowed", data["error"])
+        self.ok("POST", "/api/online/settings", {"allow_changes": True})
+        time.sleep(0.2)
+        status, data, _ = self.request("POST", "/api/online/error_field_clear", {"node": 2})
+        self.assertEqual((status, data["force"]), (422, True), data)
+        self.assertEqual(d.od[(0x1003, 0)], b"\x01")
+        r = self.ok("POST", "/api/online/error_field_clear", {"node": 2, "force": True})
+        self.assertEqual(r["count"], 0)
+        self.assertEqual(d.od[(0x1003, 0)], b"\x00")
+
     def test_lss_force_after_asking(self):
         self.device(None, identity=(0x360, 0x1, 0x2, 0x77))
         peer = Peer(self.ch)

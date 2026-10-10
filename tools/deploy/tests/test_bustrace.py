@@ -322,6 +322,16 @@ class Decoding(unittest.TestCase):
         self.assertTrue(dec.warnings)
         self.assertEqual(dec.decode(Frame(0, 0x702, b"\x05")).text, "node 2 (pingpong) OPERATIONAL")
 
+    def test_configured_emcy_cob_id(self):
+        # emcy_cob_id (add-emcy-history): the moved COB-ID decodes as the node's EMCY.
+        cfg = copy.deepcopy(load_cases()["base"])
+        cfg["nodes"][0]["emcy_cob_id"] = "0xC2"
+        dec = Decoder.from_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"))
+        d = dec.decode(Frame(0, 0xC2, bytes([0x10, 0x42, 0x09, 0, 0, 0, 0, 0])))
+        self.assertEqual((d.kind, d.node), ("emcy", 2))
+        self.assertIn("node 2 (pingpong) 0x4210 temperature", d.text)
+        self.assertEqual(dec.decode(Frame(0, 0x82, bytes(8))).kind, "emcy")
+
     def test_bad_config_note_names_the_problem(self):
         cfg = copy.deepcopy(load_cases()["base"])
         cfg["nodes"][0]["eds"] = "missing.eds"

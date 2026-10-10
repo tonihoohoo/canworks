@@ -477,7 +477,11 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
         hb = Message(0x700 + node_id, "%s_Heartbeat" % node_name, 1, node_name, "node %d heartbeat" % node_id)
         hb.signals.append(Signal("NMT_State", 0, 7, receivers=[MASTER], values=NMT_STATES))
         messages.append(hb)
-        em = Message(0x80 + node_id, "%s_EMCY" % node_name, 8, node_name, "node %d emergency" % node_id)
+        # The configured EMCY COB-ID (emcy_cob_id, or a startup SDO to 0x1014),
+        # else the predefined one; a COB-ID read from the device is not known here.
+        emcy = contract.configured_emcy_cob_id(n)
+        em = Message(emcy[0] if emcy and emcy[0] <= 0x7FF else 0x80 + node_id, "%s_EMCY" % node_name, 8, node_name,
+                     "node %d emergency" % node_id)
         em.signals += [Signal("Error_Code", 0, 16, receivers=[MASTER]),
                        Signal("Error_Register", 16, 8, receivers=[MASTER]),
                        Signal("Manufacturer_Data", 24, 40, receivers=[MASTER])]

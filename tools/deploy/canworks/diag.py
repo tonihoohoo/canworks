@@ -888,7 +888,7 @@ def _network_arg(p, text="the network to talk to (needed when the runtime runs s
 
 # The commands that talk to one network of the plugin (status takes --network
 # too, but goes over every network without it).
-NETWORK_COMMANDS = ("emcy", "sdo-read", "sdo-write", "nmt", "scan", "lss-find", "lss-inquire", "lss-set-id",
+NETWORK_COMMANDS = ("emcy", "errors", "sdo-read", "sdo-write", "nmt", "scan", "lss-find", "lss-inquire", "lss-set-id",
                     "lss-set-bitrate", "trace", "backup", "compare", "restore", "store", "send", "send-stop",
                     "detect-bitrate", "detect-bitrate-stop", "configure", "restore-defaults", "pdo-test", "replay")
 
@@ -958,6 +958,14 @@ def parser():
     s.add_argument("--config", metavar="canworks.json", help="--adapter: name the network's nodes from this config")
     e = sub.add_parser("emcy", help="a node's emergency history, newest first")
     e.add_argument("node", type=_node)
+    er = sub.add_parser("errors", help="a node's device error history (0x1003), newest first, or clear it")
+    er.add_argument("node", type=_node)
+    er.add_argument("--clear", action="store_true",
+                    help="write 0 to 0x1003 sub-index 0, then read it again (needs allow_changes)")
+    er.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
+                    help="clear even when the node is OPERATIONAL")
+    er.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="print the history as JSON")
+    er.add_argument("--sdo-timeout", type=int, default=1000, metavar="MS", help="SDO timeout (default %(default)s)")
     r = sub.add_parser("sdo-read", help="read an object")
     r.add_argument("node", type=_node)
     r.add_argument("index", type=lambda t: _uint(t, "index", 0xFFFF))
@@ -1346,6 +1354,19 @@ def _print_raw_status(raw, out):
         _table(rows, out, "")
 
 
+def emcy_cob_id_text(nd):
+    """A status node's EMCY COB-ID in use, "EMCY COB-ID 0xC5 (device)", when
+    it is not 0x80 + node ID or the device reports it not valid; else ''
+    (also for a plugin that does not send it)."""
+    e = nd.get("emcy_cob_id")
+    if not isinstance(e, dict) or not isinstance(e.get("value"), int):
+        return ""
+    valid = e.get("valid") is not False
+    if valid and e["value"] == 0x80 + (nd.get("node_id") or 0):
+        return ""
+    return "EMCY COB-ID 0x%X (%s%s)" % (e["value"], e.get("source") or "?", "" if valid else ", off on the device")
+
+
 def _print_protocol_status(st, out):
     bus = st.get("bus") or {}
     m = st.get("master") or {}
@@ -1424,6 +1445,10 @@ def _print_protocol_status(st, out):
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]) - 1)]
     for r in rows:
         out.write("  ".join(c.ljust(w) for c, w in zip(r, widths)) + "  " + r[-1] + "\n")
+    for nd in st.get("nodes") or []:
+        text = emcy_cob_id_text(nd)
+        if text:
+            out.write("node %s: %s\n" % (nd.get("node_id"), text))
     for nd in st.get("nodes") or []:
         for t in nd.get("pdo_timeouts") or []:
             since = t.get("since_ms")
@@ -2428,6 +2453,19 @@ def run(args, out=sys.stdout):
                 for e in hist:
                     out.write("%s  0x%04X  %-22s register 0x%02X  manufacturer %s\n" % (
                         e["time"], e["code"], emcy_class(e["code"]), e["error_register"], e.get("manufacturer", "")))
+        elif args.command == "errors":
+            from . import errorfield
+            if args.clear:
+                errorfield.clear(client, args.node, timeout_ms=args.sdo_timeout)
+                if not args.json:
+                    out.write("node %d: error history (0x1003) cleared\n" % args.node)
+            res = errorfield.read(client, args.node, args.sdo_timeout)
+            if res["count"] is None and res["history"]:
+                if args.json:
+                    out.write(json.dumps(res, indent=2) + "\n")
+                raise DiagError("refused", "node %d 0x1003:0: %s" % (args.node, res["failed"]["reason"]))
+            if not args.json:
+                out.write("\n".join(errorfield.lines(res)) + "\n")
         elif args.command == "scan":
             res = client.scan(True)
             while res.get("running"):

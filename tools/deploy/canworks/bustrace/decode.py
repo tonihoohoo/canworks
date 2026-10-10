@@ -221,6 +221,7 @@ class Decoder:
         self.node_names = {}   # node id -> config name
         self.eds = {}          # node id -> Eds
         self.pdos = {}         # cob id -> PdoLayout
+        self.emcy_cobs = {}    # cob id -> node id: an EMCY COB-ID the config moves (emcy_cob_id, startup SDO)
         self.sync_cob = 0x080
         self.time_cob = 0x100
         self.master_id = None
@@ -304,6 +305,11 @@ class Decoder:
             nid = dbcexport._u(n.get("node_id"))
             if nid is not None:
                 d.node_names[nid] = n.get("name") or "node%d" % nid
+                # A COB-ID read from the device after its boot is not known
+                # here; the predefined 0x80 + node ID still decodes as EMCY.
+                emcy = contract.configured_emcy_cob_id(n) if isinstance(n, dict) else None
+                if emcy and emcy[0] <= 0x7FF:
+                    d.emcy_cobs[emcy[0]] = nid
         # The network as the configurator's check passed it (a version 2
         # config's PDO entries fed by a gateway route have no PLC location,
         # which the version 1 schema would refuse); only when that build
@@ -410,6 +416,8 @@ class Decoder:
                 target = "all nodes" if d[1] == 0 else self.node_label(d[1])
                 return Decoded("nmt", d[1] or None, "NMT", "%s %s" % (cmd, target))
             return Decoded("nmt", None, "NMT", "malformed")
+        if cid in self.emcy_cobs:
+            return self._emcy(f, self.emcy_cobs[cid])
         if cid in self.pdos:
             return self._pdo(f, self.pdos[cid])
         if cid == self.sync_cob:

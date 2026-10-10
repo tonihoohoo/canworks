@@ -265,6 +265,15 @@ class FixedFrames(unittest.TestCase):
         self.assertEqual((nmt.cob_id, nmt.sender), (0, "Master"))
         self.assertIn((129, "Reset node"), nmt.signals[0].values)
         self.assertEqual((message(m, "SYNC").cob_id, message(m, "SYNC").length), (0x80, 0))
+        self.assertEqual(em.cob_id, 0x82)
+
+    def test_configured_emcy_cob_id(self):
+        # A number in emcy_cob_id moves the EMCY message; "eds" does not (add-emcy-history).
+        cfg = base_config()
+        cfg["nodes"][0]["emcy_cob_id"] = "0xC2"
+        self.assertEqual(message(model(cfg), "pingpong_EMCY").cob_id, 0xC2)
+        cfg["nodes"][0]["emcy_cob_id"] = "eds"
+        self.assertEqual(message(model(cfg), "pingpong_EMCY").cob_id, 0x82)
 
     def test_no_sync_message_without_sync_period(self):
         cfg = base_config()

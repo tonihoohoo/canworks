@@ -378,6 +378,7 @@
         "heartbeat_consumer": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/heartbeat_consumer" },
         "retry_factor": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/retry_factor" },
         "time_cob_id": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/time_cob_id" },
+        "emcy_cob_id": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/emcy_cob_id" },
         "error_behavior": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/error_behavior" },
         "restore_configuration": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/restore_configuration" },
         "config_check": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/config_check" },

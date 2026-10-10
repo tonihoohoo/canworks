@@ -69,7 +69,7 @@ ORDER = {
     "node": ["node_id", "name", "eds", "simulate", "heartbeat_ms", "heartbeat_timeout_ms", "guard_time_ms",
              "life_time_factor",
              "status_location", "state_location", "boot_error_location", "emcy_code_location",
-             "error_register_location", "nmt_command_location", "mandatory", "boot",
+             "error_register_location", "emcy_cob_id", "nmt_command_location", "mandatory", "boot",
              "reset_communication", "revision_number", "serial_number", "lss", "heartbeat_consumer", "retry_factor",
              "time_cob_id", "error_behavior", "restore_configuration", "config_check", "store_configuration",
              "software_file", "software_version",
@@ -2174,6 +2174,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             for e in res.get("emcy") or []:
                 e["class"] = diag.emcy_class(e.get("code", 0))
             return res
+        if route in (("POST", "/api/online/error_field"), ("POST", "/api/online/error_field_clear")):
+            # The device's error history (0x1003) through the manual SDO read
+            # and write, so the plugin's guards apply to the clear: changes
+            # allowed, and force (after the page asked) on an OPERATIONAL node.
+            from .. import errorfield
+            node = node_arg()
+            if route[1].endswith("clear"):
+                return call(lambda c: (errorfield.clear(c, node, force=body.get("force") is True),
+                                       errorfield.read(c, node))[1])
+            return call(lambda c: errorfield.read(c, node))
         if route in (("POST", "/api/online/sdo_read"), ("POST", "/api/online/sdo_write")):
             node = node_arg()
             index, sub = object_arg()
