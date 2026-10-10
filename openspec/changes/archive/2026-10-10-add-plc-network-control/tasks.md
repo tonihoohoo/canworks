@@ -48,7 +48,27 @@
 
 ## 8. Hardware check (Pi bench, separate from CI)
 
-- [ ] 8.1 Build the library with the editor's compiler, install it in OpenPLC Editor 4.3.2, build a project calling all four blocks for OpenPLC Runtime v4 and run it on the Pi runtime (Docker)
-- [ ] 8.2 With real nodes: `start: false` plus `CO_NETWORK_START` (PDOs flow, state bytes and status bits), `CO_NETWORK_STOP` with node command 0 and 2, `CO_NMT` stop/pre-op/start/reset of a configured node, a broadcast pre-op, a reset of a node ID the config does not list
-- [ ] 8.3 Power-cycle a held node; unplug a mandatory node while the network is started from the program; stop the PLC while a `CO_NETWORK_START` is `BUSY`; check scan timing stays on time throughout
-- [ ] 8.4 Record the results (what passed, what was changed after) in design.md; resolve or carry over the open questions
+- [x] 8.1 Build the library with the editor's compiler, install it in OpenPLC Editor 4.3.2, build a project calling all four blocks for OpenPLC Runtime v4 and run it on the Pi runtime (Docker)
+- [x] 8.2 With real nodes: `start: false` plus `CO_NETWORK_START` (PDOs flow, state bytes and status bits), `CO_NETWORK_STOP` with node command 0 and 2, `CO_NMT` stop/pre-op/start/reset of a configured node, a broadcast pre-op, a reset of a node ID the config does not list
+- [x] 8.3 Power-cycle a held node; unplug a mandatory node while the network is started from the program; stop the PLC while a `CO_NETWORK_START` is `BUSY`; check scan timing stays on time throughout
+- [x] 8.4 Record the results (what passed, what was changed after) in design.md; resolve or carry over the open questions
+
+Run on 2026-10-10 on the Pi bench (managed Docker runtime, main at 0a8ca26, tools 0.56.0) with its one real CANopen I/O node (node 23, 500 kbit/s). That node has no 0x1003, 0x1014, 0x1016 or 0x1029, so where a step needs them or a second device, simulated devices ran on the same real can0 bus next to it (the plugin's `simulate: true` nodes, or a standalone `canworks-sim --real-bus` in the runtime container).
+- 8.1: the library 0.56.0 installed into the editor by `canworks-deploy --new-project ... --blocks`, a project with all
+  four blocks and `CO_RECV_EMCY` compiled with the editor's `openplc-cli compile` for OpenPLC Runtime v4 and run on
+  the Pi runtime. Commands came from a simulated device on a second, simulated network, results went to two others.
+- 8.2: on the real node: `CO_NMT` stop (state 4, held 2), pre-op (127, held 128), start (5, held 0), reset node and
+  reset communication (back OPERATIONAL); broadcast pre-op and start (every node, master unchanged); reset of node
+  99, not in the config (sent, nothing kept); `NODE` = master ID answered `ERROR_ID` 6. `CO_NETWORK_STOP` with node
+  command 0 (master and nodes 127, held 128) and 2 (nodes 4), `CO_NETWORK_START` after each (all 5 again).
+  `start: false`: master 127, nodes booted, status bits FALSE, no RPDO from the master; `CO_NETWORK_START` DONE,
+  master 5, status bits TRUE.
+- 8.3: real node held STOPPED, then power-cycled: lost, booted, configured and held STOPPED again, master stayed
+  OPERATIONAL. Real node mandatory, network started with `CO_NETWORK_START`, unplugged 10 s: lost and booted again
+  when plugged back, master stayed OPERATIONAL. A mandatory node that never answers kept `CO_NETWORK_START` BUSY;
+  a PLC stop (upload) during it stopped cleanly and the next start ran. SYNC interval stayed within 9.8-10.2 ms in
+  steady state and the scan count matched the 10 ms task.
+- One false alarm on the way: a test program read its command byte from a simulated CiA 401 device whose outputs
+  carried the results; the simulated device copies outputs to inputs, so a DONE written back became the next
+  command (`CO_NETWORK_START` right after every stop). Fixed in the test program (results on other devices); no
+  change in the plugin or the blocks.

@@ -164,3 +164,8 @@ Run on the in-process virtual bus with the pinned lely-core (`test/sim/sim_tests
 4. May `CO_NETWORK_START` lift a master STOPPED by `stop_all_nodes`? Proposed no (error 9), since that is the config's safety reaction; a use case for allowing it would need its own option.
 5. Should the plugin track the NMT state of unlisted nodes from their heartbeat or boot-up frames (the bus monitor already sees every frame), so `CO_GET_STATE` reports them? Proposed: not in this change; `CONFIGURED` FALSE and `STATE` 0.
 6. Should `CO_NMT` offer an optional wait until the node reports the commanded state (a `CONFIRM` input with `TIMEOUT`)? Proposed: no; `CO_GET_STATE` covers it.
+
+## Hardware results (2026-10-10)
+
+Every check of tasks 8.1-8.3 passed on the Pi bench with its real node; tasks.md has the details. Nothing was
+changed after them. The open questions stay as they are: none of them was decided by the bench.
