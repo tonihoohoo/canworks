@@ -163,6 +163,8 @@ Each slave entry MAY give an `nmt_command_location` (an `%QB` output byte) throu
 
 The master SHALL act on a change within 100 ms or by the next SYNC, whichever comes first, and SHALL NOT act on the byte before the PLC program has completed its first scan cycle since start. For a node with `boot` false the master SHALL never boot or configure it, and a change to 1 SHALL send START. Each command sent SHALL be logged with the node and the command. A node held in STOPPED or PRE-OPERATIONAL SHALL have its status bit FALSE and SHALL exchange no PDOs. The location SHALL be an `%QB` location that does not overlap another location of the configuration, else the configuration SHALL be rejected naming the node and the field.
 
+The byte SHALL act on the same hold as the program's `CO_NMT` block and the NMT commands of the diagnostics channel and the Modbus control block (`canopen-plc-nmt`): whichever acted last decides, and the byte acts only on a change of its value. A hold or reset sent through the byte to a mandatory node SHALL NOT count as a loss of that node.
+
 #### Scenario: Stop and restart a node
 - **WHEN** node 5 is OPERATIONAL with `nmt_command_location` `%QB30` and `state_location` `%IB20`, and the program writes 2 to `%QB30` and later 0
 - **THEN** after the first write `%IB20` reads 4, the status bit reads FALSE and node 5's input locations hold their last values; after the second, `%IB20` reads 5 and PDO data flows again
@@ -182,6 +184,14 @@ The master SHALL act on a change within 100 ms or by the next SYNC, whichever co
 #### Scenario: Wrong location type
 - **WHEN** `nmt_command_location` is not an `%QB` location or overlaps another location
 - **THEN** the plugin rejects the configuration and names the node and the field
+
+#### Scenario: Block releases a byte hold
+- **WHEN** `%QB30` holds 2 and the program runs `CO_NMT` with `NODE := 5, COMMAND := 1`
+- **THEN** node 5 is started and stays OPERATIONAL until `%QB30` changes again
+
+#### Scenario: Mandatory node held by the byte
+- **WHEN** node 5 is mandatory, `master.reset_all_nodes` is `true`, and the program writes 2 to `%QB30`
+- **THEN** node 5 is STOPPED, no other node is reset, and the master stays OPERATIONAL
 
 ### Requirement: Every node is supervised or says why not
 A configured node whose heartbeat consumer time is 0 (from `heartbeat_ms`, or from the EDS default of 0x1017 when `heartbeat_ms` is absent) and that has no node guarding SHALL make the config refused at load, with a message saying its loss would never be detected. A node with an explicit `"heartbeat_ms": 0` SHALL be accepted and SHALL get a warning at every start. The configurator's check SHALL do the same.
