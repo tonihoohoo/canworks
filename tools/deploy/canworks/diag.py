@@ -1195,6 +1195,8 @@ def parser():
     h.add_argument("value", nargs="?", help="the token (default: --token, $%s or a prompt)" % TOKEN_ENV)
     dc = sub.add_parser("discover", help="list the runtimes on the local network (mDNS; no login)")
     dc.add_argument("--wait", type=float, default=3.0, metavar="S", help="listen this long (default %(default)s s)")
+    dc.add_argument("host", nargs="?", metavar="HOST",
+                    help="ask this host directly instead (gets through firewalls that drop multicast answers)")
     lk = sub.add_parser("link", help="the remote link: remembered runtimes, this PC's link ID, local forwards "
                                      "(docs/remote-access.md)")
     lsub = lk.add_subparsers(dest="link_command", metavar="LINK_COMMAND")
@@ -2770,9 +2772,13 @@ def _pairing_note(client, wait=10.0):
 
 def _discover(args, out):
     from .link import discovery
-    if not discovery.available():
+    if args.host:
+        r = discovery.find_address(args.host, timeout=args.wait)  # a direct query, then browsing
+        found = [r] if r else []
+    elif not discovery.available():
         raise DiagError("usage", discovery.NOT_AVAILABLE)
-    found = discovery.browse(args.wait)
+    else:
+        found = discovery.browse(args.wait)
     if args.json:
         out.write(json.dumps(found, indent=2) + "\n")
         return 0
