@@ -6,10 +6,14 @@
 #
 # Runs the Engine node of the DBC (default examples/j1939/machine.dbc) at
 # address 0, with a scenario that sends ComponentInfo (40 bytes, BAM) every
-# second with Starts=42, and the PLC node at address 128, each with --log,
-# for --duration seconds. Passes (exit 0) when both claimed their address,
-# the PLC received Pressures (PGN 65280) and ComponentInfo (PGN 65282, Starts
-# 42) from 0, and the Engine received Setpoints (PGN 65281) from 128.
+# second with Starts=42 and a trouble code (SPN 520192 FMI 3, amber), and
+# the PLC node at address 128, each with --log, for --duration seconds;
+# meanwhile canworks-diag on the interface reads the Engine's DM2 and clears
+# its codes (DM11) from address 249. Passes (exit 0) when both claimed their
+# address, the PLC received Pressures (PGN 65280) and ComponentInfo (PGN
+# 65282, Starts 42) from 0 and the Engine's DM1 with the code, the Engine
+# received Setpoints (PGN 65281) from 128, and the Engine acknowledged the
+# clear from 249.
 # Creates IFACE as a vcan link with sudo when it is missing. SIM overrides
 # the simulator command (default: python3 -m canworks.j1939.sim from
 # tools/deploy). Exit 1: a check failed; 2: setup failed.
@@ -47,7 +51,8 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 cat > "$WORK/engine-scenario.json" <<'JSON'
-{"messages": {"ComponentInfo": {"period_ms": 1000, "signals": {"Starts": 42}}}}
+{"messages": {"ComponentInfo": {"period_ms": 1000, "signals": {"Starts": 42}}},
+ "dtcs": [{"spn": 520192, "fmi": 3, "lamps": ["amber"]}]}
 JSON
 
 "${SIM[@]}" --dbc "$DBC" --node Engine --interface "$IFACE" --address 0 --scenario "$WORK/engine-scenario.json" \
@@ -56,13 +61,19 @@ ENGINE=$!
 "${SIM[@]}" --dbc "$DBC" --node PLC --interface "$IFACE" --address 128 \
     --log "$WORK/plc.jsonl" --duration "$DURATION" > "$WORK/plc.out" 2>&1 &
 PLC=$!
+sleep 1
+python3 -m canworks.diag --adapter "socketcan:$IFACE" --bitrate 250 dm read --address 0 > "$WORK/diag.out" 2>&1
+python3 -m canworks.diag --adapter "socketcan:$IFACE" --bitrate 250 dm clear --address 0 --force \
+    >> "$WORK/diag.out" 2>&1
+DIAG_STATUS=$?
 wait "$ENGINE"; ENGINE_STATUS=$?
 wait "$PLC"; PLC_STATUS=$?
 
-python3 - "$WORK" "$ENGINE_STATUS" "$PLC_STATUS" <<'PY'
+python3 - "$WORK" "$ENGINE_STATUS" "$PLC_STATUS" "$DIAG_STATUS" <<'PY'
 import json, os, sys
 
 work, statuses = sys.argv[1], {"engine": int(sys.argv[2]), "plc": int(sys.argv[3])}
+diag_status = int(sys.argv[4])
 
 
 def records(who):
@@ -95,7 +106,16 @@ check(len(rx(plc, 65280, 0)) >= 5, "PLC received Pressures from 0 (%d)" % len(rx
 check(any(r["signals"].get("Starts") == 42 for r in rx(plc, 65282, 0)),
       "PLC received ComponentInfo (BAM, 40 bytes) from 0 with Starts=42 (%d)" % len(rx(plc, 65282, 0)))
 check(len(rx(engine, 65281, 128)) >= 5, "Engine received Setpoints from 128 (%d)" % len(rx(engine, 65281, 128)))
+dm1 = [r for r in plc if r["event"] == "dm" and r["dm"] == "DM1" and r["source"] == 0]
+check(any(r["lamps"] == 4 and [(d["spn"], d["fmi"]) for d in r["dtcs"]] == [(520192, 3)] for r in dm1),
+      "PLC received the Engine's DM1 with SPN 520192 FMI 3, amber on (%d)" % len(dm1))
+check(diag_status == 0, "canworks-diag dm read and clear exited with 0 (got %d)" % diag_status)
+check(any(r["event"] == "dm_clear" and r["dm"] == "DM11" and r["from"] == 249 and r["result"] == "ack"
+          for r in engine), "Engine acknowledged DM11 from 249")
 if failed:
+    with open(os.path.join(work, "diag.out")) as f:
+        print("--- diag output")
+        sys.stdout.write(f.read())
     for who in ("engine", "plc"):
         print("--- %s output" % who)
         with open(os.path.join(work, who + ".out")) as f:

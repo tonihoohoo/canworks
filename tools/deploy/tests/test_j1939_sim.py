@@ -173,7 +173,7 @@ class Scenario(unittest.TestCase):
     def test_rejected(self):
         p = {"messages": {"Pressures": {"signals": {}}}}
         cases = [
-            ({"speed": 1}, "scenario: unknown key 'speed' (allowed: ramp_period_s, messages)"),
+            ({"speed": 1}, "scenario: unknown key 'speed' (allowed: ramp_period_s, messages, dtcs)"),
             ({"ramp_period_s": 0}, "scenario: ramp_period_s: give a number of seconds above 0"),
             ({"messages": {"Nope": {}}}, "scenario: messages: no message 'Nope' in the DBC (allowed: Pressures, "
                                          "ComponentInfo)"),
@@ -426,7 +426,7 @@ class Command(Base):
         args = sim.parser().parse_args(["--interface", "vcan0", "--dbc", DBC, "--node", "Engine",
                                         "--identity-number", "7", "--function", "130",
                                         "--arbitrary-address-capable"])
-        _db, _plans, address, name = sim.setup(args)
+        _db, _plans, address, name, _dtcs = sim.setup(args)
         self.assertEqual((address, name.value), (0, (1 << 63) | (130 << 40) | 7))
 
 

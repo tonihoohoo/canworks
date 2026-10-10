@@ -34,6 +34,9 @@ extern "C" {
 }
 
 #include "can_plc_api.h"
+#if CANWORKS_WITH_J1939
+#include "j1939_plc_api.h"
+#endif
 #include "config.h"
 #include "engine.h"
 #include "log.h"
@@ -172,5 +175,17 @@ PLUGIN_API const void* canopen_plc_api(uint32_t version) {
 // The PLC program's CAN_* frame blocks find this the same way
 // (spec can-plc-frames, can_plc_api.h).
 PLUGIN_API const void* canworks_can_api(uint32_t version) { return canworks_can_api_table(version); }
+
+// The PLC program's J1939_DM_* trouble code blocks find this the same way
+// (spec j1939-plc-diagnostics, j1939/j1939_plc_api.h). Without J1939 built
+// in there is no table; the blocks report error 1.
+PLUGIN_API const void* canworks_j1939_api(uint32_t version) {
+#if CANWORKS_WITH_J1939
+  return canworks_j1939_api_table(version);
+#else
+  (void)version;
+  return nullptr;
+#endif
+}
 
 }  // extern "C"

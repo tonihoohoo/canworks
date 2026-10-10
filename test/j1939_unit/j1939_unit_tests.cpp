@@ -1,9 +1,16 @@
 // Unit tests of the J1939 side of the plugin (j1939-ecu spec): NAME bits,
 // signals in message bytes, the address claim, and the engine on a fake
-// socket (no kernel J1939 module needed).
+// socket (no kernel J1939 module needed). Then the diagnostic messages
+// (j1939-diagnostics): the DM codec against the shared byte fixtures, the
+// DM1 store, the own trouble codes, clears, DM13, the jobs behind the
+// diagnostics operations and the PLC blocks' table.
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cstring>
+#include <fstream>
+#include <sstream>
 #include <cstdint>
 #include <set>
 #include <string>
@@ -15,7 +22,11 @@
 #include "check.hpp"
 #include "config.h"
 #include "fake_runtime.hpp"
+#include "log.h"
+#include "dm.h"
 #include "j1939_network.h"
+#include "j1939_plc_api.h"
+#include "j1939_plc_jobs.h"
 #include "j1939_signal.h"
 #include "j1939_socket.h"
 
@@ -803,6 +814,636 @@ TEST(j1939_engine_sends_the_program_page) {
   CHECK(p.size() == 3 && (p[2].data == std::vector<uint8_t>{7, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}));
   std::string js = status_json(r, 530);
   CHECK_MSG(js.find(R"("pages":"program","unknown_page":true)") != std::string::npos, js);
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic messages (j1939-diagnostics): the codec against the byte
+// fixtures shared with the PC tools (test/fixtures/j1939-dm/cases.json)
+
+std::vector<uint8_t> hex_bytes(const char* text) {
+  std::vector<uint8_t> out;
+  std::istringstream in(text);
+  unsigned v;
+  while (in >> std::hex >> v) out.push_back(static_cast<uint8_t>(v));
+  return out;
+}
+
+// The fixture cases of one kind; the caller deletes the returned root.
+cJSON* dm_fixtures() {
+  std::ifstream f(FIXTURES_DIR "/j1939-dm/cases.json");
+  std::stringstream ss;
+  ss << f.rdbuf();
+  cJSON* root = cJSON_Parse(ss.str().c_str());
+  if (!root) {
+    std::fprintf(stderr, "cannot read %s\n", FIXTURES_DIR "/j1939-dm/cases.json");
+    std::abort();
+  }
+  return root;
+}
+
+std::string str_of(const cJSON* o, const char* key) {
+  const cJSON* v = cJSON_GetObjectItemCaseSensitive(o, key);
+  return cJSON_IsString(v) ? v->valuestring : "";
+}
+
+double num_of(const cJSON* o, const char* key) {
+  const cJSON* v = cJSON_GetObjectItemCaseSensitive(o, key);
+  return cJSON_IsNumber(v) ? v->valuedouble : -1;
+}
+
+uint8_t lamp_bits(const cJSON* lamps) {
+  uint8_t b = 0;
+  const cJSON* l;
+  cJSON_ArrayForEach(l, lamps) {
+    std::string n = l->valuestring;
+    if (n == "mil") b |= kJ1939LampMil;
+    if (n == "red") b |= kJ1939LampRed;
+    if (n == "amber") b |= kJ1939LampAmber;
+    if (n == "protect") b |= kJ1939LampProtect;
+  }
+  return b;
+}
+
+TEST(j1939_dm_codec_fixtures) {
+  cJSON* root = dm_fixtures();
+  int dm = 0, own = 0, dm13 = 0, dm22 = 0;
+  const cJSON* c;
+  cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(root, "cases")) {
+    const std::string kind = str_of(c, "kind"), name = str_of(c, "name");
+    std::vector<uint8_t> data = hex_bytes(str_of(c, "data").c_str());
+    if (kind == "dm") {
+      ++dm;
+      DmList l;
+      CHECK_MSG(dm_parse(data.data(), data.size(), l), name);
+      CHECK_MSG(l.lamps == num_of(c, "lamps") && l.flash == num_of(c, "flash"), name);
+      const cJSON* want = cJSON_GetObjectItemCaseSensitive(c, "dtcs");
+      CHECK_MSG(l.count == static_cast<size_t>(cJSON_GetArraySize(want)) && l.dtcs.size() == l.count, name);
+      size_t k = 0;
+      const cJSON* d;
+      cJSON_ArrayForEach(d, want) {
+        if (k >= l.dtcs.size()) break;
+        const J1939Dtc& got = l.dtcs[k++];
+        J1939Dtc exp{static_cast<uint32_t>(num_of(d, "spn")), static_cast<uint8_t>(num_of(d, "fmi")),
+                     static_cast<uint8_t>(num_of(d, "oc")), cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(d, "cm"))};
+        CHECK_MSG(got == exp, name + ": code " + std::to_string(k));
+        uint32_t value = static_cast<uint32_t>(num_of(d, "value"));
+        CHECK_MSG(dtc_value(got) == value && dtc_from_value(value) == exp, name + ": value");
+      }
+      // Built back, the same bytes.
+      CHECK_MSG(dm_build(l.lamps, l.flash, l.dtcs) == data, name + ": build");
+    } else if (kind == "own") {
+      ++own;
+      J1939Diagnostics diag;
+      const cJSON* a;
+      std::vector<int> ocs;
+      cJSON_ArrayForEach(a, cJSON_GetObjectItemCaseSensitive(c, "active")) {
+        J1939OwnDtc o;
+        o.spn = static_cast<uint32_t>(num_of(a, "spn"));
+        o.fmi = static_cast<uint8_t>(num_of(a, "fmi"));
+        o.lamps = lamp_bits(cJSON_GetObjectItemCaseSensitive(a, "lamps"));
+        std::string fl = str_of(a, "flash");
+        o.flash = fl == "fast" ? 1 : fl == "slow" ? 0 : -1;
+        diag.dtcs.push_back(o);
+        ocs.push_back(static_cast<int>(num_of(a, "oc")));
+      }
+      diag.has_lamps_location = true;
+      OwnDtcs t(diag);
+      const uint8_t lamps = static_cast<uint8_t>(num_of(c, "lamps_output"));
+      // Each code goes active OC times and stays active.
+      int rounds = 0;
+      for (int oc : ocs) rounds = std::max(rounds, oc);
+      for (int round = 1; round <= rounds; ++round) {
+        std::vector<uint8_t> on, between;
+        for (int oc : ocs) {
+          on.push_back(oc >= 1 ? 1 : 0);
+          between.push_back(oc > round ? 0 : (oc >= 1 ? 1 : 0));
+        }
+        t.update(on, lamps);
+        if (round < rounds) t.update(between, lamps);
+      }
+      if (!rounds) t.update(std::vector<uint8_t>(ocs.size(), 0), lamps);
+      CHECK_MSG(t.dm1() == data, name);
+    } else if (kind == "dm13") {
+      ++dm13;
+      Dm13 m = dm13_decode(data.data(), data.size());
+      const cJSON* cmd = cJSON_GetObjectItemCaseSensitive(c, "command");
+      Dm13Command want = cJSON_IsNull(cmd) ? Dm13Command::None
+                         : std::string(cmd->valuestring) == "stop" ? Dm13Command::Stop
+                                                                   : Dm13Command::Start;
+      CHECK_MSG(m.command == want, name);
+      CHECK_MSG(m.hold == (name.find("hold") != std::string::npos), name);
+    } else if (kind == "dm22") {
+      ++dm22;
+      uint8_t b[4] = {data[5], data[6], data[7], 0};
+      J1939Dtc d = dtc_from_bytes(b);
+      CHECK_MSG(d.spn == num_of(c, "spn") && d.fmi == num_of(c, "fmi"), name);
+      std::vector<uint8_t> nack = dm22_nack(data.data(), data.size());
+      if (data[0] == 0x11) {
+        CHECK_MSG(nack.size() == 8 && nack[0] == 0x13 && nack[1] == 0 && nack[5] == data[5] && nack[6] == data[6] &&
+                      nack[7] == data[7],
+                  name);
+      } else {
+        CHECK_MSG(nack.empty(), name);  // an answer is not answered
+      }
+    }
+  }
+  CHECK_MSG(dm >= 5 && own >= 3 && dm13 == 3 && dm22 == 2,
+            "fixture kinds dm " + std::to_string(dm) + ", own " + std::to_string(own) + ", dm13 " +
+                std::to_string(dm13) + ", dm22 " + std::to_string(dm22));
+  cJSON_Delete(root);
+}
+
+TEST(j1939_dm_value_layout) {
+  // The spec's example: SPN 520192, FMI 3, OC 2.
+  CHECK(dtc_value(J1939Dtc{520192, 3, 2, false}) == 0x021FF000u);
+  CHECK(dtc_value(J1939Dtc{91, 3, 1, true}) == 0x8118005Bu);
+  CHECK((dtc_from_value(0xFFFFFFFFu) == J1939Dtc{0x7FFFF, 31, 127, true}));
+  // Too short, and the 0xFF filler of a one-code message.
+  DmList l;
+  const uint8_t shorty[5] = {0, 0xFF, 0, 0, 0};
+  CHECK(!dm_parse(shorty, 5, l));
+  const uint8_t odd[9] = {0x04, 0xFF, 0x00, 0xF0, 0xE3, 0x01, 0xFF, 0xFF, 0xFF};
+  CHECK(dm_parse(odd, 9, l) && l.count == 1);
+}
+
+std::vector<std::string> g_logged;
+void capture_log(LogLevel, const char* msg) { g_logged.push_back(msg); }
+
+TEST(j1939_dm_store) {
+  DmStore store;
+  auto t = clock_type::now();
+  // 70 codes: 64 kept, all counted.
+  std::vector<J1939Dtc> many;
+  for (uint32_t k = 0; k < 70; ++k) many.push_back(J1939Dtc{520192 + k, 3, 1, false});
+  std::vector<uint8_t> big = dm_build(0x04, 0xFF, many);
+  const DmStore::Source* s = store.on_dm1(0, big.data(), big.size(), t);
+  CHECK(s && s->count == 70 && s->dtcs.size() == kDmStoredCodes && s->dtcs[63].spn == 520192 + 63);
+  // The older SPN format: passed on, counted and logged once per source.
+  g_logged.clear();
+  set_log_sink(capture_log);
+  std::vector<uint8_t> cm = hex_bytes("04 FF 5B 00 03 81 FF FF");
+  for (int k = 0; k < 3; ++k) store.on_dm1(3, cm.data(), cm.size(), t + milliseconds(k));
+  std::vector<uint8_t> cm2 = hex_bytes("04 FF 5B 00 03 81 FF FF");
+  store.on_dm1(4, cm2.data(), cm2.size(), t);
+  set_log_sink(nullptr);
+  CHECK_MSG(g_logged.size() == 2 && g_logged[0].find("address 3 ") != std::string::npos &&
+                g_logged[1].find("address 4 ") != std::string::npos,
+            std::to_string(g_logged.size()) + " log lines");
+  const DmStore::Source* three = store.find(3);
+  CHECK(three && three->dm1_count == 3 && three->old_format == 3 && three->dtcs[0].cm);
+  CHECK(dtc_value(three->dtcs[0]) & 0x80000000u);
+  CHECK(!store.find(7));
+}
+
+// ---------------------------------------------------------------------------
+// The engine's diagnostic messages
+
+// engine_config() plus diagnostics: ECU 0 watched (status %IX40.0, lamps
+// %IB41, flash %IB42, count %IB43, four codes from %ID56), and with `own`
+// two own codes (%QX40.0 amber, %QX40.1 red fast), lamps %QB41 and clears
+// at %IB44.
+Config dm_config(bool own = true) {
+  Config cfg = engine_config();
+  J1939Diagnostics& d = cfg.j1939.diagnostics;
+  J1939DmRx w;
+  w.has_source = true;
+  w.source = 0;
+  w.timeout_ms = 3000;
+  w.has_status_location = true;
+  w.status_location = loc("%IX40.0");
+  w.has_lamps_location = true;
+  w.lamps_location = loc("%IB41");
+  w.has_flash_location = true;
+  w.flash_location = loc("%IB42");
+  w.has_count_location = true;
+  w.count_location = loc("%IB43");
+  w.has_dtcs_location = true;
+  w.dtcs_location = loc("%ID56");
+  w.dtcs = 4;
+  d.rx.push_back(w);
+  if (own) {
+    J1939OwnDtc a;
+    a.spn = 520192;
+    a.fmi = 3;
+    a.active_location = loc("%QX40.0");
+    a.lamps = kJ1939LampAmber;
+    d.dtcs.push_back(a);
+    J1939OwnDtc b;
+    b.spn = 520193;
+    b.fmi = 1;
+    b.active_location = loc("%QX40.1");
+    b.lamps = kJ1939LampRed;
+    b.flash = 1;
+    d.dtcs.push_back(b);
+    d.has_lamps_location = true;
+    d.lamps_location = loc("%QB41");
+    d.has_clear_location = true;
+    d.clear_location = loc("%IB44");
+  }
+  return cfg;
+}
+
+// The program's own codes as the scan writes them.
+void own_bits(Rig& r, bool a, bool b, uint8_t lamps = 0) {
+  r.img.bool_out[40][0] = a;
+  r.img.bool_out[40][1] = b;
+  r.img.byte_out[41] = lamps;
+  r.image.copy_from_plc(r.rt);
+}
+
+TEST(j1939_dm_receive_into_the_plc) {
+  Rig r(dm_config(false));
+  r.claim();
+  // Five codes (22 bytes, BAM): count 5, the first four codes.
+  r.message(kPgnDm1, 0, 255, hex_bytes("40 FF 64 00 01 01 6E 00 00 05 BE 00 02 7E 00 F0 E3 02 FF FF FF 7F"), 510);
+  r.engine.tick(r.at(511));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.bool_in[40][0] == 1 && r.img.byte_in[41] == 0x40 && r.img.byte_in[42] == 0xFF &&
+        r.img.byte_in[43] == 5);
+  CHECK(r.img.dint_in[56] == 17301604u && r.img.dint_in[57] == 83886190u && r.img.dint_in[58] == 2114977982u &&
+        r.img.dint_in[59] == 35647488u && r.img.dint_in[60] == 0);
+  // Another ECU's DM1 is stored, not mapped.
+  r.message(kPgnDm1, 3, 255, hex_bytes("04 FF 00 F0 E3 02 FF FF"), 520);
+  r.engine.tick(r.at(521));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.byte_in[43] == 5);
+  // The fault cleared on the ECU.
+  r.message(kPgnDm1, 0, 255, hex_bytes("00 FF 00 00 00 00 FF FF"), 1500);
+  r.engine.tick(r.at(1501));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.byte_in[43] == 0 && r.img.byte_in[41] == 0 && r.img.dint_in[56] == 0 && r.img.dint_in[59] == 0);
+  // ECU silent: the status bit drops 3 s later, the values hold.
+  r.message(kPgnDm1, 0, 255, hex_bytes("04 FF 00 F0 E3 02 FF FF"), 2000);
+  r.engine.tick(r.at(4999));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.bool_in[40][0] == 1);
+  r.engine.tick(r.at(5000));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.bool_in[40][0] == 0 && r.img.byte_in[43] == 1 && r.img.dint_in[56] == 35647488u &&
+        r.img.byte_in[41] == 4);
+  std::string js = status_json(r, 5000);
+  CHECK_MSG(js.find(R"("dm":{"sources":[{"address":0,"lamps":4,"flash":255,"count":1,"truncated":0,)"
+                    R"("dtcs":[{"spn":520192,"fmi":3,"oc":2,"cm":false}],"age_ms":3000,"dm1_count":3,)"
+                    R"("old_spn_format":false},{"address":3,)") != std::string::npos &&
+                js.find(R"("watched":[{"index":0,"source":0,"source_name":null,"timed_out":true,"timeouts":1}],)"
+                        R"("own":null})") != std::string::npos,
+            js);
+  // Without own DM1 a Request for DM1 to us is NACKed like any PGN we do not send.
+  r.request(kPgnDm1, 0x20, 128, 5100);
+  auto n = r.socket.of(kPgnAcknowledgement);
+  CHECK(n.size() == 1 && n[0].data[0] == 1 && n[0].data[5] == 0xCA && n[0].data[6] == 0xFE);
+  CHECK(r.socket.of(kPgnDm1).empty());
+  // The receive socket takes the diagnostic messages.
+  std::vector<uint32_t> pgns = r.engine.receive_pgns();
+  for (uint32_t p : {kPgnDm1, kPgnDm2, kPgnAcknowledgement, kPgnDm13, kPgnDm22})
+    CHECK(std::find(pgns.begin(), pgns.end(), p) != pgns.end());
+}
+
+TEST(j1939_dm_send_own) {
+  Rig r(dm_config());
+  // Nothing before the claim.
+  r.engine.bus_up(r.t0);
+  r.engine.tick(r.at(250));
+  CHECK(r.socket.of(kPgnDm1).empty());
+  r.engine.tick(r.at(500));
+  // No faults: lamps off and the all-zero code, priority 6, global.
+  auto d = r.socket.of(kPgnDm1);
+  CHECK(d.size() == 1 && d[0].data == hex_bytes("00 FF 00 00 00 00 FF FF") && d[0].priority == 6 &&
+        d[0].destination == 255);
+  // Fault raised: sent at once, OC 1.
+  own_bits(r, true, false);
+  r.engine.tick(r.at(510));
+  d = r.socket.of(kPgnDm1);
+  CHECK(d.size() == 2 && d[1].data == hex_bytes("04 FF 00 F0 E3 01 FF FF"));
+  // A second change within the second waits: at most one change-driven send per 1000 ms.
+  own_bits(r, true, true);
+  r.engine.tick(r.at(600));
+  CHECK(r.socket.of(kPgnDm1).size() == 2);
+  r.engine.tick(r.at(1509));
+  CHECK(r.socket.of(kPgnDm1).size() == 2);
+  r.engine.tick(r.at(1510));
+  d = r.socket.of(kPgnDm1);
+  CHECK(d.size() == 3 && d[2].data == hex_bytes("14 DF 00 F0 E3 01 01 F0 E1 01"));
+  // Every second.
+  r.engine.tick(r.at(2509));
+  CHECK(r.socket.of(kPgnDm1).size() == 3);
+  r.engine.tick(r.at(2510));
+  CHECK(r.socket.of(kPgnDm1).size() == 4);
+  // Lamps from the program are ORed in; a change a second after the last
+  // change-driven send goes out at once.
+  own_bits(r, true, true, kJ1939LampProtect);
+  r.engine.tick(r.at(2600));
+  d = r.socket.of(kPgnDm1);
+  CHECK(d.size() == 5 && d[4].data[0] == 0x15);
+  // The fault goes away: no longer in DM1 (with the next periodic send,
+  // within a second of the last change), in DM2 with its count.
+  own_bits(r, false, true);
+  r.engine.tick(r.at(2700));
+  CHECK(r.socket.of(kPgnDm1).size() == 5);
+  r.engine.tick(r.at(3600));
+  d = r.socket.of(kPgnDm1);
+  CHECK(d.size() == 6 && d[5].data == hex_bytes("10 DF 01 F0 E1 01 FF FF"));
+  own_bits(r, true, true);
+  r.engine.tick(r.at(4600));
+  own_bits(r, false, true);
+  r.engine.tick(r.at(5600));
+  r.request(kPgnDm2, 0x20, 128, 5700);
+  auto p = r.socket.of(kPgnDm2);
+  CHECK(p.size() == 1 && p[0].destination == 255 && p[0].data == hex_bytes("10 DF 00 F0 E3 02 FF FF"));
+  std::string js = status_json(r, 5700);
+  CHECK_MSG(js.find(R"("own":{"active":[{"spn":520193,"fmi":1,"oc":1,"lamps":["red"],"flash":"fast"}],)"
+                    R"("previous":[{"spn":520192,"fmi":3,"oc":2}],"lamps":16,"flash":223,"clears":0,)"
+                    R"("suspended":false,"dm1_sent":)") != std::string::npos,
+            js);
+  // Requests for DM1, global too, answered with the current list through the reply gate.
+  size_t before = r.socket.of(kPgnDm1).size();
+  r.request(kPgnDm1, 0x20, 255, 5710);
+  r.request(kPgnDm1, 0x20, 128, 5720);
+  CHECK(r.socket.of(kPgnDm1).size() == before + 1);
+  r.request(kPgnDm1, 0x20, 128, 5770);
+  CHECK(r.socket.of(kPgnDm1).size() == before + 2);
+  CHECK(r.socket.of(kPgnAcknowledgement).empty());
+}
+
+TEST(j1939_dm_occurrence_count_stops_at_126) {
+  J1939Diagnostics diag;
+  J1939OwnDtc a;
+  a.spn = 520192;
+  diag.dtcs.push_back(a);
+  OwnDtcs t(diag);
+  for (int k = 0; k < 200; ++k) {
+    t.update({1}, 0);
+    t.update({0}, 0);
+  }
+  CHECK(t.oc(0) == 126 && t.previous().size() == 1);
+}
+
+TEST(j1939_dm_clears) {
+  Rig r(dm_config());
+  r.claim();
+  own_bits(r, true, true);
+  r.engine.tick(r.at(510));
+  own_bits(r, false, true);
+  r.engine.tick(r.at(520));
+  own_bits(r, true, true);
+  r.engine.tick(r.at(530));  // 520192 at OC 2, still active
+  own_bits(r, true, false);
+  r.engine.tick(r.at(540));  // 520193 previously active
+  // A tool clears with DM11: ACK, clear_location + 1, DM2 empty, the next DM1 with OC 1.
+  r.request(kPgnDm11, 249, 128, 600);
+  auto ack = r.socket.of(kPgnAcknowledgement);
+  CHECK(ack.size() == 1 && ack[0].data == hex_bytes("00 FF FF FF F9 D3 FE 00"));
+  r.engine.tick(r.at(601));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.byte_in[44] == 1);
+  r.request(kPgnDm2, 249, 128, 610);
+  CHECK(r.socket.of(kPgnDm2).back().data == hex_bytes("04 FF 00 00 00 00 FF FF"));
+  r.engine.tick(r.at(1600));
+  CHECK(r.socket.of(kPgnDm1).back().data == hex_bytes("04 FF 00 F0 E3 01 FF FF"));
+  // DM3 globally: carried out without ACK.
+  own_bits(r, false, false);
+  r.engine.tick(r.at(1700));
+  r.request(kPgnDm3, 249, 255, 1800);
+  CHECK(r.socket.of(kPgnAcknowledgement).size() == 1);
+  r.engine.tick(r.at(1801));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.byte_in[44] == 2);
+  r.request(kPgnDm2, 249, 128, 1810);
+  CHECK(r.socket.of(kPgnDm2).back().data == hex_bytes("00 FF 00 00 00 00 FF FF"));
+  // DM22 to us: its negative acknowledgement, to the sender.
+  r.message(kPgnDm22, 249, 128, hex_bytes("11 FF FF FF FF 00 F0 E3"), 1900);
+  auto n22 = r.socket.of(kPgnDm22);
+  CHECK(n22.size() == 1 && n22[0].destination == 249 && n22[0].data == hex_bytes("13 00 FF FF FF 00 F0 E3"));
+  // DM22 to another ECU: nothing.
+  r.message(kPgnDm22, 249, 3, hex_bytes("11 FF FF FF FF 00 F0 E3"), 2000);
+  CHECK(r.socket.of(kPgnDm22).size() == 1);
+  std::string js = status_json(r, 2000);
+  CHECK_MSG(js.find(R"("clears":2)") != std::string::npos, js);
+}
+
+TEST(j1939_dm_clears_refused) {
+  Config cfg = dm_config();
+  cfg.j1939.diagnostics.accept_clear = false;
+  Rig r(cfg);
+  r.claim();
+  own_bits(r, true, false);
+  r.engine.tick(r.at(510));
+  own_bits(r, false, false);
+  r.engine.tick(r.at(520));
+  r.request(kPgnDm3, 249, 128, 600);
+  auto n = r.socket.of(kPgnAcknowledgement);
+  CHECK(n.size() == 1 && n[0].data == hex_bytes("01 FF FF FF F9 CC FE 00"));
+  r.request(kPgnDm11, 249, 255, 610);
+  CHECK(r.socket.of(kPgnAcknowledgement).size() == 1);
+  r.engine.tick(r.at(611));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.byte_in[44] == 0);
+  r.request(kPgnDm2, 249, 128, 620);
+  CHECK(r.socket.of(kPgnDm2).back().data == hex_bytes("00 FF 00 F0 E3 01 FF FF"));
+}
+
+TEST(j1939_dm13_suspends_broadcasts) {
+  Rig r(dm_config());
+  r.claim();
+  r.img.int_out[0] = 1;
+  r.img.byte_out[4] = 1;
+  r.image.copy_from_plc(r.rt);
+  r.engine.tick(r.at(510));
+  // A tool stops broadcasts globally and repeats it every 5 s.
+  r.message(kPgnDm13, 249, 255, hex_bytes("3F FF FF FF FF FF FF FF"), 600);
+  size_t periodic = r.socket.of(0xFF01).size(), dm1 = r.socket.of(kPgnDm1).size();
+  for (int ms = 600; ms < 11600; ms += 10) {
+    if (ms == 5600) r.message(kPgnDm13, 249, 255, hex_bytes("3F FF FF FF FF FF FF FF"), ms);
+    if (ms == 3000) {
+      // On-change sends and request answers go on.
+      r.img.byte_out[4] = 2;
+      r.image.copy_from_plc(r.rt);
+      r.request(0xFF01, 0x20, 128, ms);
+    }
+    r.engine.tick(r.at(ms));
+  }
+  CHECK(r.socket.of(0xFF01).size() == periodic + 1);  // the request's answer
+  CHECK(r.socket.of(kPgnDm1).size() == dm1);
+  CHECK(r.socket.of(0xFF02).size() == 2);
+  CHECK(r.engine.suspended());
+  std::string js = status_json(r, 11000);
+  CHECK_MSG(js.find(R"("suspended":true)") != std::string::npos, js);
+  // 6 s after the last stop they resume.
+  r.engine.tick(r.at(11600));
+  CHECK(!r.engine.suspended() && r.socket.of(0xFF01).size() == periodic + 2 &&
+        r.socket.of(kPgnDm1).size() == dm1 + 1);
+  // Hold keeps a suspension going; start ends it.
+  r.message(kPgnDm13, 249, 128, hex_bytes("3F FF FF FF FF FF FF FF"), 12000);
+  r.message(kPgnDm13, 249, 255, hex_bytes("FF FF FF 0F FF FF FF FF"), 17000);
+  r.engine.tick(r.at(18500));
+  CHECK(r.engine.suspended());
+  r.message(kPgnDm13, 249, 255, hex_bytes("7F FF FF FF FF FF FF FF"), 18600);
+  r.engine.tick(r.at(18601));
+  CHECK(!r.engine.suspended());
+  // To another ECU: ignored.
+  r.message(kPgnDm13, 249, 3, hex_bytes("3F FF FF FF FF FF FF FF"), 18700);
+  r.engine.tick(r.at(18701));
+  CHECK(!r.engine.suspended());
+}
+
+TEST(j1939_dm13_ignored_when_off) {
+  Config cfg = dm_config();
+  cfg.j1939.diagnostics.dm13 = false;
+  Rig r(cfg);
+  r.claim();
+  r.message(kPgnDm13, 249, 255, hex_bytes("3F FF FF FF FF FF FF FF"), 600);
+  r.engine.tick(r.at(601));
+  CHECK(!r.engine.suspended());
+  r.engine.tick(r.at(1600));
+  CHECK(r.socket.of(kPgnDm1).size() == 2);
+}
+
+// ---------------------------------------------------------------------------
+// DM jobs: the diagnostics operations and the PLC blocks
+
+struct JobLog {
+  std::vector<J1939Engine::DmResult> results;
+  J1939Engine::DmDone done() {
+    return [this](const J1939Engine::DmResult& r) { results.push_back(r); };
+  }
+};
+
+TEST(j1939_dm_jobs) {
+  Rig r(dm_config(false));
+  JobLog log;
+  // Before the claim: no address.
+  r.engine.bus_up(r.t0);
+  CHECK(r.engine.dm_start(J1939Engine::DmOp::ReadDm2, 0, 1000, r.at(10), log.done()) ==
+        CANWORKS_J1939_ERR_NO_ADDRESS);
+  CHECK(j1939_dm_error_text(CANWORKS_J1939_ERR_NO_ADDRESS, true, 0, 1000, r.engine.state()) ==
+        "network has no address (state: claiming)");
+  r.engine.tick(r.at(250));
+  r.engine.tick(r.at(500));
+  // A DM2 read: a Request for DM2 to the address, answered by its DM2.
+  CHECK(r.engine.dm_start(J1939Engine::DmOp::ReadDm2, 0, 1000, r.at(510), log.done()) == 0);
+  auto q = r.socket.of(kPgnRequest);
+  CHECK(q.back().destination == 0 && q.back().data == hex_bytes("CB FE 00"));
+  // A second job for the same address: busy, also a clear.
+  CHECK(r.engine.dm_start(J1939Engine::DmOp::ClearDm3, 0, 1000, r.at(511), log.done()) ==
+        CANWORKS_J1939_ERR_PENDING);
+  CHECK(j1939_dm_error_text(CANWORKS_J1939_ERR_PENDING, true, 0, 1000, r.engine.state()) ==
+        "busy: a DM2 read or clear for address 0 is pending");
+  r.message(kPgnDm2, 0, 255, hex_bytes("04 FF 00 F0 E3 02 FF FF"), 520);
+  CHECK(log.results.size() == 1 && !log.results[0].error && log.results[0].list.count == 1);
+  cJSON* j = j1939_dm_result_json(log.results[0], true);
+  char* t = cJSON_PrintUnformatted(j);
+  CHECK_MSG(std::string(t) ==
+                R"({"address":0,"lamps":4,"flash":255,"count":1,"dtcs":[{"spn":520192,"fmi":3,"oc":2,"cm":false}]})",
+            t);
+  cJSON_free(t);
+  cJSON_Delete(j);
+  // A clear: done on the ECU's ACK, an error on its NACK.
+  CHECK(r.engine.dm_start(J1939Engine::DmOp::ClearDm11, 0, 1000, r.at(600), log.done()) == 0);
+  CHECK(r.socket.of(kPgnRequest).back().data == hex_bytes("D3 FE 00"));
+  r.message(kPgnAcknowledgement, 0, 255, hex_bytes("00 FF FF FF 80 D3 FE 00"), 610);
+  CHECK(log.results.size() == 2 && !log.results[1].error);
+  j = j1939_dm_result_json(log.results[1], false);
+  t = cJSON_PrintUnformatted(j);
+  CHECK_MSG(std::string(t) == R"({"address":0,"result":"ack"})", t);
+  cJSON_free(t);
+  cJSON_Delete(j);
+  CHECK(r.engine.dm_start(J1939Engine::DmOp::ClearDm3, 0, 1000, r.at(700), log.done()) == 0);
+  // Another requester's ACK, or one for another PGN, is not ours.
+  r.message(kPgnAcknowledgement, 0, 255, hex_bytes("00 FF FF FF 81 CC FE 00"), 705);
+  r.message(kPgnAcknowledgement, 0, 255, hex_bytes("00 FF FF FF 80 D3 FE 00"), 706);
+  CHECK(log.results.size() == 2);
+  r.message(kPgnAcknowledgement, 0, 128, hex_bytes("01 FF FF FF 80 CC FE 00"), 710);
+  CHECK(log.results.size() == 3 && log.results[2].error == CANWORKS_J1939_ERR_NACK);
+  CHECK(j1939_dm_error_text(CANWORKS_J1939_ERR_NACK, false, 0, 1000, r.engine.state()) == "NACK from 0");
+  // No answer: a timeout.
+  CHECK(r.engine.dm_start(J1939Engine::DmOp::ReadDm2, 7, 300, r.at(800), log.done()) == 0);
+  r.engine.tick(r.at(1099));
+  CHECK(log.results.size() == 3);
+  r.engine.tick(r.at(1100));
+  CHECK(log.results.size() == 4 && log.results[3].error == CANWORKS_J1939_ERR_TIMEOUT && log.results[3].address == 7);
+  CHECK(j1939_dm_error_text(CANWORKS_J1939_ERR_TIMEOUT, true, 7, 1000, r.engine.state()) ==
+        "no answer from 7 within 1000 ms");
+  // Global clears are done once sent.
+  CHECK(r.engine.dm_start(J1939Engine::DmOp::ClearDm11, 255, 1000, r.at(1200), log.done()) == 0);
+  CHECK(log.results.size() == 5 && log.results[4].address == 255 && r.socket.of(kPgnRequest).back().destination == 255);
+  j = j1939_dm_result_json(log.results[4], false);
+  t = cJSON_PrintUnformatted(j);
+  CHECK_MSG(std::string(t) == R"({"address":255,"result":"sent"})", t);
+  cJSON_free(t);
+  cJSON_Delete(j);
+  // The bus goes: pending jobs end.
+  CHECK(r.engine.dm_start(J1939Engine::DmOp::ReadDm2, 9, 1000, r.at(1300), log.done()) == 0);
+  r.engine.bus_lost("CAN interface vcan0 is down");
+  CHECK(log.results.size() == 6 && log.results[5].error == CANWORKS_J1939_ERR_BUS);
+  CHECK(j1939_dm_error_text(CANWORKS_J1939_ERR_BUS, true, 9, 1000, r.engine.state()) ==
+        "network has no address (state: no bus)");
+}
+
+TEST(j1939_dm_plc_jobs) {
+  Rig r(dm_config(false));
+  J1939PlcJobs& jobs = J1939PlcJobs::instance();
+  const auto* api = static_cast<const canworks_j1939_api_v1*>(canworks_j1939_api_table(CANWORKS_J1939_API_VERSION));
+  CHECK(api && api->size == sizeof(canworks_j1939_api_v1) && !canworks_j1939_api_table(2));
+  uint16_t err = 0;
+  // Not running yet.
+  CHECK(!api->dm_read_start(0, 0, 0, 0, &err) && err == CANWORKS_J1939_ERR_NOT_RUNNING);
+  jobs.open({true, false});
+  CHECK(!api->dm_read_start(0, 0, 0, 0, &err) && err == CANWORKS_J1939_ERR_NOT_RUNNING);  // bus thread not there
+  jobs.set_attached(0, true);
+  CHECK(!api->dm_read_start(1, 0, 0, 0, &err) && err == CANWORKS_J1939_ERR_NOT_J1939);
+  CHECK(!api->dm_read_start(2, 0, 0, 0, &err) && err == CANWORKS_J1939_ERR_NETWORK);
+  CHECK(!api->dm_read_start(0, 254, 0, 0, &err) && err == CANWORKS_J1939_ERR_INPUT);
+  CHECK(!api->dm_clear_start(0, 254, 0, 0, &err) && err == CANWORKS_J1939_ERR_INPUT);
+  r.claim();
+  // A DM1 never seen.
+  uint32_t h = api->dm_read_start(0, 7, 0, 0, &err);
+  CHECK(h && !err);
+  canworks_j1939_dm out;
+  CHECK(api->dm_read_poll(h, &out, &err) == 0);
+  r.engine.serve_plc(0, r.at(510));
+  CHECK(api->dm_read_poll(h, &out, &err) == 2 && err == CANWORKS_J1939_ERR_NO_DM1);
+  // The latest DM1, without bus traffic.
+  r.message(kPgnDm1, 0, 255, hex_bytes("14 DF 00 F0 E3 02 01 F0 E1 01"), 520);
+  size_t sent = r.socket.sent.size();
+  h = api->dm_read_start(0, 0, 0, 0, &err);
+  r.engine.serve_plc(0, r.at(770));
+  CHECK(api->dm_read_poll(h, &out, &err) == 1 && !err);
+  CHECK(out.lamps == 0x14 && out.flash == 0xDF && out.count == 2 && out.age_ms == 250 &&
+        out.dtcs[0] == 35647488u && out.dtcs[1] == 17821697u && out.dtcs[2] == 0);
+  CHECK(r.socket.sent.size() == sent);
+  CHECK(api->dm_read_poll(h, &out, &err) == 2 && err == CANWORKS_J1939_ERR_CANCELLED);  // used up
+  // DM2 by Request; a second job for the address meanwhile is refused (5),
+  // whoever starts it.
+  h = api->dm_read_start(0, 0, 1, 0, &err);
+  uint32_t h2 = api->dm_clear_start(0, 0, 1, 0, &err);
+  r.engine.serve_plc(0, r.at(800));
+  CHECK(r.socket.of(kPgnRequest).back().destination == 0);
+  CHECK(api->dm_clear_poll(h2, &err) == 2 && err == CANWORKS_J1939_ERR_PENDING);
+  JobLog log;
+  CHECK(r.engine.dm_start(J1939Engine::DmOp::ReadDm2, 0, 1000, r.at(801), log.done()) ==
+        CANWORKS_J1939_ERR_PENDING);
+  CHECK(api->dm_read_poll(h, &out, &err) == 0);
+  r.message(kPgnDm2, 0, 255, hex_bytes("04 FF 00 F0 E3 02 FF FF"), 810);
+  CHECK(api->dm_read_poll(h, &out, &err) == 1 && out.count == 1 && out.dtcs[0] == 35647488u && out.age_ms == 0);
+  // A clear NACKed: 12; acknowledged: done.
+  h = api->dm_clear_start(0, 0, 0, 0, &err);
+  r.engine.serve_plc(0, r.at(900));
+  r.message(kPgnAcknowledgement, 0, 255, hex_bytes("01 FF FF FF 80 D3 FE 00"), 910);
+  CHECK(api->dm_clear_poll(h, &err) == 2 && err == CANWORKS_J1939_ERR_NACK);
+  h = api->dm_clear_start(0, 0, 1, 0, &err);
+  r.engine.serve_plc(0, r.at(1000));
+  r.message(kPgnAcknowledgement, 0, 255, hex_bytes("00 FF FF FF 80 CC FE 00"), 1010);
+  CHECK(api->dm_clear_poll(h, &err) == 1 && !err);
+  // A read and a clear handle are not interchangeable.
+  h = api->dm_clear_start(0, 255, 0, 0, &err);
+  r.engine.serve_plc(0, r.at(1100));
+  CHECK(api->dm_read_poll(h, &out, &err) == 2 && err == CANWORKS_J1939_ERR_CANCELLED);
+  // The PLC stops: pending jobs end with 8.
+  h = api->dm_read_start(0, 5, 1, 0, &err);
+  r.engine.serve_plc(0, r.at(1200));
+  jobs.close();
+  CHECK(api->dm_read_poll(h, &out, &err) == 2 && err == CANWORKS_J1939_ERR_CANCELLED);
+  jobs.set_attached(0, false);
 }
 
 }  // namespace

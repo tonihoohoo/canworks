@@ -11,7 +11,11 @@ j1939 tools/deploy/tests/test_configurator_j1939_*
 j1939 tools/deploy/tests/data/j1939/*
 j1939 test/j1939/*
 j1939 test/j1939_unit/*
+j1939 test/j1939_blocks/*
+j1939 library/canworks/J1939_*
+j1939 library/src/j1939_common.inc
 j1939 test/fixtures/config/cases-j1939.json
+j1939 test/fixtures/j1939-dm/*
 j1939 examples/j1939/*
 
 canopen plugin/src/canopen/*
