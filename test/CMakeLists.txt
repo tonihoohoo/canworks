@@ -309,3 +309,16 @@ add_test(NAME bridge_upload COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/bridge/u
 set_tests_properties(bridge_upload PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")
 # scripts/install-bridge.sh with a stub systemctl.
 add_test(NAME bridge_install COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/bridge/install_test.sh $<TARGET_FILE:canworks-bridge>)
+
+# The longest tests start first under `ctest -j` (seconds on a CI runner), so
+# none of them is left running alone at the end.
+foreach(pair IN ITEMS unit_tests:37 plugin_lifecycle:27 sim_tests.sim_simulated_power_cycles:24
+                      sim_tests.sim_gantry_demo:24 sim_tests.sim_lss_diag_commissioning:15
+                      bridge_host_tests:11 sim_tests.sim_cia402_cyclic:8 sim_tests.sim_cia402_demo:8)
+  string(REPLACE ":" ";" pair "${pair}")
+  list(GET pair 0 name)
+  list(GET pair 1 cost)
+  if(TEST ${name})
+    set_tests_properties(${name} PROPERTIES COST ${cost})
+  endif()
+endforeach()
