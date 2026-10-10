@@ -38,6 +38,8 @@ journalctl -u canworks-bridge@line1
 
 Several instances run side by side, each with its own CAN interfaces and Modbus port, for example `canworks-bridge@press` on `can0` and port 502 and `canworks-bridge@feeder` on `can1` and port 1502. One CAN interface belongs to one process: a second bridge, or the OpenPLC plugin, that names an interface already in use logs `CAN interface can0 is owned by another canworks process (process ID 812); not touching it` and leaves that network off. The lock is an abstract Unix socket per interface, so it also holds between a bridge on the host and the plugin in the runtime's Docker container, which runs on the host network.
 
+`--with-link NAME` advertises the bridge `NAME` on the local network and installs the [remote link](remote-access.md) for its diagnostics channel, so the PC tools reach it from other networks; the link reads `/etc/canworks-bridge/NAME/canworks.json` and forwards the diagnostics port only (Modbus TCP is not carried).
+
 To hand an interface from a Docker runtime to a bridge, stop the runtime's bootloader before the runtime, or the bootloader starts the runtime again within seconds: `docker stop openplc-bootloader openplc-runtime`, and `docker start openplc-runtime openplc-bootloader` to give it back.
 
 ### Container image
