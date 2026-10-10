@@ -361,6 +361,17 @@ TEST(config_location_outside_image) {
   CHECK_MSG(has_error(errors, "nodes[0]: tx_pdos[0]: entries[0]"), join(errors));
 }
 
+// The pre-contract top-level interface goes through the same name check
+// (canopen-master-bringup "Interface names are checked").
+TEST(config_old_style_interface_name_checked) {
+  std::string s = replace(kValid, R"("adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },)",
+                          R"("interface": "vcan0 --up", "bitrate": 125000,)");
+  Config cfg;
+  std::vector<std::string> errors;
+  CHECK(!parse(s, cfg, errors));
+  CHECK_MSG(has_error(errors, "interface \"vcan0 --up\" must be 1-15 characters"), join(errors));
+}
+
 TEST(config_pdo_too_long) {
   std::string s = replace(kValid, R"("type": "UNSIGNED32", "iec_location": "%ID100" })",
                           R"("type": "UNSIGNED32", "iec_location": "%ID100" },
@@ -1812,7 +1823,7 @@ TEST(dcfgen_device_pdo_mapping) {
   std::string json = R"({
   "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
   "master": { "node_id": 1, "sync_period_us": 100000 },
-  "nodes": [ { "node_id": 4, "name": "io", "eds": "fixed-io.eds",
+  "nodes": [ { "node_id": 4, "name": "io", "eds": "fixed-io.eds", "heartbeat_ms": 100,
     "tx_pdos": [ { "entries": [ { "index": "0x6000", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%IB40" } ] } ],
     "rx_pdos": [ { "entries": [ { "index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB40" } ] } ] } ]
 })";
@@ -1908,7 +1919,7 @@ TEST(eds_fixed_entries_writable_count) {
   std::string json = R"({
   "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
   "master": { "node_id": 1, "sync_period_us": 100000 },
-  "nodes": [ { "node_id": 4, "eds": "fixed-io.eds",
+  "nodes": [ { "node_id": 4, "eds": "fixed-io.eds", "heartbeat_ms": 100,
     "tx_pdos": [ { "entries": [ { "index": "0x6000", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%IB40" } ] } ] } ]
 })";
   Config cfg;

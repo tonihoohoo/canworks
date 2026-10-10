@@ -290,7 +290,7 @@ class Parser {
       return false;
     }
     unsigned limit = limits_.buffer_size;
-    if (byte_mode_ ? out.index + location_bytes(out) > limit : out.index >= limit) {
+    if (!iec_location_in_image(out, limit, byte_mode_)) {
       error(where, std::string(key) + " " + out.str() +
                        " lies outside the runtime I/O image (index must be below " +
                        std::to_string(limit) + ")");
@@ -658,6 +658,14 @@ class Parser {
     return cfg;
   }
 
+  // A Linux interface name the plugin can open or create (IFNAMSIZ - 1).
+  static bool valid_interface_name(const std::string& name) {
+    if (name.empty() || name.size() > 15) return false;
+    for (char c : name)
+      if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '.' && c != ':' && c != '-') return false;
+    return true;
+  }
+
   static bool valid_network_name(const std::string& name) {
     if (name.empty() || name.size() > 16 || !std::isalpha(static_cast<unsigned char>(name[0]))) return false;
     for (char c : name)
@@ -1009,6 +1017,15 @@ class Parser {
                             errors, warnings);
     for (const auto& e : errors) errors_.push_back(path_ + ": " + e);
     for (const auto& w : warnings) warnings_.push_back(path_ + ": " + w);
+    // The same image check as every other location (can-raw-messages "Raw
+    // message locations inside the I/O image").
+    std::vector<std::pair<IecLocation, std::string>> locs;
+    canworks_raw::raw_locations(cfg.raw, locs);
+    for (const auto& l : locs)
+      if (!iec_location_in_image(l.first, limits_.buffer_size, byte_mode_))
+        errors_.push_back(path_ + ": " + l.second + ": " + l.first.str() +
+                          " lies outside the runtime I/O image (index must be below " +
+                          std::to_string(limits_.buffer_size) + ")");
     if (cfg.is_plain() && cfg.raw.empty())
       cfg.notes.push_back("network has no raw messages; it serves the program's CAN_* blocks, traces and diagnostics");
   }
@@ -1233,6 +1250,12 @@ class Parser {
           error(w, "node guarding needs both 'guard_time_ms' and 'life_time_factor'");
         if (n.heartbeat_ms && n.guard_time_ms)
           error(w, "use either heartbeat ('heartbeat_ms') or node guarding ('guard_time_ms'), not both");
+        // An explicit 0 accepts an unsupervised node (canopen-node-supervision
+        // "Every node is supervised or says why not"); check_eds_files refuses
+        // one that is unsupervised only through its EDS default.
+        if (n.has_heartbeat && n.heartbeat_ms == 0 && n.guard_time_ms == 0)
+          warning(w, "node " + std::to_string(n.node_id) + (n.name.empty() ? "" : " (" + n.name + ")") +
+                         ": \"heartbeat_ms\": 0 and no guarding: its loss is not detected");
         if (cJSON_GetObjectItemCaseSensitive(node, "status_location")) {
           IecLocation loc;
           if (get_location(node, "status_location", w, false, loc)) {
@@ -1379,16 +1402,16 @@ class Parser {
       else
         m.time_period_ms = (unsigned)v;
     }
-    std::string stop_mode;
-    if (get_string(master, "on_plc_stop", w, false, stop_mode)) {
-      if (stop_mode == "preop")
+    std::string stop;
+    if (get_string(master, "on_plc_stop", w, false, stop)) {
+      if (stop == "preop")
         m.on_plc_stop = OnPlcStop::Preop;
-      else if (stop_mode == "stop")
+      else if (stop == "stop")
         m.on_plc_stop = OnPlcStop::Stop;
-      else if (stop_mode == "keep")
+      else if (stop == "keep")
         m.on_plc_stop = OnPlcStop::Keep;
       else
-        error(w, "field 'on_plc_stop' must be \"preop\", \"stop\" or \"keep\": " + stop_mode);
+        error(w, "field 'on_plc_stop' must be \"preop\", \"stop\" or \"keep\"");
     }
     if (get_uint(master, "scan_watchdog_ms", w, false, 0xFFFFFFFF, v)) {
       if (v != 0 && (v < 10 || v > 60000))
@@ -1593,7 +1616,9 @@ class Parser {
       error("", "missing required field 'adapter'");
       return;
     }
-    get_string(src, "interface", w, true, a.interface);
+    if (get_string(src, "interface", w, true, a.interface) && !valid_interface_name(a.interface))
+      error(w, "interface \"" + a.interface + "\" must be 1-15 characters of letters, digits, '_', '.', ':' and '-' "
+               "(the 15-character limit of Linux interface names)");
     uint64_t v;
     if (get_uint(src, "bitrate", w, true, 1000000, v)) {
       static const unsigned rates[] = {10000, 20000, 50000, 125000, 250000, 500000, 800000, 1000000};
@@ -2401,7 +2426,7 @@ class Parser {
                    std::to_string(nbytes) + "-byte block starts, not " + out.str());
       return false;
     }
-    if (out.index + nbytes > limits_.buffer_size) {
+    if (!bytes_in_image(out.index, nbytes, limits_.buffer_size)) {
       error(w, std::string(key) + " " + out.str() + ": its " + std::to_string(nbytes) +
                    "-byte block ends outside the image (" + std::to_string(limits_.buffer_size) + " bytes)");
       return false;
@@ -2437,7 +2462,8 @@ class Parser {
     }
     BridgeConfig& c = set.bridge;
     c.enabled = true;
-    check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers", "readers", "watchdog_ms",
+    check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers",
+                       "readers", "watchdog_ms",
                        "on_client_loss", "status_location", "control_location", "live_lists",
                        "sdo_bridge_location", "sdo_bridge_write"});
     if (get_string(b, "listen", w, true, c.listen)) {
@@ -2470,6 +2496,9 @@ class Parser {
       if (v < 1) error(w, "field 'max_clients_per_address' must be 1-64");
       c.max_clients_per_address = (unsigned)v;
     }
+    if (!cJSON_GetObjectItemCaseSensitive(b, "writers"))
+      error(w, "missing required field 'writers': list the addresses that may write, or [\"0.0.0.0/0\", \"::/0\"] "
+               "to let every address write");
     for (const char* key : {"writers", "readers"}) {
       const cJSON* list = cJSON_GetObjectItemCaseSensitive(b, key);
       if (!list) continue;

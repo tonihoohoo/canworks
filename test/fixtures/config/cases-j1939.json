@@ -430,6 +430,13 @@
       "schema": "invalid",
       "verdict": "reject",
       "messages": ["field 'protocol' needs schema_version 2"]
+    },
+    {
+      "name": "j1939: interface name checked",
+      "patch": [["set", "networks/1/adapter/interface", "j1939_machine_bus"]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: adapter: interface \"j1939_machine_bus\" must be 1-15 characters"]
     }
   ]
 }

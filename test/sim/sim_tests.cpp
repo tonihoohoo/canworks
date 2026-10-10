@@ -1024,7 +1024,7 @@ TEST(sim_sdo_abort_other_nodes_continue) {
          "DefaultValue=0\nPDOMapping=1\n";
   std::string node3 = R"(,
     {
-      "node_id": 3, "name": "rejects", "eds": "bad-slave.eds",
+      "node_id": 3, "name": "rejects", "eds": "bad-slave.eds", "heartbeat_ms": 0,
       "status_location": "%IX10.1",
       "tx_pdos": [ { "entries": [ { "index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID200" } ] } ],
       "rx_pdos": [ { "entries": [ { "index": "0x4002", "type": "UNSIGNED32", "iec_location": "%QD200" } ] } ]
@@ -2710,7 +2710,7 @@ TEST(sim_diag_scan) {
   // configured.
   std::string rtd = read(std::string(RTD_DIR) + "/rtd8.eds");
   std::string json = pingpong_json(R"(,
-    { "node_id": 3, "name": "rtd", "eds": "rtd8.eds", "boot": false })");
+    { "node_id": 3, "name": "rtd", "eds": "rtd8.eds", "heartbeat_ms": 0, "boot": false })");
   std::string dir = make_dir(json, {{"cpp-slave.eds", slave_eds()}, {"rtd8.eds", rtd},
                                     {"device.eds", rtd_device_eds("0x00000404", "0x00000405")}});
   static Sim* sim;
@@ -2792,7 +2792,7 @@ TEST(sim_diag_boot_error) {
          "DefaultValue=0\nPDOMapping=1\n";
   std::string node3 = R"(,
     {
-      "node_id": 3, "name": "rejects", "eds": "bad-slave.eds",
+      "node_id": 3, "name": "rejects", "eds": "bad-slave.eds", "heartbeat_ms": 0,
       "rx_pdos": [ { "entries": [ { "index": "0x4002", "type": "UNSIGNED32", "iec_location": "%QD200" } ] } ]
     })";
   std::string dir = make_dir(pingpong_json(node3), {{"cpp-slave.eds", eds}, {"bad-slave.eds", bad}});

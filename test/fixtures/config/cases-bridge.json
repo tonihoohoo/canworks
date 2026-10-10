@@ -53,6 +53,9 @@
     ],
     "bridge": {
       "listen": "0.0.0.0:1502",
+      "writers": [
+        "10.0.0.20"
+      ],
       "status_location": "%IB24",
       "control_location": "%QB8",
       "live_lists": [
@@ -636,6 +639,66 @@
       ],
       "schema": "valid",
       "verdict": "accept"
+    },
+    {
+      "name": "bridge: writers missing",
+      "patch": [["delete", "bridge/writers"]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["bridge: missing required field 'writers': list the addresses that may write, or [\"0.0.0.0/0\", \"::/0\"] to let every address write"]
+    },
+    {
+      "name": "bridge: nobody writes",
+      "patch": [["set", "bridge/writers", []]],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "bridge: every address writes",
+      "patch": [["set", "bridge/writers", ["0.0.0.0/0", "::/0"]]],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "bridge: clients per address",
+      "patch": [["set", "bridge/max_clients_per_address", 1]],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "bridge: no clients per address",
+      "patch": [["set", "bridge/max_clients_per_address", 0]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["bridge: field 'max_clients_per_address' must be 1-64"]
+    },
+    {
+      "name": "bridge: too many clients per address",
+      "patch": [["set", "bridge/max_clients_per_address", 65]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["bridge: field 'max_clients_per_address' is out of range (max 64): 65"]
+    },
+    {
+      "name": "bridge: a block at the top of the 32-bit range",
+      "patch": [["set", "bridge/status_location", "%IB4294967295"]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["status_location %IB4294967295 lies outside the runtime I/O image (index must be below 8192)"]
+    },
+    {
+      "name": "bridge: a location that wraps the 32-bit range",
+      "patch": [["set", "networks/0/nodes/0/tx_pdos/0/entries/0/iec_location", "%ID4294967294"]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["%ID4294967294 lies outside the runtime I/O image (index must be below 8192)"]
+    },
+    {
+      "name": "bridge: a raw location past the image",
+      "patch": [["set", "networks/0/raw", {"rx": [{"id": 1536, "data_location": "%IL8188"}]}]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["networks[0].raw.rx[0].data_location: %IL8188 lies outside the runtime I/O image (index must be below 8192)"]
     }
   ]
 }

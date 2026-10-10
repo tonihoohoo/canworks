@@ -79,6 +79,7 @@
     "unit_id": 1,
     "word_order": "high_first",
     "max_clients": 16,
+    "writers": ["192.168.1.20"],
     "watchdog_ms": 1000,
     "on_client_loss": "stop",
     "status_location": "%IB24",

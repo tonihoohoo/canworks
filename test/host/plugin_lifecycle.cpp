@@ -469,7 +469,7 @@ int main(int argc, char** argv) {
     f << R"({"schema_version": 1,
              "adapter": {"type": "socketcan", "interface": "nonexistent0", "bitrate": 125000, "simulate": true},
              "master": {"node_id": 1, "sync_source": "plc_cycle"},
-             "nodes": [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds",
+             "nodes": [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 50,
                         "tx_pdos": [{"entries": [{"index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID100"}]}]}]})";
   }
   g_logs.clear();
