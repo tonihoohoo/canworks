@@ -1,6 +1,7 @@
 """snapshot.materialize(): the project's canworks/ folder from an editor
 project snapshot into the upload's conf/ directory."""
 
+import glob
 import importlib.util
 import json
 import os
@@ -167,6 +168,18 @@ class Materialize(Base):
         cfg["nodes"][0]["node_id"] = 200
         project["canworks/canworks.json"] = json.dumps(cfg).encode()
         self.assertIgnored(project, "canworks/canworks.json: nodes[0]")
+
+    def test_wrong_structure(self):
+        for cfg in ({"nodes": 5}, {"schema_version": 2, "networks": [{"nodes": 3}]}):
+            with self.subTest(cfg):
+                project = rtd_project()
+                project["canworks/canworks.json"] = json.dumps(cfg).encode()
+                self.assertIgnored(project, "canworks/canworks.json")
+        project = rtd_project()
+        cfg = json.loads(project["canworks/canworks.json"])
+        cfg["nodes"][0]["eds"] = ["x.eds"]
+        project["canworks/canworks.json"] = json.dumps(cfg).encode()
+        self.assertIgnored(project, "invalid EDS path")
 
     def test_paths_outside_canopen(self):
         for bad in ("../rtd8.eds", "/etc/rtd8.eds", "eds/../../x.eds", "C:/x.eds",
@@ -423,11 +436,48 @@ class Precedence(Base):
             self.assertEqual(read(os.path.join(self.conf, name)), data)
 
 
+class ShippedExamples(Base):
+    """Every example config under config/ (version 1 and 2) is applied."""
+
+    def test_examples(self):
+        configs = sorted(glob.glob(os.path.join(REPO, "config", "*", "canopen_config*.json")))
+        versions = set()
+        for path in configs:
+            with self.subTest(os.path.relpath(path, REPO)):
+                shutil.rmtree(self.conf)
+                os.makedirs(self.conf)
+                with open(path, encoding="utf-8") as f:
+                    cfg = json.load(f)
+                versions.add(cfg.get("schema_version", 1))
+                files = {}
+                for n in contract.eds_users(cfg):
+                    src = os.path.join(os.path.dirname(path), n["eds"])
+                    n["eds"] = "eds/" + os.path.basename(src)
+                    files["canworks/" + n["eds"]] = read(src)
+                files["canworks/canworks.json"] = json.dumps(cfg).encode()
+                applied, messages = snapshot.materialize(self.snapshot(files), self.conf)
+                self.assertTrue(applied, messages)
+                with open(os.path.join(self.conf, "canworks.json"), encoding="utf-8") as f:
+                    out = json.load(f)
+                for n in contract.eds_users(out):
+                    self.assertTrue(n["eds"].startswith("canworks/eds/"), n["eds"])
+                    self.assertTrue(os.path.isfile(os.path.join(self.conf, n["eds"])), n["eds"])
+                r = contract.check_config(out, os.path.join(self.conf, "canworks.json"))
+                self.assertTrue(r.ok, r.errors)
+        self.assertEqual(versions, {1, 2})
+
+
 class SharedFixtures(Base):
     """The snapshot path reaches the deploy tool's verdict on every shared case."""
 
     def test_cases(self):
-        doc = load_cases()
+        self.run_cases("cases.json", 15)
+
+    def test_cases_v2(self):
+        self.run_cases("cases-v2.json", 5)
+
+    def run_cases(self, name, min_rejected):
+        doc = load_cases(name)
         eds_dir = os.path.join(FIXTURES, "eds")
         eds = {"canworks/" + n: read(os.path.join(eds_dir, n)) for n in os.listdir(eds_dir) if n.endswith(".eds")}
         eds.update({"canworks/fw/" + n: read(os.path.join(eds_dir, "fw", n)) for n in os.listdir(os.path.join(eds_dir, "fw"))})
@@ -458,9 +508,9 @@ class SharedFixtures(Base):
                         self.assertEqual(reason, "; ".join(tool.errors))
                     else:
                         self.assertIn(reason, "; ".join(tool.errors))
-                for w in tool.warnings:
+                for w in (tool.warnings if applied else []):
                     self.assertIn(w, text)
-        self.assertGreater(rejected, 15)
+        self.assertGreater(rejected, min_rejected)
 
 
 class ChildProcess(Base):
