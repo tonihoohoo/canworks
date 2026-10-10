@@ -43,3 +43,16 @@
 - [ ] 7.1 Program with `CO_RECV_EMCY` on the real node: provoke a fault that the device resets quickly (for example a sensor input open and closed), and check that the program sees the EMCY and its reset in order while `emcy_code_location` shows the latest, and that `LOST` stays 0. Put the template project back afterwards.
 - [ ] 7.2 `canworks-diag errors NODE` and the online panel on the real node: entries match the device's own error history; `--clear` refused read-only, refused without `--force` while OPERATIONAL, and clears with it (count 0 after).
 - [ ] 7.3 Move the real node's EMCY COB-ID (0x1014: write with bit 31 set, then the new value, as CiA 301 requires), reset the node: after the boot the log names the new COB-ID, its EMCYs are heard; then set bit 31 only and check the one warning. Restore the device's original 0x1014 (and its saved parameters, if it was stored) afterwards.
+
+Run on 2026-10-10 on the Pi bench (managed Docker runtime, main at 0a8ca26, tools 0.56.0) with its one real CANopen I/O node (node 23, 500 kbit/s). That node has no 0x1003, 0x1014, 0x1016 or 0x1029, so where a step needs them or a second device, simulated devices ran on the same real can0 bus next to it (the plugin's `simulate: true` nodes, or a standalone `canworks-sim --real-bus` in the runtime container).
+- 7.1: `CO_RECV_EMCY` in a test program on the Pi, EMCYs from a simulated node on can0: two faults and their two
+  error resets (`sim clear`) arrived in order, last code 0x0000, `LOST` 0, while `emcy_code_location` showed the
+  latest. Not run with the real node (no way to provoke a fault from here, and its EDS has no EMCY objects), and a
+  fault reset within one scan was not produced. Left open for a node with EMCY.
+- 7.2: `canworks-diag errors 41` on a simulated node on can0: two EMCYs (0x2310, 0x5030) listed newest first with
+  their CiA 301 classes; `--clear` refused without `--force` while OPERATIONAL and cleared with it (count 0 after);
+  the real node answers "has no error history (0x1003)". The read-only refusal and the configurator panel were not
+  checked on the bench.
+- 7.3: on the same simulated node, 0x1014 written with bit 31 then 0x0B5, saved (0x1010) and the node reset: the log
+  said `EMCY COB-ID 0x0B5, read from the device (0x1014)` and its next EMCY was heard; bit 31 alone gave the one
+  warning (`EMCY is switched off on the device ... listening on 0x0B5`); 0x0A9 restored and saved afterwards.

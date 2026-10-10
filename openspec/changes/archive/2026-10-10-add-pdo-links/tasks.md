@@ -60,3 +60,17 @@
 - [ ] 9.1 Link an event-driven TPDO of one real node to an RPDO of a second real node with the configurator, upload, and check in the Trace view that only the producer sends on the link's COB-ID and that the consumer's object follows (read it in the object dictionary view).
 - [ ] 9.2 Stop the PLC with `"on_plc_stop": "keep"` on the link: the consumer keeps following the producer; with `"follow"`: both go PRE-OPERATIONAL. Start the PLC again: the link resumes after the boot.
 - [ ] 9.3 With `heartbeat_watch` on the consumer, unplug the producer: the consumer sends EMCY 0x8130 and reacts per its 0x1029 setting; plug it back: the master boots it and the link resumes. Put the template project back afterwards.
+
+Run on 2026-10-10 on the Pi bench (managed Docker runtime, main at 0a8ca26, tools 0.56.0) with its one real CANopen I/O node (node 23, 500 kbit/s). That node has no 0x1003, 0x1014, 0x1016 or 0x1029, so where a step needs them or a second device, simulated devices ran on the same real can0 bus next to it (the plugin's `simulate: true` nodes, or a standalone `canworks-sim --real-bus` in the runtime container).
+- 9.1: link from the real node's TPDO 1 (0x2090:1, event timer 100 ms) to a simulated consumer's RPDO 2
+  (0x6411:1), uploaded with canworks-deploy: 0x197 seen 30 times in 3 s (one sender, the master sends nothing on
+  it), the consumer's 0x1401:1 read 0x197 and its 0x6411:1 equal to the producer's value; also through
+  canworks-bridge. Checked with candump and SDO reads rather than the configurator's Trace and OD views; the second
+  real node was simulated.
+- 9.2: consumer in a standalone `canworks-sim` so it outlives a PLC stop: with `"keep"` the PLC stop left both nodes
+  OPERATIONAL (log "left running for their PDO links") and the 0x197 frames went on; with `"follow"` both went
+  PRE-OPERATIONAL and 0x197 stopped; after the next start the link ran again.
+- 9.3: `heartbeat_watch` on the consumer, real producer unplugged for about 10 s: the consumer went PRE-OPERATIONAL
+  2 s later per its 0x1029; its EMCY 0x8130 could not reach the bus, because with the only other physical node
+  unplugged nothing acknowledged the Pi's frames (can0 error-passive), a limit of this bench. Plugged back: the
+  master booted both nodes and the link ran again. To repeat with a third physical node.

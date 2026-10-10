@@ -61,9 +61,30 @@
 
 ## 9. Hardware (Pi and bench, separate from CI)
 
-- [ ] 9.1 Pi: install the updated plugin with `cia309` in the template project; the log shows the listener and the numbering; `[1] 1 N r 0x1018 1 u32` from a Python script on the Pi reads a real node's vendor ID
+- [x] 9.1 Pi: install the updated plugin with `cia309` in the template project; the log shows the listener and the numbering; `[1] 1 N r 0x1018 1 u32` from a Python script on the Pi reads a real node's vendor ID
 - [ ] 9.2 Pi: from the engineering PC through `canworks-diag gateway`, SDO write to a PRE-OPERATIONAL node, NMT stop refused on an OPERATIONAL node without `allow_force`, EMCY notification when the node reports a fault
 - [ ] 9.3 Pi: 4 gateway sessions reading in a loop for 60 s at full bus load; PLC scan average and maximum unchanged, no lost node
 - [ ] 9.4 Bench: LSS find and set node ID on a real device without a node ID through the gateway, without store; power cycle undoes it
-- [ ] 9.5 Bench: `canworks-bridge` on the Pi with a real node and the gateway; Modbus writer stops, watchdog takes outputs off while a gateway client keeps reading
-- [ ] 9.6 Put the template project back on the Pi (main plugin, original project, node operational)
+- [x] 9.5 Bench: `canworks-bridge` on the Pi with a real node and the gateway; Modbus writer stops, watchdog takes outputs off while a gateway client keeps reading
+- [x] 9.6 Put the template project back on the Pi (main plugin, original project, node operational)
+
+Run on 2026-10-10 on the Pi bench (managed Docker runtime, main at 0a8ca26, tools 0.56.0) with its one real CANopen I/O node (node 23, 500 kbit/s). That node has no 0x1003, 0x1014, 0x1016 or 0x1029, so where a step needs them or a second device, simulated devices ran on the same real can0 bus next to it (the plugin's `simulate: true` nodes, or a standalone `canworks-sim --real-bus` in the runtime container).
+- 9.1: the gateway listened on 127.0.0.1:7533 with the numbering in the log (plugin and bridge);
+  `[2] 1 23 r 0x1018 1 u32` from a Python script on the Pi answered 0x000002b0, the real node's vendor ID.
+- 9.2: through `canworks-diag --runtime <pi> gateway --exec` from the engineering PC: SDO write to the real node held
+  PRE-OPERATIONAL (`start_nodes: false`) answered OK; `1 23 stop` to it OPERATIONAL answered
+  `ERROR: 102` without `allow_force`. The EMCY line (`1 40 EMCY 5030 01 0 0 0 0 0`) came from a simulated node,
+  the real node sends none; left open for that part.
+- 9.3: 4 plain sessions reading in a loop for 60 s, PLC running: 6001 answers each, no errors, slowest 14 ms idle and
+  16 ms with about 60 % bus load (cangen on the lowest-priority identifier); no lost node, SYNC interval
+  9815-10171 us, PLC scan count per run unchanged (7582 idle, 7489 loaded, 10 ms task). Not at full load: a
+  back-to-back cangen on the Pi's own interface fills the shared transmit queue, so the Pi's own SYNC, heartbeats and
+  simulated devices wait behind it and the simulated nodes were lost (the real node stayed up); that is the host's
+  queue, not the gateway. Left open for a load generator on another node.
+- 9.4: a standalone simulated device without node ID on can0 (`--node 0`): `_lss_fastscan 0 0 0 0 0 0 0 0` found it
+  in 13 s, `lss_set_node 70` made it node 70 (it answered SDO), a power cycle made it unconfigured again. Not a real
+  device. (An in-plugin simulated device given `forget-node-id` did not answer the fastscan; to look into.)
+- 9.5: canworks-bridge on the Pi with the real node: a Modbus writer toggled coil 800 (the node's RPDO), then
+  stopped; one second later the watchdog switched the outputs off (log "outputs off by the watchdog", no RPDO after),
+  while a gateway session kept reading (43 answers, none failed).
+- 9.6: clean PLC start afterwards with the template config: node 23 OPERATIONAL.
