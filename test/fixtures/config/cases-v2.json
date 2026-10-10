@@ -166,7 +166,7 @@
     { "name": "gateway: PDO entry without iec_location and no route",
       "patch": [ ["delete", "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location"] ],
       "schema": "valid", "verdict": "reject",
-      "messages": [ "networks[0]: nodes[0]: rx_pdos[0]: entries[0]: ", "(only an entry a gateway route uses may leave it out)" ] },
+      "messages": [ "networks[0]: nodes[0]: rx_pdos[0]: entries[0]: ", "(only an entry a gateway route or a PDO link uses may leave it out)" ] },
     { "name": "simulated bus: a master and a slave network share one bus",
       "patch": [ ["set", "networks/0/adapter/interface", "sim0"], ["set", "networks/0/adapter/simulate", true], ["set", "networks/2", {"name": "line", "role": "slave", "adapter": {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true}, "slave": {"node_id": 10, "eds": "openplc-slave.eds", "objects": [{"index": "0x2000", "subindex": 1, "iec_location": "%IW300"}, {"index": "0x2100", "subindex": 1, "iec_location": "%QW300"}]}}] ],
       "schema": "valid", "verdict": "accept" },

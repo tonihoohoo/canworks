@@ -23,6 +23,7 @@ import warnings
 
 from . import __version__, _lely_dcf, bundle, contract, edslint
 from . import eds as eds_mod
+from . import links as links_mod
 from ._lely_dcf.parse import parse_file as _parse_file
 
 NETWORK_NAME = "OpenPLC CANopen"
@@ -183,13 +184,15 @@ def _ro_pdo_comm(dev):
     return out
 
 
-def _emit_pdos(node_json, norm, dev, eds, ro, is_tx):
-    """The node's `tpdo`/`rpdo` dcfgen entry (plugin: emit_pdos), or None."""
+def _emit_pdos(node_json, norm, dev, eds, ro, is_tx, linked=()):
+    """The node's `tpdo`/`rpdo` dcfgen entry (plugin: emit_pdos), or None.
+    `linked`: the node's PDO link consumer RPDOs, which the plugin writes
+    itself."""
     key = "tx_pdos" if is_tx else "rx_pdos"
     comm_base = 0x1800 if is_tx else 0x1400
     present = _pdo_numbers(dev, comm_base)
     pdos = node_json.get(key, [])
-    configured = {p["number"] for p in norm[key]}
+    configured = {p["number"] for p in norm[key]} | (set() if is_tx else set(linked))
     kept = {num for num in present if num not in configured and (comm_base + num - 1, 1) in ro}
     off = [num for num in present if num not in configured and num not in kept]
     if not pdos and not off:
@@ -216,7 +219,7 @@ def _emit_pdos(node_json, norm, dev, eds, ro, is_tx):
     return out
 
 
-def dcfgen_input(cfg, node_json, norm, dcf_path, dev, eds, ro, software_path=None):
+def dcfgen_input(cfg, node_json, norm, dcf_path, dev, eds, ro, software_path=None, linked=()):
     """The node's part of the plugin's dcfgen YAML (make_dcfgen_yaml), as
     the dict yaml.safe_load would read."""
     n = node_json
@@ -251,7 +254,7 @@ def dcfgen_input(cfg, node_json, norm, dcf_path, dev, eds, ro, software_path=Non
     if "software_version" in n:
         y["software_version"] = _u(n["software_version"])
     for is_tx in (True, False):
-        pdos = _emit_pdos(n, norm, dev, eds, ro, is_tx)
+        pdos = _emit_pdos(n, norm, dev, eds, ro, is_tx, linked)
         if pdos is not None:
             y["tpdo" if is_tx else "rpdo"] = pdos
     return y
@@ -378,12 +381,34 @@ def _load_nodes(cfg, config_path, eds_paths):
     return out
 
 
+def link_setup(cfg, nodes):
+    """The network's PDO links with their COB-IDs and consumer mapping modes,
+    and {node ID: resolved heartbeat_watch entries}, as the plugin resolves
+    them for a config that passes contract.check_config."""
+    links = links_mod.parse(cfg)
+    by_id = {n.node_id: n for n in nodes}
+    for link in links:
+        p = by_id.get(link["producer"])
+        t = next((t for t in p.norm["tx_pdos"] if t["number"] == link["tpdo"]), None) if p else None
+        link["cob_id"] = t["cob_id"] if t else 0
+        for c in link["consumers"]:
+            n = by_id.get(c["node"])
+            if n is not None:
+                c["device_mapping"] = links_mod.consumer_layout(c, n.eds)[1]
+    plain = [{"node_id": n.node_id, "name": n.json.get("name", ""), "eds": n.eds_name} for n in nodes]
+    links_mod.resolve_watch([n.json for n in nodes], plain, {n.node_id: n.eds for n in nodes}, cfg["master"],
+                            lambda *a: None)
+    return links, {p["node_id"]: p.get("heartbeat_watch", []) for p in plain}
+
+
 def plugin_downloads(cfg, config_path, eds_paths=None, software_paths=None, nodes=None):
     """{node ID: Download} for a config that passes contract.check_config."""
     cli = dcfgen_cli()
     nodes = nodes if nodes is not None else _load_nodes(cfg, config_path, eds_paths)
     base = os.path.dirname(os.path.abspath(config_path))
     sw_paths = software_paths if software_paths is not None else contract.software_files(cfg, base)
+    links, watches = link_setup(cfg, nodes)
+    linked = links_mod.linked_rpdos(cfg)
     work = tempfile.mkdtemp(prefix="dcfexport-")
     try:
         options = {"cob_id": 0x680, "dcf_path": work, "heartbeat_multiplier": 3.0, "retry_factor": 3}
@@ -397,7 +422,7 @@ def plugin_downloads(cfg, config_path, eds_paths=None, software_paths=None, node
                     f.write(node.text)
                 sw = node.json.get("software_file")
                 y = dcfgen_input(cfg, node.json, node.norm, path, node.dev, node.eds, node.ro,
-                                 sw_paths.get(sw) if sw else None)
+                                 sw_paths.get(sw) if sw else None, linked.get(node.node_id, ()))
                 name = "node_%d" % node.node_id
                 slaves[name] = cli.Slave.from_config(name, y, options, args)
             cli.Master.from_config(master_input(cfg), options, slaves)
@@ -422,6 +447,12 @@ def plugin_downloads(cfg, config_path, eds_paths=None, software_paths=None, node
             cleared = master_id << 16
             sdos = [w for w in sdos
                     if not (w[0] == 0x1016 and len(w[2]) == 4 and int.from_bytes(w[2], "little") == cleared)]
+        # PDO link consumer RPDOs and heartbeat watch entries (add_link_writes).
+        for link in links:
+            for c in link["consumers"]:
+                if c["node"] == node.node_id and c["node"] != link["producer"]:
+                    sdos += [w + ("pdo",) for w in links_mod.consumer_writes(link, c, node.ro)]
+        sdos += [w + ("node",) for w in links_mod.watch_writes(watches.get(node.node_id, []))]
         # The node's TIME COB-ID, unless the EDS already has the value.
         if "time_cob_id" in n:
             tcob = _u(n["time_cob_id"])

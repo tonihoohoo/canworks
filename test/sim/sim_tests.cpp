@@ -10,6 +10,7 @@
 
 // The library's SDO function blocks with the editor's glue
 // (test/plc_sdo/bridge.py); first, before headers that define MIN and MAX.
+#include "sim_config.h"
 #include "c_blocks.h"
 
 #include <atomic>
@@ -3687,6 +3688,193 @@ TEST(sim_simulated_store_power_cycle) {
   CHECK(sim->RunUntil([] { return logged("configuration unchanged"); }, seconds(10)));
   uint32_t c = sim->in();
   CHECK(sim->RunUntil([&] { return sim->status() && sim->in() > c + 5; }, seconds(10)));
+  delete sim;
+}
+
+// PDO links between simulated devices (canopen-pdo-links, canopen-device-
+// simulator "Linked PDOs between simulated devices"): node 10 counts in
+// 0x6401:1 and sends it with 0x6401:2 (no PLC location) in TPDO 1; node 20
+// takes it on RPDO 2 (0x6411:1 and a dummy) and echoes 0x6411:1 in its TPDO
+// 1; node 21 takes it with its device mapping on RPDO 1 (0x6411:1, 0x6411:2)
+// and echoes 0x6411:2 (the producer's second value, 7); node 30 is in no link.
+std::string link_json(const std::string& prod_extra = "\"transmission\": 254, \"event_timer_ms\": 20, ",
+                      const std::string& cons_trans = "255", const std::string& master_extra = "\"sync_period_us\": 20000") {
+  auto node = [](unsigned id, const char* name, const char* status, const char* loc, const std::string& extra) {
+    return std::string("{ \"node_id\": ") + std::to_string(id) + ", \"name\": \"" + name +
+           "\", \"eds\": \"link-io.eds\", \"heartbeat_ms\": 50, \"heartbeat_timeout_ms\": 200, \"status_location\": \"" +
+           status + "\", " + extra + "\"tx_pdos\": [ { \"transmission\": 254, \"event_timer_ms\": 20, \"entries\": [ " +
+           "{ \"index\": \"0x6401\", \"subindex\": 1, \"type\": \"INTEGER16\", \"iec_location\": \"" + loc + "\" } ] } ] }";
+  };
+  return std::string(R"({
+  "schema_version": 1,
+  "adapter": { "type": "socketcan", "interface": "sim", "bitrate": 125000 },
+  "master": { "node_id": 1, )") + master_extra + R"( },
+  "nodes": [
+    { "node_id": 10, "name": "stick", "eds": "link-io.eds", "heartbeat_ms": 50, "heartbeat_timeout_ms": 200,
+      "status_location": "%IX10.0",
+      "tx_pdos": [ { )" + prod_extra + R"("entries": [
+        { "index": "0x6401", "subindex": 1, "type": "INTEGER16", "iec_location": "%IW100" },
+        { "index": "0x6401", "subindex": 2, "type": "INTEGER16" } ] } ] },
+    )" + node(20, "valves", "%IX10.1", "%IW102", "\"heartbeat_watch\": [ { \"node\": 10 } ], \"error_behavior\": { \"1\": 0 }, ") +
+         ",\n    " + node(21, "fixed", "%IX10.2", "%IW104", "") + ",\n    " + node(30, "other", "%IX10.3", "%IW106", "") +
+         R"(
+  ],
+  "links": [
+    { "name": "stick_to_valves", "from": { "node": 10, "tpdo": 1 }, "on_plc_stop": "keep",
+      "to": [ { "node": 20, "rpdo": 2, "transmission": )" + cons_trans + R"(, "entries": [
+                { "index": "0x6411", "subindex": 1, "type": "INTEGER16" },
+                { "index": "0x0003", "subindex": 0, "type": "INTEGER16" } ] },
+              { "node": 21, "rpdo": 1, "mapping": "device" } ] }
+  ]
+})";
+}
+
+const char* kLinkSim = R"({"nodes": {
+  "10": {"sources": {"0x6401:1": {"counter": {"start": 1, "step": 1}}, "0x6401:2": {"constant": 7}}},
+  "20": {"sources": {"0x6401:1": {"expr": "[0x6411:1]"}}},
+  "21": {"sources": {"0x6401:1": {"expr": "[0x6411:2]"}}}}})";
+
+std::string link_eds() { return read(std::string(FIXTURES_DIR) + "/eds/link-io.eds"); }
+
+bool link_all_up(Sim* sim) {
+  for (int b = 0; b < 4; ++b)
+    if (!sim->plc().bool_in[10][b]) return false;
+  return true;
+}
+
+TEST(sim_pdo_link) {
+  clear_logs();
+  Watchdog dog("sim_pdo_link", seconds(60));
+  std::string dir = make_dir(link_json(), {{"link-io.eds", link_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(kLinkSim));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return link_all_up(sim) && sim->iw(100) > 5 && sim->iw(102) > 3; }, seconds(10)));
+  // The consumer follows the producer through the link, one PDO later; the
+  // device-mapped consumer gets the second value, which the PLC never sees.
+  CHECK(sim->RunUntil([] { return sim->iw(102) > 0 && sim->iw(100) - sim->iw(102) >= 0 && sim->iw(100) - sim->iw(102) < 30; },
+                      seconds(3)));
+  CHECK_MSG(sim->RunUntil([] { return sim->iw(104) == 7; }, seconds(3)), std::to_string(sim->iw(104)));
+  CHECK(sim->iw(101) == 0);
+  // The master has no TPDO on the link's COB-ID: only node 10 sends on it.
+  int before = sim->frames(0x18A);
+  sim->RunFor(milliseconds(300));
+  CHECK(sim->frames(0x18A) - before >= 5 && sim->frames(0x18A) - before < 40);
+  int16_t a = sim->iw(102);
+  sim->RunFor(milliseconds(300));
+  CHECK(sim->iw(102) != a);
+  delete sim;
+}
+
+// Producer lost (canopen-pdo-links "Link nodes lost or rebooted"): node 20
+// watches node 10's heartbeat, sends EMCY 0x8130 and goes PRE-OPERATIONAL by
+// its 0x1029; the master logs the link loss once. After the power comes back
+// the link carries data again; a consumer power cycle resumes it too.
+TEST(sim_pdo_link_loss) {
+  clear_logs();
+  Watchdog dog("sim_pdo_link_loss", seconds(90));
+  std::string dir = make_dir(link_json(), {{"link-io.eds", link_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(kLinkSim));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return link_all_up(sim) && sim->iw(102) > 3; }, seconds(10)));
+  int emcy = sim->frames(0x80 + 20);
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":10,"fault":{"power":"off"}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([emcy] { return sim->frames(0x80 + 20) > emcy; }, seconds(3)));
+  CHECK(sim->RunUntil([] { return logged("node 10 lost: link stick_to_valves feeds node 20 RPDO 2, node 21 RPDO 1"); },
+                      seconds(3)));
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(count_logs("node 10 lost: link") == 1, std::to_string(count_logs("node 10 lost: link")));
+  r = sim->SimAsk(R"({"op":"sim_clear","node":10,"fault":"power"})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return link_all_up(sim); }, seconds(10)));
+  int16_t a = sim->iw(102);
+  CHECK(sim->RunUntil([a] { return sim->iw(102) != a && sim->iw(100) - sim->iw(102) < 30; }, seconds(5)));
+  // The consumer power cycled: booted with its link RPDO again.
+  r = sim->SimAsk(R"({"op":"sim_fault","node":20,"fault":{"power":"cycle","off_ms":500}})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return !sim->plc().bool_in[10][1]; }, seconds(3)));
+  CHECK(sim->RunUntil([] { return link_all_up(sim); }, seconds(10)));
+  a = sim->iw(102);
+  CHECK(sim->RunUntil([a] { return sim->iw(102) != a; }, seconds(5)));
+  delete sim;
+}
+
+// PLC stop with a kept event-driven link (canopen-pdo-links "Links on PLC
+// stop"): its nodes get no NMT command and the consumer keeps following the
+// producer on the bus; node 30, in no link, gets ENTER PRE-OPERATIONAL.
+TEST(sim_pdo_link_plc_stop) {
+  clear_logs();
+  Watchdog dog("sim_pdo_link_plc_stop", seconds(60));
+  std::string dir = make_dir(link_json(), {{"link-io.eds", link_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(kLinkSim));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return link_all_up(sim) && sim->iw(102) > 3; }, seconds(10)));
+  sim->StopPlc(true);
+  sim->net().StopNodes();
+  CHECK(sim->RunUntil([] { return sim->nmt(30, 0x80) == 1; }, seconds(2)));
+  CHECK(sim->nmt(10, 0x80) == 0 && sim->nmt(20, 0x80) == 0 && sim->nmt(21, 0x80) == 0 && sim->nmt(0, 0x80) == 0);
+  CHECK(logged("PLC stop: left running for their PDO links: node 10 (stick) (link stick_to_valves); node 20 (valves)"));
+  auto value = [](const char* object) {
+    cJSON* r = sim->SimAsk(std::string(R"({"op":"sim_get","items":[{"node":20,"object":")") + object + "\"}]}");
+    std::string s = r ? cJSON_PrintUnformatted(r) : "";
+    cJSON_Delete(r);
+    return s;
+  };
+  std::string v1 = value("0x6411:1");
+  sim->RunFor(milliseconds(300));
+  CHECK_MSG(value("0x6411:1") != v1, v1);
+  delete sim;
+}
+
+// A synchronous link: SYNC every 10 ms, producer type 1, consumer type 1
+// (applies the data at the next SYNC); a kept link warns that it stops with SYNC.
+TEST(sim_pdo_link_sync) {
+  clear_logs();
+  Watchdog dog("sim_pdo_link_sync", seconds(60));
+  std::string dir = make_dir(link_json("\"transmission\": 1, ", "1", "\"sync_period_us\": 10000"),
+                             {{"link-io.eds", link_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(logged("\"on_plc_stop\": \"keep\", but node 10 (stick) TPDO 1 is synchronous (transmission type 1)"));
+  CHECK(sim->StartSimulator(kLinkSim));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return link_all_up(sim) && sim->iw(102) > 3; }, seconds(10)));
+  CHECK(sim->RunUntil([] { return sim->iw(100) - sim->iw(102) >= 0 && sim->iw(100) - sim->iw(102) < 30; }, seconds(3)));
+  delete sim;
+}
+
+// A value source on an object a linked RPDO writes is refused, naming the link.
+TEST(sim_pdo_link_source_refused) {
+  clear_logs();
+  std::string dir = make_dir(link_json(), {{"link-io.eds", link_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  canopen_sim::SimFile file;
+  std::vector<std::string> errors;
+  CHECK(canopen_sim::parse_sim_file(R"({"nodes": {"20": {"sources": {"0x6411:1": {"constant": 1}}}}})",
+                                    dir + "/simulation.json", file, errors));
+  CHECK(!check_sim_sources(sim->cfg(), file, errors));
+  bool named = false;
+  for (const auto& e : errors)
+    named |= e.find("node 20: link stick_to_valves (RPDO 2, from node 10 TPDO 1) writes 0x6411:1") != std::string::npos;
+  CHECK_MSG(named, errors.empty() ? "" : errors.back());
   delete sim;
 }
 

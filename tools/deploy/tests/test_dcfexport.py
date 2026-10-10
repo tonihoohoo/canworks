@@ -371,6 +371,44 @@ def _canopen_check():
     return path if os.path.isfile(path) and os.access(path, os.X_OK) else None
 
 
+class Links(unittest.TestCase):
+    """canopen-dcf-export "Linked consumer RPDO", "Heartbeat watch entry"."""
+
+    def setUp(self):
+        doc = load_cases("cases-links.json")
+        self.cfg = doc["base"]
+        self.path = os.path.join(EDS_DIR, "canworks.json")
+
+    def test_consumer_download(self):
+        w = dcfexport.plugin_downloads(self.cfg, self.path)[20].writes
+        start = w.index((0x1401, 1, (0x8000018A).to_bytes(4, "little")))
+        self.assertEqual(w[start:start + 9], [
+            (0x1401, 1, (0x8000018A).to_bytes(4, "little")), (0x1401, 2, b"\xff"), (0x1401, 5, (200).to_bytes(2, "little")),
+            (0x1601, 0, b"\x00"), (0x1601, 1, (0x64110110).to_bytes(4, "little")),
+            (0x1601, 2, (0x00030010).to_bytes(4, "little")), (0x1601, 0, b"\x02"),
+            (0x1401, 1, (0x18A).to_bytes(4, "little")), (0x1016, 1, (0x000A012C).to_bytes(4, "little"))])
+
+    def test_dcf_values(self):
+        files, _ = dcfexport.export(self.cfg, self.path)
+        text = files["node_20.dcf"]
+        self.assertEqual(int(section(text, "1401sub1")["ParameterValue"], 0), 0x18A)
+        self.assertEqual(int(section(text, "1601sub0")["ParameterValue"], 0), 2)
+        self.assertEqual(int(section(text, "1016sub1")["ParameterValue"], 0), 0x000A012C)
+
+    def test_watch_next_to_the_master(self):
+        cfg = patched(self.cfg, [["set", "master/heartbeat_ms", 100], ["set", "nodes/1/heartbeat_consumer", True]])
+        w = dcfexport.plugin_downloads(cfg, self.path)[20].writes
+        hb = [x for x in w if x[0] == 0x1016]
+        self.assertEqual(hb, [(0x1016, 1, (0x0001012C).to_bytes(4, "little")),
+                              (0x1016, 2, (0x000A012C).to_bytes(4, "little"))])
+
+    def test_no_link_writes_without_links(self):
+        cfg = patched(self.cfg, [["delete", "links"], ["delete", "nodes/1/heartbeat_watch"],
+                                 ["set", "nodes/0/tx_pdos/0/entries/1/iec_location", "%IW101"]])
+        w = dcfexport.plugin_downloads(cfg, self.path)[20].writes
+        self.assertFalse([x for x in w if x[0] in (0x1016, 0x1601)])
+
+
 class Parity(unittest.TestCase):
     """Every accepted fixture config, the examples and the compact fixture:
     the export's download equals canopen_check --dump-writes, and its DCF
@@ -438,6 +476,22 @@ class Parity(unittest.TestCase):
                 with self.subTest(name):
                     self._compare(cfg, path, run.result())
         self.assertGreater(len(cases), 30)
+
+    def test_link_fixture_cases(self):
+        # PDO links and heartbeat watch (cases-links.json): the consumer RPDO
+        # and 0x1016 writes as the plugin adds them.
+        doc = load_cases("cases-links.json")
+        cases = []
+        for case in doc["cases"]:
+            if case["verdict"] == "accept":
+                cfg = patched(doc["base"], case["patch"])
+                cases.append((case["name"], cfg, self._in_copy(cfg)))
+        with ThreadPoolExecutor(os.cpu_count() or 2) as pool:
+            runs = [pool.submit(self._run_check, path) for _, _, path in cases]
+            for (name, cfg, path), run in zip(cases, runs):
+                with self.subTest(name):
+                    self._compare(cfg, path, run.result())
+        self.assertGreater(len(cases), 5)
 
     def test_compact_fixture(self):
         cfg = compact_config()

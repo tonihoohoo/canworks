@@ -448,7 +448,7 @@ function choice(label, path, choices, opts) {
 
 const NETWORK_NAME = /^[A-Za-z][A-Za-z0-9_]{0,15}$/;
 const MAX_NETWORKS = 8;
-const NETWORK_KEYS = ["name", "adapter", "master", "nodes"];
+const NETWORK_KEYS = ["name", "adapter", "master", "nodes", "links"];
 
 // The draft of a file as the server sent it (version 1 or 2).
 function toModel(cfg) {
@@ -463,7 +463,7 @@ function toModel(cfg) {
   } else {
     const net = {};
     for (const [k, v] of Object.entries(cfg)) {
-      if (k === "adapter" || k === "master" || k === "nodes") net[k] = v;
+      if (k === "adapter" || k === "master" || k === "nodes" || k === "links") net[k] = v;
       else top[k] = v;
     }
     if (net.master && typeof net.master === "object" && "diagnostics" in net.master) {
@@ -516,7 +516,7 @@ function fileConfig() {
   const net = m.networks[0];
   if (m.networks.length === 1 && !customName(net) && Object.keys(net).every((k) => NETWORK_KEYS.includes(k)) && !("bridge" in m.top)) {
     for (const [k, v] of Object.entries(m.top)) out[k] = k === "schema_version" && v === 2 ? 1 : v;
-    for (const k of ["adapter", "master", "nodes"]) if (k in net) out[k] = net[k];
+    for (const k of ["adapter", "master", "nodes", "links"]) if (k in net) out[k] = net[k];
     if (m.diagnostics !== undefined) out.master = Object.assign({}, net.master, { diagnostics: m.diagnostics });
     swapSchema(2, 1);
     return out;
@@ -887,6 +887,7 @@ function render() {
   if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "scan" || S.view === "simulation")) S.view = "bus";
   if (isPlain(S.config) && (S.view.startsWith("node:") || S.view === "scan")) S.view = "bus";
   if (S.view === "bridge" && !S.model.top.bridge) S.view = "bus";
+  if (S.view === "links" && !linksNetwork(S.config)) S.view = "bus";
   renderSide();
   updateSimBanner();
   // The online view, the scan page and the simulation view share one connection.
@@ -914,6 +915,7 @@ function render() {
   else if (S.view === "bridge") renderBridge(view);
   else if (S.view === "simulation") renderSimulation(view);
   else if (S.view === "framelab") renderFrameLab(view);
+  else if (S.view === "links") renderLinks(view);
   else renderNode(view, Number(S.view.slice(5)));
   applyCheck();
 }
@@ -948,6 +950,7 @@ function renderSide() {
   $("#nav-simulation").hidden = j1939;
   $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
   $("#nav-bridge").hidden = !S.model.top.bridge;
+  $("#nav-links").hidden = !linksNetwork(S.config);
   const unused = S.state.unused_eds || [];
   $("#unused-eds").replaceChildren(...(unused.length ? [el("h2", { class: "side-caption" }, "Unused EDS files"),
     el("p", { class: "muted" }, unused.join(", ") + " (left in place, never deleted)")] : []));
@@ -2263,6 +2266,7 @@ function supervisionFields(i) {
   // A node the master would never see lost (no heartbeat_ms, no guarding, EDS
   // heartbeat 0) is refused on its heartbeat_ms: shown under Method.
   if (mode !== "heartbeat") out.push(el("span", { class: "field-msg wide", dataset: { for: base + ".heartbeat_ms" } }));
+  out.push(heartbeatWatchFields(i));
   return out;
 }
 
@@ -2284,6 +2288,7 @@ function renderPdos(i, key, dir, title, eds) {
       el("div", { class: "pdo-title" },
         el("strong", null, `${dir === "input" ? "TPDO" : "RPDO"} ${p.number ?? j + 1}`),
         el("span", { class: "muted" }, `${(p.entries || []).length}/8 entries, ${bits}/64 bits`),
+        dir === "input" ? linkTag(n, number) : null,
         el("span", { class: "field-msg", dataset: { for: pb } }),
         eds && eds.objects ? el("button", { type: "button", class: "small", dataset: { addEntry: pb },
           title: `Pick an object for ${dir === "input" ? "TPDO" : "RPDO"} ${number}`,
@@ -3796,7 +3801,8 @@ async function pollOnline(seq) {
         el("td", { colspan: 7, dataset: { online: "sync" } }, syncText(st.sync))) : null)),
     el("table", { class: "online-nodes" },
       el("thead", null, el("tr", null, thCells(["Node", "Name", "State", "Status bit", "Boot", "Hold", "Last EMCY", "SDO variables"]))),
-      el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No nodes in the configuration the runtime runs."))]))]);
+      el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No nodes in the configuration the runtime runs."))])),
+    linksLive(st)]);
   const tbox = document.querySelector("[data-online='pdo-timeouts']");
   if (tbox) tbox.replaceChildren(pdoTimeoutTable((st.nodes || []).find((n) => n.node_id === S.onlineNode)));
   if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
@@ -6177,9 +6183,10 @@ function dropPdo(pdos, j) {
   pdos.splice(j, 1);
 }
 
-function removePdo(i, key, j) {
+async function removePdo(i, key, j) {
   const pdos = S.config.nodes[i][key];
   const number = pdos[j].number ?? j + 1;
+  if (key === "tx_pdos" && !(await dropLinksOf(S.config.nodes[i], num(number)))) return;
   dropPdo(pdos, j);
   changed(true);
   removedBanner(`${key === "tx_pdos" ? "TPDO" : "RPDO"} ${number}`);
@@ -6617,6 +6624,7 @@ function placeOf(w) {
     return lead.concat(parts);
   }
   if (path.startsWith("master")) return lead.concat(["Master"]);
+  if (path.startsWith("links")) return lead.concat(linkPlace(net, path));
   const m = /^nodes\[(\d+)\](?:\.(tx_pdos|rx_pdos|sdo|sdo_variables)\[(\d+)\](?:\.entries\[(\d+)\])?)?/.exec(path);
   const n = m && (net.nodes || [])[Number(m[1])];
   if (!n) return lead;
@@ -6654,6 +6662,7 @@ function focusPath(w) {
   const path = w.path;
   const m = /^nodes\[(\d+)\]/.exec(path);
   const want = m ? "node:" + m[1] : path.startsWith("gateway") ? "gateway" : path.startsWith("bridge") ? "bridge"
+    : path.startsWith("links") ? "links"
     : (path.startsWith("adapter") || path.startsWith("master") || path.startsWith("slave") || path.startsWith("j1939") ||
       path === "role" || path === "protocol" ? "bus" : S.view);
   // A CAN message's field is in its editor, which opens for it.

@@ -157,3 +157,7 @@ class GantryCell(Sweep, unittest.TestCase):
 
 class J1939(Sweep, unittest.TestCase):
     example = "j1939"
+
+
+class PdoLink(Sweep, unittest.TestCase):
+    example = "pdo-link"
