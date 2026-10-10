@@ -29,3 +29,11 @@
 - [ ] 6.2 Tick **Reachable from other networks** and upload; move the Mac to a phone hotspot; pick the runtime in the connect box: connects, path and round trip shown, SDO read works.
 - [ ] 6.3 OpenPLC Editor **Build and upload** through `canworks-diag link open` from the phone hotspot; the program runs and CANopen starts.
 - [ ] 6.4 Discovery over a direct Ethernet cable and over the Pi's Wi-Fi hotspot with no internet; pairing over each.
+
+Run on 2026-10-10 from a Windows PC on the Pi's LAN (the Mac was not used):
+- `install-link.sh` on the Pi (managed Docker install, config `/opt/canworks/lib/canworks.json`): service up, Avahi service published (avahi-daemon log), link ID advertised.
+- A PC paired with `canworks-link allow` (the template project's token is not on that PC, so automatic token pairing was not run on hardware; it is covered by the offline tests).
+- Over the link on the LAN: the diagnostics channel answered (a wrong token was refused by the plugin itself), the runtime's HTTPS presented the same certificate as directly, round trip 18-38 ms over Wi-Fi.
+- With `remote_link.internet` true: the service restarted with the public relays; a PC that knew only the relay connected through it (`relayed` in the log) and moved to a direct path within a second. Address lookup by DNS failed on that PC's network; the relay URL the PC learned at pairing was enough.
+- Discovery: `canworks-diag discover` on that Windows PC found nothing, with its network profile set to Public (Windows' firewall drops the mDNS answers); to be repeated from the Mac or with a Private profile.
+- The template config was restored byte for byte afterwards and the test PCs removed. The runtime container restarted once during the session (supervisor: unhealthy, restarted, healthy again 6 s later); the cause was not found in the logs.
