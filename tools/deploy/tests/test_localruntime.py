@@ -164,7 +164,7 @@ class WithRuntime(Base):
         pair = make_cert(self.dir)
         if pair is None:
             self.skipTest("openssl is not available")
-        self.stub = StubRuntime(*pair)
+        self.stub = StubRuntime(*pair, plc="STOPPED")
         self.stub.users = []
         self.stub.__enter__()
         self.addCleanup(self.stub.__exit__)
