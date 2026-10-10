@@ -6,8 +6,10 @@
  * The blocks find the plugin the runtime has loaded with
  * dlopen("libcanworks_plugin.so", RTLD_NOW | RTLD_NOLOAD) and call
  * canworks_can_api(CANWORKS_CAN_API_VERSION), which returns the function
- * table for that version or NULL. Every function is called on the PLC scan
- * thread: none waits on CAN traffic, allocates or logs.
+ * table for that version or NULL. Every function is called on a PLC task
+ * thread, possibly from several tasks at once (a handle stays with the
+ * block instance that got it): none waits on CAN traffic or another task,
+ * allocates or logs.
  *
  * The library carries a copy of these declarations
  * (library/src/can_common.inc); test/can_raw checks that the two agree.
