@@ -528,18 +528,22 @@ class Parser {
           error("", std::string("field '") + key + "' needs schema_version 2");
       if (limits_.bridge_host && !cJSON_GetObjectItemCaseSensitive(root, "bridge"))
         error("", kNotBridgeConfig);
+      if (cJSON_GetObjectItemCaseSensitive(root, "cia309"))
+        error("", "field 'cia309' belongs in 'master' in schema_version 1 (master.cia309), or at the top level "
+                  "in schema_version 2");
       check_known(root, "", {"$schema", "schema_version", "adapter", "interface", "bitrate", "master", "nodes",
-                             "links", "role", "slave", "gateway", "protocol", "j1939", "raw", "bridge"});
+                             "links", "role", "slave", "gateway", "protocol", "j1939", "raw", "bridge", "cia309"});
       Config cfg = blank(set);
       cfg.work_dir = set.config_dir + "/.canworks";
       parse_network(root, cfg);
       report_unlocated(set);
       set.networks.push_back(cfg);
+      resolve_cia309(set);
       return errors_.size() == before;
     }
 
     // Version 2: networks[] and one diagnostics object for all of them.
-    check_known(root, "", {"$schema", "schema_version", "networks", "diagnostics", "gateway", "bridge"});
+    check_known(root, "", {"$schema", "schema_version", "networks", "diagnostics", "gateway", "bridge", "cia309"});
     // A bridge config's locations are byte-addressed from the first one on.
     byte_mode_ = cJSON_GetObjectItemCaseSensitive(root, "bridge") != nullptr;
     if (byte_mode_ && !limits_.bridge_host)
@@ -556,6 +560,7 @@ class Parser {
         error("", std::string("field '") + m[0] + "' belongs in " + m[1] + " in schema_version 2");
     MasterConfig diag;
     parse_diagnostics(root, diag, "");
+    parse_cia309(root, diag, "");
     const cJSON* nets = cJSON_GetObjectItemCaseSensitive(root, "networks");
     if (!nets || !cJSON_IsArray(nets)) {
       error("", "missing required field 'networks' (an array)");
@@ -648,6 +653,7 @@ class Parser {
     check_raw_ownership(set);
     parse_gateway(root, set);
     report_unlocated(set);
+    resolve_cia309(set);
     if (set.networks.size() > 1)
       for (auto& cfg : set.networks) cfg.log_prefix = cfg.network;
     for (auto& cfg : set.networks)
@@ -687,6 +693,7 @@ class Parser {
     to.diag_bind = from.diag_bind;
     to.diag_allow_changes = from.diag_allow_changes;
     to.diag_allow_config_upload = from.diag_allow_config_upload;
+    to.cia309 = from.cia309;
   }
 
   static std::string lower(std::string s) {
@@ -1356,7 +1363,7 @@ class Parser {
                    "sync_counter_overflow", "time_cob_id", "emcy_inhibit_time_us", "heartbeat_consumer",
                    "heartbeat_multiplier", "error_behavior", "nmt_inhibit_time_us", "start", "start_nodes",
                    "start_all_nodes", "reset_all_nodes", "stop_all_nodes", "boot_time_ms", "sdo_timeout_ms",
-                   "time_period_ms", "on_plc_stop", "scan_watchdog_ms", "diagnostics"});
+                   "time_period_ms", "on_plc_stop", "scan_watchdog_ms", "diagnostics", "cia309"});
       if (get_uint(master, "node_id", "master", true, 0xFFFF, v)) {
         if (v < 1 || v > 127) error("master", "node ID " + std::to_string(v) + " is out of range (1-127)");
         cfg.master.node_id = (unsigned)v;
@@ -1921,10 +1928,15 @@ class Parser {
       else
         m.scan_watchdog_ms = (unsigned)v;
     }
-    if (version_ == 1)
+    if (version_ == 1) {
       parse_diagnostics(master, m, "master");
-    else if (cJSON_GetObjectItemCaseSensitive(master, "diagnostics"))
-      error(w, "field 'diagnostics' is a top-level object in schema_version 2, not part of a network's master");
+      parse_cia309(master, m, "master");
+    } else {
+      if (cJSON_GetObjectItemCaseSensitive(master, "diagnostics"))
+        error(w, "field 'diagnostics' is a top-level object in schema_version 2, not part of a network's master");
+      if (cJSON_GetObjectItemCaseSensitive(master, "cia309"))
+        error(w, "field 'cia309' is a top-level object in schema_version 2, not part of a network's master");
+    }
     if (!m.start)
       warning(w, "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged "
                  "until it is started");
@@ -2006,6 +2018,126 @@ class Parser {
                                                  std::strcmp(pairing->valuestring, "anywhere") == 0 ||
                                                  std::strcmp(pairing->valuestring, "off") == 0)))
       error(w, "field 'pairing' must be lan, anywhere or off");
+  }
+
+  // `parent_where`: "master" in version 1, "" (the top level) in version 2
+  // (canopen-cia309-gateway "CiA 309-3 gateway is opt-in"). Unlike other
+  // objects, an unknown field here rejects the file: the gateway opens a
+  // port without a login, so a misspelled setting must not pass unnoticed.
+  void parse_cia309(const cJSON* parent, MasterConfig& m, const std::string& parent_where) {
+    const cJSON* g = cJSON_GetObjectItemCaseSensitive(parent, "cia309");
+    if (!g) return;
+    const std::string w = parent_where.empty() ? "cia309" : parent_where + ".cia309";
+    cia309_where_ = w;
+    if (!cJSON_IsObject(g)) {
+      error(parent_where, "field 'cia309' must be an object");
+      return;
+    }
+    Cia309Config& c = m.cia309;
+    c.enabled = true;
+    if (!cia309_built_in())
+      error(w, "this build's Lely CANopen has no CiA 309-3 text gateway (co_gw_txt); rebuild Lely with its gateway "
+               "(scripts/build-lely.sh) or remove 'cia309'");
+    const cJSON* item;
+    cJSON_ArrayForEach(item, g) {
+      static const char* const kKnown[] = {"port",        "bind", "max_clients", "allow_changes",
+                                           "allow_force", "nets", "default_net"};
+      bool ok = false;
+      for (const char* k : kKnown) ok |= std::strcmp(k, item->string) == 0;
+      if (!ok) error(w, std::string("unknown field '") + item->string + "'");
+    }
+    uint64_t v;
+    if (get_uint(g, "port", w, false, 65535, v)) {
+      if (v != 0 && v < 1024) error(w, "field 'port' must be 0 (no plain port) or 1024-65535");
+      c.port = (unsigned)v;
+    }
+    std::string bind;
+    if (get_string(g, "bind", w, false, bind)) {
+      if (bind != "127.0.0.1" && bind != "::1")
+        error(w + ".bind", "the plain gateway port listens on loopback only (127.0.0.1 or ::1), not \"" + bind +
+                               "\": CiA 309-3 has no login; remote clients use the diagnostics channel "
+                               "(canworks-diag gateway)");
+      c.bind = bind;
+    }
+    if (get_uint(g, "max_clients", w, false, 0xFFFF, v)) {
+      if (v < 1 || v > 16) error(w, "field 'max_clients' must be 1-16");
+      c.max_clients = (unsigned)v;
+    }
+    get_bool(g, "allow_changes", w, c.allow_changes);
+    get_bool(g, "allow_force", w, c.allow_force);
+    const cJSON* nets = cJSON_GetObjectItemCaseSensitive(g, "nets");
+    if (nets) {
+      c.has_nets = true;
+      if (!cJSON_IsObject(nets)) {
+        error(w, "field 'nets' must be an object of network numbers and names, like {\"1\": \"io\"}");
+      } else {
+        const cJSON* n;
+        cJSON_ArrayForEach(n, nets) {
+          if (!cJSON_IsString(n) || !n->valuestring[0])
+            error(w + ".nets", std::string("network ") + n->string + " must name a network");
+          else
+            cia309_nets_.emplace_back(n->string, n->valuestring);
+        }
+      }
+    }
+    if (get_uint(g, "default_net", w, false, 0xFFFF, v)) {
+      if (v < 1 || v > 127) error(w, "field 'default_net' must be 1-127");
+      c.default_net = (unsigned)v;
+    }
+  }
+
+  // The network numbering, once every network is known; copied into every
+  // network's master like the diagnostics settings.
+  void resolve_cia309(ConfigSet& set) {
+    if (set.networks.empty() || !set.networks[0].master.cia309.enabled) return;
+    Cia309Config c = set.networks[0].master.cia309;
+    const std::string& w = cia309_where_;
+    c.numbering.clear();
+    if (!c.has_nets) {
+      for (size_t i = 0; i < set.networks.size(); ++i) c.numbering[(unsigned)i + 1] = (unsigned)i;
+    } else if (version_ == 1) {
+      error(w, "field 'nets' needs schema_version 2 (a version 1 file has one network, number 1)");
+    } else {
+      std::map<unsigned, unsigned> numbered;  // network index -> number
+      for (const auto& e : cia309_nets_) {
+        const std::string& key = e.first;
+        bool digits = !key.empty() && key.size() <= 3 && key.find_first_not_of("0123456789") == std::string::npos &&
+                      key[0] != '0';
+        unsigned number = digits ? (unsigned)std::stoul(key) : 0;
+        if (!number || number > 127) {
+          error(w + ".nets", "\"" + key + "\" is not a network number 1-127");
+          continue;
+        }
+        int index = -1;
+        for (size_t i = 0; i < set.networks.size(); ++i)
+          if (set.networks[i].network == e.second) index = (int)i;
+        if (index < 0) {
+          error(w + ".nets", "network " + key + " names \"" + e.second + "\", which is not a network of this file");
+          continue;
+        }
+        auto had = numbered.find((unsigned)index);
+        if (had != numbered.end()) {
+          error(w + ".nets", "network \"" + e.second + "\" has two numbers (" + std::to_string(had->second) +
+                                 " and " + key + ")");
+          continue;
+        }
+        numbered[(unsigned)index] = number;
+        c.numbering[number] = (unsigned)index;
+      }
+    }
+    if (c.default_net && !c.numbering.count(c.default_net)) {
+      std::string list;
+      for (const auto& n : c.numbering)
+        list += (list.empty() ? "" : ", ") + std::to_string(n.first) + " = " +
+                (set.networks[n.second].network.empty() ? std::string("the network") : set.networks[n.second].network);
+      error(w, "field 'default_net' is " + std::to_string(c.default_net) + ", which is not a gateway network number (" +
+                   (list.empty() ? std::string("none") : list) + ")");
+    }
+    const MasterConfig& m = set.networks[0].master;
+    if (c.port && m.has_diagnostics && c.port == m.diag_port)
+      error(w, "field 'port' " + std::to_string(c.port) + " is the diagnostics channel's port; give the gateway "
+                   "another one (default 7533)");
+    for (auto& cfg : set.networks) cfg.master.cia309 = c;
   }
 
   void parse_node_options(const cJSON* node, const Config& cfg, NodeConfig& n, const std::string& w) {
@@ -3243,6 +3375,10 @@ class Parser {
   unsigned version_ = 1;
   bool byte_mode_ = false;  // a bridge config: byte-addressed locations
   unsigned network_index_ = 0;  // the network being parsed
+  // cia309.nets as written (number text, network name) and where the
+  // object is ("cia309" or "master.cia309"), for resolve_cia309().
+  std::vector<std::pair<std::string, std::string>> cia309_nets_;
+  std::string cia309_where_;
   // PDO entries without iec_location, for report_unlocated().
   struct Unlocated {
     unsigned network = 0;
@@ -3386,6 +3522,14 @@ bool protocol_built_in(Protocol p) {
   if (p == Protocol::J1939) return true;
 #endif
   return false;
+}
+
+bool cia309_built_in() {
+#if CANWORKS_WITH_CIA309
+  return true;
+#else
+  return false;
+#endif
 }
 
 std::string built_in_protocols() {

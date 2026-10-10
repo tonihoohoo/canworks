@@ -278,6 +278,14 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 
 The plugin listens while the PLC runs and closes the port when it stops. Everything a client sees and does is in [diagnostics.md](diagnostics.md), together with the security notes. With `"nodes": []` the plugin starts the master on the bus with no slaves, so the scan can find what is connected before any node is configured.
 
+### CiA 309-3 gateway
+
+```json
+"cia309": { "port": 7533, "allow_changes": false }
+```
+
+`master.cia309` in a version 1 file, a top-level `cia309` object in version 2 (one for all networks). Off without it. `port` (0: no plain port, else 1024-65535, default 7533), `bind` (`127.0.0.1` or `::1` only), `max_clients` (1-16, default 4), `allow_changes` and `allow_force` (both default `false`), `nets` (`{"1": "io"}`, version 2 only) and `default_net`. Unknown fields here are errors, not warnings. Everything about it is in [cia309-gateway.md](cia309-gateway.md).
+
 ### Simulated network and devices
 
 The two `simulate` switches give four combinations: everything simulated (`adapter.simulate: true`), a simulated network with some nodes absent (`"simulate": false` on them), some simulated devices next to real ones on a real network (`"simulate": true` on them), and every node simulated on a real interface. Behaviour of the simulated devices (moving values, faults, scenarios) comes from `simulation.json` next to the config. The plugin logs a warning naming what is simulated at every PLC start, and the diagnostics status reports `simulated_network` and each node's `simulated`. [simulator.md](simulator.md) has the details.

@@ -22,7 +22,11 @@
       "items": { "$ref": "#/$defs/network" }
     },
     "gateway": { "$ref": "#/$defs/gateway" },
-    "bridge": { "$ref": "#/$defs/bridge" }
+    "bridge": { "$ref": "#/$defs/bridge" },
+    "cia309": {
+      "description": "The CiA 309-3 ASCII gateway for all networks (docs/cia309-gateway.md). In version 1 this is master.cia309.",
+      "$ref": "canworks.v1.schema.json#/$defs/master/properties/cia309"
+    }
   },
   "required": [ "schema_version", "networks" ],
   "not": {

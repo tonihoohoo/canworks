@@ -25,6 +25,14 @@
     ]
   },
   "cases": [
+    { "name": "cia309 in the master (version 1)", "patch": [ ["set", "master/cia309", { "port": 0, "max_clients": 2 }] ],
+      "schema": "valid", "verdict": "accept" },
+    { "name": "cia309 at the top level of a version 1 file", "patch": [ ["set", "cia309", {}] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "field 'cia309' belongs in 'master' in schema_version 1 (master.cia309)" ] },
+    { "name": "cia309 nets in a version 1 file", "patch": [ ["set", "master/cia309", { "nets": { "1": "can0" } }] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "master.cia309: field 'nets' needs schema_version 2" ] },
     { "name": "base config", "patch": [], "schema": "valid", "verdict": "accept" },
     { "name": "schema_version omitted", "patch": [ ["delete", "schema_version"] ],
       "schema": "valid", "verdict": "accept" },

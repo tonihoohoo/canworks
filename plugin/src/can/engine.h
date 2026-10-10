@@ -25,6 +25,7 @@ namespace canopen_plugin {
 
 class DiagServer;
 class CanopenShared;
+class Cia309Server;
 
 class Engine {
  public:
@@ -52,6 +53,9 @@ class Engine {
   const ConfigSet& set() const { return set_; }
   ConfigSet& set() { return set_; }
   DiagServer* server() { return server_.get(); }
+  // The CiA 309-3 gateway's status part ("cia309": listen address and
+  // sessions), or null without one; any thread.
+  cJSON* cia309_status() const;
 
  private:
   static bool load(const std::string& path, const ImageLimits& limits, ConfigSet& set,
@@ -65,6 +69,9 @@ class Engine {
   std::vector<std::unique_ptr<canworks_raw::RawRuntime>> raws_;
   std::vector<std::unique_ptr<NetworkRuntime>> nets_;  // one per network, in config order
   std::unique_ptr<DiagServer> server_;
+#if CANWORKS_WITH_CIA309
+  std::unique_ptr<Cia309Server> cia309_;  // with a `cia309` object only
+#endif
   DiagHost diag_host_;
   bool started_ = false;
 };

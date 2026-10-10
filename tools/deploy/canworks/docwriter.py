@@ -276,6 +276,8 @@ def _pdo(p):
                                                                                "Mapping written by the master"))
     if p.get("trigger"):
         chips.append('<span class="chip">%s</span>' % E(p["trigger"]))
+    if p.get("gateway_rpdo"):
+        chips.append('<span class="chip">CiA 309-3: r p %d</span>' % p["gateway_rpdo"])
     rows = []
     for e in p["entries"]:
         if e.get("link_from"):
@@ -545,6 +547,25 @@ def _gateway(model):
                                       rows, "sortable", empty="No routes.")))
 
 
+def _cia309(model):
+    g = model.get("cia309")
+    if not g:
+        return ""
+    settings = [
+        {"label": "Plain port", "value": "%s:%d (loopback only)" % (g["bind"], g["port"]) if g["port"]
+         else "none (sessions through the diagnostics channel only)"},
+        {"label": "Sessions at once", "value": str(g["max_clients"])},
+        {"label": "Changes (SDO downloads, NMT, LSS)", "value": "allowed" if g["allow_changes"] else "refused"},
+        {"label": "Force on OPERATIONAL nodes", "value": "allowed" if g["allow_force"] else "refused"},
+        {"label": "Default network", "value": str(g["default_net"]) if g["default_net"] else "–"},
+    ]
+    rows = [['<span class="num">%d</span>' % n["number"], E(n["name"] or "the network")] for n in g["nets"]]
+    return ('<section id="cia309"><h2>CiA 309-3 gateway</h2><p class="muted">Standard CiA 309-3 text commands; other '
+            'machines connect through canworks-diag gateway. A node\'s TPDO n (1-4) is read with r p (node - 1) × 4 + n, '
+            'shown at each TPDO.</p>%s<h3>Network numbers</h3>%s</section>' % (
+                _kv(settings), _table(["Number", "Network"], rows, empty="No networks.")))
+
+
 FUNCTIONS = {4: "4 read input registers", 16: "16 write multiple registers"}
 
 
@@ -615,6 +636,8 @@ def _toc(model):
         items.append('<li><a href="#gateway">Gateway</a></li>')
     if model.get("modbus"):
         items.append('<li><a href="#modbus">Modbus register map</a></li>')
+    if model.get("cia309"):
+        items.append('<li><a href="#cia309">CiA 309-3 gateway</a></li>')
     items.append('<li><a href="#io">PLC I/O</a></li><li><a href="#config">Configuration file</a></li>')
     return '<nav class="toc" aria-label="Contents"><p class="toc-title">Contents</p><ul>%s</ul></nav>' % "".join(items)
 
@@ -628,7 +651,7 @@ def write(model):
             '</button><button type="button" data-print>Print</button></div></header>' % (
                 E(title), E(model["config"]["file"]), E(model["config"]["sha256"][:16]), E(model["generated"]),
                 E(model["tool"]["name"]), E(model["tool"]["version"])))
-    body = [_summary(model)] + [_network(n) for n in model["networks"]] + [_gateway(model), _modbus(model), _io(model),
+    body = [_summary(model)] + [_network(n) for n in model["networks"]] + [_gateway(model), _modbus(model), _cia309(model), _io(model),
                                                                           _appendix(model)]
     return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"

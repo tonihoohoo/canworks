@@ -1393,6 +1393,7 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
     for n in networks:
         n.setdefault("protocol", "canopen")
     gateway = _gateway(cfg, networks) if network is None else None
+    cia309 = _cia309(cfg, networks)
     io = sorted((r for n in networks for r in n["io"]), key=lambda r: (r["key"], r["network"], r["who"]))
     for n in networks:
         del n["io"]
@@ -1421,7 +1422,39 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
     }
     if network is None and bridgecheck.is_bridge_config(cfg):
         model["modbus"] = _modbus(cfg)
+    if cia309:
+        model["cia309"] = cia309
     return model
+
+
+def _cia309(cfg, networks):
+    """The CiA 309-3 gateway section (canopen-cia309-gateway) of a config, or
+    None; also puts each network's gateway number (cia309_number) and each
+    node TPDO 1-4's gateway RPDO number (gateway_rpdo) into the network
+    models."""
+    numbering = contract.cia309_numbering(cfg)
+    g = contract.cia309_object(cfg)
+    if not numbering or not isinstance(g, dict):
+        return None
+    by_name = {n["name"]: n for n in networks}
+    nets = []
+    for number, name, _ in numbering:
+        nets.append({"number": number, "name": name})
+        net = by_name.get(name)
+        if not net:
+            continue
+        net["cia309_number"] = number
+        if net.get("role") == "slave":
+            continue
+        for node in net.get("nodes", []):
+            node_id = node.get("node_id")
+            for p in node.get("pdos", []):
+                if p["kind"] == "TPDO" and 1 <= p["number"] <= 4 and isinstance(node_id, int):
+                    p["gateway_rpdo"] = (node_id - 1) * 4 + p["number"]
+    return {"port": _u(g.get("port"), contract.CIA309_DEFAULT_PORT), "bind": g.get("bind", "127.0.0.1"),
+            "max_clients": _u(g.get("max_clients"), 4), "allow_changes": g.get("allow_changes") is True,
+            "allow_force": g.get("allow_force") is True, "default_net": _u(g.get("default_net"), 0) or None,
+            "nets": nets}
 
 
 def _without_token(text, cfg):

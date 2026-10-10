@@ -776,7 +776,14 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
     sw_paths = software_paths if software_paths is not None else software_files(cfg, base)
     args = dict(path=path, base=base, eds_paths=eds_paths, sw_paths=sw_paths)
 
+    # The CiA 309-3 gateway's object: its own checks below, in the plugin's
+    # words (an unknown field there is an error, not a warning).
+    found = [(where, key) for where, key in found if not CIA309_PATH.match(where)]
+    schema_errors = [e for e in schema_errors if not _cia309_error(e)]
     if version == 1:
+        if "cia309" in cfg:
+            err("", "field 'cia309' belongs in 'master' in schema_version 1 (master.cia309), or at the top level "
+                    "in schema_version 2", ["cia309"])
         # Slave networks and the gateway exist only in version 2 (canopen-
         # config-contract: "Slave network role").
         for key in V2_ONLY_KEYS:
@@ -790,12 +797,138 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
         _check_network(r, cfg, "", 1, [(list(e.absolute_path), e) for e in schema_errors], **args)
     else:
         _check_v2(r, cfg, schema_errors, err, warn, args)
+    check_cia309(cfg, version, err)
     if r.ok:
         _check_image(cfg, err)
     for where, key in found:
         parent = where[: -len(key)].rstrip(".")
         warn(parent, "unknown field '%s' (%s) ignored" % (key, where), [where])
     return r
+
+
+# The CiA 309-3 gateway (canopen-cia309-gateway, plugin/src/can/config.cpp
+# parse_cia309 and resolve_cia309).
+CIA309_PATH = re.compile(r"^(master\.|networks\[\d+\]\.master\.)?cia309(\.|$)")
+CIA309_FIELDS = ("port", "bind", "max_clients", "allow_changes", "allow_force", "nets", "default_net")
+CIA309_DEFAULT_PORT = 7533
+CIA309_BIND_MESSAGE = ("the plain gateway port listens on loopback only (127.0.0.1 or ::1), not \"%s\": CiA 309-3 "
+                       "has no login; remote clients use the diagnostics channel (canworks-diag gateway)")
+
+
+def _cia309_error(e):
+    p = [str(x) for x in e.absolute_path]
+    return bool(p) and (p[0] == "cia309" or (len(p) > 1 and p[0] == "master" and p[1] == "cia309") or (
+        len(p) > 3 and p[0] == "networks" and p[2] == "master" and p[3] == "cia309"))
+
+
+def cia309_numbering(cfg):
+    """The CiA 309-3 network numbers of a config: [(number, network name,
+    network index)], `nets` when given, else 1..n in config order (as the
+    plugin numbers them). [] without a cia309 object."""
+    g = cia309_object(cfg)
+    if g is None:
+        return []
+    index = {n["name"]: n["index"] for n in networks(cfg)}
+    nets = g.get("nets") if isinstance(g, dict) else None
+    if isinstance(nets, dict) and version_of(cfg) > 1:
+        out = []
+        for key, name in nets.items():
+            if isinstance(key, str) and key.isdigit() and name in index:
+                out.append((int(key), name, index[name]))
+        return sorted(out)
+    return [(i + 1, n["name"], n["index"]) for i, n in enumerate(networks(cfg))]
+
+
+def cia309_object(cfg):
+    """The cia309 object (top level in version 2, master.cia309 in version
+    1), or None."""
+    if not isinstance(cfg, dict):
+        return None
+    if version_of(cfg) > 1:
+        return cfg.get("cia309")
+    master = cfg.get("master")
+    return master.get("cia309") if isinstance(master, dict) else None
+
+
+def check_cia309(cfg, version, err):
+    """The plugin's cia309 rules (canopen-cia309-gateway "CiA 309-3 gateway
+    is opt-in")."""
+    if version > 1:
+        for i, net in enumerate(cfg.get("networks") or []):
+            if isinstance(net, dict) and isinstance(net.get("master"), dict) and "cia309" in net["master"]:
+                err("networks[%d]: master" % i, "field 'cia309' is a top-level object in schema_version 2, not part "
+                                                "of a network's master", ["networks[%d].master.cia309" % i])
+        g = cfg.get("cia309")
+        w = "cia309"
+    else:
+        master = cfg.get("master")
+        g = master.get("cia309") if isinstance(master, dict) else None
+        w = "master.cia309"
+    if g is None:
+        return
+    if not isinstance(g, dict):
+        err(w.rpartition(".")[0], "field 'cia309' must be an object", [w])
+        return
+    for key in g:
+        if key not in CIA309_FIELDS:
+            err(w, "unknown field '%s'" % key, [w + "." + key])
+    port = _uint(g.get("port", CIA309_DEFAULT_PORT))
+    if "port" in g and (port is None or port > 65535 or (port != 0 and port < 1024)):
+        err(w, "field 'port' must be 0 (no plain port) or 1024-65535", [w + ".port"])
+    if "bind" in g:
+        bind = g["bind"]
+        if not isinstance(bind, str) or not bind:
+            err(w, "field 'bind' must be a non-empty string", [w + ".bind"])
+        elif bind not in ("127.0.0.1", "::1"):
+            err(w + ".bind", CIA309_BIND_MESSAGE % bind, [w + ".bind"])
+    if "max_clients" in g:
+        v = _uint(g["max_clients"])
+        if v is None or not 1 <= v <= 16:
+            err(w, "field 'max_clients' must be 1-16", [w + ".max_clients"])
+    for key in ("allow_changes", "allow_force"):
+        if key in g and not isinstance(g[key], bool):
+            err(w, "field '%s' must be true or false" % key, [w + "." + key])
+    names = [n["name"] for n in networks(cfg)]
+    numbers = {}
+    nets = g.get("nets")
+    if "nets" in g:
+        if version == 1:
+            err(w, "field 'nets' needs schema_version 2 (a version 1 file has one network, number 1)", [w + ".nets"])
+        elif not isinstance(nets, dict):
+            err(w, "field 'nets' must be an object of network numbers and names, like {\"1\": \"io\"}", [w + ".nets"])
+        else:
+            seen = {}
+            for key, name in nets.items():
+                if not isinstance(name, str) or not name:
+                    err(w + ".nets", "network %s must name a network" % key, [w + ".nets." + key])
+                    continue
+                if not (key.isdigit() and key[0] != "0" and len(key) <= 3 and 1 <= int(key) <= 127):
+                    err(w + ".nets", "\"%s\" is not a network number 1-127" % key, [w + ".nets." + key])
+                    continue
+                if name not in names:
+                    err(w + ".nets", "network %s names \"%s\", which is not a network of this file" % (key, name),
+                        [w + ".nets." + key])
+                    continue
+                if name in seen:
+                    err(w + ".nets", "network \"%s\" has two numbers (%s and %s)" % (name, seen[name], key),
+                        [w + ".nets." + key])
+                    continue
+                seen[name] = key
+                numbers[int(key)] = name
+    if not ("nets" in g and isinstance(nets, dict) and version > 1):
+        numbers = {i + 1: n for i, n in enumerate(names)}
+    if "default_net" in g:
+        v = _uint(g["default_net"])
+        if v is None or not 1 <= v <= 127:
+            err(w, "field 'default_net' must be 1-127", [w + ".default_net"])
+        elif v not in numbers:
+            listed = ", ".join("%d = %s" % (k, numbers[k] or "the network") for k in sorted(numbers)) or "none"
+            err(w, "field 'default_net' is %d, which is not a gateway network number (%s)" % (v, listed),
+                [w + ".default_net"])
+    d = cfg.get("diagnostics") if version > 1 else (cfg.get("master") or {}).get("diagnostics")
+    if isinstance(d, dict) and port and _uint(d.get("port", 7531)) == port:
+        err(w, "field 'port' %d is the diagnostics channel's port; give the gateway another one (default 7533)" % port,
+            [w + ".port"])
 
 
 # Top-level keys a version 1 file may not have.
