@@ -14,7 +14,7 @@ from .helpers import fake_editor_cli, pingpong_config, tmpdir
 from .test_deploy import deploy
 
 BLOCKS = ["CAN_BUS_INFO", "CAN_RECEIVE", "CAN_SEND", "CAN_SEND_CYCLIC", "CO402_CYCLICMOVEABSOLUTE", "CO402_CYCLICPOSITION", "CO402_CYCLICTORQUE", "CO402_CYCLICVELOCITY",
-          "CO_SDO_READ", "CO_SDO_READ_BYTES", "CO_SDO_READ_REAL", "CO_SDO_READ_STRING", "CO_SDO_WRITE",
+          "CO_GET_STATE", "CO_NETWORK_START", "CO_NETWORK_STOP", "CO_NMT", "CO_SDO_READ", "CO_SDO_READ_BYTES", "CO_SDO_READ_REAL", "CO_SDO_READ_STRING", "CO_SDO_WRITE",
           "CO_SDO_WRITE_BYTES", "CO_SDO_WRITE_REAL", "CO_SDO_WRITE_STRING"]
 
 
@@ -30,7 +30,7 @@ class Archive(unittest.TestCase):
         self.assertEqual(data["manifest"]["version"], __version__)
         self.assertEqual(sorted(sdolibrary.block_names()), BLOCKS)
         # Every block's source travels in the archive (the editor shows it and
-        # compiles it into the program): C++ for the SDO and frame blocks, ST
+        # compiles it into the program): C++ for the SDO, NMT and frame blocks, ST
         # for the cyclic CiA 402 blocks and the CAN_ byte and bit helpers.
         helpers = ["CAN_GET_BITS.st", "CAN_GET_UINT16.st", "CAN_GET_UINT32.st", "CAN_J1939_ID.st",
                    "CAN_J1939_PGN.st", "CAN_J1939_SOURCE.st", "CAN_SET_BITS.st", "CAN_SET_UINT16.st",
@@ -38,7 +38,7 @@ class Archive(unittest.TestCase):
         self.assertEqual(sorted(s["fileName"] for s in data["sources"]),
                          sorted(["CO402_CyclicMoveAbsolute.st", "CO402_CyclicPosition.st", "CO402_CyclicTorque.st",
                                  "CO402_CyclicVelocity.st"] + helpers +
-                                [b + ".cpp" for b in BLOCKS if b.startswith(("CO_SDO", "CAN_"))]))
+                                [b + ".cpp" for b in BLOCKS if not b.startswith("CO402")]))
 
     def test_write(self):
         d = tmpdir(self)
