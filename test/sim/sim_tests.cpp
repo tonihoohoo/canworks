@@ -2540,6 +2540,75 @@ const cJSON* node_of(const cJSON* status, unsigned id) {
 
 }  // namespace
 
+// The CiA 309-3 gateway's bus-thread side (canopen-cia309-gateway): "r p"
+// reads what the master received in a node TPDO, events are recorded only
+// while a gateway session is open, and NMT to node 0 is one request.
+TEST(sim_cia309_pdo_read_events_nmt_all) {
+  clear_logs();
+  std::string eds = read(std::string(RTD_DIR) + "/rtd8.eds");
+  std::string dir = make_dir(rtd_sim_config(""), {{"rtd8.eds", eds}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->EnableDiag();
+  sim->StartSensor(5, dir + "/rtd8.eds", {{0x7130, 1, 200, 260, 1}});
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->state() == 5 && sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(500));
+
+  DiagRequest r = diag_req("pdo_read", 5);
+  r.pdo = 1;
+  cJSON* a = sim->Ask(r);
+  CHECK_MSG(ok(a) && cJSON_GetArraySize(field(result(a), "values")) >= 1, a ? cJSON_PrintUnformatted(a) : "null");
+  const cJSON* v0 = cJSON_GetArrayItem(field(result(a), "values"), 0);
+  CHECK(num(v0, "index") == 0x7130 && !str(v0, "raw").empty());
+  cJSON_Delete(a);
+  r.pdo = 4;
+  a = sim->Ask(r);
+  CHECK(!ok(a) && str(a, "error").find("PDO not configured") == 0);
+  cJSON_Delete(a);
+
+  // Events: none while no session is open, then the node's EMCY.
+  std::vector<DiagEvent> ev;
+  sim->OnSensor(5, [](SensorSlave& s) { s.SendEmcy(0x5030, 0x01); });
+  sim->RunFor(milliseconds(200));
+  sim->hub().take_events(ev);
+  CHECK(ev.empty());
+  sim->hub().set_events(true);
+  sim->OnSensor(5, [](SensorSlave& s) { s.SendEmcy(0x5030, 0x01); });
+  CHECK(sim->RunUntil([&] {
+    sim->hub().take_events(ev);
+    for (const auto& e : ev)
+      if (e.kind == DiagEvent::Emcy && e.node == 5 && e.code == 0x5030 && e.er == 1) return true;
+    return false;
+  }, seconds(2)));
+
+  // NMT stop to node 0 while node 5 is OPERATIONAL: refused without force,
+  // and then every configured node goes, as one request.
+  DiagRequest all = diag_req("nmt", 0);
+  all.command = "stop";
+  a = sim->Ask(all);
+  CHECK(!ok(a) && str(a, "error").find("force needed") != std::string::npos);
+  cJSON_Delete(a);
+  all.force = true;
+  all.from_cia309 = false;
+  a = sim->Ask(all);
+  CHECK(ok(a));
+  cJSON_Delete(a);
+  CHECK(sim->RunUntil([] { return sim->state() == 4; }, seconds(2)));
+  CHECK(logged("NMT STOP requested by diagnostics client 127.0.0.1 (forced"));
+  // A gateway-made state change reaches the events too.
+  CHECK(sim->RunUntil([&] {
+    sim->hub().take_events(ev);
+    for (const auto& e : ev)
+      if (e.kind == DiagEvent::State && e.node == 5 && e.state == 4) return true;
+    return false;
+  }, seconds(2)));
+  sim->hub().set_events(false);
+  delete sim;
+}
+
 TEST(sim_diag_status_emcy_sdo_nmt) {
   clear_logs();
   std::string eds = read(std::string(RTD_DIR) + "/rtd8.eds");
@@ -3179,6 +3248,13 @@ TEST(sim_lss_diag_commissioning) {
   CHECK(ok(a));
   cJSON_Delete(a);
 
+  // The CiA 309-3 gateway's lss_store: select, store, back to waiting.
+  a = sim->Ask(lss_req("lss_store", addr));
+  CHECK(ok(a) && cJSON_IsTrue(field(result(a), "stored")));
+  cJSON_Delete(a);
+  CHECK(sim->lss(0x17) == 2);
+  CHECK(mem->stores == 2 && mem->stored_id == 41);
+
   // Bit rate 250 kbit/s, stored, never activated.
   r = lss_req("lss_set_bitrate", addr);
   r.bitrate_kbit = 250;
@@ -3188,7 +3264,7 @@ TEST(sim_lss_diag_commissioning) {
   cJSON_Delete(a);
   CHECK(sim->lss(0x13) == 1);
   CHECK(sim->lss(0x15) == 0);
-  CHECK(sim->lss(0x17) == 2);
+  CHECK(sim->lss(0x17) == 3);
 
   // An address nobody has.
   const uint32_t nobody[4] = {0x360, 0, 0, 0x9999};

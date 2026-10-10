@@ -550,6 +550,13 @@ cJSON* BridgeHost::status_json() const {
   }
   if (supervisor_ && cfg_.watchdog_ms && st == OutputState::kRunning)
     cJSON_AddNumberToObject(b, "watchdog_left_ms", static_cast<double>(supervisor_->left_ms(Clock::now())));
+  // CiA 309-3 gateway sessions (modbus-bridge "CiA 309-3 gateway and the
+  // output watchdog"): listed here, never counted as Modbus writers.
+  if (cJSON* gw = engine_ ? engine_->cia309_status() : nullptr) {
+    cJSON* sessions = cJSON_DetachItemFromObjectCaseSensitive(gw, "sessions");
+    cJSON_AddItemToObject(b, "cia309_sessions", sessions ? sessions : cJSON_CreateArray());
+    cJSON_Delete(gw);
+  }
   std::lock_guard<std::mutex> ul(upload_mu_);
   if (!upload_result_.empty()) {
     cJSON* u = cJSON_AddObjectToObject(b, "last_upload");
