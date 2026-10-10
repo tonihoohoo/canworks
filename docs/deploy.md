@@ -194,6 +194,8 @@ A config with a top-level `bridge` object runs on [canworks-bridge](modbus-bridg
 
 `--runtime local` deploys to the [local simulator runtime](local-runtime.md) on this PC (`canworks-sim-runtime start`): the tool takes its address, user, password and certificate fingerprint from the saved `local-runtime.json`, so no `--fingerprint` or password is needed (`--user`, `$OPENPLC_PASSWORD` and the certificate options still win when given). Every network runs simulated there, so the tool says so and does not ask the [simulated-config question](#simulated-devices). Without a local runtime it stops with `no local runtime: run canworks-sim-runtime start first`.
 
+`--runtime NAME` with the name of a remembered runtime deploys directly when it answers and over the [remote link](remote-access.md) otherwise; `--runtime link:NAME` uses only the link. The certificate checks below are the same on both paths.
+
 ## The runtime's certificate
 
 The runtime serves HTTPS on port 8443 with a self-signed certificate. The tool checks it before it sends the password:

@@ -272,6 +272,7 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 | `port` | no | TCP port the plugin listens on, 1024-65535, default 7531. |
 | `bind` | no | IPv4 address to listen on, default `0.0.0.0` (every interface). |
 | `allow_changes` | no | Default `false`: read-only. `true` also allows SDO writes and NMT commands from a client with the token. |
+| `remote_link` | no | The remote link's settings, read by the `canworks-link` service on the device: `internet` (default `false`), `relays` (https URLs) and `pairing` (`lan`, `anywhere` or `off`). The plugin only checks them ([remote-access.md](remote-access.md#over-the-internet-the-remote-link)). |
 
 The plugin listens while the PLC runs and closes the port when it stops. Everything a client sees and does is in [diagnostics.md](diagnostics.md), together with the security notes. With `"nodes": []` the plugin starts the master on the bus with no slaves, so the scan can find what is connected before any node is configured.
 

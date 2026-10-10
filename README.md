@@ -35,6 +35,8 @@ sudo scripts/install-stock.sh             # CANopen and J1939; --without-canopen
 sudo systemctl restart openplc-runtime    # native installs: once, so the runtime loads the plugin
 ```
 
+Add `--with-link` to reach the PLC from other networks later ([docs/remote-access.md](docs/remote-access.md)).
+
 **Configure and upload.** Build the network in `canworks-config` ([docs/configurator.md](docs/configurator.md)); it writes the editor project's `canworks/` folder, and the editor's own **Build and upload** carries it to the PLC. `canworks-deploy` does the same from a terminal ([docs/deploy.md](docs/deploy.md)).
 
 ## Features
@@ -56,6 +58,7 @@ Every field is described in [docs/config.md](docs/config.md).
 - **OpenPLC as a slave:** the PLC becomes a node on a network another master runs, with a generated EDS for that master's tool ([docs/slave.md](docs/slave.md)).
 - **Gateway:** a slave network above master networks, with routes that copy values between them without the PLC program, plus node status, EMCY forwarding and an SDO bridge ([docs/gateway.md](docs/gateway.md)).
 - **Online diagnostics:** an opt-in channel for the PC tools, encrypted with TLS; the token never crosses the network, and nothing a client does touches the PLC scan.
+- **Remote access:** the PLC shows up by name in the configurator on the local network, over a direct cable, USB-C or its Wi-Fi hotspot, and with the remote link from any other network, behind NAT or on a mobile connection, with no account, VPN or router port. A PC pairs once with the diagnostics token on the local network; internet access is a tick box ([docs/remote-access.md](docs/remote-access.md)).
 
 ### J1939 on the PLC
 
@@ -83,17 +86,18 @@ Five commands in one package, for Windows, macOS and Linux ([docs/install-pc.md]
 | --- | --- |
 | `canworks-config` | The configurator, a local web page ([docs/configurator.md](docs/configurator.md)). Add nodes from their EDS, map PDO entries to PLC addresses checked against the editor project, set up slave, gateway, J1939 and plain CAN networks, and raw CAN messages with DBC import. Device notes explain objects (text, unit, scale, value meanings, bit names): built-in for CiA 301/401/402, plus a notes file per EDS you fill from the manual; they show in the object dictionary browser, the SDO lists, the HTML docs and the DBC export. Its **Online** view shows the live network (states, EMCY, SDO, NMT, bus scan, LSS, object dictionary browser, parameter backup and restore, PDO test, bit rate detection); **Trace** records and decodes the bus ([docs/trace.md](docs/trace.md)); the frame inspector and **Frame lab** explain every bit of a frame ([docs/frame-inspector.md](docs/frame-inspector.md)); **Commission a CANopen device** works on a USB adapter without any project. |
 | `canworks-deploy` | Adds the config to an editor build and uploads it ([docs/deploy.md](docs/deploy.md)); checks a config offline; creates an editor project from a config (`--blocks` enables the SDO and CAN frame blocks); installs the `canworks` editor library; exports DCF, DBC and an offline HTML documentation of the CANopen and J1939 networks ([docs/network-docs.md](docs/network-docs.md)); exports the Modbus register map of a bridge config (`--export-modbus-map`) and uploads it to a running bridge (`--bridge HOST`, [docs/modbus-bridge.md](docs/modbus-bridge.md)). |
-| `canworks-diag` | The online functions from a terminal ([docs/diagnostics.md](docs/diagnostics.md)): parameter backup, compare and restore as CiA 306 DCF, writing a configuration to a device, LSS, raw frames, `replay` of a recorded trace, bit rate detection, trace with export to pcapng, candump, ASC, BLF, TRC or CSV, simulator control, and `explain` for a frame bit by bit. |
+| `canworks-diag` | The online functions from a terminal ([docs/diagnostics.md](docs/diagnostics.md)): parameter backup, compare and restore as CiA 306 DCF, writing a configuration to a device, LSS, raw frames, `replay` of a recorded trace, bit rate detection, trace with export to pcapng, candump, ASC, BLF, TRC or CSV, simulator control, and `explain` for a frame bit by bit; `discover` and `link` find runtimes and reach them from other networks ([docs/remote-access.md](docs/remote-access.md)). |
 | `canworks-sim-runtime` | The local simulator runtime in a container (Docker Engine, Podman or Colima; amd64 and arm64) ([docs/local-runtime.md](docs/local-runtime.md)). |
 | `canworks-j1939-sim` | Plays one node of a J1939 DBC file on a SocketCAN interface or USB adapter, with address claim, cycle times, ramps and scenarios ([docs/j1939.md](docs/j1939.md#simulator)). |
 
-On the runtime host, `canworks-sim` runs simulated CANopen devices on a SocketCAN interface for any master, with a `test` mode that writes a JUnit report ([docs/simulator.md](docs/simulator.md#canworks-sim)).
+On the runtime host, `canworks-sim` runs simulated CANopen devices on a SocketCAN interface for any master, with a `test` mode that writes a JUnit report ([docs/simulator.md](docs/simulator.md#canworks-sim)), and `canworks-link` is the remote link's service ([docs/remote-access.md](docs/remote-access.md)).
 
 ## Requirements and limits
 
 - **PLC side:** Linux with SocketCAN (`slcan` adapters need Linux 6.0 or later), OpenPLC Runtime v4 as a native install (`install.sh --native`) or upstream's managed Docker install ([docs/install-stock.md](docs/install-stock.md#docker-installs)). The runtime stays unmodified; `install-stock.sh` also installs an editor hook so the editor's **Build and upload** keeps the plugin on.
 - **CANopen:** master and slave roles, one role per CAN interface; no flying master, MPDO or SRDO, and no program download into OpenPLC as a slave.
 - **Raw CAN:** classic CAN only (no CAN FD), raw integer signals, no multiplexed DBC messages.
+- **Remote link:** device on Linux aarch64 or x86_64, PC on Windows x64, macOS on Apple silicon or Linux (no iroh package for Intel Macs); for diagnostics, commissioning and uploads, not for control traffic ([docs/remote-access.md](docs/remote-access.md#what-the-remote-link-is-for-and-what-not)).
 - **Modbus bridge:** Linux with SocketCAN, Modbus TCP server only (no RTU), one config per bridge process, and a CAN interface is used by either the bridge or the OpenPLC plugin, not both ([docs/modbus-bridge.md](docs/modbus-bridge.md#limits)).
 - **J1939:** one ECU per interface, raw integer signals, no diagnostic messages (DM1 ...) or multiplexed DBC messages yet ([docs/j1939.md](docs/j1939.md#limits)).
 
@@ -108,6 +112,7 @@ On the runtime host, `canworks-sim` runs simulated CANopen devices on a SocketCA
 | Configurator | [configurator.md](docs/configurator.md) |
 | Deploy tool and exports | [deploy.md](docs/deploy.md), [network-docs.md](docs/network-docs.md) |
 | Diagnostics and USB adapters on the PC | [diagnostics.md](docs/diagnostics.md), [pc-adapter.md](docs/pc-adapter.md) |
+| Reaching the PLC from other networks, or with no network | [remote-access.md](docs/remote-access.md) |
 | Bus trace and frame inspector | [trace.md](docs/trace.md), [frame-inspector.md](docs/frame-inspector.md) |
 | SDO blocks and CiA 402 axes in the program | [plc-sdo.md](docs/plc-sdo.md), [cia402.md](docs/cia402.md) |
 | Slave and gateway | [slave.md](docs/slave.md), [gateway.md](docs/gateway.md) |
