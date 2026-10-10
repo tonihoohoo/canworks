@@ -928,7 +928,7 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
         # own network's nodes, messages naming the section.
         nets = contract.networks(cfg) if isinstance(cfg, dict) else []
         names = [section_name(n) for n in nets]
-        for name, body in data["networks"].items():
+        for name, body in (data.get("networks") or {}).items():
             at = "networks.%s" % name
 
             def s_err(where, msg, paths=None, at=at):

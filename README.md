@@ -88,7 +88,7 @@ Five commands in one package, for Windows, macOS and Linux ([docs/install-pc.md]
 | `canworks-sim-runtime` | The local simulator runtime in a container (Docker Engine, Podman or Colima; amd64 and arm64) ([docs/local-runtime.md](docs/local-runtime.md)). |
 | `canworks-j1939-sim` | Plays one node of a J1939 DBC file on a SocketCAN interface or USB adapter, with address claim, cycle times, ramps and scenarios ([docs/j1939.md](docs/j1939.md#simulator)). |
 
-On the runtime host, `canworks-sim` runs simulated CANopen devices on a SocketCAN interface for any master, with a `test` mode that writes a JUnit report ([docs/simulator.md](docs/simulator.md#canworks-sim)).
+On the runtime host, `canworks-sim` runs simulated CANopen devices and plain CAN devices on a SocketCAN interface for any master, with a `test` mode that writes a JUnit report ([docs/simulator.md](docs/simulator.md#canworks-sim)).
 
 ## Requirements and limits
 

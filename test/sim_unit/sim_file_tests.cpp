@@ -64,7 +64,9 @@ TEST(sim_file_errors) {
   std::string e;
   CHECK(loads(R"({"schema_version": 1})", e));
   CHECK(!loads(R"({"schema_version": 3})", e) && e.find("reads up to 2") != std::string::npos);
-  CHECK(!loads(R"({"schema_version": 2})", e) && e.find("networks: is required") != std::string::npos);
+  // No "networks": every network has default behaviour (a file of raw_devices only).
+  CHECK(loads(R"({"schema_version": 2})", e));
+  CHECK(!loads(R"({"schema_version": 2, "networks": []})", e) && e.find("networks: must be an object") != std::string::npos);
   CHECK(!loads(R"({"schema_version": 2, "networks": {}, "nodes": {}})", e) &&
         e.find("go in a network's section") != std::string::npos);
   CHECK(!loads(R"({"networks": {"io": {}}})", e) && e.find("\"schema_version\": 2") != std::string::npos);

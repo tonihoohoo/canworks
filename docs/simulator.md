@@ -79,7 +79,7 @@ With a config, `simulation.json` next to it is used when it exists (`--sim FILE`
 | `--real-bus` | Allow an interface that is not vcan. The free node ID check and the conflict guard above apply. |
 | `--nodes LIST` | Only these nodes of the config (comma separated). |
 | `--eds FILE --node ID` | A device that is not in a config (may repeat; `--name NAME` names it). `--node 0` starts it without a node ID, waiting for LSS. |
-| `--sim FILE`, `--no-sim-file` | The simulation file. |
+| `--sim FILE`, `--no-sim-file` | The simulation file. Given alone, without a config or `--eds`, it runs the file's [plain CAN devices](#plain-can-devices). |
 | `--no-defaults` | No default behaviour for any device. |
 | `--state-dir DIR` | Keep stored parameters (0x1010) and LSS-stored node IDs in DIR, so they survive a restart of the simulator. Without it they live as long as the process. |
 | `--scenario NAME` | Start this scenario once the devices are up (may repeat). |
@@ -188,7 +188,7 @@ A config with several networks takes a version 2 file ([`schema/canworks-sim.v2.
 }
 ```
 
-A section works as a version 1 file does for its own network: node keys, expressions (`[5/0x7130:1]`) and scenario steps refer to the devices of that network only. A section for a network that is not in the config is an error naming the networks there are; a network without a section runs with default behaviour. A version 1 file stays valid for a config with one network. The configurator's Simulation view edits the section of the network picked at the top and writes version 2 when the config has several networks ([configurator.md](configurator.md#simulation-view)). [`examples/virtual-plant`](../examples/virtual-plant/README.md) has a complete one.
+A section works as a version 1 file does for its own network: node keys, expressions (`[5/0x7130:1]`) and scenario steps refer to the devices of that network only. A section for a network that is not in the config is an error naming the networks there are; a network without a section runs with default behaviour, and `networks` may be left out (a file of `raw_devices` only, for example). A version 1 file stays valid for a config with one network. The configurator's Simulation view edits the section of the network picked at the top and writes version 2 when the config has several networks ([configurator.md](configurator.md#simulation-view)). [`examples/virtual-plant`](../examples/virtual-plant/README.md) has a complete one.
 
 A section can also name a machine file, `"machine": "machine.json"`: a gantry, conveyor, sensors and pallet on top of the network's simulated drives and I/O, stepped with the devices ([Simulated machine](#simulated-machine)). Machine faults and machine conditions then work in that section's scenarios.
 
@@ -328,7 +328,7 @@ A scenario with `"autostart": true` starts with the simulation; one with `"test"
 
 ### Plain CAN devices
 
-Devices that speak neither CANopen nor J1939, such as a joystick or a display that sends and takes plain CAN frames ([raw-can.md](raw-can.md)), go in the simulation file's top-level `raw_devices`. They run on a simulated network of any protocol, a [plain CAN network](raw-can.md#plain-can-networks) included, inside the plugin, and with `canworks-sim` on an interface.
+Devices that speak neither CANopen nor J1939, such as a joystick or a display that sends and takes plain CAN frames ([raw-can.md](raw-can.md)), go in the simulation file's top-level `raw_devices`. They run on a simulated network of any protocol, a [plain CAN network](raw-can.md#plain-can-networks) included, inside the plugin, and with `canworks-sim` on an interface (a file of `raw_devices` only needs no `--eds`; on a real bus they need no free node ID).
 
 ```json
 "raw_devices": [

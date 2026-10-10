@@ -6,8 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version",
-    "networks"
+    "schema_version"
   ],
   "properties": {
     "schema_version": {
@@ -20,7 +19,7 @@
     },
     "networks": {
       "type": "object",
-      "description": "Keyed by network name (a version 1 config: its adapter interface).",
+      "description": "Keyed by network name (a version 1 config: its adapter interface). Optional: a network without a section runs with default behaviour.",
       "propertyNames": {
         "minLength": 1,
         "maxLength": 16
