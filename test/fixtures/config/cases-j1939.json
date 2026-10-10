@@ -491,6 +491,150 @@
       "schema": "valid",
       "verdict": "reject",
       "messages": ["networks[1]: j1939: tx[0]: 100 pages; pages \"all\" and \"rotate\" send at most 64 (use pages \"program\")"]
+    },
+    {
+      "name": "j1939: diagnostics",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "status_location": "%IX220.0", "lamps_location": "%IB221", "flash_location": "%IB223", "count_location": "%IB222", "dtcs_location": "%ID56", "dtcs": 4}], "dtcs": [{"spn": 520192, "fmi": 3, "active_location": "%QX230.0", "lamps": ["amber"]}, {"spn": 520193, "fmi": 1, "active_location": "%QX230.1", "lamps": ["red"], "flash": "fast"}], "lamps_location": "%QB231", "clear_location": "%IB232", "accept_clear": true, "dm13": true}]],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "j1939: diagnostics own codes only",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 0, "fmi": 31, "active_location": "%QX230.0"}]}]],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "j1939: diagnostics watch by NAME",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source_name": "0x10", "source_name_mask": "0xFF", "count_location": "%IB222"}]}]],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "j1939: diagnostics not an object",
+      "patch": [["set", "networks/1/j1939/diagnostics", []]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: field 'diagnostics' must be an object"]
+    },
+    {
+      "name": "j1939: diagnostics SPN out of range",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 600000, "fmi": 3, "active_location": "%QX230.0"}]}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: spn 600000 is out of range 0..524287"]
+    },
+    {
+      "name": "j1939: diagnostics FMI out of range",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 1, "fmi": 32, "active_location": "%QX230.0"}]}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: fmi 32 is out of range 0..31"]
+    },
+    {
+      "name": "j1939: diagnostics code without active_location",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 1, "fmi": 3}]}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: field 'active_location' is missing"]
+    },
+    {
+      "name": "j1939: diagnostics active_location not a bit output",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 1, "fmi": 3, "active_location": "%QB230"}]}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: active_location %QB230 must be a bit output (%QX)"]
+    },
+    {
+      "name": "j1939: diagnostics unknown lamp",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 1, "fmi": 3, "active_location": "%QX230.0", "lamps": ["green"]}]}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: field 'lamps' must be a list of \"mil\", \"red\", \"amber\" and \"protect\""]
+    },
+    {
+      "name": "j1939: diagnostics bad flash",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 1, "fmi": 3, "active_location": "%QX230.0", "flash": "blink"}]}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: field 'flash' must be \"slow\" or \"fast\""]
+    },
+    {
+      "name": "j1939: diagnostics duplicate own code",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 520192, "fmi": 3, "active_location": "%QX230.0"}, {"spn": 520192, "fmi": 3, "active_location": "%QX230.1"}]}]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: dtcs[0] and dtcs[1] both report SPN 520192 FMI 3"]
+    },
+    {
+      "name": "j1939: diagnostics rx without source",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"count_location": "%IB222"}]}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: rx[0]: give 'source' or 'source_name': the ECU whose DM1 the program sees"]
+    },
+    {
+      "name": "j1939: diagnostics rx without locations",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0}]}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: rx[0]: needs at least one of status_location, lamps_location, flash_location, count_location and dtcs_location"]
+    },
+    {
+      "name": "j1939: diagnostics dtcs_location without dtcs",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "dtcs_location": "%ID56"}]}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: rx[0]: field 'dtcs' is missing: the number of codes at dtcs_location (1..32)"]
+    },
+    {
+      "name": "j1939: diagnostics too many codes",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "dtcs_location": "%ID56", "dtcs": 33}]}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: rx[0]: dtcs 33 is out of range 1..32"]
+    },
+    {
+      "name": "j1939: diagnostics dtcs_location not a double word",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "dtcs_location": "%IW56", "dtcs": 2}]}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: rx[0]: dtcs_location %IW56 must be a double word input (%ID)"]
+    },
+    {
+      "name": "j1939: diagnostics same source twice",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "count_location": "%IB222"}, {"source": 0, "lamps_location": "%IB221"}]}]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: rx[0] and rx[1] have the same source filter"]
+    },
+    {
+      "name": "j1939: diagnostics location clash with a signal",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "lamps_location": "%IB204"}]}]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["%IB204"]
+    },
+    {
+      "name": "j1939: diagnostics code slots clash",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "dtcs_location": "%ID56", "dtcs": 4}, {"source": 1, "dtcs_location": "%ID58", "dtcs": 1}]}]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["%ID58"]
+    },
+    {
+      "name": "j1939: diagnostics lamps_location not an output byte",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"lamps_location": "%IB231"}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: lamps_location %IB231 must be a byte output (%QB)"]
+    },
+    {
+      "name": "j1939: diagnostics accept_clear not a boolean",
+      "patch": [["set", "networks/1/j1939/diagnostics", {"accept_clear": "no"}]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: diagnostics: field 'accept_clear' must be true or false"]
     }
   ]
 }

@@ -63,7 +63,7 @@ Every field is described in [docs/config.md](docs/config.md).
 
 ### J1939 on the PLC
 
-A network with `"protocol": "j1939"` makes the PLC an ECU ([docs/j1939.md](docs/j1939.md)): its own NAME and address claim, received PGNs on `%I` locations with not-available and timeout bits, sent PGNs from `%Q` locations periodically or on change, request handling, and messages up to 1785 bytes through the kernel's transport protocol. Signal scaling lives in a DBC file the tools use. J1939 and CANopen networks run side by side in one config.
+A network with `"protocol": "j1939"` makes the PLC an ECU ([docs/j1939.md](docs/j1939.md)): its own NAME and address claim, received PGNs on `%I` locations with not-available and timeout bits, sent PGNs from `%Q` locations periodically or on change, request handling, and messages up to 1785 bytes through the kernel's transport protocol. Trouble codes work both ways: other ECUs' DM1 codes and lamps reach `%I` locations and the `J1939_DM_READ` block, the PLC broadcasts its own codes switched by `%Q` bits, answers DM2, DM3 and DM11 from service tools, follows DM13, and clears other ECUs with `J1939_DM_CLEAR`. Signal scaling lives in a DBC file the tools use. J1939 and CANopen networks run side by side in one config.
 
 ### Raw CAN on the PLC
 
@@ -100,7 +100,7 @@ On the runtime host, `canworks-sim` runs simulated CANopen devices and plain CAN
 - **Raw CAN:** classic CAN only (no CAN FD), raw integer signals.
 - **Remote link:** device on Linux aarch64 or x86_64, PC on Windows x64, macOS on Apple silicon or Linux (no iroh package for Intel Macs); for diagnostics, commissioning and uploads, not for control traffic ([docs/remote-access.md](docs/remote-access.md#what-the-remote-link-is-for-and-what-not)).
 - **Modbus bridge:** Linux with SocketCAN, Modbus TCP server only (no RTU), one config per bridge process, and a CAN interface is used by either the bridge or the OpenPLC plugin, not both ([docs/modbus-bridge.md](docs/modbus-bridge.md#limits)).
-- **J1939:** one ECU per interface, raw integer signals, no diagnostic messages (DM1 ...) yet ([docs/j1939.md](docs/j1939.md#limits)).
+- **J1939:** one ECU per interface, raw integer signals, diagnostic messages DM1, DM2, DM3, DM11, DM13 and DM22 only (no freeze frames or emissions DMs) ([docs/j1939.md](docs/j1939.md#limits)).
 
 ## Documentation
 

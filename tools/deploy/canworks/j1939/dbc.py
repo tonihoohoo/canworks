@@ -23,12 +23,13 @@ from .. import __version__, contract
 from .. import dbcexport
 from ..configurator import layout
 from ..iec import element_str
+from . import dm
 from ..raw import dbc as raw_dbc
 
 # The node name of the PLC's own ECU in an exported DBC.
 PLC = "PLC"
 # Attributes the import reads; any other attribute is reported once.
-USED_ATTRIBUTES = ("GenMsgCycleTime", "VFrameFormat", "ProtocolType")
+USED_ATTRIBUTES = ("GenMsgCycleTime", "VFrameFormat", "ProtocolType", "SPN")
 VFRAME_J1939 = "J1939PG"
 VFRAME_FORMATS = ("StandardCAN", "ExtendedCAN", "reserved", "J1939PG")
 # The location size of a signal of up to 1, 8, 16, 32 and 64 bits.
@@ -47,11 +48,15 @@ class Imported:
     "start_bit" (as in the DBC), "length", "byte_order" ("little"|"big"),
     "signed", "scale", "offset", "unit", "minimum", "maximum",
     "comment", and "multiplexer" / "mux" when multiplexed}], and
-    "mux_problem" when the multiplexing could not be read}. `problems`: what was left out, one message per line,
-    naming the message."""
+    "mux_problem" when the multiplexing could not be read; "spn" on a
+    signal with an SPN attribute}. `problems`: what was left out, one
+    message per line, naming the message. `spns`: {SPN: signal name} from
+    the signals' SPN attributes, also of the diagnostic messages (DM PGNs),
+    which are listed as problems and not offered as rx/tx entries."""
 
-    def __init__(self, messages, problems):
+    def __init__(self, messages, problems, spns=None):
         self.messages, self.problems = messages, problems
+        self.spns = spns or {}
 
     def find(self, pgn):
         return [m for m in self.messages if m["pgn"] == pgn]
@@ -128,10 +133,20 @@ def load(path=None, text=None):
         if name not in USED_ATTRIBUTES:
             problems.append("attribute %s is not used by the import" % name)
     messages = []
+    spns = {}
     for m in db.messages:
         what = "message %s (ID 0x%X)" % (m.name, m.frame_id)
         if not m.is_extended_frame:
             problems.append("%s has an 11-bit identifier; J1939 messages have 29-bit identifiers" % what)
+            continue
+        for s in m.signals:
+            spn = _spn(s)
+            if spn is not None:
+                spns.setdefault(spn, s.name)
+        pgn = split_id(m.frame_id)[1]
+        if pgn in dm.DM_PGNS:
+            problems.append("%s is PGN %d, diagnostic message %s (%s): use diagnostics, not rx/tx"
+                            % (what, pgn, dm.DM_PGNS[pgn], dm.DM_TITLES[dm.DM_PGNS[pgn]]))
             continue
         fmt = _frame_format(db, m)
         if fmt not in (None, VFRAME_J1939):
@@ -154,6 +169,8 @@ def load(path=None, text=None):
                             "signed": bool(s.is_signed), "scale": _num(s.scale), "offset": _num(s.offset),
                             "unit": s.unit or "", "minimum": s.minimum, "maximum": s.maximum,
                             "comment": s.comment or ""})
+            if _spn(s) is not None:
+                signals[-1]["spn"] = _spn(s)
             signals[-1].update(fields.get(s.name, {}))
         cycle = m.cycle_time if m.cycle_time is not None else _attribute(m, "GenMsgCycleTime")
         messages.append({"name": m.name, "frame_id": m.frame_id, "pgn": pgn, "priority": priority,
@@ -162,7 +179,19 @@ def load(path=None, text=None):
                          "comment": m.comment or "", "signals": signals})
         if mux_problem:
             messages[-1]["mux_problem"] = raw_dbc.MUX_PROBLEM
-    return Imported(messages, problems)
+    return Imported(messages, problems, spns)
+
+
+def _spn(signal):
+    """A signal's SPN attribute (0..524287), or None."""
+    v = _attribute(signal, "SPN")
+    return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= dm.MAX_SPN else None
+
+
+def spn_names(path=None, text=None):
+    """{SPN: signal name} of a DBC's signals with an SPN attribute (the first
+    signal of an SPN wins), for naming trouble codes. Raises ImportFailed."""
+    return load(path, text).spns
 
 
 def location_size(length):

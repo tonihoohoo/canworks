@@ -42,7 +42,7 @@ from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequenc
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, element_str, parse_location
 from ..userdirs import config_dir
-from ..j1939 import dbc as j1939_dbc
+from ..j1939 import dbc as j1939_dbc, dm as j1939_dm
 from . import cia402map, declare, layout, online, params, rawpage, scan, simulation, tracing
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -706,7 +706,7 @@ class Session:
     def state(self):
         base = {"version": __version__, "recent": self.recent(), "home": os.path.expanduser("~"),
                 "mode": self.mode, "type_bits": {k: v[1] for k, v in CO_TYPES.items()},
-                "default_start": layout.DEFAULT_START, "commission": self.commission}
+                "default_start": layout.DEFAULT_START, "commission": self.commission, "j1939_dm": J1939_DM_TEXTS}
         if not self.mode:
             return base
         try:
@@ -1057,7 +1057,9 @@ class Session:
         "slave_sync_count", "slave_emcy", "slave_errreg" (no node needed).
         `network` is the index of the node's network; the suggestion skips
         the locations of every network. For a J1939 network: "j1939_state",
-        "j1939_address", "j1939_status", "j1939_valid" (no node needed), or
+        "j1939_address", "j1939_status", "j1939_valid" and the diagnostics
+        keys of J1939_PLACES (no node needed), "j1939_dm_dtcs" with the number
+        of codes as type (that many free consecutive %ID), or
         "j1939_rx"/"j1939_tx" with the signal's length in bits as type."""
         used = layout.taken(cfg, self.uses) if isinstance(cfg, dict) else set()
         start = layout.DEFAULT_START if start in (None, "") else int(start)
@@ -1075,6 +1077,18 @@ class Session:
             return {"location": layout.suggest(*layout.area_size(side, type_name), used, start)}
         if direction in J1939_PLACES:
             return {"location": layout.suggest(*J1939_PLACES[direction], used, start)}
+        if direction == "j1939_dm_dtcs":
+            # A watched ECU's codes: `type_name` consecutive double words.
+            try:
+                count = int(type_name)
+            except (TypeError, ValueError):
+                count = 0
+            if not 1 <= count <= 32:
+                raise ApiError(400, "the codes of a watched ECU need their number, 1 to 32, as type")
+            element = start
+            while any(("I", "D", element + k) in used for k in range(count)):
+                element += 1
+            return {"location": element_str("I", "D", element)}
         if direction in ("j1939_rx", "j1939_tx"):
             # A signal: `type_name` is its length in bits.
             try:
@@ -1571,9 +1585,36 @@ class Session:
         return out
 
 
+def j1939_address(value, global_ok):
+    """A destination address of the DM operations: 0..253, or 255 (every
+    ECU) when `global_ok`."""
+    if isinstance(value, int) and not isinstance(value, bool) and (0 <= value <= 253 or global_ok and value == 255):
+        return value
+    raise ApiError(400, "address must be 0-253" + (" or 255 (every ECU)" if global_ok else ""))
+
+
+def dm_texts(res):
+    """A DM answer with each code's FMI text."""
+    for c in res.get("dtcs") or []:
+        if isinstance(c, dict) and isinstance(c.get("fmi"), int):
+            c["fmi_text"] = j1939_dm.fmi_text(c["fmi"])
+    return res
+
+
 # J1939 locations /api/place suggests: direction -> (area, size letter).
 J1939_PLACES = {"j1939_state": ("I", "B"), "j1939_address": ("I", "B"), "j1939_status": ("I", "X"),
-                "j1939_valid": ("I", "X")}
+                "j1939_valid": ("I", "X"),
+                # Diagnostics (j1939-diagnostics "Diagnostics config"): a watched ECU's status bit and
+                # lamp, flash and count bytes, an own code's bit, the lamps output and the clears counter.
+                "j1939_dm_status": ("I", "X"), "j1939_dm_lamps": ("I", "B"), "j1939_dm_flash": ("I", "B"),
+                "j1939_dm_count": ("I", "B"), "j1939_dtc_active": ("Q", "X"), "j1939_dm_lamps_out": ("Q", "B"),
+                "j1939_dm_clears": ("I", "B")}
+
+# The page's words for trouble codes (j1939/dm.py): FMI texts, the lamps as
+# [key, label, shift] in byte order, and the PGNs diagnostics handles.
+J1939_DM_TEXTS = {"fmi": list(j1939_dm.FMI_TEXT), "lamps": [list(x) for x in j1939_dm.LAMPS],
+                  "pgns": {str(pgn): name for pgn, name in j1939_dm.DM_PGNS.items()},
+                  "titles": dict(j1939_dm.DM_TITLES)}
 
 
 def location_slots(cfg):
@@ -2167,6 +2208,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if local:
                 out["config"] = "local"
                 out["config_bitrate"] = self._config_bitrate(config_path, network)
+            if st.get("protocol") == "j1939" and isinstance((st.get("j1939") or {}).get("dm"), dict):
+                # The Faults panel names codes by the SPN attributes of the network's DBC.
+                out["spn_names"] = {str(k): v for k, v in self._spn_names(config_path, canopen_dir, used).items()}
             return out
         if route == ("POST", "/api/online/emcy"):
             node = node_arg()
@@ -2259,7 +2303,49 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if res.get("nodes") is not None:
                 self._match_scan(s, settings, canopen_dir, res, body.get("config"), used)
             return res
+        if route == ("POST", "/api/online/j1939_dm_read"):
+            # The previously active codes (DM2) of an ECU, through the PLC's address.
+            address = j1939_address(body.get("address"), False)
+            timeout_ms = body.get("timeout_ms") if isinstance(body.get("timeout_ms"), int) else 1000
+            if not 10 <= timeout_ms <= 10000:
+                raise ApiError(400, "timeout_ms must be 10-10000")
+            res = call(lambda c: c.request("j1939_dm_read", timeout=c.timeout + timeout_ms / 1000.0,
+                                           address=address, timeout_ms=timeout_ms))
+            return dm_texts(res)
+        if route == ("POST", "/api/online/j1939_dm_clear"):
+            # DM3 (previous) or DM11 to an ECU or globally (255). It acts on
+            # another ECU: the page asks first, then sends force.
+            address = j1939_address(body.get("address"), True)
+            previous = body.get("previous") is True
+            return call(lambda c: c.request("j1939_dm_clear", timeout=c.timeout + 1.0, address=address,
+                                            previous=previous, **forced))
         raise ApiError(404, "no such API: %s %s" % route)
+
+    def _spn_names(self, config_path, canopen_dir, network):
+        """{SPN: signal name} from the SPN attributes of the DBC the saved
+        config names for J1939 network `network` (None: the first J1939
+        network); cached by the file's time. Empty when there is none."""
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+            nets = [n for n in contract.networks(cfg) if n["role"] == "j1939"]
+            net = next((n for n in nets if network is None or n.get("name") == network), None)
+            dbc = os.path.basename(str(((net or {}).get("j1939") or {}).get("dbc") or ""))
+            reader = getattr(j1939_dbc, "spn_names", None)
+            if not dbc or reader is None:
+                return {}
+            path = os.path.join(canopen_dir, dbc)
+            key = (path, os.path.getmtime(path))
+        except (OSError, ValueError, AttributeError, TypeError):
+            return {}
+        cache = self.server.spn_cache
+        if cache.get("key") != key:
+            try:
+                names = reader(path)
+            except (OSError, j1939_dbc.ImportFailed):
+                names = {}
+            cache.update(key=key, names=names if isinstance(names, dict) else {})
+        return cache["names"]
 
     def _paired_pcs(self, route, proj, body):
         """/api/online/paired_pcs and remove_pc: the PCs paired with the
@@ -2947,6 +3033,7 @@ class Server(http.server.ThreadingHTTPServer):
         self.sender = online.Sender()
         self.adapter_sweep = None  # the connection form's bit rate sweep on a USB adapter (localbus.sweep.Sweep)
         self.eds_index = online.EdsIndex()
+        self.spn_cache = {}  # Handler._spn_names
         self.traces = tracing.Traces()
         self.jobs = params.Jobs()
 

@@ -1060,6 +1060,159 @@ class Parser {
     }
   }
 
+  // The `diagnostics` object (j1939-diagnostics "Diagnostics config").
+  void parse_j1939_diagnostics(const cJSON* j, J1939Diagnostics& d) {
+    const cJSON* o = cJSON_GetObjectItemCaseSensitive(j, "diagnostics");
+    if (!o) return;
+    const std::string w = "j1939: diagnostics";
+    if (!cJSON_IsObject(o)) {
+      error("j1939", "field 'diagnostics' must be an object");
+      return;
+    }
+    check_known(o, w, {"rx", "dtcs", "lamps_location", "clear_location", "accept_clear", "dm13"});
+    uint64_t v;
+    const cJSON* arr = cJSON_GetObjectItemCaseSensitive(o, "rx");
+    if (arr && !cJSON_IsArray(arr)) error(w, "field 'rx' must be an array");
+    const cJSON* list = cJSON_IsArray(arr) ? arr : nullptr;
+    int i = 0;
+    const cJSON* m;
+    cJSON_ArrayForEach(m, list) {
+      std::string mw = w + ": rx[" + std::to_string(i++) + "]";
+      if (!cJSON_IsObject(m)) {
+        error(mw, "must be an object");
+        continue;
+      }
+      check_known(m, mw, {"source", "source_name", "source_name_mask", "timeout_ms", "status_location",
+                          "lamps_location", "flash_location", "count_location", "dtcs_location", "dtcs"});
+      J1939DmRx r;
+      bool src = cJSON_GetObjectItemCaseSensitive(m, "source") != nullptr;
+      bool src_name = cJSON_GetObjectItemCaseSensitive(m, "source_name") != nullptr;
+      if (src && src_name) {
+        error(mw, "give 'source' or 'source_name', not both");
+      } else if (src) {
+        if (j_range(m, "source", mw, 0, kJ1939MaxAddress, v)) {
+          r.has_source = true;
+          r.source = (unsigned)v;
+        }
+      } else if (src_name) {
+        r.has_source_name = j_uint64(m, "source_name", mw, r.source_name);
+      } else {
+        error(mw, "give 'source' or 'source_name': the ECU whose DM1 the program sees");
+      }
+      if (cJSON_GetObjectItemCaseSensitive(m, "source_name_mask")) {
+        if (!src_name)
+          error(mw, "field 'source_name_mask' needs 'source_name'");
+        else
+          j_uint64(m, "source_name_mask", mw, r.source_name_mask);
+      }
+      if (j_range(m, "timeout_ms", mw, 0, kJ1939MaxPeriodMs, v)) r.timeout_ms = (unsigned)v;
+      r.has_status_location =
+          j_location(m, "status_location", mw, IecArea::Input, IecSize::X, "a bit input (%IX)", r.status_location);
+      r.has_lamps_location =
+          j_location(m, "lamps_location", mw, IecArea::Input, IecSize::B, "a byte input (%IB)", r.lamps_location);
+      r.has_flash_location =
+          j_location(m, "flash_location", mw, IecArea::Input, IecSize::B, "a byte input (%IB)", r.flash_location);
+      r.has_count_location =
+          j_location(m, "count_location", mw, IecArea::Input, IecSize::B, "a byte input (%IB)", r.count_location);
+      r.has_dtcs_location = j_location(m, "dtcs_location", mw, IecArea::Input, IecSize::D,
+                                       "a double word input (%ID)", r.dtcs_location);
+      bool has_n = cJSON_GetObjectItemCaseSensitive(m, "dtcs") != nullptr;
+      if (has_n && j_range(m, "dtcs", mw, 1, kJ1939MaxDmRxCodes, v)) r.dtcs = (unsigned)v;
+      if (cJSON_GetObjectItemCaseSensitive(m, "dtcs_location") && !has_n)
+        error(mw, "field 'dtcs' is missing: the number of codes at dtcs_location (1..32)");
+      if (has_n && !cJSON_GetObjectItemCaseSensitive(m, "dtcs_location")) error(mw, "field 'dtcs' needs 'dtcs_location'");
+      if (r.has_dtcs_location && r.dtcs) {
+        IecLocation last = r.dtc_location(r.dtcs - 1);
+        if (!iec_location_in_image(last, limits_.buffer_size, byte_mode_)) {
+          error(mw, "dtcs_location " + r.dtcs_location.str() + " with " + std::to_string(r.dtcs) + " codes ends at " +
+                        last.str() + ", outside the runtime I/O image (index must be below " +
+                        std::to_string(limits_.buffer_size) + ")");
+          r.has_dtcs_location = false;
+        }
+      }
+      bool any = false;
+      for (const char* key : {"status_location", "lamps_location", "flash_location", "count_location", "dtcs_location"})
+        any = any || cJSON_GetObjectItemCaseSensitive(m, key);
+      if (!any)
+        error(mw, "needs at least one of status_location, lamps_location, flash_location, count_location and "
+                  "dtcs_location");
+      d.rx.push_back(r);
+    }
+    arr = cJSON_GetObjectItemCaseSensitive(o, "dtcs");
+    if (arr && !cJSON_IsArray(arr)) error(w, "field 'dtcs' must be an array");
+    list = cJSON_IsArray(arr) ? arr : nullptr;
+    i = 0;
+    cJSON_ArrayForEach(m, list) {
+      std::string mw = w + ": dtcs[" + std::to_string(i++) + "]";
+      if (!cJSON_IsObject(m)) {
+        error(mw, "must be an object");
+        continue;
+      }
+      check_known(m, mw, {"spn", "fmi", "active_location", "lamps", "flash"});
+      J1939OwnDtc c;
+      bool ok = true;
+      if (!cJSON_GetObjectItemCaseSensitive(m, "spn")) {
+        error(mw, "field 'spn' is missing");
+        ok = false;
+      } else if (j_range(m, "spn", mw, 0, kJ1939MaxSpn, v)) {
+        c.spn = (uint32_t)v;
+      } else {
+        ok = false;
+      }
+      if (!cJSON_GetObjectItemCaseSensitive(m, "fmi")) {
+        error(mw, "field 'fmi' is missing");
+        ok = false;
+      } else if (j_range(m, "fmi", mw, 0, 31, v)) {
+        c.fmi = (uint8_t)v;
+      } else {
+        ok = false;
+      }
+      if (!cJSON_GetObjectItemCaseSensitive(m, "active_location")) {
+        error(mw, "field 'active_location' is missing");
+        ok = false;
+      } else if (!j_location(m, "active_location", mw, IecArea::Output, IecSize::X, "a bit output (%QX)",
+                             c.active_location)) {
+        ok = false;
+      }
+      const cJSON* lamps = cJSON_GetObjectItemCaseSensitive(m, "lamps");
+      if (lamps) {
+        bool good = cJSON_IsArray(lamps);
+        const cJSON* names = good ? lamps : nullptr;
+        const cJSON* l;
+        cJSON_ArrayForEach(l, names) {
+          const char* t = cJSON_IsString(l) ? l->valuestring : "";
+          if (!std::strcmp(t, "mil"))
+            c.lamps |= kJ1939LampMil;
+          else if (!std::strcmp(t, "red"))
+            c.lamps |= kJ1939LampRed;
+          else if (!std::strcmp(t, "amber"))
+            c.lamps |= kJ1939LampAmber;
+          else if (!std::strcmp(t, "protect"))
+            c.lamps |= kJ1939LampProtect;
+          else
+            good = false;
+        }
+        if (!good) error(mw, "field 'lamps' must be a list of \"mil\", \"red\", \"amber\" and \"protect\"");
+      }
+      const cJSON* fl = cJSON_GetObjectItemCaseSensitive(m, "flash");
+      if (fl) {
+        if (cJSON_IsString(fl) && !std::strcmp(fl->valuestring, "slow"))
+          c.flash = 0;
+        else if (cJSON_IsString(fl) && !std::strcmp(fl->valuestring, "fast"))
+          c.flash = 1;
+        else
+          error(mw, "field 'flash' must be \"slow\" or \"fast\"");
+      }
+      if (ok) d.dtcs.push_back(c);
+    }
+    d.has_lamps_location =
+        j_location(o, "lamps_location", w, IecArea::Output, IecSize::B, "a byte output (%QB)", d.lamps_location);
+    d.has_clear_location =
+        j_location(o, "clear_location", w, IecArea::Input, IecSize::B, "a byte input (%IB)", d.clear_location);
+    get_bool(o, "accept_clear", w, d.accept_clear);
+    get_bool(o, "dm13", w, d.dm13);
+  }
+
   void parse_j1939_network(const cJSON* net, Config& cfg) {
     for (const char* key : {"role", "master", "nodes", "slave"})
       if (cJSON_GetObjectItemCaseSensitive(net, key))
@@ -1080,7 +1233,7 @@ class Parser {
       error("", "field 'j1939' must be an object");
       return;
     }
-    check_known(j, "j1939", {"ecu", "dbc", "rx", "tx", "requests"});
+    check_known(j, "j1939", {"ecu", "dbc", "rx", "tx", "requests", "diagnostics"});
     J1939Config& jc = cfg.j1939;
     parse_j1939_ecu(j, jc.ecu);
     get_string(j, "dbc", "j1939", false, jc.dbc);
@@ -1172,6 +1325,7 @@ class Parser {
         }
       }
     }
+    parse_j1939_diagnostics(j, jc.diagnostics);
     check_j1939(jc, [this](const std::string& where, const std::string& msg) { error(where, msg); });
   }
 
@@ -2675,6 +2829,23 @@ class Parser {
       for (const auto& t : j.tx)
         for (const auto& s : t.signals)
           if (s.has_location) uses.push_back({s.location, p + "PGN " + std::to_string(t.pgn) + " signal " + s.name});
+      const J1939Diagnostics& d = j.diagnostics;
+      for (size_t i = 0; i < d.rx.size(); ++i) {
+        const J1939DmRx& r = d.rx[i];
+        std::string m = p + "diagnostics rx[" + std::to_string(i) + "]";
+        if (r.has_status_location) uses.push_back({r.status_location, m + " status_location"});
+        if (r.has_lamps_location) uses.push_back({r.lamps_location, m + " lamps_location"});
+        if (r.has_flash_location) uses.push_back({r.flash_location, m + " flash_location"});
+        if (r.has_count_location) uses.push_back({r.count_location, m + " count_location"});
+        if (r.has_dtcs_location)
+          for (unsigned k = 0; k < r.dtcs; ++k)
+            uses.push_back({r.dtc_location(k), m + " code " + std::to_string(k)});
+      }
+      for (const auto& c : d.dtcs)
+        uses.push_back({c.active_location, p + "diagnostics SPN " + std::to_string(c.spn) + " FMI " +
+                                               std::to_string(c.fmi) + " active_location"});
+      if (d.has_lamps_location) uses.push_back({d.lamps_location, p + "diagnostics lamps_location"});
+      if (d.has_clear_location) uses.push_back({d.clear_location, p + "diagnostics clear_location"});
       return;
     }
     if (cfg.is_slave()) {

@@ -1,0 +1,9 @@
+{
+  "messages": {
+    "Pressures": { "signals": { "Pressure": 12.5 } }
+  },
+  "dtcs": [
+    { "spn": 520200, "fmi": 0, "lamps": [ "amber" ], "from_s": 5, "to_s": 20 },
+    { "spn": 520201, "fmi": 5, "lamps": [ "red" ], "flash": "slow", "from_s": 10 }
+  ]
+}

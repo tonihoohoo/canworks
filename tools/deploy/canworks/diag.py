@@ -1189,11 +1189,14 @@ def parser():
     _source(pt)
     for name in NETWORK_COMMANDS:
         _network_arg(sub.choices[name])
+    _dm_parser(sub)
     sub.add_parser("adapters", help="list the CAN adapters on this PC (for --adapter; no connection)")
     h = sub.add_parser("hash-token", help="print the token_verifier for a token (no connection)")
     h.add_argument("value", nargs="?", help="the token (default: --token, $%s or a prompt)" % TOKEN_ENV)
     dc = sub.add_parser("discover", help="list the runtimes on the local network (mDNS; no login)")
     dc.add_argument("--wait", type=float, default=3.0, metavar="S", help="listen this long (default %(default)s s)")
+    dc.add_argument("host", nargs="?", metavar="HOST",
+                    help="ask this host directly instead (gets through firewalls that drop multicast answers)")
     lk = sub.add_parser("link", help="the remote link: remembered runtimes, this PC's link ID, local forwards "
                                      "(docs/remote-access.md)")
     lsub = lk.add_subparsers(dest="link_command", metavar="LINK_COMMAND")
@@ -1214,6 +1217,53 @@ def parser():
                     help="local port for the runtime's HTTPS (default: any free port)")
     _sim_parser(sub)
     return p
+
+
+DM_CLEAR_FORCE = "clearing trouble codes acts on another ECU: repeat with --force"
+
+
+def _dm_address(text, allow_global=False):
+    t = text.strip().lower()
+    if allow_global and t == "global":
+        return 255
+    v = _uint(text, "address", 255)
+    if v > 253 and not (allow_global and v == 255):
+        raise argparse.ArgumentTypeError("address %d: give 0-253%s" % (
+            v, " or 255 (global)" if allow_global else ""))
+    return v
+
+
+def _dm_parser(sub):
+    """`dm list | read | clear`: J1939 trouble codes (j1939-pc-tools)."""
+    d = sub.add_parser("dm", help="J1939 trouble codes: list (DM1), read previously active (DM2), clear (DM3/DM11)",
+                       description="J1939 trouble codes (diagnostic messages of J1939-73). Through the runtime the "
+                                   "PLC's J1939 network asks with its claimed address; with --adapter the tool "
+                                   "listens itself and, to read or clear, claims a source address of its own "
+                                   "(default 249, the off-board service tool) and gives it back at exit.")
+    ds = d.add_subparsers(dest="dm_command", metavar="ACTION")
+    ds.required = True
+    ls = ds.add_parser("list", help="every ECU that sent DM1: lamps and active codes")
+    ls.add_argument("--listen", type=float, default=1.5, metavar="S",
+                    help="--adapter: listen S seconds for DM1 (default %(default)s; nothing is sent)")
+    rd = ds.add_parser("read", help="an ECU's previously active codes (DM2)")
+    rd.add_argument("--address", type=_dm_address, required=True, metavar="N", help="the ECU's address (0-253)")
+    cl = ds.add_parser("clear", help="clear an ECU's active codes (DM11) or, with --previous, its previously active "
+                                     "ones (DM3); needs --force")
+    cl.add_argument("--address", type=lambda t: _dm_address(t, True), required=True, metavar="N",
+                    help="the ECU's address (0-253), or 255 / global for every ECU (no acknowledgement)")
+    cl.add_argument("--previous", action="store_true", help="clear the previously active codes (DM3) instead of "
+                                                            "the active ones (DM11)")
+    cl.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
+                    help="go ahead: the clear acts on another ECU")
+    for q in (rd, cl):
+        q.add_argument("--dm-timeout", type=_int_range("timeout", 10, 60000), default=1000, metavar="MS",
+                       help="how long to wait for the answer (default %(default)s ms)")
+    for q in (ls, rd, cl):
+        _network_arg(q)
+        q.add_argument("--dbc", metavar="FILE", help="name the codes' SPNs from this DBC's SPN attributes")
+        if q is not ls:
+            q.add_argument("--source-address", type=_dm_address, default=249, metavar="N",
+                           help="--adapter: the address the tool claims to send from (default %(default)s)")
 
 
 def _token_file(args):
@@ -1519,6 +1569,61 @@ def _print_j1939_status(st, out):
             ", unknown page" if e.get("unknown_page") else ""))
     for e in j.get("requests") or []:
         out.write("request for PGN %s: %s sent\n" % (e.get("pgn"), e.get("sent", 0)))
+    if isinstance(j.get("dm"), dict):
+        out.write("diagnostic messages:\n")
+        _print_dm(j["dm"], out)
+
+
+def _lamps_text(lamps, flash):
+    from .j1939 import dm as dm_mod
+    return dm_mod.DmList(lamps if isinstance(lamps, int) else 0xFF, flash if isinstance(flash, int) else 0xFF) \
+        .lamps_text()
+
+
+def _dtc_text(c, spn_names=None):
+    from .j1939 import dm as dm_mod
+    try:
+        d = dm_mod.Dtc(int(c.get("spn")), int(c.get("fmi")), int(c.get("oc") or 0), bool(c.get("cm")))
+    except (TypeError, ValueError):
+        return str(c)
+    return d.text((spn_names or {}).get(d.spn))
+
+
+def _print_dm_sources(sources, out, spn_names=None, indent=""):
+    """The DM1 sources of the status "dm" part (or a local adapter's)."""
+    if not sources:
+        out.write("%sno ECU has sent DM1\n" % indent)
+        return
+    for e in sources:
+        n = e.get("count") or 0
+        out.write("%sECU %s: %s; %d active code%s, last DM1 %s%s\n" % (
+            indent, e.get("address"), _lamps_text(e.get("lamps"), e.get("flash")), n, "" if n == 1 else "s",
+            _age(e.get("age_ms")), ", older SPN format" if e.get("old_spn_format") else ""))
+        for c in e.get("dtcs") or []:
+            out.write("%s  %s\n" % (indent, _dtc_text(c, spn_names)))
+        if e.get("truncated"):
+            out.write("%s  ... %d more codes not stored\n" % (indent, e["truncated"]))
+
+
+def _print_dm(st, out, spn_names=None):
+    """The "dm" part of a J1939 status answer: the ECUs' DM1, the watched
+    ECUs and the network's own DM1."""
+    _print_dm_sources(st.get("sources") or [], out, spn_names, "  ")
+    for w in st.get("watched") or []:
+        src = w.get("source") if w.get("source") is not None else "NAME %s" % w.get("source_name")
+        n = w.get("timeouts") or 0
+        out.write("  watched rx[%s] (ECU %s): %s, %d timeout%s\n" % (
+            w.get("index"), src, "TIMED OUT" if w.get("timed_out") else "ok", n, "" if n == 1 else "s"))
+    own = st.get("own")
+    if own:
+        out.write("  own DM1: %s; %s sent, %s clear%s accepted%s\n" % (
+            _lamps_text(own.get("lamps"), own.get("flash")), own.get("dm1_sent", 0), own.get("clears", 0),
+            "" if own.get("clears") == 1 else "s", ", SUSPENDED by DM13" if own.get("suspended") else ""))
+        for key, label in (("active", "active"), ("previous", "previously active")):
+            codes = own.get(key) or []
+            out.write("  own %s codes: %s\n" % (label, "none" if not codes else ""))
+            for c in codes:
+                out.write("    %s\n" % _dtc_text(c, spn_names))
 
 
 def _age(ms):
@@ -2383,6 +2488,8 @@ def run(args, out=sys.stdout):
         raise DiagError("usage", "give --runtime HOST[:PORT], or --adapter TYPE:CHANNEL for a CAN adapter on this PC")
     if args.command == "trace":
         return _trace(args, out)
+    if args.command == "dm":
+        return _dm(args, out)
     if args.adapter and args.command == "detect-bitrate":
         client = _SweepOnly(args)
         host = str(client.spec)
@@ -2530,6 +2637,128 @@ def run(args, out=sys.stdout):
     return 0
 
 
+def _dm_spn_names(args):
+    if not getattr(args, "dbc", None):
+        return {}
+    from .j1939 import dbc as dbc_mod
+    try:
+        return dbc_mod.spn_names(args.dbc)
+    except dbc_mod.ImportFailed as e:
+        raise DiagError("usage", "cannot use %s: %s" % (args.dbc, e))
+
+
+def _dm_force(args):
+    if args.dm_command == "clear" and not getattr(args, "force", False):
+        raise DiagError("refused", "%s; nothing sent" % DM_CLEAR_FORCE)
+
+
+def _print_dm_answer(args, res, out, names):
+    from .j1939 import dm as dm_mod
+    if args.dm_command == "read":
+        codes = res.get("dtcs") or []
+        n = len(codes)
+        out.write("DM2 from %s: %s; %s\n" % (res.get("address"), _lamps_text(res.get("lamps"), res.get("flash")),
+                                             "%d previously active code%s" % (n, "" if n == 1 else "s")
+                                             if codes else "no previously active codes"))
+        for c in codes:
+            out.write("  %s\n" % _dtc_text(c, names))
+    else:
+        name = "DM3" if args.previous else "DM11"
+        what = "%s (%s)" % (name, dm_mod.DM_TITLES[name])
+        if res.get("address") == 255:
+            out.write("%s sent to every ECU (global: no acknowledgement)\n" % what)
+        else:
+            out.write("%s to %s: %s\n" % (what, res.get("address"), str(res.get("result", "")).upper()))
+
+
+def _dm(args, out):
+    """dm list | read | clear, through the runtime's J1939 network or on a
+    local adapter (j1939/dmtool.py)."""
+    _dm_force(args)
+    names = _dm_spn_names(args)
+    if args.adapter:
+        return _dm_local(args, out, names)
+    try:
+        host, port = parse_runtime(args.runtime)
+    except ValueError as e:
+        raise DiagError("usage", str(e))
+    client = Client(host, port, _token(args), args.timeout, network=args.network)
+    client.connect()
+    try:
+        check_network(client, args.network)
+        net = args.network or (network_names(client) or [None])[0]
+        fields = {"network": net} if net else {}
+        if args.dm_command == "list":
+            st = client.request("status", **fields)
+            if st.get("protocol") != "j1939":
+                raise DiagError("refused", "network %s is not a J1939 network: trouble codes are J1939 diagnostic "
+                                           "messages" % (net or st.get("bus", {}).get("interface") or ""))
+            res = (st.get("j1939") or {}).get("dm")
+            if res is None:
+                raise DiagError("refused", TOO_OLD.replace("CANopen plugin", "plugin"))
+            if not args.json:
+                out.write("diagnostic messages of network %s:\n" % (net or "?"))
+                _print_dm(res, out, names)
+        else:
+            wait = max(args.timeout, args.dm_timeout / 1000.0 + 2)
+            if args.dm_command == "read":
+                res = client.request("j1939_dm_read", timeout=wait, address=args.address,
+                                     timeout_ms=args.dm_timeout, **fields)
+            else:
+                res = client.request("j1939_dm_clear", timeout=wait, address=args.address,
+                                     previous=bool(args.previous), force=True, **fields)
+            if not args.json:
+                _print_dm_answer(args, res, out, names)
+        if args.json:
+            out.write(json.dumps(res, indent=2) + "\n")
+    finally:
+        client.close()
+    return 0
+
+
+def _dm_local(args, out, names):
+    from .j1939 import dmtool
+    from .localbus import adapter as adapter_mod
+    if not args.bitrate:
+        raise DiagError("usage", "give the bus's bit rate with --bitrate KBIT; a wrong bit rate disturbs the bus, "
+                                 "so there is no default")
+    try:
+        spec = adapter_mod.parse(args.adapter, args.adapter_option)
+        opened = adapter_mod.open(spec, args.bitrate * 1000, shared=True)
+    except adapter_mod.AdapterError as e:
+        raise DiagError("usage" if e.kind == "usage" else "refused", str(e))
+    try:
+        tool = dmtool.DmTool(opened.bus, getattr(args, "source_address", dmtool.dm.SERVICE_TOOL_ADDRESS))
+    except ImportError as e:
+        opened.close()
+        raise DiagError("usage", "can-j1939 is not installed (%s); reinstall the PC tools" % e)
+    try:
+        if args.dm_command == "list":
+            res = {"sources": tool.listen(args.listen)}
+            if not args.json:
+                out.write("DM1 heard on %s in %g s:\n" % (spec, args.listen))
+                _print_dm_sources(res["sources"], out, names, "  ")
+        else:
+            try:
+                address = tool.claim()
+                if not args.json:
+                    out.write("claimed address %d (NAME 0x%016X)\n" % (address, tool.name.value))
+                if args.dm_command == "read":
+                    res = tool.read(args.address, args.dm_timeout)
+                else:
+                    res = tool.clear(args.address, args.previous, args.dm_timeout)
+            except dmtool.DmToolError as e:
+                raise DiagError("refused", str(e))
+            if not args.json:
+                _print_dm_answer(args, res, out, names)
+        if args.json:
+            out.write(json.dumps(res, indent=2) + "\n")
+    finally:
+        tool.close()
+        opened.close()
+    return 0
+
+
 def _pairing_note(client, wait=10.0):
     """After a command: wait for the remote link's background pairing (see
     Client.connect) and print its one line, if it has one."""
@@ -2543,9 +2772,13 @@ def _pairing_note(client, wait=10.0):
 
 def _discover(args, out):
     from .link import discovery
-    if not discovery.available():
+    if args.host:
+        r = discovery.find_address(args.host, timeout=args.wait)  # a direct query, then browsing
+        found = [r] if r else []
+    elif not discovery.available():
         raise DiagError("usage", discovery.NOT_AVAILABLE)
-    found = discovery.browse(args.wait)
+    else:
+        found = discovery.browse(args.wait)
     if args.json:
         out.write(json.dumps(found, indent=2) + "\n")
         return 0

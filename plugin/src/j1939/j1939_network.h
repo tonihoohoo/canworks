@@ -15,6 +15,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -27,6 +28,7 @@
 #include "can_adapter.h"
 #include "config.h"
 #include "diag.h"
+#include "dm.h"
 #include "image_io.h"
 #include "j1939_socket.h"
 
@@ -51,11 +53,21 @@ class J1939Image {
   bool status(size_t rx) const { return in_work_[rx_slot_[rx]] != 0; }
   uint8_t claim_state() const { return static_cast<uint8_t>(in_work_[claim_slot_]); }
   uint8_t claim_address() const { return static_cast<uint8_t>(in_work_[claim_slot_ + 1]); }
+  // diagnostics.rx entry `i`: status bit, lamps, flash, count, then one
+  // double word per code slot.
+  void set_dm_status(size_t i, bool ok) { in_work_[dm_slot_[i]] = ok; }
+  bool dm_status(size_t i) const { return in_work_[dm_slot_[i]] != 0; }
+  void set_dm(size_t i, uint8_t lamps, uint8_t flash, uint8_t count, const uint32_t* dtcs, size_t n);
+  uint64_t dm_value(size_t i, size_t k) const { return in_work_[dm_slot_[i] + 1 + k]; }  // k: 0 lamps .. 3+ codes
+  void set_clears(uint8_t n) { in_work_[clear_slot_] = n; }
+  uint8_t clears() const { return static_cast<uint8_t>(in_work_[clear_slot_]); }
   void commit();
-  // Newest output snapshot: one raw value per sent signal (tx_slot()), then
-  // the scan count.
+  // Newest output snapshot: one raw value per sent signal (tx_slot()), the
+  // own trouble codes' active bits and the lamps byte, then the scan count.
   const uint64_t* latest_outputs(bool* fresh = nullptr) { return out_.latest(fresh); }
   size_t tx_slot(size_t tx, size_t signal) const { return tx_slot_[tx] + signal; }
+  bool own_active(const uint64_t* snap, size_t k) const { return snap[own_slot_ + k] != 0; }
+  uint8_t own_lamps(const uint64_t* snap) const { return static_cast<uint8_t>(snap[own_slot_ + own_count_]); }
   uint64_t scan_count(const uint64_t* snap) const { return snap[scan_slot_]; }
 
   // ---- PLC scan ----
@@ -66,7 +78,11 @@ class J1939Image {
   const J1939Config* cfg_ = nullptr;
   std::vector<size_t> rx_slot_;  // per rx entry: status, then value and valid per signal
   size_t claim_slot_ = 0;        // claim state, address
+  std::vector<size_t> dm_slot_;  // per diagnostics.rx entry
+  size_t clear_slot_ = 0;
   std::vector<size_t> tx_slot_;
+  size_t own_slot_ = 0;  // own codes' active bits, then the lamps byte
+  size_t own_count_ = 0;
   size_t scan_slot_ = 0;
   uint64_t scans_ = 0;
   std::vector<uint64_t> in_work_;
@@ -97,6 +113,29 @@ class J1939Engine : private AddressClaimer::Actions {
   const std::string& problem() const { return problem_; }
   // Sending failed this many times (for tests and the log throttle).
   uint64_t send_errors() const { return send_errors_; }
+
+  // ---- Diagnostic message jobs (design Decisions 7 and 9) ----
+  // A Request for DM2 to an address, or for DM3/DM11 to an address or
+  // global. One job per destination; the diagnostics channel and the PLC
+  // blocks share them.
+  enum class DmOp : uint8_t { ReadDm2, ClearDm3, ClearDm11 };
+  struct DmResult {
+    uint16_t error = 0;  // 0, or a CANWORKS_J1939_ERR_* (j1939_plc_api.h)
+    uint8_t address = 0;
+    DmList list;  // ReadDm2
+  };
+  using DmDone = std::function<void(const DmResult&)>;
+  // 0 when started: `done` runs when the answer comes, the timeout passes or
+  // the bus goes (a global clear: right away, once sent). Otherwise the error
+  // (and `done` is not called).
+  uint16_t dm_start(DmOp op, uint8_t address, unsigned timeout_ms, clock::time_point now, DmDone done);
+  // The latest DM1 of `source`: 0 with `out` and its age filled, else the error.
+  uint16_t dm_read_dm1(uint8_t source, DmList& out, clock::duration& age, clock::time_point now) const;
+  // Takes the PLC blocks' jobs of network `index` (J1939PlcJobs) and runs them.
+  void serve_plc(unsigned index, clock::time_point now);
+  // DM13 has suspended the broadcasts.
+  bool suspended() const { return dm13_.suspended(); }
+  const DmStore& dm_store() const { return store_; }
 
  private:
   struct RxState {
@@ -157,6 +196,17 @@ class J1939Engine : private AddressClaimer::Actions {
   // send_tx.
   bool send_all(size_t i, uint8_t destination, clock::time_point now, const uint64_t* snap);
   void on_request(const J1939Message& m, clock::time_point now);
+  // DM requests to a network that sends its own DM1; true when handled.
+  bool on_dm_request(const J1939Message& m, uint32_t pgn, bool to_us, clock::time_point now);
+  // Diagnostic messages received: DM1 into the store and the image, DM2
+  // and acknowledgements for pending jobs, DM13, DM22.
+  void on_dm_message(const J1939Message& m, clock::time_point now);
+  // Acknowledgement (control 0) or NACK (1) of `pgn` to `requester`.
+  void send_ack(uint8_t control, uint32_t pgn, uint8_t requester);
+  // The own DM1: periodic and change-driven sends.
+  void tick_dm1(clock::time_point now);
+  void end_jobs(uint16_t error);
+  cJSON* dm_status(clock::time_point now) const;
   // A Request for `pgn` from `requester` may be answered now: at most one
   // answer per PGN and requester every kReplyGap. Records the answer.
   bool reply_allowed(uint32_t pgn, uint8_t requester, clock::time_point now);
@@ -184,16 +234,52 @@ class J1939Engine : private AddressClaimer::Actions {
   static constexpr size_t kRepliedMax = 512;
   std::map<uint32_t, clock::time_point> replied_;  // (PGN << 8 | requester) -> last answer
   bool dirty_ = true;
+  // Diagnostic messages.
+  struct DmRxState {
+    bool seen = false;
+    clock::time_point last{};
+    bool timed_out = false;
+    uint64_t timeouts = 0;
+    int source = -1;  // the address of the last DM1 taken
+  };
+  struct DmJob {
+    DmOp op;
+    clock::time_point deadline;
+    unsigned timeout_ms;
+    DmDone done;
+  };
+  DmStore store_;
+  std::vector<DmRxState> dm_rx_;
+  std::unique_ptr<OwnDtcs> own_;  // null without own DM1
+  Dm13State dm13_;
+  bool was_suspended_ = false;
+  std::map<uint8_t, DmJob> jobs_;  // by destination
+  uint8_t clears_ = 0;
+  uint64_t clears_total_ = 0;
+  uint64_t dm1_sent_ = 0;
+  bool dm1_pending_ = false;  // a change waits for its send
+  bool dm1_change_sent_ = false;
+  clock::time_point dm1_next_{};
+  clock::time_point dm1_change_at_{};
+  std::vector<uint8_t> own_bits_;
   uint64_t send_errors_ = 0;
   clock::time_point last_error_log_{};
 };
+
+// The diagnostics channel's error text for a DM job's error (j1939_plc_api.h
+// codes) and the result of a finished one (j1939_dm_read / j1939_dm_clear).
+std::string j1939_dm_error_text(uint16_t error, bool read, uint8_t address, unsigned timeout_ms,
+                                J1939ClaimState state);
+cJSON* j1939_dm_result_json(const J1939Engine::DmResult& res, bool read);
 
 class J1939Network {
  public:
   // `hub`, when given, gets the status answers. The socket and adapter
   // default to the kernel's and the config's.
+  // `index`: the network's place in the config (the PLC blocks' NETWORK).
   J1939Network(const Config& cfg, DiagHub* hub, std::unique_ptr<J1939Socket> socket = nullptr,
-               std::unique_ptr<CanAdapter> adapter = nullptr, std::unique_ptr<LinkOps> link = nullptr);
+               std::unique_ptr<CanAdapter> adapter = nullptr, std::unique_ptr<LinkOps> link = nullptr,
+               unsigned index = 0);
   ~J1939Network();
 
   J1939Image& image() { return image_; }
@@ -209,6 +295,9 @@ class J1939Network {
   void run_session();
   bool wait_for(std::chrono::milliseconds d);
   void serve_diag(std::chrono::steady_clock::time_point now);
+  // A j1939_dm_read or j1939_dm_clear request; answered now or when its
+  // job ends.
+  void serve_dm(const DiagRequest& r, std::chrono::steady_clock::time_point now);
   void offline(const std::string& why);
 
   const Config& cfg_;
@@ -220,6 +309,7 @@ class J1939Network {
   J1939Engine engine_;
   LinkInfo link_info_;
   uint8_t bus_state_ = 0;  // bus_monitor.h codes
+  unsigned index_ = 0;
   std::thread thread_;
   std::atomic<bool> stop_{false};
   std::mutex mutex_;
