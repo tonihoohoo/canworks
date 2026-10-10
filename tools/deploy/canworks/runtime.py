@@ -44,7 +44,11 @@ def fingerprint_of(der):
 
 
 def parse_target(runtime):
-    """'host', 'host:port' or 'https://host:port' -> (host, port)."""
+    """'host', 'host:port', 'https://host:port' or 'link:NAME' -> (host, port)."""
+    if runtime.startswith("link:"):
+        if not runtime[5:]:
+            raise RuntimeError_("link: needs a remembered runtime's name (canworks-diag link list)")
+        return runtime, DEFAULT_PORT
     if "//" not in runtime:
         runtime = "https://" + runtime
     u = urlsplit(runtime)
@@ -53,6 +57,32 @@ def parse_target(runtime):
     if not u.hostname:
         raise RuntimeError_("no host in %s" % runtime)
     return u.hostname, u.port or DEFAULT_PORT
+
+
+class _Connection(http.client.HTTPSConnection):
+    """HTTPS to the runtime, directly or over the remote link (a remembered
+    runtime's name or link:NAME; docs/remote-access.md). The TLS checks are
+    the same on both paths."""
+
+    def __init__(self, host, port, context, timeout):
+        super().__init__("localhost" if host.startswith("link:") else host, port, context=context,
+                         timeout=timeout)
+        self.target = host
+        self.ctx = context
+
+    def connect(self):
+        from .link import pc as linkpc
+        from .link.protocol import LinkError
+        try:
+            sock, _, _ = linkpc.open_socket(self.target, self.port, self.timeout, target="runtime")
+        except LinkError as e:
+            raise OSError(str(e))
+        sock.settimeout(self.timeout)
+        server = self.host
+        entry = linkpc.find(self.target)
+        if entry and entry.get("hosts") and (self.target.startswith("link:") or self.target == entry["name"]):
+            server = entry["hosts"][0]   # the name the certificate was checked against on the LAN
+        self.sock = self.ctx.wrap_socket(sock, server_hostname=server)
 
 
 class Client:
@@ -70,7 +100,7 @@ class Client:
         self.token = None
 
     def _connect(self):
-        conn = http.client.HTTPSConnection(self.host, self.port, context=self.context, timeout=self.timeout)
+        conn = _Connection(self.host, self.port, context=self.context, timeout=self.timeout)
         try:
             conn.connect()
         except ssl.SSLCertVerificationError as e:

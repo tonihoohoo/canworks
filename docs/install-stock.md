@@ -27,7 +27,9 @@ The script:
   ```
 
 - loads the kernel module `can-j1939` for [J1939 networks](j1939.md) and lists it in `/etc/modules-load.d/canworks-j1939.conf` so it loads at every boot (in Docker mode on the host); a kernel without it only gets a warning, and CANopen works as before;
-- installs the [editor hook](#the-editors-build-and-upload): the hook's checks go into `/opt/canworks/venv` next to the deploy tool, the hook to `/opt/canworks/lib/python/`, and one file, `canworks_hook.pth`, into the runtime's Python environment (`venvs/runtime`). `--no-editor-hook` leaves it out (and removes it if it was installed).
+- installs the [editor hook](#the-editors-build-and-upload): the hook's checks go into `/opt/canworks/venv` next to the deploy tool, the hook to `/opt/canworks/lib/python/`, and one file, `canworks_hook.pth`, into the runtime's Python environment (`venvs/runtime`). `--no-editor-hook` leaves it out (and removes it if it was installed);
+- advertises the device on the local network (`/etc/avahi/services/canworks.service`, `_canworks._tcp`) so the configurator lists it by name; `--without-discovery` leaves it out;
+- with `--with-link`, installs the [remote link](remote-access.md) (`scripts/install-link.sh`): `canworks-link.service`, `/usr/local/bin/canworks-link`, a venv in `/opt/canworks-link` and `/etc/canworks-link/`. It reads the deployed config from `/opt/canworks/lib/canworks.json`, also in Docker mode, and stays off the internet until the config turns it on.
 
 Both protocols are built by default. `--without-j1939` builds CANopen only (no kernel module). `--without-canopen` builds J1939 only: no Lely, `dcfgen`, deploy tool venv lint or `canworks-sim`; the venv then only holds the editor hook. A config with a network of a protocol that is not built in is refused at load.
 
@@ -115,8 +117,8 @@ CI runs the hook against the upstream runtime's own `update_plugin_configuration
 ## Uninstall
 
 ```sh
-sudo scripts/install-stock.sh --uninstall           # removes the canworks line, the editor hook, the simulator link, the modules-load.d entry and /opt/canworks/lib
-sudo scripts/install-stock.sh --uninstall --purge   # also removes Lely and dcfgen (all of /opt/canworks)
+sudo scripts/install-stock.sh --uninstall           # removes the canworks line, the editor hook, the simulator link, the modules-load.d entry, /opt/canworks/lib, the advertisement and the remote link
+sudo scripts/install-stock.sh --uninstall --purge   # also removes Lely and dcfgen (all of /opt/canworks) and the link's key and paired PCs
 sudo systemctl restart openplc-runtime
 ```
 

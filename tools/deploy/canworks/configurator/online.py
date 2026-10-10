@@ -113,6 +113,69 @@ def fingerprints(config_path):
 
 
 # ---------------------------------------------------------------------------
+# Runtimes on the local network and remembered ones (remote link)
+
+
+def remembered(host):
+    """The remembered runtime (canworks.link.pc) a host text names, or None."""
+    if not host or not isinstance(host, str):
+        return None
+    from ..link import pc as linkpc
+    try:
+        return linkpc.find(host)
+    except Exception:  # a broken runtimes.json reads as nothing remembered
+        return None
+
+
+def remembered_view(host):
+    """What the page shows of the remembered runtime `host` names: {name,
+    link (has a link ID), paired, internet}, or None."""
+    entry = remembered(host)
+    if not entry:
+        return None
+    return {"name": entry["name"], "link": bool(entry.get("id")), "paired": bool(entry.get("paired")),
+            "internet": bool(entry.get("internet"))}
+
+
+def runtimes_list(wait=2.0):
+    """The connect box's list: {discovered: [{name, address, addresses, id}]
+    (runtimes that answer on the local network within `wait` seconds; the
+    address to connect to, with the diagnostics port when it is not the
+    default), remembered: [{name, hosts, paired, internet, link}],
+    discovery: whether this PC can browse (zeroconf), link: whether the
+    remote link works here (iroh)}."""
+    from .. import link
+    from ..link import discovery, pc as linkpc
+    found = []
+    try:
+        browsed = discovery.browse(wait) if discovery.available() else []
+    except Exception:  # an mDNS failure must not break the connect box
+        browsed = []
+    for r in browsed:
+        addrs = list(r.get("addresses") or [])
+        # IPv4 first: a scoped IPv6 link-local address is hard to type and to read.
+        addrs.sort(key=lambda a: ":" in a)
+        address = None
+        if addrs:
+            a = addrs[0]
+            address = "[%s]" % a if ":" in a else a
+            if r.get("diag") and r["diag"] != diag.DEFAULT_PORT:
+                address += ":%d" % r["diag"]
+            elif ":" in a:
+                address += ":%d" % diag.DEFAULT_PORT  # "[v6]" alone is not a HOST
+        found.append({"name": r.get("name") or "", "address": address, "addresses": addrs, "id": r.get("id")})
+    try:
+        items = linkpc.runtimes()
+    except Exception:
+        items = []
+    mem = [{"name": r["name"], "hosts": list(r.get("hosts") or []), "paired": bool(r.get("paired")),
+            "internet": bool(r.get("internet")), "link": bool(r.get("id"))} for r in items]
+    mem.sort(key=lambda r: r["name"].lower())
+    return {"discovered": found, "remembered": mem, "discovery": discovery.available(),
+            "link": link.available()}
+
+
+# ---------------------------------------------------------------------------
 # Connection to the plugin
 
 
@@ -183,6 +246,7 @@ class Connection:
         self.key = None
         self.last = 0.0
         self.timer = None
+        self.notes_shown = set()  # ids of the pairing jobs whose line the page has had
 
     def call(self, host, port, token, fn, network=None):
         """fn(client) on a connected client whose requests go to `network`
@@ -217,6 +281,30 @@ class Connection:
     @property
     def info(self):
         return self.client.info if self.client else None
+
+    def link_info(self):
+        """{path, rtt_ms, pairing_note} of the open connection: the path the
+        automatic path choice took ("LAN", "internet direct", "internet
+        relayed"; None for a USB adapter), the measured round trip in ms, and
+        the background pairing's one line (see diag.Client.connect) once it
+        finished, given once per pairing and only when the runtime is
+        reachable from other networks (remote_link.internet)."""
+        with self.lock:
+            c, key = self.client, self.key
+        if c is None or isinstance(key[0], AdapterTarget):
+            return {"path": None, "rtt_ms": None, "pairing_note": None}
+        out = {"path": getattr(c, "path", None), "rtt_ms": getattr(c, "rtt_ms", None), "pairing_note": None}
+        job = getattr(c, "pairing", None)
+        if not isinstance(job, dict) or id(job) in self.notes_shown:
+            return out
+        thread = job.get("thread")
+        if thread is not None and thread.is_alive():
+            return out
+        self.notes_shown.add(id(job))
+        entry = remembered(c.host)
+        if job.get("note") and entry and entry.get("internet"):
+            out["pairing_note"] = job["note"]
+        return out
 
     def _open(self, key):
         if isinstance(key[0], AdapterTarget):
