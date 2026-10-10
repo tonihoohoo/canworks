@@ -97,3 +97,20 @@ None: new optional fields within `schema_version` 1 and 2; configs without them 
 3. Should a new link default to a heartbeat watch on its producer? Not in the config; the configurator pre-ticks "watch producer" when the producer has a heartbeat. Revisit after field use.
 4. Should a kept link also keep the master's heartbeat and SYNC running after PLC stop? Needs the bus thread to outlive the PLC session; a separate change if asked.
 5. Should the diagnostics status list links with derived state (producer up, consumers up, time since last producer PDO)? The online view derives it from existing node status for now.
+
+## Implementation notes
+
+Defaults taken for the open questions and for what the decisions left open:
+
+- Open questions 1, 2 and 4: as proposed. No `on_producer_loss`; a consumer layout must match the producer position by position (no `"layout": "bits"`); a kept link does not keep the master's heartbeat or SYNC running.
+- Open question 3: the config adds no watch by itself; the configurator's "watch producer" checkbox is ticked when a consumer is added and the producer has a heartbeat (config or EDS 0x1017), and editing it edits `heartbeat_watch`.
+- Open question 5: no new diagnostics fields. The Online view shows a "PDO links" table derived from the node states and the producer TPDO's `pdo_timeouts` of the existing status; the Links page shows the states of the Online view's last status next to each node.
+- A consumer may give `"mapping": "config"` (refused on a fixed mapping, as for any PDO). A device-mapped consumer may leave out `entries`; when it gives them they must list its EDS default mapping in order.
+- `transmission` and `event_timer_ms` of a consumer are written whenever they are given (not only when they differ from the EDS), like the explicit PDO parameters of `add_explicit_pdo_writes`.
+- The heartbeat watch's 0x1016 entries are written after the link RPDOs, both after dcfgen's 0x1016 handling and before the TIME COB-ID, RPDO deadlines, 0x60C2 and startup SDOs. Only writable 0x1016 sub-indices count towards the capacity.
+- The schema: `tx_entry` of version 1 no longer requires `iec_location` (version 2's `field_tx_entry` never did); the plugin and the deploy tool still refuse an entry without one unless its TPDO feeds a link or a gateway route uses it. A consumer entry with `iec_location` is refused by the schema (`not required`), the plugin and the deploy tool.
+- The shared fixtures for links are a file of their own, `test/fixtures/config/cases-links.json`, with a base of two made-up link modules and a fixed-mapping module (`test/fixtures/eds/make_link_eds.py` writes `link-io.eds` and `link-io-small.eds`), instead of patches of the one-node base of `cases.json`; `cases-v2.json` keeps the version 2 message change. Both the plugin's unit tests and the deploy tool run it.
+- The example (task 7.7) is `examples/pdo-link` rather than a folder under `config/`: the browser example sweep (`test_configurator_examples_page.py`) opens the folders under `examples/`.
+- The deploy tool's shared link code is `tools/deploy/canworks/links.py`; the configurator's page is `static/links.js`.
+
+Spike results (tasks 1.1-1.3): simulated devices receive each other's PDOs once the master configured the consumer RPDO (`sim_pdo_link`). dcfgen writes nothing to an RPDO that is neither listed nor switched off and makes no master TPDO on the link's COB-ID; it does make a master TPDO for every node RPDO its model keeps enabled with an EDS default mapping, on that RPDO's default COB-ID, which is unchanged behaviour (also for RPDOs the plugin switches off) and never the link's COB-ID. Lely's slave sends EMCY 0x8130 on a heartbeat watch timeout and applies 0x1029 sub 1; the consumer starts watching again at the producer's first heartbeat, so a power cycle of either end resumes the link without a boot loop (`sim_pdo_link_loss`).
