@@ -4,14 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "canworks"
-version = "0.50.1"
+version = "0.51.0"
 description = "Configures CANopen for OpenPLC (canworks-config), deploys it to an OpenPLC Runtime v4 (canworks-deploy) and reads the live network (canworks-diag)"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "Apache-2.0"}
 dependencies = ["jsonschema>=4.0", "python-can>=4.3", "pyserial>=3.5", "cantools>=39", "can-j1939>=2.0.12",
                 "python-can[gs-usb]>=4.3; sys_platform == 'darwin'",  # gs_usb adapters on macOS (needs libusb)
-                "pywin32; sys_platform == 'win32'"]  # can-j1939's job thread (transport protocol) needs pythoncom
+                "pywin32; sys_platform == 'win32'",  # can-j1939's job thread (transport protocol) needs pythoncom
+                "zeroconf>=0.130; python_version >= '3.9'",  # finding runtimes on the local network
+                # The remote link (docs/remote-access.md), where iroh publishes a wheel: Windows x64, macOS
+                # arm64, Linux x86_64 and aarch64.
+                "iroh>=1.1,<1.2; platform_machine == 'AMD64' or platform_machine == 'arm64' or platform_machine == 'aarch64' or (platform_machine == 'x86_64' and sys_platform == 'linux')"]
 
 [project.scripts]
 canworks-deploy = "canworks.cli:main"
@@ -19,10 +23,11 @@ canworks-config = "canworks.configurator.server:main"
 canworks-diag = "canworks.diag:main"
 canworks-sim-runtime = "canworks.localruntime:main"
 canworks-j1939-sim = "canworks.j1939.sim:main"
+canworks-link = "canworks.link.device:main"
 
 [tool.setuptools]
 packages = ["canworks", "canworks.bustrace", "canworks.localbus", "canworks.configurator", "canworks._lely_dcf",
-            "canworks.j1939", "canworks.raw"]
+            "canworks.j1939", "canworks.raw", "canworks.link"]
 
 [tool.setuptools.package-data]
 canworks = ["schema/*.json", "library/*.stlib", "builtin_notes/*.json"]
