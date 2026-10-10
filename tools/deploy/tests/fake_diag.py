@@ -23,6 +23,7 @@ import base64
 import copy
 import json
 import os
+import re
 import time
 import socket
 import socketserver
@@ -255,6 +256,14 @@ class FakePlugin:
         self.configured = set()  # extra configured node IDs (NMT allowed)
         self.refuse_writes = {}
         self.delay = 0.0  # seconds before each SDO answer  # (node, index, sub): abort code for a write
+        # The CiA 309-3 gateway (the cia309 op): None, an older plugin ("unknown
+        # op"); "off", not configured; else the op's result.
+        self.cia309 = None
+        self.cia309_max = 4
+        self.cia309_sessions = 0
+        self.cia309_lines = []  # every line the gateway sessions sent
+        self.cia309_answers = {}  # command text (after "[seq] ") -> answer text
+        self.cia309_notifications = []  # sent before the next answer
         fake = self
 
         class Handler(socketserver.StreamRequestHandler):
@@ -305,6 +314,23 @@ class FakePlugin:
                         self._send({"id": req.get("id"), "ok": True, "result": hello})
                         continue
                     fake.requests.append(req)
+                    if req.get("op") == "cia309":
+                        if fake.cia309 is None:  # an older plugin
+                            self._send({"id": req.get("id"), "ok": False, "error": "unknown op 'cia309'"})
+                            continue
+                        if fake.cia309 == "off":
+                            self._send({"id": req.get("id"), "ok": False, "error": "cia309 gateway not configured"})
+                            continue
+                        if fake.cia309_sessions >= fake.cia309_max:
+                            self._send({"id": req.get("id"), "ok": False, "error": "too many gateway clients"})
+                            continue
+                        self._send({"id": req.get("id"), "ok": True, "result": copy.deepcopy(fake.cia309)})
+                        fake.cia309_sessions += 1
+                        try:
+                            self._gateway()
+                        finally:
+                            fake.cia309_sessions -= 1
+                        return
                     if fake.delay and req.get("op") in ("sdo_read", "sdo_write"):
                         time.sleep(fake.delay)
                     self._send(dict(fake.answer(req, self), id=req.get("id")))
@@ -318,6 +344,24 @@ class FakePlugin:
                     self.wfile.write(json.dumps(obj).encode() + b"\n")
                 except OSError:
                     pass
+
+            def _gateway(self):
+                # CiA 309-3 lines from here on (the cia309 op): each "[seq]
+                # text" is answered from fake.cia309_answers (default "OK").
+                for raw in self.rfile:
+                    line = raw.decode("utf-8", "replace").strip()
+                    fake.cia309_lines.append(line)
+                    m = re.match(r"^\[(\d+)\]\s*(.*)$", line)
+                    if not m:
+                        continue
+                    answer = fake.cia309_answers.get(m.group(2), "OK")
+                    try:
+                        for n in fake.cia309_notifications:
+                            self.wfile.write(n.encode() + b"\r\n")
+                        fake.cia309_notifications = []
+                        self.wfile.write(("[%s] %s\r\n" % (m.group(1), answer)).encode())
+                    except OSError:
+                        return
 
         class Server(socketserver.ThreadingTCPServer):
             daemon_threads = True
