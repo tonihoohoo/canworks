@@ -2,6 +2,7 @@
 
 #include "diag.h"
 #include "j1939_network.h"
+#include "j1939_plc_jobs.h"
 #include "log.h"
 
 namespace canopen_plugin {
@@ -10,9 +11,9 @@ namespace {
 
 class J1939Runtime : public NetworkRuntime {
  public:
-  J1939Runtime(const Config& cfg, const char* version) {
+  J1939Runtime(const Config& cfg, const char* version, unsigned index) {
     if (cfg.master.has_diagnostics) hub_.reset(new DiagHub(cfg, version));
-    net_.reset(new J1939Network(cfg, hub_.get()));
+    net_.reset(new J1939Network(cfg, hub_.get(), nullptr, nullptr, nullptr, index));
   }
   ~J1939Runtime() override { stop(); }
 
@@ -46,7 +47,15 @@ void j1939_log_loaded(const ConfigSet& set, const Config& cfg) {
 
 void j1939_create(const ConfigSet& set, const char* version, std::vector<std::unique_ptr<NetworkRuntime>>& out) {
   for (size_t i = 0; i < set.networks.size(); ++i)
-    if (set.networks[i].is_j1939()) out[i].reset(new J1939Runtime(set.networks[i], version));
+    if (set.networks[i].is_j1939()) out[i].reset(new J1939Runtime(set.networks[i], version, static_cast<unsigned>(i)));
 }
+
+void j1939_open_plc_jobs(const ConfigSet& set) {
+  std::vector<bool> j1939;
+  for (const auto& n : set.networks) j1939.push_back(n.is_j1939());
+  J1939PlcJobs::instance().open(j1939);
+}
+
+void j1939_close_plc_jobs() { J1939PlcJobs::instance().close(); }
 
 }  // namespace canopen_plugin

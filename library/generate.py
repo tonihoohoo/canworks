@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Writes the sources of the canworks editor library (specs canopen-plc-sdo
-and can-plc-frames).
+"""Writes the sources of the canworks editor library (specs canopen-plc-sdo,
+can-plc-frames and j1939-plc-diagnostics).
 
     python3 library/generate.py            # write library/canworks/*.cpp
     python3 library/generate.py --check    # fail if they are out of date
@@ -503,6 +503,155 @@ def render_can(name):
     return text.replace("VAR_END_MARK", "END" + "_VAR")
 
 
+# The J1939 trouble code blocks (spec j1939-plc-diagnostics) share
+# src/j1939_common.inc.
+J1939_COMMON = (HERE / "src" / "j1939_common.inc").read_text()
+
+J1939_DM_READ_BODY = """\
+void loop() {
+  bool prev = jd_prev;
+  unsigned char phase = jd_phase;
+  j1939_dm::step s = j1939_dm::begin(EXECUTE, prev, phase);
+  jd_prev = prev;
+  jd_phase = phase;
+  if (s.clear) {
+    DONE = false;
+    ERROR = false;
+  }
+  const j1939_dm::api_v1* t = j1939_dm::api();
+  if (s.start) {
+    DONE = false;
+    ERROR = false;
+    ERROR_ID = 0;
+    unsigned short err = 0;
+    unsigned int handle = 0;
+    if (!t) {
+      err = j1939_dm::err_not_running;
+    } else if (SOURCE > 253) {
+      err = j1939_dm::err_input;
+    } else {
+      handle = t->dm_read_start(NETWORK, SOURCE, PREVIOUS ? 1 : 0, j1939_dm::time_ms(TIMEOUT), &err);
+    }
+    if (handle) {
+      jd_handle = handle;
+      BUSY = true;
+      jd_phase = j1939_dm::phase_busy;
+    } else {
+      BUSY = false;
+      ERROR = true;
+      ERROR_ID = err;
+      jd_phase = j1939_dm::phase_ended;
+    }
+  }
+  if (jd_phase == j1939_dm::phase_busy) {
+    j1939_dm::dm r = {};
+    unsigned short err = j1939_dm::err_not_running;
+    int st = t ? t->dm_read_poll(jd_handle, &r, &err) : 2;
+    if (st != 0) {
+      BUSY = false;
+      jd_handle = 0;
+      jd_phase = j1939_dm::phase_ended;
+      if (st == 1) {
+        LAMPS = r.lamps;
+        FLASH = r.flash;
+        COUNT = r.count;
+        AGE = static_cast<long long>(r.age_ms) * 1000000LL;
+        for (unsigned i = 0; i < j1939_dm::max_codes; ++i) DTCS[i] = r.dtcs[i];
+        DONE = true;
+      } else {
+        ERROR = true;
+        ERROR_ID = err;
+      }
+    }
+  }
+}"""
+
+J1939_DM_CLEAR_BODY = """\
+void loop() {
+  bool prev = jd_prev;
+  unsigned char phase = jd_phase;
+  j1939_dm::step s = j1939_dm::begin(EXECUTE, prev, phase);
+  jd_prev = prev;
+  jd_phase = phase;
+  if (s.clear) {
+    DONE = false;
+    ERROR = false;
+  }
+  const j1939_dm::api_v1* t = j1939_dm::api();
+  if (s.start) {
+    DONE = false;
+    ERROR = false;
+    ERROR_ID = 0;
+    unsigned short err = 0;
+    unsigned int handle = 0;
+    if (!t) {
+      err = j1939_dm::err_not_running;
+    } else if (DESTINATION == 254) {
+      err = j1939_dm::err_input;
+    } else {
+      handle = t->dm_clear_start(NETWORK, DESTINATION, PREVIOUS_ONLY ? 1 : 0, j1939_dm::time_ms(TIMEOUT), &err);
+    }
+    if (handle) {
+      jd_handle = handle;
+      BUSY = true;
+      jd_phase = j1939_dm::phase_busy;
+    } else {
+      BUSY = false;
+      ERROR = true;
+      ERROR_ID = err;
+      jd_phase = j1939_dm::phase_ended;
+    }
+  }
+  if (jd_phase == j1939_dm::phase_busy) {
+    unsigned short err = j1939_dm::err_not_running;
+    int st = t ? t->dm_clear_poll(jd_handle, &err) : 2;
+    if (st != 0) {
+      BUSY = false;
+      jd_handle = 0;
+      jd_phase = j1939_dm::phase_ended;
+      if (st == 1) {
+        DONE = true;
+      } else {
+        ERROR = true;
+        ERROR_ID = err;
+      }
+    }
+  }
+}"""
+
+J1939_LOCALS = "  jd_handle : UDINT;\n  jd_prev : BOOL;\n  jd_phase : USINT;\n"
+J1939_OUTPUTS = "  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n"
+
+# name: (summary, inputs, in-outs, outputs, locals, body), as CAN_BLOCKS
+J1939_BLOCKS = {
+    "J1939_DM_READ": (
+        "an ECU's latest DM1 (PREVIOUS FALSE) or its DM2 by Request (TRUE) into DTCS",
+        "  EXECUTE : BOOL;\n  NETWORK : USINT;\n  SOURCE : USINT;\n  PREVIOUS : BOOL;\n  TIMEOUT : TIME;\n",
+        "  DTCS : ARRAY[0..31] OF UDINT;\n",
+        J1939_OUTPUTS + "  LAMPS : BYTE;\n  FLASH : BYTE;\n  COUNT : UINT;\n  AGE : TIME;\n",
+        J1939_LOCALS,
+        J1939_DM_READ_BODY),
+    "J1939_DM_CLEAR": (
+        "sends a Request for DM3 (PREVIOUS_ONLY) or DM11; DONE on the ECU's ACK (global: once sent)",
+        "  EXECUTE : BOOL;\n  NETWORK : USINT;\n  DESTINATION : USINT;\n  PREVIOUS_ONLY : BOOL;\n  TIMEOUT : TIME;\n",
+        "",
+        J1939_OUTPUTS,
+        J1939_LOCALS,
+        J1939_DM_CLEAR_BODY),
+}
+
+
+def render_j1939(name):
+    summary, inputs, inouts, outputs, locals_, body = J1939_BLOCKS[name]
+    text = CAN_TEMPLATE.format(
+        name=name, summary=summary, inputs=inputs, outputs=outputs,
+        inout_section=f"VAR_IN_OUT\n{inouts}VAR_END_MARK\n" if inouts else "",
+        locals_section=f"VAR\n{locals_}VAR_END_MARK\n" if locals_ else "",
+        common=J1939_COMMON.rstrip("\n"), body=body)
+    text = text.replace("edit that file or src/can_common.inc", "edit that file or src/j1939_common.inc")
+    return text.replace("VAR_END_MARK", "END" + "_VAR")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="fail if the sources are out of date")
@@ -511,6 +660,7 @@ def main():
     OUT.mkdir(exist_ok=True)
     wanted = {f"{name}.cpp": render(name) for name in BLOCKS}
     wanted.update({f"{name}.cpp": render_can(name) for name in CAN_BLOCKS})
+    wanted.update({f"{name}.cpp": render_j1939(name) for name in J1939_BLOCKS})
     for fname, text in wanted.items():
         path = OUT / fname
         if path.exists() and path.read_text() == text:
