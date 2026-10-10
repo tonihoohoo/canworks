@@ -49,5 +49,7 @@ Each group lands its own tests. Byte fixtures shared by the plugin and the PC to
 
 ## 8. Hardware (bench, when the Pi is reachable)
 
-- [ ] 8.1 PC adapter runs `canworks-j1939-sim` with a `dtcs` scenario beside the PLC on the Pi: the program sees lamps, count and codes come and go; `canworks-diag dm list` shows them through the PLC.
-- [ ] 8.2 The program clears the simulator with `J1939_DM_CLEAR` (DM3 and DM11) and reads DM2 with `J1939_DM_READ`; the PLC's own DM1 shows in `canworks-diag dm list` run PC-direct on the adapter.
+- [x] 8.1 PC adapter runs `canworks-j1939-sim` with a `dtcs` scenario beside the PLC on the Pi: the program sees lamps, count and codes come and go; `canworks-diag dm list` shows them through the PLC.
+- [x] 8.2 The program clears the simulator with `J1939_DM_CLEAR` (DM3 and DM11) and reads DM2 with `J1939_DM_READ`; the PLC's own DM1 shows in `canworks-diag dm list` run PC-direct on the adapter.
+
+Bench run 2026-10-10 (Pi PLC on its gs_usb bus at 500 kbit/s, simulator on a PC slcan adapter): 8.1 and 8.2 passed. The `%I` mapping followed the simulator's codes (1, 5, then 4 codes; the first code value checked), `J1939_DM_READ` read DM1 and DM2 every 5 s without error, and `J1939_DM_CLEAR` with DM11 was acknowledged each minute. The bench program's DM3 clear fell in the same scan as its own DM2 read to the same address and correctly got ERROR_ID 5, so DM3 was checked through the plugin with `canworks-diag dm clear --previous` (ACK). `dm list`, `dm read` and `dm clear` (refused without `--force`, ACK with it) worked through the PLC, and `dm list` on the PC adapter showed the PLC's own DM1.
