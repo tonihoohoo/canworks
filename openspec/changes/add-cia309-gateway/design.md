@@ -130,6 +130,22 @@ The bus thread already records EMCYs (history), NMT state changes and heartbeat 
 
 Nothing to migrate: the gateway is off without `cia309`. Rollback is removing the object; an older plugin rejects a config with `cia309` as an unknown field, so the plugin and the PC tools are updated together (deploy tool version bump).
 
+## Implementation notes (defaults picked)
+
+- **Open questions 1, 3, 6, 7: the safer option, nothing new built.** No client-certificate TLS port; `w p` always `ERROR: 100`; no configurator console (`canworks-diag gateway` is the prompt); `_sync`, `_time` and `_boot` are not even parsed as services by Lely at the pinned ref, and anything it parses that is not in the table answers `ERROR: 100`.
+- **Open question 2: one `allow_force` switch**, off by default, as designed.
+- **Open question 4: virtual numbers** (node − 1) × 4 + n, as designed; the network docs show them at each TPDO.
+- **Open question 5: 7533 on loopback when `cia309` is present** (the gateway is opt-in already; `port: 0` turns the plain port off).
+- **Open question 8: Lely's text is kept verbatim** and the lost-notifications line is a `#` comment. The answers, the SDO abort form (`ERROR: 06020000 (...)`, no `0x`), lower-case hex values and the indications (`1 3 EMCY 5030 01 ...`, `1 2 ERRORx STOP`, `1 7 ERROR 203 (Heartbeat lost)`) are Lely's; the spec scenarios were adjusted to them. Output lines end in CR LF; input takes LF or CR LF.
+- **Lely parses a single number in front of a node-level command as the node ID**, including `r p` (so `[6] 1 r p 5` uses the default network); `<net> 0 r p n` names the network. Kept as Lely does it.
+- **NMT to node 0 is one hub request** (`nmt` with `node` 0, gateway only) instead of one per node, so the "any configured node OPERATIONAL, force needed" guard is checked once on the bus thread and nothing is half done.
+- **`lss_switch_glob 0` sends nothing**: every LSS operation of the gateway already ends with all devices in LSS waiting; it only clears the session's selection. A successful `_lss_fastscan` makes the found device the selection. `lss_inquire_addr` confirms the selected device answers and returns the requested part of the selection. `_lss_fastscan` takes vendor ID and product code fixed (masks 0xFFFFFFFF) or free (0), revision and serial masks 0, matching the diagnostics channel's `lss_find`; it waits at least 25 s whatever the command timeout.
+- **Hub answers are routed by `from_cia309`**: the hub keeps a second answer list and wake pipe for the gateway thread, so the diagnostics server and the gateway never take each other's answers.
+- **Unknown fields in `cia309` are errors** (elsewhere in the config they are warnings), as the spec says; `nets` is refused in a version 1 file; `port` equal to the diagnostics port is refused.
+- **The command timeout** is clamped to 100-60000 ms; an SDO command waits at least the SDO timeout + 0.5 s.
+- **Scan timing check (7.3)**: the trace test has no scan-time check to repeat, so the integration test runs four sessions reading in a loop and compares the master's SYNC statistics (`late_pdos` unchanged, maximum SYNC interval under three periods) from the diagnostics status.
+- **The integration test runs on the simulated bus** (`adapter.simulate`), so it is a ctest test in the plugin job (`cia309_gateway`) rather than a vcan step.
+
 ## Open Questions
 
 1. Should a separate TLS port with client certificates pinned by fingerprint (no token) be added for third-party machines that cannot run `canworks-diag gateway`?

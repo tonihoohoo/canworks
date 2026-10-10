@@ -20,7 +20,7 @@ A connection to the diagnostics channel that has logged in SHALL be able to send
 
 #### Scenario: Switch after login
 - **WHEN** a client logs in to the diagnostics channel, sends the `cia309` op and then `[1] 1 2 r 0x1018 1 u32`
-- **THEN** it receives the JSON answer, then `[1] 0x000001A2` (node 2's vendor ID) as a text line
+- **THEN** it receives the JSON answer, then `[1] 0x000001a2` (node 2's vendor ID, as Lely's text layer prints it) as a text line
 
 #### Scenario: Gateway full
 - **WHEN** 4 gateway sessions are open with the default `max_clients` and a fifth logged-in client sends the `cia309` op
@@ -57,7 +57,7 @@ A session SHALL be able to read (`r`) any index and subindex of any node ID 1 to
 
 #### Scenario: Object missing
 - **WHEN** a client reads 0x2100 subindex 0 that node 5 does not have
-- **THEN** it receives `ERROR: 0x06020000` for that sequence number
+- **THEN** it receives `ERROR: 06020000` (the abort code in hex, as Lely's text layer prints it) for that sequence number
 
 #### Scenario: Write read-only
 - **WHEN** `allow_changes` is false and a client sends `[2] 1 5 w 0x2000 1 u8 3`
@@ -82,10 +82,10 @@ A request that the diagnostics channel refuses without `force` (an SDO write to 
 - **THEN** node 5 goes to STOPPED and the log line says the command was forced through the CiA 309-3 gateway
 
 ### Requirement: PDO read
-A session SHALL be able to read the last values the master received in a configured node's TPDO 1 to 4 with `r p`, using the gateway RPDO number (node − 1) × 4 + TPDO number. A number without a TPDO the master maps SHALL be answered `ERROR: 102`. `w p`, `set rpdo` and `set tpdo` SHALL be answered `ERROR: 100`.
+A session SHALL be able to read the last values the master received in a configured node's TPDO 1 to 4 with `r p`, using the gateway RPDO number (node − 1) × 4 + TPDO number, on the session's default network or the one named as `<net> 0` in front (Lely's parser reads a single number in front of `r p` as a node ID). A number without a TPDO the master maps SHALL be answered `ERROR: 102`. `w p`, `set rpdo` and `set tpdo` SHALL be answered `ERROR: 100`.
 
 #### Scenario: Read node 2's TPDO 1
-- **WHEN** node 2's TPDO 1 maps two UNSIGNED16 entries and a client sends `[6] 1 r p 5`
+- **WHEN** node 2's TPDO 1 maps two UNSIGNED16 entries and a client sends `[6] 1 0 r p 5`
 - **THEN** it receives `[6]` with the count 2 and the two values the master received last
 
 #### Scenario: PDO write
@@ -115,7 +115,7 @@ While a session is open, it SHALL receive an unsolicited line for every EMCY a c
 
 #### Scenario: EMCY from a node
 - **WHEN** a session is open and node 3 on network 1 sends EMCY 0x5030 with register 0x01
-- **THEN** the session receives a line `1 3 EMCY 0x5030 0x01 ...` with the manufacturer bytes
+- **THEN** the session receives a line `1 3 EMCY 5030 01 ...` with the manufacturer bytes (Lely's format)
 
 #### Scenario: Node lost
 - **WHEN** node 7 stops sending heartbeats

@@ -82,6 +82,8 @@ canworks-diag link open line3
 
 Point the editor's upload at the printed runtime address. The runtime's certificate is the same as on the local network.
 
+CiA 309-3 tools on the PC reach the runtime's gateway over the link too: `canworks-diag --runtime NAME gateway --listen` tunnels through the diagnostics port, the only one the link needs ([cia309-gateway.md](cia309-gateway.md)); the gateway's plain loopback port is never forwarded.
+
 ## No network: cable, USB-C or Wi-Fi hotspot
 
 None of these needs the internet; discovery finds the device on each.
