@@ -16,7 +16,7 @@
 # to address 0, Mode=3) from 128 and the plugin's request for ComponentInfo.
 #
 # Diagnostic messages (j1939-diagnostics) in the same run: the simulator
-# raises six trouble codes by BAM (one ends at 1 s, then five), and
+# raises six trouble codes by BAM (one ends at 0.2 s, then five), and
 # at 1.5 s a diagnostics client on 127.0.0.1 checks the status's DM1 store
 # and watched entry, reads the simulator's DM2 through the plugin
 # (j1939_dm_read), is refused a clear without force and clears it with DM11
@@ -81,7 +81,8 @@ cfg["networks"][0]["adapter"]["interface"] = sys.argv[3]
 cfg["diagnostics"] = {"token_verifier": token_verifier("j1939-test"), "port": int(sys.argv[4]), "bind": "127.0.0.1"}
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
 PY
-# Six codes from the start; SPN 520205 ends at 1 s (previously active).
+# Six codes from the start; SPN 520205 ends at 0.2 s (previously active), well
+# before the DM2 read at 1.5 s whatever the simulator's start-up time.
 cat > "$WORK/engine-scenario.json" <<'JSON'
 {"messages": {"ComponentInfo": {"period_ms": 1000, "signals": {"Starts": 42}}},
  "dtcs": [{"spn": 520200, "fmi": 0, "lamps": ["amber"]},
@@ -89,7 +90,7 @@ cat > "$WORK/engine-scenario.json" <<'JSON'
           {"spn": 520202, "fmi": 3},
           {"spn": 520203, "fmi": 4},
           {"spn": 520204, "fmi": 31},
-          {"spn": 520205, "fmi": 2, "to_s": 1}]}
+          {"spn": 520205, "fmi": 2, "to_s": 0.2}]}
 JSON
 
 start_sim() {
