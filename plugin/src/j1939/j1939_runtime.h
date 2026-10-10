@@ -19,6 +19,11 @@ void j1939_log_loaded(const ConfigSet& set, const Config& cfg);
 // they are.
 void j1939_create(const ConfigSet& set, const char* version, std::vector<std::unique_ptr<NetworkRuntime>>& out);
 
+// The trouble code blocks' job table (j1939_plc_jobs.h): open while the
+// networks run, closed (every job cancelled) when the PLC stops.
+void j1939_open_plc_jobs(const ConfigSet& set);
+void j1939_close_plc_jobs();
+
 }  // namespace canopen_plugin
 
 #endif  // CANWORKS_J1939_RUNTIME_H

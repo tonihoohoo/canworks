@@ -1,0 +1,237 @@
+{
+ "comment": [
+  "J1939-73 diagnostic message bytes (j1939-diagnostics): the plugin's codec (test/j1939_unit) and the PC tools' canworks.j1939.dm decode and build these the same way.",
+  "dtcs[].value is the PLC's UDINT: SPN + FMI * 2^19 + OC * 2^24 + CM * 2^31. kind own: the DM1 the network sends for these active codes (lamp byte = OR of their lamps and lamps_output; flash: no flash (11) unless an active code flashes a lamp, fast wins)."
+ ],
+ "cases": [
+  {
+   "name": "no code, lamps off",
+   "kind": "dm",
+   "data": "00 FF 00 00 00 00 FF FF",
+   "lamps": 0,
+   "flash": 255,
+   "dtcs": [],
+   "lamps_text": "lamps off"
+  },
+  {
+   "name": "one code, amber on",
+   "kind": "dm",
+   "data": "04 FF 00 F0 E3 02 FF FF",
+   "lamps": 4,
+   "flash": 255,
+   "dtcs": [
+    {
+     "spn": 520192,
+     "fmi": 3,
+     "oc": 2,
+     "cm": false,
+     "value": 35647488
+    }
+   ],
+   "lamps_text": "amber warning on"
+  },
+  {
+   "name": "two codes, red fast flash and amber",
+   "kind": "dm",
+   "data": "14 DF 00 F0 E3 02 01 F0 E1 01",
+   "lamps": 20,
+   "flash": 223,
+   "dtcs": [
+    {
+     "spn": 520192,
+     "fmi": 3,
+     "oc": 2,
+     "cm": false,
+     "value": 35647488
+    },
+    {
+     "spn": 520193,
+     "fmi": 1,
+     "oc": 1,
+     "cm": false,
+     "value": 17821697
+    }
+   ],
+   "lamps_text": "red stop on, fast flash, amber warning on"
+  },
+  {
+   "name": "five codes (BAM)",
+   "kind": "dm",
+   "data": "40 FF 64 00 01 01 6E 00 00 05 BE 00 02 7E 00 F0 E3 02 FF FF FF 7F",
+   "lamps": 64,
+   "flash": 255,
+   "dtcs": [
+    {
+     "spn": 100,
+     "fmi": 1,
+     "oc": 1,
+     "cm": false,
+     "value": 17301604
+    },
+    {
+     "spn": 110,
+     "fmi": 0,
+     "oc": 5,
+     "cm": false,
+     "value": 83886190
+    },
+    {
+     "spn": 190,
+     "fmi": 2,
+     "oc": 126,
+     "cm": false,
+     "value": 2114977982
+    },
+    {
+     "spn": 520192,
+     "fmi": 3,
+     "oc": 2,
+     "cm": false,
+     "value": 35647488
+    },
+    {
+     "spn": 524287,
+     "fmi": 31,
+     "oc": 127,
+     "cm": false,
+     "value": 2147483647
+    }
+   ],
+   "lamps_text": "MIL on"
+  },
+  {
+   "name": "old SPN format (CM set)",
+   "kind": "dm",
+   "data": "04 FF 5B 00 03 81 FF FF",
+   "lamps": 4,
+   "flash": 255,
+   "dtcs": [
+    {
+     "spn": 91,
+     "fmi": 3,
+     "oc": 1,
+     "cm": true,
+     "value": 2165833819
+    }
+   ],
+   "lamps_text": "amber warning on"
+  },
+  {
+   "name": "lamps not available",
+   "kind": "dm",
+   "data": "FF FF 00 00 00 00 FF FF",
+   "lamps": 255,
+   "flash": 255,
+   "dtcs": [],
+   "lamps_text": "lamps n/a"
+  },
+  {
+   "name": "DM13 stop current data link",
+   "kind": "dm13",
+   "data": "3F FF FF FF FF FF FF FF",
+   "command": "stop"
+  },
+  {
+   "name": "DM13 start current data link",
+   "kind": "dm13",
+   "data": "7F FF FF FF FF FF FF FF",
+   "command": "start"
+  },
+  {
+   "name": "DM13 hold (no action on the current data link)",
+   "kind": "dm13",
+   "data": "FF FF FF 0F FF FF FF FF",
+   "command": null
+  },
+  {
+   "name": "DM22 clear active request",
+   "kind": "dm22",
+   "data": "11 FF FF FF FF 00 F0 FF",
+   "control": "clear active DTC",
+   "reason": null,
+   "spn": 520192,
+   "fmi": 31
+  },
+  {
+   "name": "DM22 NACK general",
+   "kind": "dm22",
+   "data": "13 00 FF FF FF 00 F0 E3",
+   "control": "NACK clear active DTC",
+   "reason": "general",
+   "spn": 520192,
+   "fmi": 3
+  },
+  {
+   "name": "Component ID",
+   "kind": "id",
+   "pgn": 65249,
+   "data": "41 43 4D 45 2A 50 55 4D 50 2D 31 2A 53 4E 34 32 2A 55 31 2A",
+   "fields": [
+    "ACME",
+    "PUMP-1",
+    "SN42",
+    "U1"
+   ]
+  },
+  {
+   "name": "Software ID",
+   "kind": "id",
+   "pgn": 65242,
+   "data": "02 56 31 2E 30 2A 56 32 2E 33 2A",
+   "fields": [
+    "V1.0",
+    "V2.3"
+   ]
+  },
+  {
+   "name": "own DM1, no active code, lamps output 0",
+   "kind": "own",
+   "active": [],
+   "lamps_output": 0,
+   "data": "00 FF 00 00 00 00 FF FF"
+  },
+  {
+   "name": "own DM1, one amber code",
+   "kind": "own",
+   "active": [
+    {
+     "spn": 520192,
+     "fmi": 3,
+     "oc": 1,
+     "lamps": [
+      "amber"
+     ],
+     "flash": null
+    }
+   ],
+   "lamps_output": 0,
+   "data": "04 FF 00 F0 E3 01 FF FF"
+  },
+  {
+   "name": "own DM1, red fast and amber slow, lamps output protect",
+   "kind": "own",
+   "active": [
+    {
+     "spn": 520192,
+     "fmi": 3,
+     "oc": 1,
+     "lamps": [
+      "amber"
+     ],
+     "flash": "slow"
+    },
+    {
+     "spn": 520193,
+     "fmi": 1,
+     "oc": 2,
+     "lamps": [
+      "red"
+     ],
+     "flash": "fast"
+    }
+   ],
+   "lamps_output": 1,
+   "data": "15 D3 00 F0 E3 01 01 F0 E1 02"
+  }
+ ]
+}

@@ -4,7 +4,7 @@
 import re
 
 from .. import contract
-from ..iec import parse_location
+from ..iec import Location, parse_location
 from ..iec import CO_TYPES, type_fits
 from ..raw import declare as raw_declare
 from .layout import C_MACROS, MASTER_LOCATIONS, NODE_LOCATIONS, SDO_VARIABLE_LOCATIONS, SIZE_TYPES, SLAVE_LOCATIONS
@@ -50,6 +50,11 @@ J1939_TYPES = {"X": ("BOOL", "BOOL"), "B": ("USINT", "SINT"), "W": ("UINT", "INT
 J1939_ECU_TEXT = {"state_location": ("ecu_state", "J1939 address claim state (0 claiming, 1 claimed, 2 cannot "
                                                   "claim, 3 no bus)"),
                   "address_location": ("ecu_address", "J1939 source address (254 while none is held)")}
+# A watched ECU's diagnostics locations: (key, name suffix, IEC type, text).
+J1939_DM_RX = (("status_location", "status", "BOOL", "DM1 received in time"),
+               ("lamps_location", "lamps", "BYTE", "DM1 lamps (byte 1: MIL 7-6, red 5-4, amber 3-2, protect 1-0)"),
+               ("flash_location", "flash", "BYTE", "DM1 lamp flash (byte 2)"),
+               ("count_location", "count", "USINT", "number of active trouble codes"))
 # Order inside a node in a generated program: diagnostics, inputs, outputs, NMT command last.
 SLAVE_RANK = 1 << 30
 _RANK = {("diag", "I"): 0, ("pdo", "I"): 1, ("sdo", "I"): 2, ("pdo", "Q"): 3, ("sdo", "Q"): 4, ("nmt", "Q"): 5}
@@ -99,7 +104,11 @@ def declarations(cfg, object_name, declared, slave_object=None):
     bar"); one per ECU state and address location (`<network>_ecu_state`,
     `<network>_ecu_address`), per rx status location (`<network>_<message>_ok`,
     the message's name or PGN) and per signal valid location
-    (`<network>_<signal>_valid`)."""
+    (`<network>_<signal>_valid`). Its diagnostics add, per watched ECU,
+    `<network>_dm<source>_status`, `_lamps`, `_flash`, `_count` and one
+    UDINT per code slot `_dtc0`, `_dtc1`, ... (an ECU watched by NAME is
+    `dm_rx<i>`), per own code `<network>_dtc_<spn>_<fmi>`, and
+    `<network>_dm_lamps` and `<network>_dm_clears`."""
     out, names = [], set()
 
     def unique(base):
@@ -260,6 +269,30 @@ def declarations(cfg, object_name, declared, slave_object=None):
                         add("%s_%s_valid" % (net, sname), sg["valid_location"], "BOOL",
                             "%s.signals[%d].valid_location" % (mp, k),
                             "%s %s %s valid (not 'not available' or 'error')" % (who, msg, sg.get("name")))
+        diag = contract.parse_j1939(n["json"]).get("diagnostics")
+        for i, r in enumerate((diag or {}).get("rx") or []):
+            ecu_label = "dm%d" % r["source"] if r["source"] is not None else "dm_rx%d" % i
+            from_text = "ECU %d" % r["source"] if r["source"] is not None else "ECU NAME 0x%016X" % r["source_name"]
+            for key, suffix, iec_type, text in J1939_DM_RX:
+                if r.get(key) is not None:
+                    add("%s_%s_%s" % (net, ecu_label, suffix), str(r[key]), iec_type, "%s.%s" % (r["path"], key),
+                        "%s %s %s" % (who, from_text, text))
+            loc = r.get("dtcs_location")
+            for k in range(r["dtcs"] if loc is not None else 0):
+                add("%s_%s_dtc%d" % (net, ecu_label, k), str(Location(loc.area, loc.size, loc.index + k)), "UDINT",
+                    "%s.dtcs_location" % r["path"] if k == 0 else "%s.dtcs_location[%d]" % (r["path"], k),
+                    "%s %s trouble code %d (SPN + FMI * 2**19 + OC * 2**24, 0: none)" % (who, from_text, k))
+        for c in (diag or {}).get("dtcs") or []:
+            if c.get("active_location") is not None:
+                add("%s_dtc_%d_%d" % (net, c["spn"], c["fmi"]), str(c["active_location"]), "BOOL",
+                    c["path"] + ".active_location", "%s own trouble code SPN %d FMI %d active" % (
+                        who, c["spn"], c["fmi"]))
+        if diag and diag.get("lamps_location") is not None:
+            add("%s_dm_lamps" % net, str(diag["lamps_location"]), "BYTE", "j1939.diagnostics.lamps_location",
+                "%s own DM1 lamps (ORed with the active codes' lamps)" % who)
+        if diag and diag.get("clear_location") is not None:
+            add("%s_dm_clears" % net, str(diag["clear_location"]), "USINT", "j1939.diagnostics.clear_location",
+                "%s trouble code clears accepted (counts, wraps at 255)" % who)
 
     nets = contract.networks(cfg) if isinstance(cfg, dict) else []
     base = 0

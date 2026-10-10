@@ -629,3 +629,14 @@ table.od td.num { text-align: right; font-variant-numeric: tabular-nums; }
 #bridge-map input[type=search] { flex: 1 1 220px; max-width: 420px; }
 table.bridge-lists td { vertical-align: top; }
 table.bridge-lists label { display: flex; flex-direction: column; gap: 3px; }
+/* J1939 diagnostics (j1939.js): own codes, the online Faults panel and its lamps. */
+.pdo-grid .j1939-lamps-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); min-width: 0; }
+.j1939-lamps { display: grid; grid-template-columns: auto auto; gap: 2px 12px; justify-content: start; }
+.j1939-lamps label.check { display: flex; flex-direction: row; align-items: center; gap: 4px; font-size: 13px; color: var(--text); white-space: nowrap; }
+.j1939-lamps label.check > input { width: auto; margin: 0; }
+.j1939-faults .toolbar label { display: inline-flex; align-items: center; gap: 6px; }
+.j1939-faults .toolbar input[type=text] { width: 5em; }
+.j1939-dm-result { margin-top: 6px; }
+.tag.lamp { display: inline-block; margin: 1px 4px 1px 0; }
+.tag.lamp-amber { background: var(--warn-bg); color: var(--warn); }
+.tag.lamp-red, .tag.lamp-mil { background: var(--error-bg); color: var(--error); }

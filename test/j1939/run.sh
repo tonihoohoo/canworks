@@ -14,6 +14,14 @@
 # Starts=42), the contender saw the plugin claim 129 and received Setpoints
 # from 129, and the simulator received Setpoints (Run=1) and Command (PDU1
 # to address 0, Mode=3) from 128 and the plugin's request for ComponentInfo.
+#
+# Diagnostic messages (j1939-diagnostics) in the same run: the simulator
+# raises six trouble codes by BAM (one ends at 0.2 s, then five), and
+# at 1.5 s a diagnostics client on 127.0.0.1 checks the status's DM1 store
+# and watched entry, reads the simulator's DM2 through the plugin
+# (j1939_dm_read), is refused a clear without force and clears it with DM11
+# (j1939_dm_clear, ACK). The simulator's log must show the plugin's own DM1
+# (no code active) every second and the DM11 it acknowledged.
 # Needs the kernel module can-j1939 (loaded with sudo when it is missing).
 # Exit 1: a check failed; 2: setup failed.
 
@@ -51,6 +59,7 @@ if ! ip link show "$IFACE" | grep -q "[<,]UP[,>]"; then
 fi
 
 read -ra SIM <<< "${SIM:-python3 -m canworks.j1939.sim}"
+PORT=7548
 export PYTHONPATH="$ROOT/tools/deploy${PYTHONPATH:+:$PYTHONPATH}"
 WORK="$(mktemp -d)"
 HOST_PID=
@@ -64,14 +73,24 @@ cleanup() {
 trap cleanup EXIT
 
 cp "$ROOT/examples/j1939/machine.dbc" "$WORK/"
-python3 - "$ROOT/examples/j1939/canworks.json" "$WORK/canworks.json" "$IFACE" <<'PY'
+python3 - "$ROOT/examples/j1939/canworks.json" "$WORK/canworks.json" "$IFACE" "$PORT" <<'PY'
 import json, sys
+from canworks.diag import token_verifier
 cfg = json.load(open(sys.argv[1]))
 cfg["networks"][0]["adapter"]["interface"] = sys.argv[3]
+cfg["diagnostics"] = {"token_verifier": token_verifier("j1939-test"), "port": int(sys.argv[4]), "bind": "127.0.0.1"}
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
 PY
+# Six codes from the start; SPN 520205 ends at 0.2 s (previously active), well
+# before the DM2 read at 1.5 s whatever the simulator's start-up time.
 cat > "$WORK/engine-scenario.json" <<'JSON'
-{"messages": {"ComponentInfo": {"period_ms": 1000, "signals": {"Starts": 42}}}}
+{"messages": {"ComponentInfo": {"period_ms": 1000, "signals": {"Starts": 42}}},
+ "dtcs": [{"spn": 520200, "fmi": 0, "lamps": ["amber"]},
+          {"spn": 520201, "fmi": 5, "lamps": ["red"], "flash": "slow"},
+          {"spn": 520202, "fmi": 3},
+          {"spn": 520203, "fmi": 4},
+          {"spn": 520204, "fmi": 31},
+          {"spn": 520205, "fmi": 2, "to_s": 0.2}]}
 JSON
 
 start_sim() {
@@ -90,8 +109,29 @@ echo "==> The plugin's J1939 ECU and the simulated engine on $IFACE"
 start_sim 1
 "$HOST" "$PLUGIN" "$WORK/canworks.json" 10 j1939 > "$WORK/host.out" 2> "$WORK/host.log" &
 HOST_PID=$!
-sleep 3
+sleep 1.5
+echo "==> Trouble codes through the diagnostics channel"
+python3 - "$PORT" > "$WORK/dm-client.out" 2>&1 <<'PY' &
+import json, sys, time
+from canworks.diag import Client, DiagError
+
+c = Client("127.0.0.1", int(sys.argv[1]), token="j1939-test", timeout=5.0)
+c.connect()
+out = {"status": c.status()}
+try:
+    c.request("j1939_dm_clear", address=0, previous=False)
+    out["unforced"] = "accepted"
+except DiagError as e:
+    out["unforced"] = str(e)
+out["read"] = c.request("j1939_dm_read", address=0, timeout_ms=1000)
+out["clear"] = c.request("j1939_dm_clear", address=0, previous=False, force=True)
+c.close()
+print(json.dumps(out))
+PY
+CLIENT_PID=$!
+sleep 1.5
 stop_sim
+wait "$CLIENT_PID"
 echo "==> Interface $IFACE down and up"
 sudo ip link set "$IFACE" down
 sleep 1
@@ -144,6 +184,41 @@ check(sum(1 for r in rx(65281) if r["signals"].get("Run") == 1) >= 10,
 check(any(r["signals"].get("Mode") == 3 for r in rx(61184)), "Command (PDU1 to 0) with Mode=3 from 128")
 check(any(r["event"] == "request" and r.get("pgn") == 65282 and r.get("source") == 128 for r in recs),
       "the plugin's request for ComponentInfo")
+
+# Diagnostic messages.
+own = [r for r in recs if r["event"] == "dm" and r.get("dm") == "DM1" and r.get("source") == 128]
+check(len(own) >= 4 and all(r.get("lamps") == 0 and r.get("dtcs") == [] for r in own),
+      "the plugin's own DM1, lamps off and no code, every second (%d)" % len(own))
+check(any(r["event"] == "dm_clear" and r.get("dm") == "DM11" and r.get("from") == 128 and r.get("result") == "ack"
+          for r in recs), "the simulator acknowledged the plugin's DM11")
+try:
+    with open(os.path.join(work, "dm-client.out")) as f:
+        lines = f.read().strip().splitlines()
+    dm = json.loads(lines[-1])
+except (OSError, ValueError, IndexError):
+    dm = {}
+    check(False, "the diagnostics client's answers")
+if dm:
+    status = dm["status"]["j1939"]["dm"]
+    src = [s for s in status["sources"] if s["address"] == 0]
+    codes = src[0]["dtcs"] if src else []
+    # The status may come before or after the simulator's DM1 that drops
+    # SPN 520205 (its change sends are rate-limited to one per second): five
+    # or six codes, both by BAM.
+    spns = [520200, 520201, 520202, 520203, 520204, 520205]
+    check(bool(src) and src[0]["count"] in (5, 6) and src[0]["truncated"] == 0 and
+          [d["spn"] for d in codes] == spns[:src[0]["count"]] and src[0]["lamps"] & 0x14 == 0x14,
+          "status: ECU 0's DM1 with five or six codes by BAM (%s)" % json.dumps(src))
+    check(status["watched"] and status["watched"][0]["source"] == 0 and not status["watched"][0]["timed_out"],
+          "status: the watched ECU 0 not timed out")
+    check(status["own"] is not None and status["own"]["active"] == [] and status["own"]["dm1_sent"] >= 1 and
+          not status["own"]["suspended"], "status: the own DM1, nothing active, sent")
+    check(dm["unforced"] == "clearing trouble codes acts on another ECU: repeat with force",
+          "a clear without force is refused (%s)" % dm["unforced"])
+    rd = dm["read"]
+    check(rd.get("address") == 0 and rd.get("count") == 1 and rd["dtcs"][0]["spn"] == 520205,
+          "j1939_dm_read: ECU 0's DM2 with SPN 520205 (%s)" % json.dumps(rd))
+    check(dm["clear"] == {"address": 0, "result": "ack"}, "j1939_dm_clear: ACK from 0 (%s)" % json.dumps(dm["clear"]))
 if failed:
     for path in sorted(glob.glob(os.path.join(work, "*.out"))):
         print("--- " + os.path.basename(path))

@@ -1713,7 +1713,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.51.1"
+  "version": "0.52.0"
  },
  "warnings": [
   "estimated worst-case bus load 64.5 % is above 60 %"
