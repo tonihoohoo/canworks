@@ -293,6 +293,7 @@ void Bus::run_session() {
           log_error("simulated %s", m.c_str());
       };
       std::vector<canopen_sim::DeviceSpec> specs = sim_device_specs(cfg_, true);
+      std::set<unsigned> taken_ids;  // config nodes and extra devices alike
       if (virt) {
         sim_host.reset(new canopen_sim::LoopHost(ctx, poll, exec, *vbus, sim_log));
       } else {
@@ -302,6 +303,7 @@ void Bus::run_session() {
           std::set<unsigned> seen;
           std::string err;
           if (!listen_node_ids(cfg_.adapter.interface, 1000, seen, err)) log_warn("%s", err.c_str());
+          taken_ids = seen;
           std::set<unsigned> conflicts;
           for (auto& d : specs) {
             d.conflict = seen.count(d.node) > 0;
@@ -313,6 +315,7 @@ void Bus::run_session() {
       canopen_sim::SimOptions opt;
       opt.store = sim_->store;
       opt.simulated_network = virt;
+      opt.taken = taken_ids;
       simulator.reset(new canopen_sim::Simulator(*sim_host, specs, sim_->file, opt));
       // Plain CAN devices run in the network's raw path (raw_devices.h).
       unsigned index = cfg_.network_index;

@@ -3891,6 +3891,111 @@ TEST(sim_simulated_extra_devices) {
   delete sim;
 }
 
+// A node found taken on the wire stays off for the session: a clear, a
+// power on, a scenario step or a power cycle never starts it. An extra
+// device whose node ID was heard on the wire is taken the same way.
+TEST(sim_taken_node_stays_off) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  std::vector<canopen_sim::DeviceSpec> specs(1);
+  specs[0].node = 2;
+  specs[0].name = "pingpong";
+  specs[0].eds_path = sim->cfg().nodes[0].eds_path;
+  specs[0].conflict = true;
+  canopen_sim::SimOptions opt;
+  opt.taken = {40};
+  CHECK(sim->StartSimulator(R"({"extra_devices": [{"node": 40, "name": "spare", "eds": "cpp-slave.eds"}],
+    "scenarios": {
+      "revive": {"autostart": true, "steps": [{"node": 2, "clear": "all"}]},
+      "power": {"steps": [{"node": 2, "fault": {"power": "on"}}]},
+      "spare": {"steps": [{"node": 40, "clear": "all"}]}}})",
+                            specs, opt));
+  sim->net().Start();
+  sim->RunFor(milliseconds(300));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"all"})");
+  CHECK_MSG(!ok(r) && str(r, "error") == "node 2 is taken by a real device", str(r, "error"));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"on"}})");
+  CHECK(!ok(r) && str(r, "error") == "node 2 is taken by a real device");
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"cycle","off_ms":10}})");
+  CHECK(!ok(r));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_clear","node":40,"fault":"power"})");
+  CHECK(!ok(r) && str(r, "error") == "node 40 is taken by a real device");
+  cJSON_Delete(r);
+  std::string err;
+  CHECK(sim->simulator().StartScenario("power", err));
+  CHECK(sim->simulator().StartScenario("spare", err));
+  CHECK(sim->RunUntil([] { return sim->scenario_results().size() == 3; }, seconds(2)));
+  for (const auto& res : sim->scenario_results())
+    CHECK_MSG(!res.passed && res.message.find("is taken by a real device") != std::string::npos, res.message);
+  sim->RunFor(milliseconds(500));
+  r = sim->SimAsk(R"({"op":"sim_status"})");
+  const cJSON* devs = field(result(r), "devices");
+  CHECK(cJSON_GetArraySize(devs) == 2);
+  for (const cJSON* d = devs ? devs->child : nullptr; d; d = d->next)
+    CHECK(cJSON_IsTrue(field(d, "conflict")) && str(d, "power") == "off");
+  cJSON_Delete(r);
+  // Nothing with node ID 2 or 40: no boot-up, heartbeat, TPDO or SDO answer.
+  for (uint32_t base : {0x180u, 0x580u, 0x700u}) {
+    CHECK_MSG(sim->frames(base + 2) == 0, std::to_string(base + 2));
+    CHECK_MSG(sim->frames(base + 40) == 0, std::to_string(base + 40));
+  }
+  delete sim;
+}
+
+// A repeat whose steps never wait runs one pass per tick, not a thousand.
+TEST(sim_scenario_repeat_one_pass_per_tick) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"tick_ms": 10, "scenarios": {
+    "spin": {"autostart": true, "steps": [{"repeat": {"count": 0, "steps": [{"log": "round"}]}}]},
+    "twice": {"autostart": true, "steps": [{"repeat": {"count": 3, "steps": [{"log": "lap"}, {"log": "again"}]}}]}}})"));
+  auto start = steady_clock::now();
+  sim->RunFor(milliseconds(300));
+  double ticks = std::chrono::duration<double>(steady_clock::now() - start).count() * 100;
+  int rounds = 0, passes = 0;
+  for (const auto& l : logs()) {
+    rounds += l.find("scenario spin: round") != std::string::npos;
+    passes += l.find("scenario twice: lap") != std::string::npos;
+  }
+  CHECK_MSG(rounds >= 5 && rounds <= ticks + 2, std::to_string(rounds) + " lines in " + std::to_string(ticks) + " ticks");
+  CHECK(passes == 3);
+  delete sim;
+}
+
+// Deep expressions: refused with the position, from the simulation file and
+// from sim_check_expr, without a crash.
+TEST(sim_expression_limits) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  std::string deep = std::string(3000, '(') + "1" + std::string(3000, ')');
+  CHECK(!sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": ")" + deep + R"("}}}}})"));
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": ")" + std::string(200, '(') + "1" +
+                            std::string(200, ')') + R"("}}}}})") == false);
+  CHECK(sim->StartSimulator(""));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_check_expr","node":2,"expr":")" + std::string(10000, '(') + R"("})");
+  CHECK(ok(r) && !cJSON_IsTrue(field(result(r), "ok")) && num(result(r), "position") == 4096);
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_check_expr","node":2,"expr":")" + std::string(1000, '-') + R"(1"})");
+  CHECK(ok(r) && !cJSON_IsTrue(field(result(r), "ok")) && num(result(r), "position") == 128);
+  cJSON_Delete(r);
+  delete sim;
+}
+
 // 32 simulated devices with a value source each stay within a small CPU budget.
 TEST(sim_simulated_cpu_budget) {
   clear_logs();

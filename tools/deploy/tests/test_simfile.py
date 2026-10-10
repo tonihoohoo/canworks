@@ -378,6 +378,39 @@ class Checks(unittest.TestCase):
         os.remove(os.path.join(self.f.dir, "eds", "lss-slave.eds"))
         self.assertError(None, "extra_devices[1]", "extra device spare: EDS file", "not found")
 
+    def test_csv_path_rules(self):
+        """As the plugin reads them: under the folder of the simulation file
+        or the config, a regular file of at most 16 MB, lines of at most 4096
+        bytes."""
+        d = self.f.dir
+        outside = tmpdir(self)
+        with open(os.path.join(outside, "out.csv"), "w") as f:
+            f.write("0,1\n")
+        with open(os.path.join(d, "data", "long.csv"), "w") as f:
+            f.write("0," + "1" * 5000 + "\n")
+        with open(os.path.join(d, "data", "big.csv"), "w") as f:
+            f.truncate(simfile.CSV_MAX_BYTES + 1)
+        os.symlink("/dev/zero", os.path.join(d, "data", "zero.csv"))
+        if hasattr(os, "mkfifo"):
+            os.mkfifo(os.path.join(d, "data", "fifo.csv"))
+
+        def with_file(name):
+            return self.changed(lambda s: s["nodes"]["5"]["sources"]["0x7130:3"]["csv"].update(file=name))
+
+        at = "nodes.5.sources.0x7130:3.csv.file"
+        self.assertEqual(self.errors(with_file(os.path.join(d, "data", "temp.csv"))), [])
+        for name in (os.path.relpath(os.path.join(outside, "out.csv"), d), os.path.join(outside, "out.csv"),
+                     "/dev/zero", "data/zero.csv"):
+            self.assertError(with_file(name), at, "outside the folders")
+        if hasattr(os, "mkfifo"):
+            self.assertError(with_file("data/fifo.csv"), at, "not a regular file")
+        self.assertError(with_file("data/big.csv"), at, "larger than 16 MB")
+        self.assertError(with_file("data/long.csv"), at, "line 1 is longer than 4096 bytes")
+        # A scenario step's source too.
+        sim = self.changed(lambda s: s["scenarios"]["sensor-break"]["steps"].append(
+            {"node": 5, "source": {"0x7130:4": {"csv": {"file": "/dev/zero"}}}}))
+        self.assertError(sim, "outside the folders")
+
     def test_extra_devices(self):
         self.assertError(self.changed(lambda s: s["extra_devices"].append({"node": 0, "eds": "eds/pingpong.eds"})),
                          "extra_devices[2]", "name")

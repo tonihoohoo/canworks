@@ -245,6 +245,12 @@ int main(int argc, char** argv) {
   expect(logged("the CAN network is SIMULATED"), "the network is announced as simulated");
   expect(status && last > 5, "the node is operational and the round trip runs");
   expect(!logged("nonexistent0: ") && !logged("ERROR"), "no CAN interface touched, no error");
+  std::printf("CANWORKS_FORCE_SIMULATE with another value:\n");
+  setenv("CANWORKS_FORCE_SIMULATE", "yes", 1);
+  run_simulated("", 1, last);
+  unsetenv("CANWORKS_FORCE_SIMULATE");
+  expect(logged("WARN") && logged("CANWORKS_FORCE_SIMULATE=\"yes\" is ignored"), "a warning says the value is ignored");
+  expect(!logged("simulation forced by the runtime environment"), "simulation is not forced");
 
   // Several simulated networks and a version 2 simulation file: each
   // section drives its own network's devices only.

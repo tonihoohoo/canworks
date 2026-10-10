@@ -171,4 +171,55 @@ TEST(expr_reads_and_reset) {
   CHECK(e->reads()[1].ref.device == 1 && e->reads()[1].ref.index == 0x6401 && e->reads()[1].ref.subindex == 1);
 }
 
+// Nesting and length limits: refused with the position, never a crash.
+TEST(expr_limits) {
+  CorpusResolver res;
+  ExprError err;
+  CHECK(!Expr::compile(std::string(10000, '('), res, err) && err.position == 4096 &&
+        err.message.find("4096") != std::string::npos);
+  err = ExprError();
+  CHECK(!Expr::compile(std::string(2000, '(') + "1" + std::string(2000, ')'), res, err) && err.position == 128 &&
+        err.message.find("128 levels") != std::string::npos);
+  std::string pow;
+  for (int i = 0; i < 1000; ++i) pow += "2**";
+  CHECK(!Expr::compile(pow + "1", res, err) && err.position == 129 * 3 - 2);
+  CHECK(!Expr::compile(std::string(2000, '!') + "1", res, err) && err.position == 128);
+  // At the limit: compiles, evaluates and frees.
+  std::string sum = "1";
+  for (int i = 0; i < 127; ++i) sum += "+1";
+  auto e = Expr::compile(sum, res, err);
+  CHECK(e != nullptr);
+  CorpusContext c;
+  if (e) CHECK(e->eval(c) == 128);
+  CHECK(!Expr::compile(sum + "+1", res, err) && err.position == sum.size());
+}
+
+// delay(): a non-finite delay counts as 0, time going back clears the
+// history, and the history never holds more than 10,000 samples.
+TEST(expr_delay_bounded) {
+  CorpusResolver res;
+  CorpusContext c;
+  ExprError err;
+  auto nan = Expr::compile("delay(t, 0 / 0)", res, err);
+  auto inf = Expr::compile("delay(t, -log(0))", res, err);
+  auto big = Expr::compile("delay(t, 600)", res, err);
+  auto half = Expr::compile("delay(t, 0.5)", res, err);
+  CHECK(nan && inf && big && half);
+  if (!nan || !inf || !big || !half) return;
+  double last = 0;
+  bool now = true;
+  for (int k = 0; k < 50000; ++k) {
+    c.t = k * 0.001;
+    now = now && nan->eval(c) == c.t && inf->eval(c) == c.t;
+    last = big->eval(c);
+    half->eval(c);
+  }
+  CHECK(now);
+  // 600 s at 1 ms would be 600,000 samples: the oldest kept is 9,999 back.
+  CHECK_MSG(std::fabs(last - (c.t - 9.999)) < 1e-6, std::to_string(last));
+  // Time goes back: the old run's samples are gone.
+  c.t = 0;
+  CHECK_MSG(half->eval(c) == 0, std::to_string(half->eval(c)));
+}
+
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

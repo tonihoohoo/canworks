@@ -53,6 +53,24 @@ bool check_sim_file(const Config& cfg, const canopen_sim::SimFile& file, std::ve
       ok = false;
     }
   }
+  // An extra device never has the node ID of a config node, simulated or
+  // not (a real one would then have a twin on the bus), nor the master's.
+  for (size_t i = 0; i < file.extra.size(); ++i) {
+    unsigned id = file.extra[i].node;
+    if (!id) continue;
+    std::string at = file.path + ": " + (file.section.empty() ? "" : "networks." + file.section + ".") +
+                     "extra_devices[" + std::to_string(i) + "]: node ID " + std::to_string(id);
+    bool node = false;
+    for (const auto& n : cfg.nodes) node = node || n.node_id == id;
+    if (node) {
+      errors.push_back(at + " is a node of the configuration; give its behaviour under nodes.\"" + std::to_string(id) +
+                       "\"");
+      ok = false;
+    } else if (!cfg.is_slave() && cfg.master.node_id == id) {
+      errors.push_back(at + " is the master's node ID");
+      ok = false;
+    }
+  }
   return ok;
 }
 

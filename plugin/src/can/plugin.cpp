@@ -99,7 +99,10 @@ void prepare() {
   }
   ImageLimits limits;
   limits.buffer_size = g_rt.buffer_size > 0 ? static_cast<unsigned>(g_rt.buffer_size) : 1024;
-  limits.force_simulate = force_simulate_from_env(getenv("CANWORKS_FORCE_SIMULATE"));
+  const char* force = getenv("CANWORKS_FORCE_SIMULATE");
+  limits.force_simulate = force_simulate_from_env(force);
+  if (force && *force && !limits.force_simulate)
+    log_warn("CANWORKS_FORCE_SIMULATE=\"%.32s\" is ignored: only 1 forces simulation", force);
   std::unique_ptr<Engine> e(new Engine);
   if (e->prepare(path, limits, g_rt.base_tick_ns, CANWORKS_PLUGIN_VERSION)) g_engine = std::move(e);
 }
