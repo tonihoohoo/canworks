@@ -13,6 +13,7 @@
 #include <set>
 #include <sstream>
 #include <sys/stat.h>
+#include <tuple>
 #include <unistd.h>
 
 #include "cJSON.h"
@@ -462,7 +463,8 @@ class Parser {
             // Allowed only for an entry a gateway route uses (checked once
             // the gateway section is read).
             entry.has_location = false;
-            if (ok) unlocated_.push_back({network_index_, n.node_id, is_tx, entry.index, entry.subindex, full(ew)});
+            if (ok)
+              unlocated_.push_back({network_index_, n.node_id, is_tx, pdo.number, entry.index, entry.subindex, full(ew)});
           } else if (!get_location(e, "iec_location", ew, true, entry.location)) {
             ok = false;
           }
@@ -527,7 +529,7 @@ class Parser {
       if (limits_.bridge_host && !cJSON_GetObjectItemCaseSensitive(root, "bridge"))
         error("", kNotBridgeConfig);
       check_known(root, "", {"$schema", "schema_version", "adapter", "interface", "bitrate", "master", "nodes",
-                             "role", "slave", "gateway", "protocol", "j1939", "raw", "bridge"});
+                             "links", "role", "slave", "gateway", "protocol", "j1939", "raw", "bridge"});
       Config cfg = blank(set);
       cfg.work_dir = set.config_dir + "/.canworks";
       parse_network(root, cfg);
@@ -575,7 +577,8 @@ class Parser {
       if (!cJSON_IsObject(net)) {
         error("", "must be an object");
       } else {
-        check_known(net, "", {"name", "protocol", "role", "adapter", "master", "nodes", "slave", "j1939", "raw"});
+        check_known(net, "", {"name", "protocol", "role", "adapter", "master", "nodes", "links", "slave", "j1939",
+                              "raw"});
         for (const char* old_key : {"interface", "bitrate"})
           if (cJSON_GetObjectItemCaseSensitive(net, old_key))
             error("", std::string("field '") + old_key + "' belongs in 'adapter' in schema_version 2");
@@ -611,6 +614,9 @@ class Parser {
         }
         if (cfg.is_canopen() && get_string(net, "role", "", false, role) && role != "master" && role != "slave")
           error("", "field 'role' must be \"master\" or \"slave\", not \"" + role + "\"");
+        if (cJSON_GetObjectItemCaseSensitive(net, "links") && (!cfg.is_canopen() || role == "slave"))
+          error("", std::string("field 'links' needs a CANopen master network; this is a ") +
+                        (cfg.is_j1939() ? "J1939" : cfg.is_plain() ? "plain CAN" : "slave") + " network");
         if (!cfg.is_canopen()) {
           // Parsed above.
         } else if (role == "slave") {
@@ -1252,7 +1258,7 @@ class Parser {
                      "life_time_factor", "status_location", "state_location", "boot_error_location",
                      "emcy_code_location", "error_register_location", "nmt_command_location", "mandatory",
                      "boot", "reset_communication", "revision_number", "serial_number", "heartbeat_consumer",
-                     "retry_factor", "time_cob_id", "error_behavior", "restore_configuration", "config_check",
+                     "heartbeat_watch", "retry_factor", "time_cob_id", "error_behavior", "restore_configuration", "config_check",
                      "store_configuration", "lss", "axis", "software_file", "software_version", "tx_pdos",
                      "rx_pdos", "sdo", "sdo_variables", "simulate"});
         n.simulate = cfg.adapter.simulate;
@@ -1323,6 +1329,7 @@ class Parser {
           }
         }
         parse_node_options(node, cfg, n, w);
+        parse_heartbeat_watch(node, n, w);
         parse_pdos(node, "tx_pdos", n, w, true);
         parse_pdos(node, "rx_pdos", n, w, false);
         parse_sdos(node, n, w);
@@ -1338,8 +1345,14 @@ class Parser {
                       ", for a scan-only configuration)");
     }
 
+    parse_links(root, cfg);
+    check_heartbeat_watch(cfg);
     check_node_ids(cfg);
     resolve_auto_cob_ids(cfg);
+    for (auto& l : cfg.links)
+      if (const NodeConfig* p = cfg.node(l.producer))
+        for (const auto& t : p->tx_pdos)
+          if (t.number == l.tpdo) l.cob_id = p->tpdo_cob_id(t);
     // A version 2 file checks the locations of all networks at once.
     if (version_ == 1) check_overlaps(cfg);
     check_sdo_overrides(cfg);
@@ -1347,6 +1360,314 @@ class Parser {
     check_time_consumers(cfg);
     check_sync_needs(cfg);
     check_cyclic_axes(cfg);
+  }
+
+  // ---- PDO links and node-to-node heartbeat watch (canopen-pdo-links) ----
+
+  // A node's heartbeat_watch list; checked against the other nodes in
+  // check_heartbeat_watch once every node is read.
+  void parse_heartbeat_watch(const cJSON* node, NodeConfig& n, const std::string& w) {
+    const cJSON* arr = cJSON_GetObjectItemCaseSensitive(node, "heartbeat_watch");
+    if (!arr) return;
+    if (!cJSON_IsArray(arr)) {
+      error(w, "field 'heartbeat_watch' must be an array of {\"node\": <id>, \"timeout_ms\": <ms>}");
+      return;
+    }
+    unsigned k = 0;
+    const cJSON* item;
+    cJSON_ArrayForEach(item, arr) {
+      std::string hw = w + ": heartbeat_watch[" + std::to_string(k) + "]";
+      HeartbeatWatch h;
+      h.position = k++;
+      if (!cJSON_IsObject(item)) {
+        error(hw, "must be an object");
+        continue;
+      }
+      check_known(item, hw, {"node", "timeout_ms"});
+      uint64_t v;
+      bool ok = true;
+      if (get_uint(item, "node", hw, true, 127, v)) {
+        if (v == 0) error(hw, "field 'node' must be 1-127"), ok = false;
+        h.node = (unsigned)v;
+      } else {
+        ok = false;
+      }
+      if (get_uint(item, "timeout_ms", hw, false, 0xFFFF, v)) {
+        if (v == 0) error(hw, "field 'timeout_ms' must be 1-65535; leave it out for the default"), ok = false;
+        h.has_timeout = true;
+        h.timeout_ms = (unsigned)v;
+      }
+      if (ok) n.heartbeat_watch.push_back(h);
+    }
+  }
+
+  // The rules that need the watched node: on the network, not the node
+  // itself nor the master, sending a heartbeat, and a timeout above its
+  // period. Its EDS heartbeat, the default timeout and the 0x1016 capacity
+  // are checked with the EDS files (eds_check.cpp).
+  void check_heartbeat_watch(const Config& cfg) {
+    for (size_t i = 0; i < cfg.nodes.size(); ++i) {
+      const NodeConfig& n = cfg.nodes[i];
+      const std::string w = "nodes[" + std::to_string(i) + "]";
+      std::set<unsigned> seen;
+      for (const auto& h : n.heartbeat_watch) {
+        const std::string head = n.label() + ": heartbeat_watch[" + std::to_string(h.position) + "]: ";
+        if (h.node == n.node_id) {
+          error(w, head + "a node cannot watch its own heartbeat");
+          continue;
+        }
+        if (h.node == cfg.master.node_id) {
+          error(w, head + "node " + std::to_string(h.node) +
+                       " is the master; use 'heartbeat_consumer' to watch the master's heartbeat");
+          continue;
+        }
+        const NodeConfig* t = cfg.node(h.node);
+        if (!t) {
+          error(w, head + "node " + std::to_string(h.node) + " is not a configured node of this network");
+          continue;
+        }
+        if (!seen.insert(h.node).second) {
+          error(w, head + t->label() + " is watched twice");
+          continue;
+        }
+        if (t->guard_time_ms) {
+          error(w, head + t->label() + " sends no heartbeat (it uses node guarding); a heartbeat watch needs the " +
+                       "watched node's heartbeat");
+          continue;
+        }
+        if (t->has_heartbeat && t->heartbeat_ms == 0) {
+          error(w, head + t->label() + " sends no heartbeat (\"heartbeat_ms\": 0); a heartbeat watch needs the " +
+                       "watched node's heartbeat");
+          continue;
+        }
+        if (h.has_timeout && t->heartbeat_ms && h.timeout_ms <= t->heartbeat_ms)
+          error(w, head + "timeout_ms " + std::to_string(h.timeout_ms) + " must be above " + t->label() +
+                       "'s heartbeat period of " + std::to_string(t->heartbeat_ms) + " ms");
+      }
+    }
+  }
+
+  // One consumer of a link (`me` is the link's label). False when it is
+  // unusable (its error is reported).
+  bool parse_link_consumer(const cJSON* cj, const std::string& cw, const std::string& me, const Config& cfg,
+                           LinkConsumer& c) {
+    if (!cJSON_IsObject(cj)) {
+      error(cw, "must be an object");
+      return false;
+    }
+    check_known(cj, cw, {"node", "rpdo", "transmission", "event_timer_ms", "mapping", "entries"});
+    c.where = cw;
+    uint64_t v;
+    bool ok = true;
+    if (get_uint(cj, "node", cw, true, 127, v))
+      c.node = (unsigned)v;
+    else
+      ok = false;
+    if (get_uint(cj, "rpdo", cw, true, 512, v)) {
+      if (v == 0) error(cw, "field 'rpdo' must be 1-512"), ok = false;
+      c.rpdo = (unsigned)v;
+    } else {
+      ok = false;
+    }
+    if (!ok) return false;
+    const NodeConfig* n = cfg.node(c.node);
+    const std::string who =
+        me + ": " + (n ? n->label() : "node " + std::to_string(c.node)) + " RPDO " + std::to_string(c.rpdo);
+    if (get_uint(cj, "transmission", cw, false, 255, v)) {
+      if (v > 240 && v < 254) error(cw, "field 'transmission' must be 0-240, 254 or 255"), ok = false;
+      c.has_transmission = true;
+      c.transmission = (unsigned)v;
+    }
+    if (get_uint(cj, "event_timer_ms", cw, false, 0xFFFF, v)) {
+      c.has_event_timer = true;
+      c.event_timer_ms = (unsigned)v;
+    }
+    std::string mapping;
+    if (get_string(cj, "mapping", cw, false, mapping)) {
+      if (mapping == "config")
+        c.mapping = PdoConfig::Mapping::Config;
+      else if (mapping == "device")
+        c.mapping = PdoConfig::Mapping::Device;
+      else
+        error(cw, "field 'mapping' must be \"config\" or \"device\", not \"" + mapping + "\""), ok = false;
+    }
+    const cJSON* entries = cJSON_GetObjectItemCaseSensitive(cj, "entries");
+    if (!entries && c.mapping == PdoConfig::Mapping::Device) return ok;
+    if (!cJSON_IsArray(entries) || cJSON_GetArraySize(entries) == 0) {
+      error(cw, who + ": missing required field 'entries' (a non-empty array), or \"mapping\": \"device\"");
+      return false;
+    }
+    unsigned bits = 0;
+    int k = 0;
+    const cJSON* e;
+    cJSON_ArrayForEach(e, entries) {
+      std::string ew = cw + ": entries[" + std::to_string(k++) + "]";
+      if (!cJSON_IsObject(e)) {
+        error(ew, "must be an object");
+        ok = false;
+        continue;
+      }
+      check_known(e, ew, {"index", "subindex", "type", "iec_location"});
+      PdoEntry pe;
+      pe.has_location = false;
+      bool eok = true;
+      if (get_uint(e, "index", ew, true, 0xFFFF, v))
+        pe.index = (uint16_t)v;
+      else
+        eok = false;
+      if (get_uint(e, "subindex", ew, false, 0xFF, v)) pe.subindex = (uint8_t)v;
+      std::string type;
+      if (get_string(e, "type", ew, true, type)) {
+        if (!parse_co_type(type, pe.type)) {
+          error(ew, "unsupported type \"" + type +
+                        "\" (use BOOLEAN, INTEGER8/16/32/64, UNSIGNED8/16/32/64, REAL32, REAL64)");
+          eok = false;
+        }
+      } else {
+        eok = false;
+      }
+      if (cJSON_GetObjectItemCaseSensitive(e, "iec_location")) {
+        error(ew, "field 'iec_location' (" + json_path(full(ew), "iec_location") +
+                      ") does not belong to a link consumer's entry: the consumer receives the value from the "
+                      "producer, not from the PLC");
+        eok = false;
+      }
+      if (eok) {
+        bits += co_type_bits(pe.type);
+        c.entries.push_back(pe);
+      } else {
+        ok = false;
+      }
+    }
+    if (bits > 64) {
+      error(cw, "mapped objects total " + std::to_string(bits) + " bits; a PDO carries at most 64");
+      ok = false;
+    }
+    return ok;
+  }
+
+  // The network's `links` (version 1 top level, version 2 network): each
+  // link's form, then the rules between links and nodes (check_links). The
+  // producer TPDO keeps its own settings in tx_pdos; the consumer RPDOs go
+  // into each node's linked_rpdos.
+  void parse_links(const cJSON* root, Config& cfg) {
+    const cJSON* arr = cJSON_GetObjectItemCaseSensitive(root, "links");
+    if (!arr) return;
+    if (!cJSON_IsArray(arr)) {
+      error("", "field 'links' must be an array");
+      return;
+    }
+    unsigned i = 0;
+    const cJSON* lj;
+    cJSON_ArrayForEach(lj, arr) {
+      LinkConfig l;
+      l.number = ++i;
+      l.where = "links[" + std::to_string(i - 1) + "]";
+      const std::string& lw = l.where;
+      if (!cJSON_IsObject(lj)) {
+        error(lw, "must be an object");
+        continue;
+      }
+      check_known(lj, lw, {"name", "from", "to", "on_plc_stop"});
+      l.has_name = get_string(lj, "name", lw, false, l.name);
+      if (!l.has_name) l.name = "link " + std::to_string(l.number);
+      const std::string me = l.label();
+      std::string stop;
+      if (get_string(lj, "on_plc_stop", lw, false, stop)) {
+        if (stop == "keep")
+          l.keep_on_plc_stop = true;
+        else if (stop != "follow")
+          error(lw, me + ": field 'on_plc_stop' must be \"follow\" or \"keep\"");
+      }
+      uint64_t v;
+      bool ok = true;
+      const cJSON* from = cJSON_GetObjectItemCaseSensitive(lj, "from");
+      if (!cJSON_IsObject(from)) {
+        error(lw, me + ": field 'from' must be an object with 'node' and 'tpdo'");
+        ok = false;
+      } else {
+        const std::string fw = lw + ": from";
+        check_known(from, fw, {"node", "tpdo"});
+        if (get_uint(from, "node", fw, true, 127, v))
+          l.producer = (unsigned)v;
+        else
+          ok = false;
+        if (get_uint(from, "tpdo", fw, true, 512, v)) {
+          if (v == 0) error(fw, "field 'tpdo' must be 1-512"), ok = false;
+          l.tpdo = (unsigned)v;
+        } else {
+          ok = false;
+        }
+      }
+      if (ok) linked_tpdos_.insert({network_index_, l.producer, l.tpdo});
+      const cJSON* to = cJSON_GetObjectItemCaseSensitive(lj, "to");
+      if (!cJSON_IsArray(to) || cJSON_GetArraySize(to) == 0) {
+        error(lw, me + ": field 'to' must list at least one consumer");
+      } else {
+        int j = 0;
+        const cJSON* cj;
+        cJSON_ArrayForEach(cj, to) {
+          LinkConsumer c;
+          if (parse_link_consumer(cj, lw + ": to[" + std::to_string(j++) + "]", me, cfg, c))
+            l.consumers.push_back(c);
+        }
+      }
+      if (ok) cfg.links.push_back(l);
+    }
+    check_links(cfg);
+    for (const auto& l : cfg.links)
+      for (const auto& c : l.consumers)
+        for (auto& n : cfg.nodes)
+          if (n.node_id == c.node && c.node != l.producer) n.linked_rpdos.insert(c.rpdo);
+  }
+
+  // The rules between a network's links and its nodes (canopen-pdo-links
+  // "Links in the network config", "Link COB-ID rules").
+  void check_links(const Config& cfg) {
+    std::map<std::pair<unsigned, unsigned>, size_t> tpdo_owner, rpdo_owner;
+    for (size_t i = 0; i < cfg.links.size(); ++i) {
+      const LinkConfig& l = cfg.links[i];
+      const std::string me = l.label();
+      const NodeConfig* p = cfg.node(l.producer);
+      if (!p) {
+        error(l.where, me + ": node " + std::to_string(l.producer) + " is not a configured node of this network");
+      } else {
+        bool found = false;
+        for (const auto& t : p->tx_pdos) found |= t.number == l.tpdo;
+        if (!found)
+          error(l.where, me + ": " + p->label() + " has no TPDO " + std::to_string(l.tpdo) +
+                             " in its tx_pdos (a link's 'from' names one of the producer's tx_pdos)");
+        auto it = tpdo_owner.find({l.producer, l.tpdo});
+        if (it != tpdo_owner.end())
+          error(l.where, cfg.links[it->second].label() + " and " + me + " both name " + p->label() + " TPDO " +
+                             std::to_string(l.tpdo) + " in 'from'; list all consumers in one link");
+        else
+          tpdo_owner[{l.producer, l.tpdo}] = i;
+      }
+      for (const auto& c : l.consumers) {
+        const NodeConfig* n = cfg.node(c.node);
+        if (!n) {
+          error(c.where, me + ": consumer node " + std::to_string(c.node) + " is not a configured node of this network");
+          continue;
+        }
+        if (c.node == l.producer) {
+          error(c.where, me + ": " + n->label() + " is the producer; a consumer must be another node");
+          continue;
+        }
+        const std::string who = n->label() + " RPDO " + std::to_string(c.rpdo);
+        for (const auto& r : n->rx_pdos)
+          if (r.number == c.rpdo)
+            error(c.where, me + ": " + who + " is also in its rx_pdos; a link's consumer RPDO is fed by the producer, "
+                                             "not the master (use another RPDO number)");
+        auto it = rpdo_owner.find({c.node, c.rpdo});
+        if (it != rpdo_owner.end())
+          error(c.where, me + ": " + who + " is already a consumer of " + cfg.links[it->second].label());
+        else
+          rpdo_owner[{c.node, c.rpdo}] = i;
+        if (c.has_transmission && transmission_needs_sync(c.transmission) && !cfg.master.produces_sync())
+          error(c.where, me + ": " + who + ": " + sync_needed_message(c.transmission, false));
+      }
+    }
   }
 
   // A cyclic CiA 402 axis needs one SYNC every PLC cycle: with the master's
@@ -2246,16 +2567,17 @@ class Parser {
     }
   }
 
-  // PDO entries without iec_location: allowed only when a route uses them.
+  // PDO entries without iec_location: allowed only when a route uses them,
+  // or when their TPDO feeds a PDO link.
   void report_unlocated(const ConfigSet& set) {
     for (const auto& u : unlocated_) {
-      bool routed = false;
+      bool routed = u.tx && linked_tpdos_.count(std::make_tuple(u.network, u.node, u.pdo));
       for (const auto& r : set.gateway.routes)
         routed |= r.field_network == u.network && r.node == u.node && r.index == u.index && r.subindex == u.subindex;
       if (!routed)
         errors_.push_back(path_ + ": " + u.where +
-                          ": missing required field 'iec_location' (only an entry a gateway route uses may leave it "
-                          "out)");
+                          ": missing required field 'iec_location' (only an entry a gateway route or a PDO link uses "
+                          "may leave it out)");
     }
     unlocated_.clear();
   }
@@ -2344,7 +2666,9 @@ class Parser {
         uint64_t v = 0;
         for (size_t b = 0; b < s.data.size() && b < 8; ++b) v |= uint64_t(s.data[b]) << (8 * b);
         const char* what = nullptr;
-        if (s.index >= 0x1400 && s.index <= 0x1BFF)
+        if (s.index >= 0x1400 && s.index <= 0x17FF && n.linked_rpdos.count((s.index & 0x1FFu) + 1))
+          what = "the consumer RPDO of a PDO link ('links')";
+        else if (s.index >= 0x1400 && s.index <= 0x1BFF)
           what = "the PDO settings (the plugin sets up every PDO of the node)";
         else if (s.index == 0x1017 && s.subindex == 0 && n.has_heartbeat && v != n.heartbeat_ms)
           what = "heartbeat_ms";
@@ -2356,6 +2680,8 @@ class Parser {
           what = "time_cob_id";
         else if (s.index == 0x1016 && n.has_heartbeat_consumer)
           what = "heartbeat_consumer";
+        else if (s.index == 0x1016 && !n.heartbeat_watch.empty())
+          what = "heartbeat_watch";
         else if (s.index == 0x1011 && n.has_restore_configuration && s.subindex == n.restore_configuration)
           what = "restore_configuration";
         else if (s.index == 0x1029)
@@ -2381,9 +2707,17 @@ class Parser {
         error("nodes", "node ID " + std::to_string(n.node_id) + " is used by more than one slave");
     }
     // Two PDOs on the same COB-ID would collide on the bus.
+    // A link's COB-ID belongs to its producer TPDO; its consumer RPDOs
+    // receive on it and are not registered (canopen-pdo-links "Link COB-ID
+    // rules"), so any other use clashes with the TPDO, named with the link.
     std::map<uint32_t, std::string> cobs;
     for (const auto& n : cfg.nodes) {
-      for (const auto& p : n.tx_pdos) add_cob(cobs, n.tpdo_cob_id(p), n.label() + " TPDO " + std::to_string(p.number));
+      for (const auto& p : n.tx_pdos) {
+        std::string who = n.label() + " TPDO " + std::to_string(p.number);
+        for (const auto& l : cfg.links)
+          if (l.producer == n.node_id && l.tpdo == p.number) who += " (" + l.label() + ")";
+        add_cob(cobs, n.tpdo_cob_id(p), who);
+      }
       for (const auto& p : n.rx_pdos) add_cob(cobs, n.rpdo_cob_id(p), n.label() + " RPDO " + std::to_string(p.number));
     }
   }
@@ -2743,11 +3077,15 @@ class Parser {
     unsigned network = 0;
     unsigned node = 0;
     bool tx = false;
+    unsigned pdo = 0;
     uint16_t index = 0;
     uint8_t subindex = 0;
     std::string where;
   };
   std::vector<Unlocated> unlocated_;
+  // TPDOs that feed a PDO link: (network, node, TPDO); their entries may
+  // leave out iec_location.
+  std::set<std::tuple<unsigned, unsigned, unsigned>> linked_tpdos_;
 };
 
 std::string dir_of(const std::string& path) {

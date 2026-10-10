@@ -549,7 +549,8 @@ class SlaveContract(unittest.TestCase):
         cfg = self.gateway()
         del cfg["gateway"]["routes"][1]
         self.assertIn("networks[0]: nodes[0]: rx_pdos[0]: entries[0]: node 2 (pingpong), object 0x4000:0: missing "
-                      "'iec_location' (only an entry a gateway route uses may leave it out)", self.errors(cfg))
+                      "'iec_location' (only an entry a gateway route or a PDO link uses may leave it out)",
+                      self.errors(cfg))
 
     def test_status_and_bridge_need_their_objects(self):
         cfg = self.gateway()

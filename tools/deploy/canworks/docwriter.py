@@ -278,7 +278,10 @@ def _pdo(p):
         chips.append('<span class="chip">%s</span>' % E(p["trigger"]))
     rows = []
     for e in p["entries"]:
-        if e["dummy"]:
+        if e.get("link_from"):
+            what = '<span class="muted">%s</span>%s' % (
+                "skipped" if e["dummy"] else "", (" " if e["dummy"] else "") + E(e["link_from"]))
+        elif e["dummy"]:
             what = '<span class="muted">dummy (gap)</span>'
         elif not e["used"]:
             what = '<span class="muted">%s</span>' % E(
@@ -467,6 +470,25 @@ def _j1939_network(net):
     return "".join(parts)
 
 
+def _links(net):
+    rows = []
+    for l in net["links"]:
+        consumers = "<br>".join(
+            '<a href="#%s">node %d RPDO %d</a> <span class="muted">transmission %s, deadline %s%s</span>' % (
+                _attr(c["anchor"]), c["node"], c["rpdo"], "–" if c["transmission"] is None else c["transmission"],
+                "%d ms" % c["deadline_ms"] if c["deadline_ms"] else "none",
+                ", watches the producer's heartbeat" if c["watches_producer"] else "") for c in l["consumers"])
+        reads = E(", ".join(l["plc_reads"])) if l["plc_reads"] else '<span class="muted">the PLC does not read it</span>'
+        warn = "".join('<div class="small warn">%s</div>' % E(w) for w in l["warnings"])
+        rows.append([E(l["name"]) + warn, "<code>%s</code>" % hx(l["cob_id"], 3),
+                     '<a href="#%s">node %d TPDO %d</a>' % (_attr(l["producer_anchor"]), l["producer"], l["tpdo"]),
+                     consumers, reads, E(l["on_plc_stop"])])
+    return ('<h3 id="%s-links">PDO links</h3><p class="muted">TPDOs other nodes receive directly (CiA 301 '
+            'producer/consumer); the master configures both ends at boot. A link adds no frame and no bus load.</p>%s'
+            % (_attr(net["anchor"]), _table(["Link", "COB-ID", "Producer", "Consumers", "PLC reads", "On PLC stop"],
+                                            rows)))
+
+
 def _network(net):
     if net["role"] == "j1939":
         return _j1939_network(net)
@@ -482,6 +504,8 @@ def _network(net):
         parts.append(_table(["PLC", "Holds"], [[_loc(l["location"], l["variables"]), E(l["what"])]
                                                for l in net["locations"]]))
     parts.append(_frames(net))
+    if net.get("links"):
+        parts.append(_links(net))
     parts.append(_bus_load(net))
     parts.append('<h3>%s%s</h3>' % ("OpenPLC as a device" if slave else "Nodes",
                                      (" on network " if slave else " of network ") + E(net["name"])

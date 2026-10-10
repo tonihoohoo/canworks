@@ -629,3 +629,19 @@ table.od td.num { text-align: right; font-variant-numeric: tabular-nums; }
 #bridge-map input[type=search] { flex: 1 1 220px; max-width: 420px; }
 table.bridge-lists td { vertical-align: top; }
 table.bridge-lists label { display: flex; flex-direction: column; gap: 3px; }
+/* PDO links page (links.js). */
+fieldset.link { min-width: 0; }
+fieldset.link-down { border-color: var(--warn); }
+.link-grid { display: flex; gap: 2px; align-items: stretch; margin: 6px 0; flex-wrap: nowrap; min-width: 0; }
+.link-grid .row-head { flex: 0 0 9em; }
+.link-pos { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; padding: 2px 4px;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--hover); }
+.link-pos.dummy { opacity: 0.7; font-style: italic; }
+.link-pos.bad { border-color: var(--error); background: var(--error-bg); }
+table.link-entries tr.bad td { background: var(--error-bg); }
+.link-consumer { border-left: 3px solid var(--line); padding-left: 10px; }
+.tag.ok { color: var(--ok); }
+.tag.bad { color: var(--error); }
+.heartbeat-watch ul.plain { list-style: none; padding: 0; margin: 4px 0; }
+.heartbeat-watch input[type=text] { width: 9em; }
+table.online-links tr.bad td:first-child { color: var(--error); }
