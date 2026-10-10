@@ -83,7 +83,7 @@ On the bus thread a node command runs through one function shared with `Operator
 - configured node, START: clear the hold; START now if the node is booted or has `boot: false`, else the master starts it when its boot ends.
 - configured node, RESET NODE / RESET COMMUNICATION: `ResetNode` (clears the hold, reboots and reconfigures the node).
 - node the config does not list: the command is sent and nothing is kept: no hold, no boot, no state tracking. The program owns that node's NMT state.
-- `NODE := 0`: one CiA 301 broadcast (node ID 0) on the bus, so unlisted nodes get it too, and the per-node bookkeeping above for every configured node (holds set or cleared, resets scheduled). The master's own state does not change; see open question 2 for how the broadcast is sent without Lely applying it to the master.
+- `NODE := 0`: one CiA 301 broadcast (node ID 0) on the bus, so unlisted nodes get it too, and the per-node bookkeeping above for every configured node (holds set or cleared, resets scheduled). The master's own state does not change: Lely's `Command(cs, 0)` sends the frame and does not apply it to the master (task 1.2), so the broadcast goes through `Command` like every other command (and keeps `nmt_inhibit_time_us`). A broadcast START is refused with 9 while the gateway holds any node.
 
 `DONE` means the command was sent (NMT is unconfirmed) and the hold recorded; the state the node reports afterwards is read with `CO_GET_STATE`. A command that cannot be applied ends with an error and sends nothing: `NODE` above 127 or equal to the master's ID, an unknown `COMMAND`, a `NETWORK` that is not a master network (6); START to a node held by the gateway's upper-loss reaction (9: the gateway releases it when the upper master is back).
 
@@ -99,7 +99,7 @@ Two network-level flags in `Network`: `prog_start_` (the program asked for a sta
 
 - `StartHeldMaster`'s gate becomes `(cfg_.master.start || prog_start_) && !prog_stopped_`. `CO_NETWORK_START` sets `prog_start_`, clears `prog_stopped_`, and calls `StartHeldMaster`: the master goes OPERATIONAL now, or as soon as every mandatory node has booted. The block is `BUSY` until the master is OPERATIONAL, then `DONE`; after `TIMEOUT` (if not `T#0s`) it ends with `ERROR_ID` 2 and the start stays requested, so the master still starts when the last mandatory node boots. With the master already OPERATIONAL it ends `DONE` at once.
 - Nodes held by `CO_NETWORK_STOP` are started again on `CO_NETWORK_START` (START to each booted node the network stop held, unless it has its own hold or `start_nodes` is false), and the nodes' status bits come back as their PDOs flow.
-- `CO_NETWORK_STOP` sets `prog_stopped_`, turns the master TPDOs off as `StopNodes` does (so no output goes out between the request and the node commands), sends `Command(ENTER_PREOP, master node ID)`, then sends every configured node that is up the `NODE_COMMAND` (0: `master.on_plc_stop`'s choice; 255: none, the nodes keep their last outputs). Nodes that boot while the network is stopped are configured and then sent the same command, as a hold is; boot retries and supervision keep running so a start is quick. PRE-OPERATIONAL and not STOPPED: STOPPED would end SDO access and boot retries (the supervision loop skips them while the master is STOPPED), and today nothing brings a STOPPED master back.
+- `CO_NETWORK_STOP` sets `prog_stopped_`, turns the master TPDOs off as `StopNodes` does (so no output goes out between the request and the node commands), holds the master PRE-OPERATIONAL (see "Results of the simulation checks": not through `Command(ENTER_PREOP, master node ID)`), then sends every configured node that is up the `NODE_COMMAND` (0: `master.on_plc_stop`'s choice; 255: none, the nodes keep their last outputs). Nodes that boot while the network is stopped are configured and then sent the same command, as a hold is; boot retries and supervision keep running so a start is quick. PRE-OPERATIONAL and not STOPPED: STOPPED would end SDO access and boot retries (the supervision loop skips them while the master is STOPPED), and today nothing brings a STOPPED master back.
 - A master STOPPED by `stop_all_nodes` after a mandatory loss is the config's safety reaction: `CO_NETWORK_START` ends with `ERROR_ID` 9 and the log says the plugin must restart (open question 4).
 - With `reset_all_nodes` the master resets itself after a mandatory loss; `prog_start_` and `prog_stopped_` live in `Network` and survive that, so a network the program started is started again after the reset, and one it stopped stays stopped.
 
@@ -125,13 +125,36 @@ The online view's NMT buttons (start, stop, pre-operational, reset node, reset c
 
 That change adds `CO_RECV_EMCY` to the same library. This one does not touch `canopen_plc_api` v1, `common.inc` or the library delivery requirement; it adds its own header, entry point, include file and spec. Shared files where both add lines: `library/generate.py` (one entry each in its block list), the committed `.stlib` (rebuilt by whichever lands second), the README and `docs/plc-sdo.md` block lists. No merge order is needed.
 
+## Results of the simulation checks (task 1, 2026-10-10)
+
+Run on the in-process virtual bus with the pinned lely-core (`test/sim/sim_tests.cpp`, `sim_lely_*`), and read in Lely's `src/co/nmt.c`:
+
+- 1.1 `sim_lely_received_nmt_leaves_master`: confirmed. NMT START frames from another CAN channel, to node 0 and to the master's node ID, leave a `start: false` master PRE-OPERATIONAL (state byte 127). The nodes were configured and started (state 5) by Lely's boot with `start_nodes` true.
+- 1.2 `sim_lely_broadcast_command_and_master`: `Command(ENTER_PREOP, 0)` sends one frame with node ID 0 and does **not** change the master's own state (`co_nmt_cs_req` applies a command locally only for the master's own node ID). Open question 2 is closed: the broadcast uses `Command`, no raw send path.
+- 1.3 `sim_lely_mandatory_reset_stop_all` / `_reset_all`: a RESET NODE of a mandatory node (command byte 129) is **not** treated as a loss with either reaction: only that node reboots, the master stays OPERATIONAL, the other node gets no reset. Lely's error handler (`co_nmt_node_err_ind`) runs only on a heartbeat or guarding timeout or a failed boot; a boot-up message starts the boot slave process. Open question 3 is closed: the plugin suppresses nothing. A node whose reboot takes longer than its heartbeat consumer time would be a loss, as it is for the command byte today.
+- 1.4 `sim_lely_command_unlisted_node`: `Command(RESET_NODE, 40)` for a node outside 0x1F81 sends the frame, the node boots, and Lely neither boots nor asks it anything (no SDO request to 0x628).
+- 1.5 (found while building task 3.4) `sim_lely_master_preop_restarts_startup`: when Lely's master **enters PRE-OPERATIONAL**, `co_nmt_preop_on_enter` runs the whole network start-up again (`co_nmt_startup`): a RESET COMMUNICATION broadcast to every node without the keep-alive bit (unlisted ones too), then the boot of each slave. A `CO_NETWORK_STOP` built on `Command(ENTER_PREOP, master)` would therefore reset every node, and a STOP sent after it lands on nodes that the master is booting (the boot then fails: no SDO in STOPPED). **Design change:** `CO_NETWORK_STOP` leaves Lely's master state alone and holds the master in the plugin: master TPDOs off, received PDOs no longer reach the inputs (they keep their last values, as with a PRE-OPERATIONAL master), the master state byte, `CO_GET_STATE` and the status bits read PRE-OPERATIONAL, SDO, heartbeat consumers, boot retries and supervision keep running, and `CO_NETWORK_START` lifts it (no Lely command needed while Lely's master is OPERATIONAL). The difference visible on the bus: the master's own heartbeat (when it produces one) keeps saying OPERATIONAL. When Lely's master is not OPERATIONAL (`start: false` before the first start, or during a reset) only `prog_stopped_` is set, and Lely's start-up after a reset (`reset_all_nodes`) is held the same way instead of being sent back to PRE-OPERATIONAL.
+
+## Defaults picked during the implementation
+
+- Open question 1: `EXECUTE` (no `ENABLE` variant), as proposed.
+- Open question 4: no; `CO_NETWORK_START` ends with 9 on a master STOPPED by `stop_all_nodes`. `CO_NETWORK_STOP` on such a master ends with 9 too (nothing to stop, and the program learns why).
+- Open question 5: not tracked; `CONFIGURED` FALSE and `STATE`, `HELD`, `BOOT_ERROR` 0.
+- Open question 6: no `CONFIRM` input.
+- An NMT request no network takes within 1 s (its bus session is not up) ends with 4; `CO_NETWORK_START`'s `TIMEOUT` runs in `PlcRequests::poll_nmt`, taken or not.
+- The snapshot is cleared at PLC stop (`close`) and per network when a bus session starts (`Network::Start` publishes every configured node and the master), not at `open`: `Engine::start` starts the networks before it opens the request channel.
+- `CO_NETWORK_STOP` holds every configured node without a hold of its own (so nodes that boot meanwhile get the command) and leaves nodes with their own hold (byte, `CO_NMT`, operator, gateway) alone; `CO_NETWORK_START` releases only the holds the network stop set.
+- `CO_NMT` STOP or PRE-OPERATIONAL to a node the gateway holds replaces the gateway's hold with the program's (last command wins); only START is refused with 9.
+- The log names the source of each hold: "held by the program" (command byte), "the program (CO_NMT)", "the program (CO_NETWORK_STOP)", "a diagnostics client", the gateway.
+
 ## Risks / Trade-offs
 
 - [Program and command byte fight over a node] -> last command wins, logged with its source each time; docs recommend one of the two per node.
 - [A program stops the network and forgets to start it] -> the log names the program as the reason the network is held; `CO_GET_STATE.STARTED` and the master state byte show it; a PLC restart clears it.
 - [NMT broadcast reaches devices the config does not know] -> intended (CiA 301 node 0); documented, and the online view's confirmation for broadcasts stays a configurator matter.
 - [Commands to unconfigured nodes collide with another master] -> same as the diagnostics channel's foreign SDO: the program owns that choice; the log names each command.
-- [Lely behaviour differs from what decisions 3 and 4 assume (broadcast, mandatory boot-up, received NMT)] -> task 1 tests each in simulation before the plugin side is built, and design.md is updated with the result.
+- [Lely behaviour differs from what decisions 3 and 4 assume (broadcast, mandatory boot-up, received NMT)] -> task 1 tests each in simulation before the plugin side is built, and design.md is updated with the result (it did differ for the master's PRE-OPERATIONAL: see 1.5).
+- [The plugin-held network stop is not Lely's NMT state] -> the master's own heartbeat says OPERATIONAL while the program holds the network; documented, and every PDO in and out stops as with a real PRE-OPERATIONAL.
 
 ## Open Questions
 

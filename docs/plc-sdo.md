@@ -1,6 +1,6 @@
 # SDO from the PLC program: the `canworks` library
 
-The `canworks` library gives the PLC program eight function blocks that read or write any object of any node over SDO while the network runs. They are for transfers the program decides on at run time: a recipe parameter, a device name to log, a calibration table. For an object the program reads or writes all the time, an [SDO variable](config.md#sdo-variables) in the config is simpler, since it needs no code. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network.
+The `canworks` library gives the PLC program eight function blocks that read or write any object of any node over SDO while the network runs. They are for transfers the program decides on at run time: a recipe parameter, a device name to log, a calibration table. For an object the program reads or writes all the time, an [SDO variable](config.md#sdo-variables) in the config is simpler, since it needs no code. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network. The same library has the NMT blocks `CO_NMT`, `CO_NETWORK_START`, `CO_NETWORK_STOP` and `CO_GET_STATE` ([plc-nmt.md](plc-nmt.md)), the CAN frame blocks ([raw-can.md](raw-can.md)) and the CiA 402 axis blocks ([cia402.md](cia402.md)).
 
 | Block | Data | For |
 |---|---|---|
@@ -90,6 +90,8 @@ A reply longer than 254 characters ends with `ERROR_ID` 7; read it with `CO_SDO_
 | 6 | Invalid input: node outside 1..127, a `NETWORK` the config does not have or that is a slave or J1939 network (refused at once, nothing is sent), a `SIZE` the block cannot send, `SIZE := 0` without an EDS type |
 | 7 | The data does not fit the block's output (a reply longer than 8 bytes for `CO_SDO_READ`, 254 characters for a string, 1024 bytes for bytes) |
 | 8 | Cancelled: the PLC stopped or CANopen restarted during the transfer (the runtime log says how many transfers a stop cancelled), or the block did not collect its result within 10 s |
+
+The NMT blocks use the same numbers, plus 9: refused by a state the program does not own (a node the gateway holds after the upper master was lost, a master STOPPED by `stop_all_nodes`); see [plc-nmt.md](plc-nmt.md#error-ids).
 
 ## How it shares the bus
 

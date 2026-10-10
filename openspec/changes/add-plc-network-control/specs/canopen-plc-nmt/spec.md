@@ -88,11 +88,15 @@ A hold or a reset of a mandatory node from the program SHALL NOT count as a loss
 - **THEN** the master stays PRE-OPERATIONAL until the program runs `CO_NETWORK_START` again
 
 ### Requirement: Stop the network from the program
-`CO_NETWORK_STOP` SHALL stop the PDO exchange: no output PDO SHALL be sent after the request, the master SHALL go PRE-OPERATIONAL, and every configured node that is up SHALL get `NODE_COMMAND`'s command: 0 what `master.on_plc_stop` says, 2 STOP, 128 ENTER PRE-OPERATIONAL, 255 none. Any other `NODE_COMMAND` SHALL end with `ERROR_ID` 6. The block SHALL end with `DONE` once the master is PRE-OPERATIONAL and the commands are sent. Until `CO_NETWORK_START`, the master SHALL NOT go OPERATIONAL by itself, SHALL keep supervising and booting nodes, and SHALL send a node that boots meanwhile the same command after configuring it. SDO transfers SHALL keep working to nodes that are not STOPPED.
+`CO_NETWORK_STOP` SHALL stop the PDO exchange: no output PDO SHALL be sent after the request, received PDOs SHALL no longer change the inputs, the master SHALL be PRE-OPERATIONAL as its state byte and `CO_GET_STATE` report it, without a communication reset of any node, and every configured node that is up SHALL get `NODE_COMMAND`'s command: 0 what `master.on_plc_stop` says, 2 STOP, 128 ENTER PRE-OPERATIONAL, 255 none. Any other `NODE_COMMAND` SHALL end with `ERROR_ID` 6. The block SHALL end with `DONE` once the master is PRE-OPERATIONAL and the commands are sent. Until `CO_NETWORK_START`, the master SHALL NOT go OPERATIONAL by itself, SHALL keep supervising and booting nodes, and SHALL send a node that boots meanwhile the same command after configuring it. SDO transfers SHALL keep working to nodes that are not STOPPED.
 
 #### Scenario: Stop with the default node command
 - **WHEN** `master.on_plc_stop` is `"preop"`, nodes 5 and 23 are OPERATIONAL, and the program runs `CO_NETWORK_STOP` with `NODE_COMMAND := 0`
 - **THEN** the master's state byte reads 127, both nodes get ENTER PRE-OPERATIONAL, no RPDO goes out after the request, and an SDO read from node 5 still ends with `DONE`
+
+#### Scenario: Nodes keep running
+- **WHEN** nodes 5 and 23 are OPERATIONAL and the program runs `CO_NETWORK_STOP` with `NODE_COMMAND := 255`
+- **THEN** the master's state byte reads 127, the nodes' status bits are FALSE, no node is reset and both nodes stay OPERATIONAL
 
 #### Scenario: Node boots while the network is stopped
 - **WHEN** the program has stopped the network with `NODE_COMMAND := 2` and node 23 power-cycles

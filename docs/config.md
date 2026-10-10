@@ -189,7 +189,7 @@ Flashing candleLight (CANable updater, https://canable.io/updater/) turns the CA
 | `rx_error_count_location` | no | An input byte (`%IB...`) with the controller's receive error counter, clamped to 255. |
 | `bus_off_count_location` | no | An input word (`%IW...`) counting bus-off events since the PLC started; wraps at 65535. |
 | `state_location` | no | An input byte (`%IB...`) with the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED. The master stays PRE-OPERATIONAL while a mandatory node is missing or with `start: false`, and no node exchanges PDOs then. |
-| `on_plc_stop` | no | What the master sends each configured node that is up when the PLC or the plugin stops, before the network closes: `"preop"` (default) ENTER PRE-OPERATIONAL, `"stop"` STOP, `"keep"` nothing (the nodes keep their last outputs). No output PDO is sent between the stop and the command. Pre-operational stops the device's PDOs, so its own communication-loss setting applies, while SDO access stays. The next PLC start boots and starts the nodes as usual. |
+| `on_plc_stop` | no | What the master sends each configured node that is up when the PLC or the plugin stops, before the network closes: `"preop"` (default) ENTER PRE-OPERATIONAL, `"stop"` STOP, `"keep"` nothing (the nodes keep their last outputs). No output PDO is sent between the stop and the command. Pre-operational stops the device's PDOs, so its own communication-loss setting applies, while SDO access stays. The next PLC start boots and starts the nodes as usual. It applies whatever the program held, and it is also what `CO_NETWORK_STOP` sends with `NODE_COMMAND := 0` ([plc-nmt.md](plc-nmt.md#stop-the-network-from-the-program-co_network_stop)). |
 | `scan_watchdog_ms` | no | 10-60000, default 1000; 0 turns it off. While the PLC runs and its scan has not finished a cycle for this long, the outputs stop: no RPDOs, raw or J1939 transmit messages. SYNC, inputs and node supervision keep running. The next finished scan sends the outputs again. Both are logged. Set a larger value, or 0, for a program with a deliberately long scan. |
 | `diagnostics` | no | Turns on the diagnostics channel for the configurator's online view, its bus scan and `canworks-diag` (below, [Online diagnostics](#online-diagnostics)). Left out: the plugin opens no port. |
 
@@ -254,7 +254,7 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 | `heartbeat_multiplier` | | 1-100, default 3. A node with `heartbeat_consumer: true` times out the master's heartbeat after `heartbeat_ms` × this. |
 | `error_behavior` | 0x1029 | An object of sub-index (as a string key, 1-254) to value: 0 pre-operational, 1 no change, 2 stopped, others manufacturer-specific. `{"1": 0}` |
 | `nmt_inhibit_time_us` | 0x102A | Minimum gap between two NMT commands, multiple of 100. |
-| `start` | 0x1F80 | Default `true`. `false` keeps the master PRE-OPERATIONAL: no PDOs move until something starts it. The plugin warns about this at load. |
+| `start` | 0x1F80 | Default `true`. `false` keeps the master PRE-OPERATIONAL: the nodes are booted and configured (and started, with `start_nodes`), but no PDOs move and every status bit stays FALSE until the PLC program starts it with `CO_NETWORK_START` ([plc-nmt.md](plc-nmt.md#start-the-network-from-the-program-co_network_start)). Nothing else starts it, and each PLC start begins PRE-OPERATIONAL again. The plugin warns about this at load. |
 | `start_nodes` | 0x1F80 | Default `true`. `false`: nodes are configured but stay PRE-OPERATIONAL (state byte 127). |
 | `start_all_nodes` | 0x1F80 | Default `false`. `true`: one broadcast NMT start once all mandatory nodes have booted, instead of one per node. |
 | `reset_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is reset, the master included. |
@@ -612,6 +612,8 @@ With `nmt_command_location` the program commands the node through an output byte
 | 130 | Reset the node's communication once when the byte changes to 130. |
 
 A held node (2 or 128) is not rebooted by the master when it leaves OPERATIONAL, and a node that starts by itself is sent the hold again. A reset (129, 130) clears the hold, the node boots again, and the byte must change away and back to reset it again. The plugin logs each command it sends (`NMT STOP (held by the program)`, `NMT RESET NODE (from the program)`). Other values are ignored with a warning. The byte reads 0 at start, so a program that never writes it leaves the node to the master.
+
+The `CO_NMT` function block of the `canworks` library sends the same commands with the node picked at run time, also to a node the config does not list or to every node at once, and `CO_NETWORK_START` and `CO_NETWORK_STOP` start and stop the master itself ([plc-nmt.md](plc-nmt.md)). The byte, `CO_NMT` and an operator's NMT commands (online view, `canworks-diag nmt`, Modbus control block) set the same hold of a node, and the one that acted last decides; since the byte acts only when its value changes, use one of the two per node. A hold or a reset sent through the byte to a mandatory node is not a loss of that node: the master stays OPERATIONAL and `reset_all_nodes` or `stop_all_nodes` do not react.
 
 ## Compatibility rules
 
