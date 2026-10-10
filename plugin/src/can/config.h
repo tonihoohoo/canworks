@@ -85,6 +85,16 @@ struct StartupSdo {
   std::string value_text;     // the value as written, for messages
 };
 
+// One heartbeat consumer entry (0x1016) the node gets for another node of its
+// network (canopen-node-supervision "Node-to-node heartbeat watch").
+struct HeartbeatWatch {
+  unsigned position = 0;  // place in the node's heartbeat_watch list
+  unsigned node = 0;
+  bool has_timeout = false;
+  unsigned timeout_ms = 0;  // resolved by check_eds_files when not given
+  uint8_t subindex = 0;     // the 0x1016 sub-index, resolved by check_eds_files
+};
+
 // An object moved over SDO between the node and one IEC location while the
 // network runs (sdo_variables). A read entry lands in an input location after
 // each boot of the node, every period_ms and on each trigger edge; a write
@@ -174,6 +184,11 @@ struct NodeConfig {
   // writable, which stay as the node has them instead of being switched off.
   std::set<std::pair<uint16_t, uint8_t>> ro_pdo_comm;
   std::set<unsigned> kept_tpdos, kept_rpdos;
+  // RPDOs a PDO link configures (canopen-pdo-links): the plugin writes them
+  // itself, so dcfgen neither lists nor switches them off.
+  std::set<unsigned> linked_rpdos;
+  // Heartbeat consumer entries for other nodes of the network.
+  std::vector<HeartbeatWatch> heartbeat_watch;
   bool mandatory = false;
   bool boot = true;
   bool has_reset_communication = false;
@@ -231,6 +246,37 @@ struct NodeConfig {
   uint32_t tpdo_cob_id(const PdoConfig& pdo) const;
   uint32_t rpdo_cob_id(const PdoConfig& pdo) const;
   std::string label() const;  // "node 2 (pingpong)"
+};
+
+// One consumer of a PDO link: an RPDO of a node that receives the producer's
+// TPDO directly (canopen-pdo-links).
+struct LinkConsumer {
+  unsigned node = 0;
+  unsigned rpdo = 0;
+  bool has_transmission = false;
+  unsigned transmission = 0;
+  bool has_event_timer = false;
+  unsigned event_timer_ms = 0;  // sub-index 5: the consumer's deadline
+  PdoConfig::Mapping mapping = PdoConfig::Mapping::Unset;
+  bool device_mapping = false;  // resolved by check_eds_files
+  std::vector<PdoEntry> entries;  // the consumer's objects in frame order, no location
+  std::string where;              // in the parser's form: "links[0]: to[1]"
+};
+
+// A PDO link: one node's TPDO received by other nodes' RPDOs (CiA 301
+// producer/consumer), configured by the master at boot.
+struct LinkConfig {
+  unsigned number = 0;  // 1-based place in `links`
+  std::string name;     // `name`, or "link <number>"
+  bool has_name = false;
+  unsigned producer = 0;  // node ID
+  unsigned tpdo = 0;      // number of one of its tx_pdos
+  std::vector<LinkConsumer> consumers;
+  bool keep_on_plc_stop = false;  // "on_plc_stop": "keep"
+  uint32_t cob_id = 0;            // the producer TPDO's resolved COB-ID
+  std::string where;              // in the parser's form: "links[0]"
+  // "link stick_to_valves", or "link 2" without a name.
+  std::string label() const { return has_name ? "link " + name : name; }
 };
 
 // What the master sends the nodes when the PLC or the plugin stops
@@ -499,6 +545,13 @@ struct Config {
   MasterConfig master;
   SlaveConfig slave;  // slave networks only
   std::vector<NodeConfig> nodes;
+  // PDO links between the nodes (master networks only).
+  std::vector<LinkConfig> links;
+  const NodeConfig* node(unsigned id) const {
+    for (const auto& n : nodes)
+      if (n.node_id == id) return &n;
+    return nullptr;
+  }
   J1939Config j1939;  // J1939 networks only
   // Raw CAN messages, on a network of any protocol (can-raw-messages spec).
   canworks_raw::RawConfig raw;

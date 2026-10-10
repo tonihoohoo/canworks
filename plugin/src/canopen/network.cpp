@@ -279,14 +279,33 @@ void Network::StopNodes() {
   for (auto& it : nodes_) EnableTpdos(it.second, false);
   OnPlcStop mode = cfg_.master.on_plc_stop;
   if (mode == OnPlcStop::Keep) return;
+  // The producer and consumers of links with "on_plc_stop": "keep" get no
+  // NMT command, so the link runs on (canopen-pdo-links "Links on PLC stop").
+  std::map<unsigned, std::string> kept;  // node ID -> its kept links
+  for (const auto& l : cfg_.links) {
+    if (!l.keep_on_plc_stop) continue;
+    std::vector<unsigned> ids{l.producer};
+    for (const auto& c : l.consumers) ids.push_back(c.node);
+    for (unsigned id : ids) {
+      std::string& s = kept[id];
+      if (s.find(l.label()) == std::string::npos) s += (s.empty() ? "" : ", ") + l.label();
+    }
+  }
   bool stop = mode == OnPlcStop::Stop;
   unsigned sent = 0;
+  std::string left;
   for (auto& it : nodes_) {
     NodeState& n = it.second;
     if (!n.up && !n.node_op) continue;
+    auto k = kept.find(it.first);
+    if (k != kept.end()) {
+      left += (left.empty() ? "" : "; ") + n.cfg->label() + " (" + k->second + ")";
+      continue;
+    }
     Command(stop ? NmtCommand::STOP : NmtCommand::ENTER_PREOP, static_cast<uint8_t>(it.first));
     ++sent;
   }
+  if (!left.empty()) log_info("PLC stop: left running for their PDO links: %s", left.c_str());
   if (sent)
     log_info("PLC stop: NMT %s to %u node%s (master.on_plc_stop \"%s\")",
              stop ? "STOP" : "ENTER PRE-OPERATIONAL", sent, sent == 1 ? "" : "s", stop ? "stop" : "preop");
@@ -1300,6 +1319,18 @@ void Network::ApplyOutputsGate() {
   }
 }
 
+// A lost node that produces for PDO links: its consumers get no more data
+// (canopen-pdo-links "Link nodes lost or rebooted"). Logged once per loss.
+static void log_link_loss(const Config& cfg, unsigned id) {
+  for (const auto& l : cfg.links) {
+    if (l.producer != id) continue;
+    std::string to;
+    for (const auto& c : l.consumers)
+      to += (to.empty() ? "" : ", ") + std::string("node ") + std::to_string(c.node) + " RPDO " + std::to_string(c.rpdo);
+    log_info("node %u lost: %s feeds %s, which get no data until it is back", id, l.label().c_str(), to.c_str());
+  }
+}
+
 void Network::OnHeartbeat(uint8_t id, bool occurred) noexcept {
   BasicMaster::OnHeartbeat(id, occurred);
   Defer([this, id, occurred] { HandleHeartbeat(id, occurred); });
@@ -1321,6 +1352,7 @@ void Network::HandleHeartbeat(uint8_t id, bool occurred) {
                 it->second.cfg->heartbeat_timeout_ms);
     else
       log_error("%s lost: no heartbeat within 3 x its EDS heartbeat period", it->second.cfg->label().c_str());
+    log_link_loss(cfg_, id);
     Update(id, "heartbeat timeout");
     SetState(id, kStateNoContact);
     ScheduleRetry(it->second);
@@ -1346,6 +1378,7 @@ void Network::HandleNodeGuarding(uint8_t id, bool occurred) {
       diag_->push_event(e);
     }
     log_error("%s lost: no node guarding response", it->second.cfg->label().c_str());
+    log_link_loss(cfg_, id);
     Update(id, "node guarding timeout");
     SetState(id, kStateNoContact);
     ScheduleRetry(it->second);

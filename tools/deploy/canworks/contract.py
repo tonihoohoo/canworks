@@ -18,6 +18,7 @@ from . import axis as axis_mod
 from . import bridgecheck
 from . import eds as eds_mod
 from . import edslint
+from . import links as links_mod
 from .eds import sync_needed_message, transmission_needs_sync
 from .iec import CO_TYPES, parse_location, type_fits, SIZE_BITS
 from .raw import contract as raw_contract
@@ -186,6 +187,8 @@ def network_config(cfg, name=None):
     if not net["path"]:
         return cfg
     out = {"schema_version": 1, "adapter": net["adapter"], "master": dict(net["master"]), "nodes": net["nodes"]}
+    if "links" in net["json"]:
+        out["links"] = net["json"]["links"]
     if isinstance(cfg.get("diagnostics"), dict):
         out["master"]["diagnostics"] = cfg["diagnostics"]
     return out
@@ -635,11 +638,14 @@ def auto_cob_ids(nodes):
     return out
 
 
-def sdo_override(node, entry, data):
+def sdo_override(node, entry, data, linked_rpdos=()):
     """What a startup SDO overrides among the settings the plugin writes for
-    the node (the same rule as the plugin's warning), or None."""
+    the node (the same rule as the plugin's warning), or None.
+    `linked_rpdos`: the node's PDO link consumer RPDOs."""
     index, sub = entry["index"], entry["subindex"]
     value = int.from_bytes(data or b"", "little")
+    if 0x1400 <= index <= 0x17FF and (index & 0x1FF) + 1 in linked_rpdos:
+        return "the consumer RPDO of a PDO link ('links')"
     if 0x1400 <= index <= 0x1BFF:
         return "the PDO settings (the plugin sets up every PDO of the node)"
     if sub == 0 and index == 0x1017 and "heartbeat_ms" in node and value != _uint(node["heartbeat_ms"]):
@@ -653,6 +659,8 @@ def sdo_override(node, entry, data):
         return "time_cob_id"
     if index == 0x1016 and "heartbeat_consumer" in node:
         return "heartbeat_consumer"
+    if index == 0x1016 and node.get("heartbeat_watch"):
+        return "heartbeat_watch"
     if index == 0x1011 and "restore_configuration" in node and sub == _uint(node["restore_configuration"]):
         return "restore_configuration"
     if index == 0x1029 and isinstance(node.get("error_behavior"), dict):
@@ -1018,6 +1026,9 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
         elif "slave" in net:
             err(prefix, "field 'slave' belongs to a slave network: give the network \"role\": \"slave\" (a master "
                         "network has 'master' and 'nodes')", [prefix + ".slave"])
+        if "links" in net and role != "master":
+            err(prefix, "field 'links' needs a CANopen master network; this is a %s network"
+                % {"j1939": "J1939", "plain": "plain CAN", "slave": "slave"}[role], [prefix + ".links"])
         for key in ("interface", "bitrate"):
             if key in net:
                 err(prefix, "field '%s' belongs in 'adapter' in schema_version 2" % key, [prefix + "." + key])
@@ -1412,6 +1423,12 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             err("", "field 'nodes' lists no slave nodes (an empty list needs %s, for a scan-only configuration)"
                 % ("master.diagnostics" if version == 1 else "a top-level 'diagnostics'"), ["nodes"])
             continue
+        if re.match(r"^links\[\d+\]\.to\[\d+\]\.entries\[\d+\]$", where) and e.validator == "not":
+            full_path = (prefix + "." if prefix else "") + where + ".iec_location"
+            err(where.replace(".", ": "), "field 'iec_location' (%s) does not belong to a link consumer's entry: the "
+                                          "consumer receives the value from the producer, not from the PLC"
+                % full_path, [where + ".iec_location"])
+            continue
         pdo_msg = _pdo_schema_message(cfg, list(rel), e)
         if pdo_msg:
             err(pdo_msg[0], pdo_msg[1], [where])
@@ -1494,11 +1511,15 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         warn("master", "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until it is "
                        "started", ["master.start"])
     master_hb = _uint(master.get("heartbeat_ms", 0)) or 0
+    links = links_mod.parse(cfg)
+    linked_tx = {(l["producer"], l["tpdo"]) for l in links}
+    linked_rx = links_mod.linked_rpdos(cfg)
     nodes = []
     seen = {}
     for i, n in enumerate(cfg["nodes"]):
         node = {"node_id": _uint(n["node_id"]), "name": n.get("name", ""), "eds": n["eds"],
                 "tx_pdos": [], "rx_pdos": [], "sdo": [], "sdo_variables": [],
+                "heartbeat_consumer": n.get("heartbeat_consumer") is True,
                 "config_check": n.get("config_check") is True, "no_sync": not sync_period}
         label = "node %d" % node["node_id"] + (" (%s)" % node["name"] if node["name"] else "")
         w = "nodes[%d]" % i
@@ -1590,10 +1611,11 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     entry = {"index": _uint(e["index"]), "subindex": _uint(e.get("subindex", 0)), "type": e["type"]}
                     loc = parse_location(e.get("iec_location"))
                     if loc is None:
-                        if (net_name, node["node_id"], entry["index"], entry["subindex"]) not in routed:
+                        if (net_name, node["node_id"], entry["index"], entry["subindex"]) not in routed and not (
+                                key == "tx_pdos" and (node["node_id"], pdo["number"]) in linked_tx):
                             err("%s: entries[%d]" % (pw, k),
-                                "%s, object 0x%04X:%d: missing 'iec_location' (only an entry a gateway route uses "
-                                "may leave it out)" % (label, entry["index"], entry["subindex"]),
+                                "%s, object 0x%04X:%d: missing 'iec_location' (only an entry a gateway route or a PDO "
+                                "link uses may leave it out)" % (label, entry["index"], entry["subindex"]),
                                 ["%s.%s[%d].entries[%d]" % (w, key, j, k)])
                     elif not type_fits(e["type"], loc.size):
                         err("%s: entries[%d]" % (pw, k),
@@ -1615,7 +1637,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     ["%s.sdo[%d].value" % (w, j)])
             entry["value"] = data
             node["sdo"].append(entry)
-            over = None if problem else sdo_override(n, entry, data)
+            over = None if problem else sdo_override(n, entry, data, linked_rx.get(node["node_id"], ()))
             if over:
                 warn(label, "startup SDO to 0x%04X subindex %d runs last and overrides %s"
                      % (entry["index"], entry["subindex"], over), ["%s.sdo[%d]" % (w, j)])
@@ -1635,9 +1657,19 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             node["sdo_variables"].append(entry)
         nodes.append(node)
 
+    # PDO links and heartbeat watch: the rules between nodes (plugin:
+    # check_links, check_heartbeat_watch).
+    links_mod.check_rules(links, nodes, sync_period, err)
+    links_mod.check_watch_rules(cfg["nodes"], nodes, master_id, err)
+
     # "auto" COB-IDs, as the plugin resolves them.
     for (i, key, j), cob in auto_cob_ids(nodes).items():
         nodes[i][key][j]["cob_id"] = cob
+    for l in links:
+        p = next((n for n in nodes if n["node_id"] == l["producer"]), None)
+        t = next((t for t in p["tx_pdos"] if t["number"] == l["tpdo"]), None) if p else None
+        if t is not None:
+            l["cob_id"] = t["cob_id"] if isinstance(t.get("cob_id"), int) else t["default_cob_id"]
 
     # Two PDOs on one COB-ID collide on the bus (plugin: add_cob), whether
     # the COB-ID is set, "auto" or the default.
@@ -1651,6 +1683,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 if cob is None:
                     continue
                 who, at = "%s %s %d" % (label, kind, pdo["number"]), "nodes[%d].%s[%d].cob_id" % (i, key, j)
+                if key == "tx_pdos":
+                    who += "".join(" (%s)" % l["label"] for l in links
+                                   if l["producer"] == node["node_id"] and l["tpdo"] == pdo["number"])
                 if cob in cobs:
                     err("nodes", "%s and %s both use COB-ID 0x%03X" % (who, cobs[cob][0], cob), [at, cobs[cob][1]])
                 else:
@@ -1665,6 +1700,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
     # EDS checks, node by node. Their warnings (objects a device mapping
     # sends as 0) only matter for a config that is accepted.
     eds_warnings = []
+    eds_by_id = {}
     lint_mode = edslint.effective_mode(master)
     for i, node in enumerate(nodes):
         w = "nodes[%d]" % i
@@ -1687,6 +1723,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         except eds_mod.EdsError as e:
             add("error", "node %d: EDS file %s cannot be parsed: %s" % (node["node_id"], file, e), [w + ".eds"])
             continue
+        eds_by_id.setdefault(node["node_id"], eds)
         messages, where, warnings = [], [], []
         eds_mod.check_node(node, eds, messages, where, warnings)
         src = cfg["nodes"][i]
@@ -1730,6 +1767,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             add("error", "%s and %s have the same LSS address (vendor ID 0x%08X, product code 0x%08X, serial "
                   "number 0x%08X)" % (labels[0], labels[1], p["vendor_id"], p["product_code"], p["serial_number"]),
                   ["nodes[%d].lss" % i, "nodes[%d].lss" % j])
+    # Heartbeat watch and PDO links against the EDS files (plugin: eds_check.cpp).
+    links_mod.resolve_watch(cfg["nodes"], nodes, eds_by_id, master, add)
+    links_mod.check_eds([l for l in links if "cob_id" in l], nodes, eds_by_id, sync_period, add, eds_warnings)
     if len(r.errors) == before:
         for msg, at in eds_warnings:
             add("warning", msg, [at])

@@ -56,8 +56,8 @@ UNEXPECTED_ERROR = "The configurator hit an error; see its terminal."
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
-    "": ["$schema", "schema_version", "adapter", "master", "nodes", "networks", "gateway", "bridge", "diagnostics", "cia309"],
-    "network": ["name", "protocol", "role", "adapter", "master", "nodes", "slave", "j1939"],
+    "": ["$schema", "schema_version", "adapter", "master", "nodes", "links", "networks", "gateway", "bridge", "diagnostics", "cia309"],
+    "network": ["name", "protocol", "role", "adapter", "master", "nodes", "links", "slave", "j1939"],
     "adapter": ["type", "simulate", "interface", "bitrate", "configure_link", "restart_ms"],
     "master": ["node_id", "sync_period_us", "heartbeat_ms", "eds_lint", "strict_eds", "bus_state_location",
                "tx_error_count_location", "rx_error_count_location", "bus_off_count_location", "state_location",
@@ -70,7 +70,8 @@ ORDER = {
              "life_time_factor",
              "status_location", "state_location", "boot_error_location", "emcy_code_location",
              "error_register_location", "nmt_command_location", "mandatory", "boot",
-             "reset_communication", "revision_number", "serial_number", "lss", "heartbeat_consumer", "retry_factor",
+             "reset_communication", "revision_number", "serial_number", "lss", "heartbeat_consumer", "heartbeat_watch",
+             "retry_factor",
              "time_cob_id", "error_behavior", "restore_configuration", "config_check", "store_configuration",
              "software_file", "software_version",
              "tx_pdos", "rx_pdos", "sdo", "sdo_variables"],
@@ -353,7 +354,7 @@ def eds_summary(eds, path=None):
                              for v in m["defaults"]]}
     # [DeviceInfo]: identity and LSS_Supported.
     return {"objects": objects, "pdo_count": {"input": eds.pdo_count("input"), "output": eds.pdo_count("output")},
-            "pdo_maps": pdo_maps, "device": eds_mod.device_info(path) if path else None}
+            "pdo_maps": pdo_maps, "dummy": sorted(eds.dummy), "device": eds_mod.device_info(path) if path else None}
 
 
 def utf8_eds(data):

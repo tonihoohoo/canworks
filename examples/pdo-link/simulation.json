@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "nodes": {
+    "10": {
+      "sources": {
+        "0x6401:1": {
+          "triangle": {
+            "min": -1000,
+            "max": 1000,
+            "period_s": 4
+          }
+        },
+        "0x6401:2": {
+          "constant": 0
+        }
+      }
+    },
+    "20": {
+      "sources": {
+        "0x6401:1": {
+          "expr": "[0x6411:1]"
+        }
+      }
+    }
+  }
+}

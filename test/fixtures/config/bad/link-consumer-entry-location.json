@@ -1,0 +1,105 @@
+{
+  "description": "A link consumer entry with an iec_location (canopen-pdo-links).",
+  "config": {
+    "schema_version": 1,
+    "adapter": {
+      "type": "socketcan",
+      "interface": "vcan0",
+      "bitrate": 125000
+    },
+    "master": {
+      "node_id": 1,
+      "sync_period_us": 100000
+    },
+    "nodes": [
+      {
+        "node_id": 10,
+        "name": "stick",
+        "eds": "link-io.eds",
+        "heartbeat_ms": 100,
+        "tx_pdos": [
+          {
+            "transmission": 254,
+            "event_timer_ms": 50,
+            "entries": [
+              {
+                "index": "0x6401",
+                "subindex": 1,
+                "type": "INTEGER16",
+                "iec_location": "%IW100"
+              },
+              {
+                "index": "0x6401",
+                "subindex": 2,
+                "type": "INTEGER16"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "node_id": 20,
+        "name": "valves",
+        "eds": "link-io.eds",
+        "heartbeat_ms": 100,
+        "heartbeat_watch": [
+          {
+            "node": 10
+          }
+        ],
+        "error_behavior": {
+          "1": 0
+        },
+        "tx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x6401",
+                "subindex": 1,
+                "type": "INTEGER16",
+                "iec_location": "%IW102"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "node_id": 21,
+        "name": "fixed",
+        "eds": "fixed-io.eds",
+        "heartbeat_ms": 100
+      }
+    ],
+    "links": [
+      {
+        "name": "stick_to_valves",
+        "from": {
+          "node": 10,
+          "tpdo": 1
+        },
+        "to": [
+          {
+            "node": 20,
+            "rpdo": 2,
+            "transmission": 255,
+            "event_timer_ms": 200,
+            "entries": [
+              {
+                "index": "0x6411",
+                "subindex": 1,
+                "type": "INTEGER16",
+                "iec_location": "%QW100"
+              },
+              {
+                "index": "0x0003",
+                "subindex": 0,
+                "type": "INTEGER16"
+              }
+            ]
+          }
+        ],
+        "on_plc_stop": "keep"
+      }
+    ]
+  }
+}

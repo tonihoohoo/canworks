@@ -20,6 +20,7 @@ from jsonschema.exceptions import best_match
 
 from . import contract
 from . import eds as eds_mod
+from . import links as links_mod
 from . import simmachine as machine_mod
 from .raw import mux as raw_mux
 from .raw import signals as raw_signals
@@ -947,7 +948,7 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
                     continue
                 net = nets[names.index(name)]
                 net_cfg = {"adapter": net["adapter"], "master": net["master"], "nodes": net["nodes"],
-                           "protocol": net["protocol"]}
+                           "protocol": net["protocol"], "links": net["json"].get("links", [])}
             _check_body(body, path, net_cfg, config_path, eds_paths, s_err, s_warn, network=name,
                         raw=raw_names.get(name, raw_names.get(None, set())))
         return r
@@ -1067,6 +1068,17 @@ def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None
             dev = _Device(label, eds, value or "", cfg_node=n)
             dev.writers = _master_writers(n, eds, nid)
             devices[nid] = dev
+        # A PDO link consumer's objects are written by the producer's TPDO.
+        for link in links_mod.parse(cfg):
+            for c in link["consumers"]:
+                dev = devices.get(c["node"])
+                if dev is None or c["node"] == link["producer"]:
+                    continue
+                layout = links_mod.consumer_layout(c, dev.eds)[0] if dev.eds is not None else c["entries"]
+                for x in layout:
+                    if x["index"] >= 0x0008:
+                        dev.writers.setdefault((x["index"], x["subindex"]), "%s (RPDO %d, from node %d TPDO %d)" % (
+                            link["label"], c["rpdo"], link["producer"], link["tpdo"]))
 
     # Extra devices.
     extra_devs = []
@@ -1273,7 +1285,10 @@ def _check_source(src, obj, dev, at, devices, err, base, csv_roots=None):
         err(w, problem)
         return None
     writer = dev.writers.get((index, sub))
-    if writer:
+    if writer and writer.startswith("link "):
+        err(w, "%s: %s is written by %s; a value source cannot drive it (an override makes the device ignore the "
+               "link)" % (dev.label, object_key(index, sub), writer))
+    elif writer:
         err(w, "%s: %s is written by the master (%s); a value source cannot drive it (an override makes the device "
                "ignore the master)" % (dev.label, object_key(index, sub), writer))
     o = dev.sub(index, sub)

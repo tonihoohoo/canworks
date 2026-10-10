@@ -47,6 +47,9 @@
       "items": {
         "$ref": "#/$defs/node"
       }
+    },
+    "links": {
+      "$ref": "#/$defs/links"
     }
   },
   "required": [
@@ -718,6 +721,9 @@
           "description": "The node watches the master's heartbeat (its 0x1016). Needs master heartbeat_ms. Left out, the node's EDS entries stay.",
           "type": "boolean"
         },
+        "heartbeat_watch": {
+          "$ref": "#/$defs/heartbeat_watch"
+        },
         "retry_factor": {
           "description": "Node guarding retries (0x1F81). Default: life_time_factor.",
           "$ref": "#/$defs/u8"
@@ -1053,11 +1059,11 @@
       },
       "required": [
         "index",
-        "type",
-        "iec_location"
+        "type"
       ]
     },
     "tx_entry": {
+      "description": "iec_location may be left out only when the TPDO feeds a PDO link (links); the plugin checks that.",
       "allOf": [
         {
           "$ref": "#/$defs/entry"
@@ -1079,6 +1085,163 @@
         "iec_location": {
           "$ref": "#/$defs/output_location"
         }
+      },
+      "required": [
+        "iec_location"
+      ]
+    },
+    "links": {
+      "description": "PDO links of a CANopen master network (docs/config.md, PDO links): one node's TPDO received directly by other nodes' RPDOs (CiA 301 producer/consumer), configured by the master at boot.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/link"
+      }
+    },
+    "link": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Shown in messages and the tools. Default: link <n>, its 1-based place in the list.",
+          "type": "string",
+          "minLength": 1
+        },
+        "from": {
+          "description": "The producer: a node and one of its tx_pdos by number. The TPDO keeps all its settings in tx_pdos.",
+          "type": "object",
+          "properties": {
+            "node": {
+              "$ref": "#/$defs/node_id"
+            },
+            "tpdo": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 512
+            }
+          },
+          "required": [
+            "node",
+            "tpdo"
+          ]
+        },
+        "to": {
+          "description": "The consumers: RPDOs of other nodes, each not in that node's rx_pdos.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/link_consumer"
+          }
+        },
+        "on_plc_stop": {
+          "description": "\"follow\" (default): the link's nodes get the master's on_plc_stop command. \"keep\": they get no NMT command on PLC stop, so the link runs on.",
+          "enum": [
+            "follow",
+            "keep"
+          ]
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ]
+    },
+    "link_consumer": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "$ref": "#/$defs/node_id"
+        },
+        "rpdo": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "transmission": {
+          "$ref": "#/$defs/pdo/properties/transmission"
+        },
+        "event_timer_ms": {
+          "description": "Sub-index 5: the consumer's deadline. Left out, the EDS value stays.",
+          "$ref": "#/$defs/u16"
+        },
+        "mapping": {
+          "description": "\"device\": the consumer keeps its EDS default mapping (entries may be left out). Left out: \"device\" when the EDS makes the mapping read-only, else the mapping is written from entries.",
+          "enum": [
+            "config",
+            "device"
+          ]
+        },
+        "entries": {
+          "description": "The consumer's own objects in frame order, one per producer entry with the same size; a dummy entry (index 0x0001-0x0007) skips a position.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/link_entry"
+          }
+        }
+      },
+      "required": [
+        "node",
+        "rpdo"
+      ],
+      "if": {
+        "not": {
+          "properties": {
+            "mapping": {
+              "const": "device"
+            }
+          },
+          "required": [
+            "mapping"
+          ]
+        }
+      },
+      "then": {
+        "required": [
+          "entries"
+        ]
+      }
+    },
+    "link_entry": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "$ref": "#/$defs/index"
+        },
+        "subindex": {
+          "$ref": "#/$defs/subindex"
+        },
+        "type": {
+          "$ref": "#/$defs/co_type"
+        }
+      },
+      "required": [
+        "index",
+        "type"
+      ],
+      "not": {
+        "required": [
+          "iec_location"
+        ]
+      }
+    },
+    "heartbeat_watch": {
+      "description": "Heartbeat consumer entries (0x1016) the master writes into this node, so it watches other nodes of the network itself (docs/config.md).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "node": {
+            "$ref": "#/$defs/node_id"
+          },
+          "timeout_ms": {
+            "description": "Default: the watched node's heartbeat timeout as the master uses it (heartbeat_timeout_ms, else three times its heartbeat period).",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "node"
+        ]
       }
     },
     "sdo": {
