@@ -1275,6 +1275,7 @@ void Network::ServiceHost() {
 }
 
 void Network::SyncOutputsGate() {
+  if (nodes_stopped_) return;  // StopNodes turned every TPDO off for good
   bool gate = outputs_enabled();
   if (gate == outputs_on_) return;
   outputs_on_ = gate;
