@@ -10,6 +10,9 @@
 // arbitrary-address-capable ECU moves to the next free address of its range;
 // otherwise, or with the range used up, it sends Cannot Claim and stays
 // silent. A contending claim from a higher NAME is answered with our claim.
+// A Request for Address Claimed is answered with Cannot Claim after a
+// pseudo-random delay of 0-153 ms (J1939-81), drawn from a generator seeded
+// with the NAME, so ECUs that cannot claim do not all answer at once.
 
 #ifndef CANWORKS_J1939_ADDRESS_CLAIM_H
 #define CANWORKS_J1939_ADDRESS_CLAIM_H
@@ -26,6 +29,7 @@ class AddressClaimer {
  public:
   using clock = std::chrono::steady_clock;
   static constexpr std::chrono::milliseconds kClaimWait{250};
+  static constexpr unsigned kCannotClaimDelayMaxMs = 153;
 
   class Actions {
    public:
@@ -45,7 +49,7 @@ class AddressClaimer {
   // An Address Claimed (or Cannot Claim, from 254) from another ECU.
   void on_claim(uint8_t source, uint64_t name, clock::time_point now);
   // A Request for Address Claimed to global or to our address.
-  void on_claim_request();
+  void on_claim_request(clock::time_point now);
   // Runs what is due; call at least every few milliseconds.
   void tick(clock::time_point now);
 
@@ -63,6 +67,8 @@ class AddressClaimer {
   int next_free(int from) const;
   void claim(uint8_t address, clock::time_point now);
   void cannot_claim();
+  // The next pseudo-random Cannot Claim delay.
+  std::chrono::milliseconds cannot_claim_delay();
 
   const J1939Ecu& ecu_;
   Actions& actions_;
@@ -73,6 +79,9 @@ class AddressClaimer {
   uint8_t address_ = kJ1939NullAddress;
   clock::time_point deadline_{};
   std::map<uint8_t, uint64_t> claims_;
+  uint64_t random_;  // generator state, seeded with the NAME
+  bool cannot_claim_due_ = false;
+  clock::time_point cannot_claim_at_{};
 };
 
 const char* j1939_claim_state_name(J1939ClaimState s);

@@ -5,6 +5,7 @@
 namespace canopen_plugin {
 
 constexpr std::chrono::milliseconds AddressClaimer::kClaimWait;  // C++14: odr-used
+constexpr unsigned AddressClaimer::kCannotClaimDelayMaxMs;
 
 const char* j1939_claim_state_name(J1939ClaimState s) {
   switch (s) {
@@ -17,10 +18,20 @@ const char* j1939_claim_state_name(J1939ClaimState s) {
 }
 
 AddressClaimer::AddressClaimer(const J1939Ecu& ecu, Actions& actions)
-    : ecu_(ecu), actions_(actions), name_(ecu.name.value()) {}
+    : ecu_(ecu), actions_(actions), name_(ecu.name.value()), random_(name_) {}
+
+std::chrono::milliseconds AddressClaimer::cannot_claim_delay() {
+  // splitmix64
+  uint64_t z = (random_ += 0x9E3779B97F4A7C15ULL);
+  z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+  z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+  z ^= z >> 31;
+  return std::chrono::milliseconds(z % (kCannotClaimDelayMaxMs + 1));
+}
 
 void AddressClaimer::start(clock::time_point now) {
   claims_.clear();
+  cannot_claim_due_ = false;
   state_ = J1939ClaimState::Claiming;
   collecting_ = true;
   has_address_ = false;
@@ -30,6 +41,7 @@ void AddressClaimer::start(clock::time_point now) {
 }
 
 void AddressClaimer::bus_lost() {
+  cannot_claim_due_ = false;
   state_ = J1939ClaimState::NoBus;
   collecting_ = false;
   has_address_ = false;
@@ -90,14 +102,23 @@ void AddressClaimer::on_claim(uint8_t source, uint64_t name, clock::time_point n
   claim(static_cast<uint8_t>(next), now);
 }
 
-void AddressClaimer::on_claim_request() {
-  if (state_ == J1939ClaimState::CannotClaim)
-    actions_.send_claim(kJ1939NullAddress);
-  else if (has_address_ && !collecting_)
+void AddressClaimer::on_claim_request(clock::time_point now) {
+  if (state_ == J1939ClaimState::CannotClaim) {
+    // One answer per wait; requests meanwhile are answered by it.
+    if (!cannot_claim_due_) {
+      cannot_claim_due_ = true;
+      cannot_claim_at_ = now + cannot_claim_delay();
+    }
+  } else if (has_address_ && !collecting_) {
     actions_.send_claim(address_);
+  }
 }
 
 void AddressClaimer::tick(clock::time_point now) {
+  if (cannot_claim_due_ && now >= cannot_claim_at_) {
+    cannot_claim_due_ = false;
+    if (state_ == J1939ClaimState::CannotClaim) actions_.send_claim(kJ1939NullAddress);
+  }
   if (state_ != J1939ClaimState::Claiming || now < deadline_) return;
   if (collecting_) {
     collecting_ = false;

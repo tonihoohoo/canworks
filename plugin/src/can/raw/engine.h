@@ -36,9 +36,12 @@ class RawEngine {
   void set_plc_running(bool running, uint64_t now_us);
   // The latest output values, in output_locations() order.
   void set_outputs(const uint64_t* values, uint64_t now_us);
-  // Appends the frames due now; `tx_index` gets each frame's entry.
+  // Appends the frames due now; `tx_index` gets each frame's entry. Report
+  // each with sent() before the next due().
   void due(uint64_t now_us, std::vector<canworks_can_frame>& frames, std::vector<size_t>& tx_index);
-  // Records that an entry's frame was written (or failed with errno).
+  // Records that an entry's frame was written (or failed with errno). Only a
+  // written frame counts as sent: after a failure an on-change or trigger
+  // send stays pending, and a periodic one waits for its next period.
   void sent(size_t tx_index, uint64_t now_us, int error);
   // Microseconds until the next send or timeout (UINT64_MAX: nothing).
   uint64_t next_event_in(uint64_t now_us) const;
@@ -82,6 +85,7 @@ class RawEngine {
     bool trigger_pending = false;
     bool prev_trigger = false;
     std::vector<uint64_t> sent_values;
+    std::vector<uint64_t> building;  // the values of the frame due() gave, until sent()
     bool has_sent = false;
   };
   int add_in(const IecLocation& l);

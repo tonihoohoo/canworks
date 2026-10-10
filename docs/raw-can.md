@@ -83,6 +83,8 @@ Identifiers are numbers in the file (the configurator shows and takes hex). `ext
 
 A `tx` message needs at least one of `period_ms`, `on_change` or `trigger_location`. Sending starts when the PLC runs and stops when it stops.
 
+A send the interface refuses (its transmit queue is full, or it is down) does not count as sent. An on-change or trigger send stays pending and goes out with the current values on a later 1 ms tick, still no more often than `min_gap_ms`. A refused periodic send waits for its next period; missed periods are not sent in a burst.
+
 ### Signals
 
 | Field | Meaning |
