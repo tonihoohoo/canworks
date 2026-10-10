@@ -1,7 +1,7 @@
 # j1939-plc-diagnostics Specification
 
 ## Purpose
-TBD - created by archiving change add-j1939-diagnostics. Update Purpose after archive.
+The PLC library blocks and functions for J1939 trouble codes (`J1939_DM_READ`, `J1939_DM_CLEAR`, `J1939_DTC_SPLIT`, `J1939_DTC_MAKE`) and the plugin interface `canworks_j1939_api(1)` behind them.
 
 ## Requirements
 

@@ -1,7 +1,7 @@
 # j1939-diagnostics Specification
 
 ## Purpose
-TBD - created by archiving change add-j1939-diagnostics. Update Purpose after archive.
+J1939-73 trouble codes on a J1939 network: the `diagnostics` config, other ECUs' DM1 codes and lamps mapped to the program, the PLC's own DM1, the answers to DM1, DM2, DM3, DM11 and DM22 requests, and DM13.
 
 ## Requirements
 
