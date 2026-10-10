@@ -2420,7 +2420,7 @@ class Parser {
     }
     BridgeConfig& c = set.bridge;
     c.enabled = true;
-    check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "writers", "readers", "watchdog_ms",
+    check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers", "readers", "watchdog_ms",
                        "on_client_loss", "status_location", "control_location", "live_lists",
                        "sdo_bridge_location", "sdo_bridge_write"});
     if (get_string(b, "listen", w, true, c.listen)) {
@@ -2448,6 +2448,10 @@ class Parser {
     if (get_uint(b, "max_clients", w, false, 64, v)) {
       if (v < 1) error(w, "field 'max_clients' must be 1-64");
       c.max_clients = (unsigned)v;
+    }
+    if (get_uint(b, "max_clients_per_address", w, false, 64, v)) {
+      if (v < 1) error(w, "field 'max_clients_per_address' must be 1-64");
+      c.max_clients_per_address = (unsigned)v;
     }
     for (const char* key : {"writers", "readers"}) {
       const cJSON* list = cJSON_GetObjectItemCaseSensitive(b, key);
