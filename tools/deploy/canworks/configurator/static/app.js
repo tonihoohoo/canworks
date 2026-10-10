@@ -3362,7 +3362,14 @@ function adapterForm(view) {
     title: "Listen at each bit rate without sending anything, and pick the one with traffic",
     onclick: async () => {
       const alone = lone.querySelector("input").checked;
-      if (alone && !(await askLone())) return;
+      if (alone) {
+        // The server checks it too: allow changes, a bit rate to listen at
+        // first, and at most one device heard.
+        if (!allow.checked) { detectMsg.textContent = "The lone-device sweep joins the bus at every rate: tick Allow changes first."; allow.focus(); return; }
+        if (!rate.value) { detectMsg.textContent = "Pick a bit rate first: the lone-device sweep listens at it to check that only one device is on the bus."; rate.focus(); return; }
+        if (!(await askLone())) return;
+        if (!(await saveOnline({ allow_changes: true }))) return;
+      }
       adapterDetect(input, rate, detect, detectMsg, false, alone);
     } }, "Detect");
   view.append(el("fieldset", null, el("legend", null, "Connect"), targetChoice(),

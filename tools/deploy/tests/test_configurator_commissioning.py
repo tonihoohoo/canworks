@@ -173,7 +173,39 @@ class PdoTestRoutes(AdapterTarget):
 
 
 class LoneDetect(AdapterTarget):
+    """The connection form's lone-device sweep goes through the guards of
+    canworks-diag's (localbus/client.py _lone_fields), whatever the page sends."""
+
+    def detect(self, **body):
+        return self.request("POST", "/api/online/adapter_detect",
+                            dict({"adapter": "virtual:" + self.ch, "adapter_bitrate": 250, "lone_device": True}, **body))
+
+    def test_two_devices_refused(self):
+        devices = [self.device(5, heartbeat_s=0.01), self.device(7, heartbeat_s=0.01)]
+        self.ok("POST", "/api/online/settings", {"allow_changes": True})
+        status, data, _ = self.detect()
+        self.assertEqual(status, 422, data)
+        self.assertIn("more than one node is on the bus (heard nodes 5, 7", data["error"])
+        self.assertIsNone(self.server.adapter_sweep)
+        time.sleep(0.1)
+        for d in devices:
+            self.assertEqual([m for m in d.received if m.arbitration_id not in (0x705, 0x707)], [], "nothing sent")
+
+    def test_needs_allow_changes(self):
+        status, data, _ = self.detect()
+        self.assertEqual(status, 422, data)
+        self.assertIn("changes not allowed", data["error"])
+        self.assertIsNone(self.server.adapter_sweep)
+
+    def test_needs_a_bit_rate_to_listen_at(self):
+        self.ok("POST", "/api/online/settings", {"allow_changes": True})
+        status, data, _ = self.detect(adapter_bitrate=0)
+        self.assertEqual(status, 422, data)
+        self.assertIn("bit rate", data["error"])
+        self.assertIsNone(self.server.adapter_sweep)
+
     def test_connection_form_lone_device(self):
+        self.ok("POST", "/api/online/settings", {"allow_changes": True})
         r = self.ok("POST", "/api/online/adapter_detect", {"adapter": "virtual:" + self.ch, "adapter_bitrate": 250,
                                                            "lone_device": True})
         self.assertTrue(r["lone_device"])

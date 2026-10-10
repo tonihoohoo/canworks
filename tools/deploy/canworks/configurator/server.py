@@ -2301,6 +2301,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         kbit = body.get("adapter_bitrate")
         self.server.connection.close()
         self.server.sender.close()
+        if body.get("lone_device") is True:
+            self._lone_guard(spec, kbit)
         job = sweep_mod.Sweep(spec, rounds=rounds, configured_kbit=kbit if isinstance(kbit, int) else None,
                               disturb_bus=body.get("disturb_bus") is True, lone_device=body.get("lone_device") is True,
                               probe="lss" if body.get("lone_device") is True else None)
@@ -2310,6 +2312,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise ApiError(422, str(e), kind=e.kind, disturb_bus=e.kind == "unconfirmed")
         self.server.adapter_sweep = job
         return dict(job.status(), adapter=str(spec))
+
+    def _lone_guard(self, spec, kbit):
+        """The lone-device sweep joins the bus at every rate: the guards of
+        canworks-diag's (allow changes on, no other master, at most one node
+        heard), checked here whatever the page sends. The adapter listens at
+        the picked bit rate first."""
+        from .. import localbus
+        from ..localbus import client as client_mod
+        if isinstance(kbit, bool) or not isinstance(kbit, int) or not 10 <= kbit <= 1000:
+            raise ApiError(422, "pick a bit rate first: the lone-device sweep listens at it to check that only "
+                                "one device is on the bus")
+        handle = localbus.LocalBus(spec, kbit * 1000, allow_changes=self.server.adapter_allow)
+        try:
+            handle.connect()
+            client_mod._lone_fields(handle, {"lone_device": True})
+        except diag.DiagError as e:
+            raise ApiError(422, str(e).replace("start with --allow-changes", "tick Allow changes"))
+        finally:
+            handle.close()
 
     def _send_frames(self, route, body, where, network):
         """/api/online/send_frame, send_stop and send_jobs: the Trace view's
