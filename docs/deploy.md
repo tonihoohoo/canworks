@@ -25,7 +25,7 @@ canworks-deploy \
     --fingerprint 3A:5F:...:C2
 ```
 
-Instead of `--bundle`, `--project <project>` runs `openplc-cli compile <project> --target "OpenPLC Runtime v4"` first and uses the same output directory (`--target` picks another runtime v4 board; `$OPENPLC_CLI` names the `openplc-cli` program).
+Instead of `--bundle`, `--project <project>` runs `openplc-cli compile <project> --target "OpenPLC Runtime v4"` first and uses the same output directory (`--target` picks another runtime v4 board; `$OPENPLC_CLI` names the `openplc-cli` program). On Windows `openplc-cli` is a `.cmd` file, which reads `&`, `|`, `^`, `%`, `<`, `>` and `"` as commands, so a project or editor path with one of them is refused before anything runs (this also holds for `--new-project`); move or rename the folder.
 
 The tool:
 

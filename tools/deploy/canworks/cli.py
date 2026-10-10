@@ -192,6 +192,9 @@ def build_project(project, target, out):
     project = os.path.abspath(project)
     cli = editorproject.cli_program()
     cmd = (editorproject.cli_command(cli) or [cli]) + ["compile", project, "--target", target, "--no-json"]
+    unsafe = editorproject.unsafe_for_cmd(cmd)
+    if unsafe:
+        raise Failure(unsafe)
     out("$ " + " ".join('"%s"' % c if " " in c else c for c in cmd))
     try:
         rc = subprocess.call(cmd)
