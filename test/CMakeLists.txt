@@ -20,6 +20,21 @@ target_compile_definitions(can_raw_tests PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")
 target_link_libraries(can_raw_tests PRIVATE canopen_core)
 add_test(NAME can_raw_tests COMMAND can_raw_tests)
 
+# The PLC frame port from four PLC tasks at once (can-plc-frames). Built from
+# plc_frames.cpp alone so that -DCANWORKS_TSAN=ON (the weekly workflow)
+# instruments the port: cmake --build <dir> --target can_frames_stress.
+option(CANWORKS_TSAN "Build can_frames_stress with ThreadSanitizer" OFF)
+find_package(Threads REQUIRED)
+add_executable(can_frames_stress can_raw/frames_stress.cpp ${PROJECT_SOURCE_DIR}/plugin/src/can/raw/plc_frames.cpp)
+target_include_directories(can_frames_stress PRIVATE common ${PROJECT_SOURCE_DIR}/plugin/src)
+target_link_libraries(can_frames_stress PRIVATE Threads::Threads)
+if(CANWORKS_TSAN)
+  # TSan does not model fences; the port only fences over atomic data.
+  target_compile_options(can_frames_stress PRIVATE -fsanitize=thread -g -O1 $<$<CXX_COMPILER_ID:GNU>:-Wno-tsan>)
+  target_link_options(can_frames_stress PRIVATE -fsanitize=thread)
+endif()
+add_test(NAME can_frames_stress COMMAND can_frames_stress)
+
 # Everything below is CANopen (CANWORKS_WITH_CANOPEN).
 if(NOT CANWORKS_WITH_CANOPEN)
   return()
