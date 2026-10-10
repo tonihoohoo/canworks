@@ -638,6 +638,108 @@ def auto_cob_ids(nodes):
     return out
 
 
+# CiA 301 restricted CAN-IDs, which no EMCY COB-ID may use.
+RESTRICTED_CAN_IDS = ((0x000, 0x000), (0x001, 0x07F), (0x101, 0x180), (0x581, 0x5FF), (0x601, 0x67F),
+                      (0x6E0, 0x6FF), (0x701, 0x7FF))
+EMCY_COB_ID_KINDS = ("device", "eds")
+
+
+def restricted_can_id(cob):
+    return any(lo <= cob <= hi for lo, hi in RESTRICTED_CAN_IDS)
+
+
+def configured_emcy_cob_id(n, sdo_entries=None):
+    """A node's configured EMCY COB-ID, as the plugin takes it: (value,
+    "emcy_cob_id") for a number in emcy_cob_id, else (value, "startup SDO",
+    index in `sdo`) for the last startup SDO to 0x1014 sub-index 0 with bit
+    31 clear, else None. `n` is the node as written; `sdo_entries` the
+    parsed startup SDOs ({index, subindex, value bytes}), else parsed here."""
+    v = n.get("emcy_cob_id")
+    if v is not None and v not in EMCY_COB_ID_KINDS and _uint(v) is not None:
+        return _uint(v), "emcy_cob_id", None
+    if sdo_entries is None:
+        sdo_entries = []
+        for s in n.get("sdo") or []:
+            if not isinstance(s, dict) or s.get("type") not in CO_TYPES:
+                sdo_entries.append(None)
+                continue
+            sdo_entries.append({"index": _uint(s.get("index")), "subindex": _uint(s.get("subindex", 0)),
+                                "value": sdo_value(s.get("value"), s["type"])[0]})
+    found = None
+    for j, s in enumerate(sdo_entries):
+        if s and s["index"] == 0x1014 and s["subindex"] == 0 and s["value"] is not None:
+            found = (int.from_bytes(s["value"], "little"), j)
+    if found is None or found[0] & 0x80000000:
+        return None
+    return found[0], "startup SDO", found[1]
+
+
+def check_emcy_cob_ids(raw_nodes, nodes, master, master_id, err):
+    """The plugin's load-time checks of the nodes' EMCY COB-IDs (in order,
+    the first that fails gives the node's one error): the field's type, bit
+    31, 11 bits, a restricted CAN-ID, and a clash with SYNC, TIME, the
+    master's EMCY, another node's EMCY or a PDO. `nodes` are the parsed
+    nodes with resolved PDO COB-IDs."""
+    def label_of(node):
+        return "node %d" % node["node_id"] + (" (%s)" % node["name"] if node["name"] else "")
+
+    configured = []
+    for i, (n, node) in enumerate(zip(raw_nodes, nodes)):
+        v = n.get("emcy_cob_id")
+        if v is not None and v not in EMCY_COB_ID_KINDS and (isinstance(v, (dict, list)) or _uint(v) is None):
+            err("nodes[%d]" % i, "%s: field 'emcy_cob_id' must be \"device\", \"eds\" or a COB-ID" % label_of(node),
+                ["nodes[%d].emcy_cob_id" % i])
+            configured.append(False)
+            continue
+        configured.append(configured_emcy_cob_id(n, node["sdo"]))
+    static = [c[0] if c else 0x80 + node["node_id"] for c, node in zip(configured, nodes)]
+    time_cob = (_uint(master.get("time_cob_id", 0x100)) or 0) & 0x7FF
+    for i, (c, node) in enumerate(zip(configured, nodes)):
+        if not c:
+            continue
+        cob, source, j = c
+        label = label_of(node)
+        at = ["nodes[%d].emcy_cob_id" % i] if source == "emcy_cob_id" else ["nodes[%d].sdo[%d]" % (i, j)]
+
+        def fail(msg):
+            err("nodes[%d]" % i, "%s: %s" % (label, msg), at)
+
+        if source == "emcy_cob_id" and cob & 0x80000000:
+            fail("emcy_cob_id 0x%08X has bit 31 set (EMCY not valid); give the COB-ID the device sends on" % cob)
+            continue
+        text = ("0x%03X" if cob <= 0x7FF else "0x%X") % cob
+        what = "emcy_cob_id %s" % text if source == "emcy_cob_id" else \
+            "EMCY COB-ID %s from the startup SDO to 0x1014" % text
+        if cob > 0x7FF:
+            fail("%s is not an 11-bit CAN-ID (29-bit EMCY COB-IDs are not supported)" % what)
+            continue
+        if restricted_can_id(cob):
+            fail("%s is a restricted CAN-ID (CiA 301)" % what)
+            continue
+        who = None
+        if cob == 0x080:
+            who = "SYNC"
+        elif cob == time_cob:
+            who = "TIME"
+        elif master_id is not None and cob == 0x80 + master_id:
+            who = "the master's EMCY"
+        else:
+            for k, other in enumerate(nodes):
+                if k != i and static[k] == cob:
+                    who = "the EMCY of %s" % label_of(other)
+                    break
+        if who is None:
+            for other in nodes:
+                for key, kind in (("tx_pdos", "TPDO"), ("rx_pdos", "RPDO")):
+                    for pdo in other[key]:
+                        p = pdo.get("cob_id")
+                        p = p if isinstance(p, int) else pdo["default_cob_id"]
+                        if who is None and p is not None and p <= 0x7FF and p == cob:
+                            who = "%s %s %d" % (label_of(other), kind, pdo["number"])
+        if who:
+            fail("%s clashes with %s" % (what, who))
+
+
 def sdo_override(node, entry, data, linked_rpdos=()):
     """What a startup SDO overrides among the settings the plugin writes for
     the node (the same rule as the plugin's warning), or None.
@@ -1396,7 +1498,8 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             continue  # reported above as missing
         if where in ("adapter.interface", "interface") and e.validator in ("pattern", "maxLength"):
             continue  # reported above, in the plugin's words
-        if where in ("master.on_plc_stop", "master.scan_watchdog_ms"):
+        if where in ("master.on_plc_stop", "master.scan_watchdog_ms") or re.match(r"^nodes\[\d+\]\.emcy_cob_id$",
+                                                                                     where):
             continue  # reported below, in the plugin's words
         if (where == "master" and e.validator == "not") or where == "master.eds_lint":
             continue  # reported above
@@ -1690,6 +1793,10 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     err("nodes", "%s and %s both use COB-ID 0x%03X" % (who, cobs[cob][0], cob), [at, cobs[cob][1]])
                 else:
                     cobs[cob] = (who, at)
+
+    # The nodes' EMCY COB-IDs (emcy_cob_id, or a startup SDO to 0x1014),
+    # after the "auto" COB-IDs, with the plugin's messages.
+    check_emcy_cob_ids(cfg["nodes"], nodes, master, master_id, err)
 
     # CiA 402 axes: the standard objects the motion blocks' drive bridge needs.
     axis_mod.check(cfg, err, warn)

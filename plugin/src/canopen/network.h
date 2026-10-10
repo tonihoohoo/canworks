@@ -255,6 +255,17 @@ class Network : public lely::canopen::BasicMaster {
     size_t emcy_head = 0;
     size_t emcy_n = 0;       // in the history
     uint64_t emcy_total = 0;  // received in this session
+    // The EMCY COB-ID the master listens on (its 0x1028 entry), where it came
+    // from ("default", "eds", "config", "device") and whether the device's
+    // last 0x1014 said its EMCY is valid; the read of 0x1014 due in the
+    // node's next SDO turn, the last read result logged, and the node ID
+    // whose predefined entry was switched off for a COB-ID read here.
+    uint32_t emcy_cob = 0;
+    const char* emcy_source = "default";
+    bool emcy_valid = true;
+    bool emcy_read_due = false;
+    std::string emcy_logged;
+    unsigned emcy_displaced = 0;
     // LSS assignment before boot retries (lss.assign): next attempt, backoff,
     // and whether one is running for this node.
     clock::time_point lss_next{};
@@ -328,6 +339,15 @@ class Network : public lely::canopen::BasicMaster {
   void HandleEmcy(uint8_t id, uint16_t eec, uint8_t er, const std::array<uint8_t, 5>& msef);
   void SetEmcy(unsigned id, uint16_t code, uint8_t er);
   void FlushEmcySummary(NodeState& n, clock::time_point now, bool force);
+  // EMCY COB-IDs (canopen-node-supervision "EMCY COB-ID read from the
+  // device"): the master's 0x1028 entries as the DCF loaded them (at start
+  // and after the master's own reset), the read of a node's 0x1014 after its
+  // boot, and moving the master's entry to what the read found.
+  void LoadEmcyCobs();
+  void StartEmcyCobRead(unsigned id, NodeState& n);
+  void FinishEmcyCobRead(unsigned id, std::error_code ec, uint32_t value);
+  bool MoveEmcyCob(unsigned id, NodeState& n, uint32_t cob);
+  void LogEmcyCob(NodeState& n, const std::string& key, bool warn, const std::string& text);
   // Sets the status bit from the node's and the master's state.
   void Update(unsigned id, const char* why);
   void SetUp(unsigned id, bool up, const char* why);

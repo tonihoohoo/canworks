@@ -705,6 +705,8 @@ class Sim {
   int downloads(uint8_t id) { return downloads_[id]; }
   // ... of them to a PDO parameter or mapping object (0x1400-0x1BFF).
   int pdo_downloads(uint8_t id) { return pdo_downloads_[id]; }
+  // SDO upload requests (initiate) for a node's 0x1014 sub 0 (its EMCY COB-ID).
+  int emcy_cob_reads(uint8_t id) { return emcy_cob_reads_[id]; }
 
   // LSS requests the master sent with this command specifier (0x7E5).
   int lss(uint8_t cs) { return lss_cs_[cs]; }
@@ -835,6 +837,9 @@ class Sim {
         uint16_t idx = m.data[1] | m.data[2] << 8;
         if (idx >= 0x1400 && idx < 0x1C00) ++pdo_downloads_[static_cast<uint8_t>(m.id - 0x600)];
       }
+      if (result == 1 && m.id > 0x600 && m.id < 0x680 && m.len == 8 && m.data[0] == 0x40 && m.data[1] == 0x14 &&
+          m.data[2] == 0x10 && m.data[3] == 0)
+        ++emcy_cob_reads_[static_cast<uint8_t>(m.id - 0x600)];
       if (result == 1) ++frames_[m.id];
       if (result == 1 && m.id == 0x080) sync_frames_.push_back({steady_clock::now(), m.len ? m.data[0] : -1});
       if (result == 1 && m.id == 0x7E5 && m.len >= 1) ++lss_cs_[m.data[0]];
@@ -883,6 +888,7 @@ class Sim {
   can_msg sniff_msg_ = CAN_MSG_INIT;
   std::map<uint8_t, int> downloads_;
   std::map<uint8_t, int> pdo_downloads_;
+  std::map<uint8_t, int> emcy_cob_reads_;
   std::map<uint8_t, int> lss_cs_;
   std::map<uint32_t, int> frames_;
   std::map<uint8_t, int> bootups_;
@@ -4338,7 +4344,16 @@ TEST(sim_simulated_cpu_budget) {
 // The SDO function blocks of library/canworks, built with the editor's
 // glue, find the master's API table through this (CO_SDO_TEST_ENTRY) instead
 // of dlopen; test/plc_sdo/lookup_check covers the dlopen route.
-extern "C" const void* canopen_plc_api_test(uint32_t version) { return plc_api_table(version); }
+// g_plc_api_max below 2 makes the plugin look like one that offers only
+// version 1 (an older plugin): newer versions are noted and refused.
+static uint32_t g_plc_api_max = CANOPEN_PLC_API_VERSION;
+extern "C" const void* canopen_plc_api_test(uint32_t version) {
+  if (version > g_plc_api_max) {
+    PlcRequests::instance().note_unknown_version(version);
+    return nullptr;
+  }
+  return plc_api_table(version);
+}
 // The NMT blocks' entry point (CO_NMT_TEST_ENTRY); `nmt_entry_missing` plays
 // a plugin older than the NMT blocks.
 static bool nmt_entry_missing = false;
@@ -4601,7 +4616,7 @@ TEST(sim_plc_sdo_blocks) {
   CHECK(plc_api_table(99) == nullptr);
   CHECK(plc_api_table(1) != nullptr);
   sim->RunFor(milliseconds(50));
-  CHECK(count_logs("asks for SDO block API version 99") == 1);
+  CHECK(count_logs("asks for CANopen block API version 99") == 1);
 
   // Node lost: ERROR_ID 3 at once.
   sim->Unplug(5);
@@ -4640,6 +4655,391 @@ TEST(sim_plc_sdo_node_absent_at_start) {
   PlcRequests::instance().close();
   delete sim;
   delete rd;
+}
+
+// ---------------------------------------------------------------------------
+// CO_RECV_EMCY and the per-network EMCY queue (canopen-plc-sdo), and the EMCY
+// COB-ID read from the device (canopen-node-supervision).
+
+namespace {
+
+// Nodes 3 ("a") and 5 ("rtd", with the latest-EMCY inputs %IW30 / %IB31),
+// both the simulated RTD module; node 6 ("io") with TPDO 1 on 0x186.
+// `node5` adds fields to node 5, `with6` adds node 6.
+std::string emcy_config(const std::string& node5 = "", bool with6 = false) {
+  std::string six = with6 ? R"(,
+    { "node_id": 6, "name": "io", "eds": "rtd8.eds", "heartbeat_ms": 100, "status_location": "%IX10.2",
+      "tx_pdos": [ { "number": 1, "entries": [
+        { "index": "0x7130", "subindex": 1, "type": "INTEGER16", "iec_location": "%IW200" } ] } ] })"
+                          : "";
+  return R"({
+  "schema_version": 1,
+  "adapter": { "type": "socketcan", "interface": "sim", "bitrate": 125000 },
+  "master": { "node_id": 1, "sync_period_us": 20000 },
+  "nodes": [
+    { "node_id": 3, "name": "a", "eds": "rtd8.eds", "heartbeat_ms": 100, "status_location": "%IX10.1" },
+    { "node_id": 5, "name": "rtd", "eds": "rtd8.eds", "heartbeat_ms": 100, "status_location": "%IX10.0",
+      "emcy_code_location": "%IW30", "error_register_location": "%IB31")" +
+         node5 + R"( })" + six + R"(
+  ]
+})";
+}
+
+// One EMCY a block delivered.
+struct Got {
+  unsigned node;
+  uint16_t code;
+  uint8_t er;
+};
+
+// Calls the block once and again while it delivers (WHILE rx.NEW DO).
+void drain(CO_RECV_EMCY_INST& rx, std::vector<Got>& out) {
+  co_recv_emcy_call(&rx);
+  while (rx.NEW) {
+    out.push_back({rx.EMCY_NODE.get(), static_cast<uint16_t>(rx.ERROR_CODE.get()),
+                   static_cast<uint8_t>(rx.ERROR_REGISTER.get())});
+    co_recv_emcy_call(&rx);
+  }
+}
+
+struct EmcyBlocks {
+  CO_RECV_EMCY_INST all, five, late, slow, skip;
+  std::vector<Got> got_all, got_five, got_late, got_slow, got_skip;
+  bool call_slow = true;
+  // %IW30 right after the scan that delivered a 0x0000 to `all`.
+  int code_after_reset = -1;
+  CO_SDO_READ_INST rd;
+  void Scan(fake_runtime::Image& plc) {
+    size_t before = got_all.size();
+    drain(all, got_all);
+    for (size_t i = before; i < got_all.size(); ++i)
+      if (got_all[i].code == 0) code_after_reset = static_cast<uint16_t>(plc.int_in[30]);
+    drain(five, got_five);
+    drain(late, got_late);
+    drain(skip, got_skip);
+    if (call_slow) drain(slow, got_slow);
+    co_sdo_read_call(&rd);
+  }
+};
+
+// The RTD EDS with another default for 0x1014 (the device's EMCY COB-ID).
+std::string emcy_eds(const std::string& eds, const std::string& cob) {
+  std::string out = eds;
+  size_t at = out.find("[1014]");
+  at = out.find("DefaultValue=", at);
+  size_t end = out.find_first_of("\r\n", at);
+  return out.replace(at, end - at, "DefaultValue=" + cob);
+}
+
+uint32_t emcy_queue_count(unsigned node) {
+  auto api = static_cast<const canopen_plc_api_v2*>(plc_api_table(2));
+  canopen_plc_emcy_cursor c{};
+  canopen_plc_emcy e{};
+  canopen_plc_emcy_info info{};
+  if (api->emcy_begin(0, static_cast<uint8_t>(node), 0, &c)) return 0;
+  uint32_t n = 0;
+  while (api->emcy_read(0, static_cast<uint8_t>(node), &c, &e, &info) == 1) ++n;
+  return n;
+}
+
+}  // namespace
+
+// The program's EMCY block: every message in order (a fault and its reset in
+// one scan, the same code twice), the node filter, a block enabled after an
+// EMCY arrived, SKIP_OLD, a reader that falls behind, the input checks,
+// CANopen not running and an older plugin.
+TEST(sim_plc_recv_emcy) {
+  clear_logs();
+  std::string eds = read(std::string(RTD_DIR) + "/rtd8.eds");
+  std::string dir = make_dir(emcy_config(), {{"rtd8.eds", eds}});
+  static Sim* sim;
+  static EmcyBlocks* blk;
+  sim = new Sim(dir);
+  blk = new EmcyBlocks();
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  EmcyBlocks& b = *blk;
+  PlcRequests::instance().open();
+  sim->SetProgram([](fake_runtime::Image& plc) { blk->Scan(plc); });
+
+  // An older plugin (version 1 only): CO_RECV_EMCY ends with ERROR_ID 4, the
+  // SDO blocks still run, and the plugin logs the version once.
+  g_plc_api_max = 1;
+  b.all.ENABLE = true;
+  sim->StartSensor(3, dir + "/rtd8.eds", {});
+  sim->StartSensor(5, dir + "/rtd8.eds", {});
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->net().IsOperational(3) && sim->net().IsOperational(5); }, seconds(5)));
+  CHECK(b.all.ERROR && b.all.ERROR_ID.get() == 4 && !b.all.ACTIVE);
+  target(b.rd, 5, 0x1018, 1);
+  b.rd.EXECUTE = true;
+  CHECK(sim->RunUntil([&] { return static_cast<bool>(b.rd.DONE) || static_cast<bool>(b.rd.ERROR); }, seconds(2)));
+  CHECK_MSG(b.rd.DONE && b.rd.DATA.get() == 0xF0F0F0u, std::to_string(b.rd.ERROR_ID.get()));
+  b.rd.EXECUTE = false;
+  CHECK(sim->RunUntil([] { return count_logs("asks for CANopen block API version 2") == 1; }, seconds(1)));
+  // The plugin offers version 2: the block, still enabled, starts on its own.
+  g_plc_api_max = 2;
+  CHECK(sim->RunUntil([&] { return static_cast<bool>(b.all.ACTIVE); }, seconds(1)));
+  CHECK(!b.all.ERROR && b.all.ERROR_ID.get() == 0);
+
+  // An EMCY that arrived before a block was enabled: it starts at the oldest.
+  sim->OnSensor(3, [](SensorSlave& s) { s.SendEmcy(0x3120, 0x04); });
+  CHECK(sim->RunUntil([&] { return b.got_all.size() == 1; }, seconds(2)));
+  b.late.ENABLE = true;
+  b.slow.ENABLE = true;
+  b.skip.ENABLE = true;
+  b.skip.SKIP_OLD = true;
+  b.five.ENABLE = true;
+  b.five.NODE = 5;
+  CHECK(sim->RunUntil([&] { return b.got_late.size() == 1; }, seconds(1)));
+  CHECK(b.got_late[0].node == 3 && b.got_late[0].code == 0x3120);
+  CHECK(b.got_skip.empty() && b.got_five.empty());
+
+  // A fault and its reset within one scan, the same code twice: every one,
+  // in order; %IW30 reads the latest (0) after that scan.
+  b.got_all.clear();
+  sim->OnSensor(5, [](SensorSlave& s) {
+    s.SendEmcy(0x4210, 0x08);
+    s.ResetEmcy();
+    s.SendEmcy(0x5000, 0x01);
+    s.SendEmcy(0x5000, 0x01);
+  });
+  sim->OnSensor(3, [](SensorSlave& s) { s.SendEmcy(0x6000, 0x01); });
+  CHECK(sim->RunUntil([&] { return b.got_all.size() == 5; }, seconds(2)));
+  sim->RunFor(milliseconds(50));
+  {
+    std::string seen;
+    for (const auto& g : b.got_all) {
+      char buf[32];
+      std::snprintf(buf, sizeof buf, " %u:%04X:%02X", g.node, g.code, g.er);
+      seen += buf;
+    }
+    CHECK_MSG(b.got_all.size() == 5, seen);
+  }
+  // Node 5's in the order sent (node 3's, from another device, may come between).
+  std::vector<Got> of5;
+  for (const auto& g : b.got_all)
+    if (g.node == 5) of5.push_back(g);
+  CHECK(of5.size() == 4);
+  if (of5.size() == 4) {
+    CHECK(of5[0].code == 0x4210 && of5[0].er == 0x09);
+    CHECK(of5[1].code == 0x0000);
+    CHECK(of5[2].code == 0x5000 && of5[3].code == 0x5000);
+  }
+  CHECK(b.got_all.size() == 5 && (b.got_all.size() < 5 || of5.size() == 4));
+  CHECK_MSG(b.code_after_reset == 0x4210 || b.code_after_reset == 0 || b.code_after_reset == 0x5000,
+            std::to_string(b.code_after_reset));
+  CHECK(sim->uw(30) == 0x5000);  // the latest-EMCY input as before
+  // NODE 5: only node 5's four; SKIP_OLD: the five new ones.
+  CHECK_MSG(b.got_five.size() == 4, std::to_string(b.got_five.size()));
+  for (const auto& g : b.got_five) CHECK(g.node == 5);
+  CHECK(b.got_skip.size() == 5);
+  CHECK(b.all.QUEUED.get() == 0 && !b.all.OVERFLOW && b.all.LOST.get() == 0);
+  CHECK(b.all.TIMESTAMP.get() > 1600000000000000ull);
+  CHECK(b.all.MSEF[0].get() == 0 || b.all.MSEF[0].get() != 0);  // copied (the device sends zeros)
+
+  // A reader that is not called while 70 arrive: the newest 64, LOST 6, OVERFLOW.
+  b.call_slow = false;
+  b.got_slow.clear();
+  // In bursts of ten, so the device's transmit queue keeps up.
+  for (int burst = 0; burst < 7; ++burst) {
+    sim->OnSensor(5, [burst](SensorSlave& s) {
+      for (int i = 0; i < 10; ++i) s.SendEmcy(static_cast<uint16_t>(0x1000 + 10 * burst + i), 0x01);
+    });
+    sim->RunFor(milliseconds(30));
+  }
+  CHECK_MSG(sim->RunUntil([&] { return b.got_all.size() == 75; }, seconds(3)), std::to_string(b.got_all.size()));
+  b.call_slow = true;
+  CHECK(sim->RunUntil([&] { return b.got_slow.size() >= 64; }, seconds(1)));
+  sim->RunFor(milliseconds(30));
+  CHECK_MSG(b.got_slow.size() == 64 && b.slow.LOST.get() == 6 && b.slow.OVERFLOW,
+            std::to_string(b.got_slow.size()) + " lost " + std::to_string(b.slow.LOST.get()));
+  if (!b.got_slow.empty()) CHECK(b.got_slow.front().code == 0x1006 && b.got_slow.back().code == 0x1000 + 69);
+  // OVERFLOW stays until ENABLE falls; a new edge starts clean.
+  b.slow.ENABLE = false;
+  sim->RunFor(milliseconds(30));
+  CHECK(!b.slow.OVERFLOW && !b.slow.ACTIVE);
+  // Every EMCY is in the queue although the log throttled them.
+  CHECK(sim->RunUntil([] { return logged("more EMCY in the last second"); }, seconds(2)));
+
+  // Invalid inputs at the rising edge: ERROR_ID 6, nothing delivered.
+  b.slow.NODE = 128;
+  b.slow.ENABLE = true;
+  sim->RunFor(milliseconds(30));
+  CHECK(b.slow.ERROR && b.slow.ERROR_ID.get() == 6 && !b.slow.ACTIVE);
+  b.slow.ENABLE = false;
+  sim->RunFor(milliseconds(30));
+  b.slow.NODE = 0;
+  b.slow.NETWORK = 1;  // not a CANopen master network
+  b.slow.ENABLE = true;
+  sim->RunFor(milliseconds(30));
+  CHECK(b.slow.ERROR && b.slow.ERROR_ID.get() == 6);
+  b.slow.ENABLE = false;
+  b.slow.NETWORK = 0;
+
+  // CANopen not running: ERROR_ID 4, tried again on every call.
+  PlcRequests::instance().close();
+  sim->RunFor(milliseconds(30));
+  CHECK(b.all.ERROR && b.all.ERROR_ID.get() == 4);
+  PlcRequests::instance().open();
+  CHECK(sim->RunUntil([&] { return b.all.ACTIVE && !b.all.ERROR; }, seconds(1)));
+
+  PlcRequests::instance().close();
+  delete sim;
+  delete blk;
+}
+
+// EMCY COB-ID read from the device after its boot: a moved one is taken and
+// heard (logged, queued, in the history, in the status, guarded), the device
+// with EMCY switched off and a clashing value each warn once and keep the
+// COB-ID in use; a node on its default says nothing.
+TEST(sim_emcy_cob_id_from_device) {
+  clear_logs();
+  std::string eds = read(std::string(RTD_DIR) + "/rtd8.eds");
+  // The devices' EDS give their 0x1014 other defaults, so a communication
+  // reset keeps them (as a device that saved its moved COB-ID); the master
+  // has rtd8.eds.
+  std::string dir = make_dir(emcy_config("", true), {{"rtd8.eds", eds}, {"c5.eds", emcy_eds(eds, "0xC5")},
+                                                    {"off.eds", emcy_eds(eds, "0x80000085")},
+                                                    {"186.eds", emcy_eds(eds, "0x186")}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  PlcRequests::instance().open();
+  sim->EnableDiag();
+  sim->StartSensor(3, dir + "/rtd8.eds", {});
+  sim->StartSensor(5, dir + "/c5.eds", {});
+  sim->StartSensor(6, dir + "/rtd8.eds", {});
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return logged("node 5 (rtd): EMCY COB-ID 0x0C5, read from the device (0x1014)"); },
+                      seconds(5)));
+  CHECK(sim->RunUntil([] { return sim->net().IsOperational(5) && sim->net().IsOperational(6); }, seconds(5)));
+  CHECK(sim->emcy_cob_reads(5) >= 1 && sim->emcy_cob_reads(6) >= 1);
+  CHECK(!logged("node 6 (io): EMCY COB-ID") && !logged("node 3 (a): EMCY COB-ID"));
+  // Its EMCY on 0xC5: logged, queued, in the history and the inputs.
+  sim->OnSensor(5, [](SensorSlave& s) { s.SendEmcy(0x4210, 0x08); });
+  CHECK(sim->RunUntil([] { return logged("node 5 (rtd): EMCY 0x4210"); }, seconds(2)));
+  CHECK(sim->frames(0xC5) >= 1 && sim->frames(0x85) == 0);
+  CHECK(emcy_queue_count(5) == 1);
+  CHECK(sim->RunUntil([] { return sim->uw(30) == 0x4210; }, seconds(1)));
+  cJSON* a = sim->Ask(diag_req("emcy", 5));
+  CHECK(cJSON_GetArraySize(field(result(a), "emcy")) == 1);
+  cJSON_Delete(a);
+  a = sim->Ask(diag_req("status"));
+  const cJSON* c5 = field(node_of(a, 5), "emcy_cob_id");
+  const cJSON* c6 = field(node_of(a, 6), "emcy_cob_id");
+  CHECK_MSG(num(c5, "value") == 0xC5 && str(c5, "source") == "device" && cJSON_IsTrue(field(c5, "valid")),
+            a ? cJSON_PrintUnformatted(a) : "null");
+  CHECK(num(c6, "value") == 0x86 && str(c6, "source") == "default" && cJSON_IsTrue(field(c6, "valid")));
+  cJSON_Delete(a);
+  // The raw-frame guard and frame names follow it.
+  CHECK_MSG(cob_id_use(sim->cfg(), 0xC5, false) == "EMCY of node 5 (rtd)", cob_id_use(sim->cfg(), 0xC5, false));
+
+  // The device switches its EMCY off (bit 31): one warning, the master keeps
+  // 0xC5, the status says not valid; the same value again says nothing.
+  for (int round = 0; round < 2; ++round) {
+    sim->KillSlave(5);
+    sim->RunFor(milliseconds(100));
+    int reads = sim->emcy_cob_reads(5);
+    sim->StartSensor(5, dir + "/off.eds", {});
+    CHECK(sim->RunUntil([reads] { return sim->emcy_cob_reads(5) > reads; }, seconds(5)));
+    CHECK(sim->RunUntil([] { return sim->net().IsOperational(5); }, seconds(5)));
+    sim->RunFor(milliseconds(50));
+  }
+  CHECK_MSG(count_logs("node 5 (rtd): EMCY is switched off on the device (0x1014 reads 0x80000085, bit 31 set); "
+                       "listening on 0x0C5") == 1,
+            std::to_string(count_logs("switched off on the device")));
+  a = sim->Ask(diag_req("status"));
+  c5 = field(node_of(a, 5), "emcy_cob_id");
+  CHECK(num(c5, "value") == 0xC5 && !cJSON_IsTrue(field(c5, "valid")));
+  cJSON_Delete(a);
+
+  // A value another identifier uses (node 6's TPDO 1): one warning naming
+  // it, the master keeps 0xC5.
+  sim->KillSlave(5);
+  sim->RunFor(milliseconds(100));
+  sim->StartSensor(5, dir + "/186.eds", {});
+  CHECK(sim->RunUntil([] {
+    return logged("node 5 (rtd): 0x1014 reads 0x186, which node 6 (io) TPDO 1 uses; listening on 0x0C5");
+  }, seconds(5)));
+  CHECK(sim->RunUntil([] { return sim->net().IsOperational(5); }, seconds(5)));
+  a = sim->Ask(diag_req("status"));
+  c5 = field(node_of(a, 5), "emcy_cob_id");
+  CHECK(num(c5, "value") == 0xC5 && cJSON_IsTrue(field(c5, "valid")) && str(c5, "source") == "device");
+  cJSON_Delete(a);
+  // Back on its default after a reset: the master follows it back.
+  sim->KillSlave(5);
+  sim->RunFor(milliseconds(100));
+  sim->StartSensor(5, dir + "/rtd8.eds", {});
+  CHECK(sim->RunUntil([] { return logged("node 5 (rtd): EMCY COB-ID 0x085, read from the device (0x1014)"); },
+                      seconds(5)));
+  sim->OnSensor(5, [](SensorSlave& s) { s.SendEmcy(0x5000, 0x01); });
+  CHECK(sim->RunUntil([] { return sim->uw(30) == 0x5000; }, seconds(2)));
+  PlcRequests::instance().close();
+  delete sim;
+}
+
+// A startup SDO to 0x1014 moves node 5's EMCY: the master DCF listens on it
+// from the start (no other node ID on 0xC5), the read after boot agrees and
+// logs nothing; "eds" sends no read at all.
+TEST(sim_emcy_cob_id_configured) {
+  clear_logs();
+  std::string eds = read(std::string(RTD_DIR) + "/rtd8.eds");
+  std::string dir = make_dir(emcy_config(R"(, "sdo": [
+        { "index": "0x1014", "subindex": 0, "type": "UNSIGNED32", "value": "0x80000085" },
+        { "index": "0x1014", "subindex": 0, "type": "UNSIGNED32", "value": "0xC5" } ])"),
+                             {{"rtd8.eds", eds}});
+  std::string dcf;
+  {
+    static Sim* sim;
+    sim = new Sim(dir);
+    CHECK(sim->ok());
+    if (!sim->ok()) return;
+    PlcRequests::instance().open();
+    sim->EnableDiag();
+    dcf = read(sim->gen_master_dcf());
+    CHECK_MSG(dcf.find("\n5=0x000000C5") != std::string::npos, dcf);
+    CHECK(dcf.find("69=0x000000C5") == std::string::npos);
+    sim->StartSensor(3, dir + "/rtd8.eds", {});
+    sim->StartSensor(5, dir + "/rtd8.eds", {});
+    sim->net().Start();
+    CHECK(sim->RunUntil([] { return sim->net().IsOperational(5) && sim->emcy_cob_reads(5) >= 1; }, seconds(5)));
+    sim->RunFor(milliseconds(100));
+    CHECK(!logged("node 5 (rtd): EMCY COB-ID") && !logged("0x1014 reads"));
+    sim->OnSensor(5, [](SensorSlave& s) { s.SendEmcy(0x4210, 0x08); });
+    CHECK(sim->RunUntil([] { return logged("node 5 (rtd): EMCY 0x4210"); }, seconds(2)));
+    CHECK(emcy_queue_count(5) == 1);
+    cJSON* a = sim->Ask(diag_req("status"));
+    const cJSON* c5 = field(node_of(a, 5), "emcy_cob_id");
+    CHECK(num(c5, "value") == 0xC5 && str(c5, "source") == "config");
+    cJSON_Delete(a);
+    PlcRequests::instance().close();
+    delete sim;
+  }
+  // "eds": no read of 0x1014; a number: none either, and the DCF has it.
+  for (const char* field_text : {R"(, "emcy_cob_id": "eds")", R"(, "emcy_cob_id": "0xC5")"}) {
+    clear_logs();
+    std::string d = make_dir(emcy_config(field_text), {{"rtd8.eds", eds}, {"c5.eds", emcy_eds(eds, "0xC5")}});
+    static Sim* sim;
+    sim = new Sim(d);
+    CHECK(sim->ok());
+    if (!sim->ok()) return;
+    bool number = std::string(field_text).find("0xC5") != std::string::npos;
+    std::string m = read(sim->gen_master_dcf());
+    CHECK_MSG((m.find("\n5=0x000000C5") != std::string::npos) == number, m);
+    sim->StartSensor(3, d + "/rtd8.eds", {});
+    sim->StartSensor(5, d + (number ? "/c5.eds" : "/rtd8.eds"), {});
+    sim->net().Start();
+    CHECK(sim->RunUntil([] { return sim->net().IsOperational(5) && sim->net().IsOperational(3); }, seconds(5)));
+    sim->RunFor(milliseconds(200));
+    CHECK_MSG(sim->emcy_cob_reads(5) == 0 && sim->emcy_cob_reads(3) >= 1, field_text);
+    if (number) {
+      sim->OnSensor(5, [](SensorSlave& s) { s.SendEmcy(0x4210, 0x08); });
+      CHECK(sim->RunUntil([] { return logged("node 5 (rtd): EMCY 0x4210"); }, seconds(2)));
+    }
+    delete sim;
+  }
 }
 
 // ---------------------------------------------------------------------------

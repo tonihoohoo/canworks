@@ -14,8 +14,10 @@ using can_send_func = int(const can_msg* msg, void* data);
 extern "C" void can_net_get_send_func(const __can_net* net, can_send_func** pfunc, void** pdata);
 extern "C" void can_net_set_send_func(__can_net* net, can_send_func* func, void* data);
 
+#include "frame_tx.h"
 #include "log.h"
 #include "outputs_gate.h"
+#include "plc_emcy.h"
 
 // From <lely/co/nmt.h> (C header): sends the synchronous TPDOs and actuates
 // the synchronous RPDOs after a SYNC, then calls the SYNC indication (OnSync).
@@ -173,6 +175,8 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
              (cfg.master.cia309.enabled && cfg.master.cia309.allow_changes);
   for (const auto& n : cfg.nodes) lss |= n.lss_assign;
   if (lss) lss_.reset(new LssAssigner(exec, *this));
+  // A new session: the program's EMCY queue starts empty, as the history.
+  EmcyQueues::instance().reset(cfg.network_index);
 }
 
 Network::~Network() {
@@ -207,6 +211,7 @@ void Network::Start() {
   // object dictionary from the DCF; the TPDOs are switched off after that and
   // only switched on for nodes that are operational.
   Reset();
+  LoadEmcyCobs();
   MapTpdos();
   MapSyncRpdos();
   MapInputPdos();
@@ -584,6 +589,8 @@ void Network::HandleBoot(uint8_t id, NmtState st, char es, const std::string& wh
     if (n.node_op && (static_cast<uint8_t>(st) & 0x7F) != static_cast<uint8_t>(NmtState::START)) StartSent(id, n);
     SetState(id, n.node_op ? kStateOperational : kStatePreop);
     SetBootError(id, 0);
+    // Its EMCY COB-ID is read first in its SDO turn, before the SDO variables.
+    n.emcy_read_due = n.cfg->reads_emcy_cob_id();
     Update(id, "");
     if (!n.node_op && n.hold == Hold::None)
       log_info("%s: configured; %s", n.cfg->label().c_str(),
@@ -689,7 +696,10 @@ void Network::HandleCommand(NmtCommand cs) {
     case NmtCommand::START: lely_state_ = kStateOperational; break;
     case NmtCommand::ENTER_PREOP: lely_state_ = kStatePreop; break;
     case NmtCommand::STOP: lely_state_ = kStateStopped; break;
-    default: lely_state_ = kStateNoContact; break;  // resetting
+    default:  // resetting: the master's dictionary is the DCF's again
+      lely_state_ = kStateNoContact;
+      LoadEmcyCobs();
+      break;
   }
   if (cs == NmtCommand::STOP) log_error("master is STOPPED: no PDOs are exchanged until the plugin restarts");
   if (cs == NmtCommand::START && prog_stopped_)
@@ -1525,10 +1535,15 @@ void Network::HandleEmcy(uint8_t id, uint16_t eec, uint8_t er, const std::array<
     e.msef = msef;
     diag_->push_event(e);
   }
-  // The inputs and the history follow every EMCY; only the log is throttled.
+  // The inputs, the program's queue and the history follow every EMCY; only
+  // the log is throttled.
   SetEmcy(id, eec, er);
+  auto at = std::chrono::system_clock::now();
+  EmcyQueues::instance().push(
+      cfg_.network_index, id, eec, er, msef.data(),
+      static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(at.time_since_epoch()).count()));
   NodeState::Emcy& rec = n.emcy_hist[n.emcy_head];
-  rec.time = std::chrono::system_clock::now();
+  rec.time = at;
   rec.code = eec;
   rec.er = er;
   rec.msef = msef;
@@ -1554,6 +1569,143 @@ void Network::HandleEmcy(uint8_t id, uint16_t eec, uint8_t er, const std::array<
              n.cfg->label().c_str(), eec, emcy_class(eec), er, msef[0], msef[1], msef[2], msef[3], msef[4]);
 }
 
+// ---------------------------------------------------------------------------
+// EMCY COB-IDs
+
+void Network::LoadEmcyCobs() {
+  clear_emcy_cob_in_use(cfg_.network_index);
+  for (auto& it : nodes_) {
+    NodeState& n = it.second;
+    std::error_code ec;
+    uint32_t cob = (*this)[0x1028][static_cast<uint8_t>(it.first)].Read<uint32_t>(ec);
+    if (ec) cob = 0x80 + it.first;
+    n.emcy_cob = cob & 0x7FF;
+    bool configured = n.cfg->emcy_cob == NodeConfig::EmcyCob::Number || n.cfg->emcy_cob_from_sdo;
+    n.emcy_source = configured ? "config" : n.emcy_cob == 0x80 + it.first ? "default" : "eds";
+    n.emcy_valid = true;
+    n.emcy_displaced = 0;
+    set_emcy_cob_in_use(cfg_.network_index, it.first, n.emcy_cob);
+    // dcfgen's master.bin, loaded after the text DCF, sets the EDS default
+    // again: a configured COB-ID goes in here.
+    uint32_t want = n.cfg->emcy_cob_config & 0x7FF;
+    if (configured && want != n.emcy_cob) MoveEmcyCob(it.first, n, want);
+  }
+}
+
+void Network::LogEmcyCob(NodeState& n, const std::string& key, bool warn, const std::string& text) {
+  if (n.emcy_logged == key) return;
+  n.emcy_logged = key;
+  if (text.empty()) return;
+  if (warn)
+    log_warn("%s: %s", n.cfg->label().c_str(), text.c_str());
+  else
+    log_info("%s: %s", n.cfg->label().c_str(), text.c_str());
+}
+
+void Network::StartEmcyCobRead(unsigned id, NodeState& n) {
+  n.emcy_read_due = false;
+  n.sdo_busy = true;
+  std::error_code ec;
+  Submit([&] {
+    SubmitRead<uint32_t>(
+        exec_, static_cast<uint8_t>(id), 0x1014, 0,
+        [this, id](uint8_t, uint16_t, uint8_t, std::error_code ec, uint32_t value) {
+          FinishEmcyCobRead(id, ec, value);
+        },
+        std::chrono::milliseconds(cfg_.master.sdo_timeout_ms), ec);
+  }, ec);
+  if (ec) FinishEmcyCobRead(id, ec, 0);
+}
+
+void Network::FinishEmcyCobRead(unsigned id, std::error_code ec, uint32_t value) {
+  auto it = nodes_.find(id);
+  if (it == nodes_.end()) return;
+  NodeState& n = it->second;
+  n.sdo_busy = false;
+  char buf[200];
+  if (ec) {
+    // The boot result stays as it is; the master keeps its COB-ID.
+    std::snprintf(buf, sizeof buf, "cannot read its EMCY COB-ID (0x1014): %s; listening on 0x%03X",
+                  ec.message().c_str(), n.emcy_cob);
+    LogEmcyCob(n, "error " + std::to_string(ec.value()), false, buf);
+    return;
+  }
+  std::snprintf(buf, sizeof buf, "0x%08X", value);
+  const std::string key = buf;
+  if (value & 0x80000000u) {
+    n.emcy_valid = false;
+    std::snprintf(buf, sizeof buf,
+                  "EMCY is switched off on the device (0x1014 reads 0x%08X, bit 31 set); listening on 0x%03X", value,
+                  n.emcy_cob);
+    LogEmcyCob(n, key, true, buf);
+    return;
+  }
+  n.emcy_valid = true;
+  if (value == n.emcy_cob) {
+    LogEmcyCob(n, key, false, "");  // as the master listens: nothing to say
+    return;
+  }
+  std::string why;
+  if (value > 0x7FF) {
+    std::snprintf(buf, sizeof buf, "0x1014 reads 0x%08X, a 29-bit EMCY COB-ID, which is not supported", value);
+    why = buf;
+  } else if (restricted_can_id(value)) {
+    std::snprintf(buf, sizeof buf, "0x1014 reads 0x%03X, a restricted CAN-ID (CiA 301)", value);
+    why = buf;
+  } else {
+    std::string who = emcy_cob_clash(cfg_, *n.cfg, value, [this](const NodeConfig& m) {
+      auto o = nodes_.find(m.node_id);
+      return o != nodes_.end() ? o->second.emcy_cob : m.emcy_cob_id();
+    });
+    if (!who.empty()) {
+      std::snprintf(buf, sizeof buf, "0x1014 reads 0x%03X, which %s uses", value, who.c_str());
+      why = buf;
+    }
+  }
+  if (!why.empty()) {
+    std::snprintf(buf, sizeof buf, "; listening on 0x%03X", n.emcy_cob);
+    LogEmcyCob(n, key, true, why + buf);
+    return;
+  }
+  if (!MoveEmcyCob(id, n, value)) return;
+  n.emcy_source = "device";
+  std::snprintf(buf, sizeof buf, "EMCY COB-ID 0x%03X, read from the device (0x1014)", value);
+  LogEmcyCob(n, key, false, buf);
+}
+
+bool Network::MoveEmcyCob(unsigned id, NodeState& n, uint32_t cob) {
+  auto entry = [this](unsigned node) { return (*this)[0x1028][static_cast<uint8_t>(node)]; };
+  std::error_code ec;
+  // CiA 301 (and Lely's 0x1028 check): a valid COB-ID moves through "not
+  // valid"; Lely starts the consumer's receiver on the new one.
+  entry(id).Write<uint32_t>(n.emcy_cob | 0x80000000u, ec);
+  if (!ec) entry(id).Write<uint32_t>(uint32_t(cob), ec);
+  if (ec) {
+    log_error("%s: cannot move the master's EMCY consumer to 0x%03X: %s", n.cfg->label().c_str(), cob,
+              ec.message().c_str());
+    entry(id).Write<uint32_t>(uint32_t(n.emcy_cob), ec);
+    return false;
+  }
+  // A node ID outside the configuration listened on its predefined COB-ID,
+  // which this node's EMCY now uses: switched off while it does, and the one
+  // switched off for an earlier COB-ID back on.
+  if (n.emcy_displaced) {
+    entry(n.emcy_displaced).Write<uint32_t>(0x80 + n.emcy_displaced, ec);
+    n.emcy_displaced = 0;
+  }
+  unsigned other = cob - 0x80;
+  if (cob > 0x80 && cob <= 0x80 + 127 && other != id && !nodes_.count(other) && other != cfg_.master.node_id) {
+    std::error_code ec2;
+    uint32_t cur = entry(other).Read<uint32_t>(ec2);
+    if (!ec2 && !(cur & 0x80000000u) && (cur & 0x7FF) == cob) {
+      entry(other).Write<uint32_t>(cur | 0x80000000u, ec2);
+      if (!ec2) n.emcy_displaced = other;
+    }
+  }
+  n.emcy_cob = cob;
+  set_emcy_cob_in_use(cfg_.network_index, id, cob);
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // SDO variables and NMT command bytes
@@ -1681,7 +1833,9 @@ void Network::ServiceRequests() {
   auto now = clock::now();
   // The program's SDO blocks name network 0, the first network.
   ServiceProgram(now);
-  if (!has_requests_ && prog_.empty()) return;
+  bool emcy_due = false;
+  for (const auto& it : nodes_) emcy_due |= it.second.emcy_read_due;
+  if (!has_requests_ && prog_.empty() && !emcy_due) return;
   const uint64_t* snap = LatestOutputs();
   // Nothing before the program has run once: the outputs are not its yet.
   bool scanned = image_.scan_count(snap) != 0;
@@ -1717,6 +1871,10 @@ void Network::ServiceRequests() {
       }
     }
     if (!avail || n.sdo_busy) continue;
+    if (n.emcy_read_due) {
+      StartEmcyCobRead(id, n);
+      continue;
+    }
     // Next SDO variable transfer: triggered ones, owned writes, post-boot
     // reads, periodic reads.
     size_t pick = SIZE_MAX;

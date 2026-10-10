@@ -430,6 +430,12 @@ def _node_settings(n, master):
     if "time_cob_id" in n:
         v = _u(n["time_cob_id"])
         add("TIME", "COB-ID %s%s" % (hx(v & 0x7FF, 3), ", consumes TIME" if v & 0x80000000 else ""), "0x1012")
+    emcy = contract.configured_emcy_cob_id(n)
+    if emcy:
+        add("EMCY heard on", "COB-ID %s (%s)" % (hx(emcy[0], 3), "emcy_cob_id" if emcy[1] == "emcy_cob_id"
+                                                  else "the startup SDO to 0x1014"), "master 0x1028")
+    elif n.get("emcy_cob_id") == "eds":
+        add("EMCY heard on", "the EDS default of 0x1014 (not read from the device)", "master 0x1028")
     if isinstance(n.get("error_behavior"), dict) and n["error_behavior"]:
         add("Error behaviour", ", ".join("sub %s = %s" % (k, v) for k, v in sorted(n["error_behavior"].items())),
             "0x1029")
@@ -694,7 +700,7 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
             trigger = "every " + _sync_text(rates) if rates.sync_ms or rates.plc_cycle else "off"
             if rates.plc_cycle and not rates.sync_ms:
                 trigger += "; not counted: PLC cycle not given"
-        elif 0x81 <= msg.cob_id <= 0xFF:
+        elif 0x81 <= msg.cob_id <= 0xFF or msg.name.endswith("_EMCY"):
             kind, trigger = "emcy", "on error"
         elif 0x701 <= msg.cob_id <= 0x77F and msg.name.endswith("_Heartbeat"):
             node_id = msg.cob_id - 0x700

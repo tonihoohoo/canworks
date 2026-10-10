@@ -335,6 +335,7 @@ Each is optional. The first group lives only in the master (0x1F81 and the expec
 | `lss` | master (LSS) | `{"assign": true}` gives the device its node ID over the bus by its serial number, `"store": true` also saves it in the device; see [LSS](#lss). Left out: no LSS. |
 | `heartbeat_consumer` | node 0x1016 | `true`: the node watches the master's heartbeat with timeout `master.heartbeat_ms` × `master.heartbeat_multiplier`; needs `master.heartbeat_ms` above 0. `false`: the node's entry is cleared. Left out: the EDS entries stay. |
 | `heartbeat_watch` | node 0x1016 | `[{ "node": 10, "timeout_ms": 300 }]`: the node watches other nodes' heartbeats itself, one 0x1016 entry each (the entry naming that node, else the first unused one that is not the master's), so it can react without the master (its 0x1029, usually EMCY 0x8130). `timeout_ms` defaults to the watched node's heartbeat timeout as the master uses it (`heartbeat_timeout_ms`, else 3 × its heartbeat period) and must be above its period. Refused: watching itself or the master (use `heartbeat_consumer`), a node that sends no heartbeat (guarding, or a 0x1017 of 0), or more entries than the EDS 0x1016 has writable ones. See [PDO links](#pdo-links). |
+| `emcy_cob_id` | master 0x1028 | `"device"` (the default when left out), `"eds"` or a COB-ID: where the master listens for the node's EMCY, see [EMCY COB-ID](#emcy-cob-id). |
 | `time_cob_id` | node 0x1012 | COB-ID of TIME; bit 31 (`0x80000000`) set makes the node consume TIME. Written only when it differs from the EDS value. |
 | `error_behavior` | node 0x1029 | As the master's `error_behavior`. |
 | `restore_configuration` | node 0x1011 | Sub-index the master restores before configuring the node (1 all, 2 communication, 3 application, as the device supports). |
@@ -727,9 +728,19 @@ With `emcy_code_location` and `error_register_location` the program sees the lat
 - a boot-up message (the node restarted) sets both to 0;
 - while the node is lost, both keep their value.
 
-Only the latest EMCY is visible: a fault that is reset within one scan, or the same code twice in a row, shows only in the log. The pre-defined error field (0x1003, the device's error history) is not read.
+These two hold only the latest EMCY: a fault that is reset within one scan, or the same code twice in a row, does not show there. The function block [`CO_RECV_EMCY`](plc-sdo.md#every-emcy-co_recv_emcy) gives the program every EMCY of the network's configured nodes in order, from a queue of the last 64 (including the ones the log throttle did not log). The device's own error history, the pre-defined error field 0x1003, is read and cleared with [`canworks-diag errors`](diagnostics.md) or in the configurator's online node page.
 
-The master expects a slave's EMCY on the COB-ID its EDS gives as the default of 0x1014 (normally 0x80 + node ID); for node IDs without such an entry (a node whose EDS lacks 0x1014, or one not in the configuration) it uses 0x80 + node ID. If the COB-ID was changed on the device itself, its EMCY messages are not seen.
+### EMCY COB-ID
+
+The master listens for a node's EMCY on one COB-ID, set by the node's `emcy_cob_id`:
+
+- left out or `"device"`: after each successful boot the master reads the node's 0x1014 sub-index 0 (once, before the node's SDO variables, in the node's SDO turn) and listens on what it finds when it differs from the COB-ID it uses, logging `node 5 (rtd): EMCY COB-ID 0x0C5, read from the device (0x1014)`. Until then, and for a node whose EDS has no 0x1014 or that has `boot: false`, it listens on the EDS default of 0x1014 (normally 0x80 + node ID). A device on the COB-ID the master already uses gives no log line;
+- `"eds"`: the EDS default, and no read (the behaviour of earlier releases);
+- a COB-ID (`"0xC5"`, 11 bits): that COB-ID from the start, written into the master DCF's EMCY consumer entry; no read.
+
+A startup SDO to 0x1014 sub-index 0 counts as that COB-ID when `emcy_cob_id` gives none (the last one without bit 31; a device refuses to move a valid COB-ID directly, so write `0x80000085` first and then the new value), and the read after boot checks it. The predefined consumer entry of a node ID that is not configured and has the same COB-ID is left out.
+
+A value the device reports is not taken, with one warning (not repeated until the device reports another value) and the master keeping the COB-ID in use, when it has bit 31 set (the device's EMCY is switched off; the status then reports it not valid), bit 29 (29-bit COB-IDs are not supported), is a CiA 301 restricted CAN-ID (0x000-0x07F, 0x101-0x180, 0x581-0x5FF, 0x601-0x67F, 0x6E0-0x6FF, 0x701-0x7FF), or is a COB-ID another identifier of the network uses (SYNC, TIME, the master's EMCY, another configured node's EMCY, a configured PDO). A read that is aborted or times out keeps the COB-ID in use, is logged once as information, and does not change the boot result. A master NMT reset goes back to the master DCF's COB-IDs until the next boot reads them again. The [status](diagnostics.md) reports per node the COB-ID in use and where it came from, and the raw-frame guard names it as the node's EMCY.
 
 A device that sends EMCY messages too often can be slowed down with a startup SDO to its EMCY inhibit time, 0x1015 (`UNSIGNED16`, in 100 µs), if its EDS has that object; `dcfgen` has no option for it.
 
@@ -753,6 +764,7 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - `timeout_ms`, `on_timeout` or `timeout_location` is on an RPDO; `timeout_ms` is 0, above 65535 or `"auto"` without an event timer; `on_timeout` or `timeout_location` is given without `timeout_ms`; `on_timeout` is not `"hold"` or `"zero"`; or `timeout_location` is not an `%IX` bit;
 - an entry received from a slave has an output location, an entry sent to a slave has an input location, or the type does not fit the location;
 - two entries (or an entry and a node or master diagnostic location, `emcy_code_location`, `error_register_location`, `nmt_command_location`, `timeout_location` and every SDO variable location included) map to the same location;
+- a node's `emcy_cob_id` is not `"device"`, `"eds"` or a COB-ID, has bit 31 set, is wider than 11 bits, is a restricted CAN-ID, or is a COB-ID another identifier of the network uses (SYNC, TIME, the master's EMCY, another node's EMCY, a PDO); the same holds for a startup SDO to 0x1014;
 - a master diagnostic location has the wrong type (`%IB` for the states and the counters, `%IW` for the bus-off count), a node's `state_location`, `boot_error_location` or `error_register_location` is not `%IB`, or its `emcy_code_location` is not `%IW`;
 - a time in µs that CiA counts in 100 µs is not a multiple of 100, `sync_counter_overflow` is 1 or above 240, or an `error_behavior` sub-index is outside 1-254;
 - a node sets `config_check` while its EDS has no writable 0x1020 sub 1 and sub 2, or `store_configuration` outside 1-127, without `config_check`, or on a 0x1010 sub-index its EDS does not define as writable;

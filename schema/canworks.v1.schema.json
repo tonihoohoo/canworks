@@ -732,6 +732,25 @@
           "description": "The node's TIME COB-ID (0x1012). Left out, the EDS value stays.",
           "$ref": "#/$defs/u32"
         },
+        "emcy_cob_id": {
+          "description": "The COB-ID the master listens on for the node's EMCY. \"device\" (the default): read from the node's 0x1014 after each boot; \"eds\": the EDS default of 0x1014 (0x80 + node ID without one); a number: this 11-bit COB-ID, no read. Restricted CAN-IDs (CiA 301) and COB-IDs the network already uses are rejected.",
+          "anyOf": [
+            {
+              "enum": [
+                "device",
+                "eds"
+              ]
+            },
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2047
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
         "error_behavior": {
           "$ref": "#/$defs/error_behavior"
         },

@@ -217,6 +217,10 @@ void Network::DiagStatus(const DiagRequest& r) {
     cJSON_AddNumberToObject(e, "code", image_.node_emcy_code(id));
     cJSON_AddNumberToObject(e, "error_register", image_.node_error_register(id));
     cJSON_AddNumberToObject(e, "count", static_cast<double>(n.emcy_total));
+    cJSON* ec = cJSON_AddObjectToObject(o, "emcy_cob_id");
+    cJSON_AddNumberToObject(ec, "value", n.emcy_cob);
+    cJSON_AddStringToObject(ec, "source", n.emcy_source);
+    cJSON_AddBoolToObject(ec, "valid", n.emcy_valid);
     cJSON* pt = cJSON_AddArrayToObject(o, "pdo_timeouts");
     auto now = clock::now();
     for (const auto& ip : in_pdos_) {

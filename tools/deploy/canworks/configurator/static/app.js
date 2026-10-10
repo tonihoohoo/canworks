@@ -1918,7 +1918,8 @@ function renderNode(view, i) {
         nodeInput("EMCY code", "emcy", "emcy_code_location", "%IW…",
           "Optional. Error code of the node's latest emergency message, 0 when no error is active (after its error reset or a restart). Every EMCY is also logged. Empty: not mapped."),
         nodeInput("Error register", "errreg", "error_register_location", "%IB…",
-          "Optional. Error register (object 0x1001 bits) from the latest emergency message, 0 after a restart. Empty: not mapped.")))),
+          "Optional. Error register (object 0x1001 bits) from the latest emergency message, 0 after a restart. Empty: not mapped."),
+        emcyCobField(i)))),
     section("axis", "Axis", axisFields(i, eds)),
     section("advanced", "Advanced", nodeAdvanced(i, eds)));
   if (eds && eds.error) view.append(el("p", { class: "field-msg" }, eds.error));
@@ -2065,6 +2066,39 @@ function cyclicFields(base, n) {
     field("Interpolation period (us)", base + ".axis.interpolation_period_us", "int", { placeholder: "the PLC cycle",
       hint: "Written to the drive's 0x60C2 at boot. Empty: the runtime's cycle time, which is right when the task interval is the base tick." })));
   return wrap;
+}
+
+// emcy_cob_id: Device (the default, saved as no field), EDS, or a COB-ID
+// typed in hex or decimal. The Check gives the plugin's messages for a
+// COB-ID it does not take.
+const EMCY_COB_HELP = {
+  device: "Read from the node's 0x1014 after each boot; the master listens on the COB-ID the device uses.",
+  eds: "The EDS default of 0x1014 (0x80 + node ID without one); nothing is read from the device.",
+  number: "This COB-ID, hex (0xC5) or decimal; nothing is read from the device. Not a restricted CAN-ID, nor one the network already uses.",
+};
+function emcyCobField(i) {
+  const path = `nodes[${i}].emcy_cob_id`;
+  const v = getPath(path);
+  const mode = v === undefined || v === "device" ? "device" : v === "eds" ? "eds" : "number";
+  const sel = el("select", { "aria-label": "EMCY COB-ID", dataset: { emcyCob: "mode" } },
+    el("option", { value: "device" }, "Device"), el("option", { value: "eds" }, "EDS"), el("option", { value: "number" }, "COB-ID"));
+  sel.value = mode;
+  const input = el("input", { type: "text", spellcheck: "false", class: "index", placeholder: "0xC5", "aria-label": "EMCY COB-ID number",
+    dataset: { emcyCob: "number" } });
+  input.value = mode === "number" ? String(v) : "";
+  const help = el("span", { class: "hint" });
+  const show = () => { help.textContent = EMCY_COB_HELP[sel.value]; input.hidden = sel.value !== "number"; };
+  const save = () => {
+    show();
+    if (sel.value !== "number") { setPath(path, sel.value === "eds" ? "eds" : undefined); return; }
+    const t = input.value.trim();
+    setPath(path, t === "" ? undefined : /^[0-9]+$/.test(t) ? parseInt(t, 10) : t);
+  };
+  show();
+  sel.addEventListener("change", () => { save(); if (sel.value === "number") input.focus(); });
+  input.addEventListener("input", save);
+  return el("label", null, "EMCY COB-ID", el("span", { class: "row" }, sel, input), help,
+    el("span", { class: "field-msg", dataset: { for: path } }));
 }
 
 function nodeAdvanced(i, eds) {
@@ -3924,7 +3958,7 @@ async function pollOnline(seq) {
     el("td", { dataset: { onlineStatus: n.node_id } }, n.status ? "TRUE" : "FALSE",
       ...stale.map((t) => el("div", { class: "bad", dataset: { pdoTimeout: n.node_id } }, t))),
     el("td", { class: n.boot_error ? "bad" : null }, boot + (n.retry_pending ? " (retrying)" : "")),
-    el("td", null, hold), el("td", null, em), el("td", null, vars));
+    el("td", null, hold), el("td", null, em, emcyCobNote(n)), el("td", null, vars));
   });
   patchLive($("#online-live"), [
     el("table", { class: "online-bus" }, el("tbody", null,
@@ -4366,6 +4400,19 @@ function sdoStatus(v) {
   return v.abort_code ? "abort " + hex8(v.abort_code) : { 3: "aborted", 4: "node not available" }[v.status] || "status " + v.status;
 }
 
+// A status node's EMCY COB-ID in use (emcy_cob_id: value, source, valid),
+// shown when it is not 0x80 + node ID or the device switched its EMCY off;
+// null for the default and for a plugin that does not send it.
+function emcyCobNote(n) {
+  const e = n && n.emcy_cob_id;
+  if (!e || !Number.isInteger(e.value)) return null;
+  const valid = e.valid !== false;
+  if (valid && e.value === 0x80 + n.node_id) return null;
+  return el("div", { class: valid ? "muted" : "bad", dataset: { emcyCob: n.node_id },
+    title: valid ? "The COB-ID the master listens on for this node's EMCY" : "The device reports its EMCY not valid (0x1014 bit 31): it sends none" },
+  `EMCY COB-ID 0x${e.value.toString(16).toUpperCase()} (${e.source || "?"}${valid ? "" : ", off on the device"})`);
+}
+
 function emcyClass(code) {
   const c = Number(code);
   if (c === 0) return "error reset or no error";
@@ -4414,7 +4461,8 @@ async function renderOnlineNode() {
     timeouts,
     sdoPanel(id, n, allow),
     el("fieldset", null, el("legend", null, "Emergency history (newest first)"), emcy,
-      el("button", { type: "button", onclick: () => renderOnlineNode() }, "Refresh"))));
+      el("button", { type: "button", onclick: () => renderOnlineNode() }, "Refresh")),
+    errorFieldPanel(id, allow)));
   try {
     const r = await api("POST", "/api/online/emcy", { node: id, port: diagPort() });
     emcy.replaceChildren(r.emcy.length ? el("table", null,
@@ -4425,6 +4473,74 @@ async function renderOnlineNode() {
   } catch (e) {
     emcy.replaceChildren(el("p", { class: "field-msg" }, e.message));
   }
+}
+
+// The device's own error history, 0x1003 (canopen-configurator: Device error
+// history in the online view): count and entries newest first, read with the
+// manual SDO read; Clear writes 0 to sub-index 0 with the manual write, so it
+// needs changes allowed and, on an OPERATIONAL node, force (asked first).
+function errorFieldPanel(id, allow) {
+  const box = el("div", { dataset: { online: "error-field" } }, el("span", { class: "muted" }, "Loading…"));
+  let last = null;
+  const show = (r) => {
+    last = r;
+    if (!r.history) { box.replaceChildren(el("p", { class: "muted" }, `Node ${id} has no error history (0x1003).`)); return; }
+    const failed = r.failed ? el("p", { class: "field-msg", dataset: { online: "error-field-failed" } },
+      r.count === null ? `Sub-index 0: ${r.failed.reason}.` : `Sub-index ${r.failed.subindex}: ${r.failed.reason}; the list ends here.`) : null;
+    if (r.count === null) { box.replaceChildren(failed); return; }
+    put(box, el("p", { dataset: { online: "error-field-count" } }, `Count ${r.count}` + (r.entries.length ? " (newest first)" : "")),
+      r.entries.length ? el("table", null,
+        el("thead", null, el("tr", null, thCells(["Sub-index", "Code", "Class", "Manufacturer information"]))),
+        el("tbody", null, r.entries.map((e) => el("tr", { dataset: { errorFieldRow: e.subindex } }, el("td", null, String(e.subindex)),
+          el("td", null, hex4(e.code)), el("td", null, e.class), el("td", null, hex4(e.info)))))) : null,
+      failed);
+  };
+  const read = async () => {
+    try { show(await api("POST", "/api/online/error_field", { node: id, port: diagPort() })); } catch (e) {
+      last = null;
+      box.replaceChildren(el("p", { class: "field-msg" }, e.message));
+    }
+  };
+  const clear = async () => {
+    const n = last && last.count !== null && last.history ? last.count : null;
+    const what = n === null ? "all its entries" : `its ${n} entr${n === 1 ? "y" : "ies"}`;
+    if (await modal(`Clear node ${id}'s error history (0x1003)? The device deletes ${what}.`,
+      [["clear", "Clear", { danger: true }], ["cancel", "Cancel"]]) !== "clear") return;
+    const forceText = `Node ${id} is OPERATIONAL and the PLC program drives it. Clear its error history anyway (force)?`;
+    const askForce = async () => await modal(forceText, [["force", "Clear anyway", { danger: true }], ["cancel", "Cancel"]]) === "force";
+    const body = { node: id, port: diagPort() };
+    let forced = false;
+    if (nodeRunning(id)) {
+      if (!(await askForce())) return;
+      forced = true;
+    }
+    try {
+      let r;
+      try { r = await api("POST", "/api/online/error_field_clear", Object.assign({}, body, forced ? { force: true } : {})); } catch (e) {
+        if (forced || !(e.body && e.body.force)) throw e;
+        if (!(await askForce())) return;
+        r = await api("POST", "/api/online/error_field_clear", Object.assign({}, body, { force: true }));
+      }
+      banner(`Node ${id}: error history (0x1003) cleared.`);
+      show(r);
+    } catch (e) {
+      banner(e.message, true);
+      read();
+    }
+  };
+  // Read at once only from a node the master has booted and that answers SDO
+  // (PRE-OPERATIONAL or OPERATIONAL), or with no status to tell; otherwise
+  // Refresh reads it.
+  const st = S.onlineLast && S.onlineLast.status;
+  const sn = st ? (st.nodes || []).find((x) => x.node_id === id) : null;
+  if (!st || (sn && sn.booted !== false && (sn.state === 5 || sn.state === 127))) read();
+  else box.replaceChildren(el("p", { class: "muted" }, `Node ${id} has not booted; Refresh reads its error history.`));
+  return el("fieldset", null, el("legend", null, "Error history (0x1003)"), box,
+    el("div", { class: "toolbar" },
+      el("button", { type: "button", dataset: { online: "error-field-refresh" }, onclick: () => read() }, "Refresh"),
+      el("button", { type: "button", disabled: !allow, title: allow ? null : NO_CHANGES, dataset: { online: "error-field-clear" },
+        onclick: () => clear() }, "Clear")),
+    allow ? null : el("p", { class: "field-msg warning", dataset: { online: "error-field-no-changes" } }, "Clear: " + NO_CHANGES));
 }
 
 // The monitored TPDOs of a node in the status answer: timeout, timed out

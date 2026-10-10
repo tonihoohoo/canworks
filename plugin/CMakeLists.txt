@@ -96,6 +96,7 @@ set(CANWORKS_CANOPEN_SOURCES
     src/canopen/network_lss.cpp
     src/canopen/network_plc.cpp
     src/canopen/plc_api.cpp
+    src/canopen/plc_emcy.cpp
     src/canopen/host_requests.cpp
     src/canopen/bus.cpp
     src/canopen/bus_monitor.cpp

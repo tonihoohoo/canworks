@@ -1,6 +1,6 @@
 # SDO from the PLC program: the `canworks` library
 
-The `canworks` library gives the PLC program eight function blocks that read or write any object of any node over SDO while the network runs. They are for transfers the program decides on at run time: a recipe parameter, a device name to log, a calibration table. For an object the program reads or writes all the time, an [SDO variable](config.md#sdo-variables) in the config is simpler, since it needs no code. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network. The same library has the NMT blocks `CO_NMT`, `CO_NETWORK_START`, `CO_NETWORK_STOP` and `CO_GET_STATE` ([plc-nmt.md](plc-nmt.md)), the CAN frame blocks ([raw-can.md](raw-can.md)) and the CiA 402 axis blocks ([cia402.md](cia402.md)).
+The `canworks` library gives the PLC program eight function blocks that read or write any object of any node over SDO while the network runs, and `CO_RECV_EMCY`, which hands the program every emergency message of the network ([below](#every-emcy-co_recv_emcy)). They are for transfers the program decides on at run time: a recipe parameter, a device name to log, a calibration table. For an object the program reads or writes all the time, an [SDO variable](config.md#sdo-variables) in the config is simpler, since it needs no code. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network. The same library has the NMT blocks `CO_NMT`, `CO_NETWORK_START`, `CO_NETWORK_STOP` and `CO_GET_STATE` ([plc-nmt.md](plc-nmt.md)), the CAN frame blocks ([raw-can.md](raw-can.md)) and the CiA 402 axis blocks ([cia402.md](cia402.md)).
 
 | Block | Data | For |
 |---|---|---|
@@ -8,6 +8,7 @@ The `canworks` library gives the PLC program eight function blocks that read or 
 | `CO_SDO_READ_REAL` / `CO_SDO_WRITE_REAL` | `VALUE : LREAL` | REAL32 and REAL64 |
 | `CO_SDO_READ_STRING` / `CO_SDO_WRITE_STRING` | `VALUE : STRING` | VISIBLE_STRING, up to 254 characters |
 | `CO_SDO_READ_BYTES` / `CO_SDO_WRITE_BYTES` | `BUFFER : ARRAY[0..1023] OF BYTE`, `SIZE` | any object up to 1024 bytes (OCTET_STRING, DOMAIN, records) |
+| `CO_RECV_EMCY` | `ERROR_CODE : WORD`, `ERROR_REGISTER`, `MSEF` | every emergency message of the network's configured nodes, one per call |
 
 ## Install the library once
 
@@ -77,6 +78,38 @@ A reply longer than 254 characters ends with `ERROR_ID` 7; read it with `CO_SDO_
 ### Bytes
 
 `CO_SDO_READ_BYTES` copies the reply into `BUFFER` (an in-out `ARRAY[0..1023] OF BYTE`) and its length into `SIZE`. `CO_SDO_WRITE_BYTES` sends the first `SIZE` bytes of `BUFFER`. Use these for anything else: OCTET_STRING, DOMAIN, or a whole record read as bytes.
+
+## Every EMCY: `CO_RECV_EMCY`
+
+A node's `emcy_code_location` and `error_register_location` ([config](config.md#emergency-messages)) hold its latest EMCY. A fault the device resets within one scan, or the same code twice, never shows there. `CO_RECV_EMCY` gives the program each EMCY of a configured node, in order, from a queue of the network's last 64, kept from the start of the CANopen session (so EMCYs sent while the nodes boot are in it too, and EMCYs whose log lines the log throttle dropped).
+
+- Inputs: `ENABLE : BOOL`, `NETWORK : USINT` (as for the SDO blocks), `NODE : USINT` (0: every node, 1..127: that node only), `SKIP_OLD : BOOL`.
+- In-out: `MSEF : ARRAY[0..4] OF BYTE`, the five manufacturer-specific bytes.
+- Outputs: `ACTIVE`, `NEW : BOOL`, `EMCY_NODE : USINT`, `ERROR_CODE : WORD`, `ERROR_REGISTER : BYTE`, `TIMESTAMP : ULINT` (receive time, UTC microseconds since 1970), `QUEUED : UINT` (matching EMCYs still waiting for this instance), `OVERFLOW : BOOL`, `LOST : UDINT`, `ERROR : BOOL`, `ERROR_ID : UINT`.
+- While `ENABLE` is TRUE each call takes at most one EMCY: `NEW` TRUE with its outputs, or `NEW` FALSE with the last one's outputs kept. An error reset (code 0) is delivered like any other EMCY. Call it again while `NEW` is TRUE to empty the queue in one scan.
+- At the rising edge of `ENABLE` the instance starts at the oldest EMCY still in the queue; with `SKIP_OLD := TRUE` at the next one to arrive. Every instance reads from its own place, so two instances both get every EMCY.
+- An instance that falls more than 64 EMCYs behind has lost the oldest: `LOST` counts them (with a `NODE` filter it also counts other nodes' EMCYs, since the queue is shared) and `OVERFLOW` stays TRUE until `ENABLE` falls.
+- `ERROR_ID` 4: CANopen is not running, or the plugin is older than this library (it tries again every call while `ENABLE` stays TRUE); 6: `NODE` above 127 or a `NETWORK` that is not a CANopen master network; 8 for one call: the CANopen session restarted (the queue was emptied; reading goes on from the new session's first EMCY, nothing counted as lost).
+
+```
+VAR
+  rx : CO_RECV_EMCY;
+  msef : ARRAY[0..4] OF BYTE;
+  faults : UDINT;
+END_VAR
+
+rx(ENABLE := TRUE, NODE := 0, MSEF := msef);
+WHILE rx.NEW DO
+  IF rx.ERROR_CODE <> 16#0000 THEN
+    faults := faults + 1;   (* rx.EMCY_NODE, rx.ERROR_CODE, rx.ERROR_REGISTER, msef *)
+  END_IF;
+  rx(ENABLE := TRUE, NODE := 0, MSEF := msef);
+END_WHILE;
+```
+
+The device keeps its own error history in the pre-defined error field 0x1003 (sub-index 0: the number of entries, sub-index 1 the newest; each entry is the error code in the low 16 bits and manufacturer information in the high 16 bits). The program reads it with the SDO blocks, for example `CO_SDO_READ` on 16#1003 sub-index 0 and then 1 up to the count; [`canworks-diag errors`](diagnostics.md) and the configurator's online node page show and clear it.
+
+The SDO blocks ask the plugin for version 1 of its C interface, `CO_RECV_EMCY` for version 2 (which this plugin and later ones offer), so a project built with this library runs its SDO blocks on an older plugin; only `CO_RECV_EMCY` then ends with `ERROR_ID` 4, and the runtime log says the library needs a newer plugin.
 
 ## Error IDs
 

@@ -60,6 +60,10 @@ class PlcRequests {
   void open(uint32_t sdo_networks = 1);
   void close();
   bool running() const { return running_.load(std::memory_order_acquire); }
+  // Whether network `network` is one of the CANopen master networks open() named.
+  bool takes_network(unsigned network) const {
+    return network < 32 && (sdo_networks_.load(std::memory_order_acquire) >> network & 1u);
+  }
 
   // Bus thread: the network's queued requests, oldest first, marked as taken.
   void take(unsigned network, std::vector<Job>& out);

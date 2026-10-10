@@ -372,6 +372,9 @@ def _check_force(c, f, what, node=None):
         raise DiagError("refused", "field 'force' must be true or false")
     if c._force(f):
         return
+    # The heartbeats heard while the adapter listens tell which node is
+    # OPERATIONAL; the transmit would wait as long anyway.
+    c.core.wait_listened()
     if node is not None:
         busy = _running(c, node)
     else:

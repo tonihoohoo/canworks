@@ -253,6 +253,37 @@ class Proxy(Online):
             self.assertEqual(self.request("POST", "/api/online/sdo_read", dict(write, force=True))[0], 200)
             self.assertEqual(fp.forced[-1], ("scan", None), "a read never carries force")
 
+    def test_error_field(self):
+        # The device error history (0x1003) through the manual SDO operations.
+        with FakePlugin(allow_changes=False) as fp:
+            fp.objects.update({(2, 0x1003, 0): b"\x02", (2, 0x1003, 1): (0x4210).to_bytes(4, "little"),
+                               (2, 0x1003, 2): (0x125000).to_bytes(4, "little")})
+            self.connect(fp)
+            r = self.ok("POST", "/api/online/error_field", {"node": 2})
+            self.assertEqual((r["history"], r["count"], r["failed"]), (True, 2, None))
+            self.assertEqual([(e["subindex"], e["code"], e["class"], e["info"]) for e in r["entries"]],
+                             [(1, 0x4210, "temperature", 0), (2, 0x5000, "device hardware", 0x12)])
+            status, data, _ = self.request("POST", "/api/online/error_field_clear", {"node": 2})
+            self.assertEqual((status, data["error"], bool(data.get("force"))), (422, "changes not allowed", False))
+            self.assertEqual(fp.objects[(2, 0x1003, 0)], b"\x02")
+            self.assertIs(self.ok("POST", "/api/online/error_field", {"node": 23})["history"], False)
+            self.assertEqual(self.request("POST", "/api/online/error_field", {"node": 200})[0], 400)
+        with FakePlugin(allow_changes=True) as fp:
+            self.connect(fp)
+            r = self.ok("POST", "/api/online/error_field", {"node": 2})
+            self.assertEqual((r["history"], r["entries"]), (False, []))  # no 0x1003 in the fake
+            fp.objects[(2, 0x1003, 0)] = b"\x01"
+            fp.objects[(2, 0x1003, 1)] = (0x8130).to_bytes(4, "little")
+            fp.force_running = True
+            status, data, _ = self.request("POST", "/api/online/error_field_clear", {"node": 2})
+            self.assertEqual((status, data["force"]), (422, True), data)
+            self.assertIn("node 2 is OPERATIONAL", data["error"])
+            r = self.ok("POST", "/api/online/error_field_clear", {"node": 2, "force": True})
+            self.assertEqual((r["count"], r["entries"]), (0, []))
+            self.assertEqual(fp.forced, [("sdo_write", 2)])
+            write = [q for q in fp.requests if q["op"] == "sdo_write"][-1]
+            self.assertEqual((write["index"], write["subindex"], write["data"]), (0x1003, 0, "00"))
+
     def test_idle_close(self):
         with FakePlugin() as fp:
             self.connect(fp)

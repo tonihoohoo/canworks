@@ -41,6 +41,8 @@ function commLogApi(path, body, ok, data) {
     commLog(node, `SDO write ${hex4(num(body.index))} sub ${num(body.subindex || 0)} = ${body.value}`, r);
   } else if (route === "nmt") {
     commLog(node, `NMT ${body.command}`, fail || "sent");
+  } else if (route === "error_field_clear") {
+    commLog(node, "Clear error history (0x1003 sub 0 = 0)", fail || "cleared");
   } else if (route === "lss_set_id") {
     const a = body.address || {};
     commLog(node, `LSS set node ID ${node} (serial number ${hex8(a.serial_number)})${body.store ? " and store" : ""}`,

@@ -46,6 +46,7 @@
 #include "iec_location.h"
 #include "canopen_runtime.h"
 #include "plc_api.h"
+#include "plc_emcy.h"
 #include "log.h"
 #include "process_image.h"
 #include "runtime_version.h"
@@ -3862,11 +3863,77 @@ TEST(plc_requests_slots_and_handles) {
   uint32_t h4 = q.start(r, err);
   q.close();
   CHECK(q.poll(h4, &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_CANCELLED);
-  // Only API version 1 is offered; another is noted once.
-  CHECK(canopen_plugin::plc_api_table(1) != nullptr);
+  // API versions 1 and 2 are offered (2 begins with 1's fields); another is
+  // noted once.
+  auto v1 = static_cast<const canopen_plc_api_v1*>(canopen_plugin::plc_api_table(1));
+  auto v2 = static_cast<const canopen_plc_api_v2*>(canopen_plugin::plc_api_table(2));
+  CHECK(v1 && v1->size == sizeof(canopen_plc_api_v1));
+  CHECK(v2 && v2->size == sizeof(canopen_plc_api_v2) && v2->size > v1->size);
+  CHECK(v2 && v2->start == v1->start && v2->poll == v1->poll && v2->emcy_begin && v2->emcy_read);
   CHECK(canopen_plugin::plc_api_table(7) == nullptr);
   CHECK(q.take_unknown_version() == 7);
   CHECK(q.take_unknown_version() == 0);
+}
+
+// The per-network EMCY queues behind CO_RECV_EMCY (canopen-plc-sdo
+// "Per-network EMCY queue").
+TEST(plc_emcy_queue) {
+  using canopen_plugin::EmcyQueues;
+  using canopen_plugin::PlcRequests;
+  EmcyQueues& q = EmcyQueues::instance();
+  auto api = static_cast<const canopen_plc_api_v2*>(canopen_plugin::plc_api_table(2));
+  const uint8_t msef[5] = {1, 2, 3, 4, 5};
+  canopen_plc_emcy e{};
+  canopen_plc_emcy_info info{};
+  canopen_plc_emcy_cursor a{}, b{}, five{}, late{};
+  // Not running: 4; a network that takes no requests or node 128: 6.
+  PlcRequests::instance().close();
+  CHECK(api->emcy_begin(0, 0, 0, &a) == -CANOPEN_PLC_ERR_NOT_RUNNING);
+  PlcRequests::instance().open(0x1);
+  CHECK(api->emcy_begin(1, 0, 0, &a) == -CANOPEN_PLC_ERR_INPUT);
+  CHECK(api->emcy_begin(0, 128, 0, &a) == -CANOPEN_PLC_ERR_INPUT);
+  CHECK(api->emcy_read(1, 0, &a, &e, &info) == -CANOPEN_PLC_ERR_INPUT);
+  q.reset(0);
+  // Order and two readers: each gets every message.
+  q.push(0, 3, 0x4210, 0x09, msef, 1000);
+  q.push(0, 3, 0x0000, 0x00, msef, 3000);
+  CHECK(api->emcy_begin(0, 0, 0, &a) == 0 && api->emcy_begin(0, 0, 0, &b) == 0);
+  CHECK(api->emcy_begin(0, 5, 0, &five) == 0);
+  CHECK(api->emcy_read(0, 0, &a, &e, &info) == 1 && e.node == 3 && e.error_code == 0x4210 && e.error_register == 9);
+  CHECK(e.time_us == 1000 && e.msef[4] == 5 && info.queued == 1 && info.lost == 0);
+  CHECK(api->emcy_read(0, 0, &a, &e, &info) == 1 && e.error_code == 0 && info.queued == 0);
+  CHECK(api->emcy_read(0, 0, &a, &e, &info) == 0 && info.queued == 0);
+  CHECK(api->emcy_read(0, 0, &b, &e, &info) == 1 && e.error_code == 0x4210 && info.queued == 1);
+  // SKIP_OLD starts at the next message.
+  CHECK(api->emcy_begin(0, 0, 1, &late) == 0);
+  CHECK(api->emcy_read(0, 0, &late, &e, &info) == 0);
+  // The node filter.
+  q.push(0, 5, 0x5000, 0x01, msef, 4000);
+  q.push(0, 3, 0x5000, 0x01, msef, 5000);
+  q.push(0, 5, 0x5000, 0x01, msef, 6000);
+  CHECK(api->emcy_read(0, 5, &five, &e, &info) == 1 && e.node == 5 && e.time_us == 4000 && info.queued == 1);
+  CHECK(api->emcy_read(0, 5, &five, &e, &info) == 1 && e.node == 5 && e.time_us == 6000 && info.queued == 0);
+  CHECK(api->emcy_read(0, 5, &five, &e, &info) == 0);
+  CHECK(api->emcy_read(0, 0, &late, &e, &info) == 1 && e.time_us == 4000 && info.queued == 2);
+  // A reader that falls behind: 70 more messages, it gets the newest 64 and
+  // counts the rest as lost.
+  canopen_plc_emcy_cursor slow{};
+  CHECK(api->emcy_begin(0, 0, 1, &slow) == 0);
+  for (unsigned i = 0; i < 70; ++i) q.push(0, 3, static_cast<uint16_t>(0x1000 + i), 1, msef, 10000 + i);
+  CHECK(api->emcy_read(0, 0, &slow, &e, &info) == 1 && info.lost == 6 && e.error_code == 0x1006 && info.queued == 63);
+  unsigned got = 1;
+  while (api->emcy_read(0, 0, &slow, &e, &info) == 1) {
+    ++got;
+    CHECK(info.lost == 0);
+  }
+  CHECK_MSG(got == 64 && e.error_code == 0x1000 + 69, std::to_string(got));
+  // A new session: the reader sees 8 once, then reads the new session from
+  // its oldest message, nothing counted as lost.
+  q.reset(0);
+  q.push(0, 3, 0x2000, 1, msef, 20000);
+  CHECK(api->emcy_read(0, 0, &slow, &e, &info) == -CANOPEN_PLC_ERR_CANCELLED);
+  CHECK(api->emcy_read(0, 0, &slow, &e, &info) == 1 && e.error_code == 0x2000 && info.lost == 0);
+  PlcRequests::instance().close();
 }
 
 // A request a network took and never answered times out after its TIMEOUT

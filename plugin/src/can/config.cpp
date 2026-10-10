@@ -84,6 +84,33 @@ std::string RouteConfig::label() const {
   return "route " + std::to_string(number) + (name.empty() ? "" : " (" + name + ")");
 }
 
+uint32_t NodeConfig::emcy_cob_id() const {
+  if (emcy_cob == EmcyCob::Number || emcy_cob_from_sdo) return emcy_cob_config;
+  if (eds_emcy_cob_id) return eds_emcy_cob_id;
+  return 0x80 + node_id;
+}
+
+bool restricted_can_id(uint32_t id) {
+  return id <= 0x07F || (id >= 0x101 && id <= 0x180) || (id >= 0x581 && id <= 0x5FF) ||
+         (id >= 0x601 && id <= 0x67F) || (id >= 0x6E0 && id <= 0x6FF) || (id >= 0x701 && id <= 0x7FF);
+}
+
+std::string emcy_cob_clash(const Config& cfg, const NodeConfig& n, uint32_t id,
+                           const std::function<uint32_t(const NodeConfig&)>& in_use) {
+  if (id == 0x080) return "SYNC";
+  if (id == (cfg.master.time_producer_cob_id() & 0x7FF)) return "TIME";
+  if (id == 0x80 + cfg.master.node_id) return "the master's EMCY";
+  for (const auto& m : cfg.nodes)
+    if (&m != &n && (in_use ? in_use(m) : m.emcy_cob_id()) == id) return "the EMCY of " + m.label();
+  for (const auto& m : cfg.nodes) {
+    for (const auto& p : m.tx_pdos)
+      if ((p.cob_id || p.number <= 4) && m.tpdo_cob_id(p) == id) return m.label() + " TPDO " + std::to_string(p.number);
+    for (const auto& p : m.rx_pdos)
+      if ((p.cob_id || p.number <= 4) && m.rpdo_cob_id(p) == id) return m.label() + " RPDO " + std::to_string(p.number);
+  }
+  return "";
+}
+
 std::string NodeConfig::label() const {
   std::string s = "node " + std::to_string(node_id);
   if (!name.empty()) s += " (" + name + ")";
@@ -1421,7 +1448,7 @@ class Parser {
                      "boot", "reset_communication", "revision_number", "serial_number", "heartbeat_consumer",
                      "heartbeat_watch", "retry_factor", "time_cob_id", "error_behavior", "restore_configuration", "config_check",
                      "store_configuration", "lss", "axis", "software_file", "software_version", "tx_pdos",
-                     "rx_pdos", "sdo", "sdo_variables", "simulate"});
+                     "rx_pdos", "sdo", "sdo_variables", "simulate", "emcy_cob_id"});
         n.simulate = cfg.adapter.simulate;
         get_bool(node, "simulate", w, n.simulate);
         if (get_uint(node, "node_id", w, true, 0xFFFF, v)) n.node_id = (unsigned)v;
@@ -1514,6 +1541,7 @@ class Parser {
       if (const NodeConfig* p = cfg.node(l.producer))
         for (const auto& t : p->tx_pdos)
           if (t.number == l.tpdo) l.cob_id = p->tpdo_cob_id(t);
+    check_emcy_cob_ids(cfg);
     // A version 2 file checks the locations of all networks at once.
     if (version_ == 1) check_overlaps(cfg);
     check_sdo_overrides(cfg);
@@ -2142,6 +2170,33 @@ class Parser {
 
   void parse_node_options(const cJSON* node, const Config& cfg, NodeConfig& n, const std::string& w) {
     uint64_t v;
+    if (const cJSON* e = cJSON_GetObjectItemCaseSensitive(node, "emcy_cob_id")) {
+      std::string s = cJSON_IsString(e) ? e->valuestring : "";
+      bool ok = true;
+      if (s == "device") {
+        n.emcy_cob = NodeConfig::EmcyCob::Device;
+      } else if (s == "eds") {
+        n.emcy_cob = NodeConfig::EmcyCob::Eds;
+      } else {
+        uint64_t num = 0;
+        if (cJSON_IsNumber(e)) {
+          ok = e->valuedouble >= 0 && e->valuedouble == (double)(uint64_t)e->valuedouble;
+          num = ok ? (uint64_t)e->valuedouble : 0;
+        } else if (!s.empty() && s[0] != '-') {
+          char* end = nullptr;
+          num = std::strtoull(s.c_str(), &end, 0);
+          ok = *end == '\0';
+        } else {
+          ok = false;
+        }
+        ok = ok && num <= 0xFFFFFFFFu;
+        if (ok) {
+          n.emcy_cob = NodeConfig::EmcyCob::Number;
+          n.emcy_cob_config = static_cast<uint32_t>(num);
+        }
+      }
+      if (!ok) error(w, n.label() + ": field 'emcy_cob_id' must be \"device\", \"eds\" or a COB-ID");
+    }
     get_bool(node, "mandatory", w, n.mandatory);
     get_bool(node, "boot", w, n.boot);
     n.has_reset_communication = get_bool(node, "reset_communication", w, n.reset_communication);
@@ -2941,6 +2996,51 @@ class Parser {
           cfg.notes.push_back(n.label() + (tx ? " TPDO " : " RPDO ") + std::to_string(p.number) +
                               ": automatic COB-ID " + hex);
         }
+  }
+
+  // The configured EMCY COB-IDs (emcy_cob_id numbers, else a startup SDO to
+  // 0x1014 sub-index 0) and the checks of canopen-node-supervision "EMCY
+  // COB-ID setting": run after the "auto" PDO COB-IDs are resolved.
+  void check_emcy_cob_ids(Config& cfg) {
+    for (auto& n : cfg.nodes) {
+      if (n.emcy_cob == NodeConfig::EmcyCob::Number) continue;
+      for (const auto& s : n.sdos) {
+        if (s.index != 0x1014 || s.subindex != 0) continue;
+        uint64_t v = 0;
+        for (size_t b = 0; b < s.data.size() && b < 8; ++b) v |= uint64_t(s.data[b]) << (8 * b);
+        // A value with bit 31 switches the device's EMCY off (or is the first
+        // step of moving it): not a COB-ID to listen on.
+        n.emcy_cob_from_sdo = !(v & 0x80000000u);
+        n.emcy_cob_config = n.emcy_cob_from_sdo ? static_cast<uint32_t>(v) : 0;
+      }
+    }
+    for (size_t i = 0; i < cfg.nodes.size(); ++i) {
+      const NodeConfig& n = cfg.nodes[i];
+      if (n.emcy_cob != NodeConfig::EmcyCob::Number && !n.emcy_cob_from_sdo) continue;
+      std::string msg = emcy_cob_problem(cfg, n);
+      if (!msg.empty()) error("nodes[" + std::to_string(i) + "]", n.label() + ": " + msg);
+    }
+  }
+
+  // Why a node's configured EMCY COB-ID cannot be used, or "".
+  static std::string emcy_cob_problem(const Config& cfg, const NodeConfig& n) {
+    uint32_t v = n.emcy_cob_config;
+    char buf[96];
+    if (n.emcy_cob == NodeConfig::EmcyCob::Number && (v & 0x80000000u)) {
+      std::snprintf(buf, sizeof buf, "emcy_cob_id 0x%08X has bit 31 set (EMCY not valid); ", v);
+      return std::string(buf) + "give the COB-ID the device sends on";
+    }
+    if (n.emcy_cob == NodeConfig::EmcyCob::Number)
+      std::snprintf(buf, sizeof buf, v > 0x7FF ? "emcy_cob_id 0x%X" : "emcy_cob_id 0x%03X", v);
+    else
+      std::snprintf(buf, sizeof buf,
+                    v > 0x7FF ? "EMCY COB-ID 0x%X from the startup SDO to 0x1014" : "EMCY COB-ID 0x%03X from the startup SDO to 0x1014", v);
+    std::string what = buf;
+    if (v > 0x7FF) return what + " is not an 11-bit CAN-ID (29-bit EMCY COB-IDs are not supported)";
+    if (restricted_can_id(v)) return what + " is a restricted CAN-ID (CiA 301)";
+    std::string who = emcy_cob_clash(cfg, n, v, nullptr);
+    if (!who.empty()) return what + " clashes with " + who;
+    return "";
   }
 
   // A startup SDO runs after everything the plugin writes from the node's
