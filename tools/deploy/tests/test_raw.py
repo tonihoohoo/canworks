@@ -123,13 +123,18 @@ class Dbc(unittest.TestCase):
         self.assertEqual(wake["id"], 0x18FF0080)
         self.assertTrue(wake["on_change"])
 
-    def test_multiplexed_listed(self):
+    def test_multiplexed_imported(self):
         text = (
             'VERSION ""\nBU_: A\nBO_ 100 M: 8 A\n SG_ Mux M : 0|8@1+ (1,0) [0|0] "" Vector__XXX\n'
             ' SG_ Val m1 : 8|8@1+ (1,0) [0|0] "" Vector__XXX\n SG_ Plain : 16|8@1+ (1,0) [0|0] "" Vector__XXX\n')
         (m,) = dbc.read_dbc(text)
         self.assertTrue(m["multiplexed"])
-        self.assertEqual([s["name"] for s in m["signals"]], ["Plain"])
+        self.assertNotIn("mux_problem", m)
+        by = {s["name"]: s for s in m["signals"]}
+        self.assertEqual(list(by), ["Mux", "Val", "Plain"])
+        self.assertTrue(by["Mux"]["multiplexer"])
+        self.assertEqual(by["Val"]["mux"], {"values": [1]})
+        self.assertNotIn("mux", by["Plain"])
 
 
 

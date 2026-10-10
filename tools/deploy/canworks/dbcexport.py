@@ -20,6 +20,7 @@ from . import __version__, bundle, contract, edslint
 from . import notes as notes_mod
 from . import eds as eds_mod
 from .iec import CO_TYPES, CO_TYPE_BY_CODE, parse_location
+from .raw.mux import merge as mux_merge
 
 SDO_OPTIONS = ("none", "config", "all")
 MASTER = "Master"
@@ -56,11 +57,16 @@ class Signal:
 
     def __init__(self, name, start, length, signed=False, float_kind=0, receivers=(), comment="",
                  mux=None, multiplexer=False, values=None, scale=1, offset=0, unit="", big_endian=False,
-                 minimum=None, maximum=None):
+                 minimum=None, maximum=None, mux_on=None, mux_ranges=None):
         self.name, self.start, self.length = name, start, length
         self.signed, self.float_kind = signed, float_kind  # float_kind: 0, 1 (single) or 2 (double)
         self.receivers = list(receivers)
+        # Multiplexing: `multiplexer` marks a switch; `mux` is the one switch
+        # value of a simple dependent (mN). Extended multiplexing (raw and
+        # J1939 signals with `mux`): `mux_on` names the switch's DBC signal
+        # and `mux_ranges` holds its values as [(low, high)].
         self.comment, self.mux, self.multiplexer = comment, mux, multiplexer
+        self.mux_on, self.mux_ranges = mux_on, mux_ranges
         self.values = values or []  # [(value, text)]
         self.scale, self.offset, self.unit, self.big_endian = scale, offset, unit, big_endian
         self.minimum, self.maximum = minimum, maximum  # physical limits; None: the raw range's
@@ -530,14 +536,57 @@ def number(v):
     return "%d" % v
 
 
+def _extended_mux(m):
+    """True when a message's multiplexing needs SG_MUL_VAL_ lines: several
+    switches, a nested switch, or a signal on ranges or several values."""
+    switches = [s for s in m.signals if s.multiplexer]
+    for s in m.signals:
+        if s.mux_ranges is not None and (len(s.mux_ranges) > 1 or s.mux_ranges[0][0] != s.mux_ranges[0][1]):
+            return True
+        if s.multiplexer and (s.mux is not None or s.mux_ranges is not None):
+            return True
+    return len(switches) > 1
+
+
+def _mux_mark(s):
+    """" M", " m3", " m3M" or "" for a signal's SG_ line."""
+    value = s.mux if s.mux is not None else s.mux_ranges[0][0] if s.mux_ranges else None
+    if value is None:
+        return " M" if s.multiplexer else ""
+    return " m%d%s" % (value, "M" if s.multiplexer else "")
+
+
+def mux_signals(config_signals, signals):
+    """Sets the multiplexing of DBC `signals` from the raw or J1939 config
+    signals they were made from (same order; `multiplexer` and `mux` as in
+    the config, `mux.on` defaulting to the message's one switch)."""
+    switches = {}
+    for c, s in zip(config_signals, signals):
+        if c.get("multiplexer") is True:
+            s.multiplexer = True
+            switches.setdefault(c.get("name"), s.name)
+    only = next(iter(switches.values())) if len(switches) == 1 else None
+    for c, s in zip(config_signals, signals):
+        mux = c.get("mux")
+        if not isinstance(mux, dict) or not isinstance(mux.get("values"), list):
+            continue
+        on = switches.get(mux["on"]) if "on" in mux else only
+        if on is None:
+            continue
+        ranges = [(v, v) if isinstance(v, int) else (v[0], v[1]) for v in mux["values"]]
+        s.mux_on, s.mux_ranges = on, mux_merge(ranges)
+
+
 def write(model):
     """The model as DBC text (ASCII, CRLF)."""
+    extended = [m for m in model.messages if _extended_mux(m)]
     L = ['VERSION ""', "", "NS_ :", "\tNS_DESC_", "\tCM_", "\tBA_DEF_", "\tBA_", "\tVAL_", "\tBA_DEF_DEF_",
-         "\tSIG_VALTYPE_", "", "BS_:", "", "BU_: " + " ".join(model.nodes), ""]
+         "\tSIG_VALTYPE_"] + (["\tSG_MUL_VAL_"] if extended else []) + [
+         "", "BS_:", "", "BU_: " + " ".join(model.nodes), ""]
     for m in model.messages:
         L.append("BO_ %d %s: %d %s" % (m.dbc_id, m.name, m.length, m.sender))
         for s in m.signals:
-            mux = " M" if s.multiplexer else (" m%d" % s.mux if s.mux is not None else "")
+            mux = _mux_mark(s)
             lo, hi = s.range()
             L.append(' SG_ %s%s : %d|%d@%d%s (%s,%s) [%s|%s] "%s" %s'
                      % (s.name, mux, s.start, s.length, 0 if s.big_endian else 1, "-" if s.signed else "+",
@@ -577,6 +626,12 @@ def write(model):
         for s in m.signals:
             if s.float_kind:
                 L.append("SIG_VALTYPE_ %d %s : %d;" % (m.dbc_id, s.name, s.float_kind))
+    # Extended multiplexing, Vector style: a line for every dependent signal.
+    for m in extended:
+        for s in m.signals:
+            if s.mux_on is not None and s.mux_ranges:
+                L.append("SG_MUL_VAL_ %d %s %s %s;" % (m.dbc_id, s.name, s.mux_on,
+                                                        ", ".join("%d-%d" % r for r in s.mux_ranges)))
     return "\r\n".join(L) + "\r\n"
 
 
@@ -656,6 +711,7 @@ def raw_messages(raw, sender):
                     receivers=[sender] if kind == "rx" else (), comment=sg.get("comment", ""),
                     scale=sg.get("scale", 1), offset=sg.get("offset", 0), unit=sg.get("unit", ""),
                     big_endian=sg.get("byte_order") == "big", minimum=sg.get("minimum"), maximum=sg.get("maximum")))
+            mux_signals(m.get("signals") or [], msg.signals)
             out.append(msg)
     return out
 

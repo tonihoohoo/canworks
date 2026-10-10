@@ -250,6 +250,9 @@ def declarations(cfg, object_name, declared, slave_object=None):
                         continue
                     sname = identifier(sg.get("name"))
                     comment = scaling_text(sg.get("scale", 1), sg.get("offset", 0), sg.get("unit", ""))
+                    page = raw_declare.page_text(sg, m["signals"])  # a multiplexed signal's page
+                    if page:
+                        comment = "%s, %s" % (comment, page) if comment else page
                     add("%s_%s" % (net, sname), sg["iec_location"], J1939_TYPES[loc.size][sg.get("signed") is True],
                         "%s.signals[%d].iec_location" % (mp, k),
                         "%s %s %s, %s" % (who, msg, sg.get("name"), comment), comment)

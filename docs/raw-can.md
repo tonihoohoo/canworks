@@ -95,6 +95,50 @@ A send the interface refuses (its transmit queue is full, or it is down) does no
 | `signed` | Two's complement; the value is sign-extended into the location. |
 | `scale`, `offset`, `unit`, `minimum`, `maximum`, `comment` | For tools only: declarations, the trace and the configurator show physical values. The PLC always gets the raw integer, as for CANopen and J1939. |
 | `iec_location` | Big enough for `length`: `%IX`/`%QX` for 1 bit, then byte, word, double word or long word. |
+| `multiplexer`, `mux` | Multiplexing; see [Multiplexed messages](#multiplexed-messages). |
+| `valid_location` | `%IX`, received signals only: TRUE while frames carrying this signal arrive within `timeout_ms`. |
+
+### Multiplexed messages
+
+A multiplexed message reuses its bytes: a switch signal (the DBC's `M`) says which other signals a frame carries, so one identifier can send temperature in one frame and pressure in the next. A switch has `"multiplexer": true`, is unsigned and has at most 32 bits. A signal with `mux` is in a frame only when its switch has one of `values` (whole numbers or `[low, high]` ranges); signals with neither are in every frame. The set of signals a switch value selects is a *page*.
+
+```json
+{ "name": "Sensor", "id": 912, "dlc": 4, "timeout_ms": 300,
+  "signals": [
+    { "name": "Page", "start_bit": 0, "length": 8, "multiplexer": true, "iec_location": "%IB300" },
+    { "name": "Temp", "start_bit": 8, "length": 8, "mux": { "values": [1] },
+      "iec_location": "%IB301", "valid_location": "%IX300.5" },
+    { "name": "Press", "start_bit": 8, "length": 16, "mux": { "values": [2] },
+      "iec_location": "%IW303", "valid_location": "%IX300.6" },
+    { "name": "Counter", "start_bit": 24, "length": 8, "iec_location": "%IB302" } ] }
+```
+
+A message may have several switches, also nested (the DBC's `mNM` with `SG_MUL_VAL_`): a switch can itself depend on another one, and `mux.on` names the switch a signal depends on (needed when there is more than one). Signals on different pages may use the same bits; the configuration check only reports overlaps of signals that can be in one frame, and a frame's length is checked against the signals of its page.
+
+**Receiving.** A frame updates its switches, the signals of its page and the signals of every page; the other signals keep their last values. A frame whose switch selects no known page updates only the switches and the always-present signals, and counts in the status as an unknown page (`unknown_pages`). A signal's `valid_location` goes FALSE when no frame carried it for `timeout_ms`, so the program can tell a page that stopped while the others still arrive; the message's `status_location` still means "some frame arrives".
+
+**Sending.** A sent message with a switch has `pages`:
+
+| `pages` | Behaviour |
+|---|---|
+| `program` (default) | The switch has an `iec_location` and the program picks the page: each send carries the page the switch outputs select. A switch value that selects no page sends the switches and the always-present signals and shows `unknown_page` in the status. |
+| `all` | Every page is sent each period, one frame per page, in switch-value order. The plugin sets the switch, so it has no `iec_location`. |
+| `rotate` | One page per period, the next one each time. The plugin sets the switch. |
+
+`all` and `rotate` take at most 64 pages; a message with more needs `program`. With `on_change` a page goes out when one of its own signals changes (in `rotate`, the next changed page); `trigger_location` sends every page in `all`, the next page in `rotate` and the program's page in `program`. A refused paged send is retried as in [Sent messages](#sent-messages-tx).
+
+**Frame blocks.** Without config messages, the program reads the switch first and then the page's signals:
+
+```
+rx(ENABLE := TRUE, ID := 16#390, RX_DATA := frame);
+WHILE rx.NEW DO
+  CASE LINT_TO_USINT(CAN_GET_BITS(DATA := frame, START_BIT := 0, BIT_LENGTH := 8, MOTOROLA := FALSE, SIGNED := FALSE)) OF
+    1: temp := LINT_TO_INT(CAN_GET_BITS(DATA := frame, START_BIT := 8, BIT_LENGTH := 8, MOTOROLA := FALSE, SIGNED := FALSE));
+    2: press := LINT_TO_INT(CAN_GET_BITS(DATA := frame, START_BIT := 8, BIT_LENGTH := 16, MOTOROLA := FALSE, SIGNED := FALSE));
+  END_CASE;
+  rx(ENABLE := TRUE, RX_DATA := frame);
+END_WHILE;
+```
 
 ### Protocol identifiers
 
@@ -104,7 +148,7 @@ On a CANopen or J1939 network some identifiers belong to the protocol: NMT, SYNC
 
 `canworks-config` imports a DBC file on a network's **CAN messages** page (**Import DBC**): pick the messages, choose received or sent, and **Suggest addresses** fills in free locations. The file is kept as the network's `raw.dbc`, so the trace can decode its other messages too.
 
-Messages with J1939 attributes belong on a J1939 network; plain 11-bit and 29-bit messages become raw messages. Multiplexed signals are not supported. The other way round, `canworks-deploy --export-dbc` writes a network's raw messages into its DBC file next to the protocol's frames.
+Messages with J1939 attributes belong on a J1939 network; plain 11-bit and 29-bit messages become raw messages. Multiplexed messages keep their switches and pages, simple (`M`, `m1`) and extended (`m1M`, `SG_MUL_VAL_`) alike. The other way round, `canworks-deploy --export-dbc` writes a network's raw messages into its DBC file next to the protocol's frames, with their multiplexing.
 
 ### Declarations
 
@@ -220,6 +264,6 @@ The configurator's CAN messages page has **Copy as ST call** on each message: a 
 ## Tools
 
 - **Bus trace**: frames that match a raw message (or a message of the network's `dbc`) show its name and signal values in the trace rows and the [frame inspector](frame-inspector.md).
-- **Diagnostics status**: per raw message the frame count, short frames, timeout state and last time; program receivers, cyclic jobs, dropped frames and the confirmation mode.
+- **Diagnostics status**: per raw message the frame count, short frames, unknown pages, timeout state and last time; program receivers, cyclic jobs, dropped frames and the confirmation mode.
 - **Replay**: `canworks-diag replay FILE --network cab` plays a recorded trace (candump `.log`, `.asc`, `.trc`, pcapng or a canworks trace) onto a network through the plugin, with its original spacing or `--rate N`, once or `--loop`; `--adapter` plays it on a PC adapter instead. It has the `send_frame` guards (`allow_changes`, force on protocol identifiers), stops with Ctrl-C or on disconnect and runs at most 1000 frames per second.
 - **Simulator**: a simulation file's `raw_devices` play plain CAN devices on a simulated bus or with `canworks-sim` on an interface; see [Plain CAN devices](simulator.md#plain-can-devices).

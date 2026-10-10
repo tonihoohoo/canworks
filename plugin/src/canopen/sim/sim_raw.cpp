@@ -96,7 +96,11 @@ bool parse_frame(Ctx& c, const cJSON* o, RawFrame& f, bool need_dlc_or_data) {
 
 bool parse_signal(Ctx& c, const cJSON* o, const RawFrame& f, RawSimSignal& s) {
   if (!cJSON_IsObject(o)) return c.fail("must be an object");
-  bool ok = keys(c, o, {"name", "start_bit", "length", "byte_order", "signed", "scale", "offset", "source"});
+  bool ok = keys(c, o, {"name", "start_bit", "length", "byte_order", "signed", "scale", "offset", "source",
+                        "multiplexer", "mux"});
+  size_t before = c.errors.size();
+  canworks_can::parse_mux_fields(o, c.path, s.mux, c.errors);
+  ok = ok && c.errors.size() == before;
   const cJSON* name = cJSON_GetObjectItemCaseSensitive(o, "name");
   if (name && !cJSON_IsString(name)) ok = c.fail("\"name\" must be text");
   if (cJSON_IsString(name)) s.name = name->valuestring;
@@ -119,9 +123,9 @@ bool parse_signal(Ctx& c, const cJSON* o, const RawFrame& f, RawSimSignal& s) {
     (std::strcmp(k, "scale") == 0 ? s.scale : s.offset) = v->valuedouble;
   }
   const cJSON* src = cJSON_GetObjectItemCaseSensitive(o, "source");
-  if (!src) {
-    ok = c.fail("\"source\" is missing");
-  } else {
+  if (!src && !s.mux.is_switch) {
+    ok = c.fail("needs a \"source\" (only a switch, multiplexer: true, has none)");
+  } else if (src && !s.mux.is_switch) {
     char* text = cJSON_PrintUnformatted(src);
     s.source_json = text ? text : "";
     cJSON_free(text);
@@ -135,7 +139,7 @@ bool parse_signal(Ctx& c, const cJSON* o, const RawFrame& f, RawSimSignal& s) {
 
 bool parse_send(Ctx& c, const cJSON* o, RawSimSend& s) {
   if (!cJSON_IsObject(o)) return c.fail("must be an object");
-  bool ok = keys(c, o, {"name", "id", "extended", "rtr", "dlc", "data", "period_ms", "signals"});
+  bool ok = keys(c, o, {"name", "id", "extended", "rtr", "dlc", "data", "period_ms", "signals", "pages"});
   const cJSON* name = cJSON_GetObjectItemCaseSensitive(o, "name");
   if (name && !cJSON_IsString(name)) ok = c.fail("\"name\" must be text");
   if (cJSON_IsString(name)) s.name = name->valuestring;
@@ -155,7 +159,39 @@ bool parse_send(Ctx& c, const cJSON* o, RawSimSend& s) {
     else
       ok = false;
   }
-  return ok;
+  const cJSON* pages = cJSON_GetObjectItemCaseSensitive(o, "pages");
+  if (pages && !(cJSON_IsString(pages) && (std::strcmp(pages->valuestring, "all") == 0 ||
+                                           std::strcmp(pages->valuestring, "rotate") == 0)))
+    ok = c.fail("\"pages\" must be \"all\" or \"rotate\"");
+  s.rotate = cJSON_IsString(pages) && std::strcmp(pages->valuestring, "rotate") == 0;
+  if (!ok) return false;
+  // Multiplexing as in the config (can-multiplexed-signals); the simulator
+  // sets the switches for each page.
+  std::vector<canworks_can::MuxSignalDef> defs;
+  for (size_t k = 0; k < s.signals.size(); ++k) {
+    const RawSimSignal& g = s.signals[k];
+    canworks_can::MuxSignalDef d;
+    d.name = g.name;
+    d.path = at(c.path, "signals", k);
+    d.start_bit = g.start_bit;
+    d.length = g.length;
+    d.big_endian = g.big_endian;
+    d.is_signed = g.is_signed;
+    d.mux = g.mux;
+    defs.push_back(d);
+  }
+  canworks_can::MuxLayout layout;
+  std::vector<std::string> warnings;
+  if (!layout.build(defs, c.errors, warnings)) return false;
+  if (pages && !layout.multiplexed()) return c.fail("\"pages\": only for a send with a switch (multiplexer: true)");
+  if (layout.multiplexed()) {
+    uint64_t n = layout.page_count();
+    if (n > canworks_can::kMuxMaxPages)
+      return c.fail(std::to_string(n) + " pages; a simulated send has at most " +
+                    std::to_string(canworks_can::kMuxMaxPages));
+    s.pages = layout.pages();
+  }
+  return true;
 }
 
 bool parse_reply(Ctx& c, const cJSON* o, RawSimReply& r) {
@@ -244,7 +280,8 @@ struct RawDevice::Bound {
   std::vector<std::unique_ptr<Source>> sources;  // one per signal of the send
 };
 
-RawDevice::RawDevice(RawDeviceSpec spec) : spec_(std::move(spec)), next_due_(spec_.sends.size(), 0) {}
+RawDevice::RawDevice(RawDeviceSpec spec)
+    : spec_(std::move(spec)), next_due_(spec_.sends.size(), 0), cursor_(spec_.sends.size(), 0) {}
 RawDevice::~RawDevice() = default;
 
 bool RawDevice::bind(const std::string& base_dir, const ExprResolver& resolver, std::vector<std::string>& errors) {
@@ -254,6 +291,10 @@ bool RawDevice::bind(const std::string& base_dir, const ExprResolver& resolver, 
     std::unique_ptr<Bound> b(new Bound);
     for (size_t j = 0; j < spec_.sends[i].signals.size(); ++j) {
       const RawSimSignal& s = spec_.sends[i].signals[j];
+      if (s.source_json.empty()) {  // a switch: the page sets it
+        b->sources.emplace_back();
+        continue;
+      }
       std::string where = "plain CAN device " + spec_.name + ", " +
                           (spec_.sends[i].name.empty() ? raw_frame_text(spec_.sends[i].frame) : spec_.sends[i].name) +
                           ", signal " + (s.name.empty() ? std::to_string(j) : s.name);
@@ -281,6 +322,7 @@ void RawDevice::power_on(uint64_t now_ms) {
   powered_ = true;
   start_ms_ = now_ms;
   std::fill(next_due_.begin(), next_due_.end(), now_ms);
+  std::fill(cursor_.begin(), cursor_.end(), 0);
   pending_.clear();
   for (auto& b : bound_)
     for (auto& s : b->sources)
@@ -309,13 +351,19 @@ static uint64_t clamp_bits(double raw, unsigned length, bool is_signed) {
   return static_cast<uint64_t>(raw);
 }
 
-RawFrame RawDevice::build(size_t i, double t, ExprContext& ctx) {
+RawFrame RawDevice::build(size_t i, int page, double t, ExprContext& ctx) {
   const RawSimSend& send = spec_.sends[i];
   RawFrame f = send.frame;
+  const canworks_can::MuxLayout::Page* pg = page >= 0 ? &send.pages[static_cast<size_t>(page)] : nullptr;
   for (size_t j = 0; j < send.signals.size() && i < bound_.size(); ++j) {
+    const RawSimSignal& s = send.signals[j];
+    if (pg && !pg->active[j]) continue;
+    if (pg && s.mux.is_switch) {
+      canworks_can::pack_signal(f.data, s.start_bit, s.length, s.big_endian, pg->values[j]);
+      continue;
+    }
     Source* src = bound_[i]->sources[j].get();
     if (!src) continue;
-    const RawSimSignal& s = send.signals[j];
     ctx.t = t;
     Value v = src->eval(t, ctx);
     if (v.is_string || !std::isfinite(v.num)) continue;
@@ -332,8 +380,20 @@ void RawDevice::due(uint64_t now_ms, std::vector<RawFrame>& out, ExprContext& ct
   double t = static_cast<double>(now_ms - start_ms_) / 1000.0;
   for (size_t i = 0; i < spec_.sends.size(); ++i) {
     if (now_ms < next_due_[i]) continue;
-    out.push_back(build(i, t, ctx));
-    ++sent_;
+    const RawSimSend& send = spec_.sends[i];
+    if (send.pages.empty()) {
+      out.push_back(build(i, -1, t, ctx));
+      ++sent_;
+    } else if (send.rotate) {
+      out.push_back(build(i, static_cast<int>(cursor_[i]), t, ctx));
+      cursor_[i] = (cursor_[i] + 1) % send.pages.size();
+      ++sent_;
+    } else {
+      for (size_t p = 0; p < send.pages.size(); ++p) {
+        out.push_back(build(i, static_cast<int>(p), t, ctx));
+        ++sent_;
+      }
+    }
     uint64_t period = spec_.sends[i].period_ms;
     next_due_[i] += period;
     // Late by more than a period (a stalled loop): send once and go on from

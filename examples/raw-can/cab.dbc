@@ -4,7 +4,7 @@ NS_ :
 
 BS_:
 
-BU_: PLC JOY PEDAL
+BU_: PLC JOY PEDAL SENSOR
 
 BO_ 385 Joystick: 5 JOY
  SG_ X : 0|16@1- (1,0) [-1000|1000] "" PLC
@@ -14,6 +14,12 @@ BO_ 385 Joystick: 5 JOY
 
 BO_ 2566852640 Pedal: 2 PEDAL
  SG_ Position : 7|16@0+ (0.1,0) [0|100] "%" PLC
+
+BO_ 912 Sensor: 4 SENSOR
+ SG_ Page M : 0|8@1+ (1,0) [0|255] "" PLC
+ SG_ Temp m1 : 8|8@1+ (1,-40) [-40|215] "degC" PLC
+ SG_ Press m2 : 8|16@1+ (0.1,0) [0|6553.5] "kPa" PLC
+ SG_ Counter : 24|8@1+ (1,0) [0|255] "" PLC
 
 BO_ 769 Display: 3 PLC
  SG_ Speed : 0|16@1+ (0.1,0) [0|6553.5] "km/h" JOY
@@ -25,3 +31,4 @@ BA_DEF_DEF_ "GenMsgCycleTime" 0;
 BA_ "GenMsgCycleTime" BO_ 385 20;
 BA_ "GenMsgCycleTime" BO_ 2566852640 50;
 BA_ "GenMsgCycleTime" BO_ 769 100;
+BA_ "GenMsgCycleTime" BO_ 912 100;

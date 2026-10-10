@@ -21,6 +21,7 @@ from jsonschema.exceptions import best_match
 from . import contract
 from . import eds as eds_mod
 from . import simmachine as machine_mod
+from .raw import mux as raw_mux
 from .raw import signals as raw_signals
 
 SUPPORTED_VERSION = 2
@@ -996,10 +997,28 @@ def _check_raw_devices(data, path, cfg, err):
                 err("%s.send[%d]" % (w, j), "needs 'dlc' or 'data'", ["%s.send[%d].dlc" % (w, j)])
             if snd.get("extended") is not True and snd["id"] > 0x7FF:
                 err("%s.send[%d].id" % (w, j), "0x%X is above 0x7FF; set 'extended' for a 29-bit identifier" % snd["id"])
-            for k, sg in enumerate(snd.get("signals") or []):
-                at = "%s.send[%d].signals[%d]" % (w, j, k)
+            sigs = snd.get("signals") or []
+            sp = "%s.send[%d]" % (w, j)
+            # Multiplexing as in the config (can-multiplexed-signals): the
+            # simulator sets the switches for each page.
+            mux_errors, mux_warnings = [], []
+            layout = raw_mux.Layout.build([dict(sg, path="%s.signals[%d]" % (sp, k)) for k, sg in enumerate(sigs)],
+                                          mux_errors, mux_warnings)
+            for e in mux_errors:
+                at, _, text = e.partition(": ")
+                err(at, text)
+            if "pages" in snd and not layout.multiplexed and not mux_errors:
+                err(sp + ".pages", "only for a send with a switch (multiplexer: true)")
+            if layout.multiplexed and layout.page_count() > raw_mux.MAX_PAGES:
+                err(sp, "%d pages; a simulated send has at most %d" % (layout.page_count(), raw_mux.MAX_PAGES))
+            for k, sg in enumerate(sigs):
+                at = "%s.signals[%d]" % (sp, k)
                 if not raw_signals.fits(sg["start_bit"], sg["length"], sg.get("byte_order") == "big", length):
                     err(at, "does not fit the frame's %d bytes" % length, [at + ".start_bit"])
+                if "source" not in sg:
+                    if sg.get("multiplexer") is not True:
+                        err(at, "needs a 'source' (only a switch, multiplexer: true, has none)", [at + ".source"])
+                    continue
                 src = sg["source"]
                 if isinstance(src, dict) and isinstance(src.get("expr"), str):
                     try:

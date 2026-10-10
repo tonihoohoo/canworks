@@ -184,7 +184,7 @@ A running simulator SHALL offer, over its control protocol: the list of simulate
 - **THEN** the value is returned and no CAN frame is sent
 
 ### Requirement: Plain CAN devices
-The simulation file SHALL accept a `raw_devices` list. Each device SHALL have a `name`, a `network` when the config has several, `send` entries (identifier, extended, DLC, period, and per signal a layout and a value source as for CANopen objects) and MAY have `replies` (when a frame with this identifier, and optionally this data under a byte mask, is received, send this frame after an optional delay). Plain CAN devices SHALL run on the simulated bus and in the standalone simulator on a SocketCAN interface or USB adapter, SHALL be shown in the simulation view, and SHALL take part in scenarios and fault injection (stop sending, wrong DLC).
+The simulation file SHALL accept a `raw_devices` list. Each device SHALL have a `name`, a `network` when the config has several, `send` entries (identifier, extended, DLC, period, and per signal a layout and a value source as for CANopen objects) and MAY have `replies` (when a frame with this identifier, and optionally this data under a byte mask, is received, send this frame after an optional delay). A send entry's signals MAY have `multiplexer` and `mux` as in the config (`can-multiplexed-signals`), and the entry MAY have `pages`: `all` (default, every page each period) or `rotate` (the next page each period). Plain CAN devices SHALL run on the simulated bus and in the standalone simulator on a SocketCAN interface or USB adapter, SHALL be shown in the simulation view, and SHALL take part in scenarios and fault injection (stop sending, wrong DLC).
 
 #### Scenario: Simulated joystick
 - **WHEN** the simulation file has a device sending `Joystick` every 100 ms with signal `X` as a sine from -1000 to 1000 over 4 s
@@ -197,6 +197,10 @@ The simulation file SHALL accept a `raw_devices` list. Each device SHALL have a 
 #### Scenario: Device stops
 - **WHEN** a scenario stops the joystick device
 - **THEN** the `Joystick` status bit goes FALSE after its timeout
+
+#### Scenario: Multiplexed device
+- **WHEN** a device sends `Status` every 100 ms with `Temp` on page 1 and `Press` on page 2, and the config receives `Status` with both signals
+- **THEN** on a simulated plain network the PLC's `Status_Temp` and `Status_Press` both follow their sources
 
 ### Requirement: Simulation file checked like the plugin checks it
 The PC tools' check of the simulation file (the configurator's Simulation view, its save, and the deploy tool) SHALL refuse everything the plugin refuses when it loads the file, with a message naming the network, node and object: a value source on an object the master writes (an entry of a configured RPDO mapping), an override or `set` value that does not fit the object's data type, and a scenario step or fault on a node that is not simulated on that network. The plugin's control protocol SHALL refuse an override that does not fit the object's data type instead of storing it. An override on an object the master writes SHALL be a warning, since the plugin accepts it and the device then ignores the master's writes to it.

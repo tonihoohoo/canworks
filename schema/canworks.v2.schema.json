@@ -168,6 +168,26 @@
       }
     },
     "raw_id": { "description": "The CAN identifier: 0..0x7FF, or 0..0x1FFFFFFF with extended.", "type": "integer", "minimum": 0, "maximum": 536870911 },
+    "signal_mux": {
+      "description": "Multiplexing (docs/raw-can.md): the signal is in a frame only when switch `on` has one of `values` (and `on` itself is in the frame). `on` may be left out when the message has one switch.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "on": { "description": "The name of a switch (multiplexer: true) of the same message.", "type": "string", "minLength": 1 },
+        "values": {
+          "description": "Switch values: whole numbers or [low, high] ranges.",
+          "type": "array", "minItems": 1,
+          "items": {
+            "anyOf": [
+              { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+              { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 4294967295 }, "minItems": 2, "maxItems": 2 }
+            ]
+          }
+        }
+      },
+      "required": [ "values" ]
+    },
+    "signal_pages": { "description": "How a send message with switches goes out: \"program\" (default) the page the program's switch outputs select; \"all\" every page each period; \"rotate\" the next page each period. With \"all\" and \"rotate\" the plugin sets the switches, which then have no iec_location.", "enum": [ "program", "all", "rotate" ] },
     "raw_signal": {
       "type": "object",
       "properties": {
@@ -177,6 +197,9 @@
         "byte_order": { "enum": [ "little", "big" ] },
         "signed": { "type": "boolean" },
         "iec_location": { "description": "The raw value's PLC location: %IX/%QX for 1 bit, else the smallest of byte, word, double word or long word that holds it.", "type": "string" },
+        "valid_location": { "description": "Received signals: a bit input that is TRUE while frames carrying the signal arrive (within the entry's timeout_ms).", "type": "string", "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$" },
+        "multiplexer": { "description": "A switch: its value says which other signals (those with mux on it) the frame carries. Unsigned, at most 32 bits.", "type": "boolean" },
+        "mux": { "$ref": "#/$defs/signal_mux" },
         "scale": { "description": "For the tools only.", "type": "number" },
         "offset": { "description": "For the tools only.", "type": "number" },
         "unit": { "description": "For the tools only.", "type": "string" },
@@ -184,7 +207,7 @@
         "maximum": { "description": "For the tools only.", "type": "number" },
         "comment": { "description": "For the tools only.", "type": "string" }
       },
-      "required": [ "start_bit", "length", "iec_location" ]
+      "required": [ "start_bit", "length" ]
     },
     "raw_rx": {
       "type": "object",
@@ -221,6 +244,7 @@
         "trigger_location": { "description": "%QX: a rising edge sends the message.", "type": "string" },
         "enable_location": { "description": "%QX: FALSE stops sending.", "type": "string" },
         "data_location": { "description": "%QL: the 8 data bytes, byte 0 lowest.", "type": "string" },
+        "pages": { "$ref": "#/$defs/signal_pages" },
         "signals": { "type": "array", "items": { "$ref": "#/$defs/raw_signal" } }
       },
       "required": [ "id" ]
@@ -284,9 +308,11 @@
         "offset": { "type": "number" },
         "unit": { "type": "string" },
         "iec_location": { "description": "%I for a received signal, %Q for a sent one, sized to hold the length (X 1 bit, B 8, W 16, D 32, L 64).", "type": "string", "pattern": "^%[IiQq]([Xx][0-9]+\\.[0-7]|[BbWwDdLl][0-9]+)$" },
-        "valid_location": { "description": "Received signals: a bit input that is FALSE while the signal arrives as not available or error.", "type": "string", "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$" }
+        "valid_location": { "description": "Received signals: a bit input that is FALSE while the signal arrives as not available or error, and for a signal with mux until frames carrying it arrive.", "type": "string", "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$" },
+        "multiplexer": { "description": "A switch: its value says which other signals (those with mux on it) the frame carries. Unsigned, at most 32 bits.", "type": "boolean" },
+        "mux": { "$ref": "#/$defs/signal_mux" }
       },
-      "required": [ "name", "start_bit", "length", "iec_location" ]
+      "required": [ "name", "start_bit", "length" ]
     },
     "j1939_rx": {
       "type": "object",
@@ -313,6 +339,7 @@
         "length": { "description": "Message length in bytes; default: the smallest length of at least 8 that holds every signal.", "type": "integer", "minimum": 1, "maximum": 1785 },
         "period_ms": { "description": "0 (default): send on change and on request only.", "type": "integer", "minimum": 0, "maximum": 600000 },
         "min_gap_ms": { "description": "Least time between two sends on change (default 0).", "type": "integer", "minimum": 0, "maximum": 600000 },
+        "pages": { "$ref": "#/$defs/signal_pages" },
         "signals": { "type": "array", "items": { "$ref": "#/$defs/j1939_signal" } }
       },
       "required": [ "pgn", "signals" ]

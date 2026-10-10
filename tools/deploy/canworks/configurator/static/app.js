@@ -6285,7 +6285,7 @@ function applyCheck() {
       // Fields of another network's tab are not on the page.
       if (w.net !== null && w.net !== S.net) continue;
       const p = w.path;
-      const input = document.querySelector(`[data-path="${CSS.escape(p)}"]`);
+      const input = pathTarget(p);
       if (input && (input.tagName === "INPUT" || input.tagName === "SELECT")) input.classList.add(it.level === "error" ? "invalid" : "warned");
       const msg = document.querySelector(`.field-msg[data-for="${CSS.escape(p)}"]`);
       if (msg) {
@@ -6413,6 +6413,16 @@ function placeOf(w) {
   }
   if (path.startsWith("adapter")) return lead.concat(["CAN adapter"]);
   if (path.startsWith("j1939")) return lead.concat(j1939Place(net, path));
+  if (path.startsWith("raw")) {
+    // "Received Status, signal Temp" for a CAN message's check path.
+    const r = /^raw\.(rx|tx)\[(\d+)\](?:\.signals\[(\d+)\])?/.exec(path);
+    const e = r && (((net.raw || {})[r[1]]) || [])[Number(r[2])];
+    if (!e) return lead.concat(["CAN messages"]);
+    const parts = [`${r[1] === "rx" ? "Received" : "Sent"} ${e.name || rawHex(e.id)}`];
+    const sg = r[3] !== undefined ? (e.signals || [])[Number(r[3])] : null;
+    if (sg) parts.push(`signal ${sg.name || Number(r[3]) + 1}`);
+    return lead.concat(parts);
+  }
   if (path.startsWith("master")) return lead.concat(["Master"]);
   const m = /^nodes\[(\d+)\](?:\.(tx_pdos|rx_pdos|sdo|sdo_variables)\[(\d+)\](?:\.entries\[(\d+)\])?)?/.exec(path);
   const n = m && (net.nodes || [])[Number(m[1])];
@@ -6434,6 +6444,17 @@ function placeOf(w) {
   return parts;
 }
 
+// The element of a check path: the field bound to it, else, for a part of a
+// signal's mux ("signals[1].mux.values[0]", ".mux.on" without a switch
+// picker), the signal's Page cell.
+function pathTarget(p) {
+  const q = (x) => document.querySelector(`[data-path="${CSS.escape(x)}"]`);
+  const hit = q(p);
+  if (hit) return hit;
+  const m = /^(.*\.signals\[\d+\]\.mux)[.[]/.exec(p);
+  return m ? q(m[1]) : null;
+}
+
 function focusPath(w) {
   if (!w || !w.path) return;
   if (w.net !== null && w.net !== S.net && S.model.networks[w.net]) switchNet(w.net);
@@ -6442,8 +6463,13 @@ function focusPath(w) {
   const want = m ? "node:" + m[1] : path.startsWith("gateway") ? "gateway" : path.startsWith("bridge") ? "bridge"
     : (path.startsWith("adapter") || path.startsWith("master") || path.startsWith("slave") || path.startsWith("j1939") ||
       path === "role" || path === "protocol" ? "bus" : S.view);
-  if (want !== S.view) showView(want);
-  const target = document.querySelector(`[data-path="${CSS.escape(path)}"]`);
+  // A CAN message's field is in its editor, which opens for it.
+  const raw = /^raw\.(rx|tx)\[(\d+)\]/.exec(path);
+  if (raw && (S.view !== "raw" || !S.rawOpen || S.rawOpen.kind !== raw[1] || S.rawOpen.index !== Number(raw[2]))) {
+    S.rawOpen = { kind: raw[1], index: Number(raw[2]) };
+    if (S.view === "raw") render(); else showView("raw");
+  } else if (want !== S.view) showView(want);
+  const target = pathTarget(path);
   if (!target) return;
   // A folded section opens for its field.
   for (let d = target.closest("details"); d; d = d.parentElement && d.parentElement.closest("details")) d.open = true;

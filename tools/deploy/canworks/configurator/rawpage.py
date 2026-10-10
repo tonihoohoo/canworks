@@ -4,7 +4,7 @@ import dialog and Copy as ST call. The page sends the whole draft config;
 nothing here writes a file."""
 
 from ..iec import parse_location
-from ..raw import assist
+from ..raw import assist, mux
 from ..raw.contract import locations as raw_locations
 from . import layout
 
@@ -62,13 +62,48 @@ def _entry(cfg, network, kind, index):
     return entry
 
 
+def plugin_sets_switches(entry, kind):
+    """True for a send message whose switches the plugin sets (`pages` "all"
+    or "rotate"): they have no PLC location."""
+    return kind == "tx" and isinstance(entry, dict) and entry.get("pages") in ("all", "rotate")
+
+
+def suggest_entry(entry, kind, used, start):
+    """assist.suggest_locations() that leaves the switches of a send message
+    with `pages` "all" or "rotate" without a location."""
+    held = []
+    if plugin_sets_switches(entry, kind):
+        for j, s in enumerate(entry.get("signals") or []):
+            if isinstance(s, dict) and s.get("multiplexer") is True and not s.get("iec_location"):
+                s["iec_location"] = "-"  # held, so it is not filled
+                held.append(j)
+    filled = assist.suggest_locations(entry, kind, used, start)
+    for j in held:
+        del entry["signals"][j]["iec_location"]
+    skip = {"signals[%d].iec_location" % j for j in held}
+    return [f for f in filled if f not in skip]
+
+
 def suggest(cfg, network, kind, index, project_uses, start=None):
     """The message with every missing location filled; {"entry", "filled"}."""
     entry = dict(_entry(cfg, network, kind, index))
     entry["signals"] = [dict(s) for s in entry.get("signals") or [] if isinstance(s, dict)]
     start = assist.DEFAULT_START if start in (None, "") else int(start)
-    filled = assist.suggest_locations(entry, kind, _used(cfg, project_uses), start)
+    filled = suggest_entry(entry, kind, _used(cfg, project_uses), start)
     return {"entry": entry, "filled": filled}
+
+
+def mux_summary(signals):
+    """{"switches": [names], "pages": count or 0} of a message's signals in
+    the config's form, for the import pickers (raw and J1939)."""
+    signals = [s for s in signals or [] if isinstance(s, dict)]
+    switches = [s.get("name") or "" for s in signals if s.get("multiplexer") is True]
+    if not switches:
+        return {"switches": [], "pages": 0}
+    errors, warnings = [], []
+    lay = mux.Layout.build([dict(s, path="signals[%d]" % j) for j, s in enumerate(signals)], errors, warnings)
+    pages = lay.page_count() if lay.multiplexed and not errors else 0
+    return {"switches": switches, "pages": pages if pages < (1 << 40) else 0}
 
 
 def dbc_messages(text):
@@ -80,9 +115,10 @@ def dbc_messages(text):
         raise RawPageError("DBC import needs the cantools package (pip install cantools)")
     except Exception as e:  # cantools raises many kinds of parse errors
         raise RawPageError("not a DBC file: %s" % e)
-    return {"messages": [{"name": m["name"], "id": m["id"], "extended": m["extended"], "dlc": m["dlc"],
-                          "senders": m["senders"], "cycle_ms": m["cycle_ms"], "multiplexed": m["multiplexed"],
-                          "signals": len(m["signals"])} for m in messages]}
+    return {"messages": [dict({"name": m["name"], "id": m["id"], "extended": m["extended"], "dlc": m["dlc"],
+                               "senders": m["senders"], "cycle_ms": m["cycle_ms"], "multiplexed": m.get("multiplexed", False),
+                               "mux_problem": m.get("mux_problem"), "signals": len(m["signals"])},
+                              **mux_summary(m["signals"])) for m in messages]}
 
 
 def dbc_import(cfg, network, text, picks, project_uses, start=None):
@@ -109,7 +145,7 @@ def dbc_import(cfg, network, text, picks, project_uses, start=None):
                 out["notes"].append("%s: the network already has a %s message with this identifier" % (
                     e["name"], "receive" if kind == "rx" else "send"))
                 continue
-            assist.suggest_locations(e, kind, used, start)
+            suggest_entry(e, kind, used, start)
             out[kind].append(e)
     return out
 

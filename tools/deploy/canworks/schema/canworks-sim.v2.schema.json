@@ -1589,10 +1589,9 @@
       "additionalProperties": false,
       "required": [
         "start_bit",
-        "length",
-        "source"
+        "length"
       ],
-      "description": "A signal of a sent frame, numbered as in DBC files; the source gives scale * raw + offset.",
+      "description": "A signal of a sent frame, numbered as in DBC files; the source gives scale * raw + offset. Every signal but a switch (multiplexer: true) needs a source.",
       "properties": {
         "name": {
           "type": "string"
@@ -1627,6 +1626,47 @@
         },
         "source": {
           "$ref": "#/$defs/source"
+        },
+        "multiplexer": {
+          "description": "A switch: its value says which other signals (those with mux on it) the frame carries. Unsigned, at most 32 bits; the simulator sets it for each page.",
+          "type": "boolean"
+        },
+        "mux": {
+          "description": "The signal is sent only in frames where switch `on` (may be left out with one switch) has one of `values` (whole numbers or [low, high] ranges).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "values"
+          ],
+          "properties": {
+            "on": {
+              "type": "string",
+              "minLength": 1
+            },
+            "values": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967295
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4294967295
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                ]
+              }
+            }
+          }
         }
       }
     },
@@ -1670,6 +1710,13 @@
           "items": {
             "$ref": "#/$defs/raw_signal"
           }
+        },
+        "pages": {
+          "description": "A send with switches: \"all\" (default) sends every page each period, \"rotate\" the next page each period.",
+          "enum": [
+            "all",
+            "rotate"
+          ]
         }
       }
     },

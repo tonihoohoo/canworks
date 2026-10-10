@@ -23,6 +23,15 @@
             "signals": [
               { "name": "Position", "start_bit": 7, "length": 16, "byte_order": "big", "scale": 0.1, "unit": "%", "iec_location": "%IW302" }
             ]
+          },
+          {
+            "name": "Sensor", "id": 912, "dlc": 4, "timeout_ms": 300, "status_location": "%IX300.4",
+            "signals": [
+              { "name": "Page", "start_bit": 0, "length": 8, "multiplexer": true, "iec_location": "%IB300" },
+              { "name": "Temp", "start_bit": 8, "length": 8, "offset": -40, "unit": "degC", "mux": { "values": [1] }, "iec_location": "%IB301", "valid_location": "%IX300.5" },
+              { "name": "Press", "start_bit": 8, "length": 16, "scale": 0.1, "unit": "kPa", "mux": { "values": [2] }, "iec_location": "%IW303", "valid_location": "%IX300.6" },
+              { "name": "Counter", "start_bit": 24, "length": 8, "iec_location": "%IB302" }
+            ]
           }
         ],
         "tx": [

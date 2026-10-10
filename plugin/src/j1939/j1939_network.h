@@ -107,6 +107,12 @@ class J1939Engine : private AddressClaimer::Actions {
     uint64_t timeouts = 0;
     uint64_t count = 0;
     std::set<uint8_t> sources;
+    // Multiplexed messages: which signals the last message carried, and per
+    // signal when it was last carried (its valid bit times out).
+    std::vector<uint8_t> active;
+    std::vector<clock::time_point> sig_last;
+    std::vector<uint8_t> sig_seen;
+    uint64_t unknown_pages = 0;
   };
   struct TxState {
     std::vector<std::vector<unsigned>> bits;
@@ -117,6 +123,15 @@ class J1939Engine : private AddressClaimer::Actions {
     clock::time_point last_sent{};
     uint64_t sent = 0;
     uint64_t answered = 0;
+    // Multiplexed: pages "all"/"rotate" (each page's bytes as last sent),
+    // and scratch for pages "program".
+    std::vector<canworks_can::MuxLayout::Page> pages;
+    std::vector<std::vector<uint8_t>> page_data;
+    std::vector<uint8_t> page_sent_once;
+    size_t cursor = 0;  // rotate: the next page
+    bool unknown_page = false;
+    std::vector<uint64_t> sw;
+    std::vector<uint8_t> act;
   };
   struct RequestState {
     clock::time_point next_due{};
@@ -132,9 +147,15 @@ class J1939Engine : private AddressClaimer::Actions {
   bool can_send(clock::time_point now) const;
   // Builds tx entry `i` from the output snapshot; true when its bytes differ
   // from the last sent (or it was not sent yet).
-  bool build_tx(size_t i, const uint64_t* snap);
+  // `page`: the page of a tx entry with pages "all" or "rotate" (-1: the
+  // entry's only frame, or the page the program's switches select).
+  bool build_tx(size_t i, const uint64_t* snap, int page = -1);
   // False when the kernel has not taken the address into use yet: try again.
-  bool send_tx(size_t i, uint8_t destination, clock::time_point now);
+  bool send_tx(size_t i, uint8_t destination, clock::time_point now, int page = -1);
+  // Builds and sends what a request or a periodic send of entry `i` sends:
+  // its frame, every page ("all") or the next page ("rotate"). False as
+  // send_tx.
+  bool send_all(size_t i, uint8_t destination, clock::time_point now, const uint64_t* snap);
   void on_request(const J1939Message& m, clock::time_point now);
   // A Request for `pgn` from `requester` may be answered now: at most one
   // answer per PGN and requester every kReplyGap. Records the answer.

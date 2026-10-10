@@ -74,7 +74,7 @@ class Import(unittest.TestCase):
 
     def test_29_and_11_bit_messages(self):
         imported = dbc.load(PUMP_DBC)
-        self.assertEqual([m["name"] for m in imported.messages], ["Status", "Request", "Counters", "Mixed"])
+        self.assertEqual([m["name"] for m in imported.messages], ["Status", "Request", "Counters", "Muxed", "Mixed"])
         status = imported.messages[0]
         self.assertEqual((status["pgn"], status["priority"], status["source"], status["cycle_ms"]),
                          (0xFF10, 6, 5, 50))
@@ -87,11 +87,15 @@ class Import(unittest.TestCase):
         self.assertEqual(counters["signals"][0]["start_bit"], 7)  # as in the DBC: the most significant bit
         text = "\n".join(imported.problems)
         self.assertIn("message Legacy (ID 0x700) has an 11-bit identifier", text)
-        self.assertIn("message Muxed (ID 0x18FF1205) is multiplexed", text)
+        # Spec scenario "Import a multiplexed PGN": switch and pages, no problem.
+        self.assertNotIn("Muxed", text)
+        muxed = {sg["name"]: sg for sg in imported.messages[3]["signals"]}
+        self.assertTrue(muxed["Sel"]["multiplexer"])
+        self.assertEqual((muxed["A"]["mux"], muxed["B"]["mux"]), ({"values": [0]}, {"values": [1]}))
         self.assertIn("message Mixed (ID 0x18FF1305): signal Temperature is a float signal", text)
         self.assertIn("message Counters (ID 0xCFF1105): signal Wide has 72 bits", text)
         self.assertIn("attribute SPN is not used by the import", text)
-        self.assertEqual(len(imported.problems), 5)
+        self.assertEqual(len(imported.problems), 4)
 
     def test_not_a_dbc(self):
         with self.assertRaises(dbc.ImportFailed):
@@ -164,7 +168,7 @@ class ConfigEntries(unittest.TestCase):
             j[key].append(dbc.config_entry(m, key, used))
         for m in dbc.load(PUMP_DBC).messages:
             j["rx"].append(dbc.config_entry(m, "rx", used))
-        self.assertEqual((len(j["rx"]), len(j["tx"])), (6, 2))
+        self.assertEqual((len(j["rx"]), len(j["tx"])), (7, 2))
         r = contract.check_config(cfg, "canworks.json")
         self.assertEqual(r.errors, [])
         self.assertEqual(r.warnings, [])

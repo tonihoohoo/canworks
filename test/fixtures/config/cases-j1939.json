@@ -437,6 +437,60 @@
       "schema": "invalid",
       "verdict": "reject",
       "messages": ["networks[1]: adapter: interface \"j1939_machine_bus\" must be 1-15 characters"]
+    },
+    {
+      "name": "j1939: multiplexed signals share bits",
+      "patch": [["set", "networks/1/j1939/rx/0/signals/2", {"name": "Page", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%IB205"}], ["set", "networks/1/j1939/rx/0/signals/0/mux", {"values": [1]}], ["set", "networks/1/j1939/rx/0/signals/1/mux", {"values": [2]}], ["set", "networks/1/j1939/rx/0/signals/1/start_bit", 0]],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "j1939: overlap within one page",
+      "patch": [["set", "networks/1/j1939/rx/0/signals/2", {"name": "Page", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%IB205"}], ["set", "networks/1/j1939/rx/0/signals/0/mux", {"values": [1]}], ["set", "networks/1/j1939/rx/0/signals/1/mux", {"values": [1, 2]}], ["set", "networks/1/j1939/rx/0/signals/1/start_bit", 0]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: rx[0]: signals Pressure and Temp overlap"]
+    },
+    {
+      "name": "j1939: unknown switch name",
+      "patch": [["set", "networks/1/j1939/rx/0/signals/2", {"name": "Page", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%IB205"}], ["set", "networks/1/j1939/rx/0/signals/0/mux", {"on": "Pgae", "values": [1]}]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: rx[0]: signals[0].mux.on: no switch named 'Pgae' in this message"]
+    },
+    {
+      "name": "j1939: mux without a switch",
+      "patch": [["set", "networks/1/j1939/rx/0/signals/0/mux", {"values": [1]}]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: rx[0]: signals[0].mux: the message has no switch (multiplexer: true)"]
+    },
+    {
+      "name": "j1939: send all pages",
+      "patch": [["set", "networks/1/j1939/tx/0/signals/2", {"name": "Line", "start_bit": 24, "length": 8, "multiplexer": true}], ["set", "networks/1/j1939/tx/0/signals/0/mux", {"values": [1]}], ["set", "networks/1/j1939/tx/0/signals/1/mux", {"values": [2]}], ["set", "networks/1/j1939/tx/0/pages", "all"]],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "j1939: switch location in all mode",
+      "patch": [["set", "networks/1/j1939/tx/0/signals/2", {"name": "Line", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%QB212"}], ["set", "networks/1/j1939/tx/0/signals/0/mux", {"values": [1]}], ["set", "networks/1/j1939/tx/0/pages", "all"]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: tx[0]: signals[2].iec_location: the plugin sets switch Line when pages is \"all\"; leave it out"]
+    },
+    {
+      "name": "j1939: bad pages",
+      "patch": [["set", "networks/1/j1939/tx/0/signals/2", {"name": "Line", "start_bit": 24, "length": 8, "multiplexer": true}], ["set", "networks/1/j1939/tx/0/signals/0/mux", {"values": [1]}], ["set", "networks/1/j1939/tx/0/pages", "every"]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: tx[0]: pages: must be \"program\", \"all\" or \"rotate\""]
+    },
+    {
+      "name": "j1939: too many pages",
+      "patch": [["set", "networks/1/j1939/tx/0/signals/2", {"name": "Line", "start_bit": 24, "length": 8, "multiplexer": true}], ["set", "networks/1/j1939/tx/0/signals/0/mux", {"values": [[0, 99]]}], ["set", "networks/1/j1939/tx/0/pages", "rotate"]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: tx[0]: 100 pages; pages \"all\" and \"rotate\" send at most 64 (use pages \"program\")"]
     }
   ]
 }

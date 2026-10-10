@@ -77,11 +77,46 @@ class J1939Page(OnlineBase):
         self.assertEqual(net["j1939"]["ecu"]["name"], {"identity_number": 77, "function": 130})
         self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "machine.dbc")))
 
+    def test_multiplexed_send_pgn(self):
+        pg = self.page
+        self.cfg = load(os.path.join(EXAMPLE, "canworks.json"))
+        self.cfg["networks"][0]["j1939"]["tx"].append({"pgn": 0xFF20, "name": "Lamps", "period_ms": 100, "signals": [
+            {"name": "Page", "start_bit": 0, "length": 8, "iec_location": "%QB220"},
+            {"name": "Left", "start_bit": 8, "length": 8, "iec_location": "%QB221"},
+            {"name": "Right", "start_bit": 8, "length": 8, "iec_location": "%QB222"}]})
+        shutil.copy(os.path.join(EXAMPLE, "machine.dbc"), os.path.join(self.project, "canworks"))
+        self.write_config()
+        self.open()
+        base = "j1939.tx[2]"
+        pg.wait_for_selector(f'[data-j1939-msg="tx:2"]')
+        # Without a switch there is no Pages choice, and Left and Right overlap.
+        self.assertEqual(pg.locator(f'select[data-path="{base}.pages"]').count(), 0)
+        pg.wait_for_function("() => document.body.dataset.checking === '0'")
+        self.assertIn("overlap", pg.inner_text("#problem-list"))
+        pg.check(f'input[data-path="{base}.signals[0].multiplexer"]')
+        pg.fill(f'input[data-path="{base}.signals[1].mux"]', "1")
+        pg.press(f'input[data-path="{base}.signals[1].mux"]', "Tab")
+        pg.fill(f'input[data-path="{base}.signals[2].mux"]', "2-3")
+        pg.press(f'input[data-path="{base}.signals[2].mux"]', "Tab")
+        pg.wait_for_selector("#problem-list li.ok")
+        # All pages: the plugin sets the switch, so its location goes.
+        pg.select_option(f'select[data-path="{base}.pages"]', "all")
+        self.assertEqual(pg.input_value(f'input[data-path="{base}.signals[0].iec_location"]'), "")
+        pg.wait_for_selector("#problem-list li.ok")
+        pg.click("#btn-save")
+        pg.wait_for_selector("#banner:has-text('Saved')")
+        lamps = load(self.config_path)["networks"][0]["j1939"]["tx"][2]
+        self.assertEqual(lamps["pages"], "all")
+        self.assertIs(lamps["signals"][0]["multiplexer"], True)
+        self.assertNotIn("iec_location", lamps["signals"][0])
+        self.assertEqual(lamps["signals"][2]["mux"], {"values": [[2, 3]]})
+
     def test_online_view(self):
         pg = self.page
         self.cfg = load(os.path.join(EXAMPLE, "canworks.json"))
         shutil.copy(os.path.join(EXAMPLE, "machine.dbc"), os.path.join(self.project, "canworks"))
         with FakePlugin(networks=[J1939_NETWORK]) as fp:
+            fp.status["j1939"]["rx"][0]["unknown_pages"] = 3
             self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
             self.remember(fp.runtime)
             self.open()
@@ -96,6 +131,7 @@ class J1939Page(OnlineBase):
             self.assertIn("Pressures", rx)
             self.assertIn("0, 3", rx)
             self.assertIn("timed out", rx)
+            self.assertEqual(pg.inner_text('[data-j1939-unknown="65280"]'), "3 unknown pages")
             self.assertIn("Pressure = 123.4 bar (raw 1234)", rx)
             self.assertIn("Temp = -10 degC", rx)
             self.assertIn("not available", pg.inner_text('tr[data-j1939-rx="65280"] [data-j1939-signal="Level"]'))

@@ -846,7 +846,10 @@ class Parser {
     return true;
   }
 
-  void parse_j1939_signals(const cJSON* msg, const std::string& where, bool rx, std::vector<J1939Signal>& out) {
+  // `switch_mode`: the pages mode ("all", "rotate") of a tx entry whose
+  // switches the plugin sets, "" when its `pages` was wrong, else nullptr.
+  void parse_j1939_signals(const cJSON* msg, const std::string& where, bool rx, const char* switch_mode,
+                           std::vector<J1939Signal>& out) {
     const cJSON* arr = cJSON_GetObjectItemCaseSensitive(msg, "signals");
     if (!arr) {
       error(where, "field 'signals' is missing");
@@ -859,14 +862,21 @@ class Parser {
     int i = 0;
     const cJSON* sj;
     cJSON_ArrayForEach(sj, arr) {
+      unsigned index = static_cast<unsigned>(i);
       std::string sw = where + ": signals[" + std::to_string(i++) + "]";
       if (!cJSON_IsObject(sj)) {
         error(sw, "must be an object");
         continue;
       }
       check_known(sj, sw, {"name", "start_bit", "length", "byte_order", "signed", "scale", "offset", "unit",
-                           "iec_location", "valid_location"});
+                           "iec_location", "valid_location", "multiplexer", "mux"});
       J1939Signal s;
+      s.index = index;
+      {
+        std::vector<std::string> errs;
+        canworks_can::parse_mux_fields(sj, "signals[" + std::to_string(index) + "]", s.mux, errs);
+        for (const auto& e : errs) error(where, e);
+      }
       if (!get_string(sj, "name", sw, true, s.name)) continue;
       const std::string me = "signal " + s.name;
       bool ok = true;
@@ -898,7 +908,13 @@ class Parser {
       get_number(sj, "scale", sw, -1e300, 1e300, s.scale);
       get_number(sj, "offset", sw, -1e300, 1e300, s.offset);
       get_string(sj, "unit", sw, false, s.unit);
-      if (!cJSON_GetObjectItemCaseSensitive(sj, "iec_location")) {
+      if (s.mux.is_switch && switch_mode) {
+        // The plugin sets this switch; an empty mode: `pages` was wrong.
+        s.has_location = false;
+        if (cJSON_GetObjectItemCaseSensitive(sj, "iec_location") && *switch_mode)
+          error(where, "signals[" + std::to_string(index) + "].iec_location: the plugin sets switch " + s.name +
+                           " when pages is \"" + switch_mode + "\"; leave it out");
+      } else if (!cJSON_GetObjectItemCaseSensitive(sj, "iec_location")) {
         error(where, me + ": field 'iec_location' is missing");
         ok = false;
       } else if (get_location(sj, "iec_location", where + ": " + me, false, s.location)) {
@@ -1110,11 +1126,11 @@ class Parser {
           if (j_range(m, "timeout_ms", w, 0, kJ1939MaxPeriodMs, v)) r.timeout_ms = (unsigned)v;
           r.has_status_location = j_location(m, "status_location", w, IecArea::Input, IecSize::X,
                                              "a bit input (%IX)", r.status_location);
-          parse_j1939_signals(m, w, true, r.signals);
+          parse_j1939_signals(m, w, true, nullptr, r.signals);
           jc.rx.push_back(r);
         } else if (std::strcmp(list, "tx") == 0) {
           check_known(m, w, {"pgn", "name", "priority", "destination", "length", "period_ms", "min_gap_ms",
-                             "signals"});
+                             "pages", "signals"});
           J1939Tx t;
           bool pgn_ok = j_pgn(m, w, t.pgn);
           get_string(m, "name", w, false, t.name);
@@ -1130,7 +1146,18 @@ class Parser {
           }
           if (j_range(m, "period_ms", w, 0, kJ1939MaxPeriodMs, v)) t.period_ms = (unsigned)v;
           if (j_range(m, "min_gap_ms", w, 0, kJ1939MaxPeriodMs, v)) t.min_gap_ms = (unsigned)v;
-          parse_j1939_signals(m, w, false, t.signals);
+          std::string pages;
+          bool pages_bad = false;
+          if (cJSON_GetObjectItemCaseSensitive(m, "pages")) {
+            t.has_pages = true;
+            const cJSON* pj = cJSON_GetObjectItemCaseSensitive(m, "pages");
+            pages_bad = !cJSON_IsString(pj) || !canworks_can::parse_mux_pages(pj->valuestring, t.pages);
+            if (pages_bad) error(w, "pages: must be \"program\", \"all\" or \"rotate\"");
+          }
+          const char* mode = pages_bad ? ""
+                             : t.pages == canworks_can::MuxPages::Program ? nullptr
+                                                                           : canworks_can::mux_pages_name(t.pages);
+          parse_j1939_signals(m, w, false, mode, t.signals);
           jc.tx.push_back(t);
         } else {
           check_known(m, w, {"pgn", "destination", "period_ms"});
@@ -2609,7 +2636,8 @@ class Parser {
         }
       }
       for (const auto& t : j.tx)
-        for (const auto& s : t.signals) uses.push_back({s.location, p + "PGN " + std::to_string(t.pgn) + " signal " + s.name});
+        for (const auto& s : t.signals)
+          if (s.has_location) uses.push_back({s.location, p + "PGN " + std::to_string(t.pgn) + " signal " + s.name});
       return;
     }
     if (cfg.is_slave()) {

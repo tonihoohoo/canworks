@@ -3,6 +3,7 @@ canopen-editor-project, "Declarations for raw messages")."""
 
 from ..iec import parse_location
 from .contract import hex_id
+from .mux import page_text
 
 _RX_KEYS = (("status_location", "status", "BOOL", "received in time"),
             ("counter_location", "counter", "UINT", "frames received"),
@@ -60,7 +61,7 @@ def declarations(raw, at, net, desc, unique, identifier, declared):
                     continue
                 path = "%s.signals[%d].iec_location" % (base, j)
                 types = _SIGNED if s.get("signed") else _UNSIGNED
-                extra = signal_text(s)
+                extra = "; ".join(x for x in (signal_text(s), page_text(s, m.get("signals") or [])) if x)
                 text = "%s: signal %s" % (who, s.get("name") or j) + ("; " + extra if extra else "")
                 out.append({"name": unique("%s_%s" % (prefix, identifier(s.get("name") or "s%d" % j))),
                             "location": s["iec_location"].strip(), "type": types[loc.size], "path": path,

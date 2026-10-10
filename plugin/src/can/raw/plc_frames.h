@@ -189,8 +189,9 @@ class PlcPort {
   };
   struct Receiver {
     std::atomic<uint8_t> state{kSlotFree};
-    // The filter: written by the claiming task after the epoch bump, read
-    // by the raw thread, which re-checks the epoch after matching.
+    // The filter: written by the claiming task between two epoch bumps (odd
+    // while it is being written, a seqlock), read by the raw thread, which
+    // matches only on an even epoch and re-checks it after matching.
     std::atomic<uint32_t> id{0}, mask{0};
     std::atomic<uint8_t> flags{0};
     std::atomic<uint16_t> depth{0};
