@@ -53,6 +53,22 @@ With several CAN networks ([config.md](config.md), `schema_version: 2`) every co
 
 On a J1939 network ([j1939.md](j1939.md#diagnostics-and-trace)) `status` prints the ECU's claim state, address and NAME, the ECUs seen on the bus, a line per received PGN (source filter, sources seen, age of the last message, timed out or not, timeouts, count, raw signal values) and the sent PGNs, answered requests and sent requests; `trace`, `send` and `explain` work as on any network, and the CANopen commands (SDO, NMT, LSS, parameters, scan, bit rate detection) exit with status 1 saying that they need a CANopen network. The status answer and the login answer name the protocols the plugin was built with (`protocols`), and the login answer gives each network its `protocol`.
 
+### Trouble codes (DM)
+
+On a J1939 network `dm` works with the trouble codes of J1939-73 ([j1939.md](j1939.md#diagnostic-messages)):
+
+```sh
+canworks-diag --runtime plc.local dm list --network machine [--dbc machine.dbc]   # every ECU's lamps and codes, and the PLC's own
+canworks-diag --runtime plc.local dm read --address 0 [--dm-timeout 1000]         # DM2: previously active codes of ECU 0
+canworks-diag --runtime plc.local dm clear --address 0 --force                    # DM11: clear active codes
+canworks-diag --runtime plc.local dm clear --address 0 --previous --force         # DM3: clear previously active codes only
+canworks-diag --runtime plc.local dm clear --address global --force               # to every ECU, no answer awaited
+canworks-diag --adapter slcan:COM5 --bitrate 250 dm list [--listen 1.5]           # PC-direct: listens only
+canworks-diag --adapter slcan:COM5 --bitrate 250 dm read --address 0 [--source-address 249]
+```
+
+`list` prints each code with its FMI text and, with `--dbc`, the SPN name from the DBC's `SPN` attributes. `read` and `clear` go out from the PLC's claimed address; a clear acts on another ECU, so it needs `--force` and nothing is sent without it. On an adapter `list` only listens, while `read` and `clear` claim service tool address 249 (or `--source-address`) with the tool's own NAME, send nothing when the claim fails and give the address back at exit.
+
 On a slave network ([slave.md](slave.md#diagnostics)) `status` prints the plugin's own device instead of a master and nodes: its node ID (or that it waits for LSS), NMT state, communication OK, SYNC count, EMCY code and error register, each TPDO and RPDO in force with its COB-ID, transmission type and mapped objects, on a gateway's upper network the gateway's route count, whether the upper master is there and the active forwarded errors, and, as on a master network, `simulated_network` and `simulation_forced`. `sdo-read` and `sdo-write` with the slave's own node ID read and write its dictionary; the other commands exit with status 1 saying that they need a master network.
 
 ```sh

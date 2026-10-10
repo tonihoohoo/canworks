@@ -65,6 +65,28 @@ class Protocol(unittest.TestCase):
         self.assertEqual((v, port, device.remote_settings(rl)), ("W", 7531, (False, [], "lan")))
         self.assertEqual(device.deployed_settings(os.path.join(tmp, "missing.json"))[0], None)
 
+    def test_parse_a_direct_answer(self):
+        import struct
+
+        def name(text, ptr=None):
+            out = b"".join(bytes([len(p)]) + p.encode() for p in text.split(".") if p)
+            return out + (struct.pack(">H", 0xC000 | ptr) if ptr is not None else b"\0")
+
+        def rr(owner, rtype, rdata):
+            return owner + struct.pack(">HHIH", rtype, 0x8001, 120, len(rdata)) + rdata
+
+        q = name("_canworks._tcp.local")                      # at offset 12
+        txt = b"".join(bytes([len(t)]) + t for t in (b"v=1", b"diag=7531", b"runtime=8443", b"id=abc", b"link=7533"))
+        answers = [rr(b"\xc0\x0c", 12, name("line3", 12)),       # PTR -> line3._canworks._tcp.local
+                   rr(name("line3", 12), 33, struct.pack(">HHH", 0, 0, 7531) + name("line3.local")),
+                   rr(name("line3", 12), 16, txt)]
+        packet = struct.pack(">HHHHHH", 0x6377, 0x8400, 1, 0, 0, 3) + q + struct.pack(">HH", 12, 1) + b"".join(answers)
+        r = discovery.parse_answer(packet)
+        self.assertEqual(r["name"], "line3")
+        self.assertEqual(r["port"], 7531)
+        self.assertEqual(r["txt"], {"v": "1", "diag": "7531", "runtime": "8443", "id": "abc", "link": "7533"})
+        self.assertIsNone(discovery.parse_answer(struct.pack(">HHHHHH", 1, 0x8400, 0, 0, 0, 0)))
+
     def test_avahi_service(self):
         text = discovery.avahi_service(link_id="abc", name="line<3>")
         self.assertIn("<type>_canworks._tcp</type>", text)

@@ -71,6 +71,8 @@ struct DiagRequest {
   unsigned bitrate_kbit = 0;  // lss_set_bitrate
   bool store = false;         // lss_set_id, lss_set_bitrate
   std::string raw;            // sim_*: the request line, for the simulator
+  unsigned address = 0;       // j1939_dm_read, j1939_dm_clear: 0..253, or 255 (clear)
+  bool previous = false;      // j1939_dm_clear: DM3 (true) or DM11
 };
 
 // Builds answer lines.

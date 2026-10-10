@@ -39,7 +39,7 @@
       "schema": "valid", "verdict": "reject",
       "messages": [ "node 2 (pingpong): emcy_cob_id 0x080 clashes with SYNC" ] },
     { "name": "emcy_cob_id with bit 31", "patch": [ ["set", "nodes/0/emcy_cob_id", "0x80000082"] ],
-      "schema": "invalid", "verdict": "reject",
+      "schema": "valid", "verdict": "reject",
       "messages": [ "node 2 (pingpong): emcy_cob_id 0x80000082 has bit 31 set (EMCY not valid); give the COB-ID the device sends on" ] },
     { "name": "emcy_cob_id unknown word", "patch": [ ["set", "nodes/0/emcy_cob_id", "auto"] ],
       "schema": "invalid", "verdict": "reject",

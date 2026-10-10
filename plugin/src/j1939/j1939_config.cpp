@@ -130,6 +130,21 @@ void check_j1939(J1939Config& cfg, const ErrorFn& error) {
         error("j1939", "tx[" + std::to_string(j) + "] and tx[" + std::to_string(i) + "] both send PGN " +
                            j1939_pgn_text(t.pgn));
   }
+  const J1939Diagnostics& d = cfg.diagnostics;
+  for (size_t i = 0; i < d.rx.size(); ++i)
+    for (size_t j = 0; j < i; ++j)
+      if (d.rx[i].has_source == d.rx[j].has_source && d.rx[i].has_source_name == d.rx[j].has_source_name &&
+          (d.rx[i].has_source ? d.rx[i].source == d.rx[j].source
+                              : d.rx[i].source_name == d.rx[j].source_name &&
+                                    d.rx[i].source_name_mask == d.rx[j].source_name_mask))
+        error("j1939: diagnostics",
+              "rx[" + std::to_string(j) + "] and rx[" + std::to_string(i) + "] have the same source filter");
+  for (size_t i = 0; i < d.dtcs.size(); ++i)
+    for (size_t j = 0; j < i; ++j)
+      if (d.dtcs[i].spn == d.dtcs[j].spn && d.dtcs[i].fmi == d.dtcs[j].fmi)
+        error("j1939: diagnostics", "dtcs[" + std::to_string(j) + "] and dtcs[" + std::to_string(i) +
+                                        "] both report SPN " + std::to_string(d.dtcs[i].spn) + " FMI " +
+                                        std::to_string(d.dtcs[i].fmi));
 }
 
 }  // namespace canopen_plugin

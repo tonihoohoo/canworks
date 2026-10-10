@@ -1229,6 +1229,27 @@ def _j1939_location_uses(j, add):
                 add(s.get("iec_location"), sig, "%s.signals[%d].iec_location" % (at, k))
                 if key == "rx" and "valid_location" in s:
                     add(s["valid_location"], sig + " valid_location", "%s.signals[%d].valid_location" % (at, k))
+    d = j.get("diagnostics") if isinstance(j.get("diagnostics"), dict) else {}
+    for i, m in enumerate(d.get("rx") if isinstance(d.get("rx"), list) else []):
+        if not isinstance(m, dict):
+            continue
+        who, at = "diagnostics rx[%d]" % i, "j1939.diagnostics.rx[%d]" % i
+        for key in ("status_location", "lamps_location", "flash_location", "count_location"):
+            if key in m:
+                add(m[key], who + " " + key, at + "." + key)
+        n = _uint(m.get("dtcs"))
+        loc = parse_location(m["dtcs_location"]) if isinstance(m.get("dtcs_location"), str) else None
+        if loc is not None and loc.size == "D" and n:
+            for k in range(min(n, J1939_MAX_DM_RX_CODES)):
+                add("%%%sD%d" % (loc.area, loc.index + k), "%s code %d" % (who, k), at + ".dtcs_location")
+    for i, c in enumerate(d.get("dtcs") if isinstance(d.get("dtcs"), list) else []):
+        if isinstance(c, dict) and "active_location" in c:
+            add(c["active_location"], "diagnostics SPN %s FMI %s active_location" % (_uint(c.get("spn")),
+                                                                                    _uint(c.get("fmi"))),
+                "j1939.diagnostics.dtcs[%d].active_location" % i)
+    for key in ("lamps_location", "clear_location"):
+        if key in d:
+            add(d[key], "diagnostics " + key, "j1939.diagnostics." + key)
 
 
 def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths, sw_paths, diag=False, before=None,
@@ -1970,6 +1991,10 @@ J1939_MAX_LENGTH = 1785  # bytes, the transport protocol's limit
 J1939_MAX_PERIOD_MS = 600000
 J1939_MIN_REQUEST_PERIOD_MS = 100
 J1939_DEFAULT_PRIORITY = 6
+J1939_MAX_SPN = 0x7FFFF  # 19 bits
+J1939_MAX_DM_RX_CODES = 32
+J1939_DEFAULT_DM_TIMEOUT_MS = 3000
+J1939_LAMPS = ("mil", "red", "amber", "protect")
 # The NAME fields and their highest values, in the order of the NAME's bits.
 J1939_NAME_FIELDS = (("identity_number", 0x1FFFFF), ("manufacturer_code", 2047), ("ecu_instance", 7),
                      ("function_instance", 31), ("function", 255), ("vehicle_system", 127),
@@ -2172,7 +2197,7 @@ class _J1939Parser:
 
     # The j1939 object.
     def parse(self, j):
-        out = {"ecu": None, "dbc": None, "rx": [], "tx": [], "requests": []}
+        out = {"ecu": None, "dbc": None, "rx": [], "tx": [], "requests": [], "diagnostics": None}
         out["ecu"] = self.ecu(j)
         out["dbc"] = self.string(j, "dbc", "j1939", "j1939")
         for key in ("rx", "tx", "requests"):
@@ -2186,8 +2211,113 @@ class _J1939Parser:
                     self.err(w, "must be an object", [p])
                     continue
                 out[key].append(getattr(self, key)(m, w, p))
+        out["diagnostics"] = self.diagnostics(j)
         self.check(out)
         return out
+
+    # The diagnostics object (j1939-diagnostics "Diagnostics config").
+    def diagnostics(self, j):
+        if "diagnostics" not in j:
+            return None
+        o = j["diagnostics"]
+        w, p = "j1939: diagnostics", "j1939.diagnostics"
+        if not isinstance(o, dict):
+            self.err("j1939", "field 'diagnostics' must be an object", [p])
+            return None
+        d = {"rx": [], "dtcs": [], "lamps_location": None, "clear_location": None, "accept_clear": True,
+             "dm13": True}
+        arr = o.get("rx")
+        if "rx" in o and not isinstance(arr, list):
+            self.err(w, "field 'rx' must be an array", [p + ".rx"])
+            arr = []
+        for i, m in enumerate(arr or []):
+            mw, mp = "%s: rx[%d]" % (w, i), "%s.rx[%d]" % (p, i)
+            if not isinstance(m, dict):
+                self.err(mw, "must be an object", [mp])
+                continue
+            r = {"source": None, "source_name": None, "source_name_mask": None,
+                 "timeout_ms": J1939_DEFAULT_DM_TIMEOUT_MS, "dtcs": 0, "path": mp}
+            if "source" in m and "source_name" in m:
+                self.err(mw, "give 'source' or 'source_name', not both", [mp + ".source", mp + ".source_name"])
+            elif "source" in m:
+                r["source"] = self.range(m, "source", mw, mp, 0, J1939_MAX_ADDRESS)
+            elif "source_name" in m:
+                r["source_name"] = self.uint64(m, "source_name", mw, mp)
+            else:
+                self.err(mw, "give 'source' or 'source_name': the ECU whose DM1 the program sees", [mp])
+            if "source_name_mask" in m:
+                if "source_name" not in m:
+                    self.err(mw, "field 'source_name_mask' needs 'source_name'", [mp + ".source_name_mask"])
+                else:
+                    r["source_name_mask"] = self.uint64(m, "source_name_mask", mw, mp)
+            v = self.range(m, "timeout_ms", mw, mp, 0, J1939_MAX_PERIOD_MS)
+            if v is not None:
+                r["timeout_ms"] = v
+            r["status_location"] = self.fixed_location(m, "status_location", mw, mp, "I", "X", "a bit input (%IX)")
+            for key in ("lamps_location", "flash_location", "count_location"):
+                r[key] = self.fixed_location(m, key, mw, mp, "I", "B", "a byte input (%IB)")
+            r["dtcs_location"] = self.fixed_location(m, "dtcs_location", mw, mp, "I", "D",
+                                                     "a double word input (%ID)")
+            if "dtcs" in m:
+                v = self.range(m, "dtcs", mw, mp, 1, J1939_MAX_DM_RX_CODES)
+                if v is not None:
+                    r["dtcs"] = v
+            if "dtcs_location" in m and "dtcs" not in m:
+                self.err(mw, "field 'dtcs' is missing: the number of codes at dtcs_location (1..32)",
+                         [mp + ".dtcs"])
+            if "dtcs" in m and "dtcs_location" not in m:
+                self.err(mw, "field 'dtcs' needs 'dtcs_location'", [mp + ".dtcs"])
+            if not any(key in m for key in ("status_location", "lamps_location", "flash_location", "count_location",
+                                            "dtcs_location")):
+                self.err(mw, "needs at least one of status_location, lamps_location, flash_location, "
+                         "count_location and dtcs_location", [mp])
+            d["rx"].append(r)
+        arr = o.get("dtcs")
+        if "dtcs" in o and not isinstance(arr, list):
+            self.err(w, "field 'dtcs' must be an array", [p + ".dtcs"])
+            arr = []
+        for i, m in enumerate(arr or []):
+            mw, mp = "%s: dtcs[%d]" % (w, i), "%s.dtcs[%d]" % (p, i)
+            if not isinstance(m, dict):
+                self.err(mw, "must be an object", [mp])
+                continue
+            c = {"spn": None, "fmi": None, "active_location": None, "lamps": [], "flash": None, "path": mp}
+            ok = True
+            for key, top in (("spn", J1939_MAX_SPN), ("fmi", 31)):
+                if key not in m:
+                    self.err(mw, "field '%s' is missing" % key, [mp + "." + key])
+                    ok = False
+                    continue
+                c[key] = self.range(m, key, mw, mp, 0, top)
+                ok = ok and c[key] is not None
+            if "active_location" not in m:
+                self.err(mw, "field 'active_location' is missing", [mp + ".active_location"])
+                ok = False
+            else:
+                c["active_location"] = self.fixed_location(m, "active_location", mw, mp, "Q", "X",
+                                                           "a bit output (%QX)")
+                ok = ok and c["active_location"] is not None
+            if "lamps" in m:
+                lamps = m["lamps"]
+                if not isinstance(lamps, list) or any(x not in J1939_LAMPS for x in lamps):
+                    self.err(mw, 'field \'lamps\' must be a list of "mil", "red", "amber" and "protect"',
+                             [mp + ".lamps"])
+                else:
+                    c["lamps"] = list(lamps)
+            if "flash" in m:
+                if m["flash"] not in ("slow", "fast"):
+                    self.err(mw, 'field \'flash\' must be "slow" or "fast"', [mp + ".flash"])
+                else:
+                    c["flash"] = m["flash"]
+            if ok:
+                d["dtcs"].append(c)
+        d["lamps_location"] = self.fixed_location(o, "lamps_location", w, p, "Q", "B", "a byte output (%QB)")
+        d["clear_location"] = self.fixed_location(o, "clear_location", w, p, "I", "B", "a byte input (%IB)")
+        for key in ("accept_clear", "dm13"):
+            v = self.boolean(o, key, w, p)
+            if v is not None:
+                d[key] = v
+        return d
 
     def ecu(self, j):
         w, p = "j1939: ecu", "j1939.ecu"
@@ -2459,6 +2589,18 @@ class _J1939Parser:
                 if t["pgn"] is not None and j["tx"][k]["pgn"] == t["pgn"]:
                     self.err("j1939", "tx[%d] and tx[%d] both send PGN %s" % (k, i, j1939_pgn_text(t["pgn"])),
                              ["j1939.tx[%d]" % k, "j1939.tx[%d]" % i])
+        d = j["diagnostics"] or {"rx": [], "dtcs": []}
+        for i, r in enumerate(d["rx"]):
+            for k in range(i):
+                if same_filter(d["rx"][k], r):
+                    self.err("j1939: diagnostics", "rx[%d] and rx[%d] have the same source filter" % (k, i),
+                             [d["rx"][k]["path"], r["path"]])
+        for i, c in enumerate(d["dtcs"]):
+            for k in range(i):
+                o = d["dtcs"][k]
+                if (o["spn"], o["fmi"]) == (c["spn"], c["fmi"]):
+                    self.err("j1939: diagnostics", "dtcs[%d] and dtcs[%d] both report SPN %d FMI %d"
+                             % (k, i, c["spn"], c["fmi"]), [o["path"], c["path"]])
 
 
 def check_j1939(net, err, warn=None):

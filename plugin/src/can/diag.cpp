@@ -428,6 +428,10 @@ std::string DiagHub::offline_answer(const DiagRequest& r) const {
     cJSON_AddArrayToObject(j, "rx");
     cJSON_AddArrayToObject(j, "tx");
     cJSON_AddArrayToObject(j, "requests");
+    cJSON* dm = cJSON_AddObjectToObject(j, "dm");
+    cJSON_AddArrayToObject(dm, "sources");
+    cJSON_AddArrayToObject(dm, "watched");
+    cJSON_AddNullToObject(dm, "own");
     return diag_ok(r.id, res);
   }
   if (cfg_.is_slave()) {
@@ -1133,8 +1137,18 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
     return;
   }
 
-  // A J1939 or plain CAN network serves its status only.
-  if (!hub.config().is_canopen() && r.op != "status" && r.op != "hello") {
+  // The trouble code operations need a J1939 network.
+  const bool dm_op = r.op == "j1939_dm_read" || r.op == "j1939_dm_clear";
+  if (dm_op && !hub.config().is_j1939()) {
+    cJSON_Delete(req);
+    c.out += diag_error(r.id, "network \"" + hub.config().network + "\" is a " +
+                                  (hub.config().is_canopen() ? "CANopen" : "plain CAN") + " network; " + r.op +
+                                  " needs a J1939 network");
+    return;
+  }
+  // A J1939 or plain CAN network serves its status only (and a J1939
+  // network the trouble code operations).
+  if (!hub.config().is_canopen() && r.op != "status" && r.op != "hello" && !dm_op) {
     cJSON_Delete(req);
     c.out += diag_error(r.id, "network \"" + hub.config().network + "\" is a " +
                                   (hub.config().is_j1939() ? "J1939" : "plain CAN") + " network; " + r.op +
@@ -1290,6 +1304,36 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
     }
 #endif
     r.raw = line;
+  } else if (dm_op) {
+    // DM2 of an address, or a DM3/DM11 clear of an address or of every ECU.
+    const bool clear = r.op == "j1939_dm_clear";
+    valid = get_uint(req, "address", 255, v, why);
+    r.address = static_cast<unsigned>(v);
+    if (valid && (r.address == kJ1939NullAddress || (!clear && r.address > kJ1939MaxAddress))) {
+      why = clear ? "field 'address' must be 0-253 or 255" : "field 'address' must be 0-253";
+      valid = false;
+    }
+    if (valid && cJSON_GetObjectItemCaseSensitive(req, "timeout_ms")) {
+      valid = get_uint(req, "timeout_ms", 10000, v, why);
+      if (valid && v < 10) {
+        why = "field 'timeout_ms' must be 10-10000";
+        valid = false;
+      }
+      r.timeout_ms = static_cast<unsigned>(v);
+    }
+    if (valid && clear) {
+      const cJSON* pv = cJSON_GetObjectItemCaseSensitive(req, "previous");
+      if (pv && !cJSON_IsBool(pv)) {
+        why = "field 'previous' must be true or false";
+        valid = false;
+      }
+      r.previous = cJSON_IsTrue(pv);
+      valid = valid && get_force();
+      if (valid && !r.force) {
+        why = "clearing trouble codes acts on another ECU: repeat with force";
+        valid = false;
+      }
+    }
   } else if (r.op == "hello") {
     why = "already authenticated";
     valid = false;
