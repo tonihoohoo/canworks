@@ -1268,6 +1268,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             err(where, "field 'token_verifier' must look like SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:"
                        "<ServerKey> (canworks-diag hash-token prints it)")
             continue
+        if ".remote_link.relays[" in where and e.validator == "pattern":
+            err(where, "relay URLs must use https, like https://relay.example.com")
+            continue
         if role == "slave" and where.split(".")[0].split("[")[0] in ("master", "nodes"):
             continue  # misplaced in a slave network, reported by _check_v2
         if (where == "master" and e.validator == "required" and "'diagnostics'" in e.message) or (

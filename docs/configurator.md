@@ -259,7 +259,9 @@ Save and upload the program as usual: the runtime opens the port when the PLC st
 
 With several networks there is still one Online access for the whole config, one port and one token for all networks: the section is the same on every tab and reads **Online access (all networks)**.
 
-On a PC without the host or token yet (a fresh install, another PC), **Online** and **Scan the bus** show a **Connect** box: enter the runtime host and press **Connect**. It asks for the token when this PC has none or one that does not match the config, and says what is missing instead of doing nothing.
+On a PC without the host or token yet (a fresh install, another PC), **Online** and **Scan the bus** show a **Connect** box: enter the runtime host and press **Connect**. It asks for the token when this PC has none or one that does not match the config, and says what is missing instead of doing nothing. The **Runtimes** list next to the host field shows the runtimes found on the local network (by name and address) and the ones this PC remembers; a remembered runtime connects directly when it answers and over the [remote link](remote-access.md) otherwise.
+
+**Reachable from other networks** turns on internet access for the remote link (`remote_link.internet`), with an optional list of your own relay servers under it; it takes effect when the program is uploaded. The first connection with the token on the local network pairs this PC with the runtime. **Show paired PCs** lists the PCs paired with the runtime, each with **Remove**, which also ends that PC's open sessions. The online view shows the path (`LAN`, `internet direct`, `internet relayed`) and the round trip next to the connection line, amber above 100 ms and red above 300 ms; on such a path LSS fast scan and a PDO test with a SYNC period ask before they start.
 
 ## USB adapter on this PC
 

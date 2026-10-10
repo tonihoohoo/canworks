@@ -152,7 +152,9 @@ def parser():
                    help="the config (canworks.json); EDS and DBC paths are relative to it")
     p.add_argument("--runtime", metavar="HOST[:PORT]",
                    help="the runtime to upload to (HTTPS, default port 8443); `local` is the local simulator "
-                        "runtime of canworks-sim-runtime, with its saved user, password and fingerprint")
+                        "runtime of canworks-sim-runtime, with its saved user, password and fingerprint; a "
+                        "remembered runtime's name connects directly or over the remote link, link:NAME over "
+                        "the link only (docs/remote-access.md)")
     p.add_argument("--user",
                    help="runtime user (default: the local runtime's saved user with --runtime local, else "
                         "$OPENPLC_USER); the password comes from $OPENPLC_PASSWORD or a prompt")

@@ -34,6 +34,7 @@ import socket
 import ssl
 import struct
 import sys
+import threading
 import time
 
 from . import __version__, localruntime
@@ -144,10 +145,16 @@ def new_token():
 
 
 def parse_runtime(text):
-    """"host", "host:port" or "[v6]:port" -> (host, port)."""
+    """"host", "host:port", "[v6]:port" or "link:NAME" -> (host, port). A
+    host may be the name of a remembered runtime (canworks-diag link list):
+    the connection then picks the direct path or the remote link."""
     text = (text or "").strip()
     if not text:
         raise ValueError("no runtime host given")
+    if text.startswith("link:"):
+        if not text[5:]:
+            raise ValueError("link: needs a remembered runtime's name (canworks-diag link list)")
+        return text, DEFAULT_PORT
     if localruntime.is_local(text):
         # The local simulator runtime (canworks-sim-runtime): its published diagnostics port.
         try:
@@ -397,10 +404,53 @@ class Client:
         self.buf = b""
         self.info = None
         self.next_id = 1
+        self.path = None        # "LAN", "internet direct" or "internet relayed" once connected
+        self.rtts = []          # the last request round trips, seconds
+        self.pairing = None     # the remote link's background pairing after a direct login
 
     @property
     def where(self):
+        if self.host.startswith("link:"):
+            return self.host
         return "%s:%d" % (self.host, self.port)
+
+    @property
+    def rtt_ms(self):
+        """The measured round trip: the shortest of the recent requests."""
+        return round(min(self.rtts) * 1000) if self.rtts else None
+
+    def _timeout_for(self, timeout):
+        """max(timeout, 4 x round trip + 0.5 s): slow paths get more time."""
+        t = self.timeout if timeout is None else timeout
+        if self.rtts:
+            t = max(t, 4 * min(self.rtts) + 0.5)
+        return t
+
+    def _open(self):
+        """A socket to the runtime, directly or over the remote link."""
+        try:
+            from .link import pc as linkpc
+            from .link.protocol import LinkError
+        except ImportError:  # pragma: no cover - the package always has it
+            linkpc = None
+        if linkpc is None:
+            self.path = "LAN"
+            return socket.create_connection((self.host, self.port), timeout=self.timeout)
+        try:
+            sock, self.path, _ = linkpc.open_socket(self.host, self.port, self.timeout)
+        except LinkError as e:
+            if e.kind == "unpaired":
+                hint = ""
+                try:
+                    if linkpc.available():
+                        hint = ("; connect to it once on its local network with the token, or run "
+                                "'sudo canworks-link allow %s' on the device" % linkpc.my_id())
+                except Exception:
+                    pass
+                raise DiagError("unreachable", "%s%s" % (e, hint))
+            raise DiagError("unreachable", str(e))
+        sock.settimeout(self.timeout)
+        return sock
 
     @property
     def networks(self):
@@ -417,8 +467,9 @@ class Client:
         """Connect and authenticate; the hello result (protocol, version,
         allow_changes, master_node_id)."""
         self.close()
+        self.rtts = []
         try:
-            self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+            self.sock = self._open()
         except socket.gaierror as e:
             raise DiagError("unreachable", "host %s is unknown: %s" % (self.host, e.strerror or e))
         except ConnectionRefusedError:
@@ -444,6 +495,14 @@ class Client:
             self.close()
             raise DiagError("protocol", "%s speaks diagnostics protocol %s; this tool speaks %d"
                             % (self.where, proto, want))
+        if self.token and self.path == "LAN" and not self.host.startswith("link:"):
+            # Remember the runtime and pair this PC for the remote link, in
+            # the background (nothing happens without iroh and discovery).
+            try:
+                from .link import pc as linkpc
+                self.pairing = linkpc.after_login(self.host, self.port, self.token)
+            except Exception:
+                self.pairing = None
         return self.info
 
     def _login(self):
@@ -526,8 +585,9 @@ class Client:
         msg.update(fields)
         if op != "hello" and self.network and "network" not in msg and self.several():
             msg["network"] = self.network
-        if timeout is not None:
-            self.sock.settimeout(timeout)
+        if timeout is not None or self.rtts:
+            self.sock.settimeout(self._timeout_for(timeout))
+        started = time.monotonic()
         try:
             try:
                 self.sock.sendall(json.dumps(msg).encode("utf-8") + b"\n")
@@ -542,12 +602,13 @@ class Client:
                     raise DiagError("protocol", "%s sent something that is not a JSON object" % self.where)
                 if answer.get("id") not in (rid, None):
                     continue  # an answer to an earlier request that timed out here
+                self.rtts = (self.rtts + [time.monotonic() - started])[-10:]
                 if answer.get("ok"):
                     return answer.get("result") or {}
                 raise DiagError("refused", str(answer.get("error") or "request refused"))
         finally:
-            if timeout is not None and self.sock:
-                self.sock.settimeout(self.timeout)
+            if (timeout is not None or self.rtts) and self.sock:
+                self.sock.settimeout(self._timeout_for(None))
 
     # -- the ops ------------------------------------------------------------
     def status(self):
@@ -1132,6 +1193,26 @@ def parser():
     sub.add_parser("adapters", help="list the CAN adapters on this PC (for --adapter; no connection)")
     h = sub.add_parser("hash-token", help="print the token_verifier for a token (no connection)")
     h.add_argument("value", nargs="?", help="the token (default: --token, $%s or a prompt)" % TOKEN_ENV)
+    dc = sub.add_parser("discover", help="list the runtimes on the local network (mDNS; no login)")
+    dc.add_argument("--wait", type=float, default=3.0, metavar="S", help="listen this long (default %(default)s s)")
+    lk = sub.add_parser("link", help="the remote link: remembered runtimes, this PC's link ID, local forwards "
+                                     "(docs/remote-access.md)")
+    lsub = lk.add_subparsers(dest="link_command", metavar="LINK_COMMAND")
+    lsub.required = True
+    lsub.add_parser("id", help="this PC's link ID (for 'canworks-link allow' on a device)")
+    lsub.add_parser("list", help="remembered runtimes")
+    lf = lsub.add_parser("forget", help="forget a remembered runtime on this PC")
+    lf.add_argument("name")
+    lu = lsub.add_parser("unpair", help="remove this PC from a runtime's paired PCs and forget it")
+    lu.add_argument("name")
+    lo = lsub.add_parser("open", help="keep local ports open to a runtime, for the OpenPLC Editor or a browser",
+                         description="Listens on 127.0.0.1 only and forwards each connection to the runtime by "
+                                     "the automatic path choice, until Ctrl-C.")
+    lo.add_argument("name")
+    lo.add_argument("--diag-port", type=_int_range("port", 0, 65535), default=0, metavar="P",
+                    help="local port for the diagnostics channel (default: any free port)")
+    lo.add_argument("--runtime-port", type=_int_range("port", 0, 65535), default=0, metavar="P",
+                    help="local port for the runtime's HTTPS (default: any free port)")
     _sim_parser(sub)
     return p
 
@@ -2391,6 +2472,10 @@ def run(args, out=sys.stdout):
         return _explain(args, out)
     if args.command == "adapters":
         return _adapters(args, out)
+    if args.command == "discover":
+        return _discover(args, out)
+    if args.command == "link":
+        return _link(args, out)
     if getattr(args, "adapter", None) and (args.runtime or args.command == "sim"):
         raise DiagError("usage", "--adapter talks to the bus directly; give either --adapter or --runtime, not both"
                         if args.runtime else "sim commands need a runtime or a standalone simulator, not --adapter")
@@ -2437,6 +2522,8 @@ def run(args, out=sys.stdout):
             res = client.status()
             if not args.json:
                 (_print_local_status if res.get("local") else _print_status)(res, out)
+                if getattr(client, "path", None) and client.path != "LAN":
+                    out.write("path: %s, round trip %s ms\n" % (client.path, client.rtt_ms))
         elif args.command == "emcy":
             res = client.emcy(args.node)
             if not args.json:
@@ -2544,6 +2631,7 @@ def run(args, out=sys.stdout):
             out.write(json.dumps(res, indent=2) + "\n")
     finally:
         client.close()
+    _pairing_note(client)
     return 0
 
 
@@ -2667,6 +2755,160 @@ def _dm_local(args, out, names):
         tool.close()
         opened.close()
     return 0
+
+
+def _pairing_note(client, wait=10.0):
+    """After a command: wait for the remote link's background pairing (see
+    Client.connect) and print its one line, if it has one."""
+    job = getattr(client, "pairing", None)
+    if not job:
+        return
+    job["thread"].join(wait)
+    if job.get("note"):
+        print(job["note"], file=sys.stderr)
+
+
+def _discover(args, out):
+    from .link import discovery
+    if not discovery.available():
+        raise DiagError("usage", discovery.NOT_AVAILABLE)
+    found = discovery.browse(args.wait)
+    if args.json:
+        out.write(json.dumps(found, indent=2) + "\n")
+        return 0
+    if not found:
+        out.write("no runtime answered on the local network (discovery does not cross routers: give "
+                  "--runtime HOST there)\n")
+        return 1
+    for r in found:
+        out.write("%-24s %-32s diagnostics %s%s%s\n" % (
+            r["name"], ", ".join(r["addresses"]) or "-", r["diag"],
+            ", runtime %s" % r["runtime"] if r.get("runtime") else "",
+            ", remote link" if r.get("id") else ""))
+    return 0
+
+
+def _link(args, out):
+    from .link import UNAVAILABLE, available
+    from .link import pc as linkpc
+    from .link.protocol import LinkError
+    cmd = args.link_command
+    if cmd == "list":
+        items = linkpc.runtimes()
+        if args.json:
+            out.write(json.dumps(items, indent=2) + "\n")
+            return 0
+        if not items:
+            out.write("no remembered runtimes: connect to one once (canworks-diag --runtime HOST status)\n")
+        for r in items:
+            out.write("%-20s %-28s %s%s\n" % (
+                r["name"], ", ".join(r.get("hosts") or []) or "-",
+                "paired" if r.get("paired") else ("link ID known" if r.get("id") else "no remote link"),
+                ", reachable from other networks" if r.get("internet") else ""))
+        return 0
+    if cmd == "forget":
+        if not linkpc.forget(args.name):
+            raise DiagError("usage", "no remembered runtime %r" % args.name)
+        out.write("forgot %s\n" % args.name)
+        return 0
+    if not available():
+        raise DiagError("usage", UNAVAILABLE)
+    if cmd == "id":
+        out.write(linkpc.my_id() + "\n")
+        return 0
+    entry = linkpc.find(args.name)
+    if not entry:
+        raise DiagError("usage", "no remembered runtime %r (canworks-diag link list)" % args.name)
+    try:
+        if cmd == "unpair":
+            linkpc.unpair(entry)
+            linkpc.forget(entry["name"])
+            out.write("this PC is no longer paired with %s\n" % entry["name"])
+            return 0
+        if cmd == "open":
+            return _link_open(args, entry, out)
+    except LinkError as e:
+        raise DiagError("unreachable", str(e))
+    return 2
+
+
+def _link_open(args, entry, out):
+    from .link import pc as linkpc
+    listeners = []
+    targets = [("diagnostics", "diag", args.diag_port, entry.get("diag_port") or DEFAULT_PORT)]
+    if entry.get("runtime_port", 8443):
+        targets.append(("runtime", "runtime", args.runtime_port, entry.get("runtime_port") or 8443))
+    for label, target, local, remote in targets:
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            srv.bind(("127.0.0.1", local))
+        except OSError as e:
+            raise DiagError("usage", "cannot listen on 127.0.0.1:%d: %s" % (local, e.strerror or e))
+        srv.listen(8)
+        listeners.append((srv, target, remote))
+        port = srv.getsockname()[1]
+        out.write(("diagnostics 127.0.0.1:%d\n" if target == "diag" else "runtime https://127.0.0.1:%d\n") % port)
+    out.write("forwarding to %s until Ctrl-C\n" % entry["name"])
+    out.flush()
+
+    def serve(srv, target, remote):
+        while True:
+            try:
+                local, _ = srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=_link_pipe, args=(linkpc, entry, target, remote, local), daemon=True).start()
+
+    for srv, target, remote in listeners:
+        threading.Thread(target=serve, args=(srv, target, remote), daemon=True).start()
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        for srv, _, _ in listeners:
+            srv.close()
+    return 0
+
+
+def _link_pipe(linkpc, entry, target, remote, local):
+    """Copy one local connection to the runtime, by the automatic path choice."""
+    host = (entry.get("hosts") or [entry["name"]])[0]
+    try:
+        far, _, _ = linkpc.open_socket(host, remote, 3.0, target=target)
+    except Exception as e:
+        print("canworks-diag: %s: %s" % (entry["name"], e), file=sys.stderr)
+        local.close()
+        return
+    far.settimeout(None)
+    local.settimeout(None)
+
+    def copy(a, b):
+        try:
+            while True:
+                data = a.recv(65536)
+                if not data:
+                    break
+                b.sendall(data)
+        except OSError:
+            pass
+        finally:
+            try:
+                b.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass
+
+    t = threading.Thread(target=copy, args=(far, local), daemon=True)
+    t.start()
+    copy(local, far)
+    t.join()
+    for s in (local, far):
+        try:
+            s.close()
+        except OSError:
+            pass
 
 
 def _filter(text):
