@@ -4,6 +4,7 @@
 #define CANWORKS_TEST_MODBUS_CLIENT_HPP
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
@@ -26,8 +27,17 @@ using Bytes = std::vector<uint8_t>;
 // A Modbus TCP client: sends one request PDU, returns the response PDU.
 class Client {
  public:
-  explicit Client(uint16_t port, const char* host = "127.0.0.1") {
+  // `rcvbuf`: a small receive buffer (0: the default); `source`: the local
+  // address to connect from (127.0.0.x on loopback).
+  explicit Client(uint16_t port, const char* host = "127.0.0.1", int rcvbuf = 0, const char* source = nullptr) {
     fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (rcvbuf) ::setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    if (source) {
+      sockaddr_in s{};
+      s.sin_family = AF_INET;
+      inet_pton(AF_INET, source, &s.sin_addr);
+      (void)::bind(fd_, reinterpret_cast<sockaddr*>(&s), sizeof(s));
+    }
     sockaddr_in a{};
     a.sin_family = AF_INET;
     a.sin_port = htons(port);
@@ -38,6 +48,7 @@ class Client {
   }
   ~Client() { ::close(fd_); }
   bool connected() const { return connected_; }
+  void set_nonblocking() { ::fcntl(fd_, F_SETFL, ::fcntl(fd_, F_GETFL) | O_NONBLOCK); }
 
   // Raw bytes out.
   void send_raw(const Bytes& b) { (void)::send(fd_, b.data(), b.size(), MSG_NOSIGNAL); }

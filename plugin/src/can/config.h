@@ -491,6 +491,7 @@ struct BridgeConfig {
   unsigned unit_id = 1;
   bool low_first = false;  // word_order "low_first"
   unsigned max_clients = 16;
+  unsigned max_clients_per_address = 4;
   std::vector<std::string> writers, readers;
   unsigned watchdog_ms = 1000;  // 0: no watchdog
   enum class Loss { Stop, Zero, Hold };

@@ -263,6 +263,43 @@ const char* nmt_command(uint8_t cmd) {
 
 }  // namespace
 
+bool server_config(const BridgeConfig& b, ServerConfig& out, std::string& err) {
+  out = ServerConfig();
+  out.listen = b.listen;
+  out.unit_id = static_cast<uint8_t>(b.unit_id);
+  out.max_clients = static_cast<int>(b.max_clients);
+  out.max_clients_per_address = static_cast<int>(b.max_clients_per_address);
+  for (const auto& a : b.readers) {
+    if (!out.readers.add(a, err)) {
+      err = "bridge readers: " + err;
+      return false;
+    }
+  }
+  for (const auto& a : b.writers) {
+    if (!out.writers.add(a, err)) {
+      err = "bridge writers: " + err;
+      return false;
+    }
+  }
+  return true;
+}
+
+bool image_sizes(const std::vector<ImageUse>& uses, uint64_t limit, size_t& in, size_t& out, std::string& err) {
+  uint64_t in_end = 0, out_end = 0;
+  for (const ImageUse& u : uses) {
+    uint64_t end = static_cast<uint64_t>(u.loc.index) + u.nbytes;
+    if (end > limit) {
+      err = u.loc.str() + " (" + u.who + ") ends past the bridge image of " + std::to_string(limit) + " bytes";
+      return false;
+    }
+    uint64_t& e = u.loc.area == IecArea::Input ? in_end : out_end;
+    e = std::max(e, end);
+  }
+  in = static_cast<size_t>(in_end);
+  out = static_cast<size_t>(out_end);
+  return true;
+}
+
 BridgeHost::BridgeHost() = default;
 
 BridgeHost::~BridgeHost() {
@@ -299,16 +336,17 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   cfg_ = s.bridge;
 
   size_t in_bytes = 0, out_bytes = 0;
-  data_outputs_.clear();
-  for (const ImageUse& u : canopen_plugin::image_uses(s)) {
-    size_t end = u.loc.index + u.nbytes;
-    if (u.loc.area == IecArea::Input) {
-      in_bytes = std::max(in_bytes, end);
-    } else {
-      out_bytes = std::max(out_bytes, end);
-      if (!u.bridge_block) data_outputs_.push_back(u);
-    }
+  std::vector<ImageUse> uses = canopen_plugin::image_uses(s);
+  std::string err;
+  ServerConfig sc;
+  if (!image_sizes(uses, kImageLimit, in_bytes, out_bytes, err) || !server_config(cfg_, sc, err)) {
+    log_error("%s; canworks-bridge not started", err.c_str());
+    return false;
   }
+  if (!listen_override.empty()) sc.listen = listen_override;
+  data_outputs_.clear();
+  for (const ImageUse& u : uses)
+    if (u.loc.area != IecArea::Input && !u.bridge_block) data_outputs_.push_back(u);
   image_.resize(in_bytes, out_bytes);
   make_tables(kImageLimit, image_.input_size(), cfg_.low_first);
   g_tables->out.assign(image_.output_size(), 0);
@@ -322,13 +360,6 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   }
   zero_settle_ = std::max(std::chrono::milliseconds(100), std::chrono::milliseconds(2 * max_sync_us / 1000));
 
-  ServerConfig sc;
-  sc.listen = listen_override.empty() ? cfg_.listen : listen_override;
-  sc.unit_id = static_cast<uint8_t>(cfg_.unit_id);
-  sc.max_clients = static_cast<int>(cfg_.max_clients);
-  std::string err;
-  for (const auto& a : cfg_.readers) sc.readers.add(a, err);
-  for (const auto& a : cfg_.writers) sc.writers.add(a, err);
   server_.on_write = [this] { on_write(); };
   server_.log = [](const std::string& line) { log_info("%s", line.c_str()); };
 
@@ -391,20 +422,29 @@ void BridgeHost::enter_off(OutputState why, Clock::time_point now) {
       return;
     case BridgeConfig::Loss::Zero: {
       log_warn("outputs off by %s: outputs set to 0 and sent once, then stopped (on_client_loss zero)", reason);
-      std::vector<uint8_t> zeros(8, 0);
-      for (const ImageUse& u : data_outputs_) {
-        if (zeros.size() < u.nbytes) zeros.resize(u.nbytes, 0);
-        image_.write_outputs(u.loc.index, zeros.data(), u.nbytes);
-      }
+      clear_outputs();
       push_outputs();
       zero_pending_ = true;
       zero_until_ = now + zero_settle_;
       return;
     }
-    case BridgeConfig::Loss::Stop:
-      log_warn("outputs off by %s: RPDOs and transmit messages stopped (on_client_loss stop)", reason);
+    case BridgeConfig::Loss::Stop: {
+      log_warn("outputs off by %s: RPDOs and transmit messages stopped, output image cleared (on_client_loss stop)",
+               reason);
       canopen_plugin::set_outputs_enabled(false);
+      // Nothing is sent now; the write that ends outputs off starts from
+      // zeros, not from the values written before the loss.
+      clear_outputs();
       return;
+    }
+  }
+}
+
+void BridgeHost::clear_outputs() {
+  std::vector<uint8_t> zeros(8, 0);
+  for (const ImageUse& u : data_outputs_) {
+    if (zeros.size() < u.nbytes) zeros.resize(u.nbytes, 0);
+    image_.write_outputs(u.loc.index, zeros.data(), u.nbytes);
   }
 }
 
