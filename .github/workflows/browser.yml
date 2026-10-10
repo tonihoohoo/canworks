@@ -19,6 +19,8 @@ on:
       - "plugin/src/canopen/network*"
       - "tools/sim/**"
       - "test/browser/**"
+      - "plugin/src/can/raw/plc_frames*"
+      - "test/can_raw/frames_stress.cpp"
       - ".github/workflows/browser.yml"
   schedule:
     - cron: "37 4 * * 2"  # Tuesdays 04:37 UTC
@@ -85,3 +87,27 @@ jobs:
           name: browser-run
           path: ${{ runner.temp }}/browser
           retention-days: 7
+
+  frames-tsan:
+    # The PLC frame blocks from four threads under ThreadSanitizer
+    # (canopen-ci "Concurrency check of the frame blocks"). The plain stress
+    # test runs in the CI workflow; this build only adds the race detector.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out the upstream OpenPLC runtime (plugin headers)
+        uses: actions/checkout@v4
+        with:
+          repository: Autonomy-Logic/openplc-runtime
+          ref: development
+          path: upstream-runtime
+
+      - name: Build can_frames_stress with ThreadSanitizer
+        run: |
+          cmake -B build-tsan -DOPENPLC_ROOT="$PWD/upstream-runtime" -DCANWORKS_WITH_CANOPEN=OFF -DCANWORKS_TSAN=ON
+          cmake --build build-tsan --target can_frames_stress -j
+
+      - name: Run it three times
+        run: for i in 1 2 3; do build-tsan/test/can_frames_stress; done
