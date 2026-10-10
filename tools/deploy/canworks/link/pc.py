@@ -555,7 +555,7 @@ def _after_job(host, port, token, job):
     from . import discovery
     try:
         entry = find(host)
-        r = discovery.find_address(host) if discovery.available() else None
+        r = discovery.find_address(host)   # a direct query first: needs no zeroconf
         if r is None and not entry:
             return
         if r is not None:
