@@ -1283,8 +1283,13 @@ function masterAdvanced() {
     el("p", { class: "muted" }, "dcfgen's master options. Leave them empty unless a device or the plant needs them."),
     el("h3", null, "Start-up"),
     el("div", { class: "grid" },
-      checkbox("Master goes operational", m + "start", true,
-        "Off: the master stays pre-operational and no PDOs move until something starts it."),
+      el("div", null, checkbox("Master goes operational", m + "start", true,
+        "Off: the master stays pre-operational and no PDOs move until the PLC program starts it with CO_NETWORK_START."),
+        el("button", { type: "button", class: "link", dataset: { action: "network-start-st" },
+          title: "Copy as ST call (CO_NETWORK_START block)", onclick: async () => {
+            await copyText(stNetworkStartCall());
+            banner("Copied the CO_NETWORK_START call. Enable the canworks library in the editor project to use it.");
+          } }, "Copy as ST call")),
       checkbox("Start the nodes", m + "start_nodes", true,
         "Off: the master configures the nodes but leaves them pre-operational."),
       checkbox("Start all nodes with one command", m + "start_all_nodes", false,
@@ -3125,6 +3130,36 @@ async function copyStCall(node, index, subindex, type, readable, writable) {
   await copyText(text);
   banner(`Copied the ${stBlock(type, write)} call. Enable the canworks library in the editor project to use it.`);
 }
+// "Copy as ST call" for NMT: a CO_NMT instance and its call for a node and a
+// CiA 301 command code, or a CO_NETWORK_START call (spec canopen-configurator,
+// Copy NMT calls as ST; the blocks are in the canworks library, docs/plc-nmt.md).
+const NMT_CODES = { start: [1, "START"], stop: [2, "STOP"], preop: [128, "ENTER PRE-OPERATIONAL"],
+  reset: [129, "RESET NODE"], "reset-comm": [130, "RESET COMMUNICATION"] };
+function stNmtCall(node, command, net = stNetwork()) {
+  const [code, name] = NMT_CODES[command];
+  const inst = `nmt_${net ? net.name + "_" : ""}n${node}_${command.replace("-", "_")}`;
+  const args = [`EXECUTE := ${inst}_go`, ...(net ? [`NETWORK := ${net.index} (* ${net.name} *)`] : []),
+    `NODE := ${node}`, `COMMAND := ${code} (* ${name} *)`];
+  return [`VAR`, `  ${inst} : CO_NMT;`, `  ${inst}_go : BOOL;`, `END_VAR`, ``,
+    `(* EXECUTE: a rising edge sends the command; FALSE clears DONE and ERROR. *)`,
+    `${inst}(${args.join(", ")});`,
+    `IF ${inst}.ERROR THEN`, `  (* ${inst}.ERROR_ID *)`, `END_IF;`, ``].join("\n");
+}
+// The editor's network for CO_NETWORK_START: its number and name with
+// several networks, null with one.
+function stEditNetwork() {
+  if (!several()) return null;
+  return { index: S.net || 0, name: netName(S.config) || `net${(S.net || 0) + 1}` };
+}
+function stNetworkStartCall(net = stEditNetwork()) {
+  const inst = `net_start${net ? "_" + net.name : ""}`;
+  const args = [`EXECUTE := ${inst}_go`, ...(net ? [`NETWORK := ${net.index} (* ${net.name} *)`] : []),
+    `TIMEOUT := T#0s (* no limit *)`];
+  return [`VAR`, `  ${inst} : CO_NETWORK_START;`, `  ${inst}_go : BOOL; (* TRUE once the machine is ready *)`, `END_VAR`, ``,
+    `(* The master goes OPERATIONAL (PDOs run) once every mandatory node has booted. *)`,
+    `${inst}(${args.join(", ")});`,
+    `IF ${inst}.ERROR THEN`, `  (* ${inst}.ERROR_ID: 2 timeout, 9 the master is STOPPED *)`, `END_IF;`, ``].join("\n");
+}
 const NO_ST_SLAVE = "The program's SDO blocks address nodes of a master network; on a slave network the program has the bound locations instead.";
 const RUNTIME_NO_CHANGES = "Online changes are not allowed in this configuration (turn on \"Allow changes\" under Online access, then upload).";
 const ADAPTER_NO_CHANGES = "Changes are off for this USB adapter connection (tick \"Allow changes\" in the connection banner).";
@@ -4355,13 +4390,23 @@ function nmtButtons(id, allow) {
   };
   const btn = (command, label, confirm) => el("button", { type: "button", disabled: !allow, title: allow ? null : NO_CHANGES,
     dataset: { nmt: command }, onclick: () => send(command, label, confirm) }, label);
+  // Sends nothing, so it works without "Allow changes".
+  const copy = async () => {
+    const v = await modal(`Copy the Structured Text call (CO_NMT) for node ${id}:`,
+      [...Object.keys(NMT_CODES).map((c, i) => [c, `${NMT_CODES[c][1]} (${NMT_CODES[c][0]})`, i === 0]), ["cancel", "Cancel"]]);
+    if (!NMT_CODES[v]) return;
+    await copyText(stNmtCall(id, v));
+    banner(`Copied the CO_NMT call (${NMT_CODES[v][1]} to node ${id}). Enable the canworks library in the editor project to use it.`);
+  };
   return el("div", null, el("div", { class: "toolbar" },
     btn("start", "Start"),
     btn("stop", "Stop", `Stop node ${id}? Its PDOs stop and it stays STOPPED, also after a reboot, until you start it or the program changes its NMT command byte.`),
     btn("preop", "Pre-operational", `Set node ${id} pre-operational? Its PDOs stop until it is started again, by you or by the program's NMT command byte.`),
     btn("reset", "Reset node", `Reset node ${id}? It reboots and the master configures it again.`),
-    btn("reset-comm", "Reset communication", `Reset node ${id}'s communication? It comes back pre-operational and the master configures it again.`)),
-  allow ? hint("Stop and pre-operational hold the node until you start it, or until the program changes the node's NMT command byte.")
+    btn("reset-comm", "Reset communication", `Reset node ${id}'s communication? It comes back pre-operational and the master configures it again.`),
+    el("button", { type: "button", dataset: { online: "nmt-st" }, title: "Copy as ST call (CO_NMT block)", onclick: copy },
+      "Copy as ST call")),
+  allow ? hint("Stop and pre-operational hold the node until you start it, or until the program changes the node's NMT command byte or sends a CO_NMT command.")
     : el("p", { class: "field-msg warning", dataset: { online: "no-changes" } }, NO_CHANGES));
 }
 

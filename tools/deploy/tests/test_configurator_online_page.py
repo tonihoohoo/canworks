@@ -232,6 +232,32 @@ class OnlinePage(OnlineBase):
                 pg.wait_for_timeout(50)
             self.assertFalse(self.server.connection.connected)
 
+    def test_nmt_copy_as_st_call_without_changes(self):
+        # add-plc-network-control 5.1: the NMT buttons are off, the copy works.
+        pg = self.page
+        with FakePlugin() as fp:
+            self.online(fp)
+            pg.wait_for_selector("text=Connected to")
+            pg.click('tr[data-online-node="2"]')
+            pg.wait_for_selector('button[data-online="nmt-st"]')
+            self.assertTrue(pg.is_disabled('button[data-nmt="stop"]'))
+            self.assertFalse(pg.is_disabled('button[data-online="nmt-st"]'))
+            pg.evaluate("() => { window.__copied = []; navigator.clipboard.writeText = async (t) => { "
+                        "window.__copied.push(t); }; }")
+            pg.click('button[data-online="nmt-st"]')
+            self.assertIn("CO_NMT", pg.inner_text("#modal-text"))
+            pg.click('#modal button[data-value="stop"]')
+            pg.wait_for_function("() => window.__copied.length === 1")
+            text = pg.evaluate("() => window.__copied[0]")
+            self.assertIn("nmt_n2_stop : CO_NMT;", text)
+            self.assertIn("NODE := 2, COMMAND := 2 (* STOP *)", text)
+            self.assertNotIn("NETWORK :=", text)
+            pg.click('button[data-online="nmt-st"]')
+            pg.click('#modal button[data-value="reset-comm"]')
+            pg.wait_for_function("() => window.__copied.length === 2")
+            self.assertIn("COMMAND := 130 (* RESET COMMUNICATION *)", pg.evaluate("() => window.__copied[1]"))
+            self.assertEqual([q for q in fp.requests if q["op"] == "nmt"], [])
+
     def test_same_config(self):
         pg = self.page
         with FakePlugin() as fp:
