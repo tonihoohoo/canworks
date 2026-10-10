@@ -16,7 +16,7 @@
 # to address 0, Mode=3) from 128 and the plugin's request for ComponentInfo.
 #
 # Diagnostic messages (j1939-diagnostics) in the same run: the simulator
-# raises six trouble codes (one ends at 1 s, so five go out by BAM), and
+# raises six trouble codes by BAM (one ends at 1 s, then five), and
 # at 1.5 s a diagnostics client on 127.0.0.1 checks the status's DM1 store
 # and watched entry, reads the simulator's DM2 through the plugin
 # (j1939_dm_read), is refused a clear without force and clears it with DM11
@@ -201,9 +201,13 @@ if dm:
     status = dm["status"]["j1939"]["dm"]
     src = [s for s in status["sources"] if s["address"] == 0]
     codes = src[0]["dtcs"] if src else []
-    check(bool(src) and src[0]["count"] == 5 and src[0]["truncated"] == 0 and
-          [d["spn"] for d in codes] == [520200, 520201, 520202, 520203, 520204] and src[0]["lamps"] & 0x14 == 0x14,
-          "status: ECU 0's DM1 with five codes by BAM (%s)" % json.dumps(src))
+    # The status may come before or after the simulator's DM1 that drops
+    # SPN 520205 (its change sends are rate-limited to one per second): five
+    # or six codes, both by BAM.
+    spns = [520200, 520201, 520202, 520203, 520204, 520205]
+    check(bool(src) and src[0]["count"] in (5, 6) and src[0]["truncated"] == 0 and
+          [d["spn"] for d in codes] == spns[:src[0]["count"]] and src[0]["lamps"] & 0x14 == 0x14,
+          "status: ECU 0's DM1 with five or six codes by BAM (%s)" % json.dumps(src))
     check(status["watched"] and status["watched"][0]["source"] == 0 and not status["watched"][0]["timed_out"],
           "status: the watched ECU 0 not timed out")
     check(status["own"] is not None and status["own"]["active"] == [] and status["own"]["dm1_sent"] >= 1 and
