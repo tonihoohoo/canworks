@@ -30,7 +30,7 @@ SCAN_PROBE_S = 0.1
 SCAN_READ_S = 0.2
 TRACE_MAX = 4000
 CHANGES = ("sdo_write", "nmt", "lss_find", "lss_inquire", "lss_set_id", "lss_set_bitrate", "send_frame",
-           "pdo_test_start", "pdo_test_set", "sync_start")
+           "pdo_test_start", "pdo_test_set", "sync_start", "detect_bitrate_stop")
 NOT_LOCAL = "not available on a local adapter"
 # Raw frames, with the plugin's limits.
 SEND_RATE = 50  # single frames per second per handle
@@ -39,7 +39,8 @@ MAX_JOBS = 8  # cyclic jobs per adapter
 JOB_LIMIT_S = 600.0
 ENDED_KEEP_S = 60.0
 OPERATIONAL_S = 30.0  # a node counts as OPERATIONAL this long after a heartbeat saying so
-SWEEP_OPS = ("detect_bitrate", "detect_bitrate_status")
+SWEEP_OPS = ("detect_bitrate", "detect_bitrate_status", "detect_bitrate_stop")
+MAX_SWEEP_MS = 120000  # listening time per rate times rates times rounds, as the plugin
 
 
 def _int(v, what, lo, hi):
@@ -81,8 +82,9 @@ class LocalBus:
     """One handle on a local adapter. `spec` is an adapter.Spec, `bitrate`
     in bit/s. `config` optionally names configured nodes: {node_id: {"name",
     "expect": {vendor_id, product_code, revision_number, serial_number}}}.
-    `allow_changes` is the session switch; `force` lets LSS run while another
-    master is active."""
+    `allow_changes` is the session switch; `force` is the session's --force: LSS
+    while another master is active, and sdo_write, nmt and scan while a node
+    is OPERATIONAL."""
 
     def __init__(self, spec, bitrate, allow_changes=False, force=False, config=None, network=None,
                  timeout=5.0, listen_s=None):
@@ -171,15 +173,17 @@ class LocalBus:
     def sdo_read(self, node, index, subindex, timeout_ms=1000):
         return self.request("sdo_read", node=node, index=index, subindex=subindex, timeout_ms=timeout_ms)
 
-    def sdo_write(self, node, index, subindex, data, timeout_ms=1000):
+    def sdo_write(self, node, index, subindex, data, timeout_ms=1000, force=None):
         return self.request("sdo_write", node=node, index=index, subindex=subindex, data=hex_bytes(data),
-                            timeout_ms=timeout_ms)
+                            timeout_ms=timeout_ms, **({"force": True} if force else {}))
 
-    def nmt(self, node, command):
-        return self.request("nmt", node=node, command=command)
+    def nmt(self, node, command, force=None):
+        return self.request("nmt", node=node, command=command, **({"force": True} if force else {}))
 
-    def scan(self, start=True):
-        return self.request("scan" if start else "scan_status")
+    def scan(self, start=True, force=None):
+        if not start:
+            return self.request("scan_status")
+        return self.request("scan", **({"force": True} if force else {}))
 
     def lss_find(self, start=True, vendor_id=None, product_code=None):
         fields = {}
@@ -247,6 +251,9 @@ class LocalBus:
 
     def detect_bitrate_status(self):
         return self.request("detect_bitrate_status")
+
+    def detect_bitrate_stop(self):
+        return self.request("detect_bitrate_stop")
 
     def pdo_test_start(self, node, layout, force=False):
         return self.request("pdo_test_start", node=node, layout=layout, **({"force": True} if force else {}))
@@ -349,8 +356,37 @@ def _emcy(c, f):
     return {"node_id": node, "emcy": hist}
 
 
+def _running(c, node):
+    """The label of `node` when it was heard OPERATIONAL lately, else ''."""
+    now = time.monotonic()
+    with c.core.lock:
+        h = c.core.heard.get(node)
+        on = bool(h and h["state"] == 5 and now - h["at"] <= OPERATIONAL_S)
+    return _label(c, node) if on else ""
+
+
+def _check_force(c, f, what, node=None):
+    """The plugin's rule: changes to an OPERATIONAL node, and a scan while a
+    node is OPERATIONAL, need force (--force, or force: true)."""
+    if "force" in f and not isinstance(f["force"], bool):
+        raise DiagError("refused", "field 'force' must be true or false")
+    if c._force(f):
+        return
+    if node is not None:
+        busy = _running(c, node)
+    else:
+        now = time.monotonic()
+        with c.core.lock:
+            heard = sorted(n for n, h in c.core.heard.items() if h["state"] == 5 and now - h["at"] <= OPERATIONAL_S)
+        busy = _label(c, heard[0]) if heard else ""
+    if busy:
+        raise DiagError("refused", "%s is OPERATIONAL; %s; %s" % (busy, what, FORCE_NEEDED))
+
+
 def _sdo(c, f, write):
     node = _int(f.get("node"), "node", 1, 127)
+    if write:
+        _check_force(c, f, "an SDO write changes it while the program drives it", node)
     index = _int(f.get("index"), "index", 0, 0xFFFF)
     sub = _int(f.get("subindex"), "subindex", 0, 0xFF)
     timeout_ms = _int(f.get("timeout_ms", 1000), "timeout_ms", 10, 10000)
@@ -381,6 +417,8 @@ def _nmt(c, f):
     command = f.get("command")
     if command not in NMT_CODES:
         raise DiagError("refused", "field 'command' must be one of " + ", ".join(NMT_COMMANDS))
+    if command != "start":
+        _check_force(c, f, "an NMT command takes it out of the program's control", node)
     c.core.transmit(core_mod.NMT_COB, bytes([NMT_CODES[command], node]))
     return {"node": node, "command": command,
             "note": "sent once; no master holds the node in this state" if command in ("stop", "preop") else ""}
@@ -454,6 +492,10 @@ def _match(c, e):
 
 def _scan(c, f, start=True):
     sh = _shared_of(c.core)
+    with sh.lock:
+        running = bool(sh.scan and sh.scan["running"])
+    if start and not running:
+        _check_force(c, f, "a scan sends SDO requests to every node ID")
     with sh.lock:
         job = sh.scan
         if start and not (job and job["running"]):
@@ -904,6 +946,10 @@ def _detect(c, f):
     except DiagError:
         raise DiagError("refused", "field 'per_rate_ms' must be 100-10000")
     rounds = _int(f.get("rounds", 1), "rounds", 1, 20)
+    total_ms = per_rate_ms * len(rates or bitrate_mod.RATES) * rounds
+    if total_ms > MAX_SWEEP_MS:
+        raise DiagError("refused", "the sweep would listen %d s; per_rate_ms times rates times rounds may be at most "
+                                   "%d s" % (total_ms // 1000, MAX_SWEEP_MS // 1000))
     lone, probe = _lone_fields(c, f)
     if not lone and c.spec.kind not in adapter_mod.LISTEN_ONLY:
         # Refused before the adapter is closed for the sweep: closing and
@@ -981,6 +1027,13 @@ def _lone_fields(c, f):
     return True, probe
 
 
+def _detect_stop(c, f):
+    if c.sweep is None or not c.sweep.running:
+        raise DiagError("refused", "no bit rate detection is running on %s" % c.where)
+    c.sweep.stop()
+    return c.sweep.status()
+
+
 def _detect_status(c, f):
     if c.sweep is None:
         return sweep_mod.idle_status(c.bitrate // 1000)
@@ -1008,6 +1061,7 @@ OPS = {
     "send_frame_stop": _send_frame_stop,
     "detect_bitrate": _detect,
     "detect_bitrate_status": _detect_status,
+    "detect_bitrate_stop": _detect_stop,
     "pdo_test_start": pdo_mod.start,
     "pdo_test_status": pdo_mod.status,
     "pdo_test_set": pdo_mod.set_values,

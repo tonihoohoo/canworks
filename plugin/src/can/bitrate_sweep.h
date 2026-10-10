@@ -11,6 +11,7 @@
 #ifndef CANOPEN_BITRATE_SWEEP_H
 #define CANOPEN_BITRATE_SWEEP_H
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -35,6 +36,10 @@ struct SweepRequest {
   // firmware that answers nothing to its silent mode command), which may
   // disturb the bus at a wrong bit rate.
   bool disturb_bus = false;
+  // Set by detect_bitrate_stop (DiagHub::stop_sweep): the sweep ends after
+  // its current rate. `stopped_by` names the client (read once it is set).
+  std::shared_ptr<std::atomic<bool>> cancel;
+  std::shared_ptr<std::string> stopped_by;
 };
 
 // The refusal when the adapter does not confirm listen-only; the request may
@@ -84,8 +89,10 @@ struct SweepProgress {
 };
 
 // The sweep. `restart_ms` is the adapter's bus-off restart (-1: not set),
-// restored with the configured bit rate. `stop` ends it early (PLC stop);
-// the link is restored anyway.
+// restored with the configured bit rate. `stop` ends it early (PLC stop),
+// `req.cancel` after the current rate; the link is restored anyway: the
+// configured bit rate is always set, and bringing the link up is tried
+// twice.
 SweepResult run_bitrate_sweep(LinkOps& ops, SweepListener& listener, const std::string& interface,
                               unsigned configured_bitrate, long restart_ms, const SweepRequest& req,
                               const std::function<void(const SweepProgress&)>& progress,

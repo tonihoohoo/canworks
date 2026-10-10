@@ -67,7 +67,26 @@ void Network::ServiceDiag() {
       break;
     }
   diag_->set_operational(operational);
+  // Changes to a running node, and a scan of a running network, need force.
+  auto running = [this](unsigned id) {
+    auto it = nodes_.find(id);
+    return it != nodes_.end() && image_.node_state(id) == 5 ? it->second.cfg->label() : std::string();
+  };
   for (auto& r : reqs) {
+    std::string busy;
+    if (!r.force) {
+      if (r.op == "sdo_write" || (r.op == "nmt" && r.command != "start"))
+        busy = running(r.node);
+      else if (r.op == "scan" && !scan_running_)
+        busy = operational;
+    }
+    if (!busy.empty()) {
+      const std::string what = r.op == "sdo_write" ? "an SDO write changes it while the program drives it"
+                               : r.op == "nmt"     ? "an NMT command takes it out of the program's control"
+                                                   : "a scan sends SDO requests to every node ID";
+      diag_->answer(r.seq, diag_error(r.id, busy + " is OPERATIONAL; " + what + "; force needed"));
+      continue;
+    }
     if (r.op == "status") {
       DiagStatus(r);
     } else if (r.op == "emcy") {
@@ -93,8 +112,9 @@ void Network::ServiceDiag() {
       ManualSdo m;
       m.deadline = now + std::chrono::milliseconds(r.timeout_ms);
       if (r.op == "sdo_write")
-        log_info("node %u: SDO write to 0x%04X sub %u (%zu bytes: %s) from diagnostics client %s", r.node, r.index,
-                 r.subindex, r.data.size(), hex_bytes(r.data).c_str(), r.peer.c_str());
+        log_info("node %u: SDO write to 0x%04X sub %u (%zu bytes: %s) from diagnostics client %s%s", r.node, r.index,
+                 r.subindex, r.data.size(), hex_bytes(r.data).c_str(), r.peer.c_str(),
+                 r.force && !running(r.node).empty() ? " (forced: the node is OPERATIONAL)" : "");
       m.req = std::move(r);
       manual_.push_back(std::move(m));
     } else {
@@ -266,7 +286,9 @@ void Network::DiagNmt(const DiagRequest& r) {
     diag_->answer(r.seq, diag_error(r.id, "node " + std::to_string(r.node) + " is not in the configuration"));
     return;
   }
-  std::string note = OperatorNmt(r.node, it->second, r.command, "diagnostics client " + r.peer);
+  const bool forced = r.force && r.command != "start" && image_.node_state(r.node) == 5;
+  std::string note = OperatorNmt(r.node, it->second, r.command,
+                                 "diagnostics client " + r.peer + (forced ? " (forced: the node was OPERATIONAL)" : ""));
   cJSON* res = cJSON_CreateObject();
   if (!note.empty()) cJSON_AddStringToObject(res, "note", note.c_str());
   diag_->answer(r.seq, diag_ok(r.id, res));
@@ -407,7 +429,8 @@ void Network::DiagScan(const DiagRequest& r, bool start) {
     scan_active_ = 0;
     scan_running_ = true;
     scan_started_ = clock::now();
-    log_info("network scan of node IDs 1-127 started by diagnostics client %s", r.peer.c_str());
+    log_info("network scan of node IDs 1-127 started by diagnostics client %s%s", r.peer.c_str(),
+             r.force && diag_ && !diag_->operational().empty() ? " (forced: nodes are OPERATIONAL)" : "");
   }
   cJSON* res = cJSON_CreateObject();
   size_t done = 0;
