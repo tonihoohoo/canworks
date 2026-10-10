@@ -114,6 +114,15 @@ class Examples(unittest.TestCase):
         self.assertIn("canworks.json: nodes[0].node_id: node ID must be 1 to 127", "\n".join(r.errors))
 
 
+class InterfaceNames(unittest.TestCase):
+    def test_old_style_interface_checked(self):
+        # The pre-contract top-level interface goes through the same check.
+        cfg = patched(load_cases()["base"], [["delete", "adapter"], ["set", "interface", "vcan0 --up"],
+                                             ["set", "bitrate", 125000]])
+        r = contract.check_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"))
+        self.assertIn('interface "vcan0 --up" must be 1-15 characters', "\n".join(r.errors))
+
+
 class AutoCobIds(unittest.TestCase):
     def test_defaults_then_free_from_the_top(self):
         nodes = [{"node_id": 2, "tx_pdos": [{"number": 1, "cob_id": "auto"}],

@@ -49,7 +49,8 @@
         "unit_id": { "description": "Unit identifier answered (default 1; 0 and 255 are always answered).", "type": "integer", "minimum": 0, "maximum": 255 },
         "word_order": { "description": "Order of the registers of a 32- or 64-bit value (default high_first).", "enum": [ "high_first", "low_first" ] },
         "max_clients": { "description": "Connections served at once (default 16).", "type": "integer", "minimum": 1, "maximum": 64 },
-        "writers": { "description": "Addresses or prefixes allowed to write (default: every client).", "type": "array", "items": { "type": "string" } },
+        "max_clients_per_address": { "description": "Connections served at once from one address (default 4).", "type": "integer", "minimum": 1, "maximum": 64 },
+        "writers": { "description": "Required. Addresses or prefixes allowed to write; [] lets nobody write, [\"0.0.0.0/0\", \"::/0\"] every address.", "type": "array", "items": { "type": "string" } },
         "readers": { "description": "Addresses or prefixes allowed to connect (default: every client).", "type": "array", "items": { "type": "string" } },
         "watchdog_ms": { "description": "Outputs off when no write came from a writer for this long (default 1000; 0: no watchdog).", "type": "integer", "minimum": 0, "maximum": 60000 },
         "on_client_loss": { "description": "Outputs off: stop (default, no RPDOs or transmit messages), zero (send 0 once, then stop) or hold (keep sending).", "enum": [ "stop", "zero", "hold" ] },
@@ -78,7 +79,7 @@
         },
         "sdo_bridge_write": { "description": "Allow SDO writes through the SDO bridge registers (default false).", "type": "boolean" }
       },
-      "required": [ "listen" ]
+      "required": [ "listen", "writers" ]
     },
     "network": {
       "type": "object",

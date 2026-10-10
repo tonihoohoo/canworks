@@ -29,6 +29,27 @@ _SCHEMA_DIR = os.path.join(os.path.dirname(__file__), "schema")
 _schemas = {}
 _V1_REF = "canworks.v1.schema.json#"
 NETWORK_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,15}$")
+# A Linux interface name the plugin can open or create (IFNAMSIZ - 1).
+INTERFACE_NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,15}$")
+# Entries per table of the runtime's I/O image (the plugin's default
+# buffer_size; a bridge config's image is bridgecheck.IMAGE_BYTES bytes).
+IMAGE_ENTRIES = 1024
+ON_PLC_STOP = ("preop", "stop", "keep")
+
+
+def interface_message(name):
+    """The plugin's refusal of an interface name, or None when it is fine."""
+    if not isinstance(name, str) or not name or INTERFACE_NAME.match(name):
+        return None
+    return ("interface \"%s\" must be 1-15 characters of letters, digits, '_', '.', ':' and '-' (the 15-character "
+            "limit of Linux interface names)" % name)
+
+
+def supervision_message(label):
+    """The plugin's refusal of a node without heartbeat or guarding whose EDS
+    heartbeat default is 0 (canopen-node-supervision)."""
+    return ("%s has no heartbeat or guarding (its EDS heartbeat 0x1017 defaults to 0): its loss would never be "
+            "detected; set heartbeat_ms, or \"heartbeat_ms\": 0 to accept that" % label)
 
 
 def _local_refs(node):
@@ -760,6 +781,8 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
         _check_network(r, cfg, "", 1, [(list(e.absolute_path), e) for e in schema_errors], **args)
     else:
         _check_v2(r, cfg, schema_errors, err, warn, args)
+    if r.ok:
+        _check_image(cfg, err)
     for where, key in found:
         parent = where[: -len(key)].rstrip(".")
         warn(parent, "unknown field '%s' (%s) ignored" % (key, where), [where])
@@ -772,6 +795,24 @@ J1939_V2_KEYS = ("protocol", "j1939", "raw")
 
 MOVED_V1_KEYS = (("adapter", "networks[].adapter"), ("master", "networks[].master"), ("nodes", "networks[].nodes"),
                  ("interface", "networks[].adapter.interface"), ("bitrate", "networks[].adapter.bitrate"))
+
+
+def _check_image(cfg, err):
+    """Every location inside the runtime's I/O image, as the plugin checks
+    it (Parser::get_location): index below IMAGE_ENTRIES, or in a bridge
+    config, all its bytes below bridgecheck.IMAGE_BYTES."""
+    byte_mode = "bridge" in cfg
+    limit = bridgecheck.IMAGE_BYTES if byte_mode else IMAGE_ENTRIES
+    for net in networks(cfg):
+        for _, _, at, text in location_uses(net):
+            loc = parse_location(text)
+            if loc is None:
+                continue
+            if byte_mode and loc.index + bridgecheck.SIZE_BYTES[loc.size] <= limit:
+                continue
+            if not byte_mode and loc.index < limit:
+                continue
+            err("", "%s: %s lies outside the runtime I/O image (index must be below %d)" % (at, loc, limit), [at])
 
 
 def _check_v2(r, cfg, schema_errors, err, warn, args):
@@ -1145,6 +1186,10 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             if kind == "slcan":
                 if isinstance(a.get("device"), str) and a["device"] and not a["device"].startswith("/"):
                     err("adapter", "field 'device' must be an absolute path such as /dev/ttyACM0", ["adapter.device"])
+    iface_msg = interface_message((cfg["adapter"] if has_adapter and isinstance(cfg["adapter"], dict) else
+                                   {} if has_adapter else cfg).get("interface"))
+    if iface_msg:
+        err("adapter" if has_adapter else "", iface_msg, ["adapter.interface" if has_adapter else "interface"])
     if has_adapter and isinstance(cfg["adapter"], dict) and cfg["adapter"].get("listen_only") is True \
             and role != "plain":
         err("adapter", "field 'listen_only' needs a plain CAN network (\"protocol\": \"none\"): a %s network must "
@@ -1183,6 +1228,10 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             continue
         if where in ("adapter.interface", "adapter.device") and e.validator == "minLength":
             continue  # reported above as missing
+        if where in ("adapter.interface", "interface") and e.validator in ("pattern", "maxLength"):
+            continue  # reported above, in the plugin's words
+        if where in ("master.on_plc_stop", "master.scan_watchdog_ms"):
+            continue  # reported below, in the plugin's words
         if (where == "master" and e.validator == "not") or where == "master.eds_lint":
             continue  # reported above
         if where.endswith("diagnostics.token_sha256"):
@@ -1274,6 +1323,14 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         elif not any((_uint(n.get("time_cob_id", 0)) or 0) & 0x80000000 for n in cfg.get("nodes", [])):
             warn("master", "the master produces TIME, but no configured node is set to consume it (time_cob_id "
                            "with bit 31)", ["master.time_period_ms"])
+    if "on_plc_stop" in master and master["on_plc_stop"] not in ON_PLC_STOP:
+        err("master", "field 'on_plc_stop' must be \"preop\", \"stop\" or \"keep\"", ["master.on_plc_stop"])
+    if "scan_watchdog_ms" in master:
+        watchdog = _uint(master["scan_watchdog_ms"])
+        if watchdog is None:
+            err("master", "field 'scan_watchdog_ms' must be a non-negative integer", ["master.scan_watchdog_ms"])
+        elif watchdog and not 10 <= watchdog <= 60000:
+            err("master", "field 'scan_watchdog_ms' must be 0 or 10-60000: %d" % watchdog, ["master.scan_watchdog_ms"])
     _error_behavior(master, "master", err)
     if master.get("start") is False:
         warn("master", "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until it is "
@@ -1287,6 +1344,8 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 "config_check": n.get("config_check") is True, "no_sync": not sync_period}
         label = "node %d" % node["node_id"] + (" (%s)" % node["name"] if node["name"] else "")
         w = "nodes[%d]" % i
+        if "heartbeat_ms" in n and _uint(n["heartbeat_ms"]) == 0 and not _uint(n.get("guard_time_ms", 0)):
+            warn(w, "%s: \"heartbeat_ms\": 0 and no guarding: its loss is not detected" % label, [w + ".heartbeat_ms"])
         if n.get("heartbeat_consumer") is True and not master_hb:
             err(w, "'heartbeat_consumer' needs a master heartbeat (master 'heartbeat_ms' above 0)",
                 [w + ".heartbeat_consumer"])
@@ -1472,6 +1531,16 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             continue
         messages, where, warnings = [], [], []
         eds_mod.check_node(node, eds, messages, where, warnings)
+        src = cfg["nodes"][i]
+        if "heartbeat_ms" not in src and not _uint(src.get("guard_time_ms", 0)):
+            hb = eds.find(0x1017, 0)
+            try:
+                period = hb.value(node["node_id"]) if hb is not None else 0
+            except (ValueError, eds_mod.EdsError):
+                period = 0
+            if not period:
+                messages.append(supervision_message(label))
+                where.append(".heartbeat_ms")
         profile = axis_mod.device_type_warning(cfg["nodes"][i], eds)
         if profile:
             warnings.append((profile, ".axis"))

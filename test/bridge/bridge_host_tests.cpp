@@ -72,6 +72,10 @@ std::string example_copy(const std::function<void(cJSON*)>& edit) {
   for (const char* f : {"simulation.json", "rtd8.eds", "dio16.eds"})
     write_file(dir + "/" + f, read_file(std::string(EXAMPLE_DIR) + "/" + f));
   cJSON* root = cJSON_Parse(read_file(std::string(EXAMPLE_DIR) + "/canworks.json").c_str());
+  // The tests' clients connect from the loopback address.
+  cJSON* writers = cJSON_CreateArray();
+  cJSON_AddItemToArray(writers, cJSON_CreateString("127.0.0.1"));
+  cJSON_ReplaceItemInObject(cJSON_GetObjectItem(root, "bridge"), "writers", writers);
   if (edit) edit(root);
   char* text = cJSON_Print(root);
   write_file(dir + "/canworks.json", text);
