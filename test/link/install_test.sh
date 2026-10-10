@@ -38,7 +38,8 @@ check 'grep -q "\"config\": \"/opt/canworks/lib/canworks.json\"" "$T/etc/link.js
 check '[ "$(stat -c %a "$T/etc")" = 700 ]' "the settings folder is private"
 check 'grep -q "^ExecStart=$T/opt/venv/bin/canworks-link --dir $T/etc run$" "$T/units/canworks-link.service"' \
     "the unit runs the service"
-check 'grep -qx "enable --now canworks-link.service" "$T/calls"' "the service is enabled and started"
+check 'grep -qx "enable canworks-link.service" "$T/calls" && grep -qx "restart canworks-link.service" "$T/calls"' \
+    "the service is enabled and (re)started"
 check 'grep -q "<txt-record>id=0123456789abcdef" "$T/avahi/services/canworks.service" && grep -q "<txt-record>link=7533</txt-record>" "$T/avahi/services/canworks.service"' \
     "the advertisement carries the link ID"
 check 'grep -q "<type>_canworks._tcp</type>" "$T/avahi/services/canworks.service" && grep -q "<txt-record>runtime=8443</txt-record>" "$T/avahi/services/canworks.service"' \

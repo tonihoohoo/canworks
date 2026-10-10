@@ -135,7 +135,8 @@ RestartSec=1
 WantedBy=multi-user.target
 EOF
     "$SYSTEMCTL" daemon-reload
-    "$SYSTEMCTL" enable --now canworks-link.service
+    "$SYSTEMCTL" enable canworks-link.service
+    "$SYSTEMCTL" restart canworks-link.service   # a reinstall runs the new code
     say "Remote link running, link ID $LINK_ID (internet access off until the config turns it on)"
 fi
 
