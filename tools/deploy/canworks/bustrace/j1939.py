@@ -6,7 +6,10 @@ and signal names, scale, offset and unit come from the network's DBC
 (`j1939.dbc`, relative to the config file, read with cantools), and for a
 PGN the DBC lacks, from the config's rx/tx signals. Address Claimed, Cannot
 Claim, Request, Acknowledgement and the transport protocol (TP.CM, TP.DT)
-are decoded without a DBC. A BAM or RTS/CTS session is reassembled: the
+are decoded without a DBC, as are the diagnostic messages of J1939-73 (DM1,
+DM2, DM13, DM22, Requests for DM1/DM2/DM3/DM11 and their ACK/NACK, Component
+and Software ID; codec in canworks/j1939/dm.py), with an SPN's name when a
+DBC signal has that SPN in its `SPN` attribute. A BAM or RTS/CTS session is reassembled: the
 row of its last TP.DT frame carries the whole message, the other frames stay
 rows of their own as its parts. A multiplexed message (DBC `M`/`mN`/
 `SG_MUL_VAL_`, or the config's `multiplexer`/`mux`) decodes only the
@@ -22,6 +25,7 @@ order (reset() before a new pass), as for CANopen SDO transfers.
 import os
 import struct
 
+from ..j1939 import dm
 from ..raw import mux as raw_mux
 from .decode import Decoded, Decoder
 
@@ -34,7 +38,11 @@ NULL_ADDRESS = 254
 GLOBAL = 255
 
 KNOWN_PGNS = {PGN_REQUEST: "Request", PGN_ACK: "Acknowledgement", PGN_TP_CM: "TP.CM", PGN_TP_DT: "TP.DT",
-              PGN_ADDRESS_CLAIMED: "Address Claimed"}
+              PGN_ADDRESS_CLAIMED: "Address Claimed", dm.PGN_COMPONENT_ID: "Component ID",
+              dm.PGN_SOFTWARE_ID: "Software ID"}
+KNOWN_PGNS.update(dm.DM_PGNS)
+# PGNs decoded by the DM codec whatever the DBC says about them.
+DM_DECODED = (dm.PGN_DM1, dm.PGN_DM2, dm.PGN_DM13, dm.PGN_DM22, dm.PGN_COMPONENT_ID, dm.PGN_SOFTWARE_ID)
 ACK_CONTROL = {0: "ACK", 1: "NACK", 2: "Access denied", 3: "Cannot respond"}
 TP_CONTROL = {16: "RTS", 17: "CTS", 19: "End of message ACK", 32: "BAM", 255: "Abort"}
 TP_ABORT_REASONS = {1: "already in a session", 2: "resources needed elsewhere", 3: "timeout",
@@ -67,6 +75,10 @@ ABOUT = {
     "tp": ("The transport protocol carries parameter groups of 9 to 1785 bytes in 7-byte packets. TP.CM (PGN "
            "60416) opens the session: a BAM announces a broadcast, an RTS asks the receiver, which paces the "
            "sender with CTS and confirms the end. TP.DT (PGN 60160) carries the packets, numbered from 1."),
+    "dm": ("J1939-73 diagnostic messages: DM1 (PGN 65226) carries an ECU's active trouble codes and lamps, sent "
+           "every second; DM2 (65227) the previously active ones, on request. A Request for DM3 (65228) clears the "
+           "previously active codes, for DM11 (65235) the active ones; the ECU answers with an ACK or NACK. A "
+           "trouble code is an SPN (what), an FMI (how it failed) and an occurrence count."),
     "pgn": ("A J1939 parameter group. The 29-bit identifier holds the priority, the PGN (what the message is) "
             "and the source address (who sent it); PDU1 groups (PDU format below 240) also name a destination. "
             "The signals' places, scale and unit come from the network's DBC."),
@@ -209,10 +221,11 @@ class Msg:
         return active, unknown, "" if short else lay.page_label(bytes(data))
 
 
-def load_dbc(path):
+def load_dbc(path, spns=None):
     """{(pgn, source): Msg} from a DBC's extended messages (source None for
-    the first message of a PGN, which stands for every source). Raises
-    OSError or ValueError (also when cantools is not installed)."""
+    the first message of a PGN, which stands for every source). `spns`, a
+    dict, gets {SPN: signal name} of the signals with an SPN attribute.
+    Raises OSError or ValueError (also when cantools is not installed)."""
     try:
         import cantools
     except ImportError:
@@ -232,6 +245,11 @@ def load_dbc(path):
         sigs = []
         fields, _ = mux_fields(m)
         for sg in m.signals:
+            if spns is not None:
+                attrs = getattr(getattr(sg, "dbc", None), "attributes", None) or {}
+                spn = attrs["SPN"].value if "SPN" in attrs else None
+                if isinstance(spn, int) and 0 <= spn <= dm.MAX_SPN:
+                    spns.setdefault(spn, sg.name)
             choices = {int(k): str(v) for k, v in (sg.choices or {}).items()}
             f = fields.get(sg.name, {})
             sigs.append(Sig(sg.name, sg.start, sg.length, sg.byte_order == "big_endian", sg.is_signed,
@@ -269,6 +287,7 @@ class J1939Decoder(Decoder):
         self.messages = {}       # (pgn, source or None) -> Msg
         self.address_names = {}  # source address -> a name from the DBC or the config
         self.own_address = None
+        self.spn_names = {}      # SPN -> the DBC signal name that carries it
         super().__init__()
 
     @classmethod
@@ -291,7 +310,7 @@ class J1939Decoder(Decoder):
             else:
                 path = os.path.join(os.path.dirname(os.path.abspath(config_path)), dbc)
                 try:
-                    d.messages = load_dbc(path)
+                    d.messages = load_dbc(path, d.spn_names)
                 except (OSError, ValueError) as e:
                     d.warnings.append("decoding without the DBC %s: %s" % (dbc, getattr(e, "strerror", None) or e))
         # The config's own signals for PGNs the DBC does not have.
@@ -357,6 +376,40 @@ class J1939Decoder(Decoder):
                 sigs.append(("%s.%s" % (m.name, s.name), s.physical(raw)))
         return texts, sigs
 
+    def dm_text(self, pgn, d):
+        """(name, text) of a diagnostic message or an ID's data."""
+        if pgn in (dm.PGN_DM1, dm.PGN_DM2):
+            name = dm.DM_PGNS[pgn]
+            lst = dm.parse_dm(d)
+            if lst is None:
+                return name, "malformed (%d bytes)" % len(d)
+            codes = "; ".join(c.text(self.spn_names.get(c.spn)) for c in lst.dtcs) or (
+                "no active codes" if pgn == dm.PGN_DM1 else "no previously active codes")
+            return name, "%s; %s" % (lamps_text(lst), codes)
+        if pgn == dm.PGN_DM13:
+            cmd = dm.parse_dm13(d)
+            links = ", ".join("%s %s" % (k, v) for k, v in cmd.items() if not k.startswith("_")) or "no command"
+            b4 = cmd["_byte4"]
+            text = "%s; suspend signal %d, hold signal %d" % (links, b4 >> 4, b4 & 0x0F)
+            if cmd["_duration_s"] is not None:
+                text += ", suspend duration %d s" % cmd["_duration_s"]
+            return "DM13", text
+        if pgn == dm.PGN_DM22:
+            ctl, reason, code = dm.parse_dm22(d)
+            name = self.spn_names.get(code.spn)
+            text = "%s, SPN %d%s FMI %d (%s)" % (ctl, code.spn, " " + name if name else "", code.fmi,
+                                                dm.fmi_text(code.fmi))
+            return "DM22", text + (", reason: %s" % reason if reason else "")
+        fields = dm.parse_id_text(d, pgn)
+        if pgn == dm.PGN_COMPONENT_ID:
+            labels = ("make", "model", "serial number", "unit number")
+            parts = ["%s %r" % (labels[i] if i < len(labels) else "field %d" % (i + 1), v)
+                     for i, v in enumerate(fields)]
+            return "Component ID", ", ".join(parts) or "no fields"
+        count = bytes(d)[0] if d else 0
+        return "Software ID", "%d field%s: %s" % (count, "" if count == 1 else "s",
+                                                  ", ".join(repr(v) for v in fields) or "none")
+
     def _route(self, s):
         src = "from %s" % self.node_label(s["source"])
         return src + (" to %s" % self.node_label(s["destination"]) if s["pdu1"] else "")
@@ -380,6 +433,10 @@ class J1939Decoder(Decoder):
             if len(d) < 3:
                 return Decoded("request", sa, "Request", "malformed (%d bytes) %s" % (len(d), self._route(s)))
             want = _uint_le(d, 0, 24)
+            name = dm.DM_PGNS.get(want)
+            if name in ("DM1", "DM2", "DM3", "DM11"):
+                return Decoded("request", sa, "Request " + name, "Request %s (%s): PGN %d %s" % (
+                    name, dm.DM_TITLES[name], want, self._route(s)))
             return Decoded("request", sa, "Request", "for %s %s" % (self.pgn_label(want), self._route(s)))
         if pgn == PGN_ACK:
             return self._ack(s, d)
@@ -405,6 +462,10 @@ class J1939Decoder(Decoder):
             return Decoded("ack", sa, "Acknowledgement", "malformed (%d bytes)" % len(d))
         what = ACK_CONTROL.get(d[0], "control %d" % d[0])
         pgn = _uint_le(d, 40, 24)
+        if pgn in dm.DM_PGNS:
+            name = "%s %s" % (what, dm.DM_PGNS[pgn])
+            return Decoded("ack", sa, name, "%s (%s, PGN %d), to %s, from %s" % (
+                name, dm.DM_TITLES[dm.DM_PGNS[pgn]], pgn, self.node_label(d[4]), self.node_label(sa)))
         return Decoded("ack", sa, what, "%s for %s, to %s, from %s" % (
             what, self.pgn_label(pgn), self.node_label(d[4]), self.node_label(sa)))
 
@@ -459,6 +520,10 @@ class J1939Decoder(Decoder):
             head = "priority %d, %s" % (priority, head)
         if via:
             head += " (%s)" % via
+        if pgn in DM_DECODED:
+            name, text = self.dm_text(pgn, d)
+            title = " (%s)" % dm.DM_TITLES[name] if name in dm.DM_TITLES else ""
+            return Decoded("pgn", sa, name, "%s: %s%s, %s" % (head, name, title, text))
         if m is None:
             name = KNOWN_PGNS.get(pgn) or "PGN %d" % pgn
             return Decoded("pgn", sa, name, "%s: %s" % (head, " ".join("%02X" % b for b in d) or "no data"))
@@ -469,6 +534,21 @@ class J1939Decoder(Decoder):
         if via:
             text += "; data " + " ".join("%02X" % b for b in d)
         return Decoded("pgn", sa, m.name, text, sigs)
+
+
+def lamps_text(lst):
+    """Every lamp's state and flash of a DM1/DM2: "MIL off, red stop off,
+    amber warning on, protect off"."""
+    if lst.lamps == 0xFF and lst.flash == 0xFF:
+        return "lamps n/a"
+    out = []
+    for key, label, shift in dm.LAMPS:
+        st, fl = (lst.lamps >> shift) & 3, (lst.flash >> shift) & 3
+        text = "%s %s" % (label, dm.LAMP_STATE[st])
+        if st == 1 and dm.FLASH_STATE[fl]:
+            text += " (%s)" % dm.FLASH_STATE[fl]
+        out.append(text)
+    return ", ".join(out)
 
 
 # -- the frame explanation (explain.py) -------------------------------------------
@@ -597,6 +677,12 @@ def explain_data(F, f, dec, context=None):
             F.add("Data", 8, (len(d) - 1) * 8, " ".join("%02X" % b for b in d[1:]), "Seven bytes of the message.")
             meaning = "Packet %d of a transport session from %s; its TP.CM is not before it." % (d[0], who)
         return "tp", "TP.DT from %s" % who, meaning, notes
+    if pgn in (dm.PGN_DM1, dm.PGN_DM2) and len(d) >= 6:
+        return _explain_dm(F, pgn, d, dec, who, notes)
+    if pgn in DM_DECODED and d:
+        name, text = dec.dm_text(pgn, d)
+        F.add(name, 0, len(d) * 8, " ".join("%02X" % b for b in d), text)
+        return "dm", "%s from %s" % (name, who), "%s sends %s: %s." % (who, name, text), notes
     m = dec.message(pgn, sa)
     route = "from %s" % who + (" to %s" % dec.node_label(s["ps"]) if s["pdu1"] else "")
     if m is None:
@@ -630,6 +716,58 @@ def explain_data(F, f, dec, context=None):
         notes.append("%s has %d bytes: it travels by the transport protocol (TP.CM and TP.DT)." % (m.name, m.length))
     F.done_gap = ("Not used", "Not used by a signal; J1939 sends unused bits as 1.")
     return "pgn", "%s from %s" % (m.name, who), meaning, notes
+
+
+def explain_dtc(F, start, code, dec, k=None):
+    """The fields of one trouble code's four bytes from bit `start`."""
+    at = "Code %d " % (k + 1) if k is not None else ""
+    name = dec.spn_names.get(code.spn)
+    F.add(at + "SPN, low 16 bits", start, 16, str(code.spn & 0xFFFF),
+          "The SPN's bits 0-15 (the SPN says what failed%s)." % (": %s" % name if name else ""),
+          how=_le_how(F.data, start, 16))
+    F.add(at + "FMI", start + 16, 5, "%d = %s" % (code.fmi, dm.fmi_text(code.fmi)),
+          "Failure mode identifier, bits 4-0 of the third byte: how it failed.")
+    F.add(at + "SPN, top 3 bits", start + 21, 3, str(code.spn >> 16),
+          "The SPN's bits 16-18, in bits 7-5 of the third byte: SPN = %d + %d * 65536 = %d%s." % (
+              code.spn & 0xFFFF, code.spn >> 16, code.spn, " (%s)" % name if name else ""))
+    F.add(at + "Occurrence count", start + 24, 7, str(code.oc),
+          "How often the code went active, bits 6-0 of the fourth byte (127: not available).")
+    F.add(at + "CM", start + 31, 1, "1" if code.cm else "0",
+          "SPN conversion method, bit 7 of the fourth byte: 0 is the current layout; 1 an older SPN layout, "
+          "decoded here as the current one." if not code.cm else
+          "SPN conversion method 1: the ECU uses an older SPN layout; the SPN shown may be wrong.")
+
+
+def _explain_dm(F, pgn, d, dec, who, notes):
+    name = dm.DM_PGNS[pgn]
+    lst = dm.parse_dm(d)
+    for key, label, shift in dm.LAMPS:
+        st, fl = (d[0] >> shift) & 3, (d[1] >> shift) & 3
+        F.add(label + " lamp", shift, 2, "%s = %s" % (format(st, "02b"), dm.LAMP_STATE[st]),
+              "Bits %d-%d of byte 0: 00 off, 01 on, 11 not available." % (shift + 1, shift))
+        F.add(label + " flash", 8 + shift, 2, "%s = %s" % (format(fl, "02b"), dm.FLASH_STATE[fl] or "no flash"),
+              "Bits %d-%d of byte 1: 00 slow flash, 01 fast flash, 11 no flash." % (shift + 1, shift))
+    k = 0
+    for start in range(16, len(d) * 8 - 31, 32):
+        raw = bytes(d[start // 8:start // 8 + 4])
+        if raw == b"\xff\xff\xff\xff":
+            F.unused(start, 32, "Not used", "Unused bytes of a message with one code, sent as FF.")
+            continue
+        code = dm.Dtc.from_bytes(raw)
+        if code.is_zero():
+            F.add("No code", start, 32, "00 00 00 00", "An all-zero code: the ECU has no %s codes." % (
+                "active" if pgn == dm.PGN_DM1 else "previously active"))
+            continue
+        explain_dtc(F, start, code, dec, k)
+        k += 1
+    codes = "; ".join(c.text(dec.spn_names.get(c.spn)) for c in lst.dtcs) or "no codes"
+    notes.append("The PLC sees each code as one UDINT: SPN + FMI * 2**19 + OC * 2**24 + CM * 2**31%s." % (
+        " (here %s)" % ", ".join(str(c.value) for c in lst.dtcs) if lst.dtcs else ""))
+    if len(d) > 8:
+        notes.append("%s with more than one code travels by the transport protocol (BAM)." % name)
+    F.done_gap = ("Not used", "Unused bytes of a message with one code, sent as FF.")
+    return "dm", "%s (%s) from %s" % (name, dm.DM_TITLES[name], who), "%s reports %s; %s." % (
+        who, lamps_text(lst), codes), notes
 
 
 def is_context(f):
