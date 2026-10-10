@@ -115,10 +115,13 @@ class Link(unittest.TestCase):
         self.svc = device.Service(self.devdir, bind="127.0.0.1:0", name="testdev")
         self.loop = asyncio.new_event_loop()
         threading.Thread(target=self.loop.run_forever, daemon=True).start()
-        asyncio.run_coroutine_threadsafe(self.svc.run(), self.loop)
+        running = asyncio.run_coroutine_threadsafe(self.svc.run(), self.loop)
         deadline = time.monotonic() + 10
-        while self.svc.endpoint is None and time.monotonic() < deadline:
+        while self.svc.endpoint is None and time.monotonic() < deadline and not running.done():
             time.sleep(0.02)
+        if running.done():
+            running.result()  # the service failed to start: show why
+        self.assertIsNotNone(self.svc.endpoint, "the link service did not start")
         self.addCleanup(self._stop)
         self.entry = pc.remember("testdev", hosts=["192.0.2.1"], id=self.svc.id,
                                  link_addrs=self.svc.endpoint.addr().direct_addresses())
