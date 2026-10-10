@@ -160,6 +160,8 @@ Joystick_status AT %IX300.0 : BOOL;
 Lamps_Red AT %QX300.1 : BOOL;
 ```
 
+A received signal's `valid_location` is declared as `<message>_<signal>_valid`, for example `Sensor_Temp_valid AT %IX300.5 : BOOL;`.
+
 ## Frame blocks
 
 The blocks are in the `canworks` library next to the [SDO blocks](plc-sdo.md); install and enable it the same way. A project made with `canworks-deploy --new-project ... --blocks` has it enabled. Every block has `NETWORK : USINT` (the network's place in `networks`, 0 the first) and the outputs `ERROR : BOOL` and `ERROR_ID : UINT`. The frame data is `ARRAY[0..7] OF BYTE`, passed as an in-out pin.
