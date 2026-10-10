@@ -578,6 +578,47 @@
           "required": [
             "token_verifier"
           ]
+        },
+        "cia309": {
+          "description": "The CiA 309-3 ASCII gateway (docs/cia309-gateway.md): standard CiA 309-3 text commands on a plain TCP port on the loopback address, and from other machines through the diagnostics channel (canworks-diag gateway). Absent = off. In version 2 this is a top-level object.",
+          "type": "object",
+          "properties": {
+            "port": {
+              "description": "Plain TCP port on the loopback address (default 7533); 0: no plain port, sessions through the diagnostics channel only.",
+              "anyOf": [ { "const": 0 }, { "type": "integer", "minimum": 1024, "maximum": 65535 } ]
+            },
+            "bind": {
+              "description": "Loopback address of the plain port: 127.0.0.1 (default) or ::1. Never a network address: CiA 309-3 has no login.",
+              "enum": [ "127.0.0.1", "::1" ]
+            },
+            "max_clients": {
+              "description": "Gateway sessions at a time, plain and through the diagnostics channel together (default 4).",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16
+            },
+            "allow_changes": {
+              "description": "Allow SDO downloads, NMT commands and LSS (default false: read-only).",
+              "type": "boolean"
+            },
+            "allow_force": {
+              "description": "Carry out what the diagnostics channel refuses without force (SDO writes to and NMT commands other than start to OPERATIONAL configured nodes). Test benches only; default false.",
+              "type": "boolean"
+            },
+            "nets": {
+              "description": "Explicit CiA 309 network numbers (version 2 only): {\"1\": \"io\", \"2\": \"drives\"}. Without it network n is the n-th network of the file.",
+              "type": "object",
+              "propertyNames": { "pattern": "^[1-9][0-9]{0,2}$" },
+              "additionalProperties": { "type": "string", "minLength": 1 }
+            },
+            "default_net": {
+              "description": "The network a request without a network number goes to before the session's 'set network'.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 127
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [

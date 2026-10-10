@@ -8,6 +8,7 @@
 #define CANOPEN_CONFIG_H
 
 #include <cstdint>
+#include <map>
 #include <set>
 #include <string>
 #include <utility>
@@ -236,6 +237,34 @@ struct NodeConfig {
 // (`master.on_plc_stop`, canopen-node-supervision "Nodes on PLC stop").
 enum class OnPlcStop { Preop, Stop, Keep };
 
+// The CiA 309-3 ASCII gateway (canopen-cia309-gateway spec): a top-level
+// `cia309` object in a version 2 file, master.cia309 in version 1. Off
+// without it. The plain port listens on loopback only; other machines come
+// in through the diagnostics channel's `cia309` op.
+struct Cia309Config {
+  bool enabled = false;
+  unsigned port = 7533;  // 0: no plain listener (sessions through the diagnostics channel only)
+  std::string bind = "127.0.0.1";  // 127.0.0.1 or ::1
+  unsigned max_clients = 4;        // plain and tunnelled sessions together, 1-16
+  bool allow_changes = false;      // SDO downloads, NMT and LSS
+  bool allow_force = false;        // what the diagnostics channel refuses without force
+  bool has_nets = false;           // `nets` given
+  unsigned default_net = 0;        // 0: none
+  // CiA 309 network number -> index in ConfigSet::networks: `nets`, else
+  // 1..n in config order.
+  std::map<unsigned, unsigned> numbering;
+  // The number of network `index`, 0 when it has none.
+  unsigned number_of(unsigned index) const {
+    for (const auto& n : numbering)
+      if (n.second == index) return n.first;
+    return 0;
+  }
+};
+
+// Whether this build has the CiA 309-3 gateway (Lely's co_gw_txt; the
+// CANWORKS_WITH_CIA309 build option).
+bool cia309_built_in();
+
 struct MasterConfig {
   unsigned node_id = 1;
   unsigned sync_period_us = 0;  // 0 (or left out): the master produces no SYNC
@@ -314,6 +343,9 @@ struct MasterConfig {
   // put_config may replace the bridge's config (modbus-bridge); needs
   // diag_allow_changes too.
   bool diag_allow_config_upload = false;
+  // The CiA 309-3 gateway (canopen-cia309-gateway spec), one for the whole
+  // file like the diagnostics settings.
+  Cia309Config cia309;
 };
 
 // The CAN adapter: "socketcan" (an existing interface) or "slcan" (the plugin

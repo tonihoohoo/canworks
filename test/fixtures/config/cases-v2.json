@@ -41,6 +41,15 @@
     ]
   },
   "cases": [
+    {"name": "cia309: gateway with explicit numbers", "patch": [["set", "cia309", {"port": 7533, "allow_changes": true, "nets": {"1": "io", "2": "drives"}, "default_net": 2}]], "schema": "valid", "verdict": "accept"},
+    {"name": "cia309: empty object (read-only, loopback 7533)", "patch": [["set", "cia309", {}]], "schema": "valid", "verdict": "accept"},
+    {"name": "cia309: plain port on the network", "patch": [["set", "cia309", {"bind": "0.0.0.0"}]], "schema": "invalid", "verdict": "reject", "messages": ["cia309.bind: the plain gateway port listens on loopback only (127.0.0.1 or ::1), not \"0.0.0.0\""]},
+    {"name": "cia309: unknown field", "patch": [["set", "cia309", {"allow_change": true}]], "schema": "invalid", "verdict": "reject", "messages": ["cia309: unknown field 'allow_change'"]},
+    {"name": "cia309: nets names an unknown network", "patch": [["set", "cia309", {"nets": {"1": "io", "2": "motion"}}]], "schema": "valid", "verdict": "reject", "messages": ["cia309.nets: network 2 names \"motion\", which is not a network of this file"]},
+    {"name": "cia309: two numbers for one network", "patch": [["set", "cia309", {"nets": {"1": "io", "3": "io"}}]], "schema": "valid", "verdict": "reject", "messages": ["cia309.nets: network \"io\" has two numbers (1 and 3)"]},
+    {"name": "cia309: default_net not in nets", "patch": [["set", "cia309", {"nets": {"10": "drives"}, "default_net": 1}]], "schema": "valid", "verdict": "reject", "messages": ["cia309: field 'default_net' is 1, which is not a gateway network number (10 = drives)"]},
+    {"name": "cia309: inside a network's master", "patch": [["set", "networks/0/master/cia309", {}]], "schema": "valid", "verdict": "reject", "messages": ["field 'cia309' is a top-level object in schema_version 2, not part of a network's master"]},
+    {"name": "cia309: port below 1024", "patch": [["set", "cia309", {"port": 80}]], "schema": "invalid", "verdict": "reject", "messages": ["cia309: field 'port' must be 0 (no plain port) or 1024-65535"]},
     { "name": "v2: two networks, same node ID and COB-IDs on both", "patch": [], "schema": "valid", "verdict": "accept" },
     { "name": "v2: one network without a name", "patch": [ ["delete", "networks/1"], ["delete", "networks/0/name"] ],
       "schema": "valid", "verdict": "accept" },

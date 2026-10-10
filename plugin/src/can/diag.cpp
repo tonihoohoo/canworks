@@ -130,14 +130,77 @@ std::string hex_bytes(const std::vector<uint8_t>& data) {
 // ---------------------------------------------------------------------------
 // DiagHub
 
+std::string diag_client(const DiagRequest& r) {
+  return (r.from_cia309 ? "CiA 309-3 gateway client " : "diagnostics client ") + r.peer;
+}
+
 DiagHub::DiagHub(const Config& cfg, std::string version)
     : cfg_(cfg), version_(std::move(version)), start_(std::chrono::steady_clock::now()) {
   if (pipe2(pipe_, O_CLOEXEC | O_NONBLOCK) != 0) pipe_[0] = pipe_[1] = -1;
+  if (pipe2(gw_pipe_, O_CLOEXEC | O_NONBLOCK) != 0) gw_pipe_[0] = gw_pipe_[1] = -1;
 }
 
 DiagHub::~DiagHub() {
   for (int fd : pipe_)
     if (fd >= 0) close(fd);
+  for (int fd : gw_pipe_)
+    if (fd >= 0) close(fd);
+}
+
+void DiagHub::wake_gateway() {
+  if (gw_pipe_[1] < 0) return;
+  char b = 1;
+  ssize_t r = write(gw_pipe_[1], &b, 1);
+  (void)r;
+}
+
+void DiagHub::put_answer(const DiagRequest& r, uint64_t seq, std::string line) {
+  (r.from_cia309 ? gw_answers_ : answers_).emplace_back(seq, std::move(line));
+}
+
+void DiagHub::take_gateway_answers(std::vector<std::pair<uint64_t, std::string>>& out) {
+  if (gw_pipe_[0] >= 0) {
+    char buf[64];
+    while (read(gw_pipe_[0], buf, sizeof buf) > 0) {
+    }
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (auto& a : gw_answers_) out.push_back(std::move(a));
+  gw_answers_.clear();
+}
+
+void DiagHub::set_events(bool on) {
+  bool was = events_on_.exchange(on, std::memory_order_acq_rel);
+  if (was && !on) {
+    std::lock_guard<std::mutex> lock(event_mutex_);
+    events_.clear();
+    events_lost_ = 0;
+  }
+}
+
+void DiagHub::push_event(const DiagEvent& e) {
+  if (!events_on()) return;
+  bool first;
+  {
+    std::lock_guard<std::mutex> lock(event_mutex_);
+    first = events_.empty();
+    if (events_.size() >= kMaxEvents) {
+      events_.pop_front();
+      ++events_lost_;
+    }
+    events_.push_back(e);
+  }
+  // One wake-up for a run of events (the gateway drains them all at once).
+  if (first) wake_gateway();
+}
+
+uint64_t DiagHub::take_events(std::vector<DiagEvent>& out) {
+  std::lock_guard<std::mutex> lock(event_mutex_);
+  for (const auto& e : events_) out.push_back(e);
+  events_.clear();
+  uint64_t lost = events_lost_;
+  events_lost_ = 0;
+  return lost;
 }
 
 double DiagHub::uptime_s() const {
@@ -159,12 +222,13 @@ void DiagHub::detach() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     attached_.store(false, std::memory_order_release);
-    for (auto& t : taken_) answers_.emplace_back(t.first, offline_answer(t.second));
+    for (auto& t : taken_) put_answer(t.second, t.first, offline_answer(t.second));
     taken_.clear();
-    for (auto& r : queue_) answers_.emplace_back(r.seq, offline_answer(r));
+    for (auto& r : queue_) put_answer(r, r.seq, offline_answer(r));
     queue_.clear();
   }
   wake();
+  wake_gateway();
 }
 
 void DiagHub::take(std::vector<DiagRequest>& out) {
@@ -177,18 +241,26 @@ void DiagHub::take(std::vector<DiagRequest>& out) {
 }
 
 void DiagHub::answer(uint64_t seq, const std::string& line) {
+  bool gw;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     // Answered already by detach(): drop.
-    if (!taken_.erase(seq)) return;
-    answers_.emplace_back(seq, line);
+    auto it = taken_.find(seq);
+    if (it == taken_.end()) return;
+    gw = it->second.from_cia309;
+    put_answer(it->second, seq, line);
+    taken_.erase(it);
   }
-  wake();
+  if (gw)
+    wake_gateway();
+  else
+    wake();
 }
 
 uint64_t DiagHub::submit(DiagRequest r) {
   std::string offline;
   uint64_t seq;
+  bool gw = r.from_cia309;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     seq = next_seq_++;
@@ -197,9 +269,12 @@ uint64_t DiagHub::submit(DiagRequest r) {
       queue_.push_back(std::move(r));
       return seq;
     }
-    answers_.emplace_back(seq, offline_answer(r));
+    put_answer(r, seq, offline_answer(r));
   }
-  wake();
+  if (gw)
+    wake_gateway();
+  else
+    wake();
   return seq;
 }
 
@@ -258,6 +333,8 @@ void DiagHub::add_tx_status(cJSON* res) const {
   if (raw_status_) cJSON_AddItemToObject(res, "raw", raw_status_());
   if (host_status_)
     if (cJSON* part = host_status_()) cJSON_AddItemToObject(res, "bridge", part);
+  if (cia309_status_)
+    if (cJSON* part = cia309_status_()) cJSON_AddItemToObject(res, "cia309", part);
 }
 
 bool DiagHub::request_sweep(const SweepRequest& req) {
@@ -708,6 +785,10 @@ void DiagServer::run() {
     }
     for (size_t i = clients_.size(); i-- > 0;) {
       Client& c = clients_[i];
+      if (c.handover && !c.closing) {
+        hand_over(i);
+        continue;
+      }
       bool alive = flush(c);
       if (!alive || (c.closing && !pending(c))) close_client(i);
     }
@@ -745,6 +826,22 @@ void DiagServer::accept_clients() {
     c.refusing = refusing;
     clients_.push_back(std::move(c));
   }
+}
+
+void DiagServer::hand_over(size_t i) {
+  Client& c = clients_[i];
+  std::string why;
+  // The op's answer goes out first, in the same TLS session, from the
+  // gateway thread.
+  bool ok = c.tls && c.tls->write(c.out, why);
+  c.out.clear();
+  if (ok && cia309_.take && cia309_.take(c.fd, std::move(c.tls), c.peer, std::move(c.in))) {
+    log_info("diagnostics: %s switched to the CiA 309-3 gateway", c.peer.c_str());
+    c.fd = -1;  // the gateway's now
+  } else {
+    log_warn("diagnostics: %s could not be handed to the CiA 309-3 gateway; closing the connection", c.peer.c_str());
+  }
+  close_client(i);
 }
 
 void DiagServer::close_client(size_t i) {
@@ -865,7 +962,7 @@ void DiagServer::process_input(Client& c) {
   if (in_backoff(c, std::chrono::steady_clock::now())) return;
   // One request at a time per connection keeps the answers in order.
   size_t start = 0;
-  while (!c.closing && !c.waiting) {
+  while (!c.closing && !c.waiting && !c.handover) {
     // Searched once: `scanned` is where the last search ended.
     size_t nl = c.in.find('\n', start + c.scanned);
     if (nl == std::string::npos) {
@@ -885,6 +982,7 @@ void DiagServer::process_input(Client& c) {
     handle_line(c, line);
   }
   if (start) c.in.erase(0, start);
+  if (c.handover) return;  // the rest is CiA 309-3 lines, the gateway's
   if (!c.closing && c.in.find('\n', c.scanned) == std::string::npos && c.in.size() > max_line()) too_long();
 }
 
@@ -926,6 +1024,8 @@ cJSON* DiagServer::hello_info() const {
   cJSON_AddStringToObject(res, "host", host_.name.c_str());
   cJSON_AddBoolToObject(res, "allow_changes", m.diag_allow_changes);
   if (host_.put_config) cJSON_AddBoolToObject(res, "allow_config_upload", m.diag_allow_changes && m.diag_allow_config_upload);
+  // The CiA 309-3 gateway takes this connection with the cia309 op.
+  cJSON_AddBoolToObject(res, "cia309", m.cia309.enabled && cia309_.take != nullptr);
   cJSON_AddNumberToObject(res, "master_node_id", m.node_id);
   diag_add_protocols(res);
   cJSON* list = cJSON_AddArrayToObject(res, "networks");
@@ -1100,6 +1200,21 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
   if (c.authed && r.op == "put_config") {
     handle_put_config(c, r.id, req);
     cJSON_Delete(req);
+    return;
+  }
+  // The switch to CiA 309-3 lines (canopen-cia309-gateway "Remote sessions
+  // through the diagnostics channel"): the answer is the last JSON line.
+  if (c.authed && r.op == "cia309") {
+    cJSON_Delete(req);
+    std::string why;
+    if (!settings().cia309.enabled || !cia309_.can_take || !cia309_.take) {
+      c.out += diag_error(r.id, "cia309 gateway not configured");
+    } else if (!cia309_.can_take(why)) {
+      c.out += diag_error(r.id, why);
+    } else {
+      c.out += diag_ok(r.id, cia309_.info ? cia309_.info() : nullptr);
+      c.handover = true;
+    }
     return;
   }
   size_t net = 0;
