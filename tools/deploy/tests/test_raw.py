@@ -91,6 +91,17 @@ class Declarations(unittest.TestCase):
         self.assertEqual(by_name["Lamps_Level"]["type"], "UINT")
         self.assertEqual(by_name["Wake_V"]["type"], "USINT")
 
+    def test_valid_bits_declared(self):
+        raw = {"rx": [{"name": "Sensor", "id": 912, "timeout_ms": 300, "signals": [
+            {"name": "Page", "start_bit": 0, "length": 8, "multiplexer": True, "iec_location": "%IB300"},
+            {"name": "Temp", "start_bit": 8, "length": 8, "mux": {"values": [1]}, "iec_location": "%IB301",
+             "valid_location": "%IX300.5"}]}]}
+        decls = declare.declarations(raw, "", "", "", lambda n: n, identifier, {})
+        by_name = {d["name"]: d for d in decls}
+        self.assertEqual(by_name["Sensor_Temp_valid"]["location"], "%IX300.5")
+        self.assertEqual(by_name["Sensor_Temp_valid"]["type"], "BOOL")
+        self.assertEqual(by_name["Sensor_Temp_valid"]["path"], "raw.rx[0].signals[1].valid_location")
+
 
 class Decode(unittest.TestCase):
     def test_joystick_row(self):

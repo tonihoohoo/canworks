@@ -67,4 +67,11 @@ def declarations(raw, at, net, desc, unique, identifier, declared):
                             "location": s["iec_location"].strip(), "type": types[loc.size], "path": path,
                             "declared_as": declared.get(path), "node": None, "kind": "raw",
                             "description": text})
+                if kind == "rx" and parse_location(s.get("valid_location")):
+                    vpath = "%s.signals[%d].valid_location" % (base, j)
+                    out.append({"name": unique("%s_%s_valid" % (prefix, identifier(s.get("name") or "s%d" % j))),
+                                "location": s["valid_location"].strip(), "type": "BOOL", "path": vpath,
+                                "declared_as": declared.get(vpath), "node": None, "kind": "raw",
+                                "description": "%s: signal %s valid (in a frame within timeout_ms)"
+                                % (who, s.get("name") or j)})
     return out
