@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <map>
+#include <poll.h>
 #include <regex>
 #include <signal.h>
 #include <thread>
@@ -17,6 +18,7 @@
 #include <spawn.h>
 #include <sstream>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -422,18 +424,37 @@ bool wait_helper(pid_t pid, int& status, std::string& why) {
   auto limit = helper_time_limit();
   auto deadline = std::chrono::steady_clock::now() + limit;
   auto pause = std::chrono::milliseconds(1);
+#ifdef SYS_pidfd_open
+  // Woken the moment the helper exits; the polling below is the fallback
+  // for kernels without pidfd_open.
+  int pidfd = static_cast<int>(syscall(SYS_pidfd_open, pid, 0));
+#else
+  int pidfd = -1;
+#endif
   while (true) {
     pid_t r = waitpid(pid, &status, WNOHANG);
-    if (r == pid) return true;
+    if (r == pid) {
+      if (pidfd >= 0) close(pidfd);
+      return true;
+    }
     if (r < 0 && errno != EINTR) {
       why = std::string("waitpid: ") + std::strerror(errno);
+      if (pidfd >= 0) close(pidfd);
       kill(-pid, SIGKILL);
       return false;
     }
-    if (std::chrono::steady_clock::now() >= deadline) break;
+    auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) break;
+    if (pidfd >= 0) {
+      auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count() + 1;
+      pollfd p{pidfd, POLLIN, 0};
+      poll(&p, 1, static_cast<int>(std::min<long long>(left, INT_MAX)));
+      continue;
+    }
     std::this_thread::sleep_for(pause);
     pause = std::min(pause * 2, std::chrono::milliseconds(50));
   }
+  if (pidfd >= 0) close(pidfd);
   kill(-pid, SIGKILL);
   while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
   }
