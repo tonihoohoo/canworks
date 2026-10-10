@@ -445,6 +445,7 @@ class Plan:
         self.dp, self.pf, self.ps = (fid >> 24) & 1, (fid >> 16) & 0xFF, (fid >> 8) & 0xFF
         self.next_due = None
         self.sent = 0
+        self.pending = []  # pages of a cyclic send still to go (transport protocol busy)
         self.busy_noted = False
 
     @property
@@ -774,8 +775,9 @@ class Simulator:
                     continue
                 if p.next_due is None:
                     p.next_due = now
-                if now >= p.next_due:
-                    self.send(p)
+                # A message whose transfer cannot start yet (another BAM
+                # from this address still running) goes on the next tick.
+                if now >= p.next_due and self.send(p):
                     p.next_due += p.period_s
                     if p.next_due < now:
                         p.next_due = now + p.period_s  # late: no burst to catch up
@@ -784,11 +786,10 @@ class Simulator:
         """DM1 every DM1_PERIOD_S, and once on a change but at most one
         change-driven DM1 per DM1_PERIOD_S."""
         if self._dm_change and (self._dm_change_at is None or now - self._dm_change_at >= DM1_PERIOD_S):
-            self._dm_change, self._dm_change_at = False, now
-            self.send_dm(1)
-            self._dm_due = now + DM1_PERIOD_S
-        elif self._dm_due is None or now >= self._dm_due:
-            self.send_dm(1)
+            if self.send_dm(1):  # else on a later tick: a transfer is still running
+                self._dm_change, self._dm_change_at = False, now
+                self._dm_due = now + DM1_PERIOD_S
+        elif (self._dm_due is None or now >= self._dm_due) and self.send_dm(1):
             self._dm_due = now + DM1_PERIOD_S if self._dm_due is None or self._dm_due + DM1_PERIOD_S < now \
                 else self._dm_due + DM1_PERIOD_S
 
@@ -840,22 +841,31 @@ class Simulator:
 
     def send(self, plan, destination=None):
         """Sends `plan`'s message now (to `destination` for a PDU1 message,
-        default its DBC destination). False when not sent."""
+        default its DBC destination). False when not (all) sent: one
+        transport protocol transfer runs per address at a time (can-j1939),
+        so a message longer than 8 bytes waits while another one is still
+        going; the pages not sent stay pending for the next cyclic send."""
         if not self.claimed:
             return False
         ps = plan.ps if not plan.pdu1 or destination is None else destination
-        for data in plan.payloads(self.clock() - self._t0):
+        cyclic = destination is None
+        queue = (cyclic and plan.pending) or plan.payloads(self.clock() - self._t0)
+        for i, data in enumerate(queue):
             try:
                 ok = self.ca.send_pgn(plan.dp, plan.pf, ps, plan.priority, list(data))
             except RuntimeError:  # the address was lost meanwhile
                 return False
             if ok is False:
+                if cyclic:
+                    plan.pending = queue[i:]
                 if not plan.busy_noted:
                     plan.busy_noted = True
-                    self._report("busy", "%s not sent: its previous transport protocol transfer is still running"
-                                 % plan.message.name, pgn=plan.pgn)
+                    self._report("busy", "%s waits: another transport protocol transfer from this address is "
+                                 "still running" % plan.message.name, pgn=plan.pgn)
                 return False
             plan.sent += 1
+        if cyclic:
+            plan.pending = []
         return True
 
     # -- bus
