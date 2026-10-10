@@ -257,7 +257,8 @@
         "dbc": { "description": "The DBC file the messages came from, relative to the config file (for the tools; the plugin does not read it).", "type": "string", "minLength": 1 },
         "rx": { "description": "PGNs received into the PLC.", "type": "array", "items": { "$ref": "#/$defs/j1939_rx" } },
         "tx": { "description": "PGNs the PLC sends.", "type": "array", "items": { "$ref": "#/$defs/j1939_tx" } },
-        "requests": { "description": "Requests (PGN 59904) the PLC sends periodically; answers are received like any rx PGN.", "type": "array", "items": { "$ref": "#/$defs/j1939_request" } }
+        "requests": { "description": "Requests (PGN 59904) the PLC sends periodically; answers are received like any rx PGN.", "type": "array", "items": { "$ref": "#/$defs/j1939_request" } },
+        "diagnostics": { "$ref": "#/$defs/j1939_diagnostics" }
       },
       "required": [ "ecu" ]
     },
@@ -352,6 +353,47 @@
         "period_ms": { "type": "integer", "minimum": 100, "maximum": 600000 }
       },
       "required": [ "pgn", "period_ms" ]
+    },
+    "j1939_diagnostics": {
+      "description": "Diagnostic messages (J1939-73, docs/j1939.md#diagnostic-messages): ECUs whose DM1 (active trouble codes and lamps) the program sees, and the network's own trouble codes, sent as DM1 every second.",
+      "type": "object",
+      "properties": {
+        "rx": { "description": "ECUs whose DM1 reaches the program's inputs.", "type": "array", "items": { "$ref": "#/$defs/j1939_dm_rx" } },
+        "dtcs": { "description": "The network's own trouble codes, each switched on by one output bit.", "type": "array", "items": { "$ref": "#/$defs/j1939_own_dtc" } },
+        "lamps_location": { "description": "Byte output ORed into the lamp byte of the network's DM1 (MIL bits 7-6, red stop 5-4, amber warning 3-2, protect 1-0; 01 on).", "type": "string", "pattern": "^%[Qq][Bb][0-9]+$" },
+        "clear_location": { "description": "Byte input counting the clears (DM3, DM11) the network carried out, wrapping at 255.", "$ref": "canworks.v1.schema.json#/$defs/input_byte" },
+        "accept_clear": { "description": "false: DM3 and DM11 requests to the network's address are answered with NACK. Default true.", "type": "boolean" },
+        "dm13": { "description": "Honour DM13 stop and start broadcast commands. Default true.", "type": "boolean" }
+      }
+    },
+    "j1939_dm_rx": {
+      "type": "object",
+      "properties": {
+        "source": { "description": "The ECU's source address.", "$ref": "#/$defs/j1939_address" },
+        "source_name": { "description": "Take the DM1 only from the ECU with this NAME (64 bits, decimal or 0x hex).", "$ref": "canworks.v1.schema.json#/$defs/uint_string" },
+        "source_name_mask": { "description": "The NAME bits to compare (default: all).", "$ref": "canworks.v1.schema.json#/$defs/uint_string" },
+        "timeout_ms": { "description": "status_location goes FALSE when no DM1 arrived for this long; 0: no supervision. Default 3000.", "type": "integer", "minimum": 0, "maximum": 600000 },
+        "status_location": { "description": "Bit input: TRUE while the ECU's DM1 arrives.", "type": "string", "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$" },
+        "lamps_location": { "description": "Byte input: byte 1 of the DM1 (lamp states).", "$ref": "canworks.v1.schema.json#/$defs/input_byte" },
+        "flash_location": { "description": "Byte input: byte 2 of the DM1 (lamp flash).", "$ref": "canworks.v1.schema.json#/$defs/input_byte" },
+        "count_location": { "description": "Byte input: the number of active codes (at most 255).", "$ref": "canworks.v1.schema.json#/$defs/input_byte" },
+        "dtcs_location": { "description": "The first of `dtcs` consecutive double word inputs that get the codes, each SPN + FMI*2^19 + OC*2^24 + CM*2^31.", "type": "string", "pattern": "^%[Ii][Dd][0-9]+$" },
+        "dtcs": { "description": "How many codes dtcs_location takes.", "type": "integer", "minimum": 1, "maximum": 32 }
+      },
+      "oneOf": [ { "required": [ "source" ] }, { "required": [ "source_name" ] } ],
+      "anyOf": [ { "required": [ "status_location" ] }, { "required": [ "lamps_location" ] }, { "required": [ "flash_location" ] }, { "required": [ "count_location" ] }, { "required": [ "dtcs_location" ] } ],
+      "dependentRequired": { "dtcs_location": [ "dtcs" ], "dtcs": [ "dtcs_location" ], "source_name_mask": [ "source_name" ] }
+    },
+    "j1939_own_dtc": {
+      "type": "object",
+      "properties": {
+        "spn": { "description": "Suspect parameter number (19 bits); 520192..524287 are proprietary.", "type": "integer", "minimum": 0, "maximum": 524287 },
+        "fmi": { "description": "Failure mode identifier.", "type": "integer", "minimum": 0, "maximum": 31 },
+        "active_location": { "description": "Bit output: the code is active while TRUE.", "type": "string", "pattern": "^%[Qq][Xx][0-9]+\\.[0-7]$" },
+        "lamps": { "description": "Lamps the code lights while active.", "type": "array", "items": { "enum": [ "mil", "red", "amber", "protect" ] } },
+        "flash": { "description": "How the code's lamps flash.", "enum": [ "slow", "fast" ] }
+      },
+      "required": [ "spn", "fmi", "active_location" ]
     },
     "field_node": {
       "description": "A node of a master network: the version 1 node, except that a PDO entry may leave out iec_location (the plugin allows that only for an entry a gateway route uses).",
