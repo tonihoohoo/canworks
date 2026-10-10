@@ -1370,7 +1370,7 @@ void DiagServer::update_channel(size_t net, std::chrono::steady_clock::time_poin
     ch.kernel_drops = ch.kernel_drops_sock = 0;
     return;
   }
-  if (!ch.hub->attached()) {
+  if (!ch.hub->can_send()) {
     close_capture(net, true);
     return;
   }
@@ -1431,7 +1431,7 @@ bool DiagServer::handle_trace(Client& c, size_t net, const std::string& op, cons
   std::string why;
   uint64_t v = 0;
   if (op == "trace_start") {
-    if (!ch.hub->attached()) {
+    if (!ch.hub->can_send()) {
       c.out += diag_error(id, "no bus");
       return false;
     }
@@ -1787,7 +1787,7 @@ std::chrono::milliseconds DiagServer::service_jobs(std::chrono::steady_clock::ti
       end_job(i, "time limit", now);
       continue;
     }
-    if (!chans_[j.net].hub->attached() || chans_[j.net].hub->sweep_busy()) {
+    if (!chans_[j.net].hub->can_send() || chans_[j.net].hub->sweep_busy()) {
       end_job(i, "no bus", now);
       continue;
     }
@@ -2107,7 +2107,7 @@ std::chrono::milliseconds DiagServer::service_replays(std::chrono::steady_clock:
       end_replay(i, "time limit", now);
       continue;
     }
-    if (!chans_[r.net].hub->attached() || chans_[r.net].hub->sweep_busy()) {
+    if (!chans_[r.net].hub->can_send() || chans_[r.net].hub->sweep_busy()) {
       end_replay(i, "no bus", now);
       continue;
     }

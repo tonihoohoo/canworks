@@ -155,7 +155,7 @@ class DiagHub {
   // A plain CAN network has no bus thread: its raw path says whether frames
   // can be sent.
   void set_raw_running(std::function<bool()> f) { raw_running_ = std::move(f); }
-  // Frames sent by hand can go out now.
+  // The bus is up: frames sent by hand go out now and frames can be traced.
   bool can_send() const { return attached() || (raw_running_ && raw_running_()); }
 
   // ---- bit rate detection (bitrate_sweep.h) ----

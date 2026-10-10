@@ -244,6 +244,9 @@ class Checks(unittest.TestCase):
         iface = self.f.cfg["adapter"]["interface"]
         r = self.f.check({"schema_version": 2, "networks": {iface: copy.deepcopy(body)}})
         self.assertEqual(r.errors, [])
+        # No sections at all: every network runs with default behaviour.
+        r = self.f.check({"schema_version": 2}, cfg=two)
+        self.assertEqual(r.errors, [])
 
     def test_version_2_files(self):
         # Extra devices' EDS files and CSV files of every section.

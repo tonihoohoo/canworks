@@ -52,5 +52,5 @@ Each group lands its own tests. Shared fixture files make the plugin and the PC 
 
 ## 9. Hardware (bench, when the Pi is reachable)
 
-- [ ] 9.1 PC adapter as a multiplexed raw device (`canworks-sim` standalone, `pages` `all`), PLC on the Pi receives both pages with valid bits; stop one page and see its valid bit drop.
-- [ ] 9.2 PLC sends a multiplexed message in `program` and `rotate` modes; the PC trace decodes the pages.
+- [x] 9.1 PC adapter as a multiplexed raw device (`canworks-sim` standalone, `pages` `all`), PLC on the Pi receives both pages with valid bits; stop one page and see its valid bit drop. (Passed 2026-10-10 with the simulator on the Pi host's own CAN interface; it needed the fixes for a raw-only `--sim` file.)
+- [x] 9.2 PLC sends a multiplexed message in `program` and `rotate` modes; the PC trace decodes the pages. (Passed 2026-10-10; traced with candump and `canworks-diag convert`, since the plugin's trace recorded nothing on a plain network until the fix.)

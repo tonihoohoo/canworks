@@ -1013,12 +1013,14 @@ bool parse_sim_file(const std::string& json, const std::string& path, SimFile& o
       return false;
     }
     if (!get_uint(root, "tick_ms", 1, 60000, out.tick_ms, err)) fail("", err);
+    // No "networks": every network runs with default behaviour (a file of
+    // raw_devices only, for example).
     const cJSON* nets = cJSON_GetObjectItemCaseSensitive(root, "networks");
-    if (!cJSON_IsObject(nets)) {
-      fail("networks", "is required in version 2: an object keyed by network name");
+    if (nets && !cJSON_IsObject(nets)) {
+      fail("networks", "must be an object keyed by network name");
       return false;
     }
-    for (const cJSON* c = nets->child; c; c = c->next) {
+    for (const cJSON* c = nets ? nets->child : nullptr; c; c = c->next) {
       std::string at = std::string("networks.") + c->string;
       if (!*c->string) {
         fail("networks", "a network name must not be empty");

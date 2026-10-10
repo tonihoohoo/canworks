@@ -9,7 +9,7 @@ Both work next to CANopen or J1939 on the same bus, and on a network with no pro
 
 ## Plain CAN networks
 
-A network with `"protocol": "none"` has an `adapter`, an optional `raw` object and nothing else. It still gets everything the plugin gives any bus: bus state and error counters, the bus trace, bit rate detection, diagnostics status and `send_frame`.
+A network with `"protocol": "none"` has an `adapter`, an optional `raw` object and nothing else. It still gets everything the plugin gives any bus: bus state and error counters, the bus trace, diagnostics status and `send_frame`.
 
 ```json
 {
