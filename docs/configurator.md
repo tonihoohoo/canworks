@@ -17,7 +17,7 @@ canworks-config                                   # start page
 canworks-config ~/Documents/workspace/rtd-monitor # open a project directly
 ```
 
-The command prints a URL such as `http://127.0.0.1:53412/?token=…` and opens it in the default browser (`--no-browser` only prints it). The token in the URL is the session key: the page cannot be used without it, so open the printed URL rather than typing the address. Press Ctrl-C in the terminal, or close the terminal, to stop.
+The command prints a URL such as `http://127.0.0.1:53412/?code=…` and opens it in the default browser (`--no-browser` only prints it). The code in the URL works once: the configurator swaps it for the session key, kept in a cookie for that browser, and then forgets it, so the session key itself never appears in a URL or the browser history. The page cannot be used without it, so open the printed URL rather than typing the address; a URL that was used already is refused (start `canworks-config` again for a new one). Press Ctrl-C in the terminal, or close the terminal, to stop.
 
 The start page says what the tool is for (configuring CANopen and J1939 networks for OpenPLC Runtime v4, or commissioning a CANopen device from the PC) and offers four ways in, two by two:
 

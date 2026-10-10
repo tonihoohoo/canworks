@@ -6,8 +6,10 @@ PATH opens directly: as an editor project when it has project.json (the
 config is PATH/canworks/canworks.json), otherwise as a standalone config folder
 (PATH/canworks.json). Without PATH the page opens on its start page.
 
-Every request must carry the session token: the URL printed at start sets it
-as a cookie for the page, and the page sends it as a header on API calls.
+Every request must carry the session token: the URL printed at start carries
+a one-time code that the server swaps for the token as a cookie for the page
+(the token itself is never in a URL), and the page sends it as a header on API
+calls.
 Requests whose Host is not loopback are refused (DNS rebinding).
 """
 
@@ -1715,8 +1717,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         url = urllib.parse.urlsplit(self.path)
         query = urllib.parse.parse_qs(url.query)
         token = self.server.token
-        if url.path == "/" and query.get("token", [None])[0] == token:
-            # The URL printed at start: keep the token in a cookie and drop it from the address bar.
+        if url.path == "/" and "code" in query:
+            # The URL printed at start: its one-time code becomes the token in
+            # a cookie, and the code leaves the address bar.
+            if not self.server.take_start_code(query["code"][0]):
+                return self._deny("this start address was used already: open the configurator from the browser "
+                                  "tab it opened, or start canworks-config again for a new address")
             return self._send(303, b"", "text/plain", [
                 ("Location", "/"), ("Set-Cookie", "%s=%s; HttpOnly; SameSite=Strict; Path=/" % (COOKIE, token))])
         if url.path.startswith("/api/"):
@@ -2874,6 +2880,8 @@ class Server(http.server.ThreadingHTTPServer):
     def __init__(self, port=0, token=None, verbose=False):
         super().__init__(("127.0.0.1", port), Handler)
         self.token = token or secrets.token_urlsafe(32)
+        self.start_codes = set()  # one-time codes of the start URLs handed out, not used yet
+        self.start_lock = threading.Lock()
         self.session = Session()
         self.verbose = verbose
         self.connection = online.Connection()
@@ -2891,7 +2899,20 @@ class Server(http.server.ThreadingHTTPServer):
 
     @property
     def url(self):
-        return "http://127.0.0.1:%d/?token=%s" % (self.server_port, self.token)
+        """A new start URL: its one-time code is swapped for the session
+        cookie on first use, then forgotten."""
+        code = secrets.token_urlsafe(32)
+        with self.start_lock:
+            self.start_codes.add(code)
+        return "http://127.0.0.1:%d/?code=%s" % (self.server_port, code)
+
+    def take_start_code(self, code):
+        with self.start_lock:
+            for known in self.start_codes:
+                if secrets.compare_digest(known, code):
+                    self.start_codes.discard(known)
+                    return True
+        return False
 
     def server_close(self):
         super().server_close()
@@ -2933,10 +2954,11 @@ def main(argv=None):
             print("canworks-config: %s" % e, file=sys.stderr)
             server.server_close()
             return 2
-    print("canworks configurator: %s" % server.url, flush=True)
+    url = server.url  # one start code: the browser's first visit uses it up
+    print("canworks configurator: %s" % url, flush=True)
     print("Press Ctrl-C to stop.", flush=True)
     if not args.no_browser:
-        webbrowser.open(server.url)
+        webbrowser.open(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

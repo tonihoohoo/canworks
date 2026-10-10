@@ -140,8 +140,21 @@ class Access(Running):
         status, _, _ = self.request("GET", "/", token=False)
         self.assertEqual(status, 403)
         status, _, r = self.request("GET", "/?token=" + self.server.token, token=False)
+        self.assertEqual(status, 403)  # the token itself never goes in a URL
+        self.assertIsNone(r.getheader("Set-Cookie"))
+        url = self.server.url
+        self.assertNotIn(self.server.token, url)
+        path = url.split(str(self.server.server_port), 1)[1]
+        status, _, r = self.request("GET", path, token=False)
         self.assertEqual(status, 303)
+        self.assertEqual(r.getheader("Location"), "/")
         cookie = r.getheader("Set-Cookie").split(";")[0]
+        self.assertEqual(cookie, "%s=%s" % (srv.COOKIE, self.server.token))
+        # The start code works once: opened again, it is refused and sets no cookie.
+        status, data, r = self.request("GET", path, token=False)
+        self.assertEqual(status, 403)
+        self.assertIsNone(r.getheader("Set-Cookie"))
+        self.assertIn("used already", data["error"])
         status, page, _ = self.request("GET", "/", token=False, headers={"Cookie": cookie})
         self.assertEqual(status, 200)
         self.assertIn(self.server.token.encode(), page)
@@ -157,7 +170,7 @@ class Theme(Running):
     folder and put into the page."""
 
     def page(self):
-        _, _, r = self.request("GET", "/?token=" + self.server.token, token=False)
+        _, _, r = self.request("GET", self.server.url.split(str(self.server.server_port), 1)[1], token=False)
         cookie = r.getheader("Set-Cookie").split(";")[0]
         return self.request("GET", "/", token=False, headers={"Cookie": cookie})[1]
 
@@ -980,8 +993,12 @@ class Command(unittest.TestCase):
             self.assertIn("http://127.0.0.1:", line)
             url = line.split()[-1]
             port = int(url.split(":")[2].split("/")[0])
-            token = url.split("token=")[1]
+            self.assertNotIn("token=", url)
             c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            c.request("GET", "/" + url.split("/", 3)[3], headers={"Host": "127.0.0.1:%d" % port})
+            r = c.getresponse()
+            r.read()
+            token = r.getheader("Set-Cookie").split(";")[0].split("=", 1)[1]
             c.request("GET", "/api/state", headers={srv.TOKEN_HEADER: token, "Host": "127.0.0.1:%d" % port})
             state = json.loads(c.getresponse().read())
             self.assertEqual((state["mode"], state["folder"]), ("project", project))
