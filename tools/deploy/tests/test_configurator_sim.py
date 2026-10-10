@@ -103,7 +103,7 @@ class File(Sim):
         self.assertEqual(simulation.check({"schema_version": 2, "networks": {"io": {"nodes": {"5": {}}}}}), [])
         problems = simulation.check({"schema_version": 2, "networks": {"io": {"nodez": {}}}})
         self.assertEqual([p["path"] for p in problems], ["networks.io"])
-        self.assertEqual(simulation.check({"schema_version": 2})[0]["path"], "")
+        self.assertEqual(simulation.check({"schema_version": 2}), [])  # no sections: default behaviour
 
     def test_check_and_save_refuse_what_the_plugin_refuses(self):
         # Against the saved config, as the plugin loads the file (D3, D19).
