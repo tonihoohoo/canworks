@@ -133,12 +133,13 @@ def plugin_test(build, repo, work):
         check(cia309.error_code(g.request("1 9 stop")) == 107, "NMT to a node not in the configuration: 107")
         check(g.request("1 2 start") == "OK", "NMT start")
         check(cia309.error_code(g.request("1 r p 7")) in (102, 104), "a PDO number without a mapped TPDO")
-        # EMCY from the simulated device, then its boot-up after a power cycle.
-        code, _, err = run_cli("--runtime", "127.0.0.1:%d" % dport, "sim", "fault", "2", "emcy", "0x5030",
+        # EMCY from the simulated RTD module (the ping-pong EDS has no EMCY
+        # object), then node 2's boot-up after a power cycle.
+        code, _, err = run_cli("--runtime", "127.0.0.1:%d" % dport, "sim", "fault", "5", "emcy", "0x5030",
                                "--register", "1", token=token)
-        check(code == 0, "simulator EMCY injected", err)
+        check(code == 0, "simulator EMCY injected", err[-300:])
         try:
-            note = g.wait_notification(r"^1 2 EMCY 5030 01", 5)
+            note = g.wait_notification(r"^1 5 EMCY 5030 01", 5)
             check(True, "EMCY notification: " + note)
         except socket.timeout:
             check(False, "EMCY notification", g.notifications)
