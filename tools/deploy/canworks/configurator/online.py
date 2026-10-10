@@ -151,6 +151,27 @@ class AdapterTarget:
                                  network=self.network, timeout=timeout)
 
 
+# Operations that only read: the only ones sent again after a timeout or a
+# lost connection. Any other may have been carried out already.
+READ_ONLY = frozenset((
+    "hello", "status", "emcy", "sdo_read", "scan", "scan_status", "lss_find_status", "trace_fetch",
+    "detect_bitrate_status", "pdo_test_status", "replay_status", "sim_status", "sim_get", "sim_scenario_list",
+    "sim_check_expr"))
+
+
+def _record_ops(client):
+    """Makes `client` note the op of every request it sends; returns the list."""
+    ops = []
+    real = type(client).request
+
+    def request(op, *args, **fields):
+        ops.append(op)
+        return real(client, op, *args, **fields)
+
+    client.request = request
+    return ops
+
+
 class Connection:
     """One diagnostics connection, opened on the first request and closed
     after IDLE_CLOSE_S without one (or by close())."""
@@ -165,13 +186,16 @@ class Connection:
 
     def call(self, host, port, token, fn, network=None):
         """fn(client) on a connected client whose requests go to `network`
-        (when the plugin runs several); a lost connection is reopened once.
-        Raises diag.DiagError."""
+        (when the plugin runs several). After a timeout or a lost connection
+        the connection is reopened and fn run once more only when every
+        request it sent only reads (READ_ONLY); otherwise the error says the
+        request may have been carried out. Raises diag.DiagError."""
         with self.lock:
             key = (host, port, token)
             if self.client is None or self.key != key:
                 self._close()
                 self._open(key)
+            ops = _record_ops(self.client)
             try:
                 self.client.network = network
                 result = fn(self.client)
@@ -179,6 +203,10 @@ class Connection:
                 if e.kind not in ("eof", "timeout"):
                     raise
                 self._close()
+                changes = [op for op in ops if op not in READ_ONLY]
+                if changes:
+                    raise diag.DiagError(e.kind, "no answer; the request may have been carried out (%s): %s"
+                                         % (", ".join(dict.fromkeys(changes)), e))
                 self._open(key)
                 self.client.network = network
                 result = fn(self.client)
