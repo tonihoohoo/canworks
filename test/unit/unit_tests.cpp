@@ -4743,6 +4743,8 @@ TEST(diag_send_frame_single_and_guards) {
   a = c.ask(R"({"op":"send_frame","can_id":"0x202","data":"01 00 00 00"})");
   CHECK_MSG(has(a, "0x202 is RPDO1 of node 2 (pingpong) on network can0; force needed"), a);
   CHECK(f.count() == 1);
+  // Single frames are logged at most once a second per client.
+  std::this_thread::sleep_for(std::chrono::milliseconds(1050));
   a = c.ask(R"({"op":"send_frame","can_id":"0x202","data":"01 00 00 00","force":true})");
   CHECK_MSG(has(a, R"("sent":true)"), a);
   CHECK(diag_log_count("(forced: 0x202 is RPDO1") == 1);
@@ -4953,4 +4955,402 @@ TEST(diag_detect_bitrate_guards_and_request) {
   // configure_link false: the plugin leaves the link alone.
   f.cfg.adapter.configure_link = false;
   CHECK(has(c.ask(R"({"op":"detect_bitrate"})"), "configure_link false"));
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics channel limits (fix-security-audit-findings, group 4)
+
+namespace {
+
+// Sends `total` bytes of one line without a newline over TLS without
+// blocking, for at most `ms`; returns the bytes the socket took.
+size_t stream_without_newline(DiagClient& c, size_t total, int ms) {
+  int small = 64 * 1024;
+  setsockopt(c.raw.fd, SOL_SOCKET, SO_SNDBUF, &small, sizeof small);
+  std::string why, wire;
+  const std::string chunk(16 * 1024, 'x');
+  size_t sent = 0, made = 0;
+  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+  while (sent < total && std::chrono::steady_clock::now() < end) {
+    if (wire.empty() && made < total) {
+      c.tls->write(chunk, why);
+      wire.swap(c.tls->wire());
+      made += chunk.size();
+    }
+    ssize_t n = ::send(c.raw.fd, wire.data(), wire.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
+    if (n > 0) {
+      wire.erase(0, static_cast<size_t>(n));
+      sent += static_cast<size_t>(n);
+    } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    } else {
+      break;
+    }
+  }
+  return sent;
+}
+
+// The next line a client gets, skipping nothing; "<closed>" once closed.
+std::string line_or_closed(DiagClient& c, int timeout_ms) { return c.line(timeout_ms); }
+
+}  // namespace
+
+TEST(diag_login_backoff_reads_nothing) {
+  {
+    std::lock_guard<std::mutex> lock(g_diag_log_mutex);
+    g_diag_log.clear();
+  }
+  set_log_sink(diag_capture);
+  Config cfg = diag_config(false);
+  DiagHub hub(cfg, "test-1");
+  DiagServer server(hub);
+  server.start();
+  CHECK(wait_port(server));
+  // A connection with its TLS set up, then a failed login from the same
+  // address: while the address waits, the server reads nothing from it, so
+  // a long line cannot grow its memory; afterwards the line is too long.
+  DiagClient streaming(server.port());
+  CHECK(streaming.handshake());
+  {
+    DiagClient c(server.port());
+    CHECK(c.login("guess") == "<closed>");
+  }
+  size_t sent = stream_without_newline(streaming, 32u << 20, 700);
+  CHECK_MSG(sent < (4u << 20), std::to_string(sent) + " bytes taken during the login backoff");
+  std::string a = line_or_closed(streaming, 3000);
+  CHECK_MSG(a.find("request line too long") != std::string::npos, a);
+  CHECK(line_or_closed(streaming, 3000) == "<closed>");
+  server.stop();
+  set_log_sink(nullptr);
+}
+
+TEST(diag_long_line_only_for_put_config) {
+  Config cfg = diag_config(true);
+  cfg.master.diag_allow_config_upload = true;
+  DiagHub hub(cfg, "test-1");
+  DiagServer server(hub);
+  DiagHost host;
+  host.name = "bridge";
+  std::atomic<int> uploads{0};
+  host.put_config = [&uploads](const std::vector<std::pair<std::string, std::string>>&, std::string& why) {
+    ++uploads;
+    why = "test: not taken";
+    return 0u;
+  };
+  server.set_host(host);
+  server.start();
+  CHECK(wait_port(server));
+  // A 1 MB put_config line is read.
+  {
+    DiagClient c(server.port());
+    c.ask(R"({"op":"hello","token":"secret"})");
+    std::string pad(1 << 20, 'A');
+    std::string a = c.ask(R"({ "op": "put_config", "files": {"canworks.json": ")" + pad + "\"}}");
+    CHECK_MSG(a.find("test: not taken") != std::string::npos, a.substr(0, 200));
+    CHECK(uploads == 1);
+  }
+  // Any other 1 MB line is refused and the connection closed.
+  {
+    DiagClient c(server.port());
+    c.ask(R"({"op":"hello","token":"secret"})");
+    std::string pad(1 << 20, 'A');
+    std::string a = c.ask(R"({"op":"status","pad":")" + pad + "\"}");
+    CHECK_MSG(a.find("request line too long") != std::string::npos, a.substr(0, 200));
+    CHECK(c.line() == "<closed>");
+  }
+  // Lines that arrive together are all answered in order.
+  {
+    DiagClient c(server.port());
+    c.ask(R"({"op":"hello","token":"secret"})");
+    std::string many;
+    for (int i = 0; i < 50; ++i) many += R"({"op":"status","id":)" + std::to_string(i) + "}\n";
+    std::string why;
+    c.tls->write(many, why);
+    c.flush();
+    bool ordered = true;
+    for (int i = 0; i < 50; ++i) ordered = ordered && c.line().find("\"id\":" + std::to_string(i) + "}") != std::string::npos;
+    CHECK(ordered);
+  }
+  server.stop();
+}
+
+namespace {
+
+// Records when each frame went out; stalls once, at frame `stall_at`, as a
+// busy thread or a full queue would.
+struct TimedSink : FrameSink {
+  std::mutex mu;
+  std::vector<std::chrono::steady_clock::time_point> times;
+  size_t stall_at = SIZE_MAX;
+  std::chrono::milliseconds stall{0};
+  int open() override { return 0; }
+  int send(const RawFrame&) override {
+    size_t n;
+    {
+      std::lock_guard<std::mutex> lock(mu);
+      n = times.size();
+    }
+    if (n == stall_at) std::this_thread::sleep_for(stall);
+    std::lock_guard<std::mutex> lock(mu);
+    times.push_back(std::chrono::steady_clock::now());
+    return 0;
+  }
+  void close() override {}
+  bool is_open() const override { return true; }
+  // The most frames in any one-second window (open at its start).
+  size_t most_per_second() {
+    std::lock_guard<std::mutex> lock(mu);
+    size_t most = 0, lo = 0;
+    for (size_t hi = 0; hi < times.size(); ++hi) {
+      while (times[hi] - times[lo] >= std::chrono::seconds(1)) ++lo;
+      most = std::max(most, hi - lo + 1);
+    }
+    return most;
+  }
+};
+
+std::string replay_frames(int n, int step_us, bool loop) {
+  std::string t = std::string(R"({"op":"replay",)") + (loop ? R"("loop":true,)" : "") + R"("frames":[)";
+  for (int i = 0; i < n; ++i)
+    t += std::string(i ? "," : "") + R"({"t_us":)" + std::to_string(i * step_us) + R"(,"id":1})";
+  return t + "]}";
+}
+
+}  // namespace
+
+TEST(diag_replay_loop_rate) {
+  set_log_sink(diag_capture);
+  Config cfg = diag_config(true);
+  cfg.adapter.interface = "can0";
+  DiagHub hub(cfg, "test");
+  DiagServer server(hub);
+  auto* sink = new TimedSink;
+  sink->stall_at = 500;
+  sink->stall = std::chrono::milliseconds(90);
+  server.set_frame_sink(std::unique_ptr<FrameSink>(sink));
+  hub.attach();
+  server.start();
+  CHECK(wait_port(server));
+  DiagClient c(server.port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  // A short dense loop: one pass is fine, repeated it is 2000 frames a second.
+  std::string a = c.ask(replay_frames(10, 500, true));
+  CHECK_MSG(a.find("1000 frames per second") != std::string::npos, a);
+  CHECK(sink->most_per_second() == 0);
+  // The same frames once, without the loop, are fine.
+  a = c.ask(replay_frames(10, 500, false));
+  CHECK_MSG(a.find("\"running\":true") != std::string::npos, a);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  {
+    std::lock_guard<std::mutex> lock(sink->mu);
+    sink->times.clear();
+  }
+  // A loop at the limit: 10 frames 1 ms apart, the next round 1 ms later.
+  // The sink stalls 90 ms once; catching up never puts more than 1000
+  // frames into any second.
+  a = c.ask(replay_frames(10, 1000, true));
+  CHECK_MSG(a.find("\"running\":true") != std::string::npos, a);
+  std::this_thread::sleep_for(std::chrono::milliseconds(2300));
+  c.ask(R"({"op":"replay_stop"})");
+  size_t most = sink->most_per_second();
+  CHECK_MSG(most <= 1000 && most > 800, std::to_string(most));
+  server.stop();
+  set_log_sink(nullptr);
+}
+
+TEST(diag_guard_map_effective_ids) {
+  Config cfg;
+  std::vector<std::string> errors;
+  CHECK(parse(kValid, cfg, errors));
+  // The master's own SDO server.
+  CHECK_MSG(cob_id_use(cfg, 0x601, false) == "the request channel of the master's SDO server", cob_id_use(cfg, 0x601, false));
+  CHECK(cob_id_use(cfg, 0x581, false) == "the response channel of the master's SDO server");
+  // A PDO with a 29-bit COB-ID (bit 29 set) is that extended identifier.
+  cfg.nodes[0].tx_pdos[0].cob_id = 0x20000000u | 0x18FF0002u;
+  CHECK_MSG(cob_id_use(cfg, 0x18FF0002, true) == "TPDO1 of node 2 (pingpong)", cob_id_use(cfg, 0x18FF0002, true));
+  CHECK(cob_id_use(cfg, 0x18FF0003, true).empty() && cob_id_use(cfg, 0x0002, false).empty());
+  // A slave's dictionary: its PDOs as they are now, extended ones included,
+  // invalid ones left out.
+  std::string dir = tmpdir();
+  std::string eds = read(std::string(PINGPONG_DIR) + "/cpp-slave.eds");
+  eds = replace(eds, "DefaultValue=$NODEID+0x180", "DefaultValue=0x38FF000A");
+  eds = replace(eds, "DefaultValue=$NODEID+0x200", "DefaultValue=0x0000030A");
+  write(dir + "/slave.eds", eds);
+  co_dev_t* dev = co_dev_create_from_dcf_file((dir + "/slave.eds").c_str());
+  CHECK(dev != nullptr);
+  if (!dev) return;
+  auto ids = dictionary_id_uses(reinterpret_cast<const __co_dev*>(dev), "the plugin's own slave");
+  co_dev_destroy(dev);
+  CHECK(ids[id_use_key(0x18FF000A, true)] == "TPDO1 of the plugin's own slave");
+  CHECK(ids[id_use_key(0x30A, false)] == "RPDO1 of the plugin's own slave");
+  CHECK(!ids.count(id_use_key(0x18FF000A, false)));
+  // The server refuses such an identifier without force, naming it.
+  TxFixture f;
+  CHECK(wait_port(*f.server));
+  f.hub->set_used_ids({{id_use_key(0x18FF000A, true), "TPDO1 of the plugin's own slave"}});
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  std::string a = c.ask(R"({"op":"send_frame","can_id":"0x18FF000A","ext":true,"data":"01"})");
+  CHECK_MSG(has(a, "0x18FF000A is TPDO1 of the plugin's own slave") && has(a, "force needed"), a);
+  CHECK(f.count() == 0);
+  f.hub->detach();
+  CHECK(f.hub->used_id(0x18FF000A, true).empty());
+}
+
+TEST(diag_force_field_and_scan_refusals) {
+  Config cfg = diag_config(true);
+  DiagHub hub(cfg, "test-1");
+  DiagServer server(hub);
+  server.start();
+  CHECK(wait_port(server));
+  DiagClient c(server.port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  CHECK(has(c.ask(R"({"op":"sdo_write","node":2,"index":"0x2000","subindex":1,"data":"01","force":1})"),
+            "field 'force' must be true or false"));
+  CHECK(has(c.ask(R"({"op":"nmt","node":2,"command":"stop","force":"yes"})"), "field 'force' must be true or false"));
+  // A well-formed forced request goes to the bus thread (none here).
+  CHECK(has(c.ask(R"({"op":"nmt","node":2,"command":"stop","force":true})"), "no bus"));
+  CHECK(has(c.ask(R"({"op":"scan","force":true})"), "no bus"));
+  server.stop();
+}
+
+TEST(diag_login_time_limit) {
+  CHECK(DiagServer::kLoginTimeout == std::chrono::seconds(5));
+  Config cfg = diag_config(false);
+  DiagHub hub(cfg, "test-1");
+  DiagServer server(hub);
+  server.set_login_timeout(std::chrono::milliseconds(300));
+  server.start();
+  CHECK(wait_port(server));
+  DiagClient idle(server.port());
+  CHECK(idle.handshake());
+  auto t0 = std::chrono::steady_clock::now();
+  CHECK(idle.line(3000) == "<closed>");
+  CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(2));
+  server.stop();
+}
+
+TEST(diag_send_frame_log_lines_counted) {
+  TxFixture f;
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  for (int i = 0; i < 50; ++i) CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x123","data":"01"})"), R"("sent":true)"));
+  CHECK(f.count() == 50);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1300));
+  CHECK_MSG(diag_log_count("diagnostics: frame 0x123 [1] 01 sent by 127.0.0.1") == 1,
+            std::to_string(diag_log_count("diagnostics: frame 0x123")));
+  CHECK(diag_log_count("diagnostics: 49 more frames sent by 127.0.0.1") == 1);
+}
+
+TEST(diag_failed_logins_pruned) {
+  set_log_sink(diag_capture);
+  Config cfg = diag_config(false);
+  DiagHub hub(cfg, "test-1");
+  DiagServer server(hub);
+  server.start();
+  CHECK(wait_port(server));
+  {
+    DiagClient c(server.port());
+    CHECK(c.login("guess") == "<closed>");
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  server.stop();
+  CHECK(server.auth_records() == 2);  // the backoff and the log throttle
+  auto now = std::chrono::steady_clock::now();
+  server.prune_auth(now + std::chrono::minutes(5));
+  CHECK(server.auth_records() == 2);
+  server.prune_auth(now + std::chrono::minutes(11));
+  CHECK(server.auth_records() == 0);
+  set_log_sink(nullptr);
+}
+
+TEST(diag_detect_bitrate_time_limit_and_stop) {
+  TxFixture f;
+  CHECK(wait_port(*f.server));
+  DiagClient c(f.server->port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  // 10 s at each of 8 rates, 20 rounds: far over 120 s.
+  std::string a = c.ask(R"({"op":"detect_bitrate","per_rate_ms":10000,"rounds":20})");
+  CHECK_MSG(has(a, "the sweep would listen 1600 s") && has(a, "at most 120 s"), a);
+  a = c.ask(R"({"op":"detect_bitrate","per_rate_ms":5000,"rates":[250,125],"rounds":13})");
+  CHECK_MSG(has(a, "at most 120 s"), a);
+  CHECK(!f.hub->sweep_busy());
+  CHECK(has(c.ask(R"({"op":"detect_bitrate_stop"})"), "no bit rate detection is running"));
+  a = c.ask(R"({"op":"detect_bitrate","per_rate_ms":5000,"rates":[250,125],"rounds":12})");
+  CHECK_MSG(has(a, R"("running":true)"), a);
+  a = c.ask(R"({"op":"detect_bitrate_stop"})");
+  CHECK_MSG(has(a, R"("running":true)"), a);
+  CHECK(diag_log_count("bit rate detection on can0 stopped by 127.0.0.1") == 1);
+  SweepRequest req;
+  CHECK(f.hub->take_sweep(req) && req.cancel && req.cancel->load() && *req.stopped_by == "127.0.0.1");
+  // The sweep ends after the rate it listens at.
+  MockLink link;
+  link.links["can0"] = LinkInfo{true, "can", 125000};
+  FakeSweepBus bus;
+  bus.link = &link;
+  bus.rate = 1;
+  SweepRequest r2;
+  r2.rates_kbit = {500, 250, 125};
+  r2.cancel = std::make_shared<std::atomic<bool>>(false);
+  r2.stopped_by = std::make_shared<std::string>("10.0.0.9");
+  SweepResult r = run_bitrate_sweep(link, bus, "can0", 125000, -1, r2,
+                                    [&](const SweepProgress& p) {
+                                      if (p.done == 1) r2.cancel->store(true);
+                                    },
+                                    [] { return false; });
+  CHECK_MSG(bus.heard.size() == 2, std::to_string(bus.heard.size()));  // the stop came during the second rate
+  CHECK_MSG(r.verdict == SweepVerdict::Failed && r.error == "stopped by 10.0.0.9", r.error);
+  CHECK(link.links["can0"].up && link.links["can0"].bitrate == 125000);
+  // Unread status for the client: the sweep's end.
+  f.hub->sweep_done(r);
+  a = c.ask(R"({"op":"detect_bitrate_status"})");
+  CHECK_MSG(has(a, R"("verdict":"failed")") && has(a, "stopped by 10.0.0.9"), a);
+}
+
+namespace {
+
+// Taking the link down fails once, and bringing it up fails once.
+struct FlakyLink : MockLink {
+  int down_fails = 0, up_fails = 0;
+  int set_up(const std::string& name, bool up) override {
+    if (!up && down_fails > 0 && calls.size() >= 4) {
+      --down_fails;
+      calls.push_back("down (fails)");
+      return -EIO;
+    }
+    if (up && up_fails > 0 && calls.size() >= 4) {
+      --up_fails;
+      calls.push_back("up (fails)");
+      return -EIO;
+    }
+    return MockLink::set_up(name, up);
+  }
+};
+
+}  // namespace
+
+TEST(sweep_restore_sets_bitrate_and_retries_up) {
+  {
+    std::lock_guard<std::mutex> lock(g_diag_log_mutex);
+    g_diag_log.clear();
+  }
+  set_log_sink(diag_capture);
+  FlakyLink link;
+  link.links["can0"] = LinkInfo{true, "can", 500000};
+  link.down_fails = 1;
+  link.up_fails = 1;
+  FakeSweepBus bus;
+  bus.link = &link;
+  bus.rate = 250000;
+  SweepRequest req;
+  req.rates_kbit = {250};
+  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
+  CHECK(r.verdict == SweepVerdict::Detected);
+  CHECK_MSG(sweep_calls(link) ==
+                "down, bitrate 250000, listen-only on, up, down (fails), listen-only off, bitrate 500000, up (fails), up",
+            sweep_calls(link));
+  CHECK(diag_log_count("cannot take can0 down to restore it") == 1);
+  CHECK(link.links["can0"].up);
+  set_log_sink(nullptr);
 }

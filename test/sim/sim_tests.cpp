@@ -2621,10 +2621,17 @@ TEST(sim_diag_status_emcy_sdo_nmt) {
   // program's value again after the node's next boot.
   DiagRequest w = diag_req("sdo_write", 5, 0x6110, 1);
   w.data = {0x1E, 0x00};
+  // Node 5 is OPERATIONAL: refused without force, nothing written.
+  a = sim->Ask(w);
+  CHECK_MSG(!ok(a) && str(a, "error") == "node 5 (rtd) is OPERATIONAL; an SDO write changes it while the program drives it; force needed",
+            str(a, "error"));
+  cJSON_Delete(a);
+  CHECK(!logged("node 5: SDO write to 0x6110"));
+  w.force = true;
   a = sim->Ask(w);
   CHECK(ok(a) && cJSON_IsTrue(field(result(a), "success")));
   cJSON_Delete(a);
-  CHECK(logged("node 5: SDO write to 0x6110 sub 1 (2 bytes: 1E 00) from diagnostics client 127.0.0.1"));
+  CHECK(logged("node 5: SDO write to 0x6110 sub 1 (2 bytes: 1E 00) from diagnostics client 127.0.0.1 (forced: the node is OPERATIONAL)"));
   a = sim->Ask(diag_req("sdo_read", 5, 0x6110, 1));
   CHECK(str(result(a), "data") == "1E 00");
   cJSON_Delete(a);
@@ -2632,6 +2639,14 @@ TEST(sim_diag_status_emcy_sdo_nmt) {
   // Manual NMT: stop holds the node, no reboot.
   DiagRequest stop = diag_req("nmt", 5);
   stop.command = "stop";
+  a = sim->Ask(stop);
+  CHECK_MSG(!ok(a) && str(a, "error").find("node 5 (rtd) is OPERATIONAL") == 0 &&
+                str(a, "error").find("force needed") != std::string::npos,
+            str(a, "error"));
+  cJSON_Delete(a);
+  sim->RunFor(milliseconds(200));
+  CHECK(sim->state() == 5);
+  stop.force = true;
   a = sim->Ask(stop);
   CHECK(ok(a));
   cJSON_Delete(a);
@@ -2650,18 +2665,26 @@ TEST(sim_diag_status_emcy_sdo_nmt) {
   // Operator PRE-OPERATIONAL, released by start.
   DiagRequest pre = diag_req("nmt", 5);
   pre.command = "preop";
+  pre.force = true;
   cJSON_Delete(sim->Ask(pre));
   CHECK(sim->RunUntil([] { return sim->state() == 127; }, seconds(2)));
+  // START never needs force; a write to the node in PRE-OPERATIONAL does not either.
   DiagRequest start = diag_req("nmt", 5);
   start.command = "start";
+  DiagRequest pre_write = diag_req("sdo_write", 5, 0x6110, 1);
+  pre_write.data = {0x20, 0x00};
+  a = sim->Ask(pre_write);
+  CHECK(ok(a) && cJSON_IsTrue(field(result(a), "success")));
+  cJSON_Delete(a);
   cJSON_Delete(sim->Ask(start));
   CHECK(sim->RunUntil([] { return sim->state() == 5 && sim->status(); }, seconds(2)));
   // Reset: the node boots again and the owned variable is written again.
   DiagRequest reset = diag_req("nmt", 5);
   reset.command = "reset";
+  reset.force = true;
   clear_logs();
   cJSON_Delete(sim->Ask(reset));
-  CHECK(logged("node 5 (rtd): NMT RESET NODE (from diagnostics client 127.0.0.1)"));
+  CHECK(logged("node 5 (rtd): NMT RESET NODE (from diagnostics client 127.0.0.1 (forced: the node was OPERATIONAL))"));
   CHECK(sim->RunUntil([] { return logged("node 5 (rtd): configuring"); }, seconds(5)));
   CHECK(sim->RunUntil([] { return sim->state() == 5 && sim->status(); }, seconds(20)));
   sim->RunFor(milliseconds(300));
@@ -2702,9 +2725,17 @@ TEST(sim_diag_scan) {
   sim->RunFor(milliseconds(500));
   clear_logs();
 
+  // Node 2 is OPERATIONAL: the scan needs force.
   cJSON* a = sim->Ask(diag_req("scan"));
+  CHECK_MSG(!ok(a) && str(a, "error") == "node 2 (pingpong) is OPERATIONAL; a scan sends SDO requests to every node ID; force needed",
+            str(a, "error"));
+  cJSON_Delete(a);
+  DiagRequest forced = diag_req("scan");
+  forced.force = true;
+  a = sim->Ask(forced);
   CHECK(ok(a) && cJSON_IsTrue(field(result(a), "running")));
   cJSON_Delete(a);
+  CHECK(logged("started by diagnostics client 127.0.0.1 (forced: nodes are OPERATIONAL)"));
   // A second request joins the running scan.
   a = sim->Ask(diag_req("scan"));
   CHECK(ok(a) && cJSON_IsTrue(field(result(a), "running")) && num(result(a), "total") == 126);

@@ -104,17 +104,17 @@ echo "==> Backup"
 "${DIAG[@]}" backup 5 -o backup.dcf --config canopen_config.json || fail "backup failed"
 grep -q "^NodeID=5" backup.dcf || fail "backup has no NodeID=5"
 
-echo "==> Changing three parameters by hand"
-"${DIAG[@]}" sdo-write 5 0x6112 1 1 --type UNSIGNED8 || fail "sdo-write 0x6112:1"
-"${DIAG[@]}" sdo-write 5 0x2000 2 1000 --type UNSIGNED16 || fail "sdo-write 0x2000:2"
-"${DIAG[@]}" sdo-write 5 0x6126 1 2.5 --type REAL32 || fail "sdo-write 0x6126:1"
+echo "==> Changing three parameters by hand (node 5 is OPERATIONAL: --force)"
+"${DIAG[@]}" sdo-write 5 0x6112 1 1 --type UNSIGNED8 --force || fail "sdo-write 0x6112:1"
+"${DIAG[@]}" sdo-write 5 0x2000 2 1000 --type UNSIGNED16 --force || fail "sdo-write 0x2000:2"
+"${DIAG[@]}" sdo-write 5 0x6126 1 2.5 --type REAL32 --force || fail "sdo-write 0x6126:1"
 
 "${DIAG[@]}" compare 5 --with backup.dcf --config canopen_config.json > compare1.txt || { cat compare1.txt; fail "compare failed"; }
 cat compare1.txt
 grep -q "3 different" compare1.txt || fail "compare did not find the three changes"
 
 echo "==> Restore"
-"${DIAG[@]}" restore 5 backup.dcf --config canopen_config.json --yes > restore.txt || { cat restore.txt; fail "restore failed"; }
+"${DIAG[@]}" --force restore 5 backup.dcf --config canopen_config.json --yes > restore.txt || { cat restore.txt; fail "restore failed"; }
 cat restore.txt
 grep -q "3 written, 0 failed" restore.txt || fail "restore did not write the three values"
 

@@ -27,6 +27,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <functional>
 #include <mutex>
@@ -60,6 +61,9 @@ struct DiagRequest {
   std::vector<uint8_t> data;  // sdo_write
   unsigned timeout_ms = 1000;
   std::string command;  // nmt: start, stop, preop, reset, reset-comm
+  // sdo_write, nmt (but start) and scan: go ahead although a configured node
+  // is OPERATIONAL (checked on the bus thread, which knows the states).
+  bool force = false;
   // LSS: the device's address (vendor ID, product code, revision number,
   // serial number); lss_find uses only vendor and product, when lss_known.
   uint32_t lss[4] = {};
@@ -129,6 +133,13 @@ class DiagHub {
   // detach().
   void set_operational(const std::string& label);
   std::string operational() const;
+  // Bus thread: the identifiers the running network's own dictionary uses
+  // (dictionary_id_uses() in frame_tx.h), refreshed at most once a second:
+  // ids_due() says when. Cleared by detach().
+  bool ids_due();
+  void set_used_ids(std::map<uint32_t, std::string> ids);
+  // Server thread: what the dictionary uses `id` for, or "".
+  std::string used_id(uint32_t id, bool ext) const;
   // Server thread: the network's cyclic send jobs as a JSON array, for
   // status answers.
   void set_send_jobs(const std::string& json_array);
@@ -158,6 +169,9 @@ class DiagHub {
   void sweep_progress(const SweepProgress& p);
   void sweep_done(const SweepResult& r);
   bool sweep_busy() const;  // pending or running
+  // Server thread: ends the pending or running sweep after its current rate
+  // (detect_bitrate_stop); false when none is pending or running.
+  bool stop_sweep(const std::string& peer);
   // The detect_bitrate_status result.
   cJSON* sweep_status() const;
 
@@ -181,6 +195,8 @@ class DiagHub {
   std::function<cJSON*()> host_status_;
   std::function<bool()> raw_running_;
   std::string operational_;
+  std::map<uint32_t, std::string> used_ids_;
+  std::chrono::steady_clock::time_point ids_at_{};
   std::string send_jobs_ = "[]";
   bool sweep_pending_ = false, sweep_running_ = false, sweep_ever_ = false;
   SweepRequest sweep_req_;
@@ -199,7 +215,8 @@ class DiagServer {
   static constexpr size_t kMaxUploadBytes = 8 * 1024 * 1024;
   static constexpr size_t kMaxAuthedLine = kMaxUploadBytes / 3 * 4 + 64 * 1024;
   static constexpr size_t kMaxSendBuffer = 256 * 1024;
-  static constexpr std::chrono::seconds kHelloTimeout{10};
+  // A connection that has not logged in by then is closed.
+  static constexpr std::chrono::seconds kLoginTimeout{5};
   static constexpr std::chrono::seconds kRetryListen{10};
 
   static constexpr size_t kTraceFetchDefault = 2000;
@@ -237,6 +254,12 @@ class DiagServer {
   void set_host(DiagHost host) { host_ = std::move(host); }
   // For tests: how the server reads a link (bit rate detection refusals).
   void set_link_ops(std::unique_ptr<LinkOps> ops) { link_ops_ = std::move(ops); }
+  // For tests, before start(): a shorter login time limit.
+  void set_login_timeout(std::chrono::milliseconds t) { login_timeout_ = t; }
+  // For tests, after stop(): the failed login records kept, and pruning them
+  // as the server thread does at `now`.
+  size_t auth_records() const { return auth_failed_.size() + auth_logged_.size(); }
+  void prune_auth(std::chrono::steady_clock::time_point now);
 
   static constexpr unsigned kMaxJobsPerNetwork = 8;
   static constexpr unsigned kMinPeriodMs = 10;
@@ -246,6 +269,10 @@ class DiagServer {
   static constexpr size_t kReplayBatch = 500;
   static constexpr size_t kReplayMaxFrames = 200000;
   static constexpr unsigned kReplayMaxRate = 1000;  // frames in any second
+  // Bit rate detection: listening time per rate times rates times rounds.
+  static constexpr unsigned kMaxSweepMs = 120000;
+  // Failed login records are dropped this long after their last use.
+  static constexpr std::chrono::minutes kAuthKeep{10};
 
  private:
   enum class Mode { unknown, plain, tls };
@@ -253,6 +280,7 @@ class DiagServer {
     int fd = -1;
     std::string peer;  // address only
     std::string in;    // plaintext received
+    size_t scanned = 0;  // bytes of `in` searched for a line end already
     std::string out;   // plaintext to send (through `tls` in TLS mode)
     Mode mode = Mode::unknown;  // from the connection's first byte
     std::unique_ptr<TlsConn> tls;
@@ -271,6 +299,10 @@ class DiagServer {
     std::chrono::steady_clock::time_point trace_fetched;
     uint64_t serial = 0;  // identifies the connection's send jobs
     RateLimit tx_limit{kSingleFramesPerSecond, kSingleFramesPerSecond};
+    // Single send_frame log lines: at most one a second, the rest counted.
+    std::chrono::steady_clock::time_point frame_logged{};
+    uint64_t frames_unlogged = 0;
+    size_t frames_net = 0;
   };
 
   // A cyclic send job (send_frame with period_ms).
@@ -303,6 +335,8 @@ class DiagServer {
     bool forced = false;
     uint64_t sent = 0, rounds = 0;
     std::chrono::steady_clock::time_point started, round_start, blocked_since{};
+    // When the last kReplayMaxRate frames went out (the run-time rate limit).
+    std::deque<std::chrono::steady_clock::time_point> recent;
     std::string reason;  // set when it ended
     std::chrono::steady_clock::time_point ended;
   };
@@ -331,6 +365,10 @@ class DiagServer {
   bool flush(Client& c);  // false: connection lost
   void close_client(size_t i);
   void log_auth_failure(const std::string& peer);
+  // Whether the client's address waits after a failed login.
+  bool in_backoff(const Client& c, std::chrono::steady_clock::time_point now) const;
+  // The send_frame lines not logged one by one, as one line.
+  void log_unlogged_frames(Client& c);
   // Bytes from the socket: picks plain or TLS on the first byte.
   void on_wire(Client& c, const char* data, size_t n);
   // Requests before the login is done (hello, login).
@@ -362,6 +400,7 @@ class DiagServer {
   void handle_tx(Client& c, size_t net, const std::string& op, const std::string& id, const cJSON* req);
   void handle_send(Client& c, size_t net, const std::string& id, const cJSON* req);
   void handle_detect(Client& c, size_t net, const std::string& id, const cJSON* req);
+  void handle_detect_stop(Client& c, size_t net, const std::string& id);
   // Why `force` is needed for frame `f` on `net`, or "".
   std::string force_reason(size_t net, const RawFrame& f) const;
   int send_now(size_t net, const RawFrame& f);
@@ -391,6 +430,7 @@ class DiagServer {
   bool warned_listen_ = false;
 
   std::chrono::milliseconds trace_idle_{10000};
+  std::chrono::milliseconds login_timeout_{kLoginTimeout};
 
   std::vector<TxJob> jobs_;   // running
   std::vector<TxJob> ended_;  // ended in the last kEndedKeep

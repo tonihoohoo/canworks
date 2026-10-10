@@ -50,6 +50,7 @@ NMT_COMMANDS = ("start", "stop", "preop", "reset", "reset-comm")
 LSS_BITRATES = (10, 20, 50, 125, 250, 500, 800, 1000)  # kbit/s, the CiA 305 bit timing table
 LSS_KEYS = ("vendor_id", "product_code", "revision_number", "serial_number")
 DETECT_RATES = (1000, 800, 500, 250, 125, 50, 20, 10)  # kbit/s, the order a bit rate sweep listens in
+MAX_SWEEP_S = 120  # bit rate detection: listening time per rate times rates times rounds
 FORCE_NEEDED = "force needed"  # the end of a refusal the request may be repeated with force: true
 DISTURB_NEEDED = "disturb_bus needed"  # ... with disturb_bus: true (an adapter that does not confirm listen-only)
 TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
@@ -388,6 +389,10 @@ class Client:
     def __init__(self, host, port=DEFAULT_PORT, token="", timeout=5.0, network=None):
         self.host, self.port, self.token, self.timeout = host, port, token, timeout
         self.network = network
+        # Sent as force: true with sdo_write, nmt and scan unless a call says
+        # otherwise: the plugin refuses them without it while a configured
+        # node is OPERATIONAL (canworks-diag --force).
+        self.force = False
         self.sock = None
         self.buf = b""
         self.info = None
@@ -515,7 +520,10 @@ class Client:
             raise DiagError("eof", "not connected to %s" % self.where)
         rid = self.next_id
         self.next_id += 1
-        msg = dict(fields, op=op, id=rid)
+        # "op" first: the plugin reads a long line only for put_config, which
+        # it sees at the start of the line.
+        msg = {"op": op, "id": rid}
+        msg.update(fields)
         if op != "hello" and self.network and "network" not in msg and self.several():
             msg["network"] = self.network
         if timeout is not None:
@@ -559,15 +567,20 @@ class Client:
         return self.request("sdo_read", timeout=self.timeout + timeout_ms / 1000.0, node=node, index=index,
                             subindex=subindex, timeout_ms=timeout_ms)
 
-    def sdo_write(self, node, index, subindex, data, timeout_ms=1000):
+    def _forced(self, force):
+        return {"force": True} if (self.force if force is None else force) else {}
+
+    def sdo_write(self, node, index, subindex, data, timeout_ms=1000, force=None):
         return self.request("sdo_write", timeout=self.timeout + timeout_ms / 1000.0, node=node, index=index,
-                            subindex=subindex, data=hex_bytes(data), timeout_ms=timeout_ms)
+                            subindex=subindex, data=hex_bytes(data), timeout_ms=timeout_ms, **self._forced(force))
 
-    def nmt(self, node, command):
-        return self.request("nmt", node=node, command=command)
+    def nmt(self, node, command, force=None):
+        return self.request("nmt", node=node, command=command, **self._forced(force))
 
-    def scan(self, start=True):
-        return self.request("scan" if start else "scan_status")
+    def scan(self, start=True, force=None):
+        if not start:
+            return self.request("scan_status")
+        return self.request("scan", **self._forced(force))
 
     # LSS (CiA 305). An address is (vendor_id, product_code, revision_number,
     # serial_number). Everything but lss_find_status needs allow_changes.
@@ -668,6 +681,11 @@ class Client:
 
     def detect_bitrate_status(self):
         return self.request("detect_bitrate_status")
+
+    def detect_bitrate_stop(self):
+        """Ends the running sweep after its current rate; the answer is its
+        progress."""
+        return self.request("detect_bitrate_stop")
 
 
 def too_old(e):
@@ -811,7 +829,7 @@ def _network_arg(p, text="the network to talk to (needed when the runtime runs s
 # too, but goes over every network without it).
 NETWORK_COMMANDS = ("emcy", "sdo-read", "sdo-write", "nmt", "scan", "lss-find", "lss-inquire", "lss-set-id",
                     "lss-set-bitrate", "trace", "backup", "compare", "restore", "store", "send", "send-stop",
-                    "detect-bitrate", "configure", "restore-defaults", "pdo-test", "replay")
+                    "detect-bitrate", "detect-bitrate-stop", "configure", "restore-defaults", "pdo-test", "replay")
 
 
 def _int_range(what, lo, hi):
@@ -862,7 +880,9 @@ def parser():
     p.add_argument("--allow-changes", action="store_true",
                    help="--adapter: allow SDO writes, NMT, LSS, restore and store in this session")
     p.add_argument("--force", action="store_true",
-                   help="--adapter: run LSS even while another master is active on the bus")
+                   help="go ahead although a node is OPERATIONAL: SDO writes, NMT commands other than start, the "
+                        "scan, and the parameter commands that write; with --adapter also run LSS while another "
+                        "master is active on the bus")
     p.add_argument("--sim", dest="sim_addr", metavar="HOST[:PORT]",
                    help="sim commands: a standalone simulator's control channel (default port 7532)")
     p.add_argument("--token", help="access token (default: $%s, else a prompt)" % TOKEN_ENV)
@@ -890,10 +910,16 @@ def parser():
     w.add_argument("value", help="the value; hex bytes for OCTET_STRING and DOMAIN")
     w.add_argument("--type", type=_type, required=True, help="the object's type")
     w.add_argument("--sdo-timeout", type=int, default=1000, metavar="MS", help="SDO timeout (default %(default)s)")
+    w.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
+                   help="write even when the node is OPERATIONAL")
     n = sub.add_parser("nmt", help="send an NMT command to a configured node (needs allow_changes)")
     n.add_argument("node", type=_node)
     n.add_argument("nmt_command", choices=NMT_COMMANDS, metavar="|".join(NMT_COMMANDS))
+    n.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
+                   help="send it even when the node is OPERATIONAL (start never needs it)")
     sc = sub.add_parser("scan", help="find the devices on the bus (node IDs 1-127)")
+    sc.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
+                    help="scan even while a node is OPERATIONAL")
     sc.add_argument("--config", metavar="canworks.json", help="--adapter: compare the devices with this config")
     lf = sub.add_parser("lss-find", help="find a device without a node ID with LSS fastscan (needs allow_changes)")
     lf.add_argument("--vendor", type=_u32("vendor ID"), help="only devices with this vendor ID (needs --product)")
@@ -965,6 +991,8 @@ def parser():
                     help="--adapter, bench only: join the bus at each rate in normal mode so the adapter "
                          "acknowledges a device that is alone on the bus (needs --allow-changes; at wrong rates "
                          "the adapter's error frames reach the device)")
+    sub.add_parser("detect-bitrate-stop", help="end a running bit rate detection after its current rate "
+                                               "(needs allow_changes)")
     db.add_argument("--probe", type=_probe, metavar="lss|sdo:NODE",
                     help="--lone-device: make a quiet device answer, with LSS (no node ID needed) or an SDO "
                          "request to NODE")
@@ -2176,12 +2204,24 @@ def _print_sweep(res, out):
                   r[3] + "\n")
 
 
+def _detect_stop(client, args, out):
+    """detect-bitrate-stop: ends the sweep after its current rate."""
+    res = client.detect_bitrate_stop()
+    if not args.json:
+        out.write("bit rate detection stops after the rate it listens at now; CANopen starts again then\n")
+    return res
+
+
 def _detect(client, args, out):
     """detect-bitrate: starts the sweep, follows it, prints the table and the
     verdict; exits 0 only when one rate was detected."""
     try:
         if args.probe and not args.lone_device:
             raise DiagError("usage", "--probe is for the lone-device sweep (--lone-device)")
+        total = (args.per_rate_ms or 1000) * len(args.rates or DETECT_RATES) * (args.rounds or 1)
+        if total > MAX_SWEEP_S * 1000:
+            raise DiagError("usage", "the sweep would listen %d s; --per-rate-ms times the rates times --rounds may "
+                                     "be at most %d s" % (total // 1000, MAX_SWEEP_S))
         res = client.detect_bitrate(args.rates, args.per_rate_ms, args.rounds, args.force, args.disturb_bus,
                                     args.lone_device, args.probe)
     except DiagError as e:
@@ -2259,6 +2299,7 @@ def run(args, out=sys.stdout):
             raise DiagError("usage", str(e))
         client = Client(host, port, _token(args), args.timeout, network=args.network)
     client.connect()
+    client.force = bool(getattr(args, "force", False))
     try:
         all_networks = args.command == "status" and not args.network and client.several()
         if not all_networks:
@@ -2348,10 +2389,10 @@ def run(args, out=sys.stdout):
             res = _commissioning(client, args, out)
         elif args.command == "pdo-test":
             res = _pdo_test(client, args, out)
-        elif args.command in ("send", "send-stop", "detect-bitrate", "replay"):
+        elif args.command in ("send", "send-stop", "detect-bitrate", "detect-bitrate-stop", "replay"):
             try:
                 res = {"send": _send, "send-stop": _send_stop, "detect-bitrate": _detect,
-                       "replay": _replay}[args.command](
+                       "detect-bitrate-stop": _detect_stop, "replay": _replay}[args.command](
                     client, args, out)
             except DiagError as e:
                 if too_old(e):
@@ -2627,7 +2668,7 @@ def main(argv=None):
     try:
         return run(args, sys.stdout)
     except DiagError as e:
-        print("canworks-diag: %s" % e, file=sys.stderr)
+        print("canworks-diag: %s%s" % (e, "; add --force to go ahead" if needs_force(e) else ""), file=sys.stderr)
         if args.command == "sim" and getattr(args, "sim_command", None) == "test":
             return 2  # a test run that could not start
         return 2 if e.kind == "usage" else 1

@@ -14,6 +14,8 @@
 
 #if CANWORKS_WITH_CANOPEN
 #include <lely/can/msg.h>
+#include <lely/co/dev.hpp>
+#include <lely/co/obj.hpp>
 #endif
 
 namespace canopen_plugin {
@@ -38,12 +40,19 @@ std::string raw_frame_text(const RawFrame& f) {
 
 namespace {
 
-std::string node_use(const NodeConfig& n, uint32_t id) {
+// Whether a PDO COB-ID (bit 29: extended) is the identifier `id`.
+bool pdo_is(uint32_t cob, uint32_t id, bool ext) {
+  const bool cob_ext = (cob & 0x20000000u) != 0;
+  return cob_ext == ext && (cob & (cob_ext ? 0x1FFFFFFFu : 0x7FFu)) == id;
+}
+
+std::string node_use(const NodeConfig& n, uint32_t id, bool ext) {
   const std::string who = " of " + n.label();
   for (const auto& p : n.tx_pdos)
-    if (n.tpdo_cob_id(p) == id) return "TPDO" + std::to_string(p.number) + who;
+    if (pdo_is(n.tpdo_cob_id(p), id, ext)) return "TPDO" + std::to_string(p.number) + who;
   for (const auto& p : n.rx_pdos)
-    if (n.rpdo_cob_id(p) == id) return "RPDO" + std::to_string(p.number) + who;
+    if (pdo_is(n.rpdo_cob_id(p), id, ext)) return "RPDO" + std::to_string(p.number) + who;
+  if (ext) return "";
   const uint32_t nid = n.node_id;
   if (id == 0x80 + nid) return "EMCY" + who;
   for (unsigned k = 0; k < 4; ++k) {
@@ -59,7 +68,15 @@ std::string node_use(const NodeConfig& n, uint32_t id) {
 }  // namespace
 
 std::string cob_id_use(const Config& cfg, uint32_t id, bool ext) {
-  if (ext) return "";
+  if (ext) {
+    // Only a PDO can have an extended COB-ID here.
+    if (cfg.is_slave()) return "";
+    for (const auto& n : cfg.nodes) {
+      std::string use = node_use(n, id, true);
+      if (!use.empty()) return use;
+    }
+    return "";
+  }
   if (id == 0x000) return "NMT";
   if (id == 0x080) return "SYNC";
   if (id == 0x7E4 || id == 0x7E5) return "LSS";
@@ -82,8 +99,10 @@ std::string cob_id_use(const Config& cfg, uint32_t id, bool ext) {
   const uint32_t mid = cfg.master.node_id;
   if (id == 0x700 + mid) return "the master's heartbeat";
   if (id == 0x80 + mid) return "the master's EMCY";
+  if (id == 0x600 + mid) return "the request channel of the master's SDO server";
+  if (id == 0x580 + mid) return "the response channel of the master's SDO server";
   for (const auto& n : cfg.nodes) {
-    std::string use = node_use(n, id);
+    std::string use = node_use(n, id, false);
     if (!use.empty()) return use;
   }
   return "";
@@ -101,6 +120,37 @@ std::string protocol_id_use(const Config& cfg, uint32_t id, bool ext) {
   }
   return cob_id_use(cfg, id, ext);
 }
+
+#if CANWORKS_WITH_CANOPEN
+std::map<uint32_t, std::string> dictionary_id_uses(const __co_dev* d, const std::string& owner) {
+  std::map<uint32_t, std::string> out;
+  // In C++ Lely's co_dev_t is its own type over the same object.
+  const co_dev_t* dev = reinterpret_cast<const co_dev_t*>(d);
+  if (!dev) return out;
+  auto cob_at = [dev](unsigned idx, unsigned sub, uint32_t& cob) {
+    const co_sub_t* s = co_dev_find_sub(dev, static_cast<co_unsigned16_t>(idx), static_cast<co_unsigned8_t>(sub));
+    if (!s || co_sub_get_type(s) != CO_DEFTYPE_UNSIGNED32) return false;
+    cob = co_sub_get_val_u32(s);
+    return true;
+  };
+  auto add = [&out](uint32_t cob, const std::string& what) {
+    if (cob & 0x80000000u) return;  // not valid: the PDO or channel is off
+    const bool ext = (cob & 0x20000000u) != 0;
+    out.emplace(id_use_key(cob & (ext ? 0x1FFFFFFFu : 0x7FFu), ext), what);
+  };
+  uint32_t cob = 0;
+  for (unsigned n = 1; n <= 512; ++n) {
+    if (cob_at(0x1400 + n - 1, 1, cob)) add(cob, "RPDO" + std::to_string(n) + " of " + owner);
+    if (cob_at(0x1800 + n - 1, 1, cob)) add(cob, "TPDO" + std::to_string(n) + " of " + owner);
+  }
+  for (unsigned n = 0; n < 128; ++n) {
+    const std::string which = n ? " " + std::to_string(n + 1) : "";
+    if (cob_at(0x1200 + n, 1, cob)) add(cob, "the request channel of the SDO server" + which + " of " + owner);
+    if (cob_at(0x1200 + n, 2, cob)) add(cob, "the response channel of the SDO server" + which + " of " + owner);
+  }
+  return out;
+}
+#endif
 
 std::string raw_id_use(const Config& cfg, uint32_t id, bool ext) {
   for (const auto& m : cfg.raw.tx)
