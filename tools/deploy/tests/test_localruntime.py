@@ -195,7 +195,9 @@ class Start(WithRuntime):
         self.assertEqual(len(saved["fingerprint"].split(":")), 32)
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(os.stat(localruntime.settings_path()).st_mode), 0o600)
-        self.assertIn("address localhost:%d, user openplc, password %s" % (self.port, saved["password"]), out)
+        self.assertIn("address localhost:%d, user openplc" % self.port, out)
+        self.assertNotIn(saved["password"], out)  # only `status --show-password` prints it
+        self.assertIn("canworks-sim-runtime status --show-password", out)
         self.assertIn("Every CANopen network runs simulated here", out)
 
     def test_pull_when_missing(self):
@@ -214,6 +216,38 @@ class Start(WithRuntime):
         self.assertIn(["docker", "start", localruntime.CONTAINER], self.engine.calls)
         self.assertEqual(localruntime.load_settings(), first)
         self.assertEqual(len(self.engine.runs()), 1)
+
+    def pin_other_certificate(self):
+        """The saved fingerprint stops matching: another program now answers
+        on the port with its own certificate."""
+        doc = localruntime.load_settings()
+        doc["fingerprint"] = ":".join(["00"] * 32)
+        localruntime.save_settings(doc)
+        self.stub.requests.clear()
+        return doc
+
+    def test_changed_certificate_refused(self):
+        self.assertEqual(self.start()[0], 0)
+        doc = self.pin_other_certificate()
+        self.assertEqual(self.cli("stop")[0], 0)
+        for _ in range(2):  # a stopped container started again, and one already running
+            code, out, err = self.start()
+            self.assertEqual(code, 1)
+            self.assertIn("certificate changed", err)
+            self.assertIn("canworks-sim-runtime start", err)
+            self.assertNotIn(("POST", "/api/login"), self.stub.requests)  # the password was not sent
+            self.assertEqual(localruntime.load_settings(), doc)
+            self.assertNotIn(doc["password"], out + err)
+
+    def test_recreated_container_pinned_again(self):
+        self.assertEqual(self.start()[0], 0)
+        first = localruntime.load_settings()
+        self.pin_other_certificate()
+        self.assertEqual(self.cli("remove")[0], 0)
+        code, out, err = self.start()
+        self.assertEqual(code, 0, err)
+        self.assertIn("the runtime's certificate changed; the new fingerprint is saved", out)
+        self.assertEqual(localruntime.load_settings()["fingerprint"], first["fingerprint"])
 
     def test_lost_credentials(self):
         self.assertEqual(self.start()[0], 0)
@@ -338,6 +372,21 @@ class LocalTarget(WithRuntime):
             code, out, err = deploy("--bundle", src, "--config", config, "--runtime", "local")
         self.assertEqual(code, 0, err)
         self.assertFalse(ask.called)
+
+    def test_changed_certificate_stops_before_login(self):
+        self.assertEqual(self.start()[0], 0)
+        self.stub.users = ["openplc"]
+        doc = localruntime.load_settings()
+        doc["fingerprint"] = ":".join(["00"] * 32)
+        localruntime.save_settings(doc)
+        self.stub.requests.clear()
+        config = pingpong_config(self.dir)
+        src = editor_bundle(os.path.join(self.dir, "src"))
+        code, out, err = deploy("--bundle", src, "--config", config, "--runtime", "local")
+        self.assertEqual(code, 1)
+        self.assertIn("the local runtime's certificate changed", err)
+        self.assertIn("canworks-sim-runtime start", err)
+        self.assertEqual(self.stub.requests, [])
 
     def test_no_local_runtime(self):
         config = pingpong_config(self.dir)

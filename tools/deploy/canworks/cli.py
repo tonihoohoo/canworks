@@ -569,7 +569,13 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         err("warning: --insecure: the runtime's certificate is not checked")
     sent = False
     try:
-        client._connect().close()  # certificate first, before any credentials
+        try:
+            client._connect().close()  # certificate first, before any credentials
+        except runtime.CertificateError as e:
+            if local and fingerprint == local.get("fingerprint"):
+                raise Failure(localruntime.certificate_changed(local["port"], fingerprint,
+                                                               client._peek_fingerprint() or "unknown"))
+            raise
         password = local["password"] if local and user == local.get("user") else os.environ.get("OPENPLC_PASSWORD")
         if password is None:
             password = (password_source or getpass.getpass)("Password for %s on %s: " % (user, args.runtime))

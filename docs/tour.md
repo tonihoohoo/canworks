@@ -22,7 +22,7 @@ Times and cycle figures in a container say nothing about a real target.
    canworks-sim-runtime start
    ```
 
-   It prints the address `localhost:8443`, the user and the password for the editor.
+   It prints the address `localhost:8443` and the user for the editor; `canworks-sim-runtime status --show-password` prints the password.
 5. The example: download the repository (**Code → Download ZIP** on GitHub, or `git clone`) and copy `examples/virtual-plant` to where you keep editor projects.
 
 The diagnostics token of the example is `virtual-plant-demo`. Set it for the command line in this terminal:
@@ -65,7 +65,7 @@ canworks-deploy slave-eds canworks/cell_eds.json -o cell.eds --gateway canworks/
 
 ## 4. Upload and the debugger
 
-In the editor: open the project folder, set the device to OpenPLC Runtime v4 at `localhost:8443` with the printed user and password, and **Build and Upload** ([local-runtime.md](local-runtime.md#use-it)). The `canworks/` folder travels with the upload.
+In the editor: open the project folder, set the device to OpenPLC Runtime v4 at `localhost:8443` with the printed user and the password from `canworks-sim-runtime status --show-password`, and **Build and Upload** ([local-runtime.md](local-runtime.md#use-it)). The `canworks/` folder travels with the upload.
 
 `canworks-sim-runtime logs` shows the start: each network's simulated bus, `node 7 (new_io): LSS assigned node ID 7 (previous: none)`, then every node OPERATIONAL, `host: node 20 (cell) is operational` and `cell: gateway: the upper master started this node; routes run`.
 
