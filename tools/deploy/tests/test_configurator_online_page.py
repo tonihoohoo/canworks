@@ -507,6 +507,9 @@ class OnlinePage(OnlineBase):
             # The new node's page opens with its name focused; the message leads back to the scan.
             pg.wait_for_selector('#view h2:has-text("Node 40")')
             self.assertEqual(pg.evaluate("() => document.activeElement.dataset.path"), "nodes[1].name")
+            # The test EDS has no heartbeat default: the checks want supervision.
+            pg.select_option("select[data-supervision]", "heartbeat")
+            pg.fill('input[data-path="nodes[1].heartbeat_ms"]', "100")
             pg.click('[data-online="back-to-scan"]')
             pg.wait_for_selector('tr[data-scan-node="40"]:has-text("added")')
             # C12: added, not "not configured"; no Use for node for it.
@@ -520,7 +523,8 @@ class OnlinePage(OnlineBase):
             pg.wait_for_selector("#banner:has-text('Saved')")
         nodes = load(self.config_path)["nodes"]
         self.assertEqual(nodes[1], {"node_id": 40, "name": "rtd_sensor", "eds": "rtd.eds",
-                                    "revision_number": 0x00010002, "serial_number": 99})
+                                    "revision_number": 0x00010002, "serial_number": 99,
+                                    "heartbeat_ms": 100})
         self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "rtd.eds")))
 
     def test_library_change_matches_the_shown_devices_again(self):
@@ -577,6 +581,8 @@ class OnlinePage(OnlineBase):
             self.assertEqual(pg.locator('[data-online="back-to-scan"]').count(), 0)
             self.assertIn("Back to the online view", pg.inner_text('[data-online="back-to-online"]'))
             self.assertEqual(len(load(self.config_path)["nodes"]), 1)  # unsaved
+            pg.select_option("select[data-supervision]", "heartbeat")
+            pg.fill('input[data-path="nodes[1].heartbeat_ms"]', "100")
             pg.wait_for_function("() => document.body.dataset.checking === '0'")
             pg.click("#btn-save")
             pg.wait_for_selector("#banner:has-text('Saved')")

@@ -29,7 +29,7 @@ class ParamsPage(OnlineBase):
         cfg["nodes"][0]["sdo_variables"] = [{"name": "alarm_limit", "index": "0x6126", "subindex": 2, "type": "REAL32",
                                              "direction": "write", "iec_location": "%QD310"}]
         for e in cfg["nodes"][0]["tx_pdos"][0]["entries"]:
-            e["iec_location"] = e["iec_location"].replace("%IW", "%IW3")
+            e["iec_location"] = e["iec_location"].replace("%IW1", "%IW3")
         cfg["nodes"][0]["status_location"] = "%IX310.0"
         self.cfg = cfg
         shutil.copy(os.path.join(RTD, "rtd8.eds"), os.path.join(self.project, "canworks"))
@@ -226,7 +226,7 @@ class ParamsPage(OnlineBase):
             # PDO marks with the PLC location.
             pg.check('input[data-od-filter="pdo"]')
             self.search("")
-            self.assertIn("TPDO1 bits 0-15, %IW3100", pg.inner_text('tr[data-od-key="%d:1"]' % 0x7130))
+            self.assertIn("TPDO1 bits 0-15, %IW300", pg.inner_text('tr[data-od-key="%d:1"]' % 0x7130))
             self.assertIn("TPDO1 bits 16-31", pg.inner_text('tr[data-od-key="%d:2"]' % 0x7130))
             pg.uncheck('input[data-od-filter="pdo"]')
             # Bit view of the error register.
@@ -255,7 +255,7 @@ class ParamsPage(OnlineBase):
         """improve-od-browser 3.1-3.2."""
         pg = self.page
         self.cfg["nodes"][0]["sdo_variables"].append({"name": "sensor5", "index": "0x6110", "subindex": 5, "type": "UNSIGNED16",
-                                                      "direction": "read", "iec_location": "%IW3200", "period_ms": 100})
+                                                      "direction": "read", "iec_location": "%IW320", "period_ms": 100})
         with self.device() as fp:
             self.open_node(fp, tab="od")
             pg.wait_for_selector('details[data-od-group="profile"]')

@@ -81,9 +81,14 @@ class Page(unittest.TestCase):
         pg.click("#browser-open")
         pg.wait_for_selector("#editor:not([hidden])")
 
-    def add_node(self, eds):
+    def add_node(self, eds, heartbeat="100"):
+        """Adds a node from `eds` and gives it a heartbeat: the test EDS files
+        default to none, which the checks refuse (no supervision)."""
         self.page.set_input_files("#eds-input", eds)
         self.page.wait_for_selector("details[data-picker]")
+        if heartbeat is not None:
+            self.page.locator("select[data-supervision]:visible").last.select_option("heartbeat")
+            self.page.locator('input[data-path$=".heartbeat_ms"]:visible').last.fill(heartbeat)
 
     def settled(self):
         """Waits for the debounced check to finish."""
@@ -142,7 +147,7 @@ class Page(unittest.TestCase):
         pg.select_option('select[data-path="adapter.bitrate"]', "250000")
         self.fill("adapter.restart_ms", "100")
         self.fill("master.sync_period_us", "10")
-        self.add_node(os.path.join(RTD, "rtd8.eds"))
+        self.add_node(os.path.join(RTD, "rtd8.eds"), heartbeat=None)
         self.fill("nodes[0].node_id", "5")
         self.fill("nodes[0].name", "rtd")
         # Supervision is a dropdown; only the chosen method's fields show.
@@ -215,11 +220,9 @@ class Page(unittest.TestCase):
     def test_export_dcf(self):
         pg = self.page
         self.open_from_start("#start-project", self.project)
-        self.add_node(os.path.join(RTD, "rtd8.eds"))
+        self.add_node(os.path.join(RTD, "rtd8.eds"), heartbeat="200")
         self.fill("nodes[0].node_id", "5")
         self.fill("nodes[0].name", "rtd")
-        pg.select_option('select[data-supervision="0"]', "heartbeat")
-        self.fill("nodes[0].heartbeat_ms", "200")
         self.settled()
         # One node, unsaved: the download is the draft's DCF.
         with pg.expect_download() as dl:
@@ -340,7 +343,7 @@ class Page(unittest.TestCase):
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         cfg = srv.empty_config()
         cfg["master"]["strict_eds"] = False
-        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "tx_pdos": [{"entries": [
+        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"entries": [
             {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
@@ -366,7 +369,7 @@ class Page(unittest.TestCase):
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         cfg = srv.empty_config()
-        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "tx_pdos": [{"transmission": 255,
+        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"transmission": 255,
             "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
@@ -385,7 +388,7 @@ class Page(unittest.TestCase):
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         cfg = srv.empty_config()  # SYNC period 10 ms; the EDS's TPDO 1 is type 1
-        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "tx_pdos": [{
+        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{
             "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
@@ -923,7 +926,12 @@ class Page(unittest.TestCase):
     def test_supervision_method_switch(self):
         pg = self.page
         self.open_from_start("#start-project", self.project)
-        self.add_node(os.path.join(RTD, "rtd8.eds"))
+        self.add_node(os.path.join(RTD, "rtd8.eds"), heartbeat=None)
+        # The EDS heartbeat is 0: with "EDS default" the node would never be
+        # seen lost, which is refused under Method.
+        msg = '.field-msg[data-for="nodes[0].heartbeat_ms"]'
+        pg.wait_for_selector(msg + ':has-text("has no heartbeat or guarding")')
+        self.assertIn("has no heartbeat or guarding", pg.inner_text("#problem-list"))
         pg.select_option('select[data-supervision="0"]', "heartbeat")
         self.fill("nodes[0].heartbeat_ms", "100")
         pg.select_option('select[data-supervision="0"]', "guarding")

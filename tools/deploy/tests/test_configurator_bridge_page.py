@@ -57,9 +57,16 @@ class BridgePage(OnlineBase):
         self.to_bridge()
         pg.click("#nav-bridge")
         pg.wait_for_selector("h2:has-text('Modbus bridge')")
-        # Writers is required; the hint names how to let every host write.
-        self.assertEqual(pg.get_attribute('input[data-path="bridge.writers"]', "placeholder"), "required")
+        # Writers is required: the switch starts it empty (nobody writes) and
+        # the hint names how to let every host write.
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), [])
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.get_attribute('input[data-path="bridge.writers"]', "placeholder"), "nobody writes")
         self.assertIn("0.0.0.0/0, ::/0", pg.inner_text('label:has(input[data-path="bridge.writers"])'))
+        pg.fill('input[data-path="bridge.writers"]', "0.0.0.0/0, ::/0")
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), ["0.0.0.0/0", "::/0"])
+        pg.fill('input[data-path="bridge.writers"]', "")
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), [])  # empty: nobody, never missing
         pg.fill('input[data-path="bridge.writers"]', "192.168.10.0/24, 192.168.20.5")
         pg.fill('input[data-path="bridge.max_clients_per_address"]', "2")
         self.checked()

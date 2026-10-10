@@ -52,7 +52,8 @@ async function switchTarget(target) {
       "A bridge config is byte-addressed, so OpenPLC's per-type locations usually overlap there. Pack every location for Modbus?",
       [["cancel", "Cancel"], ["keep", "Switch, keep the locations"], ["pack", "Switch and pack for Modbus", true]]);
     if (v !== "keep" && v !== "pack") { render(); return; }
-    top.bridge = { listen: BRIDGE_LISTEN };
+    // writers is required: none until the user lists the addresses that may write.
+    top.bridge = { listen: BRIDGE_LISTEN, writers: [] };
     if (v === "pack") {
       try {
         bridgeReplaceDraft((await api("POST", "/api/bridge/pack", { config: fileConfig() })).config);
@@ -122,10 +123,11 @@ function bridgeListenFields() {
 }
 
 // A comma-separated address list as a JSON list.
-function bridgeListField(label, path, help, placeholder) {
-  return field(label, path, "text", { placeholder: placeholder || "every client", hint: help,
+// `empty` is what an empty field saves: undefined drops the key.
+function bridgeListField(label, path, help, placeholder, empty) {
+  return field(label, path, "text", { placeholder: placeholder || "every client", hint: help, empty,
     show: (v) => (Array.isArray(v) ? v.join(", ") : v),
-    parse: (t) => { const l = t.split(/[\s,]+/).filter(Boolean); return l.length ? l : undefined; } });
+    parse: (t) => { const l = t.split(/[\s,]+/).filter(Boolean); return l.length ? l : empty; } });
 }
 
 // A block location with Suggest: the first free range after the packed data.
@@ -165,7 +167,7 @@ function renderBridge(view) {
           hint: "Connections from one address at once, 1 to 64. When every slot is taken, a writer's address closes the oldest connection of a client that may not write." }))),
     el("fieldset", null, el("legend", null, "Clients"),
       el("div", { class: "grid" },
-        bridgeListField("Writers", "bridge.writers", "Required: the addresses or prefixes (192.168.10.20, 192.168.10.0/24) allowed to write; no other client can. To let every host write, give 0.0.0.0/0, ::/0.", "required"),
+        bridgeListField("Writers", "bridge.writers", "The addresses or prefixes (192.168.10.20, 192.168.10.0/24) allowed to write; no other client can. Empty: nobody writes. To let every host write, give 0.0.0.0/0, ::/0.", "nobody writes", []),
         bridgeListField("Readers", "bridge.readers", "Addresses or prefixes allowed to connect. Empty: every client."),
         field("Watchdog (ms)", "bridge.watchdog_ms", "int", { placeholder: "1000",
           hint: "Outputs go off when no writer wrote for this long. 0: no watchdog." }),

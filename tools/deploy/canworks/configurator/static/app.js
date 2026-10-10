@@ -389,7 +389,7 @@ function field(label, path, kind, opts) {
   input.addEventListener("input", () => {
     const t = input.value.trim();
     let v;
-    if (t === "") v = undefined;
+    if (t === "") v = opts.empty;  // undefined unless the field saves something for empty
     else if (opts.parse) v = opts.parse(t);
     else if (kind === "int") v = /^-?[0-9]+$/.test(t) ? parseInt(t, 10) : t;
     else if (kind === "intstr") v = /^[0-9]+$/.test(t) ? parseInt(t, 10) : t;
@@ -2212,7 +2212,7 @@ function storeConfigurationField(i, eds) {
 }
 
 const SUPERVISION = [
-  { value: "none", label: "EDS default", help: "Nothing is written to the slave: it keeps the heartbeat its EDS gives (object 0x1017), and the master watches that heartbeat when it is not 0. With 0 a node that drops off the bus is not noticed; pick Heartbeat and set 0 to switch a default heartbeat off." },
+  { value: "none", label: "EDS default", help: "Nothing is written to the slave: it keeps the heartbeat its EDS gives (object 0x1017), and the master watches that heartbeat. An EDS default of 0 is refused, since a node that drops off the bus would not be noticed: pick Heartbeat and set a period (or 0 to accept that)." },
   { value: "heartbeat", label: "Heartbeat (recommended)",
     help: "The slave sends a heartbeat every period. The master marks it lost when none arrives within the timeout." },
   { value: "guarding", label: "Node guarding",
@@ -2260,6 +2260,9 @@ function supervisionFields(i) {
     field("Life time factor", base + ".life_time_factor", "intstr", { placeholder: "e.g. 3",
       hint: "Missed polls before the node counts as lost." }));
   }
+  // A node the master would never see lost (no heartbeat_ms, no guarding, EDS
+  // heartbeat 0) is refused on its heartbeat_ms: shown under Method.
+  if (mode !== "heartbeat") out.push(el("span", { class: "field-msg wide", dataset: { for: base + ".heartbeat_ms" } }));
   return out;
 }
 
