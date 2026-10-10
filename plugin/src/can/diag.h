@@ -24,6 +24,7 @@
 #ifndef CANOPEN_DIAG_H
 #define CANOPEN_DIAG_H
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -52,10 +53,15 @@ constexpr size_t kDiagMaxSdoBytes = 4096;
 struct DiagRequest {
   uint64_t seq = 0;   // set by the hub
   std::string op;     // status, emcy, sdo_read, sdo_write, nmt, scan, scan_status,
-                      // lss_find, lss_find_status, lss_inquire, lss_set_id, lss_set_bitrate
+                      // lss_find, lss_find_status, lss_inquire, lss_set_id, lss_set_bitrate;
+                      // from the CiA 309-3 gateway also pdo_read and lss_store
   std::string id;     // the request's "id" as JSON text ("" = none)
   std::string peer;   // client address, for the log
-  unsigned node = 0;
+  // From the CiA 309-3 gateway (cia309_dispatch.h): its answer goes to the
+  // gateway thread, and the log names the gateway.
+  bool from_cia309 = false;
+  unsigned node = 0;  // nmt from the gateway: 0 = every configured node
+  unsigned pdo = 0;   // pdo_read: the node's TPDO number (1-4)
   uint16_t index = 0;
   uint8_t subindex = 0;
   std::vector<uint8_t> data;  // sdo_write
@@ -73,6 +79,23 @@ struct DiagRequest {
   std::string raw;            // sim_*: the request line, for the simulator
   unsigned address = 0;       // j1939_dm_read, j1939_dm_clear: 0..253, or 255 (clear)
   bool previous = false;      // j1939_dm_clear: DM3 (true) or DM11
+};
+
+// Who sent a request, for the log: "diagnostics client 10.0.0.5" or "CiA
+// 309-3 gateway client 127.0.0.1".
+std::string diag_client(const DiagRequest& r);
+
+// What the bus thread tells the CiA 309-3 gateway without being asked
+// (DiagHub::push_event): a configured node's EMCY, boot-up, NMT state change,
+// or lost heartbeat or node guarding.
+struct DiagEvent {
+  enum Kind : uint8_t { Emcy, Bootup, State, HeartbeatLost, GuardingLost };
+  Kind kind = Emcy;
+  uint8_t node = 0;
+  uint8_t state = 0;  // State: the NMT state code (4 stopped, 5 operational, 127 pre-operational)
+  uint16_t code = 0;  // Emcy
+  uint8_t er = 0;
+  std::array<uint8_t, 5> msef{};
 };
 
 // Builds answer lines.
@@ -93,6 +116,20 @@ struct DiagHost {
   // the config's folder, contents); returns the upload's number when the
   // host restarts on them, else 0 with `why`. Null: the host takes no configs.
   std::function<unsigned(const std::vector<std::pair<std::string, std::string>>& files, std::string& why)> put_config;
+};
+
+// The CiA 309-3 gateway as the diagnostics server sees it (cia309_server.h):
+// set by the engine when `cia309` is configured. Called on the diagnostics
+// server thread.
+struct Cia309Hooks {
+  // Whether one more gateway session is allowed now; why not.
+  std::function<bool(std::string& why)> can_take;
+  // Takes a logged-in connection over: its socket, its TLS session (with the
+  // bytes still to send in wire()), its address and what it sent after the
+  // op. False: refused (the gateway filled up meanwhile); the caller closes.
+  std::function<bool(int fd, std::unique_ptr<TlsConn> tls, const std::string& peer, std::string in)> take;
+  // The op's result: protocol, version and the network numbering.
+  std::function<cJSON*()> info;
 };
 
 // Thread-safe hand-off between the server thread and the bus thread.
@@ -124,6 +161,28 @@ class DiagHub {
   void take_answers(std::vector<std::pair<uint64_t, std::string>>& out);
   // Readable when answers are ready (a pipe; drained by take_answers()).
   int wake_fd() const { return pipe_[0]; }
+
+  // ---- the CiA 309-3 gateway thread ----
+  // Answers to requests with from_cia309 come here instead of
+  // take_answers(), so the gateway and the diagnostics server each get
+  // their own.
+  void take_gateway_answers(std::vector<std::pair<uint64_t, std::string>>& out);
+  // Readable when gateway answers or events are ready (drained by
+  // take_gateway_answers() and take_events()).
+  int gateway_wake_fd() const { return gw_pipe_[0]; }
+  // Events are recorded only while this is on (a gateway session is open).
+  void set_events(bool on);
+  bool events_on() const { return events_on_.load(std::memory_order_acquire); }
+  // Moves the recorded events into `out` (appends); returns how many were
+  // dropped since the last call because the queue was full.
+  uint64_t take_events(std::vector<DiagEvent>& out);
+  static constexpr size_t kMaxEvents = 1024;
+  // Bus thread: records an event when events are on; never waits for the
+  // gateway (a full queue drops its oldest event).
+  void push_event(const DiagEvent& e);
+  // The gateway's part of status answers ("cia309"), set before the servers
+  // start.
+  void set_cia309_status(std::function<cJSON*()> f) { cia309_status_ = std::move(f); }
 
   // The answer when no Network runs: status with bus state 0 and every node
   // at 0, every other request refused with "no bus".
@@ -179,6 +238,9 @@ class DiagHub {
 
  private:
   void wake();
+  void wake_gateway();
+  // Under mutex_: an answer into the right list.
+  void put_answer(const DiagRequest& r, uint64_t seq, std::string line);
 
   const Config& cfg_;
   std::string version_;
@@ -189,7 +251,16 @@ class DiagHub {
   std::vector<DiagRequest> queue_;
   std::map<uint64_t, DiagRequest> taken_;  // taken by the bus thread, not answered
   std::vector<std::pair<uint64_t, std::string>> answers_;
+  std::vector<std::pair<uint64_t, std::string>> gw_answers_;  // from_cia309
   int pipe_[2] = {-1, -1};
+  int gw_pipe_[2] = {-1, -1};
+
+  // CiA 309-3 events (own mutex, never held with the others).
+  std::atomic<bool> events_on_{false};
+  std::mutex event_mutex_;
+  std::deque<DiagEvent> events_;
+  uint64_t events_lost_ = 0;
+  std::function<cJSON*()> cia309_status_;
 
   // Guarded by state_mutex_ (never held together with mutex_).
   mutable std::mutex state_mutex_;
@@ -254,6 +325,10 @@ class DiagServer {
   }
   // Before start(): the host's name, status part and config upload.
   void set_host(DiagHost host) { host_ = std::move(host); }
+  // Before start(): the CiA 309-3 gateway that takes connections switched
+  // with the `cia309` op. Without it the op answers "cia309 gateway not
+  // configured".
+  void set_cia309(Cia309Hooks hooks) { cia309_ = std::move(hooks); }
   // For tests: how the server reads a link (bit rate detection refusals).
   void set_link_ops(std::unique_ptr<LinkOps> ops) { link_ops_ = std::move(ops); }
   // For tests, before start(): a shorter login time limit.
@@ -289,6 +364,9 @@ class DiagServer {
     std::string cnonce, snonce;  // the SCRAM login, after its hello
     bool refusing = false;  // over the client limit: told "too many clients", then closed
     bool authed = false;
+    // Answered the `cia309` op: handed to the gateway after its answer is
+    // encrypted; nothing after the op is read here.
+    bool handover = false;
     uint64_t waiting = 0;  // seq of the request on the bus thread, 0 = none
     size_t waiting_net = 0;  // the network whose hub has it
     std::chrono::steady_clock::time_point since;
@@ -442,6 +520,9 @@ class DiagServer {
   uint64_t next_client_ = 1;
   std::unique_ptr<LinkOps> link_ops_;
   DiagHost host_;
+  Cia309Hooks cia309_;
+  // Hands a client that answered the cia309 op to the gateway.
+  void hand_over(size_t i);
 };
 
 }  // namespace canopen_plugin

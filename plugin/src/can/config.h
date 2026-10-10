@@ -8,6 +8,7 @@
 #define CANOPEN_CONFIG_H
 
 #include <cstdint>
+#include <map>
 #include <set>
 #include <string>
 #include <utility>
@@ -82,6 +83,16 @@ struct StartupSdo {
   CoType type = CoType::UNSIGNED8;
   std::vector<uint8_t> data;  // the value, little-endian, sized by `type`
   std::string value_text;     // the value as written, for messages
+};
+
+// One heartbeat consumer entry (0x1016) the node gets for another node of its
+// network (canopen-node-supervision "Node-to-node heartbeat watch").
+struct HeartbeatWatch {
+  unsigned position = 0;  // place in the node's heartbeat_watch list
+  unsigned node = 0;
+  bool has_timeout = false;
+  unsigned timeout_ms = 0;  // resolved by check_eds_files when not given
+  uint8_t subindex = 0;     // the 0x1016 sub-index, resolved by check_eds_files
 };
 
 // An object moved over SDO between the node and one IEC location while the
@@ -173,6 +184,11 @@ struct NodeConfig {
   // writable, which stay as the node has them instead of being switched off.
   std::set<std::pair<uint16_t, uint8_t>> ro_pdo_comm;
   std::set<unsigned> kept_tpdos, kept_rpdos;
+  // RPDOs a PDO link configures (canopen-pdo-links): the plugin writes them
+  // itself, so dcfgen neither lists nor switches them off.
+  std::set<unsigned> linked_rpdos;
+  // Heartbeat consumer entries for other nodes of the network.
+  std::vector<HeartbeatWatch> heartbeat_watch;
   bool mandatory = false;
   bool boot = true;
   bool has_reset_communication = false;
@@ -232,9 +248,68 @@ struct NodeConfig {
   std::string label() const;  // "node 2 (pingpong)"
 };
 
+// One consumer of a PDO link: an RPDO of a node that receives the producer's
+// TPDO directly (canopen-pdo-links).
+struct LinkConsumer {
+  unsigned node = 0;
+  unsigned rpdo = 0;
+  bool has_transmission = false;
+  unsigned transmission = 0;
+  bool has_event_timer = false;
+  unsigned event_timer_ms = 0;  // sub-index 5: the consumer's deadline
+  PdoConfig::Mapping mapping = PdoConfig::Mapping::Unset;
+  bool device_mapping = false;  // resolved by check_eds_files
+  std::vector<PdoEntry> entries;  // the consumer's objects in frame order, no location
+  std::string where;              // in the parser's form: "links[0]: to[1]"
+};
+
+// A PDO link: one node's TPDO received by other nodes' RPDOs (CiA 301
+// producer/consumer), configured by the master at boot.
+struct LinkConfig {
+  unsigned number = 0;  // 1-based place in `links`
+  std::string name;     // `name`, or "link <number>"
+  bool has_name = false;
+  unsigned producer = 0;  // node ID
+  unsigned tpdo = 0;      // number of one of its tx_pdos
+  std::vector<LinkConsumer> consumers;
+  bool keep_on_plc_stop = false;  // "on_plc_stop": "keep"
+  uint32_t cob_id = 0;            // the producer TPDO's resolved COB-ID
+  std::string where;              // in the parser's form: "links[0]"
+  // "link stick_to_valves", or "link 2" without a name.
+  std::string label() const { return has_name ? "link " + name : name; }
+};
+
 // What the master sends the nodes when the PLC or the plugin stops
 // (`master.on_plc_stop`, canopen-node-supervision "Nodes on PLC stop").
 enum class OnPlcStop { Preop, Stop, Keep };
+
+// The CiA 309-3 ASCII gateway (canopen-cia309-gateway spec): a top-level
+// `cia309` object in a version 2 file, master.cia309 in version 1. Off
+// without it. The plain port listens on loopback only; other machines come
+// in through the diagnostics channel's `cia309` op.
+struct Cia309Config {
+  bool enabled = false;
+  unsigned port = 7533;  // 0: no plain listener (sessions through the diagnostics channel only)
+  std::string bind = "127.0.0.1";  // 127.0.0.1 or ::1
+  unsigned max_clients = 4;        // plain and tunnelled sessions together, 1-16
+  bool allow_changes = false;      // SDO downloads, NMT and LSS
+  bool allow_force = false;        // what the diagnostics channel refuses without force
+  bool has_nets = false;           // `nets` given
+  unsigned default_net = 0;        // 0: none
+  // CiA 309 network number -> index in ConfigSet::networks: `nets`, else
+  // 1..n in config order.
+  std::map<unsigned, unsigned> numbering;
+  // The number of network `index`, 0 when it has none.
+  unsigned number_of(unsigned index) const {
+    for (const auto& n : numbering)
+      if (n.second == index) return n.first;
+    return 0;
+  }
+};
+
+// Whether this build has the CiA 309-3 gateway (Lely's co_gw_txt; the
+// CANWORKS_WITH_CIA309 build option).
+bool cia309_built_in();
 
 struct MasterConfig {
   unsigned node_id = 1;
@@ -314,6 +389,9 @@ struct MasterConfig {
   // put_config may replace the bridge's config (modbus-bridge); needs
   // diag_allow_changes too.
   bool diag_allow_config_upload = false;
+  // The CiA 309-3 gateway (canopen-cia309-gateway spec), one for the whole
+  // file like the diagnostics settings.
+  Cia309Config cia309;
 };
 
 // The CAN adapter: "socketcan" (an existing interface) or "slcan" (the plugin
@@ -467,6 +545,13 @@ struct Config {
   MasterConfig master;
   SlaveConfig slave;  // slave networks only
   std::vector<NodeConfig> nodes;
+  // PDO links between the nodes (master networks only).
+  std::vector<LinkConfig> links;
+  const NodeConfig* node(unsigned id) const {
+    for (const auto& n : nodes)
+      if (n.node_id == id) return &n;
+    return nullptr;
+  }
   J1939Config j1939;  // J1939 networks only
   // Raw CAN messages, on a network of any protocol (can-raw-messages spec).
   canworks_raw::RawConfig raw;

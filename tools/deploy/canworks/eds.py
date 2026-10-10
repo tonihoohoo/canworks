@@ -98,8 +98,11 @@ def _int(text, what):
 class Eds:
     """The object dictionary of an EDS file: {index: {subindex: SubObject}}."""
 
-    def __init__(self, objects, names=None, object_types=None):
+    def __init__(self, objects, names=None, object_types=None, dummy=None):
         self.objects = objects
+        # The dummy entries ([DummyUsage] DummyNNNN=1) a PDO may map: their
+        # indices 0x0001-0x0007.
+        self.dummy = set(dummy or ())
         # The ParameterName of each record/array object (index: name); a VAR's
         # name is its sub-index 0's.
         self.names = names or {}
@@ -198,7 +201,15 @@ class Eds:
                 objects[index] = subs
         if 0x1000 not in objects or 0x1018 not in objects:
             raise EdsError("mandatory objects 0x1000/0x1018 missing (not a CiA 306 EDS)")
-        return cls(objects, names, object_types)
+        dummy = set()
+        usage = sections.get("dummyusage")
+        for k in range(1, 8):
+            try:
+                if usage is not None and int(usage.get("dummy%04x" % k, "0").strip(), 0):
+                    dummy.add(k)
+            except ValueError:
+                pass
+        return cls(objects, names, object_types, dummy)
 
     def object_name(self, index, subindex):
         """The sub-object's name in the object dictionary: a VAR's

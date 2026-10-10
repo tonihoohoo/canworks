@@ -75,7 +75,9 @@ void Network::ServiceDiag() {
   for (auto& r : reqs) {
     std::string busy;
     if (!r.force) {
-      if (r.op == "sdo_write" || (r.op == "nmt" && r.command != "start"))
+      if (r.op == "nmt" && r.node == 0 && r.command != "start")
+        busy = operational;  // the gateway's node 0: every configured node
+      else if (r.op == "sdo_write" || (r.op == "nmt" && r.command != "start"))
         busy = running(r.node);
       else if (r.op == "scan" && !scan_running_)
         busy = operational;
@@ -97,6 +99,8 @@ void Network::ServiceDiag() {
       DiagScan(r, r.op == "scan");
     } else if (r.op.compare(0, 4, "lss_") == 0) {
       DiagLss(r);
+    } else if (r.op == "pdo_read") {
+      DiagPdoRead(r);
     } else if (r.op.compare(0, 4, "sim_") == 0) {
       if (!sim_handler_) {
         diag_->answer(r.seq, diag_error(r.id, "nothing simulated"));
@@ -112,8 +116,8 @@ void Network::ServiceDiag() {
       ManualSdo m;
       m.deadline = now + std::chrono::milliseconds(r.timeout_ms);
       if (r.op == "sdo_write")
-        log_info("node %u: SDO write to 0x%04X sub %u (%zu bytes: %s) from diagnostics client %s%s", r.node, r.index,
-                 r.subindex, r.data.size(), hex_bytes(r.data).c_str(), r.peer.c_str(),
+        log_info("node %u: SDO write to 0x%04X sub %u (%zu bytes: %s) from %s%s", r.node, r.index, r.subindex,
+                 r.data.size(), hex_bytes(r.data).c_str(), diag_client(r).c_str(),
                  r.force && !running(r.node).empty() ? " (forced: the node is OPERATIONAL)" : "");
       m.req = std::move(r);
       manual_.push_back(std::move(m));
@@ -281,16 +285,63 @@ void Network::DiagEmcy(const DiagRequest& r) {
 // Manual NMT
 
 void Network::DiagNmt(const DiagRequest& r) {
-  auto it = nodes_.find(r.node);
-  if (it == nodes_.end()) {
+  // Node 0 (the CiA 309-3 gateway's "all nodes"): each configured node in
+  // turn, with the same holds as one by one.
+  std::vector<unsigned> ids;
+  if (r.node == 0) {
+    for (const auto& it : nodes_) ids.push_back(it.first);
+  } else if (nodes_.count(r.node)) {
+    ids.push_back(r.node);
+  } else {
     diag_->answer(r.seq, diag_error(r.id, "node " + std::to_string(r.node) + " is not in the configuration"));
     return;
   }
-  const bool forced = r.force && r.command != "start" && image_.node_state(r.node) == 5;
-  std::string note = OperatorNmt(r.node, it->second, r.command,
-                                 "diagnostics client " + r.peer + (forced ? " (forced: the node was OPERATIONAL)" : ""));
+  std::string note;
+  for (unsigned id : ids) {
+    const bool forced = r.force && r.command != "start" && image_.node_state(id) == 5;
+    std::string n = OperatorNmt(id, nodes_[id], r.command,
+                                diag_client(r) + (forced ? " (forced: the node was OPERATIONAL)" : ""));
+    if (!n.empty() && note.empty()) note = ids.size() > 1 ? nodes_[id].cfg->label() + ": " + n : n;
+  }
   cJSON* res = cJSON_CreateObject();
   if (!note.empty()) cJSON_AddStringToObject(res, "note", note.c_str());
+  diag_->answer(r.seq, diag_ok(r.id, res));
+}
+
+// The CiA 309-3 gateway's "r p": the values the master last received in a
+// configured node's TPDO, read from the master's own dictionary (no SDO).
+void Network::DiagPdoRead(const DiagRequest& r) {
+  const NodeConfig* nc = nullptr;
+  const PdoConfig* pdo = nullptr;
+  auto it = nodes_.find(r.node);
+  if (it != nodes_.end()) {
+    nc = it->second.cfg;
+    for (const auto& p : nc->tx_pdos)
+      if (p.number == r.pdo) pdo = &p;
+  }
+  bool mapped = false;
+  for (const auto& ip : in_pdos_)
+    if (ip.second.node_id == r.node && ip.second.pdo == r.pdo) mapped = true;
+  if (!pdo || !mapped || pdo->entries.empty()) {
+    diag_->answer(r.seq, diag_error(r.id, "PDO not configured: node " + std::to_string(r.node) + " has no TPDO " +
+                                              std::to_string(r.pdo) + " the master maps"));
+    return;
+  }
+  cJSON* res = cJSON_CreateObject();
+  cJSON_AddNumberToObject(res, "node", r.node);
+  cJSON_AddNumberToObject(res, "pdo", r.pdo);
+  cJSON* list = cJSON_AddArrayToObject(res, "values");
+  for (const auto& e : pdo->entries) {
+    std::error_code ec;
+    uint64_t raw = RpdoRaw(static_cast<uint8_t>(r.node), e.index, e.subindex, e.type, ec);
+    cJSON* o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "index", e.index);
+    cJSON_AddNumberToObject(o, "subindex", e.subindex);
+    cJSON_AddStringToObject(o, "type", co_type_name(e.type));
+    // A string keeps 64-bit values exact.
+    cJSON_AddStringToObject(o, "raw", std::to_string(ec ? 0 : raw).c_str());
+    cJSON_AddItemToArray(list, o);
+  }
   diag_->answer(r.seq, diag_ok(r.id, res));
 }
 
@@ -418,8 +469,8 @@ void Network::FinishManual(uint64_t seq, std::error_code ec, const std::vector<u
     }
     cJSON_AddStringToObject(res, "error", sdo_error_text(ec).c_str());
     if (write)
-      log_warn("node %u: SDO write to 0x%04X sub %u from diagnostics client %s failed: %s", r.node, r.index,
-               r.subindex, r.peer.c_str(), sdo_error_text(ec).c_str());
+      log_warn("node %u: SDO write to 0x%04X sub %u from %s failed: %s", r.node, r.index, r.subindex,
+               diag_client(r).c_str(), sdo_error_text(ec).c_str());
   }
   diag_->answer(seq, diag_ok(r.id, res));
 }

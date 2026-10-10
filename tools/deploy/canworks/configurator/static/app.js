@@ -262,7 +262,7 @@ function sameObject(a, ai, b, bi) { return num(a) === num(b) && num(ai || 0) ===
 // "gateway…" and "bridge…" the top of the draft.
 function pathRoot(path) {
   const parts = path.match(/[^.[\]]+/g);
-  if (parts[0] === "master" && parts[1] === "diagnostics") return [S.model, parts.slice(1)];
+  if (parts[0] === "master" && (parts[1] === "diagnostics" || parts[1] === "cia309")) return [S.model, parts.slice(1)];
   if (parts[0] === "gateway" || parts[0] === "bridge") return [S.model.top, parts];
   return [S.config, parts];
 }
@@ -448,7 +448,7 @@ function choice(label, path, choices, opts) {
 
 const NETWORK_NAME = /^[A-Za-z][A-Za-z0-9_]{0,15}$/;
 const MAX_NETWORKS = 8;
-const NETWORK_KEYS = ["name", "adapter", "master", "nodes"];
+const NETWORK_KEYS = ["name", "adapter", "master", "nodes", "links"];
 
 // The draft of a file as the server sent it (version 1 or 2).
 function toModel(cfg) {
@@ -456,24 +456,30 @@ function toModel(cfg) {
   const top = {};
   let networks;
   let diagnostics;
+  let cia309;
   if (cfg.schema_version === 2 && Array.isArray(cfg.networks)) {
-    for (const [k, v] of Object.entries(cfg)) if (k !== "networks" && k !== "diagnostics") top[k] = v;
+    for (const [k, v] of Object.entries(cfg)) if (k !== "networks" && k !== "diagnostics" && k !== "cia309") top[k] = v;
     networks = cfg.networks.map((n) => (n && typeof n === "object" && !Array.isArray(n) ? n : {}));
     diagnostics = cfg.diagnostics;
+    cia309 = cfg.cia309;
   } else {
     const net = {};
     for (const [k, v] of Object.entries(cfg)) {
-      if (k === "adapter" || k === "master" || k === "nodes") net[k] = v;
+      if (k === "adapter" || k === "master" || k === "nodes" || k === "links") net[k] = v;
       else top[k] = v;
     }
     if (net.master && typeof net.master === "object" && "diagnostics" in net.master) {
       diagnostics = net.master.diagnostics;
       delete net.master.diagnostics;
     }
+    if (net.master && typeof net.master === "object" && "cia309" in net.master) {
+      cia309 = net.master.cia309;
+      delete net.master.cia309;
+    }
     networks = [net];
   }
   if (!networks.length) networks.push({ adapter: { type: "socketcan", bitrate: 250000 }, master: { node_id: 1 }, nodes: [] });
-  return { top, networks, diagnostics };
+  return { top, networks, diagnostics, cia309 };
 }
 
 function setModel(cfg) {
@@ -516,8 +522,9 @@ function fileConfig() {
   const net = m.networks[0];
   if (m.networks.length === 1 && !customName(net) && Object.keys(net).every((k) => NETWORK_KEYS.includes(k)) && !("bridge" in m.top)) {
     for (const [k, v] of Object.entries(m.top)) out[k] = k === "schema_version" && v === 2 ? 1 : v;
-    for (const k of ["adapter", "master", "nodes"]) if (k in net) out[k] = net[k];
+    for (const k of ["adapter", "master", "nodes", "links"]) if (k in net) out[k] = net[k];
     if (m.diagnostics !== undefined) out.master = Object.assign({}, net.master, { diagnostics: m.diagnostics });
+    if (m.cia309 !== undefined) out.master = Object.assign({}, out.master || net.master, { cia309: m.cia309 });
     swapSchema(2, 1);
     return out;
   }
@@ -525,6 +532,7 @@ function fileConfig() {
   for (const [k, v] of Object.entries(m.top)) out[k] = k === "schema_version" ? 2 : v;
   out.networks = m.networks;
   if (m.diagnostics !== undefined) out.diagnostics = m.diagnostics;
+  if (m.cia309 !== undefined) out.cia309 = m.cia309;
   swapSchema(1, 2);
   return out;
 }
@@ -539,10 +547,10 @@ function pagePath(p, version) {
   if (version === 2) {
     const m = /^networks\[(\d+)\](?:\.(.*))?$/.exec(p);
     if (m) return { net: Number(m[1]), path: m[2] || "" };
-    if (p === "diagnostics" || p.startsWith("diagnostics.")) return { net: null, path: "master." + p };
+    if (p === "diagnostics" || p.startsWith("diagnostics.") || p === "cia309" || p.startsWith("cia309.")) return { net: null, path: "master." + p };
     return { net: null, path: p };
   }
-  if (p.startsWith("master.diagnostics")) return { net: null, path: p };
+  if (p.startsWith("master.diagnostics") || p.startsWith("master.cia309")) return { net: null, path: p };
   return { net: 0, path: p };
 }
 
@@ -887,6 +895,7 @@ function render() {
   if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "scan" || S.view === "simulation")) S.view = "bus";
   if (isPlain(S.config) && (S.view.startsWith("node:") || S.view === "scan")) S.view = "bus";
   if (S.view === "bridge" && !S.model.top.bridge) S.view = "bus";
+  if (S.view === "links" && !linksNetwork(S.config)) S.view = "bus";
   renderSide();
   updateSimBanner();
   // The online view, the scan page and the simulation view share one connection.
@@ -914,6 +923,7 @@ function render() {
   else if (S.view === "bridge") renderBridge(view);
   else if (S.view === "simulation") renderSimulation(view);
   else if (S.view === "framelab") renderFrameLab(view);
+  else if (S.view === "links") renderLinks(view);
   else renderNode(view, Number(S.view.slice(5)));
   applyCheck();
 }
@@ -948,6 +958,7 @@ function renderSide() {
   $("#nav-simulation").hidden = j1939;
   $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
   $("#nav-bridge").hidden = !S.model.top.bridge;
+  $("#nav-links").hidden = !linksNetwork(S.config);
   const unused = S.state.unused_eds || [];
   $("#unused-eds").replaceChildren(...(unused.length ? [el("h2", { class: "side-caption" }, "Unused EDS files"),
     el("p", { class: "muted" }, unused.join(", ") + " (left in place, never deleted)")] : []));
@@ -1240,6 +1251,7 @@ function renderBus(view) {
           declNote(path));
       })))]),
     onlineAccessSettings(),
+    cia309Settings(),
     ...(slave ? [] : [masterAdvanced()]));
 }
 
@@ -2268,6 +2280,7 @@ function supervisionFields(i) {
   // A node the master would never see lost (no heartbeat_ms, no guarding, EDS
   // heartbeat 0) is refused on its heartbeat_ms: shown under Method.
   if (mode !== "heartbeat") out.push(el("span", { class: "field-msg wide", dataset: { for: base + ".heartbeat_ms" } }));
+  out.push(heartbeatWatchFields(i));
   return out;
 }
 
@@ -2289,6 +2302,7 @@ function renderPdos(i, key, dir, title, eds) {
       el("div", { class: "pdo-title" },
         el("strong", null, `${dir === "input" ? "TPDO" : "RPDO"} ${p.number ?? j + 1}`),
         el("span", { class: "muted" }, `${(p.entries || []).length}/8 entries, ${bits}/64 bits`),
+        dir === "input" ? linkTag(n, number) : null,
         el("span", { class: "field-msg", dataset: { for: pb } }),
         eds && eds.objects ? el("button", { type: "button", class: "small", dataset: { addEntry: pb },
           title: `Pick an object for ${dir === "input" ? "TPDO" : "RPDO"} ${number}`,
@@ -3431,6 +3445,97 @@ function remoteLinkSettings() {
   return box;
 }
 
+// The CiA 309-3 gateway (canopen-cia309-gateway, docs/cia309-gateway.md):
+// cia309 at the top level of the file (master.cia309 in a version 1 file).
+function cia309Config() { return S.model ? S.model.cia309 : undefined; }
+
+// [[number, network label]] as the plugin numbers them: nets when given
+// (several networks), else 1..n in config order.
+function cia309Numbering() {
+  const g = cia309Config() || {};
+  if (several() && g.nets && typeof g.nets === "object" && !Array.isArray(g.nets) && Object.keys(g.nets).length) {
+    return Object.entries(g.nets).map(([k, v]) => [Number(k), String(v)]).sort((a, b) => a[0] - b[0]);
+  }
+  return S.model.networks.map((n, i) => [i + 1, netLabel(n, i)]);
+}
+
+function cia309Settings() {
+  const g = cia309Config();
+  const on = el("input", { type: "checkbox", dataset: { online: "cia309" } });
+  on.checked = !!g;
+  on.addEventListener("change", () => {
+    if (on.checked) S.model.cia309 = { allow_changes: false };
+    else delete S.model.cia309;
+    changed(true);
+  });
+  const fs = el("fieldset", { dataset: { section: "cia309" } }, el("legend", null, "CiA 309-3 gateway"),
+    el("p", { class: "muted" }, "Standard CiA 309-3 text commands (SDO, NMT, PDO read, LSS) for SCADA systems, test benches and scripts. " +
+      "The plain port listens on the PLC's loopback address only; other machines connect through canworks-diag gateway, which logs in with the project's token over the diagnostics channel. Off by default."),
+    el("div", { class: "check-field" }, el("label", { class: "check" }, on, " CiA 309-3 gateway")));
+  if (!g) return fs;
+  const allow = el("input", { type: "checkbox", dataset: { path: "master.cia309.allow_changes" } });
+  allow.checked = g.allow_changes === true;
+  allow.addEventListener("change", async () => {
+    if (allow.checked) {
+      const v = await modal("Allow changes through the CiA 309-3 gateway? Programs on the PLC and everyone with the token can then write objects, send NMT commands and run LSS.",
+        [["allow", "Allow changes", true], ["cancel", "Cancel"]]);
+      if (v !== "allow") { allow.checked = false; return; }
+    }
+    setPath("master.cia309.allow_changes", allow.checked);
+    render();
+  });
+  const force = el("input", { type: "checkbox", dataset: { path: "master.cia309.allow_force" } });
+  force.checked = g.allow_force === true;
+  force.addEventListener("change", async () => {
+    if (force.checked) {
+      const v = await modal("Allow force on running nodes? A standard CiA 309-3 tool can then stop and write nodes the PLC program drives. For test benches only.",
+        [["allow", "Allow force", { danger: true }], ["cancel", "Cancel"]]);
+      if (v !== "allow") { force.checked = false; return; }
+    }
+    setPath("master.cia309.allow_force", force.checked ? true : undefined);
+    render();
+  });
+  const numbers = cia309Numbering().map(([n, name]) => `${n} = ${name}`).join(", ");
+  fs.append(el("div", { class: "grid" },
+    field("Plain port", "master.cia309.port", "intstr", { placeholder: "7533",
+      hint: "TCP port on the PLC's loopback address (127.0.0.1), 1024-65535; 0: no plain port, sessions through the diagnostics channel only. Default: 7533." }),
+    field("Sessions at a time", "master.cia309.max_clients", "intstr", { placeholder: "4",
+      hint: "Gateway sessions, plain and through the diagnostics channel together, 1-16. Default: 4." }),
+    el("div", { class: "check-field" }, el("label", { class: "check" }, allow, " Allow changes (SDO downloads, NMT and LSS)"),
+      hint("Off: read-only. Default: off.")),
+    el("div", { class: "check-field" }, el("label", { class: "check" }, force, " Allow force on running nodes"),
+      hint("What the diagnostics channel refuses without force: SDO writes and NMT commands other than start to OPERATIONAL nodes. Default: off."),
+      g.allow_force ? el("span", { class: "field-msg warning" }, "Force is allowed: a standard tool can stop nodes the program drives.") : null)),
+  el("p", { dataset: { online: "cia309-numbering" } }, "Network numbers: " + numbers));
+  if (several()) {
+    const nets = g.nets && typeof g.nets === "object" && !Array.isArray(g.nets) ? g.nets : {};
+    const grid = el("div", { class: "grid" });
+    S.model.networks.forEach((n, i) => {
+      const name = netName(n);
+      if (!name) return;
+      const current = Object.keys(nets).find((k) => nets[k] === name);
+      const input = el("input", { type: "text", spellcheck: "false", placeholder: Object.keys(nets).length ? "none" : String(i + 1),
+        "aria-label": `CiA 309 number of ${name}`, dataset: { online: "cia309-net", net: name } });
+      input.value = current || "";
+      input.addEventListener("change", () => {
+        const next = Object.assign({}, nets);
+        for (const k of Object.keys(next)) if (next[k] === name) delete next[k];
+        const t = input.value.trim();
+        if (t) next[t] = name;
+        setPath("master.cia309.nets", Object.keys(next).length ? next : undefined);
+        render();
+      });
+      grid.append(el("label", null, `Number of ${name}`, input));
+    });
+    fs.append(el("p", { class: "muted" }, "Explicit network numbers (optional, 1-127): leave all empty to number the networks in file order."), grid,
+      el("span", { class: "field-msg", dataset: { for: "master.cia309.nets" } }));
+  }
+  fs.append(el("span", { class: "field-msg", dataset: { for: "master.cia309.bind" } }),
+    el("p", { class: "muted" }, diagConfig()
+      ? "From another machine: canworks-diag --runtime HOST gateway --listen, then point the CiA 309-3 tool at 127.0.0.1:7533 on that PC."
+      : "Without online access only programs on the PLC itself reach the gateway; turn on online access for canworks-diag gateway."));
+  return fs;
+}
 // The PCs paired with the runtime of the online access settings, with
 // Remove. Listed on request (the link's manage stream, with this PC's
 // token): the editing views open no connection by themselves.
@@ -3831,7 +3936,8 @@ async function pollOnline(seq) {
         el("td", { colspan: 7, dataset: { online: "sync" } }, syncText(st.sync))) : null)),
     el("table", { class: "online-nodes" },
       el("thead", null, el("tr", null, thCells(["Node", "Name", "State", "Status bit", "Boot", "Hold", "Last EMCY", "SDO variables"]))),
-      el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No nodes in the configuration the runtime runs."))]))]);
+      el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No nodes in the configuration the runtime runs."))])),
+    linksLive(st)]);
   const tbox = document.querySelector("[data-online='pdo-timeouts']");
   if (tbox) tbox.replaceChildren(pdoTimeoutTable((st.nodes || []).find((n) => n.node_id === S.onlineNode)));
   if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
@@ -6222,9 +6328,10 @@ function dropPdo(pdos, j) {
   pdos.splice(j, 1);
 }
 
-function removePdo(i, key, j) {
+async function removePdo(i, key, j) {
   const pdos = S.config.nodes[i][key];
   const number = pdos[j].number ?? j + 1;
+  if (key === "tx_pdos" && !(await dropLinksOf(S.config.nodes[i], num(number)))) return;
   dropPdo(pdos, j);
   changed(true);
   removedBanner(`${key === "tx_pdos" ? "TPDO" : "RPDO"} ${number}`);
@@ -6633,6 +6740,7 @@ function placeOf(w) {
   const lead = several() && net ? [`Network ${netLabel(net, w.net)}`] : [];
   const path = w.path;
   if (path.startsWith("master.diagnostics")) return ["Online access"];
+  if (path.startsWith("master.cia309")) return ["Online access", "CiA 309-3 gateway"];
   if (path.startsWith("gateway")) {
     const r = /^gateway\.routes\[(\d+)\]/.exec(path);
     const rt = r && ((S.model.top.gateway || {}).routes || [])[Number(r[1])];
@@ -6662,6 +6770,7 @@ function placeOf(w) {
     return lead.concat(parts);
   }
   if (path.startsWith("master")) return lead.concat(["Master"]);
+  if (path.startsWith("links")) return lead.concat(linkPlace(net, path));
   const m = /^nodes\[(\d+)\](?:\.(tx_pdos|rx_pdos|sdo|sdo_variables)\[(\d+)\](?:\.entries\[(\d+)\])?)?/.exec(path);
   const n = m && (net.nodes || [])[Number(m[1])];
   if (!n) return lead;
@@ -6699,6 +6808,7 @@ function focusPath(w) {
   const path = w.path;
   const m = /^nodes\[(\d+)\]/.exec(path);
   const want = m ? "node:" + m[1] : path.startsWith("gateway") ? "gateway" : path.startsWith("bridge") ? "bridge"
+    : path.startsWith("links") ? "links"
     : (path.startsWith("adapter") || path.startsWith("master") || path.startsWith("slave") || path.startsWith("j1939") ||
       path === "role" || path === "protocol" ? "bus" : S.view);
   // A CAN message's field is in its editor, which opens for it.

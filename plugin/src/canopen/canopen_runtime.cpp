@@ -123,7 +123,7 @@ void SlaveRuntime::make(const ConfigSet& set, GatewayLink* gw, const char* versi
              cfg_.adapter.interface.c_str(),
              master.empty() ? "with no master network on it" : ("with master network \"" + master + "\"").c_str());
   }
-  if (cfg_.master.has_diagnostics) hub_.reset(new DiagHub(cfg_, version));
+  if (cfg_.master.has_diagnostics || cfg_.master.cia309.enabled) hub_.reset(new DiagHub(cfg_, version));
   bus_.reset(new SlaveBus(cfg_, image_, store, state_path, gw, hub_.get()));
   log_info("%zu input and %zu output objects bound to the PLC image", image_.input_objects().size(),
            image_.output_objects().size());
@@ -194,7 +194,7 @@ bool MasterRuntime::make(uint64_t base_tick_ns, const ConfigSet& set, GatewayLin
       return false;
     }
   }
-  if (cfg_.master.has_diagnostics) hub_.reset(new DiagHub(cfg_, version));
+  if (cfg_.master.has_diagnostics || cfg_.master.cia309.enabled) hub_.reset(new DiagHub(cfg_, version));
   bus_.reset(new Bus(cfg_, gen_, image_, hub_.get(), sim_, gw));
   log_info("%zu input and %zu output PDO entries bound to the PLC image", image_.inputs().size(),
            image_.outputs().size());

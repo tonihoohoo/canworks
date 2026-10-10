@@ -19,6 +19,7 @@ import tempfile
 from . import __version__, bundle, contract, edslint
 from . import notes as notes_mod
 from . import eds as eds_mod
+from . import links as links_mod
 from .iec import CO_TYPES, CO_TYPE_BY_CODE, parse_location
 from .raw.mux import merge as mux_merge
 
@@ -316,6 +317,7 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
     plc_cycle = cfg["master"].get("sync_source") == "plc_cycle"
     sync_cycles = _u(cfg["master"].get("sync_cycles"), 1) or 1
     msgs = []
+    linked = links_mod.linked_tpdos(cfg)
     for key in ("tx_pdos", "rx_pdos"):
         tx = key == "tx_pdos"
         kind = "TPDO" if tx else "RPDO"
@@ -342,9 +344,10 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
             msg = Message(cob, "%s_%s%d" % (node_name, kind, num), (total + 7) // 8,
                           node_name if tx else MASTER, text, cycle)
             receiver = MASTER if tx else node_name
+            msg.pdo = (kind, num)
             taken = _Names()
             bit = 0
-            for index, sub, length in layout:
+            for position, (index, sub, length) in enumerate(layout):
                 if index < 0x0008:  # dummy entry: its bits, no signal
                     bit += length
                     continue
@@ -357,6 +360,8 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
                 signed, float_kind = _signal_type(type_name, length)
                 if entry and loc_text:
                     what = "-> " + loc_text
+                elif entry and tx and (n_id(n), num) in linked:
+                    what = "(PDO link, not used by the PLC)"
                 elif entry:  # a version 2 entry a gateway route uses: no PLC location
                     what = "(gateway route, no PLC location)"
                 elif tx:
@@ -365,6 +370,7 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
                     what = "(not used by the PLC, sent as 0 by the master)"
                 signal = Signal(name, bit, length, signed, float_kind, [receiver],
                                 "0x%04X:%d %s %s" % (index, sub, type_name or "unknown type", what))
+                signal.position = position
                 if notes is not None and obj is not None:
                     note_signal(notes.note(index, sub), signal, type_name)
                 msg.signals.append(signal)
@@ -384,6 +390,36 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
 
 def n_id(n):
     return _u(n["node_id"])
+
+
+def _link_receivers(cfg, messages, eds_list, node_names):
+    """PDO links add no message (canopen-dbc-export "Linked PDOs in the DBC"):
+    the producer TPDO's signals get the consumers whose layout maps a real
+    object at their position as receivers, and its comment names the link."""
+    ids = [n_id(n) for n in cfg["nodes"]]
+    for link in links_mod.parse(cfg):
+        if link["producer"] not in ids:
+            continue
+        pname = node_names[ids.index(link["producer"])]
+        msg = next((m for m in messages if getattr(m, "pdo", None) == ("TPDO", link["tpdo"])
+                    and m.sender == pname), None)
+        if msg is None:
+            continue
+        parts = []
+        for c in link["consumers"]:
+            if c["node"] not in ids or c["node"] == link["producer"]:
+                continue
+            k = ids.index(c["node"])
+            layout, _ = links_mod.consumer_layout(c, eds_list[k])
+            objects = []
+            for pos, x in enumerate(layout):
+                real = x["index"] >= 0x0008
+                objects.append("0x%04X:%d" % (x["index"], x["subindex"]) if real else "dummy")
+                for s in msg.signals:
+                    if real and getattr(s, "position", None) == pos and node_names[k] not in s.receivers:
+                        s.receivers.append(node_names[k])
+            parts.append("node %d RPDO %d writes %s" % (c["node"], c["rpdo"], ", ".join(objects)))
+        msg.comment += "; %s to %s" % (link["label"], "; ".join(parts))
 
 
 def _sdo_objects(n, eds, option):
@@ -484,6 +520,7 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
         messages.append(em)
         if sdo != "none":
             messages += _sdo_messages(n, node_name, eds, sdo, nt)
+    _link_receivers(cfg, messages, eds_list, node_names)
     nmt = Message(0x000, "NMT", 2, MASTER, "NMT node control; Node_ID 0 addresses all nodes")
     nmt.signals += [Signal("Command", 0, 8, receivers=node_names or [NO_RECEIVER], values=NMT_COMMANDS),
                     Signal("Node_ID", 8, 8, receivers=node_names or [NO_RECEIVER])]

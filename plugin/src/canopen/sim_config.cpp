@@ -30,6 +30,16 @@ std::vector<canopen_sim::DeviceSpec> sim_device_specs(const Config& cfg, bool on
       for (const auto& e : p.entries)
         d.master_written[canopen_sim::ObjKey{e.index, e.subindex}] = "RPDO " + std::to_string(p.number);
     }
+    // A link consumer's objects are written by the producer's TPDO.
+    for (const auto& l : cfg.links)
+      for (const auto& c : l.consumers) {
+        if (c.node != n.node_id || c.device_mapping) continue;
+        for (const auto& e : c.entries)
+          if (e.index >= 0x0008)
+            d.master_written[canopen_sim::ObjKey{e.index, e.subindex}] =
+                l.label() + " (RPDO " + std::to_string(c.rpdo) + ", from node " + std::to_string(l.producer) +
+                " TPDO " + std::to_string(l.tpdo) + ")";
+      }
     for (const auto& s : n.sdos) d.master_written[canopen_sim::ObjKey{s.index, s.subindex}] = "startup SDO";
     for (const auto& v : n.sdo_variables)
       if (!v.is_read()) d.master_written[canopen_sim::ObjKey{v.index, v.subindex}] = v.label();
@@ -84,8 +94,8 @@ bool check_sim_sources(const Config& cfg, const canopen_sim::SimFile& file, std:
       auto mw = d.master_written.find(s.first);
       if (mw == d.master_written.end()) continue;
       errors.push_back(file.path + ": " + at + "nodes." + std::to_string(d.node) + ".sources." + s.first.str() +
-                       ": node " + std::to_string(d.node) + ": the master writes " + s.first.str() + " (" +
-                       mw->second + "); use an override to make the device ignore it");
+                       ": node " + std::to_string(d.node) + ": " + canopen_sim::writer_text(s.first, mw->second) +
+                       "; use an override to make the device ignore it");
       ok = false;
     }
   }

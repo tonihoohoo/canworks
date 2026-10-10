@@ -437,6 +437,7 @@ class Network : public lely::canopen::BasicMaster {
   void DiagStatus(const DiagRequest& r);
   void DiagEmcy(const DiagRequest& r);
   void DiagNmt(const DiagRequest& r);
+  void DiagPdoRead(const DiagRequest& r);
   // NMT for one node from an operator (diagnostics client or host); returns a
   // note when the command waits for the node's boot.
   std::string OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by);

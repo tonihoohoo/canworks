@@ -56,8 +56,8 @@ UNEXPECTED_ERROR = "The configurator hit an error; see its terminal."
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
-    "": ["$schema", "schema_version", "adapter", "master", "nodes", "networks", "gateway", "bridge", "diagnostics"],
-    "network": ["name", "protocol", "role", "adapter", "master", "nodes", "slave", "j1939"],
+    "": ["$schema", "schema_version", "adapter", "master", "nodes", "links", "networks", "gateway", "bridge", "diagnostics", "cia309"],
+    "network": ["name", "protocol", "role", "adapter", "master", "nodes", "links", "slave", "j1939"],
     "adapter": ["type", "simulate", "interface", "bitrate", "configure_link", "restart_ms"],
     "master": ["node_id", "sync_period_us", "heartbeat_ms", "eds_lint", "strict_eds", "bus_state_location",
                "tx_error_count_location", "rx_error_count_location", "bus_off_count_location", "state_location",
@@ -65,12 +65,13 @@ ORDER = {
                "sync_counter_overflow", "time_cob_id", "time_period_ms", "emcy_inhibit_time_us", "heartbeat_consumer",
                "heartbeat_multiplier", "error_behavior", "nmt_inhibit_time_us", "start", "start_nodes",
                "start_all_nodes", "reset_all_nodes", "stop_all_nodes", "boot_time_ms", "sdo_timeout_ms",
-               "diagnostics"],
+               "diagnostics", "cia309"],
     "node": ["node_id", "name", "eds", "simulate", "heartbeat_ms", "heartbeat_timeout_ms", "guard_time_ms",
              "life_time_factor",
              "status_location", "state_location", "boot_error_location", "emcy_code_location",
              "error_register_location", "nmt_command_location", "mandatory", "boot",
-             "reset_communication", "revision_number", "serial_number", "lss", "heartbeat_consumer", "retry_factor",
+             "reset_communication", "revision_number", "serial_number", "lss", "heartbeat_consumer", "heartbeat_watch",
+             "retry_factor",
              "time_cob_id", "error_behavior", "restore_configuration", "config_check", "store_configuration",
              "software_file", "software_version",
              "tx_pdos", "rx_pdos", "sdo", "sdo_variables"],
@@ -82,6 +83,7 @@ ORDER = {
                      "trigger_location", "status_location", "abort_code_location", "timeout_ms"],
     "diagnostics": ["token_verifier", "token_sha256", "port", "bind", "allow_changes", "allow_config_upload",
                     "remote_link"],
+    "cia309": list(contract.CIA309_FIELDS),
     "lss": ["assign", "store"],
     "slave": ["node_id", "eds", "eds_lint", "inputs_on_loss", "state_location", "comm_ok_location",
               "sync_count_location", "emcy_code_location", "error_register_location", "objects"],
@@ -173,6 +175,8 @@ def canonical(cfg):
             b["sdo_bridge_location"] = _ordered(b["sdo_bridge_location"], "sdo_bridge_location")
     if isinstance(cfg.get("diagnostics"), dict):
         cfg["diagnostics"] = _ordered(cfg["diagnostics"], "diagnostics")
+    if isinstance(cfg.get("cia309"), dict):
+        cfg["cia309"] = _ordered(cfg["cia309"], "cia309")
     if isinstance(cfg.get("networks"), list):
         cfg["networks"] = [_canonical_network(_ordered(net, "network")) if isinstance(net, dict) else net
                            for net in cfg["networks"]]
@@ -203,6 +207,8 @@ def _canonical_network(cfg):
         cfg["master"] = _ordered(cfg["master"], "master")
         if isinstance(cfg["master"].get("diagnostics"), dict):
             cfg["master"]["diagnostics"] = _ordered(cfg["master"]["diagnostics"], "diagnostics")
+        if isinstance(cfg["master"].get("cia309"), dict):
+            cfg["master"]["cia309"] = _ordered(cfg["master"]["cia309"], "cia309")
     if isinstance(cfg.get("slave"), dict):
         cfg["slave"] = _ordered(cfg["slave"], "slave")
         if isinstance(cfg["slave"].get("objects"), list):
@@ -348,7 +354,7 @@ def eds_summary(eds, path=None):
                              for v in m["defaults"]]}
     # [DeviceInfo]: identity and LSS_Supported.
     return {"objects": objects, "pdo_count": {"input": eds.pdo_count("input"), "output": eds.pdo_count("output")},
-            "pdo_maps": pdo_maps, "device": eds_mod.device_info(path) if path else None}
+            "pdo_maps": pdo_maps, "dummy": sorted(eds.dummy), "device": eds_mod.device_info(path) if path else None}
 
 
 def utf8_eds(data):

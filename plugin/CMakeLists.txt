@@ -23,6 +23,28 @@ endif()
 if(CANWORKS_WITH_J1939)
   message(STATUS "canworks plugin - J1939 on the kernel's CAN_J1939 sockets")
 endif()
+# The CiA 309-3 gateway (canopen-cia309-gateway) uses Lely's text layer
+# (lely/co/gw_txt.h), which a Lely build configured without its gateway
+# lacks: the plugin is then built without the gateway, and a config with
+# `cia309` is refused naming the missing part.
+option(CANWORKS_WITH_CIA309 "Build the CiA 309-3 gateway into the plugin (needs Lely's co_gw_txt)" ON)
+set(CANWORKS_CIA309 OFF)
+if(CANWORKS_WITH_CANOPEN AND CANWORKS_WITH_CIA309)
+  include(CheckSymbolExists)
+  set(CMAKE_REQUIRED_INCLUDES ${LELY_INCLUDE_DIRS})
+  set(CMAKE_REQUIRED_LIBRARIES ${LELY_LINK_LIBRARIES})
+  check_symbol_exists(co_gw_txt_create "lely/co/gw_txt.h" CANWORKS_HAVE_CO_GW_TXT)
+  unset(CMAKE_REQUIRED_INCLUDES)
+  unset(CMAKE_REQUIRED_LIBRARIES)
+  if(CANWORKS_HAVE_CO_GW_TXT)
+    set(CANWORKS_CIA309 ON)
+    message(STATUS "canworks plugin - CiA 309-3 gateway on Lely's co_gw_txt")
+  else()
+    message(STATUS "canworks plugin - no CiA 309-3 gateway: this Lely CANopen has no co_gw_txt")
+  endif()
+endif()
+# The tests build the gateway's own test only with it.
+set(CANWORKS_CIA309 ${CANWORKS_CIA309} PARENT_SCOPE)
 # TLS and the SCRAM login of the diagnostics channel (secure_channel.cpp).
 find_package(OpenSSL 3 REQUIRED COMPONENTS SSL Crypto)
 
@@ -102,9 +124,17 @@ set(CANWORKS_J1939_SOURCES
     src/j1939/j1939_network.cpp
     src/j1939/j1939_runtime.cpp
 )
+set(CANWORKS_CIA309_SOURCES
+    src/can/cia309_text.cpp
+    src/can/cia309_server.cpp
+    src/canopen/cia309_dispatch.cpp
+)
 set(CANWORKS_SOURCES ${CANWORKS_CORE_SOURCES})
 if(CANWORKS_WITH_CANOPEN)
   list(APPEND CANWORKS_SOURCES ${CANWORKS_CANOPEN_SOURCES})
+endif()
+if(CANWORKS_CIA309)
+  list(APPEND CANWORKS_SOURCES ${CANWORKS_CIA309_SOURCES})
 endif()
 if(CANWORKS_WITH_J1939)
   list(APPEND CANWORKS_SOURCES ${CANWORKS_J1939_SOURCES})
@@ -126,7 +156,8 @@ target_include_directories(canopen_core PUBLIC
 target_compile_options(canopen_core PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_compile_definitions(canopen_core PRIVATE CANWORKS_PREFIX="${CANWORKS_PREFIX}")
 target_compile_definitions(canopen_core PUBLIC CANWORKS_WITH_CANOPEN=$<BOOL:${CANWORKS_WITH_CANOPEN}>
-                           CANWORKS_WITH_J1939=$<BOOL:${CANWORKS_WITH_J1939}>)
+                           CANWORKS_WITH_J1939=$<BOOL:${CANWORKS_WITH_J1939}>
+                           CANWORKS_WITH_CIA309=$<BOOL:${CANWORKS_CIA309}>)
 target_link_directories(canopen_core PUBLIC ${LELY_LIBRARY_DIRS})
 target_link_libraries(canopen_core PUBLIC ${LELY_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto pthread)
 

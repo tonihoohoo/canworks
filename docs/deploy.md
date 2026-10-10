@@ -111,6 +111,8 @@ canworks-deploy --bundle <dir> --config canopen_config.json --check-only --outpu
 
 runs every check and writes the zip that would be uploaded.
 
+The checks include the [PDO link](config.md#pdo-links) and `heartbeat_watch` rules the plugin runs at load, with its messages: the producer TPDO is configured, the consumer RPDO is free and in its EDS, both layouts match against both EDS files, the COB-ID rules, SYNC for synchronous consumers, the room in 0x1016 and the watch timeouts. An error stops the deploy and uploads nothing; warnings (types that differ at one size, kept links that stop with SYNC or whose nodes watch the master) are printed and the deploy goes on. The DCF export carries each consumer's link RPDO and heartbeat watch writes as `ParameterValue`, and the DBC export lists the consumers as receivers of the producer's message.
+
 ## Export the nodes as DCF files
 
 ```sh

@@ -80,6 +80,13 @@ runs:
       shell: bash
       run: scripts/build-lely.sh --prefix /opt/canworks
 
+    - name: Lely's CiA 309-3 text layer is in liblely-co (the plugin's CiA 309-3 gateway)
+      shell: bash
+      run: |
+        for sym in co_gw_txt_create co_gw_txt_send co_gw_txt_recv co_gw_txt_set_send_func co_gw_txt_set_recv_func; do
+          nm -D /opt/canworks/lely/lib/liblely-co.so | grep -qw "$sym" || { echo "liblely-co lacks $sym" >&2; exit 1; }
+        done
+
     - name: Vendored Lely dcf package matches the pinned lely-core
       shell: bash
       run: scripts/check-lely-dcf.sh --prefix /opt/canworks

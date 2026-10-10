@@ -22,7 +22,11 @@
       "items": { "$ref": "#/$defs/network" }
     },
     "gateway": { "$ref": "#/$defs/gateway" },
-    "bridge": { "$ref": "#/$defs/bridge" }
+    "bridge": { "$ref": "#/$defs/bridge" },
+    "cia309": {
+      "description": "The CiA 309-3 ASCII gateway for all networks (docs/cia309-gateway.md). In version 1 this is master.cia309.",
+      "$ref": "canworks.v1.schema.json#/$defs/master/properties/cia309"
+    }
   },
   "required": [ "schema_version", "networks" ],
   "not": {
@@ -109,6 +113,7 @@
           "type": "array",
           "items": { "$ref": "#/$defs/field_node" }
         },
+        "links": { "$ref": "canworks.v1.schema.json#/$defs/links" },
         "slave": { "$ref": "#/$defs/slave" },
         "j1939": { "$ref": "#/$defs/j1939" },
         "raw": { "$ref": "#/$defs/raw" }
@@ -396,7 +401,7 @@
       "required": [ "spn", "fmi", "active_location" ]
     },
     "field_node": {
-      "description": "A node of a master network: the version 1 node, except that a PDO entry may leave out iec_location (the plugin allows that only for an entry a gateway route uses).",
+      "description": "A node of a master network: the version 1 node, except that a PDO entry may leave out iec_location (the plugin allows that only for an entry a gateway route uses, or of a TPDO that feeds a PDO link).",
       "type": "object",
       "properties": {
         "node_id": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/node_id" },
@@ -418,6 +423,7 @@
         "revision_number": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/revision_number" },
         "serial_number": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/serial_number" },
         "heartbeat_consumer": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/heartbeat_consumer" },
+        "heartbeat_watch": { "$ref": "canworks.v1.schema.json#/$defs/heartbeat_watch" },
         "retry_factor": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/retry_factor" },
         "time_cob_id": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/time_cob_id" },
         "error_behavior": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/error_behavior" },

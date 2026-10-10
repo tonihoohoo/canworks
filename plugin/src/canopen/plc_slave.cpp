@@ -656,7 +656,7 @@ void PlcSlave::DiagSdo(const DiagRequest& r) {
         abort = co_sub_dn_ind_val(sub, type, &val);
         if (!abort) {
           Changed(r.index, r.subindex);
-          log_info("own object 0x%04X sub %u written by diagnostics client %s", r.index, r.subindex, r.peer.c_str());
+          log_info("own object 0x%04X sub %u written by %s", r.index, r.subindex, diag_client(r).c_str());
         }
       }
       co_val_fini(type, &val);

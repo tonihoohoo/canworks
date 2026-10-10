@@ -48,6 +48,10 @@ class SharedFixtures(unittest.TestCase):
         # Several networks (test/fixtures/config/cases-v2.json).
         self.run_cases(load_cases("cases-v2.json"), contract.schema(2), 15)
 
+    def test_cases_links(self):
+        # PDO links and heartbeat watch (test/fixtures/config/cases-links.json).
+        self.run_cases(load_cases("cases-links.json"), contract.schema(), 30)
+
     def test_cases_j1939(self):
         # J1939 networks (test/fixtures/config/cases-j1939.json).
         self.run_cases(load_cases("cases-j1939.json"), contract.schema(2), 30)

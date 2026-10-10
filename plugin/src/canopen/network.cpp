@@ -166,9 +166,11 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
   // Lely's NMT boot steps and the configuration downloads below (which pass
   // no timeout) use this; Lely's own default is 100 ms.
   SetTimeout(std::chrono::milliseconds(cfg.master.sdo_timeout_ms));
-  // LSS only when a node is assigned by it or diagnostics may change things;
-  // otherwise Lely's start-up runs without the LSS step and sends no LSS frame.
-  bool lss = cfg.master.has_diagnostics && cfg.master.diag_allow_changes;
+  // LSS only when a node is assigned by it or diagnostics (or the CiA 309-3
+  // gateway) may change things; otherwise Lely's start-up runs without the
+  // LSS step and sends no LSS frame.
+  bool lss = (cfg.master.has_diagnostics && cfg.master.diag_allow_changes) ||
+             (cfg.master.cia309.enabled && cfg.master.cia309.allow_changes);
   for (const auto& n : cfg.nodes) lss |= n.lss_assign;
   if (lss) lss_.reset(new LssAssigner(exec, *this));
 }
@@ -281,14 +283,33 @@ void Network::StopNodes() {
   for (auto& it : nodes_) EnableTpdos(it.second, false);
   OnPlcStop mode = cfg_.master.on_plc_stop;
   if (mode == OnPlcStop::Keep) return;
+  // The producer and consumers of links with "on_plc_stop": "keep" get no
+  // NMT command, so the link runs on (canopen-pdo-links "Links on PLC stop").
+  std::map<unsigned, std::string> kept;  // node ID -> its kept links
+  for (const auto& l : cfg_.links) {
+    if (!l.keep_on_plc_stop) continue;
+    std::vector<unsigned> ids{l.producer};
+    for (const auto& c : l.consumers) ids.push_back(c.node);
+    for (unsigned id : ids) {
+      std::string& s = kept[id];
+      if (s.find(l.label()) == std::string::npos) s += (s.empty() ? "" : ", ") + l.label();
+    }
+  }
   bool stop = mode == OnPlcStop::Stop;
   unsigned sent = 0;
+  std::string left;
   for (auto& it : nodes_) {
     NodeState& n = it.second;
     if (!n.up && !n.node_op) continue;
+    auto k = kept.find(it.first);
+    if (k != kept.end()) {
+      left += (left.empty() ? "" : "; ") + n.cfg->label() + " (" + k->second + ")";
+      continue;
+    }
     Command(stop ? NmtCommand::STOP : NmtCommand::ENTER_PREOP, static_cast<uint8_t>(it.first));
     ++sent;
   }
+  if (!left.empty()) log_info("PLC stop: left running for their PDO links: %s", left.c_str());
   if (sent)
     log_info("PLC stop: NMT %s to %u node%s (master.on_plc_stop \"%s\")",
              stop ? "STOP" : "ENTER PRE-OPERATIONAL", sent, sent == 1 ? "" : "s", stop ? "stop" : "preop");
@@ -1336,6 +1357,18 @@ void Network::ApplyOutputsGate() {
   }
 }
 
+// A lost node that produces for PDO links: its consumers get no more data
+// (canopen-pdo-links "Link nodes lost or rebooted"). Logged once per loss.
+static void log_link_loss(const Config& cfg, unsigned id) {
+  for (const auto& l : cfg.links) {
+    if (l.producer != id) continue;
+    std::string to;
+    for (const auto& c : l.consumers)
+      to += (to.empty() ? "" : ", ") + std::string("node ") + std::to_string(c.node) + " RPDO " + std::to_string(c.rpdo);
+    log_info("node %u lost: %s feeds %s, which get no data until it is back", id, l.label().c_str(), to.c_str());
+  }
+}
+
 void Network::OnHeartbeat(uint8_t id, bool occurred) noexcept {
   BasicMaster::OnHeartbeat(id, occurred);
   Defer([this, id, occurred] { HandleHeartbeat(id, occurred); });
@@ -1346,11 +1379,18 @@ void Network::HandleHeartbeat(uint8_t id, bool occurred) {
   if (it == nodes_.end()) return;
   if (occurred) {
     it->second.node_op = false;
+    if (diag_) {
+      DiagEvent e;
+      e.kind = DiagEvent::HeartbeatLost;
+      e.node = id;
+      diag_->push_event(e);
+    }
     if (it->second.cfg->heartbeat_timeout_ms)
       log_error("%s lost: no heartbeat within %u ms", it->second.cfg->label().c_str(),
                 it->second.cfg->heartbeat_timeout_ms);
     else
       log_error("%s lost: no heartbeat within 3 x its EDS heartbeat period", it->second.cfg->label().c_str());
+    log_link_loss(cfg_, id);
     Update(id, "heartbeat timeout");
     SetState(id, kStateNoContact);
     ScheduleRetry(it->second);
@@ -1369,7 +1409,14 @@ void Network::HandleNodeGuarding(uint8_t id, bool occurred) {
   if (it == nodes_.end()) return;
   if (occurred) {
     it->second.node_op = false;
+    if (diag_) {
+      DiagEvent e;
+      e.kind = DiagEvent::GuardingLost;
+      e.node = id;
+      diag_->push_event(e);
+    }
     log_error("%s lost: no node guarding response", it->second.cfg->label().c_str());
+    log_link_loss(cfg_, id);
     Update(id, "node guarding timeout");
     SetState(id, kStateNoContact);
     ScheduleRetry(it->second);
@@ -1390,6 +1437,13 @@ void Network::HandleState(uint8_t id, NmtState st) {
   st = static_cast<NmtState>(static_cast<uint8_t>(st) & 0x7F);  // drop the toggle bit
   n.start_unconfirmed = false;
   SetState(id, state_code(st, true));
+  if (diag_ && diag_->events_on()) {
+    DiagEvent e;
+    e.kind = st == NmtState::BOOTUP ? DiagEvent::Bootup : DiagEvent::State;
+    e.node = id;
+    e.state = static_cast<uint8_t>(st);
+    diag_->push_event(e);
+  }
   switch (st) {
     case NmtState::BOOTUP:
       // The node (re)started. The master boots it again on its own; the retry
@@ -1462,6 +1516,15 @@ void Network::HandleEmcy(uint8_t id, uint16_t eec, uint8_t er, const std::array<
     return;
   }
   NodeState& n = it->second;
+  if (diag_) {
+    DiagEvent e;
+    e.kind = DiagEvent::Emcy;
+    e.node = id;
+    e.code = eec;
+    e.er = er;
+    e.msef = msef;
+    diag_->push_event(e);
+  }
   // The inputs and the history follow every EMCY; only the log is throttled.
   SetEmcy(id, eec, er);
   NodeState::Emcy& rec = n.emcy_hist[n.emcy_head];

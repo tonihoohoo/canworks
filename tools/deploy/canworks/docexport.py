@@ -22,6 +22,7 @@ import tempfile
 from . import __version__, bridgecheck, bundle, contract, dbcexport, dcfexport, edslint, editorproject, modbusmap
 from . import notes as notes_mod
 from . import eds as eds_mod
+from . import links as links_mod
 from .iec import CO_TYPE_BY_CODE, parse_location
 
 DOC_SCHEMA_VERSION = 2
@@ -616,10 +617,11 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
     net_anchor = anchor("net", nname or "network")
     label = (nname + ": ") if several else ""
 
-    nodes, pdo_by_cob = [], {}
+    nodes, pdo_by_cob, eds_by_id = [], {}, {}
     for n, pn, ident in zip(cfg["nodes"], norm, idents):
         node_id = _u(n["node_id"])
         eds, raw = _load_node_eds(n, paths)
+        eds_by_id[node_id] = eds
         info = eds_mod.device_info(paths[n["eds"]]) or {}
         nt = notes(n["eds"], eds)
         pdos = _pdos(n, eds, pn, cfg, names, nt)
@@ -647,6 +649,7 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
         if embed:
             node["eds"]["data"] = base64.b64encode(raw).decode("ascii")
         nodes.append(node)
+    links = _links(cfg, nodes, norm, eds_by_id, nname)
 
     # Frames and bus load.
     hb_period = {}
@@ -760,8 +763,86 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
         "settings": _master_settings(net, cfg), "locations": master_locations, "frames": frames,
         "bus_load": {"cyclic": cyclic, "worst": worst, "unbounded": unbounded, "notes": notes,
                      "sync_ms": rates.sync_ms, "plc_cycle_ms": plc_cycle_ms if rates.plc_cycle else None},
-        "nodes": nodes, "io": io,
+        "nodes": nodes, "io": io, **({"links": links} if links else {}),
     }
+
+
+def _links(cfg, nodes, norm, eds_by_id, nname):
+    """The network's PDO links (canopen-network-docs "PDO links in the
+    document"): one row per link; each consumer's linked RPDO goes on its
+    node sheet with the producer position of each object, and each node's
+    heartbeat watch into its settings."""
+    by_id = {nd["node_id"]: nd for nd in nodes}
+    plain = [{"node_id": nd["node_id"], "name": nd["name"], "eds": n["eds"]} for nd, n in zip(nodes, cfg["nodes"])]
+    links_mod.resolve_watch(cfg["nodes"], plain, eds_by_id, cfg["master"], lambda *a: None)
+    for p in plain:
+        for h in p.get("heartbeat_watch", []):
+            if h.get("subindex"):
+                by_id[p["node_id"]]["settings"].append({
+                    "label": "Watches the heartbeat of node %d" % h["node"],
+                    "value": "%d ms (0x1016 sub %d)" % (h["timeout_ms"], h["subindex"]), "object": "0x1016"})
+    watching = {(p["node_id"], h["node"]) for p in plain for h in p.get("heartbeat_watch", [])}
+    out = []
+    norm_by_id = {pn["node_id"]: pn for pn in norm}
+    for link in links_mod.parse(cfg):
+        prod = by_id.get(link["producer"])
+        pn = norm_by_id.get(link["producer"])
+        tnorm = next((t for t in pn["tx_pdos"] if t["number"] == link["tpdo"]), None) if pn else None
+        tpdo = next((p for p in prod["pdos"] if p["kind"] == "TPDO" and p["number"] == link["tpdo"]), None) \
+            if prod else None
+        if tnorm is None or tpdo is None:
+            continue
+        link["cob_id"] = tnorm["cob_id"]
+        tjson = next(t for t, q in zip(next(n for n in cfg["nodes"] if _u(n["node_id"]) == link["producer"])
+                                       ["tx_pdos"], pn["tx_pdos"]) if q["number"] == link["tpdo"])
+        tjson = dict(tjson, number=link["tpdo"],
+                     entries=[{"index": _u(e["index"]), "subindex": _u(e.get("subindex"), 0), "type": e["type"]}
+                              for e in tjson["entries"]])
+        prod_layout = links_mod.producer_layout(tjson, eds_by_id[link["producer"]]) or []
+        reads = [e for e in tpdo["entries"] if e["location"]]
+        row = {"name": link["label"], "cob_id": link["cob_id"], "producer": prod["node_id"], "tpdo": link["tpdo"],
+               "producer_anchor": tpdo["anchor"], "on_plc_stop": "keep" if link["keep"] else "follow",
+               "plc_reads": ["%s (0x%04X:%d)" % (e["location"], e["index"], e["subindex"]) for e in reads],
+               "consumers": [], "warnings": []}
+        for c in link["consumers"]:
+            node = by_id.get(c["node"])
+            eds = eds_by_id.get(c["node"])
+            if node is None or eds is None or c["node"] == link["producer"]:
+                continue
+            layout, device = links_mod.consumer_layout(c, eds)
+            comm = 0x1400 + c["rpdo"] - 1
+            trans = c["transmission"] if c["transmission"] is not None else _eds_value(eds, comm, 2, c["node"])
+            deadline = c["event_timer_ms"] if c["event_timer_ms"] is not None else _eds_value(eds, comm, 5, c["node"])
+            entries, bit = [], 0
+            for k, x in enumerate(layout):
+                src = prod_layout[k] if k < len(prod_layout) else None
+                dummy = x["index"] < 0x0008
+                entries.append({"bit": bit, "length": x["bits"], "index": x["index"], "subindex": x["subindex"],
+                                "name": "dummy" if dummy else _od_text(eds, x["index"], x["subindex"]),
+                                "type": CO_TYPE_BY_CODE.get(x["type"] if x["type"] is not None else x["index"], ""),
+                                "location": "", "variables": [], "used": not dummy, "dummy": dummy,
+                                "link_from": ("position %d of node %d TPDO %d: 0x%04X:%d" % (
+                                    k + 1, link["producer"], link["tpdo"], src["index"], src["subindex"]))
+                                if src else ""})
+                if src and not dummy and x["type"] is not None and src["type"] is not None \
+                        and x["type"] != src["type"]:
+                    row["warnings"].append("position %d: 0x%04X:%d %s into 0x%04X:%d %s of node %d" % (
+                        k + 1, src["index"], src["subindex"], eds_mod.data_type_name(src["type"]), x["index"],
+                        x["subindex"], eds_mod.data_type_name(x["type"]), c["node"]))
+                bit += x["bits"]
+            anchor_id = anchor("pdo", nname, c["node"], "link-rpdo%d" % c["rpdo"])
+            node["pdos"].append({
+                "kind": "RPDO", "number": c["rpdo"], "anchor": anchor_id, "cob_id": link["cob_id"],
+                "transmission": trans, "transmission_from_eds": c["transmission"] is None and trans is not None,
+                "transmission_text": _transmission_meaning(trans), "inhibit_time_us": None,
+                "event_timer_ms": deadline, "sync_start": None, "mapping": "device" if device else "config",
+                "dlc": (bit + 7) // 8, "bits": bit, "entries": entries,
+                "direction": "node %d TPDO %d → this node (%s)" % (link["producer"], link["tpdo"], link["label"])})
+            row["consumers"].append({"node": c["node"], "rpdo": c["rpdo"], "anchor": anchor_id,
+                                     "transmission": trans, "deadline_ms": deadline,
+                                     "watches_producer": (c["node"], link["producer"]) in watching})
+        out.append(row)
+    return out
 
 
 SLAVE_LOCATIONS = (
@@ -1312,6 +1393,7 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
     for n in networks:
         n.setdefault("protocol", "canopen")
     gateway = _gateway(cfg, networks) if network is None else None
+    cia309 = _cia309(cfg, networks)
     io = sorted((r for n in networks for r in n["io"]), key=lambda r: (r["key"], r["network"], r["who"]))
     for n in networks:
         del n["io"]
@@ -1340,7 +1422,39 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
     }
     if network is None and bridgecheck.is_bridge_config(cfg):
         model["modbus"] = _modbus(cfg)
+    if cia309:
+        model["cia309"] = cia309
     return model
+
+
+def _cia309(cfg, networks):
+    """The CiA 309-3 gateway section (canopen-cia309-gateway) of a config, or
+    None; also puts each network's gateway number (cia309_number) and each
+    node TPDO 1-4's gateway RPDO number (gateway_rpdo) into the network
+    models."""
+    numbering = contract.cia309_numbering(cfg)
+    g = contract.cia309_object(cfg)
+    if not numbering or not isinstance(g, dict):
+        return None
+    by_name = {n["name"]: n for n in networks}
+    nets = []
+    for number, name, _ in numbering:
+        nets.append({"number": number, "name": name})
+        net = by_name.get(name)
+        if not net:
+            continue
+        net["cia309_number"] = number
+        if net.get("role") == "slave":
+            continue
+        for node in net.get("nodes", []):
+            node_id = node.get("node_id")
+            for p in node.get("pdos", []):
+                if p["kind"] == "TPDO" and 1 <= p["number"] <= 4 and isinstance(node_id, int):
+                    p["gateway_rpdo"] = (node_id - 1) * 4 + p["number"]
+    return {"port": _u(g.get("port"), contract.CIA309_DEFAULT_PORT), "bind": g.get("bind", "127.0.0.1"),
+            "max_clients": _u(g.get("max_clients"), 4), "allow_changes": g.get("allow_changes") is True,
+            "allow_force": g.get("allow_force") is True, "default_net": _u(g.get("default_net"), 0) or None,
+            "nets": nets}
 
 
 def _without_token(text, cfg):

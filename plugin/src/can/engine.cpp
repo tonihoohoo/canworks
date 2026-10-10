@@ -11,6 +11,9 @@
 #if CANWORKS_WITH_J1939
 #include "j1939_runtime.h"
 #endif
+#if CANWORKS_WITH_CIA309
+#include "cia309_server.h"
+#endif
 
 namespace canopen_plugin {
 
@@ -25,6 +28,9 @@ Engine::Engine() = default;
 Engine::~Engine() {
   stop();
   server_.reset();
+#if CANWORKS_WITH_CIA309
+  cia309_.reset();
+#endif
   nets_.clear();  // before the gateway link they use
   raws_.clear();
 }
@@ -127,12 +133,40 @@ bool Engine::prepare(const std::string& path, const ImageLimits& limits, uint64_
       if (auto inj = nets_[i]->frame_injector()) server_->set_frame_injector(inj, i);
     }
   }
+  // The CiA 309-3 gateway (canopen-cia309-gateway): its own thread next to the
+  // diagnostics server, on the same hubs. The parser refuses `cia309` in a
+  // build without it.
+  const Cia309Config& gw = set_.networks[0].master.cia309;
+#if CANWORKS_WITH_CIA309
+  if (gw.enabled) {
+    std::vector<Cia309Net> gnets;
+    for (size_t i = 0; i < nets_.size(); ++i) gnets.push_back({&set_.networks[i], nets_[i]->hub()});
+    cia309_.reset(new Cia309Server(gw, gnets, version ? version : ""));
+    Cia309Server* g = cia309_.get();
+    for (auto& n : nets_)
+      if (DiagHub* h = n->hub()) h->set_cia309_status([g] { return g->status(); });
+    if (server_) server_->set_cia309(cia309_->hooks());
+  }
+#else
+  (void)gw;
+#endif
   return true;
+}
+
+cJSON* Engine::cia309_status() const {
+#if CANWORKS_WITH_CIA309
+  if (cia309_) return cia309_->status();
+#endif
+  return nullptr;
 }
 
 void Engine::start() {
   for (auto& n : nets_) n->start();
   for (auto& r : raws_) r->start();
+#if CANWORKS_WITH_CIA309
+  // Before the diagnostics server, which hands connections over to it.
+  if (cia309_) cia309_->start();
+#endif
   if (server_) server_->start();
 #if CANWORKS_WITH_CANOPEN
   canopen_open_plc_requests(set_);
@@ -153,6 +187,10 @@ void Engine::stop() {
   j1939_close_plc_jobs();
 #endif
   if (server_) server_->stop();
+#if CANWORKS_WITH_CIA309
+  // Before the networks (canopen-cia309-gateway).
+  if (cia309_) cia309_->stop();
+#endif
   for (auto& r : raws_) r->stop();
   for (auto& n : nets_) n->stop();
 }

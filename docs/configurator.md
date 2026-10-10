@@ -157,6 +157,18 @@ Under each PDO, **Timing** shows the communication settings the node's EDS defin
 
 Under each input PDO (TPDO), **Timeout** sets its [receive timeout](config.md#receive-timeout): empty is off, a number is milliseconds, and **Auto** uses two times the PDO's event timer, shown next to the field (`auto (200 ms)`), or says that auto needs an event timer when there is none. With a timeout set, **On timeout** picks whether the PDO's inputs keep their last values or read 0 meanwhile, and **Timeout bit** takes an optional `%IX` address (**Suggest** picks a free one), which the generated declarations include. Emptying the timeout drops both.
 
+## PDO links
+
+**PDO links** in the side bar (CANopen master networks) lists the network's [links](config.md#pdo-links): a node's TPDO received directly by RPDOs of other nodes. **Add link** starts one from the first TPDO no link uses; pick the producer node and one of its configured TPDOs, and the page shows the COB-ID it takes from the producer (set it on the producer) and the producer's layout, one cell per position sized by its bits. **On PLC stop** is **Follow the master** or **Keep running**.
+
+**Add consumer…** offers the nodes with a free RPDO. A new consumer gets the first RPDO of its EDS that is not in its `rx_pdos` or another link and, for each producer position, the first object of that size it can receive (or a dummy entry of that size, when its EDS allows one); pick another object per position in the table, or **dummy (skip)** for a value the consumer does not need. A consumer whose EDS fixes the RPDO mapping keeps its device mapping, which must match the producer. Under the table the consumer's layout is drawn below the producer's; a position whose size differs from the producer's is marked, the Problems pane names the link, the consumer and both sizes, and Save stays disabled. **watch producer** adds the producer to the consumer's heartbeat watch, ticked by default when the producer has a heartbeat. **Remove link** asks first.
+
+On the producer's node page its TPDO says which link it feeds (a button to the links page), and its entries may leave the PLC location empty: the consumers get the value anyway. Removing that TPDO asks whether to remove the link too, Cancel being the default.
+
+The node page's supervision section has the node's **Heartbeat watch** list: each entry names a watched node of the network and a timeout, which shows `default (300 ms)` (the watched node's heartbeat timeout) when empty; **Watch a node…** adds one. The checks are the plugin's, the room in the node's EDS 0x1016 included.
+
+With online access the Online view lists the links of the configuration the runtime runs, with the NMT state of the producer and each consumer, a link marked when one of them is not OPERATIONAL, and the producer TPDO's receive timeout state; the links page shows the states of the Online view's last status next to each node.
+
 ## Startup SDO writes
 
 Each node has an ordered list of SDO writes that the plugin performs every time the node is configured at boot, after the PDO parameters. The section is folded while it is empty and shows its count in its heading; **Add…** unfolds it. Pick an object from the node's writable EDS objects, or type its index and subindex.
@@ -262,6 +274,8 @@ With several networks there is still one Online access for the whole config, one
 On a PC without the host or token yet (a fresh install, another PC), **Online** and **Scan the bus** show a **Connect** box: enter the runtime host and press **Connect**. It asks for the token when this PC has none or one that does not match the config, and says what is missing instead of doing nothing. The **Runtimes** list next to the host field shows the runtimes found on the local network (by name and address) and the ones this PC remembers; a remembered runtime connects directly when it answers and over the [remote link](remote-access.md) otherwise.
 
 **Reachable from other networks** turns on internet access for the remote link (`remote_link.internet`), with an optional list of your own relay servers under it; it takes effect when the program is uploaded. The first connection with the token on the local network pairs this PC with the runtime. **Show paired PCs** lists the PCs paired with the runtime, each with **Remove**, which also ends that PC's open sessions. The online view shows the path (`LAN`, `internet direct`, `internet relayed`) and the round trip next to the connection line, amber above 100 ms and red above 300 ms; on such a path LSS fast scan and a PDO test with a SYNC period ask before they start.
+
+**CiA 309-3 gateway** (under Online access) turns on the CiA 309-3 ASCII gateway (`cia309`, [cia309-gateway.md](cia309-gateway.md)) with **Allow changes** off. It sets the plain port (empty: 7533; 0: none), the sessions at a time, **Allow changes** (SDO downloads, NMT and LSS) and **Allow force on running nodes** (both off by default; force asks first and warns that a standard tool can then stop nodes the program drives), and shows the network numbers (`1 = io, 2 = drives`), with an optional explicit number per network when there are several. The plain port listens on the PLC's loopback address only; other machines connect through `canworks-diag gateway` with the project's token. Check reports the plugin's `cia309` rules, for example `cia309.bind` set to a network address.
 
 ## USB adapter on this PC
 

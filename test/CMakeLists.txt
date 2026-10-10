@@ -48,6 +48,14 @@ target_compile_definitions(unit_tests PRIVATE PINGPONG_DIR="${PINGPONG_DIR}" FIX
                            CIA402_DIR="${PROJECT_SOURCE_DIR}/config/cia402-drive")
 target_link_libraries(unit_tests PRIVATE canopen_core)
 add_test(NAME unit_tests COMMAND unit_tests)
+# The CiA 309-3 gateway's text layer, dispatcher and server (canopen-cia309-gateway).
+if(CANWORKS_CIA309)
+  add_executable(cia309_tests unit/cia309_tests.cpp)
+  target_include_directories(cia309_tests PRIVATE common)
+  target_link_libraries(cia309_tests PRIVATE canopen_core)
+  add_test(NAME cia309_tests COMMAND cia309_tests)
+  set_tests_properties(cia309_tests PROPERTIES TIMEOUT 120)
+endif()
 # The plugin's EDS lint runs this checkout's deploy tool module (stdlib only).
 set(EDSLINT_ENV "CANWORKS_EDSLINT=python3" "PYTHONPATH=${PROJECT_SOURCE_DIR}/tools/deploy")
 set_tests_properties(unit_tests PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
@@ -325,6 +333,12 @@ set_tests_properties(bridge_host_tests PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDS
 add_test(NAME bridge_upload COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/bridge/upload_test.py
          $<TARGET_FILE:canworks-bridge> ${PROJECT_SOURCE_DIR}/examples/modbus-bridge)
 set_tests_properties(bridge_upload PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")
+# The CiA 309-3 gateway end to end: the plugin and canworks-bridge on a
+# simulated bus with the deploy tool's client (test/cia309/run.sh).
+if(CANWORKS_CIA309)
+  add_test(NAME cia309_gateway COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cia309/run.sh --build-dir ${CMAKE_BINARY_DIR})
+  set_tests_properties(cia309_gateway PROPERTIES TIMEOUT 240 ENVIRONMENT "${EDSLINT_ENV}")
+endif()
 # scripts/install-bridge.sh with a stub systemctl.
 add_test(NAME bridge_install COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/bridge/install_test.sh $<TARGET_FILE:canworks-bridge>)
 # scripts/install-link.sh with stub systemctl and pip (the remote link).

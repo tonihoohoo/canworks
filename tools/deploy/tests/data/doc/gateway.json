@@ -1433,7 +1433,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.53.0"
+  "version": "0.55.0"
  },
  "warnings": []
 }

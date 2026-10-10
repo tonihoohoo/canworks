@@ -18,6 +18,7 @@ from . import axis as axis_mod
 from . import bridgecheck
 from . import eds as eds_mod
 from . import edslint
+from . import links as links_mod
 from .eds import sync_needed_message, transmission_needs_sync
 from .iec import CO_TYPES, parse_location, type_fits, SIZE_BITS
 from .raw import contract as raw_contract
@@ -186,6 +187,8 @@ def network_config(cfg, name=None):
     if not net["path"]:
         return cfg
     out = {"schema_version": 1, "adapter": net["adapter"], "master": dict(net["master"]), "nodes": net["nodes"]}
+    if "links" in net["json"]:
+        out["links"] = net["json"]["links"]
     if isinstance(cfg.get("diagnostics"), dict):
         out["master"]["diagnostics"] = cfg["diagnostics"]
     return out
@@ -635,11 +638,14 @@ def auto_cob_ids(nodes):
     return out
 
 
-def sdo_override(node, entry, data):
+def sdo_override(node, entry, data, linked_rpdos=()):
     """What a startup SDO overrides among the settings the plugin writes for
-    the node (the same rule as the plugin's warning), or None."""
+    the node (the same rule as the plugin's warning), or None.
+    `linked_rpdos`: the node's PDO link consumer RPDOs."""
     index, sub = entry["index"], entry["subindex"]
     value = int.from_bytes(data or b"", "little")
+    if 0x1400 <= index <= 0x17FF and (index & 0x1FF) + 1 in linked_rpdos:
+        return "the consumer RPDO of a PDO link ('links')"
     if 0x1400 <= index <= 0x1BFF:
         return "the PDO settings (the plugin sets up every PDO of the node)"
     if sub == 0 and index == 0x1017 and "heartbeat_ms" in node and value != _uint(node["heartbeat_ms"]):
@@ -653,6 +659,8 @@ def sdo_override(node, entry, data):
         return "time_cob_id"
     if index == 0x1016 and "heartbeat_consumer" in node:
         return "heartbeat_consumer"
+    if index == 0x1016 and node.get("heartbeat_watch"):
+        return "heartbeat_watch"
     if index == 0x1011 and "restore_configuration" in node and sub == _uint(node["restore_configuration"]):
         return "restore_configuration"
     if index == 0x1029 and isinstance(node.get("error_behavior"), dict):
@@ -768,7 +776,14 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
     sw_paths = software_paths if software_paths is not None else software_files(cfg, base)
     args = dict(path=path, base=base, eds_paths=eds_paths, sw_paths=sw_paths)
 
+    # The CiA 309-3 gateway's object: its own checks below, in the plugin's
+    # words (an unknown field there is an error, not a warning).
+    found = [(where, key) for where, key in found if not CIA309_PATH.match(where)]
+    schema_errors = [e for e in schema_errors if not _cia309_error(e)]
     if version == 1:
+        if "cia309" in cfg:
+            err("", "field 'cia309' belongs in 'master' in schema_version 1 (master.cia309), or at the top level "
+                    "in schema_version 2", ["cia309"])
         # Slave networks and the gateway exist only in version 2 (canopen-
         # config-contract: "Slave network role").
         for key in V2_ONLY_KEYS:
@@ -782,12 +797,138 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
         _check_network(r, cfg, "", 1, [(list(e.absolute_path), e) for e in schema_errors], **args)
     else:
         _check_v2(r, cfg, schema_errors, err, warn, args)
+    check_cia309(cfg, version, err)
     if r.ok:
         _check_image(cfg, err)
     for where, key in found:
         parent = where[: -len(key)].rstrip(".")
         warn(parent, "unknown field '%s' (%s) ignored" % (key, where), [where])
     return r
+
+
+# The CiA 309-3 gateway (canopen-cia309-gateway, plugin/src/can/config.cpp
+# parse_cia309 and resolve_cia309).
+CIA309_PATH = re.compile(r"^(master\.|networks\[\d+\]\.master\.)?cia309(\.|$)")
+CIA309_FIELDS = ("port", "bind", "max_clients", "allow_changes", "allow_force", "nets", "default_net")
+CIA309_DEFAULT_PORT = 7533
+CIA309_BIND_MESSAGE = ("the plain gateway port listens on loopback only (127.0.0.1 or ::1), not \"%s\": CiA 309-3 "
+                       "has no login; remote clients use the diagnostics channel (canworks-diag gateway)")
+
+
+def _cia309_error(e):
+    p = [str(x) for x in e.absolute_path]
+    return bool(p) and (p[0] == "cia309" or (len(p) > 1 and p[0] == "master" and p[1] == "cia309") or (
+        len(p) > 3 and p[0] == "networks" and p[2] == "master" and p[3] == "cia309"))
+
+
+def cia309_numbering(cfg):
+    """The CiA 309-3 network numbers of a config: [(number, network name,
+    network index)], `nets` when given, else 1..n in config order (as the
+    plugin numbers them). [] without a cia309 object."""
+    g = cia309_object(cfg)
+    if g is None:
+        return []
+    index = {n["name"]: n["index"] for n in networks(cfg)}
+    nets = g.get("nets") if isinstance(g, dict) else None
+    if isinstance(nets, dict) and version_of(cfg) > 1:
+        out = []
+        for key, name in nets.items():
+            if isinstance(key, str) and key.isdigit() and name in index:
+                out.append((int(key), name, index[name]))
+        return sorted(out)
+    return [(i + 1, n["name"], n["index"]) for i, n in enumerate(networks(cfg))]
+
+
+def cia309_object(cfg):
+    """The cia309 object (top level in version 2, master.cia309 in version
+    1), or None."""
+    if not isinstance(cfg, dict):
+        return None
+    if version_of(cfg) > 1:
+        return cfg.get("cia309")
+    master = cfg.get("master")
+    return master.get("cia309") if isinstance(master, dict) else None
+
+
+def check_cia309(cfg, version, err):
+    """The plugin's cia309 rules (canopen-cia309-gateway "CiA 309-3 gateway
+    is opt-in")."""
+    if version > 1:
+        for i, net in enumerate(cfg.get("networks") or []):
+            if isinstance(net, dict) and isinstance(net.get("master"), dict) and "cia309" in net["master"]:
+                err("networks[%d]: master" % i, "field 'cia309' is a top-level object in schema_version 2, not part "
+                                                "of a network's master", ["networks[%d].master.cia309" % i])
+        g = cfg.get("cia309")
+        w = "cia309"
+    else:
+        master = cfg.get("master")
+        g = master.get("cia309") if isinstance(master, dict) else None
+        w = "master.cia309"
+    if g is None:
+        return
+    if not isinstance(g, dict):
+        err(w.rpartition(".")[0], "field 'cia309' must be an object", [w])
+        return
+    for key in g:
+        if key not in CIA309_FIELDS:
+            err(w, "unknown field '%s'" % key, [w + "." + key])
+    port = _uint(g.get("port", CIA309_DEFAULT_PORT))
+    if "port" in g and (port is None or port > 65535 or (port != 0 and port < 1024)):
+        err(w, "field 'port' must be 0 (no plain port) or 1024-65535", [w + ".port"])
+    if "bind" in g:
+        bind = g["bind"]
+        if not isinstance(bind, str) or not bind:
+            err(w, "field 'bind' must be a non-empty string", [w + ".bind"])
+        elif bind not in ("127.0.0.1", "::1"):
+            err(w + ".bind", CIA309_BIND_MESSAGE % bind, [w + ".bind"])
+    if "max_clients" in g:
+        v = _uint(g["max_clients"])
+        if v is None or not 1 <= v <= 16:
+            err(w, "field 'max_clients' must be 1-16", [w + ".max_clients"])
+    for key in ("allow_changes", "allow_force"):
+        if key in g and not isinstance(g[key], bool):
+            err(w, "field '%s' must be true or false" % key, [w + "." + key])
+    names = [n["name"] for n in networks(cfg)]
+    numbers = {}
+    nets = g.get("nets")
+    if "nets" in g:
+        if version == 1:
+            err(w, "field 'nets' needs schema_version 2 (a version 1 file has one network, number 1)", [w + ".nets"])
+        elif not isinstance(nets, dict):
+            err(w, "field 'nets' must be an object of network numbers and names, like {\"1\": \"io\"}", [w + ".nets"])
+        else:
+            seen = {}
+            for key, name in nets.items():
+                if not isinstance(name, str) or not name:
+                    err(w + ".nets", "network %s must name a network" % key, [w + ".nets." + key])
+                    continue
+                if not (key.isdigit() and key[0] != "0" and len(key) <= 3 and 1 <= int(key) <= 127):
+                    err(w + ".nets", "\"%s\" is not a network number 1-127" % key, [w + ".nets." + key])
+                    continue
+                if name not in names:
+                    err(w + ".nets", "network %s names \"%s\", which is not a network of this file" % (key, name),
+                        [w + ".nets." + key])
+                    continue
+                if name in seen:
+                    err(w + ".nets", "network \"%s\" has two numbers (%s and %s)" % (name, seen[name], key),
+                        [w + ".nets." + key])
+                    continue
+                seen[name] = key
+                numbers[int(key)] = name
+    if not ("nets" in g and isinstance(nets, dict) and version > 1):
+        numbers = {i + 1: n for i, n in enumerate(names)}
+    if "default_net" in g:
+        v = _uint(g["default_net"])
+        if v is None or not 1 <= v <= 127:
+            err(w, "field 'default_net' must be 1-127", [w + ".default_net"])
+        elif v not in numbers:
+            listed = ", ".join("%d = %s" % (k, numbers[k] or "the network") for k in sorted(numbers)) or "none"
+            err(w, "field 'default_net' is %d, which is not a gateway network number (%s)" % (v, listed),
+                [w + ".default_net"])
+    d = cfg.get("diagnostics") if version > 1 else (cfg.get("master") or {}).get("diagnostics")
+    if isinstance(d, dict) and port and _uint(d.get("port", 7531)) == port:
+        err(w, "field 'port' %d is the diagnostics channel's port; give the gateway another one (default 7533)" % port,
+            [w + ".port"])
 
 
 # Top-level keys a version 1 file may not have.
@@ -885,6 +1026,9 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
         elif "slave" in net:
             err(prefix, "field 'slave' belongs to a slave network: give the network \"role\": \"slave\" (a master "
                         "network has 'master' and 'nodes')", [prefix + ".slave"])
+        if "links" in net and role != "master":
+            err(prefix, "field 'links' needs a CANopen master network; this is a %s network"
+                % {"j1939": "J1939", "plain": "plain CAN", "slave": "slave"}[role], [prefix + ".links"])
         for key in ("interface", "bitrate"):
             if key in net:
                 err(prefix, "field '%s' belongs in 'adapter' in schema_version 2" % key, [prefix + "." + key])
@@ -1279,6 +1423,12 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             err("", "field 'nodes' lists no slave nodes (an empty list needs %s, for a scan-only configuration)"
                 % ("master.diagnostics" if version == 1 else "a top-level 'diagnostics'"), ["nodes"])
             continue
+        if re.match(r"^links\[\d+\]\.to\[\d+\]\.entries\[\d+\]$", where) and e.validator == "not":
+            full_path = (prefix + "." if prefix else "") + where + ".iec_location"
+            err(where.replace(".", ": "), "field 'iec_location' (%s) does not belong to a link consumer's entry: the "
+                                          "consumer receives the value from the producer, not from the PLC"
+                % full_path, [where + ".iec_location"])
+            continue
         pdo_msg = _pdo_schema_message(cfg, list(rel), e)
         if pdo_msg:
             err(pdo_msg[0], pdo_msg[1], [where])
@@ -1361,11 +1511,15 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         warn("master", "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until the PLC "
                        "program starts it with CO_NETWORK_START", ["master.start"])
     master_hb = _uint(master.get("heartbeat_ms", 0)) or 0
+    links = links_mod.parse(cfg)
+    linked_tx = {(l["producer"], l["tpdo"]) for l in links}
+    linked_rx = links_mod.linked_rpdos(cfg)
     nodes = []
     seen = {}
     for i, n in enumerate(cfg["nodes"]):
         node = {"node_id": _uint(n["node_id"]), "name": n.get("name", ""), "eds": n["eds"],
                 "tx_pdos": [], "rx_pdos": [], "sdo": [], "sdo_variables": [],
+                "heartbeat_consumer": n.get("heartbeat_consumer") is True,
                 "config_check": n.get("config_check") is True, "no_sync": not sync_period}
         label = "node %d" % node["node_id"] + (" (%s)" % node["name"] if node["name"] else "")
         w = "nodes[%d]" % i
@@ -1457,10 +1611,11 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     entry = {"index": _uint(e["index"]), "subindex": _uint(e.get("subindex", 0)), "type": e["type"]}
                     loc = parse_location(e.get("iec_location"))
                     if loc is None:
-                        if (net_name, node["node_id"], entry["index"], entry["subindex"]) not in routed:
+                        if (net_name, node["node_id"], entry["index"], entry["subindex"]) not in routed and not (
+                                key == "tx_pdos" and (node["node_id"], pdo["number"]) in linked_tx):
                             err("%s: entries[%d]" % (pw, k),
-                                "%s, object 0x%04X:%d: missing 'iec_location' (only an entry a gateway route uses "
-                                "may leave it out)" % (label, entry["index"], entry["subindex"]),
+                                "%s, object 0x%04X:%d: missing 'iec_location' (only an entry a gateway route or a PDO "
+                                "link uses may leave it out)" % (label, entry["index"], entry["subindex"]),
                                 ["%s.%s[%d].entries[%d]" % (w, key, j, k)])
                     elif not type_fits(e["type"], loc.size):
                         err("%s: entries[%d]" % (pw, k),
@@ -1482,7 +1637,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     ["%s.sdo[%d].value" % (w, j)])
             entry["value"] = data
             node["sdo"].append(entry)
-            over = None if problem else sdo_override(n, entry, data)
+            over = None if problem else sdo_override(n, entry, data, linked_rx.get(node["node_id"], ()))
             if over:
                 warn(label, "startup SDO to 0x%04X subindex %d runs last and overrides %s"
                      % (entry["index"], entry["subindex"], over), ["%s.sdo[%d]" % (w, j)])
@@ -1502,9 +1657,19 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             node["sdo_variables"].append(entry)
         nodes.append(node)
 
+    # PDO links and heartbeat watch: the rules between nodes (plugin:
+    # check_links, check_heartbeat_watch).
+    links_mod.check_rules(links, nodes, sync_period, err)
+    links_mod.check_watch_rules(cfg["nodes"], nodes, master_id, err)
+
     # "auto" COB-IDs, as the plugin resolves them.
     for (i, key, j), cob in auto_cob_ids(nodes).items():
         nodes[i][key][j]["cob_id"] = cob
+    for l in links:
+        p = next((n for n in nodes if n["node_id"] == l["producer"]), None)
+        t = next((t for t in p["tx_pdos"] if t["number"] == l["tpdo"]), None) if p else None
+        if t is not None:
+            l["cob_id"] = t["cob_id"] if isinstance(t.get("cob_id"), int) else t["default_cob_id"]
 
     # Two PDOs on one COB-ID collide on the bus (plugin: add_cob), whether
     # the COB-ID is set, "auto" or the default.
@@ -1518,6 +1683,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 if cob is None:
                     continue
                 who, at = "%s %s %d" % (label, kind, pdo["number"]), "nodes[%d].%s[%d].cob_id" % (i, key, j)
+                if key == "tx_pdos":
+                    who += "".join(" (%s)" % l["label"] for l in links
+                                   if l["producer"] == node["node_id"] and l["tpdo"] == pdo["number"])
                 if cob in cobs:
                     err("nodes", "%s and %s both use COB-ID 0x%03X" % (who, cobs[cob][0], cob), [at, cobs[cob][1]])
                 else:
@@ -1532,6 +1700,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
     # EDS checks, node by node. Their warnings (objects a device mapping
     # sends as 0) only matter for a config that is accepted.
     eds_warnings = []
+    eds_by_id = {}
     lint_mode = edslint.effective_mode(master)
     for i, node in enumerate(nodes):
         w = "nodes[%d]" % i
@@ -1554,6 +1723,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         except eds_mod.EdsError as e:
             add("error", "node %d: EDS file %s cannot be parsed: %s" % (node["node_id"], file, e), [w + ".eds"])
             continue
+        eds_by_id.setdefault(node["node_id"], eds)
         messages, where, warnings = [], [], []
         eds_mod.check_node(node, eds, messages, where, warnings)
         src = cfg["nodes"][i]
@@ -1597,6 +1767,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             add("error", "%s and %s have the same LSS address (vendor ID 0x%08X, product code 0x%08X, serial "
                   "number 0x%08X)" % (labels[0], labels[1], p["vendor_id"], p["product_code"], p["serial_number"]),
                   ["nodes[%d].lss" % i, "nodes[%d].lss" % j])
+    # Heartbeat watch and PDO links against the EDS files (plugin: eds_check.cpp).
+    links_mod.resolve_watch(cfg["nodes"], nodes, eds_by_id, master, add)
+    links_mod.check_eds([l for l in links if "cob_id" in l], nodes, eds_by_id, sync_period, add, eds_warnings)
     if len(r.errors) == before:
         for msg, at in eds_warnings:
             add("warning", msg, [at])
