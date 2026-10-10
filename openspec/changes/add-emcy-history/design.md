@@ -66,3 +66,19 @@ None for the config: one new optional field within `schema_version` 1 and 2. The
 - 29-bit EMCY COB-IDs: does the pinned Lely support them in 0x1028? Rejected with a warning until checked.
 - The configurator's trace decodes EMCY by 0x80 + node ID or a configured number; should it ask the runtime for COB-IDs read from devices?
 - Should `canworks-diag errors` also be offered on slave networks for the plugin's own 0x1003 (the slave's EMCY producer)? Not in this change.
+
+## Resolved in the implementation
+
+The open questions above were settled with the proposal's defaults:
+
+- The 0x1014 read is on by default (`"device"`); `"eds"` turns it off.
+- No read for `boot: false` nodes; EMCYs of unconfigured node IDs are not queued; the queue depth is fixed at 64; 29-bit EMCY COB-IDs are rejected; the configurator's trace keeps decoding by 0x80 + node ID or a configured number; `canworks-diag errors` is not offered on slave networks.
+
+Details the design left open:
+
+- `emcy_begin` returns `-ERROR_ID` instead of taking an `error_id` pointer, like `emcy_read`; an entry is 24 bytes (time, sequence number, code, node, error register, manufacturer bytes).
+- A startup SDO to 0x1014 sub-index 0 with bit 31 set (the first half of moving a COB-ID) is not taken as a COB-ID; the last one without bit 31 counts. Its value goes through the same load-time checks as a number, with "from the startup SDO to 0x1014" in the message.
+- dcfgen's binary master DCF (`master.bin`) is loaded after the text DCF and sets the EDS default of 0x1028 again, so the master also writes a configured COB-ID into its own 0x1028 when it starts and after its own NMT reset (decision 8's local write); the text DCF is edited too.
+- A device that reports its EMCY switched off (bit 31) keeps the master on the COB-ID it already uses; one that is back on the master's COB-ID, or on its default, is followed back.
+- The status `source` is `default` when the COB-ID in use is 0x80 + node ID and nothing configured it, `eds` for another EDS default, `config` for a number or startup SDO, `device` after a read was taken.
+- The runtime log for an older library or plugin now says "asks for CANopen block API version N" (it named only SDO blocks before).
