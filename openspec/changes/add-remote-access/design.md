@@ -79,4 +79,4 @@ Nothing changes for existing installs. The link and discovery are installed only
 ## Open Questions
 
 1. Should `canworks-deploy link pair` also be offered over the runtime's HTTPS login instead of SSH? Default: SSH only (the upstream runtime has no hook for it).
-2. Default `relays` for a fresh install: `"default"` (works at once) or `"off"` (nothing leaves the LAN until chosen). Default in this proposal: `"off"`, and `canworks-link enable --relays default|URL` turns it on.
+2. ~~Default `relays` for a fresh install.~~ Decided (Toni, 2026-10-10): `"off"`, so nothing leaves the LAN until `canworks-link enable --relays default|URL` turns it on.
