@@ -54,7 +54,7 @@ Every field is described in [docs/config.md](docs/config.md).
 - **EDS checks:** every EDS goes through Lely's CiA 306 lint, and every PDO entry and SDO is checked for type and access before anything is sent.
 - **Safe stops:** when the PLC stops, the nodes go PRE-OPERATIONAL (or STOPPED, or stay as they are: `on_plc_stop`); a scan that stops finishing cycles stops the outputs (`scan_watchdog_ms`); a node that comes back gets the program's current outputs at once.
 - **Status for the program:** a status bit and state byte per node, bus state and error counters, the last EMCY per node, and an optional receive timeout per input PDO.
-- **From the program:** SDO variables, NMT commands, and SDO function blocks (`CO_SDO_READ`, `CO_SDO_WRITE`, ...) that read or write any object of any node when the program decides ([docs/plc-sdo.md](docs/plc-sdo.md)).
+- **From the program:** SDO variables, NMT commands, SDO function blocks (`CO_SDO_READ`, `CO_SDO_WRITE`, ...) that read or write any object of any node when the program decides ([docs/plc-sdo.md](docs/plc-sdo.md)), and NMT blocks (`CO_NMT`, `CO_NETWORK_START`, `CO_NETWORK_STOP`, `CO_GET_STATE`) that command any node, start and stop the network (autostart off with `master.start: false`) and read NMT states ([docs/plc-nmt.md](docs/plc-nmt.md)).
 - **CiA 402 drives as PLCopen axes:** drive a node with the editor's motion blocks (`MC_Power`, `MC_MoveAbsolute`, `MC_Home`, ...) in profile position, velocity and homing mode, or in the cyclic synchronous modes (CSP, CSV, CST) ([docs/cia402.md](docs/cia402.md)).
 - **Everything `dcfgen` can set**, plus a TIME producer that sends the runtime host's clock.
 - **OpenPLC as a slave:** the PLC becomes a node on a network another master runs, with a generated EDS for that master's tool ([docs/slave.md](docs/slave.md)).
@@ -118,7 +118,7 @@ On the runtime host, `canworks-sim` runs simulated CANopen devices and plain CAN
 | CiA 309-3 gateway for SCADA, test benches and scripts | [cia309-gateway.md](docs/cia309-gateway.md) |
 | Reaching the PLC from other networks, or with no network | [remote-access.md](docs/remote-access.md) |
 | Bus trace and frame inspector | [trace.md](docs/trace.md), [frame-inspector.md](docs/frame-inspector.md) |
-| SDO blocks and CiA 402 axes in the program | [plc-sdo.md](docs/plc-sdo.md), [cia402.md](docs/cia402.md) |
+| SDO and NMT blocks and CiA 402 axes in the program | [plc-sdo.md](docs/plc-sdo.md), [plc-nmt.md](docs/plc-nmt.md), [cia402.md](docs/cia402.md) |
 | Slave and gateway | [slave.md](docs/slave.md), [gateway.md](docs/gateway.md) |
 | J1939 | [j1939.md](docs/j1939.md) |
 | Raw CAN messages and frame blocks | [raw-can.md](docs/raw-can.md) |

@@ -1508,8 +1508,8 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             err("master", "field 'scan_watchdog_ms' must be 0 or 10-60000: %d" % watchdog, ["master.scan_watchdog_ms"])
     _error_behavior(master, "master", err)
     if master.get("start") is False:
-        warn("master", "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until it is "
-                       "started", ["master.start"])
+        warn("master", "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until the PLC "
+                       "program starts it with CO_NETWORK_START", ["master.start"])
     master_hb = _uint(master.get("heartbeat_ms", 0)) or 0
     links = links_mod.parse(cfg)
     linked_tx = {(l["producer"], l["tpdo"]) for l in links}

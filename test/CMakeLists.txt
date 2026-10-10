@@ -86,8 +86,10 @@ add_custom_command(
   COMMENT "Editor glue for the SDO function blocks")
 add_library(sdo_blocks OBJECT ${SDO_BLOCKS_DIR}/c_blocks_code.cpp)
 target_include_directories(sdo_blocks PUBLIC ${SDO_BLOCKS_DIR} ${STRUCPP_DIR}/package/src/runtime/include)
-# In one process with the master, the blocks call the API table directly.
-target_compile_definitions(sdo_blocks PRIVATE CO_SDO_TEST_ENTRY=canopen_plc_api_test)
+# In one process with the master, the blocks call the API tables directly
+# (the SDO table and the NMT blocks' table).
+target_compile_definitions(sdo_blocks PRIVATE CO_SDO_TEST_ENTRY=canopen_plc_api_test
+                           CO_NMT_TEST_ENTRY=canopen_plc_nmt_api_test)
 set_target_properties(sdo_blocks PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON)
 
 # The CAN_* frame blocks with the editor's glue, calling the frame port's
@@ -95,7 +97,7 @@ set_target_properties(sdo_blocks PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON)
 add_library(can_blocks OBJECT ${SDO_BLOCKS_DIR}/c_blocks_code.cpp)
 target_include_directories(can_blocks PUBLIC ${SDO_BLOCKS_DIR} ${STRUCPP_DIR}/package/src/runtime/include)
 target_compile_definitions(can_blocks PRIVATE CO_SDO_TEST_ENTRY=canopen_plc_api_test
-                           CAN_FRAMES_TEST_ENTRY=canworks_can_api_table)
+                           CO_NMT_TEST_ENTRY=canopen_plc_nmt_api_test CAN_FRAMES_TEST_ENTRY=canworks_can_api_table)
 set_target_properties(can_blocks PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON)
 add_executable(can_blocks_tests can_raw/blocks_tests.cpp $<TARGET_OBJECTS:can_blocks>)
 target_include_directories(can_blocks_tests PRIVATE common ${SDO_BLOCKS_DIR} ${STRUCPP_DIR}/package/src/runtime/include)

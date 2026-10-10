@@ -1939,7 +1939,7 @@ class Parser {
     }
     if (!m.start)
       warning(w, "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged "
-                 "until it is started");
+                 "until the PLC program starts it with CO_NETWORK_START");
   }
 
   // `parent_where`: "master" in version 1, "" (the top level) in version 2.

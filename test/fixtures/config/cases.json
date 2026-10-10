@@ -304,7 +304,7 @@
       "schema": "valid", "verdict": "accept" },
     { "name": "master start false", "patch": [ ["set", "master/start", false] ],
       "schema": "valid", "verdict": "accept",
-      "warnings": [ "master: 'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until it is started" ] },
+      "warnings": [ "master: 'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until the PLC program starts it with CO_NETWORK_START" ] },
     { "name": "boot SDO timeout limits", "patch": [ ["set", "master/sdo_timeout_ms", 10] ],
       "schema": "valid", "verdict": "accept" },
     { "name": "boot SDO timeout maximum as a string", "patch": [ ["set", "master/sdo_timeout_ms", "60000"] ],

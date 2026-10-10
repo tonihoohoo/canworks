@@ -453,6 +453,26 @@ class Page(unittest.TestCase):
         saved = load(os.path.join(self.project, "canworks", "canworks.json"))["adapter"]
         self.assertEqual(saved, {"type": "socketcan", "interface": "can0", "bitrate": 500000})
 
+    def test_network_start_copy_as_st_call(self):
+        # add-plc-network-control 5.2: the corrected hint and a CO_NETWORK_START call.
+        pg = self.page
+        self.open_from_start("#start-project", self.project)
+        pg.click('button[data-view="bus"]')
+        pg.click('details[data-advanced="master"] > summary')
+        box = pg.locator('input[data-path="master.start"]').locator("xpath=ancestor::div[1]")
+        self.assertIn("until the PLC program starts it with CO_NETWORK_START", box.inner_text())
+        self.assertNotIn("something starts it", pg.inner_text("body"))
+        pg.uncheck('input[data-path="master.start"]')
+        pg.evaluate("() => { window.__copied = []; navigator.clipboard.writeText = async (t) => { "
+                    "window.__copied.push(t); }; }")
+        pg.click('button[data-action="network-start-st"]')
+        pg.wait_for_function("() => window.__copied.length === 1")
+        text = pg.evaluate("() => window.__copied[0]")
+        self.assertIn("net_start : CO_NETWORK_START;", text)
+        self.assertIn("net_start(EXECUTE := net_start_go, TIMEOUT := T#0s", text)
+        self.assertNotIn("NETWORK :=", text)
+        pg.wait_for_selector("#banner:has-text('Copied the CO_NETWORK_START call')")
+
     def test_advanced_settings(self):
         pg = self.page
         self.open_from_start("#start-project", self.project)

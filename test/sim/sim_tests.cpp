@@ -789,6 +789,19 @@ class Sim {
     }
     return true;
   }
+  // One frame onto the bus from a CAN channel of its own, as another device
+  // (a second master, or a frame sent by hand) would send it.
+  void SendFrame(uint32_t id, std::vector<uint8_t> data) {
+    io::VirtualCanChannel ch(ctx_, exec_);
+    ch.open(ctrl_);
+    can_msg m = CAN_MSG_INIT;
+    m.id = id;
+    m.len = static_cast<uint8_t>(data.size());
+    for (size_t i = 0; i < data.size() && i < 8; ++i) m.data[i] = data[i];
+    std::error_code ec;
+    ch.write(m, 0, ec);
+    RunFor(milliseconds(10));
+  }
   // A control request to the simulator; the parsed answer (cJSON_Delete it).
   // Routes sim_ diagnostics requests to the simulator, as bus.cpp does.
   void WireSimHandler() {
@@ -4326,6 +4339,12 @@ TEST(sim_simulated_cpu_budget) {
 // glue, find the master's API table through this (CO_SDO_TEST_ENTRY) instead
 // of dlopen; test/plc_sdo/lookup_check covers the dlopen route.
 extern "C" const void* canopen_plc_api_test(uint32_t version) { return plc_api_table(version); }
+// The NMT blocks' entry point (CO_NMT_TEST_ENTRY); `nmt_entry_missing` plays
+// a plugin older than the NMT blocks.
+static bool nmt_entry_missing = false;
+extern "C" const void* canopen_plc_nmt_api_test(uint32_t version) {
+  return nmt_entry_missing ? nullptr : plc_nmt_api_table(version);
+}
 
 namespace {
 
@@ -5328,4 +5347,560 @@ TEST(sim_plc_sdo_boot_error_ends_wait) {
   PlcRequests::instance().close();
   delete sim;
   delete rd;
+}
+
+// ---------------------------------------------------------------------------
+// Lely's NMT behaviour the NMT function blocks rely on (add-plc-network-control
+// task 1; the results are in that change's design.md).
+
+namespace {
+
+// Two ping-pong nodes (2 and 3) with state bytes %IB20 and %IB22, the master's
+// state in %IB21, and `master_fields` at the start of the master object.
+std::string two_nodes_json(const std::string& master_fields, const std::string& node2_fields = "") {
+  std::string json = with_master(pingpong_json(kSecondNode), "\"state_location\": \"%IB21\", " + master_fields);
+  return with_node(json, "pingpong", "\"state_location\": \"%IB20\", " + node2_fields);
+}
+
+}  // namespace
+
+// 1.1: with master.start false, NMT START frames that arrive on the bus (to
+// every node, or to the master's own node ID) do not start the master: Lely's
+// NMT service in master mode does not act on received NMT commands.
+TEST(sim_lely_received_nmt_leaves_master) {
+  clear_logs();
+  std::string dir = make_dir(two_nodes_json("\"start\": false, "), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSlave(2, dir + "/cpp-slave.eds");
+  sim->StartSlave(3, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return logged("node 2 (pingpong): configuring") && logged("node 3 (second): configuring"); },
+                      seconds(5)));
+  sim->RunFor(milliseconds(500));
+  std::printf("    start false: master %u, node 2 %u, node 3 %u\n", sim->ib(21), sim->ib(20), sim->ib(22));
+  CHECK_MSG(sim->ib(21) == 127, std::to_string(sim->ib(21)));
+  sim->SendFrame(0x000, {1, 0});
+  sim->SendFrame(0x000, {1, 1});
+  sim->RunFor(milliseconds(500));
+  std::printf("    after NMT START to 0 and to 1 from the bus: master %u\n", sim->ib(21));
+  CHECK_MSG(sim->ib(21) == 127, std::to_string(sim->ib(21)));
+  CHECK(!sim->status());
+  delete sim;
+}
+
+// 1.2: Command(ENTER_PREOP, 0) from the master: one broadcast frame, which
+// Lely does not apply to the master itself (it stays OPERATIONAL).
+TEST(sim_lely_broadcast_command_and_master) {
+  clear_logs();
+  std::string dir = make_dir(two_nodes_json(""), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSlave(2, dir + "/cpp-slave.eds");
+  sim->StartSlave(3, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 5 && sim->ib(20) == 5 && sim->ib(22) == 5; }, seconds(5)));
+  sim->net().Command(canopen::NmtCommand::ENTER_PREOP, 0);
+  sim->RunFor(milliseconds(500));
+  std::printf("    after Command(ENTER_PREOP, 0): master %u, node 2 %u, node 3 %u, broadcast frames %d\n", sim->ib(21),
+              sim->ib(20), sim->ib(22), sim->nmt(0, 128));
+  CHECK(sim->nmt(0, 128) == 1);
+  CHECK_MSG(sim->ib(21) == 5, std::to_string(sim->ib(21)));
+  delete sim;
+}
+
+// 1.3: RESET NODE of a mandatory node through its NMT command byte, with
+// stop_all_nodes and with reset_all_nodes: Lely does not treat the node's
+// boot-up as a loss (only a heartbeat or guarding timeout, or a failed boot,
+// reaches its error handler): only that node reboots.
+void lely_mandatory_reset(const char* reaction) {
+  clear_logs();
+  std::string dir = make_dir(two_nodes_json(std::string("\"") + reaction + "\": true, ",
+                                            "\"mandatory\": true, \"nmt_command_location\": \"%QB30\", "),
+                             {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  static std::atomic<int> nmt{0};
+  nmt = 0;
+  sim->SetProgram([](fake_runtime::Image& p) {
+    p.byte_out[30] = static_cast<IEC_BYTE>(nmt.load());
+    p.dint_out[100] = p.dint_in[100] + 1;
+  });
+  sim->StartSlave(2, dir + "/cpp-slave.eds");
+  sim->StartSlave(3, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 5 && sim->ib(20) == 5 && sim->ib(22) == 5; }, seconds(5)));
+  int boots3 = sim->bootups(3), boots2 = sim->bootups(2);
+  nmt = 129;
+  CHECK(sim->RunUntil([boots2] { return sim->bootups(2) > boots2 && sim->ib(20) == 5; }, seconds(5)));
+  sim->RunFor(milliseconds(1500));
+  std::printf("    %s, mandatory node 2 reset: master %u, node 2 %u (boot-ups %d -> %d), node 3 %u (boot-ups %d -> %d)%s\n",
+              reaction, sim->ib(21), sim->ib(20), boots2, sim->bootups(2), sim->ib(22), boots3, sim->bootups(3),
+              logged("master is STOPPED") ? ", master STOPPED logged" : "");
+  CHECK_MSG(sim->ib(21) == 5, std::to_string(sim->ib(21)));
+  CHECK_MSG(sim->ib(22) == 5, std::to_string(sim->ib(22)));
+  CHECK(sim->bootups(3) == boots3);
+  delete sim;
+}
+
+TEST(sim_lely_mandatory_reset_stop_all) { lely_mandatory_reset("stop_all_nodes"); }
+TEST(sim_lely_mandatory_reset_reset_all) { lely_mandatory_reset("reset_all_nodes"); }
+
+// 1.4: Command(cs, 40) for a node ID the configuration (0x1F81) does not
+// list: the frame goes out, and Lely keeps no state for the node (no boot
+// after its boot-up message).
+TEST(sim_lely_command_unlisted_node) {
+  clear_logs();
+  std::string dir = make_dir(two_nodes_json(""), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSlave(2, dir + "/cpp-slave.eds");
+  sim->StartSlave(3, dir + "/cpp-slave.eds");
+  sim->StartSlave(40, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 5 && sim->ib(20) == 5 && sim->ib(22) == 5; }, seconds(5)));
+  int boots = sim->bootups(40);
+  bool threw = false;
+  try {
+    sim->net().Command(canopen::NmtCommand::RESET_NODE, 40);
+  } catch (const std::exception& e) {
+    threw = true;
+    std::printf("    Command(RESET_NODE, 40) threw: %s\n", e.what());
+  }
+  CHECK(!threw);
+  CHECK(sim->RunUntil([boots] { return sim->bootups(40) > boots; }, seconds(2)));
+  sim->RunFor(milliseconds(1000));
+  std::printf("    RESET NODE frames to 40: %d, boot-ups of 40: %d -> %d, SDO requests to 40: %d\n", sim->nmt(40, 129),
+              boots, sim->bootups(40), sim->frames(0x600 + 40));
+  CHECK(sim->nmt(40, 129) == 1);
+  CHECK(sim->frames(0x600 + 40) == 0);
+  CHECK(sim->ib(21) == 5);
+  delete sim;
+}
+
+// 1.5 (found while building CO_NETWORK_STOP): Lely's master entering
+// PRE-OPERATIONAL runs its network start-up again: a RESET COMMUNICATION to
+// every node, then the boot of each. So CO_NETWORK_STOP holds the master in
+// the plugin and leaves Lely's state alone.
+TEST(sim_lely_master_preop_restarts_startup) {
+  clear_logs();
+  std::string dir = make_dir(two_nodes_json(""), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSlave(2, dir + "/cpp-slave.eds");
+  sim->StartSlave(3, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 5 && sim->ib(20) == 5 && sim->ib(22) == 5; }, seconds(5)));
+  int resets = sim->nmt(0, 130), boots = sim->bootups(2);
+  sim->net().Command(canopen::NmtCommand::ENTER_PREOP, 1);
+  sim->RunFor(milliseconds(1000));
+  std::printf("    master ENTER_PREOP: reset communication broadcasts %d -> %d, boot-ups of node 2 %d -> %d\n", resets,
+              sim->nmt(0, 130), boots, sim->bootups(2));
+  CHECK(sim->nmt(0, 130) == resets + 1);
+  CHECK(sim->bootups(2) > boots);
+  CHECK(sim->ib(21) == 127);
+  delete sim;
+}
+
+// ---------------------------------------------------------------------------
+// NMT function blocks of library/canworks (spec canopen-plc-nmt), with the
+// editor's glue, against the master on the virtual bus.
+
+namespace {
+
+struct NmtBlocks {
+  CO_NMT_INST nmt, nmt2;
+  CO_NMT_INST many[17];
+  CO_NETWORK_START_INST start, start2;
+  CO_NETWORK_STOP_INST stop;
+  CO_GET_STATE_INST gs;
+  CO_SDO_READ_INST rd;
+  bool call_many = false;
+  void Scan() {
+    co_nmt_call(&nmt);
+    co_nmt_call(&nmt2);
+    co_network_start_call(&start);
+    co_network_start_call(&start2);
+    co_network_stop_call(&stop);
+    co_get_state_call(&gs);
+    co_sdo_read_call(&rd);
+    if (call_many)
+      for (auto& b : many) co_nmt_call(&b);
+  }
+};
+
+NmtBlocks* nmt_blk = nullptr;
+std::atomic<int> nmt_byte{0};
+
+// The ping-pong program for both nodes, node 2's command byte (%QB30, when
+// the config gives it) and the blocks.
+void nmt_program(fake_runtime::Image& p) {
+  p.dint_out[100] = p.dint_in[100] + 1;
+  p.dint_out[200] = p.dint_in[200] + 1;
+  p.byte_out[30] = static_cast<IEC_BYTE>(nmt_byte.load());
+  nmt_blk->Scan();
+}
+
+// CO_NMT with NODE and COMMAND, run to its end.
+bool run_nmt(Sim* sim, CO_NMT_INST& b, unsigned node, unsigned command) {
+  b.NODE = static_cast<uint8_t>(node);
+  b.COMMAND = static_cast<uint8_t>(command);
+  return run_block(sim, b);
+}
+
+// CO_GET_STATE for `node` (it answers in the call that starts it); the
+// outputs stay as read.
+void read_state(Sim* sim, unsigned node) {
+  nmt_blk->gs.NODE = static_cast<uint8_t>(node);
+  nmt_blk->gs.EXECUTE = true;
+  sim->RunFor(milliseconds(15));
+  nmt_blk->gs.EXECUTE = false;
+  sim->RunFor(milliseconds(15));
+}
+
+// The master with nodes 2 and 3 running (and an unlisted node 40), and the
+// blocks in the program.
+Sim* nmt_sim(const std::string& json, bool node40 = false) {
+  clear_logs();
+  nmt_byte = 0;
+  std::string dir = make_dir(json, {{"cpp-slave.eds", slave_eds()}});
+  Sim* sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return sim;
+  nmt_blk = new NmtBlocks();
+  PlcRequests::instance().open();
+  PlcRequests::instance().set_master_node(0, 1);
+  sim->SetProgram(nmt_program);
+  sim->StartSlave(2, dir + "/cpp-slave.eds");
+  sim->StartSlave(3, dir + "/cpp-slave.eds");
+  if (node40) sim->StartSlave(40, dir + "/cpp-slave.eds");
+  return sim;
+}
+
+void nmt_end(Sim* sim) {
+  PlcRequests::instance().close();
+  delete sim;
+  delete nmt_blk;
+  nmt_blk = nullptr;
+}
+
+bool all_running(Sim* sim) { return sim->ib(21) == 5 && sim->ib(20) == 5 && sim->ib(22) == 5 && sim->status(); }
+
+}  // namespace
+
+// CO_NMT and CO_GET_STATE on configured, unlisted and all nodes; the hold
+// shared with the command byte; inputs refused; 17 at once.
+TEST(sim_plc_nmt_blocks) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json("", "\"nmt_command_location\": \"%QB30\", "), true);
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  // A state read in one call, never BUSY.
+  b.gs.NODE = 2;
+  b.gs.EXECUTE = true;
+  sim->RunFor(milliseconds(15));
+  CHECK(b.gs.DONE && !b.gs.BUSY && b.gs.STATE.get() == 5 && b.gs.CONFIGURED && b.gs.HELD.get() == 0);
+  CHECK(b.gs.MASTER_STATE.get() == 5 && b.gs.STARTED);
+  b.gs.EXECUTE = false;
+  sim->RunFor(milliseconds(15));
+  CHECK(!b.gs.DONE);
+
+  // Stop and restart a configured node.
+  CHECK(run_nmt(sim, b.nmt, 2, 2));
+  CHECK(b.nmt.ERROR_ID.get() == 0);
+  CHECK_MSG(sim->RunUntil([] { return sim->ib(20) == 4; }, seconds(2)), std::to_string(sim->ib(20)));
+  CHECK(!sim->status());
+  CHECK(logged("node 2 (pingpong): NMT STOP (held by the program (CO_NMT))"));
+  read_state(sim, 2);
+  CHECK(b.gs.STATE.get() == 4 && b.gs.HELD.get() == 2);
+  sim->RunFor(milliseconds(800));
+  CHECK(sim->ib(20) == 4 && !logged("node 2 (pingpong): retrying boot"));
+  CHECK(run_nmt(sim, b.nmt, 2, 1));
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 5 && sim->status(); }, seconds(2)));
+  uint32_t in = sim->in();
+  CHECK(sim->RunUntil([in] { return sim->in() > in + 3; }, seconds(2)));
+
+  // Held PRE-OPERATIONAL across a power cycle.
+  CHECK(run_nmt(sim, b.nmt, 2, 128));
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 127; }, seconds(2)));
+  sim->KillSlave(2);
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 0; }, seconds(2)));
+  clear_logs();
+  sim->StartSlave(2, sim->cfg().config_dir + "/cpp-slave.eds");
+  CHECK(sim->RunUntil([] { return logged("NMT ENTER PRE-OPERATIONAL (held by the program (CO_NMT))"); }, seconds(10)));
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->ib(20) == 127, std::to_string(sim->ib(20)));
+  CHECK(!sim->status());
+
+  // The byte after the block: a change of the byte decides.
+  nmt_byte = 2;
+  CHECK_MSG(sim->RunUntil([] { return sim->ib(20) == 4; }, seconds(2)), std::to_string(sim->ib(20)));
+  // The block after the byte: START releases the byte's hold.
+  CHECK(run_nmt(sim, b.nmt, 2, 1));
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 5 && sim->status(); }, seconds(2)));
+  sim->RunFor(milliseconds(300));
+  CHECK(sim->ib(20) == 5);
+  nmt_byte = 0;
+  sim->RunFor(milliseconds(100));
+
+  // A node the configuration does not list: sent, nothing kept.
+  int boots = sim->bootups(40);
+  CHECK(run_nmt(sim, b.nmt, 40, 129));
+  CHECK(b.nmt.ERROR_ID.get() == 0);
+  CHECK(sim->RunUntil([boots] { return sim->bootups(40) > boots; }, seconds(2)));
+  sim->RunFor(milliseconds(500));
+  CHECK(sim->nmt(40, 129) == 1 && sim->frames(0x600 + 40) == 0);
+  read_state(sim, 40);
+  CHECK(!b.gs.CONFIGURED && b.gs.STATE.get() == 0 && b.gs.MASTER_STATE.get() == 5 && b.gs.ERROR_ID.get() == 0);
+
+  // Every node: one broadcast, both held, the master stays OPERATIONAL.
+  CHECK(run_nmt(sim, b.nmt, 0, 128));
+  CHECK(sim->nmt(0, 128) == 1);
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 127 && sim->ib(22) == 127; }, seconds(2)));
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->ib(21) == 5 && sim->ib(20) == 127 && sim->ib(22) == 127,
+            std::to_string(sim->ib(21)) + " " + std::to_string(sim->ib(20)) + " " + std::to_string(sim->ib(22)));
+  read_state(sim, 3);
+  CHECK(b.gs.HELD.get() == 128);
+  CHECK(run_nmt(sim, b.nmt, 0, 1));
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(2)));
+
+  // Invalid inputs: ERROR_ID 6 in the call that starts, nothing sent.
+  int frames = sim->frames(0x000);
+  for (auto in : std::vector<std::pair<unsigned, unsigned>>{{128, 2}, {2, 7}, {1, 2}}) {
+    b.nmt.NODE = static_cast<uint8_t>(in.first);
+    b.nmt.COMMAND = static_cast<uint8_t>(in.second);
+    b.nmt.EXECUTE = true;
+    sim->RunFor(milliseconds(12));
+    CHECK_MSG(b.nmt.ERROR && b.nmt.ERROR_ID.get() == 6, std::to_string(in.first) + " " + std::to_string(in.second));
+    b.nmt.EXECUTE = false;
+    sim->RunFor(milliseconds(30));
+  }
+  read_state(sim, 128);
+  CHECK(b.gs.ERROR_ID.get() == 6);
+  // A NETWORK that is not a master network.
+  b.nmt.NETWORK = 1;
+  CHECK(run_nmt(sim, b.nmt, 2, 2));
+  CHECK(b.nmt.ERROR_ID.get() == 6);
+  b.nmt.NETWORK = 0;
+  sim->RunFor(milliseconds(100));
+  CHECK(sim->frames(0x000) == frames);
+
+  // 17 at once: 16 run, one ends with ERROR_ID 5 in the same call.
+  for (auto& m : b.many) {
+    m.NODE = 3;
+    m.COMMAND = 1;
+    m.EXECUTE = true;
+  }
+  b.call_many = true;
+  sim->RunFor(milliseconds(12));
+  int busy = 0, full = 0;
+  for (auto& m : b.many) {
+    busy += (m.BUSY || m.DONE) ? 1 : 0;
+    full += m.ERROR && m.ERROR_ID.get() == 5 ? 1 : 0;
+  }
+  CHECK_MSG(busy == 16 && full == 1, std::to_string(busy) + " " + std::to_string(full));
+  CHECK(sim->RunUntil([&] {
+    for (auto& m : b.many)
+      if (m.BUSY) return false;
+    return true;
+  }, seconds(2)));
+  b.call_many = false;
+  nmt_end(sim);
+}
+
+// master.start false: the program starts the network; TIMEOUT with a
+// mandatory node missing; a PLC stop while BUSY; a PLC restart.
+TEST(sim_plc_nmt_network_start) {
+  static Sim* sim;
+  std::string json = with_node(two_nodes_json("\"start\": false, "), "second", "\"mandatory\": true, ");
+  sim = nmt_sim(json);
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->KillSlave(3);  // the mandatory node is missing
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 5; }, seconds(5)));
+  read_state(sim, 0);
+  CHECK(b.gs.MASTER_STATE.get() == 127 && !b.gs.STARTED);
+  // TIMEOUT: ERROR_ID 2 after about 1 s; the start stays requested.
+  b.start.TIMEOUT = 1000LL * 1000000;
+  auto t0 = steady_clock::now();
+  b.start.EXECUTE = true;
+  sim->RunFor(milliseconds(50));
+  CHECK(b.start.BUSY);
+  CHECK(sim->RunUntil([&] { return static_cast<bool>(b.start.ERROR) || static_cast<bool>(b.start.DONE); },
+                      seconds(3)));
+  auto took = duration_cast<milliseconds>(steady_clock::now() - t0).count();
+  CHECK_MSG(b.start.ERROR && b.start.ERROR_ID.get() == 2, std::to_string(b.start.ERROR_ID.get()));
+  CHECK_MSG(took >= 900 && took < 1600, std::to_string(took));
+  b.start.EXECUTE = false;
+  CHECK(sim->ib(21) == 127);
+  read_state(sim, 0);
+  CHECK(b.gs.STARTED);
+  // A PLC stop while a start without TIMEOUT is BUSY: ERROR_ID 8.
+  b.start2.EXECUTE = true;
+  sim->RunFor(milliseconds(50));
+  CHECK(b.start2.BUSY);
+  PlcRequests::instance().close();
+  PlcRequests::instance().open();
+  sim->RunFor(milliseconds(30));
+  CHECK(b.start2.ERROR && b.start2.ERROR_ID.get() == 8);
+  b.start2.EXECUTE = false;
+  // The mandatory node boots: the master starts and PDO data flows.
+  sim->StartSlave(3, sim->cfg().config_dir + "/cpp-slave.eds");
+  CHECK_MSG(sim->RunUntil([] { return sim->ib(21) == 5 && sim->status(); }, seconds(10)), std::to_string(sim->ib(21)));
+  uint32_t in = sim->in();
+  CHECK(sim->RunUntil([in] { return sim->in() > in + 3; }, seconds(2)));
+  // With the master OPERATIONAL a start ends at once.
+  CHECK(run_block(sim, b.start));
+  CHECK(b.start.ERROR_ID.get() == 0);
+  nmt_end(sim);
+
+  // A PLC restart: the master stays PRE-OPERATIONAL until the next start.
+  sim = nmt_sim(json);
+  if (!sim->ok()) return;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 5 && sim->ib(22) == 5; }, seconds(5)));
+  CHECK(logged("until the PLC program starts it with CO_NETWORK_START"));
+  sim->RunFor(milliseconds(1000));
+  CHECK_MSG(sim->ib(21) == 127, std::to_string(sim->ib(21)));
+  CHECK(!sim->status());
+  CHECK(run_block(sim, nmt_blk->start));
+  CHECK(nmt_blk->start.ERROR_ID.get() == 0);
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(2)));
+  nmt_end(sim);
+}
+
+// CO_NETWORK_STOP with each node command, a node booting meanwhile, SDO
+// while stopped, and the start after it.
+TEST(sim_plc_nmt_network_stop) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json(""));
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  // NODE_COMMAND 0: master.on_plc_stop ("preop" by default).
+  b.stop.NODE_COMMAND = 0;
+  CHECK(run_block(sim, b.stop));
+  CHECK(b.stop.ERROR_ID.get() == 0);
+  int rpdos = sim->frames(0x202);
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 127 && sim->ib(20) == 127 && sim->ib(22) == 127; }, seconds(2)));
+  CHECK(!sim->status());
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->frames(0x202) == rpdos, std::to_string(sim->frames(0x202) - rpdos));
+  read_state(sim, 2);
+  CHECK(b.gs.MASTER_STATE.get() == 127 && !b.gs.STARTED && b.gs.HELD.get() == 128);
+  // SDO still works.
+  target(b.rd, 2, 0x1018, 1);
+  CHECK(run_block(sim, b.rd));
+  CHECK_MSG(b.rd.ERROR_ID.get() == 0, std::to_string(b.rd.ERROR_ID.get()));
+  // A node that power-cycles meanwhile is configured and held; the master stays.
+  sim->KillSlave(3);
+  CHECK(sim->RunUntil([] { return sim->ib(22) == 0; }, seconds(2)));
+  clear_logs();
+  sim->StartSlave(3, sim->cfg().config_dir + "/cpp-slave.eds");
+  CHECK(sim->RunUntil(
+      [] { return logged("node 3 (second): NMT ENTER PRE-OPERATIONAL (held by the program (CO_NETWORK_STOP))"); },
+      seconds(10)));
+  sim->RunFor(milliseconds(500));
+  CHECK(sim->ib(22) == 127 && sim->ib(21) == 127);
+  // An unknown node command: ERROR_ID 6.
+  b.stop.NODE_COMMAND = 7;
+  CHECK(run_block(sim, b.stop));
+  CHECK(b.stop.ERROR_ID.get() == 6);
+  // Start: the master and the nodes the stop held run again.
+  CHECK(run_block(sim, b.start));
+  CHECK(b.start.ERROR_ID.get() == 0);
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(3)));
+  // NODE_COMMAND 2: the nodes STOPPED.
+  b.stop.NODE_COMMAND = 2;
+  CHECK(run_block(sim, b.stop));
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 127 && sim->ib(20) == 4 && sim->ib(22) == 4; }, seconds(2)));
+  CHECK(run_block(sim, b.start));
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(3)));
+  // NODE_COMMAND 255: the nodes keep running, the master is PRE-OPERATIONAL.
+  b.stop.NODE_COMMAND = 255;
+  CHECK(run_block(sim, b.stop));
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 127; }, seconds(2)));
+  sim->RunFor(milliseconds(500));
+  CHECK(sim->ib(20) == 5 && sim->ib(22) == 5 && !sim->status());
+  CHECK(run_block(sim, b.start));
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(2)));
+  nmt_end(sim);
+}
+
+// Mandatory nodes: a reset or a hold from the program is not a loss; a held
+// node that is lost is; a master STOPPED by stop_all_nodes refuses (9).
+TEST(sim_plc_nmt_mandatory) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json("\"stop_all_nodes\": true, ", "\"mandatory\": true, "));
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  int boots2 = sim->bootups(2), boots3 = sim->bootups(3);
+  CHECK(run_nmt(sim, b.nmt, 2, 129));
+  CHECK(sim->RunUntil([boots2] { return sim->bootups(2) > boots2 && sim->ib(20) == 5; }, seconds(5)));
+  sim->RunFor(milliseconds(500));
+  CHECK(sim->ib(21) == 5 && sim->ib(22) == 5 && sim->bootups(3) == boots3);
+  CHECK(run_nmt(sim, b.nmt, 2, 2));
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 4; }, seconds(2)));
+  sim->RunFor(milliseconds(800));
+  CHECK(sim->ib(21) == 5 && sim->ib(22) == 5);
+  // Lost while held: a loss as always.
+  sim->KillSlave(2);
+  CHECK_MSG(sim->RunUntil([] { return sim->ib(21) == 4; }, seconds(2)), std::to_string(sim->ib(21)));
+  CHECK(run_block(sim, b.start));
+  CHECK_MSG(b.start.ERROR_ID.get() == 9, std::to_string(b.start.ERROR_ID.get()));
+  CHECK(logged("the plugin must restart"));
+  b.stop.NODE_COMMAND = 0;
+  CHECK(run_block(sim, b.stop));
+  CHECK(b.stop.ERROR_ID.get() == 9);
+  nmt_end(sim);
+}
+
+// A plugin without the NMT entry point: the NMT blocks end with ERROR_ID 4,
+// the SDO blocks keep working; found on a later start once it is there.
+TEST(sim_plc_nmt_entry_missing) {
+  static Sim* sim;
+  nmt_entry_missing = true;
+  sim = nmt_sim(two_nodes_json(""));
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 5 && sim->ib(20) == 5; }, seconds(5)));
+  b.nmt.NODE = 2;
+  b.nmt.COMMAND = 2;
+  b.nmt.EXECUTE = true;
+  sim->RunFor(milliseconds(12));
+  CHECK(b.nmt.ERROR && b.nmt.ERROR_ID.get() == 4);
+  b.nmt.EXECUTE = false;
+  read_state(sim, 2);
+  CHECK(b.gs.ERROR_ID.get() == 4);
+  target(b.rd, 2, 0x1018, 1);
+  CHECK(run_block(sim, b.rd));
+  CHECK(b.rd.ERROR_ID.get() == 0);
+  CHECK(sim->ib(20) == 5);
+  // A library asking for an NMT API version the plugin does not offer: logged once.
+  CHECK(plc_nmt_api_table(7) == nullptr);
+  sim->RunFor(milliseconds(50));
+  CHECK(count_logs("asks for NMT block API version 7") == 1);
+  nmt_entry_missing = false;
+  CHECK(run_nmt(sim, b.nmt, 2, 2));
+  CHECK(b.nmt.ERROR_ID.get() == 0);
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 4; }, seconds(2)));
+  nmt_end(sim);
 }

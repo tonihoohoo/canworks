@@ -120,7 +120,7 @@ Each node entry MAY have an `sdo` list of object writes, each giving `index`, `s
 - **THEN** the plugin logs the node ID, index, subindex, and abort code, and the node stays not operational
 
 ### Requirement: Master options from JSON
-The `master` object MAY give `vendor_id`, `product_code`, `revision_number`, `serial_number`, `sync_window_us`, `sync_counter_overflow`, `time_cob_id`, `emcy_inhibit_time_us`, `heartbeat_consumer`, `heartbeat_multiplier`, `error_behavior`, `nmt_inhibit_time_us`, `start`, `start_nodes`, `start_all_nodes`, `reset_all_nodes`, `stop_all_nodes` and `boot_time_ms`. The plugin SHALL pass each given value to dcfgen under its dcfgen name, converting microseconds to 100 µs units where the object uses them, and SHALL use dcfgen's defaults for the rest, except `heartbeat_consumer` and `start_nodes`, which SHALL default to `true`. A `_us` value for a 100 µs object that is not a multiple of 100 SHALL be rejected. When `start` is `false`, the plugin SHALL log at load that the network stays PRE-OPERATIONAL.
+The `master` object MAY give `vendor_id`, `product_code`, `revision_number`, `serial_number`, `sync_window_us`, `sync_counter_overflow`, `time_cob_id`, `emcy_inhibit_time_us`, `heartbeat_consumer`, `heartbeat_multiplier`, `error_behavior`, `nmt_inhibit_time_us`, `start`, `start_nodes`, `start_all_nodes`, `reset_all_nodes`, `stop_all_nodes` and `boot_time_ms`. The plugin SHALL pass each given value to dcfgen under its dcfgen name, converting microseconds to 100 µs units where the object uses them, and SHALL use dcfgen's defaults for the rest, except `heartbeat_consumer` and `start_nodes`, which SHALL default to `true`. A `_us` value for a 100 µs object that is not a multiple of 100 SHALL be rejected. When `start` is `false`, the master SHALL boot and configure the nodes but stay PRE-OPERATIONAL, exchanging no PDOs, until the PLC program starts it with `CO_NETWORK_START` (`canopen-plc-nmt`), and the plugin SHALL log at load that the network stays PRE-OPERATIONAL until the program starts it.
 
 #### Scenario: Existing configuration unchanged
 - **WHEN** a configuration gives none of these fields
@@ -133,6 +133,10 @@ The `master` object MAY give `vendor_id`, `product_code`, `revision_number`, `se
 #### Scenario: Inhibit time not a multiple of 100 µs
 - **WHEN** the master has `"nmt_inhibit_time_us": 150`
 - **THEN** the plugin rejects the configuration and names the field
+
+#### Scenario: Start left to the program
+- **WHEN** the master has `"start": false` and the program never runs `CO_NETWORK_START`
+- **THEN** the load log says the network stays PRE-OPERATIONAL until the PLC program starts it with `CO_NETWORK_START`, the master's state byte reads 127, and no PDO is exchanged, also after all nodes have booted
 
 ### Requirement: Node options from JSON
 Each slave entry MAY give `mandatory`, `boot`, `reset_communication`, `revision_number`, `serial_number`, `heartbeat_consumer`, `retry_factor`, `time_cob_id`, `error_behavior`, `restore_configuration`, `software_file` and `software_version`. The plugin SHALL pass each given value to dcfgen under its dcfgen name. A field that configures an object on the node and is left out SHALL write nothing to the node, so the node keeps the value from its EDS; this includes the node's heartbeat consumer entries (0x1016). Fields that configure only the master SHALL keep today's values when left out (`boot` true, `mandatory` false, `reset_communication` true, `retry_factor` equal to `life_time_factor`), and the expected revision number SHALL come from the EDS. A `revision_number` of 0 SHALL turn off the revision check for that node. dcfgen warnings SHALL be logged as warnings naming the node. `heartbeat_consumer` on a node SHALL be rejected when the master sends no heartbeat. When `boot` is `false`, the master SHALL NOT boot, configure or retry that node.

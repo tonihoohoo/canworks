@@ -11,8 +11,9 @@
 
 using namespace canworks_raw;
 
-// The SDO blocks are linked in with the frame blocks; this test has no master.
+// The SDO and NMT blocks are linked in with the frame blocks; this test has no master.
 extern "C" const void* canopen_plc_api_test(uint32_t) { return nullptr; }
+extern "C" const void* canopen_plc_nmt_api_test(uint32_t) { return nullptr; }
 
 namespace {
 
