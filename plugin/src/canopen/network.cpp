@@ -1234,6 +1234,10 @@ void Network::CheckScanWatchdog(clock::time_point now) {
 }
 
 void Network::WriteOutputs() {
+  // The gate first: a host that turns the outputs off and then clears its
+  // image (the bridge's on_client_loss stop) must not see the cleared values
+  // sent before ServiceHost runs.
+  SyncOutputsGate();
   const uint64_t* out = LatestOutputs();
   outputs_fresh_ = false;
   const auto& bindings = image_.outputs();
@@ -1261,17 +1265,20 @@ void Network::WriteOutputs() {
 // The host's NMT commands (the bridge's control block) and outputs gate.
 void Network::ServiceHost() {
   CheckScanWatchdog(clock::now());
-  bool gate = outputs_enabled();
-  if (gate != outputs_on_) {
-    outputs_on_ = gate;
-    ApplyOutputsGate();
-  }
+  SyncOutputsGate();
   host_nmt_.clear();
   HostRequests::instance().take(cfg_.network_index, host_nmt_);
   for (const HostNmt& r : host_nmt_) {
     for (auto& it : nodes_)
       if (r.node == 0 || r.node == it.first) OperatorNmt(it.first, it.second, r.command, "the Modbus control block");
   }
+}
+
+void Network::SyncOutputsGate() {
+  bool gate = outputs_enabled();
+  if (gate == outputs_on_) return;
+  outputs_on_ = gate;
+  ApplyOutputsGate();
 }
 
 // Outputs off: no master TPDOs (the nodes' RPDOs); SYNC, inputs, heartbeats

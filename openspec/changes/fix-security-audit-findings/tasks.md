@@ -83,6 +83,6 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 ## 10. Hardware (bench)
 
 - [ ] 10.1 NMT RESET NODE to node 23 from the diag channel (stands in for a power cycle): its event-driven outputs are on the bus again after it is back, without a program change.
-- [ ] 10.2 PLC stop with the default `on_plc_stop`: node 23 goes PRE-OPERATIONAL (trace); PLC start brings it back to OPERATIONAL.
-- [ ] 10.3 Bridge with `writers` set, from the Windows PC: writes from a listed address work, from another address get exception 0x01; a client that never reads is dropped and the bridge's memory stays flat.
-- [ ] 10.4 Bench configs: add `writers` to bridge test configs; check the template project for supervision and give it `heartbeat_ms` if needed; clean PLC start afterwards.
+- [x] 10.2 PLC stop with the default `on_plc_stop`: node 23 goes PRE-OPERATIONAL (trace); PLC start brings it back to OPERATIONAL. (Passed: ENTER PRE-OPERATIONAL on stop, heartbeat 0x7F; start reset communication and NMT START, heartbeat 0x05.)
+- [x] 10.3 Bridge with `writers` set, from the Windows PC: writes from a listed address work, from another address get exception 0x01; a client that never reads is dropped and the bridge's memory stays flat. (Run from a second PC on the network, with the bridge's own machine as the unlisted address. Passed: listed write echoed and sent; unlisted write got 0x01, nothing sent; non-reading client dropped after 11 s, resident memory flat at about 12 MB.)
+- [x] 10.4 Bench configs: add `writers` to bridge test configs; check the template project for supervision and give it `heartbeat_ms` if needed; clean PLC start afterwards. (Passed: the test config already had `heartbeat_ms` and the bridge test config already had `writers`; clean PLC start done.)

@@ -413,6 +413,7 @@ class Network : public lely::canopen::BasicMaster {
   std::string OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by);
   // The host's requests (host_requests.h) and its outputs gate (outputs_gate.h).
   void ServiceHost();
+  void SyncOutputsGate();
   void ApplyOutputsGate();
   void StartManual(ManualSdo& m);
   void FinishManual(uint64_t seq, std::error_code ec, const std::vector<uint8_t>* data);
