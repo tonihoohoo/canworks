@@ -123,14 +123,17 @@ uint32_t PlcPort::rx_open(uint32_t id, uint32_t mask, uint8_t flags, uint16_t de
     if (r.state.load(std::memory_order_relaxed) != kSlotFree ||
         !r.state.compare_exchange_strong(free, kSlotClaimed, std::memory_order_acq_rel))
       continue;
-    // The epoch first: a frame the raw thread matched against the slot's
-    // previous filter re-checks it and is dropped (or read and skipped).
+    // The epoch goes odd while the filter is written and even again after
+    // (a seqlock): a frame the raw thread matched against the slot's
+    // previous filter re-checks it and is dropped (or read and skipped), and
+    // no match can mix the epoch of this opening with the old filter.
     r.epoch.fetch_add(1, std::memory_order_relaxed);
     std::atomic_thread_fence(std::memory_order_release);
     r.id.store(id & max, std::memory_order_relaxed);
     r.mask.store(mask & max, std::memory_order_relaxed);
     r.flags.store(flags, std::memory_order_relaxed);
     r.depth.store(depth ? depth : CANWORKS_CAN_DEPTH_DEFAULT, std::memory_order_relaxed);
+    r.epoch.fetch_add(1, std::memory_order_release);
     uint32_t gen = next_gen(r.gen.load(std::memory_order_relaxed));
     r.gen.store(gen, std::memory_order_relaxed);
     r.tail.store(r.head.load(std::memory_order_acquire), std::memory_order_relaxed);
@@ -188,6 +191,7 @@ void PlcPort::on_frame(const canworks_can_frame& f) {
   for (Receiver& r : rx_) {
     if (r.state.load(std::memory_order_acquire) != kSlotOpen) continue;
     uint32_t epoch = r.epoch.load(std::memory_order_acquire);
+    if (epoch & 1) continue;  // being opened: its filter is half written
     uint8_t flags = r.flags.load(std::memory_order_relaxed);
     uint32_t id = r.id.load(std::memory_order_relaxed), mask = r.mask.load(std::memory_order_relaxed);
     uint16_t depth = r.depth.load(std::memory_order_relaxed);
