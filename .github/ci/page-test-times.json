@@ -21,6 +21,7 @@
  "tests.test_configurator_explain_page.Inspector": 3.7,
  "tests.test_configurator_frames_page.DetectPage": 8.7,
  "tests.test_configurator_frames_page.SendPanel": 13.0,
+ "tests.test_configurator_j1939_dm_page.J1939DmPage": 8.8,
  "tests.test_configurator_j1939_page.J1939Page": 3.9,
  "tests.test_configurator_j1939_trace_page.J1939Inspector": 4.8,
  "tests.test_configurator_layout.Examples": 9.8,

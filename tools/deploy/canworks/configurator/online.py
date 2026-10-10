@@ -152,11 +152,12 @@ class AdapterTarget:
 
 
 # Operations that only read: the only ones sent again after a timeout or a
-# lost connection. Any other may have been carried out already.
+# lost connection. Any other may have been carried out already (a DM2 read
+# only asks an ECU for its list; a DM3/DM11 clear is a change).
 READ_ONLY = frozenset((
     "hello", "status", "emcy", "sdo_read", "scan", "scan_status", "lss_find_status", "trace_fetch",
     "detect_bitrate_status", "pdo_test_status", "replay_status", "sim_status", "sim_get", "sim_scenario_list",
-    "sim_check_expr"))
+    "sim_check_expr", "j1939_dm_read"))
 
 
 def _record_ops(client):
