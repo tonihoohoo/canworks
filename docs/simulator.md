@@ -345,9 +345,10 @@ Devices that speak neither CANopen nor J1939, such as a joystick or a display th
 | `name` | The device's name in scenarios, logs and the status. Unique in the file. |
 | `network` | The network's name; required with several networks. |
 | `send[]` | Frames the device sends every `period_ms`: `id` (`extended` for 29 bits), `dlc`, fixed `data` bytes, and `signals` numbered as in DBC files (`start_bit`, `length`, `byte_order`, `signed`, `scale`, `offset`) whose value comes from a [value source](#value-sources). Expression sources here cannot read objects. |
+| `send[].signals[]` multiplexing | A send may be multiplexed as in the config ([raw-can.md](raw-can.md#multiplexed-messages)): a switch signal has `"multiplexer": true` and no `source` (the simulator sets it per page), dependent signals have `mux`. `pages` is `all` (default: every page each period, one frame per page) or `rotate` (one page per period, in turn). At most 64 pages. |
 | `replies[]` | Answers: a frame matching `on` (`id`, and the first bytes `data`, with an optional bit `mask` per byte) makes the device send `send` after `delay_ms`. |
 
-A scenario step with `"device": NAME` acts on a plain CAN device: `"fault": {"stop": true}` stops its frames and replies, `"fault": {"wrong_dlc": N}` sends its frames with N data bytes, and `"clear"` takes `"stop"`, `"wrong_dlc"` or `"all"`. On a plain CAN network these steps, `log` and `repeat` are the only ones, since there are no nodes. [`examples/raw-can/cab.sim.json`](../examples/raw-can/cab.sim.json) has a joystick and a pedal and a scenario that stops the joystick. The configurator's **Simulation** view lists the devices on its **File** tab.
+A scenario step with `"device": NAME` acts on a plain CAN device: `"fault": {"stop": true}` stops its frames and replies, `"fault": {"wrong_dlc": N}` sends its frames with N data bytes, and `"clear"` takes `"stop"`, `"wrong_dlc"` or `"all"`. On a plain CAN network these steps, `log` and `repeat` are the only ones, since there are no nodes. [`examples/raw-can/cab.sim.json`](../examples/raw-can/cab.sim.json) has a joystick, a pedal, a multiplexed sensor sending two pages and a scenario that stops the joystick. The configurator's **Simulation** view lists the devices on its **File** tab.
 
 ### Control protocol
 

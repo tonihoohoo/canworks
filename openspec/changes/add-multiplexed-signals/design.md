@@ -103,7 +103,7 @@ A multiplexed send entry is several frames. `pages` picks how they go out:
 
 ### 6. PC tools
 
-- `canworks/raw/signals.py` gains the activity rule, page list and per-page overlap; raw and J1939 contract checks call it.
+- A new `canworks/raw/mux.py` (next to `signals.py`) has the activity rule, page list and per-page overlap; raw and J1939 contract checks call it.
 - **DBC import** (`raw/dbc.py`, `j1939/dbc.py`): `is_multiplexer` → `multiplexer: true`; `multiplexer_signal` + `multiplexer_ids` → `mux` with the ids folded back into ranges. The "multiplexed left out" note and the J1939 skip are removed. A message with several `M` signals whose dependents all have `multiplexer_ids` None is a problem ("several switches but no SG_MUL_VAL_; multiplexing left out"), imported with its signals unmultiplexed only when the user picks it anyway.
 - **DBC export** (`dbcexport.write` used by raw and J1939): `M` for a top switch, `mN` for a signal with one value on a top switch, `mNM` for a nested switch with one value, and `SG_MUL_VAL_` lines whenever a signal has ranges, several values or a nested chain. Golden files and a cantools strict-mode round trip in the tests.
 - **Trace** (`raw/decode.py RawDecoder`, `bustrace/j1939.py J1939Decoder`): decode with our own rule, not `cantools.decode`, so unknown pages do not raise. The row text names the page: `Status [Page=2] Press=400 kPa`, `Status [Page=4 unknown]`. DBC messages read for the trace keep their multiplexing fields. Graph series of a multiplexed signal take a point only from frames where it is active.

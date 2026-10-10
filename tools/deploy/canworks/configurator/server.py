@@ -837,7 +837,8 @@ class Session:
         return {"name": name, "problems": imported.problems,
                 "messages": [dict({k: m[k] for k in ("name", "pgn", "priority", "source", "destination", "length",
                                                      "cycle_ms", "sender", "comment")},
-                                  signals=[s["name"] for s in m["signals"]]) for m in imported.messages]}
+                                  signals=[s["name"] for s in m["signals"]], mux_problem=m.get("mux_problem"),
+                                  **rawpage.mux_summary(m["signals"])) for m in imported.messages]}
 
     def dbc_entries(self, cfg, network, name, picks):
         """rx and tx entries of picked DBC messages for J1939 network

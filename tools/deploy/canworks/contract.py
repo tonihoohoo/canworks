@@ -21,6 +21,7 @@ from . import edslint
 from .eds import sync_needed_message, transmission_needs_sync
 from .iec import CO_TYPES, parse_location, type_fits, SIZE_BITS
 from .raw import contract as raw_contract
+from .raw import mux as raw_mux
 from .raw import ownership
 
 SUPPORTED_VERSION = 2
@@ -1267,7 +1268,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         a = cfg.get("adapter")
         if isinstance(a, dict) and a.get("simulate") is True:
             err("", J1939_SIMULATE, ["adapter.simulate"])
-        check_j1939(cfg, err)
+        check_j1939(cfg, err, warn)
         return
 
     # The verifier's numbers, which the schema's pattern does not check.
@@ -1924,6 +1925,17 @@ def j1939_bytes_needed(signals):
     return top
 
 
+def _mux_def(sj, path):
+    """A J1939 signal object in the form mux.Layout reads, whatever its
+    other fields' errors."""
+    def whole(key, default):
+        v = sj.get(key)
+        return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == int(v) and v >= 0 else default
+    return {"path": path, "name": sj.get("name") if isinstance(sj.get("name"), str) else "",
+            "start_bit": whole("start_bit", 0), "length": whole("length", 1) or 1,
+            "byte_order": sj.get("byte_order"), "signed": sj.get("signed") is True}
+
+
 class _J1939Parser:
     """Reads one networks[] entry's j1939 object the way the plugin does,
     reporting through err(where, message, paths) with the plugin's places
@@ -1931,8 +1943,9 @@ class _J1939Parser:
     and locations parsed; entries and signals the plugin would drop are left
     out."""
 
-    def __init__(self, err):
+    def __init__(self, err, warn=None):
         self.err = err
+        self.warn = warn or (lambda *a: None)
 
     # The plugin's field readers (j_uint, j_range, j_uint64, get_string, ...).
     def uint(self, obj, key, where, path):
@@ -2134,7 +2147,7 @@ class _J1939Parser:
         if v is not None:
             r["timeout_ms"] = v
         r["status_location"] = self.fixed_location(m, "status_location", w, p, "I", "X", "a bit input (%IX)")
-        r["signals"] = self.signals(m, w, p, True)
+        r["signals"], r["layout"] = self.signals(m, w, p, True)
         return r
 
     def tx(self, m, w, p):
@@ -2154,7 +2167,24 @@ class _J1939Parser:
             v = self.range(m, key, w, p, 0, J1939_MAX_PERIOD_MS)
             if v is not None:
                 t[key] = v
-        t["signals"] = self.signals(m, w, p, False)
+        t["pages"] = "program"
+        mode = None
+        if "pages" in m:
+            v = m["pages"]
+            if v not in raw_mux.PAGES:
+                self.err(w, 'pages: must be "program", "all" or "rotate"', [p + ".pages"])
+                mode = ""
+            else:
+                t["pages"] = v
+                mode = None if v == "program" else v
+        t["signals"], t["layout"] = self.signals(m, w, p, False, mode)
+        if "pages" in m and not any(s["is_switch"] for s in t["signals"]):
+            self.err(w, "pages: only for a message with a switch (multiplexer: true)", [p + ".pages"])
+        if mode and t["layout"].multiplexed:
+            n = t["layout"].page_count()
+            if n > raw_mux.MAX_PAGES:
+                self.err(w, '%d pages; pages "all" and "rotate" send at most %d (use pages "program")'
+                         % (n, raw_mux.MAX_PAGES), [p])
         return t
 
     def requests(self, m, w, p):
@@ -2168,27 +2198,41 @@ class _J1939Parser:
             q["period_ms"] = self.range(m, "period_ms", w, p, J1939_MIN_REQUEST_PERIOD_MS, J1939_MAX_PERIOD_MS)
         return q
 
-    def signals(self, msg, where, path, rx):
+    def signals(self, msg, where, path, rx, switch_mode=None):
+        """(signals, mux.Layout): the signals the plugin keeps (each with
+        "index", its place in the message's list) and the multiplexing of
+        the message's signals. `switch_mode`: "all" or "rotate" for a tx
+        entry whose switches the plugin sets ("" when `pages` was wrong)."""
         out = []
         if "signals" not in msg:
             self.err(where, "field 'signals' is missing", [path + ".signals"])
-            return out
+            return out, raw_mux.Layout([])
         arr = msg["signals"]
         if not isinstance(arr, list):
             self.err(where, "field 'signals' must be an array", [path + ".signals"])
-            return out
+            return out, raw_mux.Layout([])
+        defs, specs = [], []
         for i, sj in enumerate(arr):
             sw, sp = "%s: signals[%d]" % (where, i), "%s.signals[%d]" % (path, i)
             if not isinstance(sj, dict):
                 self.err(sw, "must be an object", [sp])
                 continue
+            # Multiplexing, named by the signal's place ("signals[1].mux.on: ...").
+            shape = []
+            is_switch, spec = raw_mux.parse_fields(sj, "signals[%d]" % i, shape)
+            for e in shape:
+                self.err(where, e, [sp])
+            specs.append((is_switch, spec, bool(shape)))
+            defs.append(_mux_def(sj, "signals[%d]" % i))
             name = self.string(sj, "name", sw, sp, required=True)
             if name is None:
                 continue
             me = "signal " + name
             mw = where + ": " + me
             s = {"name": name, "start_bit": None, "length": None, "big_endian": False, "signed": False,
-                 "scale": 1, "offset": 0, "unit": "", "location": None, "valid_location": None, "path": sp}
+                 "scale": 1, "offset": 0, "unit": "", "location": None, "valid_location": None, "path": sp,
+                 "index": len(defs) - 1, "is_switch": is_switch, "multiplexer": sj.get("multiplexer"),
+                 "mux": sj.get("mux")}
             ok = True
             for key, lo, hi in (("start_bit", 0, J1939_MAX_LENGTH * 8 - 1), ("length", 1, 64)):
                 if key not in sj:
@@ -2208,7 +2252,12 @@ class _J1939Parser:
                 v = self.number(sj, key, sw, sp)
                 s[key] = default if v is None else v
             s["unit"] = self.string(sj, "unit", sw, sp) or ""
-            if "iec_location" not in sj:
+            if is_switch and switch_mode is not None:
+                # The plugin sets the switch; an empty mode was reported at `pages`.
+                if "iec_location" in sj and switch_mode:
+                    self.err(where, 'signals[%d].iec_location: the plugin sets switch %s when pages is "%s"; '
+                             'leave it out' % (i, name, switch_mode), [sp + ".iec_location"])
+            elif "iec_location" not in sj:
                 self.err(where, "%s: field 'iec_location' is missing" % me, [sp + ".iec_location"])
                 ok = False
             else:
@@ -2236,10 +2285,18 @@ class _J1939Parser:
                                                               "a bit input (%IX)")
             if ok:
                 out.append(s)
-        return out
+        errors, warnings = [], []
+        layout = raw_mux.Layout.build(defs, errors, warnings, specs)
+        for e in errors:
+            self.err(where, e, [path + ".signals"])
+        for e in warnings:
+            self.warn(where, e, [path + ".signals"])
+        return out, layout
 
     # check_j1939: signal fit and overlap, duplicate PGNs, default TX length.
-    def check_signals(self, signals, length, where, path):
+    def check_signals(self, signals, length, where, path, layout=None):
+        """Fit and overlap; signals on different pages of `layout` (a
+        mux.Layout) may share bits."""
         owner = {}
         reported = set()
         for i, s in enumerate(signals):
@@ -2248,12 +2305,14 @@ class _J1939Parser:
                 if b >= length * 8:
                     fits = False
                     continue
-                o = owner.get(b)
+                # The latest earlier signal on this bit that can share a frame.
+                o = next((o for o in reversed(owner.get(b, ())) if layout is None or layout.can_share(
+                    signals[o]["index"], s["index"])), None)
                 if o is not None and (o, i) not in reported:
                     reported.add((o, i))
                     self.err(where, "signals %s and %s overlap" % (signals[o]["name"], s["name"]),
                              [signals[o]["path"], s["path"]])
-                owner[b] = i
+                owner.setdefault(b, []).append(i)
             if not fits:
                 self.err(where, "signal %s (start bit %d, %d bits) does not fit in %d bytes"
                          % (s["name"], s["start_bit"], s["length"], length), [s["path"]])
@@ -2272,7 +2331,7 @@ class _J1939Parser:
         for i, r in enumerate(j["rx"]):
             # A received message is as long as its sender makes it; the
             # signals only have to fit what the transport protocol carries.
-            self.check_signals(r["signals"], J1939_MAX_LENGTH, "j1939: rx[%d]" % i, "j1939.rx[%d]" % i)
+            self.check_signals(r["signals"], J1939_MAX_LENGTH, "j1939: rx[%d]" % i, "j1939.rx[%d]" % i, r["layout"])
             for k in range(i):
                 if r["pgn"] is not None and j["rx"][k]["pgn"] == r["pgn"] and same_filter(j["rx"][k], r):
                     self.err("j1939", "rx[%d] and rx[%d] both receive PGN %s with the same source filter"
@@ -2285,18 +2344,19 @@ class _J1939Parser:
                     self.err(w, "the signals need %d bytes; a message carries at most %d"
                              % (t["length"], J1939_MAX_LENGTH), ["j1939.tx[%d]" % i])
                     t["length"] = J1939_MAX_LENGTH
-            self.check_signals(t["signals"], t["length"], w, "j1939.tx[%d]" % i)
+            self.check_signals(t["signals"], t["length"], w, "j1939.tx[%d]" % i, t["layout"])
             for k in range(i):
                 if t["pgn"] is not None and j["tx"][k]["pgn"] == t["pgn"]:
                     self.err("j1939", "tx[%d] and tx[%d] both send PGN %s" % (k, i, j1939_pgn_text(t["pgn"])),
                              ["j1939.tx[%d]" % k, "j1939.tx[%d]" % i])
 
 
-def check_j1939(net, err):
+def check_j1939(net, err, warn=None):
     """The plugin's checks of one J1939 network's j1939 object (the network's
     adapter and keys are checked by the caller). `err(where, message,
-    paths)` gets places and paths relative to the network. Returns the
-    parsed object (parse_j1939()) or None when there is none."""
+    paths)` (and `warn`, the same for warnings) gets places and paths
+    relative to the network. Returns the parsed object (parse_j1939()) or
+    None when there is none."""
     j = net.get("j1939")
     if "j1939" not in net:
         err("", "a J1939 network needs a 'j1939' object", ["j1939"])
@@ -2304,7 +2364,7 @@ def check_j1939(net, err):
     if not isinstance(j, dict):
         err("", "field 'j1939' must be an object", ["j1939"])
         return None
-    return _J1939Parser(err).parse(j)
+    return _J1939Parser(err, warn).parse(j)
 
 
 def parse_j1939(net):

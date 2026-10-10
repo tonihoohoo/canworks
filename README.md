@@ -64,7 +64,7 @@ A network with `"protocol": "j1939"` makes the PLC an ECU ([docs/j1939.md](docs/
 
 ### Raw CAN on the PLC
 
-Plain CAN messages run on any network, next to CANopen or J1939, or on a plain CAN network (`"protocol": "none"`, optionally listen-only) that carries nothing else ([docs/raw-can.md](docs/raw-can.md)). Received messages put DBC-style signals on `%I` locations with a timeout bit, counter and last frame; sent ones come from `%Q` locations periodically, on change or on a trigger bit. Identifiers the protocol uses need an explicit override. From the program, `CAN_SEND`, `CAN_SEND_CYCLIC`, `CAN_RECEIVE` and `CAN_BUS_INFO` and ST bit and byte helpers in the `canworks` library send and receive any frame when the program decides. [`examples/raw-can`](examples/raw-can/canworks.json) is a plain network with its DBC file and simulated devices.
+Plain CAN messages run on any network, next to CANopen or J1939, or on a plain CAN network (`"protocol": "none"`, optionally listen-only) that carries nothing else ([docs/raw-can.md](docs/raw-can.md)). Received messages put DBC-style signals on `%I` locations with a timeout bit, counter and last frame; sent ones come from `%Q` locations periodically, on change or on a trigger bit. Multiplexed messages (simple and extended DBC multiplexing) work on raw and J1939 networks: received pages update their own signals with a valid bit each, and sent pages are picked by the program, sent all each period or in turn. Identifiers the protocol uses need an explicit override. From the program, `CAN_SEND`, `CAN_SEND_CYCLIC`, `CAN_RECEIVE` and `CAN_BUS_INFO` and ST bit and byte helpers in the `canworks` library send and receive any frame when the program decides. [`examples/raw-can`](examples/raw-can/canworks.json) is a plain network with its DBC file and simulated devices.
 
 ### Modbus TCP bridge for any PLC or program
 
@@ -94,9 +94,9 @@ On the runtime host, `canworks-sim` runs simulated CANopen devices on a SocketCA
 
 - **PLC side:** Linux with SocketCAN (`slcan` adapters need Linux 6.0 or later), OpenPLC Runtime v4 as a native install (`install.sh --native`) or upstream's managed Docker install ([docs/install-stock.md](docs/install-stock.md#docker-installs)). The runtime stays unmodified; `install-stock.sh` also installs an editor hook so the editor's **Build and upload** keeps the plugin on.
 - **CANopen:** master and slave roles, one role per CAN interface; no flying master, MPDO or SRDO, and no program download into OpenPLC as a slave.
-- **Raw CAN:** classic CAN only (no CAN FD), raw integer signals, no multiplexed DBC messages.
+- **Raw CAN:** classic CAN only (no CAN FD), raw integer signals.
 - **Modbus bridge:** Linux with SocketCAN, Modbus TCP server only (no RTU), one config per bridge process, and a CAN interface is used by either the bridge or the OpenPLC plugin, not both ([docs/modbus-bridge.md](docs/modbus-bridge.md#limits)).
-- **J1939:** one ECU per interface, raw integer signals, no diagnostic messages (DM1 ...) or multiplexed DBC messages yet ([docs/j1939.md](docs/j1939.md#limits)).
+- **J1939:** one ECU per interface, raw integer signals, no diagnostic messages (DM1 ...) yet ([docs/j1939.md](docs/j1939.md#limits)).
 
 ## Documentation
 

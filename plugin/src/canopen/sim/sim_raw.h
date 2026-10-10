@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "can/mux.h"
 #include "sim_expr.h"
 #include "sim_source.h"
 
@@ -37,7 +38,8 @@ struct RawSimSignal {
   unsigned start_bit = 0, length = 1;
   bool big_endian = false, is_signed = false;
   double scale = 1, offset = 0;  // the source gives scale * raw + offset
-  std::string source_json;
+  std::string source_json;        // empty: a switch (its value comes from the page)
+  canworks_can::MuxSpec mux;      // multiplexer / mux as in the config
 };
 
 struct RawSimSend {
@@ -45,6 +47,10 @@ struct RawSimSend {
   RawFrame frame;  // identifier, flags, DLC and the bytes no signal covers
   unsigned period_ms = 0;
   std::vector<RawSimSignal> signals;
+  // A send with switches (`multiplexer`): every page each period (`pages`
+  // "all", the default) or the next page each period ("rotate").
+  bool rotate = false;
+  std::vector<canworks_can::MuxLayout::Page> pages;  // empty: not multiplexed
 };
 
 struct RawSimReply {
@@ -105,11 +111,13 @@ class RawDevice {
 
  private:
   struct Bound;
-  RawFrame build(size_t send, double t, ExprContext& ctx);
+  // The frame of a send; `page` indexes its pages (-1: not multiplexed).
+  RawFrame build(size_t send, int page, double t, ExprContext& ctx);
 
   RawDeviceSpec spec_;
   std::vector<std::unique_ptr<Bound>> bound_;
   std::vector<uint64_t> next_due_;
+  std::vector<size_t> cursor_;  // per send: the next page ("rotate")
   struct Pending {
     uint64_t at;
     RawFrame frame;

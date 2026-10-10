@@ -3,6 +3,7 @@ messages as the plugin (plugin/src/can/raw/config.cpp). Both run
 test/fixtures/config/cases-raw.json."""
 
 from ..iec import parse_location
+from . import mux
 from . import signals as sig
 
 STD_MAX = 0x7FF
@@ -13,8 +14,9 @@ _TOOL_ONLY = ("scale", "offset", "unit", "minimum", "maximum", "comment")
 _RX_FIELDS = ("name", "id", "extended", "mask", "rtr", "dlc", "timeout_ms", "status_location", "counter_location",
               "id_location", "dlc_location", "data_location", "signals")
 _TX_FIELDS = ("name", "id", "extended", "rtr", "dlc", "fill", "period_ms", "on_change", "min_gap_ms",
-              "override_protocol", "trigger_location", "enable_location", "data_location", "signals")
-_SIGNAL_FIELDS = ("name", "start_bit", "length", "byte_order", "signed", "iec_location") + _TOOL_ONLY
+              "override_protocol", "trigger_location", "enable_location", "data_location", "pages", "signals")
+_SIGNAL_FIELDS = ("name", "start_bit", "length", "byte_order", "signed", "iec_location", "valid_location",
+                  "multiplexer", "mux") + _TOOL_ONLY
 
 
 def size_for_bits(bits):
@@ -75,7 +77,7 @@ class _Obj:
             return None
         return v
 
-    def location(self, key, area, size):
+    def location(self, key, area, size, what=None):
         t = self.text(key)
         if t is None:
             return None
@@ -85,10 +87,11 @@ class _Obj:
             self.errors.append("%s: '%s' is not a located address" % (where, t))
             return None
         if loc.area != area:
-            self.errors.append("%s: %s must be %s" % (where, key, "an input (%I)" if area == "I" else "an output (%Q)"))
+            self.errors.append("%s: %s must be %s" % (where, what or key,
+                                                      "an input (%I)" if area == "I" else "an output (%Q)"))
             return None
         if loc.size != size:
-            self.errors.append("%s: %s must be a %%%s%s location" % (where, key, area, size))
+            self.errors.append("%s: %s must be a %%%s%s location" % (where, what or key, area, size))
             return None
         return loc
 
@@ -107,14 +110,18 @@ class _Obj:
         return int(v), ext
 
 
-def _signals(lst, path, area, frame_bytes, dlc_given, errors, warnings):
+def _signals(lst, path, area, frame_bytes, dlc_given, errors, warnings, switch_mode=None):
+    """The signals at `path` as dicts, and their mux.Layout. `switch_mode`:
+    the pages mode of a send entry whose switches the plugin sets ("all" or
+    "rotate"; "" when `pages` itself was wrong), else None."""
     out = []
     if lst is None:
-        return out
+        return out, mux.Layout([])
     if not isinstance(lst, list):
         errors.append("%s: must be a list" % path)
-        return out
-    used = 0
+        return out, mux.Layout([])
+    masks = []
+    specs = []
     for k, s in enumerate(lst):
         p = "%s[%d]" % (path, k)
         if not isinstance(s, dict):
@@ -130,37 +137,57 @@ def _signals(lst, path, area, frame_bytes, dlc_given, errors, warnings):
             errors.append('%s.byte_order: must be "little" or "big"' % p)
         big = order == "big"
         signed = o.flag("signed") or False
+        shape = len(errors)
+        is_switch, spec = mux.parse_fields(s, p, errors)
+        specs.append((is_switch, spec, len(errors) != shape))
         label = name or p
-        t = o.text("iec_location")
         loc = None
-        if t is None:
-            if "iec_location" not in s:
-                errors.append("%s.iec_location: missing" % p)
+        if is_switch and switch_mode is not None:
+            # The plugin sets the switch; an empty mode was reported at `pages`.
+            if "iec_location" in s and switch_mode:
+                errors.append('%s.iec_location: the plugin sets switch %s when pages is "%s"; leave it out'
+                              % (p, label, switch_mode))
         else:
-            loc = parse_location(t)
-            where = "%s.iec_location" % p
-            want = size_for_bits(length or 1)
-            if loc is None or loc.area == "M":
-                errors.append("%s: '%s' is not a located address" % (where, t))
-            elif loc.area != area:
-                errors.append("%s: a %s signal needs %s" % (
-                    where, "received" if area == "I" else "sent", "an input (%I)" if area == "I" else "an output (%Q)"))
-            elif loc.size != want:
-                errors.append("%s: signal %s of %d bits needs %s" % (where, label, length, _SIZE_WORD[want]))
+            t = o.text("iec_location")
+            if t is None:
+                if "iec_location" not in s:
+                    errors.append("%s.iec_location: missing" % p)
+            else:
+                loc = parse_location(t)
+                where = "%s.iec_location" % p
+                want = size_for_bits(length or 1)
+                if loc is None or loc.area == "M":
+                    errors.append("%s: '%s' is not a located address" % (where, t))
+                elif loc.area != area:
+                    errors.append("%s: a %s signal needs %s" % (
+                        where, "received" if area == "I" else "sent",
+                        "an input (%I)" if area == "I" else "an output (%Q)"))
+                elif loc.size != want:
+                    errors.append("%s: signal %s of %d bits needs %s" % (where, label, length, _SIZE_WORD[want]))
+        valid = None
+        if area == "I":
+            valid = o.location("valid_location", "I", "X", "valid bit")
+        elif "valid_location" in s:
+            errors.append("%s.valid_location: only received signals have a valid bit" % p)
         o.finish()
+        mine = 0
         if len(errors) == before:
             if not sig.fits(start, length, big, frame_bytes):
                 errors.append("%s: signal %s reaches past %s" % (
                     p, label, "the message's dlc (%d bytes)" % frame_bytes if dlc_given else "8 bytes"))
             else:
-                mine = 0
                 for pos in sig.bit_positions(start, length, big):
                     mine |= 1 << pos
-                if mine & used:
-                    warnings.append("%s: signal %s overlaps another signal" % (p, label))
-                used |= mine
-        out.append(dict(name=name, start_bit=start, length=length, big_endian=big, signed=signed, location=loc))
-    return out
+        masks.append(mine)
+        out.append(dict(name=name, start_bit=start or 0, length=length or 1, big_endian=big, signed=signed,
+                        location=loc, valid_location=valid, path=p, byte_order=order, multiplexer=s.get("multiplexer"),
+                        mux=s.get("mux"), is_switch=is_switch))
+    layout = mux.Layout.build(out, errors, warnings, specs)
+    # Overlaps with an earlier signal that can be in the same frame.
+    for i, mine in enumerate(masks):
+        if any(mine & masks[j] and layout.can_share(i, j) for j in range(i)):
+            warnings.append("%s: signal %s overlaps another signal" % (out[i]["path"], out[i]["name"] or out[i]["path"]))
+    return out, layout
 
 
 def check_raw(raw, path, listen_only=False, protocol_use=None):
@@ -196,8 +223,8 @@ def check_raw(raw, path, listen_only=False, protocol_use=None):
         o.location("id_location", "I", "D")
         o.location("dlc_location", "I", "B")
         o.location("data_location", "I", "L")
-        sigs = _signals(e.get("signals"), p + ".signals", "I", 8 if dlc is None else dlc, dlc is not None, errors,
-                        warnings)
+        sigs, _ = _signals(e.get("signals"), p + ".signals", "I", 8 if dlc is None else dlc, dlc is not None,
+                           errors, warnings)
         if rtr and sigs:
             errors.append("%s.signals: a remote frame carries no data" % p)
         o.finish()
@@ -226,8 +253,20 @@ def check_raw(raw, path, listen_only=False, protocol_use=None):
         trigger = o.location("trigger_location", "Q", "X")
         o.location("enable_location", "Q", "X")
         data = o.location("data_location", "Q", "L")
-        sigs = _signals(e.get("signals"), p + ".signals", "Q", 8 if dlc is None else dlc, dlc is not None, errors,
-                        warnings)
+        pages = o.text("pages")
+        bad_pages = pages is not None and pages not in mux.PAGES
+        if bad_pages:
+            errors.append('%s.pages: must be "program", "all" or "rotate"' % p)
+        mode = "" if bad_pages else None if pages in (None, "program") else pages
+        sigs, layout = _signals(e.get("signals"), p + ".signals", "Q", 8 if dlc is None else dlc, dlc is not None,
+                                errors, warnings, mode)
+        if "pages" in e and not any(s["is_switch"] for s in sigs):
+            errors.append("%s.pages: only for a message with a switch (multiplexer: true)" % p)
+        if mode and layout.multiplexed:
+            n = layout.page_count()
+            if n > mux.MAX_PAGES:
+                errors.append('%s: %d pages; pages "all" and "rotate" send at most %d (use pages "program")'
+                              % (p, n, mux.MAX_PAGES))
         if rtr and (sigs or data is not None):
             errors.append("%s: a remote frame carries no data (no signals or data_location)" % p)
         if not period and not on_change and trigger is None:
@@ -255,7 +294,8 @@ def check_raw(raw, path, listen_only=False, protocol_use=None):
 
 def tx_dlc(entry):
     """The DLC a `tx` entry sends: its `dlc`, or the smallest that holds every
-    signal (at least 1; 8 with data_location; 0 for a remote frame)."""
+    signal of every page (at least 1; 8 with data_location; 0 for a remote
+    frame)."""
     if "dlc" in entry:
         return entry["dlc"]
     if entry.get("rtr"):
@@ -277,6 +317,7 @@ def locations(raw, path):
                 if key in e:
                     out.append((e[key], "%s.%s" % (p, key)))
             for j, s in enumerate(e.get("signals") or []):
-                if "iec_location" in s:
-                    out.append((s["iec_location"], "%s.signals[%d].iec_location" % (p, j)))
+                for key in ("iec_location", "valid_location") if kind == "rx" else ("iec_location",):
+                    if key in s:
+                        out.append((s[key], "%s.signals[%d].%s" % (p, j, key)))
     return out

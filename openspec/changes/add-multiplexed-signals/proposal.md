@@ -23,7 +23,7 @@ The exploration of 2026-10-10 (project notes `research/multiplexed-signals-2026-
   - `valid_location` (%IX) on received raw signals, as J1939 already has
   - `pages` on send entries (`raw.tx`, `j1939.tx`): `"program"` (default), `"all"` or `"rotate"`
   - overlap and length checks are made per page; J1939's "signals SHALL NOT overlap" and raw's overlap warning apply only to signals that can be in the same frame
-- **Runtime plugin** (shared `plugin/src/can/signals.*`, raw engine, J1939 runtime):
+- **Runtime plugin** (a new shared `plugin/src/can/mux.*`, raw engine, J1939 runtime):
   - receive: a frame updates the always-present signals, the switches and the active page's signals; the rest hold their last value; `valid_location` of a multiplexed signal is FALSE until its page arrives and after `timeout_ms` without it
   - unknown switch values are counted in diagnostics and update only the always-present signals and the switches
   - send: `program` packs the page the switch outputs select; `all` sends every page each period; `rotate` sends the next page each period; `on_change` sends only pages whose signals changed; J1939 requests are answered the same way
@@ -55,7 +55,7 @@ The exploration of 2026-10-10 (project notes `research/multiplexed-signals-2026-
 
 ## Impact
 
-- **Plugin**: `plugin/src/can/signals.*` gains the page logic (a table built at start, no allocation on the receive path); `plugin/src/can/raw/config.*`, `raw/engine.*`; `plugin/src/j1939/j1939_config.*`, `j1939_runtime.*`. No new dependency.
+- **Plugin**: a new `plugin/src/can/mux.*` has the page logic (a table built at start, no allocation on the receive path); `plugin/src/can/raw/config.*`, `raw/engine.*`; `plugin/src/j1939/j1939_config.*`, `j1939_network.*`. No new dependency.
 - **PC tools**: `canworks/raw/` (contract, dbc, decode, signals, assist), `canworks/j1939/` (dbc, sim), `canworks/dbcexport.py`, `canworks/bustrace/` (decode, j1939), configurator static pages; minor version bump. cantools is already a dependency.
 - **Schemas**: `canworks.v2.schema.json`, `canworks-sim.v2.schema.json` (new optional fields; configs without them are unchanged).
 - **CI**: unit tests and the existing simulated-bus and vcan groups; no new job.

@@ -1248,12 +1248,19 @@ def _print_raw_status(raw, out):
                                    m.get("last_dlc"), m.get("last_data") or "")
         if m.get("short_frames"):
             state += ", %s short" % m["short_frames"]
+        if m.get("unknown_pages"):
+            # Frames whose switches select no page (can-multiplexed-signals).
+            state += ", %s unknown page%s" % (m["unknown_pages"], "" if m["unknown_pages"] == 1 else "s")
         rows.append((str(m.get("message")), str(m.get("count", 0)), state, last))
     if len(rows) > 1:
         _table(rows, out, "")
     rows = [("SEND", "COUNT", "ERROR")]
     for m in raw.get("tx") or []:
-        rows.append((str(m.get("message")), str(m.get("count", 0)), m.get("error") or "-"))
+        error = m.get("error") or "-"
+        if m.get("unknown_page"):
+            # The program's switch outputs select no page: sent without one.
+            error = "unknown page" if error == "-" else error + ", unknown page"
+        rows.append((str(m.get("message")), str(m.get("count", 0)), error))
     if len(rows) > 1:
         _table(rows, out, "")
 
@@ -1415,6 +1422,10 @@ def _print_j1939_status(st, out):
                 n = e.get("timeouts") or 0
                 out.write("PGN %s: timed out, no message for %s (%d timeout%s)\n" % (
                     e.get("pgn"), _age(e.get("age_ms")).replace(" ago", ""), n, "" if n == 1 else "s"))
+            if e.get("unknown_pages"):
+                n = e["unknown_pages"]
+                out.write("PGN %s: %d unknown page%s (switch values no signal is on)\n" % (
+                    e.get("pgn"), n, "" if n == 1 else "s"))
         for e in rx:
             sigs = e.get("signals") or []
             if sigs:
@@ -1422,8 +1433,9 @@ def _print_j1939_status(st, out):
                     "%s %s%s" % (s.get("name"), s.get("raw"), "" if s.get("valid", True) else " (not valid)")
                     for s in sigs)))
     for e in j.get("tx") or []:
-        out.write("sent PGN %s: %s sent, %s requests answered\n" % (e.get("pgn"), e.get("sent", 0),
-                                                                   e.get("requests_answered", 0)))
+        out.write("sent PGN %s: %s sent, %s requests answered%s\n" % (
+            e.get("pgn"), e.get("sent", 0), e.get("requests_answered", 0),
+            ", unknown page" if e.get("unknown_page") else ""))
     for e in j.get("requests") or []:
         out.write("request for PGN %s: %s sent\n" % (e.get("pgn"), e.get("sent", 0)))
 

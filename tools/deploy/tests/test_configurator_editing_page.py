@@ -372,6 +372,8 @@ class J1939Dbc(Base):
         pg.set_input_files('input[data-j1939="dbc-input"]', PUMP_DBC)
         self.answer("replace")
         pg.wait_for_selector("#modal-text:has-text('pump.dbc')")
+        # The multiplexed message is offered with its switch and pages.
+        self.assertEqual(pg.inner_text('#modal [data-j1939-mux="Muxed"]'), "switch Sel, 2 pages")
         self.answer("add")
         pg.wait_for_selector("#banner:has-text('from pump.dbc')")
         self.assertEqual(self.draft("S.config.j1939.dbc"), "pump.dbc")

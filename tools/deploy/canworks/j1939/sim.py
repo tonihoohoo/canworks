@@ -343,12 +343,40 @@ def default_address(db, node):
     return addresses[0]
 
 
+def mux_layout(message):
+    """The mux.Layout of a cantools message (not multiplexed for a plain
+    one, or one whose multiplexing the DBC does not say clearly)."""
+    from ..raw import mux
+    from ..raw.dbc import mux_fields
+    fields, _ = mux_fields(message)
+    defs = []
+    for j, s in enumerate(message.signals):
+        d = {"path": "signals[%d]" % j, "name": s.name, "start_bit": s.start, "length": s.length,
+             "byte_order": "big" if s.byte_order == "big_endian" else "little", "signed": s.is_signed}
+        d.update(fields.get(s.name, {}))
+        defs.append(d)
+    return mux.Layout.build(defs, [], [])
+
+
 class Plan:
     """One message the simulator sends: identifier parts, period (None: only
-    on request) and a value source per signal."""
+    on request) and a value source per signal. A multiplexed message is sent
+    as every page at each send (`mux` "all") or the next page (`mux`
+    "rotate")."""
 
-    def __init__(self, message, period_s, sources):
+    def __init__(self, message, period_s, sources, mux="all"):
+        from ..raw import mux as mux_mod
         self.message, self.period_s, self.sources = message, period_s, sources
+        self.mux = mux
+        self.layout = mux_layout(message)
+        self.pages = []
+        if self.layout.multiplexed:
+            n = self.layout.page_count()
+            if n > mux_mod.MAX_PAGES:
+                raise SimError("%s has %d pages; the simulator sends at most %d" % (message.name, n,
+                                                                                   mux_mod.MAX_PAGES))
+            self.pages = self.layout.pages()
+        self.next_page = 0
         fid = message.frame_id
         self.pgn = pgn_of(fid)
         self.priority = (fid >> 26) & 7
@@ -365,13 +393,40 @@ class Plan:
         raw = {name: src.raw(t) for name, src in self.sources.items()}
         return self.message.encode(raw, scaling=False, padding=True, strict=False)
 
+    def page_payload(self, page, t):
+        """The data of one page (values, active) of a multiplexed message:
+        the page's switch values and its signals' sources; other bits 1."""
+        from ..raw import signals as sig
+        values, active = page
+        data = bytearray(b"\xff" * self.message.length)
+        for j, s in enumerate(self.message.signals):
+            if not active[j]:
+                continue
+            v = values[j] if self.layout.is_switch[j] else self.sources[s.name].raw(t)
+            sig.pack(data, s.start, s.length, int(v), s.byte_order == "big_endian")
+        return bytes(data)
+
+    def payloads(self, t):
+        """The frames' data of one send: one, or for a multiplexed message
+        every page ("all") or the next page ("rotate")."""
+        if not self.pages:
+            return [self.payload(t)]
+        if self.mux == "rotate":
+            page = self.pages[self.next_page % len(self.pages)]
+            self.next_page = (self.next_page + 1) % len(self.pages)
+            return [self.page_payload(page, t)]
+        return [self.page_payload(page, t) for page in self.pages]
+
     def describe(self):
         when = "%d ms" % round(self.period_s * 1000) if self.period_s else "on request"
+        if self.pages:
+            when += ", %d pages%s" % (len(self.pages), " in turn" if self.mux == "rotate" else "")
         return "%s (PGN %d, %s)" % (self.message.name, self.pgn, when)
 
 
-def plans(db, node, scenario=None, ramp_period=DEFAULT_RAMP_S):
-    """What `node` sends: a Plan per DBC message it is the sender of."""
+def plans(db, node, scenario=None, ramp_period=DEFAULT_RAMP_S, mux="all"):
+    """What `node` sends: a Plan per DBC message it is the sender of
+    (multiplexed messages page by page, `mux` "all" or "rotate")."""
     scenario = scenario or {"ramp_period_s": None, "messages": {}}
     ramp_period = scenario["ramp_period_s"] or ramp_period
     out = []
@@ -385,7 +440,7 @@ def plans(db, node, scenario=None, ramp_period=DEFAULT_RAMP_S):
                 sources[s.name] = _source(s, value, where, ramp_period)
             else:
                 sources[s.name] = Ramp(*ramp_limits(s), period=ramp_period)
-        out.append(Plan(m, period_ms / 1000.0 if period_ms else None, sources))
+        out.append(Plan(m, period_ms / 1000.0 if period_ms else None, sources, mux))
     return out
 
 
@@ -504,6 +559,7 @@ class Simulator:
         self.send_errors = 0
         self._by_pgn = {p.pgn: p for p in self.plans}
         self._rx = {}  # PGN -> DBC messages
+        self._layouts = {}  # id(DBC message) -> mux.Layout
         for m in (db.messages if db else ()):
             if m.is_extended_frame:
                 self._rx.setdefault(pgn_of(m.frame_id), []).append(m)
@@ -581,19 +637,19 @@ class Simulator:
         default its DBC destination). False when not sent."""
         if not self.claimed:
             return False
-        data = list(plan.payload(self.clock() - self._t0))
         ps = plan.ps if not plan.pdu1 or destination is None else destination
-        try:
-            ok = self.ca.send_pgn(plan.dp, plan.pf, ps, plan.priority, data)
-        except RuntimeError:  # the address was lost meanwhile
-            return False
-        if ok is False:
-            if not plan.busy_noted:
-                plan.busy_noted = True
-                self._report("busy", "%s not sent: its previous transport protocol transfer is still running"
-                             % plan.message.name, pgn=plan.pgn)
-            return False
-        plan.sent += 1
+        for data in plan.payloads(self.clock() - self._t0):
+            try:
+                ok = self.ca.send_pgn(plan.dp, plan.pf, ps, plan.priority, list(data))
+            except RuntimeError:  # the address was lost meanwhile
+                return False
+            if ok is False:
+                if not plan.busy_noted:
+                    plan.busy_noted = True
+                    self._report("busy", "%s not sent: its previous transport protocol transfer is still running"
+                                 % plan.message.name, pgn=plan.pgn)
+                return False
+            plan.sent += 1
         return True
 
     # -- bus
@@ -641,13 +697,33 @@ class Simulator:
             return
         msg = next((m for m in messages if m.frame_id & 0xFF == sa), messages[0])
         self.received += 1
-        try:
-            values = msg.decode(bytes(data), decode_choices=False, allow_truncated=True)
-        except Exception as e:  # cantools: wrong length, bad multiplexer, ...
-            self._report("rx", "PGN %d from %d: cannot decode %s: %s" % (pgn, sa, msg.name, e), pgn=pgn, source=sa,
-                         message=msg.name, data=bytes(data).hex(), error=str(e))
-            return
-        text = " ".join("%s=%s" % (k, fmt_value(v)) for k, v in values.items())
+        layout = self._layouts.get(id(msg))
+        if layout is None:
+            layout = self._layouts[id(msg)] = mux_layout(msg)
+        page = ""
+        if layout.multiplexed:
+            # Only the signals of the frame's page (cantools would refuse an
+            # unknown page).
+            from ..raw import signals as sig
+            data = bytes(data)
+            active, unknown, _, _ = layout.evaluate(data)
+            page = layout.page_label(data)
+            values = {}
+            for j, s in enumerate(msg.signals):
+                big = s.byte_order == "big_endian"
+                if active[j] and sig.fits(s.start, s.length, big, len(data)):
+                    raw = sig.unpack(data, s.start, s.length, big, s.is_signed)
+                    values[s.name] = raw * s.scale + s.offset if (s.scale, s.offset) != (1, 0) else raw
+            if page:
+                page = "[%s%s] " % (page, " unknown" if unknown else "")
+        else:
+            try:
+                values = msg.decode(bytes(data), decode_choices=False, allow_truncated=True)
+            except Exception as e:  # cantools: wrong length, bad multiplexer, ...
+                self._report("rx", "PGN %d from %d: cannot decode %s: %s" % (pgn, sa, msg.name, e), pgn=pgn,
+                             source=sa, message=msg.name, data=bytes(data).hex(), error=str(e))
+                return
+        text = page + " ".join("%s=%s" % (k, fmt_value(v)) for k, v in values.items())
         self._report("rx", "PGN %d from %d: %s" % (pgn, sa, text), pgn=pgn, source=sa, message=msg.name,
                      signals=values, data=bytes(data).hex())
 
@@ -686,7 +762,9 @@ is --node at its GenMsgCycleTime (messages without one only on request).
 Signal values ramp from the DBC minimum to the maximum over --ramp-period
 seconds and start again, kept below J1939's "error" and "not available"
 values, unless a scenario says otherwise. Messages over 8 bytes go through
-the transport protocol: BAM when broadcast, RTS/CTS to one address.
+the transport protocol: BAM when broadcast, RTS/CTS to one address. A
+multiplexed message goes out as every one of its pages at each cycle, or
+one page per cycle in turn with --mux rotate (requests likewise).
 Requests (PGN 59904) for those PGNs, to its address or global, are answered;
 requests to its address for any other PGN get a NACK.
 
@@ -773,6 +851,8 @@ def parser():
     p.add_argument("--arbitrary-address-capable", action="store_true", help="NAME field: may move to another "
                    "address when it loses its claim")
     p.add_argument("--scenario", metavar="FILE", help="signal values and periods (JSON, see below)")
+    p.add_argument("--mux", choices=("all", "rotate"), default="all",
+                   help="multiplexed messages: every page at each cycle (all, default) or the next page (rotate)")
     p.add_argument("--ramp-period", type=_seconds, default=DEFAULT_RAMP_S, metavar="S",
                    help="seconds of one ramp from minimum to maximum (default %(default)s)")
     p.add_argument("--log", metavar="FILE", help="also write every event as a JSON line to FILE")
@@ -809,7 +889,7 @@ def setup(args):
     if args.node:
         node_messages(db, args.node)  # checks the node
         scenario = load_scenario(args.scenario, db, args.node) if args.scenario else None
-        sends = plans(db, args.node, scenario, args.ramp_period)
+        sends = plans(db, args.node, scenario, args.ramp_period, args.mux)
     address = args.contend if args.contend is not None else args.address
     if address is None:
         address = default_address(db, args.node)

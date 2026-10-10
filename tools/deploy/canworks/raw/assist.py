@@ -33,7 +33,10 @@ def suggest_locations(entry, kind, used, start=DEFAULT_START):
         if key not in entry:
             entry[key] = _free(a, size, used, start)
             filled.append(key)
+    plugin_sets = kind == "tx" and entry.get("pages") in ("all", "rotate")
     for j, s in enumerate(entry.get("signals") or []):
+        if plugin_sets and s.get("multiplexer") is True:
+            continue  # the plugin sets the switches of these pages modes
         if not s.get("iec_location"):
             s["iec_location"] = _free(area, size_for_bits(s.get("length", 1)), used, start)
             filled.append("signals[%d].iec_location" % j)
@@ -43,7 +46,8 @@ def suggest_locations(entry, kind, used, start=DEFAULT_START):
 def import_messages(messages, picks):
     """`raw` entries for DBC messages (from dbc.read_dbc()): `picks` maps a
     message name to "receive" or "send". Returns ({"rx": [...], "tx": [...]},
-    notes) where notes say what was left out (multiplexed signals)."""
+    notes) where notes say what was left out (the multiplexing of a message
+    with several switches and no SG_MUL_VAL_)."""
     from .dbc import to_entry
     out = {"rx": [], "tx": []}
     notes = []
@@ -51,8 +55,8 @@ def import_messages(messages, picks):
         direction = picks.get(m["name"])
         if direction not in ("receive", "send"):
             continue
-        if m.get("multiplexed"):
-            notes.append("%s: multiplexed signals were left out" % m["name"])
+        if m.get("mux_problem"):
+            notes.append("%s: %s" % (m["name"], m["mux_problem"]))
         out["rx" if direction == "receive" else "tx"].append(to_entry(m, direction))
     return out, notes
 

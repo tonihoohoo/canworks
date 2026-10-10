@@ -1,0 +1,68 @@
+VERSION ""
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	BA_DEF_DEF_
+	SIG_VALTYPE_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: PLC ECU0
+
+BO_ 2566848512 Pressures: 8 ECU0
+ SG_ Pressure : 0|16@1+ (0.1,0) [0|6553.5] "bar" PLC
+ SG_ Temp : 16|8@1- (1,0) [-128|127] "" PLC
+
+BO_ 2566850046 Status: 8 Vector__XXX
+ SG_ Page M : 0|8@1+ (1,0) [0|255] "" PLC
+ SG_ Temp m1 : 8|16@1+ (1,0) [0|65535] "" PLC
+ SG_ Press m2 : 8|16@1+ (1,0) [0|65535] "" PLC
+
+BO_ 2566848896 Setpoints: 8 PLC
+ SG_ Setpoint : 0|16@1+ (1,0) [0|65535] "" Vector__XXX
+ SG_ Run : 16|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 2566849664 Display: 8 PLC
+ SG_ Page M : 0|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Sub m3M : 8|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ B m1 : 16|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ C m1 : 16|8@1+ (1,0) [0|255] "" Vector__XXX
+
+CM_ "J1939 network machine of canworks.json, exported by canworks-deploy TEST";
+CM_ BO_ 2566848512 "PGN 65280 (0xFF00) received from address 0, timeout 300 ms";
+CM_ SG_ 2566848512 Pressure "-> %IW210";
+CM_ SG_ 2566848512 Temp "-> %IB204";
+CM_ BO_ 2566850046 "PGN 65285 (0xFF05) received from any address";
+CM_ SG_ 2566850046 Page "-> %IB219";
+CM_ SG_ 2566850046 Temp "-> %IW220";
+CM_ SG_ 2566850046 Press "-> %IW222";
+CM_ BO_ 2566848896 "PGN 65281 (0xFF01) sent by the PLC (address 128), priority 6, every 100 ms";
+CM_ SG_ 2566848896 Setpoint "<- %QW210";
+CM_ SG_ 2566848896 Run "<- %QX202.0";
+CM_ BO_ 2566849664 "PGN 65284 (0xFF04) sent by the PLC (address 128), priority 6, every 100 ms";
+CM_ SG_ 2566849664 Page "<- %QB219";
+CM_ SG_ 2566849664 Sub "<- %QB220";
+CM_ SG_ 2566849664 B "<- %QB221";
+CM_ SG_ 2566849664 C "<- %QB222";
+BA_DEF_ "ProtocolType" STRING ;
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ BO_ "VFrameFormat" ENUM "StandardCAN","ExtendedCAN","reserved","J1939PG";
+BA_DEF_DEF_ "ProtocolType" "";
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_DEF_DEF_ "VFrameFormat" "J1939PG";
+BA_ "ProtocolType" "J1939";
+BA_ "GenMsgCycleTime" BO_ 2566848512 100;
+BA_ "GenMsgCycleTime" BO_ 2566848896 100;
+BA_ "GenMsgCycleTime" BO_ 2566849664 100;
+BA_ "VFrameFormat" BO_ 2566848512 3;
+BA_ "VFrameFormat" BO_ 2566850046 3;
+BA_ "VFrameFormat" BO_ 2566848896 3;
+BA_ "VFrameFormat" BO_ 2566849664 3;
+SG_MUL_VAL_ 2566849664 Sub Page 3-3;
+SG_MUL_VAL_ 2566849664 B Sub 1-1;
+SG_MUL_VAL_ 2566849664 C Page 1-2, 5-9;

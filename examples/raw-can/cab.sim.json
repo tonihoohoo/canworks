@@ -23,6 +23,20 @@
           ]
         }
       ]
+    },
+    {
+      "name": "sensor",
+      "send": [
+        {
+          "id": 912, "dlc": 4, "period_ms": 100, "pages": "all",
+          "signals": [
+            { "name": "Page", "start_bit": 0, "length": 8, "multiplexer": true },
+            { "name": "Temp", "start_bit": 8, "length": 8, "offset": -40, "mux": { "values": [1] }, "source": { "sine": { "min": 20, "max": 60, "period_s": 20 } } },
+            { "name": "Press", "start_bit": 8, "length": 16, "scale": 0.1, "mux": { "values": [2] }, "source": { "sine": { "min": 100, "max": 300, "period_s": 8 } } },
+            { "name": "Counter", "start_bit": 24, "length": 8, "source": { "counter": { "start": 0, "step": 1, "min": 0, "max": 255 } } }
+          ]
+        }
+      ]
     }
   ],
   "networks": {

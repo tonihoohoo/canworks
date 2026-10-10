@@ -1,0 +1,38 @@
+VERSION ""
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	BA_DEF_DEF_
+	SIG_VALTYPE_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: PLC
+
+BO_ 768 Status: 8 Vector__XXX
+ SG_ Page M : 0|8@1+ (1,0) [0|255] "" PLC
+ SG_ Temp m1 : 8|16@1+ (0.1,0) [0|6553.5] "degC" PLC
+ SG_ Press m2 : 8|16@1+ (1,0) [0|65535] "kPa" PLC
+ SG_ Count : 24|8@1+ (1,0) [0|255] "" PLC
+
+BO_ 769 Display: 3 PLC
+ SG_ Page M : 0|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Sub m3M : 8|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ B m1 : 16|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ C m1 : 16|8@1+ (1,0) [0|255] "" Vector__XXX
+
+CM_ "raw messages of network cab";
+CM_ BO_ 768 "raw message, received";
+CM_ BO_ 769 "raw message, sent by the PLC";
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_ "GenMsgCycleTime" BO_ 768 100;
+BA_ "GenMsgCycleTime" BO_ 769 100;
+SG_MUL_VAL_ 769 Sub Page 3-3;
+SG_MUL_VAL_ 769 B Sub 1-1;
+SG_MUL_VAL_ 769 C Page 1-2, 5-9;

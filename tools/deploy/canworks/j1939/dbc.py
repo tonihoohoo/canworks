@@ -2,9 +2,11 @@
 imported messages") and export of a J1939 network ("J1939 DBC export").
 
 The import reads the 29-bit identifier, GenMsgCycleTime and VFrameFormat of
-each message and its signals' layout; everything it does not use (11-bit
-messages, multiplexed messages, float signals, signals over 64 bits, other
-attributes) is named in a problem list, not guessed.
+each message and its signals' layout and multiplexing (`multiplexer` and
+`mux` as in the config); everything it does not use (11-bit messages, the
+multiplexing of a message with several switches and no SG_MUL_VAL_, float
+signals, signals over 64 bits, other attributes) is named in a problem
+list, not guessed.
 
     imported = load("machine.dbc")
     entry = config_entry(imported.messages[0], "rx", layout.taken(cfg, []))
@@ -21,6 +23,7 @@ from .. import __version__, contract
 from .. import dbcexport
 from ..configurator import layout
 from ..iec import element_str
+from ..raw import dbc as raw_dbc
 
 # The node name of the PLC's own ECU in an exported DBC.
 PLC = "PLC"
@@ -43,7 +46,8 @@ class Imported:
     gives none), "sender" (or None), "comment", "signals": [{"name",
     "start_bit" (as in the DBC), "length", "byte_order" ("little"|"big"),
     "signed", "scale", "offset", "unit", "minimum", "maximum",
-    "comment"}]}. `problems`: what was left out, one message per line,
+    "comment", and "multiplexer" / "mux" when multiplexed}], and
+    "mux_problem" when the multiplexing could not be read}. `problems`: what was left out, one message per line,
     naming the message."""
 
     def __init__(self, messages, problems):
@@ -133,9 +137,9 @@ def load(path=None, text=None):
         if fmt not in (None, VFRAME_J1939):
             problems.append("%s has VFrameFormat %s, not %s; imported as J1939 by its 29-bit identifier"
                             % (what, fmt, VFRAME_J1939))
-        if m.is_multiplexed():
-            problems.append("%s is multiplexed; multiplexed messages are not supported" % what)
-            continue
+        fields, mux_problem = raw_dbc.mux_fields(m)
+        if mux_problem:
+            problems.append("%s has several switches but no SG_MUL_VAL_; its multiplexing is left out" % what)
         priority, pgn, destination, source = split_id(m.frame_id)
         signals = []
         for s in m.signals:
@@ -150,11 +154,14 @@ def load(path=None, text=None):
                             "signed": bool(s.is_signed), "scale": _num(s.scale), "offset": _num(s.offset),
                             "unit": s.unit or "", "minimum": s.minimum, "maximum": s.maximum,
                             "comment": s.comment or ""})
+            signals[-1].update(fields.get(s.name, {}))
         cycle = m.cycle_time if m.cycle_time is not None else _attribute(m, "GenMsgCycleTime")
         messages.append({"name": m.name, "frame_id": m.frame_id, "pgn": pgn, "priority": priority,
                          "source": source, "destination": destination, "length": m.length,
                          "cycle_ms": cycle or None, "sender": m.senders[0] if m.senders else None,
                          "comment": m.comment or "", "signals": signals})
+        if mux_problem:
+            messages[-1]["mux_problem"] = raw_dbc.MUX_PROBLEM
     return Imported(messages, problems)
 
 
@@ -217,6 +224,9 @@ def config_entry(message, direction, used, start=layout.DEFAULT_START):
             sig["offset"] = s["offset"]
         if s["unit"]:
             sig["unit"] = s["unit"]
+        for key in ("multiplexer", "mux"):
+            if key in s:
+                sig[key] = s[key]
         sig["iec_location"] = element_str(area, size, element)
         signals.append(sig)
     entry["signals"] = signals
@@ -281,12 +291,14 @@ def build(net, config_path, names=None):
             msg = dbcexport.Message(frame_id, name, length, sender, text, cycle, j1939=True)
             signal_names = dbcexport._Names()
             for s in m["signals"]:
-                _, loc_text = dbcexport._location_label(str(s["location"]), names)
+                _, loc_text = dbcexport._location_label(str(s["location"]), names) if s["location"] else (
+                    None, "set by the plugin (pages %s)" % m.get("pages"))
                 msg.signals.append(dbcexport.Signal(
                     signal_names.add(dbcexport.identifier(s["name"]) or "signal", str(s["start_bit"])),
                     s["start_bit"], s["length"], s["signed"], receivers=[PLC] if rx else [],
                     comment=("-> " if rx else "<- ") + loc_text, scale=s["scale"], offset=s["offset"],
                     unit=s["unit"], big_endian=s["big_endian"]))
+            dbcexport.mux_signals(m["signals"], msg.signals)
             messages.append(msg)
     comment = "J1939 network %s of %s, exported by canworks-deploy %s" % (
         net["name"], os.path.basename(config_path), __version__)

@@ -569,7 +569,17 @@ def _raw(F, f, dec):
     for kind, m in dec.raw.matches(f.can_id, f.ext, f.rtr):
         names.append("%s (%s)" % (m.get("name") or "0x%X" % m["id"], {"rx": "the PLC receives it",
                                                                       "tx": "the PLC sends it"}.get(kind, "DBC")))
+        # A multiplexed message: only the switches and the frame's page.
+        lay = dec.raw.layout(m)
+        active, unknown = None, False
+        if lay.multiplexed:
+            active, unknown, _, _ = lay.evaluate(F.data)
+            page = lay.page_label(F.data)
+            if page:
+                names[-1] += " page %s%s" % (page, " (no signal is on this page)" if unknown else "")
         for j, s in enumerate(m.get("signals") or []):
+            if active is not None and not active[j]:
+                continue
             big = s.get("byte_order") == "big"
             if not sig.fits(s["start_bit"], s["length"], big, len(F.data)):
                 continue

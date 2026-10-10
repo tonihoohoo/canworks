@@ -672,6 +672,176 @@ TEST(engine_big_endian_and_fill) {
   CHECK(e.input_values()[0] == 0x1234);
 }
 
+// --- Multiplexed messages (spec can-multiplexed-signals) ---
+
+const char* kMuxRx = R"({
+  "rx": [ { "name": "Status", "id": 768, "timeout_ms": 300, "signals": [
+    { "name": "Page", "start_bit": 0, "length": 8, "multiplexer": true, "iec_location": "%IB10" },
+    { "name": "Temp", "start_bit": 8, "length": 16, "mux": { "on": "Page", "values": [1] }, "iec_location": "%IW12" },
+    { "name": "Press", "start_bit": 8, "length": 16, "mux": { "on": "Page", "values": [2] }, "iec_location": "%IW14",
+      "valid_location": "%IX16.0" },
+    { "name": "Sub", "start_bit": 24, "length": 8, "multiplexer": true, "mux": { "on": "Page", "values": [3] },
+      "iec_location": "%IB18" },
+    { "name": "B", "start_bit": 32, "length": 8, "mux": { "on": "Sub", "values": [1] }, "iec_location": "%IB20" },
+    { "name": "Wide", "start_bit": 8, "length": 48, "mux": { "on": "Page", "values": [[5, 9]] }, "iec_location": "%IL24" }
+  ] } ] })";
+
+TEST(engine_multiplexed_receive) {
+  Parsed p = parse(kMuxRx);
+  CHECK(p.ok && p.errors.empty() && p.warnings.empty());
+  CHECK(p.cfg.rx[0].need == 1);  // the switch only; each page checks its own
+  canworks_raw::RawEngine e(p.cfg);
+  // Inputs: Page, Temp, Press, Press valid, Sub, B, Wide.
+  const auto& v = e.input_values();
+  CHECK(v.size() == 7);
+  e.on_frame(frame(0x300, {1, 250, 0}), 1000);
+  e.on_frame(frame(0x300, {2, 0x90, 0x01}), 2000);
+  CHECK(v[0] == 2 && v[1] == 250 && v[2] == 400 && v[3] == 1);
+  // Nested: Page 3, Sub 1 writes B; Page 4 leaves it.
+  e.on_frame(frame(0x300, {3, 0, 0, 1, 77}), 3000);
+  CHECK(v[0] == 3 && v[4] == 1 && v[5] == 77);
+  CHECK(e.rx_status()[0].unknown_pages == 0);
+  // Page 7 is in Wide's range but the frame is too short for it.
+  CHECK(!e.on_frame(frame(0x300, {7, 1, 2}), 3500));
+  CHECK(e.rx_status()[0].short_frames == 1);
+  // An unknown page writes only the switches and always-present signals.
+  e.on_frame(frame(0x300, {4, 9, 9, 9, 9}), 4000);
+  CHECK(v[0] == 4 && v[1] == 250 && v[2] == 400 && v[5] == 77);
+  CHECK(e.rx_status()[0].unknown_pages == 1);
+  // Page 1 keeps arriving: after 300 ms without page 2 Press's valid bit
+  // drops while the status stays (no status location here, so check timing).
+  for (uint64_t t = 100000; t <= 300000; t += 100000) e.on_frame(frame(0x300, {1, 1, 0}), t);
+  CHECK(!e.check_timeouts(301000));
+  CHECK(e.check_timeouts(302000));
+  CHECK(v[3] == 0 && v[2] == 400);
+  CHECK(!e.rx_status()[0].timed_out);
+  // Page 2 again: valid.
+  e.on_frame(frame(0x300, {2, 1, 0}), 450000);
+  CHECK(v[3] == 1 && v[2] == 1);
+}
+
+const char* kMuxTx = R"({
+  "tx": [
+    { "name": "Display", "id": 769, "period_ms": 100, "pages": "%s", "signals": [
+      { "name": "Line", "start_bit": 0, "length": 8, "multiplexer": true %s },
+      { "name": "A", "start_bit": 8, "length": 8, "mux": { "values": [1] }, "iec_location": "%%QB20" },
+      { "name": "B", "start_bit": 8, "length": 8, "mux": { "values": [2] }, "iec_location": "%%QB21" },
+      { "name": "C", "start_bit": 8, "length": 8, "mux": { "values": [3] }, "iec_location": "%%QB22" },
+      { "name": "Count", "start_bit": 16, "length": 8, "iec_location": "%%QB23" } ] } ] })";
+
+Parsed parse_tx(const char* pages, const char* switch_loc) {
+  char buf[2048];
+  std::snprintf(buf, sizeof buf, kMuxTx, pages, switch_loc);
+  return parse(buf);
+}
+
+TEST(engine_multiplexed_send_program) {
+  Parsed p = parse_tx("program", ", \"iec_location\": \"%QB24\"");
+  CHECK(p.ok && p.errors.empty());
+  canworks_raw::RawEngine e(p.cfg);
+  // Outputs: Line, A, B, C, Count.
+  uint64_t out[5] = {2, 11, 22, 33, 5};
+  std::vector<canworks_can_frame> frames;
+  std::vector<size_t> idx;
+  e.set_outputs(out, 0);
+  e.set_plc_running(true, 0);
+  e.due(0, frames, idx);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 2 && frames[0].data[1] == 22 && frames[0].data[2] == 5);
+  e.sent(0, 0, 0);
+  CHECK(!e.tx_status()[0].unknown_page);
+  // Line 9 selects no page: switch and Count only, flagged.
+  out[0] = 9;
+  e.set_outputs(out, 50000);
+  frames.clear();
+  idx.clear();
+  e.due(100000, frames, idx);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 9 && frames[0].data[1] == 0 && frames[0].data[2] == 5);
+  CHECK(e.tx_status()[0].unknown_page);
+}
+
+TEST(engine_multiplexed_send_all_and_rotate) {
+  {
+    Parsed p = parse_tx("all", "");
+    CHECK(p.ok && p.errors.empty());
+    canworks_raw::RawEngine e(p.cfg);
+    CHECK(e.pages(0).size() == 3);
+    // Outputs: A, B, C, Count (the plugin sets Line).
+    uint64_t out[4] = {11, 22, 33, 5};
+    std::vector<canworks_can_frame> frames;
+    std::vector<size_t> idx;
+    e.set_outputs(out, 0);
+    e.set_plc_running(true, 0);
+    e.due(0, frames, idx);
+    CHECK(frames.size() == 3);
+    for (size_t k = 0; k < frames.size(); ++k) {
+      CHECK(frames[k].data[0] == k + 1);
+      CHECK(frames[k].data[1] == 11 * (k + 1));
+      CHECK(frames[k].data[2] == 5);
+      e.sent(idx[k], 0, 0);
+    }
+    frames.clear();
+    idx.clear();
+    e.due(50000, frames, idx);
+    CHECK(frames.empty());
+    e.due(100000, frames, idx);
+    CHECK(frames.size() == 3);
+  }
+  {
+    Parsed p = parse_tx("rotate", "");
+    canworks_raw::RawEngine e(p.cfg);
+    uint64_t out[4] = {11, 22, 33, 5};
+    std::vector<canworks_can_frame> frames;
+    std::vector<size_t> idx;
+    e.set_outputs(out, 0);
+    e.set_plc_running(true, 0);
+    std::vector<int> lines;
+    for (uint64_t t = 0; t <= 300000; t += 100000) {
+      frames.clear();
+      idx.clear();
+      e.due(t, frames, idx);
+      CHECK(frames.size() == 1);
+      if (frames.empty()) continue;
+      lines.push_back(frames[0].data[0]);
+      e.sent(idx[0], t, 0);
+    }
+    CHECK((lines == std::vector<int>{1, 2, 3, 1}));
+  }
+}
+
+TEST(engine_multiplexed_send_on_change) {
+  const char* json = R"({ "tx": [ { "name": "Display", "id": 769, "on_change": true, "pages": "all", "signals": [
+      { "name": "Line", "start_bit": 0, "length": 8, "multiplexer": true },
+      { "name": "A", "start_bit": 8, "length": 8, "mux": { "values": [1] }, "iec_location": "%QB20" },
+      { "name": "B", "start_bit": 8, "length": 8, "mux": { "values": [2] }, "iec_location": "%QB21" } ] } ] })";
+  Parsed p = parse(json);
+  CHECK(p.ok && p.errors.empty());
+  canworks_raw::RawEngine e(p.cfg);
+  uint64_t out[2] = {1, 2};
+  std::vector<canworks_can_frame> frames;
+  std::vector<size_t> idx;
+  auto tick = [&](uint64_t now, int error) {
+    frames.clear();
+    idx.clear();
+    e.due(now, frames, idx);
+    for (size_t k = 0; k < idx.size(); ++k) e.sent(idx[k], now, error);
+  };
+  e.set_outputs(out, 0);
+  e.set_plc_running(true, 0);
+  tick(0, 0);
+  CHECK(frames.size() == 2);  // first values: every page
+  tick(1000, 0);
+  CHECK(frames.empty());
+  // Only B changes: only page 2 goes out; a failed send stays pending.
+  out[1] = 7;
+  e.set_outputs(out, 2000);
+  tick(2000, ENOBUFS);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 2 && frames[0].data[1] == 7);
+  tick(3000, 0);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 2);
+  tick(4000, 0);
+  CHECK(frames.empty());
+}
+
 // A simulated plain CAN network end to end: the I/O thread on a loopback
 // bridge, a simulated device sending periodically and answering a request,
 // config messages in and out, and a program receiver.
@@ -737,6 +907,59 @@ TEST(raw_io_on_a_simulated_plain_network) {
   set_sim_devices(1, nullptr);
   io.stop();
   CHECK(!port.running());
+  set_port(1, nullptr);
+}
+
+// Spec can-device-simulator "Multiplexed device": a simulated device sends
+// both pages of Status each period and the PLC gets both signals and their
+// valid bits.
+TEST(raw_io_multiplexed_device_on_a_simulated_plain_network) {
+  Parsed p = parse(R"({"rx": [{"name": "Status", "id": 912, "timeout_ms": 300, "status_location": "%IX0.0",
+                               "signals": [
+    {"name": "Page", "start_bit": 0, "length": 8, "multiplexer": true, "iec_location": "%IB0"},
+    {"name": "Temp", "start_bit": 8, "length": 8, "mux": {"values": [1]}, "iec_location": "%IB1",
+     "valid_location": "%IX0.1"},
+    {"name": "Press", "start_bit": 8, "length": 16, "mux": {"values": [2]}, "iec_location": "%IW0",
+     "valid_location": "%IX0.2"}]}]})");
+  CHECK(p.ok && p.errors.empty());
+  RawEngine engine(p.cfg);
+  RawSimDevices devices;
+  std::vector<std::string> errors;
+  CHECK(devices.load_text(R"({"raw_devices": [{"name": "sensor",
+      "send": [{"id": 912, "dlc": 4, "period_ms": 20, "signals": [
+        {"name": "Page", "start_bit": 0, "length": 8, "multiplexer": true},
+        {"name": "Temp", "start_bit": 8, "length": 8, "mux": {"values": [1]}, "source": {"constant": 21}},
+        {"name": "Press", "start_bit": 8, "length": 16, "mux": {"values": [2]}, "source": {"constant": 1000}}]}]}]})",
+                          "simulation.json", ".", "plain", false, false, errors));
+  CHECK_MSG(errors.empty() && devices.size() == 1, errors.empty() ? "" : errors[0]);
+  PlcPort port(1);
+  port.set_rules(PortRules{});
+  set_port(1, &port);
+  auto bridge = std::make_shared<SimBridge>(true);
+  // Inputs in input_locations() order: status, Page, Temp, Temp valid, Press, Press valid.
+  std::mutex m;
+  std::vector<uint64_t> in;
+  RawIoHooks hooks;
+  hooks.publish_inputs = [&](const std::vector<uint64_t>& v) {
+    std::lock_guard<std::mutex> lock(m);
+    in = v;
+  };
+  hooks.latest_outputs = [&](std::vector<uint64_t>&) { return false; };
+  RawIo io(make_bridge_link(bridge), 500000, false, &engine, &port, hooks, &devices);
+  io.start();
+  auto both = [&] {
+    std::lock_guard<std::mutex> lock(m);
+    return in.size() == 6 && in[0] == 1 && in[2] == 21 && in[3] == 1 && in[4] == 1000 && in[5] == 1;
+  };
+  bool ok = false;
+  for (int i = 0; i < 200 && !(ok = both()); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  {
+    std::lock_guard<std::mutex> lock(m);
+    std::string got;
+    for (uint64_t v : in) got += std::to_string(v) + " ";
+    CHECK_MSG(ok, got);
+  }
+  io.stop();
   set_port(1, nullptr);
 }
 

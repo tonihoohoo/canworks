@@ -4,21 +4,21 @@ Each group lands its own tests. Shared fixture files make the plugin and the PC 
 
 ## 1. Shared signal model
 
-- [ ] 1.1 Fixture files under `test/fixtures/` for multiplexing: simple, extended (nested switch, ranges), every check error and warning of `can-multiplexed-signals` with its expected message, per-page overlap cases, page lists for `all`/`rotate`.
-- [ ] 1.2 `plugin/src/can/signals.*`: parse `multiplexer`/`mux` into a flat condition table built at start (switch index + sorted value ranges per signal); `active()` with no allocation; page enumeration with the 64-page cap; per-page overlap and needed bytes. Unit tests against 1.1.
-- [ ] 1.3 `canworks/raw/signals.py`: the same rule, page list, overlap and checks; tests against 1.1.
+- [x] 1.1 Fixture files under `test/fixtures/` for multiplexing: simple, extended (nested switch, ranges), every check error and warning of `can-multiplexed-signals` with its expected message, per-page overlap cases, page lists for `all`/`rotate`.
+- [x] 1.2 `plugin/src/can/mux.*`: parse `multiplexer`/`mux` into a flat condition table built at start (switch index + sorted value ranges per signal); `active()` with no allocation; page enumeration with the 64-page cap; per-page overlap and needed bytes. Unit tests against 1.1.
+- [ ] 1.3 `canworks/raw/mux.py`: the same rule, page list, overlap and checks; tests against 1.1.
 
 ## 2. Raw CAN in the plugin
 
-- [ ] 2.1 `raw/config.*`: parse `multiplexer`, `mux`, `valid_location` (rx only), `pages` (tx); switch-location rules per mode; per-page overlap warning and short-frame need.
-- [ ] 2.2 `raw/engine.cpp` receive: active signals only, hold others, unknown-page counter, per-signal valid bits with `timeout_ms`; sim-bus tests for the scenarios of "Receiving multiplexed messages", "Unknown pages on receive" and "Page validity bits".
-- [ ] 2.3 `raw/engine.cpp` send: `program`/`all`/`rotate`, page-wise on change, trigger by mode, `unknown_page` status; sim-bus tests for the send scenarios.
+- [x] 2.1 `raw/config.*`: parse `multiplexer`, `mux`, `valid_location` (rx only), `pages` (tx); switch-location rules per mode; per-page overlap warning and short-frame need.
+- [x] 2.2 `raw/engine.cpp` receive: active signals only, hold others, unknown-page counter, per-signal valid bits with `timeout_ms`; sim-bus tests for the scenarios of "Receiving multiplexed messages", "Unknown pages on receive" and "Page validity bits".
+- [x] 2.3 `raw/engine.cpp` send: `program`/`all`/`rotate`, page-wise on change, trigger by mode, `unknown_page` status; sim-bus tests for the send scenarios.
 - [ ] 2.4 Diagnostics status: `unknown_pages` per rx entry, `unknown_page` per tx entry; online view rows.
 
 ## 3. J1939 in the plugin
 
-- [ ] 3.1 `j1939_config.*`: same fields (`valid_location` exists already), overlap error per page, `length` per page, `pages` on `tx`.
-- [ ] 3.2 J1939 receive (multi-packet included) and send by page, request answers by mode; sim-bus tests incl. a BAM multiplexed PGN.
+- [x] 3.1 `j1939_config.*`: same fields (`valid_location` exists already), overlap error per page, `length` per page, `pages` on `tx`.
+- [x] 3.2 J1939 receive (multi-packet included) and send by page, request answers by mode; sim-bus tests incl. a BAM multiplexed PGN.
 
 ## 4. Schema and contract
 
@@ -44,9 +44,9 @@ Each group lands its own tests. Shared fixture files make the plugin and the PC 
 
 ## 8. Docs, examples, release
 
-- [ ] 8.1 `docs/raw-can.md` and `docs/j1939.md`: multiplexing section, `pages` modes, valid bits, a CAN_RECEIVE + CAN_GET_BITS example for hand decoding; remove the "not supported" limits.
-- [ ] 8.2 README: limits lines for raw CAN and J1939 updated, feature bullet.
-- [ ] 8.3 `examples/raw-can/`: a simulated multiplexed status message (made-up identifiers) received by the PLC.
+- [x] 8.1 `docs/raw-can.md` and `docs/j1939.md`: multiplexing section, `pages` modes, valid bits, a CAN_RECEIVE + CAN_GET_BITS example for hand decoding; remove the "not supported" limits.
+- [x] 8.2 README: limits lines for raw CAN and J1939 updated, feature bullet.
+- [x] 8.3 `examples/raw-can/`: a simulated multiplexed status message (made-up identifiers) received by the PLC.
 - [ ] 8.4 PC tools minor version bump.
 - [ ] 8.5 CI: tests run in existing jobs; compare wall time and summed job time against the baseline in the PR.
 
