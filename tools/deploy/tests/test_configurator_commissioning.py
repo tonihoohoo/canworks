@@ -9,8 +9,10 @@ import shutil
 import struct
 import time
 import unittest
+from unittest import mock
 
 from canworks import dcfexport
+from canworks.localbus import core as core_mod
 
 from .test_commissioning import FIXED_IO, IDENTITY, RTD, fixed_io_od, rtd_od
 from .test_configurator_localbus import AdapterTarget as _Target
@@ -181,6 +183,11 @@ class LoneDetect(AdapterTarget):
                             dict({"adapter": "virtual:" + self.ch, "adapter_bitrate": 250, "lone_device": True}, **body))
 
     def test_two_devices_refused(self):
+        # Listen long enough to hear both heartbeats: the macOS runners wake a
+        # 10 ms timer after up to 170 ms, so 50 ms may hear only one.
+        p = mock.patch.object(core_mod, "LISTEN_S", 0.4)
+        p.start()
+        self.addCleanup(p.stop)
         devices = [self.device(5, heartbeat_s=0.01), self.device(7, heartbeat_s=0.01)]
         self.ok("POST", "/api/online/settings", {"allow_changes": True})
         status, data, _ = self.detect()
