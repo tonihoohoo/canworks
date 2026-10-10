@@ -86,6 +86,12 @@ class Network : public lely::canopen::BasicMaster {
 
   bool IsOperational(unsigned id) const;
 
+  // The PLC (or the plugin) stops (master.on_plc_stop): no output PDO from
+  // here on, then NMT ENTER PRE-OPERATIONAL or STOP to every node that is up
+  // ("keep": nothing), and the session's work ends as with Stop(). The NMT
+  // frames go out when the loop runs next. Idempotent.
+  void StopNodes();
+
   // PLC-cycle SYNC: sends one SYNC for the requests the scan made since the
   // last call (ProcessImage::request_sync), with the newest outputs. Call on
   // the loop thread when ProcessImage::sync_fd() is readable (SyncWake).
@@ -293,6 +299,9 @@ class Network : public lely::canopen::BasicMaster {
   struct ProgJob {
     PlcRequests::Job job;
     bool resolved = false;  // the write payload is in its final form
+    // The latest the wait for a booting node may push job.deadline to:
+    // the original deadline plus kAbsentAfter.
+    clock::time_point limit;
   };
 
   template <class F>
@@ -349,6 +358,19 @@ class Network : public lely::canopen::BasicMaster {
   void ArmTick();
   void OnTick();
   void WriteOutputs();
+  // The newest output snapshot; whether a new one came since the out timer
+  // last looked is kept in outputs_fresh_ (TripleBuffer::latest() reports it
+  // only once).
+  const uint64_t* LatestOutputs();
+  // Node `id` came up or the outputs gate opened (canopen-pdo-io "Outputs
+  // sent again when a node comes up"): its outputs from the newest snapshot
+  // (and its routed gateway values) into the master's TPDO-mapped objects,
+  // so a synchronous PDO carries them; then its event-driven master TPDOs
+  // once. The TPDOs must be enabled.
+  void ResendOutputs(unsigned id, const NodeState& n);
+  // master.scan_watchdog_ms: closes the outputs gate while the PLC scan has
+  // not finished a cycle for that long, opens it at the next one.
+  void CheckScanWatchdog(clock::time_point now);
   // A received or sent PDO object's value as raw bits (zero-extended).
   uint64_t RpdoRaw(uint8_t id, uint16_t idx, uint8_t subidx, CoType type, std::error_code& ec);
   void TpdoRaw(uint8_t id, uint16_t idx, uint8_t subidx, CoType type, uint64_t v, std::error_code& ec);
@@ -431,7 +453,7 @@ class Network : public lely::canopen::BasicMaster {
   bool has_requests_ = false;  // any SDO variable or NMT command byte
   std::vector<VarState> vars_;
   std::map<unsigned, uint32_t> tpdo_cob_;  // master TPDO number -> COB-ID
-  std::set<unsigned> tpdo_event_;          // event-driven master TPDOs
+  std::set<unsigned> tpdo_event_;          // master TPDOs sent on an event (types 0, 254, 255)
   std::vector<uint64_t> last_out_;
   // A master RPDO fed by a node's cyclic synchronous TPDO (type 1-240).
   struct SyncRpdo {
@@ -489,7 +511,14 @@ class Network : public lely::canopen::BasicMaster {
   void SendTime();
   clock::time_point next_time_;
   bool stopped_ = false;
+  bool nodes_stopped_ = false;  // StopNodes() ran
   bool outputs_on_ = true;  // the outputs gate as last applied (SYNC, master TPDOs)
+  bool outputs_fresh_ = false;  // see LatestOutputs()
+  // Scan watchdog: the scan count last seen, when it last moved, and whether
+  // this network holds the gate closed for it.
+  uint64_t scan_seen_ = 0;
+  clock::time_point scan_moved_{};
+  bool scan_hung_ = false;
   std::vector<HostNmt> host_nmt_;
   bool master_op_ = false;  // the master itself is OPERATIONAL (PDOs run)
   uint8_t master_state_ = 0;

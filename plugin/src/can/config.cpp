@@ -1152,7 +1152,7 @@ class Parser {
                    "sync_counter_overflow", "time_cob_id", "emcy_inhibit_time_us", "heartbeat_consumer",
                    "heartbeat_multiplier", "error_behavior", "nmt_inhibit_time_us", "start", "start_nodes",
                    "start_all_nodes", "reset_all_nodes", "stop_all_nodes", "boot_time_ms", "sdo_timeout_ms",
-                   "time_period_ms", "diagnostics"});
+                   "time_period_ms", "on_plc_stop", "scan_watchdog_ms", "diagnostics"});
       if (get_uint(master, "node_id", "master", true, 0xFFFF, v)) {
         if (v < 1 || v > 127) error("master", "node ID " + std::to_string(v) + " is out of range (1-127)");
         cfg.master.node_id = (unsigned)v;
@@ -1378,6 +1378,23 @@ class Parser {
         error(w, "field 'time_period_ms' must be 100-3600000: " + std::to_string(v));
       else
         m.time_period_ms = (unsigned)v;
+    }
+    std::string stop_mode;
+    if (get_string(master, "on_plc_stop", w, false, stop_mode)) {
+      if (stop_mode == "preop")
+        m.on_plc_stop = OnPlcStop::Preop;
+      else if (stop_mode == "stop")
+        m.on_plc_stop = OnPlcStop::Stop;
+      else if (stop_mode == "keep")
+        m.on_plc_stop = OnPlcStop::Keep;
+      else
+        error(w, "field 'on_plc_stop' must be \"preop\", \"stop\" or \"keep\": " + stop_mode);
+    }
+    if (get_uint(master, "scan_watchdog_ms", w, false, 0xFFFFFFFF, v)) {
+      if (v != 0 && (v < 10 || v > 60000))
+        error(w, "field 'scan_watchdog_ms' must be 0 or 10-60000: " + std::to_string(v));
+      else
+        m.scan_watchdog_ms = (unsigned)v;
     }
     if (version_ == 1)
       parse_diagnostics(master, m, "master");
