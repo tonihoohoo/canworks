@@ -317,6 +317,7 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
     plc_cycle = cfg["master"].get("sync_source") == "plc_cycle"
     sync_cycles = _u(cfg["master"].get("sync_cycles"), 1) or 1
     msgs = []
+    linked = links_mod.linked_tpdos(cfg)
     for key in ("tx_pdos", "rx_pdos"):
         tx = key == "tx_pdos"
         kind = "TPDO" if tx else "RPDO"
@@ -359,6 +360,8 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
                 signed, float_kind = _signal_type(type_name, length)
                 if entry and loc_text:
                     what = "-> " + loc_text
+                elif entry and tx and (n_id(n), num) in linked:
+                    what = "(PDO link, not used by the PLC)"
                 elif entry:  # a version 2 entry a gateway route uses: no PLC location
                     what = "(gateway route, no PLC location)"
                 elif tx:

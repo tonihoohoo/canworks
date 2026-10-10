@@ -38,6 +38,7 @@ def eds(name, heartbeat_entries):
         optional.append(index)
         objects.append(text)
 
+    add(0x1005, var(0x1005, "COB-ID SYNC message", 0x0007, "rw", "0x00000080"))
     add(0x1014, var(0x1014, "COB-ID EMCY", 0x0007, "rw", "$NODEID+0x80"))
     add(0x1016, record(0x1016, "Consumer heartbeat time",
                        [(0, "Highest sub-index supported", 0x0005, "const", heartbeat_entries)] +

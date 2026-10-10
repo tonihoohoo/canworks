@@ -217,10 +217,12 @@ function layoutGrid(layout, other, label, path) {
     layout.map((p, k) => {
       const o = other[k];
       const bad = !o || o.bits !== p.bits;
-      return el("span", { class: "link-pos" + (bad ? " bad" : "") + (num(p.index) < 8 ? " dummy" : ""),
-        style: `flex:${Math.max(p.bits, 4)}`, dataset: path ? { path: `${path}[${k}]`, linkPos: String(k) } : { linkPos: String(k) },
+      const cell = el("span", { class: "link-pos" + (bad ? " bad" : "") + (num(p.index) < 8 ? " dummy" : ""),
+        dataset: path ? { path: `${path}[${k}]`, linkPos: String(k) } : { linkPos: String(k) },
         title: `position ${k + 1}: ${p.index}:${p.subindex} (${p.bits} bit)${bad ? (o ? `, the other side has ${o.bits} bit` : ", nothing on the other side") : ""}` },
       `${num(p.index) < 8 ? "dummy" : p.index + ":" + p.subindex} · ${p.bits}`);
+      cell.style.flex = String(Math.max(p.bits, 4));  // through the CSSOM: the page's CSP refuses style attributes
+      return cell;
     }));
 }
 

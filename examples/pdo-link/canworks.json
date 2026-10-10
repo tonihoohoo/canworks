@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "adapter": {
+    "type": "socketcan",
+    "interface": "sim",
+    "bitrate": 250000,
+    "simulate": true
+  },
+  "master": {
+    "node_id": 1,
+    "sync_period_us": 20000,
+    "on_plc_stop": "preop"
+  },
+  "nodes": [
+    {
+      "node_id": 10,
+      "name": "stick",
+      "eds": "link-io.eds",
+      "heartbeat_ms": 100,
+      "status_location": "%IX10.0",
+      "tx_pdos": [
+        {
+          "transmission": 254,
+          "event_timer_ms": 50,
+          "entries": [
+            {
+              "index": "0x6401",
+              "subindex": 1,
+              "type": "INTEGER16",
+              "iec_location": "%IW100"
+            },
+            {
+              "index": "0x6401",
+              "subindex": 2,
+              "type": "INTEGER16"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "node_id": 20,
+      "name": "valves",
+      "eds": "link-io.eds",
+      "heartbeat_ms": 100,
+      "status_location": "%IX10.1",
+      "heartbeat_watch": [
+        {
+          "node": 10
+        }
+      ],
+      "error_behavior": {
+        "1": 0
+      },
+      "tx_pdos": [
+        {
+          "transmission": 254,
+          "event_timer_ms": 50,
+          "entries": [
+            {
+              "index": "0x6401",
+              "subindex": 1,
+              "type": "INTEGER16",
+              "iec_location": "%IW102"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "node_id": 30,
+      "name": "lamp",
+      "eds": "link-io.eds",
+      "heartbeat_ms": 100,
+      "status_location": "%IX10.2",
+      "tx_pdos": [
+        {
+          "transmission": 254,
+          "event_timer_ms": 50,
+          "entries": [
+            {
+              "index": "0x6401",
+              "subindex": 1,
+              "type": "INTEGER16",
+              "iec_location": "%IW104"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "name": "stick_to_valves",
+      "from": {
+        "node": 10,
+        "tpdo": 1
+      },
+      "on_plc_stop": "keep",
+      "to": [
+        {
+          "node": 20,
+          "rpdo": 2,
+          "transmission": 255,
+          "event_timer_ms": 300,
+          "entries": [
+            {
+              "index": "0x6411",
+              "subindex": 1,
+              "type": "INTEGER16"
+            },
+            {
+              "index": "0x0003",
+              "subindex": 0,
+              "type": "INTEGER16"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
