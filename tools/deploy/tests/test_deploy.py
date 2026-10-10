@@ -353,7 +353,7 @@ class Upload(unittest.TestCase):
         self.assertIn("canworks plugin enabled", out)
         last = out.strip().splitlines()[-1]
         self.assertIn("\"Build and upload\" sends no conf/canworks.json", last)
-        self.assertEqual(stub.requests[:2], [("POST", "/api/login"), ("POST", "/api/upload-file")])
+        self.assertEqual(stub.requests[:3], [("POST", "/api/login"), ("GET", "/api/status"), ("POST", "/api/upload-file")])
         self.assertIn(("GET", "/api/start-plc"), stub.requests)
         self.assertIn("the PLC is running", out)
         self.assertEqual(stub.plc, "RUNNING")
@@ -364,6 +364,46 @@ class Upload(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertNotIn(("GET", "/api/start-plc"), stub.requests)
         self.assertIn("the PLC is stopped (--no-start)", out)
+
+    def test_plc_stopped_before_stays_stopped(self):
+        stub = StubRuntime(self.cert, self.key, plc="STOPPED")
+        code, out, err = self.run_against(stub, "--ca", self.cert)
+        self.assertEqual(code, 0, err)
+        self.assertLess(stub.requests.index(("GET", "/api/status")), stub.requests.index(("POST", "/api/upload-file")))
+        self.assertNotIn(("GET", "/api/start-plc"), stub.requests)
+        self.assertIn("the PLC was stopped before the upload and stays stopped (start it with --start)", out)
+        self.assertEqual(stub.plc, "STOPPED")
+
+    def test_start_overrides_a_stopped_plc(self):
+        stub = StubRuntime(self.cert, self.key, plc="STOPPED")
+        code, out, err = self.run_against(stub, "--ca", self.cert, "--start")
+        self.assertEqual(code, 0, err)
+        self.assertIn("the PLC is running", out)
+        self.assertEqual(stub.plc, "RUNNING")
+
+    def test_no_program_before_is_started(self):
+        stub = StubRuntime(self.cert, self.key, plc="EMPTY")
+        code, out, err = self.run_against(stub, "--ca", self.cert)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(stub.plc, "RUNNING")
+
+    def test_unknown_plugin_state_not_started(self):
+        stub = StubRuntime(self.cert, self.key, final_lines=False)
+        code, out, err = self.run_against(stub, "--ca", self.cert)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn(("GET", "/api/start-plc"), stub.requests)
+        self.assertIn("the build log does not say whether the canworks plugin is enabled", out)
+        self.assertIn("the PLC stays stopped (start it with --start)", out)
+        stub = StubRuntime(self.cert, self.key, final_lines=False)
+        code, out, err = self.run_against(stub, "--ca", self.cert, "--start")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(stub.plc, "RUNNING")
+
+    def test_start_and_no_start_exclusive(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            cli.parser().parse_args(["--bundle", self.src, "--config", self.config, "--start", "--no-start"])
+        self.assertIn("not allowed with argument", err.getvalue())
 
     def test_start_refused_by_the_run_switch(self):
         stub = StubRuntime(self.cert, self.key, start_answer="START:ERROR_SWITCH_STOP")

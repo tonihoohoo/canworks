@@ -173,8 +173,13 @@ def parser():
     p.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     p.add_argument("--output", metavar="ZIP", help="also write the program zip to this file")
     p.add_argument("--check-only", action="store_true", help="check and assemble, but do not upload")
-    p.add_argument("--no-start", action="store_true",
-                   help="leave the PLC stopped after the upload (by default the tool starts it)")
+    start = p.add_mutually_exclusive_group()
+    start.add_argument("--start", action="store_true",
+                       help="start the PLC after the upload even when it was stopped before, or the build log does "
+                            "not say whether the canworks plugin is enabled")
+    start.add_argument("--no-start", action="store_true",
+                       help="leave the PLC stopped after the upload (by default the tool starts it when it was "
+                            "running before or had no program)")
     p.add_argument("--timeout", type=float, default=900.0, metavar="S",
                    help="how long to wait for the runtime's build (default: %(default)s s)")
     p.add_argument("--version", action="version", version="%(prog)s " + __version__)
@@ -187,6 +192,9 @@ def build_project(project, target, out):
     project = os.path.abspath(project)
     cli = editorproject.cli_program()
     cmd = (editorproject.cli_command(cli) or [cli]) + ["compile", project, "--target", target, "--no-json"]
+    unsafe = editorproject.unsafe_for_cmd(cmd)
+    if unsafe:
+        raise Failure(unsafe)
     out("$ " + " ".join('"%s"' % c if " " in c else c for c in cmd))
     try:
         rc = subprocess.call(cmd)
@@ -561,11 +569,18 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         err("warning: --insecure: the runtime's certificate is not checked")
     sent = False
     try:
-        client._connect().close()  # certificate first, before any credentials
+        try:
+            client._connect().close()  # certificate first, before any credentials
+        except runtime.CertificateError as e:
+            if local and fingerprint == local.get("fingerprint"):
+                raise Failure(localruntime.certificate_changed(local["port"], fingerprint,
+                                                               client._peek_fingerprint() or "unknown"))
+            raise
         password = local["password"] if local and user == local.get("user") else os.environ.get("OPENPLC_PASSWORD")
         if password is None:
             password = (password_source or getpass.getpass)("Password for %s on %s: " % (user, args.runtime))
         client.login(user, password)
+        before = client.plc_status()  # an upload stops the PLC; a stopped one stays stopped
         out("uploading to %s:%d" % (client.host, client.port))
         client.upload(data)
         sent = True
@@ -585,6 +600,12 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     built = "program built%s" % (" and the canworks plugin enabled" if state else "")
     if args.no_start:
         out("ok: %s; the PLC is stopped (--no-start)" % built)
+    elif state is None and not args.start:
+        out("ok: program built, but the build log does not say whether the canworks plugin is enabled; the PLC "
+            "stays stopped (start it with --start)")
+    elif before in ("STOPPED", "ERROR") and not args.start:
+        out("ok: %s; the PLC was %s before the upload and stays stopped (start it with --start)"
+            % (built, "stopped" if before == "STOPPED" else "in ERROR"))
     else:
         try:
             client.start_plc()

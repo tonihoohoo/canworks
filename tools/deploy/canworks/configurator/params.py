@@ -37,20 +37,30 @@ class Client:
     configurator's kept-open connection (so the page's status polling and a
     job share it, one request at a time)."""
 
-    def __init__(self, conn, host, port, token, network=None):
+    def __init__(self, conn, host, port, token, network=None, force=False):
         self.conn, self.key, self.network = conn, (host, port, token), network
+        # Sent with SDO writes and NMT commands but START, after the page asked
+        # about an OPERATIONAL node: the plugin refuses them without it.
+        self.force = bool(force)
 
     def _call(self, fn):
         return self.conn.call(*self.key, fn, self.network)
+
+    def _forced(self):
+        return {"force": True} if self.force else {}
 
     def sdo_read(self, node, index, sub, timeout_ms=None):
         return self._call(lambda c: c.sdo_read(node, index, sub, timeout_ms))
 
     def sdo_write(self, node, index, sub, data, timeout_ms=None):
-        return self._call(lambda c: c.sdo_write(node, index, sub, data, timeout_ms))
+        timeout_ms = 1000 if timeout_ms is None else timeout_ms
+        return self._call(lambda c: c.request("sdo_write", timeout=c.timeout + timeout_ms / 1000.0, node=node,
+                                              index=index, subindex=sub, data=diag.hex_bytes(data),
+                                              timeout_ms=timeout_ms, **self._forced()))
 
     def nmt(self, node, command):
-        return self._call(lambda c: c.nmt(node, command))
+        return self._call(lambda c: c.request("nmt", node=node, command=command,
+                                              **(self._forced() if command != "start" else {})))
 
     def status(self):
         return self._call(lambda c: c.status())
