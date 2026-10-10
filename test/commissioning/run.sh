@@ -146,7 +146,9 @@ power_cycle
 "${LOCAL[@]}" configure 5 --dcf "$DCF" --verify-only | tee verify3.txt || fail "verify after a power cycle with store"
 [ "$(count 0x1A00 0)" = 2 ] || fail "the stored mapping did not survive the power cycle"
 
-"${CHANGE[@]}" restore-defaults 5 --config canopen_config.json --reset --yes | tee defaults.txt || fail "restore-defaults"
+# The stored heartbeat makes node 5 heard OPERATIONAL after the power cycle,
+# so the load and the reset need --force.
+"${CHANGE[@]}" --force restore-defaults 5 --config canopen_config.json --reset --yes | tee defaults.txt || fail "restore-defaults"
 grep -q "defaults restored" defaults.txt || fail "restore-defaults output"
 ready
 [ "$(count 0x1A00 0)" = 4 ] || fail "the defaults did not come back"
