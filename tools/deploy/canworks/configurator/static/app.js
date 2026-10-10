@@ -4387,7 +4387,13 @@ function errorFieldPanel(id, allow) {
       read();
     }
   };
-  read();
+  // Read at once only from a node the master has booted and that answers SDO
+  // (PRE-OPERATIONAL or OPERATIONAL), or with no status to tell; otherwise
+  // Refresh reads it.
+  const st = S.onlineLast && S.onlineLast.status;
+  const sn = st ? (st.nodes || []).find((x) => x.node_id === id) : null;
+  if (!st || (sn && sn.booted !== false && (sn.state === 5 || sn.state === 127))) read();
+  else box.replaceChildren(el("p", { class: "muted" }, `Node ${id} has not booted; Refresh reads its error history.`));
   return el("fieldset", null, el("legend", null, "Error history (0x1003)"), box,
     el("div", { class: "toolbar" },
       el("button", { type: "button", dataset: { online: "error-field-refresh" }, onclick: () => read() }, "Refresh"),
