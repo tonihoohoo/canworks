@@ -3264,22 +3264,25 @@ function hostField(withList) {
 // remote link when this PC is paired).
 function runtimeList(input) {
   const list = el("select", { "aria-label": "Runtimes", dataset: { online: "runtime-list" } },
-    el("option", { value: "" }, "Looking for runtimes…"));
+    el("option", { value: "" }, "Looking…"));
   list.addEventListener("change", () => {
     if (!list.value) return;
     input.value = list.value;
     saveHost(list.value);
   });
   const fill = async () => {
-    list.replaceChildren(el("option", { value: "" }, "Looking for runtimes…"));
+    list.replaceChildren(el("option", { value: "" }, "Looking…"));
     let r;
     try { r = await api("GET", "/api/online/runtimes"); } catch (e) {
-      list.replaceChildren(el("option", { value: "" }, "Could not list runtimes"));
+      list.replaceChildren(el("option", { value: "" }, "Not available"));
       return;
     }
     const found = (r.discovered || []).filter((d) => d.address);
     const mem = r.remembered || [];
-    const none = r.discovery ? "No runtime found on this network" : "No runtime remembered (discovery needs the zeroconf package)";
+    // Short texts: the list sits next to the host field and must not clip.
+    const none = r.discovery ? "None found" : "None remembered";
+    list.title = r.discovery ? "Runtimes on this network and remembered ones"
+      : "Remembered runtimes (finding runtimes on the network needs the zeroconf package)";
     list.replaceChildren(el("option", { value: "" }, found.length || mem.length ? "Pick a runtime…" : none),
       found.length ? el("optgroup", { label: "On this network" }, found.map((d) =>
         el("option", { value: d.address, dataset: { runtime: d.name, kind: "discovered" } }, `${d.name}  ${d.address}`))) : null,
