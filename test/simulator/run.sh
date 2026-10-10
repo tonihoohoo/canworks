@@ -253,9 +253,10 @@ cat > "$WORK/raw-only.json" <<'JSON'
 { "schema_version": 2,
   "raw_devices": [ { "name": "sensor", "send": [ { "id": 912, "dlc": 1, "period_ms": 50, "data": [7] } ] } ] }
 JSON
-CANWORKS_SIM_TREAT_AS_REAL=vcan1 "$SIM" --iface vcan1 --real-bus --sim "$WORK/raw-only.json" --port 7542 \
+CANWORKS_SIM_TREAT_AS_REAL=vcan1 "$SIM" --iface vcan1 --real-bus --sim "$WORK/raw-only.json" --port 7549 \
     > "$WORK/raw-only.log" 2>&1 &
-PIDS+=($!)
+RAW_PID=$!
+PIDS+=($RAW_PID)
 python3 - > "$WORK/raw-only.out" 2>&1 <<'PY'
 import socket, struct, time
 s = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
@@ -273,6 +274,7 @@ while time.time() < end:
 PY
 grep -q "seen 0x390" "$WORK/raw-only.out" && ok "--real-bus: a file of raw devices only sends" \
     || fail "raw devices only on a real bus: $(cat "$WORK/raw-only.log")"
+kill "$RAW_PID" 2>/dev/null; wait "$RAW_PID" 2>/dev/null
 
 echo "==> 4. Simulated nodes in the plugin next to a real node on vcan0"
 python3 - "$WORK/canopen_config.json" "$WORK/mixed.json" "$WORK/conflict.json" <<'PY'
