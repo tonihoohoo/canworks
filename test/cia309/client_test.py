@@ -87,10 +87,15 @@ def plugin_test(build, repo, work):
     dport, gport = free_port(), free_port()
     shutil.copy(os.path.join(repo, "config", "pingpong", "cpp-slave.eds"), work)
     shutil.copy(os.path.join(repo, "test", "fixtures", "eds", "lss-slave.eds"), work)
+    shutil.copy(os.path.join(repo, "config", "rtd-sensor", "rtd8.eds"), work)
     with open(os.path.join(repo, "config", "pingpong", "canopen_config.json")) as f:
         cfg = json.load(f)
     cfg["adapter"] = {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": True}
-    cfg["master"]["diagnostics"] = {"token_verifier": diag.token_verifier(token), "port": dport, "bind": "127.0.0.1"}
+    # allow_changes for the simulator commands; the gateway has its own.
+    cfg["master"]["diagnostics"] = {"token_verifier": diag.token_verifier(token), "port": dport, "bind": "127.0.0.1",
+                                    "allow_changes": True}
+    # A second node whose device name (0x1008, "RTD-8") is longer than an expedited transfer.
+    cfg["nodes"].append({"node_id": 5, "name": "rtd", "eds": "rtd8.eds"})
     cfg["master"]["cia309"] = {"port": gport, "allow_changes": True}
     with open(os.path.join(work, "canopen_config.json"), "w") as f:
         json.dump(cfg, f, indent=2)
@@ -115,12 +120,13 @@ def plugin_test(build, repo, work):
         check(until(lambda: not g.request("1 2 r 0x1000 0 u32").startswith("ERROR"), 20), "node 2 answers SDO")
         vendor = g.request("1 2 r 0x1018 1 u32")
         check(vendor.startswith("0x"), "SDO read of the vendor ID", vendor)
-        name = g.request("1 2 r 0x1008 0 vs")
-        check(name.startswith('"') and len(name) > 2, "segmented read of the device name", name)
+        check(until(lambda: not g.request("1 5 r 0x1000 0 u32").startswith("ERROR"), 20), "node 5 answers SDO")
+        name = g.request("1 5 r 0x1008 0 vs")
+        check(name == '"RTD-8"', "segmented read of the device name", name)
         check(cia309.error_code(g.request("1 2 r 0x2100 0 u8")) == 0x06020000, "a missing object: its abort code")
         check(cia309.error_code(g.request("1 2 r 0x1018")) == 101, "a syntax error: 101")
         # OPERATIONAL node: write and stop refused without allow_force.
-        check(until(lambda: "pdo" in g.request("1 0 r p 1"), 10), "r p of node 2's TPDO 1 (gateway RPDO 1)")
+        check(until(lambda: "pdo" in g.request("1 0 r p 5"), 10), "r p of node 2's TPDO 1 (gateway RPDO 5)")
         check(cia309.error_code(g.request("1 2 w 0x4000 0 u32 7")) == 102, "SDO write to an OPERATIONAL node refused")
         check(cia309.error_code(g.request("1 2 stop")) == 102, "NMT stop to an OPERATIONAL node refused")
         check(cia309.error_code(g.request("1 set heartbeat 100")) == 100, "set heartbeat not served: 100")
