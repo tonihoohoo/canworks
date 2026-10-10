@@ -524,6 +524,26 @@
             "allow_config_upload": {
               "description": "canworks-bridge only: allow a new config to be uploaded over the channel (canworks-deploy --bridge); needs allow_changes. Default false.",
               "type": "boolean"
+            },
+            "remote_link": {
+              "description": "The remote link (docs/remote-access.md), read by the canworks-link service on the device; the plugin and the bridge only check it.",
+              "type": "object",
+              "properties": {
+                "internet": {
+                  "description": "Reachable from other networks through relays (default false: nothing leaves the local network).",
+                  "type": "boolean"
+                },
+                "relays": {
+                  "description": "Relay servers to use when internet is true (default: the iroh project's public relays).",
+                  "type": "array",
+                  "maxItems": 8,
+                  "items": { "type": "string", "pattern": "^https://[^\\s/]+(/\\S*)?$" }
+                },
+                "pairing": {
+                  "description": "Where a PC may pair with the diagnostics token: lan (default; a direct path from a private or link-local address), anywhere, or off.",
+                  "enum": [ "lan", "anywhere", "off" ]
+                }
+              }
             }
           },
           "required": [

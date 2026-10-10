@@ -1406,7 +1406,8 @@ class Parser {
             "(configurator: Online access, Upgrade or New token; or canworks-diag hash-token)");
       return;
     }
-    check_known(d, w, {"token_verifier", "port", "bind", "allow_changes", "allow_config_upload"});
+    check_known(d, w, {"token_verifier", "port", "bind", "allow_changes", "allow_config_upload", "remote_link"});
+    parse_remote_link(d, w);
     std::string text;
     if (get_string(d, "token_verifier", w, true, text)) {
       std::string why;
@@ -1427,6 +1428,42 @@ class Parser {
     }
     get_bool(d, "allow_changes", w, m.diag_allow_changes);
     get_bool(d, "allow_config_upload", w, m.diag_allow_config_upload);
+  }
+
+  // diagnostics.remote_link belongs to the canworks-link service on the
+  // device (docs/remote-access.md): checked here so a wrong value is found at
+  // upload, otherwise unused.
+  void parse_remote_link(const cJSON* d, const std::string& parent_where) {
+    const cJSON* rl = cJSON_GetObjectItemCaseSensitive(d, "remote_link");
+    if (!rl) return;
+    if (!cJSON_IsObject(rl)) {
+      error(parent_where, "field 'remote_link' must be an object");
+      return;
+    }
+    const std::string w = parent_where + ".remote_link";
+    check_known(rl, w, {"internet", "relays", "pairing"});
+    bool internet = false;
+    get_bool(rl, "internet", w, internet);
+    const cJSON* relays = cJSON_GetObjectItemCaseSensitive(rl, "relays");
+    if (relays) {
+      if (!cJSON_IsArray(relays)) {
+        error(w, "field 'relays' must be an array of https URLs");
+      } else {
+        if (cJSON_GetArraySize(relays) > 8) error(w, "field 'relays' lists more than 8 relays");
+        const cJSON* r;
+        cJSON_ArrayForEach(r, relays) {
+          if (!cJSON_IsString(r) || std::strncmp(r->valuestring, "https://", 8) != 0 || !r->valuestring[8]) {
+            error(w, "relay URLs must use https, like https://relay.example.com");
+            break;
+          }
+        }
+      }
+    }
+    const cJSON* pairing = cJSON_GetObjectItemCaseSensitive(rl, "pairing");
+    if (pairing && !(cJSON_IsString(pairing) && (std::strcmp(pairing->valuestring, "lan") == 0 ||
+                                                 std::strcmp(pairing->valuestring, "anywhere") == 0 ||
+                                                 std::strcmp(pairing->valuestring, "off") == 0)))
+      error(w, "field 'pairing' must be lan, anywhere or off");
   }
 
   void parse_node_options(const cJSON* node, const Config& cfg, NodeConfig& n, const std::string& w) {

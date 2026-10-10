@@ -294,3 +294,5 @@ add_test(NAME bridge_upload COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/bridge/u
 set_tests_properties(bridge_upload PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")
 # scripts/install-bridge.sh with a stub systemctl.
 add_test(NAME bridge_install COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/bridge/install_test.sh $<TARGET_FILE:canworks-bridge>)
+# scripts/install-link.sh with stub systemctl and pip (the remote link).
+add_test(NAME link_install COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/link/install_test.sh)

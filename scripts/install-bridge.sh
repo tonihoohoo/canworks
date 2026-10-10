@@ -7,7 +7,7 @@
 #   sudo scripts/install-bridge.sh [--prefix /opt/canworks] [--runtime-dir DIR]
 #                                  [--runtime-ref development] [--lely-ref <commit>]
 #                                  [--no-deps] [--without-canopen | --without-j1939]
-#                                  [--binary FILE]
+#                                  [--binary FILE] [--with-link NAME]
 #   sudo scripts/install-bridge.sh --uninstall [--purge] [--prefix /opt/canworks]
 #
 # Install: builds Lely CANopen and dcfgen into <prefix> (scripts/build-lely.sh)
@@ -32,9 +32,13 @@
 # --binary FILE installs a canworks-bridge built elsewhere and skips the build
 # (and Lely, unless CANopen still needs dcfgen at load).
 #
+# --with-link NAME advertises the bridge NAME on the local network and installs
+# the remote link for its diagnostics channel (docs/remote-access.md,
+# scripts/install-link.sh).
+#
 # Uninstall: stops and disables every canworks-bridge@ instance, removes the
-# unit and the binary; the configs in /etc/canworks-bridge stay. --purge also
-# removes them.
+# unit and the binary (and the remote link); the configs in /etc/canworks-bridge
+# stay. --purge also removes them.
 
 set -euo pipefail
 
@@ -56,7 +60,9 @@ SYSTEMCTL=${CANWORKS_SYSTEMCTL:-systemctl}
 MODULES_LOAD=${CANWORKS_MODULES_LOAD_DIR:-/etc/modules-load.d}/canworks-j1939.conf
 MODPROBE=${CANWORKS_MODPROBE:-modprobe}
 
-usage() { sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; }
+LINK_NAME=""
+
+usage() { sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -68,6 +74,7 @@ while [ $# -gt 0 ]; do
         --without-canopen) WITH_CANOPEN=0 ;;
         --without-j1939) WITH_J1939=0 ;;
         --binary) BINARY="$2"; shift ;;
+        --with-link) LINK_NAME="$2"; shift ;;
         --uninstall) UNINSTALL=1 ;;
         --purge) PURGE=1 ;;
         -h|--help) usage; exit 0 ;;
@@ -92,6 +99,13 @@ if [ "$UNINSTALL" -eq 1 ]; then
     rm -f "$UNIT" "$BIN"
     "$SYSTEMCTL" daemon-reload || true
     rm -f "$MODULES_LOAD"
+    if [ -f "$UNIT_DIR/canworks-link.service" ]; then
+        if [ "$PURGE" -eq 1 ]; then
+            "$REPO/scripts/install-link.sh" --uninstall --purge
+        else
+            "$REPO/scripts/install-link.sh" --uninstall
+        fi
+    fi
     if [ "$PURGE" -eq 1 ]; then
         rm -rf "$CONF_DIR"
         say "Removed $CONF_DIR"
@@ -190,6 +204,10 @@ if [ "$WITH_J1939" -eq 1 ]; then
         echo "warning: cannot write $MODULES_LOAD (not root?): can-j1939 is not loaded at boot" >&2
     fi
     "$MODPROBE" can-j1939 2>/dev/null || echo "warning: cannot load the kernel module can-j1939" >&2
+fi
+
+if [ -n "$LINK_NAME" ]; then
+    "$REPO/scripts/install-link.sh" --config "$CONF_DIR/$LINK_NAME/canworks.json" --runtime-port none
 fi
 
 cat <<EOF
