@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "iec_location.h"
+#include "mux.h"
 
 namespace canopen_plugin {
 
@@ -60,8 +61,11 @@ struct J1939Signal {
   double scale = 1, offset = 0;  // for the tools only
   std::string unit;
   IecLocation location;
+  bool has_location = true;  // false: a switch the plugin sets (pages "all"/"rotate")
   bool has_valid_location = false;
   IecLocation valid_location;  // %IX, received signals only
+  canworks_can::MuxSpec mux;   // multiplexing fields as written
+  unsigned index = 0;          // position in the config's signals list
 };
 
 struct J1939Rx {
@@ -76,6 +80,7 @@ struct J1939Rx {
   bool has_status_location = false;
   IecLocation status_location;  // %IX
   std::vector<J1939Signal> signals;
+  canworks_can::MuxLayout layout;  // built by check_j1939
 };
 
 struct J1939Tx {
@@ -89,6 +94,9 @@ struct J1939Tx {
   unsigned period_ms = 0;  // 0: on change and on request
   unsigned min_gap_ms = 0;
   std::vector<J1939Signal> signals;
+  canworks_can::MuxPages pages = canworks_can::MuxPages::Program;
+  bool has_pages = false;
+  canworks_can::MuxLayout layout;  // built by check_j1939
 };
 
 struct J1939Request {

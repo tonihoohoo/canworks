@@ -9,6 +9,7 @@ namespace canopen_plugin {
 
 constexpr std::chrono::seconds PlcRequests::kKeepResult;
 constexpr uint32_t PlcRequests::kDefaultTimeoutMs;
+constexpr std::chrono::seconds PlcRequests::kTakenGrace;
 
 namespace {
 
@@ -82,7 +83,8 @@ PlcRequests::Slot* PlcRequests::find(uint32_t handle) {
   return &s;
 }
 
-int PlcRequests::poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, uint32_t cap) {
+int PlcRequests::poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, uint32_t cap,
+                      clock::time_point now) {
   std::lock_guard<std::mutex> lock(mutex_);
   Slot* s = handle ? find(handle) : nullptr;
   if (!s) {
@@ -91,8 +93,13 @@ int PlcRequests::poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, u
     return 2;
   }
   if (s->state == State::Queued &&
-      clock::now() - s->started >= std::chrono::milliseconds(s->req.timeout_ms)) {
+      now - s->started >= std::chrono::milliseconds(s->req.timeout_ms)) {
     // No network took it in time (the CAN interface is not up).
+    s->res = canopen_plc_result{CANOPEN_PLC_ERR_TIMEOUT, 0x05040000u, 0};
+    s->state = State::Done;
+  } else if (s->state == State::Taken &&
+             now - s->started >= std::chrono::milliseconds(s->req.timeout_ms) + kTakenGrace) {
+    // Taken, and the network never answered: a backstop, so the slot frees.
     s->res = canopen_plc_result{CANOPEN_PLC_ERR_TIMEOUT, 0x05040000u, 0};
     s->state = State::Done;
   }

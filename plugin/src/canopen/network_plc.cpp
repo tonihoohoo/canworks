@@ -3,6 +3,7 @@
 // request timer; each node's program transfers run oldest first, one at a
 // time per node, taking turns with the node's SDO variables.
 
+#include <algorithm>
 #include <cstring>
 
 #include <lely/co/type.h>
@@ -93,6 +94,7 @@ void Network::ServiceProgram(clock::time_point now) {
   for (auto& j : prog_taken_) {
     ProgJob p;
     p.job = std::move(j);
+    p.limit = p.job.deadline + kAbsentAfter;
     prog_[p.job.req.node].push_back(std::move(p));
   }
   for (auto it = prog_.begin(); it != prog_.end();) {
@@ -118,16 +120,25 @@ void Network::ServiceProgram(clock::time_point now) {
         // ends with the boot: the node comes up, or it is reported absent
         // and the request ends here with ERROR_ID 3. Lost, not booted or
         // STOPPED: not available.
+        // A boot that ended with an error other than no answer (a wrong
+        // device, a refused download): not available, at once.
         bool first_boot = !n->warned_absent && now - started_ < kAbsentAfter;
-        bool booting = n->cfg->boot && !n->booted &&
+        uint8_t boot_error = image_.node_boot_error(id);
+        bool booting = n->cfg->boot && !n->booted && (!boot_error || boot_error == 'B') &&
                        (image_.node_state(id) == kStatePreop || n->boot_waiting || first_boot);
         if (!booting) {
           EndProgram(id, p.job.handle, CANOPEN_PLC_ERR_UNAVAILABLE, 0, nullptr, 0);
           q.pop_front();
           continue;
         }
+        // The wait never goes past TIMEOUT plus kAbsentAfter from the start.
+        if (now >= p.limit) {
+          EndProgram(id, p.job.handle, CANOPEN_PLC_ERR_TIMEOUT, kAbortTimeout, nullptr, 0);
+          q.pop_front();
+          continue;
+        }
         auto from_now = now + std::chrono::milliseconds(p.job.req.timeout_ms);
-        if (p.job.deadline < from_now) p.job.deadline = from_now;
+        if (p.job.deadline < from_now) p.job.deadline = std::min(from_now, p.limit);
         break;
       }
       if (now >= p.job.deadline) {

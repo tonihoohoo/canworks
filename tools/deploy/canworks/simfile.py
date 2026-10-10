@@ -12,6 +12,8 @@ import math
 import os
 import random
 import re
+import stat
+import sys
 
 import jsonschema
 from jsonschema.exceptions import best_match
@@ -19,6 +21,7 @@ from jsonschema.exceptions import best_match
 from . import contract
 from . import eds as eds_mod
 from . import simmachine as machine_mod
+from .raw import mux as raw_mux
 from .raw import signals as raw_signals
 
 SUPPORTED_VERSION = 2
@@ -28,6 +31,14 @@ _schemas = {}
 
 VISIBLE_STRING = 0x0009
 DELAY_MAX_S = 600.0
+# The plugin's expression limits (sim_expr.cpp): longest text, deepest
+# nesting, and the samples delay() keeps.
+EXPR_MAX_LENGTH = 4096
+EXPR_MAX_DEPTH = 128
+DELAY_MAX_SAMPLES = 10000
+# CSV files of value sources: largest file and longest line (sim_source.h).
+CSV_MAX_BYTES = 16 << 20
+CSV_MAX_LINE = 4096
 
 
 def version(data):
@@ -143,6 +154,7 @@ LEVELS = [("||",), ("&&",), ("|",), ("^",), ("&",), ("==", "!="), ("<", "<=", ">
           ("+", "-"), ("*", "/", "%")]
 _OPERATORS = sorted({op for level in LEVELS for op in level} | {"**", "!", "~", "(", ")", ","},
                     key=len, reverse=True)
+_LEVEL = {op: i for i, level in enumerate(LEVELS) for op in level}
 _NUMBER = re.compile(r"0[xX][0-9A-Fa-f]+|(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -151,11 +163,14 @@ class Node:
     """A node of the expression tree. kind: num, name, ref, unary, binary,
     call. ref: device (None: the own device), index, subindex."""
 
-    __slots__ = ("kind", "pos", "value", "args", "device", "index", "subindex")
+    __slots__ = ("kind", "pos", "value", "args", "device", "index", "subindex", "depth")
 
     def __init__(self, kind, pos, value=None, args=(), device=None, index=None, subindex=None):
         self.kind, self.pos, self.value, self.args = kind, pos, value, list(args)
         self.device, self.index, self.subindex = device, index, subindex
+        self.depth = 1 + max((a.depth for a in self.args), default=0)
+        if self.depth > EXPR_MAX_DEPTH:
+            raise ExprError(pos, "nested deeper than %d levels" % EXPR_MAX_DEPTH)
 
     def __repr__(self):
         if self.kind == "ref":
@@ -232,6 +247,17 @@ class _Parser:
         self.toks = _tokens(text)
         self.i = 0
         self.resolve = resolve
+        self.nest = 0
+
+    def enter(self, pos):
+        """One level of nesting (a parenthesis, a call, a unary operator or
+        **), as the plugin counts them; leave() ends it."""
+        self.nest += 1
+        if self.nest > EXPR_MAX_DEPTH:
+            raise ExprError(pos, "nested deeper than %d levels" % EXPR_MAX_DEPTH)
+
+    def leave(self):
+        self.nest -= 1
 
     def peek(self):
         return self.toks[self.i]
@@ -263,15 +289,16 @@ class _Parser:
         return node
 
     def binary(self, level):
-        if level == len(LEVELS):
-            return self.power()
-        left = self.binary(level + 1)
+        # Precedence climbing, as the plugin parses (same trees, and one
+        # call per level of nesting rather than one per operator level).
+        left = self.power()
         while True:
             kind, op, pos = self.peek()
-            if kind != "op" or op not in LEVELS[level]:
+            lv = _LEVEL.get(op) if kind == "op" else None
+            if lv is None or lv < level:
                 return left
             self.take()
-            right = self.binary(level + 1)
+            right = self.binary(lv + 1)
             left = Node("binary", pos, op, (left, right))
 
     def power(self):
@@ -279,17 +306,20 @@ class _Parser:
         kind, op, pos = self.peek()
         if kind == "op" and op == "**":
             self.take()
-            return Node("binary", pos, "**", (base, self.power()))
+            self.enter(pos)
+            exp = self.power()
+            self.leave()
+            return Node("binary", pos, "**", (base, exp))
         return base
 
     def unary(self):
         kind, op, pos = self.peek()
-        if kind == "op" and op in ("-", "!", "~"):
+        if kind == "op" and op in ("-", "!", "~", "+"):
             self.take()
-            return Node("unary", pos, op, (self.unary(),))
-        if kind == "op" and op == "+":
-            self.take()
-            return self.unary()
+            self.enter(pos)
+            arg = self.unary()
+            self.leave()
+            return arg if op == "+" else Node("unary", pos, op, (arg,))
         return self.primary()
 
     def primary(self):
@@ -310,6 +340,7 @@ class _Parser:
                 raise ExprError(pos, "unknown name '%s' (names: %s)" % (value, ", ".join(NAMES)))
             return Node("name", pos, value)
         if kind == "op" and value == "(":
+            self.enter(pos)
             node = self.binary(0)
             close = self.peek()
             if close[:2] != ("op", ")"):
@@ -317,13 +348,14 @@ class _Parser:
                     raise ExprError(close[2], "expected ')' before the end of the expression")
                 raise ExprError(close[2], "expected ')' here")
             self.take()
+            self.leave()
             return node
         raise self.unexpected(tok)
 
     def call(self, name, pos):
         if name not in FUNCTIONS:
             raise ExprError(pos, "unknown function '%s'" % name)
-        self.take()  # (
+        self.enter(self.take()[2])  # (
         args = []
         if self.peek()[:2] != ("op", ")"):
             while True:
@@ -338,6 +370,7 @@ class _Parser:
                     raise ExprError(p, "expected ')' to close %s( before the end of the expression" % name)
                 raise ExprError(p, "expected ',' or ')' in the arguments of %s" % name)
         self.take()  # )
+        self.leave()
         least, most = FUNCTIONS[name]
         if len(args) < least or (most is not None and len(args) > most):
             if most is None:
@@ -377,6 +410,12 @@ def parse(text, resolve=None):
     resolve(device, index, subindex) -> None when the object exists, else
     the message (an unknown device or object); device None is the own
     device, an int a node ID, a str an extra device's name."""
+    if len(text) > EXPR_MAX_LENGTH:
+        raise ExprError(EXPR_MAX_LENGTH, "the expression is longer than %d characters" % EXPR_MAX_LENGTH)
+    # 128 levels take a few frames each, more than Python's default allows
+    # next to a deep caller.
+    if sys.getrecursionlimit() < 4000:
+        sys.setrecursionlimit(4000)
     return _Parser(text, resolve).parse()
 
 
@@ -554,9 +593,13 @@ class Evaluator:
         if f == "delay":
             # The newest sample at least s old; before there is one, the oldest.
             x, s = args
+            s = s if math.isfinite(s) else 0
             t = ctx.get("t", 0)
             hist = st if st is not None else []
+            if hist and t < hist[-1][0]:
+                hist = []  # time went back: samples of another run
             hist.append((t, x))
+            del hist[:-DELAY_MAX_SAMPLES]
             while len(hist) > 1 and hist[1][0] <= t - s:
                 hist.pop(0)
             self.state[id(n)] = hist
@@ -668,6 +711,35 @@ def _describe_one(cfg, served=None):
 
 def _resolve_path(value, base):
     return value if os.path.isabs(value) else os.path.join(base, value)
+
+
+def csv_problem(value, base, roots):
+    """Why the plugin would not read a CSV source's file, or None: it must
+    resolve (links followed) under one of the folders `roots` (the
+    simulation file's and the config's), be a regular file of at most 16 MB,
+    with lines of at most 4096 bytes."""
+    file = _resolve_path(value, base)
+    real = os.path.realpath(file)
+    if not os.path.exists(real):
+        return "CSV file %s not found (file: \"%s\")" % (file, value)
+    if not any(real.startswith(os.path.join(os.path.realpath(r), "")) for r in roots if r):
+        return "CSV file %s is outside the folders of the configuration and the simulation file" % file
+    try:
+        st = os.stat(real)
+    except OSError:
+        return "CSV file %s cannot be read" % file
+    if not stat.S_ISREG(st.st_mode):
+        return "CSV file %s is not a regular file" % file
+    if st.st_size > CSV_MAX_BYTES:
+        return "CSV file %s is larger than 16 MB" % file
+    try:
+        with open(real, "rb") as f:
+            for n, line in enumerate(f, 1):
+                if len(line.rstrip(b"\n")) > CSV_MAX_LINE:
+                    return "%s line %d is longer than 4096 bytes" % (file, n)
+    except OSError as e:
+        return "CSV file %s cannot be read: %s" % (file, e.strerror or e)
+    return None
 
 
 def referenced_files(data, path):
@@ -925,10 +997,28 @@ def _check_raw_devices(data, path, cfg, err):
                 err("%s.send[%d]" % (w, j), "needs 'dlc' or 'data'", ["%s.send[%d].dlc" % (w, j)])
             if snd.get("extended") is not True and snd["id"] > 0x7FF:
                 err("%s.send[%d].id" % (w, j), "0x%X is above 0x7FF; set 'extended' for a 29-bit identifier" % snd["id"])
-            for k, sg in enumerate(snd.get("signals") or []):
-                at = "%s.send[%d].signals[%d]" % (w, j, k)
+            sigs = snd.get("signals") or []
+            sp = "%s.send[%d]" % (w, j)
+            # Multiplexing as in the config (can-multiplexed-signals): the
+            # simulator sets the switches for each page.
+            mux_errors, mux_warnings = [], []
+            layout = raw_mux.Layout.build([dict(sg, path="%s.signals[%d]" % (sp, k)) for k, sg in enumerate(sigs)],
+                                          mux_errors, mux_warnings)
+            for e in mux_errors:
+                at, _, text = e.partition(": ")
+                err(at, text)
+            if "pages" in snd and not layout.multiplexed and not mux_errors:
+                err(sp + ".pages", "only for a send with a switch (multiplexer: true)")
+            if layout.multiplexed and layout.page_count() > raw_mux.MAX_PAGES:
+                err(sp, "%d pages; a simulated send has at most %d" % (layout.page_count(), raw_mux.MAX_PAGES))
+            for k, sg in enumerate(sigs):
+                at = "%s.signals[%d]" % (sp, k)
                 if not raw_signals.fits(sg["start_bit"], sg["length"], sg.get("byte_order") == "big", length):
                     err(at, "does not fit the frame's %d bytes" % length, [at + ".start_bit"])
+                if "source" not in sg:
+                    if sg.get("multiplexer") is not True:
+                        err(at, "needs a 'source' (only a switch, multiplexer: true, has none)", [at + ".source"])
+                    continue
                 src = sg["source"]
                 if isinstance(src, dict) and isinstance(src.get("expr"), str):
                     try:
@@ -936,9 +1026,10 @@ def _check_raw_devices(data, path, cfg, err):
                     except ExprError as e:
                         err(at + ".source.expr", "expression %r, position %d: %s" % (src["expr"], e.position, e.message))
                 if isinstance(src, dict) and isinstance(src.get("csv"), dict):
-                    file = _resolve_path(src["csv"]["file"], os.path.dirname(os.path.abspath(path)))
-                    if not os.path.isfile(file):
-                        err(at + ".source.csv.file", "CSV file %s not found (file: \"%s\")" % (file, src["csv"]["file"]))
+                    base = os.path.dirname(os.path.abspath(path))
+                    problem = csv_problem(src["csv"]["file"], base, [base])
+                    if problem:
+                        err(at + ".source.csv.file", problem)
         for j, rp in enumerate(d.get("replies") or []):
             on = rp["on"]
             if "mask" in on and len(on["mask"]) != len(on.get("data") or []):
@@ -952,6 +1043,8 @@ def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None
     """The checks of one part (a version 1 file or a version 2 section)
     against one network's config (or None)."""
     base = os.path.dirname(os.path.abspath(path))
+    # CSV files lie under the simulation file's folder or the config's.
+    csv_roots = [base] + ([os.path.dirname(os.path.abspath(config_path))] if config_path else [])
     devices = {}  # node ID or name -> _Device
     by_name = {}
     master_id = None
@@ -1033,7 +1126,7 @@ def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None
         dev_key = id(dev)
         for obj, src in (nd.get("sources") or {}).items():
             at = parts + ["sources", obj]
-            tree = _check_source(src, obj, dev, at, devices, err, base)
+            tree = _check_source(src, obj, dev, at, devices, err, base, csv_roots)
             if tree is not None:
                 index, sub = parse_object(obj)
                 expr_sources[(dev_key, index, sub)] = (tree, at, src["expr"], dev)
@@ -1059,7 +1152,7 @@ def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None
                 err(_where(at), "on a plain CAN network a scenario step is a 'fault' or 'clear' on a 'device', "
                                 "a 'log' or a 'repeat'")
                 continue
-            _check_step(step, at, devices, err, warn, base, machine)
+            _check_step(step, at, devices, err, warn, base, machine, csv_roots)
 
 
 class _Machine:
@@ -1172,7 +1265,7 @@ def _resolver(devices, own):
     return resolve
 
 
-def _check_source(src, obj, dev, at, devices, err, base):
+def _check_source(src, obj, dev, at, devices, err, base, csv_roots=None):
     """Checks one value source; the expression tree for an expr source."""
     w = _where(at)
     index, sub, problem = _object_problem(dev, obj)
@@ -1193,9 +1286,9 @@ def _check_source(src, obj, dev, at, devices, err, base):
         err(w, "%s: object %s is not a VISIBLE_STRING; its constant must be a number"
             % (dev.label, object_key(index, sub)))
     if kind == "csv":
-        file = _resolve_path(src["csv"]["file"], base)
-        if not os.path.isfile(file):
-            err(w + ".csv.file", "CSV file %s not found (file: \"%s\")" % (file, src["csv"]["file"]))
+        problem = csv_problem(src["csv"]["file"], base, csv_roots or [base])
+        if problem:
+            err(w + ".csv.file", problem)
     if kind == "expr":
         try:
             return parse(src["expr"], _resolver(devices, dev))
@@ -1291,7 +1384,7 @@ def _check_condition(cond, at, step_dev, devices, err, machine=None):
         err(w + ".object", problem)
 
 
-def _check_step(step, at, devices, err, warn, base, machine=None):
+def _check_step(step, at, devices, err, warn, base, machine=None, csv_roots=None):
     w = _where(at)
     dev = None
     if "machine" in step:
@@ -1335,7 +1428,7 @@ def _check_step(step, at, devices, err, warn, base, machine=None):
                 if problem:
                     err(w + ".source", problem)
             else:
-                _check_source(src, obj, dev, at + ["source", obj], devices, err, base)
+                _check_source(src, obj, dev, at + ["source", obj], devices, err, base, csv_roots)
     if "fault" in step and dev is not None:
         _check_fault(step["fault"], dev, at + ["fault"], err)
     for key in ("wait", "expect"):

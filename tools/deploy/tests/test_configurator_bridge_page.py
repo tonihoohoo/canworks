@@ -55,9 +55,22 @@ class BridgePage(OnlineBase):
         pg = self.page
         self.open()
         self.to_bridge()
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
         pg.click("#nav-bridge")
         pg.wait_for_selector("h2:has-text('Modbus bridge')")
+        # Writers is required: the switch starts it empty (nobody writes) and
+        # the hint names how to let every host write.
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), [])
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.get_attribute('input[data-path="bridge.writers"]', "placeholder"), "nobody writes")
+        self.assertIn("0.0.0.0/0, ::/0", pg.inner_text('label:has(input[data-path="bridge.writers"])'))
+        pg.fill('input[data-path="bridge.writers"]', "0.0.0.0/0, ::/0")
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), ["0.0.0.0/0", "::/0"])
+        pg.fill('input[data-path="bridge.writers"]', "")
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), [])  # empty: nobody, never missing
+        pg.fill('input[data-path="bridge.writers"]', "192.168.10.0/24, 192.168.20.5")
+        pg.fill('input[data-path="bridge.max_clients_per_address"]', "2")
+        self.checked()
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
         self.assertEqual(pg.input_value('input[data-path="bridge.listen"]'), "0.0.0.0")
         self.assertEqual(pg.input_value('input[data-bridge="port"]'), "502")
         self.assertEqual(pg.input_value('select[data-target="1"]'), "bridge")
@@ -91,7 +104,8 @@ class BridgePage(OnlineBase):
         pg.wait_for_selector("#banner:has-text('Saved')")
         saved = load(self.config_path)
         self.assertEqual(saved["schema_version"], 2)
-        self.assertEqual(saved["bridge"], {"listen": "0.0.0.0:502",
+        self.assertEqual(saved["bridge"], {"listen": "0.0.0.0:502", "writers": ["192.168.10.0/24", "192.168.20.5"],
+                                           "max_clients_per_address": 2,
                                            "live_lists": [{"network": "field", "location": "%IB24"}]})
 
         # Export ST variables: the file canworks-deploy --export-modbus-map map.st writes.
@@ -115,6 +129,15 @@ class BridgePage(OnlineBase):
         pg = self.page
         self.open()
         self.to_bridge()
+        # The master's PLC stop and scan watchdog fields.
+        self.assertEqual(pg.input_value('select[data-path="master.on_plc_stop"]'), "")
+        pg.select_option('select[data-path="master.on_plc_stop"]', "stop")
+        self.assertIn("NMT STOP", pg.inner_text('label:has(select[data-path="master.on_plc_stop"])'))
+        pg.fill('input[data-path="master.scan_watchdog_ms"]', "250")
+        self.assertEqual(pg.evaluate("() => [S.config.master.on_plc_stop, S.config.master.scan_watchdog_ms]"), ["stop", 250])
+        pg.select_option('select[data-path="master.on_plc_stop"]', "")
+        pg.fill('input[data-path="master.scan_watchdog_ms"]', "")
+        self.assertEqual(pg.evaluate("() => [S.config.master.on_plc_stop, S.config.master.scan_watchdog_ms]"), [None, None])
         pg.select_option('select[data-path="master.sync_source"]', "plc_cycle")
         self.checked()
         self.assertIn("needs a PLC cycle, which the Modbus bridge does not have", pg.inner_text("#problem-list"))

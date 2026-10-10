@@ -192,6 +192,9 @@ Restart=on-failure
 RestartSec=2
 # Port 502 and the CAN link setup (bit rate) need these; the service runs as root.
 AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
+# A fault in the bridge cannot use up the device's memory or processes.
+MemoryMax=256M
+TasksMax=64
 
 [Install]
 WantedBy=multi-user.target

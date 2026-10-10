@@ -305,17 +305,30 @@ def _engine_for(args, settings):
 
 def _editor_text(doc):
     return ("Connect the OpenPLC Editor to it: target OpenPLC Runtime v4, address localhost:%d, user %s, "
-            "password %s.\n"
+            "password from `%s status --show-password`.\n"
             "Deploy with:   canworks-deploy --runtime local ...\n"
             "Diagnostics:   canworks-diag --runtime local status   (configurator: host \"local\")\n"
             "Every CANopen network runs simulated here: no CAN interface is used."
-            % (doc["port"], doc["user"], doc["password"]))
+            % (doc["port"], doc["user"], PROG))
 
 
-def _credentials(eng, image, port, diag_port, settings, out, volume=VOLUME):
+def certificate_changed(port, saved, seen):
+    return ("the local runtime's certificate changed (saved fingerprint %s, now %s): another program may be "
+            "answering on port %s, so nothing was sent to it. Stop that program; if you recreated the container "
+            "yourself, run `%s remove` and `%s start`, which pins the new certificate"
+            % (saved, seen, port, PROG, PROG))
+
+
+def _credentials(eng, image, port, diag_port, settings, out, volume=VOLUME, created=False):
     """After the runtime answers: first user, fingerprint and saved settings.
-    Returns the settings, or raises when the credentials are lost."""
+    Returns the settings, or raises when the credentials are lost. The saved
+    fingerprint is replaced only when this command `created` the container;
+    any other change stops here, before anything is sent."""
     fp = wait_ready(port, out=out)
+    pinned = (settings or {}).get("fingerprint")
+    changed = pinned and runtime.normalize_fingerprint(pinned) != runtime.normalize_fingerprint(fp)
+    if changed and not created:
+        raise LocalRuntimeError(certificate_changed(port, pinned, fp))
     client = runtime.Client("127.0.0.1:%d" % port, fingerprint=fp)
     doc = dict(settings or {})
     doc.update({"engine": eng.name, "image": image, "port": port, "diag_port": diag_port, "volume": volume,
@@ -330,7 +343,7 @@ def _credentials(eng, image, port, diag_port, settings, out, volume=VOLUME):
         raise LocalRuntimeError("the local runtime already has a user, but its password is not saved on this PC "
                                 "(%s is missing). It cannot be recovered: run `canworks-sim-runtime remove "
                                 "--data` and `start` again for new credentials." % settings_path())
-    if runtime.normalize_fingerprint(settings.get("fingerprint") or "") != runtime.normalize_fingerprint(fp):
+    if changed:
         out("note: the runtime's certificate changed; the new fingerprint is saved")
     try:
         client.login(settings["user"], settings["password"])
@@ -374,7 +387,7 @@ def cmd_start(args, out):
             if r.returncode != 0:
                 raise LocalRuntimeError("%s could not start %s: %s" % (eng.name, CONTAINER, _last_line(r.stderr)))
             out("started %s" % CONTAINER)
-    doc = _credentials(eng, image, port, diag_port, settings, out, volume)
+    doc = _credentials(eng, image, port, diag_port, settings, out, volume, created=state is None)
     out(_editor_text(doc))
     return 0
 
@@ -465,7 +478,7 @@ def cmd_update(args, out):
             raise LocalRuntimeError("%s could not remove the old container: %s" % (eng.name, _last_line(r.stderr)))
     out("starting %s (%s) with %s on the same data volume" % (CONTAINER, image, eng.name))
     create(eng, image, port, diag_port, out, volume)
-    doc = _credentials(eng, image, port, diag_port, settings, out, volume)
+    doc = _credentials(eng, image, port, diag_port, settings, out, volume, created=True)
     out("The container is new: upload the PLC program again (the editor's Build and Upload, or "
         "canworks-deploy --runtime local).")
     out(_editor_text(doc))

@@ -35,10 +35,28 @@ namespace {
 
 using ErrorFn = std::function<void(const std::string&, const std::string&)>;
 
-// Signals inside the message and not overlapping each other.
+// Builds the message's multiplexing; signals inside the message and not
+// overlapping another signal that can be in the same frame.
 void check_signals(const std::vector<J1939Signal>& signals, unsigned length, const std::string& where,
-                   const ErrorFn& error) {
-  std::vector<int> owner(length * 8, -1);
+                   canworks_can::MuxLayout& layout, const ErrorFn& error) {
+  std::vector<canworks_can::MuxSignalDef> defs;
+  for (const J1939Signal& s : signals) {
+    canworks_can::MuxSignalDef d;
+    d.name = s.name;
+    d.path = "signals[" + std::to_string(s.index) + "]";
+    d.start_bit = s.start_bit;
+    d.length = s.length;
+    d.big_endian = s.big_endian;
+    d.is_signed = s.is_signed;
+    d.mux = s.mux;
+    defs.push_back(d);
+  }
+  std::vector<std::string> errors, warnings;
+  layout.build(defs, errors, warnings);
+  for (const auto& e : errors) error(where, e);
+  // Per bit, the signals on it so far; a signal overlaps the latest earlier
+  // one on the bit that can be in the same frame (another page's may not).
+  std::vector<std::vector<int>> owners(length * 8);
   std::vector<std::pair<int, int>> reported;
   for (size_t i = 0; i < signals.size(); ++i) {
     const J1939Signal& s = signals[i];
@@ -48,12 +66,16 @@ void check_signals(const std::vector<J1939Signal>& signals, unsigned length, con
         fits = false;
         continue;
       }
-      int o = owner[b];
-      if (o >= 0 && std::find(reported.begin(), reported.end(), std::make_pair(o, int(i))) == reported.end()) {
-        reported.emplace_back(o, int(i));
-        error(where, "signals " + signals[o].name + " and " + s.name + " overlap");
+      auto& on = owners[b];
+      for (auto it = on.rbegin(); it != on.rend(); ++it) {
+        if (!layout.can_share(static_cast<size_t>(*it), i)) continue;
+        if (std::find(reported.begin(), reported.end(), std::make_pair(*it, int(i))) == reported.end()) {
+          reported.emplace_back(*it, int(i));
+          error(where, "signals " + signals[static_cast<size_t>(*it)].name + " and " + s.name + " overlap");
+        }
+        break;
       }
-      owner[b] = int(i);
+      on.push_back(int(i));
     }
     if (!fits)
       error(where, "signal " + s.name + " (start bit " + std::to_string(s.start_bit) + ", " +
@@ -76,7 +98,7 @@ void check_j1939(J1939Config& cfg, const ErrorFn& error) {
     std::string w = "j1939: rx[" + std::to_string(i) + "]";
     // A received message is as long as its sender makes it; the signals
     // only have to fit what the transport protocol can carry.
-    check_signals(r.signals, kJ1939MaxLength, w, error);
+    check_signals(r.signals, kJ1939MaxLength, w, cfg.rx[i].layout, error);
     for (size_t j = 0; j < i; ++j)
       if (cfg.rx[j].pgn == r.pgn && same_filter(cfg.rx[j], r))
         error("j1939", "rx[" + std::to_string(j) + "] and rx[" + std::to_string(i) + "] both receive PGN " +
@@ -93,7 +115,16 @@ void check_j1939(J1939Config& cfg, const ErrorFn& error) {
         t.length = kJ1939MaxLength;
       }
     }
-    check_signals(t.signals, t.length, w, error);
+    check_signals(t.signals, t.length, w, t.layout, error);
+    bool has_switch = false;
+    for (const J1939Signal& s : t.signals) has_switch = has_switch || s.mux.is_switch;
+    if (t.has_pages && !has_switch) error(w, "pages: only for a message with a switch (multiplexer: true)");
+    if (t.pages != canworks_can::MuxPages::Program && t.layout.multiplexed()) {
+      uint64_t n = t.layout.page_count();
+      if (n > canworks_can::kMuxMaxPages)
+        error(w, std::to_string(n) + " pages; pages \"all\" and \"rotate\" send at most " +
+                     std::to_string(canworks_can::kMuxMaxPages) + " (use pages \"program\")");
+    }
     for (size_t j = 0; j < i; ++j)
       if (cfg.tx[j].pgn == t.pgn)
         error("j1939", "tx[" + std::to_string(j) + "] and tx[" + std::to_string(i) + "] both send PGN " +

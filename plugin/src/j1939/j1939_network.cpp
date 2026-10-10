@@ -85,7 +85,8 @@ void J1939Image::copy_from_plc(const plugin_runtime_args_t& rt) {
   const J1939Config& c = *cfg_;
   for (size_t i = 0; i < c.tx.size(); ++i)
     for (size_t k = 0; k < c.tx[i].signals.size(); ++k)
-      back[tx_slot_[i] + k] = image_read_output(rt, c.tx[i].signals[k].location);
+      back[tx_slot_[i] + k] =
+          c.tx[i].signals[k].has_location ? image_read_output(rt, c.tx[i].signals[k].location) : 0;
   back[scan_slot_] = ++scans_;
   out_.publish();
 }
@@ -93,11 +94,17 @@ void J1939Image::copy_from_plc(const plugin_runtime_args_t& rt) {
 // ---------------------------------------------------------------------------
 // J1939Engine
 
+constexpr std::chrono::milliseconds J1939Engine::kReplyGap;  // C++14: odr-used
+constexpr size_t J1939Engine::kRepliedMax;
+
 J1939Engine::J1939Engine(const Config& cfg, J1939Image& image, J1939Socket& socket)
     : cfg_(cfg), j_(cfg.j1939), image_(image), socket_(socket), claimer_(cfg.j1939.ecu, *this) {
   for (const auto& r : j_.rx) {
     RxState st;
     for (const auto& s : r.signals) st.bits.push_back(j1939_signal_bits(s));
+    st.active.assign(r.signals.size(), 1);
+    st.sig_last.assign(r.signals.size(), clock::time_point{});
+    st.sig_seen.assign(r.signals.size(), 0);
     rx_.push_back(st);
   }
   for (const auto& t : j_.tx) {
@@ -105,6 +112,13 @@ J1939Engine::J1939Engine(const Config& cfg, J1939Image& image, J1939Socket& sock
     for (const auto& s : t.signals) st.bits.push_back(j1939_signal_bits(s));
     st.data.assign(t.length, 0xFF);
     st.next = st.data;
+    if (t.pages != canworks_can::MuxPages::Program && t.layout.multiplexed() &&
+        t.layout.page_count() <= canworks_can::kMuxMaxPages)
+      st.pages = t.layout.pages();
+    st.page_data.assign(st.pages.size(), st.data);
+    st.page_sent_once.assign(st.pages.size(), 0);
+    st.sw.assign(t.signals.size(), 0);
+    st.act.assign(t.signals.size(), 1);
     tx_.push_back(st);
   }
   req_.resize(j_.requests.size());
@@ -168,6 +182,7 @@ void J1939Engine::bus_up(clock::time_point now) {
   was_claimed_ = false;
   bound_ = 0xFF;
   ecus_.clear();
+  replied_.clear();
   for (auto& r : rx_) {
     r.seen = false;
     r.timed_out = false;
@@ -240,7 +255,23 @@ void J1939Engine::on_message(const J1939Message& m, clock::time_point now) {
       log_info("J1939: PGN %s arrives again", j1939_pgn_text(r.pgn).c_str());
     }
     image_.set_status(i, true);
+    // A multiplexed message carries the switches and its page's signals; an
+    // unknown page only the switches and the always-present signals.
+    bool muxed = r.layout.multiplexed();
+    bool unknown = false;
+    if (muxed) {
+      canworks_can::MuxLayout::Eval ev =
+          r.layout.evaluate(m.data.data(), static_cast<unsigned>(m.data.size()), st.active.data());
+      if (ev.short_frame) {
+        for (size_t k = 0; k < r.signals.size(); ++k)
+          if (!r.layout.always(k)) st.active[k] = 0;
+      } else if (ev.unknown) {
+        unknown = true;
+        ++st.unknown_pages;
+      }
+    }
     for (size_t k = 0; k < r.signals.size(); ++k) {
+      if (muxed && (!st.active[k] || (unknown && !r.layout.always(k) && !r.layout.is_switch(k)))) continue;
       uint64_t raw;
       if (!j1939_extract(m.data.data(), m.data.size(), st.bits[k], raw) || j1939_not_valid(r.signals[k], raw)) {
         image_.set_valid(i, k, false);
@@ -248,6 +279,8 @@ void J1939Engine::on_message(const J1939Message& m, clock::time_point now) {
       }
       image_.set_value(i, k, j1939_to_plc(r.signals[k], raw));
       image_.set_valid(i, k, true);
+      st.sig_seen[k] = 1;
+      st.sig_last[k] = now;
     }
     dirty_ = true;
   }
@@ -260,46 +293,115 @@ void J1939Engine::on_request(const J1939Message& m, clock::time_point now) {
   if (m.destination != kJ1939Global && !to_us &&
       !(pgn == kPgnAddressClaimed && m.destination == claimer_.claiming_address()))
     return;
+  // Answers to the same PGN and requester at most every kReplyGap. Requests
+  // for the claims from the null address (ECUs still claiming, possibly
+  // several starting at once) are always answered.
   if (pgn == kPgnAddressClaimed) {
-    claimer_.on_claim_request();
+    if (m.source == kJ1939NullAddress || reply_allowed(pgn, m.source, now)) claimer_.on_claim_request(now);
     return;
   }
   if (!can_send(now)) return;
   for (size_t i = 0; i < j_.tx.size(); ++i) {
     if (j_.tx[i].pgn != pgn) continue;
     if (!outputs_enabled()) return;  // a transmit message, stopped with the outputs
+    if (!reply_allowed(pgn, m.source, now)) return;
     const uint64_t* snap = image_.latest_outputs();
-    build_tx(i, snap);
     uint8_t dest = j1939_pdu1(pgn) && m.source <= kJ1939MaxAddress ? m.source : kJ1939Global;
-    send_tx(i, dest, now);
+    send_all(i, dest, now, snap);
     ++tx_[i].answered;
     return;
   }
-  if (!to_us) return;
+  if (!to_us || !reply_allowed(pgn, m.source, now)) return;
   // NACK (J1939-21 Acknowledgement, control byte 1) for a PGN we do not send.
   const uint8_t d[8] = {1, 0xFF, 0xFF, 0xFF, m.source, uint8_t(pgn), uint8_t(pgn >> 8), uint8_t(pgn >> 16)};
   send(kPgnAcknowledgement, kJ1939Global, 6, d, sizeof(d));
 }
 
-bool J1939Engine::build_tx(size_t i, const uint64_t* snap) {
+bool J1939Engine::reply_allowed(uint32_t pgn, uint8_t requester, clock::time_point now) {
+  const uint32_t key = pgn << 8 | requester;
+  auto it = replied_.find(key);
+  if (it != replied_.end() && now - it->second < kReplyGap) return false;
+  // Entries older than the gap limit nothing: drop them before the map grows.
+  if (replied_.size() >= kRepliedMax) {
+    for (auto e = replied_.begin(); e != replied_.end();) {
+      if (now - e->second >= kReplyGap)
+        e = replied_.erase(e);
+      else
+        ++e;
+    }
+  }
+  if (replied_.size() >= kRepliedMax) return false;
+  replied_[key] = now;
+  return true;
+}
+
+bool J1939Engine::build_tx(size_t i, const uint64_t* snap, int page) {
   const J1939Tx& t = j_.tx[i];
   TxState& st = tx_[i];
   // Unused bits are sent as 1 (J1939-71); each signal is written over them.
   std::fill(st.next.begin(), st.next.end(), 0xFF);
-  for (size_t k = 0; k < t.signals.size(); ++k)
-    j1939_insert(st.next.data(), st.next.size(), st.bits[k], j1939_from_plc(t.signals[k], snap[image_.tx_slot(i, k)]));
+  const uint8_t* active = nullptr;
+  const uint64_t* switches = nullptr;
+  bool unknown = false;
+  if (page >= 0) {
+    const auto& pg = st.pages[static_cast<size_t>(page)];
+    active = pg.active.data();
+    switches = pg.values.data();
+  } else if (t.layout.multiplexed()) {
+    for (size_t k = 0; k < t.signals.size(); ++k)
+      st.sw[k] = t.signals[k].has_location ? j1939_from_plc(t.signals[k], snap[image_.tx_slot(i, k)]) : 0;
+    unknown = t.layout.activity(st.sw.data(), st.act.data());
+    st.unknown_page = unknown;
+    active = st.act.data();
+  }
+  for (size_t k = 0; k < t.signals.size(); ++k) {
+    if (active && !active[k]) continue;
+    if (unknown && !t.layout.always(k) && !t.layout.is_switch(k)) continue;
+    uint64_t v = t.signals[k].has_location ? j1939_from_plc(t.signals[k], snap[image_.tx_slot(i, k)])
+                                           : (switches ? switches[k] : 0);
+    j1939_insert(st.next.data(), st.next.size(), st.bits[k], v);
+  }
+  if (page >= 0) return !st.page_sent_once[static_cast<size_t>(page)] || st.next != st.page_data[static_cast<size_t>(page)];
   return !st.sent_once || st.next != st.data;
 }
 
-bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now) {
+bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now, int page) {
   const J1939Tx& t = j_.tx[i];
   TxState& st = tx_[i];
   int r = send(t.pgn, destination, static_cast<uint8_t>(t.priority), st.next.data(), st.next.size());
   if (r == -EADDRNOTAVAIL && settling_) return false;
-  if (r == 0) ++st.sent;
-  st.data = st.next;
+  // A refused send does not count as sent: an on-change PGN stays changed and
+  // is tried again on the next tick.
+  if (r < 0) return true;
+  ++st.sent;
+  if (page >= 0) {
+    st.page_data[static_cast<size_t>(page)] = st.next;
+    st.page_sent_once[static_cast<size_t>(page)] = 1;
+  } else {
+    st.data = st.next;
+  }
   st.sent_once = true;
   st.last_sent = now;
+  return true;
+}
+
+bool J1939Engine::send_all(size_t i, uint8_t destination, clock::time_point now, const uint64_t* snap) {
+  TxState& st = tx_[i];
+  if (st.pages.empty()) {
+    build_tx(i, snap);
+    return send_tx(i, destination, now);
+  }
+  if (j_.tx[i].pages == canworks_can::MuxPages::Rotate) {
+    int p = static_cast<int>(st.cursor);
+    build_tx(i, snap, p);
+    if (!send_tx(i, destination, now, p)) return false;
+    st.cursor = (st.cursor + 1) % st.pages.size();
+    return true;
+  }
+  for (size_t p = 0; p < st.pages.size(); ++p) {
+    build_tx(i, snap, static_cast<int>(p));
+    if (!send_tx(i, destination, now, static_cast<int>(p))) return false;
+  }
   return true;
 }
 
@@ -318,6 +420,7 @@ void J1939Engine::tick(clock::time_point now) {
     for (auto& t : tx_) {
       t.next_due = now;
       t.sent_once = false;
+      std::fill(t.page_sent_once.begin(), t.page_sent_once.end(), 0);
     }
     for (auto& q : req_) q.next_due = now;
   }
@@ -327,6 +430,14 @@ void J1939Engine::tick(clock::time_point now) {
   for (size_t i = 0; i < j_.rx.size(); ++i) {
     const J1939Rx& r = j_.rx[i];
     RxState& st = rx_[i];
+    // A signal's valid bit goes FALSE when no message carried it for the
+    // timeout (a multiplexed signal's page stopped).
+    for (size_t k = 0; r.timeout_ms && k < r.signals.size(); ++k) {
+      if (!st.sig_seen[k] || now - st.sig_last[k] < std::chrono::milliseconds(r.timeout_ms)) continue;
+      st.sig_seen[k] = 0;
+      image_.set_valid(i, k, false);
+      dirty_ = true;
+    }
     if (!r.timeout_ms || st.timed_out) continue;
     clock::time_point since = st.seen ? st.last : session_start_;
     if (now - since < std::chrono::milliseconds(r.timeout_ms)) continue;
@@ -348,8 +459,30 @@ void J1939Engine::tick(clock::time_point now) {
       for (size_t i = 0; i < j_.tx.size(); ++i) {
         const J1939Tx& t = j_.tx[i];
         TxState& st = tx_[i];
-        bool changed = build_tx(i, snap);
         uint8_t dest = t.has_destination ? static_cast<uint8_t>(t.destination) : kJ1939Global;
+        if (!st.pages.empty() && !t.period_ms) {
+          // On change, page by page: every changed page ("all"), or the
+          // next changed page ("rotate").
+          if (st.sent_once && now - st.last_sent < std::chrono::milliseconds(t.min_gap_ms)) continue;
+          size_t n = st.pages.size();
+          for (size_t s = 0; s < n; ++s) {
+            size_t p = (t.pages == canworks_can::MuxPages::Rotate ? st.cursor + s : s) % n;
+            if (!build_tx(i, snap, static_cast<int>(p))) continue;
+            send_tx(i, dest, now, static_cast<int>(p));
+            if (t.pages == canworks_can::MuxPages::Rotate) {
+              st.cursor = (p + 1) % n;
+              break;
+            }
+          }
+          continue;
+        }
+        if (!st.pages.empty()) {
+          if (now < st.next_due || !send_all(i, dest, now, snap)) continue;
+          st.next_due += std::chrono::milliseconds(t.period_ms);
+          if (st.next_due <= now) st.next_due = now + std::chrono::milliseconds(t.period_ms);
+          continue;
+        }
+        bool changed = build_tx(i, snap);
         if (t.period_ms) {
           if (now < st.next_due || !send_tx(i, dest, now)) continue;
           st.next_due += std::chrono::milliseconds(t.period_ms);
@@ -420,6 +553,7 @@ cJSON* J1939Engine::status(clock::time_point now) const {
     cJSON_AddBoolToObject(o, "timed_out", st.timed_out);
     cJSON_AddNumberToObject(o, "timeouts", static_cast<double>(st.timeouts));
     cJSON_AddNumberToObject(o, "count", static_cast<double>(st.count));
+    if (r.layout.multiplexed()) cJSON_AddNumberToObject(o, "unknown_pages", static_cast<double>(st.unknown_pages));
     cJSON* sigs = cJSON_AddArrayToObject(o, "signals");
     for (size_t k = 0; k < r.signals.size(); ++k) {
       cJSON* g = cJSON_CreateObject();
@@ -439,6 +573,10 @@ cJSON* J1939Engine::status(clock::time_point now) const {
     cJSON_AddNumberToObject(o, "pgn", j_.tx[i].pgn);
     cJSON_AddNumberToObject(o, "sent", static_cast<double>(tx_[i].sent));
     cJSON_AddNumberToObject(o, "requests_answered", static_cast<double>(tx_[i].answered));
+    if (j_.tx[i].layout.multiplexed()) {
+      cJSON_AddStringToObject(o, "pages", canworks_can::mux_pages_name(j_.tx[i].pages));
+      if (tx_[i].unknown_page) cJSON_AddBoolToObject(o, "unknown_page", true);
+    }
     cJSON_AddItemToArray(tx, o);
   }
   cJSON* rq = cJSON_AddArrayToObject(j, "requests");

@@ -138,7 +138,7 @@ A PDO entry that a route writes (an RPDO entry fed from the upper master) may le
 | Field | Required | Meaning |
 |---|---|---|
 | `type` | yes | The adapter backend: `socketcan` (an interface the system already has: CAN HAT, candleLight/gs_usb, PEAK, vcan) or `slcan` (a serial-line adapter such as a CANable with slcan firmware; see [slcan](#slcan-canable-lawicel-canusb)). Any other type leaves the plugin inactive with an error naming it. |
-| `interface` | yes | SocketCAN interface, e.g. `can0` or `vcan0`. With `slcan`, the name the plugin gives the interface it creates. |
+| `interface` | yes | SocketCAN interface, e.g. `can0` or `vcan0`. With `slcan`, the name the plugin gives the interface it creates. 1-15 characters of letters, digits, `_`, `.`, `:` and `-` (the Linux limit), on every kind of network. |
 | `bitrate` | yes | Bus bit rate in bit/s: 10000, 20000, 50000, 125000, 250000, 500000, 800000 or 1000000. |
 | `configure_link` | no | `socketcan` only. Default `true`: at PLC start the plugin sets the interface to `bitrate` and brings it up. A link that is already up at that rate is used as is; one up at another rate is taken down, set and brought up again, with a warning. A `vcan` link is only brought up. `false` leaves the link to the system, with a warning if its rate differs. |
 | `restart_ms` | no | `socketcan` only. Bus-off auto-restart delay in ms, set together with the bit rate (`ip link ... restart-ms`). |
@@ -189,6 +189,8 @@ Flashing candleLight (CANable updater, https://canable.io/updater/) turns the CA
 | `rx_error_count_location` | no | An input byte (`%IB...`) with the controller's receive error counter, clamped to 255. |
 | `bus_off_count_location` | no | An input word (`%IW...`) counting bus-off events since the PLC started; wraps at 65535. |
 | `state_location` | no | An input byte (`%IB...`) with the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED. The master stays PRE-OPERATIONAL while a mandatory node is missing or with `start: false`, and no node exchanges PDOs then. |
+| `on_plc_stop` | no | What the master sends each configured node that is up when the PLC or the plugin stops, before the network closes: `"preop"` (default) ENTER PRE-OPERATIONAL, `"stop"` STOP, `"keep"` nothing (the nodes keep their last outputs). No output PDO is sent between the stop and the command. Pre-operational stops the device's PDOs, so its own communication-loss setting applies, while SDO access stays. The next PLC start boots and starts the nodes as usual. |
+| `scan_watchdog_ms` | no | 10-60000, default 1000; 0 turns it off. While the PLC runs and its scan has not finished a cycle for this long, the outputs stop: no RPDOs, raw or J1939 transmit messages. SYNC, inputs and node supervision keep running. The next finished scan sends the outputs again. Both are logged. Set a larger value, or 0, for a program with a deliberately long scan. |
 | `diagnostics` | no | Turns on the diagnostics channel for the configurator's online view, its bus scan and `canworks-diag` (below, [Online diagnostics](#online-diagnostics)). Left out: the plugin opens no port. |
 
 The master also takes every option `dcfgen` offers for it (below, [Master options](#master-options)).
@@ -287,9 +289,11 @@ The two `simulate` switches give four combinations: everything simulated (`adapt
 | `node_id` | yes | 1-127, unique, not the master's ID. |
 | `name` | no | Used in log messages. |
 | `eds` | yes | EDS file (CiA 306). A relative path is looked up next to the config file first, then in the runtime's `core/generated/conf/`, where a stock runtime extracts the uploaded `conf/` tree (the deploy tool puts EDS files under `conf/canworks/eds/`). The plugin logs the path it used. |
-| `heartbeat_ms` | no | Heartbeat period the slave is configured to produce; 0 switches its heartbeat off. Left out, the slave keeps the period its EDS gives (object 0x1017) and nothing is written. The master reports the node lost when no heartbeat arrives within `heartbeat_timeout_ms`. |
+| `heartbeat_ms` | no | Heartbeat period the slave is configured to produce; 0 switches its heartbeat off. Left out, the slave keeps the period its EDS gives (object 0x1017) and nothing is written. The master reports the node lost when no heartbeat arrives within `heartbeat_timeout_ms`. Every node must be supervised (below). |
 | `heartbeat_timeout_ms` | no | Default 3 × `heartbeat_ms`, or 3 × the EDS heartbeat period when `heartbeat_ms` is left out. |
 | `guard_time_ms`, `life_time_factor` | no | Node guarding instead of heartbeat. Give both, and not together with `heartbeat_ms`. |
+
+**Supervision.** A node without guarding whose heartbeat is 0 (from `heartbeat_ms`, or from its EDS 0x1017 default when `heartbeat_ms` is left out) would never be seen as lost. Such a node is rejected, unless `"heartbeat_ms": 0` is written out: then the file loads and every start logs a warning that the node's loss is not detected.
 | `status_location` | no | An input bit (`%IX...`) that is TRUE while the node and the master are both OPERATIONAL, which is when PDOs flow, and FALSE otherwise. |
 | `state_location` | no | An input byte (`%IB...`) with the node's NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED, 0 no contact (never heard from, lost, being reset, or not answering the master's boot retries). It follows heartbeat or node-guarding messages, so without supervision it only changes at boot and when the node is lost. |
 | `boot_error_location` | no | An input byte (`%IB...`) with the reason the node's last boot failed (below), 0 once it is OPERATIONAL. |
@@ -682,7 +686,11 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a node sets `lss.assign` without `serial_number` or with `reset_communication: false`, `lss.store` without `lss.assign`, or two nodes with `lss.assign` have the same LSS address;
 - a node's `axis` is not an object, has an unknown field, a `scale_numerator` that is 0 or not an integer in the DINT range, a `scale_denominator` outside 1-4294967295 or a `scale_factor` of 0;
 - a node sets `heartbeat_consumer: true` while `master.heartbeat_ms` is 0, sets `software_version` without `software_file`, or names a `software_file` that does not exist;
-- a location lies outside the runtime's I/O image (index 1024 and up on a default runtime);
+- a location lies outside the runtime's I/O image (index 1024 and up on a default runtime), raw message locations included; in a bridge config, a location or block whose bytes reach past the image;
+- an `interface` is not 1-15 characters of letters, digits, `_`, `.`, `:` and `-`;
+- a node has no guarding and a heartbeat of 0 from its EDS default, without an explicit `"heartbeat_ms": 0`;
+- `master.on_plc_stop` is not `"preop"`, `"stop"` or `"keep"`, or `master.scan_watchdog_ms` is not 0 or 10-60000;
+- a bridge config has no `bridge.writers` (`[]` lets nobody write, `["0.0.0.0/0", "::/0"]` every address), or `bridge.max_clients_per_address` is outside 1-64 ([modbus-bridge.md](modbus-bridge.md));
 - in a version 2 file: `networks` is missing, empty or longer than 8, a network name is invalid or used twice, two networks use the same interface or serial device, a field of a network (`adapter`, `master`, `nodes`) sits at the top level, or `diagnostics` sits in a network's `master`;
 - `nodes` is empty without `master.diagnostics` (in version 2, without the top-level `diagnostics`), or `master.diagnostics` has the former `token_sha256` or a `token_verifier` that is not a valid verifier, a `port` outside 1024-65535 or a `bind` that is not an IPv4 address;
 - a network's `protocol` is not `"canopen"` or `"j1939"`, a J1939 network has `role`, `master`, `nodes` or `slave`, lacks `j1939` or sets `adapter.simulate`, or a CANopen network has `j1939`;

@@ -140,11 +140,16 @@ SweepResult run_bitrate_sweep(LinkOps& ops, SweepListener& listener, const std::
     res.error = why;
   };
 
-  bool stopped = false;
-  for (unsigned round = 1; round <= rounds && res.verdict != SweepVerdict::Failed && !stopped; ++round) {
+  bool stopped = false, cancelled = false;
+  auto cancel = [&req] { return req.cancel && req.cancel->load(); };
+  for (unsigned round = 1; round <= rounds && res.verdict != SweepVerdict::Failed && !stopped && !cancelled; ++round) {
     for (size_t i = 0; i < rates.size(); ++i) {
       if (stop()) {
         stopped = true;
+        break;
+      }
+      if (cancel()) {
+        cancelled = true;
         break;
       }
       pg.rate_kbit = rates[i];
@@ -176,7 +181,7 @@ SweepResult run_bitrate_sweep(LinkOps& ops, SweepListener& listener, const std::
       }
       ++pg.done;
     }
-    if (res.verdict == SweepVerdict::Failed || stopped) break;
+    if (res.verdict == SweepVerdict::Failed || stopped || cancelled) break;
     // A clear answer ends the sweep early.
     SweepResult probe = res;
     decide_sweep(probe);
@@ -186,16 +191,27 @@ SweepResult run_bitrate_sweep(LinkOps& ops, SweepListener& listener, const std::
   pg.done = pg.total;
   progress(pg);
 
-  // Back to the configured rate, without listen-only, whatever happened.
+  // Back to the configured rate, without listen-only, whatever happened:
+  // the bit rate is set even when taking the link down failed, and the link
+  // is brought up a second time when the first try fails.
   int rc = ops.set_up(interface, false);
-  int lo = ops.set_listen_only(interface, false);
-  if (lo < 0 && lo != -EOPNOTSUPP && lo != -EINVAL && rc == 0) rc = lo;
-  if (rc == 0) rc = ops.set_bitrate(interface, configured_bitrate, restart_ms);
-  if (rc == 0) rc = ops.set_up(interface, true);
   if (rc < 0)
-    log_warn("bit rate detection: cannot restore %s to %u bit/s: %s; retrying with the next CANopen session",
+    log_warn("bit rate detection: cannot take %s down to restore it: %s", interface.c_str(), errtext(rc).c_str());
+  int lo = ops.set_listen_only(interface, false);
+  if (lo < 0 && lo != -EOPNOTSUPP && lo != -EINVAL)
+    log_warn("bit rate detection: cannot switch listen-only off on %s: %s", interface.c_str(), errtext(lo).c_str());
+  rc = ops.set_bitrate(interface, configured_bitrate, restart_ms);
+  if (rc < 0)
+    log_warn("bit rate detection: cannot set %s back to %u bit/s: %s; retrying with the next CANopen session",
              interface.c_str(), configured_bitrate, errtext(rc).c_str());
+  rc = ops.set_up(interface, true);
+  if (rc < 0) rc = ops.set_up(interface, true);
+  if (rc < 0)
+    log_warn("bit rate detection: cannot bring %s up again: %s; retrying with the next CANopen session",
+             interface.c_str(), errtext(rc).c_str());
   if (stopped && res.verdict != SweepVerdict::Failed) fail("stopped (the PLC stopped)");
+  if (cancelled && res.verdict != SweepVerdict::Failed)
+    fail("stopped by " + (req.stopped_by && !req.stopped_by->empty() ? *req.stopped_by : std::string("a client")));
   decide_sweep(res);
   return res;
 }

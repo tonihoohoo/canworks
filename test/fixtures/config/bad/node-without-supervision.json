@@ -1,0 +1,47 @@
+{
+  "description": "A node with no heartbeat_ms, no guarding and an EDS heartbeat default of 0 (M3).",
+  "config": {
+    "schema_version": 1,
+    "adapter": {
+      "type": "socketcan",
+      "interface": "vcan0",
+      "bitrate": 125000
+    },
+    "master": {
+      "node_id": 1,
+      "sync_period_us": 100000
+    },
+    "nodes": [
+      {
+        "node_id": 2,
+        "name": "pingpong",
+        "eds": "cpp-slave.eds",
+        "status_location": "%IX10.0",
+        "tx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4001",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%ID100"
+              }
+            ]
+          }
+        ],
+        "rx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4000",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%QD100"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

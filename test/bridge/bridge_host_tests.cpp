@@ -72,6 +72,10 @@ std::string example_copy(const std::function<void(cJSON*)>& edit) {
   for (const char* f : {"simulation.json", "rtd8.eds", "dio16.eds"})
     write_file(dir + "/" + f, read_file(std::string(EXAMPLE_DIR) + "/" + f));
   cJSON* root = cJSON_Parse(read_file(std::string(EXAMPLE_DIR) + "/canworks.json").c_str());
+  // The tests' clients connect from the loopback address.
+  cJSON* writers = cJSON_CreateArray();
+  cJSON_AddItemToArray(writers, cJSON_CreateString("127.0.0.1"));
+  cJSON_ReplaceItemInObject(cJSON_GetObjectItem(root, "bridge"), "writers", writers);
   if (edit) edit(root);
   char* text = cJSON_Print(root);
   write_file(dir + "/canworks.json", text);
@@ -128,7 +132,16 @@ struct Host {
     canopen_plugin::set_log_sink(capture);
     canopen_plugin::canopen_init_logging();
     host.listen_override = "127.0.0.1:0";
-    ok = host.start(example_copy(edit), "test");
+    ok = host.start(example_copy([&](cJSON* r) {
+                      // The test client writes from loopback.
+                      cJSON* w = cJSON_CreateArray();
+                      cJSON_AddItemToArray(w, cJSON_CreateString("127.0.0.1"));
+                      cJSON_AddItemToArray(w, cJSON_CreateString("::1"));
+                      cJSON_DeleteItemFromObject(bridge_of(r), "writers");
+                      cJSON_AddItemToObject(bridge_of(r), "writers", w);
+                      if (edit) edit(r);
+                    }),
+                    "test");
     if (!ok) {
       std::lock_guard<std::mutex> l(g_log_mu);
       for (const auto& m : g_log) std::printf("  log: %s\n", m.c_str());
@@ -196,6 +209,27 @@ TEST(watchdog_zero) {
   // The output image itself reads back 0 too.
   auto q = regs(c, kReadHoldingRegisters, 1, 1);
   EXPECT(q.size() == 1 && q[0] == 0);
+}
+
+// Spec: outputs off after a loss with "stop", then a writer writes one coil
+// -> that coil is sent with its new value and every other output as 0.
+TEST(watchdog_stop_clears_outputs) {
+  Host h([](cJSON* r) { set_number(bridge_of(r), "watchdog_ms", 300); });
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  // %QB0, %QB1, %QW2 -> %IB8, %IB9, %IW10 on the simulated device.
+  EXPECT(write(c, 0, {0x0102, 1234}));
+  EXPECT(wait_for([&] { return reg(c, 4) == 0x0102 && reg(c, 5) == 1234; }));
+  EXPECT(wait_for([&] { return state(c) == 2; }, 3000));
+  EXPECT(reg(c, 5) == 1234);  // nothing sent while off
+  // Coil 0 is %QX0.0.
+  EXPECT(c.request({kWriteSingleCoil, 0, 0, 0xFF, 0x00}) == Bytes({kWriteSingleCoil, 0, 0, 0xFF, 0x00}));
+  EXPECT(wait_for([&] { return state(c) == 1; }));
+  EXPECT(wait_for([&] { return reg(c, 4) == 0x0100 && reg(c, 5) == 0; }));
+  auto q = regs(c, kReadHoldingRegisters, 0, 2);
+  EXPECT(q.size() == 2 && q[0] == 0x0100 && q[1] == 0);
 }
 
 TEST(watchdog_hold) {
@@ -384,6 +418,53 @@ TEST(interface_lock) {
   b.release();
   c.release();
   unsetenv("CANWORKS_LOCK_PREFIX");
+}
+
+// A byte address near 2^32 does not wrap the image size.
+TEST(rejects_huge_byte_address) {
+  Host h([](cJSON* r) {
+    cJSON* node = cJSON_GetArrayItem(
+        cJSON_GetObjectItem(cJSON_GetArrayItem(cJSON_GetObjectItem(r, "networks"), 0), "nodes"), 0);
+    set_string(node, "state_location", "%IB4294967295");
+  });
+  EXPECT(!h.ok);
+}
+
+// An allowlist entry the server cannot use stops the start.
+TEST(server_config_from_bridge) {
+  canopen_plugin::BridgeConfig b;
+  b.listen = "0.0.0.0:502";
+  b.max_clients_per_address = 3;
+  b.writers = {"10.0.0.20"};
+  b.readers = {"10.0.0.0/8"};
+  ServerConfig sc;
+  std::string err;
+  EXPECT(server_config(b, sc, err));
+  EXPECT(sc.max_clients_per_address == 3 && !sc.writers.empty() && !sc.readers.empty());
+  b.writers = {"10.0.0.0/33"};
+  EXPECT(!server_config(b, sc, err));
+  EXPECT(err.find("writers") != std::string::npos && err.find("10.0.0.0/33") != std::string::npos);
+  b.writers = {};
+  b.readers = {"not an address"};
+  EXPECT(!server_config(b, sc, err));
+  EXPECT(err.find("readers") != std::string::npos);
+}
+
+// Image sizes are counted in 64 bits and refused over the limit.
+TEST(image_sizes_refuse_over_the_limit) {
+  canopen_plugin::ImageUse u;
+  u.loc.area = canopen_plugin::IecArea::Input;
+  u.loc.size = canopen_plugin::IecSize::B;
+  u.loc.index = 0xFFFFFFFFu;
+  u.nbytes = 1;
+  size_t in = 0, out = 0;
+  std::string err;
+  EXPECT(!image_sizes({u}, BridgeHost::kImageLimit, in, out, err));
+  EXPECT(err.find("%IB4294967295") != std::string::npos);
+  u.loc.index = 8191;
+  EXPECT(image_sizes({u}, BridgeHost::kImageLimit, in, out, err) && in == 8192 && out == 0);
+  u.nbytes = 2;
+  EXPECT(!image_sizes({u}, BridgeHost::kImageLimit, in, out, err));
 }
 
 TEST(rejects_plain_configs) {

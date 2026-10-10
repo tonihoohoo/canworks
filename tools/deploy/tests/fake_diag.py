@@ -237,6 +237,11 @@ class FakePlugin:
         self.job_failure = None  # a reason that ends every cyclic job after its first frame
         self.cob_ids = {0x205: "RPDO1 of node 5", 0x185: "TPDO1 of node 5", 0x000: "NMT", 0x080: "SYNC"}
         self.operational = None  # a node ID: refuses sends and sweeps without force
+        # With force_running, sdo_write and nmt (all but start) to a node
+        # whose status says OPERATIONAL (state 5), and a scan while any node
+        # is, need force, as the plugin asks.
+        self.force_running = False
+        self.forced = []  # (op, node) of every request sent with force
         # Bit rate detection: per rate (kbit/s) what the sweep hears, how many
         # rates each status poll moves on, and a refusal for the network.
         self.detect_supported = True
@@ -571,6 +576,17 @@ class FakePlugin:
             return ok({"node_id": req["node"], "emcy": net.emcy.get(req["node"], [])})
         if op in ("sdo_write", "nmt") and not self.allow_changes:
             return err("changes not allowed")
+        if req.get("force"):
+            self.forced.append((op, req.get("node")))
+        running = [n["node_id"] for n in net.status.get("nodes") or [] if n.get("state") == 5]
+        if self.force_running and not req.get("force"):
+            if (op == "sdo_write" or op == "nmt" and req.get("command") != "start") and req.get("node") in running:
+                return err("node %d is OPERATIONAL; %s; force needed" % (req["node"], (
+                    "an SDO write changes it while the program drives it" if op == "sdo_write" else
+                    "an NMT command takes it out of the program's control")))
+            if op == "scan" and running:
+                return err("node %d is OPERATIONAL; a scan sends SDO requests to every node ID; force needed"
+                           % running[0])
         if op in ("sdo_read", "sdo_write"):
             node, index, sub = req["node"], req["index"], req["subindex"]
             base = {"node": node, "index": index, "subindex": sub}

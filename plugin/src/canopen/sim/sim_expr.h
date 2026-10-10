@@ -5,7 +5,10 @@
 // references are resolved then, so evaluating never fails to find anything.
 // Stateful functions (lag, delay, rate_limit, integrate, hold, edge) keep
 // their state in their own node of the tree, so each call site has its own.
-// Evaluation allocates only in delay(), whose history grows with the delay.
+// Evaluation allocates only in delay(), whose history grows with the delay
+// (at most 10,000 samples). Texts over 4096 characters and nesting over 128
+// levels are refused, which bounds the recursion of parsing, evaluating and
+// freeing a tree.
 
 #ifndef CANOPEN_SIM_EXPR_H
 #define CANOPEN_SIM_EXPR_H

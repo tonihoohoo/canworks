@@ -278,7 +278,10 @@ async function pickMessages(res) {
       el("td", { class: "mono" }, pgnText(m.pgn)),
       el("td", null, m.sender || "", m.source !== undefined ? el("span", { class: "muted" }, ` (address ${m.source})`) : null),
       el("td", null, `${m.length} B`, m.cycle_ms ? el("div", { class: "muted" }, `every ${m.cycle_ms} ms`) : null),
-      el("td", null, m.signals.join(", ")),
+      el("td", null, m.signals.join(", "),
+        (m.switches || []).length ? el("div", { class: "muted", dataset: { j1939Mux: m.name } },
+          `switch ${m.switches.join(", ")}` + (m.pages ? `, ${m.pages} page${m.pages === 1 ? "" : "s"}` : "")) : null,
+        m.mux_problem ? el("div", { class: "field-msg warning" }, m.mux_problem) : null),
       el("td", null, sel, already ? el("div", { class: "muted" }, `already in ${already === "rx" ? "received" : "sent"} PGNs`) : null)) };
   });
   const extra = el("div", { class: "j1939-picker" },
@@ -357,8 +360,9 @@ function j1939Message(dir, m, i) {
     field("Length (bytes)", base + ".length", "int", { parse: intValue, placeholder: "auto", hint: "Empty: the smallest length of at least 8 that holds every signal; over 8 goes by the transport protocol." }),
     field("Period (ms)", base + ".period_ms", "int", { parse: intValue, placeholder: "0", hint: "0: send on change and on request only." }),
     field("Least gap (ms)", base + ".min_gap_ms", "int", { parse: intValue, placeholder: "0", hint: "The least time between two sends on change." }),
+    muxSwitches(signals).length || m.pages !== undefined ? muxPagesChoice(base + ".pages", m, (v) => muxSetPages(base, v)) : null,
   ];
-  const rows = signals.map((s, k) => j1939Signal(dir, base, s, k));
+  const rows = muxOrder(signals).map((k) => j1939Signal(dir, base, signals, k, m));
   return el("div", { class: "pdo j1939-msg", dataset: { path: base, j1939Msg: `${dir}:${i}` } },
     el("div", { class: "pdo-title" },
       el("strong", null, `PGN ${pgnText(m.pgn)}${m.name ? " " + m.name : ""}`),
@@ -376,8 +380,10 @@ function j1939Message(dir, m, i) {
     el("button", { type: "button", class: "small", dataset: { j1939AddSignal: `${dir}:${i}` }, onclick: () => addSignal(dir, i) }, "Add signal"));
 }
 
-function j1939Signal(dir, base, s, k) {
+function j1939Signal(dir, base, signals, k, m) {
+  const s = signals[k];
   const sp = `${base}.signals[${k}]`;
+  const setByPlugin = dir === "tx" && s.multiplexer === true && (m.pages === "all" || m.pages === "rotate");
   const order = el("select", { "aria-label": `Byte order of ${s.name || "signal"}`, dataset: { path: sp + ".byte_order" } },
     el("option", { value: "" }, "little"), el("option", { value: "big" }, "big"));
   order.value = s.byte_order === "big" ? "big" : "";
@@ -387,7 +393,7 @@ function j1939Signal(dir, base, s, k) {
   signed.addEventListener("change", () => setPath(sp + ".signed", signed.checked || undefined));
   const who = s.name || `signal ${k + 1}`;
   // Two lines per signal, so the table fits next to Problems: the layout,
-  // then the PLC locations with their labels.
+  // then Switch, Page and the PLC locations with their labels.
   const loc = (label, input, button, path) => el("div", null, el("span", { class: "hint" }, label),
     el("span", { class: "row" }, input, button),
     el("span", { class: "field-msg", dataset: { for: path } }), declNote(path));
@@ -404,7 +410,9 @@ function j1939Signal(dir, base, s, k) {
     el("td", null, el("button", { type: "button", title: "Remove", "aria-label": `Remove signal ${who}`,
       onclick: () => { getPath(base + ".signals").splice(k, 1); changed(true); } }, "✕"))),
   el("tr", { class: "j1939-locations" }, el("td", { colspan: 9 }, el("div", { class: "j1939-locs" },
-    loc("PLC location", cellInput(sp + ".iec_location", `PLC location of ${who}`, null, J1939_DIR[dir].area + "…"),
+    el("div", null, el("span", { class: "hint" }, "Switch"), el("span", { class: "row" }, muxSwitchBox(sp, s, `${who} is a switch`))),
+    loc("Page", muxPageCell(signals, k, sp, `Page of ${who}`), null, sp + ".mux"),
+    loc("PLC location", cellInput(sp + ".iec_location", `PLC location of ${who}`, null, setByPlugin ? "none: the plugin sets it" : J1939_DIR[dir].area + "…"),
       suggestButton(sp + ".iec_location", "j1939_" + dir, s.length, who), sp + ".iec_location"),
     dir === "rx" ? loc("Valid input", cellInput(sp + ".valid_location", `Valid input of ${who}`, null, "%IX…"),
       suggestButton(sp + ".valid_location", "j1939_valid", undefined, who + " valid"), sp + ".valid_location") : null)))];
@@ -520,14 +528,17 @@ function j1939Live(st) {
     return el("tr", { dataset: { j1939Rx: row.pgn } },
       el("td", { class: "mono" }, pgnText(row.pgn)), el("td", null, c && c.name ? c.name : ""),
       el("td", null, filter), el("td", null, (row.sources || []).join(", ") || "none yet"),
-      el("td", null, String(row.count ?? 0)), el("td", null, ageText(row.age_ms)),
+      el("td", null, String(row.count ?? 0), row.unknown_pages ? el("div", { class: "bad", dataset: { j1939Unknown: row.pgn } },
+        `${row.unknown_pages} unknown page${row.unknown_pages === 1 ? "" : "s"}`) : null),
+      el("td", null, ageText(row.age_ms)),
       el("td", { class: row.timed_out ? "bad" : null, dataset: { j1939Timeout: row.pgn } },
         row.timed_out ? "timed out" : "in time", row.timeouts ? el("span", { class: "muted" }, ` (${row.timeouts} timeout${row.timeouts === 1 ? "" : "s"})`) : null),
       el("td", null, sigs.length ? sigs : el("span", { class: "muted" }, "no values yet")));
   });
   const tx = (j.tx || []).map((row) => el("tr", { dataset: { j1939Tx: row.pgn } },
     el("td", { class: "mono" }, pgnText(row.pgn)), el("td", null, name(conf.tx, row.pgn)),
-    el("td", null, String(row.sent ?? 0)), el("td", null, String(row.requests_answered ?? 0))));
+    el("td", null, String(row.sent ?? 0), row.unknown_page ? el("div", { class: "bad" }, "unknown page: the switch outputs select no page") : null),
+    el("td", null, String(row.requests_answered ?? 0))));
   const req = (j.requests || []).map((row) => el("tr", { dataset: { j1939Request: row.pgn } },
     el("td", { class: "mono" }, pgnText(row.pgn)), el("td", null, name(conf.rx, row.pgn)), el("td", null, String(row.sent ?? 0))));
   const none = (n, text) => [el("tr", null, el("td", { colspan: n, class: "muted" }, text))];

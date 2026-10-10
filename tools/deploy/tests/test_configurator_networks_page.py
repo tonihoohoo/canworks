@@ -157,6 +157,8 @@ class NetworksPage(unittest.TestCase):
         # A node on drives, and online access once for both networks.
         pg.set_input_files("#eds-input", os.path.join(PINGPONG, "cpp-slave.eds"))
         pg.wait_for_selector('#node-list [data-node="0"]')
+        pg.select_option("select[data-supervision]", "heartbeat")  # the EDS has none: refused without
+        pg.fill('input[data-path="nodes[0].heartbeat_ms"]', "100")
         pg.click('button[data-view="bus"]')
         self.assertEqual(pg.locator('[data-section="online"] legend').inner_text(), "Online access (all networks)")
         pg.check('input[data-online="enable"]')

@@ -45,11 +45,15 @@ canworks-sim-runtime start
 The first start downloads the image matching the tools' version (several hundred MB), creates the container `canworks-sim-runtime` with its data volume, creates a runtime user `openplc` with a random password, and saves the address, user, password and the runtime's certificate fingerprint in `local-runtime.json` in the tools' settings folder (`%APPDATA%\canworks`, `~/Library/Application Support/canworks`, `~/.config/canworks`), readable only by you. It prints how to connect:
 
 ```
-Connect the OpenPLC Editor to it: target OpenPLC Runtime v4, address localhost:8443, user openplc, password ....
+Connect the OpenPLC Editor to it: target OpenPLC Runtime v4, address localhost:8443, user openplc, password from `canworks-sim-runtime status --show-password`.
 Deploy with:   canworks-deploy --runtime local ...
 Diagnostics:   canworks-diag --runtime local status   (configurator: host "local")
 Every CANopen network runs simulated here: no CAN interface is used.
 ```
+
+The password is printed only by `canworks-sim-runtime status --show-password`.
+
+The saved certificate fingerprint changes only when `start` or `update` has just created the container itself. At any other time, a runtime that answers on the port with another certificate is refused before the password is sent: `start`, `canworks-deploy --runtime local` and `status` stop and say the certificate changed. Another program may be holding the port; when you recreated the container yourself, `canworks-sim-runtime remove` and `start` pin the new certificate (the data volume, user and password stay).
 
 The container restarts with the engine (unless stopped) and listens only on this PC (`127.0.0.1`): the runtime on port 8443 and the CANopen diagnostics on port 7531. `--port` and `--diag-port` choose others; the diagnostics port is published as the same number inside the container, so a config for `--diag-port 7532` sets `master.diagnostics.port` (in a version 2 file, the top-level `diagnostics.port`) to 7532.
 
@@ -57,7 +61,7 @@ The container restarts with the engine (unless stopped) and listens only on this
 
 [tour.md](tour.md) takes you through [`examples/virtual-plant`](../examples/virtual-plant/README.md) on the local simulator runtime step by step: every feature that does not need hardware, in one project.
 
-- **Editor:** type the address `localhost:8443` with the printed user and password (the device settings' search does not list the local runtime, since it scans the network rather than this PC; typing the address connects), then **Build and Upload** a project with a `canworks/` folder ([install-stock.md](install-stock.md)). The runtime log shows the CANopen start, and the debugger shows the values of the simulated devices. Simulated values follow the project's simulation file ([simulator.md](simulator.md)).
+- **Editor:** type the address `localhost:8443` with the printed user and the password from `status --show-password` (the device settings' search does not list the local runtime, since it scans the network rather than this PC; typing the address connects), then **Build and Upload** a project with a `canworks/` folder ([install-stock.md](install-stock.md)). The runtime log shows the CANopen start, and the debugger shows the values of the simulated devices. Simulated values follow the project's simulation file ([simulator.md](simulator.md)).
 - **Deploy tool:** `canworks-deploy --runtime local --config canworks/canworks.json --project .` reads the address, user, password and fingerprint from `local-runtime.json`; `--user` (with `$OPENPLC_PASSWORD` or a prompt for its password) and `--ca`, `--fingerprint` or `--insecure` still win. It skips the question about uploading a non-simulated config, since nothing real is driven here.
 - **Diagnostics and configurator:** `canworks-diag --runtime local status`, and in the configurator's online access the **Local simulator runtime** button (host `local`). The project's config needs `master.diagnostics` (in a version 2 file, the top-level `diagnostics`) with a token as for any runtime ([diagnostics.md](diagnostics.md)); the plugin's default `bind` (`0.0.0.0`) and port (7531) fit the container.
 

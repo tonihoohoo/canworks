@@ -6,8 +6,10 @@ PATH opens directly: as an editor project when it has project.json (the
 config is PATH/canworks/canworks.json), otherwise as a standalone config folder
 (PATH/canworks.json). Without PATH the page opens on its start page.
 
-Every request must carry the session token: the URL printed at start sets it
-as a cookie for the page, and the page sends it as a header on API calls.
+Every request must carry the session token: the URL printed at start carries
+a one-time code that the server swaps for the token as a cookie for the page
+(the token itself is never in a URL), and the page sends it as a header on API
+calls.
 Requests whose Host is not loopback are refused (DNS rebinding).
 """
 
@@ -836,7 +838,8 @@ class Session:
         return {"name": name, "problems": imported.problems,
                 "messages": [dict({k: m[k] for k in ("name", "pgn", "priority", "source", "destination", "length",
                                                      "cycle_ms", "sender", "comment")},
-                                  signals=[s["name"] for s in m["signals"]]) for m in imported.messages]}
+                                  signals=[s["name"] for s in m["signals"]], mux_problem=m.get("mux_problem"),
+                                  **rawpage.mux_summary(m["signals"])) for m in imported.messages]}
 
     def dbc_entries(self, cfg, network, name, picks):
         """rx and tx entries of picked DBC messages for J1939 network
@@ -1716,8 +1719,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         url = urllib.parse.urlsplit(self.path)
         query = urllib.parse.parse_qs(url.query)
         token = self.server.token
-        if url.path == "/" and query.get("token", [None])[0] == token:
-            # The URL printed at start: keep the token in a cookie and drop it from the address bar.
+        if url.path == "/" and "code" in query:
+            # The URL printed at start: its one-time code becomes the token in
+            # a cookie, and the code leaves the address bar.
+            if not self.server.take_start_code(query["code"][0]):
+                return self._deny("this start address was used already: open the configurator from the browser "
+                                  "tab it opened, or start canworks-config again for a new address")
             return self._send(303, b"", "text/plain", [
                 ("Location", "/"), ("Set-Cookie", "%s=%s; HttpOnly; SameSite=Strict; Path=/" % (COOKIE, token))])
         if url.path.startswith("/api/"):
@@ -2101,7 +2108,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 return conn.call(hostname, port, token, run, network)
             except diag.DiagError as e:
-                raise ApiError(422 if e.kind in ("refused", "usage", "busy") else 502, str(e), kind=e.kind)
+                # `force`: a change to a running node the page may send again with force after asking.
+                raise ApiError(422 if e.kind in ("refused", "usage", "busy") else 502, str(e), kind=e.kind,
+                               force=diag.needs_force(e))
+
+        # A change to an OPERATIONAL node (an SDO write, NMT but START) and a
+        # scan while a node is OPERATIONAL need force; the page sends it
+        # after asking. Only then is the field sent.
+        forced = {"force": True} if body.get("force") is True else {}
 
         def picked(c):
             """The page's network, or the first one when the runtime does not
@@ -2132,14 +2146,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if route in params.ROUTES:
             node = None if route[1].endswith("/job") else node_arg()
-            client = params.Client(conn, hostname, port, token, network)
+            # force: the page asked about an OPERATIONAL node first.
+            client = params.Client(conn, hostname, port, token, network, body.get("force") is True)
             try:
                 return params.handle(route, body, s, conn, self.server.jobs, client, node, settings.eds_library,
                                      host)
             except params.Refused as e:
-                raise ApiError(e.status, str(e))
+                raise ApiError(e.status, str(e), force=str(e).rstrip().endswith(diag.FORCE_NEEDED))
             except diag.DiagError as e:
-                raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
+                raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e))
         if route == ("POST", "/api/online/status"):
             used, st = call(lambda c: (picked(c), c.status()))
             prints = online.fingerprints(config_path)
@@ -2168,7 +2183,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     data = diag.encode(body.get("type"), body.get("value", ""))
                 except ValueError as e:
                     raise ApiError(422, str(e))
-                res = call(lambda c: c.sdo_write(node, index, sub, data, timeout_ms))
+                res = call(lambda c: c.request("sdo_write", timeout=c.timeout + timeout_ms / 1000.0, node=node,
+                                               index=index, subindex=sub, data=diag.hex_bytes(data),
+                                               timeout_ms=timeout_ms, **forced))
                 if res.get("success"):
                     res["data"] = diag.hex_bytes(data)  # what was written, for Keep in configuration
             else:
@@ -2185,7 +2202,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             node, command = node_arg(), body.get("command")
             if command not in diag.NMT_COMMANDS:
                 raise ApiError(400, "command must be one of " + ", ".join(diag.NMT_COMMANDS))
-            return call(lambda c: c.nmt(node, command))
+            return call(lambda c: c.request("nmt", node=node, command=command,
+                                            **(forced if command != "start" else {})))
         if route == ("POST", "/api/online/lss_find"):
             vendor, product = body.get("vendor_id"), body.get("product_code")
             known = isinstance(vendor, int) and isinstance(product, int)
@@ -2235,7 +2253,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except diag.DiagError as e:
                 raise frame_error(e)
         if route == ("POST", "/api/online/scan"):
-            used, res = call(lambda c: (picked(c), c.scan(bool(body.get("start")))))
+            start = bool(body.get("start"))
+            used, res = call(lambda c: (picked(c), c.request("scan", **forced) if start else c.scan(False)))
             res["networks"], res["network"] = (conn.info or {}).get("networks") or [], used
             if res.get("nodes") is not None:
                 self._match_scan(s, settings, canopen_dir, res, body.get("config"), used)
@@ -2346,6 +2365,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         kbit = body.get("adapter_bitrate")
         self.server.connection.close()
         self.server.sender.close()
+        if body.get("lone_device") is True:
+            self._lone_guard(spec, kbit)
         job = sweep_mod.Sweep(spec, rounds=rounds, configured_kbit=kbit if isinstance(kbit, int) else None,
                               disturb_bus=body.get("disturb_bus") is True, lone_device=body.get("lone_device") is True,
                               probe="lss" if body.get("lone_device") is True else None)
@@ -2355,6 +2376,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise ApiError(422, str(e), kind=e.kind, disturb_bus=e.kind == "unconfirmed")
         self.server.adapter_sweep = job
         return dict(job.status(), adapter=str(spec))
+
+    def _lone_guard(self, spec, kbit):
+        """The lone-device sweep joins the bus at every rate: the guards of
+        canworks-diag's (allow changes on, no other master, at most one node
+        heard), checked here whatever the page sends. The adapter listens at
+        the picked bit rate first."""
+        from .. import localbus
+        from ..localbus import client as client_mod
+        if isinstance(kbit, bool) or not isinstance(kbit, int) or not 10 <= kbit <= 1000:
+            raise ApiError(422, "pick a bit rate first: the lone-device sweep listens at it to check that only "
+                                "one device is on the bus")
+        handle = localbus.LocalBus(spec, kbit * 1000, allow_changes=self.server.adapter_allow)
+        try:
+            handle.connect()
+            client_mod._lone_fields(handle, {"lone_device": True})
+        except diag.DiagError as e:
+            raise ApiError(422, str(e).replace("start with --allow-changes", "tick Allow changes"))
+        finally:
+            handle.close()
 
     def _send_frames(self, route, body, where, network):
         """/api/online/send_frame, send_stop and send_jobs: the Trace view's
@@ -2898,6 +2938,8 @@ class Server(http.server.ThreadingHTTPServer):
     def __init__(self, port=0, token=None, verbose=False):
         super().__init__(("127.0.0.1", port), Handler)
         self.token = token or secrets.token_urlsafe(32)
+        self.start_codes = set()  # one-time codes of the start URLs handed out, not used yet
+        self.start_lock = threading.Lock()
         self.session = Session()
         self.verbose = verbose
         self.connection = online.Connection()
@@ -2915,7 +2957,20 @@ class Server(http.server.ThreadingHTTPServer):
 
     @property
     def url(self):
-        return "http://127.0.0.1:%d/?token=%s" % (self.server_port, self.token)
+        """A new start URL: its one-time code is swapped for the session
+        cookie on first use, then forgotten."""
+        code = secrets.token_urlsafe(32)
+        with self.start_lock:
+            self.start_codes.add(code)
+        return "http://127.0.0.1:%d/?code=%s" % (self.server_port, code)
+
+    def take_start_code(self, code):
+        with self.start_lock:
+            for known in self.start_codes:
+                if secrets.compare_digest(known, code):
+                    self.start_codes.discard(known)
+                    return True
+        return False
 
     def server_close(self):
         super().server_close()
@@ -2957,10 +3012,11 @@ def main(argv=None):
             print("canworks-config: %s" % e, file=sys.stderr)
             server.server_close()
             return 2
-    print("canworks configurator: %s" % server.url, flush=True)
+    url = server.url  # one start code: the browser's first visit uses it up
+    print("canworks configurator: %s" % url, flush=True)
     print("Press Ctrl-C to stop.", flush=True)
     if not args.no_browser:
-        webbrowser.open(server.url)
+        webbrowser.open(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

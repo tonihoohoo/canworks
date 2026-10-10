@@ -605,6 +605,19 @@ void check_slave(Config& cfg, std::vector<std::string>& errors) {
   co_dev_destroy(dev);
 }
 
+// A node the master would never see as lost: no heartbeat_ms, no guarding
+// and an EDS heartbeat default (0x1017) of 0 (canopen-node-supervision
+// "Every node is supervised or says why not"). An explicit "heartbeat_ms": 0
+// is accepted; the parser warns about it.
+void check_supervision(const NodeConfig& n, const co_dev_t* dev, std::vector<std::string>& errors) {
+  if (n.has_heartbeat || n.guard_time_ms) return;
+  const co_sub_t* sub = co_dev_find_sub(dev, 0x1017, 0);
+  uint64_t period = 0;
+  if (sub && sub_value(sub, period) && period) return;
+  errors.push_back(n.label() + " has no heartbeat or guarding (its EDS heartbeat 0x1017 defaults to 0): its loss would "
+                               "never be detected; set heartbeat_ms, or \"heartbeat_ms\": 0 to accept that");
+}
+
 }  // namespace
 
 bool check_gateway_eds(ConfigSet& set, std::vector<std::string>& errors) {
@@ -797,6 +810,7 @@ bool check_eds_files(Config& cfg, std::vector<std::string>& errors) {
     check_sdos(n, dev, errors);
     check_sdo_variables(n, dev, errors);
     check_config_objects(n, dev, errors);
+    check_supervision(n, dev, errors);
     n.eds_vendor_id = co_dev_get_vendor_id(dev);
     n.eds_product_code = co_dev_get_product_code(dev);
     n.eds_revision_number = co_dev_get_revision(dev);

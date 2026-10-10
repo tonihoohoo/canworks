@@ -122,8 +122,11 @@ const char* size_word(IecSize s) {
   }
 }
 
+// `switch_mode`: the pages mode of a send entry whose switches the plugin
+// sets ("all" or "rotate"), else nullptr.
 bool parse_signals(const cJSON* list, const std::string& path, IecArea area, unsigned frame_bytes, bool dlc_given,
-                   std::vector<RawSignal>& out, std::vector<std::string>& errors, std::vector<std::string>& warnings) {
+                   const char* switch_mode, std::vector<RawSignal>& out, canworks_can::MuxLayout& layout,
+                   std::vector<std::string>& errors, std::vector<std::string>& warnings) {
   if (!list) return true;
   if (!cJSON_IsArray(list)) {
     errors.push_back(path + ": must be a list");
@@ -131,7 +134,7 @@ bool parse_signals(const cJSON* list, const std::string& path, IecArea area, uns
   }
   bool ok = true;
   int k = 0;
-  uint64_t used = 0;  // frame bits taken so far (overlap check)
+  std::vector<uint64_t> masks;  // frame bits of each signal (0: not checked)
   for (const cJSON* s = list->child; s; s = s->next, ++k) {
     std::string p = path + "[" + std::to_string(k) + "]";
     if (!cJSON_IsObject(s)) {
@@ -151,10 +154,20 @@ bool parse_signals(const cJSON* list, const std::string& path, IecArea area, uns
       errors.push_back(at(p, "byte_order") + ": must be \"little\" or \"big\"");
     sig.big_endian = order == "big";
     o.flag("signed", sig.is_signed);
+    o.get("multiplexer");
+    o.get("mux");
+    canworks_can::parse_mux_fields(s, p, sig.mux, errors);
     // Tool-only fields.
     for (const char* key : {"scale", "offset", "unit", "minimum", "maximum", "comment"}) o.get(key);
+    std::string label = sig.name.empty() ? p : sig.name;
     std::string t;
-    if (o.text("iec_location", t)) {
+    if (sig.mux.is_switch && switch_mode) {
+      sig.has_loc = false;
+      // An empty mode: `pages` itself was wrong (reported there).
+      if (o.get("iec_location") && *switch_mode)
+        errors.push_back(at(p, "iec_location") + ": the plugin sets switch " + label + " when pages is \"" +
+                         switch_mode + "\"; leave it out");
+    } else if (o.text("iec_location", t)) {
       std::string err;
       if (!parse_iec_location(t, sig.loc, err)) {
         errors.push_back(at(p, "iec_location") + ": " + err);
@@ -162,32 +175,56 @@ bool parse_signals(const cJSON* list, const std::string& path, IecArea area, uns
         errors.push_back(at(p, "iec_location") + ": a " + (area == IecArea::Input ? "received" : "sent") +
                          " signal needs " + (area == IecArea::Input ? "an input (%I)" : "an output (%Q)"));
       } else if (sig.loc.size != size_for_bits(sig.length)) {
-        errors.push_back(at(p, "iec_location") + ": signal " + (sig.name.empty() ? p : sig.name) + " of " +
-                         std::to_string(sig.length) + " bits needs " + size_word(size_for_bits(sig.length)));
+        errors.push_back(at(p, "iec_location") + ": signal " + label + " of " + std::to_string(sig.length) +
+                         " bits needs " + size_word(size_for_bits(sig.length)));
       }
     } else {
       errors.push_back(at(p, "iec_location") + ": missing");
     }
+    if (area == IecArea::Input) {
+      o.location("valid_location", IecArea::Input, IecSize::X, "valid bit", sig.valid);
+    } else if (o.get("valid_location")) {
+      errors.push_back(at(p, "valid_location") + ": only received signals have a valid bit");
+    }
     o.finish();
+    uint64_t mine = 0;
     if (errors.size() == before) {
       if (!canworks_can::signal_fits(sig.start_bit, sig.length, sig.big_endian, frame_bytes)) {
-        errors.push_back(p + ": signal " + (sig.name.empty() ? p : sig.name) + " reaches past " +
+        errors.push_back(p + ": signal " + label + " reaches past " +
                          (dlc_given ? "the message's dlc (" + std::to_string(frame_bytes) + " bytes)" : std::string("8 bytes")));
       } else {
-        // Overlaps with an earlier signal.
-        uint64_t mine = 0;
         int pos = static_cast<int>(sig.start_bit);
         for (unsigned i = 0; i < sig.length; ++i) {
           mine |= uint64_t{1} << pos;
           pos = sig.big_endian ? (pos % 8 == 0 ? pos + 15 : pos - 1) : pos + 1;
         }
-        if (mine & used) warnings.push_back(p + ": signal " + (sig.name.empty() ? p : sig.name) + " overlaps another signal");
-        used |= mine;
       }
     }
     if (errors.size() != before) ok = false;
     out.push_back(sig);
+    masks.push_back(mine);
   }
+  std::vector<canworks_can::MuxSignalDef> defs;
+  for (size_t i = 0; i < out.size(); ++i) {
+    canworks_can::MuxSignalDef d;
+    d.name = out[i].name;
+    d.path = path + "[" + std::to_string(i) + "]";
+    d.start_bit = out[i].start_bit;
+    d.length = out[i].length;
+    d.big_endian = out[i].big_endian;
+    d.is_signed = out[i].is_signed;
+    d.mux = out[i].mux;
+    defs.push_back(d);
+  }
+  if (!layout.build(defs, errors, warnings)) ok = false;
+  // Overlaps with an earlier signal that can be in the same frame.
+  for (size_t i = 0; i < out.size() && i < masks.size(); ++i)
+    for (size_t j = 0; j < i; ++j)
+      if ((masks[i] & masks[j]) && layout.can_share(i, j)) {
+        warnings.push_back(defs[i].path + ": signal " + (out[i].name.empty() ? defs[i].path : out[i].name) +
+                           " overlaps another signal");
+        break;
+      }
   return ok;
 }
 
@@ -257,10 +294,15 @@ bool parse_raw(const cJSON* raw, const std::string& path, bool listen_only, RawC
     o.location("dlc_location", IecArea::Input, IecSize::B, "dlc_location", m.dlc_loc);
     o.location("data_location", IecArea::Input, IecSize::L, "data_location", m.data);
     unsigned bytes = m.dlc >= 0 ? static_cast<unsigned>(m.dlc) : 8;
-    parse_signals(o.get("signals"), at(p, "signals"), IecArea::Input, bytes, m.dlc >= 0, m.signals, errors, warnings);
+    parse_signals(o.get("signals"), at(p, "signals"), IecArea::Input, bytes, m.dlc >= 0, nullptr, m.signals, m.layout,
+                  errors, warnings);
     if (m.rtr && !m.signals.empty()) errors.push_back(at(p, "signals") + ": a remote frame carries no data");
+    // The bytes every frame needs; a multiplexed frame's own page may need
+    // more (checked per frame).
     m.need = m.dlc >= 0 ? static_cast<unsigned>(m.dlc) : 0;
-    for (const RawSignal& s : m.signals) {
+    for (size_t i = 0; i < m.signals.size(); ++i) {
+      const RawSignal& s = m.signals[i];
+      if (m.layout.multiplexed() && !m.layout.always(i)) continue;
       unsigned last = canworks_can::signal_last_byte(s.start_bit, s.length, s.big_endian) + 1;
       if (last > m.need) m.need = last;
     }
@@ -296,8 +338,25 @@ bool parse_raw(const cJSON* raw, const std::string& path, bool listen_only, RawC
     o.location("trigger_location", IecArea::Output, IecSize::X, "trigger_location", m.trigger);
     o.location("enable_location", IecArea::Output, IecSize::X, "enable_location", m.enable);
     o.location("data_location", IecArea::Output, IecSize::L, "data_location", m.data);
-    parse_signals(o.get("signals"), at(p, "signals"), IecArea::Output, dlc_given ? m.dlc : 8, dlc_given, m.signals,
-                  errors, warnings);
+    std::string pages;
+    bool pages_set = o.text("pages", pages);
+    bool pages_bad = pages_set && !canworks_can::parse_mux_pages(pages, m.pages);
+    if (pages_bad) errors.push_back(at(p, "pages") + ": must be \"program\", \"all\" or \"rotate\"");
+    const char* mode = pages_bad ? ""
+                       : m.pages == canworks_can::MuxPages::Program ? nullptr
+                                                                     : canworks_can::mux_pages_name(m.pages);
+    parse_signals(o.get("signals"), at(p, "signals"), IecArea::Output, dlc_given ? m.dlc : 8, dlc_given, mode,
+                  m.signals, m.layout, errors, warnings);
+    bool has_switch = false;
+    for (const RawSignal& s : m.signals) has_switch = has_switch || s.mux.is_switch;
+    if (pages_set && !has_switch)
+      errors.push_back(at(p, "pages") + ": only for a message with a switch (multiplexer: true)");
+    if (mode && *mode && m.layout.multiplexed()) {
+      uint64_t n = m.layout.page_count();
+      if (n > canworks_can::kMuxMaxPages)
+        errors.push_back(p + ": " + std::to_string(n) + " pages; pages \"all\" and \"rotate\" send at most " +
+                         std::to_string(canworks_can::kMuxMaxPages) + " (use pages \"program\")");
+    }
     if (m.rtr && (!m.signals.empty() || m.data.set))
       errors.push_back(p + ": a remote frame carries no data (no signals or data_location)");
     if (!dlc_given && !m.rtr) {
@@ -348,15 +407,18 @@ void raw_locations(const RawConfig& cfg, std::vector<std::pair<IecLocation, std:
     add(m.id_loc, m.path + ".id_location");
     add(m.dlc_loc, m.path + ".dlc_location");
     add(m.data, m.path + ".data_location");
-    for (size_t k = 0; k < m.signals.size(); ++k)
+    for (size_t k = 0; k < m.signals.size(); ++k) {
       out.emplace_back(m.signals[k].loc, m.path + ".signals[" + std::to_string(k) + "].iec_location");
+      add(m.signals[k].valid, m.path + ".signals[" + std::to_string(k) + "].valid_location");
+    }
   }
   for (const RawTx& m : cfg.tx) {
     add(m.trigger, m.path + ".trigger_location");
     add(m.enable, m.path + ".enable_location");
     add(m.data, m.path + ".data_location");
     for (size_t k = 0; k < m.signals.size(); ++k)
-      out.emplace_back(m.signals[k].loc, m.path + ".signals[" + std::to_string(k) + "].iec_location");
+      if (m.signals[k].has_loc)
+        out.emplace_back(m.signals[k].loc, m.path + ".signals[" + std::to_string(k) + "].iec_location");
   }
 }
 

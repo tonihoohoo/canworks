@@ -31,7 +31,7 @@ A config with anything simulated is announced everywhere: a warning at every PLC
 
 #### Forced by the runtime: `CANWORKS_FORCE_SIMULATE`
 
-A runtime started with the environment variable `CANWORKS_FORCE_SIMULATE=1` runs every network simulated, master and slave networks alike, whatever its `adapter.simulate` and adapter settings say: no CAN interface or serial device is opened. The [local simulator runtime](local-runtime.md) image sets it. Nodes keep their own switches, so a node with `"simulate": false` stays absent, as on any simulated network. Only the exact value `1` forces; anything else (`0`, `true`, empty) changes nothing. The plugin logs `simulation forced by the runtime environment (CANWORKS_FORCE_SIMULATE=1)` for each network at every PLC start, the diagnostics status carries `simulation_forced`, and `canworks-diag status` and the configurator's online view say so.
+A runtime started with the environment variable `CANWORKS_FORCE_SIMULATE=1` runs every network simulated, master and slave networks alike, whatever its `adapter.simulate` and adapter settings say: no CAN interface or serial device is opened. The [local simulator runtime](local-runtime.md) image sets it. Nodes keep their own switches, so a node with `"simulate": false` stays absent, as on any simulated network. Only the exact value `1` forces; anything else (`0`, `true`, empty) changes nothing, and a value other than `1` or empty logs a warning that it is ignored. The plugin logs `simulation forced by the runtime environment (CANWORKS_FORCE_SIMULATE=1)` for each network at every PLC start, the diagnostics status carries `simulation_forced`, and `canworks-diag status` and the configurator's online view say so.
 
 #### Several networks
 
@@ -41,7 +41,7 @@ A simulated master network and a simulated [slave network](slave.md#simulated-bu
 
 #### Simulated devices on a real network
 
-Before a simulated device starts on a real interface, the plugin listens for 1 second. A node ID that sends heartbeats, boot-up messages, EMCY or SDO answers there belongs to a real device: its simulated device is not started, the log names the conflict, the node's boot error says so, and the master goes on with the real device. While a simulated device runs, a heartbeat, boot-up or EMCY with its node ID that it did not send makes it power off at once, with a log line. A real device that stays silent during that first second and never sends a heartbeat can still go unnoticed; give real devices a heartbeat.
+Before a simulated device starts on a real interface, the plugin listens for 1 second. A node ID that sends heartbeats, boot-up messages, EMCY or SDO answers there belongs to a real device: its simulated device is not started, the log names the conflict, the node's boot error says so, and the master goes on with the real device. Extra devices of the simulation file go through the same check. While a simulated device runs, a heartbeat, boot-up or EMCY with its node ID that it did not send makes it power off at once, with a log line. Such a device is taken for the rest of the session (until the PLC starts again): a power on, a `clear`, a fault or a scenario step for it is refused with "node N is taken by a real device", so it never boots next to the real one. A real device that stays silent during that first second and never sends a heartbeat can still go unnoticed; give real devices a heartbeat.
 
 The simulated devices run in the plugin's bus thread on their own sockets on the same interface. The kernel's local loopback hands their frames to the master and puts them on the wire, so the bus trace shows them too.
 
@@ -166,7 +166,7 @@ Behaviour is set in `canworks/simulation.json`, next to `canworks.json`. It trav
 | `schema_version` | 1 (default) or 2 ([below](#version-2-a-section-per-network)). A higher version is refused with both versions named. |
 | `tick_ms` | How often value sources and models run, 1-60000 ms, default 10. A node or a source can set its own. |
 | `nodes` | Behaviour per node ID (as a string key, `"5"`). Entries for nodes that are not simulated in this config are kept and do nothing, so a node can be switched between real and simulated without editing the file. An entry for a node ID that is neither in the config nor an extra device is an error. |
-| `extra_devices` | Devices that are simulated without being in the config: to try a bus scan, LSS commissioning or an identity check. Each has `node` (1-127, or 0: no node ID, waits for LSS), `eds` (an EDS or DCF, relative to this file), and optionally `name` (required with node 0; a device is addressed by its name then), `identity` and the node fields below. |
+| `extra_devices` | Devices that are simulated without being in the config: to try a bus scan, LSS commissioning or an identity check. Each has `node` (1-127, or 0: no node ID, waits for LSS; not the node ID of a config node, simulated or not, nor the master's), `eds` (an EDS or DCF, relative to this file), and optionally `name` (required with node 0; a device is addressed by its name then), `identity` and the node fields below. |
 | `scenarios` | Named [scenarios](#scenarios). |
 
 #### Version 2: a section per network
@@ -205,6 +205,8 @@ A node (or extra device) can have:
 | `device_type` | Overrides 0x1000. |
 
 Paths in the file (EDS, DCF, CSV, the machine file) are relative to the file. The deploy tool copies them into the upload with it.
+
+A CSV file must lie in the folder of the simulation file or of the config (or below it; links are followed first), be a regular file of at most 16 MB, and have lines of at most 4096 bytes. CSV files are read once, when the simulation file loads; a source given later (a control request or a scenario step) can only use a CSV file the simulation file already uses.
 
 ### Value sources
 
@@ -245,13 +247,13 @@ Operators, from lowest to highest precedence: `||`, `&&`, `|`, `^`, `&`, `==` `!
 | `bit(x, n)`, `setbit(x, n, v)` | Bit `n` of `x`; `x` with bit `n` set to `v`. |
 | `noise(a)` | A new random value between -a and a every tick. |
 | `lag(x, tau)` | First-order lag of `x` with time constant `tau` seconds (a temperature following its heater). |
-| `delay(x, s)` | `x` as it was `s` seconds ago (dead time, at most 600 s). |
+| `delay(x, s)` | `x` as it was `s` seconds ago (dead time, at most 600 s; a delay that is not a finite number counts as 0). It keeps at most 10,000 samples, so at a short tick a long delay gets shorter, and it starts over when time goes back. |
 | `rate_limit(x, r)` | Follows `x`, changing by at most `r` per second. |
 | `integrate(x)` | The integral of `x` over time since power-on. |
 | `hold(x, c)` | Takes `x` when `c` rises, keeps it otherwise. |
 | `edge(c)` | 1 in the tick `c` rises, else 0. |
 
-An expression is checked when it is loaded: an unknown name, function, object or device, a wrong number of arguments, or a reference cycle through objects whose sources are expressions without `lag`, `delay` or `integrate` on the way is refused with its position in the text. While running, a division by zero or a result that is not a finite number keeps the object's previous value; the device reports it once.
+An expression is checked when it is loaded: an unknown name, function, object or device, a wrong number of arguments, text longer than 4096 characters, nesting deeper than 128 levels (parentheses, calls, operators), or a reference cycle through objects whose sources are expressions without `lag`, `delay` or `integrate` on the way is refused with its position in the text. While running, a division by zero or a result that is not a finite number keeps the object's previous value; the device reports it once.
 
 ```text
 20 + lag(if(bit([7/0x6200:1], 0), 80, 0), 30)    heater on node 7's output bit 0, 30 s time constant
@@ -318,7 +320,7 @@ A scenario is a named list of steps, run in order. A step has one action, option
 | `wait` | a condition, and `timeout_ms` on the step | Waits until it holds; a timeout fails the scenario. |
 | `expect` | a condition, and `within_ms` or `for_ms` on the step | Checks it: now, until it holds within the time, or that it holds the whole time. |
 | `log` | text | Prints the text. |
-| `repeat` | `count` (0: forever), `steps` | Runs the steps again and again. |
+| `repeat` | `count` (0: forever), `steps` | Runs the steps again and again. A pass in which no step waited ends the scenario's steps for that tick, so a repeat of instant steps runs one pass per tick. |
 
 A condition is `{"node": 7, "object": "0x6200:1", "eq": 5}` with one of `eq`, `ne`, `lt`, `le`, `gt`, `ge` and optionally `bit` (compares that bit), or `{"expr": "[7/0x6200:1] > 5 && [5/0x7130:1] < 300"}`.
 
@@ -343,13 +345,14 @@ Devices that speak neither CANopen nor J1939, such as a joystick or a display th
 | `name` | The device's name in scenarios, logs and the status. Unique in the file. |
 | `network` | The network's name; required with several networks. |
 | `send[]` | Frames the device sends every `period_ms`: `id` (`extended` for 29 bits), `dlc`, fixed `data` bytes, and `signals` numbered as in DBC files (`start_bit`, `length`, `byte_order`, `signed`, `scale`, `offset`) whose value comes from a [value source](#value-sources). Expression sources here cannot read objects. |
+| `send[].signals[]` multiplexing | A send may be multiplexed as in the config ([raw-can.md](raw-can.md#multiplexed-messages)): a switch signal has `"multiplexer": true` and no `source` (the simulator sets it per page), dependent signals have `mux`. `pages` is `all` (default: every page each period, one frame per page) or `rotate` (one page per period, in turn). At most 64 pages. |
 | `replies[]` | Answers: a frame matching `on` (`id`, and the first bytes `data`, with an optional bit `mask` per byte) makes the device send `send` after `delay_ms`. |
 
-A scenario step with `"device": NAME` acts on a plain CAN device: `"fault": {"stop": true}` stops its frames and replies, `"fault": {"wrong_dlc": N}` sends its frames with N data bytes, and `"clear"` takes `"stop"`, `"wrong_dlc"` or `"all"`. On a plain CAN network these steps, `log` and `repeat` are the only ones, since there are no nodes. [`examples/raw-can/cab.sim.json`](../examples/raw-can/cab.sim.json) has a joystick and a pedal and a scenario that stops the joystick. The configurator's **Simulation** view lists the devices on its **File** tab.
+A scenario step with `"device": NAME` acts on a plain CAN device: `"fault": {"stop": true}` stops its frames and replies, `"fault": {"wrong_dlc": N}` sends its frames with N data bytes, and `"clear"` takes `"stop"`, `"wrong_dlc"` or `"all"`. On a plain CAN network these steps, `log` and `repeat` are the only ones, since there are no nodes. [`examples/raw-can/cab.sim.json`](../examples/raw-can/cab.sim.json) has a joystick, a pedal, a multiplexed sensor sending two pages and a scenario that stops the joystick. The configurator's **Simulation** view lists the devices on its **File** tab.
 
 ### Control protocol
 
-The plugin's diagnostics channel ([diagnostics.md](diagnostics.md#protocol)) and the standalone simulator's control channel take the same requests: one JSON object per line each way, answers `{"id": ..., "ok": true, "result": {...}}` or `{"id": ..., "ok": false, "error": "..."}`. The standalone simulator listens on `127.0.0.1:7532` by default. With a token it is encrypted and wants the same TLS and login as the diagnostics channel ([diagnostics.md](diagnostics.md#protocol)), computing the verifier from its token at start; its login answer carries `protocol` (2), `version` and `simulator: true`, and it refuses plain connections. Without a token (loopback only) it speaks plain lines, takes an optional `{"op": "hello"}` and answers it with `protocol` (1), `version` and `simulator: true`.
+The plugin's diagnostics channel ([diagnostics.md](diagnostics.md#protocol)) and the standalone simulator's control channel take the same requests: one JSON object per line each way, answers `{"id": ..., "ok": true, "result": {...}}` or `{"id": ..., "ok": false, "error": "..."}`. The standalone simulator listens on `127.0.0.1:7532` by default. With a token it is encrypted and wants the same TLS and login as the diagnostics channel ([diagnostics.md](diagnostics.md#protocol)), computing the verifier from its token at start; its login answer carries `protocol` (2), `version` and `simulator: true`, and it refuses plain connections. Without a token (loopback only) it speaks plain lines; the first line must be `{"op": "hello"}`, answered with `protocol` (1), `version` and `simulator: true`. Any other first line closes the connection, at once and without an answer when it starts with an HTTP method, so a web page cannot send it requests.
 
 Objects are `"0xIIII:S"`; `node` is a node ID or the name of an extra device. Values are JSON numbers, or strings for VISIBLE_STRING objects.
 

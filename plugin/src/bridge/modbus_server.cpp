@@ -29,11 +29,21 @@ struct Client {
   int fd;
   bool may_write;
   std::string peer;
-  Clock::time_point last;
+  Clock::time_point last;        // the last complete request (or the accept)
+  Clock::time_point partial{};   // since when rx holds an incomplete request
+  Clock::time_point over{};      // since when tx is over max_queued
+  bool over_cap = false;
   std::vector<uint8_t> rx;
   std::vector<uint8_t> tx;
   uint64_t requests = 0;
 };
+
+// Whether rx holds a whole frame (or a bad header, which closes).
+bool frame_ready(const std::vector<uint8_t>& rx) {
+  if (rx.size() < kMbapSize) return false;
+  uint16_t len = get_be16(&rx[4]);
+  return get_be16(&rx[2]) != 0 || len < 2 || len > kMaxPdu + 1 || rx.size() >= 6u + len;
+}
 
 void close_fd(int& fd) {
   if (fd >= 0) ::close(fd);
@@ -95,9 +105,13 @@ void ModbusServer::run() {
     fds.clear();
     fds.push_back({wake_fd_, POLLIN, 0});
     fds.push_back({listen_fd_, POLLIN, 0});
-    for (const Client& c : clients)
-      fds.push_back({c.fd, static_cast<short>(POLLIN | (c.tx.empty() ? 0 : POLLOUT)), 0});
     int timeout = 1000;
+    for (const Client& c : clients) {
+      // Over the reply cap: nothing more is read until the client takes its replies.
+      bool room = c.tx.size() < cfg_.max_queued;
+      fds.push_back({c.fd, static_cast<short>((room ? POLLIN : 0) | (c.tx.empty() ? 0 : POLLOUT)), 0});
+      if (room && frame_ready(c.rx)) timeout = 0;  // requests left over from the last round
+    }
     if (::poll(fds.data(), fds.size(), timeout) < 0 && errno != EINTR) break;
     if (stop_) break;
     Clock::time_point now = Clock::now();
@@ -109,17 +123,21 @@ void ModbusServer::run() {
       bool drop = false;
       if (re & (POLLERR | POLLNVAL)) drop = true;
       if (!drop && (re & (POLLIN | POLLHUP))) {
-        uint8_t buf[1024];
-        ssize_t got = ::recv(c.fd, buf, sizeof(buf), 0);
-        if (got <= 0) {
-          drop = !(got < 0 && (errno == EAGAIN || errno == EINTR));
+        if (c.tx.size() >= cfg_.max_queued) {
+          drop = (re & POLLHUP) != 0;  // gone; its replies cannot be delivered
         } else {
-          c.rx.insert(c.rx.end(), buf, buf + got);
-          c.last = now;
+          uint8_t buf[1024];
+          ssize_t got = ::recv(c.fd, buf, sizeof(buf), 0);
+          if (got <= 0) {
+            drop = !(got < 0 && (errno == EAGAIN || errno == EINTR));
+          } else {
+            if (c.rx.empty()) c.partial = now;
+            c.rx.insert(c.rx.end(), buf, buf + got);
+          }
         }
       }
-      // Every complete frame in the buffer, in order.
-      while (!drop && c.rx.size() >= kMbapSize) {
+      // The complete frames in the buffer, in order, while the replies fit.
+      while (!drop && c.tx.size() < cfg_.max_queued && c.rx.size() >= kMbapSize) {
         uint16_t proto = get_be16(&c.rx[2]);
         uint16_t len = get_be16(&c.rx[4]);
         if (proto != 0 || len < 2 || len > kMaxPdu + 1) {
@@ -130,6 +148,7 @@ void ModbusServer::run() {
         if (c.rx.size() < 6u + len) break;
         uint8_t unit = c.rx[6];
         ++c.requests;
+        c.last = now;
         const uint8_t* pdu = &c.rx[kMbapSize];
         size_t n = len - 1u;
         if (unit != cfg_.unit_id && unit != 0 && unit != 255) {
@@ -142,6 +161,7 @@ void ModbusServer::run() {
         c.tx.insert(c.tx.end(), head, head + kMbapSize);
         c.tx.insert(c.tx.end(), resp.begin(), resp.end());
         c.rx.erase(c.rx.begin(), c.rx.begin() + 6 + len);
+        c.partial = now;  // the next request starts now
       }
       if (!drop && !c.tx.empty()) {
         ssize_t sent = ::send(c.fd, c.tx.data(), c.tx.size(), MSG_NOSIGNAL);
@@ -149,6 +169,17 @@ void ModbusServer::run() {
           c.tx.erase(c.tx.begin(), c.tx.begin() + sent);
         else if (sent < 0 && errno != EAGAIN && errno != EINTR)
           drop = true;
+      }
+      bool over = c.tx.size() >= cfg_.max_queued;
+      if (over && !c.over_cap) c.over = now;
+      c.over_cap = over;
+      if (!drop && over && now - c.over > std::chrono::milliseconds(cfg_.over_queued_ms)) {
+        say("modbus: closing " + c.peer + ": replies not read");
+        drop = true;
+      }
+      if (!drop && !over && !c.rx.empty() && now - c.partial > std::chrono::milliseconds(cfg_.partial_timeout_ms)) {
+        say("modbus: closing " + c.peer + ": incomplete request");
+        drop = true;
       }
       if (!drop && now - c.last > std::chrono::milliseconds(cfg_.idle_timeout_ms)) {
         say("modbus: closing " + c.peer + ": idle");
@@ -176,22 +207,44 @@ void ModbusServer::run() {
           ::close(fd);
           continue;
         }
-        if (static_cast<int>(clients.size()) >= cfg_.max_clients) {
-          say("modbus: refused " + who + ": max_clients reached");
+        int same = 0;
+        for (const Client& c : clients) same += c.peer == who;
+        if (same >= cfg_.max_clients_per_address) {
+          say("modbus: refused " + who + ": max_clients_per_address reached");
           ::close(fd);
           continue;
         }
+        bool writer = cfg_.writers.matches(pa);
+        if (static_cast<int>(clients.size()) >= cfg_.max_clients) {
+          // A writer takes the slot of the oldest client that may not write.
+          auto oldest = clients.end();
+          if (writer) {
+            for (auto it = clients.begin(); it != clients.end(); ++it) {
+              if (!it->may_write) {
+                oldest = it;
+                break;
+              }
+            }
+          }
+          if (oldest == clients.end()) {
+            say("modbus: refused " + who + ": max_clients reached");
+            ::close(fd);
+            continue;
+          }
+          say("modbus: closing " + oldest->peer + ": to make room for writer " + who);
+          ::close(oldest->fd);
+          clients.erase(oldest);
+        }
         int one = 1;
         ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-        bool writer = cfg_.writers.empty() || cfg_.writers.matches(pa);
-        clients.push_back(Client{fd, writer, who, now, {}, {}, 0});
+        clients.push_back(Client{fd, writer, who, now, now, now, false, {}, {}, 0});
       }
     }
     clients_.store(static_cast<int>(clients.size()), std::memory_order_relaxed);
     {
       std::lock_guard<std::mutex> lock(info_mu_);
       info_.clear();
-      for (const Client& c : clients) info_.push_back(ClientInfo{c.peer, c.requests, c.may_write});
+      for (const Client& c : clients) info_.push_back(ClientInfo{c.peer, c.requests, c.may_write, c.tx.size()});
     }
   }
   for (Client& c : clients) ::close(c.fd);

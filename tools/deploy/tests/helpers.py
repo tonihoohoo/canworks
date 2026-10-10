@@ -71,10 +71,11 @@ class StubRuntime:
     """The runtime's login, upload-file, compilation-status, status and start-plc endpoints."""
 
     def __init__(self, cert, key, password="secret", build_ok=True, canopen_line=True, editor_hook=False,
-                 hook_error=None, start_answer="START:OK"):
+                 hook_error=None, start_answer="START:OK", plc="RUNNING", final_lines=True):
         self.password = password
         self.start_answer = start_answer
-        self.plc = "STOPPED"  # an upload leaves the PLC stopped
+        self.plc = plc  # before the upload; an upload leaves the PLC stopped
+        self.final_lines = final_lines  # the build log's "Final state - ..." lines
         self.editor_hook = editor_hook
         self.hook_error = hook_error
         self.build_ok = build_ok
@@ -121,6 +122,7 @@ class StubRuntime:
                     boundary = self.headers["Content-Type"].split("boundary=")[1].encode()
                     part = body.split(b"--" + boundary)[1]
                     stub.uploaded = part.split(b"\r\n\r\n", 1)[1].rsplit(b"\r\n", 1)[0]
+                    stub.plc = "STOPPED"
                     return self.reply(200, {"UploadFileFail": "", "CompilationStatus": "COMPILING"})
                 self.reply(404, {})
 
@@ -147,10 +149,11 @@ class StubRuntime:
                         logs.append("[INFO] CANopen: the upload carries conf/canworks.json; the project snapshot "
                                     "is not used\n")
                     logs.append("[INFO] Found 2 config files in core/generated/conf: ['canworks', 'ethercat']\n")
-                    if stub.canopen_line:
+                    if stub.canopen_line and stub.final_lines:
                         logs.append("[DEBUG] Final state - canworks: enabled=True, "
                                     "config_path='/opt/canworks/lib/canworks.json'\n")
-                    logs.append("[DEBUG] Final state - ethercat: enabled=True, config_path='x'\n")
+                    if stub.final_lines:
+                        logs.append("[DEBUG] Final state - ethercat: enabled=True, config_path='x'\n")
                     if stub.hook_error:
                         logs.append("[ERROR] CANopen: %s\n" % stub.hook_error)
                     if stub.polls < 2:
@@ -166,7 +169,7 @@ class StubRuntime:
         ctx.load_cert_chain(cert, key)
         self.server.socket = ctx.wrap_socket(self.server.socket, server_side=True)
         self.port = self.server.server_address[1]
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
 
     def __enter__(self):
         self.thread.start()

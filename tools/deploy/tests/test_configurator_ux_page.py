@@ -236,7 +236,8 @@ class Probes(Layout):
             pg.wait_for_timeout(300)
             self.assertEqual([q for q in fp.requests if q["op"] == "nmt"], [])
             pg.click('button[data-nmt="preop"]')
-            pg.click('#modal-buttons button[data-value="go"]')
+            self.assertIn("Node 2 is running", pg.inner_text("#modal-text"))  # OPERATIONAL: sent with force
+            pg.click('#modal-buttons button[data-value="send"]')
             pg.wait_for_selector("#banner:has-text('Pre-operational sent')")
             # The runtime stops answering: values grey out with their age.
             fp.outage()

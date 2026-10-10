@@ -372,7 +372,9 @@ async function configureDialog(id, j, body, status, out) {
     p.allow_changes ? null : el("p", { class: "field-msg warning" }, NO_CHANGES));
   const blocked = !!p.refused && !refuse.length;
   const can = p.allow_changes && !blocked && (p.writes > 0 || p.has_restore);
-  const go = modal(`Write ${p.writes} value${p.writes === 1 ? "" : "s"} to node ${id}?`,
+  // A node that is OPERATIONAL is held or written only with force, after this question says so.
+  const running = !!p.was_operational || nodeRunning(id);
+  const go = modal(`${runningNote(id, running)}Write ${p.writes} value${p.writes === 1 ? "" : "s"} to node ${id}?`,
     can ? [["cancel", "Cancel"], ["write", "Write", { danger: true }]] : [["cancel", "Close"]], extra);
   const btn = document.querySelector('#modal-buttons button[data-value="write"]');
   if (btn) {
@@ -383,7 +385,8 @@ async function configureDialog(id, j, body, status, out) {
   }
   if (await go !== "write") return;
   startJob("/api/online/configure", { node: id, port: diagPort(), plan: j.id, hold: hold.checked, restore_defaults: restore.checked,
-    store: store.checked, store_subindex: storeSub ? Number(storeSub.value) : (subs[0] || 1), ignore_identity: other.checked }, status,
+    store: store.checked, store_subindex: storeSub ? Number(storeSub.value) : (subs[0] || 1), ignore_identity: other.checked,
+    ...(running ? { force: true } : {}) }, status,
   (r) => showConfigure(r.result, out, id));
 }
 
@@ -432,13 +435,16 @@ function restoreDefaultsBox(id, data, allow) {
 
 async function restoreDefaultsDialog(id, sub, what) {
   const reset = el("input", { type: "checkbox", checked: true, dataset: { online: "defaults-reset" } });
-  const v = await modal(`Restore node ${id}'s default ${what || "values"} (write "load" to 0x1011 sub ${sub})? ` +
+  const running = nodeRunning(id);
+  const v = await modal(`${runningNote(id, running)}Restore node ${id}'s default ${what || "values"} (write "load" to 0x1011 sub ${sub})? ` +
     "The device takes its factory values at its next reset; what was stored on it is lost.",
   [["cancel", "Cancel"], ["restore", "Restore defaults", { danger: true }]],
   el("label", { class: "check" }, reset, " Reset the node afterwards"));
   if (v !== "restore") return;
   try {
-    const r = await api("POST", "/api/online/restore_defaults", Object.assign(nodeSource(id), { subindex: sub, reset: reset.checked }));
+    const r = await apiRunning("/api/online/restore_defaults", Object.assign(nodeSource(id), { subindex: sub, reset: reset.checked }),
+      "Restore defaults anyway?", running);
+    if (!r) return;
     if (r.restored) banner(`Node ${id}: defaults restored (0x1011 sub ${sub}). ${upperFirst(r.note)}.`);
     else banner(`Node ${id} did not restore its defaults: ${r.error}`, true);
   } catch (e) { banner(e.message, true); }

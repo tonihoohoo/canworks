@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "iec_location.h"
+#include "mux.h"
 
 struct cJSON;
 
@@ -30,7 +31,10 @@ struct RawSignal {
   unsigned length = 1;
   bool big_endian = false;
   bool is_signed = false;
+  bool has_loc = true;  // false: a switch the plugin sets (pages "all"/"rotate")
   IecLocation loc;
+  canworks_can::MuxSpec mux;
+  Loc valid;  // received signals: TRUE while its page arrives
 };
 
 struct RawRx {
@@ -45,6 +49,7 @@ struct RawRx {
   uint32_t timeout_ms = 0;
   Loc status, counter, id_loc, dlc_loc, data;
   std::vector<RawSignal> signals;
+  canworks_can::MuxLayout layout;  // multiplexing of the signals
   std::string label() const;
 };
 
@@ -62,6 +67,8 @@ struct RawTx {
   bool override_protocol = false;
   Loc trigger, enable, data;
   std::vector<RawSignal> signals;
+  canworks_can::MuxLayout layout;
+  canworks_can::MuxPages pages = canworks_can::MuxPages::Program;
   std::string label() const;
 };
 

@@ -27,6 +27,8 @@ export CANWORKS_UNIT_DIR="$T/units" CANWORKS_BRIDGE_CONF_DIR="$T/etc" CANWORKS_S
 check '[ -x "$T/opt/bin/canworks-bridge" ]' "the binary is installed"
 check 'grep -q "^ExecStart=$T/opt/bin/canworks-bridge --config $T/etc/%i/canworks.json$" "$T/units/canworks-bridge@.service"' \
     "the unit runs one config per instance"
+check 'grep -qx "MemoryMax=256M" "$T/units/canworks-bridge@.service" && grep -qx "TasksMax=64" "$T/units/canworks-bridge@.service"' \
+    "the unit limits memory and tasks"
 check 'grep -qx "daemon-reload" "$T/calls"' "systemd reloads the units"
 check '[ -d "$T/etc" ]' "the config folder exists"
 check 'grep -qx can-j1939 "$T/modules/canworks-j1939.conf"' "can-j1939 loads at boot"

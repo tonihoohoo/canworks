@@ -8,7 +8,9 @@ PGN the DBC lacks, from the config's rx/tx signals. Address Claimed, Cannot
 Claim, Request, Acknowledgement and the transport protocol (TP.CM, TP.DT)
 are decoded without a DBC. A BAM or RTS/CTS session is reassembled: the
 row of its last TP.DT frame carries the whole message, the other frames stay
-rows of their own as its parts.
+rows of their own as its parts. A multiplexed message (DBC `M`/`mN`/
+`SG_MUL_VAL_`, or the config's `multiplexer`/`mux`) decodes only the
+signals its frame carries and names the page ("[Page=2]").
 
     dec = J1939Decoder.from_network(net, config_path)   # net: a contract.networks() entry
     d = dec.decode(frame)   # Decoded: kind, node (source address), name, text, signals
@@ -20,6 +22,7 @@ order (reset() before a new pass), as for CANopen SDO transfers.
 import os
 import struct
 
+from ..raw import mux as raw_mux
 from .decode import Decoded, Decoder
 
 PGN_REQUEST = 0xEA00         # 59904
@@ -108,13 +111,16 @@ def _uint_le(data, start, length):
 
 class Sig:
     """One signal of a message layout, from the DBC or the config."""
-    __slots__ = ("name", "start", "length", "big", "signed", "scale", "offset", "unit", "is_float", "choices")
+    __slots__ = ("name", "start", "length", "big", "signed", "scale", "offset", "unit", "is_float", "choices",
+                 "multiplexer", "mux")
 
     def __init__(self, name, start, length, big=False, signed=False, scale=1, offset=0, unit="", is_float=False,
-                 choices=None):
+                 choices=None, multiplexer=False, mux=None):
         self.name, self.start, self.length, self.big, self.signed = name, start, length, big, signed
         self.scale, self.offset, self.unit, self.is_float = scale, offset, unit or "", is_float
         self.choices = choices or {}
+        # Multiplexing in the config's form: a switch, and {"on", "values"}.
+        self.multiplexer, self.mux = multiplexer, mux
 
     def raw(self, data):
         """The raw value, or None when the data is too short."""
@@ -169,11 +175,38 @@ class Sig:
 
 
 class Msg:
-    __slots__ = ("name", "pgn", "length", "signals", "sender", "source", "comment")
+    __slots__ = ("name", "pgn", "length", "signals", "sender", "source", "comment", "_layout")
 
     def __init__(self, name, pgn, length, signals, sender=None, source=None, comment=""):
         self.name, self.pgn, self.length, self.signals = name, pgn, length, signals
         self.sender, self.source, self.comment = sender, source, comment or ""
+        self._layout = None
+
+    @property
+    def layout(self):
+        """The mux.Layout of the signals (not multiplexed when the
+        multiplexing does not check)."""
+        if self._layout is None:
+            defs = []
+            for j, sg in enumerate(self.signals):
+                d = {"path": "signals[%d]" % j, "name": sg.name, "start_bit": sg.start, "length": sg.length,
+                     "byte_order": "big" if sg.big else "little", "signed": sg.signed}
+                if sg.multiplexer:
+                    d["multiplexer"] = True
+                if sg.mux is not None:
+                    d["mux"] = sg.mux
+                defs.append(d)
+            self._layout = raw_mux.Layout.build(defs, [], [])
+        return self._layout
+
+    def page(self, data):
+        """(active flags or None when not multiplexed, unknown page, page
+        label such as "Page=2" or "")."""
+        lay = self.layout
+        if not lay.multiplexed:
+            return None, False, ""
+        active, unknown, short, _ = lay.evaluate(bytes(data))
+        return active, unknown, "" if short else lay.page_label(bytes(data))
 
 
 def load_dbc(path):
@@ -190,16 +223,20 @@ def load_dbc(path):
         raise
     except Exception as e:  # noqa: BLE001 - cantools raises its own parse errors
         raise ValueError(str(e).splitlines()[0] if str(e) else type(e).__name__)
+    from ..raw.dbc import mux_fields
     out = {}
     for m in db.messages:
         if not m.is_extended_frame:
             continue
         s = split_id(m.frame_id)
         sigs = []
+        fields, _ = mux_fields(m)
         for sg in m.signals:
             choices = {int(k): str(v) for k, v in (sg.choices or {}).items()}
+            f = fields.get(sg.name, {})
             sigs.append(Sig(sg.name, sg.start, sg.length, sg.byte_order == "big_endian", sg.is_signed,
-                            sg.scale, sg.offset, sg.unit, sg.is_float, choices))
+                            sg.scale, sg.offset, sg.unit, sg.is_float, choices, f.get("multiplexer", False),
+                            f.get("mux")))
         msg = Msg(m.name, s["pgn"], m.length, sigs, (m.senders or [None])[0], s["source"], m.comment)
         out.setdefault((s["pgn"], None), msg)
         out[(s["pgn"], s["source"])] = msg
@@ -212,7 +249,9 @@ def _config_msg(entry, direction):
         if not isinstance(sg, dict) or not isinstance(sg.get("start_bit"), int) or not isinstance(sg.get("length"), int):
             continue
         sigs.append(Sig(str(sg.get("name") or "signal"), sg["start_bit"], sg["length"], sg.get("byte_order") == "big",
-                        bool(sg.get("signed")), sg.get("scale", 1), sg.get("offset", 0), sg.get("unit") or ""))
+                        bool(sg.get("signed")), sg.get("scale", 1), sg.get("offset", 0), sg.get("unit") or "",
+                        multiplexer=sg.get("multiplexer") is True,
+                        mux=sg.get("mux") if isinstance(sg.get("mux"), dict) else None))
     pgn = entry.get("pgn")
     name = entry.get("name") or "PGN%d" % pgn
     length = entry.get("length") or max([8] + [(s.start + s.length + 7) // 8 for s in sigs if not s.big])
@@ -295,10 +334,21 @@ class J1939Decoder(Decoder):
         return out
 
     def _values(self, m, data):
-        """(texts, [(series key, value)]) of a message's signals."""
+        """(texts, [(series key, value)]) of a message's signals; for a
+        multiplexed message the page first ("[Page=2]", "[Page=7 unknown]")
+        and only the signals the frame carries (switches in the series
+        only)."""
         texts, sigs = [], []
-        for s in m.signals:
+        active, unknown, page = m.page(data)
+        if page:
+            texts.append("[%s%s]" % (page, " unknown" if unknown else ""))
+        for j, s in enumerate(m.signals):
+            if active is not None and not active[j]:
+                continue
             raw = s.raw(data)
+            if page and s.multiplexer and raw is not None:
+                sigs.append(("%s.%s" % (m.name, s.name), s.physical(raw)))
+                continue
             if raw is None:
                 texts.append("%s=?" % s.name)
                 continue
@@ -413,6 +463,8 @@ class J1939Decoder(Decoder):
             name = KNOWN_PGNS.get(pgn) or "PGN %d" % pgn
             return Decoded("pgn", sa, name, "%s: %s" % (head, " ".join("%02X" % b for b in d) or "no data"))
         texts, sigs = self._values(m, d)
+        if texts and texts[0].startswith("["):
+            texts = [texts[0] + (" " + ", ".join(texts[1:]) if texts[1:] else "")]
         text = "%s: %s" % (head, ", ".join(texts) if texts else "no signals")
         if via:
             text += "; data " + " ".join("%02X" % b for b in d)
@@ -554,7 +606,12 @@ def explain_data(F, f, dec, context=None):
         return "pgn", "PGN %d from %s" % (pgn, who), "%s %s, priority %d; nothing names this PGN." % (
             dec.pgn_label(pgn), route, s["priority"]), notes
     texts = []
-    for sg in m.signals:
+    active, unknown, page = m.page(d)
+    if page:
+        route += ", page %s%s" % (page, " (no signal is on this page)" if unknown else "")
+    for j, sg in enumerate(m.signals):
+        if active is not None and not active[j]:
+            continue  # not in this frame's page
         raw = sg.raw(d)
         if raw is None:
             continue

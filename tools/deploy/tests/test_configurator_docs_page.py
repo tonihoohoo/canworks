@@ -188,6 +188,8 @@ class Configurator(Browser):
         pg.wait_for_selector("details[data-picker]")
         pg.fill('input[data-path="nodes[0].node_id"]', "5")
         pg.fill('input[data-path="nodes[0].name"]', "rtd")
+        pg.select_option("select[data-supervision]", "heartbeat")  # the EDS has none: refused without
+        pg.fill('input[data-path="nodes[0].heartbeat_ms"]', "100")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         with pg.expect_download() as dl:
             pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")

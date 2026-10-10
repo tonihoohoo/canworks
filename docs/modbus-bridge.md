@@ -67,6 +67,7 @@ canworks-bridge --config examples/modbus-bridge/canworks.json
   "unit_id": 1,
   "word_order": "high_first",
   "max_clients": 16,
+  "max_clients_per_address": 4,
   "writers": ["192.168.10.20"],
   "readers": ["192.168.10.0/24"],
   "watchdog_ms": 1000,
@@ -84,9 +85,10 @@ canworks-bridge --config examples/modbus-bridge/canworks.json
 | `listen` | required | `address:port` with a numeric address: `0.0.0.0:502` (every IPv4 interface), `[::]:502`, `192.168.10.5:1502`. |
 | `unit_id` | 1 | The unit identifier the bridge answers; 0 and 255 are always answered, others get exception 0x0B. |
 | `word_order` | `high_first` | Order of the registers of a 32- or 64-bit value. |
-| `max_clients` | 16 | Connections at once (1-64); more are closed at once with a log line. |
-| `writers` | every client | Addresses or prefixes allowed to write. A write from another client gets exception 0x01 and changes nothing, and does not feed the watchdog. |
-| `readers` | every client | Addresses or prefixes allowed to connect at all. |
+| `max_clients` | 16 | Connections at once (1-64); more are closed at once with a log line. When every slot is taken and a writer connects, the oldest connection from a client that may not write is closed to make room. |
+| `max_clients_per_address` | 4 | Connections at once from one address (1-64); more are closed at once with a log line. |
+| `writers` | required | Addresses or prefixes allowed to write. A write from another client gets exception 0x01 and changes nothing, and does not feed the watchdog. `[]` makes the bridge read-only; `["0.0.0.0/0", "::/0"]` lets every address write. |
+| `readers` | every client | Addresses or prefixes allowed to connect at all. An entry of `readers` or `writers` that is not an address or prefix stops the bridge from starting. |
 | `watchdog_ms` | 1000 | Outputs off when no write came from a writer for this long; 0 turns the watchdog off. Up to 60000. |
 | `on_client_loss` | `stop` | What outputs off means: `stop`, `zero` or `hold` ([below](#outputs-the-watchdog-and-client-loss)). |
 | `status_location` | none | Start of the 8-byte status block (`%IB...`). |
@@ -118,7 +120,7 @@ The configurator's **Pack for Modbus** (on the Modbus bridge page) and `canworks
 
 Values are stored most significant byte first. A 32-bit value at `%ID4` is input registers 2 and 3: with `0x12345678`, register 2 reads `0x1234` and register 3 `0x5678`, or the other way round with `"word_order": "low_first"`. REAL32 and REAL64 objects are served as their IEEE bit patterns, so a client reads them as a float over two or four registers. Holding registers and coils read back the output image. A bit is also visible in its register: `%QX100.1` is coil 801 and bit 1 of the high byte of holding register 50.
 
-The bridge supports functions 1, 2, 3, 4 (read coils, discrete inputs, holding and input registers), 5, 6, 15, 16 (write), 23 (read and write) and 8 (loopback). Addresses outside the image get exception 0x02, more than 125 registers read, 123 registers written or 2000 bits get 0x03. A connection idle for 60 s is closed.
+The bridge supports functions 1, 2, 3, 4 (read coils, discrete inputs, holding and input registers), 5, 6, 15, 16 (write), 23 (read and write) and 8 (loopback). Addresses outside the image get exception 0x02, more than 125 registers read, 123 registers written or 2000 bits get 0x03. A connection that sent no complete request for 60 s is closed, and so is one that holds an incomplete request for 5 s. Each connection may have at most 8 KB of replies it has not read: while it is over that, the bridge reads no more requests from it, and after 10 s over it the connection is closed (`closing ADDRESS: replies not read`).
 
 Every read is answered from one snapshot of the inputs, and every write is applied as one snapshot of the outputs, so a value over several registers never mixes two bus updates when the client reads or writes it in one request.
 
@@ -131,7 +133,8 @@ There is no scan. The bridge takes the bus inputs every millisecond, and every a
 Every accepted write from a writer feeds the watchdog. When none came for `watchdog_ms`, outputs go off:
 
 - `"stop"` (default): no RPDOs and no raw or J1939 transmit messages. SYNC keeps running, so nodes that send their inputs on SYNC keep sending them (a reading HMI still sees live values), and a node whose RPDO event timer (0x1400 sub-index 5) is set notices the outputs stop and goes to its own safe state.
-- `"zero"`: every output location is set to 0 and sent once, then outputs stop as with `"stop"`.
+  The output image is cleared to 0 without sending it, so the write that ends outputs off starts from zeros: one coil written after a loss sends that coil and 0 for every other output, never the values from before the loss. A controller that reconnects should write all its outputs at once.
+- `"zero"`: every output location is set to 0 and sent once, then outputs stop as with `"stop"`. The difference to `"stop"` is only that the zeros reach the devices; after both, outputs restart from zeros.
 - `"hold"`: outputs keep being sent with their last values.
 
 Inputs, heartbeats, node supervision, the diagnostics channel and J1939 address claim keep running. The next write from a writer ends outputs off. The log names each change (`outputs off by the watchdog (no write from a writer client)`, `outputs on again: a client wrote`). Before the first client writes, the watchdog runs from the bridge's start, so outputs stay off until a writer is there.
@@ -213,11 +216,12 @@ request(s, struct.pack(">BHHB2H", 16, 1, 2, 4, 1000, 2000))    # holding registe
 
 ## Security
 
-Modbus TCP has no authentication or encryption. Put the bridge on a machine network, not on an office network or the internet, and use `readers` and `writers` so only the PLC or HMI that should write can. Changing the config over the network goes through the encrypted, token-protected diagnostics channel and must be allowed in the running config. The bridge runs as root for the CAN link setup and port 502.
+Modbus TCP has no authentication or encryption. Put the bridge on a machine network, not on an office network or the internet, and use `readers` and `writers` so only the PLC or HMI that should write can. Changing the config over the network goes through the encrypted, token-protected diagnostics channel and must be allowed in the running config. The bridge runs as root for the CAN link setup and port 502; the systemd unit limits it to 256 MB of memory (`MemoryMax`) and 64 tasks (`TasksMax`).
 
 ## Limits
 
 - Linux with SocketCAN only (the same adapters as the plugin).
-- At most 8192 input and 8192 output bytes.
+- At most 8192 input and 8192 output bytes; a location past them is refused.
+- At most 16 connections (`max_clients`, up to 64), 4 per address, and 8 KB of unread replies per connection.
 - No Modbus RTU (serial); no Modbus TLS.
 - One bridge per CAN interface, and not together with the OpenPLC plugin on that interface.

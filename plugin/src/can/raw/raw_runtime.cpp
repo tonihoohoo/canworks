@@ -234,6 +234,7 @@ cJSON* RawRuntime::status() {
       cJSON_AddStringToObject(o, "message", m.label().c_str());
       cJSON_AddNumberToObject(o, "count", s.count);
       cJSON_AddNumberToObject(o, "short_frames", s.short_frames);
+      if (m.layout.multiplexed()) cJSON_AddNumberToObject(o, "unknown_pages", s.unknown_pages);
       cJSON_AddBoolToObject(o, "seen", s.seen);
       cJSON_AddBoolToObject(o, "timed_out", s.timed_out);
       if (s.seen) {
@@ -251,6 +252,10 @@ cJSON* RawRuntime::status() {
       cJSON_AddStringToObject(o, "message", m.label().c_str());
       cJSON_AddNumberToObject(o, "count", s.count);
       if (s.last_error) cJSON_AddStringToObject(o, "error", std::strerror(s.last_error));
+      if (m.layout.multiplexed()) {
+        cJSON_AddStringToObject(o, "pages", canworks_can::mux_pages_name(m.pages));
+        if (s.unknown_page) cJSON_AddBoolToObject(o, "unknown_page", true);
+      }
       cJSON_AddItemToArray(tx, o);
     }
   };

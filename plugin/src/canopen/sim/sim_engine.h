@@ -79,6 +79,9 @@ struct SimOptions {
   std::string state_dir;  // standalone: keep stored state on disk
   std::string version;    // for hello/status
   bool simulated_network = false;
+  // Node IDs found in use on the wire before the start (a real interface):
+  // config nodes and extra devices with one of them are taken, never started.
+  std::set<unsigned> taken;
 };
 
 struct ScenarioResult {

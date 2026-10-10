@@ -34,7 +34,7 @@ def rtd_config():
 def three_nodes():
     """Nodes 5, 6 and 7 with the rtd EDS and nothing mapped."""
     cfg = rtd_config()
-    cfg["nodes"] = [{"node_id": i, "name": "n%d" % i, "eds": "rtd8.eds"} for i in (5, 6, 7)]
+    cfg["nodes"] = [{"node_id": i, "name": "n%d" % i, "eds": "rtd8.eds", "heartbeat_ms": 100} for i in (5, 6, 7)]
     return cfg
 
 

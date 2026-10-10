@@ -97,6 +97,26 @@ def cli_command(cli):
     return [path]
 
 
+CMD_SPECIAL = '&|^%<>"'
+WINDOWS = os.name == "nt"
+
+
+def unsafe_for_cmd(cmd):
+    """On Windows openplc-cli is a .cmd shim, and cmd.exe reads & | ^ % < > "
+    in its arguments as commands, not text. Returns a message naming the
+    first argument (a project or editor path) with such a character, or None
+    (always None elsewhere)."""
+    if not WINDOWS:
+        return None
+    for arg in cmd:
+        bad = [c for c in CMD_SPECIAL if c in arg]
+        if bad:
+            return ("%s contains %s, which the editor's openplc-cli cannot take on Windows; move or rename the "
+                    "folder so that its path has none of %s" % (arg, " and ".join("'%s'" % c for c in bad),
+                                                                 " ".join(CMD_SPECIAL)))
+    return None
+
+
 def declarations(cfg, config_path):
     """The config's declarations in program order, named from its EDS files."""
     files = bundle.eds_files(cfg, config_path)
@@ -179,6 +199,9 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
                               "$OPENPLC_CLI to the editor's openplc-cli" % cli)
 
     cmd = start + ["create", name, "--path=" + parent, "--language=st", "--time=" + interval, "--no-json"]
+    unsafe = unsafe_for_cmd(cmd)
+    if unsafe:
+        raise NewProjectError(unsafe)
     progress("$ " + " ".join('"%s"' % c if " " in c else c for c in cmd))
     try:
         run = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)

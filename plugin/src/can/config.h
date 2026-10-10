@@ -232,6 +232,10 @@ struct NodeConfig {
   std::string label() const;  // "node 2 (pingpong)"
 };
 
+// What the master sends the nodes when the PLC or the plugin stops
+// (`master.on_plc_stop`, canopen-node-supervision "Nodes on PLC stop").
+enum class OnPlcStop { Preop, Stop, Keep };
+
 struct MasterConfig {
   unsigned node_id = 1;
   unsigned sync_period_us = 0;  // 0 (or left out): the master produces no SYNC
@@ -290,6 +294,12 @@ struct MasterConfig {
   // TIME producer period (canopen-master-bringup "TIME producer"); 0 = the
   // master sends no TIME.
   unsigned time_period_ms = 0;
+  // ENTER PRE-OPERATIONAL (default), STOP or nothing to every up node on a
+  // PLC stop.
+  OnPlcStop on_plc_stop = OnPlcStop::Preop;
+  // Outputs gate closes when the PLC scan has not finished a cycle for this
+  // long (canopen-pdo-io "Scan watchdog"); 0 = off, else 10-60000.
+  unsigned scan_watchdog_ms = 1000;
   // The COB-ID the master produces TIME on: time_cob_id, else 0x100.
   uint32_t time_producer_cob_id() const { return (has_time_cob_id ? time_cob_id : 0x100u) & 0x1FFFFFFFu; }
   // Diagnostics channel (canopen-online-diagnostics spec); off without
@@ -482,6 +492,8 @@ struct BridgeConfig {
   unsigned unit_id = 1;
   bool low_first = false;  // word_order "low_first"
   unsigned max_clients = 16;
+  unsigned max_clients_per_address = 4;
+  // writers is required in the file; an empty list lets nobody write.
   std::vector<std::string> writers, readers;
   unsigned watchdog_ms = 1000;  // 0: no watchdog
   enum class Loss { Stop, Zero, Hold };

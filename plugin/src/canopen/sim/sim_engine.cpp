@@ -159,7 +159,9 @@ struct Simulator::Dev {
   std::shared_ptr<lely::io::CanChannelBase> chan;
   std::unique_ptr<SimDevice> dev;
   bool powered = false;
-  bool conflict = false;
+  // Its node ID is in use on the wire (found at the start, or by the guard
+  // later): it stays off for the rest of the session, whatever is asked.
+  bool taken = false;
   bool cycle_pending = false;
   Clock::time_point power_on_due;
   Clock::time_point power_on_at;
@@ -243,7 +245,7 @@ class Simulator::MachineIoImpl : public MachineIo {
   explicit MachineIoImpl(Simulator& s) : s_(s) {}
   Dev* dev(unsigned node) {
     for (auto& d : s_.devs_)
-      if (d->spec.node == node && !d->conflict) return d.get();
+      if (d->spec.node == node && !d->taken) return d.get();
     return nullptr;
   }
   Drive drive(unsigned node) override {
@@ -337,8 +339,10 @@ struct Simulator::Run {
     unsigned remaining = 0;  // repeat frames: runs left after this one
     bool forever = false;
     std::string prefix;
+    unsigned pass_ticks = 0;  // `ticks` when the current pass began
   };
   std::vector<Frame> stack;
+  unsigned ticks = 0;  // ticks the run has waited for so far
   Clock::time_point start, prev_end, step_begin;
   bool active = false;  // the current step's action has begun
   std::string state = "running";
@@ -351,6 +355,11 @@ struct Simulator::Run {
 Simulator::Simulator(Host& host, std::vector<DeviceSpec> devices, SimFile file, SimOptions options)
     : host_(host), file_(std::move(file)), opt_(std::move(options)), rng_(std::random_device{}()) {
   if (!opt_.store) opt_.store = std::make_shared<StoreMap>();
+  // No file, no CSV file: the engine never reads one itself.
+  if (!file_.csv) {
+    file_.csv = std::make_shared<CsvFiles>();
+    file_.csv->frozen = true;
+  }
   for (auto& spec : devices) {
     std::unique_ptr<Dev> d(new Dev);
     d->spec = std::move(spec);
@@ -471,13 +480,13 @@ bool Simulator::Start(std::vector<std::string>& errors) {
       cJSON_Delete(j);
     }
     d.inputs = DriveInputs();
-    d.conflict = d.spec.conflict;
+    d.taken = d.spec.conflict || (d.spec.node && opt_.taken.count(d.spec.node));
   }
   if (!errors.empty()) return false;
 
   for (auto& dp : devs_) {
     Dev& d = *dp;
-    if (d.conflict) {
+    if (d.taken) {
       Log(Host::Level::Error, d.label + ": node ID " + std::to_string(d.spec.node) +
                                   " is taken by a device on " + host_.interface_name() + "; not simulated");
       continue;
@@ -558,7 +567,7 @@ void Simulator::Stop() {
 }
 
 void Simulator::PowerOn(Dev& d) {
-  if (d.powered || d.conflict) return;
+  if (d.powered || d.taken) return;
   d.cycle_pending = false;
   uint8_t id = static_cast<uint8_t>(d.spec.node ? d.spec.node : 0xFF);
   if (d.spec.lss || !d.spec.node) id = 0xFF;
@@ -669,7 +678,7 @@ void Simulator::PowerOn(Dev& d) {
       if (!d.powered) return;
       Log(Host::Level::Error, d.label + ": another device sends with node ID " + std::to_string(d.dev->node_id()) +
                                   " on " + host_.interface_name() + "; the simulated device powers off");
-      d.conflict = true;
+      d.taken = true;
       PowerOff(d, "");
     });
   }
@@ -758,7 +767,7 @@ bool Simulator::SetSource(Dev& d, const ObjKey& k, const std::string& json, bool
     return false;
   }
   cJSON* j = cJSON_Parse(json.c_str());
-  std::unique_ptr<Source> src = Source::parse(j, file_.dir, err);
+  std::unique_ptr<Source> src = Source::parse(j, file_.dir, err, file_.csv.get());
   cJSON_Delete(j);
   if (!src) return false;
   if (d.dev && src->type() == Source::Type::Constant) {
@@ -957,7 +966,7 @@ void Simulator::StepMachine(Clock::time_point now) {
 
 bool Simulator::AllOperational() const {
   for (const auto& d : devs_) {
-    if (d->conflict || !d->powered) continue;
+    if (d->taken || !d->powered) continue;
     if (!d->dev || d->dev->nmt_state() != 5) return false;
   }
   return true;
@@ -1056,11 +1065,19 @@ void Simulator::RunSources(Clock::time_point now, bool rpdo) {
 
 // ---- faults ----
 
+// A device whose node ID a real device uses is never started again in this
+// session: faults, clears and power on are refused.
+static bool refuse_taken(bool taken, unsigned node, const std::string& label, std::string& err) {
+  if (!taken) return false;
+  err = (node ? "node " + std::to_string(node) : label) + " is taken by a real device";
+  return true;
+}
+
 bool Simulator::ApplyFault(Dev& d, const Fault& f, std::string& err) {
+  if (refuse_taken(d.taken, d.spec.node, d.label, err)) return false;
   const std::string& k = f.kind;
   if (k == "power") {
     if (f.mode == "on") {
-      d.conflict = false;
       d.active.erase("power");
       PowerOn(d);
       return true;
@@ -1159,6 +1176,7 @@ bool Simulator::ClearFault(Dev& d, const std::string& name, const cJSON* req, st
   const cJSON* obj = req ? cJSON_GetObjectItemCaseSensitive(req, "object") : nullptr;
   const cJSON* tpdo = req ? cJSON_GetObjectItemCaseSensitive(req, "tpdo") : nullptr;
   bool all = name == "all";
+  if (refuse_taken(d.taken, d.spec.node, d.label, err)) return false;
   if (!all && !is_clear_name(name)) {
     err = "unknown fault \"" + name + "\"";
     return false;
@@ -1200,8 +1218,9 @@ bool Simulator::ClearFault(Dev& d, const std::string& name, const cJSON* req, st
   }
   if (all || name == "tpdo_stop") {
     if (!all && tpdo) {
-      if (!cJSON_IsNumber(tpdo)) {
-        err = "\"tpdo\" must be a TPDO number";
+      // Range first: casting a negative, huge or NaN double is undefined.
+      if (!cJSON_IsNumber(tpdo) || !(tpdo->valuedouble >= 1 && tpdo->valuedouble <= 512)) {
+        err = "\"tpdo\" must be a TPDO number 1-512";
         return false;
       }
       unsigned n = static_cast<unsigned>(tpdo->valuedouble);
@@ -1238,7 +1257,6 @@ bool Simulator::ClearFault(Dev& d, const std::string& name, const cJSON* req, st
   }
   if (all || name == "power") {
     d.active.erase("power");
-    d.conflict = false;
     if (!d.powered) PowerOn(d);
   }
   Log(Host::Level::Info, d.label + ": cleared " + name);
@@ -1384,6 +1402,7 @@ void Simulator::RunScenarios(Clock::time_point now) {
     if (r.done) continue;
     for (int guard = 0; guard < 1000 && !r.done; ++guard)
       if (!StepRun(r, now)) break;
+    ++r.ticks;
   }
 }
 
@@ -1398,7 +1417,11 @@ bool Simulator::StepRun(Run& r, Clock::time_point now) {
     if (r.stack.size() > 1 && (f.forever || f.remaining > 0)) {
       if (!f.forever) --f.remaining;
       f.i = 0;
-      return true;
+      // A pass that did not wait ends the run's steps for this tick: a
+      // repeat of instant steps runs one pass per tick, not a thousand.
+      bool waited = r.ticks != f.pass_ticks;
+      f.pass_ticks = waited ? r.ticks : r.ticks + 1;  // when the next pass begins
+      return waited;
     }
     r.stack.pop_back();
     if (r.stack.empty()) {
@@ -1444,6 +1467,7 @@ bool Simulator::StepRun(Run& r, Clock::time_point now) {
     nf.forever = s.count == 0;
     nf.remaining = s.count ? s.count - 1 : 0;
     nf.prefix = f.prefix + std::to_string(f.i + 1) + ".";
+    nf.pass_ticks = r.ticks;
     r.active = false;
     r.stack.push_back(nf);
     return true;
@@ -1606,7 +1630,7 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
       cJSON_AddNumberToObject(o, "profile", d.profile);
       cJSON_AddStringToObject(o, "power", d.powered ? "on" : "off");
       cJSON_AddStringToObject(o, "nmt", d.dev ? nmt_name(d.dev->nmt_state()).c_str() : "off");
-      cJSON_AddBoolToObject(o, "conflict", d.conflict);
+      cJSON_AddBoolToObject(o, "conflict", d.taken);
       cJSON_AddBoolToObject(o, "drive", d.drive != nullptr);
       if (d.drive) cJSON_AddNumberToObject(o, "oversized_steps", static_cast<double>(d.drive->oversized_steps()));
       cJSON* fa = cJSON_AddArrayToObject(o, "faults");
@@ -1656,7 +1680,7 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
     cJSON* vals = cJSON_AddArrayToObject(res, "values");
     auto add = [&](Dev* d, const cJSON* nodej, const ObjKey& k, const std::string& e) {
       cJSON* o = cJSON_CreateObject();
-      cJSON_AddItemToObject(o, "node", d ? node_json(*d) : cJSON_Duplicate(nodej, 1));
+      cJSON_AddItemToObject(o, "node", d ? node_json(*d) : nodej ? cJSON_Duplicate(nodej, 1) : cJSON_CreateNull());
       cJSON_AddStringToObject(o, "object", k.str().c_str());
       Value v;
       if (!e.empty()) {
@@ -1685,7 +1709,7 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
         std::string e;
         Dev* d = FindJson(nj, e);
         if (!cJSON_IsString(oj) || !parse_obj_key(oj->valuestring, k)) e = "\"object\" must be \"0xIIII:S\"";
-        add(e.empty() ? d : nullptr, nj ? nj : cJSON_CreateNull(), k, e);
+        add(e.empty() ? d : nullptr, nj, k, e);
       }
       return answer(id, res, "");
     }

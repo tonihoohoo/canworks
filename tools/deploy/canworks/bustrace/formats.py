@@ -20,7 +20,7 @@ import tempfile
 import zlib
 
 from .. import __version__
-from .model import EFF, ERR, ID_MASK, RTR, Frame, Trace
+from .model import EFF, ERR, ID_MASK, RECORD, RTR, TX, Frame, Trace
 
 # extension -> (format id, label). Open: the formats read_file() reads.
 FORMATS = {
@@ -299,6 +299,14 @@ def _meta_of(trace):
     return meta
 
 
+# One frame's enhanced packet block: type, length, interface 0, time, captured
+# and original length, the 16-byte SocketCAN frame (identifier big-endian, DLC,
+# three pad bytes, data), the direction option (epb_flags 2 sent, 1 received)
+# with the end of options, and the length again.
+_EPB = struct.Struct("<IIIIIII4sB3x8s12sI")
+_EPB_DIRECTION = {tx: _opt(2, struct.pack("<I", 2 if tx else 1)) + _opt(0, b"") for tx in (False, True)}
+
+
 def write_pcapng(trace, out, interface=None):
     meta = _meta_of(trace)
     iface = interface or meta.get("interface") or "can0"
@@ -309,13 +317,12 @@ def write_pcapng(trace, out, interface=None):
     if meta.get("bitrate"):
         idb_opts += _opt(8, struct.pack("<Q", int(meta["bitrate"])))  # if_speed
     out.write(_block(1, struct.pack("<HHI", LINKTYPE_CAN_SOCKETCAN, 0, 16) + idb_opts + _opt(0, b"")))
+    pack, n = _EPB.pack, _EPB.size
     for f in _frames(trace):
         cid = f.can_id | (EFF if f.ext else 0) | (RTR if f.rtr else 0) | (ERR if f.err else 0)
-        pkt = struct.pack(">I", cid) + struct.pack("<BBBB", f.dlc, 0, 0, 0) + f.data.ljust(8, b"\0")
         us = f.time_us
-        flags = _opt(2, struct.pack("<I", 2 if f.tx else 1)) + _opt(0, b"")  # epb_flags direction
-        body = struct.pack("<IIIII", 0, us >> 32, us & 0xFFFFFFFF, len(pkt), len(pkt)) + _pad4(pkt) + flags
-        out.write(_block(6, body))
+        out.write(pack(6, n, 0, us >> 32, us & 0xFFFFFFFF, 16, 16, cid.to_bytes(4, "big"), f.dlc, f.data,
+                       _EPB_DIRECTION[f.tx], n))
 
 
 def _socketcan_frame(pkt, time_us, tx, byteorder=">"):
@@ -327,6 +334,17 @@ def _socketcan_frame(pkt, time_us, tx, byteorder=">"):
     data = b"" if rtr else pkt[8:8 + dlc]
     return Frame(time_us, raw & ID_MASK, data, ext=bool(raw & EFF) and not raw & ERR, rtr=rtr, err=bool(raw & ERR),
                  tx=tx, dlc=dlc)
+
+
+def _socketcan_record(pkt, time_us, tx):
+    """_socketcan_frame of a pcapng packet, packed as a Trace record."""
+    if len(pkt) < 8:
+        return None
+    raw = int.from_bytes(pkt[:4], "big")
+    dlc = min(pkt[4], 8)
+    if raw & ERR:
+        raw &= ~EFF  # an error frame's identifier is not an extended one
+    return RECORD.pack(time_us, raw, dlc, TX if tx else 0, b"" if raw & RTR else pkt[8:8 + dlc])
 
 
 def _parse_options(buf, endian):
@@ -342,21 +360,32 @@ def _parse_options(buf, endian):
     return opts
 
 
+def _pcapng_structs(endian):
+    """A word, an enhanced packet block's interface, time and captured length,
+    and the head of its epb_flags option, in the section's byte order."""
+    return struct.Struct(endian + "I"), struct.Struct(endian + "IIII"), struct.pack(endian + "HH", 2, 4)
+
+
 def read_pcapng(data):
     if len(data) >= 4 and struct.unpack_from("<I", data)[0] in (0xA1B2C3D4, 0xA1B23C4D, 0xD4C3B2A1, 0x4D3CB2A1):
         return _read_pcap(data)
     t = Trace()
+    # Packed frames not yet in t: appended together, at the latest with the frame
+    # that takes t over its limit (so t drops what frame-by-frame appends would).
+    recs = []
     i = 0
     endian = "<"
+    u32, epb, flags_opt = _pcapng_structs(endian)
     ifaces = []  # (linktype, ticks per second)
     meta = None
     while i + 12 <= len(data):
-        btype = struct.unpack_from(endian + "I", data, i)[0]
+        btype = u32.unpack_from(data, i)[0]
         if btype == 0x0A0D0D0A:
             bom = data[i + 8:i + 12]
             endian = "<" if bom == b"\x4d\x3c\x2b\x1a" else ">"
+            u32, epb, flags_opt = _pcapng_structs(endian)
             ifaces = []
-        blen = struct.unpack_from(endian + "I", data, i + 4)[0]
+        blen = u32.unpack_from(data, i + 4)[0]
         if blen < 12 or i + blen > len(data):
             raise FormatError("damaged pcapng block at byte %d" % i)
         body = data[i + 8:i + blen - 4]
@@ -378,20 +407,28 @@ def read_pcapng(data):
             ifaces.append((linktype, tps, (opts.get(2) or b"").decode("utf-8", "replace")))
         elif btype in (6, 3):
             if btype == 6:
-                ifid, hi, lo, caplen = struct.unpack_from(endian + "IIII", body, 0)
+                ifid, hi, lo, caplen = epb.unpack_from(body, 0)
                 pkt = body[20:20 + caplen]
-                opts = _parse_options(body[20 + caplen + (-caplen % 4):], endian)
-                flags = struct.unpack_from(endian + "I", opts[2])[0] if 2 in opts else 0
+                o = 20 + caplen + (-caplen % 4)
+                if body[o:o + 4] == flags_opt:  # epb_flags first, as write_pcapng puts it
+                    flags = u32.unpack_from(body, o + 4)[0]
+                else:
+                    opts = _parse_options(body[o:], endian)
+                    flags = struct.unpack_from(endian + "I", opts[2])[0] if 2 in opts else 0
                 ticks = (hi << 32) | lo
             else:
                 ifid, ticks, flags = 0, 0, 0
                 pkt = body[4:]
             if ifid < len(ifaces) and ifaces[ifid][0] == LINKTYPE_CAN_SOCKETCAN:
                 time_us = ticks * 1000000 // ifaces[ifid][1]
-                f = _socketcan_frame(pkt, time_us, (flags & 3) == 2)
-                if f:
-                    t.append(f)
+                rec = _socketcan_record(pkt, time_us, (flags & 3) == 2)
+                if rec:
+                    recs.append(rec)
+                    if len(t) + len(recs) > t.limit:
+                        t.append_packed(b"".join(recs))
+                        recs = []
         i += blen
+    t.append_packed(b"".join(recs))
     if ifaces:
         t.meta["interface"] = ifaces[0][2] or None
     if meta:

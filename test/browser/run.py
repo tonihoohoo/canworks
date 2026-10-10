@@ -13,7 +13,8 @@ it with Playwright through these steps:
 
   connect      Online view: host and the example's token, connected
   nodes        the node table shows nodes 5, 6 and 7 OPERATIONAL
-  od           node 6: SDO read of 0x2000:0, a write, the read gives it back
+  od           node 6: SDO read of 0x2000:0, a write (with force, after the
+               page asks: node 6 is OPERATIONAL), the read gives it back
   sim-fault    Simulation: heartbeat stop on node 6, its status bit goes FALSE
                online; cleared, node 6 is OPERATIONAL with its bit TRUE again
   tpdo-timeout TPDO stop 1 on node 5: online, its TPDO 1 timed out (the
@@ -257,6 +258,9 @@ class Run:
         pg.click(sdo + 'button[data-online="write"]')
         # The config writes 0x2000 at boot and an SDO variable writes it: the page asks first.
         pg.click('#modal button[data-value="write"]')
+        # Node 6 is OPERATIONAL: the page asks again and sends the write with force.
+        pg.wait_for_selector("#modal-text:has-text('Node 6 is running')")
+        pg.click('#modal button[data-value="send"]')
         pg.wait_for_selector(sdo + '[data-online="sdo-result"]:has-text("Written.")')
         after = self.sdo_read(6, "0x2000", 0, "UNSIGNED16")
         if after != value:

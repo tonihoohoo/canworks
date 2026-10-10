@@ -329,9 +329,21 @@ void ControlServer::login(Client& c, const std::string& id, const std::string& o
   cJSON_Delete(o);
 }
 
+// An HTTP request line ("POST / HTTP/1.1"): a web page talking to the port.
+static bool http_request_line(const std::string& line) {
+  for (const char* m : {"GET ", "POST ", "PUT ", "HEAD ", "OPTIONS ", "DELETE ", "PATCH ", "CONNECT ", "TRACE "})
+    if (line.compare(0, std::strlen(m), m) == 0) return true;
+  return false;
+}
+
 void ControlServer::handle_line(Client& c, const std::string& raw) {
   std::string line = trim(raw);
   if (line.empty()) return;
+  if (!c.greeted && http_request_line(line)) {
+    c.closing = true;  // no answer: nothing for a browser to read
+    c.out.clear();
+    return;
+  }
   cJSON* req = cJSON_Parse(line.c_str());
   std::string id;
   if (cJSON_IsObject(req)) {
@@ -346,7 +358,7 @@ void ControlServer::handle_line(Client& c, const std::string& raw) {
   std::string op = cJSON_IsString(opj) ? opj->valuestring : "";
   std::string answer;
   if (!cJSON_IsObject(req)) {
-    if (!c.greeted && (c.mode == 2 || !token_.empty())) c.closing = true;
+    if (!c.greeted) c.closing = true;
     answer = error_line("", "a request must be one JSON object per line");
   } else if (c.mode == 2 && !c.greeted) {
     login(c, id, op, req);
@@ -373,6 +385,10 @@ void ControlServer::handle_line(Client& c, const std::string& raw) {
       cJSON_free(p);
       cJSON_Delete(o);
     }
+  } else if (!c.greeted) {
+    // The first line must be the hello: nothing runs before it.
+    answer = error_line(id, "say hello first");
+    c.closing = true;
   } else {
     answer = handler_(req, id, c.peer);
   }
@@ -672,7 +688,7 @@ cJSON* ControlClient::request(cJSON* req, std::string& err, int timeout_ms) {
     // Answers to other requests (none in this client) and id-less error
     // lines: an id-less error is ours.
     if (!idj && cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(a, "ok"))) return a;
-    if (cJSON_IsNumber(idj) && static_cast<unsigned>(idj->valuedouble) == id) return a;
+    if (cJSON_IsNumber(idj) && idj->valuedouble == static_cast<double>(id)) return a;
     cJSON_Delete(a);
   }
 }

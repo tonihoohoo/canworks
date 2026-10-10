@@ -75,6 +75,185 @@
       "errors": [ "networks[0].raw.tx[0]: 0x205 is RPDO1 of node 5; set override_protocol to send it as a raw message" ] },
     { "name": "protocol identifier overridden", "protocol_ids": { "0x205": "RPDO1 of node 5" },
       "raw": { "tx": [ { "name": "Fake", "id": 517, "period_ms": 10, "override_protocol": true } ] },
-      "errors": [] }
+      "errors": [] },
+    { "name": "mux: pages share bits",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 16, "iec_location": "%IW402", "mux": { "values": [ 1 ] } },
+        { "name": "Press", "start_bit": 8, "length": 16, "iec_location": "%IW404", "mux": { "values": [ 2 ] } }
+      ] } ] },
+      "errors": [], "warnings": [] },
+    { "name": "mux: overlap within one page",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 16, "iec_location": "%IW402", "mux": { "values": [ 1 ] } },
+        { "name": "Volt", "start_bit": 16, "length": 16, "iec_location": "%IW404", "mux": { "values": [ 1, 2 ] } }
+      ] } ] },
+      "errors": [], "warnings": [ "signal Volt overlaps another signal" ] },
+    { "name": "mux: always-present signal overlaps a page",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 16, "iec_location": "%IW402", "mux": { "values": [ 1 ] } },
+        { "name": "Count", "start_bit": 16, "length": 8, "iec_location": "%IB406" }
+      ] } ] },
+      "errors": [], "warnings": [ "signal Count overlaps another signal" ] },
+    { "name": "mux: two switches, no on",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Sub", "start_bit": 8, "length": 8, "iec_location": "%IB401", "multiplexer": true, "mux": { "on": "Page", "values": [ 3 ] } },
+        { "name": "B", "start_bit": 16, "length": 8, "iec_location": "%IB402", "mux": { "values": [ 1 ] } }
+      ] } ] },
+      "errors": [ "signals[2].mux.on: missing; the message has several switches (Page, Sub)" ], "warnings": [] },
+    { "name": "mux: switch cycle",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "A", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true, "mux": { "on": "B", "values": [ 1 ] } },
+        { "name": "B", "start_bit": 8, "length": 8, "iec_location": "%IB401", "multiplexer": true, "mux": { "on": "A", "values": [ 1 ] } },
+        { "name": "C", "start_bit": 16, "length": 8, "iec_location": "%IB402", "mux": { "on": "A", "values": [ 2 ] } }
+      ] } ] },
+      "errors": [ "signals[0]: switch cycle A -> B -> A" ], "warnings": [] },
+    { "name": "mux: switch depends on itself",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "A", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true, "mux": { "on": "A", "values": [ 1 ] } }
+      ] } ] },
+      "errors": [ "signals[0].mux.on: a switch cannot depend on itself" ], "warnings": [] },
+    { "name": "mux: value outside the switch",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 2, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 8, "iec_location": "%IB402", "mux": { "values": [ 4 ] } }
+      ] } ] },
+      "errors": [ "signals[1].mux.values[0]: 4 is outside switch Page (0..3)" ], "warnings": [] },
+    { "name": "mux: signed switch",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true, "signed": true },
+        { "name": "Temp", "start_bit": 8, "length": 8, "iec_location": "%IB402", "mux": { "values": [ 1 ] } }
+      ] } ] },
+      "errors": [ "signals[0]: switch Page must be unsigned" ], "warnings": [] },
+    { "name": "mux: switch longer than 32 bits",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 40, "iec_location": "%IL408", "multiplexer": true },
+        { "name": "Temp", "start_bit": 40, "length": 8, "iec_location": "%IB402", "mux": { "values": [ 1 ] } }
+      ] } ] },
+      "errors": [ "signals[0]: switch Page has 40 bits; a switch has at most 32" ], "warnings": [] },
+    { "name": "mux: unused switch",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 8, "iec_location": "%IB402" }
+      ] } ] },
+      "errors": [], "warnings": [ "signals[0]: switch Page has no signal that depends on it" ] },
+    { "name": "mux: no switch",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Temp", "start_bit": 8, "length": 8, "iec_location": "%IB402", "mux": { "values": [ 1 ] } }
+      ] } ] },
+      "errors": [ "signals[0].mux: the message has no switch (multiplexer: true)" ], "warnings": [] },
+    { "name": "mux: unknown switch name",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 8, "iec_location": "%IB402", "mux": { "on": "Pgae", "values": [ 1 ] } }
+      ] } ] },
+      "errors": [ "signals[1].mux.on: no switch named 'Pgae' in this message" ], "warnings": [] },
+    { "name": "mux: empty values",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 8, "iec_location": "%IB402", "mux": { "values": [] } }
+      ] } ] },
+      "errors": [ "signals[1].mux.values: must be a list of switch values or [low, high] ranges" ], "warnings": [] },
+    { "name": "mux: range upside down",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 8, "iec_location": "%IB402", "mux": { "values": [ [ 5, 2 ] ] } }
+      ] } ] },
+      "errors": [ "signals[1].mux.values[0]: low 5 is above high 2" ], "warnings": [] },
+    { "name": "mux: bad value",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 8, "iec_location": "%IB402", "mux": { "values": [ "one" ] } }
+      ] } ] },
+      "errors": [ "signals[1].mux.values[0]: must be a whole number 0..4294967295 or [low, high]" ], "warnings": [] },
+    { "name": "mux: unknown mux field",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 8, "iec_location": "%IB402", "mux": { "values": [ 1 ], "switch": "Page" } }
+      ] } ] },
+      "errors": [ "signals[1].mux.switch: unknown field 'switch'" ], "warnings": [] },
+    { "name": "mux: multiplexer not a flag",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": "yes" }
+      ] } ] },
+      "errors": [ "signals[0].multiplexer: must be true or false" ], "warnings": [] },
+    { "name": "mux: extended",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Sub", "start_bit": 8, "length": 8, "iec_location": "%IB401", "multiplexer": true, "mux": { "on": "Page", "values": [ 3 ] } },
+        { "name": "B", "start_bit": 16, "length": 8, "iec_location": "%IB402", "mux": { "on": "Sub", "values": [ 1 ] } },
+        { "name": "C", "start_bit": 16, "length": 8, "iec_location": "%IB403", "mux": { "on": "Page", "values": [ [ 1, 2 ], [ 5, 9 ] ] } }
+      ] } ] },
+      "errors": [], "warnings": [] },
+    { "name": "mux: valid bit on a received signal",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 8, "iec_location": "%IB402", "mux": { "values": [ 1 ] }, "valid_location": "%IX400.0" }
+      ] } ] },
+      "errors": [], "warnings": [] },
+    { "name": "mux: valid bit of the wrong size",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 8, "iec_location": "%IB402", "mux": { "values": [ 1 ] }, "valid_location": "%IB401" }
+      ] } ] },
+      "errors": [ "signals[1].valid_location: valid bit must be a %IX location" ], "warnings": [] },
+    { "name": "mux: page past the dlc",
+      "raw": { "rx": [ { "name": "Status", "id": 768, "dlc": 4, "signals": [
+        { "name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB400", "multiplexer": true },
+        { "name": "Temp", "start_bit": 8, "length": 16, "iec_location": "%IW402", "mux": { "values": [ 1 ] } },
+        { "name": "Press", "start_bit": 8, "length": 48, "iec_location": "%IL408", "mux": { "values": [ 2 ] } }
+      ] } ] },
+      "errors": [ "signal Press reaches past the message's dlc (4 bytes)" ], "warnings": [] },
+    { "name": "mux: send all pages",
+      "raw": { "tx": [ { "name": "Display", "id": 769, "period_ms": 100, "pages": "all", "signals": [
+        { "name": "Line", "start_bit": 0, "length": 8, "multiplexer": true },
+        { "name": "A", "start_bit": 8, "length": 8, "iec_location": "%QB400", "mux": { "values": [ 1 ] } },
+        { "name": "B", "start_bit": 8, "length": 8, "iec_location": "%QB401", "mux": { "values": [ 2 ] } }
+      ] } ] },
+      "errors": [], "warnings": [] },
+    { "name": "mux: send by program",
+      "raw": { "tx": [ { "name": "Display", "id": 769, "period_ms": 100, "signals": [
+        { "name": "Line", "start_bit": 0, "length": 8, "iec_location": "%QB402", "multiplexer": true },
+        { "name": "A", "start_bit": 8, "length": 8, "iec_location": "%QB400", "mux": { "values": [ 1 ] } },
+        { "name": "B", "start_bit": 8, "length": 8, "iec_location": "%QB401", "mux": { "values": [ 2 ] } }
+      ] } ] },
+      "errors": [], "warnings": [] },
+    { "name": "mux: switch location in all mode",
+      "raw": { "tx": [ { "name": "Display", "id": 769, "period_ms": 100, "pages": "all", "signals": [
+        { "name": "Line", "start_bit": 0, "length": 8, "iec_location": "%QB402", "multiplexer": true },
+        { "name": "A", "start_bit": 8, "length": 8, "iec_location": "%QB400", "mux": { "values": [ 1 ] } }
+      ] } ] },
+      "errors": [ "signals[0].iec_location: the plugin sets switch Line when pages is \"all\"; leave it out" ], "warnings": [] },
+    { "name": "mux: switch without location in program mode",
+      "raw": { "tx": [ { "name": "Display", "id": 769, "period_ms": 100, "signals": [
+        { "name": "Line", "start_bit": 0, "length": 8, "multiplexer": true },
+        { "name": "A", "start_bit": 8, "length": 8, "iec_location": "%QB400", "mux": { "values": [ 1 ] } }
+      ] } ] },
+      "errors": [ "signals[0].iec_location: missing" ], "warnings": [] },
+    { "name": "mux: too many pages",
+      "raw": { "tx": [ { "name": "Display", "id": 769, "period_ms": 100, "pages": "rotate", "signals": [
+        { "name": "Line", "start_bit": 0, "length": 8, "multiplexer": true },
+        { "name": "A", "start_bit": 8, "length": 8, "iec_location": "%QB400", "mux": { "values": [ [ 0, 199 ] ] } }
+      ] } ] },
+      "errors": [ "tx[0]: 200 pages; pages \"all\" and \"rotate\" send at most 64 (use pages \"program\")" ], "warnings": [] },
+    { "name": "mux: bad pages",
+      "raw": { "tx": [ { "name": "Display", "id": 769, "period_ms": 100, "pages": "every", "signals": [
+        { "name": "Line", "start_bit": 0, "length": 8, "multiplexer": true },
+        { "name": "A", "start_bit": 8, "length": 8, "iec_location": "%QB400", "mux": { "values": [ 1 ] } }
+      ] } ] },
+      "errors": [ "tx[0].pages: must be \"program\", \"all\" or \"rotate\"" ], "warnings": [] },
+    { "name": "mux: pages without a switch",
+      "raw": { "tx": [ { "name": "Display", "id": 769, "period_ms": 100, "pages": "all", "signals": [
+        { "name": "A", "start_bit": 8, "length": 8, "iec_location": "%QB400" }
+      ] } ] },
+      "errors": [ "tx[0].pages: only for a message with a switch (multiplexer: true)" ], "warnings": [] },
+    { "name": "mux: valid bit on a send message",
+      "raw": { "tx": [ { "name": "Display", "id": 769, "period_ms": 100, "signals": [
+        { "name": "A", "start_bit": 8, "length": 8, "iec_location": "%QB400", "valid_location": "%IX400.0" }
+      ] } ] },
+      "errors": [ "signals[0].valid_location: only received signals have a valid bit" ], "warnings": [] }
   ]
 }

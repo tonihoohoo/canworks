@@ -21,3 +21,8 @@
 .raw-c6 { background: rgba(227, 119, 194, .35); }
 .raw-c7 { background: rgba(188, 189, 34, .4); }
 .raw-import { max-height: 50vh; overflow: auto; }
+/* Switch and Page cells (multiplexed signals), shared with the J1939 page. */
+.mux-page { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.mux-page input { min-width: 5em; }
+.mux-page select { max-width: 9em; }
+.raw-pages { align-items: center; gap: 10px; margin: 4px 0 6px; flex-wrap: wrap; }

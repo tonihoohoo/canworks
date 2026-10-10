@@ -230,6 +230,29 @@ class Proxy(Online):
             self.assertEqual((node["hold"], node["hold_by"]), ("stopped", "operator"))
             self.assertEqual(self.request("POST", "/api/online/nmt", {"node": 2, "command": "halt"})[0], 400)
 
+    def test_running_node_needs_force(self):
+        with FakePlugin(allow_changes=True) as fp:
+            fp.force_running = True
+            self.connect(fp)
+            write = {"node": 2, "index": "0x2000", "subindex": 0, "type": 7, "value": "7"}
+            status, data, _ = self.request("POST", "/api/online/sdo_write", write)
+            self.assertEqual((status, data["force"]), (422, True), data)
+            self.assertIn("force needed", data["error"])
+            self.assertEqual(fp.objects[(2, 0x2000, 0)], b"\x00\x00\x00\x00")  # not written
+            self.assertTrue(self.ok("POST", "/api/online/sdo_write", dict(write, force=True))["success"])
+            self.assertEqual(fp.objects[(2, 0x2000, 0)], b"\x07\x00\x00\x00")
+            status, data, _ = self.request("POST", "/api/online/nmt", {"node": 2, "command": "reset"})
+            self.assertEqual((status, data["force"]), (422, True), data)
+            self.ok("POST", "/api/online/nmt", {"node": 2, "command": "stop", "force": True})
+            self.ok("POST", "/api/online/nmt", {"node": 2, "command": "start", "force": True})
+            self.assertEqual(fp.forced, [("sdo_write", 2), ("nmt", 2)])  # START never carries force
+            status, data, _ = self.request("POST", "/api/online/scan", {"start": True})
+            self.assertEqual((status, data["force"]), (422, True), data)
+            self.ok("POST", "/api/online/scan", {"start": True, "force": True})
+            self.assertEqual(fp.forced[-1], ("scan", None))
+            self.assertEqual(self.request("POST", "/api/online/sdo_read", dict(write, force=True))[0], 200)
+            self.assertEqual(fp.forced[-1], ("scan", None), "a read never carries force")
+
     def test_idle_close(self):
         with FakePlugin() as fp:
             self.connect(fp)
@@ -291,7 +314,7 @@ class Scan(Online):
         self.assertEqual(r["name"], "rtd-rev2.eds")
         self.assertIn("objects", r["summary"])
         self.assertEqual(sorted(os.listdir(self.canopen)), before)
-        cfg["nodes"].append({"node_id": 40, "name": "rtd", "eds": "rtd-rev2.eds", "revision_number": 0x00010002,
+        cfg["nodes"].append({"node_id": 40, "name": "rtd", "eds": "rtd-rev2.eds", "heartbeat_ms": 100, "revision_number": 0x00010002,
                              "serial_number": 99})
         self.save(cfg)
         self.assertIn("rtd-rev2.eds", os.listdir(self.canopen))
@@ -467,6 +490,68 @@ class Helpers(unittest.TestCase):
         exp = online.expected_identity({"revision_number": "0x10", "serial_number": 0},
                                        os.path.join(PINGPONG, "cpp-slave.eds"))
         self.assertEqual(exp, {"vendor_id": 0x360, "product_code": 0, "revision_number": 16})
+
+
+class Retries(unittest.TestCase):
+    """Connection.call sends a request again after a timeout only when it
+    only reads: a change may have been carried out already."""
+
+    class FakeClient:
+        def __init__(self, sent, fail):
+            self.sent, self.fail = sent, fail
+            self.network = None
+            self.info = {}
+
+        def connect(self):
+            pass
+
+        def close(self):
+            pass
+
+        def request(self, op, timeout=None, **fields):
+            self.sent.append(op)
+            if self.fail and self.fail[0] == op:
+                self.fail.pop(0)
+                raise diag.DiagError("timeout", "runtime did not answer in 3 s")
+            return {"op": op}
+
+        def nmt(self, node, command):
+            return self.request("nmt", node=node, command=command)
+
+        def status(self):
+            return self.request("status")
+
+    def connection(self, *fail):
+        """A Connection whose client times out once on each op of `fail`."""
+        sent = []
+        conn = online.Connection(idle=60)
+        self.addCleanup(conn.close)
+        fail = list(fail)
+
+        def opener(key):
+            conn.client, conn.key = self.FakeClient(sent, fail), key
+
+        conn._open = opener
+        return conn, sent
+
+    def test_change_not_sent_again(self):
+        conn, sent = self.connection("nmt")
+        with self.assertRaises(diag.DiagError) as cm:
+            conn.call("h", 1, "t", lambda c: c.nmt(5, "reset"))
+        self.assertEqual(sent, ["nmt"])
+        self.assertIn("no answer; the request may have been carried out", str(cm.exception))
+        self.assertFalse(conn.connected)
+
+    def test_read_sent_again(self):
+        conn, sent = self.connection("status")
+        self.assertEqual(conn.call("h", 1, "t", lambda c: c.status()), {"op": "status"})
+        self.assertEqual(sent, ["status", "status"])
+
+    def test_read_then_change(self):
+        conn, sent = self.connection("nmt")
+        with self.assertRaises(diag.DiagError):
+            conn.call("h", 1, "t", lambda c: (c.status(), c.nmt(5, "stop")))
+        self.assertEqual(sent, ["status", "nmt"])
 
 
 if __name__ == "__main__":

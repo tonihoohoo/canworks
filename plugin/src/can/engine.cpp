@@ -64,6 +64,10 @@ bool Engine::check(const std::string& path, const ImageLimits& limits, std::vect
 
 bool Engine::prepare(const std::string& path, const ImageLimits& limits, uint64_t base_tick_ns, const char* version) {
   if (!load(path, limits, set_, nullptr)) return false;
+  // The Modbus bridge has no PLC scan (its cycle_end runs on writes) and its
+  // own watchdog: no scan watchdog there.
+  if (limits.bridge_host)
+    for (auto& cfg : set_.networks) cfg.master.scan_watchdog_ms = 0;
   std::vector<std::string> errors;
   for (auto& cfg : set_.networks) {
     if (cfg.is_plain()) {

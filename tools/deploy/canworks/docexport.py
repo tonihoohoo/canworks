@@ -1159,12 +1159,12 @@ def _j1939_network(net, config_path, names, several, warnings):
         dsig = {s["name"]: s for s in (d["signals"] if d else [])}
         signals = []
         for sg in entry["signals"]:
-            loc = str(sg["location"])
+            loc = str(sg["location"]) if sg["location"] is not None else ""  # a switch the plugin sets: none
             valid = str(sg["valid_location"]) if sg["valid_location"] is not None else ""
             signals.append({"name": sg["name"], "start_bit": sg["start_bit"], "length": sg["length"],
                             "byte_order": "big" if sg["big_endian"] else "little", "signed": sg["signed"],
                             "scale": sg["scale"], "offset": sg["offset"], "unit": sg["unit"],
-                            "location": loc, "variables": _plc_names(names, loc), "valid_location": valid,
+                            "location": loc, "variables": _plc_names(names, loc) if loc else [], "valid_location": valid,
                             "valid_variables": _plc_names(names, valid) if valid else [],
                             "comment": dsig.get(sg["name"], {}).get("comment", "")})
         messages.append({

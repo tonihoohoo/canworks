@@ -29,6 +29,15 @@ namespace canopen_plugin {
 constexpr std::chrono::milliseconds Bus::kLoopSlice;
 constexpr int Bus::kShutdownSlices;
 constexpr int Bus::kSyncPriority;
+constexpr std::chrono::milliseconds Bus::kStopDrain;
+
+void leave_realtime() {
+  int policy = SCHED_OTHER;
+  sched_param sp{};
+  if (pthread_getschedparam(pthread_self(), &policy, &sp) != 0 || policy == SCHED_OTHER) return;
+  sp.sched_priority = 0;
+  pthread_setschedparam(pthread_self(), SCHED_OTHER, &sp);
+}
 
 std::shared_ptr<lely::io::VirtualCanController> shared_virtual_bus(const std::string& interface) {
   if (interface.empty()) return std::make_shared<lely::io::VirtualCanController>(lely::io::clock_monotonic);
@@ -86,18 +95,6 @@ bool Bus::wait_for(std::chrono::milliseconds d) {
 void Bus::thread_main() {
   pthread_setname_np(pthread_self(), "canopen_bus");
   set_thread_log_prefix(cfg_.log_prefix.empty() ? "" : cfg_.log_prefix + ": ");
-  if (cfg_.master.sync_plc_cycle && !std::getenv("CANWORKS_BUS_NO_FIFO")) {
-    // PLC-cycle SYNC: the SYNC should follow the frame closely, so the bus
-    // thread runs at the level of the runtime's highest task priority (below
-    // its dispatcher). Without the right to do so it runs as before.
-    // CANWORKS_BUS_NO_FIFO skips this, to measure what it gains.
-    sched_param sp{};
-    sp.sched_priority = kSyncPriority;
-    int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
-    if (rc)
-      log_warn("cannot run the CANopen bus thread at SCHED_FIFO %d (%s); PLC-cycle SYNC may jitter more",
-               kSyncPriority, strerror(rc));
-  }
   if (cfg_.adapter.simulate) {
     // A simulated network has no adapter: no link, no interface to wait for.
     while (!stop_) {
@@ -179,7 +176,25 @@ bool run_requested_sweep(DiagHub* hub, CanAdapter* adapter, const Config& cfg, c
   return true;
 }
 
+void Bus::enter_realtime() {
+  if (!cfg_.master.sync_plc_cycle || std::getenv("CANWORKS_BUS_NO_FIFO")) return;
+  // PLC-cycle SYNC: the SYNC should follow the frame closely, so the bus
+  // thread runs at the level of the runtime's highest task priority (below
+  // its dispatcher) while a session runs; a session's shutdown leaves it
+  // (leave_realtime). Without the right to do so it runs as before.
+  // CANWORKS_BUS_NO_FIFO skips this, to measure what it gains.
+  sched_param sp{};
+  sp.sched_priority = kSyncPriority;
+  int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
+  if (rc && !fifo_warned_) {
+    fifo_warned_ = true;
+    log_warn("cannot run the CANopen bus thread at SCHED_FIFO %d (%s); PLC-cycle SYNC may jitter more", kSyncPriority,
+             strerror(rc));
+  }
+}
+
 void Bus::run_session() {
+  enter_realtime();
   // Requests the session's Network took and did not answer get "no bus"
   // when it ends, however it ends.
   struct Detach {
@@ -223,7 +238,12 @@ void Bus::run_session() {
     bool shut_down = false;
     int ticks = 0;
     auto end_session = [&]() {
-      if (!shut_down) ctx.shutdown();
+      if (!shut_down) {
+        // What follows can wait (the loop draining, the adapter): not at
+        // SCHED_FIFO, where it would hold the CPU from the runtime.
+        leave_realtime();
+        ctx.shutdown();
+      }
       shut_down = true;
     };
     // Frames the master and the diagnostics channel (below) put on the
@@ -233,15 +253,23 @@ void Bus::run_session() {
     // The supervision tick ends the session by shutting the I/O context down:
     // that cancels every pending Lely operation, after which the loop stops
     // and everything can be destroyed cleanly.
+    Network* netp = nullptr;
     Network net(exec, timer, sup_timer, *chan, cfg_, gen_, image_, [&]() {
       if (!stop_ && ++ticks % 5 == 0 && iface_down()) iface_lost = true;
-      if (stop_ || iface_lost) {
+      if (stop_) {
+        // No output PDO after the stop request; the loop below sends the
+        // NMT command of master.on_plc_stop and ends the session.
+        if (netp) netp->StopNodes();
+        return true;
+      }
+      if (iface_lost) {
         end_session();
         return false;
       }
       if (virt ? monitor_.simulated() : monitor_.poll(BusMonitor::clock::now())) image_.commit_inputs();
       return true;
     }, &req_timer, &out_timer);
+    netp = &net;
     log_info("opened %s, starting the CANopen master (node ID %u)", where.c_str(), cfg_.master.node_id);
     net.SetDiag(hub_);
     // The upper master's stand-in on a simulated bus is not a field network:
@@ -265,6 +293,7 @@ void Bus::run_session() {
           log_error("simulated %s", m.c_str());
       };
       std::vector<canopen_sim::DeviceSpec> specs = sim_device_specs(cfg_, true);
+      std::set<unsigned> taken_ids;  // config nodes and extra devices alike
       if (virt) {
         sim_host.reset(new canopen_sim::LoopHost(ctx, poll, exec, *vbus, sim_log));
       } else {
@@ -274,6 +303,7 @@ void Bus::run_session() {
           std::set<unsigned> seen;
           std::string err;
           if (!listen_node_ids(cfg_.adapter.interface, 1000, seen, err)) log_warn("%s", err.c_str());
+          taken_ids = seen;
           std::set<unsigned> conflicts;
           for (auto& d : specs) {
             d.conflict = seen.count(d.node) > 0;
@@ -285,6 +315,7 @@ void Bus::run_session() {
       canopen_sim::SimOptions opt;
       opt.store = sim_->store;
       opt.simulated_network = virt;
+      opt.taken = taken_ids;
       simulator.reset(new canopen_sim::Simulator(*sim_host, specs, sim_->file, opt));
       // Plain CAN devices run in the network's raw path (raw_devices.h).
       unsigned index = cfg_.network_index;
@@ -395,6 +426,12 @@ void Bus::run_session() {
       if (loop.stopped()) break;
       if (!shut_down && (stop_ || iface_down())) {
         if (!stop_) iface_lost = true;
+        if (stop_) {
+          // The PLC or the plugin stops: master.on_plc_stop's NMT command
+          // to the nodes, given time to go out before the I/O shuts down.
+          net.StopNodes();
+          loop.run_for(kStopDrain);
+        }
         // As the supervision tick does when it ends the session: what is in
         // flight is cancelled, so the loop can drain.
         net.Stop();

@@ -5,7 +5,9 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "address_claim.h"
@@ -148,7 +150,7 @@ TEST(j1939_claim_uncontested) {
   c.tick(t0 + milliseconds(500));
   CHECK(c.state() == J1939ClaimState::Claimed && c.address() == 128);
   // A request for the claim is answered; a higher NAME is fought off.
-  c.on_claim_request();
+  c.on_claim_request(t0 + milliseconds(550));
   c.on_claim(128, c.name() + 1, t0 + milliseconds(600));
   CHECK((a.claims == std::vector<int>{128, 128, 128}) && c.state() == J1939ClaimState::Claimed);
   c.bus_lost();
@@ -166,8 +168,23 @@ TEST(j1939_claim_held_by_lower_name) {
     c.on_claim(128, 1, t0 + milliseconds(10));
     c.tick(t0 + milliseconds(250));
     CHECK(a.claims == std::vector<int>{254} && c.state() == J1939ClaimState::CannotClaim);
-    c.on_claim_request();
+    // A request is answered with Cannot Claim after a pseudo-random delay
+    // of 0-153 ms (J1939-81), the same for the same NAME.
+    c.on_claim_request(t0 + milliseconds(300));
+    int delay = -1;
+    for (int ms = 300; ms <= 460 && delay < 0; ++ms) {
+      c.tick(t0 + milliseconds(ms));
+      if (a.claims.size() == 2) delay = ms - 300;
+    }
+    CHECK_MSG(delay >= 0 && delay <= 153, "delay " + std::to_string(delay));
     CHECK((a.claims == std::vector<int>{254, 254}));
+    c.tick(t0 + milliseconds(1000));
+    CHECK(a.claims.size() == 2);
+    // A second request while one waits is answered once.
+    c.on_claim_request(t0 + milliseconds(2000));
+    c.on_claim_request(t0 + milliseconds(2001));
+    c.tick(t0 + milliseconds(2160));
+    CHECK(a.claims.size() == 3);
   }
   // With a range: the next free address (129 is taken too).
   {
@@ -194,6 +211,35 @@ TEST(j1939_claim_held_by_lower_name) {
     c.tick(t0 + milliseconds(250));
     CHECK(c.state() == J1939ClaimState::CannotClaim);
   }
+}
+
+// The Cannot Claim delay of the first Request after losing the address.
+int cannot_claim_delay(uint32_t identity) {
+  J1939Ecu e = ecu(128, false);
+  e.name.identity_number = identity;
+  FakeActions a;
+  AddressClaimer c(e, a);
+  auto t0 = clock_type::now();
+  c.start(t0);
+  c.on_claim(128, 1, t0);
+  c.tick(t0 + milliseconds(250));
+  c.on_claim_request(t0 + milliseconds(300));
+  for (int ms = 300; ms <= 460; ++ms) {
+    c.tick(t0 + milliseconds(ms));
+    if (a.claims.size() == 2) return ms - 300;
+  }
+  return -1;
+}
+
+TEST(j1939_cannot_claim_delay_from_the_name) {
+  std::set<int> seen;
+  for (uint32_t id = 1; id <= 16; ++id) {
+    int d = cannot_claim_delay(id);
+    CHECK_MSG(d >= 0 && d <= 153, "identity " + std::to_string(id) + ": delay " + std::to_string(d));
+    CHECK(cannot_claim_delay(id) == d);
+    seen.insert(d);
+  }
+  CHECK_MSG(seen.size() >= 8, std::to_string(seen.size()) + " different delays for 16 NAMEs");
 }
 
 TEST(j1939_claim_lost_after_claimed) {
@@ -307,7 +353,7 @@ Config engine_config() {
 
 // An engine on a fake socket, claimed at 128 at `t0 + 500 ms`.
 struct Rig {
-  Config cfg = engine_config();
+  Config cfg;
   J1939Image image;
   FakeSocket socket;
   J1939Engine engine{cfg, image, socket};
@@ -315,7 +361,7 @@ struct Rig {
   plugin_runtime_args_t rt;
   clock_type::time_point t0 = clock_type::now();
 
-  Rig() {
+  explicit Rig(Config c = engine_config()) : cfg(std::move(c)) {
     image.build(cfg.j1939);
     fake_runtime::attach(img, rt);
   }
@@ -492,6 +538,46 @@ TEST(j1939_engine_answers_requests) {
   CHECK_MSG(js.find(R"("requests_answered":1)") != std::string::npos, js);
 }
 
+// Requests for the same PGN from the same requester are answered at most
+// every 50 ms; other requesters and other PGNs have their own limit.
+TEST(j1939_engine_rate_limits_requests) {
+  Rig r;
+  r.claim();
+  r.img.int_out[0] = 0x0102;
+  r.image.copy_from_plc(r.rt);
+  size_t before = r.socket.of(0xFF01).size();
+  for (int ms = 520; ms < 720; ms += 5) r.request(0xFF01, 0x03, 128, ms);
+  size_t answered = r.socket.of(0xFF01).size() - before;
+  CHECK_MSG(answered == 4, std::to_string(answered) + " answers in 200 ms");
+  r.request(0xFF01, 0x04, 128, 721);
+  CHECK(r.socket.of(0xFF01).size() - before == 5);
+  // NACKs too.
+  for (int ms = 800; ms < 900; ms += 5) r.request(0xFEEE, 0x03, 128, ms);
+  CHECK(r.socket.of(kPgnAcknowledgement).size() == 2);
+}
+
+// A send the interface refuses does not count as sent: an on-change PGN goes
+// out with its new value once the interface takes frames again.
+TEST(j1939_engine_failed_send_stays_pending) {
+  Rig r;
+  r.claim();
+  r.img.byte_out[4] = 7;
+  r.image.copy_from_plc(r.rt);
+  r.engine.tick(r.at(1600));
+  CHECK(r.socket.of(0xFF02).size() == 1);
+  r.img.byte_out[4] = 8;
+  r.image.copy_from_plc(r.rt);
+  r.socket.send_result = -ENOBUFS;
+  r.engine.tick(r.at(1700));
+  CHECK(r.socket.of(0xFF02).size() == 2);
+  r.socket.send_result = 0;
+  r.engine.tick(r.at(1701));
+  auto b = r.socket.of(0xFF02);
+  CHECK(b.size() == 3 && b.back().data[0] == 8);
+  r.engine.tick(r.at(1800));
+  CHECK(r.socket.of(0xFF02).size() == 3);
+}
+
 TEST(j1939_engine_moves_on_contention) {
   Rig r;
   r.claim();
@@ -535,6 +621,188 @@ TEST(j1939_socket_problems) {
   CHECK(j1939_socket_problem(-EPROTONOSUPPORT, "can0") == "J1939 needs the can-j1939 kernel module (modprobe can-j1939)");
   CHECK(j1939_socket_problem(ENODEV, "can0") == "CAN interface can0 not found");
   CHECK(j1939_socket_problem(-ENETDOWN, "can0") == "CAN interface can0 is down");
+}
+
+// ---------------------------------------------------------------------------
+// Multiplexed messages (can-multiplexed-signals)
+
+J1939Signal muxed(const char* name, unsigned start, unsigned length, std::vector<uint64_t> values,
+                  const char* location) {
+  J1939Signal s = sig(name, start, length);
+  s.mux.has_mux = true;
+  for (uint64_t v : values) s.mux.values.push_back(canworks_can::MuxRange{v, v});
+  if (location)
+    s.location = loc(location);
+  else
+    s.has_location = false;
+  return s;
+}
+
+J1939Signal page_switch(const char* location) {
+  J1939Signal s = sig("Page", 0, 8);
+  s.mux.is_switch = true;
+  if (location)
+    s.location = loc(location);
+  else
+    s.has_location = false;
+  return s;
+}
+
+void index_signals(std::vector<J1939Signal>& signals) {
+  for (size_t k = 0; k < signals.size(); ++k) signals[k].index = static_cast<unsigned>(k);
+}
+
+Config mux_config() {
+  Config cfg;
+  cfg.protocol = Protocol::J1939;
+  cfg.adapter.interface = "vcan0";
+  cfg.adapter.bitrate = 250000;
+  J1939Config& j = cfg.j1939;
+  j.ecu = ecu(128, true);
+  // Received: Page 1 carries Temp, page 2 Press; Count is in every page.
+  J1939Rx r;
+  r.pgn = 0xFF10;
+  r.timeout_ms = 300;
+  r.signals.push_back(page_switch("%IB30"));
+  r.signals.push_back(muxed("Temp", 8, 8, {1}, "%IB31"));
+  r.signals.back().has_valid_location = true;
+  r.signals.back().valid_location = loc("%IX12.0");
+  r.signals.push_back(muxed("Press", 8, 16, {2}, "%IW16"));
+  r.signals.back().has_valid_location = true;
+  r.signals.back().valid_location = loc("%IX12.1");
+  r.signals.push_back(sig("Count", 56, 8));
+  r.signals.back().location = loc("%IB32");
+  r.signals.push_back(muxed("Far", 80, 8, {3}, "%IB33"));  // past 8 bytes: transport protocol
+  index_signals(r.signals);
+  j.rx.push_back(r);
+  // Sent: every page each period, one page each period, and the program's page on change.
+  for (int m = 0; m < 2; ++m) {
+    J1939Tx t;
+    t.pgn = 0xFF11 + static_cast<uint32_t>(m);
+    t.period_ms = 100;
+    t.pages = m == 0 ? canworks_can::MuxPages::All : canworks_can::MuxPages::Rotate;
+    t.has_pages = true;
+    t.signals.push_back(page_switch(nullptr));
+    t.signals.push_back(muxed("A", 8, 8, {1}, m == 0 ? "%QB10" : "%QB12"));
+    t.signals.push_back(muxed("B", 8, 8, {2}, m == 0 ? "%QB11" : "%QB13"));
+    index_signals(t.signals);
+    j.tx.push_back(t);
+  }
+  J1939Tx p;
+  p.pgn = 0xFF13;
+  p.signals.push_back(page_switch("%QB14"));
+  p.signals.push_back(muxed("A", 8, 8, {1}, "%QB15"));
+  p.signals.push_back(muxed("B", 8, 16, {2}, "%QW8"));
+  index_signals(p.signals);
+  j.tx.push_back(p);
+  std::vector<std::string> errors;
+  check_j1939(j, [&](const std::string& w, const std::string& m) { errors.push_back(w + ": " + m); });
+  if (!errors.empty()) {
+    std::fprintf(stderr, "mux config: %s\n", errors[0].c_str());
+    std::abort();
+  }
+  return cfg;
+}
+
+std::string status_json(Rig& r, int ms) {
+  cJSON* s = r.engine.status(r.at(ms));
+  char* text = cJSON_PrintUnformatted(s);
+  std::string js = text;
+  cJSON_free(text);
+  cJSON_Delete(s);
+  return js;
+}
+
+TEST(j1939_engine_receives_pages) {
+  Rig r(mux_config());
+  r.claim();
+  r.message(0xFF10, 0x10, 255, {1, 25, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 3}, 510);
+  r.engine.tick(r.at(511));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.byte_in[30] == 1 && r.img.byte_in[31] == 25 && r.img.int_in[16] == 0 && r.img.byte_in[32] == 3);
+  CHECK(r.img.bool_in[12][0] == 1 && r.img.bool_in[12][1] == 0);
+  r.message(0xFF10, 0x10, 255, {2, 0x34, 0x12, 0xFF, 0xFF, 0xFF, 0xFF, 4}, 600);
+  r.engine.tick(r.at(601));
+  r.image.copy_to_plc(r.rt);
+  // Temp keeps its value (bytes 1 are Press's now) and is still valid.
+  CHECK(r.img.byte_in[31] == 25 && r.img.int_in[16] == 0x1234 && r.img.byte_in[32] == 4);
+  CHECK(r.img.bool_in[12][0] == 1 && r.img.bool_in[12][1] == 1);
+  // An unknown page: only the switch and Count.
+  r.message(0xFF10, 0x10, 255, {9, 0x77, 0x77, 0xFF, 0xFF, 0xFF, 0xFF, 5}, 700);
+  r.engine.tick(r.at(701));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.byte_in[30] == 9 && r.img.byte_in[31] == 25 && r.img.int_in[16] == 0x1234 && r.img.byte_in[32] == 5);
+  std::string js = status_json(r, 701);
+  CHECK_MSG(js.find(R"("unknown_pages":1)") != std::string::npos, js);
+  // Page 2 goes on, page 1 stopped at 510: Temp's valid bit drops at 810.
+  r.message(0xFF10, 0x10, 255, {2, 0x35, 0x12, 0xFF, 0xFF, 0xFF, 0xFF, 6}, 800);
+  r.engine.tick(r.at(809));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.bool_in[12][0] == 1);
+  r.engine.tick(r.at(810));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.bool_in[12][0] == 0 && r.img.bool_in[12][1] == 1);
+  // A multi-packet message (BAM or RTS/CTS, reassembled by the kernel) with page 3.
+  r.message(0xFF10, 0x10, 255, {3, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 7, 0xFF, 0xFF, 99, 0xFF}, 820);
+  r.engine.tick(r.at(821));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.byte_in[30] == 3 && r.img.byte_in[33] == 99 && r.img.byte_in[32] == 7);
+  CHECK(r.img.int_in[16] == 0x1235);
+}
+
+TEST(j1939_engine_sends_all_and_rotate) {
+  Rig r(mux_config());
+  r.claim();
+  r.img.byte_out[10] = 0xA1;
+  r.img.byte_out[11] = 0xB1;
+  r.img.byte_out[12] = 0xA2;
+  r.img.byte_out[13] = 0xB2;
+  r.image.copy_from_plc(r.rt);
+  r.engine.tick(r.at(510));
+  auto a = r.socket.of(0xFF11);
+  CHECK(a.size() == 2 && a[0].data[0] == 1 && a[0].data[1] == 0xA1 && a[1].data[0] == 2 && a[1].data[1] == 0xB1);
+  auto b = r.socket.of(0xFF12);
+  CHECK(b.size() == 1 && b[0].data[0] == 1 && b[0].data[1] == 0xA2);
+  r.engine.tick(r.at(610));
+  b = r.socket.of(0xFF12);
+  CHECK(r.socket.of(0xFF11).size() == 4 && b.size() == 2 && b[1].data[0] == 2 && b[1].data[1] == 0xB2);
+  r.engine.tick(r.at(710));
+  b = r.socket.of(0xFF12);
+  CHECK(b.size() == 3 && b[2].data[0] == 1);
+  // A request is answered with every page ("all") or the next one ("rotate").
+  r.request(0xFF11, 0x20, 128, 720);
+  CHECK(r.socket.of(0xFF11).size() == 8);
+  r.request(0xFF12, 0x20, 128, 730);
+  b = r.socket.of(0xFF12);
+  CHECK(b.size() == 4 && b[3].data[0] == 2);
+  std::string js = status_json(r, 730);
+  CHECK_MSG(js.find(R"("pages":"all")") != std::string::npos && js.find(R"("pages":"rotate")") != std::string::npos,
+            js);
+}
+
+TEST(j1939_engine_sends_the_program_page) {
+  Rig r(mux_config());
+  r.claim();
+  r.img.byte_out[14] = 1;
+  r.img.byte_out[15] = 0x55;
+  r.img.int_out[8] = 0x0302;
+  r.image.copy_from_plc(r.rt);
+  r.engine.tick(r.at(510));
+  auto p = r.socket.of(0xFF13);
+  CHECK(p.size() == 1 && (p[0].data == std::vector<uint8_t>{1, 0x55, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}));
+  r.img.byte_out[14] = 2;
+  r.image.copy_from_plc(r.rt);
+  r.engine.tick(r.at(520));
+  p = r.socket.of(0xFF13);
+  CHECK(p.size() == 2 && (p[1].data == std::vector<uint8_t>{2, 0x02, 0x03, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}));
+  // A page the switch does not know: the switch alone, flagged in the status.
+  r.img.byte_out[14] = 7;
+  r.image.copy_from_plc(r.rt);
+  r.engine.tick(r.at(530));
+  p = r.socket.of(0xFF13);
+  CHECK(p.size() == 3 && (p[2].data == std::vector<uint8_t>{7, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}));
+  std::string js = status_json(r, 530);
+  CHECK_MSG(js.find(R"("pages":"program","unknown_page":true)") != std::string::npos, js);
 }
 
 }  // namespace

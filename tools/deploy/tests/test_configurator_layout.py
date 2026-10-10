@@ -279,13 +279,19 @@ class Layout(OnlineBase):
     # -- message bar -----------------------------------------------------------
     def test_message_bar(self):
         pg = self.page
+        # The page's timers on a fake clock (it runs on by itself as well), so
+        # the message bar's seconds pass at once instead of in real time.
+        pg.clock.install()
         with FakePlugin(allow_changes=True) as fp:
             self.online(fp, allow=True)
             pg.wait_for_selector("text=changes allowed")
             pg.click('tr[data-online-node="2"]')
             pg.click('button[data-nmt="start"]')
             pg.wait_for_selector("#banner:has-text('Node 2: Start sent.')")
-            pg.wait_for_selector("#banner", state="hidden", timeout=9000)
+            pg.clock.run_for(5000)
+            self.assertTrue(pg.is_visible("#banner"))
+            pg.clock.run_for(4000)
+            pg.wait_for_selector("#banner", state="hidden", timeout=1000)
             # Leaving the view clears a message at once.
             pg.click('button[data-nmt="start"]')
             pg.wait_for_selector("#banner:has-text('Start sent')")
@@ -297,7 +303,7 @@ class Layout(OnlineBase):
         pg.fill('input[aria-label="SDO variable index"]', "zz")
         pg.click("button:has-text('Add variable')")
         pg.wait_for_selector("#banner.error:has-text('Give the index')")
-        pg.wait_for_timeout(7000)
+        pg.clock.run_for(7000)
         self.assertTrue(pg.is_visible("#banner"))
         pg.click("#banner-close")
         self.assertTrue(pg.is_hidden("#banner"))

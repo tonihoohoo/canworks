@@ -290,7 +290,7 @@ class Parser {
       return false;
     }
     unsigned limit = limits_.buffer_size;
-    if (byte_mode_ ? out.index + location_bytes(out) > limit : out.index >= limit) {
+    if (!iec_location_in_image(out, limit, byte_mode_)) {
       error(where, std::string(key) + " " + out.str() +
                        " lies outside the runtime I/O image (index must be below " +
                        std::to_string(limit) + ")");
@@ -658,6 +658,14 @@ class Parser {
     return cfg;
   }
 
+  // A Linux interface name the plugin can open or create (IFNAMSIZ - 1).
+  static bool valid_interface_name(const std::string& name) {
+    if (name.empty() || name.size() > 15) return false;
+    for (char c : name)
+      if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '.' && c != ':' && c != '-') return false;
+    return true;
+  }
+
   static bool valid_network_name(const std::string& name) {
     if (name.empty() || name.size() > 16 || !std::isalpha(static_cast<unsigned char>(name[0]))) return false;
     for (char c : name)
@@ -838,7 +846,10 @@ class Parser {
     return true;
   }
 
-  void parse_j1939_signals(const cJSON* msg, const std::string& where, bool rx, std::vector<J1939Signal>& out) {
+  // `switch_mode`: the pages mode ("all", "rotate") of a tx entry whose
+  // switches the plugin sets, "" when its `pages` was wrong, else nullptr.
+  void parse_j1939_signals(const cJSON* msg, const std::string& where, bool rx, const char* switch_mode,
+                           std::vector<J1939Signal>& out) {
     const cJSON* arr = cJSON_GetObjectItemCaseSensitive(msg, "signals");
     if (!arr) {
       error(where, "field 'signals' is missing");
@@ -851,14 +862,21 @@ class Parser {
     int i = 0;
     const cJSON* sj;
     cJSON_ArrayForEach(sj, arr) {
+      unsigned index = static_cast<unsigned>(i);
       std::string sw = where + ": signals[" + std::to_string(i++) + "]";
       if (!cJSON_IsObject(sj)) {
         error(sw, "must be an object");
         continue;
       }
       check_known(sj, sw, {"name", "start_bit", "length", "byte_order", "signed", "scale", "offset", "unit",
-                           "iec_location", "valid_location"});
+                           "iec_location", "valid_location", "multiplexer", "mux"});
       J1939Signal s;
+      s.index = index;
+      {
+        std::vector<std::string> errs;
+        canworks_can::parse_mux_fields(sj, "signals[" + std::to_string(index) + "]", s.mux, errs);
+        for (const auto& e : errs) error(where, e);
+      }
       if (!get_string(sj, "name", sw, true, s.name)) continue;
       const std::string me = "signal " + s.name;
       bool ok = true;
@@ -890,7 +908,13 @@ class Parser {
       get_number(sj, "scale", sw, -1e300, 1e300, s.scale);
       get_number(sj, "offset", sw, -1e300, 1e300, s.offset);
       get_string(sj, "unit", sw, false, s.unit);
-      if (!cJSON_GetObjectItemCaseSensitive(sj, "iec_location")) {
+      if (s.mux.is_switch && switch_mode) {
+        // The plugin sets this switch; an empty mode: `pages` was wrong.
+        s.has_location = false;
+        if (cJSON_GetObjectItemCaseSensitive(sj, "iec_location") && *switch_mode)
+          error(where, "signals[" + std::to_string(index) + "].iec_location: the plugin sets switch " + s.name +
+                           " when pages is \"" + switch_mode + "\"; leave it out");
+      } else if (!cJSON_GetObjectItemCaseSensitive(sj, "iec_location")) {
         error(where, me + ": field 'iec_location' is missing");
         ok = false;
       } else if (get_location(sj, "iec_location", where + ": " + me, false, s.location)) {
@@ -1009,6 +1033,15 @@ class Parser {
                             errors, warnings);
     for (const auto& e : errors) errors_.push_back(path_ + ": " + e);
     for (const auto& w : warnings) warnings_.push_back(path_ + ": " + w);
+    // The same image check as every other location (can-raw-messages "Raw
+    // message locations inside the I/O image").
+    std::vector<std::pair<IecLocation, std::string>> locs;
+    canworks_raw::raw_locations(cfg.raw, locs);
+    for (const auto& l : locs)
+      if (!iec_location_in_image(l.first, limits_.buffer_size, byte_mode_))
+        errors_.push_back(path_ + ": " + l.second + ": " + l.first.str() +
+                          " lies outside the runtime I/O image (index must be below " +
+                          std::to_string(limits_.buffer_size) + ")");
     if (cfg.is_plain() && cfg.raw.empty())
       cfg.notes.push_back("network has no raw messages; it serves the program's CAN_* blocks, traces and diagnostics");
   }
@@ -1093,11 +1126,11 @@ class Parser {
           if (j_range(m, "timeout_ms", w, 0, kJ1939MaxPeriodMs, v)) r.timeout_ms = (unsigned)v;
           r.has_status_location = j_location(m, "status_location", w, IecArea::Input, IecSize::X,
                                              "a bit input (%IX)", r.status_location);
-          parse_j1939_signals(m, w, true, r.signals);
+          parse_j1939_signals(m, w, true, nullptr, r.signals);
           jc.rx.push_back(r);
         } else if (std::strcmp(list, "tx") == 0) {
           check_known(m, w, {"pgn", "name", "priority", "destination", "length", "period_ms", "min_gap_ms",
-                             "signals"});
+                             "pages", "signals"});
           J1939Tx t;
           bool pgn_ok = j_pgn(m, w, t.pgn);
           get_string(m, "name", w, false, t.name);
@@ -1113,7 +1146,18 @@ class Parser {
           }
           if (j_range(m, "period_ms", w, 0, kJ1939MaxPeriodMs, v)) t.period_ms = (unsigned)v;
           if (j_range(m, "min_gap_ms", w, 0, kJ1939MaxPeriodMs, v)) t.min_gap_ms = (unsigned)v;
-          parse_j1939_signals(m, w, false, t.signals);
+          std::string pages;
+          bool pages_bad = false;
+          if (cJSON_GetObjectItemCaseSensitive(m, "pages")) {
+            t.has_pages = true;
+            const cJSON* pj = cJSON_GetObjectItemCaseSensitive(m, "pages");
+            pages_bad = !cJSON_IsString(pj) || !canworks_can::parse_mux_pages(pj->valuestring, t.pages);
+            if (pages_bad) error(w, "pages: must be \"program\", \"all\" or \"rotate\"");
+          }
+          const char* mode = pages_bad ? ""
+                             : t.pages == canworks_can::MuxPages::Program ? nullptr
+                                                                           : canworks_can::mux_pages_name(t.pages);
+          parse_j1939_signals(m, w, false, mode, t.signals);
           jc.tx.push_back(t);
         } else {
           check_known(m, w, {"pgn", "destination", "period_ms"});
@@ -1152,7 +1196,7 @@ class Parser {
                    "sync_counter_overflow", "time_cob_id", "emcy_inhibit_time_us", "heartbeat_consumer",
                    "heartbeat_multiplier", "error_behavior", "nmt_inhibit_time_us", "start", "start_nodes",
                    "start_all_nodes", "reset_all_nodes", "stop_all_nodes", "boot_time_ms", "sdo_timeout_ms",
-                   "time_period_ms", "diagnostics"});
+                   "time_period_ms", "on_plc_stop", "scan_watchdog_ms", "diagnostics"});
       if (get_uint(master, "node_id", "master", true, 0xFFFF, v)) {
         if (v < 1 || v > 127) error("master", "node ID " + std::to_string(v) + " is out of range (1-127)");
         cfg.master.node_id = (unsigned)v;
@@ -1233,6 +1277,12 @@ class Parser {
           error(w, "node guarding needs both 'guard_time_ms' and 'life_time_factor'");
         if (n.heartbeat_ms && n.guard_time_ms)
           error(w, "use either heartbeat ('heartbeat_ms') or node guarding ('guard_time_ms'), not both");
+        // An explicit 0 accepts an unsupervised node (canopen-node-supervision
+        // "Every node is supervised or says why not"); check_eds_files refuses
+        // one that is unsupervised only through its EDS default.
+        if (n.has_heartbeat && n.heartbeat_ms == 0 && n.guard_time_ms == 0)
+          warning(w, "node " + std::to_string(n.node_id) + (n.name.empty() ? "" : " (" + n.name + ")") +
+                         ": \"heartbeat_ms\": 0 and no guarding: its loss is not detected");
         if (cJSON_GetObjectItemCaseSensitive(node, "status_location")) {
           IecLocation loc;
           if (get_location(node, "status_location", w, false, loc)) {
@@ -1378,6 +1428,23 @@ class Parser {
         error(w, "field 'time_period_ms' must be 100-3600000: " + std::to_string(v));
       else
         m.time_period_ms = (unsigned)v;
+    }
+    std::string stop;
+    if (get_string(master, "on_plc_stop", w, false, stop)) {
+      if (stop == "preop")
+        m.on_plc_stop = OnPlcStop::Preop;
+      else if (stop == "stop")
+        m.on_plc_stop = OnPlcStop::Stop;
+      else if (stop == "keep")
+        m.on_plc_stop = OnPlcStop::Keep;
+      else
+        error(w, "field 'on_plc_stop' must be \"preop\", \"stop\" or \"keep\"");
+    }
+    if (get_uint(master, "scan_watchdog_ms", w, false, 0xFFFFFFFF, v)) {
+      if (v != 0 && (v < 10 || v > 60000))
+        error(w, "field 'scan_watchdog_ms' must be 0 or 10-60000: " + std::to_string(v));
+      else
+        m.scan_watchdog_ms = (unsigned)v;
     }
     if (version_ == 1)
       parse_diagnostics(master, m, "master");
@@ -1613,7 +1680,9 @@ class Parser {
       error("", "missing required field 'adapter'");
       return;
     }
-    get_string(src, "interface", w, true, a.interface);
+    if (get_string(src, "interface", w, true, a.interface) && !valid_interface_name(a.interface))
+      error(w, "interface \"" + a.interface + "\" must be 1-15 characters of letters, digits, '_', '.', ':' and '-' "
+               "(the 15-character limit of Linux interface names)");
     uint64_t v;
     if (get_uint(src, "bitrate", w, true, 1000000, v)) {
       static const unsigned rates[] = {10000, 20000, 50000, 125000, 250000, 500000, 800000, 1000000};
@@ -2421,7 +2490,7 @@ class Parser {
                    std::to_string(nbytes) + "-byte block starts, not " + out.str());
       return false;
     }
-    if (out.index + nbytes > limits_.buffer_size) {
+    if (!bytes_in_image(out.index, nbytes, limits_.buffer_size)) {
       error(w, std::string(key) + " " + out.str() + ": its " + std::to_string(nbytes) +
                    "-byte block ends outside the image (" + std::to_string(limits_.buffer_size) + " bytes)");
       return false;
@@ -2457,7 +2526,8 @@ class Parser {
     }
     BridgeConfig& c = set.bridge;
     c.enabled = true;
-    check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "writers", "readers", "watchdog_ms",
+    check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers",
+                       "readers", "watchdog_ms",
                        "on_client_loss", "status_location", "control_location", "live_lists",
                        "sdo_bridge_location", "sdo_bridge_write"});
     if (get_string(b, "listen", w, true, c.listen)) {
@@ -2486,6 +2556,13 @@ class Parser {
       if (v < 1) error(w, "field 'max_clients' must be 1-64");
       c.max_clients = (unsigned)v;
     }
+    if (get_uint(b, "max_clients_per_address", w, false, 64, v)) {
+      if (v < 1) error(w, "field 'max_clients_per_address' must be 1-64");
+      c.max_clients_per_address = (unsigned)v;
+    }
+    if (!cJSON_GetObjectItemCaseSensitive(b, "writers"))
+      error(w, "missing required field 'writers': list the addresses that may write, or [\"0.0.0.0/0\", \"::/0\"] "
+               "to let every address write");
     for (const char* key : {"writers", "readers"}) {
       const cJSON* list = cJSON_GetObjectItemCaseSensitive(b, key);
       if (!list) continue;
@@ -2596,7 +2673,8 @@ class Parser {
         }
       }
       for (const auto& t : j.tx)
-        for (const auto& s : t.signals) uses.push_back({s.location, p + "PGN " + std::to_string(t.pgn) + " signal " + s.name});
+        for (const auto& s : t.signals)
+          if (s.has_location) uses.push_back({s.location, p + "PGN " + std::to_string(t.pgn) + " signal " + s.name});
       return;
     }
     if (cfg.is_slave()) {

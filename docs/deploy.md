@@ -25,17 +25,17 @@ canworks-deploy \
     --fingerprint 3A:5F:...:C2
 ```
 
-Instead of `--bundle`, `--project <project>` runs `openplc-cli compile <project> --target "OpenPLC Runtime v4"` first and uses the same output directory (`--target` picks another runtime v4 board; `$OPENPLC_CLI` names the `openplc-cli` program).
+Instead of `--bundle`, `--project <project>` runs `openplc-cli compile <project> --target "OpenPLC Runtime v4"` first and uses the same output directory (`--target` picks another runtime v4 board; `$OPENPLC_CLI` names the `openplc-cli` program). On Windows `openplc-cli` is a `.cmd` file, which reads `&`, `|`, `^`, `%`, `<`, `>` and `"` as commands, so a project or editor path with one of them is refused before anything runs (this also holds for `--new-project`); move or rename the folder.
 
 The tool:
 
 1. reads the config and checks it the way the plugin does at PLC start: the JSON Schema for its `schema_version`, the checks the schema cannot express, and the EDS checks (object exists, PDO-mappable, `DataType`, `AccessType`, startup SDO value range). A problem stops the deploy, naming the file and JSON path, with the plugin's own wording for EDS problems;
 2. copies the bundle, adds `conf/canworks.json` and each EDS file as `conf/canworks/eds/<file>`, and rewrites each node's `eds` to `canworks/eds/<file>`, plus the simulation file and its files when there is one ([Simulated devices](#simulated-devices)). Every other file, including other plugins' configs such as `conf/ethercat.json`, stays byte for byte as the editor wrote it;
 3. checks IEC addresses across every plugin config in `conf/*.json` (below);
-4. logs in (`POST /api/login`), uploads (`POST /api/upload-file`), follows `/api/compilation-status` and prints the runtime's build log;
-5. starts the PLC (`/api/start-plc`), which the runtime leaves stopped after an upload, and waits until `/api/status` reports it running. `--no-start` leaves it stopped.
+4. logs in (`POST /api/login`), reads the PLC's state (`/api/status`), uploads (`POST /api/upload-file`), follows `/api/compilation-status` and prints the runtime's build log;
+5. starts the PLC (`/api/start-plc`), which the runtime leaves stopped after an upload, and waits until `/api/status` reports it running. It does so only when the PLC was running before the upload or had no program. A PLC that was stopped before (for maintenance, say) stays stopped, and so does the PLC when the build log does not say whether the `canworks` plugin is enabled; the tool says so. `--start` starts it in both cases, `--no-start` never.
 
-It exits 0 only when the runtime reports a successful build, its log shows the `canworks` plugin enabled and the PLC runs (or `--no-start` was given). When the device's run/stop switch is at STOP the start is refused and the tool says so.
+It exits 0 only when the runtime reports a successful build, its log shows the `canworks` plugin enabled (or does not say, with the PLC left stopped) and the PLC is in the state the tool said it would leave it in. When the device's run/stop switch is at STOP the start is refused and the tool says so.
 
 Nothing is uploaded when a check fails.
 

@@ -106,9 +106,11 @@ jobs:
           strucpp: ${{ steps.strucpp.outputs.cli }}
 
       - name: Unit and virtual-bus tests (one ctest test per simulation case, run in parallel)
+        # Eight at a time on the four cores: the cases mostly wait on bus and timer
+        # time (the CPU stays about a quarter busy at -j4), so -j8 halves the step.
         env:
           CANWORKS_REQUIRE_STRUCPP: "1"
-        run: ctest --test-dir build --output-on-failure -j4
+        run: ctest --test-dir build --output-on-failure -j8
 
       - uses: actions/setup-python@v5
         with:
@@ -121,14 +123,13 @@ jobs:
 
   vcan:
     # The plugin on vcan, split over three runners (each has its own vcan0) so
-    # each runs about the same test time. Test step times (main, 2026-10-07):
+    # each runs about the same test time. Test step times (pull request #69, 2026-10-10):
     #   group 1: link setup 2 s, ping-pong 16, two networks 21, PLC-cycle SYNC 7,
-    #            LSS 11, bus state 10, RTD module 18, parameters 10, fixed PDOs 9,
-    #            device commissioning ~25 (new, estimated) = ~130 s
-    #   group 2: raw frames and bit rate 53, standalone device simulator 60,
-    #            J1939 ECU against the simulator ~25 (new, estimated) = ~140 s
-    #   group 3: bus trace 30, slcan 30, master and its own slave 29,
-    #            PLC SDO blocks 5, PC-direct commissioning 32 = ~125 s
+    #            LSS 12, bus state 9, RTD module 19, device commissioning 33 = ~120 s
+    #   group 2: raw frames and bit rate 21, standalone device simulator 42,
+    #            J1939 ECU against the simulator 13, parameters 9, fixed PDOs 9 = ~95 s
+    #   group 3: bus trace 31, slcan 31, master and its own slave 28,
+    #            PLC SDO blocks 5, PC-direct commissioning 30 = ~125 s
     # A new vcan test goes into the group with the least time; update the table.
     # The CANopen steps run when needs.changes.outputs.canopen is true, the J1939
     # step when .j1939 is; a group with nothing to run skips its build.
@@ -230,11 +231,11 @@ jobs:
           test/sensor/run.sh --seconds 6 --keep-vendor-pdos
 
       - name: Device parameter backup, compare and restore on vcan0 (RTD module)
-        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
+        if: steps.vcan.outcome == 'success' && matrix.group == 2 && needs.changes.outputs.canopen == 'true'
         run: test/params/run.sh
 
       - name: Fixed PDO mapping (read-only mapping and COB-IDs) on vcan0
-        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
+        if: steps.vcan.outcome == 'success' && matrix.group == 2 && needs.changes.outputs.canopen == 'true'
         run: test/fixed/run.sh
 
       - name: Write a configuration to one device from the PC on vcan0 (simulated RTD module; then the runtime refusal)
