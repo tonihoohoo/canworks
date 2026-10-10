@@ -95,7 +95,7 @@ def plugin_test(build, repo, work):
     cfg["master"]["diagnostics"] = {"token_verifier": diag.token_verifier(token), "port": dport, "bind": "127.0.0.1",
                                     "allow_changes": True}
     # A second node whose device name (0x1008, "RTD-8") is longer than an expedited transfer.
-    cfg["nodes"].append({"node_id": 5, "name": "rtd", "eds": "rtd8.eds"})
+    cfg["nodes"].append({"node_id": 5, "name": "rtd", "eds": "rtd8.eds", "heartbeat_ms": 100})
     cfg["master"]["cia309"] = {"port": gport, "allow_changes": True}
     with open(os.path.join(work, "canopen_config.json"), "w") as f:
         json.dump(cfg, f, indent=2)
