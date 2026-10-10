@@ -355,7 +355,11 @@ class PdoTest(Base):
         dev = self.device(5, od=fixed_io_od(), pdo=True, nmt_state=5)
         c = self.client(allow_changes=True)
         c.sync_start(20)
-        time.sleep(0.2)
+        # Wait for SYNCs rather than a fixed time: the macOS runners wake a
+        # 20 ms timer after 60-170 ms.
+        deadline = time.monotonic() + 5
+        while dev.syncs < 4 and time.monotonic() < deadline:
+            time.sleep(0.01)
         c.close()
         n = dev.syncs
         self.assertGreater(n, 3)

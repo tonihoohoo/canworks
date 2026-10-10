@@ -194,7 +194,8 @@ class FindCli(unittest.TestCase):
             for c in '&|^%<>"':
                 self.assertIn("'%s'" % c, editorproject.unsafe_for_cmd(["openplc-cli", "compile", "C:\\a%sb" % c]))
             self.assertIsNone(editorproject.unsafe_for_cmd(["openplc-cli", "compile", "C:\\R and D\\pump"]))
-        self.assertIsNone(editorproject.unsafe_for_cmd(["openplc-cli", "compile", "/home/r&d"]))  # not Windows
+        with mock.patch.object(editorproject, "WINDOWS", False):
+            self.assertIsNone(editorproject.unsafe_for_cmd(["openplc-cli", "compile", "/home/r&d"]))  # not Windows
 
     def test_cmd_special_characters_refused_by_deploy_on_windows(self):
         fake_editor_cli(self.bin)
