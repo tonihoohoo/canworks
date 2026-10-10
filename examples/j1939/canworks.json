@@ -51,7 +51,21 @@
         ],
         "requests": [
           { "pgn": 65282, "destination": 0, "period_ms": 1000 }
-        ]
+        ],
+        "diagnostics": {
+          "rx": [
+            {
+              "source": 0, "timeout_ms": 3000, "status_location": "%IX207.0", "lamps_location": "%IB220",
+              "flash_location": "%IB221", "count_location": "%IB222", "dtcs_location": "%ID220", "dtcs": 4
+            }
+          ],
+          "dtcs": [
+            { "spn": 520192, "fmi": 3, "lamps": [ "amber" ], "active_location": "%QX206.0" },
+            { "spn": 520193, "fmi": 1, "lamps": [ "red" ], "flash": "fast", "active_location": "%QX206.1" }
+          ],
+          "lamps_location": "%QB207",
+          "clear_location": "%IB223"
+        }
       }
     }
   ]
