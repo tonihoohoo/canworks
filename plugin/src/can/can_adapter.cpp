@@ -157,6 +157,54 @@ int transact(NlRequest& req, LinkInfo* info) {
 
 class NetlinkOps : public LinkOps {
  public:
+  ~NetlinkOps() override {
+    if (async_fd_ >= 0) close(async_fd_);
+  }
+
+  int request_get(const std::string& name) override {
+    if (name.size() >= IFNAMSIZ) return -ENODEV;
+    if (async_fd_ < 0) {
+      async_fd_ = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, NETLINK_ROUTE);
+      if (async_fd_ < 0) return -errno;
+    }
+    NlRequest req(RTM_GETLINK, 0);
+    req.add(IFLA_IFNAME, name.c_str(), name.size() + 1);
+    req.nh()->nlmsg_seq = ++async_seq_;
+    sockaddr_nl addr{};
+    addr.nl_family = AF_NETLINK;
+    if (sendto(async_fd_, req.buf, req.nh()->nlmsg_len, MSG_DONTWAIT, reinterpret_cast<sockaddr*>(&addr),
+               sizeof(addr)) < 0)
+      return -errno;
+    return 0;
+  }
+
+  // Reads every answer waiting on the socket, without blocking; the newest
+  // one counts.
+  int take_get(LinkInfo& out) override {
+    if (async_fd_ < 0) return -EAGAIN;
+    int result = -EAGAIN;
+    alignas(nlmsghdr) char reply[16384];
+    for (;;) {
+      ssize_t n = recv(async_fd_, reply, sizeof(reply), MSG_DONTWAIT);
+      if (n < 0) {
+        if (errno == EINTR) continue;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) return result;
+        return -errno;
+      }
+      int len = static_cast<int>(n);
+      for (nlmsghdr* nh = reinterpret_cast<nlmsghdr*>(reply); NLMSG_OK(nh, len); nh = NLMSG_NEXT(nh, len)) {
+        if (nh->nlmsg_type == NLMSG_ERROR) {
+          const nlmsgerr* err = static_cast<const nlmsgerr*>(NLMSG_DATA(nh));
+          if (err->error) result = err->error;
+        } else if (nh->nlmsg_type == RTM_NEWLINK) {
+          out = LinkInfo();
+          parse_ifinfo(nh, out);
+          result = 0;
+        }
+      }
+    }
+  }
+
   int get(const std::string& name, LinkInfo& out) override {
     out = LinkInfo();
     if (name.size() >= IFNAMSIZ) return -ENODEV;
@@ -233,6 +281,10 @@ class NetlinkOps : public LinkOps {
     req.end_nest(linkinfo);
     return transact(req, nullptr);
   }
+
+ private:
+  int async_fd_ = -1;  // request_get / take_get
+  uint32_t async_seq_ = 0;
 };
 
 // ---------------------------------------------------------------------------

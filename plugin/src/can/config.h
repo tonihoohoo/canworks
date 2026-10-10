@@ -232,6 +232,10 @@ struct NodeConfig {
   std::string label() const;  // "node 2 (pingpong)"
 };
 
+// What the master does to its nodes when the PLC or the plugin stops
+// (master.on_plc_stop): ENTER PRE-OPERATIONAL, STOP, or nothing.
+enum class OnPlcStop { Preop, Stop, Keep };
+
 struct MasterConfig {
   unsigned node_id = 1;
   unsigned sync_period_us = 0;  // 0 (or left out): the master produces no SYNC
@@ -290,6 +294,11 @@ struct MasterConfig {
   // TIME producer period (canopen-master-bringup "TIME producer"); 0 = the
   // master sends no TIME.
   unsigned time_period_ms = 0;
+  // NMT command to every up node before the network closes on a PLC stop.
+  OnPlcStop on_plc_stop = OnPlcStop::Preop;
+  // Outputs gate closes when the scan has not finished a cycle this long
+  // (0: off).
+  unsigned scan_watchdog_ms = 1000;
   // The COB-ID the master produces TIME on: time_cob_id, else 0x100.
   uint32_t time_producer_cob_id() const { return (has_time_cob_id ? time_cob_id : 0x100u) & 0x1FFFFFFFu; }
   // Diagnostics channel (canopen-online-diagnostics spec); off without

@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#include <pthread.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -1360,6 +1361,56 @@ TEST(netlink_parses_vcan) {
   CHECK(out.up && out.kind == "vcan" && !out.has_can_state && !out.has_berr && !out.has_stats);
 }
 
+// The bus monitor's link reading never blocks the bus thread: rtnetlink
+// answers are taken from a non-blocking socket, on a later call when they
+// have not arrived yet.
+TEST(netlink_get_does_not_block) {
+  std::unique_ptr<LinkOps> ops = make_netlink_ops();
+  LinkInfo li;
+  auto t0 = std::chrono::steady_clock::now();
+  CHECK(ops->take_get(li) == -EAGAIN);  // nothing asked yet: no wait
+  CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(100));
+  CHECK(ops->request_get("lo") == 0);
+  int r = -EAGAIN;
+  for (int i = 0; i < 100 && r == -EAGAIN; ++i) {
+    r = ops->take_get(li);
+    if (r == -EAGAIN) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  CHECK_MSG(r == 0 && li.up, std::to_string(r));
+  // Answered: the next take has nothing new and returns at once.
+  t0 = std::chrono::steady_clock::now();
+  CHECK(ops->take_get(li) == -EAGAIN);
+  CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(100));
+  CHECK(ops->request_get("no-such-if0") == 0);
+  r = -EAGAIN;
+  for (int i = 0; i < 100 && r == -EAGAIN; ++i) {
+    r = ops->take_get(li);
+    if (r == -EAGAIN) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  CHECK_MSG(r < 0 && r != -EAGAIN, std::to_string(r));
+}
+
+// The bus thread leaves SCHED_FIFO when its session shuts down, so the
+// shutdown's waiting cannot hold a CPU from the runtime.
+namespace canopen_plugin {
+void leave_realtime();  // bus.h, whose Lely headers clash with <linux/can/netlink.h>
+}
+
+TEST(bus_thread_leaves_realtime) {
+  int policy = -1;
+  bool fifo = false;
+  std::thread t([&] {
+    sched_param sp{};
+    sp.sched_priority = 10;
+    fifo = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) == 0;
+    canopen_plugin::leave_realtime();
+    pthread_getschedparam(pthread_self(), &policy, &sp);
+  });
+  t.join();
+  if (!fifo) std::printf("    (no right to SCHED_FIFO here: only the SCHED_OTHER case runs)\n");
+  CHECK(policy == SCHED_OTHER);
+}
+
 namespace {
 
 struct MonitorFixture {
@@ -1684,7 +1735,7 @@ TEST(eds_lint_prepared_copy_and_verdict) {
   errors.clear();
   Config missing = config("cpp-slave.eds", "");
   CHECK(!run_eds_lint(missing, "/nonexistent/python", work, errors));
-  CHECK_MSG(has_error(errors, "cannot run the EDS lint (/nonexistent/python -m canworks.edslint)") &&
+  CHECK_MSG(has_error(errors, "cannot run the EDS lint (/nonexistent/python -I -m canworks.edslint)") &&
                 has_error(errors, "rerun scripts/install-stock.sh"),
             join(errors));
   errors.clear();
@@ -2369,6 +2420,34 @@ TEST(dcfgen_options_sdo_override_warns) {
             join(cfg.warnings));
 }
 
+// A concise DCF whose size field is far beyond the file is refused as
+// truncated, without reading past its end (the check cannot wrap).
+TEST(concise_dcf_huge_size_refused) {
+  std::string dir = tmpdir();
+  std::string bin;
+  auto u32 = [&](uint32_t v) {
+    for (int b = 0; b < 4; ++b) bin.push_back(char(v >> (8 * b)));
+  };
+  u32(1);                                  // one entry
+  bin += std::string("\x00\x20\x01", 3);  // 0x2000:1
+  u32(0xFFFFFFF0u);                        // its size
+  bin += "abcd";                           // what is there of its data
+  write(dir + "/huge.bin", bin);
+  std::vector<SdoWrite> out;
+  std::string why;
+  CHECK(!read_concise_dcf(dir + "/huge.bin", out, why));
+  CHECK_MSG(why.find("truncated concise DCF") != std::string::npos, why);
+  // A well-formed entry still reads.
+  bin.clear();
+  u32(1);
+  bin += std::string("\x00\x20\x01", 3);
+  u32(4);
+  bin += "abcd";
+  write(dir + "/ok.bin", bin);
+  CHECK_MSG(read_concise_dcf(dir + "/ok.bin", out, why), why);
+  CHECK(out.size() == 1 && out[0].index == 0x2000 && out[0].subindex == 1 && out[0].data.size() == 4);
+}
+
 // Through dcfgen: node settings left out write nothing to the node (the
 // EDS's 0x1016 entry watching the master stays); set ones land in the node's
 // concise DCF and the master's DCF.
@@ -2482,6 +2561,38 @@ TEST(dcfgen_missing_program) {
   GeneratedConfig gen;
   CHECK(!generate_device_config(cfg, "/nonexistent/dcfgen", gen, errors));
   CHECK_MSG(has_error(errors, "cannot run dcfgen"), join(errors));
+}
+
+// dcfgen and the EDS lint that hang are stopped after the helper time limit
+// (60 s; shortened here), and the start goes on to report it.
+TEST(helper_programs_time_limit) {
+  set_log_sink(silent);
+  std::string dir = tmpdir();
+  write(dir + "/cpp-slave.eds", read(std::string(PINGPONG_DIR) + "/cpp-slave.eds"));
+  std::string hang = dir + "/hang";
+  write(hang, "#!/bin/sh\nsleep 30\n");
+  chmod(hang.c_str(), 0755);
+  Config cfg;
+  std::vector<std::string> errors;
+  CHECK(parse_config(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
+  set_helper_time_limit(std::chrono::milliseconds(300));
+  auto t0 = std::chrono::steady_clock::now();
+  GeneratedConfig gen;
+  CHECK(!generate_device_config(cfg, hang, gen, errors));
+  auto took = std::chrono::steady_clock::now() - t0;
+  CHECK_MSG(has_error(errors, "dcfgen on ") && has_error(errors, "timed out after 300 ms"), join(errors));
+  CHECK(took < std::chrono::seconds(5));
+  errors.clear();
+  t0 = std::chrono::steady_clock::now();
+  CHECK(!run_eds_lint(cfg, hang, cfg.config_dir + "/.canworks", errors));
+  took = std::chrono::steady_clock::now() - t0;
+  CHECK_MSG(has_error(errors, "timed out after 300 ms"), join(errors));
+  CHECK(took < std::chrono::seconds(5));
+  // A program name is looked up in PATH once, as an absolute path.
+  CHECK(resolve_program("sh").size() > 3 && resolve_program("sh")[0] == '/');
+  CHECK(resolve_program("no-such-program-here").empty());
+  set_helper_time_limit(std::chrono::milliseconds(60000));
+  set_log_sink(nullptr);
 }
 
 TEST(dcfgen_startup_sdo_after_pdo_parameters) {
@@ -3710,6 +3821,34 @@ TEST(plc_requests_slots_and_handles) {
   CHECK(canopen_plugin::plc_api_table(7) == nullptr);
   CHECK(q.take_unknown_version() == 7);
   CHECK(q.take_unknown_version() == 0);
+}
+
+// A request a network took and never answered times out after its TIMEOUT
+// plus the grace, so its slot is free again (canopen-plc-sdo "Bounded wait").
+TEST(plc_requests_taken_times_out) {
+  using canopen_plugin::PlcRequests;
+  PlcRequests& q = PlcRequests::instance();
+  q.open();
+  canopen_plc_request r{};
+  r.node = 5;
+  r.index = 0x1018;
+  r.subindex = 1;
+  r.timeout_ms = 100;
+  uint16_t err = 0;
+  uint32_t h = q.start(r, err);
+  CHECK(h != 0);
+  std::vector<PlcRequests::Job> jobs;
+  q.take(0, jobs);
+  CHECK(jobs.size() == 1);
+  canopen_plc_result res{};
+  auto now = PlcRequests::clock::now();
+  CHECK(q.poll(h, &res, nullptr, 0, now + std::chrono::milliseconds(100)) == 0);  // the network is on it
+  CHECK(q.poll(h, &res, nullptr, 0, now + std::chrono::milliseconds(100) + PlcRequests::kTakenGrace) == 2);
+  CHECK(res.error_id == CANOPEN_PLC_ERR_TIMEOUT && res.abort_code == 0x05040000u);
+  // Its slot is free: a late answer from the network is ignored.
+  q.finish(h, 0, 0, nullptr, 0);
+  CHECK(q.poll(h, &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_CANCELLED);
+  q.close();
 }
 
 // Several networks: a request names its network; each network takes and

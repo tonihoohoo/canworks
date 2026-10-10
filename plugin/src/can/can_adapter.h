@@ -72,6 +72,18 @@ class LinkOps {
     (void)on;
     return -EOPNOTSUPP;
   }
+  // get() split in two for a caller that must not block (the bus thread's
+  // BusMonitor::poll): request_get() asks, take_get() returns the newest
+  // answer already there, -EAGAIN when none came yet. The rtnetlink
+  // version answers on a later call; this default answers at once.
+  virtual int request_get(const std::string& name) {
+    get_name_ = name;
+    return 0;
+  }
+  virtual int take_get(LinkInfo& out) { return get(get_name_, out); }
+
+ private:
+  std::string get_name_;
 };
 
 // The serial side of the slcan backend, behind an interface so tests can mock

@@ -145,9 +145,8 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
         if (ec || stopped_) return;
         // Only when the scan published new outputs; WriteOutputs sends the
         // event-driven PDOs whose data changed.
-        bool fresh = false;
-        image_.latest_outputs(&fresh);
-        if (fresh) WriteOutputs();
+        LatestOutputs();
+        if (outputs_fresh_) WriteOutputs();
         out_timer_->submit_wait(out_wait_);
       }) {
   for (const auto& n : cfg.nodes) {
@@ -175,6 +174,7 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
 }
 
 Network::~Network() {
+  if (scan_hung_) set_scan_hung(false);
   HostRequests::instance().clear(cfg_.network_index);
   if (lss_) lss_->AbortAll();
   sup_timer_.cancel_wait(tick_wait_);
@@ -260,8 +260,34 @@ void Network::SendTime() {
 void Network::Stop() {
   if (stopped_) return;
   stopped_ = true;
+  if (scan_hung_) {
+    scan_hung_ = false;
+    set_scan_hung(false);
+  }
   if (lss_) lss_->CancelAll();
   CancelPrograms();
+}
+
+void Network::StopNodes() {
+  if (nodes_stopped_) return;
+  nodes_stopped_ = true;
+  Stop();
+  // No output PDO from here on: every master TPDO off.
+  outputs_on_ = false;
+  for (auto& it : nodes_) EnableTpdos(it.second, false);
+  OnPlcStop mode = cfg_.master.on_plc_stop;
+  if (mode == OnPlcStop::Keep) return;
+  bool stop = mode == OnPlcStop::Stop;
+  unsigned sent = 0;
+  for (auto& it : nodes_) {
+    NodeState& n = it.second;
+    if (!n.up && !n.node_op) continue;
+    Command(stop ? NmtCommand::STOP : NmtCommand::ENTER_PREOP, static_cast<uint8_t>(it.first));
+    ++sent;
+  }
+  if (sent)
+    log_info("PLC stop: NMT %s to %u node%s (master.on_plc_stop \"%s\")",
+             stop ? "STOP" : "ENTER PRE-OPERATIONAL", sent, sent == 1 ? "" : "s", stop ? "stop" : "preop");
 }
 
 void Network::MapTpdos() {
@@ -275,8 +301,10 @@ void Network::MapTpdos() {
     cob &= 0x1FFFFFFFu & ~0x20000000u;  // strip the valid/RTR/frame bits
     cob &= 0x7FF;
     tpdo_cob_[num] = cob;
+    // Event-driven (254, 255) and acyclic synchronous (0: sent with the
+    // next SYNC after an event) TPDOs go out only when triggered.
     uint8_t trans = (*this)[0x1800 + num - 1][2].Read<uint8_t>(ec);
-    if (!ec && trans >= 254) tpdo_event_.insert(num);
+    if (!ec && (trans >= 254 || trans == 0)) tpdo_event_.insert(num);
     for (auto& n : nodes_)
       for (const auto& p : n.second.cfg->rx_pdos)
         if (n.second.cfg->rpdo_cob_id(p) == cob) n.second.tpdos.push_back(num);
@@ -318,6 +346,9 @@ void Network::SetUp(unsigned id, bool up, const char* why) {
   image_.commit_inputs();
   HostRequests::instance().set_operational(cfg_.network_index, id, up);
   EnableTpdos(n, up && outputs_on_);
+  // The node may have lost what it had (a reboot) and the program's
+  // outputs may have changed while it was away.
+  if (up && outputs_on_) ResendOutputs(id, n);
   if (up)
     log_info("%s is operational", n.cfg->label().c_str());
   else
@@ -404,6 +435,7 @@ void Network::OnTick() {
     Stop();
     return;
   }
+  if (stopped_) return;  // the tick asked for StopNodes()
   if (!req_timer_) {
     ServiceHost();
     ServiceDiag();
@@ -1148,8 +1180,62 @@ void Network::SendSync() {
   co_nmt_on_sync(nmt(), cnt);
 }
 
+const uint64_t* Network::LatestOutputs() {
+  bool fresh = false;
+  const uint64_t* out = image_.latest_outputs(&fresh);
+  if (fresh) outputs_fresh_ = true;
+  return out;
+}
+
+void Network::ResendOutputs(unsigned id, const NodeState& n) {
+  const uint64_t* out = LatestOutputs();
+  const auto& bindings = image_.outputs();
+  for (size_t i = 0; i < bindings.size(); ++i) {
+    const Binding& b = bindings[i];
+    if (b.node_id != id) continue;
+    std::error_code ec;
+    TpdoRaw(static_cast<uint8_t>(id), b.index, b.subindex, b.type, out[i], ec);
+    last_out_[i] = out[i];
+  }
+  if (gw_) {
+    bool zero = !upper_ok_ && gw_->cfg().on_upper_loss == GatewayConfig::UpperLoss::Zero;
+    for (size_t r : routes_down_) {
+      const RouteConfig& rc = gw_->cfg().routes[r];
+      if (rc.node != id) continue;
+      std::error_code ec;
+      TpdoRaw(static_cast<uint8_t>(rc.node), rc.index, rc.subindex, rc.type, zero ? 0 : route_value_[r], ec);
+    }
+  }
+  for (unsigned num : n.tpdos)
+    if (tpdo_event_.count(num)) TpdoEvent(static_cast<int>(num));
+}
+
+void Network::CheckScanWatchdog(clock::time_point now) {
+  unsigned ms = cfg_.master.scan_watchdog_ms;
+  if (!ms) return;
+  uint64_t count = image_.scan_count(LatestOutputs());
+  if (count != scan_seen_) {
+    scan_seen_ = count;
+    scan_moved_ = now;
+    if (scan_hung_) {
+      scan_hung_ = false;
+      set_scan_hung(false);
+      log_info("scan watchdog: the PLC scan finishes cycles again; outputs on");
+    }
+    return;
+  }
+  // Armed once the program has finished its first cycle.
+  if (!count || scan_hung_ || now - scan_moved_ < std::chrono::milliseconds(ms)) return;
+  scan_hung_ = true;
+  set_scan_hung(true);
+  log_error("scan watchdog: the PLC scan has not finished a cycle for %u ms (master.scan_watchdog_ms); outputs off "
+            "until it does",
+            ms);
+}
+
 void Network::WriteOutputs() {
-  const uint64_t* out = image_.latest_outputs();
+  const uint64_t* out = LatestOutputs();
+  outputs_fresh_ = false;
   const auto& bindings = image_.outputs();
   std::map<unsigned, bool> changed;
   for (size_t i = 0; i < bindings.size(); ++i) {
@@ -1174,6 +1260,7 @@ void Network::WriteOutputs() {
 
 // The host's NMT commands (the bridge's control block) and outputs gate.
 void Network::ServiceHost() {
+  CheckScanWatchdog(clock::now());
   bool gate = outputs_enabled();
   if (gate != outputs_on_) {
     outputs_on_ = gate;
@@ -1195,7 +1282,9 @@ void Network::ApplyOutputsGate() {
   for (auto& it : nodes_) EnableTpdos(it.second, it.second.up && outputs_on_);
   if (outputs_on_) {
     log_info("outputs on: RPDOs run again");
-    WriteOutputs();
+    // Every up node gets its current outputs once, changed or not.
+    for (auto& it : nodes_)
+      if (it.second.up) ResendOutputs(it.first, it.second);
   } else {
     log_info("outputs off: RPDOs stopped, SYNC and inputs go on");
   }
@@ -1473,7 +1562,7 @@ void Network::ServiceRequests() {
   // The program's SDO blocks name network 0, the first network.
   ServiceProgram(now);
   if (!has_requests_ && prog_.empty()) return;
-  const uint64_t* snap = image_.latest_outputs();
+  const uint64_t* snap = LatestOutputs();
   // Nothing before the program has run once: the outputs are not its yet.
   bool scanned = image_.scan_count(snap) != 0;
   for (auto& it : nodes_) {
