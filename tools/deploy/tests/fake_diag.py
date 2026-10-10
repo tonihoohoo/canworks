@@ -186,6 +186,7 @@ class FakePlugin:
         self.scan_nodes = copy.deepcopy(SCAN_RESULT)
         self.scan_left = None
         self.requests = []
+        self.extra_ops = {}  # op -> fn(req) giving a result, or raising ValueError with the plugin's error text
         self.conns = set()  # the handlers of the open connections
         # LSS: devices by address (vendor, product, revision, serial) -> node ID (255: none).
         self.lss_devices = {(0x360, 0, 0, 0x42): 255, (0x360, 0, 0, 0x1234): 12}
@@ -598,6 +599,11 @@ class FakePlugin:
                 return err("node %s is not this slave (node ID %d); a slave network reads and writes only its own "
                            "dictionary" % (req.get("node"), info["node_id"]))
         sim = self.sim if net is self else None
+        if op in self.extra_ops:
+            try:
+                return ok(self.extra_ops[op](req))
+            except ValueError as e:
+                return err(str(e))
         if isinstance(op, str) and op.startswith("sim_"):
             if sim is None:
                 return err("nothing simulated")

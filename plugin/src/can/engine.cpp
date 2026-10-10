@@ -171,6 +171,9 @@ void Engine::start() {
 #if CANWORKS_WITH_CANOPEN
   canopen_open_plc_requests(set_);
 #endif
+#if CANWORKS_WITH_J1939
+  j1939_open_plc_jobs(set_);
+#endif
   started_ = true;
 }
 
@@ -179,6 +182,9 @@ void Engine::stop() {
   started_ = false;
 #if CANWORKS_WITH_CANOPEN
   canopen_close_plc_requests();
+#endif
+#if CANWORKS_WITH_J1939
+  j1939_close_plc_jobs();
 #endif
   if (server_) server_->stop();
 #if CANWORKS_WITH_CIA309

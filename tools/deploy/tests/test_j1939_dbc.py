@@ -94,8 +94,11 @@ class Import(unittest.TestCase):
         self.assertEqual((muxed["A"]["mux"], muxed["B"]["mux"]), ({"values": [0]}, {"values": [1]}))
         self.assertIn("message Mixed (ID 0x18FF1305): signal Temperature is a float signal", text)
         self.assertIn("message Counters (ID 0xCFF1105): signal Wide has 72 bits", text)
-        self.assertIn("attribute SPN is not used by the import", text)
-        self.assertEqual(len(imported.problems), 4)
+        # SPN attributes name trouble codes (add-j1939-diagnostics): read, not a problem.
+        self.assertNotIn("attribute SPN", text)
+        self.assertEqual(imported.spns, {520192: "Flow"})
+        self.assertEqual(status["signals"][0].get("spn"), 520192)
+        self.assertEqual(len(imported.problems), 3)
 
     def test_not_a_dbc(self):
         with self.assertRaises(dbc.ImportFailed):

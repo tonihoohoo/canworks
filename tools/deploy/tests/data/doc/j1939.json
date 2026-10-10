@@ -2,8 +2,8 @@
  "config": {
   "file": "canworks.json",
   "schema_version": 2,
-  "sha256": "a6c0b110a5fcdea53eec3c59e76d14ce3d70f9aa722b3f77b44b339e25af1f6f",
-  "text": "{\n  \"$schema\": \"https://github.com/tonihoohoo/canworks/schema/canworks.v2.schema.json\",\n  \"schema_version\": 2,\n  \"networks\": [\n    {\n      \"name\": \"machine\",\n      \"protocol\": \"j1939\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"can0\", \"bitrate\": 250000 },\n      \"j1939\": {\n        \"ecu\": {\n          \"name\": { \"identity_number\": 1234, \"manufacturer_code\": 0, \"function\": 130, \"industry_group\": 0, \"arbitrary_address_capable\": true },\n          \"address\": 128,\n          \"address_range\": [ 128, 135 ],\n          \"state_location\": \"%IB200\",\n          \"address_location\": \"%IB201\"\n        },\n        \"dbc\": \"machine.dbc\",\n        \"rx\": [\n          {\n            \"pgn\": 65280, \"name\": \"Pressures\", \"source\": 0, \"timeout_ms\": 300, \"status_location\": \"%IX202.0\",\n            \"signals\": [\n              { \"name\": \"Pressure\", \"start_bit\": 0, \"length\": 16, \"scale\": 0.1, \"unit\": \"bar\", \"iec_location\": \"%IW210\", \"valid_location\": \"%IX202.1\" },\n              { \"name\": \"Temp\", \"start_bit\": 16, \"length\": 8, \"signed\": true, \"unit\": \"degC\", \"iec_location\": \"%IB204\", \"valid_location\": \"%IX202.2\" },\n              { \"name\": \"Level\", \"start_bit\": 24, \"length\": 8, \"scale\": 0.4, \"unit\": \"%\", \"iec_location\": \"%IB205\" },\n              { \"name\": \"PumpOn\", \"start_bit\": 32, \"length\": 2, \"iec_location\": \"%IB206\" }\n            ]\n          },\n          {\n            \"pgn\": 65282, \"name\": \"ComponentInfo\", \"source\": 0, \"status_location\": \"%IX202.3\",\n            \"signals\": [\n              { \"name\": \"Hours\", \"start_bit\": 0, \"length\": 32, \"scale\": 0.05, \"unit\": \"h\", \"iec_location\": \"%ID210\" },\n              { \"name\": \"Starts\", \"start_bit\": 32, \"length\": 16, \"iec_location\": \"%IW212\" },\n              { \"name\": \"Serial\", \"start_bit\": 240, \"length\": 32, \"iec_location\": \"%ID211\" }\n            ]\n          }\n        ],\n        \"tx\": [\n          {\n            \"pgn\": 65281, \"name\": \"Setpoints\", \"priority\": 6, \"period_ms\": 100,\n            \"signals\": [\n              { \"name\": \"Setpoint\", \"start_bit\": 0, \"length\": 16, \"unit\": \"rpm\", \"iec_location\": \"%QW210\" },\n              { \"name\": \"Run\", \"start_bit\": 16, \"length\": 2, \"iec_location\": \"%QB204\" }\n            ]\n          },\n          {\n            \"pgn\": 61184, \"name\": \"Command\", \"priority\": 6, \"destination\": 0, \"period_ms\": 0, \"min_gap_ms\": 50,\n            \"signals\": [\n              { \"name\": \"Mode\", \"start_bit\": 0, \"length\": 8, \"iec_location\": \"%QB205\" }\n            ]\n          }\n        ],\n        \"requests\": [\n          { \"pgn\": 65282, \"destination\": 0, \"period_ms\": 1000 }\n        ]\n      }\n    }\n  ]\n}\n"
+  "sha256": "d5d4dad86465db20a782553363fbd1e8d32d95436a899058b37bd61f4ee7ce48",
+  "text": "{\n  \"$schema\": \"https://github.com/tonihoohoo/canworks/schema/canworks.v2.schema.json\",\n  \"schema_version\": 2,\n  \"networks\": [\n    {\n      \"name\": \"machine\",\n      \"protocol\": \"j1939\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"can0\", \"bitrate\": 250000 },\n      \"j1939\": {\n        \"ecu\": {\n          \"name\": { \"identity_number\": 1234, \"manufacturer_code\": 0, \"function\": 130, \"industry_group\": 0, \"arbitrary_address_capable\": true },\n          \"address\": 128,\n          \"address_range\": [ 128, 135 ],\n          \"state_location\": \"%IB200\",\n          \"address_location\": \"%IB201\"\n        },\n        \"dbc\": \"machine.dbc\",\n        \"rx\": [\n          {\n            \"pgn\": 65280, \"name\": \"Pressures\", \"source\": 0, \"timeout_ms\": 300, \"status_location\": \"%IX202.0\",\n            \"signals\": [\n              { \"name\": \"Pressure\", \"start_bit\": 0, \"length\": 16, \"scale\": 0.1, \"unit\": \"bar\", \"iec_location\": \"%IW210\", \"valid_location\": \"%IX202.1\" },\n              { \"name\": \"Temp\", \"start_bit\": 16, \"length\": 8, \"signed\": true, \"unit\": \"degC\", \"iec_location\": \"%IB204\", \"valid_location\": \"%IX202.2\" },\n              { \"name\": \"Level\", \"start_bit\": 24, \"length\": 8, \"scale\": 0.4, \"unit\": \"%\", \"iec_location\": \"%IB205\" },\n              { \"name\": \"PumpOn\", \"start_bit\": 32, \"length\": 2, \"iec_location\": \"%IB206\" }\n            ]\n          },\n          {\n            \"pgn\": 65282, \"name\": \"ComponentInfo\", \"source\": 0, \"status_location\": \"%IX202.3\",\n            \"signals\": [\n              { \"name\": \"Hours\", \"start_bit\": 0, \"length\": 32, \"scale\": 0.05, \"unit\": \"h\", \"iec_location\": \"%ID210\" },\n              { \"name\": \"Starts\", \"start_bit\": 32, \"length\": 16, \"iec_location\": \"%IW212\" },\n              { \"name\": \"Serial\", \"start_bit\": 240, \"length\": 32, \"iec_location\": \"%ID211\" }\n            ]\n          }\n        ],\n        \"tx\": [\n          {\n            \"pgn\": 65281, \"name\": \"Setpoints\", \"priority\": 6, \"period_ms\": 100,\n            \"signals\": [\n              { \"name\": \"Setpoint\", \"start_bit\": 0, \"length\": 16, \"unit\": \"rpm\", \"iec_location\": \"%QW210\" },\n              { \"name\": \"Run\", \"start_bit\": 16, \"length\": 2, \"iec_location\": \"%QB204\" }\n            ]\n          },\n          {\n            \"pgn\": 61184, \"name\": \"Command\", \"priority\": 6, \"destination\": 0, \"period_ms\": 0, \"min_gap_ms\": 50,\n            \"signals\": [\n              { \"name\": \"Mode\", \"start_bit\": 0, \"length\": 8, \"iec_location\": \"%QB205\" }\n            ]\n          }\n        ],\n        \"requests\": [\n          { \"pgn\": 65282, \"destination\": 0, \"period_ms\": 1000 }\n        ],\n        \"diagnostics\": {\n          \"rx\": [\n            {\n              \"source\": 0, \"timeout_ms\": 3000, \"status_location\": \"%IX207.0\", \"lamps_location\": \"%IB220\",\n              \"flash_location\": \"%IB221\", \"count_location\": \"%IB222\", \"dtcs_location\": \"%ID220\", \"dtcs\": 4\n            }\n          ],\n          \"dtcs\": [\n            { \"spn\": 520192, \"fmi\": 3, \"lamps\": [ \"amber\" ], \"active_location\": \"%QX206.0\" },\n            { \"spn\": 520193, \"fmi\": 1, \"lamps\": [ \"red\" ], \"flash\": \"fast\", \"active_location\": \"%QX206.1\" }\n          ],\n          \"lamps_location\": \"%QB207\",\n          \"clear_location\": \"%IB223\"\n        }\n      }\n    }\n  ]\n}\n"
  },
  "doc_schema_version": 2,
  "gateway": null,
@@ -72,6 +72,54 @@
   {
    "key": [
     "I",
+    "B",
+    220
+   ],
+   "location": "%IB220",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.rx[0].lamps_location",
+   "variables": [],
+   "who": "diagnostics rx[0] lamps_location"
+  },
+  {
+   "key": [
+    "I",
+    "B",
+    221
+   ],
+   "location": "%IB221",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.rx[0].flash_location",
+   "variables": [],
+   "who": "diagnostics rx[0] flash_location"
+  },
+  {
+   "key": [
+    "I",
+    "B",
+    222
+   ],
+   "location": "%IB222",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.rx[0].count_location",
+   "variables": [],
+   "who": "diagnostics rx[0] count_location"
+  },
+  {
+   "key": [
+    "I",
+    "B",
+    223
+   ],
+   "location": "%IB223",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.clear_location",
+   "variables": [],
+   "who": "diagnostics clear_location"
+  },
+  {
+   "key": [
+    "I",
     "D",
     210
    ],
@@ -92,6 +140,54 @@
    "path": "networks[0].j1939.rx[1].signals[2].iec_location",
    "variables": [],
    "who": "PGN 65282 signal Serial"
+  },
+  {
+   "key": [
+    "I",
+    "D",
+    220
+   ],
+   "location": "%ID220",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.rx[0].dtcs_location",
+   "variables": [],
+   "who": "diagnostics rx[0] code 0"
+  },
+  {
+   "key": [
+    "I",
+    "D",
+    221
+   ],
+   "location": "%ID221",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.rx[0].dtcs_location",
+   "variables": [],
+   "who": "diagnostics rx[0] code 1"
+  },
+  {
+   "key": [
+    "I",
+    "D",
+    222
+   ],
+   "location": "%ID222",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.rx[0].dtcs_location",
+   "variables": [],
+   "who": "diagnostics rx[0] code 2"
+  },
+  {
+   "key": [
+    "I",
+    "D",
+    223
+   ],
+   "location": "%ID223",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.rx[0].dtcs_location",
+   "variables": [],
+   "who": "diagnostics rx[0] code 3"
   },
   {
    "key": [
@@ -167,6 +263,18 @@
   },
   {
    "key": [
+    "I",
+    "X",
+    1656
+   ],
+   "location": "%IX207.0",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.rx[0].status_location",
+   "variables": [],
+   "who": "diagnostics rx[0] status_location"
+  },
+  {
+   "key": [
     "Q",
     "B",
     204
@@ -192,6 +300,18 @@
   {
    "key": [
     "Q",
+    "B",
+    207
+   ],
+   "location": "%QB207",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.lamps_location",
+   "variables": [],
+   "who": "diagnostics lamps_location"
+  },
+  {
+   "key": [
+    "Q",
     "W",
     210
    ],
@@ -200,6 +320,30 @@
    "path": "networks[0].j1939.tx[0].signals[0].iec_location",
    "variables": [],
    "who": "PGN 65281 signal Setpoint"
+  },
+  {
+   "key": [
+    "Q",
+    "X",
+    1648
+   ],
+   "location": "%QX206.0",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.dtcs[0].active_location",
+   "variables": [],
+   "who": "diagnostics SPN 520192 FMI 3 active_location"
+  },
+  {
+   "key": [
+    "Q",
+    "X",
+    1649
+   ],
+   "location": "%QX206.1",
+   "network": "machine",
+   "path": "networks[0].j1939.diagnostics.dtcs[1].active_location",
+   "variables": [],
+   "who": "diagnostics SPN 520193 FMI 1 active_location"
   }
  ],
  "networks": [
@@ -680,7 +824,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.52.0"
+  "version": "0.53.0"
  },
  "warnings": []
 }

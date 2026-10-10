@@ -2,8 +2,8 @@
 // J1939 networks (j1939-pc-tools "J1939 network in the configurator", "J1939
 // online view"): the protocol choice of a network, the J1939 network page
 // (ECU identity, DBC import with a message picker, the rx, tx and request
-// tables) and the network's live status in the online view. Loaded after
-// app.js and uses its helpers.
+// tables, diagnostics) and the network's live status with its Faults panel
+// in the online view. Loaded after app.js and uses its helpers.
 
 const isJ1939 = (net) => !!net && net.protocol === "j1939";
 // A network's j1939 object, or an empty one when the draft has none (the
@@ -149,6 +149,7 @@ function renderJ1939(view) {
     j1939Messages("rx"),
     j1939Messages("tx"),
     j1939Requests(),
+    j1939Diagnostics(),
     onlineAccessSettings());
 }
 
@@ -370,6 +371,7 @@ function j1939Message(dir, m, i) {
       el("span", { class: "field-msg", dataset: { for: base } }),
       el("button", { type: "button", class: "small", "aria-label": `Remove PGN ${num(m.pgn)}`, dataset: { j1939Remove: `${dir}:${i}` },
         onclick: () => { getPath("j1939." + dir).splice(i, 1); changed(true); } }, "Remove")),
+    dmPgnNote(dir, m.pgn),
     el("div", { class: "pdo-grid" },
       field("PGN", base + ".pgn", "int", { parse: intValue, hint: "Decimal or 0x hex. A PDU1 PGN (below 0xF000) has its low byte 0." }),
       field("Name", base + ".name", "text", { placeholder: "none" }),
@@ -467,10 +469,207 @@ function j1939Requests() {
     } }, "Add request")));
 }
 
+// -- diagnostics --------------------------------------------------------------------
+
+// The trouble code words the server serves (j1939/dm.py): FMI texts 0..31,
+// the lamps as [key, label, shift], the DM PGNs and their titles.
+function dmTexts() { return (S.state && S.state.j1939_dm) || { fmi: [], lamps: [], pgns: {}, titles: {} }; }
+const fmiText = (fmi) => dmTexts().fmi[fmi] || "?";
+const DM_SPN_FIRST = 520192;  // the first proprietary SPN
+const DM_MAX_SPN = 524287;
+
+// A received or sent PGN that is a diagnostic message: the Diagnostics
+// section handles it (design Decision 10; the DBC import leaves them out).
+function dmPgnNote(dir, pgn) {
+  const name = dmTexts().pgns[String(num(pgn))];
+  if (!name) return null;
+  const text = name !== "DM1" ? `PGN ${num(pgn)} is ${name} (${dmTexts().titles[name] || "a diagnostic message"}), which the Diagnostics section below handles.`
+    : dir === "rx" ? "PGN 65226 is DM1, the active trouble codes: watch the ECU in the Diagnostics section below instead, which takes every code (not only the first), the lamps and a timeout."
+      : "PGN 65226 is DM1, the active trouble codes: add the PLC's own codes in the Diagnostics section below instead, which sends DM1 every second and answers DM2, DM3 and DM11.";
+  return el("div", { class: "field-msg warning", dataset: { j1939DmPgn: `${dir}:${num(pgn)}` } }, text);
+}
+
+// Removes entry i of diagnostics.rx or .dtcs; an empty list and an empty
+// diagnostics object go too.
+function dmRemove(key, i) {
+  const j = j1939Of(S.config);
+  const d = j.diagnostics;
+  d[key].splice(i, 1);
+  if (!d[key].length) delete d[key];
+  if (!Object.keys(d).length) delete j.diagnostics;
+  changed(true);
+}
+
+function dmObject() {
+  const j = j1939Of(S.config, true);
+  if (!j.diagnostics || typeof j.diagnostics !== "object" || Array.isArray(j.diagnostics)) j.diagnostics = {};
+  return j.diagnostics;
+}
+
+async function dmPlace(direction, type) {
+  return (await api("POST", "/api/place", { config: fileConfig(), network: S.net, direction, type })).location;
+}
+
+function j1939Diagnostics() {
+  const base = "j1939.diagnostics";
+  const d = getPath(base) || {};
+  const rx = Array.isArray(d.rx) ? d.rx : [];
+  const dtcs = Array.isArray(d.dtcs) ? d.dtcs : [];
+  const fs = el("fieldset", { dataset: { section: "j1939-diagnostics", path: base } }, el("legend", null, "Diagnostics"),
+    el("p", { class: "muted" }, "Trouble codes (J1939-73): the DM1 of other ECUs into %I inputs, and the PLC's own codes, " +
+      "which it sends as DM1 every second, keeps as previously active when they go, and clears on DM3 and DM11."),
+    el("span", { class: "field-msg", dataset: { for: base } }),
+    el("h3", null, "Watched ECUs"),
+    el("p", { class: "muted" }, "ECUs whose lamps and active codes the program sees. Each code is one UDINT: " +
+      "SPN + FMI × 2^19 + OC × 2^24 + CM × 2^31. Every ECU's codes also show in the online view's Faults panel without being watched."),
+    el("span", { class: "field-msg", dataset: { for: base + ".rx" } }));
+  rx.forEach((m, i) => fs.append(dmWatched(m, i)));
+  if (!rx.length) fs.append(el("p", { class: "muted" }, "No watched ECU."));
+  fs.append(el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { j1939Add: "dm-rx" }, onclick: addWatched }, "Watch an ECU")));
+  fs.append(el("h3", null, "Own trouble codes"),
+    el("p", { class: "muted" }, "The PLC's own codes: each is active while its %QX output is TRUE and lights its lamps. " +
+      "Proprietary SPNs are 520192 to 524287."),
+    el("span", { class: "field-msg", dataset: { for: base + ".dtcs" } }));
+  dtcs.forEach((c, i) => fs.append(dmOwnCode(c, i)));
+  if (!dtcs.length) fs.append(el("p", { class: "muted" }, "No own codes."));
+  fs.append(
+    el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { j1939Add: "dm-dtc" }, onclick: addOwnCode }, "Add own code")),
+    el("h3", null, "Settings"),
+    el("div", { class: "grid" },
+      locationField("Lamps output", base + ".lamps_location", "j1939_dm_lamps_out", "%QB…",
+        "Byte output ORed into the lamp byte of the PLC's DM1: MIL bits 7-6, red stop 5-4, amber warning 3-2, protect 1-0, 01 on. " +
+        "With it and no own codes the PLC still sends DM1. Empty: none."),
+      locationField("Clears counter", base + ".clear_location", "j1939_dm_clears", "%IB…",
+        "Byte input: counts the clears (DM3, DM11) the PLC carried out, wrapping at 255, so the program can reset latched faults. Empty: none."),
+      checkbox("Accept clears", base + ".accept_clear", true, "Off: DM3 and DM11 sent to the PLC's address are answered with NACK."),
+      checkbox("Honour DM13", base + ".dm13", true, "On: a tool's DM13 stop broadcast pauses DM1 and the periodic PGNs, for at most 6 s after the last one.")));
+  return fs;
+}
+
+function dmWatched(m, i) {
+  const base = `j1939.diagnostics.rx[${i}]`;
+  const who = m.source !== undefined ? `ECU ${m.source}` : m.source_name !== undefined ? `ECU ${m.source_name}` : `watched ECU ${i + 1}`;
+  const codesPath = base + ".dtcs_location";
+  const codesSuggest = el("button", { type: "button", class: "small", dataset: { suggest: codesPath }, title: "Free locations",
+    "aria-label": `Suggest a location for the codes of ${who}`,
+    onclick: async () => {
+      const count = Number.isInteger(num(m.dtcs)) && num(m.dtcs) >= 1 && num(m.dtcs) <= 32 ? num(m.dtcs) : 4;
+      try {
+        const loc = await dmPlace("j1939_dm_dtcs", count);
+        setPath(base + ".dtcs", count);
+        setPath(codesPath, loc);
+        render();
+      } catch (e) { banner(e.message, true); }
+    } }, "Suggest");
+  return el("div", { class: "pdo j1939-msg", dataset: { path: base, j1939DmRx: String(i) } },
+    el("div", { class: "pdo-title" },
+      el("strong", null, who),
+      el("span", { class: "field-msg", dataset: { for: base } }),
+      el("button", { type: "button", class: "small", "aria-label": `Stop watching ${who}`, dataset: { j1939Remove: `dm-rx:${i}` },
+        onclick: () => dmRemove("rx", i) }, "Remove")),
+    el("div", { class: "pdo-grid" },
+      field("Source address", base + ".source", "int", { parse: intValue, placeholder: "none", hint: "The ECU's address, 0 to 253. Or give its NAME." }),
+      field("Source NAME", base + ".source_name", "text", { placeholder: "none", hint: "Or the ECU with this NAME (0x hex or decimal), wherever it claimed its address." }),
+      m.source_name !== undefined ? field("NAME mask", base + ".source_name_mask", "text", { placeholder: "all bits", hint: "The NAME bits to compare. Empty: all." }) : null,
+      field("Timeout (ms)", base + ".timeout_ms", "int", { parse: intValue, placeholder: "3000", hint: "The status input goes FALSE when no DM1 arrived for this long; the other inputs hold. 0: no supervision." }),
+      locationField("Status", base + ".status_location", "j1939_dm_status", "%IX…", "Bit input: TRUE while the ECU's DM1 arrives in time. Empty: none."),
+      locationField("Lamps", base + ".lamps_location", "j1939_dm_lamps", "%IB…", "Byte input: the DM1's lamp byte (MIL bits 7-6, red stop 5-4, amber warning 3-2, protect 1-0; 01 on). Empty: none."),
+      locationField("Flash", base + ".flash_location", "j1939_dm_flash", "%IB…", "Byte input: the DM1's flash byte, same bit positions (00 slow, 01 fast, 11 no flash). Empty: none."),
+      locationField("Code count", base + ".count_location", "j1939_dm_count", "%IB…", "Byte input: the number of active codes (0 when none, at most 255). Empty: none."),
+      el("label", null, "Codes", el("span", { class: "row" },
+        field("", codesPath, "text", { placeholder: "%ID…" }).querySelector("input"), codesSuggest),
+      hint("The first of consecutive double word inputs, one code each in message order, unused ones 0. Empty: none."),
+      el("span", { class: "field-msg", dataset: { for: codesPath } }), declNote(codesPath)),
+      field("Codes kept", base + ".dtcs", "int", { parse: intValue, placeholder: "none", hint: "How many codes the Codes inputs take, 1 to 32." })));
+}
+
+function dmOwnCode(c, i) {
+  const cp = `j1939.diagnostics.dtcs[${i}]`;
+  const who = `SPN ${c.spn ?? "?"} FMI ${c.fmi ?? "?"}`;
+  const texts = dmTexts().fmi;
+  const fmi = el("select", { "aria-label": `FMI of ${who}`, dataset: { path: cp + ".fmi" } },
+    texts.map((t, k) => el("option", { value: String(k) }, `${k}: ${t}`)));
+  if (!(Number.isInteger(c.fmi) && c.fmi >= 0 && c.fmi < texts.length)) {
+    fmi.prepend(el("option", { value: "" }, c.fmi === undefined ? "pick" : `${c.fmi} (as in the file)`));
+    fmi.value = "";
+  } else fmi.value = String(c.fmi);
+  fmi.addEventListener("change", () => { if (fmi.value !== "") setPath(cp + ".fmi", Number(fmi.value)); });
+  const have = Array.isArray(c.lamps) ? c.lamps : [];
+  const boxes = dmTexts().lamps.map(([key, label]) => {
+    const box = el("input", { type: "checkbox", "aria-label": `${who} lights the ${label} lamp`, dataset: { j1939Lamp: `${i}:${key}` } });
+    box.checked = have.includes(key);
+    box.addEventListener("change", () => {
+      const now = Array.isArray(getPath(cp + ".lamps")) ? getPath(cp + ".lamps") : [];
+      const want = dmTexts().lamps.map(([k]) => k).filter((k) => (k === key ? box.checked : now.includes(k)));
+      setPath(cp + ".lamps", want.length ? want : undefined);
+    });
+    return el("label", { class: "check" }, box, " " + label);
+  });
+  const flash = el("select", { "aria-label": `Flash of ${who}`, dataset: { path: cp + ".flash" } },
+    el("option", { value: "" }, "none"), el("option", { value: "slow" }, "slow"), el("option", { value: "fast" }, "fast"));
+  if (c.flash !== undefined && !["slow", "fast"].includes(c.flash)) flash.append(el("option", { value: String(c.flash) }, `${c.flash} (as in the file)`));
+  flash.value = c.flash === undefined ? "" : String(c.flash);
+  flash.addEventListener("change", () => setPath(cp + ".flash", flash.value || undefined));
+  return el("div", { class: "pdo j1939-msg", dataset: { path: cp, j1939Dtc: String(i) } },
+    el("div", { class: "pdo-title" },
+      el("strong", null, `Own code ${i + 1}`),
+      el("span", { class: "field-msg", dataset: { for: cp } }),
+      el("button", { type: "button", class: "small", "aria-label": `Remove own code ${who}`, dataset: { j1939Remove: `dm-dtc:${i}` },
+        onclick: () => dmRemove("dtcs", i) }, "Remove")),
+    el("div", { class: "pdo-grid" },
+      field("SPN", cp + ".spn", "int", { parse: intValue, hint: "0 to 524287: what failed." }),
+      el("label", { class: "span2" }, "FMI", fmi, hint("How it failed: one of the 32 failure modes."),
+        el("span", { class: "field-msg", dataset: { for: cp + ".fmi" } })),
+      locationField("Active output", cp + ".active_location", "j1939_dtc_active", "%QX…", "Bit output: the code is active while TRUE."),
+      el("div", { class: "j1939-lamps-field", role: "group", "aria-label": `Lamps of ${who}` }, el("span", null, "Lamps"), el("div", { class: "j1939-lamps" }, boxes),
+        hint("The lamps the code lights while active."), el("span", { class: "field-msg", dataset: { for: cp + ".lamps" } })),
+      el("label", null, "Flash", flash, hint("How its lamps flash. None: steady."), el("span", { class: "field-msg", dataset: { for: cp + ".flash" } }))));
+}
+
+// A watched ECU: the next address no entry watches, with a status bit, the
+// lamps, the count and four codes at free locations.
+async function addWatched() {
+  const d = dmObject();
+  const rx = d.rx = Array.isArray(d.rx) ? d.rx : [];
+  let source = 0;
+  while (rx.some((m) => num(m.source) === source) && source < 253) source++;
+  const entry = { source };
+  rx.push(entry);
+  try {
+    // One at a time: each suggestion sees the ones before it in the draft.
+    entry.status_location = await dmPlace("j1939_dm_status");
+    entry.lamps_location = await dmPlace("j1939_dm_lamps");
+    entry.count_location = await dmPlace("j1939_dm_count");
+    entry.dtcs_location = await dmPlace("j1939_dm_dtcs", 4);
+    entry.dtcs = 4;
+  } catch (e) { banner(e.message, true); }
+  changed(true);
+}
+
+// An own code: the next proprietary SPN, FMI 31 (condition exists), at a free %QX.
+async function addOwnCode() {
+  const d = dmObject();
+  const list = d.dtcs = Array.isArray(d.dtcs) ? d.dtcs : [];
+  let spn = DM_SPN_FIRST;
+  while (list.some((c) => num(c.spn) === spn) && spn < DM_MAX_SPN) spn++;
+  const code = { spn, fmi: 31 };
+  try { code.active_location = await dmPlace("j1939_dtc_active"); } catch (e) { banner(e.message, true); }
+  list.push(code);
+  changed(true);
+}
+
 // Where a J1939 check path is, in the page's words (placeOf()).
 function j1939Place(net, path) {
   const j = (net && net.j1939) || {};
   if (path.startsWith("j1939.ecu")) return ["ECU identity"];
+  if (path.startsWith("j1939.diagnostics")) {
+    const d = j.diagnostics || {};
+    const m = /^j1939\.diagnostics\.(rx|dtcs)\[(\d+)\]/.exec(path);
+    if (!m) return ["Diagnostics"];
+    const e = (Array.isArray(d[m[1]]) ? d[m[1]] : [])[Number(m[2])] || {};
+    return ["Diagnostics", m[1] === "rx" ? `watched ECU ${e.source ?? e.source_name ?? Number(m[2]) + 1}`
+      : `own code SPN ${e.spn ?? "?"} FMI ${e.fmi ?? "?"}`];
+  }
   const m = /^j1939\.(rx|tx|requests)\[(\d+)\](?:\.signals\[(\d+)\])?/.exec(path);
   if (!m) return ["J1939"];
   const entry = (j[m[1]] || [])[Number(m[2])] || {};
@@ -543,7 +742,7 @@ function j1939Live(st) {
     el("td", { class: "mono" }, pgnText(row.pgn)), el("td", null, name(conf.rx, row.pgn)), el("td", null, String(row.sent ?? 0))));
   const none = (n, text) => [el("tr", null, el("td", { colspan: n, class: "muted" }, text))];
   const state = j.state_name || J1939_CLAIM[j.state] || String(j.state ?? "?");
-  $("#online-live").replaceChildren(
+  const parts = [
     el("table", { class: "online-bus" }, el("tbody", null,
       el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, `${bus.interface || "?"}: ${BUS_STATES[bus.state] || bus.state || "?"}`),
         el("th", null, "TX / RX errors"), el("td", null, `${bus.tx_errors ?? "-"} / ${bus.rx_errors ?? "-"}`),
@@ -566,5 +765,161 @@ function j1939Live(st) {
       el("tbody", null, tx.length ? tx : none(4, "No sent PGNs."))),
     req.length ? el("h3", null, "Requests") : null,
     req.length ? el("table", { class: "online-nodes", dataset: { j1939: "requests" } },
-      el("thead", null, el("tr", null, thCells(["PGN", "Name", "Requests sent"]))), el("tbody", null, req)) : null);
+      el("thead", null, el("tr", null, thCells(["PGN", "Name", "Requests sent"]))), el("tbody", null, req)) : null].filter(Boolean);
+  // The Faults panel stays in place across polls (its address field and the
+  // last DM2 answer with it); the rest is replaced where it changed.
+  const faults = faultsBox();
+  faultsUpdate(st);
+  const live = $("#online-live");
+  const old = [...live.children];
+  if (old.length !== parts.length + 1 || old[old.length - 1] !== faults) live.replaceChildren(...parts, faults);
+  else parts.forEach((p, k) => { if (old[k].outerHTML !== p.outerHTML) old[k].replaceWith(p); });
+}
+
+// -- Faults panel (j1939-pc-tools "Faults in the J1939 online view") -----------------
+
+const FAULTS = { box: null, net: undefined, list: null, address: null, result: null };
+
+// The lamps that are on, with their flash; "all off" when none is.
+function lampsCell(lamps, flash) {
+  const out = [];
+  for (const [key, label, shift] of dmTexts().lamps) {
+    if (((lamps >> shift) & 3) !== 1) continue;
+    const f = Number.isInteger(flash) ? (flash >> shift) & 3 : 3;
+    out.push(el("span", { class: `tag lamp lamp-${key}`, dataset: { lamp: key } },
+      `${label}${f === 1 ? ", fast flash" : f === 0 ? ", slow flash" : ""}`));
+  }
+  return out.length ? out : [el("span", { class: "muted" }, "all off")];
+}
+
+// One code: SPN (with its DBC name), FMI with its text, occurrence count.
+function dtcLine(c, names) {
+  const name = names[String(c.spn)];
+  return el("div", { dataset: { dtc: `${c.spn}:${c.fmi}` } },
+    `SPN ${c.spn}${name ? " " + name : ""}, FMI ${c.fmi} (${fmiText(c.fmi)})` + (c.oc !== undefined ? `, OC ${c.oc}` : ""),
+    c.cm ? el("span", { class: "muted" }, " (older SPN format)") : null,
+    Array.isArray(c.lamps) && c.lamps.length ? el("span", { class: "muted" }, ` lights ${c.lamps.join(", ")}`) : null);
+}
+
+function ecuLabel(a) {
+  const st = S.onlineLast && S.onlineLast.status;
+  const e = ((st && st.j1939 && st.j1939.ecus) || []).find((x) => x.address === a);
+  return `ECU ${a}` + (e && e.name ? ` (NAME ${e.name})` : "");
+}
+
+// The address typed in the panel: 0 to 253, or 255 (every ECU) for a clear; null after saying why not.
+function dmAddress(global) {
+  const input = FAULTS.address;
+  const t = input.value.trim();
+  const v = /^[0-9]+$/.test(t) ? Number(t) : NaN;
+  if ((v >= 0 && v <= 253) || (global && v === 255)) { input.classList.remove("invalid"); return v; }
+  input.classList.add("invalid");
+  banner(global ? "Enter the ECU's address, 0 to 253, or 255 for every ECU." : "Enter the ECU's address, 0 to 253.", true);
+  return null;
+}
+
+async function dmRead() {
+  const a = dmAddress(false);
+  if (a === null) return;
+  try {
+    const r = await api("POST", "/api/online/j1939_dm_read", { address: a });
+    const names = (S.onlineLast && S.onlineLast.spn_names) || {};
+    const codes = (r.dtcs || []).map((c) => dtcLine(c, names));
+    FAULTS.result.replaceChildren(el("div", { dataset: { j1939: "dm2" } },
+      el("strong", null, `${ecuLabel(a)}, previously active codes (DM2): `),
+      codes.length ? codes : el("span", null, "none."),
+      r.count > codes.length ? el("div", { class: "muted" }, `${r.count - codes.length} more not shown`) : null));
+  } catch (e) {
+    FAULTS.result.replaceChildren(el("div", { class: "bad", dataset: { j1939: "dm2" } }, `DM2 of ECU ${a}: ${e.message}`));
+  }
+}
+
+// DM11 (active and previously active codes) or DM3 (previously active
+// only), after a confirmation naming the ECU and what goes; sent with force.
+async function dmClear(previous) {
+  const a = dmAddress(true);
+  if (a === null) return;
+  const dm = previous ? "DM3" : "DM11";
+  const whom = a === 255 ? "every ECU on the bus" : ecuLabel(a);
+  const what = previous ? "the previously active trouble codes" : "the active and previously active trouble codes and their occurrence counts";
+  const v = await modal(`Clear ${what} of ${whom} (${dm})? This acts on ${a === 255 ? "those ECUs" : "that ECU"}, not on the PLC: ` +
+    "what the codes recorded is gone, and a fault that is still there comes back as a new code.",
+  [["cancel", "Cancel"], ["clear", `Clear (${dm})`, { danger: true }]]);
+  if (v !== "clear") return;
+  try {
+    const r = await api("POST", "/api/online/j1939_dm_clear", { address: a, previous, force: true });
+    FAULTS.result.replaceChildren(el("div", { dataset: { j1939: "dm-cleared" } },
+      r.result === "ack" ? `${ecuLabel(a)} acknowledged the clear (${dm}).` : `${dm} sent to every ECU (no acknowledgement for a global clear).`));
+  } catch (e) {
+    FAULTS.result.replaceChildren(el("div", { class: "bad", dataset: { j1939: "dm-cleared" } }, `${dm} to ${whom}: ${e.message}`));
+  }
+}
+
+function faultsBox() {
+  const net = onlineNetwork();
+  if (FAULTS.box && FAULTS.net === net) return FAULTS.box;
+  FAULTS.net = net;
+  FAULTS.list = el("div", { dataset: { j1939: "faults-list" } });
+  FAULTS.address = el("input", { type: "text", spellcheck: "false", placeholder: "0", "aria-label": "ECU address", dataset: { j1939: "dm-address" } });
+  FAULTS.result = el("div", { class: "j1939-dm-result", role: "status", dataset: { j1939: "dm-result" } });
+  const read = el("button", { type: "button", dataset: { j1939: "dm-read" }, onclick: () => busy(read, "Reading…", dmRead) }, "Read previously active (DM2)");
+  const clear = el("button", { type: "button", dataset: { j1939: "dm-clear" }, onclick: () => busy(clear, "Clearing…", () => dmClear(false)) }, "Clear codes (DM11)…");
+  const clearPrev = el("button", { type: "button", dataset: { j1939: "dm-clear-previous" }, onclick: () => busy(clearPrev, "Clearing…", () => dmClear(true)) },
+    "Clear previously active (DM3)…");
+  FAULTS.box = el("div", { class: "j1939-faults", dataset: { j1939: "faults" } },
+    el("h3", null, "Faults"), FAULTS.list,
+    el("div", { class: "toolbar" }, el("label", null, "ECU address ", FAULTS.address), read, clear, clearPrev),
+    hint("Reads and clears go out from the PLC's address. A clear asks first: it acts on that ECU. 255 clears every ECU."),
+    FAULTS.result);
+  return FAULTS.box;
+}
+
+// The Faults panel's tables from the status "dm" part.
+function faultsUpdate(st) {
+  const dm = (st.j1939 || {}).dm;
+  const names = (S.onlineLast && S.onlineLast.spn_names) || {};
+  const fresh = el("div");
+  if (!dm) {
+    fresh.append(el("p", { class: "muted" }, "The runtime's plugin reports no trouble codes (it is older than J1939 diagnostics)."));
+  } else {
+    const watched = dm.watched || [];
+    const seen = new Set((dm.sources || []).map((s) => s.address));
+    const rows = (dm.sources || []).map((s) => {
+      const w = watched.find((x) => x.source === s.address);
+      const codes = (s.dtcs || []).map((c) => dtcLine(c, names));
+      return el("tr", rowAttrs(() => { FAULTS.address.value = String(s.address); FAULTS.address.classList.remove("invalid"); },
+        { class: "clickable", dataset: { j1939DmSource: s.address }, "aria-label": `Pick ECU ${s.address} for a read or a clear` }),
+      el("td", null, String(s.address), w ? el("span", { class: "tag" }, "watched") : null),
+      el("td", null, lampsCell(s.lamps, s.flash)),
+      el("td", null, codes.length ? codes : el("span", { class: "muted" }, "no active codes"),
+        s.truncated ? el("div", { class: "muted" }, `${s.truncated} more not kept`) : null),
+      el("td", { class: w && w.timed_out ? "bad" : null }, ageText(s.age_ms), w && w.timed_out ? ", timed out" : ""));
+    });
+    for (const w of watched) {
+      if (w.source !== null && w.source !== undefined && seen.has(w.source)) continue;
+      rows.push(el("tr", { dataset: { j1939DmWatched: w.index } },
+        el("td", null, w.source ?? `NAME ${w.source_name}`, el("span", { class: "tag" }, "watched")),
+        el("td", { colspan: 2, class: "muted" }, "no DM1 yet"),
+        el("td", { class: w.timed_out ? "bad" : null }, w.timed_out ? "timed out" : "never")));
+    }
+    fresh.append(el("table", { class: "online-nodes", dataset: { j1939: "dm-sources" } },
+      el("thead", null, el("tr", null, thCells(["Address", "Lamps", "Active codes", "Last DM1"]))),
+      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 4, class: "muted" }, "No ECU has sent DM1 yet.")))));
+    const own = dm.own;
+    if (own) {
+      const list = (codes, none) => codes && codes.length ? codes.map((c) => dtcLine(c, names)) : el("span", { class: "muted" }, none);
+      fresh.append(el("h4", null, "This PLC's codes"),
+        el("table", { class: "online-bus", dataset: { j1939: "dm-own" } }, el("tbody", null,
+          el("tr", null, el("th", null, "Lamps"), el("td", null, lampsCell(own.lamps, own.flash),
+            own.suspended ? el("div", { class: "bad", dataset: { j1939: "dm13" } }, "DM1 and periodic PGNs suspended by DM13") : null)),
+          el("tr", null, el("th", null, "Active"), el("td", { dataset: { j1939: "own-active" } }, list(own.active, "none"))),
+          el("tr", null, el("th", null, "Previously active"), el("td", { dataset: { j1939: "own-previous" } }, list(own.previous, "none"))),
+          el("tr", null, el("th", null, "Clears carried out"), el("td", null, String(own.clears ?? 0))),
+          el("tr", null, el("th", null, "DM1 sent"), el("td", null, String(own.dm1_sent ?? 0))))));
+    }
+    if (!FAULTS.address.value && dm.sources && dm.sources.length && document.activeElement !== FAULTS.address) {
+      FAULTS.address.value = String(dm.sources[0].address);
+    }
+  }
+  if (FAULTS.list.innerHTML !== fresh.innerHTML) FAULTS.list.replaceChildren(...fresh.childNodes);
 }

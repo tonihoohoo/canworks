@@ -117,6 +117,8 @@ set(CANWORKS_CANOPEN_SOURCES
 )
 set(CANWORKS_J1939_SOURCES
     src/j1939/j1939_signal.cpp
+    src/j1939/dm.cpp
+    src/j1939/j1939_plc_api.cpp
     src/j1939/address_claim.cpp
     src/j1939/j1939_socket.cpp
     src/j1939/j1939_network.cpp

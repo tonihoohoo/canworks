@@ -32,6 +32,8 @@ canworks-diag --runtime line3.local status
 
 The advertisement does not depend on the PLC running: a stopped PLC is listed, and connecting says diagnostics are not listening. Typing a host name or address always works. Discovery needs Avahi on the device (`apt-get install avahi-daemon`; Raspberry Pi OS has it).
 
+Windows drops the answers to a search on a network set to **Public**, so the list stays empty there. Asking one device directly still works, because its answer comes back to the question: `canworks-diag discover line3.local` (or its address). The tools do the same after connecting to a typed address, so the remote link still learns the runtime and pairs this PC.
+
 ## Other networks
 
 Discovery does not cross routers. From another subnet, VLAN or site:
