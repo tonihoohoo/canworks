@@ -73,7 +73,7 @@ The PC tools SHALL keep one link secret key per user, made on first use and read
 - **THEN** `line3` appears in `canworks-diag link list` with its address and link ID
 
 ### Requirement: Automatic path choice
-Connecting to a remembered runtime SHALL try a direct connection to its known addresses and, after 300 ms or as soon as the direct attempt fails, the link when the PC is paired, and SHALL use whichever completes the TLS and SCRAM login first. An explicit address SHALL use only the direct path and `link:NAME` only the link.
+Connecting to a remembered runtime SHALL try a direct connection to its known addresses and, after 300 ms or as soon as the direct attempt fails, the link when the PC is paired, and SHALL use whichever connects first (the other is closed); the TLS and SCRAM login then runs over it. An explicit address SHALL use only the direct path and `link:NAME` only the link.
 
 #### Scenario: Away from the LAN
 - **WHEN** the user picks `line3` from home and the runtime's LAN address is unreachable

@@ -78,7 +78,8 @@ ORDER = {
     "sdo": ["index", "subindex", "type", "value"],
     "sdo_variable": ["name", "index", "subindex", "type", "direction", "iec_location", "period_ms",
                      "trigger_location", "status_location", "abort_code_location", "timeout_ms"],
-    "diagnostics": ["token_verifier", "token_sha256", "port", "bind", "allow_changes"],
+    "diagnostics": ["token_verifier", "token_sha256", "port", "bind", "allow_changes", "allow_config_upload",
+                    "remote_link"],
     "lss": ["assign", "store"],
     "slave": ["node_id", "eds", "eds_lint", "inputs_on_loss", "state_location", "comm_ok_location",
               "sync_count_location", "emcy_code_location", "error_register_location", "objects"],
@@ -1986,10 +1987,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return {"token": p.get("token"), "host": p.get("host") or "", "eds_library": settings.eds_library,
                     "connected": conn.connected, "target": "adapter" if s.commission else p.get("target") or "runtime",
                     "adapter": p.get("adapter") or "", "adapter_bitrate": p.get("adapter_bitrate"),
-                    "allow_changes": self.server.adapter_allow, "commission": bool(s.commission)}
+                    "allow_changes": self.server.adapter_allow, "commission": bool(s.commission),
+                    "remembered": online.remembered_view(p.get("host"))}
 
         if route == ("GET", "/api/online/settings"):
             return view()
+        if route == ("GET", "/api/online/runtimes"):
+            # The connect box's list: runtimes that answer on the local
+            # network (two seconds of mDNS) and the ones this PC remembers.
+            return online.runtimes_list()
+        if route in (("POST", "/api/online/paired_pcs"), ("POST", "/api/online/remove_pc")):
+            return self._paired_pcs(route, proj, body)
         if route == ("GET", "/api/online/adapters"):
             from .. import localbus
             return {"adapters": localbus.list_adapters()}
@@ -2138,6 +2146,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             same = st.get("config_sha256") in prints
             out = {"hello": conn.info, "status": st, "networks": (conn.info or {}).get("networks") or [],
                    "network": used, "config": "none" if not prints else ("same" if same else "different")}
+            # The path the connection took (LAN, internet direct or relayed)
+            # and its round trip; the background pairing's line, once.
+            out.update(conn.link_info())
             if local:
                 out["config"] = "local"
                 out["config_bitrate"] = self._config_bitrate(config_path, network)
@@ -2230,6 +2241,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._match_scan(s, settings, canopen_dir, res, body.get("config"), used)
             return res
         raise ApiError(404, "no such API: %s %s" % route)
+
+    def _paired_pcs(self, route, proj, body):
+        """/api/online/paired_pcs and remove_pc: the PCs paired with the
+        runtime of the online access settings (its remembered entry), over the
+        remote link's manage stream with this PC's token. Removing this PC
+        itself needs no token."""
+        from ..link import pc as linkpc
+        from ..link.protocol import LinkError
+        host, token = proj.get("host"), proj.get("token")
+        if not host:
+            raise ApiError(409, "enter the runtime host for online access", need="host")
+        if not token:
+            raise ApiError(409, "enter the access token for online access", need="token")
+        entry = linkpc.find(host)
+        if not entry or not entry.get("id"):
+            raise ApiError(409, "%s has no link ID yet: connect to it once on its local network"
+                           % (entry["name"] if entry else host), need="link")
+        try:
+            if route[1].endswith("remove_pc"):
+                pc_id = body.get("id")
+                if not isinstance(pc_id, str) or not pc_id:
+                    raise ApiError(400, "id must be a paired PC's link ID")
+                try:
+                    mine = linkpc.available() and pc_id == linkpc.my_id()
+                except Exception:  # no key yet, or iroh refuses it
+                    mine = False
+                if mine:
+                    return {"removed": linkpc.unpair(entry), "runtime": entry["name"]}
+                return {"removed": linkpc.remove_pc(entry, token, pc_id), "runtime": entry["name"]}
+            pcs, me = linkpc.paired_pcs(entry, token)
+        except LinkError as e:
+            raise ApiError(422 if e.kind in ("token", "refused", "unpaired", "unavailable") else 502, str(e),
+                           kind=e.kind)
+        return {"runtime": entry["name"], "pcs": pcs, "you": me}
 
     def _config_bitrate(self, config_path, network):
         """The saved config's bit rate of `network` in bit/s, or None."""

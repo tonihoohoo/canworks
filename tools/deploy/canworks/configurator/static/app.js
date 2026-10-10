@@ -3231,7 +3231,9 @@ async function saveHost(host) {
   } catch (e) { banner(e.message, true); return false; }
 }
 
-function hostField() {
+// withList: the connect box, which also lists the runtimes found on the
+// local network and the ones this PC remembers.
+function hostField(withList) {
   const input = el("input", { type: "text", spellcheck: "false", placeholder: "for example plc.local", "aria-label": "Runtime host",
     dataset: { online: "host" } });
   input.value = S.online.host || "";
@@ -3239,8 +3241,44 @@ function hostField() {
   const local = el("button", { type: "button", class: "small", dataset: { online: "local" },
     title: "The local simulator runtime started with canworks-sim-runtime start" }, "Local simulator runtime");
   local.addEventListener("click", () => { input.value = "local"; saveHost("local"); });
-  return el("label", null, "Runtime host", input, local,
-    hint(`The PLC running this config, as HOST or HOST:PORT (port ${diagPort()} when not given), or "local" for the local simulator runtime (canworks-sim-runtime). Kept on this PC, not in the project.`));
+  return el("label", null, "Runtime host", withList ? runtimeList(input) : null, input, local,
+    hint(`The PLC running this config, as HOST or HOST:PORT (port ${diagPort()} when not given), ${withList ? "a runtime picked from the list, " : ""}or "local" for the local simulator runtime (canworks-sim-runtime). Kept on this PC, not in the project.`));
+}
+
+// The connect box's runtimes (canopen-configurator, Discovered and remembered
+// runtimes): the ones that answer on the local network, by name and
+// address, and the ones this PC remembers, by name. Picking one fills the
+// host: a discovered runtime's address, or a remembered runtime's name, which
+// connects by the automatic path choice (the local network first, the
+// remote link when this PC is paired).
+function runtimeList(input) {
+  const list = el("select", { "aria-label": "Runtimes", dataset: { online: "runtime-list" } },
+    el("option", { value: "" }, "Looking for runtimes…"));
+  list.addEventListener("change", () => {
+    if (!list.value) return;
+    input.value = list.value;
+    saveHost(list.value);
+  });
+  const fill = async () => {
+    list.replaceChildren(el("option", { value: "" }, "Looking for runtimes…"));
+    let r;
+    try { r = await api("GET", "/api/online/runtimes"); } catch (e) {
+      list.replaceChildren(el("option", { value: "" }, "Could not list runtimes"));
+      return;
+    }
+    const found = (r.discovered || []).filter((d) => d.address);
+    const mem = r.remembered || [];
+    const none = r.discovery ? "No runtime found on this network" : "No runtime remembered (discovery needs the zeroconf package)";
+    list.replaceChildren(el("option", { value: "" }, found.length || mem.length ? "Pick a runtime…" : none),
+      found.length ? el("optgroup", { label: "On this network" }, found.map((d) =>
+        el("option", { value: d.address, dataset: { runtime: d.name, kind: "discovered" } }, `${d.name}  ${d.address}`))) : null,
+      mem.length ? el("optgroup", { label: "Remembered" }, mem.map((m) =>
+        el("option", { value: m.name, dataset: { runtime: m.name, kind: "remembered" } },
+          m.name + (m.hosts.length ? `  ${m.hosts[0]}` : "") + (m.paired ? (m.internet ? ", paired, from other networks" : ", paired") : "")))) : null);
+  };
+  const refresh = el("button", { type: "button", class: "small", dataset: { online: "runtime-refresh" }, onclick: fill }, "Refresh");
+  fill();
+  return el("div", { class: "row" }, list, refresh);
 }
 
 function onlineAccessSettings() {
@@ -3285,8 +3323,120 @@ function onlineAccessSettings() {
     S.online.token ? el("button", { type: "button", onclick: copyToken }, "Copy token") : null,
     el("button", { type: "button", onclick: enterToken }, "Enter token…"),
     el("button", { type: "button", onclick: newToken }, "New token")),
+  remoteLinkSettings(),
   el("p", { class: "muted" }, "Open the online view from the side bar once the config with online access is saved and uploaded to the runtime."));
   return fs;
+}
+
+// diagnostics.remote_link (design decision 5): the draft's object, {} when absent.
+function remoteLink() {
+  const d = diagConfig();
+  const rl = d ? d.remote_link : undefined;
+  return rl && typeof rl === "object" && !Array.isArray(rl) ? rl : {};
+}
+
+// Writes remote_link with `values` merged in; the other diagnostics fields
+// stay. Defaults are left out (internet off, no relays, no pairing scope),
+// and the object as a whole when nothing else is left.
+function setRemoteLink(values) {
+  const rl = Object.assign({}, remoteLink(), values);
+  if (rl.internet !== true) delete rl.internet;
+  if (!Array.isArray(rl.relays) || !rl.relays.length) delete rl.relays;
+  if (rl.pairing === undefined || rl.pairing === null) delete rl.pairing;
+  setPath("master.diagnostics.remote_link", Object.keys(rl).length ? rl : undefined);
+}
+
+const RELAY_URL = /^https:\/\/[^\s/?#]+(\/\S*)?$/;
+
+// "Reachable from other networks", its relay list, and the PCs paired with
+// the runtime (remote-link; the link service reads remote_link from the
+// uploaded config).
+function remoteLinkSettings() {
+  const rl = remoteLink();
+  const internet = el("input", { type: "checkbox", dataset: { path: "master.diagnostics.remote_link.internet", online: "internet" } });
+  internet.checked = rl.internet === true;
+  internet.addEventListener("change", () => { setRemoteLink({ internet: internet.checked }); render(); });
+  const box = el("div", { dataset: { online: "remote-link" } },
+    el("div", { class: "check-field" }, el("label", { class: "check" }, internet, " Reachable from other networks"),
+      hint("PCs paired with this runtime reach it from any network over the remote link (canworks-link on the device), through a relay when no direct path is found. " +
+        "A PC is paired when it connects once on the local network with the token. Off: the link service contacts nothing outside the local network. Default: off.")));
+  if (rl.internet === true || (Array.isArray(rl.relays) && rl.relays.length)) {
+    const relays = el("textarea", { rows: 3, spellcheck: "false", class: "wide", "aria-label": "Relay URLs",
+      placeholder: "one https URL per line", dataset: { path: "master.diagnostics.remote_link.relays", online: "relays" } });
+    relays.value = (Array.isArray(rl.relays) ? rl.relays : []).join("\n");
+    const msg = el("span", { class: "field-msg warning", dataset: { online: "relays-msg" } });
+    const check = (lines) => {
+      const bad = lines.filter((u) => !RELAY_URL.test(u));
+      msg.textContent = bad.length ? `Relay URLs must use https: ${bad.join(", ")}` : "";
+    };
+    relays.addEventListener("input", () => {
+      const lines = relays.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      check(lines);
+      setRemoteLink({ relays: lines });
+    });
+    check(Array.isArray(rl.relays) ? rl.relays : []);
+    box.append(el("label", { class: "wide" }, "Relay URLs (optional)", relays,
+      hint("One https URL per line, for a relay of your own. Empty: the public relays of the iroh project."), msg));
+  }
+  box.append(pairedPcsBox());
+  return box;
+}
+
+// The PCs paired with the runtime of the online access settings, with
+// Remove. Listed on request (the link's manage stream, with this PC's
+// token): the editing views open no connection by themselves.
+function pairedPcsBox() {
+  const box = el("div", { dataset: { online: "paired" } });
+  const mem = S.online.remembered;
+  if (!S.online.token || !S.online.tokenOk || !S.online.host) return box;
+  if (!mem || !mem.link) {
+    box.append(el("p", { class: "muted", dataset: { online: "paired-none" } },
+      "Paired PCs: connect to this runtime once on its local network with the token, and this PC pairs itself for the remote link."));
+    return box;
+  }
+  const out = el("div", { dataset: { online: "paired-list" }, "aria-live": "polite" });
+  const show = (data) => {
+    S.pairedPcs = { host: S.online.host, data };
+    if (data.error) { put(out, el("p", { class: "field-msg warning" }, data.error)); return; }
+    const when = (t) => (Number.isFinite(t) && t > 0 ? new Date(t * 1000).toLocaleString() : "never");
+    put(out, el("table", { class: "scan" },
+      el("thead", null, el("tr", null, thCells(["PC", "Link ID", "Paired", "Last seen", "Paired over", ""]))),
+      el("tbody", null, data.pcs.length ? data.pcs.map((p) => el("tr", { dataset: { pairedPc: p.id } },
+        el("td", null, (p.name || "-") + (p.id === data.you ? " (this PC)" : "")),
+        el("td", null, el("code", { title: p.id }, String(p.id).slice(0, 10) + "…")),
+        el("td", null, when(p.paired)), el("td", null, when(p.last_seen)), el("td", null, p.via || "-"),
+        el("td", null, el("button", { type: "button", class: "small danger", dataset: { online: "remove-pc" },
+          onclick: (e) => removePc(e.currentTarget, p, data.you, load) }, "Remove")))) :
+        [el("tr", null, el("td", { colspan: 6, class: "muted" }, "No PC is paired."))])));
+  };
+  const load = async (button) => {
+    const run = async () => {
+      try { show(await api("POST", "/api/online/paired_pcs", {})); }
+      catch (e) { show({ error: e.message }); }
+    };
+    return button ? busy(button, "Listing…", run) : run();
+  };
+  const list = el("button", { type: "button", dataset: { online: "paired-show" }, onclick: (e) => load(e.currentTarget) },
+    S.pairedPcs && S.pairedPcs.host === S.online.host ? "Refresh paired PCs" : "Show paired PCs");
+  box.append(el("div", { class: "toolbar" }, el("span", null, `PCs paired with ${mem.name}`), list), out);
+  if (S.pairedPcs && S.pairedPcs.host === S.online.host) show(S.pairedPcs.data);
+  return box;
+}
+
+async function removePc(button, p, you, reload) {
+  const me = p.id === you;
+  const v = await modal(me
+    ? `Remove this PC from ${S.online.remembered.name}? It can no longer reach the runtime from other networks until it connects once on the local network again.`
+    : `Remove ${p.name || "this PC"}? Its open sessions end now, and it can no longer reach the runtime over the remote link.`,
+  [["cancel", "Keep it"], ["remove", "Remove", { danger: true }]]);
+  if (v !== "remove") return;
+  await busy(button, "Removing…", async () => {
+    try {
+      await api("POST", "/api/online/remove_pc", { id: p.id });
+      banner(`Removed ${p.name || "the PC"} from the paired PCs.`);
+    } catch (e) { banner(e.message, true); }
+  });
+  await reload();
 }
 
 // ---------------------------------------------------------------------------
@@ -3453,7 +3603,7 @@ function onlineSetup(view) {
     return false;
   }
   if (S.onlineForm || !S.online.host || !S.online.token || !S.online.tokenOk) {
-    const host = hostField();
+    const host = hostField(true);
     const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } },
       S.online.token && !S.online.tokenOk ? "The token on this PC does not match the config." : "");
     view.append(el("fieldset", null, el("legend", null, "Connect"), targetChoice(),
@@ -3576,7 +3726,9 @@ async function pollOnline(seq) {
   conn.className = "online-conn ok";
   // The connection line is a live region: it is rewritten only when it changes.
   const line = el("div", null, `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${st.protocol === "none" ? "plain CAN network" : protocol + " session"} up ${Math.floor(st.uptime_s || 0)} s, ` +
-    (r.hello.allow_changes ? "changes allowed." : "read-only."), ...notes);
+    (r.hello.allow_changes ? "changes allowed." : "read-only."), pathBadge(r) ? " " : null, pathBadge(r), ...notes);
+  // This PC was just paired in the background and can reach the runtime from other networks: said once.
+  if (r.pairing_note) banner(r.pairing_note);
   if (conn.dataset.html !== line.innerHTML) { conn.dataset.html = line.innerHTML; conn.replaceChildren(...line.childNodes); }
   rawLive(st);
   if (st.protocol === "none") {
@@ -3812,6 +3964,40 @@ async function apiForce(path, body) {
   }
 }
 
+// The connection's path and round trip (canopen-configurator, Path and round
+// trip in the online view): "LAN", "internet direct" or "internet relayed",
+// amber above 100 ms and red above 300 ms. None for a USB adapter.
+const SLOW_RTT_MS = 100;
+const VERY_SLOW_RTT_MS = 300;
+function pathBadge(r) {
+  if (!r || !r.path) return null;
+  const rtt = Number.isFinite(r.rtt_ms) ? r.rtt_ms : null;
+  const cls = rtt !== null && rtt > VERY_SLOW_RTT_MS ? "bad" : rtt !== null && rtt > SLOW_RTT_MS ? "warn" : "";
+  return el("span", { class: ("pill " + cls).trim(), dataset: { online: "path", path: r.path },
+    title: "How this PC reaches the runtime, and the measured round trip" },
+  r.path + (rtt !== null ? `, ${rtt} ms` : ""));
+}
+
+// The last status answer when its path is slow for work that needs quick
+// answers on the bus (relayed, or above 100 ms), else null.
+function slowPath() {
+  const r = S.onlineLast;
+  if (!r || !r.path || (r.status && r.status.local)) return null;
+  return r.path === "internet relayed" || (Number.isFinite(r.rtt_ms) && r.rtt_ms > SLOW_RTT_MS) ? r : null;
+}
+
+// LSS fast scan and a PDO test with a SYNC period on a slow path: asks
+// first; nothing is sent until the user confirms. True to go on.
+async function askSlowPath(what) {
+  const r = slowPath();
+  if (!r) return true;
+  const v = await modal(`The connection to the runtime is ${r.path}` +
+    (Number.isFinite(r.rtt_ms) ? `, round trip ${r.rtt_ms} ms` : "") +
+    `. ${what} runs on the runtime, but its results and stop commands arrive late over this path. Start it anyway?`,
+  [["go", "Start anyway", true], ["cancel", "Cancel"]]);
+  return v === "go";
+}
+
 async function commissionDevice() {
   try {
     banner("");
@@ -3860,6 +4046,10 @@ function renderLss(allow) {
 async function runLssFind(start) {
   const seq = S.onlineSeq;
   const status = document.querySelector("[data-online=lss-status]");
+  if (start && !(await askSlowPath("The LSS fast scan"))) {
+    if (status) status.textContent = "Not started.";
+    return;
+  }
   let r;
   try {
     r = start ? await apiForce("/api/online/lss_find", { start, port: diagPort() })

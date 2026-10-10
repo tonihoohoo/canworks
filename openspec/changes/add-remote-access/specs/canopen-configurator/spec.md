@@ -12,7 +12,7 @@ The online view's connect box SHALL list runtimes found by discovery and remembe
 - **THEN** the online view connects with the same steps and shows `internet direct` or `internet relayed`
 
 ### Requirement: Automatic pairing and paired PCs
-After a successful direct login to a runtime that advertises a link ID, the configurator SHALL pair the PC with the same token in the background. The Online access section SHALL show **Reachable from other networks** (sets `remote_link.internet`), an optional relay URL list, and, while connected, the paired PCs with **Remove**. When internet access is on and the PC has just been paired, the online view SHALL say once that this PC can now reach the runtime from other networks.
+After a successful direct login to a runtime that advertises a link ID, the configurator SHALL pair the PC with the same token in the background. The Online access section SHALL show **Reachable from other networks** (sets `remote_link.internet`), an optional relay URL list, and, on **Show paired PCs** when this PC knows the token and the runtime has a link ID, the paired PCs with **Remove**. When internet access is on and the PC has just been paired, the online view SHALL say once that this PC can now reach the runtime from other networks.
 
 #### Scenario: Tick internet access
 - **WHEN** the user ticks **Reachable from other networks**, saves and uploads

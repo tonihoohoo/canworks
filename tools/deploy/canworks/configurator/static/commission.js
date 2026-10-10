@@ -485,15 +485,20 @@ function pdoTestPanel(id, n, allow) {
     catch (e) { msg.textContent = e.message; }
   } }, "NMT Start");
 
-  const setSync = async () => {
+  // asked: the slow path question was answered at Start already.
+  const setSync = async (asked) => {
     if (!run.on) return;
+    if (Number(sync.value) && asked !== true && !(await askSlowPath("The PDO test's SYNC"))) {
+      sync.value = "0";
+      return;
+    }
     try {
       if (Number(sync.value)) await apiAsk("/api/online/sync_start", { node: id, period_ms: Number(sync.value), port: diagPort(), force: run.forced || undefined },
         "SYNC from this PC would fight it. Send SYNC anyway?");
       else await api("POST", "/api/online/sync_stop", { node: id, port: diagPort() });
     } catch (e) { msg.textContent = e.message; sync.value = "0"; }
   };
-  sync.addEventListener("change", setSync);
+  sync.addEventListener("change", () => setSync(false));
 
   const stop = async (quiet) => {
     if (!run.on) return;
@@ -572,6 +577,12 @@ function pdoTestPanel(id, n, allow) {
 
   startBtn.addEventListener("click", async () => {
     startBtn.disabled = true;
+    // With a SYNC period on a slow path: nothing is sent until the user confirms.
+    if (Number(sync.value) && !(await askSlowPath("The PDO test with SYNC every " + sync.value + " ms"))) {
+      msg.textContent = "Not started.";
+      startBtn.disabled = !allow;
+      return;
+    }
     msg.textContent = "Reading the PDO layout…";
     let r;
     try {
@@ -585,7 +596,7 @@ function pdoTestPanel(id, n, allow) {
     put(live, el("h3", null, "TPDOs (from the device)"), tpdoBox, el("h3", null, "RPDOs (to the device)"),
       r.rpdos.length ? rpdoTable(r.rpdos) : el("p", { class: "muted" }, "The node has no valid RPDO."));
     put(tpdoBox, tpdoTable(r.tpdos));
-    await setSync();
+    await setSync(true);
     poll();
   });
 
