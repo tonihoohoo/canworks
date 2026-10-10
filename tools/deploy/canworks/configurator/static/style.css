@@ -643,7 +643,7 @@ table.link-entries tr.bad td { background: var(--error-bg); }
 .tag.ok { color: var(--ok); }
 .tag.bad { color: var(--error); }
 .heartbeat-watch ul.plain { list-style: none; padding: 0; margin: 4px 0; }
-.heartbeat-watch input[type=text] { width: 9em; }
+.heartbeat-watch input[type=text] { width: 13em; }
 table.online-links tr.bad td:first-child { color: var(--error); }
 /* J1939 diagnostics (j1939.js): own codes, the online Faults panel and its lamps. */
 .pdo-grid .j1939-lamps-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); min-width: 0; }
