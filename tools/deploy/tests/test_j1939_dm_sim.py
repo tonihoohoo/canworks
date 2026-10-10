@@ -189,6 +189,26 @@ class Bus(unittest.TestCase):
         self.advance(20.0)
         self.assertEqual(self.frames(DM1_ID), [bytes.fromhex("00FF00000000FFFF")])
 
+    def test_one_bam_at_a_time(self):
+        """A DM1 of six codes and ComponentInfo (40 bytes) both go by BAM at
+        the same tick: one transfer per address at a time, so ComponentInfo
+        waits for the DM1's to end and is then sent, not dropped."""
+        db = cantools.database.load_file(DBC)
+        sc = sim.load_scenario({"messages": {"ComponentInfo": {"period_ms": 1000}}}, db, "Engine")
+        bus = can.Bus(interface="virtual", channel=self.ch)
+        self.buses.append(bus)
+        s = sim.Simulator(bus, 0, sim.make_name(None, address=0), db, sim.plans(db, "Engine", sc),
+                          clock=self.clock, dtcs=[code(520192 + i, 3) for i in range(6)])
+        self.sims.append(s)
+        s.start()
+        self.assertTrue(s.wait_claimed(1))
+        bams, deadline = [], time.monotonic() + 3.0
+        while len(bams) < 2 and time.monotonic() < deadline:
+            m = self.peer.recv(max(0.0, deadline - time.monotonic()))
+            if m is not None and m.arbitration_id & 0xFFFFFF == 0xECFF00 and m.data[0] == 0x20:
+                bams.append(int.from_bytes(m.data[5:8], "little"))
+        self.assertEqual(sorted(bams), [dm.PGN_DM1, 65282])  # the clock stands: one each
+
     def test_requests_dm2_dm3_dm11(self):
         """PLC clears the simulator: ACK, and the next DM2 answer is empty."""
         s = self.sim([code(520192, 3, ["amber"], None, 0, 1), code(520193, 1, ["red"], "fast", 0)])
