@@ -36,6 +36,15 @@ typedef struct cJSON cJSON;
 
 namespace canworks_bridge {
 
+// The server settings of a bridge config; false with `err` when an entry of
+// `readers` or `writers` cannot be used.
+bool server_config(const canopen_plugin::BridgeConfig& b, ServerConfig& out, std::string& err);
+
+// The input and output image sizes the locations need, counted in 64 bits;
+// false with `err` when one ends past `limit`.
+bool image_sizes(const std::vector<canopen_plugin::ImageUse>& uses, uint64_t limit, size_t& in, size_t& out,
+                 std::string& err);
+
 class BridgeHost {
  public:
   // The largest byte address a bridge config may use (+1), per direction.
@@ -74,6 +83,8 @@ class BridgeHost {
   // With exchange_mu_ held: the newest output snapshot to the networks.
   void push_outputs();
   void enter_off(OutputState why, Clock::time_point now);
+  // Every data output location of the image to 0 (the blocks keep theirs).
+  void clear_outputs();
   void leave_off(const char* why);
   void service_control(const uint8_t* out, Clock::time_point now);
   void write_blocks(Clock::time_point now);
