@@ -1472,6 +1472,61 @@ The online view SHALL show the path (`LAN`, `internet direct`, `internet relayed
 - **WHEN** the path is `internet relayed` and the user starts an LSS fast scan
 - **THEN** a confirmation explains that the scan runs on the runtime but results and stop commands arrive late, and nothing is sent until the user confirms
 
+### Requirement: Links table
+Each CANopen master network SHALL have a Links page with one row per link: name, producer (node and one of its configured TPDOs, picked from lists), COB-ID (shown, taken from the producer), consumers, and on PLC stop (follow or keep). Adding a consumer SHALL offer the consumer node's RPDOs from its EDS that are not in its `rx_pdos` or another link, and SHALL fill its entries from the producer layout: objects of matching size from the consumer's RPDO-mappable objects to pick per position, or a dummy entry, or the device mapping when the consumer's mapping is fixed. The page SHALL show both layouts side by side as byte grids with each position's status. Each consumer row SHALL have a "watch producer" checkbox that adds or removes the producer in the consumer's `heartbeat_watch`, ticked by default when the producer has a heartbeat. On the producer's TPDO settings the configurator SHALL show which link it feeds and allow its entries without a PLC address.
+
+#### Scenario: Add a link
+- **WHEN** the user adds a link from node 10 TPDO 1 to node 20, picks RPDO 2 and 0x6411:1 for the first position and a dummy for the second
+- **THEN** the saved config has the link with those entries, and node 20's `heartbeat_watch` lists node 10
+
+#### Scenario: Size mismatch shown
+- **WHEN** the user picks an 8-bit object for a 16-bit producer position
+- **THEN** the position is marked, Problems names the link, the consumer and both sizes, and Save is disabled
+
+#### Scenario: Producer removed
+- **WHEN** the user deletes node 10's TPDO 1 that a link uses
+- **THEN** the configurator asks to delete the link too, defaulting to cancel
+
+### Requirement: Heartbeat watch setting
+The node page's supervision section SHALL list the node's heartbeat watch entries (watched node from the network's nodes, timeout with the default shown when empty), and the check SHALL give the same messages as the plugin for them, including the 0x1016 capacity from the node's EDS.
+
+#### Scenario: Default timeout shown
+- **WHEN** node 20 watches node 10, which has `heartbeat_ms` 100, and the timeout field is empty
+- **THEN** the field shows "default (300 ms)" and the saved entry has no `timeout_ms`
+
+### Requirement: Links in the online view
+With online access the Links page SHALL show for each link the NMT state of its producer and of each consumer from the live status, mark a link whose producer or any consumer is not OPERATIONAL, and show the producer TPDO's timeout state when it has `timeout_ms`.
+
+#### Scenario: Consumer down
+- **WHEN** the online view is open and node 20 of a link is lost
+- **THEN** the link row is marked and node 20's cell shows no contact while node 10 stays OPERATIONAL
+
+### Requirement: CiA 309-3 gateway settings
+The Online access settings SHALL have a "CiA 309-3 gateway" part that turns `cia309` on and off and edits its plain port (or none), `max_clients`, "allow changes" and "allow force on running nodes" (both off by default; force with a warning that a standard tool can then stop nodes the program drives), and shows the network numbering, with optional explicit numbers per network. It SHALL say that the plain port listens on the PLC's loopback address only and that other machines connect through `canworks-diag gateway` with the project's token. The deploy tool's config check and the configurator's Check SHALL apply the plugin's `cia309` rules.
+
+#### Scenario: Turn the gateway on
+- **WHEN** the user turns on the CiA 309-3 gateway in a project with networks `io` and `drives` and saves
+- **THEN** `canworks.json` has a top-level `cia309` object with `allow_changes` false, and the page shows `1 = io, 2 = drives`
+
+#### Scenario: Network bind refused in Check
+- **WHEN** a hand-edited project has `cia309.bind` set to `0.0.0.0`
+- **THEN** Check reports `cia309.bind` with the plugin's message
+
+### Requirement: Copy NMT calls as ST
+The online view SHALL offer "Copy as ST call" next to each node's NMT buttons (start, stop, pre-operational, reset node, reset communication). It SHALL copy Structured Text that declares a `CO_NMT` instance and calls it with the node ID and the CiA 301 command code of that button, with the command's name in a comment, and SHALL be available whether or not the runtime allows changes, since it sends nothing. With several networks the call SHALL set `NETWORK` to the number of the network the online view talks to, with its name in a comment, and the instance name SHALL include the network's name. The master's "Master goes operational" setting SHALL say that, when it is off, the master stays pre-operational until the PLC program starts it with `CO_NETWORK_START`, and SHALL offer "Copy as ST call" for a `CO_NETWORK_START` instance and call.
+
+#### Scenario: Stop call for a node
+- **WHEN** the user picks "Copy as ST call" next to node 5's Stop button
+- **THEN** the clipboard holds a declaration of a `CO_NMT` instance and a call with `NODE := 5, COMMAND := 2 (* STOP *)`
+
+#### Scenario: Changes not allowed
+- **WHEN** the runtime's `allow_changes` is false
+- **THEN** the NMT buttons are disabled and "Copy as ST call" still copies the call
+
+#### Scenario: Network start call
+- **WHEN** the user turns "Master goes operational" off
+- **THEN** the hint says the program starts the master with `CO_NETWORK_START`, and "Copy as ST call" copies a `CO_NETWORK_START` declaration and call
+
 ### Requirement: Device error history in the online view
 A node's page in the online view SHALL show, under its EMCY history, an "Error history (0x1003)" section with the count and the entries as the diagnostics' device error history defines them, a Refresh button and a Clear button. Clear SHALL be disabled with the reason when the runtime or the local adapter session does not allow changes; otherwise it SHALL ask for confirmation naming the node and the number of entries, with Cancel as the default, and when the node is OPERATIONAL a second confirmation SHALL say that the node is running and offer to force the write. After a clear the section SHALL read the history again.
 

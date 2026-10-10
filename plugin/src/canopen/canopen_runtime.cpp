@@ -123,7 +123,7 @@ void SlaveRuntime::make(const ConfigSet& set, GatewayLink* gw, const char* versi
              cfg_.adapter.interface.c_str(),
              master.empty() ? "with no master network on it" : ("with master network \"" + master + "\"").c_str());
   }
-  if (cfg_.master.has_diagnostics) hub_.reset(new DiagHub(cfg_, version));
+  if (cfg_.master.has_diagnostics || cfg_.master.cia309.enabled) hub_.reset(new DiagHub(cfg_, version));
   bus_.reset(new SlaveBus(cfg_, image_, store, state_path, gw, hub_.get()));
   log_info("%zu input and %zu output objects bound to the PLC image", image_.input_objects().size(),
            image_.output_objects().size());
@@ -194,7 +194,7 @@ bool MasterRuntime::make(uint64_t base_tick_ns, const ConfigSet& set, GatewayLin
       return false;
     }
   }
-  if (cfg_.master.has_diagnostics) hub_.reset(new DiagHub(cfg_, version));
+  if (cfg_.master.has_diagnostics || cfg_.master.cia309.enabled) hub_.reset(new DiagHub(cfg_, version));
   bus_.reset(new Bus(cfg_, gen_, image_, hub_.get(), sim_, gw));
   log_info("%zu input and %zu output PDO entries bound to the PLC image", image_.inputs().size(),
            image_.outputs().size());
@@ -306,8 +306,11 @@ void canopen_open_plc_requests(const ConfigSet& set) {
   for (size_t i = 0; i < set.networks.size() && i < 32; ++i)
     if (set.networks[i].is_canopen() && !set.networks[i].is_slave()) masters |= 1u << i;
   PlcRequests::instance().open(masters);
+  for (size_t i = 0; i < set.networks.size() && i < 32; ++i)
+    if (masters >> i & 1u) PlcRequests::instance().set_master_node(i, static_cast<uint8_t>(set.networks[i].master.node_id));
 }
 void canopen_close_plc_requests() { PlcRequests::instance().close(); }
 const void* canopen_plc_api_table(uint32_t version) { return plc_api_table(version); }
+const void* canopen_plc_nmt_api_table(uint32_t version) { return plc_nmt_api_table(version); }
 
 }  // namespace canopen_plugin

@@ -276,9 +276,14 @@ def _pdo(p):
                                                                                "Mapping written by the master"))
     if p.get("trigger"):
         chips.append('<span class="chip">%s</span>' % E(p["trigger"]))
+    if p.get("gateway_rpdo"):
+        chips.append('<span class="chip">CiA 309-3: r p %d</span>' % p["gateway_rpdo"])
     rows = []
     for e in p["entries"]:
-        if e["dummy"]:
+        if e.get("link_from"):
+            what = '<span class="muted">%s</span>%s' % (
+                "skipped" if e["dummy"] else "", (" " if e["dummy"] else "") + E(e["link_from"]))
+        elif e["dummy"]:
             what = '<span class="muted">dummy (gap)</span>'
         elif not e["used"]:
             what = '<span class="muted">%s</span>' % E(
@@ -467,6 +472,25 @@ def _j1939_network(net):
     return "".join(parts)
 
 
+def _links(net):
+    rows = []
+    for l in net["links"]:
+        consumers = "<br>".join(
+            '<a href="#%s">node %d RPDO %d</a> <span class="muted">transmission %s, deadline %s%s</span>' % (
+                _attr(c["anchor"]), c["node"], c["rpdo"], "–" if c["transmission"] is None else c["transmission"],
+                "%d ms" % c["deadline_ms"] if c["deadline_ms"] else "none",
+                ", watches the producer's heartbeat" if c["watches_producer"] else "") for c in l["consumers"])
+        reads = E(", ".join(l["plc_reads"])) if l["plc_reads"] else '<span class="muted">the PLC does not read it</span>'
+        warn = "".join('<div class="small warn">%s</div>' % E(w) for w in l["warnings"])
+        rows.append([E(l["name"]) + warn, "<code>%s</code>" % hx(l["cob_id"], 3),
+                     '<a href="#%s">node %d TPDO %d</a>' % (_attr(l["producer_anchor"]), l["producer"], l["tpdo"]),
+                     consumers, reads, E(l["on_plc_stop"])])
+    return ('<h3 id="%s-links">PDO links</h3><p class="muted">TPDOs other nodes receive directly (CiA 301 '
+            'producer/consumer); the master configures both ends at boot. A link adds no frame and no bus load.</p>%s'
+            % (_attr(net["anchor"]), _table(["Link", "COB-ID", "Producer", "Consumers", "PLC reads", "On PLC stop"],
+                                            rows)))
+
+
 def _network(net):
     if net["role"] == "j1939":
         return _j1939_network(net)
@@ -482,6 +506,8 @@ def _network(net):
         parts.append(_table(["PLC", "Holds"], [[_loc(l["location"], l["variables"]), E(l["what"])]
                                                for l in net["locations"]]))
     parts.append(_frames(net))
+    if net.get("links"):
+        parts.append(_links(net))
     parts.append(_bus_load(net))
     parts.append('<h3>%s%s</h3>' % ("OpenPLC as a device" if slave else "Nodes",
                                      (" on network " if slave else " of network ") + E(net["name"])
@@ -519,6 +545,25 @@ def _gateway(model):
             'network and the master networks without the PLC program.</p>%s<h3>Routes</h3>%s</section>' % (
                 _kv(settings), _table(["Route", "Slave object", "Name", "Type", "Direction", "Field node entry"],
                                       rows, "sortable", empty="No routes.")))
+
+
+def _cia309(model):
+    g = model.get("cia309")
+    if not g:
+        return ""
+    settings = [
+        {"label": "Plain port", "value": "%s:%d (loopback only)" % (g["bind"], g["port"]) if g["port"]
+         else "none (sessions through the diagnostics channel only)"},
+        {"label": "Sessions at once", "value": str(g["max_clients"])},
+        {"label": "Changes (SDO downloads, NMT, LSS)", "value": "allowed" if g["allow_changes"] else "refused"},
+        {"label": "Force on OPERATIONAL nodes", "value": "allowed" if g["allow_force"] else "refused"},
+        {"label": "Default network", "value": str(g["default_net"]) if g["default_net"] else "–"},
+    ]
+    rows = [['<span class="num">%d</span>' % n["number"], E(n["name"] or "the network")] for n in g["nets"]]
+    return ('<section id="cia309"><h2>CiA 309-3 gateway</h2><p class="muted">Standard CiA 309-3 text commands; other '
+            'machines connect through canworks-diag gateway. A node\'s TPDO n (1-4) is read with r p (node - 1) × 4 + n, '
+            'shown at each TPDO.</p>%s<h3>Network numbers</h3>%s</section>' % (
+                _kv(settings), _table(["Number", "Network"], rows, empty="No networks.")))
 
 
 FUNCTIONS = {4: "4 read input registers", 16: "16 write multiple registers"}
@@ -591,6 +636,8 @@ def _toc(model):
         items.append('<li><a href="#gateway">Gateway</a></li>')
     if model.get("modbus"):
         items.append('<li><a href="#modbus">Modbus register map</a></li>')
+    if model.get("cia309"):
+        items.append('<li><a href="#cia309">CiA 309-3 gateway</a></li>')
     items.append('<li><a href="#io">PLC I/O</a></li><li><a href="#config">Configuration file</a></li>')
     return '<nav class="toc" aria-label="Contents"><p class="toc-title">Contents</p><ul>%s</ul></nav>' % "".join(items)
 
@@ -604,7 +651,7 @@ def write(model):
             '</button><button type="button" data-print>Print</button></div></header>' % (
                 E(title), E(model["config"]["file"]), E(model["config"]["sha256"][:16]), E(model["generated"]),
                 E(model["tool"]["name"]), E(model["tool"]["version"])))
-    body = [_summary(model)] + [_network(n) for n in model["networks"]] + [_gateway(model), _modbus(model), _io(model),
+    body = [_summary(model)] + [_network(n) for n in model["networks"]] + [_gateway(model), _modbus(model), _cia309(model), _io(model),
                                                                           _appendix(model)]
     return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"

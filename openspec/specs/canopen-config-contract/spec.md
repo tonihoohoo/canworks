@@ -268,6 +268,21 @@ The schema and the config checks (plugin, bridge and PC tools) SHALL accept an o
 - **WHEN** `remote_link.relays` contains `http://relay.example.com`
 - **THEN** the config check fails naming `diagnostics.remote_link.relays[0]` and saying relay URLs must use https
 
+### Requirement: Links and heartbeat watch in the schema
+The JSON Schemas for version 1 and version 2 SHALL describe `links` (on a version 1 file's top level and on a version 2 CANopen master network) and the node field `heartbeat_watch`, through one shared definition each. Both fields SHALL be optional, so every file an earlier release accepted SHALL still validate and mean the same. The checks the schema cannot express (layout against both EDS files, COB-ID rules, nodes of the same network, heartbeat watch capacity) SHALL be listed with the other such checks in docs/config.md, and the shared config fixtures SHALL hold cases for them that the schema, the plugin and the deploy tool judge alike.
+
+#### Scenario: Example with a link validates
+- **WHEN** the schema is applied to an example config with a link and a heartbeat watch
+- **THEN** it validates without errors in both versions
+
+#### Scenario: Consumer entry with a location
+- **WHEN** a link consumer entry gives `iec_location`
+- **THEN** the schema, the plugin and the deploy tool reject it, naming `links[0].to[0].entries[0].iec_location`
+
+#### Scenario: Older plugin
+- **WHEN** a plugin from before this change loads a version 1 file with `links`
+- **THEN** it logs that `links` is an unknown field and loads the rest of the config
+
 ### Requirement: EMCY COB-ID in the schema
 The JSON Schema SHALL describe the optional node field `emcy_cob_id` as `"device"`, `"eds"`, or an integer from 0x001 to 0x7FF, in the node definition shared by `schema_version` 1 and 2. `contract.py` SHALL apply the same checks as the plugin (restricted CAN-IDs and clashes with the network's other identifiers), and the shared config fixtures SHALL cover a valid number, each rejected kind and the default.
 

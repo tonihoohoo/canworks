@@ -747,6 +747,11 @@ void Simulator::Write(Dev& d, const ObjKey& k, const Value& v, int level) {
   if (od_write(d.dev->od(), k.index, k.subindex, v, &changed) && changed) d.dev->Changed(k.index, k.subindex);
 }
 
+std::string writer_text(const ObjKey& k, const std::string& writer) {
+  if (writer.compare(0, 5, "link ") == 0) return writer + " writes " + k.str();
+  return "the master writes " + k.str() + " (" + writer + ")";
+}
+
 bool Simulator::SetSource(Dev& d, const ObjKey& k, const std::string& json, bool from_file, std::string& err) {
   if (json.empty()) {
     d.sources.erase(k);
@@ -759,7 +764,7 @@ bool Simulator::SetSource(Dev& d, const ObjKey& k, const std::string& json, bool
   }
   auto mw = d.spec.master_written.find(k);
   if (mw != d.spec.master_written.end()) {
-    err = "the master writes " + k.str() + " (" + mw->second + "); use an override to make the device ignore it";
+    err = writer_text(k, mw->second) + "; use an override to make the device ignore it";
     return false;
   }
   if (d.dev && d.dev->InRpdo(k.index, k.subindex)) {

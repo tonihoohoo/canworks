@@ -956,6 +956,8 @@ TEST(shared_fixtures) { CHECK(run_fixture_file("cases.json") > 20); }
 
 TEST(shared_fixtures_v2) { CHECK(run_fixture_file("cases-v2.json") > 15); }
 
+TEST(shared_fixtures_links) { CHECK(run_fixture_file("cases-links.json") > 30); }
+
 TEST(shared_fixtures_j1939) { CHECK(run_fixture_file("cases-j1939.json") > 30); }
 
 TEST(shared_fixtures_bridge) { CHECK(run_fixture_file("cases-bridge.json") > 30); }
@@ -3999,6 +4001,188 @@ TEST(plc_requests_per_network) {
   q.open(1);
   CHECK(q.start(second, err) == 0 && err == CANOPEN_PLC_ERR_INPUT);
   q.close();
+}
+
+// The NMT blocks' slots (add-plc-network-control 2.4): 16 of their own,
+// next to the 64 SDO slots, the same handles, inputs checked at start.
+TEST(plc_nmt_requests_slots_and_inputs) {
+  using canopen_plugin::PlcRequests;
+  PlcRequests& q = PlcRequests::instance();
+  canopen_plc_nmt_request r{};
+  r.op = CANOPEN_PLC_NMT_NODE;
+  r.node = 5;
+  r.command = CANOPEN_PLC_NMT_CS_STOP;
+  uint16_t err = 0;
+  q.close();
+  CHECK(q.start_nmt(r, err) == 0 && err == CANOPEN_PLC_ERR_NOT_RUNNING);
+  q.open(0x1);
+  q.set_master_node(0, 1);
+  // Invalid inputs: ERROR_ID 6 at start.
+  auto refused = [&](canopen_plc_nmt_request b) { return q.start_nmt(b, err) == 0 && err == CANOPEN_PLC_ERR_INPUT; };
+  canopen_plc_nmt_request bad = r;
+  bad.node = 128;
+  CHECK(refused(bad));
+  bad = r;
+  bad.node = 1;  // the master
+  CHECK(refused(bad));
+  bad = r;
+  bad.command = 7;
+  CHECK(refused(bad));
+  bad = r;
+  bad.network = 1;  // not a master network
+  CHECK(refused(bad));
+  bad = r;
+  bad.op = 9;
+  CHECK(refused(bad));
+  bad = r;
+  bad.op = CANOPEN_PLC_NMT_STOP;
+  bad.command = 1;
+  CHECK(refused(bad));
+  for (uint8_t c : {0, 2, 128, 255}) {
+    bad.command = c;
+    uint32_t h = q.start_nmt(bad, err);
+    CHECK_MSG(h != 0 && err == 0, std::to_string(c));
+  }
+  q.close();
+  q.open(0x1);
+  // Node 0 (every node) and every command code are accepted.
+  for (uint8_t c : {1, 2, 128, 129, 130}) {
+    canopen_plc_nmt_request all = r;
+    all.node = 0;
+    all.command = c;
+    CHECK_MSG(q.start_nmt(all, err) != 0 && err == 0, std::to_string(c));
+  }
+  q.close();
+  q.open(0x1);
+  // 16 slots, then ERROR_ID 5, while the SDO slots are full as well.
+  canopen_plc_request sdo{};
+  sdo.node = 5;
+  sdo.index = 0x1018;
+  for (unsigned i = 0; i < CANOPEN_PLC_SLOTS; ++i) CHECK(q.start(sdo, err) != 0);
+  CHECK(q.start(sdo, err) == 0 && err == CANOPEN_PLC_ERR_BUSY);
+  std::vector<uint32_t> handles;
+  for (unsigned i = 0; i < CANOPEN_PLC_NMT_SLOTS; ++i) {
+    handles.push_back(q.start_nmt(r, err));
+    CHECK(handles.back() != 0);
+  }
+  CHECK(q.start_nmt(r, err) == 0 && err == CANOPEN_PLC_ERR_BUSY);
+  // Taken oldest first; a result is collected once.
+  std::vector<PlcRequests::NmtJob> jobs;
+  q.take_nmt(1, jobs);
+  CHECK(jobs.empty());
+  q.take_nmt(0, jobs);
+  CHECK(jobs.size() == CANOPEN_PLC_NMT_SLOTS);
+  bool ordered = true;
+  for (unsigned i = 0; i < jobs.size(); ++i) ordered = ordered && jobs[i].handle == handles[i];
+  CHECK(ordered);
+  CHECK(jobs[0].req.node == 5 && jobs[0].req.command == CANOPEN_PLC_NMT_CS_STOP);
+  CHECK(q.poll_nmt(handles[0], err) == 0);
+  q.finish_nmt(handles[0], 0);
+  CHECK(q.poll_nmt(handles[0], err) == 1 && err == 0);
+  CHECK(q.poll_nmt(handles[0], err) == 2 && err == CANOPEN_PLC_ERR_CANCELLED);
+  q.finish_nmt(handles[1], CANOPEN_PLC_ERR_REFUSED);
+  CHECK(q.poll_nmt(handles[1], err) == 2 && err == CANOPEN_PLC_ERR_REFUSED);
+  // A reused slot gets a new handle; the old one stays stale.
+  uint32_t again = q.start_nmt(r, err);
+  CHECK(again != 0 && again != handles[0]);
+  CHECK(q.poll_nmt(handles[0], err) == 2 && err == CANOPEN_PLC_ERR_CANCELLED);
+  // A taken request of a network that went away ends as cancelled.
+  q.cancel_taken(0);
+  CHECK(q.poll_nmt(handles[2], err) == 2 && err == CANOPEN_PLC_ERR_CANCELLED);
+  // PLC stop: every handle ends with ERROR_ID 8.
+  q.close();
+  CHECK(q.poll_nmt(handles[3], err) == 2 && err == CANOPEN_PLC_ERR_CANCELLED);
+  CHECK(q.poll_nmt(again, err) == 2 && err == CANOPEN_PLC_ERR_CANCELLED);
+}
+
+// An NMT request no network takes ends with ERROR_ID 4; a CO_NETWORK_START
+// with a TIMEOUT ends with ERROR_ID 2 once it passes, taken or not.
+TEST(plc_nmt_requests_time_limits) {
+  using canopen_plugin::PlcRequests;
+  PlcRequests& q = PlcRequests::instance();
+  q.open(0x1);
+  canopen_plc_nmt_request r{};
+  r.op = CANOPEN_PLC_NMT_NODE;
+  r.node = 5;
+  r.command = CANOPEN_PLC_NMT_CS_START;
+  uint16_t err = 0;
+  uint32_t h = q.start_nmt(r, err);
+  auto now = PlcRequests::clock::now();
+  CHECK(q.poll_nmt(h, err, now) == 0);
+  CHECK(q.poll_nmt(h, err, now + PlcRequests::kNmtTakeLimit) == 2 && err == CANOPEN_PLC_ERR_NOT_RUNNING);
+  canopen_plc_nmt_request s{};
+  s.op = CANOPEN_PLC_NMT_START;
+  s.timeout_ms = 200;
+  uint32_t hs = q.start_nmt(s, err);
+  std::vector<PlcRequests::NmtJob> jobs;
+  q.take_nmt(0, jobs);
+  CHECK(jobs.size() == 1 && jobs[0].req.op == CANOPEN_PLC_NMT_START && jobs[0].req.timeout_ms == 200);
+  now = PlcRequests::clock::now();
+  CHECK(q.poll_nmt(hs, err, now + std::chrono::milliseconds(100)) == 0);
+  CHECK(q.poll_nmt(hs, err, now + std::chrono::milliseconds(250)) == 2 && err == CANOPEN_PLC_ERR_TIMEOUT);
+  q.finish_nmt(hs, 0);  // the master went OPERATIONAL later: ignored
+  CHECK(q.poll_nmt(hs, err) == 2 && err == CANOPEN_PLC_ERR_CANCELLED);
+  // Without a TIMEOUT a taken start waits as long as it takes.
+  s.timeout_ms = 0;
+  uint32_t hw = q.start_nmt(s, err);
+  jobs.clear();
+  q.take_nmt(0, jobs);
+  CHECK(q.poll_nmt(hw, err, PlcRequests::clock::now() + std::chrono::hours(1)) == 0);
+  q.close();
+}
+
+// The NMT state snapshot (CO_GET_STATE): packing, the master entry, nodes
+// the configuration does not list, and clearing.
+TEST(plc_nmt_state_snapshot) {
+  using canopen_plugin::PlcRequests;
+  PlcRequests& q = PlcRequests::instance();
+  canopen_plc_nmt_state st{};
+  q.close();
+  CHECK(q.get_state(0, 5, st) == CANOPEN_PLC_ERR_NOT_RUNNING);
+  q.open(0x5);  // networks 0 and 2
+  q.clear_snapshot(0);
+  q.publish_node(0, 5, 127, 128, 'B');
+  q.publish_master(0, 5, true);
+  CHECK(q.get_state(0, 5, st) == 0);
+  CHECK(st.state == 127 && st.held == 128 && st.boot_error == 'B' && st.configured == 1);
+  CHECK(st.master_state == 5 && st.started == 1);
+  // A node not in the configuration: all 0 except the master fields.
+  CHECK(q.get_state(0, 40, st) == 0);
+  CHECK(st.configured == 0 && st.state == 0 && st.held == 0 && st.boot_error == 0 && st.master_state == 5);
+  // Node 0: the master fields only.
+  CHECK(q.get_state(0, 0, st) == 0);
+  CHECK(st.master_state == 5 && st.started == 1 && st.state == 0 && st.configured == 0);
+  // A configured node with no contact yet still reads CONFIGURED.
+  q.publish_node(0, 6, 0, 0, 0);
+  CHECK(q.get_state(0, 6, st) == 0 && st.configured == 1 && st.state == 0);
+  CHECK(PlcRequests::pack_node(5, 2, 0) == (PlcRequests::kConfigured | 2u << 8 | 5u));
+  // Bad inputs.
+  CHECK(q.get_state(0, 128, st) == CANOPEN_PLC_ERR_INPUT);
+  CHECK(q.get_state(1, 5, st) == CANOPEN_PLC_ERR_INPUT);
+  CHECK(q.get_state(2, 5, st) == 0 && st.configured == 0);
+  // A new session clears its network; a PLC stop clears every network.
+  q.publish_master(0, 127, false);
+  CHECK(q.get_state(0, 0, st) == 0 && st.master_state == 127 && st.started == 0);
+  q.clear_snapshot(0);
+  CHECK(q.get_state(0, 5, st) == 0 && st.configured == 0);
+  q.publish_node(2, 7, 5, 0, 0);
+  q.close();
+  q.open(0x5);
+  CHECK(q.get_state(2, 7, st) == 0 && st.configured == 0);
+  q.close();
+}
+
+// Only NMT API version 1 is offered; another is noted once for the log, and
+// the SDO table is not affected.
+TEST(plc_nmt_api_versions) {
+  using canopen_plugin::PlcRequests;
+  CHECK(canopen_plugin::plc_nmt_api_table(1) != nullptr);
+  CHECK(canopen_plugin::plc_nmt_api_table(3) == nullptr);
+  CHECK(canopen_plugin::plc_api_table(1) != nullptr);
+  CHECK(PlcRequests::instance().take_unknown_nmt_version() == 3);
+  CHECK(PlcRequests::instance().take_unknown_nmt_version() == 0);
+  const auto* t = static_cast<const canopen_plc_nmt_api_v1*>(canopen_plugin::plc_nmt_api_table(1));
+  CHECK(t->size == sizeof(canopen_plc_nmt_api_v1) && t->start && t->poll && t->get_state);
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

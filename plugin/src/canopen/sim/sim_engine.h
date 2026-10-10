@@ -61,13 +61,19 @@ struct DeviceSpec {
   // The node waits for its node ID over LSS (lss_assign in the config).
   bool lss = false;
   // Objects the master writes, and what writes them ("RPDO 1", "startup
-  // SDO", ...): no value source may drive them.
+  // SDO", ...), or the PDO link whose consumer RPDO writes them ("link
+  // stick_to_valves (RPDO 2, from node 10 TPDO 1)"): no value source may
+  // drive them.
   std::map<ObjKey, std::string> master_written;
   bool has_behaviour = false;
   NodeBehaviour behaviour;
   // Found taken on the real network before the start: not started.
   bool conflict = false;
 };
+
+// Who writes an object of master_written, for a refused value source: "the
+// master writes 0x2000:0 (RPDO 1)", or "link x (RPDO 2, ...) writes 0x6411:1".
+std::string writer_text(const ObjKey& k, const std::string& writer);
 
 // Stored parameters per device, kept by the host across sessions; keyed by
 // "node:<id>" or "name:<name>" and the file's hash.

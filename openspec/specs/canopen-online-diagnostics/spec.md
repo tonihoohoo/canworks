@@ -681,6 +681,24 @@ The diagnostics client SHALL measure the round trip on connect and every 10 seco
 - **WHEN** the measured round trip is 400 ms and an SDO read has the default 1000 ms timeout
 - **THEN** the client waits up to 2100 ms for the answer
 
+### Requirement: Connections handed to the CiA 309-3 gateway
+The diagnostics channel SHALL offer the `cia309` op to logged-in connections (canopen-cia309-gateway). Once it is answered successfully, the connection SHALL carry no further JSON requests, SHALL keep its TLS session, SHALL be served by the CiA 309-3 gateway and SHALL no longer count towards the 4 diagnostics connections. Its SDO, NMT and LSS requests SHALL take the same bus-thread path, ordering, guards and log lines as the diagnostics channel's own requests, with the gateway's `allow_changes` and `allow_force` in place of the diagnostics `allow_changes` and the request's `force`. The login answer SHALL say whether the gateway is configured (`cia309: true`).
+
+#### Scenario: Diagnostics slot freed
+- **WHEN** four diagnostics clients are connected and one of them switches to the CiA 309-3 gateway
+- **THEN** a new diagnostics client can connect and log in
+
+#### Scenario: Diagnostics changes off, gateway changes on
+- **WHEN** `diagnostics.allow_changes` is false, `cia309.allow_changes` is true, and a switched connection writes an object of a PRE-OPERATIONAL node
+- **THEN** the write is carried out and logged as coming from the CiA 309-3 gateway with the client's address
+
+### Requirement: Gateway command in the command-line client
+`canworks-diag` SHALL offer `gateway` as the canopen-cia309-gateway capability describes, and `status` SHALL print the gateway's listen address and its open sessions (address, plain or tunnelled, commands served) when the runtime has one.
+
+#### Scenario: Status shows sessions
+- **WHEN** one tool is connected through `canworks-diag gateway` and `canworks-diag status` runs
+- **THEN** the output has a CiA 309-3 gateway line with one tunnelled session and its address
+
 ### Requirement: Device error history
 The command-line client and the configurator SHALL read a node's pre-defined error field (0x1003) with the manual SDO read: sub-index 0 for the number of entries, then sub-indices 1 up to that number (at most 254), sub-index 1 being the newest. Each entry SHALL be shown with its sub-index, the error code (the low 16 bits) with its CiA 301 error class in words, and the manufacturer-specific information (the high 16 bits) in hex. An abort 0x06020000 on sub-index 0 SHALL be shown as "no error history (0x1003)"; an abort on an entry SHALL end the list there and show the abort code with its text. Clearing SHALL write the UNSIGNED8 value 0 to sub-index 0 with the manual SDO write, so it SHALL need `allow_changes`, SHALL be refused on an OPERATIONAL node unless the request carries `force: true`, and SHALL be logged by the plugin like every manual write. Both SHALL work against a runtime and on a local adapter.
 

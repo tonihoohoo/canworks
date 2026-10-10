@@ -84,6 +84,8 @@ uint16_t Network::ResolveWrite(unsigned id, ProgJob& p) {
 
 void Network::ServiceProgram(clock::time_point now) {
   PlcRequests& api = PlcRequests::instance();
+  // NMT requests first: their own slots, so queued SDO transfers never delay them.
+  ServiceNmtProgram();
   if (uint32_t v = api.take_unknown_version())
     log_warn("the PLC program's CANopen library asks for CANopen block API version %u, this plugin offers version %u; "
              "update the plugin (install-stock.sh) or use the library that comes with it",
@@ -270,6 +272,189 @@ void Network::CancelPrograms() {
 void Network::EndProgram(unsigned, uint32_t handle, uint16_t error_id, uint32_t abort, const uint8_t* data,
                          size_t size) {
   PlcRequests::instance().finish(handle, error_id, abort, data, size);
+}
+
+// ---------------------------------------------------------------------------
+// NMT function blocks (spec canopen-plc-nmt)
+
+namespace {
+
+const char* cs_name(uint8_t cs) {
+  switch (cs) {
+    case CANOPEN_PLC_NMT_CS_START: return "START";
+    case CANOPEN_PLC_NMT_CS_STOP: return "STOP";
+    case CANOPEN_PLC_NMT_CS_PREOP: return "ENTER PRE-OPERATIONAL";
+    case CANOPEN_PLC_NMT_CS_RESET_NODE: return "RESET NODE";
+    default: return "RESET COMMUNICATION";
+  }
+}
+
+constexpr uint8_t kMasterOperational = 5;
+constexpr uint8_t kMasterStopped = 4;
+
+}  // namespace
+
+void Network::ServiceNmtProgram() {
+  PlcRequests& api = PlcRequests::instance();
+  if (uint32_t v = api.take_unknown_nmt_version())
+    log_warn("the PLC program's CANopen library asks for NMT block API version %u, this plugin offers version %u; "
+             "the program's library needs a newer plugin (install-stock.sh), or use the library that comes with it",
+             v, CANOPEN_PLC_NMT_API_VERSION);
+  nmt_taken_.clear();
+  api.take_nmt(cfg_.network_index, nmt_taken_);
+  for (const auto& j : nmt_taken_) {
+    switch (j.req.op) {
+      case CANOPEN_PLC_NMT_NODE: api.finish_nmt(j.handle, ProgramNmt(j.req)); break;
+      case CANOPEN_PLC_NMT_START: ProgramStart(j.handle, j.req); break;
+      case CANOPEN_PLC_NMT_STOP: api.finish_nmt(j.handle, ProgramStop(j.req)); break;
+      default: api.finish_nmt(j.handle, CANOPEN_PLC_ERR_INPUT); break;
+    }
+  }
+  // CO_NETWORK_START requests waiting for the master (their TIMEOUT runs in
+  // PlcRequests::poll_nmt; a request that timed out is no longer there).
+  if (prog_start_waits_.empty()) return;
+  if (master_state_ == kMasterOperational || master_state_ == kMasterStopped) {
+    uint16_t err = master_state_ == kMasterOperational ? 0 : CANOPEN_PLC_ERR_REFUSED;
+    for (uint32_t h : prog_start_waits_) api.finish_nmt(h, err);
+    prog_start_waits_.clear();
+  }
+}
+
+uint16_t Network::ProgramNmt(const canopen_plc_nmt_request& r) {
+  static const std::string by = "the program (CO_NMT)";
+  const uint8_t cs = r.command;
+  if (r.node == 0) {
+    // One broadcast (node ID 0) reaches every node, the unlisted ones too;
+    // the holds and resets of the configured nodes are kept by hand. Lely
+    // sends it without applying it to the master itself (checked by
+    // sim_lely_broadcast_command_and_master).
+    if (cs == CANOPEN_PLC_NMT_CS_START)
+      for (const auto& it : nodes_)
+        if (it.second.hold != Hold::None && it.second.hold_src == HoldSource::Gateway) {
+          log_warn("NMT START to all nodes from the program (CO_NMT) refused: the gateway holds %s STOPPED while "
+                   "the upper master is lost",
+                   it.second.cfg->label().c_str());
+          return CANOPEN_PLC_ERR_REFUSED;
+        }
+    for (auto& it : nodes_) NodeCommand(it.first, it.second, cs, HoldSource::Block, by, false);
+    log_info("NMT %s to all nodes (node ID 0, from the program, CO_NMT)", cs_name(cs));
+    Command(static_cast<lely::canopen::NmtCommand>(cs), 0);
+    return 0;
+  }
+  auto it = nodes_.find(r.node);
+  if (it == nodes_.end()) {
+    // Not in the configuration: sent, and nothing kept (the program owns
+    // that node's NMT state).
+    log_info("node %u (not in the configuration): NMT %s (from the program, CO_NMT)", r.node, cs_name(cs));
+    // Lely sends it and keeps nothing for a node outside 0x1F81 (checked by
+    // sim_lely_command_unlisted_node).
+    Command(static_cast<lely::canopen::NmtCommand>(cs), r.node);
+    return 0;
+  }
+  NodeState& n = it->second;
+  if (cs == CANOPEN_PLC_NMT_CS_START && n.hold != Hold::None && n.hold_src == HoldSource::Gateway) {
+    log_warn("%s: NMT START from the program (CO_NMT) refused: the gateway holds the node STOPPED while the upper "
+             "master is lost, and starts it when the upper master is back",
+             n.cfg->label().c_str());
+    return CANOPEN_PLC_ERR_REFUSED;
+  }
+  NodeCommand(r.node, n, cs, HoldSource::Block, by);
+  return 0;
+}
+
+void Network::ProgramStart(uint32_t handle, const canopen_plc_nmt_request&) {
+  PlcRequests& api = PlcRequests::instance();
+  if (master_state_ == kMasterStopped) {
+    // The configuration's safety reaction to a lost mandatory node.
+    log_error("CO_NETWORK_START refused: the master is STOPPED after a mandatory node was lost "
+              "(master.stop_all_nodes); the plugin must restart (stop and start the PLC)");
+    api.finish_nmt(handle, CANOPEN_PLC_ERR_REFUSED);
+    return;
+  }
+  bool was_running = MayRun();
+  bool was_stopped = prog_stopped_;
+  prog_start_ = true;
+  prog_stopped_ = false;
+  PublishMaster();
+  // A master the network stop held while Lely kept it OPERATIONAL runs again.
+  if (was_stopped) ApplyMasterState(false);
+  if (was_stopped) {
+    // Nodes the network stop held start again (not those with a hold of
+    // their own, nor any when the master may not start nodes).
+    unsigned started = 0;
+    for (auto& it : nodes_) {
+      NodeState& n = it.second;
+      if (n.hold == Hold::None || n.hold_src != HoldSource::Network) continue;
+      SetHold(it.first, n, Hold::None, HoldSource::Network);
+      if (!cfg_.master.start_nodes || !(n.booted || !n.cfg->boot)) continue;
+      Command(lely::canopen::NmtCommand::START, static_cast<uint8_t>(it.first));
+      ++started;
+    }
+    log_info("the PLC program starts the network (CO_NETWORK_START)%s", started ? "; NMT START to the nodes the "
+             "network stop held" : "");
+  } else if (!was_running) {
+    log_info("the PLC program starts the network (CO_NETWORK_START)");
+  }
+  if (master_state_ == kMasterOperational) {
+    api.finish_nmt(handle, 0);
+    return;
+  }
+  prog_start_waits_.push_back(handle);
+  for (const auto& it : nodes_)
+    if (it.second.cfg->mandatory && !it.second.booted) {
+      log_info("CO_NETWORK_START: the master goes OPERATIONAL once every mandatory node has booted (%s has not)",
+               it.second.cfg->label().c_str());
+      break;
+    }
+  StartHeldMaster();
+}
+
+uint16_t Network::ProgramStop(const canopen_plc_nmt_request& r) {
+  if (master_state_ == kMasterStopped) {
+    log_warn("CO_NETWORK_STOP refused: the master is STOPPED after a mandatory node was lost (master.stop_all_nodes)");
+    return CANOPEN_PLC_ERR_REFUSED;
+  }
+  uint8_t mode = r.command;
+  if (mode == CANOPEN_PLC_NMT_NODES_DEFAULT) {
+    switch (cfg_.master.on_plc_stop) {
+      case OnPlcStop::Preop: mode = CANOPEN_PLC_NMT_CS_PREOP; break;
+      case OnPlcStop::Stop: mode = CANOPEN_PLC_NMT_CS_STOP; break;
+      case OnPlcStop::Keep: mode = CANOPEN_PLC_NMT_NODES_NONE; break;
+    }
+  }
+  // No output PDO from here on: the master TPDOs off first (they come back
+  // per node once the master runs again and the node is up). The master
+  // then reads PRE-OPERATIONAL; Lely's own master stays as it is, since
+  // Lely restarts its network start-up (a reset communication of every
+  // node) whenever its master enters PRE-OPERATIONAL (design.md, task 1).
+  for (auto& it : nodes_) EnableTpdos(it.second, false);
+  std::vector<unsigned> up;
+  for (const auto& it : nodes_)
+    if (it.second.up || it.second.node_op) up.push_back(it.first);
+  prog_stopped_ = true;
+  PublishMaster();
+  ApplyMasterState(false);
+  unsigned sent = 0;
+  if (mode != CANOPEN_PLC_NMT_NODES_NONE) {
+    Hold h = mode == CANOPEN_PLC_NMT_CS_STOP ? Hold::Stopped : Hold::Preop;
+    // Every configured node without a hold of its own is held, so a node
+    // that boots while the network is stopped gets the command too.
+    for (auto& it : nodes_) {
+      NodeState& n = it.second;
+      if (n.hold != Hold::None && n.hold_src != HoldSource::Network) continue;
+      SetHold(it.first, n, h, HoldSource::Network);
+      if (std::find(up.begin(), up.end(), it.first) == up.end()) continue;
+      SendHold(it.first, n);
+      ++sent;
+    }
+  }
+  log_info("the PLC program stops the network (CO_NETWORK_STOP): master PRE-OPERATIONAL, %s%s",
+           mode == CANOPEN_PLC_NMT_NODES_NONE ? "the nodes keep their state"
+           : mode == CANOPEN_PLC_NMT_CS_STOP  ? "NMT STOP to "
+                                              : "NMT ENTER PRE-OPERATIONAL to ",
+           mode == CANOPEN_PLC_NMT_NODES_NONE ? ""
+           : (std::to_string(sent) + (sent == 1 ? " node" : " nodes")).c_str());
+  return 0;
 }
 
 }  // namespace canopen_plugin

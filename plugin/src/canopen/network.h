@@ -3,7 +3,8 @@
 // Network owns the NMT master for one bus session: it boots, configures and
 // starts the slaves, moves PDO data between Lely and the ProcessImage, and
 // supervises the nodes (loss detection, per-node status, background retry).
-// It also serves the program's SDO variables and NMT command bytes.
+// It also serves the program's SDO variables, NMT command bytes and the NMT
+// function blocks (network_plc.cpp).
 // It runs entirely on one Lely event loop thread and is transport-agnostic:
 // Bus (bus.h) gives it a SocketCAN channel, the tests a virtual one.
 
@@ -166,9 +167,12 @@ class Network : public lely::canopen::BasicMaster {
 
   // SDO variable transfer status (status_location).
   enum SdoStatus : uint8_t { kSdoNone = 0, kSdoBusy = 1, kSdoDone = 2, kSdoAborted = 3, kSdoUnavailable = 4 };
-  // NMT state the program (nmt_command_location) or an operator (manual
-  // NMT command on the diagnostics channel) holds a node in.
+  // NMT state the program (nmt_command_location, CO_NMT, CO_NETWORK_STOP),
+  // an operator (manual NMT command on the diagnostics channel or the Modbus
+  // control block) or the gateway holds a node in. One hold per node: the
+  // command that acted last decides (canopen-plc-nmt "One hold per node").
   enum class Hold : uint8_t { None, Stopped, Preop };
+  enum class HoldSource : uint8_t { Byte, Block, Operator, Gateway, Network };
   // Emergency messages kept per node for the diagnostics channel.
   static constexpr size_t kEmcyHistory = 16;
   // Network scan: node IDs probed at a time, and the timeouts.
@@ -231,8 +235,10 @@ class Network : public lely::canopen::BasicMaster {
     uint8_t nmt_level = 0;
     uint64_t nmt_resets = 0;
     Hold hold = Hold::None;
-    bool hold_by_operator = false;  // the hold came from a diagnostics client
-    bool hold_by_gateway = false;   // gateway on_upper_loss "stop_nodes"
+    // Who set the hold: the command byte, CO_NMT, a diagnostics client (or
+    // the Modbus control block), the gateway's on_upper_loss "stop_nodes", or
+    // CO_NETWORK_STOP's node command (released by CO_NETWORK_START).
+    HoldSource hold_src = HoldSource::Byte;
     std::vector<size_t> vars;  // ProcessImage::sdo_vars() of this node
     bool sdo_busy = false;     // an SDO variable or program transfer is in flight
     bool last_prog = false;    // the last transfer started was the program's
@@ -347,6 +353,9 @@ class Network : public lely::canopen::BasicMaster {
   void SetUp(unsigned id, bool up, const char* why);
   void SetBootError(unsigned id, uint8_t letter);
   void SetMasterState(uint8_t state);
+  // The master state the program and the nodes see, from Lely's state and
+  // CO_NETWORK_STOP (`lely_started`: Lely's master just entered OPERATIONAL).
+  void ApplyMasterState(bool lely_started);
   void ReportIdentity(uint8_t id, char es);
   void StartHeldMaster();
   void SetState(unsigned id, uint8_t state);
@@ -422,12 +431,33 @@ class Network : public lely::canopen::BasicMaster {
   uint16_t ResolveWrite(unsigned id, ProgJob& p);
   // The EDS data type of a configured node's object (0 = not in the EDS).
   uint16_t EdsType(const NodeConfig& n, uint16_t index, uint8_t subindex);
-  void ResetNode(unsigned id, NodeState& n, bool comm, const char* by);
+  // `send` false: the command went out as one broadcast; only the bookkeeping.
+  void ResetNode(unsigned id, NodeState& n, bool comm, const char* by, bool send = true);
+  void SetHold(unsigned id, NodeState& n, Hold hold, HoldSource src);
+  // An NMT command (CiA 301 command specifier: 1, 2, 128, 129, 130) for a
+  // configured node from CO_NMT, an operator or the Modbus control block:
+  // STOP and ENTER PRE-OPERATIONAL hold the node, START releases it, the
+  // resets clear the hold and reboot it. `send` false: the command went out
+  // as one broadcast already. Returns a note when it waits for the boot.
+  std::string NodeCommand(unsigned id, NodeState& n, uint8_t cs, HoldSource src, const std::string& by,
+                          bool send = true);
+  // The NMT function blocks (spec canopen-plc-nmt, network_plc.cpp).
+  void ServiceNmtProgram();
+  uint16_t ProgramNmt(const canopen_plc_nmt_request& r);
+  void ProgramStart(uint32_t handle, const canopen_plc_nmt_request& r);
+  uint16_t ProgramStop(const canopen_plc_nmt_request& r);
+  // Whether the master may run: start, or CO_NETWORK_START this run, and no
+  // CO_NETWORK_STOP since.
+  bool MayRun() const { return (cfg_.master.start || prog_start_) && !prog_stopped_; }
+  // The NMT state snapshot CO_GET_STATE reads (PlcRequests).
+  void Publish(unsigned id);
+  void PublishMaster();
   // Diagnostics channel (see the spec canopen-online-diagnostics).
   void ServiceDiag();
   void DiagStatus(const DiagRequest& r);
   void DiagEmcy(const DiagRequest& r);
   void DiagNmt(const DiagRequest& r);
+  void DiagPdoRead(const DiagRequest& r);
   // NMT for one node from an operator (diagnostics client or host); returns a
   // note when the command waits for the node's boot.
   std::string OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by);
@@ -541,8 +571,15 @@ class Network : public lely::canopen::BasicMaster {
   clock::time_point scan_moved_{};
   bool scan_hung_ = false;
   std::vector<HostNmt> host_nmt_;
+  // NMT blocks: requests taken this tick, CO_NETWORK_START requests waiting
+  // for the master, and the network-level start and stop from the program.
+  std::vector<PlcRequests::NmtJob> nmt_taken_;
+  std::vector<uint32_t> prog_start_waits_;
+  bool prog_start_ = false;    // CO_NETWORK_START ran in this PLC run
+  bool prog_stopped_ = false;  // CO_NETWORK_STOP ran since
   bool master_op_ = false;  // the master itself is OPERATIONAL (PDOs run)
-  uint8_t master_state_ = 0;
+  uint8_t master_state_ = 0;  // as reported: PRE-OPERATIONAL while CO_NETWORK_STOP holds it
+  uint8_t lely_state_ = 0;    // Lely's own NMT state of the master
   clock::time_point started_;
 };
 

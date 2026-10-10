@@ -21,3 +21,19 @@ extern "C" __attribute__((visibility("default"))) int sdo_program_scan(int execu
   if (rd.DONE) return 1;
   return rd.BUSY ? 0 : -1;
 }
+
+// One CO_GET_STATE instance for node `node`, called once per scan: 1 done
+// (the master's state in *master_state), 2 error (with *error_id), -1 idle.
+// It reaches the plugin through its own entry point, canopen_plc_nmt_api.
+extern "C" __attribute__((visibility("default"))) int nmt_program_scan(int execute, unsigned node,
+                                                                       unsigned* master_state, unsigned* error_id) {
+  static CO_GET_STATE_INST gs;
+  gs.NODE = static_cast<uint8_t>(node);
+  gs.EXECUTE = execute != 0;
+  co_get_state_call(&gs);
+  *error_id = gs.ERROR_ID.get();
+  *master_state = gs.MASTER_STATE.get();
+  if (gs.ERROR) return 2;
+  if (gs.DONE) return 1;
+  return -1;
+}

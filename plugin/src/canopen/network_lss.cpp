@@ -279,6 +279,24 @@ void Network::DiagLss(const DiagRequest& r) {
         fail("LSS switch selective failed", ec);
       return;
     }
+    if (req.op == "lss_store") {
+      // The CiA 309-3 gateway's lss_store: what the selected device was set
+      // to before, into its memory.
+      lss_->SubmitStore(exec_, [this, req, addr, finish, fail, rid](std::error_code ec) {
+        if (stopped_) return;
+        if (ec) {
+          log_warn("LSS store configuration on %s for %s: %s", addr.c_str(), diag_client(req).c_str(),
+                   lss_error_text(ec).c_str());
+          fail("LSS store configuration failed", ec);
+          return;
+        }
+        log_info("LSS store configuration on %s by %s", addr.c_str(), diag_client(req).c_str());
+        cJSON* res = cJSON_CreateObject();
+        cJSON_AddBoolToObject(res, "stored", true);
+        finish(diag_ok(rid, res));
+      });
+      return;
+    }
     lss_->SubmitGetId(exec_, [this, req, addr, finish, fail, rid](std::error_code ec, uint8_t prev) {
       if (stopped_) return;
       if (ec) {
@@ -289,7 +307,7 @@ void Network::DiagLss(const DiagRequest& r) {
         cJSON* res = cJSON_CreateObject();
         cJSON_AddNumberToObject(res, "node_id", prev);
         cJSON_AddBoolToObject(res, "configured", prev != 0xFF);
-        log_info("LSS inquire of %s by diagnostics client %s: node ID %u", addr.c_str(), req.peer.c_str(), prev);
+        log_info("LSS inquire of %s by %s: node ID %u", addr.c_str(), diag_client(req).c_str(), prev);
         finish(diag_ok(rid, res));
         return;
       }
@@ -297,7 +315,7 @@ void Network::DiagLss(const DiagRequest& r) {
       auto stored = [this, req, finish, fail, rid](cJSON* res, const std::string& logged) {
         if (!req.store) {
           cJSON_AddBoolToObject(res, "stored", false);
-          log_info("%s by diagnostics client %s (not stored)", logged.c_str(), req.peer.c_str());
+          log_info("%s by %s (not stored)", logged.c_str(), diag_client(req).c_str());
           finish(diag_ok(rid, res));
           return;
         }
@@ -308,13 +326,13 @@ void Network::DiagLss(const DiagRequest& r) {
           }
           if (ec) {
             cJSON_Delete(res);
-            log_warn("%s by diagnostics client %s; store refused: %s", logged.c_str(), req.peer.c_str(),
+            log_warn("%s by %s; store refused: %s", logged.c_str(), diag_client(req).c_str(),
                      lss_error_text(ec).c_str());
             fail("set, but LSS store configuration failed", ec);
             return;
           }
           cJSON_AddBoolToObject(res, "stored", true);
-          log_info("%s by diagnostics client %s, stored in the device", logged.c_str(), req.peer.c_str());
+          log_info("%s by %s, stored in the device", logged.c_str(), diag_client(req).c_str());
           finish(diag_ok(rid, res));
         });
       };
@@ -323,8 +341,8 @@ void Network::DiagLss(const DiagRequest& r) {
                           [this, req, addr, prev, stored, fail](std::error_code ec) {
                             if (stopped_) return;
                             if (ec) {
-                              log_warn("LSS set node ID %u on %s for diagnostics client %s: %s", req.node,
-                                       addr.c_str(), req.peer.c_str(), lss_error_text(ec).c_str());
+                              log_warn("LSS set node ID %u on %s for %s: %s", req.node,
+                                       addr.c_str(), diag_client(req).c_str(), lss_error_text(ec).c_str());
                               fail("LSS configure node-ID failed", ec);
                               return;
                             }
@@ -346,8 +364,8 @@ void Network::DiagLss(const DiagRequest& r) {
                                [this, req, addr, stored, fail](std::error_code ec) {
                                  if (stopped_) return;
                                  if (ec) {
-                                   log_warn("LSS set bit rate %u kbit/s on %s for diagnostics client %s: %s",
-                                            req.bitrate_kbit, addr.c_str(), req.peer.c_str(),
+                                   log_warn("LSS set bit rate %u kbit/s on %s for %s: %s",
+                                            req.bitrate_kbit, addr.c_str(), diag_client(req).c_str(),
                                             lss_error_text(ec).c_str());
                                    fail("LSS configure bit timing failed", ec);
                                    return;
@@ -387,7 +405,7 @@ void Network::DiagLssFind(const DiagRequest& r, bool start) {
     lss_find_node_id_ = -1;
     lss_find_error_.clear();
     lss_find_started_ = clock::now();
-    log_info("LSS search for a device without node ID started by diagnostics client %s", r.peer.c_str());
+    log_info("LSS search for a device without node ID started by %s", diag_client(r).c_str());
     LssAddress addr, mask;
     if (r.lss_known) {
       addr.vendor_id = r.lss[0];

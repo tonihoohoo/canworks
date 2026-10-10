@@ -39,6 +39,8 @@ bool canopen_create(ConfigSet& set, uint64_t base_tick_ns, const char* version,
 void canopen_open_plc_requests(const ConfigSet& set);
 void canopen_close_plc_requests();
 const void* canopen_plc_api_table(uint32_t version);
+// The NMT blocks' table (canopen-plc-nmt), on the same request channel.
+const void* canopen_plc_nmt_api_table(uint32_t version);
 
 }  // namespace canopen_plugin
 

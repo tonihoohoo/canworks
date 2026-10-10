@@ -189,7 +189,7 @@ Flashing candleLight (CANable updater, https://canable.io/updater/) turns the CA
 | `rx_error_count_location` | no | An input byte (`%IB...`) with the controller's receive error counter, clamped to 255. |
 | `bus_off_count_location` | no | An input word (`%IW...`) counting bus-off events since the PLC started; wraps at 65535. |
 | `state_location` | no | An input byte (`%IB...`) with the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED. The master stays PRE-OPERATIONAL while a mandatory node is missing or with `start: false`, and no node exchanges PDOs then. |
-| `on_plc_stop` | no | What the master sends each configured node that is up when the PLC or the plugin stops, before the network closes: `"preop"` (default) ENTER PRE-OPERATIONAL, `"stop"` STOP, `"keep"` nothing (the nodes keep their last outputs). No output PDO is sent between the stop and the command. Pre-operational stops the device's PDOs, so its own communication-loss setting applies, while SDO access stays. The next PLC start boots and starts the nodes as usual. |
+| `on_plc_stop` | no | What the master sends each configured node that is up when the PLC or the plugin stops, before the network closes: `"preop"` (default) ENTER PRE-OPERATIONAL, `"stop"` STOP, `"keep"` nothing (the nodes keep their last outputs). No output PDO is sent between the stop and the command. Pre-operational stops the device's PDOs, so its own communication-loss setting applies, while SDO access stays. The next PLC start boots and starts the nodes as usual. It applies whatever the program held, and it is also what `CO_NETWORK_STOP` sends with `NODE_COMMAND := 0` ([plc-nmt.md](plc-nmt.md#stop-the-network-from-the-program-co_network_stop)). |
 | `scan_watchdog_ms` | no | 10-60000, default 1000; 0 turns it off. While the PLC runs and its scan has not finished a cycle for this long, the outputs stop: no RPDOs, raw or J1939 transmit messages. SYNC, inputs and node supervision keep running. The next finished scan sends the outputs again. Both are logged. Set a larger value, or 0, for a program with a deliberately long scan. |
 | `diagnostics` | no | Turns on the diagnostics channel for the configurator's online view, its bus scan and `canworks-diag` (below, [Online diagnostics](#online-diagnostics)). Left out: the plugin opens no port. |
 
@@ -254,7 +254,7 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 | `heartbeat_multiplier` | | 1-100, default 3. A node with `heartbeat_consumer: true` times out the master's heartbeat after `heartbeat_ms` × this. |
 | `error_behavior` | 0x1029 | An object of sub-index (as a string key, 1-254) to value: 0 pre-operational, 1 no change, 2 stopped, others manufacturer-specific. `{"1": 0}` |
 | `nmt_inhibit_time_us` | 0x102A | Minimum gap between two NMT commands, multiple of 100. |
-| `start` | 0x1F80 | Default `true`. `false` keeps the master PRE-OPERATIONAL: no PDOs move until something starts it. The plugin warns about this at load. |
+| `start` | 0x1F80 | Default `true`. `false` keeps the master PRE-OPERATIONAL: the nodes are booted and configured (and started, with `start_nodes`), but no PDOs move and every status bit stays FALSE until the PLC program starts it with `CO_NETWORK_START` ([plc-nmt.md](plc-nmt.md#start-the-network-from-the-program-co_network_start)). Nothing else starts it, and each PLC start begins PRE-OPERATIONAL again. The plugin warns about this at load. |
 | `start_nodes` | 0x1F80 | Default `true`. `false`: nodes are configured but stay PRE-OPERATIONAL (state byte 127). |
 | `start_all_nodes` | 0x1F80 | Default `false`. `true`: one broadcast NMT start once all mandatory nodes have booted, instead of one per node. |
 | `reset_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is reset, the master included. |
@@ -277,6 +277,14 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 | `remote_link` | no | The remote link's settings, read by the `canworks-link` service on the device: `internet` (default `false`), `relays` (https URLs) and `pairing` (`lan`, `anywhere` or `off`). The plugin only checks them ([remote-access.md](remote-access.md#over-the-internet-the-remote-link)). |
 
 The plugin listens while the PLC runs and closes the port when it stops. Everything a client sees and does is in [diagnostics.md](diagnostics.md), together with the security notes. With `"nodes": []` the plugin starts the master on the bus with no slaves, so the scan can find what is connected before any node is configured.
+
+### CiA 309-3 gateway
+
+```json
+"cia309": { "port": 7533, "allow_changes": false }
+```
+
+`master.cia309` in a version 1 file, a top-level `cia309` object in version 2 (one for all networks). Off without it. `port` (0: no plain port, else 1024-65535, default 7533), `bind` (`127.0.0.1` or `::1` only), `max_clients` (1-16, default 4), `allow_changes` and `allow_force` (both default `false`), `nets` (`{"1": "io"}`, version 2 only) and `default_net`. Unknown fields here are errors, not warnings. Everything about it is in [cia309-gateway.md](cia309-gateway.md).
 
 ### Simulated network and devices
 
@@ -326,6 +334,7 @@ Each is optional. The first group lives only in the master (0x1F81 and the expec
 | `axis` | PLC program | Marks the node as a CiA 402 drive used as a PLCopen axis; see [CiA 402 axis](#cia-402-axis). The plugin itself does nothing different. |
 | `lss` | master (LSS) | `{"assign": true}` gives the device its node ID over the bus by its serial number, `"store": true` also saves it in the device; see [LSS](#lss). Left out: no LSS. |
 | `heartbeat_consumer` | node 0x1016 | `true`: the node watches the master's heartbeat with timeout `master.heartbeat_ms` × `master.heartbeat_multiplier`; needs `master.heartbeat_ms` above 0. `false`: the node's entry is cleared. Left out: the EDS entries stay. |
+| `heartbeat_watch` | node 0x1016 | `[{ "node": 10, "timeout_ms": 300 }]`: the node watches other nodes' heartbeats itself, one 0x1016 entry each (the entry naming that node, else the first unused one that is not the master's), so it can react without the master (its 0x1029, usually EMCY 0x8130). `timeout_ms` defaults to the watched node's heartbeat timeout as the master uses it (`heartbeat_timeout_ms`, else 3 × its heartbeat period) and must be above its period. Refused: watching itself or the master (use `heartbeat_consumer`), a node that sends no heartbeat (guarding, or a 0x1017 of 0), or more entries than the EDS 0x1016 has writable ones. See [PDO links](#pdo-links). |
 | `emcy_cob_id` | master 0x1028 | `"device"` (the default when left out), `"eds"` or a COB-ID: where the master listens for the node's EMCY, see [EMCY COB-ID](#emcy-cob-id). |
 | `time_cob_id` | node 0x1012 | COB-ID of TIME; bit 31 (`0x80000000`) set makes the node consume TIME. Written only when it differs from the EDS value. |
 | `error_behavior` | node 0x1029 | As the master's `error_behavior`. |
@@ -509,7 +518,7 @@ For a module whose TPDO 1 maps 0x6000:1 and 0x6000:2 and whose RPDO 1 maps 0x620
 | `index` | yes | Object index, as a number or a string (`"0x6000"`). |
 | `subindex` | no | Default 0. |
 | `type` | yes | `BOOLEAN`, `INTEGER8`, `INTEGER16`, `INTEGER32`, `INTEGER64`, `UNSIGNED8`, `UNSIGNED16`, `UNSIGNED32`, `UNSIGNED64`, `REAL32` or `REAL64`. It must equal the object's `DataType` in the EDS. |
-| `iec_location` | yes | The PLC address. |
+| `iec_location` | yes | The PLC address. Left out only for an entry of a TPDO that feeds a [PDO link](#pdo-links) (the master receives it, the PLC does not), or one a gateway route uses. |
 
 The type must fit the location exactly:
 
@@ -524,6 +533,66 @@ The type must fit the location exactly:
 Values are copied bit for bit. Signed and floating-point objects therefore keep their bit pattern in the unsigned PLC location, and the program interprets them.
 
 The object's `AccessType` in the EDS must allow the direction: a `tx_pdos` entry (the slave sends it) needs `ro`, `rw`, `rwr` or `const`; an `rx_pdos` entry (the master writes it) needs `wo`, `rw` or `rww`.
+
+## PDO links
+
+A PDO is a broadcast frame: any RPDO with the same COB-ID receives it (CiA 301 producer/consumer). A *link* lets one node's TPDO feed RPDOs of other nodes directly, without the PLC scan in between: a joystick module driving a valve module, an encoder feeding a drive, enable bits that must keep moving while the PLC program is stopped for a download. The master configures both ends at boot and keeps receiving the TPDO itself, so the PLC can still read it.
+
+`links` sits at the top level of a version 1 file and in a CANopen master network of a version 2 file (it is refused on slave, J1939 and plain CAN networks):
+
+```json
+"nodes": [
+  { "node_id": 10, "name": "stick", "eds": "stick.eds", "heartbeat_ms": 100,
+    "tx_pdos": [ { "transmission": 254, "event_timer_ms": 50, "entries": [
+      { "index": "0x6401", "subindex": 1, "type": "INTEGER16", "iec_location": "%IW100" },
+      { "index": "0x6401", "subindex": 2, "type": "INTEGER16" } ] } ] },
+  { "node_id": 20, "name": "valves", "eds": "valves.eds", "heartbeat_ms": 100,
+    "heartbeat_watch": [ { "node": 10 } ], "error_behavior": { "1": 0 } }
+],
+"links": [
+  { "name": "stick_to_valves", "from": { "node": 10, "tpdo": 1 },
+    "to": [ { "node": 20, "rpdo": 2, "transmission": 255, "event_timer_ms": 200, "entries": [
+      { "index": "0x6411", "subindex": 1, "type": "INTEGER16" },
+      { "index": "0x0003", "subindex": 0, "type": "INTEGER16" } ] } ],
+    "on_plc_stop": "keep" }
+]
+```
+
+Node 20's RPDO 2 takes COB-ID 0x18A: the first value drives its analog output 1, the second is skipped by a dummy entry. The PLC reads the first value in `%IW100`; the second has no location and reaches only the consumer. Node 20 watches node 10's heartbeat for 300 ms and goes PRE-OPERATIONAL on its loss. The link keeps running while the PLC is stopped.
+
+| Field | Required | Meaning |
+|---|---|---|
+| `name` | no | Used in messages and the tools. Default `link <n>`, its 1-based place in the list. |
+| `from` | yes | `{ "node", "tpdo" }`: the producer and the number of one of its `tx_pdos`. The TPDO keeps all its settings there (COB-ID including `"auto"`, transmission, inhibit time, event timer, mapping, `timeout_ms`). A TPDO feeds at most one link: list all its consumers in that link. |
+| `to` | yes | One or more consumers. |
+| `on_plc_stop` | no | `"follow"` (default): the link's nodes get `master.on_plc_stop` like every node. `"keep"`: they get no NMT command on PLC stop. |
+
+Each consumer:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `node` | yes | Another configured node of the network. |
+| `rpdo` | yes | An RPDO number its EDS defines that is not in its `rx_pdos` and in no other link. |
+| `transmission` | no | The consumer's transmission type (255/254: applied on arrival; 0-240: at the next SYNC). Left out: the EDS value. |
+| `event_timer_ms` | no | Sub-index 5, the consumer's deadline: the device reacts (usually EMCY 0x8250) when no PDO came for this long. Left out: the EDS value. |
+| `entries` | yes, unless `"mapping": "device"` | The consumer's own objects in frame order: `index`, `subindex`, `type`, no `iec_location`. |
+| `mapping` | no | `"device"`: the consumer keeps its EDS default mapping (`entries` may be left out). Left out: `"device"` when the EDS makes the mapping read-only. `"config"` on a fixed mapping is refused. |
+
+**Layout.** The producer layout is the TPDO's entries in order (or its EDS default mapping for a device-mapped TPDO, objects the PLC does not use and dummy entries included). The consumer layout (its `entries`, or its EDS default mapping) must have the same number of positions with the same bit length at each, so the same total of at most 64 bits. A dummy entry (index 0x0001-0x0007, the index being its data type: 0x0003 INTEGER16, 0x0006 UNSIGNED16, ...) takes a position the consumer does not need; its EDS must allow it in `[DummyUsage]`. A different data type at the same size (INTEGER16 into UNSIGNED16) is accepted with a warning, because CiA 301 copies the bits. A shorter or longer consumer, or one 16-bit value split across two 8-bit objects, is refused. Each consumer object must exist, be PDO-mappable, have `AccessType` `wo`, `rw` or `rww` and the configured `DataType`.
+
+**COB-ID.** A link's COB-ID is the producer TPDO's (explicit, `"auto"` or the CiA 301 default). Only the producer TPDO, the master's RPDO for it and the link's consumers may use it; any other PDO, raw message or reserved frame on it is a clash named with the link. A consumer whose EDS makes the RPDO's COB-ID read-only can only receive that COB-ID: the message names the `cob_id` to give the producer.
+
+**What the master writes.** In the consumer's normal configuration download, before its node settings and startup SDOs: the RPDO's COB-ID with bit 31 set, `transmission` and `event_timer_ms` when given, the mapping (sub-index 0 to 0, each entry, sub-index 0 to the count) unless the device mapping is kept, then the COB-ID without bit 31. Read-only sub-indices are left out. The master gets no TPDO on the link's COB-ID, and the master DCF and every node download of a config without links are unchanged. With `config_check` a change of the link changes the node's configuration stamp, so the next boot downloads again.
+
+**Loss and reboot.** A lost producer or consumer is handled by the normal supervision and boot; the master only logs which consumers lose their data (`node 10 lost: link stick_to_valves feeds node 20 RPDO 2, which get no data until it is back`). Consumers keep their last received values unless their deadline (`event_timer_ms`) or a [heartbeat watch](#node-options) makes them react; what they do then is the device's (its 0x1029 error behaviour). A node that boots again gets its whole configuration, link writes included, and the link carries data again once both ends are OPERATIONAL.
+
+**PLC stop.** With `"on_plc_stop": "keep"` the master sends the link's producer and consumers no NMT command when the PLC stops, logs `PLC stop: left running for their PDO links: ...`, and sends every other node `master.on_plc_stop`. The network still closes, so the master's heartbeat and SYNC stop: the plugin warns at load when a kept link has a synchronous producer or consumer type (it stops with SYNC) or a node with `heartbeat_consumer` (it sees the master's heartbeat stop and reacts per its 0x1029). The scan watchdog closes only the master's own TPDOs. At the next PLC start the master boots the nodes as usual, so the link pauses for the boot. The safety of a kept link is the devices': give the consumers a deadline and a heartbeat watch.
+
+**SYNC timing.** A synchronous producer TPDO is sent after every n-th SYNC; a synchronous consumer RPDO applies its data at the next SYNC (one SYNC period later, all consumers in step); event-driven types pass data on at once. A synchronous consumer needs a master that produces SYNC; with `"sync_source": "plc_cycle"` a synchronous link runs at the PLC frame rate and stops with the PLC. Use event-driven types (254 or 255, with an event timer on the producer) for a link that must survive a PLC stop.
+
+**Fixed-mapping devices.** A producer with a fixed TPDO mapping uses its EDS default mapping as the layout; a consumer with a fixed RPDO mapping must match the producer position by position with its default mapping, and a consumer with a fixed COB-ID needs the producer TPDO on that COB-ID.
+
+An older plugin reading a file with `links` warns that the field is unknown and runs the nodes without the links.
 
 ## Startup SDOs
 
@@ -614,6 +683,8 @@ With `nmt_command_location` the program commands the node through an output byte
 
 A held node (2 or 128) is not rebooted by the master when it leaves OPERATIONAL, and a node that starts by itself is sent the hold again. A reset (129, 130) clears the hold, the node boots again, and the byte must change away and back to reset it again. The plugin logs each command it sends (`NMT STOP (held by the program)`, `NMT RESET NODE (from the program)`). Other values are ignored with a warning. The byte reads 0 at start, so a program that never writes it leaves the node to the master.
 
+The `CO_NMT` function block of the `canworks` library sends the same commands with the node picked at run time, also to a node the config does not list or to every node at once, and `CO_NETWORK_START` and `CO_NETWORK_STOP` start and stop the master itself ([plc-nmt.md](plc-nmt.md)). The byte, `CO_NMT` and an operator's NMT commands (online view, `canworks-diag nmt`, Modbus control block) set the same hold of a node, and the one that acted last decides; since the byte acts only when its value changes, use one of the two per node. A hold or a reset sent through the byte to a mandatory node is not a loss of that node: the master stays OPERATIONAL and `reset_all_nodes` or `stop_all_nodes` do not react.
+
 ## Compatibility rules
 
 Within one `schema_version`, a later release of the plugin accepts every file an earlier release accepted, with the same meaning. New optional fields may be added within a version. Removing a field, making an optional field required, or changing a field's meaning needs a new `schema_version`. Unknown fields are ignored with a warning that names the field and its JSON path (`nodes[0].colour`), so a file written for a newer release of the same version still loads.
@@ -626,9 +697,11 @@ The schema describes every field, its type and whether it is required. It cannot
 - `heartbeat_timeout_ms` is not shorter than `heartbeat_ms`, and heartbeat and node guarding are not combined;
 - locations do not overlap and lie inside the runtime's I/O image;
 - a startup SDO value fits its type, and numbers given as strings are in range;
-- everything against the EDS: the file parses, PDO numbers exist, objects exist, are PDO-mappable, have the configured `DataType` and an `AccessType` that allows the direction.
+- everything against the EDS: the file parses, PDO numbers exist, objects exist, are PDO-mappable, have the configured `DataType` and an `AccessType` that allows the direction;
+- PDO links: producer and consumers are different nodes of the network, the producer TPDO is in its `tx_pdos` and feeds one link, the consumer RPDO is in its EDS and in neither its `rx_pdos` nor another link, both layouts match position by position against both EDS files, a fixed consumer COB-ID equals the link's, a synchronous consumer has SYNC;
+- `heartbeat_watch`: the watched node is on the network, is not the node itself or the master, sends a heartbeat, the timeout is above its period, and the EDS 0x1016 has room for every entry.
 
-The shared fixtures in [`test/fixtures/config/cases.json`](../test/fixtures/config/cases.json) and, for several networks and J1939, [`cases-v2.json`](../test/fixtures/config/cases-v2.json) and [`cases-j1939.json`](../test/fixtures/config/cases-j1939.json) run through the schema, the plugin and the deploy tool, and CI checks that they agree.
+The shared fixtures in [`test/fixtures/config/cases.json`](../test/fixtures/config/cases.json) and, for several networks and J1939, [`cases-v2.json`](../test/fixtures/config/cases-v2.json) [`cases-j1939.json`](../test/fixtures/config/cases-j1939.json) and, for PDO links, [`cases-links.json`](../test/fixtures/config/cases-links.json) run through the schema, the plugin and the deploy tool, and CI checks that they agree.
 
 ## Emergency messages
 
@@ -708,7 +781,9 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a network's `protocol` is not `"canopen"` or `"j1939"`, a J1939 network has `role`, `master`, `nodes` or `slave`, lacks `j1939` or sets `adapter.simulate`, or a CANopen network has `j1939`;
 - a slave network has `master` or `nodes`, a master network has `slave`, a version 1 file has `role`, `slave`, `gateway`, `protocol` or `j1939`, or two master networks (or two slave networks) share a simulated bus;
 - a slave's `node_id` is outside 1-127 and not `null`, its EDS is missing or fails the lint, or a binding names an object the EDS does not define, an object bound twice, a `const` or `wo` object, a location of the wrong area for the object's access type or of a size that does not fit its type; a slave status location has the wrong type (`%IB` state, `%IX` communication OK, `%IW` SYNC count, `%QW` EMCY code, `%QB` error register);
-- a PDO entry has no `iec_location` and no gateway route writes it;
+- a PDO entry has no `iec_location`, no gateway route writes it and its TPDO feeds no PDO link;
+- a link names a node that is not on the network, a TPDO that is not in the producer's `tx_pdos`, a TPDO another link names, a consumer that is the producer, an RPDO that is in the consumer's `rx_pdos`, in another link or not in its EDS, a consumer entry with `iec_location`, a layout that differs from the producer's in positions or sizes, a dummy entry the consumer's `[DummyUsage]` does not allow, a consumer object that is missing, not mappable, not receivable or of another type, a read-only consumer COB-ID other than the link's, a synchronous consumer without SYNC, or `links` on a slave, J1939 or plain CAN network;
+- a `heartbeat_watch` entry watches the node itself, the master, a node that is not on the network or sends no heartbeat, has a timeout not above the watched period, or does not fit the EDS 0x1016;
 - the `gateway` names an `upper` network that is missing or not a slave network, there is no master network, a route names a network, node, PDO entry or slave object that does not exist, its direction does not fit the slave object's access type, its two ends differ in type, its target has a second writer, `status` covers more than 4 master networks, or `status` or `sdo_bridge` is set while the slave's EDS lacks their objects.
 
 In every case the PLC starts and runs normally; fix the file and restart the PLC to activate the plugin.

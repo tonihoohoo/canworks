@@ -214,6 +214,10 @@ print(struct.unpack(">4h", r[2:]))                             # four INTEGER16 
 request(s, struct.pack(">BHHB2H", 16, 1, 2, 4, 1000, 2000))    # holding registers 1-2
 ```
 
+## CiA 309-3 gateway
+
+With a top-level `cia309` object the bridge also serves the CiA 309-3 ASCII gateway ([cia309-gateway.md](cia309-gateway.md)), exactly as the plugin does: a plain port on its loopback address (default `127.0.0.1:7533`) and sessions through its diagnostics channel (`canworks-diag --runtime HOST gateway`). A CiA 309-3 client reads and, with `cia309.allow_changes`, writes the same nodes the Modbus clients see. Its requests neither feed the output watchdog nor end outputs off: with only a gateway client connected the watchdog runs out as with no client, and the gateway client keeps being served. NMT commands from the gateway follow the gateway's guards and the same hold rules as those of the control block. The bridge's status part lists the gateway sessions (`cia309_sessions`: address, plain or tunnelled, commands served).
+
 ## Security
 
 Modbus TCP has no authentication or encryption. Put the bridge on a machine network, not on an office network or the internet, and use `readers` and `writers` so only the PLC or HMI that should write can. Changing the config over the network goes through the encrypted, token-protected diagnostics channel and must be allowed in the running config. The bridge runs as root for the CAN link setup and port 502; the systemd unit limits it to 256 MB of memory (`MemoryMax`) and 64 tasks (`TasksMax`).

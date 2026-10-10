@@ -163,6 +163,8 @@ Each slave entry MAY give an `nmt_command_location` (an `%QB` output byte) throu
 
 The master SHALL act on a change within 100 ms or by the next SYNC, whichever comes first, and SHALL NOT act on the byte before the PLC program has completed its first scan cycle since start. For a node with `boot` false the master SHALL never boot or configure it, and a change to 1 SHALL send START. Each command sent SHALL be logged with the node and the command. A node held in STOPPED or PRE-OPERATIONAL SHALL have its status bit FALSE and SHALL exchange no PDOs. The location SHALL be an `%QB` location that does not overlap another location of the configuration, else the configuration SHALL be rejected naming the node and the field.
 
+The byte SHALL act on the same hold as the program's `CO_NMT` block and the NMT commands of the diagnostics channel and the Modbus control block (`canopen-plc-nmt`): whichever acted last decides, and the byte acts only on a change of its value. A hold or reset sent through the byte to a mandatory node SHALL NOT count as a loss of that node.
+
 #### Scenario: Stop and restart a node
 - **WHEN** node 5 is OPERATIONAL with `nmt_command_location` `%QB30` and `state_location` `%IB20`, and the program writes 2 to `%QB30` and later 0
 - **THEN** after the first write `%IB20` reads 4, the status bit reads FALSE and node 5's input locations hold their last values; after the second, `%IB20` reads 5 and PDO data flows again
@@ -183,6 +185,14 @@ The master SHALL act on a change within 100 ms or by the next SYNC, whichever co
 - **WHEN** `nmt_command_location` is not an `%QB` location or overlaps another location
 - **THEN** the plugin rejects the configuration and names the node and the field
 
+#### Scenario: Block releases a byte hold
+- **WHEN** `%QB30` holds 2 and the program runs `CO_NMT` with `NODE := 5, COMMAND := 1`
+- **THEN** node 5 is started and stays OPERATIONAL until `%QB30` changes again
+
+#### Scenario: Mandatory node held by the byte
+- **WHEN** node 5 is mandatory, `master.reset_all_nodes` is `true`, and the program writes 2 to `%QB30`
+- **THEN** node 5 is STOPPED, no other node is reset, and the master stays OPERATIONAL
+
 ### Requirement: Every node is supervised or says why not
 A configured node whose heartbeat consumer time is 0 (from `heartbeat_ms`, or from the EDS default of 0x1017 when `heartbeat_ms` is absent) and that has no node guarding SHALL make the config refused at load, with a message saying its loss would never be detected. A node with an explicit `"heartbeat_ms": 0` SHALL be accepted and SHALL get a warning at every start. The configurator's check SHALL do the same.
 
@@ -195,7 +205,7 @@ A configured node whose heartbeat consumer time is 0 (from `heartbeat_ms`, or fr
 - **THEN** the config is accepted and each start logs a warning that node 7's loss is not detected
 
 ### Requirement: Nodes on PLC stop
-The master SHALL support `master.on_plc_stop`: `"preop"` (default) sends ENTER PRE-OPERATIONAL, `"stop"` sends STOP, each to every configured node that is up, before the network closes when the PLC stops or the plugin stops; `"keep"` sends no NMT command. No output PDO SHALL be sent between the stop request and the NMT command. On the next PLC start the nodes SHALL be booted and started as usual.
+The master SHALL support `master.on_plc_stop`: `"preop"` (default) sends ENTER PRE-OPERATIONAL, `"stop"` sends STOP, each to every configured node that is up, before the network closes when the PLC stops or the plugin stops; `"keep"` sends no NMT command. Nodes of a PDO link with `"on_plc_stop": "keep"` (canopen-pdo-links) SHALL get no NMT command whatever the master's setting. No output PDO SHALL be sent between the stop request and the NMT command. On the next PLC start the nodes SHALL be booted and started as usual.
 
 #### Scenario: PLC stopped
 - **WHEN** nodes 5 and 23 are OPERATIONAL and the PLC is stopped with the default `on_plc_stop`
@@ -204,6 +214,33 @@ The master SHALL support `master.on_plc_stop`: `"preop"` (default) sends ENTER P
 #### Scenario: Old behaviour
 - **WHEN** `on_plc_stop` is `"keep"` and the PLC is stopped
 - **THEN** no NMT command is sent
+
+#### Scenario: Kept link
+- **WHEN** `on_plc_stop` is `"preop"`, nodes 10 and 20 form a link with `"on_plc_stop": "keep"`, node 5 is in no link, and the PLC is stopped
+- **THEN** node 5 gets ENTER PRE-OPERATIONAL, nodes 10 and 20 get no NMT command, and the log says which nodes were left running for which link
+
+### Requirement: Node-to-node heartbeat watch
+A node MAY give `heartbeat_watch`, a list of `{ "node": <id>, "timeout_ms": <ms> }`. For each entry the plugin SHALL write one heartbeat consumer entry (0x1016, CiA 301) into that node's configuration download, after dcfgen's own writes: the entry that already names the watched node, else the first unused entry that is not the one watching the master. `timeout_ms` SHALL default to the watched node's heartbeat timeout as the master uses it (`heartbeat_timeout_ms`, else three times its effective heartbeat period). The plugin SHALL reject the configuration, naming the node, the entry and the reason, when the watched node is not a configured node of the same network, is the node itself or the master, has no heartbeat (node guarding, or an effective 0x1017 of 0), when `timeout_ms` is not above the watched node's heartbeat period, or when the node's EDS has no 0x1016 or too few writable entries. The master's own supervision of either node SHALL NOT change.
+
+#### Scenario: Consumer watches its producer
+- **WHEN** node 20 has `"heartbeat_watch": [{ "node": 10 }]`, node 10 has `heartbeat_ms` 100 and no `heartbeat_timeout_ms`
+- **THEN** node 20's download writes a 0x1016 entry with node ID 10 and 300 ms
+
+#### Scenario: Next to the master's entry
+- **WHEN** node 20 also has `"heartbeat_consumer": true` and dcfgen puts the master's entry in 0x1016 sub 1
+- **THEN** the watch of node 10 goes to the next unused sub-index, and sub 1 still watches the master
+
+#### Scenario: Watched node without heartbeat
+- **WHEN** node 20 watches node 10 and node 10 uses node guarding
+- **THEN** the configuration is rejected naming node 20, `heartbeat_watch` and that node 10 sends no heartbeat
+
+#### Scenario: Not enough entries
+- **WHEN** node 20's EDS 0x1016 has one entry, `heartbeat_consumer` is true and node 20 watches node 10
+- **THEN** the configuration is rejected naming node 20, its EDS and that 0x1016 has room for 1 entry where 2 are needed
+
+#### Scenario: Startup SDO overrides the watch
+- **WHEN** node 20 has a `heartbeat_watch` and a startup SDO writing 0x1016
+- **THEN** the plugin warns that the startup SDO runs last and overrides `heartbeat_watch`
 
 ### Requirement: EMCY COB-ID setting
 Each slave entry MAY give `emcy_cob_id`: `"device"` (the default when left out), `"eds"`, or a number. With `"eds"` the master SHALL listen for the node's EMCY on the COB-ID its EDS gives as the default of 0x1014, or 0x80 + node ID without one, as before. With a number the master SHALL listen on that COB-ID from the start, written into the master DCF's EMCY consumer entry for the node, and SHALL NOT read the node's 0x1014. A startup SDO to 0x1014 sub-index 0 SHALL count as that number when `emcy_cob_id` gives none. A number with bit 31 or bit 29 set, a CiA 301 restricted CAN-ID, or a COB-ID another identifier of the network uses (another configured node's EMCY, a configured PDO, SDO or heartbeat COB-ID, NMT, SYNC, TIME or LSS) SHALL reject the configuration naming the node and `emcy_cob_id`. A predefined consumer entry of a node ID that is not configured and has the same COB-ID SHALL be left out.

@@ -168,9 +168,11 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
   // Lely's NMT boot steps and the configuration downloads below (which pass
   // no timeout) use this; Lely's own default is 100 ms.
   SetTimeout(std::chrono::milliseconds(cfg.master.sdo_timeout_ms));
-  // LSS only when a node is assigned by it or diagnostics may change things;
-  // otherwise Lely's start-up runs without the LSS step and sends no LSS frame.
-  bool lss = cfg.master.has_diagnostics && cfg.master.diag_allow_changes;
+  // LSS only when a node is assigned by it or diagnostics (or the CiA 309-3
+  // gateway) may change things; otherwise Lely's start-up runs without the
+  // LSS step and sends no LSS frame.
+  bool lss = (cfg.master.has_diagnostics && cfg.master.diag_allow_changes) ||
+             (cfg.master.cia309.enabled && cfg.master.cia309.allow_changes);
   for (const auto& n : cfg.nodes) lss |= n.lss_assign;
   if (lss) lss_.reset(new LssAssigner(exec, *this));
   // A new session: the program's EMCY queue starts empty, as the history.
@@ -219,6 +221,10 @@ void Network::Start() {
     (*this)[0x1800 + t.first - 1][1].Write<uint32_t>(t.second | 0x80000000u, ec);
   }
   started_ = clock::now();
+  // CO_GET_STATE: every configured node, and the master.
+  PlcRequests::instance().clear_snapshot(cfg_.network_index);
+  for (const auto& it : nodes_) Publish(it.first);
+  PublishMaster();
   if (cfg_.master.time_period_ms) {
     char now[32];
     std::time_t t = std::time(nullptr);
@@ -282,14 +288,33 @@ void Network::StopNodes() {
   for (auto& it : nodes_) EnableTpdos(it.second, false);
   OnPlcStop mode = cfg_.master.on_plc_stop;
   if (mode == OnPlcStop::Keep) return;
+  // The producer and consumers of links with "on_plc_stop": "keep" get no
+  // NMT command, so the link runs on (canopen-pdo-links "Links on PLC stop").
+  std::map<unsigned, std::string> kept;  // node ID -> its kept links
+  for (const auto& l : cfg_.links) {
+    if (!l.keep_on_plc_stop) continue;
+    std::vector<unsigned> ids{l.producer};
+    for (const auto& c : l.consumers) ids.push_back(c.node);
+    for (unsigned id : ids) {
+      std::string& s = kept[id];
+      if (s.find(l.label()) == std::string::npos) s += (s.empty() ? "" : ", ") + l.label();
+    }
+  }
   bool stop = mode == OnPlcStop::Stop;
   unsigned sent = 0;
+  std::string left;
   for (auto& it : nodes_) {
     NodeState& n = it.second;
     if (!n.up && !n.node_op) continue;
+    auto k = kept.find(it.first);
+    if (k != kept.end()) {
+      left += (left.empty() ? "" : "; ") + n.cfg->label() + " (" + k->second + ")";
+      continue;
+    }
     Command(stop ? NmtCommand::STOP : NmtCommand::ENTER_PREOP, static_cast<uint8_t>(it.first));
     ++sent;
   }
+  if (!left.empty()) log_info("PLC stop: left running for their PDO links: %s", left.c_str());
   if (sent)
     log_info("PLC stop: NMT %s to %u node%s (master.on_plc_stop \"%s\")",
              stop ? "STOP" : "ENTER PRE-OPERATIONAL", sent, sent == 1 ? "" : "s", stop ? "stop" : "preop");
@@ -375,17 +400,30 @@ void Network::SetBootError(unsigned id, uint8_t letter) {
   if (image_.node_boot_error(id) == letter) return;
   image_.set_node_boot_error(id, letter);
   image_.commit_inputs();
+  Publish(id);
 }
 
 void Network::SetMasterState(uint8_t state) {
   master_state_ = state;
+  PublishMaster();
   if (image_.master_state() == state) return;
   image_.set_master_state(state);
   image_.commit_inputs();
 }
 
+void Network::Publish(unsigned id) {
+  auto it = nodes_.find(id);
+  if (it == nodes_.end()) return;
+  const Hold h = it->second.hold;
+  uint8_t held = h == Hold::Stopped ? CANOPEN_PLC_NMT_CS_STOP : h == Hold::Preop ? CANOPEN_PLC_NMT_CS_PREOP : 0;
+  PlcRequests::instance().publish_node(cfg_.network_index, id, image_.node_state(id), held, image_.node_boot_error(id));
+}
+
+void Network::PublishMaster() { PlcRequests::instance().publish_master(cfg_.network_index, master_state_, MayRun()); }
+
 void Network::MarkAllDown() {
   master_op_ = false;
+  lely_state_ = kStateNoContact;
   master_state_ = kStateNoContact;
   image_.set_master_state(kStateNoContact);
   for (auto& n : nodes_) {
@@ -395,8 +433,10 @@ void Network::MarkAllDown() {
     image_.set_node_status(n.first, false);
     image_.set_node_state(n.first, kStateNoContact);
     ArmInputPdos(n.first, false);
+    Publish(n.first);
   }
   image_.commit_inputs();
+  PublishMaster();
 }
 
 void Network::SetState(unsigned id, uint8_t state) {
@@ -404,6 +444,7 @@ void Network::SetState(unsigned id, uint8_t state) {
   if (image_.node_state(id) == state) return;
   image_.set_node_state(id, state);
   image_.commit_inputs();
+  Publish(id);
 }
 
 unsigned Network::ConsumerMs(unsigned id) {
@@ -633,8 +674,10 @@ void Network::ReportIdentity(uint8_t id, char es) {
 void Network::StartHeldMaster() {
   // Lely halts the network boot-up for good once a mandatory node has failed
   // to boot, even after the node boots on a retry: start the master when
-  // every mandatory node has booted.
-  if (!cfg_.master.start || master_state_ != kStatePreop) return;
+  // every mandatory node has booted. With start false only the program
+  // starts it (CO_NETWORK_START), and after CO_NETWORK_STOP nothing does
+  // until the program starts it again.
+  if (!MayRun() || lely_state_ != kStatePreop) return;
   for (const auto& it : nodes_)
     if (it.second.cfg->mandatory && !it.second.booted) return;
   log_info("all mandatory nodes have booted: starting the master");
@@ -650,30 +693,44 @@ void Network::HandleCommand(NmtCommand cs) {
   // The master's own NMT state: Lely reports it only as the command that
   // made it enter the state.
   switch (cs) {
-    case NmtCommand::START: SetMasterState(kStateOperational); break;
-    case NmtCommand::ENTER_PREOP: SetMasterState(kStatePreop); break;
-    case NmtCommand::STOP: SetMasterState(kStateStopped); break;
+    case NmtCommand::START: lely_state_ = kStateOperational; break;
+    case NmtCommand::ENTER_PREOP: lely_state_ = kStatePreop; break;
+    case NmtCommand::STOP: lely_state_ = kStateStopped; break;
     default:  // resetting: the master's dictionary is the DCF's again
-      SetMasterState(kStateNoContact);
+      lely_state_ = kStateNoContact;
       LoadEmcyCobs();
       break;
   }
+  if (cs == NmtCommand::STOP) log_error("master is STOPPED: no PDOs are exchanged until the plugin restarts");
+  if (cs == NmtCommand::START && prog_stopped_)
+    // Lely's own start-up (after the master reset itself with reset_all_nodes)
+    // while the program holds the network stopped: it stays held.
+    log_info("the master's start-up ended while the PLC program holds the network stopped (CO_NETWORK_STOP); "
+             "no PDOs are exchanged until it starts the network");
+  ApplyMasterState(cs == NmtCommand::START);
+}
+
+void Network::ApplyMasterState(bool lely_started) {
+  // CO_NETWORK_STOP holds an OPERATIONAL master as PRE-OPERATIONAL in the
+  // plugin (no PDOs in or out), without changing Lely's NMT state: Lely
+  // runs its whole network start-up again when its master enters
+  // PRE-OPERATIONAL, resetting the communication of every node (design.md).
+  bool held = prog_stopped_ && lely_state_ == kStateOperational;
+  SetMasterState(held ? kStatePreop : lely_state_);
   bool was_op = master_op_;
-  master_op_ = cs == NmtCommand::START;
+  master_op_ = lely_state_ == kStateOperational && !prog_stopped_;
   if (master_op_ && !was_op) {
     log_info("master is operational");
     // Starting all nodes at once: Lely starts every booted node now.
     const MasterConfig& m = cfg_.master;
-    if (m.start_nodes && m.start_all_nodes)
+    if (lely_started && m.start_nodes && m.start_all_nodes)
       for (auto& it : nodes_)
         if (it.second.cfg->boot && it.second.booted && !it.second.node_op) {
           it.second.node_op = true;
           StartSent(it.first, it.second);
           SetState(it.first, kStateOperational);
         }
-  } else if (cs == NmtCommand::STOP) {
-    log_error("master is STOPPED: no PDOs are exchanged until the plugin restarts");
-  } else if (cs == NmtCommand::ENTER_PREOP && was_op) {
+  } else if (was_op && !master_op_ && master_state_ == kStatePreop) {
     log_warn("master is PRE-OPERATIONAL: no PDOs are exchanged");
   }
   for (const auto& it : nodes_) Update(it.first, master_op_ ? "" : "the master is not OPERATIONAL");
@@ -738,6 +795,9 @@ void Network::OnRpdoWrite(uint8_t id, uint16_t idx, uint8_t subidx) noexcept {
 }
 
 void Network::HandleRpdoWrite(uint8_t id, uint16_t idx, uint8_t subidx) {
+  // The program holds the network stopped (CO_NETWORK_STOP): the inputs keep
+  // their last values, as with a PRE-OPERATIONAL master.
+  if (prog_stopped_) return;
   auto it = nodes_.find(id);
   if (it == nodes_.end()) return;
   const auto& bindings = image_.inputs();
@@ -877,14 +937,13 @@ void Network::UpperLoss(bool ok) {
       auto it = nodes_.find(id);
       if (it == nodes_.end()) continue;
       NodeState& n = it->second;
+      bool by_gateway = n.hold != Hold::None && n.hold_src == HoldSource::Gateway;
       if (!ok) {
-        if (n.hold != Hold::None && !n.hold_by_gateway) continue;  // the program or an operator holds it
-        n.hold = Hold::Stopped;
-        n.hold_by_gateway = true;
+        if (n.hold != Hold::None && !by_gateway) continue;  // the program or an operator holds it
+        SetHold(id, n, Hold::Stopped, HoldSource::Gateway);
         SendHold(id, n);
-      } else if (n.hold_by_gateway) {
-        n.hold = Hold::None;
-        n.hold_by_gateway = false;
+      } else if (by_gateway) {
+        SetHold(id, n, Hold::None, HoldSource::Gateway);
         if (n.booted) {
           log_info("%s: NMT START (the upper master started the gateway)", n.cfg->label().c_str());
           Command(NmtCommand::START, static_cast<uint8_t>(id));
@@ -1308,6 +1367,18 @@ void Network::ApplyOutputsGate() {
   }
 }
 
+// A lost node that produces for PDO links: its consumers get no more data
+// (canopen-pdo-links "Link nodes lost or rebooted"). Logged once per loss.
+static void log_link_loss(const Config& cfg, unsigned id) {
+  for (const auto& l : cfg.links) {
+    if (l.producer != id) continue;
+    std::string to;
+    for (const auto& c : l.consumers)
+      to += (to.empty() ? "" : ", ") + std::string("node ") + std::to_string(c.node) + " RPDO " + std::to_string(c.rpdo);
+    log_info("node %u lost: %s feeds %s, which get no data until it is back", id, l.label().c_str(), to.c_str());
+  }
+}
+
 void Network::OnHeartbeat(uint8_t id, bool occurred) noexcept {
   BasicMaster::OnHeartbeat(id, occurred);
   Defer([this, id, occurred] { HandleHeartbeat(id, occurred); });
@@ -1318,11 +1389,18 @@ void Network::HandleHeartbeat(uint8_t id, bool occurred) {
   if (it == nodes_.end()) return;
   if (occurred) {
     it->second.node_op = false;
+    if (diag_) {
+      DiagEvent e;
+      e.kind = DiagEvent::HeartbeatLost;
+      e.node = id;
+      diag_->push_event(e);
+    }
     if (it->second.cfg->heartbeat_timeout_ms)
       log_error("%s lost: no heartbeat within %u ms", it->second.cfg->label().c_str(),
                 it->second.cfg->heartbeat_timeout_ms);
     else
       log_error("%s lost: no heartbeat within 3 x its EDS heartbeat period", it->second.cfg->label().c_str());
+    log_link_loss(cfg_, id);
     Update(id, "heartbeat timeout");
     SetState(id, kStateNoContact);
     ScheduleRetry(it->second);
@@ -1341,7 +1419,14 @@ void Network::HandleNodeGuarding(uint8_t id, bool occurred) {
   if (it == nodes_.end()) return;
   if (occurred) {
     it->second.node_op = false;
+    if (diag_) {
+      DiagEvent e;
+      e.kind = DiagEvent::GuardingLost;
+      e.node = id;
+      diag_->push_event(e);
+    }
     log_error("%s lost: no node guarding response", it->second.cfg->label().c_str());
+    log_link_loss(cfg_, id);
     Update(id, "node guarding timeout");
     SetState(id, kStateNoContact);
     ScheduleRetry(it->second);
@@ -1362,6 +1447,13 @@ void Network::HandleState(uint8_t id, NmtState st) {
   st = static_cast<NmtState>(static_cast<uint8_t>(st) & 0x7F);  // drop the toggle bit
   n.start_unconfirmed = false;
   SetState(id, state_code(st, true));
+  if (diag_ && diag_->events_on()) {
+    DiagEvent e;
+    e.kind = st == NmtState::BOOTUP ? DiagEvent::Bootup : DiagEvent::State;
+    e.node = id;
+    e.state = static_cast<uint8_t>(st);
+    diag_->push_event(e);
+  }
   switch (st) {
     case NmtState::BOOTUP:
       // The node (re)started. The master boots it again on its own; the retry
@@ -1434,6 +1526,15 @@ void Network::HandleEmcy(uint8_t id, uint16_t eec, uint8_t er, const std::array<
     return;
   }
   NodeState& n = it->second;
+  if (diag_) {
+    DiagEvent e;
+    e.kind = DiagEvent::Emcy;
+    e.node = id;
+    e.code = eec;
+    e.er = er;
+    e.msef = msef;
+    diag_->push_event(e);
+  }
   // The inputs, the program's queue and the history follow every EMCY; only
   // the log is throttled.
   SetEmcy(id, eec, er);
@@ -1651,17 +1752,31 @@ void Network::OnBooted(unsigned id, NodeState& n) {
 void Network::SendHold(unsigned id, const NodeState& n) {
   if (n.cfg->boot && !n.booted) return;  // applied when the boot ends
   NmtCommand cs = n.hold == Hold::Stopped ? NmtCommand::STOP : NmtCommand::ENTER_PREOP;
+  const char* by = "the program";
+  switch (n.hold_src) {
+    case HoldSource::Byte: break;
+    case HoldSource::Block: by = "the program (CO_NMT)"; break;
+    case HoldSource::Operator: by = "a diagnostics client"; break;
+    case HoldSource::Gateway: by = "the gateway: the upper master is lost"; break;
+    case HoldSource::Network: by = "the program (CO_NETWORK_STOP)"; break;
+  }
   log_info("%s: NMT %s (held by %s)", n.cfg->label().c_str(), n.hold == Hold::Stopped ? "STOP" : "ENTER PRE-OPERATIONAL",
-           n.hold_by_gateway ? "the gateway: the upper master is lost"
-                             : n.hold_by_operator ? "a diagnostics client" : "the program");
+           by);
   Command(cs, static_cast<uint8_t>(id));
 }
 
-void Network::ResetNode(unsigned id, NodeState& n, bool comm, const char* by) {
-  n.hold = Hold::None;
-  n.hold_by_operator = false;
-  log_info("%s: NMT %s (from %s)", n.cfg->label().c_str(), comm ? "RESET COMMUNICATION" : "RESET NODE", by);
-  Command(comm ? NmtCommand::RESET_COMM : NmtCommand::RESET_NODE, static_cast<uint8_t>(id));
+void Network::SetHold(unsigned id, NodeState& n, Hold hold, HoldSource src) {
+  n.hold = hold;
+  n.hold_src = src;
+  Publish(id);
+}
+
+void Network::ResetNode(unsigned id, NodeState& n, bool comm, const char* by, bool send) {
+  SetHold(id, n, Hold::None, HoldSource::Byte);
+  if (send) {
+    log_info("%s: NMT %s (from %s)", n.cfg->label().c_str(), comm ? "RESET COMMUNICATION" : "RESET NODE", by);
+    Command(comm ? NmtCommand::RESET_COMM : NmtCommand::RESET_NODE, static_cast<uint8_t>(id));
+  }
   n.booted = false;
   n.node_op = false;
   std::string why = std::string(comm ? "communication reset by " : "reset by ") + by;
@@ -1686,8 +1801,7 @@ void Network::ApplyNmtCommand(unsigned id, NodeState& n, uint8_t level, uint64_t
     case 0:
     case 1: {
       bool was_held = n.hold != Hold::None;
-      n.hold = Hold::None;
-      n.hold_by_operator = false;
+      SetHold(id, n, Hold::None, HoldSource::Byte);
       // Release a held node; a node the master does not boot starts on 1.
       if ((was_held && n.booted) || (!n.cfg->boot && level == 1)) {
         log_info("%s: NMT START (from the program)", label.c_str());
@@ -1696,13 +1810,11 @@ void Network::ApplyNmtCommand(unsigned id, NodeState& n, uint8_t level, uint64_t
       break;
     }
     case 2:
-      n.hold = Hold::Stopped;
-      n.hold_by_operator = false;
+      SetHold(id, n, Hold::Stopped, HoldSource::Byte);
       SendHold(id, n);
       break;
     case 128:
-      n.hold = Hold::Preop;
-      n.hold_by_operator = false;
+      SetHold(id, n, Hold::Preop, HoldSource::Byte);
       SendHold(id, n);
       break;
     case 129:

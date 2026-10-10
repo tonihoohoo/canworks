@@ -25,6 +25,14 @@
     ]
   },
   "cases": [
+    { "name": "cia309 in the master (version 1)", "patch": [ ["set", "master/cia309", { "port": 0, "max_clients": 2 }] ],
+      "schema": "valid", "verdict": "accept" },
+    { "name": "cia309 at the top level of a version 1 file", "patch": [ ["set", "cia309", {}] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "field 'cia309' belongs in 'master' in schema_version 1 (master.cia309)" ] },
+    { "name": "cia309 nets in a version 1 file", "patch": [ ["set", "master/cia309", { "nets": { "1": "can0" } }] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "master.cia309: field 'nets' needs schema_version 2" ] },
     { "name": "base config", "patch": [], "schema": "valid", "verdict": "accept" },
     { "name": "emcy_cob_id device", "patch": [ ["set", "nodes/0/emcy_cob_id", "device"] ], "schema": "valid", "verdict": "accept" },
     { "name": "emcy_cob_id eds", "patch": [ ["set", "nodes/0/emcy_cob_id", "eds"] ], "schema": "valid", "verdict": "accept" },
@@ -313,7 +321,7 @@
       "schema": "valid", "verdict": "accept" },
     { "name": "master start false", "patch": [ ["set", "master/start", false] ],
       "schema": "valid", "verdict": "accept",
-      "warnings": [ "master: 'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until it is started" ] },
+      "warnings": [ "master: 'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until the PLC program starts it with CO_NETWORK_START" ] },
     { "name": "boot SDO timeout limits", "patch": [ ["set", "master/sdo_timeout_ms", 10] ],
       "schema": "valid", "verdict": "accept" },
     { "name": "boot SDO timeout maximum as a string", "patch": [ ["set", "master/sdo_timeout_ms", "60000"] ],

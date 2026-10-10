@@ -29,6 +29,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import socket
 import ssl
@@ -40,6 +41,8 @@ import time
 from . import __version__, localruntime
 
 DEFAULT_PORT = 7531
+GATEWAY_PORT = 7533  # the CiA 309-3 gateway's plain port on the runtime's loopback (canworks-diag gateway --listen)
+GATEWAY_TOO_OLD = "the runtime's plugin is too old for the CiA 309-3 gateway (update it)"
 PROTOCOL = 2        # TLS and the SCRAM login
 PLAIN_PROTOCOL = 1  # a standalone simulator without a token, on loopback
 SCRAM_MECH = "SCRAM-SHA-256-PLUS"
@@ -1223,6 +1226,22 @@ def parser():
                     help="local port for the diagnostics channel (default: any free port)")
     lo.add_argument("--runtime-port", type=_int_range("port", 0, 65535), default=0, metavar="P",
                     help="local port for the runtime's HTTPS (default: any free port)")
+    gw = sub.add_parser("gateway", help="the runtime's CiA 309-3 gateway through the diagnostics channel "
+                                         "(docs/cia309-gateway.md)",
+                        description="Opens CiA 309-3 sessions on the runtime's gateway over the diagnostics channel "
+                                    "(login, then the cia309 op): with --listen a local plain port for CiA 309-3 "
+                                    "tools on this PC (they need no token), with --exec the given lines, with "
+                                    "--list the network numbering, otherwise an interactive prompt.")
+    gw.add_argument("--listen", nargs="?", const="127.0.0.1:%d" % GATEWAY_PORT, metavar="ADDRESS:PORT",
+                    help="serve a local plain port, each connection tunnelled to the runtime (default "
+                         "127.0.0.1:%d)" % GATEWAY_PORT)
+    gw.add_argument("--listen-any", action="store_true",
+                    help="allow a --listen address that is not loopback (other machines then reach the gateway "
+                         "without a token)")
+    gw.add_argument("--exec", dest="exec_lines", action="append", default=[], metavar="LINE",
+                    help='send a CiA 309-3 line and print its answer (repeatable), e.g. "1 2 r 0x1018 1 u32"')
+    gw.add_argument("--list", action="store_true", help="print the gateway's network numbers and exit")
+    _network_arg(gw, "the session's default network (set network), by its name")
     _sim_parser(sub)
     return p
 
@@ -1337,6 +1356,22 @@ def _print_status(st, out):
         _print_raw_status(st["raw"], out)
     if st.get("bridge"):
         out.write(bridge_status_line(st["bridge"]) + "\n")
+    if st.get("cia309"):
+        out.write(gateway_status_line(st["cia309"]) + "\n")
+
+
+def gateway_status_line(g):
+    """The CiA 309-3 gateway part of a status answer as one line."""
+    where = "on %s" % g["listen"] if g.get("listen") else "without a plain port"
+    if g.get("listen") and not g.get("listening"):
+        where += " (not listening yet)"
+    mode = "changes allowed" if g.get("allow_changes") else "read-only"
+    if g.get("allow_force"):
+        mode += ", force allowed"
+    sessions = g.get("sessions") or []
+    who = ", ".join("%s %s %s commands" % (s.get("address"), s.get("kind"), s.get("commands", 0)) for s in sessions)
+    return "CiA 309-3 gateway %s (%s): %d session%s%s" % (where, mode, len(sessions), "" if len(sessions) == 1 else "s",
+                                                         ": " + who if who else "")
 
 
 def bridge_status_line(b):
@@ -2511,6 +2546,10 @@ def run(args, out=sys.stdout):
         return simcli.run(args, out)
     if not args.runtime and not getattr(args, "adapter", None):
         raise DiagError("usage", "give --runtime HOST[:PORT], or --adapter TYPE:CHANNEL for a CAN adapter on this PC")
+    if args.command == "gateway":
+        if args.adapter:
+            raise DiagError("usage", "the CiA 309-3 gateway is the runtime's: give --runtime, not --adapter")
+        return _gateway(args, out)
     if args.command == "trace":
         return _trace(args, out)
     if args.command == "dm":
@@ -2953,6 +2992,223 @@ def _link_pipe(linkpc, entry, target, remote, local):
             s.close()
         except OSError:
             pass
+
+
+# ---------------------------------------------------------------------------
+# The CiA 309-3 gateway through the diagnostics channel (docs/cia309-gateway.md).
+
+
+def _gateway_session(args, host, port, token):
+    """A logged-in connection switched to CiA 309-3 lines: (cia309.Client,
+    the op's result). With --network the session's default network is set."""
+    from . import cia309
+    client = Client(host, port, token, args.timeout)
+    client.connect()
+    try:
+        session, info = cia309.Client.tunnel(client, timeout=max(args.timeout, 10.0))
+    except DiagError as e:
+        client.close()
+        if too_old(e):
+            raise DiagError("refused", GATEWAY_TOO_OLD)
+        raise
+    if args.network:
+        number = gateway_number(info, args.network)
+        if number is None:
+            session.close()
+            raise DiagError("network", "the gateway has no network '%s' (%s)" % (args.network, gateway_nets_text(info)))
+        a = session.answer(session.send("set network %d" % number))
+        if a.startswith("ERROR"):
+            session.close()
+            raise DiagError("refused", "set network %d: %s" % (number, a))
+    return session, info
+
+
+def gateway_number(info, name):
+    for n in info.get("nets") or []:
+        if n.get("name") == name:
+            return n.get("number")
+    return None
+
+
+def gateway_nets_text(info):
+    parts = []
+    for n in info.get("nets") or []:
+        text = "%s = %s" % (n.get("number"), n.get("name") or "the network")
+        if not n.get("served", True):
+            text += " (%s, not served)" % n.get("protocol")
+        elif n.get("role") == "slave":
+            text += " (slave: its own dictionary)"
+        parts.append(text)
+    return ", ".join(parts) or "none"
+
+
+def _loopback(host):
+    return host in ("localhost", "::1") or host.startswith("127.")
+
+
+def parse_listen(text):
+    """ADDRESS:PORT for --listen: (host, port)."""
+    host, sep, port = text.rpartition(":")
+    if not sep:
+        host, port = "127.0.0.1", text
+    host = host.strip("[]") or "127.0.0.1"
+    try:
+        p = int(port)
+    except ValueError:
+        raise DiagError("usage", "--listen %s: give ADDRESS:PORT, like 127.0.0.1:%d" % (text, GATEWAY_PORT))
+    if not 0 <= p <= 65535:
+        raise DiagError("usage", "--listen %s: the port must be 0-65535" % text)
+    return host, p
+
+
+def _gateway(args, out):
+    try:
+        host, port = parse_runtime(args.runtime)
+    except ValueError as e:
+        raise DiagError("usage", str(e))
+    token = _token(args)
+    if args.listen:
+        lhost, lport = parse_listen(args.listen)
+        if not _loopback(lhost) and not args.listen_any:
+            raise DiagError("usage", "--listen %s is not a loopback address: CiA 309-3 has no login, so other "
+                                     "machines would reach the runtime's gateway without a token; add --listen-any "
+                                     "to do so anyway" % args.listen)
+        return _gateway_listen(args, host, port, token, lhost, lport, out)
+    session, info = _gateway_session(args, host, port, token)
+    try:
+        if args.list:
+            if args.json:
+                out.write(json.dumps(info, indent=2) + "\n")
+            else:
+                out.write("CiA 309-3 gateway (%s %s), %s: networks %s\n" % (
+                    info.get("protocol"), info.get("version"),
+                    "changes allowed" if info.get("allow_changes") else "read-only", gateway_nets_text(info)))
+            return 0
+        if args.exec_lines:
+            failed = False
+            for line in args.exec_lines:
+                text = line.strip()
+                m = re.match(r"^\[(\d+)\]\s*(.*)$", text)
+                if m:  # the line's own sequence number
+                    session.send_line(text)
+                    answer = session.answer(int(m.group(1)))
+                else:
+                    answer = session.request(text)
+                out.write(answer + "\n")
+                failed = failed or answer.startswith("ERROR")
+            for n in session.notifications:
+                out.write(n + "\n")
+            return 1 if failed else 0
+        return _gateway_prompt(session, info, out)
+    finally:
+        session.close()
+
+
+def _gateway_prompt(session, info, out):
+    """An interactive CiA 309-3 prompt: lines as typed (a missing "[seq]"
+    is added), answers and notifications as they come."""
+    out.write("CiA 309-3 gateway, networks %s; empty line or Ctrl-D to end\n" % gateway_nets_text(info))
+    while True:
+        try:
+            line = input("cia309> ").strip()
+        except EOFError:
+            return 0
+        if not line:
+            return 0
+        m = re.match(r"^\[(\d+)\]\s*(.*)$", line)
+        try:
+            if m:
+                session.send_line(line)
+                answer = session.answer(int(m.group(1)))
+            else:
+                answer = session.request(line)
+        except socket.timeout:
+            answer = "(no answer)"
+        except EOFError:
+            out.write("the gateway closed the session\n")
+            return 1
+        for n in session.notifications + session.comments:
+            out.write(n + "\n")
+        session.notifications, session.comments = [], []
+        out.write(answer + "\n")
+
+
+def _gateway_listen(args, host, port, token, lhost, lport, out):
+    srv = socket.socket(socket.AF_INET6 if ":" in lhost else socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        srv.bind((lhost, lport))
+    except OSError as e:
+        raise DiagError("usage", "cannot listen on %s:%d: %s" % (lhost, lport, e.strerror or e))
+    srv.listen(8)
+    # One session first: the runtime is reachable and has a gateway.
+    session, info = _gateway_session(args, host, port, token)
+    session.close()
+    out.write("CiA 309-3 gateway of %s on %s:%d (networks %s) until Ctrl-C\n"
+              % (args.runtime, lhost, srv.getsockname()[1], gateway_nets_text(info)))
+    out.flush()
+
+    def serve():
+        while True:
+            try:
+                local, peer = srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=_gateway_pipe, args=(args, host, port, token, local), daemon=True).start()
+
+    threading.Thread(target=serve, daemon=True).start()
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.close()
+    return 0
+
+
+def _gateway_pipe(args, host, port, token, local):
+    """Copies one local connection to a new gateway session, both ways (one
+    thread: the TLS socket is not shared between threads)."""
+    import select
+    try:
+        session, _ = _gateway_session(args, host, port, token)
+    except (DiagError, OSError) as e:
+        try:
+            local.sendall(("ERROR: 102 (%s)\r\n" % e).encode("utf-8", "replace"))
+        except OSError:
+            pass
+        local.close()
+        print("canworks-diag gateway: %s" % e, file=sys.stderr)
+        return
+    far = session.sock
+    far.settimeout(None)
+    local.settimeout(None)
+    try:
+        if session.buf:
+            local.sendall(session.buf)
+        while True:
+            ready = [far] if getattr(far, "pending", lambda: 0)() else []
+            if not ready:
+                ready, _, _ = select.select([local, far], [], [])
+            if local in ready:
+                data = local.recv(65536)
+                if not data:
+                    break
+                far.sendall(data)
+            if far in ready:
+                data = far.recv(65536)
+                if not data:
+                    break
+                local.sendall(data)
+    except OSError:
+        pass
+    finally:
+        for s in (local, far):
+            try:
+                s.close()
+            except OSError:
+                pass
 
 
 def _filter(text):

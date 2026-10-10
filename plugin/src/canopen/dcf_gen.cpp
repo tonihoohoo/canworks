@@ -147,6 +147,62 @@ void add_explicit_pdo_writes(const NodeConfig& n, std::vector<SdoWrite>& sdos) {
   }
 }
 
+// The node's PDO link writes (canopen-pdo-links "Consumer RPDO is configured
+// by the master at boot"): each consumer RPDO's COB-ID with the invalid bit,
+// its transmission type and deadline, its mapping (not for a device mapping)
+// and the COB-ID that switches it on; then one 0x1016 entry per
+// heartbeat_watch entry. Read-only PDO communication sub-indices are left out.
+void add_link_writes(const Config& cfg, const NodeConfig& n, std::vector<SdoWrite>& sdos) {
+  auto push = [&](uint16_t index, uint8_t sub, uint32_t value, unsigned bytes) {
+    if (n.ro_pdo_comm.count({index, sub})) return;
+    SdoWrite w;
+    w.index = index;
+    w.subindex = sub;
+    for (unsigned b = 0; b < bytes; ++b) w.data.push_back(static_cast<uint8_t>(value >> (8 * b)));
+    sdos.push_back(std::move(w));
+  };
+  for (const auto& l : cfg.links)
+    for (const auto& c : l.consumers) {
+      if (c.node != n.node_id || c.node == l.producer) continue;
+      uint16_t comm = static_cast<uint16_t>(0x1400 + c.rpdo - 1), map = static_cast<uint16_t>(comm + 0x200);
+      push(comm, 1, l.cob_id | 0x80000000u, 4);
+      if (c.has_transmission) push(comm, 2, c.transmission, 1);
+      if (c.has_event_timer) push(comm, 5, c.event_timer_ms, 2);
+      if (!c.device_mapping) {
+        push(map, 0, 0, 1);
+        for (size_t k = 0; k < c.entries.size(); ++k) {
+          const PdoEntry& e = c.entries[k];
+          push(map, static_cast<uint8_t>(k + 1),
+               uint32_t(e.index) << 16 | uint32_t(e.subindex) << 8 | co_type_bits(e.type), 4);
+        }
+        push(map, 0, static_cast<uint32_t>(c.entries.size()), 1);
+      }
+      push(comm, 1, l.cob_id, 4);
+    }
+  for (const auto& h : n.heartbeat_watch)
+    if (h.subindex) push(0x1016, h.subindex, uint32_t(h.node) << 16 | (h.timeout_ms & 0xFFFF), 4);
+}
+
+// The links and heartbeat watch entries, for the input hash.
+std::string link_key(const Config& cfg) {
+  std::string key;
+  for (const auto& l : cfg.links) {
+    key += "link " + std::to_string(l.cob_id) + ":" + std::to_string(l.producer) + "/" + std::to_string(l.tpdo);
+    for (const auto& c : l.consumers) {
+      key += ">" + std::to_string(c.node) + "/" + std::to_string(c.rpdo) + (c.device_mapping ? "d" : "c");
+      if (c.has_transmission) key += "t" + std::to_string(c.transmission);
+      if (c.has_event_timer) key += "e" + std::to_string(c.event_timer_ms);
+      for (const auto& e : c.entries) key += "," + hex(e.index) + ":" + std::to_string(e.subindex);
+    }
+    key += ";";
+  }
+  for (const auto& n : cfg.nodes)
+    for (const auto& h : n.heartbeat_watch)
+      key += "watch " + std::to_string(n.node_id) + ">" + std::to_string(h.node) + "=" + std::to_string(h.timeout_ms) +
+             "@" + std::to_string(h.subindex) + ";";
+  return key;
+}
+
 void emit_pdos(std::ostringstream& y, const NodeConfig& n, bool is_tx) {
   const auto& pdos = is_tx ? n.tx_pdos : n.rx_pdos;
   std::set<unsigned> tpdos, rpdos;
@@ -154,6 +210,8 @@ void emit_pdos(std::ostringstream& y, const NodeConfig& n, bool is_tx) {
   const std::set<unsigned>& present = is_tx ? tpdos : rpdos;
   std::set<unsigned> configured;
   for (const auto& p : pdos) configured.insert(p.number);
+  // A PDO link's consumer RPDOs: the plugin writes them (add_link_writes).
+  if (!is_tx) configured.insert(n.linked_rpdos.begin(), n.linked_rpdos.end());
   bool any_off = false;
   for (unsigned num : present)
     any_off |= !configured.count(num) && !(is_tx ? n.kept_tpdos : n.kept_rpdos).count(num);
@@ -797,9 +855,10 @@ bool generate_device_config(const Config& cfg, const std::string& dcfgen, Genera
   std::string yaml = make_dcfgen_yaml(cfg, out.work_dir);
   // Bumped whenever the plugin post-processes dcfgen's output differently, so
   // output cached by an older plugin is regenerated.
-  uint64_t h = fnv1a(0xcbf29ce484222325ULL, "post-processing 5: prepared EDS copies, dcfgen --no-strict");
+  uint64_t h = fnv1a(0xcbf29ce484222325ULL, "post-processing 6: prepared EDS copies, dcfgen --no-strict, PDO links");
   h = fnv1a(h, yaml);
   h = fnv1a(h, startup_sdo_key(cfg));
+  h = fnv1a(h, link_key(cfg));
   for (const auto& n : cfg.nodes)  // the master DCF gets 1F26/1F27 when any node checks
     if (n.config_check) h = fnv1a(h, "config_check " + std::to_string(n.node_id));
   std::map<uint32_t, unsigned> deadlines;  // and the RPDO deadlines
@@ -910,6 +969,9 @@ bool generate_device_config(const Config& cfg, const std::string& dcfgen, Genera
           ++it;
       }
     }
+    // PDO link consumer RPDOs and heartbeat watch entries, after dcfgen's
+    // PDO and 0x1016 writes and before the node settings and startup SDOs.
+    add_link_writes(cfg, n, sdos);
     // The node's TIME COB-ID, unless the EDS already has the value.
     if (n.has_time_cob_id) {
       uint64_t eds_value;

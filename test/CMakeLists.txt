@@ -48,6 +48,14 @@ target_compile_definitions(unit_tests PRIVATE PINGPONG_DIR="${PINGPONG_DIR}" FIX
                            CIA402_DIR="${PROJECT_SOURCE_DIR}/config/cia402-drive")
 target_link_libraries(unit_tests PRIVATE canopen_core)
 add_test(NAME unit_tests COMMAND unit_tests)
+# The CiA 309-3 gateway's text layer, dispatcher and server (canopen-cia309-gateway).
+if(CANWORKS_CIA309)
+  add_executable(cia309_tests unit/cia309_tests.cpp)
+  target_include_directories(cia309_tests PRIVATE common)
+  target_link_libraries(cia309_tests PRIVATE canopen_core)
+  add_test(NAME cia309_tests COMMAND cia309_tests)
+  set_tests_properties(cia309_tests PROPERTIES TIMEOUT 120)
+endif()
 # The plugin's EDS lint runs this checkout's deploy tool module (stdlib only).
 set(EDSLINT_ENV "CANWORKS_EDSLINT=python3" "PYTHONPATH=${PROJECT_SOURCE_DIR}/tools/deploy")
 set_tests_properties(unit_tests PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
@@ -78,8 +86,10 @@ add_custom_command(
   COMMENT "Editor glue for the SDO function blocks")
 add_library(sdo_blocks OBJECT ${SDO_BLOCKS_DIR}/c_blocks_code.cpp)
 target_include_directories(sdo_blocks PUBLIC ${SDO_BLOCKS_DIR} ${STRUCPP_DIR}/package/src/runtime/include)
-# In one process with the master, the blocks call the API table directly.
-target_compile_definitions(sdo_blocks PRIVATE CO_SDO_TEST_ENTRY=canopen_plc_api_test)
+# In one process with the master, the blocks call the API tables directly
+# (the SDO table and the NMT blocks' table).
+target_compile_definitions(sdo_blocks PRIVATE CO_SDO_TEST_ENTRY=canopen_plc_api_test
+                           CO_NMT_TEST_ENTRY=canopen_plc_nmt_api_test)
 set_target_properties(sdo_blocks PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON)
 
 # The CAN_* frame blocks with the editor's glue, calling the frame port's
@@ -87,7 +97,7 @@ set_target_properties(sdo_blocks PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON)
 add_library(can_blocks OBJECT ${SDO_BLOCKS_DIR}/c_blocks_code.cpp)
 target_include_directories(can_blocks PUBLIC ${SDO_BLOCKS_DIR} ${STRUCPP_DIR}/package/src/runtime/include)
 target_compile_definitions(can_blocks PRIVATE CO_SDO_TEST_ENTRY=canopen_plc_api_test
-                           CAN_FRAMES_TEST_ENTRY=canworks_can_api_table)
+                           CO_NMT_TEST_ENTRY=canopen_plc_nmt_api_test CAN_FRAMES_TEST_ENTRY=canworks_can_api_table)
 set_target_properties(can_blocks PROPERTIES CXX_STANDARD 17 CXX_EXTENSIONS ON)
 add_executable(can_blocks_tests can_raw/blocks_tests.cpp $<TARGET_OBJECTS:can_blocks>)
 target_include_directories(can_blocks_tests PRIVATE common ${SDO_BLOCKS_DIR} ${STRUCPP_DIR}/package/src/runtime/include)
@@ -329,6 +339,12 @@ set_tests_properties(bridge_host_tests PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDS
 add_test(NAME bridge_upload COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/bridge/upload_test.py
          $<TARGET_FILE:canworks-bridge> ${PROJECT_SOURCE_DIR}/examples/modbus-bridge)
 set_tests_properties(bridge_upload PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")
+# The CiA 309-3 gateway end to end: the plugin and canworks-bridge on a
+# simulated bus with the deploy tool's client (test/cia309/run.sh).
+if(CANWORKS_CIA309)
+  add_test(NAME cia309_gateway COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cia309/run.sh --build-dir ${CMAKE_BINARY_DIR})
+  set_tests_properties(cia309_gateway PROPERTIES TIMEOUT 240 ENVIRONMENT "${EDSLINT_ENV}")
+endif()
 # scripts/install-bridge.sh with a stub systemctl.
 add_test(NAME bridge_install COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/bridge/install_test.sh $<TARGET_FILE:canworks-bridge>)
 # scripts/install-link.sh with stub systemctl and pip (the remote link).

@@ -13,6 +13,9 @@
 //  - with the plugin loaded and CANopen started (on an interface that does
 //    not exist, so nothing answers), a block runs (BUSY) and ends with
 //    ERROR_ID 2 after its timeout: it reached the plugin's request table.
+//  - the NMT blocks find their own entry point, canopen_plc_nmt_api, the
+//    same way: CO_GET_STATE ends with ERROR_ID 4 without the plugin, reads
+//    the master's state while CANopen runs, and ends with 4 after the stop;
 //  - with --stop-check (the config's interface exists, e.g. vcan0 in CI): a
 //    PLC stop while a transfer to an absent node is in flight cancels it, so
 //    the stop is quick and the session ends cleanly.
@@ -61,6 +64,17 @@ void log_w(const char* fmt, ...) {
 void log_e(const char* fmt, ...) { va_list ap; va_start(ap, fmt); vlog("ERROR", fmt, ap); va_end(ap); }
 
 using scan_fn = int (*)(int, unsigned, unsigned, unsigned*);
+using nmt_scan_fn = int (*)(int, unsigned, unsigned*, unsigned*);
+
+// CO_GET_STATE for the master (node 0): a rising edge, then EXECUTE FALSE
+// again; returns its outcome (1 done, 2 error) with ERROR_ID and the state.
+int read_master(nmt_scan_fn scan, unsigned& error_id, unsigned& state) {
+  int st = scan(1, 0, &state, &error_id);
+  unsigned a, b;
+  scan(0, 0, &a, &b);
+  scan(0, 0, &a, &b);
+  return st;
+}
 
 // Raises EXECUTE and scans every 10 ms until the block ends; returns its
 // outcome (1 done, 2 error, 0 still busy at the limit) and ERROR_ID, and
@@ -95,13 +109,17 @@ int main(int argc, char** argv) {
     return 2;
   }
   auto scan = reinterpret_cast<scan_fn>(dlsym(prog, "sdo_program_scan"));
-  if (!scan) return 2;
+  auto nmt_scan = reinterpret_cast<nmt_scan_fn>(dlsym(prog, "nmt_program_scan"));
+  if (!scan || !nmt_scan) return 2;
+  unsigned master = 0;
 
   std::printf("program without the plugin:\n");
   unsigned err = 0;
   bool busy = false;
   int st = run(scan, 5, err, busy);
   expect(st == 2 && err == 4, "the block ends with ERROR_ID 4 (CANopen not running)");
+  st = read_master(nmt_scan, err, master);
+  expect(st == 2 && err == 4, "an NMT block ends with ERROR_ID 4");
   expect(dlopen("libcanworks_plugin.so", RTLD_NOW | RTLD_NOLOAD) == nullptr, "the lookup loaded nothing");
 
   std::printf("plugin loaded from the build directory and started:\n");
@@ -129,6 +147,8 @@ int main(int argc, char** argv) {
   expect(busy && st == 2 && err == 2, "the block reached the plugin: BUSY, then ERROR_ID 2 (no answer)");
   st = run(scan, 0, err, busy);
   expect(st == 2 && err == 6, "a bad node ID ends with ERROR_ID 6 from the plugin");
+  st = read_master(nmt_scan, err, master);
+  expect(st == 1 && err == 0, "CO_GET_STATE reached the plugin's NMT entry point (DONE)");
 
   if (stop_check) {
     std::printf("PLC stopped during a transfer:\n");
@@ -155,6 +175,8 @@ int main(int argc, char** argv) {
   }
   st = run(scan, 5, err, busy);
   expect(st == 2 && err == 4, "the block ends with ERROR_ID 4");
+  st = read_master(nmt_scan, err, master);
+  expect(st == 2 && err == 4, "CO_GET_STATE ends with ERROR_ID 4");
   cleanup();
   dlclose(prog);
   std::printf("%s\n", g_failures ? "FAILED" : "passed");
