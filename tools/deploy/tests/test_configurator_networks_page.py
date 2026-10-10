@@ -266,8 +266,8 @@ class NetworksPage(unittest.TestCase):
             self.assertIn("NETWORK := 1 (* drives *), NODE := 2, INDEX := 16#1017", text)
             # ... and so does the CO_NMT call of the NMT buttons.
             pg.click('button[data-online-tab="overview"]')
+            pg.select_option('select[data-online="nmt-st-command"]', "preop")
             pg.click('button[data-online="nmt-st"]')
-            pg.click('#modal button[data-value="preop"]')
             pg.wait_for_function("() => window.__copied.length === 2")
             text = pg.evaluate("() => window.__copied[1]")
             self.assertIn("nmt_drives_n2_preop : CO_NMT;", text)

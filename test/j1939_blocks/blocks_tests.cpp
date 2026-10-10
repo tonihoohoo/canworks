@@ -21,6 +21,7 @@ using std::chrono::milliseconds;
 
 // The SDO blocks are linked in with the others; this test has no master.
 extern "C" const void* canopen_plc_api_test(uint32_t) { return nullptr; }
+extern "C" const void* canopen_plc_nmt_api_test(uint32_t) { return nullptr; }
 
 namespace {
 

@@ -1285,7 +1285,7 @@ function masterAdvanced() {
     el("div", { class: "grid" },
       el("div", null, checkbox("Master goes operational", m + "start", true,
         "Off: the master stays pre-operational and no PDOs move until the PLC program starts it with CO_NETWORK_START."),
-        el("button", { type: "button", class: "link", dataset: { action: "network-start-st" },
+        el("button", { type: "button", dataset: { action: "network-start-st" },
           title: "Copy as ST call (CO_NETWORK_START block)", onclick: async () => {
             await copyText(stNetworkStartCall());
             banner("Copied the CO_NETWORK_START call. Enable the canworks library in the editor project to use it.");
@@ -4391,10 +4391,10 @@ function nmtButtons(id, allow) {
   const btn = (command, label, confirm) => el("button", { type: "button", disabled: !allow, title: allow ? null : NO_CHANGES,
     dataset: { nmt: command }, onclick: () => send(command, label, confirm) }, label);
   // Sends nothing, so it works without "Allow changes".
+  const pick = el("select", { "aria-label": "Command for the ST call", dataset: { online: "nmt-st-command" } },
+    Object.keys(NMT_CODES).map((c) => el("option", { value: c }, `${NMT_CODES[c][1]} (${NMT_CODES[c][0]})`)));
   const copy = async () => {
-    const v = await modal(`Copy the Structured Text call (CO_NMT) for node ${id}:`,
-      [...Object.keys(NMT_CODES).map((c, i) => [c, `${NMT_CODES[c][1]} (${NMT_CODES[c][0]})`, i === 0]), ["cancel", "Cancel"]]);
-    if (!NMT_CODES[v]) return;
+    const v = pick.value;
     await copyText(stNmtCall(id, v));
     banner(`Copied the CO_NMT call (${NMT_CODES[v][1]} to node ${id}). Enable the canworks library in the editor project to use it.`);
   };
@@ -4404,7 +4404,7 @@ function nmtButtons(id, allow) {
     btn("preop", "Pre-operational", `Set node ${id} pre-operational? Its PDOs stop until it is started again, by you or by the program's NMT command byte.`),
     btn("reset", "Reset node", `Reset node ${id}? It reboots and the master configures it again.`),
     btn("reset-comm", "Reset communication", `Reset node ${id}'s communication? It comes back pre-operational and the master configures it again.`),
-    el("button", { type: "button", dataset: { online: "nmt-st" }, title: "Copy as ST call (CO_NMT block)", onclick: copy },
+    pick, el("button", { type: "button", dataset: { online: "nmt-st" }, title: "Copy as ST call (CO_NMT block)", onclick: copy },
       "Copy as ST call")),
   allow ? hint("Stop and pre-operational hold the node until you start it, or until the program changes the node's NMT command byte or sends a CO_NMT command.")
     : el("p", { class: "field-msg warning", dataset: { online: "no-changes" } }, NO_CHANGES));
