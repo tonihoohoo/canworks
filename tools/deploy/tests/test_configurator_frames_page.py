@@ -99,8 +99,8 @@ class SendPanel(Base):
         pg.click('[data-send="send"]')
         pg.wait_for_selector('[data-send-job="1"]')
         # The job list the server polls shows the identifier in hex too.
-        pg.wait_for_timeout(1300)  # after a poll of the server's job list
-        self.assertTrue(pg.inner_text('[data-send-job="1"]').startswith("Job 1: 60A [0]"), pg.inner_text('[data-send-job="1"]'))
+        pg.wait_for_function("() => document.querySelector('[data-send-job=\"1\"]').innerText.startsWith('Job 1: 60A [0]')",
+                             timeout=1300)  # after a poll of the server's job list
         pg.click('[data-send-job="1"] [data-send="stop-job"]')
         pg.wait_for_selector("#banner:has-text('Job 1 stopped')")
         self.assertEqual(pg.locator("[data-send-job]").count(), 0)

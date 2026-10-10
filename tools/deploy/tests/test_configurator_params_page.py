@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import unittest
 
 from .fake_diag import status as fake_status
@@ -126,7 +127,9 @@ class ParamsPage(OnlineBase):
             pg.check('tr[data-od-key="%d:1"] input[data-online="od-watch"]' % 0x7130)
             pg.wait_for_selector('[data-online="watch"] tr[data-watch-key]')
             before = len(fp.sdo_requests("sdo_read"))
-            pg.wait_for_timeout(2500)
+            deadline = time.monotonic() + 2.5
+            while len(fp.sdo_requests("sdo_read")) - before < 2 and time.monotonic() < deadline:
+                pg.wait_for_timeout(100)
             self.assertGreaterEqual(len(fp.sdo_requests("sdo_read")) - before, 2)
             self.search("0x611")
             self.shot("object-dictionary")
@@ -281,8 +284,8 @@ class ParamsPage(OnlineBase):
             self.assertIn("AI1_Input_PV", legend)
             self.assertNotIn("1008", legend)
             n1 = int(pg.get_attribute('[data-online="watch-graph"]', "data-points"))
-            pg.wait_for_timeout(1200)
-            self.assertGreater(int(pg.get_attribute('[data-online="watch-graph"]', "data-points")), n1)
+            pg.wait_for_function("n => +document.querySelector('[data-online=\"watch-graph\"]').dataset.points > n", arg=n1,
+                                 timeout=1200)
             # A slow node: the round takes longer than the period.
             fp.delay = 0.25
             pg.wait_for_selector('[data-online="watch-round"]:has-text("longer than the chosen 500 ms")', timeout=8000)
@@ -302,7 +305,8 @@ class ParamsPage(OnlineBase):
             pg.wait_for_selector('[data-online="watch"] tr[data-watch-key="%d:1"] strong' % 0x7130)
             pg.click('button[data-online="watch-graph-toggle"]')
             pg.wait_for_selector('[data-online="watch-graph"] .uplot')
-            pg.wait_for_timeout(3000)
+            if SHOTS:
+                pg.wait_for_timeout(3000)  # some history on the graph
             self.shot("watch-graph", '[data-online="od"] fieldset')
 
     def test_edit_keep_any_compare_csv(self):
