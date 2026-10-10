@@ -1,5 +1,6 @@
 #include "sim_file.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -17,6 +18,11 @@ namespace canopen_sim {
 
 namespace {
 
+// While parse_sim_file runs: the file's CSV files and folder, so that the
+// value sources of nodes and scenario steps read their CSV files then.
+thread_local CsvFiles* t_csv = nullptr;
+thread_local const std::string* t_dir = nullptr;
+
 bool known_keys(const cJSON* o, std::initializer_list<const char*> keys, std::string& err) {
   for (const cJSON* c = o->child; c; c = c->next) {
     bool ok = false;
@@ -32,8 +38,9 @@ bool known_keys(const cJSON* o, std::initializer_list<const char*> keys, std::st
 bool get_uint(const cJSON* o, const char* key, unsigned min, unsigned max, unsigned& out, std::string& err) {
   const cJSON* v = cJSON_GetObjectItemCaseSensitive(o, key);
   if (!v) return true;
-  if (!cJSON_IsNumber(v) || v->valuedouble != static_cast<double>(static_cast<long long>(v->valuedouble)) ||
-      v->valuedouble < min || v->valuedouble > max) {
+  // The range first: casting a double out of the target's range is undefined.
+  if (!cJSON_IsNumber(v) || !(v->valuedouble >= min && v->valuedouble <= max) ||
+      v->valuedouble != std::floor(v->valuedouble)) {
     err = std::string("\"") + key + "\" must be an integer " + std::to_string(min) + "-" + std::to_string(max);
     return false;
   }
@@ -342,9 +349,10 @@ bool parse_step(const cJSON* o, Step& s, std::string& err) {
         continue;
       }
       std::string e;
-      if (!Source::parse(c, "", e)) {
-        // CSV files are only checked when the engine resolves them.
-        if (e.find("cannot read") == std::string::npos) {
+      if (!Source::parse(c, t_dir ? *t_dir : std::string(), e, t_csv)) {
+        // Outside a file (a scenario of a control request), CSV files are
+        // looked up when the step runs.
+        if (t_csv || e.find("cannot read") == std::string::npos) {
           err = std::string("source of ") + c->string + ": " + e;
           return false;
         }
@@ -453,7 +461,7 @@ bool parse_behaviour(const cJSON* o, NodeBehaviour& b, const std::string& dir, b
         return false;
       }
       std::string e;
-      if (!Source::parse(c, dir, e)) {
+      if (!Source::parse(c, dir, e, t_csv)) {
         err = std::string("sources: ") + c->string + ": " + e;
         return false;
       }
@@ -943,12 +951,28 @@ void parse_body(const cJSON* root, const std::string& at, const std::string& dir
 
 }  // namespace
 
-bool parse_sim_file(const std::string& json, const std::string& path, SimFile& out, std::vector<std::string>& errors) {
+bool parse_sim_file(const std::string& json, const std::string& path, SimFile& out, std::vector<std::string>& errors,
+                    const std::string& config_dir) {
   out = SimFile();
   out.path = path;
   size_t slash = path.rfind('/');
   out.dir = slash == std::string::npos ? "." : path.substr(0, slash);
   if (out.dir.empty()) out.dir = "/";
+  out.csv = std::make_shared<CsvFiles>();
+  out.csv->roots.push_back(out.dir);
+  if (!config_dir.empty()) out.csv->roots.push_back(config_dir);
+  // The CSV files are read now and never again.
+  struct Context {
+    Context(SimFile& f) {
+      t_csv = f.csv.get();
+      t_dir = &f.dir;
+    }
+    ~Context() {
+      t_csv->frozen = true;
+      t_csv = nullptr;
+      t_dir = nullptr;
+    }
+  } context(out);
   cJSON* root = cJSON_Parse(json.c_str());
   if (!root) {
     errors.push_back(path + ": not valid JSON");
@@ -966,7 +990,8 @@ bool parse_sim_file(const std::string& json, const std::string& path, SimFile& o
   std::string err;
   const cJSON* ver = cJSON_GetObjectItemCaseSensitive(root, "schema_version");
   if (ver) {
-    if (!cJSON_IsNumber(ver) || ver->valuedouble < 1 || ver->valuedouble != static_cast<int>(ver->valuedouble)) {
+    if (!cJSON_IsNumber(ver) || !(ver->valuedouble >= 1 && ver->valuedouble <= 4294967295.0) ||
+        ver->valuedouble != std::floor(ver->valuedouble)) {
       fail("schema_version", "must be a positive integer");
       return false;
     }
@@ -1041,6 +1066,7 @@ bool sim_file_section(const SimFile& file, const std::string& network, SimFile& 
   out.dir = file.dir;
   out.schema_version = file.schema_version;
   out.tick_ms = file.tick_ms;
+  out.csv = file.csv;
   out.section = network;
   for (const auto& sec : file.networks)
     if (sec.network == network) {
@@ -1054,7 +1080,8 @@ bool sim_file_section(const SimFile& file, const std::string& network, SimFile& 
   return false;
 }
 
-bool load_sim_file(const std::string& path, SimFile& out, std::vector<std::string>& errors) {
+bool load_sim_file(const std::string& path, SimFile& out, std::vector<std::string>& errors,
+                   const std::string& config_dir) {
   std::ifstream in(path);
   if (!in) {
     errors.push_back(path + ": cannot read the file");
@@ -1062,7 +1089,7 @@ bool load_sim_file(const std::string& path, SimFile& out, std::vector<std::strin
   }
   std::stringstream ss;
   ss << in.rdbuf();
-  return parse_sim_file(ss.str(), path, out, errors);
+  return parse_sim_file(ss.str(), path, out, errors, config_dir);
 }
 
 }  // namespace canopen_sim

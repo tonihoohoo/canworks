@@ -1,16 +1,19 @@
 // plc_frames.h - the plugin side of the PLC program's CAN frame blocks
 // (spec can-plc-frames; C interface in ../can_plc_api.h).
 //
-// One PlcPort per network. Two threads use it:
-// - the PLC scan thread, through canworks_can_api(): opens and reads
-//   receivers, queues frames, runs cyclic jobs, reads bus info. These calls
-//   never wait, allocate or log.
+// One PlcPort per network. These threads use it:
+// - the PLC task threads (one per task), through canworks_can_api(): open
+//   and read receivers, queue frames, run cyclic jobs, read bus info. These
+//   calls never wait, allocate or log. Several tasks may call at once: free
+//   slots are claimed with compare-and-swap, and a handle belongs to the
+//   block instance (so the task) that got it.
 // - the network's raw I/O thread (or the bus thread on a simulated network):
 //   hands it every received frame, takes queued and due cyclic frames,
 //   reports writes and echoes, and publishes bus info.
-// Everything between the two is lock-free: single-producer/single-consumer
-// rings and atomics, with epochs so a frame from before a receiver was
-// reopened is never shown.
+// Everything between them is lock-free: a bounded multi-producer queue of
+// frames to send, single-producer/single-consumer receive rings, seqlocks
+// over relaxed atomic words, and epochs so a frame from before a receiver
+// was reopened is never shown.
 
 #ifndef CANWORKS_RAW_PLC_FRAMES_H
 #define CANWORKS_RAW_PLC_FRAMES_H
@@ -19,7 +22,9 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <functional>
+#include <type_traits>
 
 #include "../can_plc_api.h"
 
@@ -39,6 +44,56 @@ struct PortRules {
   std::function<bool(uint32_t id, bool extended)> owned;
 };
 
+// A trivially copyable value kept as relaxed atomic 32-bit words, so a
+// seqlock reader that races a writer reads stale or mixed words, never
+// undefined data. Seq guards consistency.
+template <typename T>
+class AtomicWords {
+  static_assert(std::is_trivially_copyable<T>::value, "plain data only");
+
+ public:
+  void store(const T& v) {
+    uint32_t w[kWords] = {};
+    std::memcpy(w, &v, sizeof(T));
+    for (size_t i = 0; i < kWords; ++i) words_[i].store(w[i], std::memory_order_relaxed);
+  }
+  T load() const {
+    uint32_t w[kWords];
+    for (size_t i = 0; i < kWords; ++i) w[i] = words_[i].load(std::memory_order_relaxed);
+    T v;
+    std::memcpy(&v, w, sizeof(T));
+    return v;
+  }
+
+ private:
+  static constexpr size_t kWords = (sizeof(T) + 3) / 4;
+  std::array<std::atomic<uint32_t>, kWords> words_{};
+};
+
+// One writer, any readers; a read fails (false) while a write is under way.
+template <typename T>
+class SeqBox {
+ public:
+  void write(const T& v) {
+    uint32_t s = seq_.load(std::memory_order_relaxed);
+    seq_.store(s + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    data_.store(v);
+    seq_.store(s + 2, std::memory_order_release);
+  }
+  // `out` gets what was read, even when it may be mixed (false).
+  bool try_read(T& out) const {
+    uint32_t a = seq_.load(std::memory_order_acquire);
+    out = data_.load();
+    std::atomic_thread_fence(std::memory_order_acquire);
+    return !(a & 1u) && seq_.load(std::memory_order_relaxed) == a;
+  }
+
+ private:
+  std::atomic<uint32_t> seq_{0};
+  AtomicWords<T> data_;
+};
+
 class PlcPort {
  public:
   explicit PlcPort(uint8_t network);
@@ -51,7 +106,7 @@ class PlcPort {
   // scan.
   void set_rules(PortRules rules);
 
-  // --- Scan thread (canworks_can_api) ---
+  // --- PLC task threads (canworks_can_api) ---
   uint32_t rx_open(uint32_t id, uint32_t mask, uint8_t flags, uint16_t depth, uint16_t* error_id);
   int rx_read(uint32_t handle, canworks_can_frame* frame, canworks_can_rx_info* info);
   void rx_close(uint32_t handle);
@@ -104,7 +159,7 @@ class PlcPort {
   void count_rx() { rx_count_.fetch_add(1, std::memory_order_relaxed); }
   void count_tx() { tx_count_.fetch_add(1, std::memory_order_relaxed); }
 
-  // --- Either side, with the scan stopped or between scans ---
+  // --- Either side, with every PLC task stopped or between scans ---
   // PLC stop or network restart: every receiver closes, every job stops, and
   // every handle from before answers CANWORKS_CAN_ERR_CANCELLED.
   void cancel_all();
@@ -124,44 +179,58 @@ class PlcPort {
   static constexpr unsigned kTx = CANWORKS_CAN_TX_QUEUE;
   static constexpr unsigned kDepth = CANWORKS_CAN_DEPTH_MAX;
 
+  // Slot states of receivers and cyclic jobs: a task claims a free slot
+  // (compare-and-swap), sets it up, then publishes it open.
+  enum SlotState : uint8_t { kSlotFree = 0, kSlotClaimed, kSlotOpen };
+
   struct Entry {
     canworks_can_frame frame;
     uint32_t epoch;
   };
   struct Receiver {
-    // Written by the scan thread before `open` is published.
-    uint32_t id = 0, mask = 0;
-    uint8_t flags = 0;
-    uint16_t depth = 0;
-    uint32_t gen = 0;            // handle generation (scan thread)
-    uint32_t dropped_base = 0;   // scan thread
+    std::atomic<uint8_t> state{kSlotFree};
+    // The filter: written by the claiming task after the epoch bump, read
+    // by the raw thread, which re-checks the epoch after matching.
+    std::atomic<uint32_t> id{0}, mask{0};
+    std::atomic<uint8_t> flags{0};
+    std::atomic<uint16_t> depth{0};
+    std::atomic<uint32_t> gen{0};  // handle generation
+    uint32_t dropped_base = 0;     // the owning task
     std::atomic<uint32_t> epoch{0};
-    std::atomic<bool> open{false};
     std::atomic<uint32_t> head{0};  // raw thread
-    std::atomic<uint32_t> tail{0};  // scan thread
+    std::atomic<uint32_t> tail{0};  // the owning task
     std::atomic<uint32_t> dropped{0};
     std::array<Entry, kDepth> ring{};
   };
-  enum TxState : uint8_t { kFree = 0, kQueued, kWritten, kDone, kFailed, kAbandoned };
+  // kClaimed: a task is filling the slot; the raw thread does not see it yet.
+  enum TxState : uint8_t { kFree = 0, kQueued, kWritten, kDone, kFailed, kAbandoned, kClaimed };
   struct TxSlot {
-    canworks_can_frame frame{};
-    uint32_t gen = 0;           // scan thread
-    uint64_t deadline_us = 0;   // scan thread
+    canworks_can_frame frame{};  // written by the claiming task before kQueued
+    std::atomic<uint32_t> gen{0};
+    uint64_t deadline_us = 0;   // the owning task
     uint64_t written_us = 0;    // raw thread
     std::atomic<uint8_t> state{kFree};
     std::atomic<uint16_t> error{0};
   };
+  struct JobData {
+    canworks_can_frame frame;
+    uint32_t period_us;
+  };
   struct Job {
-    uint32_t gen = 0;  // scan thread
-    std::atomic<bool> active{false};
+    std::atomic<uint8_t> state{kSlotFree};
+    std::atomic<uint32_t> gen{0};
     std::atomic<uint32_t> start{0};  // bumps on every start; raw thread restarts its timer
-    std::atomic<uint32_t> seq{0};    // seqlock over frame and period
-    canworks_can_frame frame{};
-    uint32_t period_us = 0;
+    SeqBox<JobData> data;            // written by the owning task
     std::atomic<uint32_t> count{0};
     // Raw thread only.
     uint32_t seen_start = 0;
     uint64_t next_due = 0;
+    JobData last{};  // the last consistent read of `data`
+  };
+  // A cell of the transmit queue (bounded MPSC, per-cell sequence numbers).
+  struct TxCell {
+    std::atomic<uint32_t> seq{0};
+    uint8_t slot = 0;
   };
 
   uint32_t make_handle(unsigned kind, unsigned slot, uint32_t gen) const;
@@ -169,7 +238,8 @@ class PlcPort {
   uint16_t check_send(const canworks_can_frame& f) const;
   // The last published bus state is bus-off or down.
   bool bus_down() const;
-  void read_job(const Job& j, canworks_can_frame& f, uint32_t& period_us) const;
+  // Puts a queued tx_ slot on the transmit queue (any task); false when full.
+  bool push_tx(uint8_t slot);
 
   uint8_t network_;
   PortRules rules_;
@@ -177,15 +247,24 @@ class PlcPort {
   std::atomic<uint32_t> rx_version_{0};
   std::array<Receiver, kRx> rx_;
   std::array<TxSlot, kTx> tx_;
-  // Ring of tx_ indices, scan thread to raw thread.
-  std::array<uint8_t, kTx> txq_{};
+  // Queue of tx_ indices, PLC tasks to raw thread.
+  static_assert((kTx & (kTx - 1)) == 0, "the transmit queue size is a power of two");
+  std::array<TxCell, kTx> txq_;
   std::atomic<uint32_t> txq_head_{0}, txq_tail_{0};
   // Written frames waiting for their echo, oldest first (raw thread only).
   std::array<uint8_t, kTx> echo_{};
   uint32_t echo_head_ = 0, echo_tail_ = 0;
   std::array<Job, kJobs> jobs_;
-  std::atomic<uint32_t> bus_seq_{0};
-  canworks_can_bus_info bus_{};
+  // Bus info, double-buffered: the raw thread writes the copy readers are
+  // not directed to, then switches them over, so a reader always has a
+  // complete copy even while the raw thread is stopped in a write.
+  std::array<SeqBox<canworks_can_bus_info>, 2> bus_;
+  std::atomic<uint32_t> bus_current_{0};
+  std::atomic<uint8_t> bus_state_{4};
+  // The last complete copy a reader got, for readers the raw thread laps
+  // (written by one reader at a time: whoever takes the flag).
+  SeqBox<canworks_can_bus_info> bus_last_;
+  std::atomic<bool> bus_last_busy_{false};
   std::atomic<uint32_t> rx_count_{0}, tx_count_{0}, sent_{0};
 };
 

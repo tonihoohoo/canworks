@@ -38,6 +38,10 @@ namespace canopen_plugin {
 // bus of its own.
 std::shared_ptr<lely::io::VirtualCanController> shared_virtual_bus(const std::string& interface);
 
+// The calling thread back to SCHED_OTHER, if it runs at a real-time policy
+// (the bus thread when its session shuts down).
+void leave_realtime();
+
 enum class IfaceState { Missing, Down, Up };
 
 // Simulated devices (docs/simulator.md): the simulation file, the stored
@@ -78,9 +82,14 @@ class Bus {
   // SCHED_FIFO priority of the bus thread with PLC-cycle SYNC: the runtime's
   // highest task level (PLC_FIFO_TASK_MAX), below its dispatcher.
   static constexpr int kSyncPriority = 49;
+  // After the NMT command of master.on_plc_stop: how long the loop runs on
+  // so that it goes out before the session shuts down.
+  static constexpr std::chrono::milliseconds kStopDrain{50};
 
   void thread_main();
   void run_session();
+  // SCHED_FIFO for a session with PLC-cycle SYNC.
+  void enter_realtime();
   bool wait_for(std::chrono::milliseconds d);  // false if stop was requested
 
   const Config& cfg_;
@@ -93,6 +102,7 @@ class Bus {
   BusMonitor monitor_;
   std::thread thread_;
   std::atomic<bool> stop_{false};
+  bool fifo_warned_ = false;
   std::mutex mutex_;
   std::condition_variable cv_;
 };

@@ -45,11 +45,11 @@ def configurator(out):
             if not line:
                 break
             print(line, end="", flush=True)
-            m = re.search(r"(http://127\.0\.0\.1:\d+/\?token=\S+)", line)
+            m = re.search(r"(http://127\.0\.0\.1:\d+/\?code=\S+)", line)
             url = m and m.group(1)
         if not url:
             sys.exit("smoke: the configurator printed no URL")
-        # The URL sets the session cookie and redirects to /; no proxy for 127.0.0.1.
+        # The URL's one-time code sets the session cookie and redirects to /; no proxy for 127.0.0.1.
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
                                              urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         with opener.open(url, timeout=30) as r:

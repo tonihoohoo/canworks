@@ -155,6 +155,7 @@ void DiagHub::attach() { attached_.store(true, std::memory_order_release); }
 
 void DiagHub::detach() {
   set_operational("");
+  set_used_ids({});
   {
     std::lock_guard<std::mutex> lock(mutex_);
     attached_.store(false, std::memory_order_release);
@@ -223,6 +224,26 @@ std::string DiagHub::operational() const {
   return operational_;
 }
 
+bool DiagHub::ids_due() {
+  auto now = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  if (ids_at_ != std::chrono::steady_clock::time_point{} && now - ids_at_ < std::chrono::seconds(1)) return false;
+  ids_at_ = now;
+  return true;
+}
+
+void DiagHub::set_used_ids(std::map<uint32_t, std::string> ids) {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  used_ids_.swap(ids);
+  if (used_ids_.empty()) ids_at_ = {};
+}
+
+std::string DiagHub::used_id(uint32_t id, bool ext) const {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  auto it = used_ids_.find(id_use_key(id, ext));
+  return it == used_ids_.end() ? "" : it->second;
+}
+
 void DiagHub::set_send_jobs(const std::string& json_array) {
   std::lock_guard<std::mutex> lock(state_mutex_);
   send_jobs_ = json_array;
@@ -245,6 +266,8 @@ bool DiagHub::request_sweep(const SweepRequest& req) {
   sweep_pending_ = true;
   sweep_ever_ = true;
   sweep_req_ = req;
+  sweep_req_.cancel = std::make_shared<std::atomic<bool>>(false);
+  sweep_req_.stopped_by = std::make_shared<std::string>();
   sweep_pg_ = SweepProgress();
   std::vector<unsigned> rates = req.rates_kbit;
   if (rates.empty()) rates.assign(std::begin(kSweepRates), std::end(kSweepRates));
@@ -268,6 +291,16 @@ bool DiagHub::sweep_pending() const {
 bool DiagHub::sweep_busy() const {
   std::lock_guard<std::mutex> lock(state_mutex_);
   return sweep_pending_ || sweep_running_;
+}
+
+bool DiagHub::stop_sweep(const std::string& peer) {
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  if (!(sweep_pending_ || sweep_running_) || !sweep_req_.cancel) return false;
+  if (!sweep_req_.cancel->load()) {
+    *sweep_req_.stopped_by = peer;
+    sweep_req_.cancel->store(true);
+  }
+  return true;
 }
 
 bool DiagHub::take_sweep(SweepRequest& out) {
@@ -438,7 +471,9 @@ std::string DiagHub::offline_answer(const DiagRequest& r) const {
 constexpr unsigned DiagServer::kMaxClients;
 constexpr size_t DiagServer::kMaxLine;
 constexpr size_t DiagServer::kMaxSendBuffer;
-constexpr std::chrono::seconds DiagServer::kHelloTimeout;
+constexpr std::chrono::seconds DiagServer::kLoginTimeout;
+constexpr std::chrono::minutes DiagServer::kAuthKeep;
+constexpr unsigned DiagServer::kMaxSweepMs;
 constexpr std::chrono::seconds DiagServer::kRetryListen;
 constexpr std::chrono::seconds DiagServer::kLoginBackoff;
 constexpr size_t DiagServer::kTraceFetchDefault;
@@ -595,14 +630,22 @@ void DiagServer::run() {
       fds.push_back({cap_fd, static_cast<short>(cap_fd >= 0 ? POLLIN : 0), 0});
     }
     for (size_t n = 0; n < nets; ++n) waiting_capture = waiting_capture || (any_trace(n) && !chans_[n].open);
-    for (const auto& c : clients_) {
-      short ev = pending(c) ? POLLOUT : 0;
-      if (!c.closing) ev |= POLLIN;
-      fds.push_back({c.fd, ev, 0});
-    }
     // A trace waiting for its capture to open retries often; a send job
     // wakes the loop when it is due.
     int timeout = waiting_capture ? 200 : 1000;
+    for (const auto& c : clients_) {
+      short ev = pending(c) ? POLLOUT : 0;
+      // Not read: a connection whose address waits after a failed login
+      // (until then), and one whose request is on the bus thread while a
+      // line or more waits behind it.
+      if (in_backoff(c, now)) {
+        auto left = std::chrono::duration_cast<std::chrono::milliseconds>(auth_failed_.at(c.peer) + kLoginBackoff - now);
+        timeout = std::min<int>(timeout, static_cast<int>(left.count()) + 1);
+      } else if (!c.closing && !(c.waiting && c.in.size() > kMaxLine)) {
+        ev |= POLLIN;
+      }
+      fds.push_back({c.fd, ev, 0});
+    }
     if (!jobs_.empty()) timeout = std::min<int>(timeout, static_cast<int>(service_jobs(clock::now()).count()));
     if (!replays_.empty())
       timeout = std::min<int>(timeout, static_cast<int>(service_replays(clock::now()).count()));
@@ -652,10 +695,11 @@ void DiagServer::run() {
     }
     for (auto& c : clients_) {
       if (!c.closing) process_input(c);
-      if (!c.authed && !c.closing && now - c.since >= kHelloTimeout) {
+      if (!c.authed && !c.closing && now - c.since >= login_timeout_) {
         c.closing = true;
         drop_output(c);
       }
+      if (c.frames_unlogged && now - c.frame_logged >= std::chrono::seconds(1)) log_unlogged_frames(c);
       if (pending(c) > kMaxSendBuffer) {
         log_warn("diagnostics: client %s does not read its answers; closing the connection", c.peer.c_str());
         c.closing = true;
@@ -668,6 +712,7 @@ void DiagServer::run() {
       if (!alive || (c.closing && !pending(c))) close_client(i);
     }
     if (listen_fd_ >= 0 && (fds[1].revents & POLLIN)) accept_clients();
+    prune_auth(now);
     update_capture(clock::now());
     if (!jobs_.empty() || !ended_.empty()) service_jobs(clock::now());
     if (!replays_.empty() || !ended_replays_.empty()) service_replays(clock::now());
@@ -703,6 +748,7 @@ void DiagServer::accept_clients() {
 }
 
 void DiagServer::close_client(size_t i) {
+  log_unlogged_frames(clients_[i]);
   end_client_jobs(clients_[i].serial, "client disconnected");
   if (clients_[i].fd >= 0) close(clients_[i].fd);
   clients_.erase(clients_.begin() + static_cast<long>(i));
@@ -770,36 +816,91 @@ bool DiagServer::flush(Client& c) {
   return true;
 }
 
+namespace {
+
+// Whether a request line starts as a put_config request does:
+// {"op":"put_config" with any spaces, within its first 64 bytes.
+bool starts_put_config(const std::string& in) {
+  const size_t end = std::min<size_t>(in.size(), 64);
+  size_t i = 0;
+  auto skip = [&] {
+    while (i < end && (in[i] == ' ' || in[i] == '\t' || in[i] == '\r')) ++i;
+  };
+  auto take = [&](const char* word) {
+    skip();
+    size_t n = std::strlen(word);
+    if (i + n > end || in.compare(i, n, word) != 0) return false;
+    i += n;
+    return true;
+  };
+  return take("{") && take("\"op\"") && take(":") && take("\"put_config\"");
+}
+
+}  // namespace
+
+bool DiagServer::in_backoff(const Client& c, std::chrono::steady_clock::time_point now) const {
+  if (c.authed) return false;
+  auto it = auth_failed_.find(c.peer);
+  return it != auth_failed_.end() && now < it->second + kLoginBackoff;
+}
+
 void DiagServer::process_input(Client& c) {
   if (c.refusing) return;
+  // Only a host that takes configs reads a long line, and only a put_config
+  // one after the login; every other line, and anything before the login,
+  // is held up to kMaxLine.
+  auto max_line = [&] {
+    return c.authed && host_.put_config && starts_put_config(c.in) ? kMaxAuthedLine : kMaxLine;
+  };
+  auto too_long = [&] {
+    c.out += diag_error("", "request line too long");
+    c.closing = true;
+    c.in.clear();
+    c.scanned = 0;
+  };
+  // Checked before the login backoff below, so a connection that waits
+  // cannot grow its buffer (the server does not read it while it waits).
+  if (c.in.find('\n', c.scanned) == std::string::npos && c.in.size() > max_line()) return too_long();
   // After a failed login from this address, its next login waits a moment.
-  if (!c.authed) {
-    auto it = auth_failed_.find(c.peer);
-    if (it != auth_failed_.end() && std::chrono::steady_clock::now() < it->second + kLoginBackoff) return;
-  }
+  if (in_backoff(c, std::chrono::steady_clock::now())) return;
   // One request at a time per connection keeps the answers in order.
-  // Only a host that takes configs reads the long put_config line.
-  const size_t max_line = c.authed && host_.put_config ? kMaxAuthedLine : kMaxLine;
+  size_t start = 0;
   while (!c.closing && !c.waiting) {
-    size_t nl = c.in.find('\n');
+    // Searched once: `scanned` is where the last search ended.
+    size_t nl = c.in.find('\n', start + c.scanned);
     if (nl == std::string::npos) {
-      if (c.in.size() > max_line) {
-        c.out += diag_error("", "request line too long");
-        c.closing = true;
-      }
-      return;
+      c.scanned = c.in.size() - start;
+      break;
     }
-    std::string line = c.in.substr(0, nl);
-    c.in.erase(0, nl + 1);
+    c.scanned = 0;
+    std::string line = c.in.substr(start, nl - start);
+    start = nl + 1;
     if (!line.empty() && line.back() == '\r') line.pop_back();
-    if (line.size() > max_line) {
-      c.out += diag_error("", "request line too long");
-      c.closing = true;
-      return;
+    const bool upload = c.authed && host_.put_config && starts_put_config(line);
+    if (line.size() > (upload ? kMaxAuthedLine : kMaxLine)) {
+      c.in.erase(0, start);
+      return too_long();
     }
     if (line.find_first_not_of(" \t") == std::string::npos) continue;
     handle_line(c, line);
   }
+  if (start) c.in.erase(0, start);
+  if (!c.closing && c.in.find('\n', c.scanned) == std::string::npos && c.in.size() > max_line()) too_long();
+}
+
+void DiagServer::prune_auth(std::chrono::steady_clock::time_point now) {
+  for (auto* m : {&auth_failed_, &auth_logged_})
+    for (auto it = m->begin(); it != m->end();)
+      it = now - it->second >= kAuthKeep ? m->erase(it) : std::next(it);
+}
+
+void DiagServer::log_unlogged_frames(Client& c) {
+  if (!c.frames_unlogged) return;
+  log_info("%sdiagnostics: %llu more frame%s sent by %s (single frames are logged at most once a second)",
+           net_prefix(c.frames_net).c_str(), (unsigned long long)c.frames_unlogged, c.frames_unlogged == 1 ? "" : "s",
+           c.peer.c_str());
+  c.frames_unlogged = 0;
+  c.frame_logged = std::chrono::steady_clock::now();
 }
 
 void DiagServer::log_auth_failure(const std::string& peer) {
@@ -1018,8 +1119,8 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
     return;
   }
   if (c.authed && (r.op == "send_frame" || r.op == "send_frame_stop" || r.op == "detect_bitrate" ||
-                   r.op == "detect_bitrate_status" || r.op == "replay" || r.op == "replay_status" ||
-                   r.op == "replay_stop")) {
+                   r.op == "detect_bitrate_status" || r.op == "detect_bitrate_stop" || r.op == "replay" ||
+                   r.op == "replay_status" || r.op == "replay_stop")) {
     handle_tx(c, net, r.op, r.id, req);
     cJSON_Delete(req);
     return;
@@ -1088,6 +1189,17 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
     }
     return true;
   };
+  // force: the bus thread refuses sdo_write, nmt (but start) and scan
+  // without it while a configured node is OPERATIONAL.
+  auto get_force = [&]() -> bool {
+    const cJSON* fv = cJSON_GetObjectItemCaseSensitive(req, "force");
+    if (fv && !cJSON_IsBool(fv)) {
+      why = "field 'force' must be true or false";
+      return false;
+    }
+    r.force = cJSON_IsTrue(fv);
+    return true;
+  };
   auto get_store = [&]() -> bool {
     const cJSON* st = cJSON_GetObjectItemCaseSensitive(req, "store");
     if (st && !cJSON_IsBool(st)) {
@@ -1100,7 +1212,9 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
 
   bool valid = true;
   bool lss = r.op.compare(0, 4, "lss_") == 0;
-  if (r.op == "status" || r.op == "scan" || r.op == "scan_status") {
+  if (r.op == "status" || r.op == "scan_status") {
+  } else if (r.op == "scan") {
+    valid = get_force();
   } else if (r.op == "lss_find" || r.op == "lss_find_status") {
     const cJSON* vend = cJSON_GetObjectItemCaseSensitive(req, "vendor_id");
     const cJSON* prod = cJSON_GetObjectItemCaseSensitive(req, "product_code");
@@ -1132,7 +1246,7 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
   } else if (r.op == "sdo_read") {
     valid = get_node(true) && get_object();
   } else if (r.op == "sdo_write") {
-    valid = get_node(true) && get_object();
+    valid = get_node(true) && get_object() && get_force();
     const cJSON* d = cJSON_GetObjectItemCaseSensitive(req, "data");
     if (valid && (!cJSON_IsString(d) || !parse_hex(d->valuestring, r.data))) {
       why = "field 'data' must be hexadecimal bytes such as \"1E 00\"";
@@ -1147,7 +1261,7 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
       valid = false;
     }
   } else if (r.op == "nmt") {
-    valid = get_node(false);
+    valid = get_node(false) && get_force();
     const cJSON* cmd = cJSON_GetObjectItemCaseSensitive(req, "command");
     r.command = cJSON_IsString(cmd) ? cmd->valuestring : "";
     if (valid && r.command != "start" && r.command != "stop" && r.command != "preop" && r.command != "reset" &&
@@ -1450,6 +1564,7 @@ void DiagServer::handle_tx(Client& c, size_t net, const std::string& op, const s
     return;
   }
   if (op == "detect_bitrate") return handle_detect(c, net, id, req);
+  if (op == "detect_bitrate_stop") return handle_detect_stop(c, net, id);
   if (op.compare(0, 6, "replay") == 0) return handle_replay(c, net, op, id, req);
   // send_frame_stop: one of this connection's jobs, or all of them; ended
   // jobs are reported too, so a client learns why its job stopped.
@@ -1495,6 +1610,7 @@ void DiagServer::handle_tx(Client& c, size_t net, const std::string& op, const s
 std::string DiagServer::force_reason(size_t net, const RawFrame& f) const {
   const DiagHub& hub = *chans_[net].hub;
   std::string use = protocol_id_use(hub.config(), f.id, f.ext);
+  if (use.empty()) use = hub.used_id(f.id, f.ext);
   if (use.empty()) use = raw_id_use(hub.config(), f.id, f.ext);
   if (!use.empty()) return id_text(f) + " is " + use + " on network " + (hub.config().network.empty() ? hub.config().adapter.interface : hub.config().network);
   std::string op = hub.operational();
@@ -1610,8 +1726,18 @@ void DiagServer::handle_send(Client& c, size_t net, const std::string& id, const
       c.out += diag_error(id, rc == -ENOBUFS ? "transmit queue full" : "cannot send: " + errno_text(rc));
       return;
     }
-    log_info("%sdiagnostics: frame %s sent by %s%s", net_prefix(net).c_str(), raw_frame_text(f).c_str(),
-             c.peer.c_str(), forced.c_str());
+    // One line a second per client; the frames in between are counted
+    // (log_unlogged_frames).
+    if (now - c.frame_logged >= std::chrono::seconds(1) || c.frame_logged == std::chrono::steady_clock::time_point{}) {
+      log_unlogged_frames(c);
+      log_info("%sdiagnostics: frame %s sent by %s%s", net_prefix(net).c_str(), raw_frame_text(f).c_str(),
+               c.peer.c_str(), forced.c_str());
+      c.frame_logged = now;
+    } else {
+      if (c.frames_unlogged && c.frames_net != net) log_unlogged_frames(c);
+      ++c.frames_unlogged;
+      c.frames_net = net;
+    }
     cJSON* res = cJSON_CreateObject();
     cJSON_AddBoolToObject(res, "sent", true);
     c.out += diag_ok(id, res);
@@ -1789,6 +1915,34 @@ bool replay_frame(const cJSON* o, uint64_t& t_us, RawFrame& f, std::string& why)
   return true;
 }
 
+// The gap a looping replay leaves between its last frame and the next
+// round's first: the gap of its last two frames, at least 1 ms.
+uint64_t loop_gap_us(const std::vector<std::pair<uint64_t, RawFrame>>& frames) {
+  const size_t n = frames.size();
+  return std::max<uint64_t>(n > 1 ? frames[n - 1].first - frames[n - 2].first : 0, 1000);
+}
+
+// The most frames a looping replay of `frames` (times from 0) sends in any
+// one second, the rounds repeating every `period` µs.
+uint64_t loop_max_per_second(const std::vector<std::pair<uint64_t, RawFrame>>& frames, uint64_t period) {
+  const uint64_t n = frames.size();
+  if (!n || !period) return n;
+  const uint64_t second = 1000000;
+  // Whole rounds in a second, then the most frames in the rest of it over
+  // the round's end (two rounds side by side).
+  const uint64_t whole = second / period, rest = second % period;
+  uint64_t most = 0;
+  size_t hi = 0;
+  for (size_t lo = 0; lo < n; ++lo) {
+    const uint64_t from = frames[lo].first;
+    if (hi < lo) hi = lo;
+    auto at = [&](size_t k) { return k < n ? frames[k].first : frames[k - n].first + period; };
+    while (hi < lo + n && at(hi) < from + rest) ++hi;
+    most = std::max<uint64_t>(most, hi - lo);
+  }
+  return whole * n + most;
+}
+
 }  // namespace
 
 void DiagServer::handle_replay(Client& c, size_t net, const std::string& op, const std::string& id,
@@ -1906,6 +2060,21 @@ void DiagServer::handle_replay(Client& c, size_t net, const std::string& op, con
                                   std::to_string(kReplayMaxRate) + " frames per second");
       return;
     }
+  // A looping replay repeats: checked as one repeating sequence once all its
+  // frames are known, the gap back to its first frame included.
+  if ((mine ? mine->loop : loop) && !more) {
+    std::vector<std::pair<uint64_t, RawFrame>> all;
+    if (mine) all = mine->frames;
+    uint64_t t0 = all.empty() ? batch.front().first : 0;
+    for (const auto& b : batch) all.emplace_back(b.first - t0, b.second);
+    const uint64_t most = loop_max_per_second(all, all.back().first + loop_gap_us(all));
+    if (most > kReplayMaxRate) {
+      c.out += diag_error(id, "looping, these frames repeat at " + std::to_string(most) + " frames in one second; the limit is " +
+                                  std::to_string(kReplayMaxRate) + " frames per second");
+      if (mine) end_replay(mine_i, "refused: over the frame rate limit when looping", now);
+      return;
+    }
+  }
   if (!mine) {
     Replay r;
     r.net = net;
@@ -1950,15 +2119,23 @@ std::chrono::milliseconds DiagServer::service_replays(std::chrono::steady_clock:
           break;
         }
         // The next round keeps the recorded gap of the last two frames.
-        uint64_t n = r.frames.size();
-        uint64_t gap = n > 1 ? r.frames[n - 1].first - r.frames[n - 2].first : 1000;
-        r.round_start += microseconds(r.frames.back().first + std::max<uint64_t>(gap, 1000));
+        r.round_start += microseconds(r.frames.back().first + loop_gap_us(r.frames));
         r.pos = 0;
         ++r.rounds;
       }
       auto due = r.round_start + microseconds(r.frames[r.pos].first);
       if (due > now) {
         auto ms = std::chrono::duration_cast<milliseconds>(due - now + microseconds(999));
+        if (ms < wait) wait = ms;
+        break;
+      }
+      // At most kReplayMaxRate frames in any second, whatever the schedule
+      // (a busy thread catching up, a loop's restart).
+      auto t = std::chrono::steady_clock::now();
+      while (!r.recent.empty() && t - r.recent.front() >= std::chrono::seconds(1)) r.recent.pop_front();
+      if (r.recent.size() >= kReplayMaxRate) {
+        auto ms = std::chrono::duration_cast<milliseconds>(r.recent.front() + std::chrono::seconds(1) - t +
+                                                           microseconds(999));
         if (ms < wait) wait = ms;
         break;
       }
@@ -1980,6 +2157,8 @@ std::chrono::milliseconds DiagServer::service_replays(std::chrono::steady_clock:
         break;
       }
       r.blocked_since = {};
+      r.recent.push_back(std::chrono::steady_clock::now());
+      if (r.recent.size() > kReplayMaxRate) r.recent.pop_front();
       ++r.sent;
       ++r.pos;
     }
@@ -2052,6 +2231,13 @@ void DiagServer::handle_detect(Client& c, size_t net, const std::string& id, con
     }
     sr.rounds = static_cast<unsigned>(v);
   }
+  const uint64_t total_ms = uint64_t(sr.per_rate_ms) * (sr.rates_kbit.empty() ? 8 : sr.rates_kbit.size()) * sr.rounds;
+  if (total_ms > kMaxSweepMs) {
+    c.out += diag_error(id, "the sweep would listen " + std::to_string(total_ms / 1000) +
+                                " s; per_rate_ms times rates times rounds may be at most " +
+                                std::to_string(kMaxSweepMs / 1000) + " s");
+    return;
+  }
   if (!settings().diag_allow_changes) {
     c.out += diag_error(id, "changes not allowed");
     return;
@@ -2090,6 +2276,23 @@ void DiagServer::handle_detect(Client& c, size_t net, const std::string& id, con
            net_prefix(net).c_str(), cfg.adapter.interface.c_str(), c.peer.c_str(),
            op.empty() ? "" : (" (forced: " + op + " was OPERATIONAL)").c_str());
   status();
+}
+
+void DiagServer::handle_detect_stop(Client& c, size_t net, const std::string& id) {
+  DiagHub& hub = *chans_[net].hub;
+  if (!settings().diag_allow_changes) {
+    c.out += diag_error(id, "changes not allowed");
+    return;
+  }
+  if (!hub.stop_sweep(c.peer)) {
+    const Config& cfg = hub.config();
+    c.out += diag_error(id, "no bit rate detection is running on network " +
+                                (cfg.network.empty() ? cfg.adapter.interface : cfg.network));
+    return;
+  }
+  log_info("%sdiagnostics: bit rate detection on %s stopped by %s; it ends after the current rate",
+           net_prefix(net).c_str(), hub.config().adapter.interface.c_str(), c.peer.c_str());
+  c.out += diag_ok(id, hub.sweep_status());
 }
 
 }  // namespace canopen_plugin

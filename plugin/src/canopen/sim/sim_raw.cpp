@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 
@@ -291,6 +292,23 @@ void RawDevice::power_off() {
   pending_.clear();
 }
 
+// A raw value clamped to a signal of `length` bits (1-64), as its bits. The
+// bounds are compared as doubles before any cast: casting a double outside
+// the target type's range is undefined (2^64 - 1 is 2^64 as a double).
+static uint64_t clamp_bits(double raw, unsigned length, bool is_signed) {
+  if (length > 64) length = 64;
+  if (length < 1) length = 1;
+  if (is_signed) {
+    double top = std::ldexp(1.0, static_cast<int>(length) - 1);  // first value too large
+    if (raw >= top) return length == 64 ? static_cast<uint64_t>(INT64_MAX) : (uint64_t(1) << (length - 1)) - 1;
+    if (raw <= -top) return static_cast<uint64_t>(length == 64 ? INT64_MIN : -(int64_t(1) << (length - 1)));
+    return static_cast<uint64_t>(static_cast<int64_t>(raw));
+  }
+  if (raw <= 0) return 0;
+  if (raw >= std::ldexp(1.0, static_cast<int>(length))) return length == 64 ? UINT64_MAX : (uint64_t(1) << length) - 1;
+  return static_cast<uint64_t>(raw);
+}
+
 RawFrame RawDevice::build(size_t i, double t, ExprContext& ctx) {
   const RawSimSend& send = spec_.sends[i];
   RawFrame f = send.frame;
@@ -302,12 +320,8 @@ RawFrame RawDevice::build(size_t i, double t, ExprContext& ctx) {
     Value v = src->eval(t, ctx);
     if (v.is_string || !std::isfinite(v.num)) continue;
     double raw = std::round((v.num - s.offset) / s.scale);
-    double lo = s.is_signed ? -std::ldexp(1.0, static_cast<int>(s.length) - 1) : 0;
-    double hi = s.is_signed ? std::ldexp(1.0, static_cast<int>(s.length) - 1) - 1 : std::ldexp(1.0, static_cast<int>(s.length)) - 1;
-    raw = std::min(std::max(raw, lo), hi);
-    uint64_t bits = s.is_signed && raw < 0 ? static_cast<uint64_t>(static_cast<int64_t>(raw))
-                                           : static_cast<uint64_t>(raw);
-    canworks_can::pack_signal(f.data, s.start_bit, s.length, s.big_endian, bits);
+    if (std::isnan(raw)) continue;
+    canworks_can::pack_signal(f.data, s.start_bit, s.length, s.big_endian, clamp_bits(raw, s.length, s.is_signed));
   }
   if (dlc_fault_ >= 0) f.dlc = static_cast<uint8_t>(dlc_fault_);
   return f;

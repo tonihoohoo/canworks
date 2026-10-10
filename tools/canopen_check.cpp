@@ -62,7 +62,7 @@ bool check_simulation(const ConfigSet& set, std::vector<std::string>& errors) {
   for (const auto& cfg : set.networks) used = used || (!cfg.is_slave() && !cfg.is_j1939() && simulates_anything(cfg));
   if (!used) return true;
   canopen_sim::SimFile loaded;
-  if (!canopen_sim::load_sim_file(path, loaded, errors)) return false;
+  if (!canopen_sim::load_sim_file(path, loaded, errors, set.networks[0].config_dir)) return false;
   if (loaded.schema_version >= 2 && !check_sim_sections(set, loaded, errors)) return false;
   bool ok = true;
   for (const auto& cfg : set.networks) {

@@ -20,6 +20,21 @@ target_compile_definitions(can_raw_tests PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")
 target_link_libraries(can_raw_tests PRIVATE canopen_core)
 add_test(NAME can_raw_tests COMMAND can_raw_tests)
 
+# The PLC frame port from four PLC tasks at once (can-plc-frames). Built from
+# plc_frames.cpp alone so that -DCANWORKS_TSAN=ON (the weekly workflow)
+# instruments the port: cmake --build <dir> --target can_frames_stress.
+option(CANWORKS_TSAN "Build can_frames_stress with ThreadSanitizer" OFF)
+find_package(Threads REQUIRED)
+add_executable(can_frames_stress can_raw/frames_stress.cpp ${PROJECT_SOURCE_DIR}/plugin/src/can/raw/plc_frames.cpp)
+target_include_directories(can_frames_stress PRIVATE common ${PROJECT_SOURCE_DIR}/plugin/src)
+target_link_libraries(can_frames_stress PRIVATE Threads::Threads)
+if(CANWORKS_TSAN)
+  # TSan does not model fences; the port only fences over atomic data.
+  target_compile_options(can_frames_stress PRIVATE -fsanitize=thread -g -O1 $<$<CXX_COMPILER_ID:GNU>:-Wno-tsan>)
+  target_link_options(can_frames_stress PRIVATE -fsanitize=thread)
+endif()
+add_test(NAME can_frames_stress COMMAND can_frames_stress)
+
 # Everything below is CANopen (CANWORKS_WITH_CANOPEN).
 if(NOT CANWORKS_WITH_CANOPEN)
   return()
@@ -294,3 +309,16 @@ add_test(NAME bridge_upload COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/bridge/u
 set_tests_properties(bridge_upload PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")
 # scripts/install-bridge.sh with a stub systemctl.
 add_test(NAME bridge_install COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/bridge/install_test.sh $<TARGET_FILE:canworks-bridge>)
+
+# The longest tests start first under `ctest -j` (seconds on a CI runner), so
+# none of them is left running alone at the end.
+foreach(pair IN ITEMS unit_tests:37 plugin_lifecycle:27 sim_tests.sim_simulated_power_cycles:24
+                      sim_tests.sim_gantry_demo:24 sim_tests.sim_lss_diag_commissioning:15
+                      bridge_host_tests:11 sim_tests.sim_cia402_cyclic:8 sim_tests.sim_cia402_demo:8)
+  string(REPLACE ":" ";" pair "${pair}")
+  list(GET pair 0 name)
+  list(GET pair 1 cost)
+  if(TEST ${name})
+    set_tests_properties(${name} PROPERTIES COST ${cost})
+  endif()
+endforeach()

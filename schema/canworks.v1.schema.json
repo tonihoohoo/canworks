@@ -28,7 +28,9 @@
       "description": "Deprecated: use adapter.interface.",
       "deprecated": true,
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 15,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
     },
     "bitrate": {
       "description": "Deprecated: use adapter.bitrate.",
@@ -197,8 +199,11 @@
           ]
         },
         "interface": {
+          "description": "The CAN interface (can0, vcan0) or, for slcan, the interface the plugin creates: 1-15 characters of letters, digits, '_', '.', ':' and '-' (a Linux interface name).",
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 15,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
         },
         "bitrate": {
           "$ref": "#/$defs/bitrate"
@@ -474,6 +479,30 @@
               "type": "integer",
               "minimum": 100,
               "maximum": 3600000
+            },
+            {
+              "$ref": "#/$defs/uint_string"
+            }
+          ]
+        },
+        "on_plc_stop": {
+          "description": "NMT command to every configured node that is up when the PLC or the plugin stops, before the network closes: preop (default, ENTER PRE-OPERATIONAL), stop (STOP) or keep (no command).",
+          "enum": [
+            "preop",
+            "stop",
+            "keep"
+          ]
+        },
+        "scan_watchdog_ms": {
+          "description": "Close the outputs gate (no RPDOs, raw or J1939 transmit messages; SYNC and inputs keep running) when the PLC scan has not finished a cycle for this long while the PLC runs, 10-60000 ms; 0 turns it off. Default 1000.",
+          "anyOf": [
+            {
+              "const": 0
+            },
+            {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 60000
             },
             {
               "$ref": "#/$defs/uint_string"

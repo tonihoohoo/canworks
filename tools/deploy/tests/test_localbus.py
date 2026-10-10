@@ -307,6 +307,47 @@ class NmtAndScan(Base):
         self.assertEqual(nodes[50]["match"], "configured, no answer")
 
 
+class Force(Base):
+    """The plugin's rule on a local adapter: SDO writes and NMT other than
+    start to a node heard OPERATIONAL, and a scan while one is, need force."""
+
+    def test_running_node_needs_force(self):
+        d = self.device(5, heartbeat_s=0.05)
+        c = self.client(allow_changes=True)
+        c.nmt(5, "start")  # never needs force
+        time.sleep(0.3)
+        for call in (lambda: c.nmt(5, "stop"), lambda: c.sdo_write(5, 0x2000, 0, b"\1"), lambda: c.scan(True)):
+            with self.assertRaises(diag.DiagError) as e:
+                call()
+            self.assertTrue(diag.needs_force(e.exception), str(e.exception))
+            self.assertTrue(str(e.exception).startswith("node 5 is OPERATIONAL; "), str(e.exception))
+        self.assertEqual(d.nmt_log, [1])
+        with self.assertRaises(diag.DiagError) as e:
+            c.request("nmt", node=5, command="stop", force=1)
+        self.assertIn("field 'force' must be true or false", str(e.exception))
+        c.nmt(5, "stop", force=True)
+        time.sleep(0.1)
+        self.assertEqual(d.nmt_log, [1, 2])
+
+    def test_sweep_time_limit_and_stop(self):
+        c = self.client(allow_changes=True)
+        with self.assertRaises(diag.DiagError) as e:
+            c.detect_bitrate(per_rate_ms=10000, rounds=20)
+        self.assertIn("at most 120 s", str(e.exception))
+        with self.assertRaises(diag.DiagError) as e:
+            c.detect_bitrate_stop()
+        self.assertIn("no bit rate detection is running", str(e.exception))
+
+    def test_session_force(self):
+        d = self.device(5, heartbeat_s=0.05)
+        c = self.client(allow_changes=True, force=True)
+        c.nmt(5, "start")
+        time.sleep(0.3)
+        c.nmt(5, "preop")
+        time.sleep(0.1)
+        self.assertEqual(d.nmt_log, [1, 0x80])
+
+
 class Lss(Base):
     def address(self, d):
         return d.identity

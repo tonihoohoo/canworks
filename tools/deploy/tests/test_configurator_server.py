@@ -140,8 +140,21 @@ class Access(Running):
         status, _, _ = self.request("GET", "/", token=False)
         self.assertEqual(status, 403)
         status, _, r = self.request("GET", "/?token=" + self.server.token, token=False)
+        self.assertEqual(status, 403)  # the token itself never goes in a URL
+        self.assertIsNone(r.getheader("Set-Cookie"))
+        url = self.server.url
+        self.assertNotIn(self.server.token, url)
+        path = url.split(str(self.server.server_port), 1)[1]
+        status, _, r = self.request("GET", path, token=False)
         self.assertEqual(status, 303)
+        self.assertEqual(r.getheader("Location"), "/")
         cookie = r.getheader("Set-Cookie").split(";")[0]
+        self.assertEqual(cookie, "%s=%s" % (srv.COOKIE, self.server.token))
+        # The start code works once: opened again, it is refused and sets no cookie.
+        status, data, r = self.request("GET", path, token=False)
+        self.assertEqual(status, 403)
+        self.assertIsNone(r.getheader("Set-Cookie"))
+        self.assertIn("used already", data["error"])
         status, page, _ = self.request("GET", "/", token=False, headers={"Cookie": cookie})
         self.assertEqual(status, 200)
         self.assertIn(self.server.token.encode(), page)
@@ -157,7 +170,7 @@ class Theme(Running):
     folder and put into the page."""
 
     def page(self):
-        _, _, r = self.request("GET", "/?token=" + self.server.token, token=False)
+        _, _, r = self.request("GET", self.server.url.split(str(self.server.server_port), 1)[1], token=False)
         cookie = r.getheader("Set-Cookie").split(";")[0]
         return self.request("GET", "/", token=False, headers={"Cookie": cookie})[1]
 
@@ -277,7 +290,7 @@ class EdsImport(Running):
         names = {o["name"] for o in data["summary"]["objects"]}
         self.assertIn("Temperature °C", names)
         cfg = srv.empty_config()
-        cfg["nodes"] = [{"node_id": 2, "eds": "vendor.eds", "tx_pdos": [{"entries": [
+        cfg["nodes"] = [{"node_id": 2, "eds": "vendor.eds", "heartbeat_ms": 100, "tx_pdos": [{"entries": [
             {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         self.ok("POST", "/api/save", {"config": cfg})
         saved = read(os.path.join(self.project, "canworks", "vendor.eds"))
@@ -407,7 +420,7 @@ class CheckAndSave(Running):
         # A node whose EDS has a finding in 0x6061: accepted with "off", the
         # plugin's error with "all".
         self.assertEqual(self.eds(os.path.join(LINT, "signed-hex.eds"))[0], 200)
-        self.cfg["nodes"].append({"node_id": 2, "name": "pingpong", "eds": "signed-hex.eds", "tx_pdos": [
+        self.cfg["nodes"].append({"node_id": 2, "name": "pingpong", "eds": "signed-hex.eds", "heartbeat_ms": 100, "tx_pdos": [
             {"entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]})
         self.cfg["master"]["eds_lint"] = "off"
         data = self.ok("POST", "/api/check", {"config": self.cfg})
@@ -502,7 +515,7 @@ class CheckAndSave(Running):
             f.write(read(os.path.join(RTD, "rtd8.eds")).replace(b"Start delay ms", b"Start delay", 1))
         status, data, _ = self.eds(other, on_conflict="keep_both")
         self.assertEqual((status, data["name"]), (200, "rtd8-2.eds"))
-        self.cfg["nodes"].append({"node_id": 6, "name": "rtd2", "eds": "rtd8-2.eds", "tx_pdos": []})
+        self.cfg["nodes"].append({"node_id": 6, "name": "rtd2", "eds": "rtd8-2.eds", "heartbeat_ms": 100, "tx_pdos": []})
         self.ok("POST", "/api/save", {"config": self.cfg})
         self.assertEqual(self.notes_file("rtd8-2.eds")["eds"]["file"], "rtd8-2.eds")
         self.assertEqual(self.notes_file("rtd8-2.eds")["objects"]["0x2000:2"], {"name": "Start delay"})
@@ -980,8 +993,12 @@ class Command(unittest.TestCase):
             self.assertIn("http://127.0.0.1:", line)
             url = line.split()[-1]
             port = int(url.split(":")[2].split("/")[0])
-            token = url.split("token=")[1]
+            self.assertNotIn("token=", url)
             c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            c.request("GET", "/" + url.split("/", 3)[3], headers={"Host": "127.0.0.1:%d" % port})
+            r = c.getresponse()
+            r.read()
+            token = r.getheader("Set-Cookie").split(";")[0].split("=", 1)[1]
             c.request("GET", "/api/state", headers={srv.TOKEN_HEADER: token, "Host": "127.0.0.1:%d" % port})
             state = json.loads(c.getresponse().read())
             self.assertEqual((state["mode"], state["folder"]), ("project", project))

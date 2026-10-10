@@ -8,7 +8,7 @@ import sys
 import unittest
 from unittest import mock
 
-from canworks import editorproject
+from canworks import cli, editorproject
 
 from .helpers import REPO, fake_editor_cli, pingpong_config, tmpdir
 
@@ -182,6 +182,26 @@ class FindCli(unittest.TestCase):
 
     def test_not_on_path(self):
         self.assertIsNone(editorproject.cli_command("openplc-cli-not-installed"))
+
+    def test_cmd_special_characters_refused_on_windows(self):
+        fake_editor_cli(self.bin)
+        target = os.path.join(self.dir, "R&D", "rtd-monitor")
+        os.makedirs(os.path.dirname(target))
+        with mock.patch.object(editorproject, "WINDOWS", True):
+            with self.assertRaisesRegex(editorproject.NewProjectError, "contains '&'"):
+                editorproject.create(load(RTD_CONFIG), RTD_CONFIG, target)
+            self.assertFalse(os.path.exists(os.path.join(self.bin, "cli-args.json")), "nothing run")
+            for c in '&|^%<>"':
+                self.assertIn("'%s'" % c, editorproject.unsafe_for_cmd(["openplc-cli", "compile", "C:\\a%sb" % c]))
+            self.assertIsNone(editorproject.unsafe_for_cmd(["openplc-cli", "compile", "C:\\R and D\\pump"]))
+        self.assertIsNone(editorproject.unsafe_for_cmd(["openplc-cli", "compile", "/home/r&d"]))  # not Windows
+
+    def test_cmd_special_characters_refused_by_deploy_on_windows(self):
+        fake_editor_cli(self.bin)
+        with mock.patch.object(editorproject, "WINDOWS", True), mock.patch.object(subprocess, "call") as call:
+            with self.assertRaisesRegex(cli.Failure, "contains '&'"):
+                cli.build_project(os.path.join(self.dir, "R&D"), "openplc-v4", lambda m: None)
+        call.assert_not_called()
 
 
 @unittest.skipUnless(os.environ.get("CANWORKS_EDITOR_CLI"),

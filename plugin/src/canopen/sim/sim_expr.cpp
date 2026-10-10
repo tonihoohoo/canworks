@@ -15,6 +15,13 @@ namespace canopen_sim {
 namespace {
 
 constexpr double kMaxDelay = 600.0;
+// Limits that keep parsing, evaluating and freeing a tree bounded (each
+// recurses once per level): longest text and deepest nesting.
+constexpr size_t kMaxLength = 4096;
+constexpr int kMaxDepth = 128;
+// delay(): samples kept at most (a long delay at a short tick drops the
+// oldest ones, so the delay gets shorter rather than the memory larger).
+constexpr size_t kMaxHistory = 10000;
 
 enum class Tok { Num, Name, Ref, Op, LParen, RParen, Comma, End };
 
@@ -169,6 +176,7 @@ class ExprNode {
   ObjectRef ref;
   std::string op;
   Fn fn = Fn::Abs;
+  int depth = 1;  // levels of the tree from here down
   std::vector<std::unique_ptr<ExprNode>> args;
   // State of stateful functions.
   bool started = false;
@@ -234,6 +242,27 @@ class Parser {
   const Token& peek() const { return t_[i_]; }
   const Token& next() { return t_[i_++]; }
 
+  // One level of nesting (a parenthesis, a call, a unary operator or **)
+  // for as long as it lives.
+  class Nest {
+   public:
+    Nest(Parser& p, size_t pos) : p_(p) {
+      if (++p_.nest_ > kMaxDepth) fail(pos, "nested deeper than " + std::to_string(kMaxDepth) + " levels");
+    }
+    ~Nest() { --p_.nest_; }
+
+   private:
+    Parser& p_;
+  };
+
+  // A node with its arguments: its depth, refused over the limit.
+  static void finish(ExprNode& n, size_t pos) {
+    int d = 0;
+    for (const auto& a : n.args) d = a->depth > d ? a->depth : d;
+    n.depth = d + 1;
+    if (n.depth > kMaxDepth) fail(pos, "nested deeper than " + std::to_string(kMaxDepth) + " levels");
+  }
+
   static std::string describe(const Token& k) {
     switch (k.kind) {
       case Tok::Num: {
@@ -265,6 +294,7 @@ class Parser {
       if (k.kind != Tok::Op) break;
       int lv = level(k.text);
       if (lv < 0 || lv < min_level) break;
+      size_t pos = k.pos;
       std::string op = next().text;
       auto right = binary(lv + 1);
       auto n = std::unique_ptr<ExprNode>(new ExprNode);
@@ -272,6 +302,7 @@ class Parser {
       n->op = op;
       n->args.push_back(std::move(left));
       n->args.push_back(std::move(right));
+      finish(*n, pos);
       left = std::move(n);
     }
     return left;
@@ -280,13 +311,18 @@ class Parser {
   std::unique_ptr<ExprNode> power() {
     auto base = unary();
     if (peek().kind == Tok::Op && peek().text == "**") {
-      next();
-      auto exp = power();
+      size_t pos = next().pos;
+      std::unique_ptr<ExprNode> exp;
+      {
+        Nest nest(*this, pos);
+        exp = power();
+      }
       auto n = std::unique_ptr<ExprNode>(new ExprNode);
       n->kind = ExprNode::Kind::Binary;
       n->op = "**";
       n->args.push_back(std::move(base));
       n->args.push_back(std::move(exp));
+      finish(*n, pos);
       return n;
     }
     return base;
@@ -295,13 +331,19 @@ class Parser {
   std::unique_ptr<ExprNode> unary() {
     const Token& k = peek();
     if (k.kind == Tok::Op && (k.text == "-" || k.text == "!" || k.text == "~" || k.text == "+")) {
+      size_t pos = k.pos;
       std::string op = next().text;
-      auto a = unary();
+      std::unique_ptr<ExprNode> a;
+      {
+        Nest nest(*this, pos);
+        a = unary();
+      }
       if (op == "+") return a;
       auto n = std::unique_ptr<ExprNode>(new ExprNode);
       n->kind = ExprNode::Kind::Unary;
       n->op = op;
       n->args.push_back(std::move(a));
+      finish(*n, pos);
       return n;
     }
     return primary();
@@ -317,6 +359,7 @@ class Parser {
         return n;
       case Tok::Ref: return reference(k);
       case Tok::LParen: {
+        Nest nest(*this, k.pos);
         auto e = binary(0);
         const Token& c = peek();
         if (c.kind != Tok::RParen) fail(c.pos, c.kind == Tok::End ? "missing )" : "missing ) before '" + describe(c) + "'");
@@ -377,7 +420,7 @@ class Parser {
   std::unique_ptr<ExprNode> call(const Token& name) {
     const FnInfo* f = find_fn(name.text);
     if (!f) fail(name.pos, "unknown function " + name.text);
-    next();  // (
+    Nest nest(*this, next().pos);  // (
     auto n = std::unique_ptr<ExprNode>(new ExprNode);
     n->kind = ExprNode::Kind::Call;
     n->fn = f->fn;
@@ -409,6 +452,7 @@ class Parser {
     }
     if (f->fn == Fn::Delay && n->args[1]->kind == ExprNode::Kind::Num && n->args[1]->num > kMaxDelay)
       fail(name.pos, "delay is at most 600 s");
+    finish(*n, name.pos);
     return n;
   }
 
@@ -417,6 +461,7 @@ class Parser {
   std::vector<Expr::Read>& reads_;
   size_t i_ = 0;
   int delayed_ = 0;
+  int nest_ = 0;
 };
 
 double eval_node(ExprNode& n, ExprContext& c);
@@ -477,8 +522,12 @@ double call(ExprNode& n, ExprContext& c) {
       return n.state;
     }
     case Fn::Delay: {
-      double d = a[1] < 0 ? 0 : (a[1] > kMaxDelay ? kMaxDelay : a[1]);
+      double d = !std::isfinite(a[1]) || a[1] < 0 ? 0 : (a[1] > kMaxDelay ? kMaxDelay : a[1]);
+      // Time going back (a power cycle without reset, a clock step): the
+      // samples are of another run.
+      if (!n.history.empty() && c.t < n.history.back().first) n.history.clear();
       n.history.emplace_back(c.t, a[0]);
+      while (n.history.size() > kMaxHistory) n.history.pop_front();
       double target = c.t - d;
       // Drop samples no longer needed: keep the newest one at or before target.
       while (n.history.size() >= 2 && n.history[1].first <= target) n.history.pop_front();
@@ -577,6 +626,8 @@ std::unique_ptr<Expr> Expr::compile(const std::string& text, const ExprResolver&
   std::unique_ptr<Expr> e(new Expr);
   e->text_ = text;
   try {
+    if (text.size() > kMaxLength)
+      fail(kMaxLength, "the expression is longer than " + std::to_string(kMaxLength) + " characters");
     if (trim(text).empty()) fail(0, "empty expression");
     std::vector<Token> toks = tokenize(text);
     Parser p(toks, resolver, e->reads_);

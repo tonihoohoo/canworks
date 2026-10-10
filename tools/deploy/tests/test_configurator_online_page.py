@@ -252,9 +252,14 @@ class OnlinePage(OnlineBase):
             pg.wait_for_selector("text=changes allowed")
             pg.click('tr[data-online-node="2"]')
             pg.wait_for_selector('button[data-nmt="stop"]:not([disabled])')
+            fp.force_running = True
             pg.click('button[data-nmt="stop"]')
-            pg.click('#modal button[data-value="go"]')
+            # Node 2 is OPERATIONAL: one question names it, and the stop goes with force.
+            self.assertIn("Node 2 is running", pg.inner_text("#modal-text"))
+            self.assertIn("Stop node 2?", pg.inner_text("#modal-text"))
+            pg.click('#modal button[data-value="send"]')
             pg.wait_for_selector('tr[data-online-node="2"]:has-text("held STOPPED by operator")')
+            self.assertEqual(fp.forced, [("nmt", 2)])
             pg.fill('input[data-online="index"]', "0x2000")
             pg.fill('input[data-online="subindex"]', "0")
             pg.select_option('select[data-online="type"]', "UNSIGNED32")
@@ -364,6 +369,8 @@ class OnlinePage(OnlineBase):
             self.assertIn("RPDO1 bits 0-31, %QD300", pg.inner_text("#modal-text"))
             self.assertIn("overwritten", pg.inner_text("#modal-text"))
             pg.click('#modal button[data-value="write"]')
+            pg.wait_for_selector("#modal-text:has-text('Node 2 is running')")
+            pg.click('#modal button[data-value="send"]')
             pg.click(row + ' button[data-online="od-keep"]')
             sdo = pg.evaluate("() => S.config.nodes[0].sdo")
             self.assertIn({"index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "value": 7}, sdo)
@@ -380,12 +387,95 @@ class OnlinePage(OnlineBase):
             pg.wait_for_selector("#modal-text:has-text('RPDO1')")
             pg.click('#modal button[data-value="cancel"]')
 
+    def test_running_node_asks_before_a_write(self):
+        pg = self.page
+        with FakePlugin(allow_changes=True) as fp:
+            fp.force_running = True
+            fp.objects[(2, 0x2000, 0)] = bytes(4)
+            self.online(fp, allow=True)
+            pg.wait_for_selector("text=changes allowed")
+            pg.click('tr[data-online-node="2"]')
+            pg.fill('input[data-online="index"]', "0x2000")
+            pg.fill('input[data-online="subindex"]', "0")
+            pg.select_option('select[data-online="type"]', "UNSIGNED32")
+            pg.fill('input[data-online="value"]', "9")
+            pg.click('button[data-online="write"]')
+            pg.wait_for_selector("#modal[open]")
+            self.assertIn("Node 2 is running", pg.inner_text("#modal-text"))
+            pg.click('#modal button[data-value="cancel"]')
+            pg.wait_for_selector('[data-online="sdo-result"]:has-text("Not written")')
+            self.assertEqual(fp.objects[(2, 0x2000, 0)], bytes(4))
+            self.assertEqual(fp.forced, [])
+            pg.click('button[data-online="write"]')
+            pg.click('#modal button[data-value="send"]')
+            pg.wait_for_selector('[data-online="sdo-result"]:has-text("Written")')
+            self.assertEqual(fp.objects[(2, 0x2000, 0)], (9).to_bytes(4, "little"))
+            self.assertEqual(fp.forced, [("sdo_write", 2)])
+            # The object dictionary view asks too; START never does.
+            pg.click('button[data-online-tab="od"]')
+            fp.objects[(2, 0x4001, 0)] = bytes(4)
+            row = 'tr[data-od-key="%d:0"]' % 0x4001
+            pg.fill('input[data-online="od-filter"]', "0x4001")
+            pg.wait_for_selector(row, state="visible")
+            pg.click(row + ' button[data-online="od-edit"]')
+            pg.fill(row + ' input[data-online="od-input"]', "11")
+            pg.click(row + ' button[data-online="od-write"]')
+            pg.wait_for_selector("#modal[open]")
+            if "Write anyway" in pg.inner_text("#modal-text"):  # its TPDO mapping is said first
+                pg.click('#modal button[data-value="write"]')
+                pg.wait_for_selector("#modal-text:has-text('Node 2 is running')")
+            self.assertIn("Node 2 is running", pg.inner_text("#modal-text"))
+            pg.click('#modal button[data-value="send"]')
+            pg.wait_for_function("() => !document.querySelector('#modal').open")
+            pg.wait_for_timeout(500)
+            self.assertEqual(fp.objects[(2, 0x4001, 0)], (11).to_bytes(4, "little"))
+            self.assertEqual(fp.forced, [("sdo_write", 2), ("sdo_write", 2)])
+
+    def test_plugin_refusal_asks_then_forces(self):
+        # The page's last status said nothing about the node: the plugin's
+        # "force needed" refusal brings the question.
+        pg = self.page
+        with FakePlugin(allow_changes=True) as fp:
+            self.online(fp, allow=True)
+            pg.wait_for_selector("text=changes allowed")
+            pg.click('tr[data-online-node="2"]')
+            pg.wait_for_selector('button[data-nmt="reset"]:not([disabled])')
+            fp.force_running = True
+            # Each poll's status says PRE-OPERATIONAL to the page.
+            pg.evaluate("() => setInterval(() => S.onlineLast && S.onlineLast.status.nodes.forEach((n) => { n.state = 127; }), 20)")
+            pg.click('button[data-nmt="reset"]')
+            pg.click('#modal button[data-value="go"]')
+            pg.wait_for_selector("#modal-text:has-text('an NMT command takes it out of')")
+            self.assertEqual(fp.forced, [])
+            pg.click('#modal button[data-value="send"]')
+            pg.wait_for_selector("text=Node 2: Reset node sent.")
+            self.assertEqual(fp.forced, [("nmt", 2)])
+
     def test_connection_error_shown(self):
         pg = self.page
         self.online(None)
         pg.wait_for_selector("#online-conn:has-text('Not connected (port closed)')")
 
     # -- scan ---------------------------------------------------------------
+    def test_scan_while_running_asks(self):
+        pg = self.page
+        with FakePlugin() as fp:
+            fp.force_running = True
+            self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
+            self.remember(fp.runtime)
+            self.open()
+            pg.click('button[data-view="scan"]')
+            pg.wait_for_selector("text=No scan has run")
+            pg.click('button[data-online="scan"]')
+            pg.wait_for_selector("#modal-text:has-text('a scan sends SDO requests to every node ID')")
+            pg.click('#modal button[data-value="cancel"]')
+            pg.wait_for_selector("text=Scan not started.")
+            self.assertEqual(fp.forced, [])
+            pg.click('button[data-online="scan"]')
+            pg.click('#modal button[data-value="send"]')
+            pg.wait_for_selector('tr[data-scan-node="40"]')
+            self.assertEqual(fp.forced, [("scan", None)])
+
     def test_scan_and_add_node(self):
         pg = self.page
         lib = os.path.join(self.dir, "eds-library")
@@ -417,6 +507,9 @@ class OnlinePage(OnlineBase):
             # The new node's page opens with its name focused; the message leads back to the scan.
             pg.wait_for_selector('#view h2:has-text("Node 40")')
             self.assertEqual(pg.evaluate("() => document.activeElement.dataset.path"), "nodes[1].name")
+            # The test EDS has no heartbeat default: the checks want supervision.
+            pg.select_option("select[data-supervision]", "heartbeat")
+            pg.fill('input[data-path="nodes[1].heartbeat_ms"]', "100")
             pg.click('[data-online="back-to-scan"]')
             pg.wait_for_selector('tr[data-scan-node="40"]:has-text("added")')
             # C12: added, not "not configured"; no Use for node for it.
@@ -430,7 +523,8 @@ class OnlinePage(OnlineBase):
             pg.wait_for_selector("#banner:has-text('Saved')")
         nodes = load(self.config_path)["nodes"]
         self.assertEqual(nodes[1], {"node_id": 40, "name": "rtd_sensor", "eds": "rtd.eds",
-                                    "revision_number": 0x00010002, "serial_number": 99})
+                                    "revision_number": 0x00010002, "serial_number": 99,
+                                    "heartbeat_ms": 100})
         self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "rtd.eds")))
 
     def test_library_change_matches_the_shown_devices_again(self):
@@ -487,6 +581,8 @@ class OnlinePage(OnlineBase):
             self.assertEqual(pg.locator('[data-online="back-to-scan"]').count(), 0)
             self.assertIn("Back to the online view", pg.inner_text('[data-online="back-to-online"]'))
             self.assertEqual(len(load(self.config_path)["nodes"]), 1)  # unsaved
+            pg.select_option("select[data-supervision]", "heartbeat")
+            pg.fill('input[data-path="nodes[1].heartbeat_ms"]', "100")
             pg.wait_for_function("() => document.body.dataset.checking === '0'")
             pg.click("#btn-save")
             pg.wait_for_selector("#banner:has-text('Saved')")

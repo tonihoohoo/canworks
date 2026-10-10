@@ -3,17 +3,22 @@
 #include "eds_check.h"
 
 #include <cerrno>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
 #include <map>
+#include <poll.h>
 #include <regex>
+#include <signal.h>
+#include <thread>
 #include <set>
 #include <spawn.h>
 #include <sstream>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -338,7 +343,9 @@ bool read_concise_dcf(const std::string& path, std::vector<SdoWrite>& out, std::
   size_t pos = 4;
   out.clear();
   for (uint32_t i = 0; i < count; ++i) {
-    if (pos + 7 > data.size()) {
+    // Written as differences: pos <= data.size() holds, so nothing wraps
+    // (a size field near 4 GB would wrap pos + size on a 32-bit host).
+    if (data.size() - pos < 7) {
       error = path + ": truncated concise DCF";
       return false;
     }
@@ -347,7 +354,7 @@ bool read_concise_dcf(const std::string& path, std::vector<SdoWrite>& out, std::
     w.subindex = uint8_t(data[pos + 2]);
     uint32_t size = u32(pos + 3);
     pos += 7;
-    if (pos + size > data.size()) {
+    if (size > data.size() - pos) {
       error = path + ": truncated concise DCF";
       return false;
     }
@@ -360,13 +367,101 @@ bool read_concise_dcf(const std::string& path, std::vector<SdoWrite>& out, std::
 
 std::string default_dcfgen() {
   const char* env = std::getenv("CANWORKS_DCFGEN");
-  if (env && *env) return env;
+  if (env && *env) return resolve_program(env);
 #ifndef CANWORKS_PREFIX
 #define CANWORKS_PREFIX "/opt/canworks"
 #endif
   const char* venv = CANWORKS_PREFIX "/venv/bin/dcfgen";
   if (access(venv, X_OK) == 0) return venv;
-  return "dcfgen";
+  return resolve_program("dcfgen");
+}
+
+std::string resolve_program(const std::string& program) {
+  if (program.empty()) return "";
+  if (program.find('/') != std::string::npos) {
+    char buf[PATH_MAX];
+    if (!realpath(program.c_str(), buf) || access(buf, X_OK) != 0) return "";
+    return buf;
+  }
+  const char* path = std::getenv("PATH");
+  std::stringstream ss(path ? path : "/usr/local/bin:/usr/bin:/bin");
+  for (std::string dir; std::getline(ss, dir, ':');) {
+    if (dir.empty() || dir[0] != '/') continue;  // never the working directory
+    std::string cand = dir + "/" + program;
+    struct stat st;
+    if (stat(cand.c_str(), &st) == 0 && S_ISREG(st.st_mode) && access(cand.c_str(), X_OK) == 0) return cand;
+  }
+  return "";
+}
+
+namespace {
+std::chrono::milliseconds g_helper_limit{60000};
+}  // namespace
+
+std::chrono::milliseconds helper_time_limit() { return g_helper_limit; }
+void set_helper_time_limit(std::chrono::milliseconds limit) { g_helper_limit = limit; }
+
+bool spawn_helper(const std::vector<std::string>& args_in, const posix_spawn_file_actions_t* fa, pid_t& pid,
+                  std::string& why) {
+  std::vector<std::string> args = args_in;
+  std::vector<char*> argv;
+  for (auto& a : args) argv.push_back(&a[0]);
+  argv.push_back(nullptr);
+  posix_spawnattr_t attr;
+  posix_spawnattr_init(&attr);
+  posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP);
+  posix_spawnattr_setpgroup(&attr, 0);
+  int rc = posix_spawn(&pid, args[0].c_str(), fa, &attr, argv.data(), environ);
+  posix_spawnattr_destroy(&attr);
+  if (rc != 0) {
+    why = std::strerror(rc);
+    return false;
+  }
+  return true;
+}
+
+bool wait_helper(pid_t pid, int& status, std::string& why) {
+  auto limit = helper_time_limit();
+  auto deadline = std::chrono::steady_clock::now() + limit;
+  auto pause = std::chrono::milliseconds(1);
+#ifdef SYS_pidfd_open
+  // Woken the moment the helper exits; the polling below is the fallback
+  // for kernels without pidfd_open.
+  int pidfd = static_cast<int>(syscall(SYS_pidfd_open, pid, 0));
+#else
+  int pidfd = -1;
+#endif
+  while (true) {
+    pid_t r = waitpid(pid, &status, WNOHANG);
+    if (r == pid) {
+      if (pidfd >= 0) close(pidfd);
+      return true;
+    }
+    if (r < 0 && errno != EINTR) {
+      why = std::string("waitpid: ") + std::strerror(errno);
+      if (pidfd >= 0) close(pidfd);
+      kill(-pid, SIGKILL);
+      return false;
+    }
+    auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) break;
+    if (pidfd >= 0) {
+      auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count() + 1;
+      pollfd p{pidfd, POLLIN, 0};
+      poll(&p, 1, static_cast<int>(std::min<long long>(left, INT_MAX)));
+      continue;
+    }
+    std::this_thread::sleep_for(pause);
+    pause = std::min(pause * 2, std::chrono::milliseconds(50));
+  }
+  if (pidfd >= 0) close(pidfd);
+  kill(-pid, SIGKILL);
+  while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+  }
+  long long ms = static_cast<long long>(limit.count());
+  why = ms % 1000 ? "timed out after " + std::to_string(ms) + " ms"
+                  : "timed out after " + std::to_string(ms / 1000) + " s";
+  return false;
 }
 
 namespace {
@@ -383,20 +478,20 @@ bool run_dcfgen(const std::string& dcfgen, const Config& cfg, const std::string&
   // The plugin's own lint (eds_lint.h) decides which findings stop the load.
   std::vector<std::string> args = {dcfgen, "--remote-pdo", "--no-strict", "-d", dir};
   args.push_back(yaml_path);
-  std::vector<char*> argv;
-  for (auto& a : args) argv.push_back(&a[0]);
-  argv.push_back(nullptr);
 
   pid_t pid;
-  int rc = posix_spawnp(&pid, dcfgen.c_str(), &fa, nullptr, argv.data(), environ);
+  std::string why;
+  bool started = !dcfgen.empty() && dcfgen[0] == '/' && spawn_helper(args, &fa, pid, why);
   posix_spawn_file_actions_destroy(&fa);
-  if (rc != 0) {
-    errors.push_back("cannot run dcfgen (" + dcfgen + "): " + std::strerror(rc) +
-                     "; is Lely's dcf-tools installed? (see docs/install.md)");
+  if (!started) {
+    errors.push_back("cannot run dcfgen (" + (dcfgen.empty() ? std::string("not found") : dcfgen) + ")" +
+                     (why.empty() ? "" : ": " + why) + "; is Lely's dcf-tools installed? (see docs/install.md)");
     return false;
   }
   int status = 0;
-  while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+  if (!wait_helper(pid, status, why)) {
+    errors.push_back("dcfgen on " + yaml_path + ": " + why + "; it was stopped (log: " + log_path + ")");
+    return false;
   }
   if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
     std::string log;

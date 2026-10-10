@@ -59,11 +59,19 @@ PlcPort* port(uint8_t network) {
 static std::atomic<uint32_t> g_gen_seed{0};
 
 PlcPort::PlcPort(uint8_t network) : network_(network) {
-  bus_.state = 4;
+  canworks_can_bus_info down{};
+  down.state = 4;
+  bus_[0].write(down);
+  bus_[1].write(down);
+  bus_last_.write(down);
   uint32_t base = g_gen_seed.fetch_add(0x1000, std::memory_order_relaxed) & kGenMask;
-  for (Receiver& r : rx_) r.gen = base;
-  for (TxSlot& t : tx_) t.gen = base;
-  for (Job& j : jobs_) j.gen = base;
+  for (Receiver& r : rx_) r.gen.store(base, std::memory_order_relaxed);
+  for (TxSlot& t : tx_) t.gen.store(base, std::memory_order_relaxed);
+  for (Job& j : jobs_) {
+    j.gen.store(base, std::memory_order_relaxed);
+    j.data.write(JobData{});
+  }
+  for (unsigned i = 0; i < kTx; ++i) txq_[i].seq.store(i, std::memory_order_relaxed);
 }
 
 void PlcPort::set_rules(PortRules rules) { rules_ = std::move(rules); }
@@ -91,9 +99,8 @@ uint16_t PlcPort::check_send(const canworks_can_frame& f) const {
 }
 
 bool PlcPort::bus_down() const {
-  uint32_t s = bus_seq_.load(std::memory_order_acquire);
-  uint8_t state = bus_.state;
-  return !(s & 1u) && (state == 3 || state == 4);
+  uint8_t state = bus_state_.load(std::memory_order_acquire);
+  return state == 3 || state == 4;
 }
 
 // --- Receivers ---
@@ -112,18 +119,25 @@ uint32_t PlcPort::rx_open(uint32_t id, uint32_t mask, uint8_t flags, uint16_t de
   }
   for (unsigned i = 0; i < kRx; ++i) {
     Receiver& r = rx_[i];
-    if (r.open.load(std::memory_order_relaxed)) continue;
-    r.id = id & max;
-    r.mask = mask & max;
-    r.flags = flags;
-    r.depth = depth ? depth : CANWORKS_CAN_DEPTH_DEFAULT;
-    r.gen = next_gen(r.gen);
+    uint8_t free = kSlotFree;
+    if (r.state.load(std::memory_order_relaxed) != kSlotFree ||
+        !r.state.compare_exchange_strong(free, kSlotClaimed, std::memory_order_acq_rel))
+      continue;
+    // The epoch first: a frame the raw thread matched against the slot's
+    // previous filter re-checks it and is dropped (or read and skipped).
     r.epoch.fetch_add(1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    r.id.store(id & max, std::memory_order_relaxed);
+    r.mask.store(mask & max, std::memory_order_relaxed);
+    r.flags.store(flags, std::memory_order_relaxed);
+    r.depth.store(depth ? depth : CANWORKS_CAN_DEPTH_DEFAULT, std::memory_order_relaxed);
+    uint32_t gen = next_gen(r.gen.load(std::memory_order_relaxed));
+    r.gen.store(gen, std::memory_order_relaxed);
     r.tail.store(r.head.load(std::memory_order_acquire), std::memory_order_relaxed);
     r.dropped_base = r.dropped.load(std::memory_order_relaxed);
-    r.open.store(true, std::memory_order_release);
+    r.state.store(kSlotOpen, std::memory_order_release);
     rx_version_.fetch_add(1, std::memory_order_release);
-    return make_handle(kKindRx, i, r.gen);
+    return make_handle(kKindRx, i, gen);
   }
   *error_id = CANWORKS_CAN_ERR_FULL;
   return 0;
@@ -135,7 +149,8 @@ int PlcPort::rx_read(uint32_t handle, canworks_can_frame* frame, canworks_can_rx
   uint32_t gen;
   if (!split_handle(handle, kKindRx, slot, gen) || slot >= kRx) return -CANWORKS_CAN_ERR_CANCELLED;
   Receiver& r = rx_[slot];
-  if (r.gen != gen || !r.open.load(std::memory_order_relaxed)) return -CANWORKS_CAN_ERR_CANCELLED;
+  if (r.gen.load(std::memory_order_relaxed) != gen || r.state.load(std::memory_order_acquire) != kSlotOpen)
+    return -CANWORKS_CAN_ERR_CANCELLED;
   uint32_t epoch = r.epoch.load(std::memory_order_relaxed);
   uint32_t head = r.head.load(std::memory_order_acquire);
   uint32_t tail = r.tail.load(std::memory_order_relaxed);
@@ -162,44 +177,56 @@ void PlcPort::rx_close(uint32_t handle) {
   uint32_t gen;
   if (!split_handle(handle, kKindRx, slot, gen) || slot >= kRx) return;
   Receiver& r = rx_[slot];
-  if (r.gen != gen) return;
-  r.gen = next_gen(r.gen);
-  if (r.open.exchange(false, std::memory_order_acq_rel)) rx_version_.fetch_add(1, std::memory_order_release);
+  if (r.gen.load(std::memory_order_relaxed) != gen) return;
+  r.gen.store(next_gen(gen), std::memory_order_relaxed);
+  uint8_t open = kSlotOpen;
+  if (r.state.compare_exchange_strong(open, kSlotFree, std::memory_order_acq_rel))
+    rx_version_.fetch_add(1, std::memory_order_release);
 }
 
 void PlcPort::on_frame(const canworks_can_frame& f) {
-  bool ext = (f.flags & CANWORKS_CAN_EXTENDED) != 0;
   for (Receiver& r : rx_) {
-    if (!r.open.load(std::memory_order_acquire)) continue;
-    if (((r.flags ^ f.flags) & CANWORKS_CAN_EXTENDED) != 0) continue;
-    if ((r.flags & CANWORKS_CAN_RTR) && !(f.flags & CANWORKS_CAN_RTR)) continue;
-    (void)ext;
-    if ((f.id & r.mask) != (r.id & r.mask)) continue;
+    if (r.state.load(std::memory_order_acquire) != kSlotOpen) continue;
+    uint32_t epoch = r.epoch.load(std::memory_order_acquire);
+    uint8_t flags = r.flags.load(std::memory_order_relaxed);
+    uint32_t id = r.id.load(std::memory_order_relaxed), mask = r.mask.load(std::memory_order_relaxed);
+    uint16_t depth = r.depth.load(std::memory_order_relaxed);
+    if (((flags ^ f.flags) & CANWORKS_CAN_EXTENDED) != 0) continue;
+    if ((flags & CANWORKS_CAN_RTR) && !(f.flags & CANWORKS_CAN_RTR)) continue;
+    if ((f.id & mask) != (id & mask)) continue;
+    // Reopened meanwhile (another filter): the match is not for this one.
+    std::atomic_thread_fence(std::memory_order_acquire);
+    if (r.state.load(std::memory_order_relaxed) != kSlotOpen || r.epoch.load(std::memory_order_relaxed) != epoch)
+      continue;
     uint32_t head = r.head.load(std::memory_order_relaxed);
     uint32_t tail = r.tail.load(std::memory_order_acquire);
-    if (head - tail >= r.depth) {
+    if (head - tail >= depth) {
       r.dropped.fetch_add(1, std::memory_order_relaxed);
       continue;
     }
+    // Should it be reopened from here on, the entry carries the old epoch
+    // and the new owner skips it.
     Entry& e = r.ring[head % kDepth];
     e.frame = f;
-    e.epoch = r.epoch.load(std::memory_order_relaxed);
+    e.epoch = epoch;
     r.head.store(head + 1, std::memory_order_release);
   }
 }
 
 bool PlcPort::active() const {
   for (const Receiver& r : rx_)
-    if (r.open.load(std::memory_order_acquire)) return true;
+    if (r.state.load(std::memory_order_acquire) == kSlotOpen) return true;
   for (const Job& j : jobs_)
-    if (j.active.load(std::memory_order_acquire)) return true;
+    if (j.state.load(std::memory_order_acquire) == kSlotOpen) return true;
   return txq_head_.load(std::memory_order_acquire) != txq_tail_.load(std::memory_order_relaxed) ||
          echo_head_ != echo_tail_;
 }
 
 void PlcPort::for_each_receiver(const std::function<void(uint32_t, uint32_t, uint8_t)>& f) const {
   for (const Receiver& r : rx_)
-    if (r.open.load(std::memory_order_acquire)) f(r.id, r.mask, r.flags);
+    if (r.state.load(std::memory_order_acquire) == kSlotOpen)
+      f(r.id.load(std::memory_order_relaxed), r.mask.load(std::memory_order_relaxed),
+        r.flags.load(std::memory_order_relaxed));
 }
 
 // --- Single frames ---
@@ -209,27 +236,53 @@ uint32_t PlcPort::tx_send(const canworks_can_frame* frame, uint32_t timeout_ms, 
   if (*error_id) return 0;
   for (unsigned i = 0; i < kTx; ++i) {
     TxSlot& s = tx_[i];
-    if (s.state.load(std::memory_order_acquire) != kFree) continue;
+    uint8_t free = kFree;
+    if (s.state.load(std::memory_order_relaxed) != kFree ||
+        !s.state.compare_exchange_strong(free, kClaimed, std::memory_order_acq_rel))
+      continue;
     s.frame = *frame;
     if (s.frame.flags & CANWORKS_CAN_RTR) std::memset(s.frame.data, 0, sizeof s.frame.data);
-    s.gen = next_gen(s.gen);
+    uint32_t gen = next_gen(s.gen.load(std::memory_order_relaxed));
+    s.gen.store(gen, std::memory_order_relaxed);
     s.deadline_us = monotonic_us() + static_cast<uint64_t>(timeout_ms ? timeout_ms : kDefaultTimeoutMs) * 1000u;
     s.error.store(0, std::memory_order_relaxed);
     s.state.store(kQueued, std::memory_order_release);
-    uint32_t head = txq_head_.load(std::memory_order_relaxed);
-    txq_[head % kTx] = static_cast<uint8_t>(i);
-    txq_head_.store(head + 1, std::memory_order_release);
-    return make_handle(kKindTx, i, s.gen);
+    if (!push_tx(static_cast<uint8_t>(i))) {  // cannot happen: one cell per slot
+      s.state.store(kFree, std::memory_order_release);
+      break;
+    }
+    return make_handle(kKindTx, i, gen);
   }
   *error_id = CANWORKS_CAN_ERR_FULL;
   return 0;
+}
+
+bool PlcPort::push_tx(uint8_t slot) {
+  uint32_t pos = txq_head_.load(std::memory_order_relaxed);
+  for (;;) {
+    TxCell& c = txq_[pos % kTx];
+    uint32_t seq = c.seq.load(std::memory_order_acquire);
+    int32_t dif = static_cast<int32_t>(seq - pos);
+    if (dif == 0) {
+      if (txq_head_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) break;
+    } else if (dif < 0) {
+      return false;
+    } else {
+      pos = txq_head_.load(std::memory_order_relaxed);
+    }
+  }
+  TxCell& c = txq_[pos % kTx];
+  c.slot = slot;
+  c.seq.store(pos + 1, std::memory_order_release);
+  return true;
 }
 
 int PlcPort::tx_poll(uint32_t handle, uint16_t* error_id) {
   *error_id = 0;
   unsigned slot;
   uint32_t gen;
-  if (!split_handle(handle, kKindTx, slot, gen) || slot >= kTx || tx_[slot].gen != gen) {
+  if (!split_handle(handle, kKindTx, slot, gen) || slot >= kTx ||
+      tx_[slot].gen.load(std::memory_order_relaxed) != gen) {
     *error_id = CANWORKS_CAN_ERR_CANCELLED;
     return 2;
   }
@@ -238,16 +291,20 @@ int PlcPort::tx_poll(uint32_t handle, uint16_t* error_id) {
   if (st == kQueued || st == kWritten) {
     if (monotonic_us() < s.deadline_us) return 0;
     // Give the slot to the raw thread to free; if it finished meanwhile, take
-    // its result instead.
-    if (s.state.compare_exchange_strong(st, kAbandoned, std::memory_order_acq_rel)) {
-      s.gen = next_gen(s.gen);
+    // its result instead. The handle goes stale first: once abandoned, the
+    // slot may be freed and claimed by another task at once.
+    s.gen.store(next_gen(gen), std::memory_order_relaxed);
+    while ((st == kQueued || st == kWritten) &&
+           !s.state.compare_exchange_weak(st, kAbandoned, std::memory_order_acq_rel)) {
+    }
+    if (st == kQueued || st == kWritten) {
       *error_id = CANWORKS_CAN_ERR_TIMEOUT;
       return 2;
     }
   }
   if (st == kDone || st == kFailed) {
     *error_id = st == kFailed ? s.error.load(std::memory_order_relaxed) : 0;
-    s.gen = next_gen(s.gen);
+    s.gen.store(next_gen(gen), std::memory_order_relaxed);
     s.state.store(kFree, std::memory_order_release);
     return st == kDone ? 1 : 2;
   }
@@ -258,8 +315,11 @@ int PlcPort::tx_poll(uint32_t handle, uint16_t* error_id) {
 bool PlcPort::next_tx(canworks_can_frame& frame, uint32_t& tag) {
   for (;;) {
     uint32_t tail = txq_tail_.load(std::memory_order_relaxed);
-    if (tail == txq_head_.load(std::memory_order_acquire)) return false;
-    uint8_t i = txq_[tail % kTx];
+    TxCell& c = txq_[tail % kTx];
+    // Empty, or the next cell's task has not finished putting it in yet.
+    if (c.seq.load(std::memory_order_acquire) != tail + 1) return false;
+    uint8_t i = c.slot;
+    c.seq.store(tail + kTx, std::memory_order_release);
     txq_tail_.store(tail + 1, std::memory_order_release);
     TxSlot& s = tx_[i];
     uint8_t st = s.state.load(std::memory_order_acquire);
@@ -349,17 +409,6 @@ void PlcPort::expire_echoes(uint64_t now_us, uint64_t max_age_us) {
 
 // --- Cyclic jobs ---
 
-void PlcPort::read_job(const Job& j, canworks_can_frame& f, uint32_t& period_us) const {
-  for (;;) {
-    uint32_t a = j.seq.load(std::memory_order_acquire);
-    if (a & 1u) continue;
-    f = j.frame;
-    period_us = j.period_us;
-    std::atomic_thread_fence(std::memory_order_acquire);
-    if (j.seq.load(std::memory_order_relaxed) == a) return;
-  }
-}
-
 namespace {
 constexpr uint32_t kPeriodMin = 1000, kPeriodMax = 60000000;
 }
@@ -370,16 +419,17 @@ uint32_t PlcPort::cyc_start(const canworks_can_frame* frame, uint32_t period_us,
   if (*error_id) return 0;
   for (unsigned i = 0; i < kJobs; ++i) {
     Job& j = jobs_[i];
-    if (j.active.load(std::memory_order_relaxed)) continue;
-    j.seq.fetch_add(1, std::memory_order_acq_rel);
-    j.frame = *frame;
-    j.period_us = period_us;
-    j.seq.fetch_add(1, std::memory_order_release);
+    uint8_t free = kSlotFree;
+    if (j.state.load(std::memory_order_relaxed) != kSlotFree ||
+        !j.state.compare_exchange_strong(free, kSlotClaimed, std::memory_order_acq_rel))
+      continue;
+    j.data.write(JobData{*frame, period_us});
     j.count.store(0, std::memory_order_relaxed);
-    j.gen = next_gen(j.gen);
+    uint32_t gen = next_gen(j.gen.load(std::memory_order_relaxed));
+    j.gen.store(gen, std::memory_order_relaxed);
     j.start.fetch_add(1, std::memory_order_release);
-    j.active.store(true, std::memory_order_release);
-    return make_handle(kKindJob, i, j.gen);
+    j.state.store(kSlotOpen, std::memory_order_release);
+    return make_handle(kKindJob, i, gen);
   }
   *error_id = CANWORKS_CAN_ERR_FULL;
   return 0;
@@ -390,24 +440,24 @@ int PlcPort::cyc_update(uint32_t handle, const canworks_can_frame* frame, uint32
   *error_id = 0;
   unsigned slot;
   uint32_t gen;
-  if (!split_handle(handle, kKindJob, slot, gen) || slot >= kJobs || jobs_[slot].gen != gen ||
-      !jobs_[slot].active.load(std::memory_order_acquire)) {
+  if (!split_handle(handle, kKindJob, slot, gen) || slot >= kJobs ||
+      jobs_[slot].gen.load(std::memory_order_relaxed) != gen ||
+      jobs_[slot].state.load(std::memory_order_acquire) != kSlotOpen) {
     *error_id = CANWORKS_CAN_ERR_CANCELLED;
     return 2;
   }
   Job& j = jobs_[slot];
   *count = j.count.load(std::memory_order_relaxed);
-  canworks_can_frame f = j.frame;  // identifier and flags stay as started
+  JobData d;
+  j.data.try_read(d);  // the owning task is the only writer: always complete
+  canworks_can_frame f = d.frame;  // identifier and flags stay as started
   f.dlc = frame->dlc;
   std::memcpy(f.data, frame->data, sizeof f.data);
   if (f.dlc > 8 || period_us < kPeriodMin || period_us > kPeriodMax) {
     *error_id = CANWORKS_CAN_ERR_INPUT;
     return 2;
   }
-  j.seq.fetch_add(1, std::memory_order_acq_rel);
-  j.frame = f;
-  j.period_us = period_us;
-  j.seq.fetch_add(1, std::memory_order_release);
+  j.data.write(JobData{f, period_us});
   if (bus_down()) *error_id = CANWORKS_CAN_ERR_BUS;  // the job stays; COUNT resumes when the bus is back
   return 0;
 }
@@ -415,24 +465,32 @@ int PlcPort::cyc_update(uint32_t handle, const canworks_can_frame* frame, uint32
 void PlcPort::cyc_stop(uint32_t handle) {
   unsigned slot;
   uint32_t gen;
-  if (!split_handle(handle, kKindJob, slot, gen) || slot >= kJobs || jobs_[slot].gen != gen) return;
-  jobs_[slot].gen = next_gen(jobs_[slot].gen);
-  jobs_[slot].active.store(false, std::memory_order_release);
+  if (!split_handle(handle, kKindJob, slot, gen) || slot >= kJobs ||
+      jobs_[slot].gen.load(std::memory_order_relaxed) != gen)
+    return;
+  jobs_[slot].gen.store(next_gen(gen), std::memory_order_relaxed);
+  uint8_t open = kSlotOpen;
+  jobs_[slot].state.compare_exchange_strong(open, kSlotFree, std::memory_order_acq_rel);
 }
 
 int PlcPort::cyclic_due(uint64_t now_us, canworks_can_frame* out, uint8_t* jobs, int max) {
   int n = 0;
   for (unsigned i = 0; i < kJobs && n < max; ++i) {
     Job& j = jobs_[i];
-    if (!j.active.load(std::memory_order_acquire)) continue;
-    canworks_can_frame f;
-    uint32_t period;
-    read_job(j, f, period);
+    if (j.state.load(std::memory_order_acquire) != kSlotOpen) continue;
     uint32_t start = j.start.load(std::memory_order_acquire);
+    // The task is changing the frame right now: its last consistent copy
+    // (none for a job not seen yet: next pass).
+    JobData d;
+    bool fresh = j.data.try_read(d);
+    if (fresh) j.last = d;
     if (start != j.seen_start) {  // a new job: first frame now
+      if (!fresh) continue;
       j.seen_start = start;
       j.next_due = now_us;
     }
+    const canworks_can_frame& f = j.last.frame;
+    uint32_t period = j.last.period_us;
     if (now_us < j.next_due) continue;
     // Keep the phase; after a long stall, restart from now instead of bursting.
     j.next_due += period;
@@ -454,7 +512,7 @@ void PlcPort::cyclic_sent(uint8_t job) {
 uint64_t PlcPort::next_cyclic_in(uint64_t now_us) const {
   uint64_t best = UINT64_MAX;
   for (const Job& j : jobs_) {
-    if (!j.active.load(std::memory_order_acquire)) continue;
+    if (j.state.load(std::memory_order_acquire) != kSlotOpen) continue;
     if (j.start.load(std::memory_order_acquire) != j.seen_start || j.next_due <= now_us) return 0;
     uint64_t in = j.next_due - now_us;
     if (in < best) best = in;
@@ -478,19 +536,30 @@ void PlcPort::set_running(bool running) {
 }
 
 void PlcPort::publish_bus(const canworks_can_bus_info& info) {
-  bus_seq_.fetch_add(1, std::memory_order_acq_rel);
-  bus_ = info;
-  bus_seq_.fetch_add(1, std::memory_order_release);
+  uint32_t next = bus_current_.load(std::memory_order_relaxed) ^ 1u;
+  bus_[next].write(info);
+  bus_current_.store(next, std::memory_order_release);
+  bus_state_.store(info.state, std::memory_order_release);
 }
 
 int PlcPort::bus_info(canworks_can_bus_info* info, uint16_t* error_id) {
   *error_id = 0;
-  for (;;) {
-    uint32_t a = bus_seq_.load(std::memory_order_acquire);
-    if (a & 1u) continue;
-    *info = bus_;
-    std::atomic_thread_fence(std::memory_order_acquire);
-    if (bus_seq_.load(std::memory_order_relaxed) == a) break;
+  // A read fails only when the raw thread published twice meanwhile. After
+  // kBusReadTries the last complete copy any reader got is returned instead
+  // of waiting (or, should that be being written right now, the state alone).
+  constexpr int kBusReadTries = 4;
+  bool good = false;
+  for (int k = 0; k < kBusReadTries && !good; ++k)
+    good = bus_[bus_current_.load(std::memory_order_acquire)].try_read(*info);
+  if (good) {
+    bool busy = false;
+    if (bus_last_busy_.compare_exchange_strong(busy, true, std::memory_order_acquire)) {
+      bus_last_.write(*info);
+      bus_last_busy_.store(false, std::memory_order_release);
+    }
+  } else if (!bus_last_.try_read(*info)) {
+    *info = canworks_can_bus_info{};
+    info->state = bus_state_.load(std::memory_order_acquire);
   }
   info->rx_count = rx_count_.load(std::memory_order_relaxed);
   info->tx_count = tx_count_.load(std::memory_order_relaxed);
@@ -503,18 +572,18 @@ int PlcPort::bus_info(canworks_can_bus_info* info, uint16_t* error_id) {
 void PlcPort::cancel_all() {
   bool changed = false;
   for (Receiver& r : rx_) {
-    r.gen = next_gen(r.gen);
-    if (r.open.exchange(false, std::memory_order_acq_rel)) changed = true;
+    r.gen.store(next_gen(r.gen.load(std::memory_order_relaxed)), std::memory_order_relaxed);
+    if (r.state.exchange(kSlotFree, std::memory_order_acq_rel) == kSlotOpen) changed = true;
   }
   if (changed) rx_version_.fetch_add(1, std::memory_order_release);
   for (Job& j : jobs_) {
-    j.gen = next_gen(j.gen);
-    j.active.store(false, std::memory_order_release);
+    j.gen.store(next_gen(j.gen.load(std::memory_order_relaxed)), std::memory_order_relaxed);
+    j.state.store(kSlotFree, std::memory_order_release);
   }
   // Pending single frames: their handles go stale; slots still owned by the
   // raw thread are freed when it reaches them.
   for (TxSlot& s : tx_) {
-    s.gen = next_gen(s.gen);
+    s.gen.store(next_gen(s.gen.load(std::memory_order_relaxed)), std::memory_order_relaxed);
     uint8_t st = s.state.load(std::memory_order_acquire);
     if (st == kDone || st == kFailed) {
       s.state.store(kFree, std::memory_order_release);
@@ -527,11 +596,11 @@ void PlcPort::cancel_all() {
 PlcPort::Stats PlcPort::stats() const {
   Stats s;
   for (const Receiver& r : rx_) {
-    if (r.open.load(std::memory_order_acquire)) ++s.receivers;
+    if (r.state.load(std::memory_order_acquire) == kSlotOpen) ++s.receivers;
     s.dropped += r.dropped.load(std::memory_order_relaxed);
   }
   for (const Job& j : jobs_)
-    if (j.active.load(std::memory_order_acquire)) ++s.cyclic_jobs;
+    if (j.state.load(std::memory_order_acquire) == kSlotOpen) ++s.cyclic_jobs;
   s.sent = sent_.load(std::memory_order_relaxed);
   return s;
 }

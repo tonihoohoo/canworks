@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -148,7 +149,7 @@ TEST(j1939_claim_uncontested) {
   c.tick(t0 + milliseconds(500));
   CHECK(c.state() == J1939ClaimState::Claimed && c.address() == 128);
   // A request for the claim is answered; a higher NAME is fought off.
-  c.on_claim_request();
+  c.on_claim_request(t0 + milliseconds(550));
   c.on_claim(128, c.name() + 1, t0 + milliseconds(600));
   CHECK((a.claims == std::vector<int>{128, 128, 128}) && c.state() == J1939ClaimState::Claimed);
   c.bus_lost();
@@ -166,8 +167,23 @@ TEST(j1939_claim_held_by_lower_name) {
     c.on_claim(128, 1, t0 + milliseconds(10));
     c.tick(t0 + milliseconds(250));
     CHECK(a.claims == std::vector<int>{254} && c.state() == J1939ClaimState::CannotClaim);
-    c.on_claim_request();
+    // A request is answered with Cannot Claim after a pseudo-random delay
+    // of 0-153 ms (J1939-81), the same for the same NAME.
+    c.on_claim_request(t0 + milliseconds(300));
+    int delay = -1;
+    for (int ms = 300; ms <= 460 && delay < 0; ++ms) {
+      c.tick(t0 + milliseconds(ms));
+      if (a.claims.size() == 2) delay = ms - 300;
+    }
+    CHECK_MSG(delay >= 0 && delay <= 153, "delay " + std::to_string(delay));
     CHECK((a.claims == std::vector<int>{254, 254}));
+    c.tick(t0 + milliseconds(1000));
+    CHECK(a.claims.size() == 2);
+    // A second request while one waits is answered once.
+    c.on_claim_request(t0 + milliseconds(2000));
+    c.on_claim_request(t0 + milliseconds(2001));
+    c.tick(t0 + milliseconds(2160));
+    CHECK(a.claims.size() == 3);
   }
   // With a range: the next free address (129 is taken too).
   {
@@ -194,6 +210,35 @@ TEST(j1939_claim_held_by_lower_name) {
     c.tick(t0 + milliseconds(250));
     CHECK(c.state() == J1939ClaimState::CannotClaim);
   }
+}
+
+// The Cannot Claim delay of the first Request after losing the address.
+int cannot_claim_delay(uint32_t identity) {
+  J1939Ecu e = ecu(128, false);
+  e.name.identity_number = identity;
+  FakeActions a;
+  AddressClaimer c(e, a);
+  auto t0 = clock_type::now();
+  c.start(t0);
+  c.on_claim(128, 1, t0);
+  c.tick(t0 + milliseconds(250));
+  c.on_claim_request(t0 + milliseconds(300));
+  for (int ms = 300; ms <= 460; ++ms) {
+    c.tick(t0 + milliseconds(ms));
+    if (a.claims.size() == 2) return ms - 300;
+  }
+  return -1;
+}
+
+TEST(j1939_cannot_claim_delay_from_the_name) {
+  std::set<int> seen;
+  for (uint32_t id = 1; id <= 16; ++id) {
+    int d = cannot_claim_delay(id);
+    CHECK_MSG(d >= 0 && d <= 153, "identity " + std::to_string(id) + ": delay " + std::to_string(d));
+    CHECK(cannot_claim_delay(id) == d);
+    seen.insert(d);
+  }
+  CHECK_MSG(seen.size() >= 8, std::to_string(seen.size()) + " different delays for 16 NAMEs");
 }
 
 TEST(j1939_claim_lost_after_claimed) {
@@ -490,6 +535,46 @@ TEST(j1939_engine_answers_requests) {
   cJSON_free(text);
   cJSON_Delete(s);
   CHECK_MSG(js.find(R"("requests_answered":1)") != std::string::npos, js);
+}
+
+// Requests for the same PGN from the same requester are answered at most
+// every 50 ms; other requesters and other PGNs have their own limit.
+TEST(j1939_engine_rate_limits_requests) {
+  Rig r;
+  r.claim();
+  r.img.int_out[0] = 0x0102;
+  r.image.copy_from_plc(r.rt);
+  size_t before = r.socket.of(0xFF01).size();
+  for (int ms = 520; ms < 720; ms += 5) r.request(0xFF01, 0x03, 128, ms);
+  size_t answered = r.socket.of(0xFF01).size() - before;
+  CHECK_MSG(answered == 4, std::to_string(answered) + " answers in 200 ms");
+  r.request(0xFF01, 0x04, 128, 721);
+  CHECK(r.socket.of(0xFF01).size() - before == 5);
+  // NACKs too.
+  for (int ms = 800; ms < 900; ms += 5) r.request(0xFEEE, 0x03, 128, ms);
+  CHECK(r.socket.of(kPgnAcknowledgement).size() == 2);
+}
+
+// A send the interface refuses does not count as sent: an on-change PGN goes
+// out with its new value once the interface takes frames again.
+TEST(j1939_engine_failed_send_stays_pending) {
+  Rig r;
+  r.claim();
+  r.img.byte_out[4] = 7;
+  r.image.copy_from_plc(r.rt);
+  r.engine.tick(r.at(1600));
+  CHECK(r.socket.of(0xFF02).size() == 1);
+  r.img.byte_out[4] = 8;
+  r.image.copy_from_plc(r.rt);
+  r.socket.send_result = -ENOBUFS;
+  r.engine.tick(r.at(1700));
+  CHECK(r.socket.of(0xFF02).size() == 2);
+  r.socket.send_result = 0;
+  r.engine.tick(r.at(1701));
+  auto b = r.socket.of(0xFF02);
+  CHECK(b.size() == 3 && b.back().data[0] == 8);
+  r.engine.tick(r.at(1800));
+  CHECK(r.socket.of(0xFF02).size() == 3);
 }
 
 TEST(j1939_engine_moves_on_contention) {

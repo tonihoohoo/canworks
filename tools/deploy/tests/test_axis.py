@@ -267,7 +267,7 @@ class MapObjects(unittest.TestCase):
         self.assertEqual(why["0x6061"], "the EDS does not let it be mapped in a TPDO")
         # The result passes the contract check apart from what is missing.
         cfg = {"schema_version": 1, "adapter": {"type": "socketcan", "interface": "can0", "bitrate": 500000},
-               "master": {"node_id": 1}, "nodes": [dict(new, eds=os.path.join(DRIVES, "fixed-drive.eds"))]}
+               "master": {"node_id": 1}, "nodes": [dict(new, eds=os.path.join(DRIVES, "fixed-drive.eds"), heartbeat_ms=100)]}
         r = contract.check_config(cfg, os.path.join(DRIVES, "x.json"))
         self.assertEqual(r.errors, [])
 

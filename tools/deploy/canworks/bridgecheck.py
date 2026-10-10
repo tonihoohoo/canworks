@@ -21,8 +21,13 @@ SDO_BYTES = 14
 # The largest byte address of a bridge config (+1), per direction.
 IMAGE_BYTES = 8192
 
-KEYS = ("listen", "unit_id", "word_order", "max_clients", "writers", "readers", "watchdog_ms", "on_client_loss",
+KEYS = ("listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers", "readers", "watchdog_ms", "on_client_loss",
         "status_location", "control_location", "live_lists", "sdo_bridge_location", "sdo_bridge_write")
+
+# Every address may write: the explicit form `writers` needs for that.
+ALL_WRITERS = ["0.0.0.0/0", "::/0"]
+WRITERS_MISSING = ("missing required field 'writers': list the addresses that may write, or [\"0.0.0.0/0\", "
+                   "\"::/0\"] to let every address write")
 
 NOT_BRIDGE_CONFIG = ("not a bridge config: canworks-bridge serves a version 2 config with a top-level 'bridge' "
                      "object")
@@ -103,6 +108,10 @@ def _block(obj, key, where, area, nbytes, err):
     loc = parse_location(text)
     if loc is None:
         return None  # the location syntax is reported by the schema
+    if loc.index + SIZE_BYTES[loc.size] > IMAGE_BYTES:
+        err(where, "%s %s lies outside the runtime I/O image (index must be below %d)" % (key, loc, IMAGE_BYTES),
+            [where + "." + key])
+        return None
     if loc.size != "B" or loc.area != area:
         err(where, "%s must be %s byte location (%%%sB...) where its %d-byte block starts, not %s"
             % (key, "an input" if area == "I" else "an output", area, nbytes, loc), [where + "." + key])
@@ -137,6 +146,11 @@ def check_bridge(cfg, nets, err, warn):
     v = _get_uint(b, "max_clients", w, 64, err)
     if v is not None and v < 1:
         err(w, "field 'max_clients' must be 1-64", [w + ".max_clients"])
+    v = _get_uint(b, "max_clients_per_address", w, 64, err)
+    if v is not None and v < 1:
+        err(w, "field 'max_clients_per_address' must be 1-64", [w + ".max_clients_per_address"])
+    if "writers" not in b:
+        err(w, WRITERS_MISSING, [w + ".writers"])
     for key in ("writers", "readers"):
         if key not in b:
             continue

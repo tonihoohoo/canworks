@@ -6,7 +6,7 @@ the EDS files it names, relative to canworks/. materialize() checks that
 config the way the deploy tool does and, only if everything is in order,
 writes it into the upload's conf/ directory in the deploy tool's layout:
 
-    conf/canworks.json              (each node's eds -> canworks/eds/<name>,
+    conf/canworks.json              (each node's and slave's eds -> canworks/eds/<name>,
                                     software_file -> canworks/fw/<name>)
     conf/canworks/eds/<name>
     conf/canworks/fw/<name>
@@ -121,13 +121,19 @@ def _load(snapshot_zip):
             cfg = json.loads(_read(z, info, budget).decode("utf-8"))
         except (UnicodeDecodeError, ValueError) as e:
             raise Rejected("%s is not valid JSON: %s" % (where, e))
-        if not isinstance(cfg, dict) or not isinstance(cfg.get("nodes"), list):
-            raise Rejected("%s: top level must be an object with a 'nodes' list" % where)
+        if not isinstance(cfg, dict):
+            raise Rejected("%s: top level must be a JSON object" % where)
 
+        # Version 1 and 2 alike: every node of every master network and each
+        # slave network's own EDS, as bundle.rewrite() walks them.
+        try:
+            users, nodes = contract.eds_users(cfg), contract.all_nodes(cfg)
+        except TypeError:  # "nodes" or "networks" of the wrong type
+            raise Rejected("%s: 'nodes' and 'networks' must be lists" % where)
         eds = {}
-        for n in cfg["nodes"]:
-            value = n.get("eds") if isinstance(n, dict) else None
-            if value in eds or value is None:
+        for n in users:
+            value = n.get("eds")
+            if value is None or (isinstance(value, str) and value in eds):
                 continue
             rel = _safe_relative(value)
             if rel is None:
@@ -145,9 +151,9 @@ def _load(snapshot_zip):
             eds[value] = data
 
         software = {}
-        for n in cfg["nodes"]:
-            value = n.get("software_file") if isinstance(n, dict) else None
-            if value in software or value is None:
+        for n in nodes:
+            value = n.get("software_file")
+            if value is None or (isinstance(value, str) and value in software):
                 continue
             rel = _safe_relative(value)
             if rel is None:
@@ -303,7 +309,7 @@ def materialize(snapshot_zip, conf_dir):
                                      "named %s; rename one" % name)]
         fw_by_name[name] = data
     out = json.loads(json.dumps(cfg))
-    for n in out["nodes"]:
+    for n in contract.eds_users(out):
         n["eds"] = "%s/%s" % (EDS_DIR, posixpath.basename(n["eds"]))
         if n.get("software_file"):
             n["software_file"] = "%s/%s" % (FW_DIR, posixpath.basename(n["software_file"]))

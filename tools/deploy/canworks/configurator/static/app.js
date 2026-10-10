@@ -389,7 +389,7 @@ function field(label, path, kind, opts) {
   input.addEventListener("input", () => {
     const t = input.value.trim();
     let v;
-    if (t === "") v = undefined;
+    if (t === "") v = opts.empty;  // undefined unless the field saves something for empty
     else if (opts.parse) v = opts.parse(t);
     else if (kind === "int") v = /^-?[0-9]+$/.test(t) ? parseInt(t, 10) : t;
     else if (kind === "intstr") v = /^[0-9]+$/.test(t) ? parseInt(t, 10) : t;
@@ -1209,6 +1209,14 @@ function renderBus(view) {
         }),
         field("Master heartbeat (ms)", "master.heartbeat_ms", "intstr", { placeholder: "off",
           hint: "Empty: off. Set it when slaves should watch the master." }),
+        choice("When the PLC stops", "master.on_plc_stop", [
+          { value: undefined, label: "Pre-operational",
+            help: "Default. Each node that is up gets ENTER PRE-OPERATIONAL before the network closes: its PDOs stop, so its own communication-loss setting applies, and SDO access stays for a restart." },
+          { value: "stop", label: "Stopped", help: "Each node that is up gets NMT STOP: PDOs and SDO stop until the next PLC start." },
+          { value: "keep", label: "Keep running", help: "Nothing is sent: the nodes keep the last outputs they got. Only for devices that are safe that way." },
+        ]),
+        field("Scan watchdog (ms)", "master.scan_watchdog_ms", "intstr", { placeholder: "1000",
+          hint: "When the PLC scan has not advanced for this long while the PLC runs, the outputs stop (RPDOs and raw sends; SYNC goes on) until it advances again. 10 to 60000, 0 turns it off. Empty: 1000." }),
         choice("EDS lint (dcfgen)", "master.eds_lint", [
           { value: undefined, label: "Communication objects",
             help: "Default. The PLC stops only on lint findings in the objects 0x1000-0x1FFF that dcfgen writes, and not on findings only about limits. Other findings are logged as one warning per EDS." },
@@ -2204,7 +2212,7 @@ function storeConfigurationField(i, eds) {
 }
 
 const SUPERVISION = [
-  { value: "none", label: "EDS default", help: "Nothing is written to the slave: it keeps the heartbeat its EDS gives (object 0x1017), and the master watches that heartbeat when it is not 0. With 0 a node that drops off the bus is not noticed; pick Heartbeat and set 0 to switch a default heartbeat off." },
+  { value: "none", label: "EDS default", help: "Nothing is written to the slave: it keeps the heartbeat its EDS gives (object 0x1017), and the master watches that heartbeat. An EDS default of 0 is refused, since a node that drops off the bus would not be noticed: pick Heartbeat and set a period (or 0 to accept that)." },
   { value: "heartbeat", label: "Heartbeat (recommended)",
     help: "The slave sends a heartbeat every period. The master marks it lost when none arrives within the timeout." },
   { value: "guarding", label: "Node guarding",
@@ -2252,6 +2260,9 @@ function supervisionFields(i) {
     field("Life time factor", base + ".life_time_factor", "intstr", { placeholder: "e.g. 3",
       hint: "Missed polls before the node counts as lost." }));
   }
+  // A node the master would never see lost (no heartbeat_ms, no guarding, EDS
+  // heartbeat 0) is refused on its heartbeat_ms: shown under Method.
+  if (mode !== "heartbeat") out.push(el("span", { class: "field-msg wide", dataset: { for: base + ".heartbeat_ms" } }));
   return out;
 }
 
@@ -3362,7 +3373,14 @@ function adapterForm(view) {
     title: "Listen at each bit rate without sending anything, and pick the one with traffic",
     onclick: async () => {
       const alone = lone.querySelector("input").checked;
-      if (alone && !(await askLone())) return;
+      if (alone) {
+        // The server checks it too: allow changes, a bit rate to listen at
+        // first, and at most one device heard.
+        if (!allow.checked) { detectMsg.textContent = "The lone-device sweep joins the bus at every rate: tick Allow changes first."; allow.focus(); return; }
+        if (!rate.value) { detectMsg.textContent = "Pick a bit rate first: the lone-device sweep listens at it to check that only one device is on the bus."; rate.focus(); return; }
+        if (!(await askLone())) return;
+        if (!(await saveOnline({ allow_changes: true }))) return;
+      }
       adapterDetect(input, rate, detect, detectMsg, false, alone);
     } }, "Detect");
   view.append(el("fieldset", null, el("legend", null, "Connect"), targetChoice(),
@@ -4091,14 +4109,54 @@ function pdoTimeoutTable(n) {
       el("td", null, t.since_ms === null || t.since_ms === undefined ? "never" : `${t.since_ms} ms ago`)))));
 }
 
+// An SDO write and NMT other than START to an OPERATIONAL node, and a scan
+// while a node is OPERATIONAL, need force: the PLC program drives the node.
+// The page asks first ("node N is running; send anyway?"), when the last
+// status shows the node OPERATIONAL or the plugin refuses for that reason,
+// and only then sends the request with force.
+function nodeRunning(id) {
+  const st = S.onlineLast && S.onlineLast.status;
+  const n = st ? (st.nodes || []).find((x) => x.node_id === id) : null;
+  return !!n && n.state === 5;
+}
+const RUNNING_TEXT = (id) => `Node ${id} is running (OPERATIONAL) and the PLC program drives it. Send anyway?`;
+async function askRunning(text) {
+  return await modal(text, [["send", "Send anyway", true], ["cancel", "Cancel"]]) === "send";
+}
+// api() for a request that needs force on a running node; null when the
+// user said no (nothing was sent). `asked`: the question was already put.
+async function apiRunning(path, body, text, asked) {
+  if (asked) return api("POST", path, Object.assign({}, body, { force: true }));
+  try { return await api("POST", path, body); } catch (e) {
+    if (!(e.body && e.body.force)) throw e;
+    if (!(await askRunning(`${upperFirst(e.message.replace(/;?\s*force needed\s*$/, ""))}. ${text}`))) return null;
+    return api("POST", path, Object.assign({}, body, { force: true }));
+  }
+}
+// The sentence a write dialog starts with when the node is OPERATIONAL.
+function runningNote(id, running) {
+  return running ? `Node ${id} is running (OPERATIONAL) and the PLC program drives it. ` : "";
+}
+async function apiNodeChange(id, path, body) {
+  const running = nodeRunning(id);
+  if (running && !(await askRunning(RUNNING_TEXT(id)))) return null;
+  return apiRunning(path, body, "Send anyway?", running);
+}
+
 function nmtButtons(id, allow) {
   const send = async (command, label, confirm) => {
-    if (confirm) {
-      const v = await modal(confirm, [["go", label, true], ["cancel", "Cancel"]]);
-      if (v !== "go") return;
+    // START never needs force; the others ask once, naming a running node.
+    const running = command !== "start" && nodeRunning(id);
+    if (confirm || running) {
+      const text = running ? `Node ${id} is running (OPERATIONAL) and the PLC program drives it. ${confirm || ""} Send anyway?` : confirm;
+      const v = await modal(text, [[running ? "send" : "go", running ? "Send anyway" : label, true], ["cancel", "Cancel"]]);
+      if (v !== "go" && v !== "send") return;
     }
     try {
-      const r = await api("POST", "/api/online/nmt", { node: id, command, port: diagPort() });
+      const body = { node: id, command, port: diagPort() };
+      const r = command === "start" ? await api("POST", "/api/online/nmt", body)
+        : await apiRunning("/api/online/nmt", body, "Send anyway?", running);
+      if (!r) return;
       banner(`Node ${id}: ${label} sent.` + (r.note ? " " + r.note + "." : ""));
     } catch (e) { banner(e.message, true); }
   };
@@ -4182,7 +4240,8 @@ function sdoPanel(id, n, allow) {
     }
     out.replaceChildren(el("span", { class: "muted" }, "Writing…"));
     try {
-      const r = await api("POST", "/api/online/sdo_write", Object.assign(t, { value: value.value }));
+      const r = await apiNodeChange(id, "/api/online/sdo_write", Object.assign(t, { value: value.value }));
+      if (!r) { out.replaceChildren(el("span", { class: "muted" }, "Not written.")); return; }
       if (r.success) odTake(id, null, [odKey(t.index, t.subindex)]);
       show(r, "write");
     } catch (e) { out.replaceChildren(el("span", { class: "field-msg" }, e.message)); }
@@ -5148,8 +5207,10 @@ function odBuild(box, id, n, allow, data) {
     if (!t) return;
     const e = byKey[odKey(t.index, t.subindex)];
     if (e) { put(anyOut, el("span", { class: "muted" }, "This entry is in the EDS: use its Edit button below.")); return; }
-    try { anyShow(await api("POST", "/api/online/sdo_write", Object.assign(t, { value: anyValue.value })), "write"); }
-    catch (err) { put(anyOut, el("span", { class: "field-msg" }, err.message)); }
+    try {
+      const r = await apiNodeChange(id, "/api/online/sdo_write", Object.assign(t, { value: anyValue.value }));
+      if (r) anyShow(r, "write"); else put(anyOut, el("span", { class: "muted" }, "Not written."));
+    } catch (err) { put(anyOut, el("span", { class: "field-msg" }, err.message)); }
   };
 
   const readAll = el("button", { type: "button", class: "primary", dataset: { online: "od-read-all" }, onclick: () => {
@@ -5240,7 +5301,8 @@ function odEdit(id, n, e, cell, readKeys, note, done) {
     msg.textContent = "Writing…";
     let written;
     try {
-      const r = await api("POST", "/api/online/sdo_write", { node: id, index: e.index, subindex: e.subindex, type: e.type, value: input.value, port: diagPort() });
+      const r = await apiNodeChange(id, "/api/online/sdo_write", { node: id, index: e.index, subindex: e.subindex, type: e.type, value: input.value, port: diagPort() });
+      if (!r) { msg.textContent = "Not written."; return; }
       if (!r.success) { msg.textContent = r.abort_code !== undefined ? `Abort ${hex8(r.abort_code)}: ${r.abort_text}` : r.reason; return; }
       written = r.data;
     } catch (err) { msg.textContent = err.message; return; }
@@ -5420,7 +5482,8 @@ async function restoreDialog(id, j, status, out) {
     refuse.length ? el("label", { class: "check" }, other, " Restore to a different product anyway") : null,
     p.allow_changes ? null : el("p", { class: "field-msg warning" }, NO_CHANGES));
   const can = p.writes.length && p.allow_changes;
-  const go = modal(`Restore ${p.writes.length} value${p.writes.length === 1 ? "" : "s"} to node ${id}?`,
+  const running = nodeRunning(id);
+  const go = modal(`${runningNote(id, running)}Restore ${p.writes.length} value${p.writes.length === 1 ? "" : "s"} to node ${id}?`,
     can ? [["cancel", "Cancel"], ["restore", "Restore", { danger: true }]] : [["cancel", "Close"]], extra);
   const btn = document.querySelector('#modal-buttons button[data-value="restore"]');
   if (btn && refuse.length) {
@@ -5428,7 +5491,8 @@ async function restoreDialog(id, j, status, out) {
     other.addEventListener("change", () => { btn.disabled = !other.checked; });
   }
   if (await go !== "restore") return;
-  startJob("/api/online/restore", Object.assign(nodeSource(id), { plan: j.id, hold: hold.checked, ignore_identity: other.checked }), status,
+  startJob("/api/online/restore", Object.assign(nodeSource(id), { plan: j.id, hold: hold.checked, ignore_identity: other.checked },
+    running ? { force: true } : {}), status,
     (r) => showRestore(r.result, out, id));
 }
 
@@ -5443,12 +5507,14 @@ function showRestore(r, out, id) {
 }
 
 async function storeDialog(id, sub, what) {
-  const v = await modal(`Store node ${id}'s current ${what || "values"} in its non-volatile memory (write "save" to 0x1010 sub ${sub})? ` +
+  const running = nodeRunning(id);
+  const v = await modal(`${runningNote(id, running)}Store node ${id}'s current ${what || "values"} in its non-volatile memory (write "save" to 0x1010 sub ${sub})? ` +
     "The device then keeps these values over a power cycle. Each store wears the device's flash memory.",
   [["cancel", "Cancel"], ["store", "Store on device", { danger: true }]]);
   if (v !== "store") return;
   try {
-    const r = await api("POST", "/api/online/store", Object.assign(nodeSource(id), { subindex: sub }));
+    const r = await apiRunning("/api/online/store", Object.assign(nodeSource(id), { subindex: sub }), "Store anyway?", running);
+    if (!r) return;
     if (r.stored) banner(`Node ${id}: stored (0x1010 sub ${sub}).`);
     else banner(`Node ${id} did not store: ${r.error}`, true);
   } catch (e) { banner(e.message, true); }
@@ -5656,9 +5722,15 @@ async function runScan(start) {
   const seq = S.onlineSeq;
   let r;
   try {
-    r = await api("POST", "/api/online/scan", { start, config: fileConfig(), port: diagPort() });
+    const body = { start, config: fileConfig(), port: diagPort() };
+    r = start ? await apiRunning("/api/online/scan", body, "Scan anyway?") : await api("POST", "/api/online/scan", body);
   } catch (e) {
     if (seq === S.onlineSeq) banner(e.message, true);
+    return;
+  }
+  if (!r) {
+    const progress = document.querySelector("[data-online=scan-progress]");
+    if (progress && seq === S.onlineSeq) progress.textContent = "Scan not started.";
     return;
   }
   if (seq !== S.onlineSeq || S.view !== "scan") return;

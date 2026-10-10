@@ -136,6 +136,9 @@ class J1939Engine : private AddressClaimer::Actions {
   // False when the kernel has not taken the address into use yet: try again.
   bool send_tx(size_t i, uint8_t destination, clock::time_point now);
   void on_request(const J1939Message& m, clock::time_point now);
+  // A Request for `pgn` from `requester` may be answered now: at most one
+  // answer per PGN and requester every kReplyGap. Records the answer.
+  bool reply_allowed(uint32_t pgn, uint8_t requester, clock::time_point now);
   int send(uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data, size_t len);
   void rebind(uint8_t address);
 
@@ -156,6 +159,9 @@ class J1939Engine : private AddressClaimer::Actions {
   std::vector<TxState> tx_;
   std::vector<RequestState> req_;
   std::map<uint8_t, Ecu> ecus_;
+  static constexpr std::chrono::milliseconds kReplyGap{50};
+  static constexpr size_t kRepliedMax = 512;
+  std::map<uint32_t, clock::time_point> replied_;  // (PGN << 8 | requester) -> last answer
   bool dirty_ = true;
   uint64_t send_errors_ = 0;
   clock::time_point last_error_log_{};

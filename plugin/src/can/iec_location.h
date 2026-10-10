@@ -33,6 +33,16 @@ bool parse_iec_location(const std::string& text, IecLocation& out,
 // Size in bits of a location of this size (X = 1, B = 8, ..., L = 64).
 unsigned iec_size_bits(IecSize size);
 
+// Whether `loc` lies inside the runtime's I/O image of `limit` entries per
+// table or, `byte_addressed` (a bridge config), of `limit` bytes. Written so
+// it cannot wrap: index >= limit || bytes > limit - index.
+bool iec_location_in_image(const IecLocation& loc, uint32_t limit, bool byte_addressed);
+// Whether `nbytes` bytes from byte `index` lie inside an image of `limit`
+// bytes, without wrapping.
+inline bool bytes_in_image(uint32_t index, uint32_t nbytes, uint32_t limit) {
+  return index < limit && nbytes <= limit - index;
+}
+
 // CANopen basic data types supported in PDO entries (CiA 301 codes).
 enum class CoType : uint16_t {
   BOOLEAN = 0x0001,

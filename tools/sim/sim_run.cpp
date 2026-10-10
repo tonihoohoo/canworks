@@ -586,7 +586,8 @@ class Session {
     if (sim_path.empty() && have_cfg && !o.no_sim_file && file_exists(cfg.config_dir + "/simulation.json"))
       sim_path = cfg.config_dir + "/simulation.json";
     if (!sim_path.empty()) {
-      if (!canopen_sim::load_sim_file(sim_path, file, errors)) return report("cannot load " + sim_path);
+      if (!canopen_sim::load_sim_file(sim_path, file, errors, have_cfg ? cfg.config_dir : std::string()))
+        return report("cannot load " + sim_path);
       if (file.schema_version >= 2) {
         // A version 2 file: the config's network, or the file's only section.
         std::string name;

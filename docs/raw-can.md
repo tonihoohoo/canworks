@@ -83,6 +83,8 @@ Identifiers are numbers in the file (the configurator shows and takes hex). `ext
 
 A `tx` message needs at least one of `period_ms`, `on_change` or `trigger_location`. Sending starts when the PLC runs and stops when it stops.
 
+A send the interface refuses (its transmit queue is full, or it is down) does not count as sent. An on-change or trigger send stays pending and goes out with the current values on a later 1 ms tick, still no more often than `min_gap_ms`. A refused periodic send waits for its next period; missed periods are not sent in a burst.
+
 ### Signals
 
 | Field | Meaning |
@@ -194,7 +196,7 @@ While `ENABLE` is TRUE the plugin queues every frame of the given format whose `
 
 While the bus is off or the interface is down (`STATE` 3 or 4), a running `CAN_SEND_CYCLIC` or `CAN_RECEIVE` shows `ERROR` with `ERROR_ID` 7 but stays `ACTIVE`: the cyclic job keeps its `COUNT` and sends again once the bus is back, and the receiver keeps its queue. `ERROR` clears by itself when the bus is back.
 
-The blocks never wait on the bus, allocate memory or log on the scan thread. A PLC stop ends every send with `ERROR_ID` 8, closes every receiver and stops every cyclic job.
+The blocks never wait on the bus, allocate memory or log on the scan thread. Blocks in different PLC tasks may use the same network at the same time: each send goes out once with its own frame, and each receiver and cyclic job has its own slot. A receiver whose `ID` or `MASK` changes gets no frame that matched only its old filter. `CAN_BUS_INFO` never waits for the plugin's update of the figures; at worst it gives the previous figures. A PLC stop ends every send with `ERROR_ID` 8, closes every receiver and stops every cyclic job.
 
 ### ST helpers
 

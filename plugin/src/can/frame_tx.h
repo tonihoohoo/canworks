@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -21,6 +22,7 @@
 #include "config.h"
 
 struct can_msg;
+struct __co_dev;
 
 namespace canopen_plugin {
 
@@ -39,11 +41,22 @@ std::string raw_frame_text(const RawFrame& f);
 
 // What the running network uses `id` for ("RPDO1 of node 5", "NMT", ...), or
 // "" when it is free. Covers NMT, SYNC, TIME, LSS, the master's (or the
-// plugin's own slave's) heartbeat and EMCY, and for every configured node its
-// predefined connection set (EMCY, TPDO1-4, RPDO1-4, SDO both ways,
-// heartbeat) plus the COB-IDs its configured PDOs use. Extended identifiers
-// are never in the map.
+// plugin's own slave's) heartbeat, EMCY and SDO server, and for every
+// configured node its predefined connection set (EMCY, TPDO1-4, RPDO1-4, SDO
+// both ways, heartbeat) plus the COB-IDs its configured PDOs use; a PDO
+// COB-ID with bit 29 set is the extended identifier. A slave network's own
+// PDOs come from its dictionary at run time (dictionary_id_uses()).
 std::string cob_id_use(const Config& cfg, uint32_t id, bool ext);
+
+// The key of an identifier in a map of identifiers: `id` with bit 31 set for
+// an extended one.
+inline uint32_t id_use_key(uint32_t id, bool ext) { return (id & 0x1FFFFFFFu) | (ext ? 0x80000000u : 0u); }
+
+// The identifiers a CANopen dictionary uses, by id_use_key(): the COB-IDs
+// of its valid RPDOs (0x1400-0x15FF) and TPDOs (0x1800-0x19FF), extended
+// when bit 29 is set, and of its SDO servers (0x1200-0x127F). `owner` names
+// the dictionary in the texts ("TPDO1 of the plugin's own slave").
+std::map<uint32_t, std::string> dictionary_id_uses(const __co_dev* dev, const std::string& owner);
 
 // What the network's protocol uses `id` for, whatever the protocol: the
 // CANopen map above, on a J1939 network every 29-bit frame from the ECU's

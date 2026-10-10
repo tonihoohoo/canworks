@@ -2,6 +2,7 @@
 // frame port's receivers, single frames, cyclic jobs, guards and cancel, and
 // the C table the library blocks call. Needs no CAN interface or Lely.
 
+#include <cerrno>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -516,6 +517,14 @@ TEST(engine_receive) {
   CHECK(static_cast<int16_t>(e.input_values()[2]) == -1);  // value held
 }
 
+// due() and a successful write of each frame it gave.
+void write_due(canworks_raw::RawEngine& e, uint64_t now, std::vector<canworks_can_frame>& frames,
+               std::vector<size_t>& idx) {
+  size_t first = idx.size();
+  e.due(now, frames, idx);
+  for (size_t k = first; k < idx.size(); ++k) e.sent(idx[k], now, 0);
+}
+
 TEST(engine_send_periodic_and_on_change) {
   Parsed p = parse(kExample);
   canworks_raw::RawEngine e(p.cfg);
@@ -525,37 +534,37 @@ TEST(engine_send_periodic_and_on_change) {
   std::vector<canworks_can_frame> frames;
   std::vector<size_t> idx;
   e.set_outputs(out, 0);
-  e.due(0, frames, idx);
+  write_due(e, 0, frames, idx);
   CHECK(frames.empty());  // PLC not running
   e.set_plc_running(true, 0);
-  e.due(0, frames, idx);
+  write_due(e, 0, frames, idx);
   CHECK(frames.size() == 1 && frames[0].id == 0x501 && frames[0].dlc == 2 && frames[0].data[0] == 0);
   frames.clear();
-  e.due(40000, frames, idx);
+  write_due(e, 40000, frames, idx);
   CHECK(frames.empty());
   out[1] = 1;  // Red changes 40 ms after the last send
   e.set_outputs(out, 40000);
-  e.due(40000, frames, idx);
+  write_due(e, 40000, frames, idx);
   CHECK(frames.size() == 1 && frames[0].data[0] == 1);
   frames.clear();
-  e.due(100000, frames, idx);
+  write_due(e, 100000, frames, idx);
   CHECK(frames.empty());  // next periodic is 100 ms after the change
-  e.due(140000, frames, idx);
+  write_due(e, 140000, frames, idx);
   CHECK(frames.size() == 1);
   frames.clear();
   // Change within min_gap waits for it.
   out[1] = 0;
   e.set_outputs(out, 145000);
-  e.due(145000, frames, idx);
+  write_due(e, 145000, frames, idx);
   CHECK(frames.empty());
   CHECK(e.next_event_in(145000) == 5000);
-  e.due(150000, frames, idx);
+  write_due(e, 150000, frames, idx);
   CHECK(frames.size() == 1 && frames[0].data[0] == 0);
   frames.clear();
   // Enable FALSE stops periodic sends.
   out[0] = 0;
   e.set_outputs(out, 151000);
-  e.due(400000, frames, idx);
+  write_due(e, 400000, frames, idx);
   CHECK(frames.empty());
 }
 
@@ -567,12 +576,12 @@ TEST(engine_trigger_once) {
   e.set_plc_running(true, 0);
   std::vector<canworks_can_frame> frames;
   std::vector<size_t> idx;
-  e.due(0, frames, idx);
+  write_due(e, 0, frames, idx);
   CHECK(frames.empty());
   for (int scan = 0; scan < 3; ++scan) {
     out[2] = 1;
     e.set_outputs(out, 1000 * scan);
-    e.due(1000 * scan, frames, idx);
+    write_due(e, 1000 * scan, frames, idx);
   }
   CHECK(frames.size() == 1);
   CHECK(frames.size() == 1 && frames[0].id == 0x502 && (frames[0].flags & CANWORKS_CAN_RTR) && frames[0].dlc == 0);
@@ -582,8 +591,72 @@ TEST(engine_trigger_once) {
   out[2] = 1;
   e.set_outputs(out, 7000);
   frames.clear();
-  e.due(7000, frames, idx);
+  write_due(e, 7000, frames, idx);
   CHECK(frames.empty());  // PLC stopped
+}
+
+// A send the interface refuses (queue full, link down) is not counted as
+// sent: on-change and trigger sends stay pending and go out with the current
+// values on a later tick; a failed periodic send is not made up in a burst.
+TEST(engine_failed_send_stays_pending) {
+  Parsed p = parse(kExample);
+  canworks_raw::RawEngine e(p.cfg);
+  uint64_t out[3] = {1, 0, 0};  // Lamps.enable, Lamps.Red, Wake.trigger
+  std::vector<canworks_can_frame> frames;
+  std::vector<size_t> idx;
+  // Writes what is due; `error` for every frame of this tick.
+  auto tick = [&](uint64_t now, int error) {
+    frames.clear();
+    idx.clear();
+    e.due(now, frames, idx);
+    for (size_t k = 0; k < idx.size(); ++k) e.sent(idx[k], now, error);
+  };
+  e.set_outputs(out, 0);
+  e.set_plc_running(true, 0);
+  tick(0, 0);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 0);
+  // Red changes; the send fails once.
+  out[1] = 1;
+  e.set_outputs(out, 40000);
+  tick(40000, ENOBUFS);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 1);
+  CHECK(e.tx_status()[0].last_error == ENOBUFS && e.tx_status()[0].count == 1);
+  // Still pending: tried again on the next tick, without another change.
+  CHECK(e.next_event_in(40000) == 0);
+  tick(41000, 0);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 1);
+  CHECK(e.tx_status()[0].count == 2 && e.tx_status()[0].last_error == 0);
+  tick(42000, 0);
+  CHECK(frames.empty());
+  // A change while the queue stays full for 20 ms goes out once it drains,
+  // with the newest value.
+  out[1] = 0;
+  e.set_outputs(out, 60000);
+  for (uint64_t t = 60000; t < 80000; t += 1000) tick(t, ENOBUFS);
+  out[1] = 1;
+  e.set_outputs(out, 80000);
+  out[1] = 0;
+  e.set_outputs(out, 80500);
+  tick(81000, 0);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 0);
+  tick(82000, 0);
+  CHECK(frames.empty());
+  // A failed periodic send waits for the next period (no burst).
+  tick(181000, ENOBUFS);
+  CHECK(frames.size() == 1);
+  tick(182000, 0);
+  CHECK(frames.empty());
+  tick(281000, 0);
+  CHECK(frames.size() == 1);
+  // A trigger whose send fails stays pending until it goes out.
+  out[2] = 1;
+  e.set_outputs(out, 290000);
+  tick(290000, ENETDOWN);
+  CHECK(frames.size() == 1 && frames[0].id == 0x502);
+  tick(291000, 0);
+  CHECK(frames.size() == 1 && frames[0].id == 0x502);
+  tick(292000, 0);
+  CHECK(frames.empty());
 }
 
 TEST(engine_big_endian_and_fill) {

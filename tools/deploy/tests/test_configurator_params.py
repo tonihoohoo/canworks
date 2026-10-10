@@ -226,6 +226,48 @@ class Store(Params):
             self.assertEqual(self.request("POST", "/api/online/store", self.body(subindex=0))[0], 400)
 
 
+class RunningNode(Params):
+    """Writes to an OPERATIONAL node go with force only when the page sends it
+    (after asking); START never carries it."""
+
+    def running(self, fp):
+        node = dict(fp.status["nodes"][0], node_id=NODE, name="rtd", state=5)
+        fp.status["nodes"].insert(0, node)
+        fp.force_running = True
+
+    def test_store_needs_force(self):
+        with FakeDevice() as fp:
+            fp.set(0x1010, 1, b"\0\0\0\0")
+            self.running(fp)
+            self.connect(fp)
+            status, data, _ = self.request("POST", "/api/online/store", self.body(subindex=1))
+            self.assertEqual((status, data.get("force")), (422, True), data)
+            self.assertEqual(fp.value(0x1010, 1), b"\0\0\0\0")
+            self.assertTrue(self.ok("POST", "/api/online/store", self.body(subindex=1, force=True))["stored"])
+            self.assertEqual(fp.forced, [("sdo_write", NODE)])
+
+    def test_restore_holds_with_force(self):
+        with FakeDevice() as fp:
+            self.connect(fp)
+            b = self.backup(fp)
+            fp.set(0x6112, 3, b"\x02")
+            self.running(fp)
+            plan = self.job(self.ok("POST", "/api/online/restore_plan", self.body(file=b["data"])))
+            r = self.job(self.ok("POST", "/api/online/restore", self.body(plan=plan["id"], hold=True, force=True)))
+            self.assertEqual(r["state"], "done", r)
+            self.assertEqual(fp.forced, [("nmt", NODE), ("sdo_write", NODE)])  # preop and the write; not start
+            # Without force the hold is refused and nothing is written.
+            fp.set(0x6112, 3, b"\x02")
+            for n in fp.status["nodes"]:
+                if n["node_id"] == NODE:
+                    n["state"] = 5
+            plan = self.job(self.ok("POST", "/api/online/restore_plan", self.body(file=b["data"])))
+            r = self.job(self.ok("POST", "/api/online/restore", self.body(plan=plan["id"], hold=True)))
+            self.assertEqual(r["state"], "failed", r)
+            self.assertIn("force needed", r["error"])
+            self.assertEqual(fp.value(0x6112, 3), b"\x02")
+
+
 if __name__ == "__main__":
     unittest.main()
 

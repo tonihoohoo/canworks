@@ -38,6 +38,15 @@ using namespace canworks_bridge;
 
 namespace {
 
+// Every address may write (writers ["0.0.0.0/0", "::/0"]).
+ServerConfig open_config() {
+  ServerConfig cfg;
+  std::string err;
+  cfg.writers.add("0.0.0.0/0", err);
+  cfg.writers.add("::/0", err);
+  return cfg;
+}
+
 // A server on a free loopback port with a 40-byte input and 16-byte output image.
 struct Fixture {
   ByteImage image;
@@ -46,7 +55,7 @@ struct Fixture {
   std::vector<std::string> logs;
   std::mutex log_mu;
 
-  explicit Fixture(ServerConfig cfg = ServerConfig(), size_t in = 40, size_t out = 16) {
+  explicit Fixture(ServerConfig cfg = open_config(), size_t in = 40, size_t out = 16) {
     image.resize(in, out);
     cfg.listen = "127.0.0.1:0";
     server.on_write = [this] { ++writes; };
@@ -63,6 +72,11 @@ struct Fixture {
     for (const auto& s : logs)
       if (s.find(text) != std::string::npos) return true;
     return false;
+  }
+  size_t queued() {
+    size_t n = 0;
+    for (const ClientInfo& c : server.client_list()) n = std::max(n, c.queued);
+    return n;
   }
   Bytes outputs() {
     Bytes b(image.output_size());
@@ -108,7 +122,7 @@ TEST(register_rule_inputs) {
 
 TEST(output_bit_as_coil) {
   // Spec: coil 801 -> %QX100.1; holding register 50 high byte bit 1.
-  Fixture fx(ServerConfig(), 40, 120);
+  Fixture fx(open_config(), 40, 120);
   Client c(fx.server.port());
   Bytes r = c.request({kWriteSingleCoil, 0x03, 0x21, 0xFF, 0x00});
   EXPECT((r == Bytes{kWriteSingleCoil, 0x03, 0x21, 0xFF, 0x00}));
@@ -255,6 +269,113 @@ TEST(idle_connection_closed) {
   EXPECT(c.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
   EXPECT(c.closed(3000));
   EXPECT(wait_for([&] { return fx.server.clients() == 0; }));
+}
+
+TEST(empty_writers_is_nobody) {
+  Fixture fx{ServerConfig()};
+  Client c(fx.server.port());
+  EXPECT(c.request({kWriteSingleRegister, 0, 0, 0x12, 0x34}) == exc(kWriteSingleRegister, kIllegalFunction));
+  EXPECT(fx.outputs()[0] == 0 && fx.writes == 0);
+}
+
+// Spec: a client sends read requests without pause and never reads its
+// socket -> bounded memory, others served, disconnected after 10 s (here
+// 500 ms) over the cap.
+TEST(client_that_never_reads) {
+  ServerConfig cfg = open_config();
+  cfg.over_queued_ms = 500;
+  Fixture fx(cfg, 250, 16);
+  Client slow(fx.server.port(), "127.0.0.1", 4096);
+  slow.set_nonblocking();
+  Bytes burst;
+  for (int i = 0; i < 64; ++i) {
+    Bytes f = slow.frame(read_req(kReadInputRegisters, 0, 125));  // 12 bytes in, 257 out
+    burst.insert(burst.end(), f.begin(), f.end());
+  }
+  Client other(fx.server.port());
+  size_t worst = 0;
+  bool other_ok = true;
+  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+  while (std::chrono::steady_clock::now() < end) {
+    slow.send_raw(burst);
+    worst = std::max(worst, fx.queued());
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  other_ok = other.request(read_req(kReadInputRegisters, 0, 1)).size() == 4;
+  std::printf("  most unsent reply bytes: %zu\n", worst);
+  EXPECT(worst <= 8192 + 260);
+  EXPECT(other_ok);
+  EXPECT(wait_for([&] { return fx.logged("replies not read"); }, 3000));
+  EXPECT(wait_for([&] { return fx.server.clients() == 1; }));
+  EXPECT(other.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+}
+
+// The idle timer counts complete requests only; a partial request is closed
+// after 5 s (here 300 ms).
+TEST(idle_needs_complete_requests) {
+  ServerConfig cfg = open_config();
+  cfg.idle_timeout_ms = 400;
+  cfg.partial_timeout_ms = 100000;
+  Fixture fx(cfg);
+  Client c(fx.server.port());
+  EXPECT(c.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  // A long write sent one byte every 100 ms: bytes keep coming, but no
+  // request completes within the idle time.
+  Bytes f = c.frame(write_regs(0, std::vector<uint16_t>(100, 1)));
+  bool closed = false;
+  for (size_t i = 0; i + 1 < f.size() && i < 20 && !closed; ++i) {
+    c.send_raw(Bytes(f.begin() + i, f.begin() + i + 1));
+    closed = c.closed(100);
+  }
+  EXPECT(closed);  // well before the 2 s the bytes kept coming
+  EXPECT(wait_for([&] { return fx.logged("idle"); }));
+}
+
+TEST(partial_request_closed) {
+  ServerConfig cfg = open_config();
+  cfg.partial_timeout_ms = 300;
+  Fixture fx(cfg);
+  Client c(fx.server.port());
+  Bytes f = c.frame(read_req(kReadInputRegisters, 0, 1));
+  c.send_raw(Bytes(f.begin(), f.begin() + 5));
+  EXPECT(c.closed(3000));
+  EXPECT(wait_for([&] { return fx.logged("incomplete request"); }));
+}
+
+TEST(max_clients_per_address) {
+  ServerConfig cfg = open_config();
+  cfg.max_clients_per_address = 2;
+  Fixture fx(cfg);
+  Client a(fx.server.port()), b(fx.server.port());
+  EXPECT(a.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  EXPECT(b.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  Client third(fx.server.port());
+  EXPECT(third.closed());
+  EXPECT(wait_for([&] { return fx.logged("max_clients_per_address"); }));
+  Client elsewhere(fx.server.port(), "127.0.0.1", 0, "127.0.0.2");
+  EXPECT(elsewhere.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+}
+
+// Spec: every slot taken by readers, the writer connects -> the oldest
+// reader connection is closed and the writer is served.
+TEST(writer_takes_a_slot) {
+  ServerConfig cfg;
+  std::string err;
+  EXPECT(cfg.writers.add("127.0.0.3", err));
+  cfg.max_clients = 2;
+  Fixture fx(cfg);
+  Client a(fx.server.port()), b(fx.server.port(), "127.0.0.1", 0, "127.0.0.2");
+  EXPECT(a.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  EXPECT(b.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  Client w(fx.server.port(), "127.0.0.1", 0, "127.0.0.3");
+  EXPECT(w.request({kWriteSingleRegister, 0, 0, 0x12, 0x34}) == Bytes({kWriteSingleRegister, 0, 0, 0x12, 0x34}));
+  EXPECT(a.closed());
+  EXPECT(wait_for([&] { return fx.logged("to make room"); }));
+  EXPECT(b.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  // A reader does not push anyone out.
+  Client r(fx.server.port(), "127.0.0.1", 0, "127.0.0.4");
+  EXPECT(r.closed());
+  EXPECT(w.request(read_req(kReadHoldingRegisters, 0, 1)).size() == 4);
 }
 
 TEST(read_is_one_snapshot) {

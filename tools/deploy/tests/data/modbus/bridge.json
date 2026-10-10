@@ -32,6 +32,7 @@
   ],
   "bridge": {
     "listen": "0.0.0.0:502",
+    "writers": ["0.0.0.0/0", "::/0"],
     "word_order": "high_first",
     "status_location": "%IB48",
     "control_location": "%QB8",

@@ -46,16 +46,17 @@ Every field is described in [docs/config.md](docs/config.md).
 - **Networks and adapters:** up to 8 CAN networks from one PLC, each with its own adapter, master, bit rate, SYNC and nodes; a network that fails does not stop the others. Any SocketCAN interface works (CAN HAT, candleLight/gs_usb, PEAK, vcan), as do serial `slcan` adapters such as a CANable, driven directly without `slcand` and picked up again after a replug.
 - **PDOs:** mapping from the config, or the device's own fixed or default mapping. Transmission type, inhibit time, event timer and SYNC start value default to the EDS's own values.
 - **SYNC:** from a timer, from the PLC cycle (one SYNC every N scans), or none for event-driven PDOs only.
-- **Node bring-up:** startup SDO writes, identity check (0x1018), mandatory nodes, heartbeat or node guarding, program download, configurable SDO timeouts, and an opt-in configuration check (0x1020) that skips an unchanged download. Saving to the device's non-volatile memory (0x1010) only happens when a node asks for it.
+- **Node bring-up:** startup SDO writes, identity check (0x1018), mandatory nodes, heartbeat or node guarding (a node without either is refused unless the config says so), program download, configurable SDO timeouts, and an opt-in configuration check (0x1020) that skips an unchanged download. Saving to the device's non-volatile memory (0x1010) only happens when a node asks for it.
 - **LSS:** devices without DIP switches get their node ID from their serial number at every start and after a replacement.
 - **EDS checks:** every EDS goes through Lely's CiA 306 lint, and every PDO entry and SDO is checked for type and access before anything is sent.
+- **Safe stops:** when the PLC stops, the nodes go PRE-OPERATIONAL (or STOPPED, or stay as they are: `on_plc_stop`); a scan that stops finishing cycles stops the outputs (`scan_watchdog_ms`); a node that comes back gets the program's current outputs at once.
 - **Status for the program:** a status bit and state byte per node, bus state and error counters, the last EMCY per node, and an optional receive timeout per input PDO.
 - **From the program:** SDO variables, NMT commands, and SDO function blocks (`CO_SDO_READ`, `CO_SDO_WRITE`, ...) that read or write any object of any node when the program decides ([docs/plc-sdo.md](docs/plc-sdo.md)).
 - **CiA 402 drives as PLCopen axes:** drive a node with the editor's motion blocks (`MC_Power`, `MC_MoveAbsolute`, `MC_Home`, ...) in profile position, velocity and homing mode, or in the cyclic synchronous modes (CSP, CSV, CST) ([docs/cia402.md](docs/cia402.md)).
 - **Everything `dcfgen` can set**, plus a TIME producer that sends the runtime host's clock.
 - **OpenPLC as a slave:** the PLC becomes a node on a network another master runs, with a generated EDS for that master's tool ([docs/slave.md](docs/slave.md)).
 - **Gateway:** a slave network above master networks, with routes that copy values between them without the PLC program, plus node status, EMCY forwarding and an SDO bridge ([docs/gateway.md](docs/gateway.md)).
-- **Online diagnostics:** an opt-in channel for the PC tools, encrypted with TLS; the token never crosses the network, and nothing a client does touches the PLC scan.
+- **Online diagnostics:** an opt-in channel for the PC tools, encrypted with TLS; the token never crosses the network, nothing a client does touches the PLC scan, and SDO writes, NMT commands and scans on a running network need an explicit force.
 
 ### J1939 on the PLC
 
@@ -67,7 +68,7 @@ Plain CAN messages run on any network, next to CANopen or J1939, or on a plain C
 
 ### Modbus TCP bridge for any PLC or program
 
-`canworks-bridge` runs the same CANopen, J1939 and raw CAN networks without OpenPLC and serves their values as Modbus TCP registers, so any PLC, SCADA or program with a Modbus client can use them ([docs/modbus-bridge.md](docs/modbus-bridge.md)). The config is a normal `canworks.json` with a `bridge` object; its `%I`/`%Q` locations become input and holding registers, discrete inputs and coils by one fixed rule. A watchdog stops or holds the outputs when the client goes away, and status, control, live list and SDO request registers come along. `canworks-deploy --export-modbus-map` writes the register map as CSV, JSON or IEC 61131-3 ST for the client side, and `canworks-deploy --bridge HOST` uploads a new config to a running bridge. It installs as a systemd service (`scripts/install-bridge.sh`) or runs from the `canworks-bridge` container image; [`examples/modbus-bridge`](examples/modbus-bridge/canworks.json) is a simulated example.
+`canworks-bridge` runs the same CANopen, J1939 and raw CAN networks without OpenPLC and serves their values as Modbus TCP registers, so any PLC, SCADA or program with a Modbus client can use them ([docs/modbus-bridge.md](docs/modbus-bridge.md)). The config is a normal `canworks.json` with a `bridge` object that lists which addresses may write (`writers`); its `%I`/`%Q` locations become input and holding registers, discrete inputs and coils by one fixed rule. A watchdog stops or holds the outputs when the client goes away, and status, control, live list and SDO request registers come along. `canworks-deploy --export-modbus-map` writes the register map as CSV, JSON or IEC 61131-3 ST for the client side, and `canworks-deploy --bridge HOST` uploads a new config to a running bridge. It installs as a systemd service (`scripts/install-bridge.sh`) or runs from the `canworks-bridge` container image; [`examples/modbus-bridge`](examples/modbus-bridge/canworks.json) is a simulated example.
 
 ### Simulation
 

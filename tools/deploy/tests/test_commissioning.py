@@ -114,7 +114,8 @@ class Plan(Rtd):
     def test_configure_then_nothing_to_do(self):
         dev = self.fake(heartbeat_s=0.05, nmt_state=5)
         time.sleep(0.2)
-        c = self.client(allow_changes=True)
+        # The node is OPERATIONAL, so holding it in PRE-OPERATIONAL needs force.
+        c = self.client(allow_changes=True, force=True)
         src = self.source()
         plan = self.plan(c, src)
         was = C.check_target(c, 5)
