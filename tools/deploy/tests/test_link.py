@@ -115,7 +115,7 @@ class Link(unittest.TestCase):
         self.svc = device.Service(self.devdir, bind="127.0.0.1:0", name="testdev")
         self.loop = asyncio.new_event_loop()
         threading.Thread(target=self.loop.run_forever, daemon=True).start()
-        running = asyncio.run_coroutine_threadsafe(self.svc.run(), self.loop)
+        self.running = running = asyncio.run_coroutine_threadsafe(self.svc.run(), self.loop)
         deadline = time.monotonic() + 10
         while self.svc.endpoint is None and time.monotonic() < deadline and not running.done():
             time.sleep(0.02)
@@ -127,7 +127,10 @@ class Link(unittest.TestCase):
                                  link_addrs=self.svc.endpoint.addr().direct_addresses())
 
     def _stop(self):
-        asyncio.run_coroutine_threadsafe(self.svc.stop(), self.loop).result(5)
+        try:
+            asyncio.run_coroutine_threadsafe(self.svc.stop(), self.loop).result(5)
+        except Exception:
+            pass  # already stopped
         self.loop.call_soon_threadsafe(self.loop.stop)
 
     def https_port(self):
@@ -263,6 +266,13 @@ class Link(unittest.TestCase):
         time.sleep(device.WATCH_S + 1)
         self.assertTrue(self.pair()["paired"])
         self.assertFalse(self.entry["internet"])
+
+    def test_internet_change_restarts_the_service(self):
+        # iroh keeps the UDP port until the endpoint is gone: the service stops
+        # and systemd (Restart=always) starts it with the new settings.
+        self.write_config({"internet": True})
+        self.running.result(device.WATCH_S + 10)
+        self.assertTrue(self.svc.restart)
 
     def test_no_token_configured(self):
         with open(self.cfg, "w") as f:

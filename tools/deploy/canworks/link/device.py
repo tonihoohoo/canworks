@@ -216,6 +216,7 @@ class Service:
         self.fail_times = []     # failed pairings in the last minute
         self.ratelog = _RateLog()
         self.stopping = False
+        self.restart = False     # stopped to apply new internet settings (systemd starts it again)
         self.ready = None
 
     # -- settings -----------------------------------------------------------
@@ -247,32 +248,31 @@ class Service:
             " (relays %s)" % ", ".join(self.relays) if self.internet and self.relays else
             " (public relays)" if self.internet else "", self.pairing))
 
-    async def _rebind(self):
-        old, self.endpoint = self.endpoint, None
-        self.conns.clear()
-        if old:
-            try:
-                await old.close()
-            except Exception:
-                pass
-        await self._bind()
-
     async def watch(self):
         while not self.stopping:
             await asyncio.sleep(WATCH_S)
-            m = self._config_mtime()
-            if m != self.config_mtime:
-                self.config_mtime = m
-                self.verifier, self.diag_port, rl = deployed_settings(self.config_path)
-                internet, relays, pairing = remote_settings(rl)
-                self.pairing = pairing
-                if (internet, relays) != (self.internet, self.relays):
-                    self.internet, self.relays = internet, relays
-                    log("config changed: internet %s" % ("on" if internet else "off"))
-                    await self._rebind()
-            if self.paired.changed():
-                self.paired.reload()
-                self._drop_unpaired()
+            try:
+                await self._check_files()
+            except Exception as e:  # keep watching; a failed rebind is retried at the next change
+                log("applying a changed config failed: %s" % e)
+
+    async def _check_files(self):
+        m = self._config_mtime()
+        if m != self.config_mtime:
+            self.config_mtime = m
+            self.verifier, self.diag_port, rl = deployed_settings(self.config_path)
+            internet, relays, pairing = remote_settings(rl)
+            self.pairing = pairing
+            if (internet, relays) != (self.internet, self.relays):
+                # iroh frees the UDP port only when the endpoint object is
+                # gone, so the service exits and systemd starts it again
+                # (Restart=always) with the new settings.
+                log("config changed: internet %s; restarting" % ("on" if internet else "off"))
+                self.restart = True
+                await self.stop()
+        if self.paired.changed():
+            self.paired.reload()
+            self._drop_unpaired()
 
     def _drop_unpaired(self):
         ids = self.paired.ids()
@@ -575,7 +575,6 @@ def main(argv=None):
         print("canworks-link: " + UNAVAILABLE, file=sys.stderr)
         return 2
     import iroh
-    paired = Paired(os.path.join(args.dir, "paired.json"))
     if args.cmd == "run":
         svc = Service(args.dir)
         try:
@@ -586,6 +585,7 @@ def main(argv=None):
     if args.cmd == "id":
         print(link_id(load_key(os.path.join(args.dir, "secret.key"))))
         return 0
+    paired = Paired(os.path.join(args.dir, "paired.json"))
     if args.cmd == "list":
         if not paired.pcs:
             print("no paired PCs")

@@ -64,7 +64,7 @@ The settings are in the config's diagnostics object (`master.diagnostics` in ver
 | `relays` | the iroh project's public relays | Relay servers (https URLs, at most 8). |
 | `pairing` | `lan` | Where a PC may pair with the token: `lan` (a direct path from a private or link-local address), `anywhere`, or `off` (only `canworks-link allow` on the device). |
 
-The link service applies a changed config a few seconds after an upload; the plugin and the bridge only check these fields.
+The link service applies a changed config a few seconds after an upload (a change of `internet` or `relays` restarts it, so open link sessions reconnect); the plugin and the bridge only check these fields.
 
 ### Your own relay
 

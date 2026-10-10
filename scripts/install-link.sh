@@ -104,7 +104,7 @@ if [ "$WITH_LINK" -eq 1 ]; then
         "$PIP" "$PREFIX/venv" "$REPO/tools/deploy" "$IROH_SPEC"
     else
         "$PREFIX/venv/bin/python" -m pip install -q --no-deps "$REPO/tools/deploy"
-        "$PREFIX/venv/bin/python" -m pip install -q "$IROH_SPEC" ||
+        "$PREFIX/venv/bin/python" -m pip install -q --no-warn-conflicts "$IROH_SPEC" ||
             die "the iroh package does not install here (it has wheels for Linux aarch64 and x86_64 only)"
     fi
     mkdir -p "$BIN_DIR"
@@ -127,8 +127,9 @@ Wants=network-online.target
 
 [Service]
 ExecStart=$PREFIX/venv/bin/canworks-link --dir $LINK_DIR run
+# It also exits on purpose to apply new internet settings (iroh frees its port only then).
 Restart=always
-RestartSec=3
+RestartSec=1
 
 [Install]
 WantedBy=multi-user.target
