@@ -84,11 +84,13 @@ class Page(unittest.TestCase):
     def add_node(self, eds, heartbeat="100"):
         """Adds a node from `eds` and gives it a heartbeat: the test EDS files
         default to none, which the checks refuse (no supervision)."""
+        n = self.page.locator("#node-list [data-node]").count()
         self.page.set_input_files("#eds-input", eds)
+        self.page.wait_for_selector('select[data-supervision="%d"]' % n)
         self.page.wait_for_selector("details[data-picker]")
         if heartbeat is not None:
-            self.page.locator("select[data-supervision]:visible").last.select_option("heartbeat")
-            self.page.locator('input[data-path$=".heartbeat_ms"]:visible').last.fill(heartbeat)
+            self.page.select_option('select[data-supervision="%d"]' % n, "heartbeat")
+            self.page.fill('input[data-path="nodes[%d].heartbeat_ms"]' % n, heartbeat)
 
     def settled(self):
         """Waits for the debounced check to finish."""
