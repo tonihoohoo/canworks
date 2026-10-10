@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import os
+import time
 import unittest
 from unittest import mock
 
@@ -329,6 +330,11 @@ class Clashes(unittest.TestCase):
 
 class Upload(unittest.TestCase):
     def setUp(self):
+        # The stub answers at once: poll it every 20 ms, not every second.
+        for f in (runtime.Client.wait_for_build, runtime.Client.start_plc):
+            p = mock.patch.object(f, "__defaults__", f.__defaults__[:-2] + (0.02, time.sleep))
+            p.start()
+            self.addCleanup(p.stop)
         self.dir = tmpdir(self)
         pair = make_cert(self.dir)
         if pair is None:

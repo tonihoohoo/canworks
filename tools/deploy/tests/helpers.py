@@ -169,7 +169,7 @@ class StubRuntime:
         ctx.load_cert_chain(cert, key)
         self.server.socket = ctx.wrap_socket(self.server.socket, server_side=True)
         self.port = self.server.server_address[1]
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
 
     def __enter__(self):
         self.thread.start()
