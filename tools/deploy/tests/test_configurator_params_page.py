@@ -38,8 +38,10 @@ class ParamsPage(OnlineBase):
     def device(self, allow=True, booted=True):
         fp = FakeDevice(allow_changes=allow)
         node = copy.deepcopy(fake_status()["nodes"][0])
+        # PRE-OPERATIONAL, as while it is set up: writes to an OPERATIONAL
+        # node ask first (test_configurator_online_page).
         node.update(node_id=NODE, name="rtd", booted=booted, emcy={"code": 0, "error_register": 0, "count": 0},
-                    sdo_variables=[])
+                    sdo_variables=[], state=127)
         fp.status["nodes"].insert(0, node)
         return fp
 

@@ -2099,7 +2099,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 return conn.call(hostname, port, token, run, network)
             except diag.DiagError as e:
-                raise ApiError(422 if e.kind in ("refused", "usage", "busy") else 502, str(e), kind=e.kind)
+                # `force`: a change to a running node the page may send again with force after asking.
+                raise ApiError(422 if e.kind in ("refused", "usage", "busy") else 502, str(e), kind=e.kind,
+                               force=diag.needs_force(e))
+
+        # A change to an OPERATIONAL node (an SDO write, NMT but START) and a
+        # scan while a node is OPERATIONAL need force; the page sends it
+        # after asking. Only then is the field sent.
+        forced = {"force": True} if body.get("force") is True else {}
 
         def picked(c):
             """The page's network, or the first one when the runtime does not
@@ -2130,14 +2137,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if route in params.ROUTES:
             node = None if route[1].endswith("/job") else node_arg()
-            client = params.Client(conn, hostname, port, token, network)
+            # force: the page asked about an OPERATIONAL node first.
+            client = params.Client(conn, hostname, port, token, network, body.get("force") is True)
             try:
                 return params.handle(route, body, s, conn, self.server.jobs, client, node, settings.eds_library,
                                      host)
             except params.Refused as e:
-                raise ApiError(e.status, str(e))
+                raise ApiError(e.status, str(e), force=str(e).rstrip().endswith(diag.FORCE_NEEDED))
             except diag.DiagError as e:
-                raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
+                raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e))
         if route == ("POST", "/api/online/status"):
             used, st = call(lambda c: (picked(c), c.status()))
             prints = online.fingerprints(config_path)
@@ -2163,7 +2171,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     data = diag.encode(body.get("type"), body.get("value", ""))
                 except ValueError as e:
                     raise ApiError(422, str(e))
-                res = call(lambda c: c.sdo_write(node, index, sub, data, timeout_ms))
+                res = call(lambda c: c.request("sdo_write", timeout=c.timeout + timeout_ms / 1000.0, node=node,
+                                               index=index, subindex=sub, data=diag.hex_bytes(data),
+                                               timeout_ms=timeout_ms, **forced))
                 if res.get("success"):
                     res["data"] = diag.hex_bytes(data)  # what was written, for Keep in configuration
             else:
@@ -2180,7 +2190,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             node, command = node_arg(), body.get("command")
             if command not in diag.NMT_COMMANDS:
                 raise ApiError(400, "command must be one of " + ", ".join(diag.NMT_COMMANDS))
-            return call(lambda c: c.nmt(node, command))
+            return call(lambda c: c.request("nmt", node=node, command=command,
+                                            **(forced if command != "start" else {})))
         if route == ("POST", "/api/online/lss_find"):
             vendor, product = body.get("vendor_id"), body.get("product_code")
             known = isinstance(vendor, int) and isinstance(product, int)
@@ -2230,7 +2241,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except diag.DiagError as e:
                 raise frame_error(e)
         if route == ("POST", "/api/online/scan"):
-            used, res = call(lambda c: (picked(c), c.scan(bool(body.get("start")))))
+            start = bool(body.get("start"))
+            used, res = call(lambda c: (picked(c), c.request("scan", **forced) if start else c.scan(False)))
             res["networks"], res["network"] = (conn.info or {}).get("networks") or [], used
             if res.get("nodes") is not None:
                 self._match_scan(s, settings, canopen_dir, res, body.get("config"), used)

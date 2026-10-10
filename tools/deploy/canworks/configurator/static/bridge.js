@@ -122,8 +122,8 @@ function bridgeListenFields() {
 }
 
 // A comma-separated address list as a JSON list.
-function bridgeListField(label, path, help) {
-  return field(label, path, "text", { placeholder: "every client", hint: help,
+function bridgeListField(label, path, help, placeholder) {
+  return field(label, path, "text", { placeholder: placeholder || "every client", hint: help,
     show: (v) => (Array.isArray(v) ? v.join(", ") : v),
     parse: (t) => { const l = t.split(/[\s,]+/).filter(Boolean); return l.length ? l : undefined; } });
 }
@@ -160,10 +160,12 @@ function renderBridge(view) {
           { value: undefined, label: "High word first", help: "Default. The first register of a 32- or 64-bit value holds its high word." },
           { value: "low_first", label: "Low word first", help: "The first register holds the low word, for clients that expect that order." },
         ]),
-        field("Maximum clients", "bridge.max_clients", "int", { placeholder: "16", hint: "Connections served at once, 1 to 64." }))),
+        field("Maximum clients", "bridge.max_clients", "int", { placeholder: "16", hint: "Connections served at once, 1 to 64." }),
+        field("Clients per address", "bridge.max_clients_per_address", "int", { placeholder: "4",
+          hint: "Connections from one address at once, 1 to 64. When every slot is taken, a writer's address closes the oldest connection of a client that may not write." }))),
     el("fieldset", null, el("legend", null, "Clients"),
       el("div", { class: "grid" },
-        bridgeListField("Writers", "bridge.writers", "Addresses or prefixes (192.168.10.20, 192.168.10.0/24) allowed to write. Empty: every client that may connect."),
+        bridgeListField("Writers", "bridge.writers", "Required: the addresses or prefixes (192.168.10.20, 192.168.10.0/24) allowed to write; no other client can. To let every host write, give 0.0.0.0/0, ::/0.", "required"),
         bridgeListField("Readers", "bridge.readers", "Addresses or prefixes allowed to connect. Empty: every client."),
         field("Watchdog (ms)", "bridge.watchdog_ms", "int", { placeholder: "1000",
           hint: "Outputs go off when no writer wrote for this long. 0: no watchdog." }),
