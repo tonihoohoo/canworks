@@ -169,6 +169,18 @@ PLUGIN_API const void* canopen_plc_api(uint32_t version) {
 #endif
 }
 
+// The NMT function blocks (CO_NMT, CO_NETWORK_START, CO_NETWORK_STOP,
+// CO_GET_STATE) find this the same way (spec canopen-plc-nmt,
+// canopen_plc_nmt_api.h); its version moves on its own.
+PLUGIN_API const void* canopen_plc_nmt_api(uint32_t version) {
+#if CANWORKS_WITH_CANOPEN
+  return canopen_plc_nmt_api_table(version);
+#else
+  (void)version;
+  return nullptr;
+#endif
+}
+
 // The PLC program's CAN_* frame blocks find this the same way
 // (spec can-plc-frames, can_plc_api.h).
 PLUGIN_API const void* canworks_can_api(uint32_t version) { return canworks_can_api_table(version); }

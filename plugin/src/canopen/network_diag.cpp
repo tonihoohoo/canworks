@@ -206,7 +206,7 @@ void Network::DiagStatus(const DiagRequest& r) {
     uint8_t hold = n.hold == Hold::Stopped ? 1 : n.hold == Hold::Preop ? 2 : 0;
     cJSON_AddStringToObject(o, "hold", hold_name(hold));
     if (hold)
-      cJSON_AddStringToObject(o, "hold_by", n.hold_by_operator ? "operator" : "program");
+      cJSON_AddStringToObject(o, "hold_by", n.hold_src == HoldSource::Operator ? "operator" : "program");
     else
       cJSON_AddNullToObject(o, "hold_by");
     cJSON* e = cJSON_AddObjectToObject(o, "emcy");
@@ -295,32 +295,47 @@ void Network::DiagNmt(const DiagRequest& r) {
 }
 
 std::string Network::OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by) {
-  if (command == "stop" || command == "preop") {
-    n.hold = command == "stop" ? Hold::Stopped : Hold::Preop;
-    n.hold_by_operator = true;
-    if (n.cfg->boot && !n.booted) {
-      log_info("%s: NMT %s requested by %s; sent when the node has booted", n.cfg->label().c_str(),
-               command == "stop" ? "STOP" : "ENTER PRE-OPERATIONAL", by.c_str());
-      return "the node has not booted; the hold applies once it has";
+  uint8_t cs = command == "stop"         ? CANOPEN_PLC_NMT_CS_STOP
+               : command == "preop"      ? CANOPEN_PLC_NMT_CS_PREOP
+               : command == "start"      ? CANOPEN_PLC_NMT_CS_START
+               : command == "reset-comm" ? CANOPEN_PLC_NMT_CS_RESET_COMM
+                                         : CANOPEN_PLC_NMT_CS_RESET_NODE;
+  return NodeCommand(id, n, cs, HoldSource::Operator, by);
+}
+
+std::string Network::NodeCommand(unsigned id, NodeState& n, uint8_t cs, HoldSource src, const std::string& by,
+                                 bool send) {
+  const std::string label = n.cfg->label();
+  switch (cs) {
+    case CANOPEN_PLC_NMT_CS_STOP:
+    case CANOPEN_PLC_NMT_CS_PREOP: {
+      const char* what = cs == CANOPEN_PLC_NMT_CS_STOP ? "STOP" : "ENTER PRE-OPERATIONAL";
+      SetHold(id, n, cs == CANOPEN_PLC_NMT_CS_STOP ? Hold::Stopped : Hold::Preop, src);
+      if (n.cfg->boot && !n.booted) {
+        if (send) log_info("%s: NMT %s requested by %s; sent when the node has booted", label.c_str(), what, by.c_str());
+        return "the node has not booted; the hold applies once it has";
+      }
+      if (!send) return "";
+      log_info("%s: NMT %s requested by %s", label.c_str(), what, by.c_str());
+      SendHold(id, n);
+      return "";
     }
-    log_info("%s: NMT %s requested by %s", n.cfg->label().c_str(), command == "stop" ? "STOP" : "ENTER PRE-OPERATIONAL",
-             by.c_str());
-    SendHold(id, n);
-  } else if (command == "start") {
-    n.hold = Hold::None;
-    n.hold_by_operator = false;
-    if (n.booted || !n.cfg->boot) {
-      log_info("%s: NMT START (from %s)", n.cfg->label().c_str(), by.c_str());
-      Command(NmtCommand::START, static_cast<uint8_t>(id));
-    } else {
-      log_info("%s: hold released by %s; the node has not booted, so the master starts it when it has",
-               n.cfg->label().c_str(), by.c_str());
+    case CANOPEN_PLC_NMT_CS_START:
+      SetHold(id, n, Hold::None, src);
+      if (n.booted || !n.cfg->boot) {
+        if (!send) return "";
+        log_info("%s: NMT START (from %s)", label.c_str(), by.c_str());
+        Command(NmtCommand::START, static_cast<uint8_t>(id));
+        return "";
+      }
+      if (send)
+        log_info("%s: hold released by %s; the node has not booted, so the master starts it when it has", label.c_str(),
+                 by.c_str());
       return "the node has not booted; the master starts it when it has";
-    }
-  } else {
-    ResetNode(id, n, command == "reset-comm", by.c_str());
+    default:
+      ResetNode(id, n, cs == CANOPEN_PLC_NMT_CS_RESET_COMM, by.c_str(), send);
+      return "";
   }
-  return "";
 }
 
 // ---------------------------------------------------------------------------
