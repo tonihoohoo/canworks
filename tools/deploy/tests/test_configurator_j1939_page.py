@@ -98,13 +98,11 @@ class J1939Page(OnlineBase):
         pg.press(f'input[data-path="{base}.signals[1].mux"]', "Tab")
         pg.fill(f'input[data-path="{base}.signals[2].mux"]', "2-3")
         pg.press(f'input[data-path="{base}.signals[2].mux"]', "Tab")
-        pg.wait_for_function("() => document.body.dataset.checking === '0'")
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        pg.wait_for_selector("#problem-list li.ok")
         # All pages: the plugin sets the switch, so its location goes.
         pg.select_option(f'select[data-path="{base}.pages"]', "all")
         self.assertEqual(pg.input_value(f'input[data-path="{base}.signals[0].iec_location"]'), "")
-        pg.wait_for_function("() => document.body.dataset.checking === '0'")
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        pg.wait_for_selector("#problem-list li.ok")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         lamps = load(self.config_path)["networks"][0]["j1939"]["tx"][2]
