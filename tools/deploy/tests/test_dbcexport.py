@@ -490,7 +490,7 @@ class CantoolsStrict(unittest.TestCase):
         shutil.copy(os.path.join(EDS_DIR, "drives", "servo-drive.eds"), os.path.join(tmp, "servo.eds"))
         cfg = {"schema_version": 1, "adapter": {"type": "socketcan", "interface": "vcan0", "bitrate": 500000},
                "master": {"node_id": 1, "sync_period_us": 10000},
-               "nodes": [{"node_id": 3, "name": "servo", "eds": "servo.eds",
+               "nodes": [{"node_id": 3, "name": "servo", "eds": "servo.eds", "heartbeat_ms": 100,
                           "tx_pdos": [{"number": 1, "mapping": "device", "transmission": 1, "entries": [
                               {"index": "0x6041", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%IW10"}]}],
                           "rx_pdos": [{"number": 1, "entries": [
