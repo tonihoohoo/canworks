@@ -122,7 +122,7 @@ class Pack(Base):
     def test_pack_for_modbus(self):
         self.open()
         cfg = openplc_config()
-        cfg["bridge"] = {"listen": "0.0.0.0:502", "status_location": "%IB500"}
+        cfg["bridge"] = {"listen": "0.0.0.0:502", "writers": ["10.0.0.20"], "status_location": "%IB500"}
         r = self.ok("/api/bridge/pack", {"config": cfg})
         self.assertEqual(r["config"], modbusmap.pack(cfg))
         self.assertEqual(r["config"]["bridge"]["status_location"], "%IB24")
@@ -245,14 +245,14 @@ class Target(Base):
         self.open()
         cfg = openplc_config()
         self.assertEqual(self.errors(cfg), [])
-        cfg["bridge"] = {"listen": "0.0.0.0:502"}
+        cfg["bridge"] = {"listen": "0.0.0.0:502", "writers": ["10.0.0.20"]}
         # Per-type words are one word apart: odd bytes and overlaps in byte addressing.
         self.assertTrue(any("must start at an even byte" in m for m in self.errors(cfg)))
         packed = self.ok("/api/bridge/pack", {"config": cfg})["config"]
         self.assertEqual(self.errors(packed), [])
         self.ok("/api/save", {"config": packed})
         saved = load(os.path.join(self.folder, "canworks.json"))
-        self.assertEqual(saved["bridge"], {"listen": "0.0.0.0:502"})
+        self.assertEqual(saved["bridge"], {"listen": "0.0.0.0:502", "writers": ["10.0.0.20"]})
         self.assertEqual(saved["networks"][0]["nodes"][1]["tx_pdos"][0]["entries"][2]["iec_location"], "%IW10")
 
     def test_one_unnamed_network_stays_version_2(self):
@@ -260,14 +260,14 @@ class Target(Base):
         cfg = self.cfg
         # Without a name of its own the network is named after its interface.
         del cfg["networks"][0]["name"]
-        cfg["bridge"] = {"listen": "0.0.0.0:502", "live_lists": [{"network": "sim0", "location": "%IB32"}]}
+        cfg["bridge"] = {"listen": "0.0.0.0:502", "writers": ["10.0.0.20"], "live_lists": [{"network": "sim0", "location": "%IB32"}]}
         self.assertEqual(srv.lowest_version(cfg), cfg)
         r = self.ok("/api/save", {"config": cfg})
         self.assertEqual(r["check"]["errors"], 0, r["check"]["items"])
         saved = load(os.path.join(self.folder, "canworks.json"))
         self.assertEqual(saved["schema_version"], 2)
         self.assertEqual(list(saved), ["$schema", "schema_version", "networks", "bridge"])
-        self.assertEqual(list(saved["bridge"]), ["listen", "live_lists"])
+        self.assertEqual(list(saved["bridge"]), ["listen", "writers", "live_lists"])
 
     def test_plc_cycle_is_a_problem(self):
         self.open()

@@ -121,3 +121,34 @@ TEST(sim_raw_rejections) {
   CHECK(has_error(errors, "raw_devices[2].send[0]: \"period_ms\" must be an integer 1-60000"));
   CHECK(has_error(errors, "raw_devices[3]: has neither \"send\" nor \"replies\""));
 }
+
+// Values outside a 64-bit signal's range are clamped to it, without the
+// out-of-range double to integer cast (undefined) that gave 0 or 2^63.
+TEST(sim_raw_signal_clamped) {
+  std::vector<std::string> errors;
+  auto specs = parse(R"([{"name": "big", "send": [{"id": 1, "dlc": 8, "period_ms": 10, "signals": [
+      {"start_bit": 0, "length": 64, "source": {"constant": 1e30}}]}]},
+    {"name": "neg", "send": [{"id": 2, "dlc": 8, "period_ms": 10, "signals": [
+      {"start_bit": 0, "length": 64, "signed": true, "source": {"constant": -1e30}}]}]},
+    {"name": "pos", "send": [{"id": 3, "dlc": 8, "period_ms": 10, "signals": [
+      {"start_bit": 0, "length": 64, "signed": true, "source": {"constant": 1e30}}]}]},
+    {"name": "byte", "send": [{"id": 4, "dlc": 1, "period_ms": 10, "signals": [
+      {"start_bit": 0, "length": 8, "source": {"constant": 1e30}}]}]}])",
+                     errors);
+  CHECK_MSG(errors.empty(), errors.empty() ? "" : errors[0]);
+  if (specs.size() != 4) return;
+  const uint64_t want[] = {UINT64_MAX, static_cast<uint64_t>(INT64_MIN), static_cast<uint64_t>(INT64_MAX), 0xFF};
+  for (size_t i = 0; i < 4; ++i) {
+    RawDevice dev(specs[i]);
+    NoDevices res;
+    NoValues ctx;
+    CHECK(dev.bind("", res, errors));
+    dev.power_on(0);
+    std::vector<RawFrame> out;
+    dev.due(0, out, ctx);
+    CHECK(out.size() == 1);
+    if (out.size() != 1) continue;
+    uint64_t got = canworks_can::unpack_signal(out[0].data, out[0].dlc, 0, i == 3 ? 8 : 64, false);
+    CHECK_MSG(got == want[i], specs[i].name + ": " + std::to_string(got));
+  }
+}

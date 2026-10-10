@@ -7,6 +7,7 @@
 #ifndef CANOPEN_SIM_SOURCE_H
 #define CANOPEN_SIM_SOURCE_H
 
+#include <map>
 #include <memory>
 #include <random>
 #include <string>
@@ -19,14 +20,30 @@ typedef struct cJSON cJSON;
 
 namespace canopen_sim {
 
+// CSV files of value sources. A file must resolve (symbolic links followed)
+// under one of `roots`, be a regular file of at most 16 MB, with lines of at
+// most 4096 bytes. The files of a simulation file are read when it loads;
+// once `frozen`, a source only takes rows read then, so no tick reads a file.
+struct CsvFiles {
+  std::vector<std::string> roots;
+  bool frozen = false;
+  // Key: resolved path, column and time scale.
+  std::map<std::string, std::vector<std::pair<double, double>>> rows;
+};
+
+constexpr size_t kCsvMaxBytes = 16u << 20;
+constexpr size_t kCsvMaxLine = 4096;
+
 class Source {
  public:
   enum class Type { Constant, Sine, Triangle, Sawtooth, Square, Ramp, Steps, RandomWalk, Counter, Csv, Expr };
 
   ~Source();
   // Parses one source object; `base_dir` resolves CSV paths. nullptr and
-  // `err` on failure.
-  static std::unique_ptr<Source> parse(const cJSON* json, const std::string& base_dir, std::string& err);
+  // `err` on failure. Without `csv` a CSV file must lie under `base_dir`
+  // and is read now; with it, see CsvFiles.
+  static std::unique_ptr<Source> parse(const cJSON* json, const std::string& base_dir, std::string& err,
+                                       CsvFiles* csv = nullptr);
 
   Type type() const { return type_; }
   // The JSON it was parsed from (for status answers and saving).

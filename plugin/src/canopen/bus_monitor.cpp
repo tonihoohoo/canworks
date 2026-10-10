@@ -65,10 +65,13 @@ bool BusMonitor::simulated() {
 
 bool BusMonitor::poll(clock::time_point now) {
   const char* name = cfg_.adapter.interface.c_str();
+  // Never waits on the kernel (this is the bus thread): asks now and takes
+  // the answer to an earlier request, so a reading is one tick old.
   LinkInfo li;
-  if (ops_->get(cfg_.adapter.interface, li) < 0) {
-    // The supervision tick notices a missing or down interface and ends the
-    // session; until then keep the last reading.
+  ops_->request_get(cfg_.adapter.interface);
+  if (ops_->take_get(li) < 0) {
+    // No answer yet, or the supervision tick notices a missing or down
+    // interface and ends the session; until then keep the last reading.
     flush_summary(now, false);
     return false;
   }

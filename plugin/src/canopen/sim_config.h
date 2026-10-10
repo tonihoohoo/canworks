@@ -20,7 +20,8 @@ std::vector<canopen_sim::DeviceSpec> sim_device_specs(const Config& cfg, bool on
                                                       const std::set<unsigned>& only = {});
 
 // The simulation file's node entries must name nodes of the config (or
-// extra devices).
+// extra devices), and no extra device may have the node ID of a config node
+// or of the master.
 bool check_sim_file(const Config& cfg, const canopen_sim::SimFile& file, std::vector<std::string>& errors);
 
 // The simulation file's value sources on objects the master writes (an

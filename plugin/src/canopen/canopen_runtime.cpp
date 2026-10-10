@@ -136,7 +136,7 @@ bool MasterRuntime::load_sim(const ConfigSet& set, std::vector<std::string>& err
   sim_->store = g_sim_store;
   std::string sim_path = find_sim_file(cfg_);
   canopen_sim::SimFile loaded;
-  if (!sim_path.empty() && !canopen_sim::load_sim_file(sim_path, loaded, errors)) return false;
+  if (!sim_path.empty() && !canopen_sim::load_sim_file(sim_path, loaded, errors, cfg_.config_dir)) return false;
   if (!sim_path.empty() && loaded.schema_version >= 2) {
     if (!check_sim_sections(set, loaded, errors)) return false;
     std::string name = sim_network_name(cfg_);

@@ -146,8 +146,9 @@ for _ in $(seq 1 40); do
     fi
     sleep 0.5
 done
-"${REMOTE[@]}" --json scan > scan-plugin.json || fail "scan through the plugin"
-"${LOCAL[@]}" --json scan --config canopen_config.json > scan-local.json || fail "scan through the adapter"
+# Node 5 is OPERATIONAL under the plugin: both scans need --force.
+"${REMOTE[@]}" --json scan --force > scan-plugin.json || fail "scan through the plugin"
+"${LOCAL[@]}" --json scan --force --config canopen_config.json > scan-local.json || fail "scan through the adapter"
 python3 - <<'PY' || fail "scan results differ"
 import json
 keys = ("vendor_id", "product_code", "revision_number", "serial_number", "device_type", "device_name", "match")

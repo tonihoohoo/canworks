@@ -39,7 +39,8 @@ class BusMonitor {
 
   // At PLC start: the bus-off count starts again from 0.
   void reset();
-  // Reads the link and updates the image; returns true if an input changed.
+  // Reads the link (without blocking: LinkOps::request_get / take_get) and
+  // updates the image; returns true if an input changed.
   bool poll(clock::time_point now);
   // No session: state 0; the counters keep their last values.
   bool no_bus();

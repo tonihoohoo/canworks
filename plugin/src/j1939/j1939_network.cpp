@@ -93,6 +93,9 @@ void J1939Image::copy_from_plc(const plugin_runtime_args_t& rt) {
 // ---------------------------------------------------------------------------
 // J1939Engine
 
+constexpr std::chrono::milliseconds J1939Engine::kReplyGap;  // C++14: odr-used
+constexpr size_t J1939Engine::kRepliedMax;
+
 J1939Engine::J1939Engine(const Config& cfg, J1939Image& image, J1939Socket& socket)
     : cfg_(cfg), j_(cfg.j1939), image_(image), socket_(socket), claimer_(cfg.j1939.ecu, *this) {
   for (const auto& r : j_.rx) {
@@ -168,6 +171,7 @@ void J1939Engine::bus_up(clock::time_point now) {
   was_claimed_ = false;
   bound_ = 0xFF;
   ecus_.clear();
+  replied_.clear();
   for (auto& r : rx_) {
     r.seen = false;
     r.timed_out = false;
@@ -260,14 +264,18 @@ void J1939Engine::on_request(const J1939Message& m, clock::time_point now) {
   if (m.destination != kJ1939Global && !to_us &&
       !(pgn == kPgnAddressClaimed && m.destination == claimer_.claiming_address()))
     return;
+  // Answers to the same PGN and requester at most every kReplyGap. Requests
+  // for the claims from the null address (ECUs still claiming, possibly
+  // several starting at once) are always answered.
   if (pgn == kPgnAddressClaimed) {
-    claimer_.on_claim_request();
+    if (m.source == kJ1939NullAddress || reply_allowed(pgn, m.source, now)) claimer_.on_claim_request(now);
     return;
   }
   if (!can_send(now)) return;
   for (size_t i = 0; i < j_.tx.size(); ++i) {
     if (j_.tx[i].pgn != pgn) continue;
     if (!outputs_enabled()) return;  // a transmit message, stopped with the outputs
+    if (!reply_allowed(pgn, m.source, now)) return;
     const uint64_t* snap = image_.latest_outputs();
     build_tx(i, snap);
     uint8_t dest = j1939_pdu1(pgn) && m.source <= kJ1939MaxAddress ? m.source : kJ1939Global;
@@ -275,10 +283,28 @@ void J1939Engine::on_request(const J1939Message& m, clock::time_point now) {
     ++tx_[i].answered;
     return;
   }
-  if (!to_us) return;
+  if (!to_us || !reply_allowed(pgn, m.source, now)) return;
   // NACK (J1939-21 Acknowledgement, control byte 1) for a PGN we do not send.
   const uint8_t d[8] = {1, 0xFF, 0xFF, 0xFF, m.source, uint8_t(pgn), uint8_t(pgn >> 8), uint8_t(pgn >> 16)};
   send(kPgnAcknowledgement, kJ1939Global, 6, d, sizeof(d));
+}
+
+bool J1939Engine::reply_allowed(uint32_t pgn, uint8_t requester, clock::time_point now) {
+  const uint32_t key = pgn << 8 | requester;
+  auto it = replied_.find(key);
+  if (it != replied_.end() && now - it->second < kReplyGap) return false;
+  // Entries older than the gap limit nothing: drop them before the map grows.
+  if (replied_.size() >= kRepliedMax) {
+    for (auto e = replied_.begin(); e != replied_.end();) {
+      if (now - e->second >= kReplyGap)
+        e = replied_.erase(e);
+      else
+        ++e;
+    }
+  }
+  if (replied_.size() >= kRepliedMax) return false;
+  replied_[key] = now;
+  return true;
 }
 
 bool J1939Engine::build_tx(size_t i, const uint64_t* snap) {
@@ -296,7 +322,10 @@ bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now) 
   TxState& st = tx_[i];
   int r = send(t.pgn, destination, static_cast<uint8_t>(t.priority), st.next.data(), st.next.size());
   if (r == -EADDRNOTAVAIL && settling_) return false;
-  if (r == 0) ++st.sent;
+  // A refused send does not count as sent: an on-change PGN stays changed and
+  // is tried again on the next tick.
+  if (r < 0) return true;
+  ++st.sent;
   st.data = st.next;
   st.sent_once = true;
   st.last_sent = now;

@@ -299,6 +299,81 @@ class Cli(unittest.TestCase):
         self.assertEqual(run("status")[0], 2)
 
 
+class Force(unittest.TestCase):
+    """sdo_write, nmt (but start) and scan carry force: true only with --force
+    (the plugin refuses them without it while a node is OPERATIONAL)."""
+
+    def test_force_sent_only_when_given(self):
+        with FakePlugin(allow_changes=True) as fp:
+            self.assertEqual(run("--runtime", fp.runtime, "sdo-write", "2", "0x2000", "0", "1", "--type",
+                                 "UNSIGNED32")[0], 0)
+            self.assertNotIn("force", fp.requests[-1])
+            self.assertEqual(run("--runtime", fp.runtime, "sdo-write", "2", "0x2000", "0", "1", "--type",
+                                 "UNSIGNED32", "--force")[0], 0)
+            self.assertIs(fp.requests[-1]["force"], True)
+            self.assertEqual(run("--runtime", fp.runtime, "nmt", "2", "stop", "--force")[0], 0)
+            self.assertEqual(fp.requests[-1], {"op": "nmt", "node": 2, "command": "stop", "force": True, "id": 2})
+            self.assertEqual(run("--runtime", fp.runtime, "--force", "scan")[0], 0)
+            scans = [r for r in fp.requests if r["op"] == "scan"]
+            self.assertIs(scans[-1]["force"], True)
+            self.assertEqual(run("--runtime", fp.runtime, "scan")[0], 0)
+            scans = [r for r in fp.requests if r["op"] == "scan"]
+            self.assertNotIn("force", scans[-1])
+            self.assertTrue(all("force" not in r for r in fp.requests if r["op"] == "scan_status"))
+
+    def test_refusal_names_the_option(self):
+        refusal = "node 2 (pingpong) is OPERATIONAL; an NMT command takes it out of the program's control; " \
+                  + diag.FORCE_NEEDED
+        with FakePlugin(allow_changes=True) as fp:
+            orig = fp.answer
+
+            def answer(req, conn=None):
+                if req.get("op") == "nmt" and not req.get("force"):
+                    return {"ok": False, "error": refusal}
+                return orig(req, conn)
+
+            fp.answer = answer
+            err = io.StringIO()
+            with mock.patch.dict(os.environ, {diag.TOKEN_ENV: TOKEN}), redirect_stderr(err):
+                code = diag.main(["--runtime", fp.runtime, "nmt", "2", "stop"])
+            self.assertEqual(code, 1)
+            self.assertIn(refusal + "; add --force to go ahead", err.getvalue())
+            with mock.patch.dict(os.environ, {diag.TOKEN_ENV: TOKEN}), redirect_stderr(io.StringIO()):
+                self.assertEqual(diag.main(["--runtime", fp.runtime, "nmt", "2", "stop", "--force"]), 0)
+
+    def test_op_first_in_the_line(self):
+        # The plugin reads a long line only when it starts as put_config does.
+        c = diag.Client("127.0.0.1")
+        sent = []
+
+        class Sock:
+            def sendall(self, data):
+                sent.append(data)
+
+            def settimeout(self, t):
+                pass
+
+        c.sock = Sock()
+        c._line = lambda: b'{"id": 1, "ok": true, "result": {}}'
+        c.next_id = 1
+        c.request("put_config", files={"canworks.json": "e30="})
+        self.assertTrue(sent[0].startswith(b'{"op": "put_config"'), sent[0][:40])
+
+
+class BitrateStop(unittest.TestCase):
+    def test_stop_command_and_time_limit(self):
+        with FakePlugin(allow_changes=True) as fp:
+            code, _, err = run("--runtime", fp.runtime, "detect-bitrate-stop")
+            self.assertEqual(fp.requests[-1]["op"], "detect_bitrate_stop")
+            self.assertEqual(code, 1)  # this fake predates the op
+            n = len(fp.requests)
+            code, _, err = run("--runtime", fp.runtime, "detect-bitrate", "--per-rate-ms", "10000", "--rounds", "20")
+            self.assertEqual(code, 2)
+            self.assertIn("the sweep would listen 1600 s", err)
+            self.assertIn("at most 120 s", err)
+            self.assertEqual(len(fp.requests), n)  # nothing sent
+
+
 class Networks(unittest.TestCase):
     """A plugin that runs two networks (io, drives), one that lists one, and
     an older one that lists none (the default fake)."""

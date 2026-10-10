@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "sim_od.h"
+#include "sim_source.h"
 
 typedef struct cJSON cJSON;
 
@@ -161,6 +162,9 @@ struct SimFile {
   std::vector<SimSection> networks;
   // Set by sim_file_section: the network whose section this is.
   std::string section;
+  // The CSV files of its value sources, read when it loaded (shared by its
+  // sections).
+  std::shared_ptr<CsvFiles> csv;
 };
 
 // What a version 2 file says for network `network`, shaped as a version 1
@@ -168,9 +172,12 @@ struct SimFile {
 // path and tick only, when the file has no section for that network.
 bool sim_file_section(const SimFile& file, const std::string& network, SimFile& out);
 
-// Loads `path`; errors name the file and the JSON path.
-bool load_sim_file(const std::string& path, SimFile& out, std::vector<std::string>& errors);
-bool parse_sim_file(const std::string& json, const std::string& path, SimFile& out, std::vector<std::string>& errors);
+// Loads `path`; errors name the file and the JSON path. CSV files of value
+// sources are read now, from under the file's folder or `config_dir`.
+bool load_sim_file(const std::string& path, SimFile& out, std::vector<std::string>& errors,
+                   const std::string& config_dir = "");
+bool parse_sim_file(const std::string& json, const std::string& path, SimFile& out, std::vector<std::string>& errors,
+                    const std::string& config_dir = "");
 
 // Helpers shared with the engine's control ops.
 bool parse_obj_key(const std::string& text, ObjKey& out);

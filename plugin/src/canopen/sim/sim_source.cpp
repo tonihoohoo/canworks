@@ -1,9 +1,14 @@
 #include "sim_source.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
-#include <fstream>
 #include <sstream>
+
+#include <climits>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "cJSON.h"
 
@@ -32,17 +37,82 @@ std::string join_path(const std::string& dir, const std::string& file) {
   return dir + "/" + file;
 }
 
-bool load_csv(const std::string& path, unsigned column, double scale, std::vector<std::pair<double, double>>& out,
-              std::string& err) {
-  std::ifstream in(path);
-  if (!in) {
+std::string real_path(const std::string& p) {
+  char buf[PATH_MAX];
+  return realpath(p.c_str(), buf) ? std::string(buf) : std::string();
+}
+
+// The file's text, after the path rules (CsvFiles); false with `err`.
+bool read_csv_file(const std::string& path, const std::vector<std::string>& roots, std::string& text, std::string& err) {
+  std::string real = real_path(path);
+  if (real.empty()) {
     err = "cannot read " + path;
     return false;
   }
+  bool under = false;
+  for (const auto& r : roots) {
+    std::string root = r.empty() ? std::string() : real_path(r);
+    if (root.empty()) continue;
+    if (root.back() != '/') root += '/';
+    under = under || real.compare(0, root.size(), root) == 0;
+  }
+  if (!under) {
+    err = "CSV file " + path + " is outside the folders of the configuration and the simulation file";
+    return false;
+  }
+  // Non-blocking: opening a FIFO must not wait for a writer.
+  int fd = open(real.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+  if (fd < 0) {
+    err = "cannot read " + path;
+    return false;
+  }
+  struct stat st;
+  if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+    close(fd);
+    err = "CSV file " + path + " is not a regular file";
+    return false;
+  }
+  if (static_cast<unsigned long long>(st.st_size) > kCsvMaxBytes) {
+    close(fd);
+    err = "CSV file " + path + " is larger than 16 MB";
+    return false;
+  }
+  text.clear();
+  char buf[65536];
+  ssize_t n;
+  while ((n = read(fd, buf, sizeof buf)) > 0) {
+    text.append(buf, static_cast<size_t>(n));
+    if (text.size() > kCsvMaxBytes) break;  // grew since the check
+  }
+  close(fd);
+  if (n < 0) {
+    err = "cannot read " + path;
+    return false;
+  }
+  if (text.size() > kCsvMaxBytes) {
+    err = "CSV file " + path + " is larger than 16 MB";
+    return false;
+  }
+  return true;
+}
+
+bool load_csv(const std::string& path, const std::vector<std::string>& roots, unsigned column, double scale,
+              std::vector<std::pair<double, double>>& out, std::string& err) {
+  std::string text;
+  if (!read_csv_file(path, roots, text, err)) return false;
   std::string line;
   unsigned lineno = 0;
-  while (std::getline(in, line)) {
+  size_t pos = 0;
+  while (pos < text.size()) {
+    size_t nl = text.find('\n', pos);
+    size_t end = nl == std::string::npos ? text.size() : nl;
     ++lineno;
+    if (end - pos > kCsvMaxLine) {
+      err = path + " line " + std::to_string(lineno) + " is longer than 4096 bytes";
+      return false;
+    }
+    line.assign(text, pos, end - pos);
+    pos = end + 1;
     if (!line.empty() && line.back() == '\r') line.pop_back();
     if (line.empty()) continue;
     std::vector<std::string> cells;
@@ -87,7 +157,7 @@ double wave_phase(double t, double period, double phase_deg) {
 
 Source::~Source() = default;
 
-std::unique_ptr<Source> Source::parse(const cJSON* json, const std::string& base_dir, std::string& err) {
+std::unique_ptr<Source> Source::parse(const cJSON* json, const std::string& base_dir, std::string& err, CsvFiles* csv) {
   if (!cJSON_IsObject(json)) {
     err = "a source must be an object such as {\"sine\": {...}}";
     return nullptr;
@@ -217,7 +287,7 @@ std::unique_ptr<Source> Source::parse(const cJSON* json, const std::string& base
     }
     double column = 1, scale = 1;
     if (!num(o, "column", column, false, err) || !num(o, "time_scale", scale, false, err)) return nullptr;
-    if (column < 1 || !(scale > 0)) {
+    if (!(column >= 1 && column <= 1000) || !(scale > 0)) {
       err = "\"column\" must be 1 or more and \"time_scale\" above 0";
       return nullptr;
     }
@@ -230,7 +300,26 @@ std::unique_ptr<Source> Source::parse(const cJSON* json, const std::string& base
       s->linear_ = std::string(interp->valuestring) == "linear";
     }
     s->loop_ = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(o, "loop"));
-    if (!load_csv(join_path(base_dir, f->valuestring), static_cast<unsigned>(column), scale, s->csv_, err)) return nullptr;
+    if (base_dir.empty()) {
+      err = std::string("cannot read CSV file ") + f->valuestring + ": no folder to read it from";
+      return nullptr;
+    }
+    std::string path = join_path(base_dir, f->valuestring);
+    char key[64];
+    std::snprintf(key, sizeof key, "|%u|%.17g", static_cast<unsigned>(column), scale);
+    auto it = csv ? csv->rows.find(path + key) : std::map<std::string, std::vector<std::pair<double, double>>>::iterator();
+    if (csv && it != csv->rows.end()) {
+      s->csv_ = it->second;
+    } else if (csv && csv->frozen) {
+      err = std::string("CSV file ") + f->valuestring +
+            " was not read with the simulation file: CSV files are read only when it loads";
+      return nullptr;
+    } else {
+      if (!load_csv(path, csv ? csv->roots : std::vector<std::string>{base_dir}, static_cast<unsigned>(column), scale,
+                    s->csv_, err))
+        return nullptr;
+      if (csv) csv->rows[path + key] = s->csv_;
+    }
   } else if (k == "expr") {
     s->type_ = Type::Expr;
     if (!cJSON_IsString(o) || !*o->valuestring) {

@@ -26,6 +26,10 @@ class PlcRequests {
   // How long a finished transfer's result waits for its block.
   static constexpr std::chrono::seconds kKeepResult{10};
   static constexpr uint32_t kDefaultTimeoutMs = 1000;
+  // A taken request whose network never answers ends with a timeout this
+  // long after its TIMEOUT (the network waits at most TIMEOUT plus
+  // Network::kAbsentAfter, 3 s, for a booting node), so its slot is freed.
+  static constexpr std::chrono::seconds kTakenGrace{5};
 
   // A request the bus thread runs.
   struct Job {
@@ -39,7 +43,10 @@ class PlcRequests {
 
   // Scan thread (through the C table).
   uint32_t start(const canopen_plc_request& req, uint16_t& error_id);
-  int poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, uint32_t cap);
+  int poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, uint32_t cap) {
+    return poll(handle, res, data, cap, clock::now());
+  }
+  int poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, uint32_t cap, clock::time_point now);
 
   // Plugin lifecycle: open() when CANopen runs, with the networks that take
   // SDO requests as bits (bit i = network i in the config: the CANopen master

@@ -97,6 +97,12 @@ unsigned iec_size_bits(IecSize size) {
   return 0;
 }
 
+bool iec_location_in_image(const IecLocation& loc, uint32_t limit, bool byte_addressed) {
+  if (!byte_addressed) return loc.index < limit;
+  // A bit covers its byte.
+  return bytes_in_image(loc.index, loc.size == IecSize::X ? 1 : iec_size_bits(loc.size) / 8, limit);
+}
+
 namespace {
 
 struct TypeInfo {

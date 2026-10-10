@@ -20,10 +20,14 @@
 #ifndef CANOPEN_DCF_GEN_H
 #define CANOPEN_DCF_GEN_H
 
+#include <chrono>
 #include <cstdint>
 #include <map>
+#include <sys/types.h>
 #include <string>
 #include <vector>
+
+#include <spawn.h>
 
 #include "config.h"
 
@@ -75,8 +79,25 @@ bool generate_device_config(const Config& cfg, const std::string& dcfgen,
 bool read_concise_dcf(const std::string& path, std::vector<SdoWrite>& out,
                       std::string& error);
 
-// The dcfgen to run: $CANWORKS_DCFGEN, else the installer's venv, else PATH.
+// The dcfgen to run: $CANWORKS_DCFGEN, else the installer's venv, else PATH;
+// as an absolute path ("" when it cannot be found).
 std::string default_dcfgen();
+
+// Helper programs (dcfgen, the EDS lint) run as absolute paths, in their own
+// process group, and are killed after helper_time_limit() (60 s).
+// The absolute path of `program`: realpath of one with a '/', else the first
+// executable in $PATH; "" when there is none.
+std::string resolve_program(const std::string& program);
+std::chrono::milliseconds helper_time_limit();
+void set_helper_time_limit(std::chrono::milliseconds limit);  // tests
+// Starts `args` (args[0] an absolute path) as its own process group with
+// the file actions `fa`. False with `why` set when it cannot start.
+bool spawn_helper(const std::vector<std::string>& args, const posix_spawn_file_actions_t* fa, pid_t& pid,
+                  std::string& why);
+// Waits for a helper at most helper_time_limit(); on time-out kills its
+// process group. True with `status` set (waitpid's) when it ended; false with
+// `why` ("timed out after 60 s", or the waitpid error) otherwise.
+bool wait_helper(pid_t pid, int& status, std::string& why);
 
 }  // namespace canopen_plugin
 

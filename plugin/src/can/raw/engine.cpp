@@ -200,28 +200,35 @@ void RawEngine::due(uint64_t now_us, std::vector<canworks_can_frame>& frames, st
       t.change_pending = false;
     }
     if (!send) continue;
+    // Nothing counts as sent until sent() reports the write.
     frames.push_back(build(i, out_vals_.data()));
     tx_index.push_back(i);
-    t.trigger_pending = false;
-    t.change_pending = false;
-    t.last_sent = now_us;
-    t.has_sent = true;
-    t.next_periodic = now_us + static_cast<uint64_t>(m.period_ms) * 1000u;
     const TxMap& map = tx_map_[i];
-    t.sent_values.resize(map.all.size());
-    for (size_t k = 0; k < map.all.size(); ++k) t.sent_values[k] = out_vals_[map.all[k]];
+    t.building.resize(map.all.size());
+    for (size_t k = 0; k < map.all.size(); ++k) t.building[k] = out_vals_[map.all[k]];
   }
 }
 
 void RawEngine::sent(size_t i, uint64_t now_us, int error) {
-  (void)now_us;
   if (i >= tx_st_.size()) return;
+  const RawTx& m = cfg_.tx[i];
+  TxState& t = tx_[i];
   if (error) {
     tx_st_[i].last_error = error;
-  } else {
-    ++tx_st_[i].count;
-    tx_st_[i].last_error = 0;
+    // On-change and trigger sends stay pending and are tried again on the
+    // next tick; a periodic send waits for its next period (no burst).
+    if (m.period_ms && now_us >= t.next_periodic)
+      t.next_periodic = now_us + static_cast<uint64_t>(m.period_ms) * 1000u;
+    return;
   }
+  ++tx_st_[i].count;
+  tx_st_[i].last_error = 0;
+  t.trigger_pending = false;
+  t.change_pending = false;
+  t.last_sent = now_us;
+  t.has_sent = true;
+  t.next_periodic = now_us + static_cast<uint64_t>(m.period_ms) * 1000u;
+  t.sent_values.swap(t.building);
 }
 
 uint64_t RawEngine::next_event_in(uint64_t now_us) const {

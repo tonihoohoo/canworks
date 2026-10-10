@@ -314,7 +314,7 @@ class Scan(Online):
         self.assertEqual(r["name"], "rtd-rev2.eds")
         self.assertIn("objects", r["summary"])
         self.assertEqual(sorted(os.listdir(self.canopen)), before)
-        cfg["nodes"].append({"node_id": 40, "name": "rtd", "eds": "rtd-rev2.eds", "revision_number": 0x00010002,
+        cfg["nodes"].append({"node_id": 40, "name": "rtd", "eds": "rtd-rev2.eds", "heartbeat_ms": 100, "revision_number": 0x00010002,
                              "serial_number": 99})
         self.save(cfg)
         self.assertIn("rtd-rev2.eds", os.listdir(self.canopen))
