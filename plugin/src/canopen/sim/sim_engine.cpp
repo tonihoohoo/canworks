@@ -80,6 +80,8 @@ std::string nmt_name(uint8_t st) {
     case 4: return "stopped";
     case 5: return "operational";
     case 127: return "preop";
+    // Lely stays in reset communication while the device has no node ID.
+    case 7: return "no node ID, waiting for LSS";
     default: return "unknown";
   }
 }
@@ -90,6 +92,7 @@ std::string nmt_log_name(uint8_t st) {
     case 4: return "STOPPED";
     case 5: return "OPERATIONAL";
     case 127: return "PRE-OPERATIONAL";
+    case 7: return "no node ID (waiting for LSS)";
     default: return "state " + std::to_string(st);
   }
 }
@@ -173,6 +176,7 @@ struct Simulator::Dev {
   uint16_t profile = 0;
   std::map<uint8_t, uint32_t> eds_identity;  // 0x1018 as the file has it
   uint32_t eds_device_type = 0;
+  bool lss_supported = true;  // [DeviceInfo] LSS_Supported=1, read at the first power-on
 
   std::map<ObjKey, std::unique_ptr<SourceSlot>> sources;
   std::map<ObjKey, std::unique_ptr<SourceSlot>> defaults;
@@ -492,7 +496,12 @@ bool Simulator::Start(std::vector<std::string>& errors) {
       continue;
     }
     PowerOn(d);
-    if (!d.powered) errors.push_back(d.label + ": cannot start the device from " + d.spec.eds_path);
+    if (!d.powered) {
+      errors.push_back(d.label + ": cannot start the device from " + d.spec.eds_path);
+    } else if ((d.spec.lss || !d.spec.node) && !d.lss_supported) {
+      // Without LSS a device without a node ID could never get one.
+      errors.push_back(d.label + ": its EDS has no LSS (LSS_Supported=0), so it could never get a node ID");
+    }
   }
   if (!errors.empty()) {
     Stop();
@@ -592,6 +601,7 @@ void Simulator::PowerOn(Dev& d) {
     for (uint8_t s = 1; s <= 4; ++s)
       if (od_has(dev.od(), 0x1018, s)) d.eds_identity[s] = static_cast<uint32_t>(od_number(dev.od(), 0x1018, s));
     d.eds_device_type = static_cast<uint32_t>(od_number(dev.od(), 0x1000, 0));
+    d.lss_supported = dev.lss_supported();
   }
   dev.on_log = [this, &d](const std::string& m) { Log(Host::Level::Info, d.label + ": " + m); };
   dev.on_stored = [this, &d]() { Persist(d); };
@@ -871,6 +881,13 @@ Simulator::Dev* Simulator::Find(const std::string& ref) {
     if (d->spec.node && std::to_string(d->spec.node) == ref) return d.get();
     if (d->spec.extra && !d->spec.name.empty() && d->spec.name == ref) return d.get();
   }
+  // The node ID a device has now (one an LSS master gave it); a configured
+  // node ID or a name above wins.
+  for (auto& d : devs_) {
+    if (!d->powered || !d->dev) continue;
+    unsigned id = d->dev->node_id();
+    if (id >= 1 && id <= 127 && std::to_string(id) == ref) return d.get();
+  }
   return nullptr;
 }
 
@@ -1101,6 +1118,11 @@ bool Simulator::ApplyFault(Dev& d, const Fault& f, std::string& err) {
     err = d.label + " cannot send EMCY: its EDS has no object 0x1014 (COB-ID EMCY)";
     return false;
   }
+  if (k == "forget_node_id" && !d.lss_supported) {
+    err = d.label + ": its EDS has no LSS (LSS_Supported=0), so it could never get a node ID back";
+    Log(Host::Level::Warn, "fault " + f.json + " refused: " + err);
+    return false;
+  }
   if ((k == "sdo_abort" || k == "sdo_delay") && f.has_object && !d.objects.empty() && !d.objects.count(f.object)) {
     err = d.label + " has no object " + f.object.str();
     return false;
@@ -1155,7 +1177,12 @@ bool Simulator::ApplyFault(Dev& d, const Fault& f, std::string& err) {
     return false;
   }
   SimDevice& dev = *d.dev;
-  if (k == "emcy") {
+  if (k == "emcy" && f.code == 0) {
+    // CiA 301 error code 0000: error reset / no error.
+    dev.SendErrorReset(f.error_register, f.msef);
+    d.emcy_periodic = false;
+    d.active.erase("emcy");
+  } else if (k == "emcy") {
     dev.SendEmcy(f.code, f.error_register, f.msef);
     if (f.period_ms) {
       d.emcy_periodic = true;

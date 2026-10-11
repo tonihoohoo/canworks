@@ -609,12 +609,20 @@ class Page(unittest.TestCase):
         while "lss" in load(path)["nodes"][0] and time.time() < deadline:
             time.sleep(0.05)
         self.assertNotIn("lss", load(path)["nodes"][0])
-        # An EDS without LSS_Supported: a warning, still allowed.
+        # An EDS without LSS_Supported: no LSS for the node, the boxes are off with the reason.
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
         if not pg.is_visible('input[data-path="nodes[1].lss.assign"]'):
             pg.click('details[data-advanced="node1"] > summary')
         self.assertEqual(pg.locator("[data-lss-warning]").count(), 1)
-        self.assertTrue(pg.is_enabled('input[data-path="nodes[1].lss.assign"]'))
+        self.assertIn("has no LSS", pg.inner_text("[data-lss-warning]"))
+        self.assertTrue(pg.is_disabled('input[data-path="nodes[1].lss.assign"]'))
+        self.assertTrue(pg.is_disabled('input[data-path="nodes[1].lss.store"]'))
+        self.assertEqual(pg.locator("[data-lss-remove]").count(), 0)
+        # An lss object left in the file: a problem, removed with one click.
+        pg.evaluate("() => { S.config.nodes[1].lss = {}; render(); }")
+        pg.wait_for_selector("[data-lss-remove]")
+        pg.click("[data-lss-remove]")
+        self.assertFalse(pg.evaluate("() => 'lss' in S.config.nodes[1]"))
 
     def test_cia402_axis(self):
         pg = self.page

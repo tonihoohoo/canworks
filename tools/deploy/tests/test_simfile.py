@@ -425,6 +425,26 @@ class Checks(unittest.TestCase):
                          "node ID 1 is the master's node ID")
         self.assertError(self.changed(lambda s: s["extra_devices"].append({"node": 40, "eds": "eds/pingpong.eds"})),
                          "node ID 40 is already used by another extra device")
+        # Without LSS in its EDS a device without a node ID could never get one.
+        self.assertError(self.changed(lambda s: s["extra_devices"].append(
+            {"node": 0, "name": "new", "eds": "eds/pingpong.eds"})),
+            "extra_devices[2]", "new: its EDS has no LSS (LSS_Supported=0), so it could never get a node ID")
+
+    def test_lss_faults_and_error_reset(self):
+        # forget_node_id needs LSS in the EDS (rtd8.eds has it, fixed-io.eds not).
+        self.assertError(self.changed(lambda s: s["nodes"].setdefault("7", {}).update(
+            faults=[{"forget_node_id": True}])),
+            "nodes.7.faults[0].forget_node_id",
+            "node 7 (io): its EDS has no LSS (LSS_Supported=0), so it could never get a node ID back")
+        self.assertError(self.changed(lambda s: s["scenarios"]["sensor-break"]["steps"].append(
+            {"node": 7, "fault": {"forget_node_id": True}})), "its EDS has no LSS")
+        ok = self.changed(lambda s: s["nodes"]["5"]["faults"].append({"forget_node_id": True}))
+        self.assertEqual(self.errors(ok), [])
+        # EMCY code 0 is the error reset: once, never periodic.
+        self.assertEqual(self.errors(self.changed(lambda s: s["nodes"]["5"]["faults"].append(
+            {"emcy": {"code": "0x0000", "register": 4}}))), [])
+        self.assertError(self.changed(lambda s: s["nodes"]["5"]["faults"].append(
+            {"emcy": {"code": 0, "period_ms": 100}})), "code 0x0000 is the error reset; it takes no period_ms")
 
     def test_without_a_config(self):
         sim = {"extra_devices": [{"node": 4, "eds": "eds/pingpong.eds", "sources": {"0x4001": {"counter": {}}}}],

@@ -29,6 +29,9 @@
 #    marked simulated while another process holds node ID 2: not started,
 #    conflict logged; and the plugin's node 5 powers off when another
 #    process starts sending as node 5.
+# 5. A standalone device started without a node ID on vcan1: refused for an
+#    EDS without LSS; with lss-slave.eds the PC's local bus finds it and gives
+#    it node ID 70 by LSS, and `fault 70` then reaches it (its name too).
 #
 # Needs a build of this repo (cmake -B build -DOPENPLC_ROOT=... && cmake
 # --build build) and vcan0 UP (sudo scripts/dev-setup.sh); vcan1 is created
@@ -343,6 +346,34 @@ PIDS+=($!)
 wait_for "another device sends with node ID 5" 6 "$WORK/host6.log" && ok "guard: simulated node 5 powered off for another device" \
     || fail "guard: node 5 kept running next to another node 5"
 kill "$HOST_PID" "$SLAVE_PID" 2>/dev/null; wait "$HOST_PID" "$SLAVE_PID" 2>/dev/null
+
+echo "==> 5. A standalone device without a node ID on vcan1: LSS, then control by the node ID it got"
+"$SIM" --eds "$WORK/cpp-slave.eds" --node 0 --name new --iface vcan1 --port 7550 > "$WORK/nolss.log" 2>&1
+RC=$?
+[ $RC -ne 0 ] && grep -q "new: its EDS has no LSS (LSS_Supported=0), so it could never get a node ID" "$WORK/nolss.log" \
+    && ok "--node 0 with an EDS without LSS is refused" || fail "--node 0 without LSS (exit $RC): $(cat "$WORK/nolss.log")"
+cp "$ROOT/test/fixtures/eds/lss-slave.eds" "$WORK/"
+"$SIM" --eds "$WORK/lss-slave.eds" --node 0 --name lss0 --iface vcan1 --port 7551 > "$WORK/lss0.log" 2>&1 &
+LSS0_PID=$!
+PIDS+=($LSS0_PID)
+wait_for "lss0: powered on" 10 "$WORK/lss0.log" || fail "lss0 did not start"
+export PYTHONPATH="$ROOT/tools/deploy${PYTHONPATH:+:$PYTHONPATH}"
+DIAG1=(python3 -m canworks.diag --adapter socketcan:vcan1 --bitrate 125 --allow-changes)
+"${DIAG1[@]}" lss-find > "$WORK/find.txt" 2>&1 || fail "lss-find: $(cat "$WORK/find.txt")"
+VENDOR=$(sed -n 's/.*vendor \(0x[0-9A-F]*\).*/\1/p' "$WORK/find.txt")
+PRODUCT=$(sed -n 's/.*product \(0x[0-9A-F]*\).*/\1/p' "$WORK/find.txt")
+REVISION=$(sed -n 's/.*revision \(0x[0-9A-F]*\).*/\1/p' "$WORK/find.txt")
+SERIAL=$(sed -n 's/.*serial \(0x[0-9A-F]*\).*/\1/p' "$WORK/find.txt")
+[ -n "$VENDOR" ] && ok "lss-find found lss0" || fail "lss-find: $(cat "$WORK/find.txt")"
+"${DIAG1[@]}" lss-set-id "$VENDOR" "$PRODUCT" "$REVISION" "$SERIAL" 70 > "$WORK/setid.txt" 2>&1 || fail "lss-set-id: $(cat "$WORK/setid.txt")"
+wait_for "node ID 70" 5 "$WORK/setid.txt" || true
+for i in $(seq 1 30); do "$SIM" status --sim 127.0.0.1:7551 > "$WORK/lss0-status.out" 2>&1; grep -q "now node 70" "$WORK/lss0-status.out" && break; sleep 0.1; done
+grep -q "lss0 (no node ID) now node 70" "$WORK/lss0-status.out" && ok "status: lss0 now node 70" || fail "status: $(cat "$WORK/lss0-status.out")"
+"$SIM" fault 70 heartbeat-stop --sim 127.0.0.1:7551 > "$WORK/fault70.out" 2>&1 \
+    && ok "fault 70 addresses the device by the node ID LSS gave it" || fail "fault 70: $(cat "$WORK/fault70.out")"
+"$SIM" clear lss0 heartbeat --sim 127.0.0.1:7551 > "$WORK/clear-lss0.out" 2>&1 \
+    && ok "its name still works" || fail "clear lss0: $(cat "$WORK/clear-lss0.out")"
+kill "$LSS0_PID" 2>/dev/null; wait "$LSS0_PID" 2>/dev/null
 
 if [ $FAILS -ne 0 ]; then
     echo "==> $FAILS check(s) failed; simulator log:" >&2

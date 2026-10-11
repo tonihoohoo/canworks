@@ -2194,10 +2194,20 @@ function lssFields(i, eds) {
   store.checked = getPath(base + ".lss.store") === true;
   store.disabled = !assign.checked && !store.checked;
   store.addEventListener("change", () => set("store", store.checked));
+  // No LSS on a node whose EDS has none: the boxes stay off (a ticked one can
+  // still be unticked), and an lss object left in the file can be removed.
   const dev = eds && eds.device;
-  const warn = dev && !dev.lss_supported
+  const noLss = !!dev && !dev.lss_supported;
+  if (noLss) {
+    assign.disabled = !assign.checked;
+    store.disabled = !store.checked;
+  }
+  const has = getPath(base + ".lss") !== undefined;
+  const warn = noLss
     ? el("p", { class: "field-msg warning", dataset: { lssWarning: "" } },
-      "The EDS does not say LSS_Supported=1; LSS assignment may not work with this device. Check its manual.")
+      "This device's EDS has no LSS (LSS_Supported=1 missing), so LSS cannot be used for this node. ",
+      has ? el("button", { type: "button", class: "link", dataset: { lssRemove: "" },
+        onclick: () => { setPath(base + ".lss", undefined); render(); } }, "Remove the LSS settings") : null)
     : null;
   return [
     el("div", { class: "check-field" },
@@ -6321,10 +6331,10 @@ async function addScannedNode(d, match, file, identity, lss) {
     if (d.revision_number) node.revision_number = d.revision_number;
     if (d.serial_number) node.serial_number = d.serial_number;
   }
-  if (lss) {
-    node.serial_number = d.serial_number;
-    node.lss = { assign: true };
-  }
+  // LSS assignment only for a device whose EDS has LSS.
+  const noLss = lss && !((res.summary || {}).device || {}).lss_supported;
+  if (lss) node.serial_number = d.serial_number;
+  if (lss && !noLss) node.lss = { assign: true };
   S.config.nodes = S.config.nodes || [];
   S.config.nodes.push(node);
   // The new node's page opens, with a way back to where the device was
@@ -6332,6 +6342,7 @@ async function addScannedNode(d, match, file, identity, lss) {
   S.view = "node:" + (S.config.nodes.length - 1);
   S.focusName = S.config.nodes.length - 1;
   banner(el("div", null, el("div", null, `Added node ${d.node_id} (${res.name}). Map its PDOs here, then save. `,
+    noLss ? el("span", { dataset: { lssNote: "" } }, "No LSS assignment: its EDS has no LSS (LSS_Supported=1 missing). ") : null,
     lss ? el("button", { type: "button", class: "link", dataset: { online: "back-to-online" }, onclick: () => showView("online") }, "Back to the online view")
       : el("button", { type: "button", class: "link", dataset: { online: "back-to-scan" }, onclick: () => showView("scan") }, "Back to the scan")),
   importReport(res)));
@@ -6344,6 +6355,7 @@ async function addScannedNode(d, match, file, identity, lss) {
 function useForNode(d) {
   if (d.serial_number === undefined || d.vendor_id === undefined || d.product_code === undefined) return null;
   if (d.match === "not configured" && configNode(d.node_id)) return null;  // just added as that node
+  const lssOf = (n) => !!((edsFor(n) || {}).device || {}).lss_supported;
   const nodes = (S.config.nodes || []).map((n, i) => [n, i]).filter(([n]) => {
     const dev = (edsFor(n) || {}).device;
     if (!dev || dev.vendor_id !== d.vendor_id || dev.product_code !== d.product_code) return false;
@@ -6353,10 +6365,13 @@ function useForNode(d) {
   if (!nodes.length) return null;
   const sel = el("select", { "aria-label": "Node", dataset: { online: "use-for" } },
     el("option", { value: "" }, "Use for node…"),
-    nodes.map(([n, i]) => el("option", { value: i }, `Node ${n.node_id}${n.name ? " " + n.name : ""}`)));
+    nodes.map(([n, i]) => lssOf(n)
+      ? el("option", { value: i }, `Node ${n.node_id}${n.name ? " " + n.name : ""}`)
+      : el("option", { value: i, disabled: true }, `Node ${n.node_id}${n.name ? " " + n.name : ""} (its EDS has no LSS)`)));
   sel.addEventListener("change", () => {
     if (sel.value === "") return;
     const i = Number(sel.value);
+    if (!lssOf(S.config.nodes[i])) { sel.value = ""; return; }
     const base = `nodes[${i}]`;
     setPath(base + ".serial_number", d.serial_number);
     setPath(base + ".lss", Object.assign({}, getPath(base + ".lss") || {}, { assign: true }));

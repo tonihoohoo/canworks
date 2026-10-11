@@ -249,7 +249,9 @@ class StepsPage(Page):
         pg.wait_for_function("() => (S.config.nodes || []).some((n) => Number(n.node_id) === 12)")
         node = pg.evaluate("() => S.config.nodes.find((n) => Number(n.node_id) === 12)")
         self.assertEqual(node["serial_number"], 0x99)
-        self.assertTrue(node["lss"]["assign"])
+        # fixed-io.eds has no LSS (LSS_Supported=0): no LSS assignment, and the page says why.
+        self.assertNotIn("lss", node)
+        self.assertIn("its EDS has no LSS", pg.inner_text("#banner [data-lss-note]"))
         self.assertEqual(node["eds"], "fixed-io.eds")
         self.assertTrue(pg.evaluate("() => S.dirty"))
 

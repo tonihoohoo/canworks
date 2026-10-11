@@ -3485,6 +3485,143 @@ TEST(sim_simulated_faults) {
   delete sim;
 }
 
+// fix-sim-lss-glitches: a plugin-simulated device that loses its node ID is
+// found by the master's LSS search and gets a new one when its EDS has LSS
+// (rtd8.eds), and is refused that fault when it has none (cpp-slave.eds);
+// the device answers control requests by the node ID LSS gave it; EMCY
+// code 0 sends one error reset; LSS on a configured node without LSS is
+// refused online.
+TEST(sim_simulated_lss_and_error_reset) {
+  clear_logs();
+  std::string cfg = R"({
+  "schema_version": 1,
+  "adapter": { "type": "socketcan", "interface": "sim", "bitrate": 125000 },
+  "master": { "node_id": 1, "sync_period_us": 20000, "diagnostics": { "token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg=", "allow_changes": true } },
+  "nodes": [
+    { "node_id": 5, "name": "rtd", "eds": "rtd8.eds", "heartbeat_ms": 100, "status_location": "%IX10.0" },
+    { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "serial_number": 0, "heartbeat_ms": 50,
+      "heartbeat_timeout_ms": 200, "status_location": "%IX10.1" }
+  ]
+})";
+  std::string dir = make_dir(cfg, {{"rtd8.eds", read(std::string(RTD_DIR) + "/rtd8.eds")}, {"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->EnableDiag();
+  CHECK(sim->StartSimulator(""));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+
+  // No LSS in cpp-slave.eds: forgetting the node ID is refused, node 2 keeps it.
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"forget_node_id":true}})");
+  CHECK(!ok(r));
+  CHECK_MSG(str(r, "error") == "node 2: its EDS has no LSS (LSS_Supported=0), so it could never get a node ID back",
+            str(r, "error"));
+  cJSON_Delete(r);
+  CHECK(logged("its EDS has no LSS (LSS_Supported=0), so it could never get a node ID back"));
+
+  // Online LSS tied to node 2 (its EDS identity and serial number): refused, nothing sent.
+  int before = sim->lss_total();
+  const uint32_t two[4] = {0x360, 0, 0, 0};
+  cJSON* a = sim->Ask(lss_req("lss_inquire", two));
+  CHECK_MSG(!ok(a) && str(a, "error").find("node 2 (pingpong): 'lss' needs an EDS with LSS_Supported=1; this node's "
+                                           "EDS has no LSS") != std::string::npos,
+            a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+  CHECK(sim->lss_total() == before);
+
+  // EMCY code 0 on a device that sent none: one error reset frame.
+  int emcy = sim->frames(0x80 + 5);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":5,"fault":{"emcy":{"code":"0x0000"}}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([emcy] { return sim->frames(0x80 + 5) == emcy + 1; }, seconds(2)));
+  // After an EMCY: still exactly one reset frame (Lely's own is dropped).
+  r = sim->SimAsk(R"({"op":"sim_fault","node":5,"fault":{"emcy":{"code":"0x5000","register":1}}})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([emcy] { return sim->frames(0x80 + 5) == emcy + 2; }, seconds(2)));
+  r = sim->SimAsk(R"({"op":"sim_fault","node":5,"fault":{"emcy":{"code":"0x0000","register":4}}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  sim->RunFor(milliseconds(300));
+  CHECK_MSG(sim->frames(0x80 + 5) == emcy + 3, std::to_string(sim->frames(0x80 + 5) - emcy));
+  a = sim->Ask(diag_req("sdo_read", 5, 0x1001, 0));
+  CHECK_MSG(ok(a) && str(result(a), "data") == "04", a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":5,"fault":{"emcy":{"code":"0x0000","period_ms":100}}})");
+  CHECK_MSG(!ok(r) && str(r, "error").find("code 0x0000 is the error reset; it takes no period_ms") != std::string::npos,
+            str(r, "error"));
+  cJSON_Delete(r);
+
+  // rtd8.eds has LSS: node 5 forgets its node ID and waits for LSS.
+  r = sim->SimAsk(R"({"op":"sim_fault","node":5,"fault":{"forget_node_id":true}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
+  r = sim->SimAsk(R"({"op":"sim_status"})");
+  const cJSON* d = cJSON_GetArrayItem(field(result(r), "devices"), 0);
+  CHECK_MSG(num(d, "node") == 5 && str(d, "nmt") == "no node ID, waiting for LSS", str(d, "nmt"));
+  cJSON_Delete(r);
+
+  // The master's own search finds it (it answers the Fastscan), and gives it node ID 70.
+  a = sim->Ask(diag_req("lss_find"));
+  CHECK(ok(a));
+  cJSON_Delete(a);
+  static cJSON* done;
+  done = nullptr;
+  CHECK(sim->RunUntil([] {
+    cJSON* s = sim->Ask(diag_req("lss_find_status"));
+    if (s && !cJSON_IsTrue(field(result(s), "running"))) {
+      done = s;
+      return true;
+    }
+    cJSON_Delete(s);
+    sim->RunFor(milliseconds(200));
+    return false;
+  }, seconds(25)));
+  CHECK_MSG(cJSON_IsTrue(field(result(done), "found")), done ? cJSON_PrintUnformatted(done) : "null");
+  const cJSON* dev = field(result(done), "device");
+  uint32_t addr[4] = {static_cast<uint32_t>(num(dev, "vendor_id")), static_cast<uint32_t>(num(dev, "product_code")),
+                      static_cast<uint32_t>(num(dev, "revision_number")), static_cast<uint32_t>(num(dev, "serial_number"))};
+  CHECK(num(dev, "node_id") == 255);
+  std::printf("    found in %.1f s\n", num(result(done), "seconds"));
+  cJSON_Delete(done);
+  DiagRequest q = lss_req("lss_set_id", addr);
+  q.node = 70;
+  a = sim->Ask(q);
+  CHECK_MSG(ok(a) && cJSON_IsFalse(field(result(a), "had_node_id")), a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+  CHECK(sim->RunUntil([] { return sim->frames(0x700 + 70) > 0; }, seconds(3)));
+  a = sim->Ask(diag_req("sdo_read", 70, 0x1018, 1));
+  CHECK(ok(a) && cJSON_IsTrue(field(result(a), "success")));
+  cJSON_Delete(a);
+
+  // Addressed by the node ID it has now; the configured one still works.
+  r = sim->SimAsk(R"({"op":"sim_status"})");
+  d = cJSON_GetArrayItem(field(result(r), "devices"), 0);
+  CHECK(num(d, "node") == 5 && num(d, "node_id") == 70);
+  cJSON_Delete(r);
+  // (After the communication reset its heartbeat is the EDS default, off: an
+  // EMCY on its new COB-ID shows the fault reached it.)
+  int e70 = sim->frames(0x80 + 70);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":70,"fault":{"emcy":{"code":"0x5000"}}})");
+  CHECK_MSG(ok(r), str(r, "error"));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([e70] { return sim->frames(0x80 + 70) == e70 + 1; }, seconds(2)));
+  r = sim->SimAsk(R"({"op":"sim_clear","node":5,"fault":"emcy"})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([e70] { return sim->frames(0x80 + 70) == e70 + 2; }, seconds(2)));
+
+  // A power cycle gives back the configured node ID (nothing was stored).
+  r = sim->SimAsk(R"({"op":"sim_fault","node":5,"fault":{"power":"cycle","off_ms":300}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(10)));
+  delete sim;
+}
+
 // Ends the test program when a case does not finish in time: a bus loop
 // that spins never returns to the test.
 class Watchdog {

@@ -40,6 +40,8 @@ class Arguments(unittest.TestCase):
         self.assertEqual(self.fault("emcy", "0x5000", "--register", "1", "--msef", "0100000000", "--period-ms", "500"),
                          {"emcy": {"code": 0x5000, "register": 1, "msef": "0100000000", "period_ms": 500}})
         self.assertEqual(self.fault("emcy", "0x8130"), {"emcy": {"code": 0x8130}})
+        # Code 0: the error reset, with a register.
+        self.assertEqual(self.fault("emcy", "0x0000", "--register", "4"), {"emcy": {"code": 0, "register": 4}})
         self.assertEqual(self.fault("heartbeat-stop"), {"heartbeat": "stop"})
         self.assertEqual(self.fault("power", "off"), {"power": "off"})
         self.assertEqual(self.fault("power", "cycle", "--off-ms", "2000"), {"power": "cycle", "off_ms": 2000})
@@ -67,7 +69,8 @@ class Arguments(unittest.TestCase):
 
     def test_fault_usage_errors(self):
         for argv in (("identity",), ("drive-input",), ("power", "on", "--off-ms", "10"),
-                     ("emcy", "0x5000", "--register", "0x100"), ("emcy", "1", "--period-ms", "5")):
+                     ("emcy", "0x5000", "--register", "0x100"), ("emcy", "1", "--period-ms", "5"),
+                     ("emcy", "0x0000", "--period-ms", "100")):
             with self.assertRaises(diag.DiagError, msg=argv) as cm:
                 self.fault(*argv)
             self.assertEqual(cm.exception.kind, "usage")

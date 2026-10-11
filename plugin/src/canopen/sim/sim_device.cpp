@@ -21,6 +21,7 @@ co_nmt_t* N(__co_nmt* n) { return reinterpret_cast<co_nmt_t*>(n); }
 
 int send_hook(const can_msg* msg, void* data) {
   auto* self = static_cast<SimDevice*>(data);
+  if (self->DropLelyReset(msg->id, msg->data, msg->len)) return 0;
   if (self->Blocked(msg->id, msg->data, msg->len)) return 0;
   if (self->Hold(msg, sizeof *msg, msg->id, msg->data, msg->len)) return 0;
   return self->SendOriginal(msg);
@@ -198,7 +199,49 @@ void SimDevice::SendEmcy(uint16_t code, uint8_t reg, const uint8_t msef[5]) { Er
 
 void SimDevice::ClearEmcy() { co_emcy_clear(co_nmt_get_emcy(N(nmt()))); }
 
+bool SimDevice::DropLelyReset(uint32_t id, const uint8_t* data, uint8_t len) {
+  if (!drop_reset_ || len < 2 || data[0] || data[1]) return false;
+  uint32_t cob = static_cast<uint32_t>(od_number(od(), 0x1014, 0));
+  if ((cob & (cob & 0x20000000u ? 0x1FFFFFFFu : 0x7FFu)) != id) return false;
+  drop_reset_ = false;
+  return true;
+}
+
+void SimDevice::SendErrorReset(uint8_t reg, const uint8_t msef[5]) {
+  co_dev_t* d = reinterpret_cast<co_dev_t*>(dev());
+  co_emcy_t* e = co_nmt_get_emcy(N(nmt()));
+  if (e) {
+    // Lely refuses code 0 as an error, and clears with its own reset frame
+    // (register 0) only when its stack has entries: that frame is dropped
+    // (also when the inhibit time sends it later), and this one goes out.
+    co_unsigned16_t eec = 0;
+    co_emcy_peek(e, &eec, nullptr);
+    if (eec) {
+      drop_reset_ = true;
+      co_emcy_clear(e);
+    }
+  }
+  if (co_dev_find_sub(d, 0x1001, 0)) co_dev_set_val_u8(d, 0x1001, 0, reg);
+  if (!co_dev_find_sub(d, 0x1014, 0)) return;
+  uint32_t cob = static_cast<uint32_t>(od_number(od(), 0x1014, 0));
+  if (cob & 0x80000000u) return;  // EMCY producer off
+  can_msg m = CAN_MSG_INIT;
+  if (cob & 0x20000000u) {
+    m.id = cob & 0x1FFFFFFFu;
+    m.flags |= CAN_FLAG_IDE;
+  } else {
+    m.id = cob & 0x7FFu;
+  }
+  m.len = 8;
+  m.data[2] = reg;
+  if (msef) std::memcpy(m.data + 3, msef, 5);
+  if (Blocked(m.id, m.data, m.len)) return;
+  SendOriginal(&m);
+}
+
 void SimDevice::SelfCommand(uint8_t cs) { co_nmt_cs_ind(N(nmt()), cs); }
+
+bool SimDevice::lss_supported() const { return co_dev_get_lss(reinterpret_cast<const co_dev_t*>(dev())) != 0; }
 
 void SimDevice::ForgetNodeId() {
   co_nmt_t* n = N(nmt());

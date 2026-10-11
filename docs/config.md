@@ -395,7 +395,7 @@ Rules, checked by the plugin and the deploy tool:
 - `lss.store` needs `lss.assign`.
 - `lss.assign` cannot go with `reset_communication: false`: the new node ID becomes active only at a communication reset.
 - Two nodes cannot have the same LSS address (same EDS vendor ID and product code and the same serial number, unless both set different `revision_number` values).
-- An EDS that does not say `LSS_Supported=1` gives a warning, not an error: many EDS files leave it out although the device supports LSS.
+- LSS needs an EDS that says `LSS_Supported=1` in `[DeviceInfo]`. A node whose EDS leaves it out or sets 0 does not support LSS, and any `lss` object on it (even `{}`) is rejected, for a real or a simulated node: `node 12 (valve): 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS`. Some EDS files leave the flag out although the device supports LSS: check the device's manual and add `LSS_Supported=1` to its EDS. The same applies to a [slave network](slave.md) with `"node_id": null`. Online LSS operations on such a node are refused too ([diagnostics.md](diagnostics.md#what-it-offers)).
 
 Without any node with `lss` and without diagnostics changes the master sends no LSS frame at all. To set the node ID or bit rate of a device by hand (commissioning, or a device that is not in the config yet), use the configurator's online view or `canworks-diag lss-...` ([diagnostics.md](diagnostics.md#what-it-offers)). Changing one device's bit rate takes effect at its next power cycle; set `adapter.bitrate` to match once all devices are set.
 

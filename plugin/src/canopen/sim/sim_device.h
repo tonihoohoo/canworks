@@ -67,9 +67,14 @@ class SimDevice : public canopen_plugin::SlaveDevice {
 
   void SendEmcy(uint16_t code, uint8_t reg, const uint8_t msef[5]);
   void ClearEmcy();
+  // The CiA 301 error reset EMCY (code 0000) with this register and these
+  // manufacturer bytes, exactly one frame; empties the error stack and 0x1003.
+  void SendErrorReset(uint8_t reg, const uint8_t msef[5]);
   // NMT command to itself: 0x01 start, 0x02 stop, 0x80 pre-op, 0x81 reset node, 0x82 reset comm.
   void SelfCommand(uint8_t cs);
   void ForgetNodeId();
+  // [DeviceInfo] LSS_Supported=1: Lely runs an LSS slave for the device.
+  bool lss_supported() const;
   // Writes the identity and device type overrides into the dictionary.
   void ApplyOverrides();
   // Sends held SDO answers that are due.
@@ -90,6 +95,8 @@ class SimDevice : public canopen_plugin::SlaveDevice {
   // True when the frame (an SDO answer) is held for the delay fault.
   bool Hold(const void* msg, size_t size, uint32_t id, const uint8_t* data, uint8_t len);
   int SendOriginal(const void* msg);
+  // True for the error reset frame Lely sends while SendErrorReset clears its stack.
+  bool DropLelyReset(uint32_t id, const uint8_t* data, uint8_t len);
   // The SDO abort code a rule (or the OPERATIONAL refusal) gives a transfer, 0: none.
   uint32_t Rule(uint16_t index, uint8_t subindex, bool write);
 
@@ -111,6 +118,7 @@ class SimDevice : public canopen_plugin::SlaveDevice {
     std::vector<uint8_t> raw;  // the struct can_msg
   };
   std::deque<Held> held_;
+  bool drop_reset_ = false;
 };
 
 }  // namespace canopen_sim

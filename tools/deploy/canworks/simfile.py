@@ -839,6 +839,11 @@ class _Device:
         self.cfg_node = cfg_node
         self.extra = extra
         self.writers = {}  # (index, sub) -> writer text
+        self.lss_supported = None  # [DeviceInfo] LSS_Supported=1; None: EDS not read
+
+    def no_lss(self):
+        """True when the device's EDS was read and does not say LSS_Supported=1."""
+        return self.lss_supported is False
 
     def has(self, index, sub):
         return self.eds is None or self.eds.find(index, sub) is not None
@@ -1067,6 +1072,8 @@ def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None
             label = "node %d" % nid + (" (%s)" % n["name"] if n.get("name") else "")
             dev = _Device(label, eds, value or "", cfg_node=n)
             dev.writers = _master_writers(n, eds, nid)
+            if eds is not None:
+                dev.lss_supported = bool((eds_mod.device_info(file) or {}).get("lss_supported"))
             devices[nid] = dev
         # A PDO link consumer's objects are written by the producer's TPDO.
         for link in links_mod.parse(cfg):
@@ -1111,6 +1118,11 @@ def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None
             except (OSError, eds_mod.EdsError) as e:
                 err(w, "%s: EDS file %s cannot be parsed: %s" % (label, file, e), [w + ".eds"])
         dev = _Device(label, eds, d["eds"], extra=d)
+        if eds is not None:
+            dev.lss_supported = bool((eds_mod.device_info(file) or {}).get("lss_supported"))
+            if nid == 0 and name and dev.no_lss():
+                err(w, "%s: its EDS has no LSS (LSS_Supported=0), so it could never get a node ID" % name,
+                    [w + ".node", w + ".eds"])
         if nid and nid not in devices:
             devices[nid] = dev
         if name:
@@ -1354,6 +1366,11 @@ def _check_cycles(expr_sources, devices, err):
             visit(k, [])
 
 
+def lss_forget_message(label):
+    """The simulator's refusal of forget_node_id on a device without LSS."""
+    return "%s: its EDS has no LSS (LSS_Supported=0), so it could never get a node ID back" % label
+
+
 def _check_fault(f, dev, at, err):
     w = _where(at)
     for kind in ("sdo_abort", "sdo_delay"):
@@ -1362,6 +1379,11 @@ def _check_fault(f, dev, at, err):
             _, _, problem = _object_problem(dev, obj)
             if problem:
                 err(w + "." + kind + ".object", problem)
+    if f.get("forget_node_id") is True and dev.no_lss():
+        err(w + ".forget_node_id", lss_forget_message(dev.label))
+    emcy = f.get("emcy")
+    if isinstance(emcy, dict) and contract._uint(emcy.get("code")) == 0 and emcy.get("period_ms"):
+        err(w + ".emcy.period_ms", "emcy: code 0x0000 is the error reset; it takes no period_ms")
     if "emcy" in f and dev.eds is not None and not dev.eds.has(0x1014):
         err(w + ".emcy", "%s cannot send EMCY: %s has no object 0x1014 (COB-ID EMCY)" % (dev.label, dev.eds_name))
     if "tpdo_stop" in f and dev.eds is not None:

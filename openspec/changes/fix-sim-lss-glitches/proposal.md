@@ -33,7 +33,6 @@ The first one comes from an EDS without LSS support (`LSS_Supported` 0 or left o
   - `plugin/src/canopen/sim/sim_engine.cpp` (`forget_node_id` refused without LSS, device lookup, EMCY 0, NMT state name)
   - `plugin/src/canopen/sim/sim_device.{h,cpp}` (error reset EMCY)
   - `plugin/src/canopen/sim/sim_file.cpp` and `tools/deploy/canworks/simfile.py` (extra device with node 0 and start-up `forget_node_id` without LSS refused, EMCY 0 with `period_ms` refused)
-  - `tools/sim/main.cpp` (`--node 0` refused without LSS)
 - Tests and fixtures that change: see tasks.md 1.1.
 - Docs:
   - `docs/config.md` (LSS needs `LSS_Supported=1`, replacing the "warning, not an error" note)

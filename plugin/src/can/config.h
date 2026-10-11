@@ -235,12 +235,14 @@ struct NodeConfig {
   // device, only after an actual change (canopen-master-bringup spec).
   bool lss_assign = false;
   bool lss_store = false;
+  bool has_lss = false;  // an `lss` object, even {} (needs an EDS with LSS_Supported=1)
   // From the EDS [DeviceInfo], set by check_eds_files: the LSS address's
   // vendor ID and product code, and the revision tried first when
   // revision_number is not set.
   uint32_t eds_vendor_id = 0;
   uint32_t eds_product_code = 0;
   uint32_t eds_revision_number = 0;
+  bool eds_lss_supported = false;  // [DeviceInfo] LSS_Supported=1
   std::string software_file;           // as written in the JSON
   std::string software_path;           // resolved like `eds`
   bool has_software_version = false;
@@ -266,6 +268,10 @@ struct NodeConfig {
   uint32_t rpdo_cob_id(const PdoConfig& pdo) const;
   std::string label() const;  // "node 2 (pingpong)"
 };
+
+// Why LSS cannot be used on a node whose EDS does not say LSS_Supported=1:
+// its `lss` object in the config, and online LSS operations tied to it.
+std::string lss_unsupported_message(const NodeConfig& n);
 
 // One consumer of a PDO link: an RPDO of a node that receives the producer's
 // TPDO directly (canopen-pdo-links).
