@@ -349,7 +349,7 @@ When a node with `lss.assign` is due for a boot retry and has not answered since
 - **THEN** the master sets node ID 12, the log says the device keeps node ID 5 until it is reset or power-cycled, and no NMT command goes to node 5
 
 ### Requirement: LSS configuration checks
-`lss.assign` SHALL be rejected for a node with `reset_communication: false`, since the new node ID only becomes active on a communication reset. Two nodes with `lss.assign` and the same vendor ID, product code and serial number (and the same revision, or either revision left out or 0) SHALL be rejected, naming both nodes. When a node with `lss.assign` has an EDS whose `[DeviceInfo]` does not say `LSS_Supported=1` (left out or 0), the plugin and the deploy tool SHALL warn, naming the node, and SHALL accept the configuration.
+`lss.assign` SHALL be rejected for a node with `reset_communication: false`, since the new node ID only becomes active on a communication reset. Two nodes with `lss.assign` and the same vendor ID, product code and serial number (and the same revision, or either revision left out or 0) SHALL be rejected, naming both nodes. A node whose EDS does not say `LSS_Supported=1` in `[DeviceInfo]` (left out or 0) does not support LSS. An `lss` object on such a node, whatever it holds, SHALL be rejected by the plugin and the deploy tool, real or simulated (`simulate`), with one message: "node N (name): 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS".
 
 #### Scenario: Reset communication off
 - **WHEN** node 12 has `lss.assign` and `"reset_communication": false`
@@ -360,8 +360,12 @@ When a node with `lss.assign` is due for a boot retry and has not answered since
 - **THEN** the configuration is rejected, naming nodes 12 and 13
 
 #### Scenario: EDS says no LSS
-- **WHEN** node 12 has `lss.assign` and its EDS does not say `LSS_Supported=1`
-- **THEN** a warning names node 12 and the configuration is accepted
+- **WHEN** node 12 (valve) has `"lss": {"assign": true}` and its EDS does not say `LSS_Supported=1`
+- **THEN** the plugin and the deploy tool reject the configuration with "node 12 (valve): 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS"
+
+#### Scenario: Empty lss object on an EDS without LSS
+- **WHEN** node 12 has `"lss": {}` and its EDS has `LSS_Supported=0`
+- **THEN** the configuration is rejected with the same message
 
 ### Requirement: TIME producer
 The `master` object MAY give `time_period_ms` (100 to 3600000). When given, the master SHALL produce TIME: it SHALL set the producer bit (bit 30) in its own 0x1012, using `time_cob_id` when given and COB-ID 0x100 otherwise, and SHALL send a TIME_OF_DAY message from the host's real-time clock once the bus is up and then every `time_period_ms`. After the bus recovers, it SHALL send TIME again at once. Without `time_period_ms` the master SHALL send no TIME. A `time_period_ms` outside the range SHALL reject the configuration, naming the field.
