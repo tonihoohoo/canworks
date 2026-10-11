@@ -11,7 +11,7 @@ A user SHALL be able to inject into a simulated device, at once or from a scenar
 - override the identity in 0x1018 and the device type in 0x1000;
 - forget the node ID, so the device waits for LSS like a device without DIP switches.
 
-An EMCY with code 0x0000 SHALL send one error reset EMCY (code 0000, the given error register, default 0, and the given manufacturer bytes) and clear the device's error history (0x1003) and a periodic EMCY, whether or not an EMCY was sent before. An EMCY with code 0x0000 and a period SHALL be refused. A simulated device without a node ID, because it started without one or forgot it, SHALL answer LSS (Fastscan, switch selective, inquire, configure node ID and store) even when its EDS does not say `LSS_Supported=1`, and the log SHALL say so for such an EDS. A device that has a node ID SHALL answer LSS only as its EDS says. The device's status SHALL show it as without a node ID and waiting for LSS.
+An EMCY with code 0x0000 SHALL send one error reset EMCY (code 0000, the given error register, default 0, and the given manufacturer bytes) and clear the device's error history (0x1003) and a periodic EMCY, whether or not an EMCY was sent before. An EMCY with code 0x0000 and a period SHALL be refused. A simulated device SHALL answer LSS only when its EDS says `LSS_Supported=1`. For a device whose EDS does not say so (0 or left out), the simulator SHALL refuse everything that would leave it without a node ID: forgetting the node ID (from the control protocol, the command line, a scenario step or the file's start-up faults), and starting it without a node ID (a standalone `--node 0`, an extra device with node 0, a simulated node with `lss.assign`). The refusal SHALL say "node N: its EDS has no LSS (LSS_Supported=0), so it could never get a node ID back" (for an extra device without a node ID, it names the device by its name). It SHALL go to the caller and into the log, and the device SHALL keep its node ID and state. The PC tools' simulation check SHALL refuse the same. A device without a node ID SHALL show in the status as without a node ID and waiting for LSS.
 
 #### Scenario: Node lost and back
 - **WHEN** a user powers off simulated node 5 while the plugin runs, then powers it on 10 s later
@@ -26,8 +26,16 @@ An EMCY with code 0x0000 SHALL send one error reset EMCY (code 0000, the given e
 - **THEN** the plugin's identity check fails the node's boot with the identity error
 
 #### Scenario: Forgotten node ID found by LSS
-- **WHEN** a plugin-simulated node 40, built from an EDS with `LSS_Supported=0`, is given `forget_node_id` and a diagnostics client starts an LSS search
+- **WHEN** a plugin-simulated node 40, built from an EDS with `LSS_Supported=1`, is given `forget_node_id` and a diagnostics client starts an LSS search
 - **THEN** the search finds the device's identity with no node ID, a following LSS configure node ID 70 makes it answer SDO as node 70, and a power cycle makes it node 40 again
+
+#### Scenario: Forget refused without LSS
+- **WHEN** a user runs `canworks-diag sim fault 40 forget-node-id` for a simulated node 40 whose EDS says `LSS_Supported=0`
+- **THEN** the command fails with "node 40: its EDS has no LSS (LSS_Supported=0), so it could never get a node ID back", the plugin log has the same, and node 40 keeps its node ID and NMT state
+
+#### Scenario: Start without a node ID refused without LSS
+- **WHEN** the standalone simulator is started with `--eds cpp-slave.eds --node 0 --name new` and that EDS says `LSS_Supported=0`
+- **THEN** it exits with an error naming "new" and saying that its EDS has no LSS, so it could never get a node ID
 
 #### Scenario: Error reset EMCY
 - **WHEN** a user injects `emcy` with code 0x0000 into a simulated node 5 that has sent no EMCY
