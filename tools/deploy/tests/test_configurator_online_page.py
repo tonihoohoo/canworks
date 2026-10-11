@@ -678,7 +678,7 @@ class OnlinePage(OnlineBase):
             self.scan_with_use_for(fp)
             sel = 'tr[data-scan-node="5"] select[data-online="use-for"]'
             self.assertTrue(pg.is_disabled(sel + ' option[value="0"]'))
-            self.assertIn("its EDS has no LSS", pg.inner_text(sel))
+            self.assertIn("has no LSS", pg.get_attribute(sel + ' option[value="0"]', "title"))
         self.assertNotIn("lss", load(self.config_path)["nodes"][0])
 
 

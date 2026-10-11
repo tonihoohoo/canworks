@@ -6367,7 +6367,9 @@ function useForNode(d) {
     el("option", { value: "" }, "Use for node…"),
     nodes.map(([n, i]) => lssOf(n)
       ? el("option", { value: i }, `Node ${n.node_id}${n.name ? " " + n.name : ""}`)
-      : el("option", { value: i, disabled: true }, `Node ${n.node_id}${n.name ? " " + n.name : ""} (its EDS has no LSS)`)));
+      // Same width as the others (the scan table stays inside the page); the reason in its title.
+      : el("option", { value: i, disabled: true, title: "Its EDS has no LSS (LSS_Supported=1 missing)", dataset: { noLss: "" } },
+        `Node ${n.node_id}${n.name ? " " + n.name : ""}`)));
   sel.addEventListener("change", () => {
     if (sel.value === "") return;
     const i = Number(sel.value);
