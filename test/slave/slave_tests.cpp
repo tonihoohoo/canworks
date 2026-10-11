@@ -708,6 +708,27 @@ TEST(slave_lss_assigned_node_id) {
   CHECK(sim->dev(1).node_id() == 12);
 }
 
+// node_id null needs LSS in the slave's EDS: without it the slave could
+// never get a node ID, so the config is refused (fix-sim-lss-glitches).
+TEST(slave_lss_needs_an_lss_eds) {
+  std::string json = slave_json();
+  size_t at = json.find(R"("node_id": 10, "eds")");
+  CHECK(at != std::string::npos);
+  if (at == std::string::npos) return;
+  json.replace(at, std::strlen(R"("node_id": 10)"), R"("node_id": null)");
+  std::string eds = slave_eds();
+  at = eds.find("LSS_Supported=1");
+  CHECK(at != std::string::npos);
+  if (at == std::string::npos) return;
+  eds.replace(at, std::strlen("LSS_Supported=1"), "LSS_Supported=0");
+  SlaveSim sim(make_dir(json, {{"openplc-slave.eds", eds}}));
+  CHECK(!sim.ok());
+  bool said = false;
+  for (const auto& e : sim.errors())
+    said = said || e.find("slave: node_id null needs an EDS with LSS_Supported=1; its EDS has no LSS") != std::string::npos;
+  CHECK(said);
+}
+
 TEST(slave_node_id_conflict) {
   clear_logs();
   auto sim = start_slave_sim(slave_json());

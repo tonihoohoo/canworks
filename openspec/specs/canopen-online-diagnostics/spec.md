@@ -206,6 +206,8 @@ An authenticated client SHALL be able to run LSS operations on the bus while CAN
 - **Set bit rate**: given an LSS address, a bit rate from the CiA 301 table (10, 20, 50, 125, 250, 500, 800 or 1000 kbit/s) and `store` (default false), set that device's bit rate and, only when `store` is true, store it; then switch all devices to the LSS waiting state. The master SHALL NOT send LSS "activate bit timing parameters" and SHALL NOT change its own bit rate. The result SHALL say that the device uses the new bit rate after its next power cycle and that `adapter.bitrate` must be changed to match.
 A device that refuses a request SHALL make the operation fail with the reason, and the master SHALL still switch all devices to the LSS waiting state. LSS operations SHALL NOT disturb PDO exchange or heartbeat supervision of the configured nodes.
 
+An LSS operation tied to a configured node whose EDS does not say `LSS_Supported=1` SHALL be refused with that node's "node N (name): 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS" message and send nothing. An operation is tied to a configured node when its LSS address has that node's vendor ID and product code (from its EDS) and that node's `serial_number`, or when Set node ID asks for that node's node ID. This SHALL hold for every client: the configurator's online view, `canworks-diag` and the CiA 309-3 gateway. Find, and operations on an address that matches no configured node this way, SHALL stay as they are.
+
 #### Scenario: Find and assign a new device
 - **WHEN** `allow_changes` is true, a device with node ID 0xFF is on the bus, and a client starts a find, then sets node ID 40 for the found address without `store`
 - **THEN** the find returns the device's vendor ID, product code, revision and serial number, the set returns "had no node ID", the device boots as node 40, and no "store configuration" request is sent
@@ -229,6 +231,14 @@ A device that refuses a request SHALL make the operation fail with the reason, a
 #### Scenario: No unconfigured device
 - **WHEN** every device on the bus has a node ID and a client starts a find
 - **THEN** the result is "none found"
+
+#### Scenario: Set node ID for a node without LSS
+- **WHEN** node 23 (io) is configured with an EDS that has `LSS_Supported=0`, and a client asks to set node ID 23 for some LSS address
+- **THEN** the request is refused with "node 23 (io): 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS" and no LSS frame is sent
+
+#### Scenario: Find not tied to a node
+- **WHEN** the same config is running and a client starts a find
+- **THEN** the find runs as before
 
 ### Requirement: LSS commands in the command-line client
 `canworks-diag` SHALL offer `lss-find [--vendor V --product P]` (shows progress, then the found LSS address), `lss-inquire VENDOR PRODUCT REVISION SERIAL`, `lss-set-id VENDOR PRODUCT REVISION SERIAL NODE [--store]` and `lss-set-bitrate VENDOR PRODUCT REVISION SERIAL KBIT [--store]`. Without `--store` nothing SHALL be stored. A refused or failed operation SHALL exit non-zero with the reason.

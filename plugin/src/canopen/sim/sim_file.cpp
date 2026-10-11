@@ -670,6 +670,10 @@ bool parse_fault(const cJSON* o, Fault& f, std::string& err) {
       err = "emcy: " + err;
       return false;
     }
+    if (f.code == 0 && f.period_ms) {
+      err = "emcy: code 0x0000 is the error reset; it takes no period_ms";
+      return false;
+    }
     return true;
   }
   auto one_of = [&](std::initializer_list<const char*> modes) {

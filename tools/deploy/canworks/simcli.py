@@ -194,7 +194,7 @@ def add_parser(sub):
     def kind(name, text):
         return fk.add_parser(name, parents=[common], help=text)
 
-    k = kind("emcy", "send an EMCY (again every --period-ms)")
+    k = kind("emcy", "send an EMCY (again every --period-ms); code 0x0000 sends the error reset")
     k.add_argument("code", type=_u32("EMCY code"))
     k.add_argument("--register", type=_u32("error register"), help="error register (default 0)")
     k.add_argument("--msef", type=_msef, help="manufacturer-specific bytes, 5 bytes as hex")
@@ -275,6 +275,8 @@ def fault_object(args):
         if args.period_ms is not None:
             if args.period_ms < 10:
                 raise DiagError("usage", "--period-ms must be at least 10")
+            if args.code == 0:
+                raise DiagError("usage", "emcy code 0x0000 is the error reset; it takes no --period-ms")
             f["period_ms"] = args.period_ms
         return {"emcy": f}
     if k == "heartbeat-stop":

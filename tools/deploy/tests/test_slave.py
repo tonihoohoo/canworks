@@ -368,6 +368,16 @@ class SlaveContract(unittest.TestCase):
         self.assertTrue(self.check(cfg).ok)
         cfg["networks"][0]["slave"]["node_id"] = "200"
         self.assertIn("slave.node_id: node ID must be 1 to 127 or null", self.errors(cfg))
+        # node_id null needs LSS in the slave's EDS.
+        with open(os.path.join(self.dir, "openplc-slave.eds"), encoding="utf-8", newline="") as f:
+            text = f.read()
+        with open(os.path.join(self.dir, "no-lss.eds"), "w", encoding="utf-8", newline="") as f:
+            f.write(text.replace("LSS_Supported=1", "LSS_Supported=0"))
+        cfg = self.slave()
+        cfg["networks"][0]["slave"].update(node_id=None, eds="no-lss.eds")
+        self.assertIn("slave: node_id null needs an EDS with LSS_Supported=1; its EDS has no LSS", self.errors(cfg))
+        cfg["networks"][0]["slave"]["node_id"] = 10
+        self.assertNotIn("LSS_Supported", self.errors(cfg))
         cfg = self.slave()
         cfg["networks"][0]["slave"]["eds"] = "missing.eds"
         self.assertIn("networks[0]: slave: EDS file %s not found" % os.path.join(self.dir, "missing.eds"),

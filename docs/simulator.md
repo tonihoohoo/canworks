@@ -78,7 +78,7 @@ With a config, `simulation.json` next to it is used when it exists (`--sim FILE`
 | `--setup-vcan` | Create and bring up a missing vcan interface (needs root). |
 | `--real-bus` | Allow an interface that is not vcan. The free node ID check and the conflict guard above apply. |
 | `--nodes LIST` | Only these nodes of the config (comma separated). |
-| `--eds FILE --node ID` | A device that is not in a config (may repeat; `--name NAME` names it). `--node 0` starts it without a node ID, waiting for LSS. |
+| `--eds FILE --node ID` | A device that is not in a config (may repeat; `--name NAME` names it). `--node 0` starts it without a node ID, waiting for LSS; its EDS must say `LSS_Supported=1`. |
 | `--sim FILE`, `--no-sim-file` | The simulation file. Given alone, without a config or `--eds`, it runs the file's [plain CAN devices](#plain-can-devices). |
 | `--no-defaults` | No default behaviour for any device. |
 | `--state-dir DIR` | Keep stored parameters (0x1010) and LSS-stored node IDs in DIR, so they survive a restart of the simulator. Without it they live as long as the process. |
@@ -110,7 +110,7 @@ canworks-sim scenario start sensor-break
 canworks-sim scenario stop sensor-break
 ```
 
-The `fault` kinds are those of [Faults](#faults), written with dashes (`heartbeat-stop`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `forget-node-id`, ...); `fault 5 json '{...}'` takes the JSON form. Their fields are arguments or options as above (`emcy CODE --period-ms MS`, `sdo-delay MS --object OBJ`, `identity --serial-number N`, `drive-input --blocked`, ...; `canworks-sim --help` lists them). `get 5` without objects prints every object in node 5's PDOs. A command exits 1 when the simulator answers with an error, 2 when it cannot reach it.
+The `fault` kinds are those of [Faults](#faults), written with dashes (`heartbeat-stop`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `forget-node-id`, ...); `fault 5 json '{...}'` takes the JSON form. Their fields are arguments or options as above (`emcy CODE --period-ms MS`, `sdo-delay MS --object OBJ`, `identity --serial-number N`, `drive-input --blocked`, ...; `canworks-sim --help` lists them). `get 5` without objects prints every object in node 5's PDOs. A command exits 1 when the simulator answers with an error, 2 when it cannot reach it. A device is addressed by its configured node ID, its name, or the node ID it has now (`status` shows `lss0 (no node ID) now node 70` for a device an LSS master gave node ID 70: `fault 70 ...` and `fault lss0 ...` both reach it); a configured node ID wins over another device's current one.
 
 #### Test mode
 
@@ -166,7 +166,7 @@ Behaviour is set in `canworks/simulation.json`, next to `canworks.json`. It trav
 | `schema_version` | 1 (default) or 2 ([below](#version-2-a-section-per-network)). A higher version is refused with both versions named. |
 | `tick_ms` | How often value sources and models run, 1-60000 ms, default 10. A node or a source can set its own. |
 | `nodes` | Behaviour per node ID (as a string key, `"5"`). Entries for nodes that are not simulated in this config are kept and do nothing, so a node can be switched between real and simulated without editing the file. An entry for a node ID that is neither in the config nor an extra device is an error. |
-| `extra_devices` | Devices that are simulated without being in the config: to try a bus scan, LSS commissioning or an identity check. Each has `node` (1-127, or 0: no node ID, waits for LSS; not the node ID of a config node, simulated or not, nor the master's), `eds` (an EDS or DCF, relative to this file), and optionally `name` (required with node 0; a device is addressed by its name then), `identity` and the node fields below. |
+| `extra_devices` | Devices that are simulated without being in the config: to try a bus scan, LSS commissioning or an identity check. Each has `node` (1-127, or 0: no node ID, waits for LSS, which needs an EDS that says `LSS_Supported=1`; not the node ID of a config node, simulated or not, nor the master's), `eds` (an EDS or DCF, relative to this file), and optionally `name` (required with node 0; a device is addressed by its name then), `identity` and the node fields below. |
 | `scenarios` | Named [scenarios](#scenarios). |
 
 #### Version 2: a section per network
@@ -287,7 +287,7 @@ Faults are given in the simulation file (`faults`, in force from the start), by 
 
 | Fault | Fields | Effect | `clear` |
 |---|---|---|---|
-| `emcy` | `code`, `register` (0), `msef` (5 bytes as hex, `"0000000000"`), `period_ms` (once) | Sends the EMCY, again every `period_ms` when given. Refused for a device whose EDS has no 0x1014 (COB-ID EMCY): it has no EMCY producer. | `emcy`: stops a periodic EMCY and sends the error reset (code 0x0000). |
+| `emcy` | `code`, `register` (0), `msef` (5 bytes as hex, `"0000000000"`), `period_ms` (once) | Sends the EMCY, again every `period_ms` when given. Code 0x0000 is the CiA 301 error reset: one EMCY 0000 with the given register and bytes, which also empties the device's error history (0x1003) and stops a periodic EMCY; it takes no `period_ms`. Refused for a device whose EDS has no 0x1014 (COB-ID EMCY): it has no EMCY producer. | `emcy`: stops a periodic EMCY and sends the error reset (code 0x0000) when an EMCY was sent. |
 | `heartbeat` | `"stop"` | The device stops its heartbeat but goes on working (a firmware hang the master notices). | `heartbeat` |
 | `power` | `"off"`, `"on"` or `"cycle"` (with `off_ms`, default 1000) | Off: the device sends and answers nothing. On: it boots again with the values from its file and its stored values. | `power` (powers on) |
 | `reset` | `"node"` or `"comm"` | The device resets itself and sends its boot-up. | - |
@@ -298,14 +298,14 @@ Faults are given in the simulation file (`faults`, in force from the start), by 
 | `tpdo_stop` | the TPDO number (1-512) | The device stops sending that TPDO. | `tpdo_stop` (all), or with the number |
 | `identity` | `vendor_id`, `product_code`, `revision_number`, `serial_number` | 0x1018 reads these values from now on, also after a reset. | `identity` |
 | `device_type` | the value | 0x1000 reads it. | `device_type` |
-| `forget_node_id` | `true` | The device loses its node ID and waits for LSS, like a new device without DIP switches. | - |
+| `forget_node_id` | `true` | The device loses its node ID and waits for LSS, like a new device without DIP switches; `status` shows it as `no node ID, waiting for LSS`. An LSS master finds it with Fastscan and can give it a node ID; a power cycle gives back its configured one unless one was stored. Refused for a device whose EDS does not say `LSS_Supported=1`: without LSS it could never get a node ID back. | - |
 | `drive_input` | `blocked`, `positive_limit`, `negative_limit`, `home_switch` (booleans) | Inputs of the drive model. | `drive_input` |
 
 `clear` with `all` removes every fault that can be cleared and powers the device on.
 
 ### Stored parameters
 
-A device whose EDS has 0x1010 keeps what is saved with "save" (0x65766173) across power off/on, a reset and an NMT reset, per subindex range as CiA 301 defines (1: all, 2: communication, 3: application, 4 and up: manufacturer). "load" (0x64616F6C) to 0x1011 forgets them at the next reset. The configuration date and time in 0x1020 are kept with them, so the plugin's [configuration check](config.md#configuration-check) works. LSS "store configuration" keeps an LSS-assigned node ID the same way. As CiA 305 has it, LSS Fastscan finds only devices without a node ID: a device that has one does not answer it, so a search on a busy bus finds the new device. The plugin keeps stored values as long as the runtime runs (across PLC stop and start); the standalone simulator as long as it runs, or in `--state-dir`.
+A device whose EDS has 0x1010 keeps what is saved with "save" (0x65766173) across power off/on, a reset and an NMT reset, per subindex range as CiA 301 defines (1: all, 2: communication, 3: application, 4 and up: manufacturer). "load" (0x64616F6C) to 0x1011 forgets them at the next reset. The configuration date and time in 0x1020 are kept with them, so the plugin's [configuration check](config.md#configuration-check) works. LSS "store configuration" keeps an LSS-assigned node ID the same way. As CiA 305 has it, LSS Fastscan finds only devices without a node ID: a device that has one does not answer it, so a search on a busy bus finds the new device. A simulated device runs LSS only when its EDS says `LSS_Supported=1`, as Lely does: everything that needs LSS (`forget_node_id`, a device without a node ID, a node with `lss`) needs such an EDS. The plugin keeps stored values as long as the runtime runs (across PLC stop and start); the standalone simulator as long as it runs, or in `--state-dir`.
 
 ### Scenarios
 

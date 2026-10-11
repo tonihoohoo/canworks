@@ -47,6 +47,12 @@ def interface_message(name):
             "limit of Linux interface names)" % name)
 
 
+def lss_unsupported_message(label):
+    """The plugin's refusal of LSS on a node whose EDS does not say
+    LSS_Supported=1: its `lss` object, and online LSS operations tied to it."""
+    return "%s: 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS" % label
+
+
 def supervision_message(label):
     """The plugin's refusal of a node without heartbeat or guarding whose EDS
     heartbeat default is 0 (canopen-node-supervision)."""
@@ -1850,12 +1856,13 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         messages += [m for m, _ in cyc_errors]
         where += [sub for _, sub in cyc_errors]
         warnings += cyc_warnings
-        if "lss" in node:
+        if "lss" in cfg["nodes"][i] or "lss" in node:
             info = eds_mod.device_info(file) or {}
-            node["lss"].update(vendor_id=info.get("vendor_id") or 0, product_code=info.get("product_code") or 0)
+            if "lss" in node:
+                node["lss"].update(vendor_id=info.get("vendor_id") or 0, product_code=info.get("product_code") or 0)
             if not info.get("lss_supported"):
-                warnings.append(("%s: its EDS does not say LSS_Supported=1; LSS assignment may not work with this "
-                                 "device" % label, ".lss.assign"))
+                messages.append(lss_unsupported_message(label))
+                where.append(".lss")
         for msg, sub in zip(messages, where):
             add("error", msg, [w + sub])
         eds_warnings += [(msg, w + sub) for msg, sub in warnings]
@@ -1929,6 +1936,9 @@ def _check_slave(s, err, add, base, eds_paths):
         return None
     if lint_warning:
         add("warning", "slave: " + lint_warning, ["slave.eds"])
+    if nid is None and not (eds_mod.device_info(file) or {}).get("lss_supported"):
+        add("error", "slave: node_id null needs an EDS with LSS_Supported=1; its EDS has no LSS",
+            ["slave.node_id", "slave.eds"])
     bound = {}
     for j, o in enumerate(s.get("objects", [])):
         index, sub = _uint(o["index"]), _uint(o["subindex"])

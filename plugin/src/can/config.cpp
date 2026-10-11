@@ -111,6 +111,10 @@ std::string emcy_cob_clash(const Config& cfg, const NodeConfig& n, uint32_t id,
   return "";
 }
 
+std::string lss_unsupported_message(const NodeConfig& n) {
+  return n.label() + ": 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS";
+}
+
 std::string NodeConfig::label() const {
   std::string s = "node " + std::to_string(node_id);
   if (!name.empty()) s += " (" + name + ")";
@@ -2247,6 +2251,7 @@ class Parser {
       error(w, "field 'lss' must be an object");
       return;
     }
+    n.has_lss = true;
     check_known(lss, lw, {"assign", "store"});
     get_bool(lss, "assign", lw, n.lss_assign);
     get_bool(lss, "store", lw, n.lss_store);

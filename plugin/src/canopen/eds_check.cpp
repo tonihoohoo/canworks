@@ -603,7 +603,7 @@ void check_slave(Config& cfg, std::vector<std::string>& errors) {
   if ((s.has_emcy_code_location || s.has_error_register_location) && !co_dev_find_obj(dev, 0x1014))
     errors.push_back(net + s.label() + ": emcy_code_location needs the EMCY object 0x1014 in the EDS " + s.eds);
   if (s.lss && !co_dev_get_lss(dev))
-    cfg.warnings.push_back(s.label() + ": its EDS does not say LSS_Supported=1; LSS masters may not look for it");
+    errors.push_back(net + "slave: node_id null needs an EDS with LSS_Supported=1; its EDS has no LSS");
   co_dev_destroy(dev);
 }
 
@@ -1196,9 +1196,9 @@ bool check_eds_files(Config& cfg, std::vector<std::string>& errors) {
       n.eds_has_emcy = true;
       if (sub_value(emcy, cob) && !(cob & 0x80000000u) && cob <= 0x7FF) n.eds_emcy_cob_id = static_cast<uint32_t>(cob);
     }
-    if (n.lss_assign && !co_dev_get_lss(dev))
-      cfg.warnings.push_back(n.label() + ": its EDS does not say LSS_Supported=1; LSS assignment may not work with "
-                                         "this device");
+    n.eds_lss_supported = co_dev_get_lss(dev) != 0;
+    if (n.has_lss && !n.eds_lss_supported)
+      errors.push_back(lss_unsupported_message(n));
     if (devs.count(n.node_id))
       co_dev_destroy(dev);  // a node ID twice, reported by the parser
     else

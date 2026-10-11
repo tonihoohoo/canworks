@@ -603,6 +603,8 @@ class OnlinePage(OnlineBase):
             self.assertEqual((req["node"], req["store"], req["serial_number"]), (40, True, 0x42))
             pg.click('#modal button[data-value="add"]')
             pg.wait_for_selector('#banner:has-text("Added node 40")')
+            # cpp-slave.eds has no LSS: the node gets no LSS assignment, and the banner says why.
+            self.assertIn("its EDS has no LSS", pg.inner_text("#banner [data-lss-note]"))
             # Found in the online view, not in a scan: the way back leads there.
             self.assertEqual(pg.locator('[data-online="back-to-scan"]').count(), 0)
             self.assertIn("Back to the online view", pg.inner_text('[data-online="back-to-online"]'))
@@ -613,8 +615,8 @@ class OnlinePage(OnlineBase):
             pg.click("#btn-save")
             pg.wait_for_selector("#banner:has-text('Saved')")
             node = load(self.config_path)["nodes"][1]
-            self.assertEqual((node["node_id"], node["eds"], node["serial_number"], node["lss"]),
-                             (40, "cpp-slave.eds", 0x42, {"assign": True}))
+            self.assertEqual((node["node_id"], node["eds"], node["serial_number"]), (40, "cpp-slave.eds", 0x42))
+            self.assertNotIn("lss", node)
             # The next device: the store box is unticked again, and 3 is still the lowest free ID.
             pg.click('button[data-view="online"]')
             pg.wait_for_selector('button[data-online="lss-find"]:not([disabled])')
@@ -641,17 +643,24 @@ class OnlinePage(OnlineBase):
             self.assertTrue(pg.is_disabled('button[data-online="lss-find"]'))
         self.assertFalse(any(r["op"].startswith("lss_") for r in fp.requests))
 
+    def scan_with_use_for(self, fp):
+        fp.scan_nodes.append({"node_id": 5, "vendor_id": 0x360, "product_code": 0, "revision_number": 0,
+                              "serial_number": 0x5678, "match": "not configured"})
+        self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
+        self.remember(fp.runtime)
+        self.open()
+        pg = self.page
+        pg.click('button[data-view="scan"]')
+        pg.click('button[data-online="scan"]')
+        pg.wait_for_selector('tr[data-scan-node="5"] select[data-online="use-for"]')
+
     def test_scan_use_for_node(self):
         pg = self.page
+        # lss-slave.eds: the ping-pong device with LSS_Supported=1.
+        shutil.copy(os.path.join(REPO, "test", "fixtures", "eds", "lss-slave.eds"), os.path.join(self.project, "canworks"))
+        self.cfg["nodes"][0]["eds"] = "lss-slave.eds"
         with FakePlugin() as fp:
-            fp.scan_nodes.append({"node_id": 5, "vendor_id": 0x360, "product_code": 0, "revision_number": 0,
-                                  "serial_number": 0x5678, "match": "not configured"})
-            self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
-            self.remember(fp.runtime)
-            self.open()
-            pg.click('button[data-view="scan"]')
-            pg.click('button[data-online="scan"]')
-            pg.wait_for_selector('tr[data-scan-node="5"] select[data-online="use-for"]')
+            self.scan_with_use_for(fp)
             self.assertEqual(pg.locator('tr[data-scan-node="41"] select[data-online="use-for"]').count(), 0)
             pg.select_option('tr[data-scan-node="5"] select[data-online="use-for"]', "0")
             pg.wait_for_selector('#banner:has-text("becomes node 2 at the next PLC start")')
@@ -661,6 +670,16 @@ class OnlinePage(OnlineBase):
             pg.wait_for_selector("#banner:has-text('Saved')")
         node = load(self.config_path)["nodes"][0]
         self.assertEqual((node["serial_number"], node["lss"]), (0x5678, {"assign": True}))
+
+    def test_scan_use_for_node_without_lss(self):
+        # cpp-slave.eds has no LSS: the node is listed, disabled with the reason, and nothing changes.
+        pg = self.page
+        with FakePlugin() as fp:
+            self.scan_with_use_for(fp)
+            sel = 'tr[data-scan-node="5"] select[data-online="use-for"]'
+            self.assertTrue(pg.is_disabled(sel + ' option[value="0"]'))
+            self.assertIn("has no LSS", pg.get_attribute(sel + ' option[value="0"]', "title"))
+        self.assertNotIn("lss", load(self.config_path)["nodes"][0])
 
 
 class SlaveOnlinePage(OnlineBase):

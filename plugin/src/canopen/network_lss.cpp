@@ -253,6 +253,22 @@ void Network::DiagLss(const DiagRequest& r) {
       return;
     }
   }
+  // No LSS on a configured node whose EDS has none: an operation on its LSS
+  // address (EDS vendor ID and product code, and its serial number), or one
+  // that gives a device its node ID.
+  for (const auto& it : nodes_) {
+    const NodeConfig& c = *it.second.cfg;
+    if (c.eds_lss_supported) continue;
+    bool address = c.has_serial_number && r.lss[0] == c.eds_vendor_id && r.lss[1] == c.eds_product_code &&
+                   r.lss[3] == c.serial_number;
+    bool node = r.op == "lss_set_id" && r.node == it.first;
+    if (address || node) {
+      log_warn("LSS %s for %s refused: %s", r.op.c_str() + 4, diag_client(r).c_str(),
+               lss_unsupported_message(c).c_str());
+      diag_->answer(r.seq, diag_error(r.id, lss_unsupported_message(c)));
+      return;
+    }
+  }
   lss_busy_ = true;
   uint32_t a[4] = {r.lss[0], r.lss[1], r.lss[2], r.lss[3]};
   std::string addr = address_text(a);
