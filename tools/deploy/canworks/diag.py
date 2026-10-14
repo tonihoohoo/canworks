@@ -4,7 +4,6 @@
   canworks-diag --runtime plc.local sdo-read 23 0x1008 0 --type VISIBLE_STRING
   canworks-diag --runtime plc.local sdo-read 2 0x1018 1 --network drives
   canworks-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"
-  canworks-diag --runtime plc.local detect-bitrate --rates 125,250,500
   canworks-diag hash-token
   canworks-diag --runtime plc.local sim fault 5 emcy 0x5000 --register 1
   canworks-diag sim --sim 127.0.0.1 status
@@ -53,17 +52,8 @@ MAX_LINE = 1024 * 1024
 NMT_COMMANDS = ("start", "stop", "preop", "reset", "reset-comm")
 LSS_BITRATES = (10, 20, 50, 125, 250, 500, 800, 1000)  # kbit/s, the CiA 305 bit timing table
 LSS_KEYS = ("vendor_id", "product_code", "revision_number", "serial_number")
-DETECT_RATES = (1000, 800, 500, 250, 125, 50, 20, 10)  # kbit/s, the order a bit rate sweep listens in
-MAX_SWEEP_S = 120  # bit rate detection: listening time per rate times rates times rounds
 FORCE_NEEDED = "force needed"  # the end of a refusal the request may be repeated with force: true
-DISTURB_NEEDED = "disturb_bus needed"  # ... with disturb_bus: true (an adapter that does not confirm listen-only)
 TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
-LONE_SILENT = "No answer at any bit rate: check the wiring, the termination and the device's power."
-SILENT_HINT = ("The bus was silent. A listening adapter sends no acknowledge, so frames only count when "
-               "another device acknowledges them: with one device on the bus, add a second device or a second "
-               "adapter in normal mode, or, with a USB adapter on the PC and nothing else on the bus, use the "
-               "lone-device sweep (\"Only this device is on the bus\", --lone-device). A device that only sends "
-               "its boot-up message: power-cycle it during the sweep, or run more rounds.")
 
 
 # ---------------------------------------------------------------------------
@@ -684,7 +674,7 @@ class Client:
     def trace_stop(self):
         return self.request("trace_stop")
 
-    # Raw frames and bit rate detection (allow_changes). A refusal that ends in
+    # Raw frames (allow_changes). A refusal that ends in
     # "force needed" may be repeated with force=True once the user agrees.
     def send_frame(self, can_id, data=b"", ext=False, rtr=False, dlc=None, period_ms=None, count=None, force=False):
         """One frame, or with period_ms a cyclic job of this connection: the
@@ -724,43 +714,10 @@ class Client:
     def replay_stop(self):
         return self.request("replay_stop")
 
-    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False, disturb_bus=False,
-                       lone_device=False, probe=None):
-        """Starts a bit rate sweep (unless one runs) and returns its progress."""
-        if lone_device or probe:
-            raise DiagError("refused", "the lone-device sweep is only on a USB adapter (--adapter): the plugin's "
-                                       "sweep only listens")
-        fields = {}
-        if rates:
-            fields["rates"] = list(rates)
-        if per_rate_ms:
-            fields["per_rate_ms"] = per_rate_ms
-        if rounds:
-            fields["rounds"] = rounds
-        if force:
-            fields["force"] = True
-        if disturb_bus:
-            fields["disturb_bus"] = True
-        return self.request("detect_bitrate", **fields)
-
-    def detect_bitrate_status(self):
-        return self.request("detect_bitrate_status")
-
-    def detect_bitrate_stop(self):
-        """Ends the running sweep after its current rate; the answer is its
-        progress."""
-        return self.request("detect_bitrate_stop")
-
 
 def too_old(e):
     """The plugin does not know the op: it predates the command."""
     return e.kind == "refused" and str(e).startswith("unknown op")
-
-
-def needs_disturb(e):
-    """A refusal or failed sweep the request may be repeated for with
-    disturb_bus: true (an adapter that does not confirm listen-only)."""
-    return str(e).rstrip().endswith(DISTURB_NEEDED)
 
 
 def needs_force(e):
@@ -804,34 +761,6 @@ def frame_text(can_id, ext=False, rtr=False, dlc=None, data=b""):
     if rtr:
         return "%s remote [%d]" % (ident, dlc or 0)
     return "%s [%d] %s" % (ident, len(data), hex_bytes(data)) if data else "%s [0]" % ident
-
-
-def verdict_text(res):
-    """One line for a finished bit rate sweep."""
-    v = res.get("verdict")
-    if v == "detected":
-        rate, conf = res.get("bitrate_kbit"), res.get("configured_kbit")
-        if res.get("matches_config"):
-            return "%s kbit/s detected, as configured" % rate
-        return "%s kbit/s detected%s" % (rate, " (the configuration has %s kbit/s)" % conf if conf else "")
-    if v == "ambiguous":
-        cands = res.get("candidates") or []
-        return "ambiguous: frames at %s kbit/s" % ", ".join(str(c) for c in cands) if cands else "ambiguous"
-    if v == "silent":
-        return LONE_SILENT if res.get("lone_device") else SILENT_HINT
-    if v == "failed":
-        return "the sweep failed: %s" % (res.get("error") or "no reason given")
-    return "no result"
-
-
-def skipped_text(res):
-    """The rates a sweep left out because the adapter cannot be set to them,
-    or ''."""
-    skipped = res.get("skipped_kbit") or []
-    if not skipped:
-        return ""
-    return "not tried: %s kbit/s (the adapter cannot be set to %s)" % (
-        ", ".join(str(k) for k in skipped), "it" if len(skipped) == 1 else "them")
 
 
 def lss_address_text(a):
@@ -893,7 +822,7 @@ def _network_arg(p, text="the network to talk to (needed when the runtime runs s
 # too, but goes over every network without it).
 NETWORK_COMMANDS = ("emcy", "errors", "sdo-read", "sdo-write", "nmt", "scan", "lss-find", "lss-inquire", "lss-set-id",
                     "lss-set-bitrate", "trace", "backup", "compare", "restore", "store", "send", "send-stop",
-                    "detect-bitrate", "detect-bitrate-stop", "configure", "restore-defaults", "pdo-test", "replay")
+                    "configure", "restore-defaults", "pdo-test", "replay")
 
 
 def _int_range(what, lo, hi):
@@ -903,26 +832,6 @@ def _int_range(what, lo, hi):
             raise argparse.ArgumentTypeError("%s must be %d-%d" % (what, lo, hi))
         return v
     return parse
-
-
-def _probe(text):
-    t = text.strip().lower()
-    if t == "lss":
-        return "lss"
-    if t.startswith("sdo:"):
-        return {"sdo": _node(t[4:])}
-    raise argparse.ArgumentTypeError("write lss or sdo:NODE")
-
-
-def _rates(text):
-    try:
-        rates = [int(r) for r in text.replace(" ", "").split(",") if r]
-    except ValueError:
-        raise argparse.ArgumentTypeError("--rates %r: write kbit/s separated by commas, e.g. 125,250,500" % text)
-    bad = [r for r in rates if r not in DETECT_RATES]
-    if bad or not rates:
-        raise argparse.ArgumentTypeError("--rates takes kbit/s out of %s" % ", ".join(str(r) for r in DETECT_RATES))
-    return rates
 
 
 def parser():
@@ -939,6 +848,9 @@ def parser():
                         "slcan:/dev/tty.usbmodem14101, socketcan:can0, ... (see 'adapters' and docs/pc-adapter.md)")
     p.add_argument("--bitrate", type=int, metavar="KBIT",
                    help="--adapter: the bus's bit rate in kbit/s (default: the network's adapter.bitrate from --config)")
+    p.add_argument("--check-node", type=_int_range("node ID", 1, 127), metavar="N",
+                   help="--adapter: on a silent bus, check the bit rate with one SDO read from node N (needed for "
+                        "adapters that cannot tell whether a frame they send is acknowledged, such as slcan)")
     p.add_argument("--adapter-option", action="append", default=[], metavar="KEY=VALUE",
                    help="--adapter: an option passed to python-can (repeatable), e.g. tty_baudrate=115200")
     p.add_argument("--allow-changes", action="store_true",
@@ -1044,30 +956,6 @@ def parser():
                     help="send even when the network uses an identifier or a node is OPERATIONAL")
     rp.add_argument("--config", metavar="canworks.json",
                     help="--adapter: the configured nodes' identifiers need --force")
-    db = sub.add_parser("detect-bitrate", help="find the bus's bit rate by listening (needs allow_changes)",
-                        description="Stops CANopen on the network, listens in listen-only mode at each bit rate "
-                                    "and starts CANopen again; nodes boot again afterwards. Nothing is sent. "
-                                    "Exits 0 only when one bit rate was detected.")
-    db.add_argument("--rates", type=_rates, metavar="KBIT,...",
-                    help="the rates to try, e.g. 125,250,500 (default %s)" % ",".join(str(r) for r in DETECT_RATES))
-    db.add_argument("--per-rate-ms", type=_int_range("per-rate time", 100, 10000), metavar="MS",
-                    help="how long to listen at each rate (100-10000, default 1000)")
-    db.add_argument("--rounds", type=_int_range("rounds", 1, 20), metavar="N",
-                    help="sweep N times, for devices that send rarely (1-20, default 1)")
-    db.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
-                    help="sweep even while a node is OPERATIONAL")
-    db.add_argument("--disturb-bus", action="store_true", dest="disturb_bus",
-                    help="sweep even on an adapter that does not confirm listen-only (slcan firmware that answers "
-                         "nothing): at a wrong bit rate it may send error frames that disturb the bus")
-    db.add_argument("--lone-device", action="store_true", dest="lone_device",
-                    help="--adapter, bench only: join the bus at each rate in normal mode so the adapter "
-                         "acknowledges a device that is alone on the bus (needs --allow-changes; at wrong rates "
-                         "the adapter's error frames reach the device)")
-    sub.add_parser("detect-bitrate-stop", help="end a running bit rate detection after its current rate "
-                                               "(needs allow_changes)")
-    db.add_argument("--probe", type=_probe, metavar="lss|sdo:NODE",
-                    help="--lone-device: make a quiet device answer, with LSS (no node ID needed) or an SDO "
-                         "request to NODE")
     tr = sub.add_parser("trace", help="record the frames on the bus into a file (read-only)",
                         description="Records every CAN frame on the runtime's CANopen interface (with several "
                                     "networks, the one --network names) until --duration ends, a single-mode "
@@ -1489,8 +1377,6 @@ def _print_protocol_status(st, out):
     sync_line = format_sync(st.get("sync"))
     if sync_line:
         out.write(sync_line + "\n")
-    if (st.get("bitrate_sweep") or {}).get("running"):
-        out.write("bit rate sweep running: CANopen on this network is paused until it ends\n")
     for j in st.get("send_jobs") or []:
         out.write("send job %s: %s every %s ms, %s sent%s%s\n" % (
             j.get("job"), ("0x%08X" if j.get("ext") else "0x%03X") % (j.get("id") or 0), j.get("period_ms"),
@@ -2175,66 +2061,7 @@ def _local_client(args):
     if localbus.untested(spec):
         print("canworks-diag: adapter type %s is passed to python-can untested" % spec.kind, file=sys.stderr)
     return localbus.LocalBus(spec, bitrate, allow_changes=args.allow_changes, force=args.force, config=nodes,
-                             network=args.network, timeout=args.timeout)
-
-
-class _SweepOnly:
-    """detect-bitrate on --adapter: the sweep opens the adapter itself, at each
-    rate. No connection at --bitrate comes first: on a bus at another rate it
-    would send error frames, and some adapters (gs_usb) stay bus-off after
-    that until they are plugged in again. --bitrate (or --config) only names
-    the expected rate."""
-
-    def __init__(self, args):
-        from . import localbus
-        from .localbus import configinfo
-        try:
-            self.spec = localbus.parse(args.adapter, args.adapter_option)
-        except localbus.AdapterError as e:
-            raise DiagError("usage", str(e))
-        self.configured = args.bitrate
-        if not self.configured and getattr(args, "config", None):
-            try:
-                bitrate = configinfo.load(args.config, args.network)[0]
-            except (OSError, ValueError) as e:
-                raise DiagError("usage", "cannot use %s: %s" % (args.config, e))
-            self.configured = bitrate // 1000 if bitrate else None
-        self.allow_changes = args.allow_changes
-        self.networks = [{"name": args.network or "", "interface": str(self.spec), "role": "local"}]
-        self.sweep = None
-
-    def connect(self):
-        pass
-
-    def several(self):
-        return False
-
-    def close(self):
-        if self.sweep is not None and self.sweep.running:
-            self.sweep.stop()
-
-    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False, disturb_bus=False,
-                       lone_device=False, probe=None):
-        from .localbus import adapter as adapter_mod
-        from .localbus import sweep as sweep_mod
-        if lone_device and not self.allow_changes:
-            raise DiagError("refused", "changes not allowed (the lone-device sweep joins the bus at every rate; "
-                                       "start with --allow-changes)")
-        if not lone_device and self.spec.kind not in adapter_mod.LISTEN_ONLY:
-            raise DiagError("refused", "%s (%s adapters; slcan, PCAN and SocketCAN have one); with only one device "
-                                       "on the bus, use the lone-device sweep (--lone-device)"
-                            % (adapter_mod.NO_LISTEN_ONLY, self.spec.kind))
-        self.sweep = sweep_mod.Sweep(self.spec, rates, per_rate_ms or 1000, rounds or 1,
-                                     configured_kbit=self.configured, disturb_bus=disturb_bus,
-                                     lone_device=lone_device, probe=probe)
-        try:
-            self.sweep.start()
-        except adapter_mod.AdapterError as e:
-            raise DiagError("refused", str(e))
-        return self.sweep.status()
-
-    def detect_bitrate_status(self):
-        return self.sweep.status()
+                             network=args.network, timeout=args.timeout, check_node=args.check_node)
 
 
 def _adapters(args, out):
@@ -2449,78 +2276,6 @@ def _send_stop(client, args, out):
     return res
 
 
-def _print_sweep(res, out):
-    rows = [("RATE", "FRAMES", "ERROR FRAMES", "IDENTIFIERS")]
-    for r in res.get("results") or []:
-        ids = r.get("ids") or []
-        text = " ".join("0x%X" % i for i in ids) + (" ..." if len(ids) >= 16 else "")
-        rows.append(("%s kbit/s" % r.get("bitrate_kbit"), str(r.get("frames", 0)), str(r.get("error_frames", 0)),
-                     text or "-"))
-    widths = [max(len(r[i]) for r in rows) for i in range(3)]
-    for r in rows:
-        out.write("  ".join(c.rjust(w) if i else c.ljust(w) for i, (c, w) in enumerate(zip(r, widths))) + "  " +
-                  r[3] + "\n")
-
-
-def _detect_stop(client, args, out):
-    """detect-bitrate-stop: ends the sweep after its current rate."""
-    res = client.detect_bitrate_stop()
-    if not args.json:
-        out.write("bit rate detection stops after the rate it listens at now; CANopen starts again then\n")
-    return res
-
-
-def _detect(client, args, out):
-    """detect-bitrate: starts the sweep, follows it, prints the table and the
-    verdict; exits 0 only when one rate was detected."""
-    try:
-        if args.probe and not args.lone_device:
-            raise DiagError("usage", "--probe is for the lone-device sweep (--lone-device)")
-        total = (args.per_rate_ms or 1000) * len(args.rates or DETECT_RATES) * (args.rounds or 1)
-        if total > MAX_SWEEP_S * 1000:
-            raise DiagError("usage", "the sweep would listen %d s; --per-rate-ms times the rates times --rounds may "
-                                     "be at most %d s" % (total // 1000, MAX_SWEEP_S))
-        res = client.detect_bitrate(args.rates, args.per_rate_ms, args.rounds, args.force, args.disturb_bus,
-                                    args.lone_device, args.probe)
-    except DiagError as e:
-        if needs_force(e):
-            raise DiagError("refused", "%s; add --force to stop CANopen on this network for the sweep" % e)
-        if needs_disturb(e):
-            raise DiagError("refused", "%s; add --disturb-bus to sweep anyway" % e)
-        raise
-    shown = 0
-    while True:
-        if not args.json and sys.stderr.isatty():
-            for r in (res.get("results") or [])[shown:]:
-                sys.stderr.write("\r%s kbit/s: %d frames, %d error frames%s\n" % (
-                    r.get("bitrate_kbit"), r.get("frames", 0), r.get("error_frames", 0), " " * 10))
-            shown = len(res.get("results") or [])
-            if res.get("running"):
-                sys.stderr.write("\rlistening at %s kbit/s (%s/%s)%s " % (
-                    res.get("rate_kbit"), res.get("done"), res.get("total"),
-                    ", round %s" % res["round"] if (args.rounds or 1) > 1 and res.get("round") else ""))
-        if not res.get("running"):
-            break
-        time.sleep(0.3)
-        res = client.detect_bitrate_status()
-    if not args.json and sys.stderr.isatty():
-        sys.stderr.write("\r" + " " * 50 + "\r")
-    if not args.json:
-        _print_sweep(res, out)
-        if skipped_text(res):
-            out.write(skipped_text(res) + "\n")
-        out.write(verdict_text(res) + "\n")
-        if res.get("warning"):
-            out.write("warning: %s\n" % res["warning"])
-    if res.get("verdict") != "detected":
-        if args.json:
-            out.write(json.dumps(res, indent=2) + "\n")
-        if needs_disturb(res.get("error") or ""):
-            raise DiagError("refused", "no bit rate detected; add --disturb-bus to sweep anyway")
-        raise DiagError("refused", "no bit rate detected (%s)" % (res.get("verdict") or "no result"))
-    return res
-
-
 def run(args, out=sys.stdout):
     if args.command == "hash-token":
         token = args.value or args.token or os.environ.get(TOKEN_ENV)
@@ -2554,10 +2309,7 @@ def run(args, out=sys.stdout):
         return _trace(args, out)
     if args.command == "dm":
         return _dm(args, out)
-    if args.adapter and args.command == "detect-bitrate":
-        client = _SweepOnly(args)
-        host = str(client.spec)
-    elif args.adapter:
+    if args.adapter:
         client = _local_client(args)
         host = str(client.spec)
     else:
@@ -2672,10 +2424,9 @@ def run(args, out=sys.stdout):
             res = _commissioning(client, args, out)
         elif args.command == "pdo-test":
             res = _pdo_test(client, args, out)
-        elif args.command in ("send", "send-stop", "detect-bitrate", "detect-bitrate-stop", "replay"):
+        elif args.command in ("send", "send-stop", "replay"):
             try:
-                res = {"send": _send, "send-stop": _send_stop, "detect-bitrate": _detect,
-                       "detect-bitrate-stop": _detect_stop, "replay": _replay}[args.command](
+                res = {"send": _send, "send-stop": _send_stop, "replay": _replay}[args.command](
                     client, args, out)
             except DiagError as e:
                 if too_old(e):
