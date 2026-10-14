@@ -92,6 +92,7 @@ class Core:
         self.valid = 0  # valid frames received (not echoes)
         self.valid_at = None
         self.errors = collections.deque(maxlen=256)  # (monotonic time, identifier, data) of error frames
+        self.error_frames = 0  # error frames received since opening
         self.checked = False  # the bit rate check passed: bus errors now end the connection
         self.bitrate_check = None
         self._closed = False
@@ -177,6 +178,7 @@ class Core:
         data = bytes(msg.data or b"")
         with self.lock:
             self.errors.append((now, msg.arbitration_id, data))
+            self.error_frames += 1
             recent = [e for e in self.errors if now - e[0] <= ERROR_WINDOW_S]
             valid_since = self.valid_at is not None and now - self.valid_at <= ERROR_WINDOW_S
         if not self.checked:

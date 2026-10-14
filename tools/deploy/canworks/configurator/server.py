@@ -533,7 +533,6 @@ class Session:
         os.makedirs(folder, exist_ok=True)
         self.open(folder, "standalone")
         self.commission = True
-        online.Settings(config_dir()).update_project(self.folder, target="adapter")
 
     def close(self):
         self.commission = False
@@ -1857,6 +1856,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/folder_nodes"):
                     out = folder_nodes(body.get("path"))
                 elif route == ("POST", "/api/open"):
+                    self._leave_commission(s)
                     s.open(body.get("path"), body.get("mode", "auto"), body.get("new"))
                     out = s.state()
                 elif route == ("POST", "/api/recent/forget"):
@@ -1868,6 +1868,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.server.connection.close()
                     out = s.state()
                 elif route == ("POST", "/api/close"):
+                    self._leave_commission(s)
                     s.close()
                     out = s.state()
                 elif route == ("POST", "/api/reload"):
@@ -2039,8 +2040,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         def view():
             p = settings.project(folder)
             return {"token": p.get("token"), "host": p.get("host") or "", "eds_library": settings.eds_library,
-                    "connected": conn.connected, "target": "adapter" if s.commission else p.get("target") or "runtime",
+                    "connected": conn.connected, "target": "adapter" if s.commission else "runtime",
                     "adapter": p.get("adapter") or "", "adapter_bitrate": p.get("adapter_bitrate"),
+                    "check_node": p.get("check_node"),
                     "allow_changes": self.server.adapter_allow, "commission": bool(s.commission),
                     "remembered": online.remembered_view(p.get("host"))}
 
@@ -2056,15 +2058,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             from .. import localbus
             return {"adapters": localbus.list_adapters()}
         if route == ("POST", "/api/online/settings"):
-            if "target" in body:
-                target = body.get("target")
-                if target not in ("runtime", "adapter"):
-                    raise ApiError(422, "target must be runtime or adapter")
-                if s.commission and target != "adapter":
-                    raise ApiError(422, "Commission a device works through a USB adapter on this PC")
-                settings.update_project(folder, target=None if target == "runtime" else target)
-                self.server.adapter_allow = False
-                conn.close()
+            if not s.commission and any(k in body for k in ("adapter", "adapter_bitrate", "check_node", "allow_changes")):
+                raise ApiError(422, "a USB adapter on this PC is used in Commission a device; here online access goes "
+                                    "through the runtime")
             if "adapter" in body:
                 text = (body.get("adapter") or "").strip()
                 if text:
@@ -2082,10 +2078,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ApiError(422, "the bit rate must be 10-1000 kbit/s")
                 settings.update_project(folder, adapter_bitrate=kbit)
                 conn.close()
-            if "allow_changes" in body:
-                # This connection only: never saved, off again after the next target change or restart.
-                self.server.adapter_allow = body.get("allow_changes") is True
+            if "check_node" in body:
+                node = body.get("check_node")
+                if node is not None and (not isinstance(node, int) or isinstance(node, bool) or not 1 <= node <= 127):
+                    raise ApiError(422, "the node ID for the bit rate check must be 1-127")
+                settings.update_project(folder, check_node=node)
                 conn.close()
+            if "allow_changes" in body:
+                # This connection only: never saved, off again after the next
+                # adapter change or restart. The open connection takes it at
+                # once, without closing.
+                self.server.adapter_allow = body.get("allow_changes") is True
+                conn.set_allow_changes(self.server.adapter_allow)
             if "host" in body:
                 host = (body.get("host") or "").strip()
                 if host:
@@ -2134,8 +2138,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == ("POST", "/api/online/close"):
             conn.close()
             return {"closed": True}
-        if route in (("POST", "/api/online/adapter_detect"), ("POST", "/api/online/adapter_detect_status")):
-            return self._adapter_detect(route, body)
+        if route == ("POST", "/api/online/disconnect"):
+            # Disconnect in Commission a device: the adapter is closed with
+            # every job on it (trace, Send panel), free for other tools.
+            self.server.traces.stop_all()
+            self.server.sender.close()
+            conn.close()
+            self.server.adapter_allow = False
+            return view()
         if route == ("POST", "/api/online/use_eds"):
             return self._use_eds(s, settings, canopen_dir, body.get("path"), body.get("eds_lint"))
         if route == ("POST", "/api/online/watch"):
@@ -2156,7 +2166,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return conn.call(hostname, port, token, run, network)
             except diag.DiagError as e:
                 # `force`: a change to a running node the page may send again with force after asking.
-                raise ApiError(422 if e.kind in ("refused", "usage", "busy") else 502, str(e), kind=e.kind,
+                raise ApiError(422 if e.kind in ("refused", "usage", "busy", "bitrate") else 502, str(e), kind=e.kind,
                                force=diag.needs_force(e))
 
         # A change to an OPERATIONAL node (an SDO write, NMT but START) and a
@@ -2206,7 +2216,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             used, st = call(lambda c: (picked(c), c.status()))
             prints = online.fingerprints(config_path)
             same = st.get("config_sha256") in prints
-            out = {"hello": conn.info, "status": st, "networks": (conn.info or {}).get("networks") or [],
+            hello = dict(conn.info or {}, allow_changes=st["allow_changes"]) if local else conn.info
+            out = {"hello": hello, "status": st, "networks": (conn.info or {}).get("networks") or [],
                    "network": used, "config": "none" if not prints else ("same" if same else "different")}
             # The path the connection took (LAN, internet direct or relayed)
             # and its round trip; the background pairing's line, once.
@@ -2291,27 +2302,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return call(lambda c: c.lss_set_bitrate(address, kbit, store))
         if route in SEND_ROUTES:
             return self._send_frames(route, body, (hostname, port, token), network)
-        if route in (("POST", "/api/online/detect_bitrate"), ("POST", "/api/online/detect_bitrate_status")):
-            if local and not route[1].endswith("status"):
-                self.server.sender.close()  # the sweep needs the adapter to itself; the Send panel's jobs end
-            if route[1].endswith("status"):
-                fn = lambda c: c.detect_bitrate_status()  # noqa: E731
-            else:
-                rates = body.get("rates")
-                if rates is not None and (not isinstance(rates, list) or not rates or
-                                          any(r not in diag.DETECT_RATES for r in rates)):
-                    raise ApiError(400, "rates must be kbit/s out of " + ", ".join(str(r) for r in diag.DETECT_RATES))
-                rounds = body.get("rounds")
-                if rounds is not None and (isinstance(rounds, bool) or not isinstance(rounds, int) or
-                                           not 1 <= rounds <= 20):
-                    raise ApiError(400, "rounds must be 1-20")
-                lone = body.get("lone_device") is True  # after the page asked; LSS probe
-                fn = lambda c: c.detect_bitrate(rates, None, rounds, body.get("force") is True,  # noqa: E731
-                                                body.get("disturb_bus") is True, lone, "lss" if lone else None)
-            try:
-                return conn.call(hostname, port, token, fn, network)
-            except diag.DiagError as e:
-                raise frame_error(e)
+        if route in (("POST", "/api/online/scan"), ("POST", "/api/online/scan_stop")) and not local:
+            raise ApiError(404, "the bus scan is in Commission a device")
+        if route == ("POST", "/api/online/scan_stop"):
+            return call(lambda c: c.scan_stop())
         if route == ("POST", "/api/online/scan"):
             start = bool(body.get("start"))
             used, res = call(lambda c: (picked(c), c.request("scan", **forced) if start else c.scan(False)))
@@ -2407,26 +2401,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (OSError, ValueError):
             return None
 
+    def _leave_commission(self, s):
+        """Leaving Commission a device closes its adapter connection and the jobs on it."""
+        if s.commission:
+            self.server.traces.stop_all()
+            self.server.sender.close()
+            self.server.connection.close()
+            self.server.adapter_allow = False
+
     def _online_target(self, proj, config_path, network, body):
         """(host, port, token) for the kept-open connection: the runtime of the
-        online access settings, or an online.AdapterTarget for a USB adapter on
-        this PC (no token; the bit rate from the settings, else the network's)."""
-        if proj.get("target") == "adapter":
+        online access settings, or in Commission a device an
+        online.AdapterTarget for the USB adapter on this PC (no token)."""
+        if self.server.session.commission:
             from ..localbus import configinfo
             adapter = proj.get("adapter")
             if not adapter:
                 raise ApiError(409, "pick the USB adapter for online access", need="adapter")
-            nodes, cfg_bitrate = {}, None
+            nodes = {}
             if os.path.isfile(config_path):
                 try:
-                    cfg_bitrate, nodes = configinfo.load(config_path, network)
+                    nodes = configinfo.load(config_path, network)[1]
                 except (OSError, ValueError):
                     pass
             kbit = proj.get("adapter_bitrate")
-            bitrate = kbit * 1000 if isinstance(kbit, int) else cfg_bitrate
-            if not bitrate:
+            if not isinstance(kbit, int):
                 raise ApiError(409, "pick the bus's bit rate for the USB adapter", need="adapter")
-            return online.AdapterTarget(adapter, bitrate, self.server.adapter_allow, nodes, network), None, None
+            return online.AdapterTarget(adapter, kbit * 1000, self.server.adapter_allow, nodes, network,
+                                        proj.get("check_node")), None, None
         host, token = proj.get("host"), proj.get("token")
         if not host:
             raise ApiError(409, "enter the runtime host for online access", need="host")
@@ -2439,64 +2441,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if ":" not in host.rsplit("]", 1)[-1] and isinstance(body.get("port"), int):
             port = body["port"]  # the diagnostics port of the config, when the host gives none
         return hostname, port, token
-
-    def _adapter_detect(self, route, body):
-        """/api/online/adapter_detect and _status: "Detect" next to the bit
-        rate in the USB adapter connection form. The adapter is opened
-        listen-only at each rate, so the online connections on this PC are
-        closed first; nothing is sent, so no allow-changes is needed. With
-        `lone_device` (after the page asked whether only the bench device is
-        on the bus) it joins the bus in normal mode and sends the LSS probe."""
-        from .. import localbus
-        from ..localbus import sweep as sweep_mod
-        if route[1].endswith("status"):
-            job = self.server.adapter_sweep
-            if job is None:
-                return sweep_mod.idle_status(None)
-            return dict(job.status(), adapter=str(job.spec))
-        job = self.server.adapter_sweep
-        if job is not None and job.running:
-            return dict(job.status(), adapter=str(job.spec))
-        try:
-            spec = localbus.parse(body.get("adapter") or "")
-        except localbus.AdapterError as e:
-            raise ApiError(422, str(e))
-        rounds = body.get("rounds", 1)
-        if isinstance(rounds, bool) or not isinstance(rounds, int) or not 1 <= rounds <= 20:
-            raise ApiError(400, "rounds must be 1-20")
-        kbit = body.get("adapter_bitrate")
-        self.server.connection.close()
-        self.server.sender.close()
-        if body.get("lone_device") is True:
-            self._lone_guard(spec, kbit)
-        job = sweep_mod.Sweep(spec, rounds=rounds, configured_kbit=kbit if isinstance(kbit, int) else None,
-                              disturb_bus=body.get("disturb_bus") is True, lone_device=body.get("lone_device") is True,
-                              probe="lss" if body.get("lone_device") is True else None)
-        try:
-            job.start()
-        except localbus.AdapterError as e:
-            raise ApiError(422, str(e), kind=e.kind, disturb_bus=e.kind == "unconfirmed")
-        self.server.adapter_sweep = job
-        return dict(job.status(), adapter=str(spec))
-
-    def _lone_guard(self, spec, kbit):
-        """The lone-device sweep joins the bus at every rate: the guards of
-        canworks-diag's (allow changes on, no other master, at most one node
-        heard), checked here whatever the page sends. The adapter listens at
-        the picked bit rate first."""
-        from .. import localbus
-        from ..localbus import client as client_mod
-        if isinstance(kbit, bool) or not isinstance(kbit, int) or not 10 <= kbit <= 1000:
-            raise ApiError(422, "pick a bit rate first: the lone-device sweep listens at it to check that only "
-                                "one device is on the bus")
-        handle = localbus.LocalBus(spec, kbit * 1000, allow_changes=self.server.adapter_allow)
-        try:
-            handle.connect()
-            client_mod._lone_fields(handle, {"lone_device": True})
-        except diag.DiagError as e:
-            raise ApiError(422, str(e).replace("start with --allow-changes", "tick Allow changes"))
-        finally:
-            handle.close()
 
     def _send_frames(self, route, body, where, network):
         """/api/online/send_frame, send_stop and send_jobs: the Trace view's
@@ -2842,10 +2786,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if spec and spec.get("autosave") and spec["autosave"].get("folder"):
                     spec["autosave"]["folder"] = tracing.check_folder(spec["autosave"]["folder"], canopen_dir)
             proj = online.Settings(config_dir()).project(folder)
-            if proj.get("target") != "adapter" and (not proj.get("host") or not proj.get("token")):
-                raise ApiError(409, "set up online access (runtime host and access token, or a USB adapter) in the "
-                                    "Online view to record a trace; opening trace files works without it",
-                               need="online")
+            if s.commission and not self.server.connection.connected:
+                raise ApiError(409, "connect to the USB adapter on Bus and master to record a trace; opening trace "
+                                    "files works without it", need="online")
+            if not s.commission and (not proj.get("host") or not proj.get("token")):
+                raise ApiError(409, "set up online access (runtime host and access token) in the Online view to "
+                                    "record a trace; opening trace files works without it", need="online")
             hostname, port, token = self._online_target(proj, s.config_path, network, body)
             connect = tracing.connector(hostname, port, token, network=network)
             try:  # a wrong host, token or an old plugin is said at once instead of retried
@@ -2981,7 +2927,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 SEND_ROUTES = (("POST", "/api/online/send_frame"), ("POST", "/api/online/send_stop"),
                ("POST", "/api/online/send_jobs"))
-TOO_OLD_FRAMES = ("the CANopen plugin on the runtime is too old for sending frames and bit rate detection; update "
+TOO_OLD_FRAMES = ("the CANopen plugin on the runtime is too old for sending frames; update "
                   "it (install-stock.sh) and upload again")
 
 
@@ -3021,13 +2967,11 @@ def frame_from(body):
 
 
 def frame_error(e):
-    """The ApiError for a refused or failed send or sweep: `force` true when
-    the plugin's reason says the request may be repeated with force,
-    `disturb_bus` when it may be repeated with disturb_bus."""
+    """The ApiError for a refused or failed send: `force` true when the
+    plugin's reason says the request may be repeated with force."""
     if diag.too_old(e):
         return ApiError(422, TOO_OLD_FRAMES, kind="too_old")
-    return ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e),
-                    disturb_bus=diag.needs_disturb(e))
+    return ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e))
 
 
 class Server(http.server.ThreadingHTTPServer):
@@ -3047,7 +2991,6 @@ class Server(http.server.ThreadingHTTPServer):
         self.connection = online.Connection()
         self.adapter_allow = False  # the USB adapter's allow-changes switch: this connection only, never saved
         self.sender = online.Sender()
-        self.adapter_sweep = None  # the connection form's bit rate sweep on a USB adapter (localbus.sweep.Sweep)
         self.eds_index = online.EdsIndex()
         self.spn_cache = {}  # Handler._spn_names
         self.traces = tracing.Traces()
@@ -3082,8 +3025,6 @@ class Server(http.server.ThreadingHTTPServer):
         self.traces.stop_all()
         self.connection.close()
         self.sender.close()
-        if self.adapter_sweep is not None:
-            self.adapter_sweep.stop()
         shutil.rmtree(self.session.pending_dir, ignore_errors=True)
 
 

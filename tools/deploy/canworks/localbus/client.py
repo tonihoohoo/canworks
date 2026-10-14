@@ -275,7 +275,7 @@ def _status(c, f):
     with core.lock:
         heard = dict(core.heard)
         emcy = {n: dict(e) for n, e in core.emcy.items()}
-    bus = {"interface": str(c.spec), "state": None}
+    bus = {"interface": str(c.spec), "state": None, "frames": core.valid, "error_frames": core.error_frames}
     state = getattr(core.bus, "state", None)
     name = getattr(state, "name", None)
     if name:
