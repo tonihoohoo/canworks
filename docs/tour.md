@@ -175,7 +175,7 @@ When you are done: `canworks-sim-runtime stop`, or `remove --data` to delete it.
 
 Some features cannot be shown on a simulated bus:
 
-- **Bit rate detection** listens to real traffic at each rate; a simulated bus has no bit rate ([diagnostics.md](diagnostics.md#finding-the-bit-rate)).
+- **The bit rate check** of a USB adapter connection needs a real bus: a simulated bus has no bit rate ([pc-adapter.md](pc-adapter.md#the-check-on-connect)).
 - **slcan adapters** (CANable and similar) and unplugging one while the bus runs need the adapter ([config.md](config.md)).
 - **Bus error states** (error passive, bus-off and recovery) need a real controller and a fault on the wire.
 - **Commissioning straight from the PC** through a USB adapter, with no runtime, needs the adapter and a device ([pc-adapter.md](pc-adapter.md)).

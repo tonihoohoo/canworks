@@ -14,7 +14,7 @@ const S = {
   net: 0,           // the open network tab
   config: null,     // the open network of the draft (adapter, master, nodes)
   dirty: false,
-  view: "bus",      // "bus" | "node:<i>" | "declarations" | "online" | "scan" | "trace" | "simulation"
+  view: "bus",      // "bus" | "node:<i>" | "declarations" | "online" | "nodes" (commissioning) | "trace" | "simulation"
   check: null,      // last /api/check
   startMode: "project",
   browserPath: null,
@@ -890,16 +890,18 @@ function render() {
     $("#btn-export-node").hidden = !dcfNetwork(S.config);
     $("#btn-export-dbc").closest(".menu-row").hidden = isSlave(S.config);
   }
-  if (commission && !["online", "scan", "trace", "framelab"].includes(S.view)) S.view = "online";
-  // A J1939 network has no nodes, bus scan or simulated devices.
-  if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "scan" || S.view === "simulation")) S.view = "bus";
-  if (isPlain(S.config) && (S.view.startsWith("node:") || S.view === "scan")) S.view = "bus";
+  if (commission && !["online", "nodes", "trace", "framelab"].includes(S.view)) S.view = "online";
+  if (!commission && S.view === "nodes") S.view = "bus";
+  // A J1939 network has no nodes or simulated devices.
+  if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "simulation")) S.view = "bus";
+  if (isPlain(S.config) && S.view.startsWith("node:")) S.view = "bus";
   if (S.view === "bridge" && !S.model.top.bridge) S.view = "bus";
   if (S.view === "links" && !linksNetwork(S.config)) S.view = "bus";
   renderSide();
   updateSimBanner();
-  // The online view, the scan page and the simulation view share one connection.
-  const keep = ["online", "scan", "simulation"].includes(S.view);
+  // The online view and the simulation view share one connection; in
+  // Commission a device the adapter connection stays open until Disconnect.
+  const keep = ["online", "simulation"].includes(S.view) || commission;
   stopOnline(keep);
   stopSim(keep);
   stopMachine();
@@ -917,7 +919,7 @@ function render() {
   else if (S.view === "raw") renderCanMessages(view);
   else if (S.view === "declarations") renderDeclarations(view);
   else if (S.view === "online") renderOnline(view);
-  else if (S.view === "scan") renderScan(view);
+  else if (S.view === "nodes") renderCommNodes(view);
   else if (S.view === "trace") renderTrace(view);
   else if (S.view === "gateway") renderGateway(view);
   else if (S.view === "bridge") renderBridge(view);
@@ -954,7 +956,6 @@ function renderSide() {
   $("#eds-input").closest("label").hidden = isSlave(S.config) || j1939 || plain;
   $("#nodes-caption").hidden = j1939 || plain;
   $("#nav-bus").textContent = j1939 ? "Bus and ECU" : plain ? "Bus" : "Bus and master";
-  $("#nav-scan").hidden = j1939 || plain;
   $("#nav-simulation").hidden = j1939;
   $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
   $("#nav-bridge").hidden = !S.model.top.bridge;
@@ -1977,12 +1978,17 @@ function axisFields(i, eds) {
   const base = `nodes[${i}]`;
   const n = S.config.nodes[i];
   const on = !!n.axis && typeof n.axis === "object";
-  const box = el("input", { type: "checkbox", dataset: { path: base + ".axis" } });
+  // Only a drive: the EDS has the controlword and statusword. An axis set
+  // already can still be switched off.
+  const drive = !!(objectInfo(eds, "0x6040", 0) && objectInfo(eds, "0x6041", 0));
+  const why = drive || on ? null : "The EDS has no controlword (0x6040) and statusword (0x6041): this device is not a CiA 402 drive.";
+  const box = el("input", { type: "checkbox", disabled: !!why, title: why, dataset: { path: base + ".axis" } });
   box.checked = on;
   box.addEventListener("change", () => { setPath(base + ".axis", box.checked ? {} : undefined); render(); });
   const fs = el("fieldset", { dataset: { axis: base } }, el("legend", null, "CiA 402 axis"),
     el("div", { class: "check-field" },
-      el("label", { class: "check" }, box, " Use as a CiA 402 axis"),
+      el("label", { class: "check" + (why ? " muted" : "") }, box, " Use as a CiA 402 axis"),
+      why ? el("p", { class: "muted", dataset: { axisNoDrive: "" } }, why) : null,
       hint("The generated program declares an axis (AXIS_REF_SM3) for this node and calls the editor's CiA 402 drive bridge first in every scan, so MC_Power, MC_MoveAbsolute, MC_MoveVelocity and the other motion blocks drive it. Default: off."),
       el("span", { class: "field-msg", dataset: { for: base + ".axis" } })));
   if (!on) return fs;
@@ -2105,8 +2111,7 @@ function nodeAdvanced(i, eds) {
   const base = `nodes[${i}]`;
   const n = S.config.nodes[i];
   const keys = ["mandatory", "boot", "reset_communication", "revision_number", "serial_number", "lss", "heartbeat_consumer",
-    "retry_factor", "time_cob_id", "error_behavior", "restore_configuration", "config_check", "store_configuration",
-    "software_file", "software_version"];
+    "retry_factor", "time_cob_id", "error_behavior", "restore_configuration", "config_check", "store_configuration"];
   const dflt = (index, sub, fmt) => {
     const v = edsDefault(eds, index, sub);
     return v === null ? "EDS default" : `EDS default (${fmt ? fmt(v) : v})`;
@@ -2146,13 +2151,7 @@ function nodeAdvanced(i, eds) {
       errorBehaviorField("Error behavior", base + ".error_behavior",
         "0x1029 as sub=value pairs, e.g. 1=0 (0 pre-operational, 1 no change, 2 stopped). Empty: EDS default.")),
     el("h3", null, "Configuration check"),
-    el("div", { class: "grid" }, configCheckField(i, eds), storeConfigurationField(i, eds)),
-    el("h3", null, "Program download"),
-    el("div", { class: "grid" },
-      field("Program file", base + ".software_file", "text", { placeholder: "none",
-        hint: "The node's program (firmware), relative to canworks/. The master downloads it when the node reports another version." }),
-      field("Program version", base + ".software_version", "intstr", { placeholder: "none",
-        hint: "Expected 0x1F56 sub 1. Needs a program file." })));
+    el("div", { class: "grid" }, configCheckField(i, eds), storeConfigurationField(i, eds)));
 }
 
 const lssAssign = (i) => getPath(`nodes[${i}].lss.assign`) === true;
@@ -3646,14 +3645,11 @@ function stopOnline(keepConnection) {
   clearTimeout(S.onlineTimer);
   S.onlineTimer = null;
   S.onlineSeq = (S.onlineSeq || 0) + 1;
+  clearTimeout(S.scanTimer);
   if (S.onlineOpen && !keepConnection) api("POST", "/api/online/close", {}).catch(() => {});
   if (!keepConnection) S.onlineOpen = false;
 }
 
-// The online target in words, for the connection line.
-function targetLabel() {
-  return S.online.target === "adapter" ? `USB adapter ${S.online.adapter}` : S.online.host;
-}
 
 async function saveOnline(values) {
   try {
@@ -3663,145 +3659,9 @@ async function saveOnline(values) {
   } catch (e) { banner(e.message, true); return false; }
 }
 
-// Runtime or USB adapter: the choice above the connect form.
-// The Runtime / USB adapter choice; none in Commission a device, which works
-// through a USB adapter only.
-function targetChoice() {
-  if (S.state.commission) return null;
-  const box = el("div", { class: "toolbar", role: "radiogroup", "aria-label": "Connect to" });
-  for (const [value, label] of [["runtime", "Runtime"], ["adapter", "USB adapter on this PC"]]) {
-    const r = el("input", { type: "radio", name: "online-target", value, dataset: { online: "target-" + value } });
-    r.checked = (S.online.target || "runtime") === value;
-    r.addEventListener("change", async () => { if (await saveOnline({ target: value })) { S.onlineForm = true; render(); } });
-    box.append(el("label", { class: "check" }, r, " " + label));
-  }
-  return box;
-}
-
-// The USB adapter form: adapter (found ones, or typed), bit rate, allow changes.
-function adapterForm(view) {
-  const list = el("select", { "aria-label": "Found adapters", dataset: { online: "adapter-list" } },
-    el("option", { value: "" }, "Looking for adapters…"));
-  const input = el("input", { type: "text", spellcheck: "false", placeholder: "slcan:COM5, slcan:/dev/tty.usbmodem14101, socketcan:can0",
-    "aria-label": "Adapter", dataset: { online: "adapter" } });
-  input.value = S.online.adapter || "";
-  list.addEventListener("change", () => { if (list.value) input.value = list.value; });
-  const fill = async () => {
-    try {
-      const r = await api("GET", "/api/online/adapters");
-      list.replaceChildren(el("option", { value: "" }, r.adapters.length ? "Pick a found adapter…" : "No adapter found"),
-        ...r.adapters.map((a) => el("option", { value: a.text }, `${a.text}  ${a.known || a.description || ""}`)));
-    } catch (e) { list.replaceChildren(el("option", { value: "" }, "Could not list adapters")); }
-  };
-  const refresh = el("button", { type: "button", class: "small", onclick: fill }, "Refresh");
-  fill();
-  // Commissioning has no network of its own (its placeholder config's rate
-  // is nobody's), and a guessed rate disturbs the bus: the user picks one.
-  const cfgKbit = !S.state.commission && num(getPath("adapter.bitrate")) ? num(getPath("adapter.bitrate")) / 1000 : null;
-  const rate = el("select", { "aria-label": "Bit rate", dataset: { online: "adapter-bitrate" } },
-    el("option", { value: "" }, "Pick the bus's bit rate…"),
-    LSS_BITRATES.map((b) => el("option", { value: b }, `${b} kbit/s${b === cfgKbit ? " (this network)" : ""}`)));
-  rate.value = String(S.online.adapter_bitrate || cfgKbit || "");
-  const allow = el("input", { type: "checkbox", dataset: { online: "adapter-allow" } });
-  const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } });
-  const detectMsg = el("p", { class: "muted", dataset: { online: "adapter-detect-msg" } });
-  const lone = loneBox();
-  const detect = el("button", { type: "button", class: "small", dataset: { online: "adapter-detect" },
-    title: "Listen at each bit rate without sending anything, and pick the one with traffic",
-    onclick: async () => {
-      const alone = lone.querySelector("input").checked;
-      if (alone) {
-        // The server checks it too: allow changes, a bit rate to listen at
-        // first, and at most one device heard.
-        if (!allow.checked) { detectMsg.textContent = "The lone-device sweep joins the bus at every rate: tick Allow changes first."; allow.focus(); return; }
-        if (!rate.value) { detectMsg.textContent = "Pick a bit rate first: the lone-device sweep listens at it to check that only one device is on the bus."; rate.focus(); return; }
-        if (!(await askLone())) return;
-        if (!(await saveOnline({ allow_changes: true }))) return;
-      }
-      adapterDetect(input, rate, detect, detectMsg, false, alone);
-    } }, "Detect");
-  view.append(el("fieldset", null, el("legend", null, "Connect"), targetChoice(),
-    el("p", { class: "muted" }, "The PC talks to the bus itself through the adapter: no runtime is needed. It sends nothing until you act, never SYNC, heartbeat or NMT to all nodes, and warns when another master runs on the bus."),
-    el("div", { class: "grid" },
-      el("label", null, "Adapter", el("div", { class: "row" }, list, refresh), input,
-        hint("TYPE:CHANNEL. slcan (for example a CANable) on Windows, macOS and Linux, socketcan on Linux; other python-can types are passed through untested. Kept on this PC.")),
-      el("label", null, "Bit rate", el("div", { class: "row" }, rate, detect), lone, detectMsg,
-        hint("The bus's bit rate. A wrong one disturbs the bus, so check it first: Detect listens at each rate in listen-only mode and sends nothing.")),
-      el("div", { class: "check-field" }, el("label", { class: "check" }, allow, " Allow changes (SDO writes, NMT, LSS, restore)"),
-        hint("Off by default and for every new connection: read-only."))),
-    msg,
-    el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", dataset: { online: "connect" }, onclick: async () => {
-      if (!input.value.trim()) { msg.textContent = "Pick or type the adapter first."; input.focus(); return; }
-      if (!rate.value) { msg.textContent = "Pick the bus's bit rate first, or press Detect."; rate.focus(); return; }
-      if (!(await saveOnline({ adapter: input.value.trim(), adapter_bitrate: Number(rate.value) }))) return;
-      if (allow.checked && !(await saveOnline({ allow_changes: true }))) return;
-      S.onlineForm = false;
-      render();
-    } }, "Connect"))));
-}
-
-// "Detect" in the USB adapter form: a bit rate sweep on the picked adapter
-// (listen-only, nothing sent); on "detected" it picks that rate.
-// An adapter that does not confirm listen-only (slcan firmware that answers
-// nothing to its silent mode command) is only swept after this question.
-const DISTURB_TEXT = "The adapter did not confirm that it only listens: at a wrong bit rate it may send error frames that disturb the devices on the bus, which can make them error passive or bus-off for a moment.";
-async function askDisturb() {
-  return await modal(`${DISTURB_TEXT} Sweep anyway?`, [["go", "Sweep anyway", true], ["cancel", "Cancel"]]) === "go";
-}
-function needsDisturb(text) { return /disturb_bus needed\s*$/.test(text || ""); }
-
-async function adapterDetect(input, rate, button, msg, disturb, alone) {
-  if (!input.value.trim()) { msg.textContent = "Pick or type the adapter first."; input.focus(); return; }
-  button.disabled = true;
-  const show = (r) => {
-    if (r.running) {
-      msg.textContent = r.lone_device ? `Trying ${kbitText(r.rate_kbit || 0)} (${r.done} of ${r.total}) in normal mode…`
-        : `Listening at ${kbitText(r.rate_kbit || 0)} (${r.done} of ${r.total})… nothing is sent.`;
-      return false;
-    }
-    if (r.verdict === "detected") {
-      rate.value = String(r.bitrate_kbit);
-      msg.textContent = `${kbitText(r.bitrate_kbit)} detected and picked.` + (r.warning ? ` ${upperFirst(r.warning)}.` : "");
-    } else if (r.verdict === "ambiguous") {
-      msg.textContent = `Ambiguous: frames at ${(r.candidates || []).map(kbitText).join(", ")}. Detect again, or pick the bit rate yourself.`;
-    } else if (r.verdict === "silent") {
-      msg.textContent = r.lone_device ? "No answer at any bit rate: check the wiring, the termination and the device's power." : SILENT_TEXT;
-    } else {
-      msg.textContent = `The sweep failed: ${r.error || "no reason given"}.`;
-    }
-    msg.textContent += skippedText(r);
-    return true;
-  };
-  try {
-    let r = await api("POST", "/api/online/adapter_detect", Object.assign({ adapter: input.value.trim(), adapter_bitrate: Number(rate.value) },
-      disturb ? { disturb_bus: true } : {}, alone ? { lone_device: true } : {}));
-    while (!show(r)) {
-      await new Promise((ok) => setTimeout(ok, 300));
-      if (!button.isConnected) return;  // the form went away
-      r = await api("POST", "/api/online/adapter_detect_status", {});
-    }
-  } catch (e) {
-    if (e.body && e.body.disturb_bus && !disturb) {
-      msg.textContent = "";
-      button.disabled = false;
-      if (await askDisturb()) return adapterDetect(input, rate, button, msg, true, alone);
-      msg.textContent = `Not started: ${DISTURB_TEXT}`;
-      return;
-    }
-    msg.textContent = `Not started: ${e.message}`;
-  } finally {
-    button.disabled = false;
-  }
-}
-
-// What the online view and the scan page need before they can connect, or null.
+// What the online view needs before it can connect to the runtime, or null.
 function onlineSetup(view) {
-  if (S.online.target === "adapter" || S.state.commission) {
-    if (S.onlineForm || !S.online.adapter) { adapterForm(view); return false; }
-    return true;
-  }
   if (!diagConfig()) {
-    view.append(el("fieldset", null, el("legend", null, "Connect"), targetChoice()));
     view.append(el("p", null, "Online access is off for this config. Turn it on under ",
       el("a", { href: "#", onclick: (e) => { e.preventDefault(); showView("bus"); } }, "Bus and master"),
       ", save, and upload the program to the runtime."));
@@ -3811,7 +3671,7 @@ function onlineSetup(view) {
     const host = hostField(true);
     const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } },
       S.online.token && !S.online.tokenOk ? "The token on this PC does not match the config." : "");
-    view.append(el("fieldset", null, el("legend", null, "Connect"), targetChoice(),
+    view.append(el("fieldset", null, el("legend", null, "Connect"),
       el("div", { class: "grid" }, host),
       msg,
       el("div", { class: "toolbar" },
@@ -3844,13 +3704,14 @@ function onlineSetup(view) {
 }
 
 function renderOnline(view) {
-  view.append(el("h2", null, "Online"), stepsPanel() || "");
+  if (S.state.commission) { renderCommBus(view); return; }
+  view.append(el("h2", null, "Online"));
   if (!onlineSetup(view)) return;
   view.append(
     el("div", { class: "toolbar" }, netPicker(),
       el("button", { type: "button", class: "small", dataset: { online: "change-target" },
         onclick: () => { S.onlineForm = true; render(); } }, "Connection…")),
-    el("div", { id: "online-conn", class: "online-conn" }, "Connecting to " + targetLabel() + "…"),
+    el("div", { id: "online-conn", class: "online-conn" }, "Connecting to " + S.online.host + "…"),
     el("div", { id: "online-live" }),
     el("div", { id: "online-raw" }),
     el("div", { id: "online-lss" }),
@@ -3861,16 +3722,20 @@ function renderOnline(view) {
   if (S.onlineNode) renderOnlineNode();
 }
 
+// The views that poll the connection's status.
+function onlineViews() { return S.state && S.state.commission ? ["online", "nodes"] : ["online"]; }
+
 async function pollOnline(seq) {
   let r = null;
   let err = null;
   try {
     r = await api("POST", "/api/online/status", { port: diagPort() });
   } catch (e) { err = e; }
-  if (seq !== S.onlineSeq || S.view !== "online") return;
+  if (seq !== S.onlineSeq || !onlineViews().includes(S.view)) return;
   const conn = $("#online-conn");
   conn.setAttribute("aria-live", "polite");
   const live = $("#online-live");
+  if (err && S.state.commission) { adapterLost(err.message); return; }
   if (err) {
     const why = { closed: "port closed", unreachable: "host unreachable", token: "wrong token", timeout: "no answer",
       protocol: "not a CANopen diagnostics port", refused: "refused" }[err.body && err.body.kind] || "error";
@@ -3892,7 +3757,7 @@ async function pollOnline(seq) {
     }
     clearTimeout(S.onlineAgeTimer);
     if (age !== null) S.onlineAgeTimer = setTimeout(() => {
-      if (seq !== S.onlineSeq || S.view !== "online") return;
+      if (seq !== S.onlineSeq || !onlineViews().includes(S.view)) return;
       const a = document.querySelector("[data-online=stale-age]");
       if (a) a.textContent = `Last data ${age + 1} s ago; the values below are not live.`;
       const b = document.querySelector("[data-online=node-stale]");
@@ -3905,7 +3770,8 @@ async function pollOnline(seq) {
   S.onlineLastAt = Date.now();
   clearTimeout(S.onlineAgeTimer);
   live.classList.remove("stale");
-  $("#online-node").classList.remove("stale");
+  const nodeBox = $("#online-node");
+  if (nodeBox) nodeBox.classList.remove("stale");
   const staleNote = document.querySelector("[data-online=node-stale]");
   if (staleNote) staleNote.remove();
   runtimeNetworks(r);
@@ -4116,46 +3982,6 @@ function slaveLive(r) {
   }
 }
 
-// A USB adapter on this PC in the online view: what the bus showed since
-// connecting (heartbeats, EMCY), the adapter, and another master when one
-// runs on the bus. No boot results, holds or SDO variables: no master here.
-function localLive(r, conn) {
-  const st = r.status;
-  const kbit = Math.round((st.bitrate || 0) / 1000);
-  const cfgKbit = r.config_bitrate ? Math.round(r.config_bitrate / 1000) : null;
-  const notes = [];
-  if (cfgKbit && cfgKbit !== kbit) notes.push(el("div", { class: "online-note warning", dataset: { online: "bitrate-differs" } },
-    `The adapter runs at ${kbit} kbit/s; this network's config says ${cfgKbit} kbit/s.`));
-  if (st.other_master_seen) notes.push(el("div", { class: "online-note warning", dataset: { online: "other-master" } },
-    `Another master is active on this bus (${st.other_master_seen.what}, since ${st.other_master_seen.first_at.replace("T", " ").replace(/\.\d+Z$/, " UTC")}). ` +
-    "Keep to reading; LSS asks before it runs."));
-  if (st.untested_adapter) notes.push(el("div", { class: "online-note" }, "This adapter type is passed to python-can untested."));
-  const allowBtn = el("button", { type: "button", class: "small", dataset: { online: "adapter-allow-toggle" }, onclick: async () => {
-    if (!r.hello.allow_changes) {
-      const v = await modal("Allow changes on this adapter connection? SDO writes, NMT commands, LSS and restore then go to the bus. Saving to a device's non-volatile memory still asks each time.",
-        [["allow", "Allow changes", true], ["cancel", "Cancel"]]);
-      if (v !== "allow") return;
-    }
-    await saveOnline({ allow_changes: !r.hello.allow_changes });
-  } }, r.hello.allow_changes ? "Back to read-only" : "Allow changes…");
-  conn.className = "online-conn ok";
-  conn.replaceChildren(`Connected to USB adapter ${st.adapter}, ${kbit} kbit/s${cfgKbit && cfgKbit !== kbit ? ` (config: ${cfgKbit} kbit/s)` : ""}, ` +
-    (r.hello.allow_changes ? "changes allowed. " : "read-only. "), allowBtn, ...notes);
-  const rows = (st.nodes || []).map((n) => {
-    const em = n.emcy && n.emcy.count ? `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})` : "";
-    return el("tr", rowAttrs(() => { S.onlineNode = n.node_id; renderOnlineNode(); pollHighlight(); },
-      { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id }, "aria-label": `Open node ${n.node_id}` }),
-    el("td", null, String(n.node_id)), el("td", null, n.name || ""),
-    el("td", { class: n.state === null ? "muted" : "state-" + n.state }, n.state === null ? "not heard" : stateName(n.state)),
-    el("td", null, n.last_heard_s === null ? "-" : `${n.last_heard_s.toFixed(1)} s ago`), el("td", null, em));
-  });
-  patchLive($("#online-live"), [
-    el("table", { class: "online-nodes", dataset: { online: "local-nodes" } },
-      el("thead", null, el("tr", null, thCells(["Node", "Name", "State", "Heard", "Last EMCY"]))),
-      el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 5, class: "muted" },
-        "No node heard yet. Nodes without a heartbeat show up in a scan (Scan the bus)."))]))]);
-}
-
 // An online request that LSS refuses while another master runs on the bus:
 // ask, then send it again with force.
 async function apiForce(path, body) {
@@ -4209,7 +4035,12 @@ async function commissionDevice() {
     banner("");
     await api("POST", "/api/commission", {});
     S.view = "online";
-    S.onlineForm = true;
+    S.commLog = [];
+    S.commLogSaved = 0;
+    S.commDevice = {};
+    S.commNodes = {};
+    S.adapterOn = false;
+    S.adapterEnded = null;
     await loadState();
   } catch (e) { banner(e.message, true); }
 }
@@ -4264,7 +4095,7 @@ async function runLssFind(start) {
     if (seq === S.onlineSeq && status) status.textContent = e.message;
     return;
   }
-  if (seq !== S.onlineSeq || S.view !== "online") return;
+  if (seq !== S.onlineSeq || !onlineViews().includes(S.view)) return;
   const st = document.querySelector("[data-online=lss-status]");
   if (!st) return;
   if (r.running) {
@@ -4342,7 +4173,18 @@ async function lssSetId(d, match) {
   S.lssDevice = null;
   const box = document.querySelector("[data-online=lss-result]");
   if (box) box.replaceChildren();
-  if (configNode(node) || S.state.commission) return;
+  if (S.state.commission) {  // a row of the Nodes page, with the EDS that matched
+    commNodes()[node] = Object.assign(commNodes()[node] || {}, lssAddress(d), { lss: true },
+      match ? { eds_path: match.path, eds_name: match.name } : {});
+    if (match) {
+      S.onlineEds = Object.assign(S.onlineEds || {}, { [node]: match.path });
+      S.onlineEdsName = Object.assign(S.onlineEdsName || {}, { [node]: match.name });
+    }
+    const live = $("#online-live");
+    if (live) patchLive(live, [commNodeTable(S.onlineLast && S.onlineLast.status)]);
+    return;
+  }
+  if (configNode(node)) return;
   const add = await modal(`Add the device to the configuration as node ${node}` + (match ? ` with ${match.name}` : "") +
     "? It gets the device's serial number and LSS assignment, so the master gives it this node ID at every start.",
     [["add", "Add as node", true], ["no", "Not now"]]);
@@ -4453,7 +4295,9 @@ async function renderOnlineNode() {
   const tabList = tabs([["overview", "Overview"], ["od", "Object dictionary"], ["params", "Parameters"], ["pdo", "PDO test"]]
     .filter(([k]) => (!slave || k !== "params") && (pdoTab || k !== "pdo")),
     tab, (k) => { S.onlineTab = k; renderOnlineNode(); }, { dataset: "onlineTab", panel: "online-node-panel", label: "Node pages" });
-  const title = el("h2", null, `Node ${id} ${n && n.name ? n.name : (S.onlineEdsName || {})[id] || ""}`);
+  const head = el("h2", null, `Node ${id} ${n && n.name ? n.name : (S.onlineEdsName || {})[id] || ""}`);
+  const title = S.state.commission ? el("div", { class: "toolbar node-head" }, head,
+    el("button", { type: "button", dataset: { online: "add-to-config" }, onclick: () => addToConfig(id) }, "Add to a config…")) : head;
   const panel = (...kids) => el("div", { id: "online-node-panel", role: "tabpanel", "aria-labelledby": `online-node-panel-tab-${tab}` }, ...kids);
   // The object dictionary tab takes the problems pane's room, as the trace does.
   $("#editor").classList.toggle("wide-view", tab === "od");
@@ -5451,7 +5295,7 @@ function odBuild(box, id, n, allow, data) {
     if (graphBox.isConnected) graphBox.dataset.points = String(st.hist.length);
   };
   const watchLoop = async (token) => {
-    while (st.watchToken === token && st.watch.length && box.isConnected && S.view === "online" && S.onlineNode === id) {
+    while (st.watchToken === token && st.watch.length && box.isConnected && onlineViews().includes(S.view) && S.onlineNode === id) {
       const t = performance.now();
       try { await readKeys(st.watch.map((k) => k.split(":").map(Number)), true); } catch (e) { banner(e.message, true); break; }
       st.lastRound = Math.round(performance.now() - t);
@@ -5808,7 +5652,7 @@ function paramsPanel(id, n, allow) {
   };
   const backup = async () => {
     const live = nodeLive(id);
-    if (live && !live.booted && S.online.target !== "adapter") {  // a USB adapter has no master to configure it
+    if (live && !live.booted && !S.state.commission) {  // a USB adapter has no master to configure it
       const v = await modal(`Node ${id} has not booted successfully, so the master may not have configured it yet. Back up anyway?`,
         [["go", "Back up anyway", true], ["cancel", "Cancel"]]);
       if (v !== "go") return;
@@ -5991,205 +5835,13 @@ async function storeDialog(id, sub, what) {
 }
 
 // ---------------------------------------------------------------------------
-// Scan page
-
-function renderScan(view) {
-  view.append(el("h2", null, "Scan the bus"), stepsPanel() || "",
-    el("p", { class: "muted" }, "Asks every node ID 1-127 for its identity (0x1018), device type and name, through the runtime or the USB adapter. Reads only; PDOs keep running. Devices that are STOPPED do not answer."));
-  const lib = el("input", { type: "text", spellcheck: "false", class: "wide", placeholder: "a folder of vendor EDS files",
-    "aria-label": "EDS library folder", dataset: { online: "library" } });
-  lib.value = S.online.eds_library || "";
-  lib.addEventListener("change", async () => {
-    try { S.online = Object.assign(S.online, await api("POST", "/api/online/settings", { eds_library: lib.value.trim() })); banner(""); }
-    catch (e) { banner(e.message, true); return; }
-    if (S.scanResult && S.onlineOpen) runScan(false);  // the shown devices, matched against the new folder
-  });
-  view.append(el("div", { class: "grid" }, el("label", null, "EDS library folder", lib,
-    hint("Optional. Found devices are matched against the EDS files here (and its subfolders)" +
-      (S.state.commission ? "" : " and in the project's canopen folder") + ". Kept on this PC."))));
-  if (!onlineSetup(view)) return;
-  if (onlineIsSlave()) {
-    view.append(el("div", { class: "toolbar" }, netPicker()),
-      el("p", { class: "field-msg warning", dataset: { online: "scan-slave" } }, "Scanning needs a master network: on a slave network the plugin is one of the nodes. " +
-        "Pick a master network, or see this device in the Online view."));
-    return;
-  }
-  const progress = el("span", { class: "muted", dataset: { online: "scan-progress" }, "aria-live": "polite" });
-  view.append(el("div", { class: "toolbar" }, netPicker(),
-    el("button", { type: "button", class: "primary", dataset: { online: "scan" }, onclick: () => runScan(true) }, "Scan the bus"), progress),
-  el("div", { id: "scan-result" }));
-  view.append(detectSection());
-  S.onlineOpen = true;
-  if (S.scanResult) showScan(S.scanResult);
-  else runScan(false);
-  const d = (S.detect || {})[onlineNetwork() ?? ""];
-  if (d) { showDetect(d); if (d.running) pollDetect(S.onlineSeq); }
-}
-
-// -- bit rate detection (add-raw-frames-bitrate-detect) ---------------------
-// The plugin stops CANopen on the network, listens at each bit rate in
-// listen-only mode and starts CANopen again. S.detect keeps the last answer
-// per network for this page.
-
-// The rates a sweep left out because the adapter cannot be set to them.
-function skippedText(r) {
-  const k = r.skipped_kbit || [];
-  return k.length ? ` Not tried: ${k.map(kbitText).join(", ")} (the adapter cannot be set to ${k.length === 1 ? "it" : "them"}).` : "";
-}
-const SILENT_TEXT = "The bus was silent. A listening adapter sends no acknowledge, so frames only count when another device acknowledges them: with one device on the bus, add a second device or a second adapter in normal mode, or, with a USB adapter on the PC and nothing else on the bus, use the lone-device sweep (\"Only this device is on the bus\", --lone-device). A device that only sends its boot-up message: power-cycle it during the sweep, or run more rounds.";
-
-function detectSection() {
-  const local = S.online.target === "adapter";
-  // On a USB adapter the sweep only listens (no CANopen of ours to stop): no Allow changes needed.
-  const allow = local || !!(diagConfig() && diagConfig().allow_changes);
-  const rounds = el("select", { "aria-label": "Rounds", dataset: { online: "detect-rounds" } },
-    [1, 2, 3, 5, 10].map((n) => el("option", { value: n }, n === 1 ? "1 round" : `${n} rounds`)));
-  // The lone-device sweep sends (normal mode, LSS query): Allow changes on the adapter connection.
-  const loneAllow = local && !!(S.onlineLast && S.onlineLast.hello && S.onlineLast.hello.allow_changes);
-  const lone = local ? loneBox() : null;
-  if (lone && !loneAllow) {
-    lone.querySelector("input").disabled = true;
-    lone.title = ADAPTER_NO_CHANGES;
-  }
-  return el("fieldset", { dataset: { online: "detect-box" } }, el("legend", null, "Detect bit rate"),
-    el("p", { class: "muted" }, local ?
-      "Finds the bit rate of the traffic on the bus: the USB adapter listens at 1000, 800, 500, 250, 125, 50, 20 and 10 kbit/s for a second each in listen-only mode, without sending anything, then goes back to its bit rate." :
-      "Finds the bit rate of the traffic on this network's bus: the runtime stops CANopen on the network, listens at 1000, 800, 500, 250, 125, 50, 20 and 10 kbit/s for a second each without sending anything, then starts CANopen again. Other networks keep running."),
-    allow ? null : el("p", { class: "field-msg warning", dataset: { online: "detect-blocked" } }, "Detecting the bit rate needs Allow changes in Online access"),
-    el("div", { class: "toolbar" },
-      el("button", { type: "button", dataset: { online: "detect" }, disabled: !allow,
-        onclick: () => runDetect(Number(rounds.value), !!lone && lone.querySelector("input").checked) }, "Detect bit rate"),
-      rounds, lone),
-    el("div", { id: "detect-result" }));
-}
-
-// The draft network the scan page acts on.
-function detectNet() {
-  const name = onlineNetwork();
-  if (name === null) return S.config;
-  return S.model.networks.find((n) => netName(n) === name) || null;
-}
-
-async function runDetect(rounds, alone) {
-  if (alone) { if (await askLone()) await startDetect(rounds, false, false, true); return; }
-  if (S.online.target === "adapter") { await startDetect(rounds, false); return; }  // listens only
-  const name = onlineNetwork();
-  const v = await modal(`Detect the bit rate${name ? " of network " + name : ""}? CANopen on that network stops during the sweep (about ${8 * rounds} s): the program's PDOs and SDOs on it stop, and the nodes boot again afterwards. The runtime only listens; nothing is sent on the bus.`,
-    [["detect", "Detect bit rate", true], ["cancel", "Cancel"]]);
-  if (v !== "detect") return;
-  await startDetect(rounds, false);
-}
-
-async function startDetect(rounds, force, disturb, alone) {
-  const seq = S.onlineSeq;
-  const net = onlineNetwork() ?? "";
-  S.detectArgs = { rounds, force, alone };
-  let r;
-  try {
-    r = await api("POST", "/api/online/detect_bitrate", Object.assign({ port: diagPort(), rounds }, force ? { force: true } : {},
-      disturb ? { disturb_bus: true } : {}, alone ? { lone_device: true } : {}));
-  } catch (e) {
-    if (e.body && e.body.force && !force) {
-      const v = await modal(`The runtime says: "${e.message}". Stop CANopen on this network for the sweep anyway?`,
-        [["force", "Detect anyway", true], ["cancel", "Cancel"]]);
-      if (v === "force") return startDetect(rounds, true, disturb, alone);
-      return;
-    }
-    if (e.body && e.body.disturb_bus && !disturb) {
-      if (await askDisturb()) return startDetect(rounds, force, true, alone);
-      return;
-    }
-    const box = $("#detect-result");
-    if (box) box.replaceChildren(el("p", { class: "field-msg", dataset: { online: "detect-error" } }, `Not started: ${e.message}`));
-    return;
-  }
-  S.detect = Object.assign(S.detect || {}, { [net]: r });
-  if (seq !== S.onlineSeq || S.view !== "scan") return;
-  showDetect(r);
-  if (r.running) pollDetect(seq);
-}
-
-async function pollDetect(seq) {
-  clearTimeout(S.detectTimer);
-  S.detectTimer = setTimeout(async () => {
-    if (seq !== S.onlineSeq || S.view !== "scan") return;
-    const net = onlineNetwork() ?? "";
-    let r;
-    try { r = await api("POST", "/api/online/detect_bitrate_status", { port: diagPort() }); }
-    catch (e) {
-      if (seq === S.onlineSeq) banner(e.message, true);
-      return pollDetect(seq);
-    }
-    if (seq !== S.onlineSeq || S.view !== "scan") return;
-    S.detect = Object.assign(S.detect || {}, { [net]: r });
-    showDetect(r);
-    if (r.running) pollDetect(seq);
-  }, 300);
-}
+// Scan the bus (Commission a device, Nodes page)
 
 function kbitText(k) { return k >= 1000 ? `${k / 1000} Mbit/s` : `${k} kbit/s`; }
 
-function showDetect(r) {
-  const box = $("#detect-result");
-  if (!box) return;
-  const parts = [];
-  if (r.running) {
-    parts.push(el("p", { class: "sweep-progress", dataset: { online: "detect-progress" } },
-      r.lone_device ? `Trying ${kbitText(r.rate_kbit)} (${r.done} of ${r.total}) in normal mode with the LSS query…`
-        : `Listening at ${kbitText(r.rate_kbit)} (${r.done} of ${r.total}${r.total > 8 ? `, round ${r.round}` : ""})… CANopen on this network is stopped until the sweep ends.`));
-  } else if (r.verdict) {
-    const net = detectNet();
-    const current = net && net.adapter ? net.adapter.bitrate : undefined;
-    let text;
-    let cls = "bad";
-    if (r.verdict === "detected") {
-      cls = "ok-text";
-      const who = S.online.target === "adapter" ? "the USB adapter is set to" : "the runtime is configured for";
-      text = `${kbitText(r.bitrate_kbit)} detected` + (r.matches_config ? `, the bit rate ${who}.` :
-        r.configured_kbit ? `; ${who} ${kbitText(r.configured_kbit)}.` : ".") + (r.warning ? ` ${upperFirst(r.warning)}.` : "");
-    } else if (r.verdict === "ambiguous") {
-      text = `Ambiguous: frames at ${(r.candidates || []).map(kbitText).join(", ")}. Run the sweep again, with more rounds.`;
-    } else if (r.verdict === "silent") {
-      text = r.lone_device ? "No answer at any bit rate: check the wiring, the termination and the device's power." : SILENT_TEXT;
-      cls = "field-msg warning";
-    } else if (needsDisturb(r.error)) {
-      text = `The sweep stopped before listening. ${DISTURB_TEXT}`;
-      cls = "field-msg warning";
-    } else {
-      text = `The sweep failed: ${r.error || "no reason given"}.`;
-    }
-    parts.push(el("p", { class: cls, dataset: { online: "detect-verdict" } }, text + skippedText(r)));
-    if (r.verdict === "failed" && needsDisturb(r.error)) {
-      parts.push(el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { online: "detect-disturb" },
-        onclick: async () => {
-          const a = S.detectArgs || { rounds: 1, force: false };
-          if (await askDisturb()) startDetect(a.rounds, a.force, true, a.alone);
-        } }, "Sweep anyway")));
-    }
-    if (r.verdict === "detected" && net && r.bitrate_kbit * 1000 !== current) {
-      parts.push(el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", dataset: { online: "use-bitrate" },
-        onclick: () => {
-          net.adapter = net.adapter || {};
-          net.adapter.bitrate = r.bitrate_kbit * 1000;
-          changed();
-          banner(`Bit rate set to ${kbitText(r.bitrate_kbit)}${several() ? " on network " + netName(net) : ""}. Save and upload to use it.`);
-          showDetect(r);
-        } }, `Use ${r.bitrate_kbit} kbit/s`)));
-    }
-  }
-  const rows = (r.results || []).map((x) => el("tr", { dataset: { detectRate: x.bitrate_kbit } },
-    el("td", null, kbitText(x.bitrate_kbit)), el("td", null, String(x.frames)), el("td", null, String(x.error_frames)),
-    el("td", { class: "mono" }, (x.ids || []).map((i) => "0x" + i.toString(16).toUpperCase()).join(" ") + ((x.ids || []).length >= 16 ? " …" : ""))));
-  if (rows.length) {
-    parts.push(el("table", { class: "scan", dataset: { online: "detect-table" } },
-      el("thead", null, el("tr", null, thCells(["Bit rate", "Frames", "Error frames", "Identifiers"]))),
-      el("tbody", null, rows)));
-  }
-  box.replaceChildren(...parts);
-}
-
 async function runScan(start) {
   const seq = S.onlineSeq;
+  clearTimeout(S.scanTimer);
   let r;
   try {
     const body = { start, config: fileConfig(), port: diagPort() };
@@ -6198,99 +5850,43 @@ async function runScan(start) {
     if (seq === S.onlineSeq) banner(e.message, true);
     return;
   }
+  const progress = document.querySelector("[data-online=scan-progress]");
   if (!r) {
-    const progress = document.querySelector("[data-online=scan-progress]");
     if (progress && seq === S.onlineSeq) progress.textContent = "Scan not started.";
     return;
   }
-  if (seq !== S.onlineSeq || S.view !== "scan") return;
-  runtimeNetworks(r);
-  const progress = document.querySelector("[data-online=scan-progress]");
+  if (seq !== S.onlineSeq || S.view !== "nodes" || !progress) return;
+  const cancel = document.querySelector("[data-online=scan-cancel]");
+  const button = document.querySelector("[data-online=scan]");
+  cancel.hidden = !r.running;
+  button.disabled = !!r.running;
   if (r.running) {
     progress.textContent = `Scanning… ${r.done} of ${r.total} node IDs`;
-    S.onlineTimer = setTimeout(() => runScan(false), 300);
+    S.scanTimer = setTimeout(() => runScan(false), 300);
     return;
   }
-  if (!r.nodes) { progress.textContent = `No scan has run on this ${S.online.target === "adapter" || S.state.commission ? "adapter connection" : "runtime"} yet.`; return; }
-  const note = r.note ? ` ${r.note.charAt(0).toUpperCase() + r.note.slice(1)}.` : "";
-  progress.textContent = `Scanned ${String(r.finished_at || "").replace("T", " ").replace(/\.\d+Z$/, " UTC")} in ${Number(r.seconds || 0).toFixed(1)} s.${note}`;
+  if (!r.nodes) { progress.textContent = "No scan has run on this connection yet."; return; }
+  const note = r.note ? ` ${upperFirst(r.note)}.` : "";
+  const how = r.error ? `Stopped after ${r.done} of ${r.total} node IDs: ${r.error}.`
+    : r.stopped ? `Cancelled after ${r.done} of ${r.total} node IDs.` : "";
+  progress.textContent = how || `Scanned ${String(r.finished_at || "").replace("T", " ").replace(/\.\d+Z$/, " UTC")} in ${Number(r.seconds || 0).toFixed(1)} s.${note}`;
   S.scanResult = r;
-  showScan(r);
+  const live = $("#online-live");
+  if (live) patchLive(live, [commNodeTable(S.onlineLast && S.onlineLast.status)]);
 }
 
-function showScan(r) {
-  const box = $("#scan-result");
-  if (!box) return;
-  const rows = [];
-  for (const d of r.nodes) {
-    const m = d.eds_matches || [];
-    const vendorName = m.length ? m[0].vendor_name : "";
-    const cells = [String(d.node_id),
-      d.vendor_id !== undefined ? hex8(d.vendor_id) + (vendorName ? " " + vendorName : "") : "",
-      d.product_code !== undefined ? hex8(d.product_code) : "",
-      d.revision_number !== undefined ? hex8(d.revision_number) : "",
-      d.serial_number !== undefined ? `${d.serial_number} (${hex8(d.serial_number)})` : "",
-      d.device_name || ""];
-    // A device added from this scan: in the draft, not yet on the runtime.
-    const added = d.match === "not configured" && configNode(d.node_id);
-    const match = el("td", { class: d.match === "configured" ? "ok-text" : d.match === "not configured" ? null : "bad" },
-      added ? `added${added.name ? " as " + added.name : ""} (not saved yet)` : d.match + (d.config_name ? ` as ${d.config_name}` : ""));
-    rows.push(el("tr", { dataset: { scanNode: d.node_id } }, cells.map((c) => el("td", null, c)), match,
-      el("td", null, scanAction(d), useForNode(d))));
-  }
-  box.replaceChildren(el("table", { class: "scan" },
-    el("thead", null, el("tr", null, thCells(["Node", "Vendor", "Product", "Revision", "Serial number", "Device name", "Match", ""]))),
-    el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No device answered."))])));
-}
-
-function scanAction(d) {
-  if (d.match === "configured, different device") {
-    const fields = [["vendor_id", "Vendor ID"], ["product_code", "Product code"], ["revision_number", "Revision"], ["serial_number", "Serial number"]];
-    const exp = d.expected || {};
-    return el("table", { class: "compare", dataset: { online: "compare" } },
-      el("thead", null, el("tr", null, el("th", null, ""), el("th", null, "Config"), el("th", null, "Found"))),
-      el("tbody", null, fields.map(([k, label]) => el("tr", { class: exp[k] !== undefined && d[k] !== undefined && exp[k] !== d[k] ? "bad" : null },
-        el("th", null, label), el("td", null, exp[k] !== undefined ? hex8(exp[k]) : "any"),
-        el("td", null, d[k] !== undefined ? hex8(d[k]) : "-")))));
-  }
-  if (d.match !== "not configured") return "";
-  if (configNode(d.node_id)) return "";
-  const m = d.eds_matches || [];
-  if (S.state.commission) {  // no config to add to: only the object dictionary
-    if (!m.length) {  // the device's EDS from a file instead, for its object dictionary
-      const input = el("input", { type: "file", accept: ".eds,.EDS", dataset: { online: "pick-eds" } });
-      input.addEventListener("change", () => { const f = input.files[0]; if (f) openPickedOd(d, f); });
-      return el("div", null, el("span", { class: "muted" }, "No matching EDS in the EDS library. "),
-        el("label", { class: "file-button" }, "Pick EDS file…", input));
-    }
-    const pick = el("select", { "aria-label": "EDS file", dataset: { online: "eds-match" } }, m.map((x, k) => el("option", { value: k }, x.name)));
-    return el("div", null, pick, el("button", { type: "button", dataset: { online: "open-od" }, onclick: () => openScannedOd(d, m[Number(pick.value)]) }, "Object dictionary"));
-  }
-  if (!m.length) {
-    const input = el("input", { type: "file", accept: ".eds,.EDS" });
-    input.addEventListener("change", () => { const f = input.files[0]; if (f) addScannedNode(d, null, f, false); });
-    return el("div", null, el("span", { class: "muted" }, "No matching EDS. "),
-      el("label", { class: "file-button" }, "Pick EDS file…", input));
-  }
-  const sel = el("select", { "aria-label": "EDS file", dataset: { online: "eds-match" } }, m.map((x, k) =>
-    el("option", { value: k }, `${x.name} (${x.where === "project" ? "project" : "library"}, revision ${x.revision_number !== null ? hex8(x.revision_number) : "?"}${x.revision_match ? ", exact" : ""})`)));
-  const ident = el("input", { type: "checkbox" });
-  return el("div", null, sel, el("label", { class: "inline" }, ident, " also check revision and serial number"),
-    el("button", { type: "button", dataset: { online: "add-node" }, onclick: () => addScannedNode(d, m[Number(sel.value)], null, ident.checked) }, "Add as node"),
-    el("button", { type: "button", dataset: { online: "open-od" }, onclick: () => openScannedOd(d, m[Number(sel.value)]) }, "Object dictionary"));
-}
-
-// A scanned device that is not in the configuration, opened in the online
-// view's object dictionary and parameters tabs with the matching EDS.
+// A device of the Nodes page opened with an EDS: the matching one from the
+// library, or a picked or added file.
 function openScannedOd(d, match) {
+  commNodes()[d.node_id] = Object.assign(commNodes()[d.node_id] || {}, { eds_path: match.path, eds_name: match.name });
   Object.assign(commDevice(), { node_id: d.node_id, vendor_id: d.vendor_id, product_code: d.product_code, revision_number: d.revision_number,
     serial_number: d.serial_number, eds_path: match.path, eds_name: match.name });
-  stepDone("identity", `${hex8(d.vendor_id)} / ${hex8(d.product_code)}, ${match.name}`);
   S.onlineEds = Object.assign(S.onlineEds || {}, { [d.node_id]: match.path });
   S.onlineEdsName = Object.assign(S.onlineEdsName || {}, { [d.node_id]: d.device_name || match.name });
   S.onlineNode = d.node_id;
   S.onlineTab = "od";
-  showView("online");
+  if (S.view === "nodes") render();
+  else showView("nodes");
 }
 
 // Commissioning: a scanned device whose EDS is not in the library, opened
@@ -6342,49 +5938,9 @@ async function addScannedNode(d, match, file, identity, lss) {
   S.view = "node:" + (S.config.nodes.length - 1);
   S.focusName = S.config.nodes.length - 1;
   banner(el("div", null, el("div", null, `Added node ${d.node_id} (${res.name}). Map its PDOs here, then save. `,
-    noLss ? el("span", { dataset: { lssNote: "" } }, "No LSS assignment: its EDS has no LSS (LSS_Supported=1 missing). ") : null,
-    lss ? el("button", { type: "button", class: "link", dataset: { online: "back-to-online" }, onclick: () => showView("online") }, "Back to the online view")
-      : el("button", { type: "button", class: "link", dataset: { online: "back-to-scan" }, onclick: () => showView("scan") }, "Back to the scan")),
+    noLss ? el("span", { dataset: { lssNote: "" } }, "No LSS assignment: its EDS has no LSS (LSS_Supported=1 missing). ") : null),
   importReport(res)));
   changed(true);
-}
-
-// "Use for node…": a scanned device with a serial number replaces the device
-// of a configured node with the same vendor ID and product code; the node
-// gets its serial number and LSS assignment.
-function useForNode(d) {
-  if (d.serial_number === undefined || d.vendor_id === undefined || d.product_code === undefined) return null;
-  if (d.match === "not configured" && configNode(d.node_id)) return null;  // just added as that node
-  const lssOf = (n) => !!((edsFor(n) || {}).device || {}).lss_supported;
-  const nodes = (S.config.nodes || []).map((n, i) => [n, i]).filter(([n]) => {
-    const dev = (edsFor(n) || {}).device;
-    if (!dev || dev.vendor_id !== d.vendor_id || dev.product_code !== d.product_code) return false;
-    // Not the node this device already is.
-    return !(num(n.node_id) === d.node_id && (d.match === "configured" || num(n.serial_number) === d.serial_number));
-  });
-  if (!nodes.length) return null;
-  const sel = el("select", { "aria-label": "Node", dataset: { online: "use-for" } },
-    el("option", { value: "" }, "Use for node…"),
-    nodes.map(([n, i]) => lssOf(n)
-      ? el("option", { value: i }, `Node ${n.node_id}${n.name ? " " + n.name : ""}`)
-      // Same width as the others (the scan table stays inside the page); the reason in its title.
-      : el("option", { value: i, disabled: true, title: "Its EDS has no LSS (LSS_Supported=1 missing)", dataset: { noLss: "" } },
-        `Node ${n.node_id}${n.name ? " " + n.name : ""}`)));
-  sel.addEventListener("change", () => {
-    if (sel.value === "") return;
-    const i = Number(sel.value);
-    if (!lssOf(S.config.nodes[i])) { sel.value = ""; return; }
-    const base = `nodes[${i}]`;
-    setPath(base + ".serial_number", d.serial_number);
-    setPath(base + ".lss", Object.assign({}, getPath(base + ".lss") || {}, { assign: true }));
-    if (getPath(base + ".reset_communication") === false) setPath(base + ".reset_communication", undefined);
-    const id = getPath(base + ".node_id");
-    changed(false);
-    banner(`Node ${id} now expects serial number ${hex8(d.serial_number)} and assigns its node ID by LSS: ` +
-      `the device becomes node ${id} at the next PLC start (save and upload first).`);
-    if (S.scanResult) showScan(S.scanResult);
-  });
-  return sel;
 }
 
 // ---------------------------------------------------------------------------
@@ -7018,6 +6574,7 @@ async function reload(force) {
 }
 
 async function closeFolder() {
+  if (!(await leaveCommission("closing"))) return;
   if (unsavedWork()) {
     const what = typeof traceUnsaved === "function" && traceUnsaved() && !S.dirty && !simDirty()
       ? "Close? The recording was neither saved to the traces folder nor downloaded, and is lost."

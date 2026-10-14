@@ -20,7 +20,21 @@ A SocketCAN interface that is already up is used at its own bit rate. One that i
 
 ## The bit rate
 
-There is no default: a wrong bit rate disturbs every device on the bus. Give `--bitrate KBIT`, or `--config` with a `canworks.json`, whose network's `adapter.bitrate` is then used (`--network` picks one of several networks). The configurator starts with the config's bit rate and says when the chosen one differs; under **Commission a CANopen device**, which has no config, no rate is picked until you pick one or press **Detect**.
+There is no default and no automatic detection: you give the bus's bit rate, and the tools refuse to connect when the bus does not run at it. Give `--bitrate KBIT`, or `--config` with a `canworks.json`, whose network's `adapter.bitrate` is then used (`--network` picks one of several networks). Under **Commission a CANopen device** in the configurator you pick the rate on **Bus and master**.
+
+### The check on connect
+
+Every connection checks the bit rate before anything else is sent:
+
+1. The adapter listens for 1 s in listen-only mode (slcan silent mode, gs_usb listen-only; SocketCAN and the virtual bus listen normally). Valid frames with at most 1 % error frames confirm the rate ("frames on the bus"). Error frames refuse it: "the bus does not run at 250 kbit/s".
+2. A silent bus gets one probe in one-shot mode: an LSS "inquire node ID" (0x7E5, `5E 00 …`), which every device acknowledges at its own bit rate, whatever its LSS support. A gs_usb adapter reports whether the frame got out; SocketCAN and the virtual bus confirm it by the absence of error frames. An acknowledged probe confirms the rate ("a device acknowledged the probe"). Missing acknowledgement or bit errors refuse it: "no device acknowledged at 250 kbit/s: the bit rate is wrong, the device is off or the bus is not terminated".
+3. slcan cannot tell whether a frame got out. On a silent bus it needs `--check-node N` (in the configurator, **Node ID for the check**): node N must answer an SDO read of 0x1000. Without it the connection is refused and the message says so.
+
+The result shows in `hello` and `status` as `bitrate_check` (`{"result": "confirmed", "how": "traffic", "bitrate_kbit": 250}`), and in the configurator's connection line. A refused check closes the adapter again at once, so the next try (at another rate) works without a replug.
+
+### Bus errors end the connection
+
+After the check, the connection ends when the adapter goes bus-off or error passive, or when 10 error frames arrive within 1 s without a valid frame. A gs_usb adapter whose sent frame is not echoed within 0.5 s ends it too ("the adapter stopped sending"). Every later request then answers "connection ended: <reason>": a scan, PDO test, SYNC, Send panel job or trace on the connection stops. Connecting again runs the check again.
 
 ## First steps
 
@@ -35,11 +49,11 @@ canworks-diag --adapter slcan:COM5 --bitrate 250 --allow-changes lss-set-id 0x36
 canworks-diag --adapter slcan:COM5 --bitrate 250 trace -o bench.pcapng --duration 60
 ```
 
-The commands are the ones of [diagnostics.md](diagnostics.md), with `--adapter` in place of `--runtime`; no token is needed. In the configurator, pick **USB adapter on this PC** in the online view's connect box (see [configurator.md](configurator.md#usb-adapter-on-this-pc)), or press **Commission a CANopen device** on the start page to work with a device without any project.
+The commands are the ones of [diagnostics.md](diagnostics.md), with `--adapter` in place of `--runtime`; no token is needed. In the configurator, press **Commission a CANopen device** on the start page (see [configurator.md](configurator.md#commission-a-canopen-device)); a config's own online view works through the runtime only.
 
 ## Changes are off until you allow them
 
-Without `--allow-changes` (in the configurator: **Allow changes** in the connection banner, asked each time and never saved) the adapter only reads: status, scan, SDO reads, the object dictionary, backup, compare and trace. SDO writes, NMT commands, restore and every LSS command are refused with "changes not allowed".
+Without `--allow-changes` (in the configurator: **Allow changes** on **Bus and master**, asked each time, never saved, and switched on or off without closing the connection) the adapter only reads: status, scan, SDO reads, the object dictionary, backup, compare and trace. SDO writes, NMT commands, restore and every LSS command are refused with "changes not allowed".
 
 Saving to a device's non-volatile memory (0x1010, `store`, and LSS **Store in the device** or `--store`) is never part of anything else and always needs its own command or tick, also with changes allowed: each store wears the device's flash memory.
 
@@ -57,45 +71,40 @@ The tools listen for a second before their first frame. A bus that carries NMT c
 
 - No NMT master, no node configuration at boot, no PDOs for a program: the plugin does that on the runtime. The PDO test sends a device's RPDOs and SYNC only while it runs, for checking one device.
 - No simulated devices, no CiA 402 axes, no PLC values: those need the runtime.
-- `status` shows only what the bus showed since connecting: node states from heartbeats, the last EMCY per node. No bus error counters; the adapter's own state (active, passive) shows when python-can reports it.
-- One tool per adapter: a second configurator or CLI on the same adapter gets "adapter ... in use". The configurator keeps the adapter open while its online view is open; the CLI for one command.
-- Types other than `slcan` and `socketcan` are untested, except `gs_usb` on macOS (scan, object dictionary, watch and backup read-only on one adapter). gs_usb has no listen-only mode here, so `detect-bitrate` takes it only with `--lone-device`; a new bit rate is set on the open adapter, because closing and reopening it can leave it receiving nothing on macOS until it is plugged in again.
+- `status` shows only what the bus showed since connecting: node states from heartbeats, the last EMCY per node, and the counts of valid frames and error frames received. The adapter's own state (active, passive) shows when python-can reports it.
+- One tool per adapter: a second configurator or CLI on the same adapter gets "adapter ... in use". The configurator keeps the adapter open from **Connect** until **Disconnect** (or until you leave Commission a CANopen device); the CLI for one command.
+- Types other than `slcan`, `socketcan` and `gs_usb` are untested. gs_usb: the tools compute the bit timing from the adapter's own limits (sample point 87.5, 85, 80 or 75 %) and refuse a rate it cannot run at before opening it; a USB stall on open resets the adapter once, then asks for a replug ("does not answer (USB stall): unplug it and plug it in again"). The adapter's echo of each sent frame is the send confirmation, never a frame from the bus.
+- slcan has no 800 kbit/s: the tools refuse it before opening the adapter.
 
-## Sending frames and finding the bit rate
+## Sending frames
 
-`send`, `send-stop` and `detect-bitrate` work on an adapter as on a runtime (see [diagnostics.md](diagnostics.md#raw-frames-and-bit-rate)), with these guards:
+`send` and `send-stop` work on an adapter as on a runtime (see [diagnostics.md](diagnostics.md#raw-frames)), with these guards:
 
 - `send` needs `--allow-changes`. It needs `--force` for an identifier the bus uses: NMT, SYNC, TIME and LSS always, and with `send --config canworks.json` the predefined EMCY, PDO, SDO and heartbeat identifiers of the configured nodes. `--force` may stand before or after the command. It also needs `--force` while another master is active or a node's heartbeat says OPERATIONAL. Single frames are limited to 50 per second, cyclic jobs to 8 per adapter (10-60000 ms, at most 10 minutes); a job ends when the command or the configurator connection that started it closes.
-- `detect-bitrate` opens the adapter in listen-only mode at each rate, so it sends nothing, not even an acknowledge (so a single device on the bus needs a second device that acknowledges its frames, see [diagnostics.md](diagnostics.md#finding-the-bit-rate)), and needs neither `--allow-changes` nor `--force`. It needs the adapter to itself: another connection of the same tool on the adapter gets "busy", and in the configurator the Send panel's cyclic jobs end. Afterwards the adapter is opened again at the connection's bit rate. On the command line, `detect-bitrate` on an adapter needs no `--bitrate` (given, it only names the expected rate): the sweep opens the adapter itself at each rate, and nothing is opened at a guessed rate first, because at a wrong rate the adapter's error frames disturb the bus. Listen-only works on slcan, PCAN and SocketCAN. On slcan the tool first asks for the firmware's silent mode (`m1`, then `O`), because some firmware takes `L` and then receives nothing; firmware that refuses `m1` with an error gets `L`, and the mode is set back with `m0` afterwards. Some firmware answers no command at all and may ignore `m1`: it then joins the bus at each wrong rate and its error frames can disturb the other devices, even push one to bus-off. With such firmware `detect-bitrate` stops before listening and says so; `--disturb-bus` (in the configurator, **Sweep anyway**) sweeps anyway, best when nothing on the bus must keep running; on SocketCAN the tool sets the link listen-only with `ip`, which needs root (`sudo`) or CAP_NET_ADMIN, and sets it back afterwards. Other adapter types answer "the adapter's driver has no listen-only mode". Rates the adapter cannot be set to are not tried and the result names them: python-can's slcan driver has no 800 kbit/s, so an slcan sweep listens at the other seven.
-
-A sweep listens at most 120 s in all (per-rate time × rates × rounds). The `detect_bitrate_stop` request ends a sweep after the current rate; on an adapter it reaches only a sweep of the same connection, such as the configurator's, because the adapter takes one tool at a time.
-
-- `detect-bitrate --lone-device` is for one device on the bench, alone with the adapter: listen-only finds nothing then, because nothing acknowledges the device's frames, and a device that sends nothing until it is asked stays quiet. The sweep opens the adapter in normal mode at each rate, so it acknowledges, and at half time sends a probe: `--probe lss` (the default, an LSS identity query every CiA 305 device answers) or `--probe sdo:NODE` (an SDO read of 0x1000). It stops at the first rate where frames come through. At each wrong rate the adapter's error frames reach every device on the bus, so it needs `--allow-changes`, works only on a USB adapter, and in the configurator's online view is refused while another master is active or when more than one node was heard in the last 30 s (the command line and the connection form's **Detect** know no rate to listen at first, so there only the result's warning below remains). Some gs_usb adapters stay bus-off after the error frames of a wrong rate and receive nothing until they are plugged in again; if a sweep or a trace afterwards hears nothing at all, replug the adapter. A result that shows more than one node ID warns that the device may not be alone. A `silent` result of the plain sweep suggests `--lone-device`.
-
-In the configurator, **Detect** next to the bit rate in the USB adapter connect box runs the sweep before connecting and picks the rate it finds. **Only this device is on the bus** next to it runs the lone-device sweep after asking; on the Scan page it also needs Allow changes.
 
 ## Commissioning one device
 
-A device on the bench, with only the adapter and the device on the bus, from new to ready for the machine. Every step is optional and none runs by itself; in the configurator, **Commission a CANopen device** shows them as a Steps panel, and every change made through the page goes into a log that **Save log** downloads (`node12-commissioning-<time>.txt`: UTC time, node, what was done and the result, with the device's identity and EDS at the top, no host names or tokens).
+A device on the bench, with only the adapter and the device on the bus, from new to ready for the machine. Every step is optional and none runs by itself. In the configurator, **Commission a CANopen device** has the pages **Bus and master**, **Nodes**, **Trace** and **Frame lab**, and every change made through the page goes into a log that **Save log** downloads (`node12-commissioning-<time>.txt`: UTC time, node, what was done and the result, with the device's identity and EDS at the top, no host names or tokens).
+
+The device's bit rate comes from its documentation or its DIP switches; a device that is still at an unknown rate is found by trying the likely ones: a wrong one is refused at once. On a silent bus with an slcan adapter, a device that has a node ID answers the check with `--check-node`; a device without one (LSS) needs an adapter that confirms its frames (gs_usb, SocketCAN).
 
 ```sh
-D="canworks-diag --adapter slcan:COM5"
-$D --allow-changes detect-bitrate --lone-device                     # 1. the device's bit rate
-$D --bitrate 250 --allow-changes lss-find                             # 2. find it (no node ID yet)
-$D --bitrate 250 --allow-changes lss-set-id 0x360 0x1 0 0x1234 12     # 3. node ID 12 (--store to keep it)
-$D --bitrate 250 scan --config canworks/canworks.json                   # 4. identity and EDS
+D="canworks-diag --adapter gs_usb:0"
+$D --bitrate 250 --allow-changes lss-find                             # 1. find it (no node ID yet)
+$D --bitrate 250 --allow-changes lss-set-id 0x360 0x1 0 0x1234 12     # 2. node ID 12 (--store to keep it)
+$D --bitrate 250 scan --config canworks/canworks.json                   # 3. identity and EDS
 $D --bitrate 250 --allow-changes configure 12 --from-node 12 --config canworks/canworks.json
-                                                                      # 5. write the configuration
+                                                                      # 4. write the configuration
 $D --bitrate 250 --allow-changes pdo-test 12 --config canworks/canworks.json --start --sync 100
-                                                                      # 6. PDO test (Ctrl-C ends it)
-$D --bitrate 250 --allow-changes store 12 --config canworks/canworks.json  # 7. store on the device
+                                                                      # 5. PDO test (Ctrl-C ends it)
+$D --bitrate 250 --allow-changes store 12 --config canworks/canworks.json  # 6. store on the device
 $D --bitrate 250 configure 12 --from-node 12 --config canworks/canworks.json --verify-only
-                                                                      # 8. after a power cycle: still there?
-$D --bitrate 250 backup 12 -o node12.dcf --config canworks/canworks.json  # 9. back it up
+                                                                      # 7. after a power cycle: still there?
+$D --bitrate 250 backup 12 -o node12.dcf --config canworks/canworks.json  # 8. back it up
 ```
 
-**Write configuration** (`configure`) writes what the plugin would write to the node at boot (PDO communication and mapping, heartbeat, startup SDOs, the configuration date and time) from a node of a config (`--from-node N --config FILE`) or from any CiA 306 DCF (`--dcf FILE`: a DCF export, a backup, another tool's DCF), for a device that keeps its configuration because no OpenPLC master configures it: a device for another controller, a spare part, a device that only needs its settings. It reads the device first and shows the plan: every write with the source's and the device's value, PDOs as CiA 301 sequences (COB-ID switched off, mapping count 0, entries, count, the other communication entries, COB-ID on), a PDO sequence sent whole when any of its values differs, and the entries left out with the reason (store and restore commands, read-only entries, a fixed mapping, program download). It refuses a device of another vendor or product (`--ignore-identity` writes anyway) and a source made for another node ID. It holds the node in PRE-OPERATIONAL while writing (`--no-hold` does not), starts it again when it was OPERATIONAL, reads every value back and says whether it is verified. A failed write ends its PDO sequence, which stays switched off. `--dry-run` shows the plan only. `--verify-only` compares without writing, for example after a power cycle. `--restore-defaults` first restores the device's defaults (0x1011) and resets it; `--store` stores afterwards (0x1010), only when everything was written and read back. Neither happens without its option. `restore-defaults NODE [--reset]` restores the defaults on its own.
+**Write configuration** (`configure`) writes what the plugin would write to the node at boot (PDO communication and mapping, heartbeat, startup SDOs, the configuration date and time) from a node of a config (`--from-node N --config FILE`) or from any CiA 306 DCF (`--dcf FILE`: a DCF export, a backup, another tool's DCF), for a device that keeps its configuration because no OpenPLC master configures it: a device for another controller, a spare part, a device that only needs its settings. It reads the device first and shows the plan: every write with the source's and the device's value, PDOs as CiA 301 sequences (COB-ID switched off, mapping count 0, entries, count, the other communication entries, COB-ID on), a PDO sequence sent whole when any of its values differs, and the entries left out with the reason (store and restore commands, read-only entries, a fixed mapping, the program download objects 0x1F50-0x1F57). It refuses a device of another vendor or product (`--ignore-identity` writes anyway) and a source made for another node ID. It holds the node in PRE-OPERATIONAL while writing (`--no-hold` does not), starts it again when it was OPERATIONAL, reads every value back and says whether it is verified. A failed write ends its PDO sequence, which stays switched off. `--dry-run` shows the plan only. `--verify-only` compares without writing, for example after a power cycle. `--restore-defaults` first restores the device's defaults (0x1011) and resets it; `--store` stores afterwards (0x1010), only when everything was written and read back. Neither happens without its option. `restore-defaults NODE [--reset]` restores the defaults on its own.
 
 On a runtime, `configure` refuses a node the runtime configures itself: the plugin writes its configuration at every boot, so change the runtime's configuration and reset the node instead. For other nodes the runtime cannot hold the node in PRE-OPERATIONAL (it sends NMT only to the nodes it configures), and the result says so.
 
-**PDO test** (`pdo-test`, in the configurator the node's **PDO test** tab on a USB adapter) shows the node's TPDOs with their decoded values, periods and counts, and sends its RPDOs with the values you set (`--set NAME=VALUE`, by entry name, `0xIIII:SS` or `RPDO1.name`; `--repeat-ms` for an event-driven RPDO). The layout comes from the configuration when the node is in it, otherwise from the device. `--start` sends NMT Start to the node; `--sync MS` sends SYNC from the PC, so RPDOs and TPDOs with synchronous transmission run. The test needs `--allow-changes` and `--force` while another master is active, ends when another master appears unless forced, and ends with the command or when the configurator leaves the tab. It is not offered on a runtime: there the PLC runs the PDOs.
+**PDO test** (`pdo-test`, in the configurator the node's **PDO test** tab in Commission a CANopen device) shows the node's TPDOs with their decoded values, periods and counts, and sends its RPDOs with the values you set (`--set NAME=VALUE`, by entry name, `0xIIII:SS` or `RPDO1.name`; `--repeat-ms` for an event-driven RPDO). The layout comes from the configuration when the node is in it, otherwise from the device. `--start` sends NMT Start to the node; `--sync MS` sends SYNC from the PC, so RPDOs and TPDOs with synchronous transmission run. The test needs `--allow-changes` and `--force` while another master is active, ends when another master appears unless forced, and ends with the command or when the configurator leaves the tab. It is not offered on a runtime: there the PLC runs the PDOs.

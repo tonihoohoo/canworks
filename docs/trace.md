@@ -4,7 +4,7 @@ A bus trace records every CAN frame on the runtime's CAN interface, received and
 
 Record from the configurator's [Trace view](configurator.md#trace), or with `canworks-diag trace` on any PC with the deploy tool ([install-pc.md](install-pc.md)).
 
-A trace can also be recorded straight from a USB CAN adapter on the PC, with no runtime: `canworks-diag --adapter slcan:COM5 --bitrate 250 trace -o bench.pcapng`, or the Trace view on a [USB adapter connection](configurator.md#usb-adapter-on-this-pc) ([pc-adapter.md](pc-adapter.md)). It keeps the same formats, filters and triggers; time stamps are the PC's receive times, and frames the PC itself sends are recorded as sent.
+A trace can also be recorded straight from a USB CAN adapter on the PC, with no runtime: `canworks-diag --adapter slcan:COM5 --bitrate 250 trace -o bench.pcapng`, or the Trace view in [Commission a CANopen device](configurator.md#commission-a-canopen-device) ([pc-adapter.md](pc-adapter.md)). It keeps the same formats, filters and triggers; time stamps are the PC's receive times, and frames the PC itself sends are recorded as sent.
 
 Raw CAN messages ([raw-can.md](raw-can.md)) decode on every network as their message and signals with scale and unit, from the network's `raw` entries and its `raw.dbc` file; a [plain CAN network](raw-can.md#plain-can-networks) decodes those and shows every other frame as plain CAN. The frame inspector colours a raw message's signal bits with their PLC addresses.
 
@@ -20,7 +20,7 @@ When the CAN interface goes away (the adapter is unplugged) the trace keeps goin
 
 ## Sending frames while recording
 
-With `allow_changes` on, the configurator's **Send** panel and `canworks-diag send` put frames on the bus by hand ([diagnostics.md](diagnostics.md#raw-frames-and-bit-rate)). They show in the trace marked Tx, followed by whatever the devices answer, so a hand-made SDO request and its response can be read side by side.
+With `allow_changes` on, the configurator's **Send** panel and `canworks-diag send` put frames on the bus by hand ([diagnostics.md](diagnostics.md#raw-frames)). They show in the trace marked Tx, followed by whatever the devices answer, so a hand-made SDO request and its response can be read side by side.
 
 ## Time stamps
 

@@ -130,6 +130,7 @@ main#editor { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; 
 /* Commissioning: no config, so no Problems pane and a side bar of the online pages only. */
 main#editor.commission { grid-template-columns: 220px minmax(0, 1fr); grid-template-areas: "side view"; }
 main#editor.commission #problems, body.commission [data-config] { display: none !important; }
+body:not(.commission) [data-commission] { display: none !important; }
 /* The node page's section index follows the page as it scrolls. */
 .section-index { position: sticky; top: var(--header-h); z-index: 1; display: flex; flex-wrap: wrap; gap: 2px 4px; margin: 0 0 12px; padding: 4px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
 .section-index a { padding: 3px 8px; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: 13px; }
