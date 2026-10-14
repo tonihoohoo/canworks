@@ -17,7 +17,6 @@
 
 #include "iface_lock.h"
 #include "log.h"
-#include "slcan_sweep.h"
 
 namespace canopen_plugin {
 
@@ -392,7 +391,6 @@ class SocketCanAdapter : public CanAdapter {
 
   const std::string& interface() const override { return cfg_.interface; }
   std::string problem() const override { return problem_; }
-  LinkOps* link_ops() override { return ops_.get(); }
 
   AdapterState prepare() override {
     const char* name = cfg_.interface.c_str();
@@ -489,7 +487,6 @@ class SlcanAdapter : public CanAdapter {
 
   const std::string& interface() const override { return cfg_.interface; }
   std::string problem() const override { return problem_; }
-  LinkOps* link_ops() override { return ops_.get(); }
 
   AdapterState prepare() override {
     LinkInfo li;
@@ -541,31 +538,6 @@ class SlcanAdapter : public CanAdapter {
     ops_->set_up(cfg_.interface, false);  // sends "C" so the adapter leaves the bus cleanly
     close_device();
     log_info("released %s; CAN interface %s removed", cfg_.device.c_str(), cfg_.interface.c_str());
-  }
-
-  bool sweep_on_device(const std::function<void(LinkOps&, SweepListener&)>& run, bool disturb_bus,
-                       std::string& error) override {
-    release();
-    int fd = -1;
-    int rc = serial_->open(cfg_.device, cfg_.serial_baudrate, fd);
-    if (rc < 0) {
-      open_failed(rc);
-      error = problem_;
-      return true;
-    }
-    {
-      SlcanSweepPort port(fd, disturb_bus);
-      run(port, port);
-      if (port.unconfirmed() && !disturb_bus)
-        error = kUnconfirmedListenOnly;
-      else if (port.unconfirmed())
-        log_warn("bit rate detection on %s used the adapter's silent mode, which it did not confirm (disturb_bus)",
-                 cfg_.device.c_str());
-      else if (port.used_silent())
-        log_info("bit rate detection on %s used the adapter's silent mode", cfg_.device.c_str());
-    }
-    serial_->close(fd);
-    return true;
   }
 
  private:
@@ -672,11 +644,6 @@ class LockedAdapter : public CanAdapter {
   void release() override {
     inner_->release();
     lock_.release();
-  }
-  LinkOps* link_ops() override { return inner_->link_ops(); }
-  bool sweep_on_device(const std::function<void(LinkOps&, SweepListener&)>& run, bool disturb_bus,
-                       std::string& error) override {
-    return inner_->sweep_on_device(run, disturb_bus, error);
   }
 
  private:

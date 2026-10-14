@@ -152,6 +152,9 @@ std::vector<uint8_t> le_bytes(uint64_t v, unsigned bytes) {
 const char* const kNotBridgeConfig =
     "not a bridge config: canworks-bridge serves a version 2 config with a top-level 'bridge' object";
 
+// Node fields of the removed program (firmware) download.
+const std::initializer_list<const char*> kRemovedNodeFields = {"software_file", "software_version"};
+
 class Parser {
  public:
   Parser(const std::string& path, const ImageLimits& limits, const std::string& eds_fallback_dir,
@@ -181,16 +184,30 @@ class Parser {
   }
 
   // Unknown fields are ignored with a warning, so a file written for a newer
-  // release of the same schema_version still loads (docs/config.md).
-  void check_known(const cJSON* obj, const std::string& where, std::initializer_list<const char*> known) {
+  // release of the same schema_version still loads (docs/config.md). Fields
+  // in `rejected` (removed features) get no warning here: the caller rejects
+  // them with reject_removed().
+  void check_known(const cJSON* obj, const std::string& where, std::initializer_list<const char*> known,
+                   std::initializer_list<const char*> rejected = {}) {
     const cJSON* item;
     cJSON_ArrayForEach(item, obj) {
       bool ok = false;
       for (const char* k : known) ok |= std::strcmp(k, item->string) == 0;
+      for (const char* k : rejected) ok |= std::strcmp(k, item->string) == 0;
       if (!ok)
         warning(where, std::string("unknown field '") + item->string + "' (" + json_path(full(where), item->string) +
                            ") ignored");
     }
+  }
+
+  // Fields of a removed feature: an unknown field that rejects the file, so a
+  // config that still asks for the feature does not load silently without it.
+  // `label` names the object ("node 4 (drive)"), `where` is its JSON place.
+  void reject_removed(const cJSON* obj, const std::string& label, const std::string& where,
+                      std::initializer_list<const char*> removed) {
+    for (const char* k : removed)
+      if (cJSON_GetObjectItemCaseSensitive(obj, k))
+        error(label, std::string("unknown field '") + k + "' (" + json_path(full(where), k) + ")");
   }
 
   bool get_bool(const cJSON* obj, const char* key, const std::string& where, bool& out) {
@@ -1451,12 +1468,14 @@ class Parser {
                      "emcy_code_location", "error_register_location", "nmt_command_location", "mandatory",
                      "boot", "reset_communication", "revision_number", "serial_number", "heartbeat_consumer",
                      "heartbeat_watch", "retry_factor", "time_cob_id", "error_behavior", "restore_configuration", "config_check",
-                     "store_configuration", "lss", "axis", "software_file", "software_version", "tx_pdos",
-                     "rx_pdos", "sdo", "sdo_variables", "simulate", "emcy_cob_id"});
+                     "store_configuration", "lss", "axis", "tx_pdos", "rx_pdos", "sdo", "sdo_variables", "simulate",
+                     "emcy_cob_id"},
+                    kRemovedNodeFields);
         n.simulate = cfg.adapter.simulate;
         get_bool(node, "simulate", w, n.simulate);
         if (get_uint(node, "node_id", w, true, 0xFFFF, v)) n.node_id = (unsigned)v;
         get_string(node, "name", w, false, n.name);
+        reject_removed(node, n.label(), w, kRemovedNodeFields);
         if (get_string(node, "eds", w, true, n.eds)) resolve_eds(cfg, n);
         if (get_uint(node, "heartbeat_ms", w, false, 0xFFFF, v)) {
           n.heartbeat_ms = (unsigned)v;
@@ -2227,20 +2246,6 @@ class Parser {
     }
     parse_lss(node, n, w);
     parse_axis(node, w, n);
-    if (get_string(node, "software_file", w, false, n.software_file)) {
-      std::vector<std::string> candidates;
-      n.software_path = resolve_file(cfg, n.software_file, candidates);
-      if (!is_file(n.software_path))
-        error(w, n.label() + ": software_file \"" + n.software_file + "\" not found (looked at " +
-                     n.software_path + ")");
-    }
-    if (get_uint(node, "software_version", w, false, 0xFFFFFFFF, v)) {
-      n.has_software_version = true;
-      n.software_version = (uint32_t)v;
-      if (n.software_file.empty()) error(w, n.label() + ": 'software_version' needs 'software_file'");
-    }
-    if (!n.software_file.empty() && !n.has_software_version)
-      warning(w, n.label() + ": 'software_file' without 'software_version': the master never downloads it");
   }
 
   void parse_lss(const cJSON* node, NodeConfig& n, const std::string& w) {

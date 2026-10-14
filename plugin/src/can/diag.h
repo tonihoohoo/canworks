@@ -31,12 +31,12 @@
 #include <deque>
 #include <map>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
-#include "bitrate_sweep.h"
 #include "config.h"
 #include "frame_tx.h"
 #include "secure_channel.h"
@@ -204,7 +204,7 @@ class DiagHub {
   // Server thread: the network's cyclic send jobs as a JSON array, for
   // status answers.
   void set_send_jobs(const std::string& json_array);
-  // Adds "send_jobs", "bitrate_sweep" and "raw" to a status result (either
+  // Adds "send_jobs" and "raw" to a status result (either
   // thread).
   void add_tx_status(cJSON* res) const;
   // The network's raw CAN path status (raw/raw_runtime.h), set at config
@@ -218,23 +218,6 @@ class DiagHub {
   void set_raw_running(std::function<bool()> f) { raw_running_ = std::move(f); }
   // The bus is up: frames sent by hand go out now and frames can be traced.
   bool can_send() const { return attached() || (raw_running_ && raw_running_()); }
-
-  // ---- bit rate detection (bitrate_sweep.h) ----
-  // Server thread: asks the bus thread for a sweep; false when one is already
-  // pending or running.
-  bool request_sweep(const SweepRequest& req);
-  // Bus thread: whether a sweep waits for the session to end; take_sweep()
-  // moves it to running.
-  bool sweep_pending() const;
-  bool take_sweep(SweepRequest& out);
-  void sweep_progress(const SweepProgress& p);
-  void sweep_done(const SweepResult& r);
-  bool sweep_busy() const;  // pending or running
-  // Server thread: ends the pending or running sweep after its current rate
-  // (detect_bitrate_stop); false when none is pending or running.
-  bool stop_sweep(const std::string& peer);
-  // The detect_bitrate_status result.
-  cJSON* sweep_status() const;
 
  private:
   void wake();
@@ -271,12 +254,6 @@ class DiagHub {
   std::map<uint32_t, std::string> used_ids_;
   std::chrono::steady_clock::time_point ids_at_{};
   std::string send_jobs_ = "[]";
-  bool sweep_pending_ = false, sweep_running_ = false, sweep_ever_ = false;
-  SweepRequest sweep_req_;
-  SweepProgress sweep_pg_;
-  std::vector<SweepRate> sweep_partial_;
-  SweepResult sweep_result_;
-  std::string sweep_finished_at_;
 };
 
 class DiagServer {
@@ -329,8 +306,6 @@ class DiagServer {
   // with the `cia309` op. Without it the op answers "cia309 gateway not
   // configured".
   void set_cia309(Cia309Hooks hooks) { cia309_ = std::move(hooks); }
-  // For tests: how the server reads a link (bit rate detection refusals).
-  void set_link_ops(std::unique_ptr<LinkOps> ops) { link_ops_ = std::move(ops); }
   // For tests, before start(): a shorter login time limit.
   void set_login_timeout(std::chrono::milliseconds t) { login_timeout_ = t; }
   // For tests, after stop(): the failed login records kept, and pruning them
@@ -346,8 +321,6 @@ class DiagServer {
   static constexpr size_t kReplayBatch = 500;
   static constexpr size_t kReplayMaxFrames = 200000;
   static constexpr unsigned kReplayMaxRate = 1000;  // frames in any second
-  // Bit rate detection: listening time per rate times rates times rounds.
-  static constexpr unsigned kMaxSweepMs = 120000;
   // Failed login records are dropped this long after their last use.
   static constexpr std::chrono::minutes kAuthKeep{10};
 
@@ -475,12 +448,10 @@ class DiagServer {
   void close_capture(size_t net, bool gap);
   bool any_trace(size_t net) const;
   bool any_trace() const;
-  // send_frame, send_frame_stop, detect_bitrate, detect_bitrate_status,
-  // answered here without the bus thread.
+  // send_frame, send_frame_stop and the replay ops, answered here without
+  // the bus thread.
   void handle_tx(Client& c, size_t net, const std::string& op, const std::string& id, const cJSON* req);
   void handle_send(Client& c, size_t net, const std::string& id, const cJSON* req);
-  void handle_detect(Client& c, size_t net, const std::string& id, const cJSON* req);
-  void handle_detect_stop(Client& c, size_t net, const std::string& id);
   // Why `force` is needed for frame `f` on `net`, or "".
   std::string force_reason(size_t net, const RawFrame& f) const;
   int send_now(size_t net, const RawFrame& f);
@@ -518,7 +489,6 @@ class DiagServer {
   std::vector<Replay> ended_replays_;  // ended in the last kEndedKeep (frames dropped)
   uint64_t next_job_ = 1;
   uint64_t next_client_ = 1;
-  std::unique_ptr<LinkOps> link_ops_;
   DiagHost host_;
   Cia309Hooks cia309_;
   // Hands a client that answered the cia309 op to the gateway.
