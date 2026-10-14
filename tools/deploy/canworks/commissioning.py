@@ -122,8 +122,6 @@ def config_source(ctx, from_node):
     if d.restore is not None:
         src.skip((0x1011, d.restore), "restore defaults before the configuration (restore_configuration): use "
                                       "Restore defaults (--restore-defaults)")
-    if d.firmware:
-        src.skip((0x1F51, 1), "program download (software_file %s) is not written from the PC" % d.firmware)
     info = eds_mod.device_info_text(ctx.eds_text, ctx.eds_name) or {}
     for key in ("vendor_id", "product_code", "revision_number"):
         if info.get(key) is not None:

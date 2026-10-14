@@ -448,9 +448,6 @@ def _node_settings(n, master):
     lss = n.get("lss") if isinstance(n.get("lss"), dict) else None
     if lss and lss.get("assign"):
         add("LSS", "node ID assigned by serial number%s" % (", stored in the device" if lss.get("store") else ""))
-    if n.get("software_file"):
-        add("Program download", "%s, version %s" % (
-            shown_path(n["software_file"]), n.get("software_version", "not set")), "0x1F50, 0x1F56")
     ax = n.get("axis")
     if isinstance(ax, dict):
         add("CiA 402 axis", "scale %s/%s × %s" % (ax.get("scale_numerator", 1), ax.get("scale_denominator", 1),
@@ -563,9 +560,6 @@ def _boot(download, eds, master_id, nt=None):
     before, after = [], []
     if download.restore is not None:
         before.append('restore default parameters (0x1011 sub %d "load")' % download.restore)
-    if download.firmware:
-        before.append("download the program file %s (0x1F50 sub 1) when the version differs"
-                      % shown_path(download.firmware))
     after.append("NMT start (unless the master or the node is held)")
     return {"before": before, "writes": writes, "after": after}
 

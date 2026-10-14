@@ -6,10 +6,8 @@ the EDS files it names, relative to canworks/. materialize() checks that
 config the way the deploy tool does and, only if everything is in order,
 writes it into the upload's conf/ directory in the deploy tool's layout:
 
-    conf/canworks.json              (each node's and slave's eds -> canworks/eds/<name>,
-                                    software_file -> canworks/fw/<name>)
+    conf/canworks.json              (each node's and slave's eds -> canworks/eds/<name>)
     conf/canworks/eds/<name>
-    conf/canworks/fw/<name>
 
 so the runtime's own plugin configuration step enables the plugin. A
 simulation file next to the config (canworks/simulation.json, its paths
@@ -35,7 +33,7 @@ import tempfile
 import zipfile
 
 from canworks import bundle, contract, simfile
-from canworks.bundle import EDS_DIR, FW_DIR, SIM_CSV_DIR, SIM_FILE
+from canworks.bundle import EDS_DIR, SIM_CSV_DIR, SIM_FILE
 
 PROJECT_DIR = "canworks"
 CONFIG_NAME = "canworks.json"
@@ -105,8 +103,8 @@ def _read(z, info, budget):
 
 def _load(snapshot_zip):
     """Reads and checks the project's config. Returns (config, {eds value:
-    bytes}, {software_file value: bytes}, warnings), or None when the
-    project has no CANopen config."""
+    bytes}, warnings, simulation), or None when the project has no CANopen
+    config."""
     with zipfile.ZipFile(snapshot_zip) as z:
         names = set(z.namelist())
         root = _project_root(names)
@@ -127,7 +125,7 @@ def _load(snapshot_zip):
         # Version 1 and 2 alike: every node of every master network and each
         # slave network's own EDS, as bundle.rewrite() walks them.
         try:
-            users, nodes = contract.eds_users(cfg), contract.all_nodes(cfg)
+            users = contract.eds_users(cfg)
         except TypeError:  # "nodes" or "networks" of the wrong type
             raise Rejected("%s: 'nodes' and 'networks' must be lists" % where)
         eds = {}
@@ -150,24 +148,6 @@ def _load(snapshot_zip):
                                % (PROJECT_DIR, rel))
             eds[value] = data
 
-        software = {}
-        for n in nodes:
-            value = n.get("software_file")
-            if value is None or (isinstance(value, str) and value in software):
-                continue
-            rel = _safe_relative(value)
-            if rel is None:
-                raise Rejected("%s: invalid software_file path %r (it must be a relative path inside %s/)"
-                               % (where, value, PROJECT_DIR))
-            member = _member(z, root + PROJECT_DIR + "/" + rel)
-            if member is None:
-                raise Rejected("%s/%s is missing from the project (named by %s)" % (PROJECT_DIR, rel, where))
-            data = _read(z, member, budget)
-            if REPLACEMENT_CHAR in data:
-                raise Rejected("%s/%s was corrupted: the editor uploads project files as text. Deploy a "
-                               "program file with canworks-deploy --runtime instead" % (PROJECT_DIR, rel))
-            software[value] = data
-
         sim = _read_sim(z, root, names, budget)
 
     # The deploy tool's checks, on the files as they arrived.
@@ -185,7 +165,7 @@ def _load(snapshot_zip):
             return paths
 
         eds_paths = stage(eds, "e")
-        result = contract.check_config(cfg, where, eds_paths=eds_paths, software_paths=stage(software, "f"))
+        result = contract.check_config(cfg, where, eds_paths=eds_paths)
         if not result.ok:
             raise Rejected("; ".join(result.errors))
         warnings = list(result.warnings)
@@ -194,7 +174,7 @@ def _load(snapshot_zip):
             warnings += sim_warnings
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    return cfg, eds, software, warnings, sim
+    return cfg, eds, warnings, sim
 
 
 def _read_sim(z, root, names, budget):
@@ -285,7 +265,7 @@ def materialize(snapshot_zip, conf_dir):
         return False, [(WARNING, "CANopen: project config ignored: cannot read the project snapshot: %s" % e)]
     if loaded is None:
         return False, []
-    cfg, eds, software, warnings, sim = loaded
+    cfg, eds, warnings, sim = loaded
 
     by_name = {}
     for value, data in eds.items():
@@ -301,18 +281,9 @@ def materialize(snapshot_zip, conf_dir):
                                          "named %s (one of them for an extra device of %s/%s); rename one"
                                 % (name, PROJECT_DIR, SIM_NAME))]
             by_name[name] = data
-    fw_by_name = {}
-    for value, data in software.items():
-        name = posixpath.basename(value)
-        if name in fw_by_name and fw_by_name[name] != data:
-            return False, [(WARNING, "CANopen: project config ignored: two different program files are both "
-                                     "named %s; rename one" % name)]
-        fw_by_name[name] = data
     out = json.loads(json.dumps(cfg))
     for n in contract.eds_users(out):
         n["eds"] = "%s/%s" % (EDS_DIR, posixpath.basename(n["eds"]))
-        if n.get("software_file"):
-            n["software_file"] = "%s/%s" % (FW_DIR, posixpath.basename(n["software_file"]))
 
     eds_dir = os.path.join(conf_dir, *EDS_DIR.split("/"))
     shutil.rmtree(os.path.join(conf_dir, EDS_DIR.split("/")[0]), ignore_errors=True)
@@ -320,12 +291,6 @@ def materialize(snapshot_zip, conf_dir):
     for name, data in sorted(by_name.items()):
         with open(os.path.join(eds_dir, name), "wb") as f:
             f.write(data)
-    if fw_by_name:
-        fw_dir = os.path.join(conf_dir, *FW_DIR.split("/"))
-        os.makedirs(fw_dir)
-        for name, data in sorted(fw_by_name.items()):
-            with open(os.path.join(fw_dir, name), "wb") as f:
-                f.write(data)
     if sim is not None:
         sim_data, sim_eds, sim_csv, sim_machines = sim
         for name, data in sorted(sim_machines.items()):

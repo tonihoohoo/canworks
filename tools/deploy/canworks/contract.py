@@ -818,29 +818,24 @@ def _error_behavior(obj, where, err):
                 ["%s.error_behavior" % where])
 
 
-def software_files(cfg, base):
-    """{software_file value: absolute path on this PC} for every node that
-    names one, relative values resolved against `base`."""
-    out = {}
-    for n in all_nodes(cfg):
-        value = n.get("software_file")
-        if isinstance(value, str) and value:
-            out[value] = value if os.path.isabs(value) else os.path.join(base, value)
-    return out
+# Node fields that were removed (program download). Unlike other unknown
+# fields, which are ignored with a warning, they reject the file
+# (canopen-master-bringup "Node options from JSON").
+REMOVED_NODE_FIELDS = ("software_file", "software_version")
+_NODE_PATH = re.compile(r"^(networks\[\d+\]\.)?nodes\[\d+\]$")
 
 
 # Adapter types and the fields only that type takes (plugin: Parser::parse_adapter).
 ADAPTER_TYPES = {"socketcan": ("configure_link", "restart_ms"), "slcan": ("device", "serial_baudrate")}
 
 
-def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
+def check_config(cfg, path, eds_dir=None, eds_paths=None):
     """Checks a parsed config the way the plugin does at load.
 
     `path` names the file in messages. EDS files are found through
     `eds_paths` ({eds value: file path}) or relative to `eds_dir`
     (default: the config's directory); messages name them by their `eds`
-    value. Program files (`software_file`) likewise through `software_paths`
-    or relative to `eds_dir`. A version 2 file is checked network by network
+    value. A version 2 file is checked network by network
     (messages and paths start with `networks[i]`), then across networks.
     Returns a Result.
     """
@@ -881,8 +876,10 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None, software_paths=None):
     found = []
     unknown_fields(cfg, s, s, [], found)
     base = eds_dir if eds_dir is not None else os.path.dirname(os.path.abspath(path))
-    sw_paths = software_paths if software_paths is not None else software_files(cfg, base)
-    args = dict(path=path, base=base, eds_paths=eds_paths, sw_paths=sw_paths)
+    args = dict(path=path, base=base, eds_paths=eds_paths)
+    # The removed program download fields are errors (in _check_network).
+    found = [(where, key) for where, key in found
+             if not (key in REMOVED_NODE_FIELDS and _NODE_PATH.match(where[: -len(key)].rstrip(".")))]
 
     # The CiA 309-3 gateway's object: its own checks below, in the plugin's
     # words (an unknown field there is an error, not a warning).
@@ -1402,7 +1399,7 @@ def _j1939_location_uses(j, add):
             add(d[key], "diagnostics " + key, "j1939.diagnostics." + key)
 
 
-def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths, sw_paths, diag=False, before=None,
+def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths, diag=False, before=None,
                    role="master", routed=(), net_name="", slaves=None, net_index=0):
     """One network: the version 1 top level, or one networks[] entry of a
     version 2 file (`prefix` "networks[i]", in front of every message's
@@ -1646,16 +1643,10 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     % (timeout, hb),
                     [w + ".heartbeat_timeout_ms", w + ".heartbeat_ms"])
         _error_behavior(n, w, err)
-        sw = n.get("software_file")
-        if sw:
-            file = sw_paths.get(sw) or os.path.join(base, sw)
-            if not os.path.isfile(file):
-                err(w, '%s: software_file "%s" not found (looked at %s)' % (label, sw, file), [w + ".software_file"])
-            if "software_version" not in n:
-                warn(w, "%s: 'software_file' without 'software_version': the master never downloads it" % label,
-                     [w + ".software_file"])
-        elif "software_version" in n:
-            err(w, "%s: 'software_version' needs 'software_file'" % label, [w + ".software_version"])
+        for key in REMOVED_NODE_FIELDS:
+            if key in n:
+                at = "%s.%s" % (w, key)
+                err(w, "%s: unknown field '%s' (%s)" % (label, key, prefix + "." + at if prefix else at), [at])
         if "store_configuration" in n:
             store = _uint(n["store_configuration"])
             if store is None or not 1 <= store <= 127:

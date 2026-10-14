@@ -21,7 +21,6 @@ SETTINGS = "online.json"
 IDLE_CLOSE_S = 30.0
 SEND_IDLE_CLOSE_S = 10.0  # the Trace view polls its jobs every second; a closed page lets them end
 DEPLOYED_EDS_DIR = "canworks/eds"  # bundle.EDS_DIR, and the editor hook's
-DEPLOYED_FW_DIR = "canworks/fw"
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +89,7 @@ class Settings:
 def fingerprints(config_path):
     """SHA-256 values the runtime may report for this canworks.json: the file
     itself, and the conf/canworks.json the deploy tool and the editor hook
-    write from it (EDS and program paths rewritten, indent 2). Empty when the
+    write from it (EDS paths rewritten, indent 2). Empty when the
     file does not exist or cannot be read."""
     try:
         with open(config_path, "rb") as f:
@@ -103,9 +102,6 @@ def fingerprints(config_path):
         for n in contract.all_nodes(cfg):
             if isinstance(n.get("eds"), str):
                 n["eds"] = "%s/%s" % (DEPLOYED_EDS_DIR, os.path.basename(n["eds"].replace("\\", "/")))
-            if n.get("software_file"):
-                n["software_file"] = "%s/%s" % (DEPLOYED_FW_DIR,
-                                                os.path.basename(str(n["software_file"]).replace("\\", "/")))
         out.add(hashlib.sha256((json.dumps(cfg, indent=2) + "\n").encode("utf-8")).hexdigest())
     except (ValueError, AttributeError, TypeError):
         pass

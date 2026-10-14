@@ -44,28 +44,17 @@ class IntoProject(unittest.TestCase):
         self.assertTrue(r.ok, r.errors)
         self.assertNotIn("converted", out)
 
-    def program_config(self, data):
+    def test_program_file_fields_rejected(self):
+        # Program download was removed: its fields reject the config.
         config = pingpong_config(self.dir)
-        with open(os.path.join(self.dir, "node2.fw"), "wb") as f:
-            f.write(data)
         with open(config, encoding="utf-8") as f:
             cfg = json.load(f)
         cfg["nodes"][0].update(software_file="node2.fw", software_version=2)
         with open(config, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
-        return config
-
-    def test_program_file_copied(self):
-        code, _, err = deploy("--config", self.program_config(b"S00F000068656C6C6F\n"), "--into-project", self.project)
-        self.assertEqual(code, 0, err)
-        self.assertEqual(sorted(os.listdir(self.canopen)), ["canworks.json", "cpp-slave.eds", "node2.fw"])
-        with open(os.path.join(self.canopen, "canworks.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["nodes"][0]["software_file"], "node2.fw")
-
-    def test_binary_program_file_refused(self):
-        code, _, err = deploy("--config", self.program_config(b"\x02\x00\xff\xfe"), "--into-project", self.project)
+        code, _, err = deploy("--config", config, "--into-project", self.project)
         self.assertEqual(code, 1)
-        self.assertIn("is binary: the editor's project upload would corrupt it", err)
+        self.assertIn("node 2 (pingpong): unknown field 'software_file'", err)
         self.assertFalse(os.path.exists(self.canopen))
 
     def test_checks_run_first(self):

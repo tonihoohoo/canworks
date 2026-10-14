@@ -96,7 +96,6 @@ class Download:
         self.writes = []  # (index, sub-index, data bytes), in download order
         self.sources = []  # what each write comes from, as WRITE_SOURCES names it, same order
         self.restore = None  # 0x1011 sub-index restored before the download
-        self.firmware = None  # software_file, downloaded at boot
 
     def final_values(self):
         """{(index, sub-index): data} after the whole download, without the
@@ -113,9 +112,6 @@ class Download:
         if self.restore is not None:
             out.append("restores the default parameters (0x1011 sub %d \"load\") before the configuration"
                        % self.restore)
-        if self.firmware:
-            out.append("downloads the program file %s (0x1F50 sub 1) when the software version differs"
-                       % self.firmware)
         for index, sub, data in self.writes:
             if index in COMMAND_OBJECTS:
                 text = data.decode("latin-1") if all(32 <= b < 127 for b in data) else data.hex()
@@ -219,7 +215,7 @@ def _emit_pdos(node_json, norm, dev, eds, ro, is_tx, linked=()):
     return out
 
 
-def dcfgen_input(cfg, node_json, norm, dcf_path, dev, eds, ro, software_path=None, linked=()):
+def dcfgen_input(cfg, node_json, norm, dcf_path, dev, eds, ro, linked=()):
     """The node's part of the plugin's dcfgen YAML (make_dcfgen_yaml), as
     the dict yaml.safe_load would read."""
     n = node_json
@@ -249,10 +245,6 @@ def dcfgen_input(cfg, node_json, norm, dcf_path, dev, eds, ro, software_path=Non
         y["error_behavior"] = {_u(k): _u(v) for k, v in n["error_behavior"].items()}
     if "restore_configuration" in n:
         y["restore_configuration"] = _u(n["restore_configuration"])
-    if n.get("software_file"):
-        y["software_file"] = software_path or n["software_file"]
-    if "software_version" in n:
-        y["software_version"] = _u(n["software_version"])
     for is_tx in (True, False):
         pdos = _emit_pdos(n, norm, dev, eds, ro, is_tx, linked)
         if pdos is not None:
@@ -401,12 +393,10 @@ def link_setup(cfg, nodes):
     return links, {p["node_id"]: p.get("heartbeat_watch", []) for p in plain}
 
 
-def plugin_downloads(cfg, config_path, eds_paths=None, software_paths=None, nodes=None):
+def plugin_downloads(cfg, config_path, eds_paths=None, nodes=None):
     """{node ID: Download} for a config that passes contract.check_config."""
     cli = dcfgen_cli()
     nodes = nodes if nodes is not None else _load_nodes(cfg, config_path, eds_paths)
-    base = os.path.dirname(os.path.abspath(config_path))
-    sw_paths = software_paths if software_paths is not None else contract.software_files(cfg, base)
     links, watches = link_setup(cfg, nodes)
     linked = links_mod.linked_rpdos(cfg)
     work = tempfile.mkdtemp(prefix="dcfexport-")
@@ -420,9 +410,8 @@ def plugin_downloads(cfg, config_path, eds_paths=None, software_paths=None, node
                 path = os.path.join(work, "node_%d.eds" % node.node_id)
                 with open(path, "w", encoding="utf-8", newline="") as f:
                     f.write(node.text)
-                sw = node.json.get("software_file")
                 y = dcfgen_input(cfg, node.json, node.norm, path, node.dev, node.eds, node.ro,
-                                 sw_paths.get(sw) if sw else None, linked.get(node.node_id, ()))
+                                 linked.get(node.node_id, ()))
                 name = "node_%d" % node.node_id
                 slaves[name] = cli.Slave.from_config(name, y, options, args)
             cli.Master.from_config(master_input(cfg), options, slaves)
@@ -483,8 +472,6 @@ def plugin_downloads(cfg, config_path, eds_paths=None, software_paths=None, node
         d.sources = [w[3] for w in sdos]
         if "restore_configuration" in n:
             d.restore = _u(n["restore_configuration"])
-        if n.get("software_file") and "software_version" in n:  # without a version Lely never downloads it
-            d.firmware = n["software_file"]
         out[node.node_id] = d
     return out
 
@@ -750,7 +737,7 @@ def dcf_name(node_id):
     return "node_%d.dcf" % node_id
 
 
-def export(cfg, config_path, eds_paths=None, software_paths=None, node_id=None, now=None, network=None):
+def export(cfg, config_path, eds_paths=None, node_id=None, now=None, network=None):
     """{file name: DCF text} for every node (or the one with `node_id`), and
     the config checks' warnings. Raises ExportFailed with every problem and
     builds nothing when the config or any DCF fails.
@@ -759,8 +746,7 @@ def export(cfg, config_path, eds_paths=None, software_paths=None, node_id=None, 
     `network` picks one network: then its files are named as with one."""
     result = contract.check_config(cfg, config_path,
                                    eds_paths=eds_paths if eds_paths is not None
-                                   else bundle.eds_files(cfg, config_path),
-                                   software_paths=software_paths)
+                                   else bundle.eds_files(cfg, config_path))
     if not result.ok:
         raise ExportFailed([(i["message"], i["paths"]) for i in result.items if i["level"] == "error"])
     now = now or datetime.datetime.now()
@@ -776,7 +762,7 @@ def export(cfg, config_path, eds_paths=None, software_paths=None, node_id=None, 
         one = contract.network_config(cfg, net["name"] if net["path"] else None)
         folder = net["name"] + "/" if several else ""
         at = net["path"] + "." if net["path"] else ""
-        got, failed = _export_network(one, config_path, eds_paths, software_paths, node_id, now)
+        got, failed = _export_network(one, config_path, eds_paths, node_id, now)
         files.update((folder + name, text) for name, text in got.items())
         problems += [((net["name"] + ": " if several else "") + msg, [at + p for p in paths])
                      for msg, paths in failed]
@@ -804,11 +790,11 @@ def _no_slave(nets, network, what):
     return masters
 
 
-def _export_network(cfg, config_path, eds_paths, software_paths, node_id, now):
+def _export_network(cfg, config_path, eds_paths, node_id, now):
     """export() of one network's version 1 style config: ({name: text},
     problems)."""
     nodes = _load_nodes(cfg, config_path, eds_paths)
-    downloads = plugin_downloads(cfg, config_path, eds_paths, software_paths, nodes)
+    downloads = plugin_downloads(cfg, config_path, eds_paths, nodes)
     files, problems = {}, []
     for i, node in enumerate(nodes):
         if node_id is not None and node.node_id != node_id:

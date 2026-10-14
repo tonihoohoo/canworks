@@ -73,7 +73,6 @@ ORDER = {
              "reset_communication", "revision_number", "serial_number", "lss", "heartbeat_consumer", "heartbeat_watch",
              "retry_factor",
              "time_cob_id", "error_behavior", "restore_configuration", "config_check", "store_configuration",
-             "software_file", "software_version",
              "tx_pdos", "rx_pdos", "sdo", "sdo_variables"],
     "pdo": ["number", "cob_id", "transmission", "inhibit_time_us", "event_timer_ms", "sync_start", "timeout_ms",
             "on_timeout", "timeout_location", "entries"],
