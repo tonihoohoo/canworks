@@ -125,55 +125,9 @@ void Bus::thread_main() {
     last_problem.clear();
     run_session();
     if (monitor_.no_bus()) image_.commit_inputs();
-    // A bit rate sweep ended the session: run it, then a new session at once.
-    if (run_requested_sweep(hub_, adapter_.get(), cfg_, stop_)) continue;
     if (!stop_ && !wait_for(std::chrono::milliseconds(1000))) break;
   }
   adapter_->release();
-}
-
-bool run_requested_sweep(DiagHub* hub, CanAdapter* adapter, const Config& cfg, const std::atomic<bool>& stop) {
-  SweepRequest req;
-  if (!hub || !hub->take_sweep(req)) return false;
-  SweepResult res;
-  LinkOps* ops = adapter ? adapter->link_ops() : nullptr;
-  if (!ops || stop) {
-    res.verdict = SweepVerdict::Failed;
-    res.error = stop ? "stopped (the PLC stopped)" : "the adapter cannot change its bit rate";
-  } else {
-    std::string rates;
-    for (unsigned k : req.rates_kbit) rates += (rates.empty() ? "" : ", ") + std::to_string(k);
-    log_info("bit rate detection on %s: listening %u ms per rate (%s), %u round(s)", cfg.adapter.interface.c_str(),
-             req.per_rate_ms, rates.empty() ? "all CiA 301 rates" : rates.c_str(), req.rounds);
-    const long restart_ms = cfg.adapter.has_restart_ms ? static_cast<long>(cfg.adapter.restart_ms) : -1;
-    auto sweep = [&](LinkOps& link, SweepListener& listener) {
-      res = run_bitrate_sweep(link, listener, cfg.adapter.interface, cfg.adapter.bitrate, restart_ms, req,
-                              [hub](const SweepProgress& p) { hub->sweep_progress(p); },
-                              [&stop] { return stop.load(); });
-    };
-    // slcan sweeps over its serial device (slcan_sweep.h), the rest over the link.
-    std::string device_error;
-    if (adapter->sweep_on_device(sweep, req.disturb_bus, device_error)) {
-      if (!device_error.empty()) {
-        res.verdict = SweepVerdict::Failed;
-        res.error = device_error;
-      }
-    } else {
-      auto listener = make_can_sweep_listener();
-      sweep(*ops, *listener);
-    }
-  }
-  std::string what = sweep_verdict_name(res.verdict);
-  if (res.verdict == SweepVerdict::Detected)
-    what += " " + std::to_string(res.bitrate_kbit) + " kbit/s" +
-            (res.bitrate_kbit * 1000 == cfg.adapter.bitrate ? " (as configured)" : " (the config says " +
-                                                                std::to_string(cfg.adapter.bitrate / 1000) + ")");
-  else if (res.verdict == SweepVerdict::Failed)
-    what += ": " + res.error;
-  log_info("bit rate detection on %s ended: %s; CANopen starts again at %u bit/s", cfg.adapter.interface.c_str(),
-           what.c_str(), cfg.adapter.bitrate);
-  hub->sweep_done(res);
-  return true;
 }
 
 void Bus::enter_realtime() {
@@ -434,12 +388,6 @@ void Bus::run_session() {
         }
         // As the supervision tick does when it ends the session: what is in
         // flight is cancelled, so the loop can drain.
-        net.Stop();
-        end_session();
-      } else if (!shut_down && hub_ && hub_->sweep_pending()) {
-        // Bit rate detection: the session ends as on an adapter loss and the
-        // sweep runs before the next one (run_requested_sweep).
-        log_info("bit rate detection requested: ending the CANopen session on %s", where.c_str());
         net.Stop();
         end_session();
       } else if (shut_down && ++slices_after_shutdown >= kShutdownSlices) {

@@ -126,7 +126,7 @@ jobs:
     # each runs about the same test time. Test step times (pull request #69, 2026-10-10):
     #   group 1: link setup 2 s, ping-pong 16, two networks 21, PLC-cycle SYNC 7,
     #            LSS 12, bus state 9, RTD module 19, device commissioning 33 = ~120 s
-    #   group 2: raw frames and bit rate 21, standalone device simulator 42,
+    #   group 2: raw frames 21, standalone device simulator 42,
     #            J1939 ECU against the simulator 13, parameters 9, fixed PDOs 9 = ~95 s
     #   group 3: bus trace 31, slcan 31, master and its own slave 28,
     #            PLC SDO blocks 5, PC-direct commissioning 30 = ~125 s
@@ -212,7 +212,7 @@ jobs:
         if: steps.vcan.outcome == 'success' && matrix.group == 3 && needs.changes.outputs.canopen == 'true'
         run: test/trace/run.sh
 
-      - name: Raw frames and bit rate detection on vcan0 and the simulated bus
+      - name: Raw frames on vcan0 and the simulated bus
         if: steps.vcan.outcome == 'success' && matrix.group == 2 && needs.changes.outputs.canopen == 'true'
         run: test/rawframes/run.sh
 

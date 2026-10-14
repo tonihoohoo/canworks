@@ -33,11 +33,9 @@
 #include "check.hpp"
 #include "config.h"
 #include "dcf_gen.h"
-#include "bitrate_sweep.h"
 #include "diag.h"
 #include "frame_tx.h"
 #include "sim_trace.h"
-#include "slcan_sweep.h"
 
 #include <lely/can/msg.h>
 #include "eds_check.h"
@@ -59,9 +57,6 @@
 #include <mutex>
 #include <netinet/in.h>
 #include <poll.h>
-#include <pty.h>
-#include <sys/ioctl.h>
-#include <termios.h>
 #include <sys/socket.h>
 #include <thread>
 
@@ -1156,14 +1151,13 @@ struct MockSerial : SerialOps {
   int attach_err = 0;
   std::string kind = "can";  // what the created link reports ("" = pre-6.0 slcan)
   int open_fds = 0;
-  int real_fd = -1;  // handed out by open() when set (a pty for the sweep tests)
   std::vector<std::string> calls;
   explicit MockSerial(MockLink* l) : link(l) {}
 
   int open(const std::string& path, unsigned baudrate, int& fd) override {
     calls.push_back("open " + path + (baudrate ? " " + std::to_string(baudrate) : ""));
     if (!devices.count(path)) return -ENOENT;
-    fd = real_fd >= 0 ? real_fd : 42;
+    fd = 42;
     ++open_fds;
     return 0;
   }
@@ -2406,10 +2400,11 @@ TEST(dcfgen_options_rejected) {
        "state_location must be an input byte (%IB...), not %IW20"},
       {"\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"heartbeat_consumer\": true,",
        "nodes[0]: 'heartbeat_consumer' needs a master heartbeat"},
+      // Program download was removed: its fields are unknown and reject the file.
       {"\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"software_version\": 2,",
-       "node 2 (pingpong): 'software_version' needs 'software_file'"},
+       "node 2 (pingpong): unknown field 'software_version' (nodes[0].software_version)"},
       {"\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"software_file\": \"fw/node2.bin\",",
-       "node 2 (pingpong): software_file \"fw/node2.bin\" not found"},
+       "node 2 (pingpong): unknown field 'software_file' (nodes[0].software_file)"},
       {"\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"state_location\": \"%IB20\", \"boot_error_location\": \"%IB20\",",
        "node 2 (pingpong) state_location and node 2 (pingpong) boot_error_location both map to %IB20"},
       {"\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"state_location\": \"%IB20\", \"bus_state_location\": \"%IB20\"",
@@ -2517,26 +2512,18 @@ TEST(dcfgen_options_full_run) {
   CHECK(bin.find(std::string("\x88\x1F\x02\x04\x00\x00\x00\x78\x56\x00\x00", 11)) != std::string::npos);
 }
 
-// The master downloads program files (0x1F58) itself; configuration files
-// (0x1F22) stay stripped because the plugin downloads those.
-TEST(dcfgen_keeps_program_upload_file) {
+// Configuration files (0x1F22) stay stripped from the master's DCF because
+// the plugin downloads those, and there is no program download (0x1F58).
+TEST(dcfgen_master_dcf_has_no_upload_file) {
   std::string dir = tmpdir();
   write(dir + "/cpp-slave.eds", read(std::string(FIXTURES_DIR) + "/eds/node-options.eds"));
-  mkdir((dir + "/fw").c_str(), 0755);
-  write(dir + "/fw/node2.bin", "firmware");
   Config cfg;
   std::vector<std::string> errors;
-  std::string s = replace(kValid, "\"name\": \"pingpong\",",
-                          "\"name\": \"pingpong\", \"software_file\": \"fw/node2.bin\", \"software_version\": 2,");
-  CHECK_MSG(parse_config(s, dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
-  CHECK(cfg.nodes[0].software_path == dir + "/fw/node2.bin");
+  CHECK_MSG(parse_config(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
   GeneratedConfig gen;
   CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
   std::string dcf = read(gen.master_dcf);
-  size_t at = dcf.find("UploadFile=");
-  CHECK_MSG(at != std::string::npos && dcf.rfind("[1F58sub2]", at) != std::string::npos, dcf);
-  CHECK(dcf.find("UploadFile=" + dir + "/fw/node2.bin") != std::string::npos);
-  CHECK(dcf.find("UploadFile=", at + 1) == std::string::npos);  // no 1F22 line
+  CHECK_MSG(dcf.find("UploadFile=") == std::string::npos, dcf);
   CHECK(dcf.find("[1F22]") != std::string::npos);
 }
 
@@ -4631,9 +4618,8 @@ TEST(diag_server_tls_login) {
 
 
 // ---------------------------------------------------------------------------
-// Raw frames and bit rate detection (canopen-online-diagnostics: "Send raw
-// frames", "Guards on raw frames", "Bit rate detection", "Guards on bit rate
-// detection")
+// Raw frames (canopen-online-diagnostics: "Send raw frames", "Guards on raw
+// frames")
 
 TEST(cob_id_use_names_the_network_frames) {
   Config cfg;
@@ -4700,407 +4686,6 @@ TEST(raw_frame_text_and_rate_limit) {
   CHECK(rl.take(t + std::chrono::milliseconds(40)));  // two tokens back after 40 ms
 }
 
-TEST(sweep_verdicts) {
-  auto make = [](std::vector<std::array<uint64_t, 3>> rows) {
-    SweepResult r;
-    for (auto& x : rows) {
-      SweepRate s;
-      s.bitrate_kbit = static_cast<unsigned>(x[0]);
-      s.frames = x[1];
-      s.error_frames = x[2];
-      r.results.push_back(s);
-    }
-    decide_sweep(r);
-    return r;
-  };
-  SweepResult r = make({{1000, 0, 40}, {500, 0, 12}, {250, 37, 0}, {125, 0, 9}});
-  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 250);
-  // Errors up to 1 % of the valid frames still match.
-  r = make({{500, 0, 3}, {250, 200, 2}});
-  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 250);
-  r = make({{500, 0, 0}, {250, 0, 0}});
-  CHECK(r.verdict == SweepVerdict::Silent);
-  r = make({{500, 20, 0}, {250, 10, 0}});
-  CHECK(r.verdict == SweepVerdict::Ambiguous && r.candidates.size() == 2);
-  r = make({{500, 5, 50}, {250, 10, 30}});
-  CHECK(r.verdict == SweepVerdict::Ambiguous && r.candidates.size() == 1 && r.candidates[0] == 250);
-}
-
-// The cases the PC tools' verdict (bitrate.decide) is tested against too.
-TEST(sweep_verdict_parity) {
-  cJSON* doc = cJSON_Parse(read(std::string(FIXTURES_DIR) + "/sweep_verdicts.json").c_str());
-  CHECK(doc != nullptr);
-  if (!doc) return;
-  int count = 0;
-  const cJSON* c;
-  cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(doc, "cases")) {
-    const std::string name = cJSON_GetObjectItemCaseSensitive(c, "name")->valuestring;
-    SweepResult r;
-    const cJSON* row;
-    cJSON_ArrayForEach(row, cJSON_GetObjectItemCaseSensitive(c, "results")) {
-      SweepRate s;
-      s.bitrate_kbit = static_cast<unsigned>(cJSON_GetArrayItem(row, 0)->valuedouble);
-      s.frames = static_cast<uint64_t>(cJSON_GetArrayItem(row, 1)->valuedouble);
-      s.error_frames = static_cast<uint64_t>(cJSON_GetArrayItem(row, 2)->valuedouble);
-      r.results.push_back(s);
-    }
-    decide_sweep(r);
-    CHECK_MSG(cJSON_GetObjectItemCaseSensitive(c, "verdict")->valuestring == std::string(sweep_verdict_name(r.verdict)),
-              name);
-    const cJSON* rate = cJSON_GetObjectItemCaseSensitive(c, "bitrate_kbit");
-    CHECK_MSG(cJSON_IsNull(rate) ? r.bitrate_kbit == 0 : r.bitrate_kbit == static_cast<unsigned>(rate->valuedouble),
-              name);
-    std::vector<unsigned> want;
-    const cJSON* k;
-    cJSON_ArrayForEach(k, cJSON_GetObjectItemCaseSensitive(c, "candidates")) want.push_back(static_cast<unsigned>(k->valuedouble));
-    CHECK_MSG(r.candidates == want, name);
-    ++count;
-  }
-  cJSON_Delete(doc);
-  CHECK(count >= 8);
-}
-
-namespace {
-
-// A bus that has traffic only at one bit rate.
-struct FakeSweepBus : SweepListener {
-  MockLink* link;
-  unsigned rate;  // bit/s of the traffic
-  std::vector<unsigned> heard;
-  int fail = 0;
-  int listen(const std::string& interface, unsigned, SweepRate& out, const std::function<bool()>&) override {
-    if (fail) return -fail;
-    unsigned at = link->links[interface].bitrate;
-    heard.push_back(at / 1000);
-    if (at == rate) {
-      out.frames += 10;
-      if (out.ids.empty()) out.ids.push_back(0x705);
-    } else {
-      out.error_frames += 3;
-    }
-    return 0;
-  }
-};
-
-std::string sweep_calls(const MockLink& l) {
-  std::string s;
-  for (const auto& c : l.calls) s += (s.empty() ? "" : ", ") + c;
-  return s;
-}
-
-}  // namespace
-
-TEST(sweep_listens_at_each_rate_and_restores) {
-  MockLink link;
-  link.links["can0"] = LinkInfo{true, "can", 500000};
-  FakeSweepBus bus;
-  bus.link = &link;
-  bus.rate = 250000;
-  SweepRequest req;
-  req.rates_kbit = {500, 250, 125};
-  std::vector<unsigned> seen;
-  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, 100, req,
-                                    [&](const SweepProgress& p) { seen.push_back(p.done); }, [] { return false; });
-  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 250);
-  CHECK(r.results.size() == 3 && r.results[1].frames == 10 && r.results[1].ids.size() == 1 && r.results[0].error_frames == 3);
-  CHECK_MSG(sweep_calls(link) ==
-                "down, bitrate 500000, listen-only on, up, down, bitrate 250000, listen-only on, up, down, bitrate 125000, "
-                "listen-only on, up, down, listen-only off, bitrate 500000 restart 100, up",
-            sweep_calls(link));
-  CHECK(link.links["can0"].up && link.links["can0"].bitrate == 500000);
-  CHECK(!seen.empty() && seen.back() == 3);
-}
-
-TEST(sweep_stops_after_a_clear_round) {
-  MockLink link;
-  link.links["can0"] = LinkInfo{true, "can", 500000};
-  FakeSweepBus bus;
-  bus.link = &link;
-  bus.rate = 125000;
-  SweepRequest req;
-  req.rates_kbit = {250, 125};
-  req.rounds = 5;
-  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
-  CHECK(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 125);
-  CHECK_MSG(bus.heard.size() == 2, std::to_string(bus.heard.size()));
-  // Silent: every round runs.
-  bus.rate = 1;
-  bus.heard.clear();
-  req.rounds = 3;
-  r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
-  CHECK(r.verdict == SweepVerdict::Ambiguous || r.verdict == SweepVerdict::Silent);
-  CHECK(bus.heard.size() == 6);
-}
-
-TEST(sweep_without_listen_only_restores_the_link) {
-  MockLink link;
-  link.links["can0"] = LinkInfo{true, "can", 500000};
-  link.no_listen_only = true;
-  FakeSweepBus bus;
-  bus.link = &link;
-  bus.rate = 500000;
-  SweepRequest req;
-  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
-  CHECK(r.verdict == SweepVerdict::Failed && r.error == "the adapter's driver has no listen-only mode");
-  CHECK(bus.heard.empty());
-  CHECK_MSG(sweep_calls(link) == "down, bitrate 1000000, listen-only on, down, listen-only off, bitrate 500000, up",
-            sweep_calls(link));
-  CHECK(link.links["can0"].up && link.links["can0"].bitrate == 500000);
-}
-
-TEST(sweep_stopped_by_the_plc) {
-  MockLink link;
-  link.links["can0"] = LinkInfo{true, "can", 500000};
-  FakeSweepBus bus;
-  bus.link = &link;
-  bus.rate = 500000;
-  SweepRequest req;
-  int n = 0;
-  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {},
-                                    [&n] { return ++n > 2; });
-  CHECK(r.verdict == SweepVerdict::Failed && r.error.find("stopped") != std::string::npos);
-  CHECK(link.links["can0"].up && link.links["can0"].bitrate == 500000);
-}
-
-namespace {
-
-// slcan firmware on the other end of a pty: answers commands, and while the
-// channel is open at `rate_code` and receiving, sends a frame every 20 ms.
-struct FakeSlcanFirmware {
-  int master = -1, slave = -1;
-  bool knows_m1 = true;
-  bool l_receives = false;  // firmware whose 'L' really opens the channel
-  bool answers = true;      // false: firmware that answers no command at all
-  char rate_code = '6';
-  std::vector<std::string> cmds;
-  std::mutex mu;
-  std::atomic<bool> running{true};
-  std::thread th;
-
-  FakeSlcanFirmware() {
-    ::openpty(&master, &slave, nullptr, nullptr, nullptr);
-    termios t;
-    tcgetattr(slave, &t);
-    cfmakeraw(&t);
-    tcsetattr(slave, TCSANOW, &t);
-    tcgetattr(master, &t);
-    cfmakeraw(&t);
-    tcsetattr(master, TCSANOW, &t);
-  }
-  ~FakeSlcanFirmware() {
-    running = false;
-    if (th.joinable()) th.join();
-    ::close(master);
-    ::close(slave);
-  }
-  void start() {
-    th = std::thread([this] { run(); });
-  }
-  // The commands so far, once the firmware has read all that was sent.
-  std::string log() {
-    for (int i = 0; i < 100; ++i) {
-      int queued = 0;
-      if (ioctl(master, FIONREAD, &queued) == 0 && queued == 0) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    std::lock_guard<std::mutex> g(mu);
-    std::string s;
-    for (const auto& c : cmds) s += (s.empty() ? "" : " ") + c;
-    return s;
-  }
-  void run() {
-    std::string line;
-    char rate = 0;
-    bool receiving = false, silent = false;
-    auto last = std::chrono::steady_clock::now();
-    while (running) {
-      pollfd p{master, POLLIN, 0};
-      if (::poll(&p, 1, 5) > 0) {
-        char buf[64];
-        ssize_t n = ::read(master, buf, sizeof buf);
-        for (ssize_t i = 0; i < n; ++i) {
-          if (buf[i] != '\r') {
-            line += buf[i];
-            continue;
-          }
-          {
-            std::lock_guard<std::mutex> g(mu);
-            cmds.push_back(line);
-          }
-          const char* reply = "\r";
-          if (line == "m1" || line == "m0") {
-            if (knows_m1)
-              silent = line == "m1";
-            else
-              reply = "\a";
-          } else if (line.size() == 2 && line[0] == 'S') {
-            rate = line[1];
-          } else if (line == "O") {
-            receiving = true;
-          } else if (line == "L") {
-            receiving = l_receives;
-          } else if (line == "C") {
-            receiving = false;
-          }
-          (void)silent;
-          if (answers) {
-            ssize_t w = ::write(master, reply, 1);
-            (void)w;
-          }
-          line.clear();
-        }
-      }
-      auto now = std::chrono::steady_clock::now();
-      if (receiving && rate == rate_code && now - last > std::chrono::milliseconds(20)) {
-        last = now;
-        ssize_t w = ::write(master, "t717105\r", 8);
-        (void)w;
-      }
-    }
-  }
-};
-
-}  // namespace
-
-TEST(slcan_sweep_uses_silent_mode) {
-  FakeSlcanFirmware fw;  // its 'L' receives nothing, as on the bench
-  fw.start();
-  SweepRequest req;
-  req.rates_kbit = {1000, 500, 250};
-  req.per_rate_ms = 200;
-  bool used = false;
-  SweepResult r;
-  {
-    SlcanSweepPort port(fw.slave);
-    r = run_bitrate_sweep(port, port, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
-    used = port.used_silent();
-  }
-  CHECK_MSG(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 500, sweep_verdict_name(r.verdict));
-  CHECK(r.results[1].frames > 3 && r.results[1].ids.size() == 1 && r.results[1].ids[0] == 0x717);
-  CHECK(r.results[0].frames == 0 && r.results[2].frames == 0);
-  CHECK(used);
-  std::string log = fw.log();
-  // Per rate: close, rate, silent mode, open; at the end close, normal mode,
-  // the configured rate; the kernel driver opens the channel again.
-  CHECK_MSG(log.find("C S8 m1 O C m0 S6 m1 O C m0 S5 m1 O C m0") == 0, log);
-  CHECK_MSG(log.find("C m0 S6") != std::string::npos && log.find("L") == std::string::npos, log);
-  CHECK_MSG(log.substr(log.size() - 2) != " O", log);
-}
-
-TEST(slcan_sweep_without_silent_mode_uses_L) {
-  FakeSlcanFirmware fw;
-  fw.knows_m1 = false;
-  fw.l_receives = true;
-  fw.rate_code = '5';
-  fw.start();
-  SweepRequest req;
-  req.rates_kbit = {500, 250};
-  req.per_rate_ms = 200;
-  SweepResult r;
-  {
-    SlcanSweepPort port(fw.slave);
-    r = run_bitrate_sweep(port, port, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
-    CHECK(!port.used_silent());
-  }
-  CHECK_MSG(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 250, sweep_verdict_name(r.verdict));
-  std::string log = fw.log();
-  CHECK_MSG(log.find("C S6 m1 L C S5 m1 L C") == 0, log);
-  CHECK_MSG(log.find(" O") == std::string::npos, log);
-}
-
-TEST(slcan_sweep_stops_when_silent_mode_is_unconfirmed) {
-  FakeSlcanFirmware fw;  // as on the bench: no CR or BEL to any command
-  fw.answers = false;
-  fw.start();
-  SweepRequest req;
-  req.rates_kbit = {1000, 500};
-  req.per_rate_ms = 300;
-  SweepResult r;
-  bool unconfirmed = false;
-  {
-    SlcanSweepPort port(fw.slave);
-    r = run_bitrate_sweep(port, port, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
-    unconfirmed = port.unconfirmed();
-  }
-  CHECK_MSG(r.verdict == SweepVerdict::Failed, sweep_verdict_name(r.verdict));
-  CHECK(unconfirmed);
-  std::string log = fw.log();
-  // Never opened: no "O" and no "L"; the mode is set back.
-  CHECK_MSG(log.find("C S8 m1 C m0") == 0 && log.find(" O") == std::string::npos && log.find("L") == std::string::npos,
-            log);
-}
-
-TEST(slcan_sweep_unconfirmed_silent_mode_with_disturb_bus) {
-  FakeSlcanFirmware fw;
-  fw.answers = false;
-  fw.start();
-  SweepRequest req;
-  req.rates_kbit = {1000, 500};
-  req.per_rate_ms = 300;
-  req.disturb_bus = true;
-  SweepResult r;
-  bool used = false, unconfirmed = false;
-  {
-    SlcanSweepPort port(fw.slave, req.disturb_bus);
-    r = run_bitrate_sweep(port, port, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
-    used = port.used_silent();
-    unconfirmed = port.unconfirmed();
-  }
-  CHECK_MSG(r.verdict == SweepVerdict::Detected && r.bitrate_kbit == 500, sweep_verdict_name(r.verdict));
-  CHECK(used && unconfirmed);
-  std::string log = fw.log();
-  CHECK_MSG(log.find("C S8 m1 O C m0 S6 m1 O C m0") == 0 && log.find("L") == std::string::npos, log);
-}
-
-TEST(slcan_adapter_refuses_unconfirmed_listen_only) {
-  for (bool disturb : {false, true}) {
-    FakeSlcanFirmware fw;
-    fw.answers = false;
-    fw.start();
-    SlcanFixture f;
-    f.serial->real_fd = fw.slave;
-    CHECK(f.prepare() == AdapterState::Ready);
-    SweepRequest req;
-    req.rates_kbit = {500};
-    req.per_rate_ms = 200;
-    SweepResult r;
-    std::string err;
-    g_log.clear();
-    CHECK(f.adapter->sweep_on_device(
-        [&](LinkOps& ops, SweepListener& l) {
-          r = run_bitrate_sweep(ops, l, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
-        },
-        disturb, err));
-    if (!disturb) {
-      CHECK_MSG(err == kUnconfirmedListenOnly, err);
-    } else {
-      CHECK_MSG(err.empty() && r.verdict == SweepVerdict::Detected, err);
-      CHECK_MSG(has_error(g_log, "W: bit rate detection on /dev/ttyACM0 used the adapter's silent mode, which it did "
-                                 "not confirm (disturb_bus)"),
-                join(g_log));
-    }
-  }
-}
-
-TEST(slcan_sweep_rate_without_a_code) {
-  FakeSlcanFirmware fw;
-  fw.start();
-  SlcanSweepPort port(fw.slave);
-  CHECK(port.set_bitrate("can0", 83300, -1) == -EINVAL);
-  CHECK(port.set_bitrate("can0", 800000, -1) == 0);
-}
-
-TEST(socketcan_sweeps_over_the_link) {
-  LinkFixture f;
-  f.link->links["can0"] = LinkInfo{false, "can", 0};
-  CHECK(f.prepare() == AdapterState::Ready);
-  std::string err;
-  bool ran = false;
-  CHECK(!f.adapter->sweep_on_device([&](LinkOps&, SweepListener&) { ran = true; }, false, err));
-  CHECK(!ran);
-}
-
 namespace {
 
 struct FakeFrameSink : FrameSink {
@@ -5129,8 +4714,7 @@ struct TxFixture {
   std::mutex mu;
   std::vector<RawFrame> sent;
   std::atomic<int> fail{0};
-  MockLink* link = new MockLink;
-  explicit TxFixture(bool allow = true, const std::string& kind = "can") {
+  explicit TxFixture(bool allow = true) {
     {
       std::lock_guard<std::mutex> lock(g_diag_log_mutex);
       g_diag_log.clear();
@@ -5138,7 +4722,6 @@ struct TxFixture {
     set_log_sink(diag_capture);
     cfg = diag_config(allow);
     cfg.adapter.interface = "can0";
-    link->links["can0"] = LinkInfo{true, kind, kind == "can" ? 125000u : 0u};
     hub.reset(new DiagHub(cfg, "test"));
     server.reset(new DiagServer(*hub));
     auto* sink = new FakeFrameSink;
@@ -5146,7 +4729,6 @@ struct TxFixture {
     sink->sent = &sent;
     sink->fail = &fail;
     server->set_frame_sink(std::unique_ptr<FrameSink>(sink));
-    server->set_link_ops(std::unique_ptr<LinkOps>(link));
     hub->attach();
     server->start();
   }
@@ -5211,7 +4793,6 @@ TEST(diag_send_frame_read_only) {
   DiagClient c(f.server->port());
   c.ask(R"({"op":"hello","token":"secret"})");
   CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x60A"})"), "changes not allowed"));
-  CHECK(has(c.ask(R"({"op":"detect_bitrate"})"), "changes not allowed"));
   CHECK(f.count() == 0);
 }
 
@@ -5326,8 +4907,7 @@ TEST(diag_send_frame_cyclic_jobs) {
   std::string st = t;
   cJSON_free(t);
   cJSON_Delete(res);
-  CHECK_MSG(has(st, R"("send_jobs":[{"job":2,"id":292)") && !has(st, R"("job":3)") &&
-                has(st, R"("bitrate_sweep":{"running":false})"),
+  CHECK_MSG(has(st, R"("send_jobs":[{"job":2,"id":292)") && !has(st, R"("job":3)") && !has(st, "bitrate_sweep"),
             st);
   a = c.ask(R"({"op":"send_frame_stop","job":2})");
   CHECK_MSG(has(a, R"("reason":"stopped")"), a);
@@ -5343,52 +4923,16 @@ TEST(diag_send_frame_cyclic_jobs) {
   CHECK_MSG(has(a, R"("reason":"transmit queue full")"), a);
 }
 
-TEST(diag_detect_bitrate_guards_and_request) {
-  {
-    TxFixture f(true, "vcan");
-    CHECK(wait_port(*f.server));
-    DiagClient c(f.server->port());
-    c.ask(R"({"op":"hello","token":"secret"})");
-    CHECK(has(c.ask(R"({"op":"detect_bitrate"})"), "no bit rate on a virtual bus"));
-    CHECK(!f.hub->sweep_busy());
-  }
+// Bit rate detection is gone: its former ops are unknown like any other.
+TEST(diag_detect_bitrate_ops_are_unknown) {
   TxFixture f;
   CHECK(wait_port(*f.server));
   DiagClient c(f.server->port());
   c.ask(R"({"op":"hello","token":"secret"})");
-  std::string a = c.ask(R"({"op":"detect_bitrate_status"})");
-  CHECK_MSG(has(a, R"("running":false)") && has(a, R"("verdict":null)"), a);
-  CHECK(has(c.ask(R"({"op":"detect_bitrate","rates":[300]})"), "field 'rates' takes"));
-  CHECK(has(c.ask(R"({"op":"detect_bitrate","per_rate_ms":50})"), "'per_rate_ms' must be 100-10000"));
-  f.hub->set_operational("node 2 (pingpong)");
-  a = c.ask(R"({"op":"detect_bitrate"})");
-  CHECK_MSG(has(a, "node 2 (pingpong) is OPERATIONAL; CANopen on network can0 would stop for the sweep; force needed"), a);
-  CHECK(has(c.ask(R"({"op":"detect_bitrate","force":true,"disturb_bus":1})"), "field 'disturb_bus' must be true or false"));
-  a = c.ask(R"({"op":"detect_bitrate","rates":[250,125],"per_rate_ms":200,"force":true,"disturb_bus":true})");
-  CHECK_MSG(has(a, R"("running":true)") && has(a, R"("total":2)") && has(a, R"("configured_kbit":125)"), a);
-  CHECK(f.hub->sweep_pending());
-  // Asking again returns the running sweep; other requests see no bus once the session ends.
-  CHECK(has(c.ask(R"({"op":"detect_bitrate","force":true})"), R"("running":true)"));
-  CHECK(has(c.ask(R"({"op":"send_frame","can_id":"0x60A"})"), "no bus"));
-  // The bus thread's side.
-  SweepRequest req;
-  CHECK(f.hub->take_sweep(req) && req.rates_kbit.size() == 2 && req.per_rate_ms == 200 && req.disturb_bus);
-  SweepResult r;
-  r.verdict = SweepVerdict::Detected;
-  r.bitrate_kbit = 250;
-  SweepRate s;
-  s.bitrate_kbit = 250;
-  s.frames = 12;
-  s.ids = {0x705};
-  r.results = {s};
-  f.hub->sweep_done(r);
-  a = c.ask(R"({"op":"detect_bitrate_status"})");
-  CHECK_MSG(has(a, R"("verdict":"detected")") && has(a, R"("bitrate_kbit":250,"matches_config":false)") &&
-                has(a, R"("ids":[1797])") && has(a, R"("finished_at":")"),
-            a);
-  // configure_link false: the plugin leaves the link alone.
-  f.cfg.adapter.configure_link = false;
-  CHECK(has(c.ask(R"({"op":"detect_bitrate"})"), "configure_link false"));
+  for (const char* op : {"detect_bitrate", "detect_bitrate_status", "detect_bitrate_stop"}) {
+    std::string a = c.ask(std::string(R"({"op":")") + op + R"(","force":true})");
+    CHECK_MSG(has(a, R"("ok":false)") && has(a, std::string("unknown op '") + op + "'"), a);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -5699,92 +5243,3 @@ TEST(diag_failed_logins_pruned) {
   set_log_sink(nullptr);
 }
 
-TEST(diag_detect_bitrate_time_limit_and_stop) {
-  TxFixture f;
-  CHECK(wait_port(*f.server));
-  DiagClient c(f.server->port());
-  c.ask(R"({"op":"hello","token":"secret"})");
-  // 10 s at each of 8 rates, 20 rounds: far over 120 s.
-  std::string a = c.ask(R"({"op":"detect_bitrate","per_rate_ms":10000,"rounds":20})");
-  CHECK_MSG(has(a, "the sweep would listen 1600 s") && has(a, "at most 120 s"), a);
-  a = c.ask(R"({"op":"detect_bitrate","per_rate_ms":5000,"rates":[250,125],"rounds":13})");
-  CHECK_MSG(has(a, "at most 120 s"), a);
-  CHECK(!f.hub->sweep_busy());
-  CHECK(has(c.ask(R"({"op":"detect_bitrate_stop"})"), "no bit rate detection is running"));
-  a = c.ask(R"({"op":"detect_bitrate","per_rate_ms":5000,"rates":[250,125],"rounds":12})");
-  CHECK_MSG(has(a, R"("running":true)"), a);
-  a = c.ask(R"({"op":"detect_bitrate_stop"})");
-  CHECK_MSG(has(a, R"("running":true)"), a);
-  CHECK(diag_log_count("bit rate detection on can0 stopped by 127.0.0.1") == 1);
-  SweepRequest req;
-  CHECK(f.hub->take_sweep(req) && req.cancel && req.cancel->load() && *req.stopped_by == "127.0.0.1");
-  // The sweep ends after the rate it listens at.
-  MockLink link;
-  link.links["can0"] = LinkInfo{true, "can", 125000};
-  FakeSweepBus bus;
-  bus.link = &link;
-  bus.rate = 1;
-  SweepRequest r2;
-  r2.rates_kbit = {500, 250, 125};
-  r2.cancel = std::make_shared<std::atomic<bool>>(false);
-  r2.stopped_by = std::make_shared<std::string>("10.0.0.9");
-  SweepResult r = run_bitrate_sweep(link, bus, "can0", 125000, -1, r2,
-                                    [&](const SweepProgress& p) {
-                                      if (p.done == 1) r2.cancel->store(true);
-                                    },
-                                    [] { return false; });
-  CHECK_MSG(bus.heard.size() == 2, std::to_string(bus.heard.size()));  // the stop came during the second rate
-  CHECK_MSG(r.verdict == SweepVerdict::Failed && r.error == "stopped by 10.0.0.9", r.error);
-  CHECK(link.links["can0"].up && link.links["can0"].bitrate == 125000);
-  // Unread status for the client: the sweep's end.
-  f.hub->sweep_done(r);
-  a = c.ask(R"({"op":"detect_bitrate_status"})");
-  CHECK_MSG(has(a, R"("verdict":"failed")") && has(a, "stopped by 10.0.0.9"), a);
-}
-
-namespace {
-
-// Taking the link down fails once, and bringing it up fails once.
-struct FlakyLink : MockLink {
-  int down_fails = 0, up_fails = 0;
-  int set_up(const std::string& name, bool up) override {
-    if (!up && down_fails > 0 && calls.size() >= 4) {
-      --down_fails;
-      calls.push_back("down (fails)");
-      return -EIO;
-    }
-    if (up && up_fails > 0 && calls.size() >= 4) {
-      --up_fails;
-      calls.push_back("up (fails)");
-      return -EIO;
-    }
-    return MockLink::set_up(name, up);
-  }
-};
-
-}  // namespace
-
-TEST(sweep_restore_sets_bitrate_and_retries_up) {
-  {
-    std::lock_guard<std::mutex> lock(g_diag_log_mutex);
-    g_diag_log.clear();
-  }
-  set_log_sink(diag_capture);
-  FlakyLink link;
-  link.links["can0"] = LinkInfo{true, "can", 500000};
-  link.down_fails = 1;
-  link.up_fails = 1;
-  FakeSweepBus bus;
-  bus.link = &link;
-  bus.rate = 250000;
-  SweepRequest req;
-  req.rates_kbit = {250};
-  SweepResult r = run_bitrate_sweep(link, bus, "can0", 500000, -1, req, [](const SweepProgress&) {}, [] { return false; });
-  CHECK(r.verdict == SweepVerdict::Detected);
-  CHECK_MSG(sweep_calls(link) ==
-                "down, bitrate 250000, listen-only on, up, down (fails), listen-only off, bitrate 500000, up (fails), up",
-            sweep_calls(link));
-  CHECK(diag_log_count("cannot take can0 down to restore it") == 1);
-  CHECK(link.links["can0"].up);
-  set_log_sink(nullptr);
-}

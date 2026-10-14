@@ -328,135 +328,11 @@ void DiagHub::add_tx_status(cJSON* res) const {
   std::lock_guard<std::mutex> lock(state_mutex_);
   cJSON* jobs = cJSON_Parse(send_jobs_.c_str());
   cJSON_AddItemToObject(res, "send_jobs", jobs ? jobs : cJSON_CreateArray());
-  cJSON* sw = cJSON_AddObjectToObject(res, "bitrate_sweep");
-  cJSON_AddBoolToObject(sw, "running", sweep_pending_ || sweep_running_);
   if (raw_status_) cJSON_AddItemToObject(res, "raw", raw_status_());
   if (host_status_)
     if (cJSON* part = host_status_()) cJSON_AddItemToObject(res, "bridge", part);
   if (cia309_status_)
     if (cJSON* part = cia309_status_()) cJSON_AddItemToObject(res, "cia309", part);
-}
-
-bool DiagHub::request_sweep(const SweepRequest& req) {
-  std::lock_guard<std::mutex> lock(state_mutex_);
-  if (sweep_pending_ || sweep_running_) return false;
-  sweep_pending_ = true;
-  sweep_ever_ = true;
-  sweep_req_ = req;
-  sweep_req_.cancel = std::make_shared<std::atomic<bool>>(false);
-  sweep_req_.stopped_by = std::make_shared<std::string>();
-  sweep_pg_ = SweepProgress();
-  std::vector<unsigned> rates = req.rates_kbit;
-  if (rates.empty()) rates.assign(std::begin(kSweepRates), std::end(kSweepRates));
-  sweep_pg_.total = static_cast<unsigned>(rates.size()) * std::max(1u, req.rounds);
-  sweep_partial_.clear();
-  for (unsigned k : rates) {
-    SweepRate r;
-    r.bitrate_kbit = k;
-    sweep_partial_.push_back(r);
-  }
-  sweep_result_ = SweepResult();
-  sweep_finished_at_.clear();
-  return true;
-}
-
-bool DiagHub::sweep_pending() const {
-  std::lock_guard<std::mutex> lock(state_mutex_);
-  return sweep_pending_;
-}
-
-bool DiagHub::sweep_busy() const {
-  std::lock_guard<std::mutex> lock(state_mutex_);
-  return sweep_pending_ || sweep_running_;
-}
-
-bool DiagHub::stop_sweep(const std::string& peer) {
-  std::lock_guard<std::mutex> lock(state_mutex_);
-  if (!(sweep_pending_ || sweep_running_) || !sweep_req_.cancel) return false;
-  if (!sweep_req_.cancel->load()) {
-    *sweep_req_.stopped_by = peer;
-    sweep_req_.cancel->store(true);
-  }
-  return true;
-}
-
-bool DiagHub::take_sweep(SweepRequest& out) {
-  std::lock_guard<std::mutex> lock(state_mutex_);
-  if (!sweep_pending_) return false;
-  sweep_pending_ = false;
-  sweep_running_ = true;
-  out = sweep_req_;
-  return true;
-}
-
-void DiagHub::sweep_progress(const SweepProgress& p) {
-  std::lock_guard<std::mutex> lock(state_mutex_);
-  sweep_pg_.rate_kbit = p.rate_kbit;
-  sweep_pg_.round = p.round;
-  sweep_pg_.done = p.done;
-  sweep_pg_.total = p.total;
-  if (p.results) sweep_partial_ = *p.results;
-}
-
-void DiagHub::sweep_done(const SweepResult& r) {
-  std::lock_guard<std::mutex> lock(state_mutex_);
-  sweep_running_ = false;
-  sweep_result_ = r;
-  sweep_partial_ = r.results;
-  sweep_pg_.rate_kbit = 0;
-  sweep_pg_.done = sweep_pg_.total;
-  time_t t = time(nullptr);
-  struct tm tm;
-  gmtime_r(&t, &tm);
-  char buf[32];
-  strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%SZ", &tm);
-  sweep_finished_at_ = buf;
-}
-
-cJSON* DiagHub::sweep_status() const {
-  std::lock_guard<std::mutex> lock(state_mutex_);
-  cJSON* res = cJSON_CreateObject();
-  const bool running = sweep_pending_ || sweep_running_;
-  cJSON_AddBoolToObject(res, "running", running);
-  cJSON_AddNumberToObject(res, "configured_kbit", cfg_.adapter.bitrate / 1000);
-  if (!sweep_ever_) {
-    cJSON_AddNullToObject(res, "verdict");
-    return res;
-  }
-  if (running && sweep_pg_.rate_kbit)
-    cJSON_AddNumberToObject(res, "rate_kbit", sweep_pg_.rate_kbit);
-  else
-    cJSON_AddNullToObject(res, "rate_kbit");
-  cJSON_AddNumberToObject(res, "round", sweep_pg_.round);
-  cJSON_AddNumberToObject(res, "done", sweep_pg_.done);
-  cJSON_AddNumberToObject(res, "total", sweep_pg_.total);
-  cJSON* list = cJSON_AddArrayToObject(res, "results");
-  for (const auto& r : sweep_partial_) {
-    cJSON* o = cJSON_CreateObject();
-    cJSON_AddNumberToObject(o, "bitrate_kbit", r.bitrate_kbit);
-    cJSON_AddNumberToObject(o, "frames", double(r.frames));
-    cJSON_AddNumberToObject(o, "error_frames", double(r.error_frames));
-    cJSON* ids = cJSON_AddArrayToObject(o, "ids");
-    for (uint32_t id : r.ids) cJSON_AddItemToArray(ids, cJSON_CreateNumber(id));
-    cJSON_AddItemToArray(list, o);
-  }
-  if (running) {
-    cJSON_AddNullToObject(res, "verdict");
-    return res;
-  }
-  const SweepResult& sr = sweep_result_;
-  cJSON_AddStringToObject(res, "verdict", sweep_verdict_name(sr.verdict));
-  if (sr.verdict == SweepVerdict::Detected) {
-    cJSON_AddNumberToObject(res, "bitrate_kbit", sr.bitrate_kbit);
-    cJSON_AddBoolToObject(res, "matches_config", sr.bitrate_kbit * 1000 == cfg_.adapter.bitrate);
-  } else {
-    cJSON_AddNullToObject(res, "bitrate_kbit");
-  }
-  cJSON* cand = cJSON_AddArrayToObject(res, "candidates");
-  for (unsigned k : sr.candidates) cJSON_AddItemToArray(cand, cJSON_CreateNumber(k));
-  if (sr.verdict == SweepVerdict::Failed) cJSON_AddStringToObject(res, "error", sr.error.c_str());
-  cJSON_AddStringToObject(res, "finished_at", sweep_finished_at_.c_str());
-  return res;
 }
 
 void diag_add_protocols(cJSON* res) {
@@ -554,7 +430,6 @@ constexpr size_t DiagServer::kMaxLine;
 constexpr size_t DiagServer::kMaxSendBuffer;
 constexpr std::chrono::seconds DiagServer::kLoginTimeout;
 constexpr std::chrono::minutes DiagServer::kAuthKeep;
-constexpr unsigned DiagServer::kMaxSweepMs;
 constexpr std::chrono::seconds DiagServer::kRetryListen;
 constexpr std::chrono::seconds DiagServer::kLoginBackoff;
 constexpr size_t DiagServer::kTraceFetchDefault;
@@ -617,7 +492,6 @@ void DiagServer::start() {
     if (!ch.source) ch.source = make_can_trace_source();
     if (!ch.sink && !ch.hub->config().adapter.simulate) ch.sink = make_can_frame_sink(ch.hub->config().adapter.interface);
   }
-  if (!link_ops_) link_ops_ = make_netlink_ops();
   thread_ = std::thread([this] { run(); });
 }
 
@@ -1237,9 +1111,8 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
     cJSON_Delete(req);
     return;
   }
-  if (c.authed && (r.op == "send_frame" || r.op == "send_frame_stop" || r.op == "detect_bitrate" ||
-                   r.op == "detect_bitrate_status" || r.op == "detect_bitrate_stop" || r.op == "replay" ||
-                   r.op == "replay_status" || r.op == "replay_stop")) {
+  if (c.authed && (r.op == "send_frame" || r.op == "send_frame_stop" || r.op == "replay" || r.op == "replay_status" ||
+                   r.op == "replay_stop")) {
     handle_tx(c, net, r.op, r.id, req);
     cJSON_Delete(req);
     return;
@@ -1690,7 +1563,7 @@ bool DiagServer::handle_trace(Client& c, size_t net, const std::string& op, cons
 }
 
 // ---------------------------------------------------------------------------
-// Raw frames and bit rate detection
+// Raw frames
 
 namespace {
 
@@ -1718,12 +1591,6 @@ std::string errno_text(int rc) { return std::strerror(-rc); }
 
 void DiagServer::handle_tx(Client& c, size_t net, const std::string& op, const std::string& id, const cJSON* req) {
   if (op == "send_frame") return handle_send(c, net, id, req);
-  if (op == "detect_bitrate_status") {
-    c.out += diag_ok(id, chans_[net].hub->sweep_status());
-    return;
-  }
-  if (op == "detect_bitrate") return handle_detect(c, net, id, req);
-  if (op == "detect_bitrate_stop") return handle_detect_stop(c, net, id);
   if (op.compare(0, 6, "replay") == 0) return handle_replay(c, net, op, id, req);
   // send_frame_stop: one of this connection's jobs, or all of them; ended
   // jobs are reported too, so a client learns why its job stopped.
@@ -1864,7 +1731,7 @@ void DiagServer::handle_send(Client& c, size_t net, const std::string& id, const
     c.out += diag_error(id, "network \"" + cfg.network + "\" is listen-only: nothing is sent on it");
     return;
   }
-  if (!hub.can_send() || hub.sweep_busy()) {
+  if (!hub.can_send()) {
     c.out += diag_error(id, "no bus");
     return;
   }
@@ -1946,7 +1813,7 @@ std::chrono::milliseconds DiagServer::service_jobs(std::chrono::steady_clock::ti
       end_job(i, "time limit", now);
       continue;
     }
-    if (!chans_[j.net].hub->can_send() || chans_[j.net].hub->sweep_busy()) {
+    if (!chans_[j.net].hub->can_send()) {
       end_job(i, "no bus", now);
       continue;
     }
@@ -2168,7 +2035,7 @@ void DiagServer::handle_replay(Client& c, size_t net, const std::string& op, con
         c.out += diag_error(id, "a replay of " + r.peer + " is running on this network (one per network)");
         return;
       }
-    if (!hub.can_send() || hub.sweep_busy()) {
+    if (!hub.can_send()) {
       c.out += diag_error(id, "no bus");
       return;
     }
@@ -2266,7 +2133,7 @@ std::chrono::milliseconds DiagServer::service_replays(std::chrono::steady_clock:
       end_replay(i, "time limit", now);
       continue;
     }
-    if (!chans_[r.net].hub->can_send() || chans_[r.net].hub->sweep_busy()) {
+    if (!chans_[r.net].hub->can_send()) {
       end_replay(i, "no bus", now);
       continue;
     }
@@ -2339,119 +2206,6 @@ void DiagServer::end_replay(size_t i, const std::string& reason, std::chrono::st
   std::vector<std::pair<uint64_t, RawFrame>>().swap(r.frames);
   r.pos = queued;  // the frame count, for replay_status
   ended_replays_.push_back(std::move(r));
-}
-
-void DiagServer::handle_detect(Client& c, size_t net, const std::string& id, const cJSON* req) {
-  DiagHub& hub = *chans_[net].hub;
-  auto status = [&]() { c.out += diag_ok(id, hub.sweep_status()); };
-  const Config& cfg = hub.config();
-  if (!cfg.is_canopen()) {
-    c.out += diag_error(id, "bit rate detection runs on CANopen networks; network \"" + cfg.network + "\" is a " +
-                                (cfg.is_j1939() ? "J1939" : "plain CAN") + " network");
-    return;
-  }
-  std::string why;
-  uint64_t v = 0;
-  SweepRequest sr;
-  sr.peer = c.peer;
-  bool force = false;
-  if (!get_bool(req, "force", force, why) || !get_bool(req, "disturb_bus", sr.disturb_bus, why)) {
-    c.out += diag_error(id, why);
-    return;
-  }
-  const cJSON* rates = cJSON_GetObjectItemCaseSensitive(req, "rates");
-  if (rates) {
-    if (!cJSON_IsArray(rates) || cJSON_GetArraySize(rates) < 1) {
-      c.out += diag_error(id, "field 'rates' must be a list of bit rates in kbit/s");
-      return;
-    }
-    const cJSON* r = nullptr;
-    cJSON_ArrayForEach(r, rates) {
-      unsigned k = cJSON_IsNumber(r) ? static_cast<unsigned>(r->valuedouble) : 0;
-      if (!cJSON_IsNumber(r) || r->valuedouble != k ||
-          std::find(std::begin(kSweepRates), std::end(kSweepRates), k) == std::end(kSweepRates)) {
-        c.out += diag_error(id, "field 'rates' takes 1000, 800, 500, 250, 125, 50, 20 and 10");
-        return;
-      }
-      if (std::find(sr.rates_kbit.begin(), sr.rates_kbit.end(), k) == sr.rates_kbit.end()) sr.rates_kbit.push_back(k);
-    }
-  }
-  if (cJSON_GetObjectItemCaseSensitive(req, "per_rate_ms")) {
-    if (!get_uint(req, "per_rate_ms", 10000, v, why) || v < 100) {
-      c.out += diag_error(id, "field 'per_rate_ms' must be 100-10000");
-      return;
-    }
-    sr.per_rate_ms = static_cast<unsigned>(v);
-  }
-  if (cJSON_GetObjectItemCaseSensitive(req, "rounds")) {
-    if (!get_uint(req, "rounds", 20, v, why) || v < 1) {
-      c.out += diag_error(id, "field 'rounds' must be 1-20");
-      return;
-    }
-    sr.rounds = static_cast<unsigned>(v);
-  }
-  const uint64_t total_ms = uint64_t(sr.per_rate_ms) * (sr.rates_kbit.empty() ? 8 : sr.rates_kbit.size()) * sr.rounds;
-  if (total_ms > kMaxSweepMs) {
-    c.out += diag_error(id, "the sweep would listen " + std::to_string(total_ms / 1000) +
-                                " s; per_rate_ms times rates times rounds may be at most " +
-                                std::to_string(kMaxSweepMs / 1000) + " s");
-    return;
-  }
-  if (!settings().diag_allow_changes) {
-    c.out += diag_error(id, "changes not allowed");
-    return;
-  }
-  if (hub.sweep_busy()) return status();  // the running sweep's progress
-  if (cfg.adapter.simulate) {
-    c.out += diag_error(id, "no bit rate on a virtual bus");
-    return;
-  }
-  if (cfg.adapter.type == "socketcan" && !cfg.adapter.configure_link) {
-    c.out += diag_error(id, "the link is configured by the system (configure_link false)");
-    return;
-  }
-  LinkInfo li;
-  int rc = link_ops_ ? link_ops_->get(cfg.adapter.interface, li) : -ENODEV;
-  if (rc == -ENODEV || !hub.attached()) {
-    c.out += diag_error(id, "no bus");
-    return;
-  }
-  if (rc == 0 && li.kind != "can") {
-    c.out += diag_error(id, "no bit rate on a virtual bus");
-    return;
-  }
-  std::string op = hub.operational();
-  const std::string netname = cfg.network.empty() ? cfg.adapter.interface : cfg.network;
-  if (!op.empty() && !force) {
-    c.out += diag_error(id, op + " is OPERATIONAL; CANopen on network " + netname + " would stop for the sweep; force needed");
-    return;
-  }
-  // Hand-sent frames stop with the session.
-  auto now = std::chrono::steady_clock::now();
-  for (size_t i = jobs_.size(); i-- > 0;)
-    if (jobs_[i].net == net) end_job(i, "bit rate detection", now);
-  hub.request_sweep(sr);
-  log_info("%sdiagnostics: bit rate detection on %s started by %s%s; CANopen on this network stops until it ends",
-           net_prefix(net).c_str(), cfg.adapter.interface.c_str(), c.peer.c_str(),
-           op.empty() ? "" : (" (forced: " + op + " was OPERATIONAL)").c_str());
-  status();
-}
-
-void DiagServer::handle_detect_stop(Client& c, size_t net, const std::string& id) {
-  DiagHub& hub = *chans_[net].hub;
-  if (!settings().diag_allow_changes) {
-    c.out += diag_error(id, "changes not allowed");
-    return;
-  }
-  if (!hub.stop_sweep(c.peer)) {
-    const Config& cfg = hub.config();
-    c.out += diag_error(id, "no bit rate detection is running on network " +
-                                (cfg.network.empty() ? cfg.adapter.interface : cfg.network));
-    return;
-  }
-  log_info("%sdiagnostics: bit rate detection on %s stopped by %s; it ends after the current rate",
-           net_prefix(net).c_str(), hub.config().adapter.interface.c_str(), c.peer.c_str());
-  c.out += diag_ok(id, hub.sweep_status());
 }
 
 }  // namespace canopen_plugin
