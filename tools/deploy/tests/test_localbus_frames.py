@@ -163,6 +163,11 @@ class Send(Base):
         self.peer = Peer(self.ch)
         self.addCleanup(self.peer.close)
 
+    def client(self, *args, **kw):
+        c = super().client(*args, **kw)
+        self.heard(0.05)  # the bit rate check's probe on this silent bus
+        return c
+
     def heard(self, wait=0.2):
         out, end = [], time.monotonic() + wait
         while time.monotonic() < end:

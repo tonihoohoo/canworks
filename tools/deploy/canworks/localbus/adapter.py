@@ -509,7 +509,11 @@ class Opened:
         self.listen_only = listen_only
 
     def close(self):
-        """Closes the adapter (a gs_usb channel is put in reset mode first)."""
+        """Closes the adapter (a gs_usb channel is put in reset mode first);
+        a second call does nothing."""
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
         if self.spec.kind == "gs_usb" and hasattr(self.bus, "gs_usb"):
             _gs_usb_shut(self.bus)
         else:
