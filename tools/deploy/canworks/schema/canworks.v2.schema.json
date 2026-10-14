@@ -433,8 +433,6 @@
         "store_configuration": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/store_configuration" },
         "lss": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/lss" },
         "axis": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/axis" },
-        "software_file": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/software_file" },
-        "software_version": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/software_version" },
         "tx_pdos": { "type": "array", "items": { "$ref": "#/$defs/field_tx_pdo" } },
         "rx_pdos": { "type": "array", "items": { "$ref": "#/$defs/field_rx_pdo" } },
         "sdo": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/sdo" },

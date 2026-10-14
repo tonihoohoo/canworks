@@ -513,7 +513,7 @@
           ]
         },
         "sdo_timeout_ms": {
-          "description": "Timeout of every SDO the master sends to boot and configure a node (identity reads, PDO and startup SDO downloads, restore, firmware download), 10-60000 ms. Default 1000. SDO variables and diagnostics requests keep their own timeouts.",
+          "description": "Timeout of every SDO the master sends to boot and configure a node (identity reads, PDO and startup SDO downloads, restore), 10-60000 ms. Default 1000. SDO variables and diagnostics requests keep their own timeouts.",
           "anyOf": [
             {
               "type": "integer",
@@ -826,15 +826,6 @@
               "maximum": 255000
             }
           }
-        },
-        "software_file": {
-          "description": "Program file the master downloads to the node (0x1F50) when its software version (0x1F56) differs from software_version. Relative to the config folder.",
-          "type": "string",
-          "minLength": 1
-        },
-        "software_version": {
-          "description": "Expected program software version (0x1F56 sub-index 1). Needs software_file.",
-          "$ref": "#/$defs/u32"
         },
         "tx_pdos": {
           "type": "array",

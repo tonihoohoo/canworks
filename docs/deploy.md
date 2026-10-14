@@ -124,7 +124,7 @@ writes one CiA 306 Device Configuration File per node, `dcf/node_<id>.dcf`, for 
 - `ParameterValue=` on every object the master writes to the node at boot (PDO communication and mapping, heartbeat, node guarding, heartbeat consumer, TIME COB-ID, RPDO deadlines, configuration check stamp, startup SDOs), holding the value the node has after the whole download. Objects the master does not write are unchanged.
 - `[DeviceComissioning]`: `NodeID`, `NodeName` (the node's `name`), `Baudrate` (kbit/s), `NetNumber=1`, `NetworkName=OpenPLC CANopen`, `CANopenManager=0`, and `LSS_SerialNumber` when the node has a `serial_number`.
 - `[FileInfo]`: `FileName`, `LastEDS` (the EDS it came from), `ModifiedBy` and the modification date and time.
-- A leading `;` comment naming the boot steps that are not settings: restoring defaults (`restore_configuration`), the firmware download (`software_file`) and the "save" after a configuration check (`store_configuration`).
+- A leading `;` comment naming the boot steps that are not settings: restoring defaults (`restore_configuration`) and the "save" after a configuration check (`store_configuration`).
 
 With several networks each network's files go into a folder of their own, `dcf/<network>/node_<id>.dcf`, each with its own network's bit rate. `--network drives` exports only that network, into `dcf/node_<id>.dcf`. [Slave networks](slave.md) and [J1939 networks](j1939.md) have no CANopen nodes and are left out; `--network` naming one is refused.
 
