@@ -1,4 +1,4 @@
-"""The configurator's online view and scan page in a real browser, against a
+"""The configurator's online view in a real browser, against a
 fake plugin (add-online-diagnostics tasks 3.2-3.5). Needs Playwright, like
 test_configurator_page.py."""
 
@@ -14,7 +14,7 @@ from canworks.configurator import server as srv
 
 from .fake_diag import SLAVE_NETWORK, TOKEN, TWO_NETWORKS, FakePlugin, closed_port, slave_status
 from .helpers import PINGPONG, REPO, tmpdir
-from .test_configurator_page import FIXTURE, REQUIRED, RTD, load, sync_playwright
+from .test_configurator_page import FIXTURE, REQUIRED, load, sync_playwright
 
 
 @unittest.skipIf(sync_playwright is None and not REQUIRED, "Playwright for Python is not installed")
@@ -482,98 +482,6 @@ class OnlinePage(OnlineBase):
         self.online(None)
         pg.wait_for_selector("#online-conn:has-text('Not connected (port closed)')")
 
-    # -- scan ---------------------------------------------------------------
-    def test_scan_while_running_asks(self):
-        pg = self.page
-        with FakePlugin() as fp:
-            fp.force_running = True
-            self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
-            self.remember(fp.runtime)
-            self.open()
-            pg.click('button[data-view="scan"]')
-            pg.wait_for_selector("text=No scan has run")
-            pg.click('button[data-online="scan"]')
-            pg.wait_for_selector("#modal-text:has-text('a scan sends SDO requests to every node ID')")
-            pg.click('#modal button[data-value="cancel"]')
-            pg.wait_for_selector("text=Scan not started.")
-            self.assertEqual(fp.forced, [])
-            pg.click('button[data-online="scan"]')
-            pg.click('#modal button[data-value="send"]')
-            pg.wait_for_selector('tr[data-scan-node="40"]')
-            self.assertEqual(fp.forced, [("scan", None)])
-
-    def test_scan_and_add_node(self):
-        pg = self.page
-        lib = os.path.join(self.dir, "eds-library")
-        os.makedirs(lib)
-        with open(os.path.join(RTD, "rtd8.eds"), encoding="latin-1") as f:
-            text = f.read()
-        with open(os.path.join(lib, "rtd.eds"), "w", encoding="latin-1") as f:
-            f.write(text.replace("VendorNumber=0x00F0F0F0", "VendorNumber=0xAB").replace("ProductNumber=0x00000404", "ProductNumber=0x1234")
-                    .replace("RevisionNumber=0x00010003", "RevisionNumber=0x00010002"))
-        with FakePlugin() as fp:
-            fp.scan_nodes[0].update(product_code=5, match="configured, different device",
-                                    differs="product code 0x00000005, expected 0x00000000")
-            self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
-            self.remember(fp.runtime, library=lib)
-            self.open()
-            pg.click('button[data-view="scan"]')
-            self.assertEqual(pg.input_value('input[data-online="library"]'), lib)
-            pg.wait_for_selector("text=No scan has run")
-            pg.click('button[data-online="scan"]')
-            pg.wait_for_selector('tr[data-scan-node="40"]')
-            self.assertIn("canworks test devices", pg.inner_text('tr[data-scan-node="40"]'))
-            self.assertIn("RTD sensor", pg.inner_text('tr[data-scan-node="40"]'))
-            compare = pg.inner_text('tr[data-scan-node="2"] [data-online="compare"]')
-            self.assertIn("0x00000005", compare)
-            self.assertEqual(pg.locator('tr[data-scan-node="2"] tr.bad').count(), 1)
-            self.assertIn("Pick EDS file", pg.inner_text('tr[data-scan-node="41"]'))
-            pg.check('tr[data-scan-node="40"] input[type="checkbox"]')
-            pg.click('tr[data-scan-node="40"] button[data-online="add-node"]')
-            # The new node's page opens with its name focused; the message leads back to the scan.
-            pg.wait_for_selector('#view h2:has-text("Node 40")')
-            self.assertEqual(pg.evaluate("() => document.activeElement.dataset.path"), "nodes[1].name")
-            # The test EDS has no heartbeat default: the checks want supervision.
-            pg.select_option("select[data-supervision]", "heartbeat")
-            pg.fill('input[data-path="nodes[1].heartbeat_ms"]', "100")
-            pg.click('[data-online="back-to-scan"]')
-            pg.wait_for_selector('tr[data-scan-node="40"]:has-text("added")')
-            # C12: added, not "not configured"; no Use for node for it.
-            self.assertIn("added as rtd_sensor (not saved yet)", pg.inner_text('tr[data-scan-node="40"]'))
-            self.assertNotIn("not configured", pg.inner_text('tr[data-scan-node="40"]'))
-            self.assertEqual(pg.locator('tr[data-scan-node="40"] select[data-online="use-for"]').count(), 0)
-            self.assertFalse(os.path.exists(os.path.join(self.project, "canworks", "rtd.eds")))
-            self.assertEqual(len(load(self.config_path)["nodes"]), 1)
-            pg.wait_for_function("() => document.body.dataset.checking === '0'")
-            pg.click("#btn-save")
-            pg.wait_for_selector("#banner:has-text('Saved')")
-        nodes = load(self.config_path)["nodes"]
-        self.assertEqual(nodes[1], {"node_id": 40, "name": "rtd_sensor", "eds": "rtd.eds",
-                                    "revision_number": 0x00010002, "serial_number": 99,
-                                    "heartbeat_ms": 100})
-        self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "rtd.eds")))
-
-    def test_library_change_matches_the_shown_devices_again(self):
-        # C15: a new EDS library folder matches the shown scan result again.
-        pg = self.page
-        lib = os.path.join(self.dir, "eds-library")
-        os.makedirs(lib)
-        with open(os.path.join(RTD, "rtd8.eds"), encoding="latin-1") as f:
-            text = f.read()
-        with open(os.path.join(lib, "rtd.eds"), "w", encoding="latin-1") as f:
-            f.write(text.replace("VendorNumber=0x00F0F0F0", "VendorNumber=0xAB").replace("ProductNumber=0x00000404", "ProductNumber=0x1234"))
-        with FakePlugin() as fp:
-            self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
-            self.remember(fp.runtime)
-            self.open()
-            pg.click('button[data-view="scan"]')
-            pg.click('button[data-online="scan"]')
-            pg.wait_for_selector('tr[data-scan-node="40"]:has-text("No matching EDS")')
-            pg.fill('input[data-online="library"]', lib)
-            pg.press('input[data-online="library"]', "Tab")
-            pg.wait_for_selector('tr[data-scan-node="40"] select[data-online="eds-match"]')
-            self.assertEqual(len([r for r in fp.requests if r["op"] == "scan"]), 1)  # not scanned again
-
     # -- LSS ----------------------------------------------------------------
     def test_lss_commission_new_device(self):
         pg = self.page
@@ -643,44 +551,6 @@ class OnlinePage(OnlineBase):
             self.assertTrue(pg.is_disabled('button[data-online="lss-find"]'))
         self.assertFalse(any(r["op"].startswith("lss_") for r in fp.requests))
 
-    def scan_with_use_for(self, fp):
-        fp.scan_nodes.append({"node_id": 5, "vendor_id": 0x360, "product_code": 0, "revision_number": 0,
-                              "serial_number": 0x5678, "match": "not configured"})
-        self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
-        self.remember(fp.runtime)
-        self.open()
-        pg = self.page
-        pg.click('button[data-view="scan"]')
-        pg.click('button[data-online="scan"]')
-        pg.wait_for_selector('tr[data-scan-node="5"] select[data-online="use-for"]')
-
-    def test_scan_use_for_node(self):
-        pg = self.page
-        # lss-slave.eds: the ping-pong device with LSS_Supported=1.
-        shutil.copy(os.path.join(REPO, "test", "fixtures", "eds", "lss-slave.eds"), os.path.join(self.project, "canworks"))
-        self.cfg["nodes"][0]["eds"] = "lss-slave.eds"
-        with FakePlugin() as fp:
-            self.scan_with_use_for(fp)
-            self.assertEqual(pg.locator('tr[data-scan-node="41"] select[data-online="use-for"]').count(), 0)
-            pg.select_option('tr[data-scan-node="5"] select[data-online="use-for"]', "0")
-            pg.wait_for_selector('#banner:has-text("becomes node 2 at the next PLC start")')
-            self.assertNotIn("lss", load(self.config_path)["nodes"][0])  # unsaved
-            pg.wait_for_function("() => document.body.dataset.checking === '0'")
-            pg.click("#btn-save")
-            pg.wait_for_selector("#banner:has-text('Saved')")
-        node = load(self.config_path)["nodes"][0]
-        self.assertEqual((node["serial_number"], node["lss"]), (0x5678, {"assign": True}))
-
-    def test_scan_use_for_node_without_lss(self):
-        # cpp-slave.eds has no LSS: the node is listed, disabled with the reason, and nothing changes.
-        pg = self.page
-        with FakePlugin() as fp:
-            self.scan_with_use_for(fp)
-            sel = 'tr[data-scan-node="5"] select[data-online="use-for"]'
-            self.assertTrue(pg.is_disabled(sel + ' option[value="0"]'))
-            self.assertIn("has no LSS", pg.get_attribute(sel + ' option[value="0"]', "title"))
-        self.assertNotIn("lss", load(self.config_path)["nodes"][0])
-
 
 class SlaveOnlinePage(OnlineBase):
     """The online view on a slave network and a gateway's upper network
@@ -747,10 +617,6 @@ class SlaveOnlinePage(OnlineBase):
             self.assertTrue(pg.is_disabled(row + ' button[data-online="od-st"]'))
             pg.click(row + ' button[data-online="od-read"]')
             pg.wait_for_selector(row + ' [data-online="od-shown"]:has-text("9")')
-            # Scanning needs a master network.
-            pg.click('button[data-view="scan"]')
-            pg.wait_for_selector('[data-online="scan-slave"]')
-            self.assertEqual(pg.locator('button[data-online="scan"]').count(), 0)
         self.assertFalse([r for r in fp.requests if r["op"] not in ("status", "sdo_read", "sdo_write")])
 
     def test_slave_pdo_filter_names_and_simulated(self):

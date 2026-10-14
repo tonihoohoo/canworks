@@ -5935,12 +5935,12 @@ async function addScannedNode(d, match, file, identity, lss) {
   if (lss && !noLss) node.lss = { assign: true };
   S.config.nodes = S.config.nodes || [];
   S.config.nodes.push(node);
-  // The new node's page opens, with a way back to where the device was
-  // found: the scan (its results stay) or, after LSS, the online view.
+  // The new node's page opens; after LSS, with a way back to the online view.
   S.view = "node:" + (S.config.nodes.length - 1);
   S.focusName = S.config.nodes.length - 1;
   banner(el("div", null, el("div", null, `Added node ${d.node_id} (${res.name}). Map its PDOs here, then save. `,
-    noLss ? el("span", { dataset: { lssNote: "" } }, "No LSS assignment: its EDS has no LSS (LSS_Supported=1 missing). ") : null),
+    noLss ? el("span", { dataset: { lssNote: "" } }, "No LSS assignment: its EDS has no LSS (LSS_Supported=1 missing). ") : null,
+    lss ? el("button", { type: "button", class: "link", dataset: { online: "back-to-online" }, onclick: () => showView("online") }, "Back to the online view") : null),
   importReport(res)));
   changed(true);
 }
@@ -6408,7 +6408,7 @@ function humanise(m) {
 
 // "Node 5 rtd, TPDO 2, 0x6150:1: type UNSIGNED8 ...", with the network first
 // when the draft has several.
-const NO_NODES_TEXT = "No nodes yet. Add a node from its EDS, or turn on Online access for a scan-only configuration.";
+const NO_NODES_TEXT = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission a device.";
 
 function problemText(it, w) {
   const where = placeOf(w);

@@ -116,7 +116,7 @@ The same from a terminal: `canworks-diag --runtime local sim fault 6 heartbeat-s
 
 ## 8. LSS
 
-`new_io` (node 7) got its node ID at start from the master, by its serial number 7007 ([config.md](config.md#lss)). A second module, `spare_io` (serial 7099), is on the bus without a node ID and is not in the config: **Online** → `io` → **Unconfigured devices (LSS)** → **Find a device without node ID** finds it; **Set node ID…** gives it, say, 8, and the page offers to add it as a node. **Scan the bus** then lists node 8 as not configured ([configurator.md](configurator.md#scan-the-bus)).
+`new_io` (node 7) got its node ID at start from the master, by its serial number 7007 ([config.md](config.md#lss)). A second module, `spare_io` (serial 7099), is on the bus without a node ID and is not in the config: **Online** → `io` → **Unconfigured devices (LSS)** → **Find a device without node ID** finds it; **Set node ID…** gives it, say, 8, and the page offers to add it as a node. The node list then shows node 8 as not configured.
 
 ```sh
 canworks-diag --runtime local lss-find --network io

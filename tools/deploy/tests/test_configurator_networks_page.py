@@ -1,6 +1,6 @@
 """Several CAN networks in the configurator page (add-several-can-networks
 tasks 6.2-6.5): the network bar, checks and suggestions across networks, the
-network picker of the online, scan and trace views against a fake plugin
+network picker of the online and trace views against a fake plugin
 that runs two networks, and the exports per network. Needs Playwright, like
 test_configurator_page.py.
 
@@ -19,7 +19,7 @@ from canworks.configurator import server as srv
 
 from .fake_diag import TOKEN, TWO_NETWORKS, FakePlugin
 from .helpers import PINGPONG, REPO, tmpdir
-from .test_configurator_page import REQUIRED, RTD, load, sync_playwright
+from .test_configurator_page import REQUIRED, load, sync_playwright
 
 TWO = os.path.join(REPO, "config", "two-networks")
 SHOTS = os.environ.get("CANWORKS_SCREENSHOTS")
@@ -223,7 +223,7 @@ class NetworksPage(unittest.TestCase):
         pg.wait_for_selector('#node-list [data-node="0"].active')
 
     # -- network picker (6.4) -----------------------------------------------
-    def test_online_scan_and_trace_on_the_picked_network(self):
+    def test_online_and_trace_on_the_picked_network(self):
         pg = self.page
         self.write(self.two(diagnostics=True))
         with FakePlugin(networks=TWO_NETWORKS, allow_changes=True, scan_polls=0) as fp:
@@ -276,19 +276,8 @@ class NetworksPage(unittest.TestCase):
             pg.select_option('select[data-online="network"]', "io")
             pg.wait_for_selector('td[data-online="bus"]:has-text("vcan0")')
             pg.wait_for_selector('#net-bar [data-net="0"].active')
-            # Scan drives and add a found device there.
+            # Picking drives on the network bar picks it for the trace too.
             pg.click('#net-bar [data-net="1"]')
-            pg.click('button[data-view="scan"]')
-            self.assertEqual(pg.input_value('select[data-online="network"]'), "drives")
-            pg.click('button[data-online="scan"]')
-            pg.wait_for_selector('tr[data-scan-node="41"]')
-            self.assertEqual([q.get("network") for q in fp.requests if q["op"] == "scan"][-1], "drives")
-            pg.set_input_files('tr[data-scan-node="41"] input[type="file"]', os.path.join(RTD, "rtd8.eds"))
-            pg.wait_for_selector('#view h2:has-text("Node 41")')
-            pg.click('[data-online="back-to-scan"]')
-            pg.wait_for_selector('tr[data-scan-node="41"]:has-text("added")')
-            self.assertEqual(pg.evaluate("() => S.model.networks.map((n) => n.nodes.map((x) => x.node_id))"),
-                             [[2], [2, 41]])
             # The trace records the picked network.
             pg.click('button[data-view="trace"]')
             self.assertEqual(pg.input_value('select[data-online="network"]'), "drives")

@@ -196,10 +196,6 @@ class Layout(OnlineBase):
                 pg.click('tr[data-online-node="2"]')
                 pg.wait_for_selector('button[data-online="write"]')
                 self.fits("online at %d" % width)
-                pg.click('button[data-view="scan"]')
-                pg.click('button[data-online="scan"]')
-                pg.wait_for_selector("tr[data-scan-node]")
-                self.fits("scan at %d" % width)
                 pg.click('button[data-view="trace"]')
                 pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
                 self.fits("trace at %d" % width)
@@ -549,7 +545,7 @@ class Examples(OnlineBase):
         pg = self.page
         pg.set_viewport_size({"width": 1000, "height": 900})
         self.open_example("virtual-plant")
-        pg.click('button[data-view="scan"]')
+        pg.click('button[data-view="trace"]')
         pg.wait_for_timeout(300)
         gaps = pg.evaluate("""() => {
           const box = (s) => document.querySelector(s).getBoundingClientRect();
