@@ -12,12 +12,10 @@ With sim=FakeSim(...) (fake_sim.py) the first network simulates devices and
 answers the sim_ requests; without, every sim_ request answers "nothing
 simulated".
 
-send_frame, send_frame_stop, detect_bitrate and detect_bitrate_status follow
-the plugin's guards: allow_changes, then force for an identifier in `cob_ids`
-or while `operational` names a node. Cyclic jobs count their frames from the
-time they started and end with their connection; a sweep moves on
-`sweep_step` rates per detect_bitrate_status and hears what `sweep_hears`
-says per rate."""
+send_frame and send_frame_stop follow the plugin's guards: allow_changes,
+then force for an identifier in `cob_ids` or while `operational` names a
+node. Cyclic jobs count their frames from the time they started and end with
+their connection."""
 
 import base64
 import copy
@@ -238,22 +236,12 @@ class FakePlugin:
         self.next_job = 1
         self.job_failure = None  # a reason that ends every cyclic job after its first frame
         self.cob_ids = {0x205: "RPDO1 of node 5", 0x185: "TPDO1 of node 5", 0x000: "NMT", 0x080: "SYNC"}
-        self.operational = None  # a node ID: refuses sends and sweeps without force
+        self.operational = None  # a node ID: refuses sends without force
         # With force_running, sdo_write and nmt (all but start) to a node
         # whose status says OPERATIONAL (state 5), and a scan while any node
         # is, need force, as the plugin asks.
         self.force_running = False
         self.forced = []  # (op, node) of every request sent with force
-        # Bit rate detection: per rate (kbit/s) what the sweep hears, how many
-        # rates each status poll moves on, and a refusal for the network.
-        self.detect_supported = True
-        self.detect_refusal = None
-        self.sweep_hears = {250: {"frames": 42, "error_frames": 0, "ids": [0x705, 0x185, 0x285]},
-                            500: {"frames": 0, "error_frames": 12, "ids": []}}
-        self.sweep_step = 2
-        self.sweep = None
-        self.sweeps = []  # the detect_bitrate requests that started a sweep
-        self.configured_kbit = 500
         self.configured = set()  # extra configured node IDs (NMT allowed)
         self.refuse_writes = {}
         self.delay = 0.0  # seconds before each SDO answer  # (node, index, sub): abort code for a write
@@ -530,53 +518,6 @@ class FakePlugin:
                           "reason": None, "frame": frame}
         return ok({"job": job, "period_ms": period, "count": req.get("count")})
 
-    # -- bit rate detection -------------------------------------------------
-    def _sweep_result(self):
-        sw = self.sweep
-        if sw is None:
-            return {"running": False, "verdict": None}
-        done = min(sw["total"], sw["polls"] * self.sweep_step)
-        results = [dict({"bitrate_kbit": r, "frames": 0, "error_frames": 0, "ids": []}, **self.sweep_hears.get(r, {}))
-                   for r in sw["rates"][:done]]
-        n = len(sw["rates"])
-        res = {"running": done < sw["total"], "rate_kbit": sw["rates"][done % n] if done < sw["total"] else None,
-               "round": min(done // n + 1, sw["total"] // n), "done": done, "total": sw["total"], "results": results}
-        if res["running"]:
-            return res
-        heard = [r for r in results if r["frames"]]
-        matches = [r["bitrate_kbit"] for r in heard if r["error_frames"] * 100 <= r["frames"]]
-        res.update(configured_kbit=self.configured_kbit, finished_at="2026-10-07T12:00:00Z", bitrate_kbit=None)
-        if len(matches) == 1:
-            res.update(verdict="detected", bitrate_kbit=matches[0], matches_config=matches[0] == self.configured_kbit)
-        elif heard:
-            best = matches or [max(heard, key=lambda r: r["frames"])["bitrate_kbit"]]
-            res.update(verdict="ambiguous", candidates=best)
-        else:
-            res.update(verdict="silent")
-        return res
-
-    def _detect(self, req, ok, err, net):
-        if not self.detect_supported:
-            return err("unknown op '%s'" % req["op"])
-        if req["op"] == "detect_bitrate_status":
-            if self.sweep:
-                self.sweep["polls"] += 1
-            return ok(self._sweep_result())
-        if not self.allow_changes:
-            return err("changes not allowed")
-        if self.sweep and self._sweep_result()["running"]:
-            return ok(self._sweep_result())
-        if self.detect_refusal:
-            return err(self.detect_refusal)
-        if self.operational and not req.get("force"):
-            name = req.get("network") or (self.networks[0]["name"] if self.networks else "can0")
-            return err("node %d is OPERATIONAL; CANopen on network %s would stop for the sweep; force needed"
-                       % (self.operational, name))
-        rates = req.get("rates") or list(diag.DETECT_RATES)
-        self.sweeps.append(req)
-        self.sweep = {"rates": rates, "total": len(rates) * (req.get("rounds") or 1), "polls": 0}
-        return ok(self._sweep_result())
-
     def answer(self, req, conn=None):
         op = req.get("op")
         ok = lambda result: {"ok": True, "result": result}  # noqa: E731
@@ -588,8 +529,6 @@ class FakePlugin:
             return self._trace(req, ok, err, net)
         if op in ("send_frame", "send_frame_stop"):
             return self._send_frame(req, ok, err, conn, net)
-        if op in ("detect_bitrate", "detect_bitrate_status"):
-            return self._detect(req, ok, err, net)
         info = net.info if net is not self else (self.networks[0] if self.networks else {})
         if info.get("role") == "slave":
             # A slave network serves its status and its own dictionary only.
@@ -619,8 +558,6 @@ class FakePlugin:
                     n["sim_conflict"] = n["node_id"] in conflicts
             if self.send_supported:
                 st["send_jobs"] = [self._job_row(j) for j in self.jobs.values() if j["net"] is net and self._running(j)]
-            if self.detect_supported:
-                st["bitrate_sweep"] = {"running": bool(self.sweep and self._sweep_result()["running"])}
             return ok(st)
         if op == "emcy":
             return ok({"node_id": req["node"], "emcy": net.emcy.get(req["node"], [])})

@@ -956,6 +956,8 @@ function renderSide() {
   $("#eds-input").closest("label").hidden = isSlave(S.config) || j1939 || plain;
   $("#nodes-caption").hidden = j1939 || plain;
   $("#nav-bus").textContent = j1939 ? "Bus and ECU" : plain ? "Bus" : "Bus and master";
+  // Commission a device: the adapter connection is its Bus and master page.
+  $("#nav-online").textContent = S.state.commission ? "Bus and master" : "Online";
   $("#nav-simulation").hidden = j1939;
   $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
   $("#nav-bridge").hidden = !S.model.top.bridge;

@@ -248,7 +248,7 @@ class ReplayCli(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("replaying 3 frames", out)
         self.assertIn("replay ended: done, 3 frames sent", out)
-        got = [rx.recv(1) for _ in range(3)]
+        got = [m for m in iter(lambda: rx.recv(0.3), None) if m.arbitration_id != 0x7E5][:3]  # not the bit rate probe
         self.assertEqual([(m.arbitration_id, bytes(m.data)) for m in got],
                          [(0x321, b"\x11"), (0x322, b""), (0x205, b"\x01")])
         code, _, err = cli(*base, "--allow-changes", "replay", path, "--rate", "5000")
@@ -264,7 +264,7 @@ class StatusText(unittest.TestCase):
         "version": "0.45.0", "uptime_s": 12, "config_sha256": "ab" * 32, "network": "cab", "protocols": ["canopen", "j1939", "none"],
         "session": False, "protocol": "none", "simulated_network": True, "simulation_forced": False,
         "listen_only": False, "bus": {"interface": "simulated", "bitrate": 250000, "state": 1},
-        "send_jobs": [], "bitrate_sweep": {"running": False},
+        "send_jobs": [],
         "raw": {"running": True, "listen_only": False, "confirm": "echo", "frames_sent": 40, "frames_received": 81,
                 "bus_load": 3, "program": {"receivers": 1, "cyclic_jobs": 0, "frames_sent": 2, "dropped": 0},
                 "rx": [{"message": "joystick (0x180)", "count": 80, "short_frames": 0, "seen": True,

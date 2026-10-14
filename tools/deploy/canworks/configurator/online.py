@@ -288,6 +288,8 @@ class Connection:
             if self.client is not None and isinstance(self.key[0], AdapterTarget):
                 self.client.allow_changes = bool(allow)
                 self.key[0].allow_changes = bool(allow)
+                if isinstance(getattr(self.client, "info", None), dict):
+                    self.client.info["allow_changes"] = bool(allow)  # the hello the pages and jobs read
 
     @property
     def info(self):

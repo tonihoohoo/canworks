@@ -47,12 +47,11 @@ class SendFrames(Online):
 
     def test_older_plugin(self):
         with FakePlugin(allow_changes=True) as fp:
-            fp.send_supported = fp.detect_supported = False
+            fp.send_supported = False
             self.connect(fp)
-            for path in ("/api/online/send_frame", "/api/online/detect_bitrate"):
-                status, data, _ = self.request("POST", path, {"id": "60A"})
-                self.assertEqual((status, data["kind"]), (422, "too_old"))
-                self.assertIn("too old for sending frames", data["error"])
+            status, data, _ = self.request("POST", "/api/online/send_frame", {"id": "60A"})
+            self.assertEqual((status, data["kind"]), (422, "too_old"))
+            self.assertIn("too old for sending frames", data["error"])
 
     def test_cyclic_jobs(self):
         with FakePlugin(allow_changes=True) as fp:
@@ -104,46 +103,3 @@ class SendFrames(Online):
             jobs = self.ok("POST", "/api/online/send_jobs", {})["jobs"]
             self.assertEqual((jobs[0]["network"], jobs[0]["id"]), ("drives", 0x60A))
             self.assertEqual(len(self.ok("POST", "/api/online/send_stop", {})["stopped"]), 1)
-
-
-class DetectBitrate(Online):
-    def sweep(self, **body):
-        r = self.ok("POST", "/api/online/detect_bitrate", body)
-        while r["running"]:
-            r = self.ok("POST", "/api/online/detect_bitrate_status", {})
-        return r
-
-    def test_detected(self):
-        with FakePlugin(allow_changes=True) as fp:
-            self.connect(fp)
-            self.assertEqual(self.ok("POST", "/api/online/detect_bitrate_status", {}),
-                             {"running": False, "verdict": None})
-            r = self.sweep(rounds=2)
-            self.assertEqual((r["verdict"], r["bitrate_kbit"], r["matches_config"]), ("detected", 250, False))
-            self.assertEqual([x["bitrate_kbit"] for x in r["results"]], [1000, 800, 500, 250, 125, 50, 20, 10])
-            self.assertEqual(fp.sweeps[0]["rounds"], 2)
-            fp.sweep_hears = {}
-            self.assertEqual(self.sweep()["verdict"], "silent")
-            for body in ({"rates": [300]}, {"rates": "all"}, {"rounds": 0}):
-                self.assertEqual(self.request("POST", "/api/online/detect_bitrate", body)[0], 400, body)
-
-    def test_refusals(self):
-        with FakePlugin(allow_changes=True) as fp:
-            self.connect(fp)
-            fp.operational = 5
-            status, data, _ = self.request("POST", "/api/online/detect_bitrate", {})
-            self.assertEqual((status, data["force"]), (422, True))
-            self.assertIn("node 5 is OPERATIONAL", data["error"])
-            self.assertEqual(self.sweep(force=True)["verdict"], "detected")
-            self.assertTrue(fp.sweeps[0]["force"])
-            fp.sweep = None
-            fp.detect_refusal = "no bit rate on a virtual bus"
-            status, data, _ = self.request("POST", "/api/online/detect_bitrate", {"force": True})
-            self.assertEqual((status, data["error"], data["force"]), (422, "no bit rate on a virtual bus", False))
-            self.assertFalse(data["disturb_bus"])
-            fp.detect_refusal = "the adapter did not answer its silent mode command; disturb_bus needed"
-            status, data, _ = self.request("POST", "/api/online/detect_bitrate", {"force": True})
-            self.assertEqual((status, data["disturb_bus"], data["force"]), (422, True, False))
-            fp.detect_refusal = None
-            self.assertEqual(self.sweep(force=True, disturb_bus=True)["verdict"], "detected")
-            self.assertTrue(fp.sweeps[-1]["disturb_bus"])

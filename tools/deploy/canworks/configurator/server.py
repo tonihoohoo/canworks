@@ -2215,8 +2215,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             used, st = call(lambda c: (picked(c), c.status()))
             prints = online.fingerprints(config_path)
             same = st.get("config_sha256") in prints
-            hello = dict(conn.info or {}, allow_changes=st["allow_changes"]) if local else conn.info
-            out = {"hello": hello, "status": st, "networks": (conn.info or {}).get("networks") or [],
+            out = {"hello": conn.info, "status": st, "networks": (conn.info or {}).get("networks") or [],
                    "network": used, "config": "none" if not prints else ("same" if same else "different")}
             # The path the connection took (LAN, internet direct or relayed)
             # and its round trip; the background pairing's line, once.

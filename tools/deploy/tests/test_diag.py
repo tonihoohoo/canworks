@@ -360,20 +360,6 @@ class Force(unittest.TestCase):
         self.assertTrue(sent[0].startswith(b'{"op": "put_config"'), sent[0][:40])
 
 
-class BitrateStop(unittest.TestCase):
-    def test_stop_command_and_time_limit(self):
-        with FakePlugin(allow_changes=True) as fp:
-            code, _, err = run("--runtime", fp.runtime, "detect-bitrate-stop")
-            self.assertEqual(fp.requests[-1]["op"], "detect_bitrate_stop")
-            self.assertEqual(code, 1)  # this fake predates the op
-            n = len(fp.requests)
-            code, _, err = run("--runtime", fp.runtime, "detect-bitrate", "--per-rate-ms", "10000", "--rounds", "20")
-            self.assertEqual(code, 2)
-            self.assertIn("the sweep would listen 1600 s", err)
-            self.assertIn("at most 120 s", err)
-            self.assertEqual(len(fp.requests), n)  # nothing sent
-
-
 class Networks(unittest.TestCase):
     """A plugin that runs two networks (io, drives), one that lists one, and
     an older one that lists none (the default fake)."""

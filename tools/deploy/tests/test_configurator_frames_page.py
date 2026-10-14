@@ -1,5 +1,5 @@
-"""The Trace view's Send panel and Detect bit rate on the scan page in a real
-browser, against a fake plugin (add-raw-frames-bitrate-detect task 3.2).
+"""The Trace view's Send panel in a real browser, against a fake plugin
+(add-raw-frames-bitrate-detect task 3.2).
 Needs Playwright, like test_configurator_page.py."""
 
 import time
@@ -147,59 +147,3 @@ class SendPanel(Base):
         pg.click('[data-send="send"]')
         pg.wait_for_selector('[data-send="sent"] li')
         self.assertEqual(self.fake.sent[0]["data"], "40 18 10 01 00 00 00 00")
-
-
-class DetectPage(Base):
-    def test_detect_and_use_the_rate(self):
-        pg = self.page
-        self.scan()
-        pg.click('[data-online="detect"]')
-        pg.wait_for_selector("#modal[open]")
-        self.assertIn("CANopen on that network stops during the sweep", pg.inner_text("#modal-text"))
-        self.assertIn("nodes boot again afterwards", pg.inner_text("#modal-text"))
-        pg.click('#modal button[data-value="detect"]')
-        pg.wait_for_selector('[data-online="detect-verdict"]')
-        self.assertIn("250 kbit/s detected", pg.inner_text('[data-online="detect-verdict"]'))
-        self.assertEqual(pg.locator('[data-online="detect-table"] tbody tr').count(), 8)
-        self.assertIn("0x705 0x185 0x285", pg.inner_text('tr[data-detect-rate="250"]'))
-        self.assertIn("12", pg.inner_text('tr[data-detect-rate="500"]'))
-        self.assertEqual(pg.evaluate("S.dirty"), False)
-        pg.click('[data-online="use-bitrate"]:has-text("Use 250 kbit/s")')
-        self.assertEqual(pg.evaluate("S.config.adapter.bitrate"), 250000)
-        self.assertEqual(pg.evaluate("S.dirty"), True)
-        pg.wait_for_function("() => document.querySelector('#btn-save').textContent === 'Save'")
-        self.assertEqual(pg.locator('[data-online="use-bitrate"]').count(), 0)
-        with open(self.config_path, encoding="utf-8") as f:
-            self.assertIn('"bitrate": 125000', f.read())  # not saved
-
-    def test_silent_bus(self):
-        pg = self.page
-        self.fake.sweep_hears = {}
-        self.scan()
-        pg.click('[data-online="detect"]')
-        pg.click('#modal button[data-value="detect"]')
-        pg.wait_for_selector('[data-online="detect-verdict"]')
-        self.assertEqual(pg.inner_text('[data-online="detect-verdict"]'),
-                         diag.SILENT_HINT)
-        self.assertEqual(pg.locator('[data-online="use-bitrate"]').count(), 0)
-
-    def test_force_and_refusals(self):
-        pg = self.page
-        self.fake.operational = 5
-        self.scan()
-        pg.click('[data-online="detect"]')
-        pg.click('#modal button[data-value="detect"]')
-        pg.wait_for_selector("#modal[open]:has-text('node 5 is OPERATIONAL')")
-        pg.click('#modal button[data-value="force"]')
-        pg.wait_for_selector('[data-online="detect-verdict"]')
-        self.assertTrue(self.fake.sweeps[0]["force"])
-        self.fake.operational, self.fake.sweep = None, None
-        self.fake.detect_refusal = "no bit rate on a virtual bus"
-        pg.click('[data-online="detect"]')
-        pg.click('#modal button[data-value="detect"]')
-        pg.wait_for_selector('[data-online="detect-error"]:has-text("no bit rate on a virtual bus")')
-
-    def test_disabled_without_allow_changes(self):
-        self.scan(allow=False)
-        self.assertTrue(self.page.is_disabled('[data-online="detect"]'))
-        self.assertIn("needs Allow changes", self.page.inner_text('[data-online="detect-blocked"]'))

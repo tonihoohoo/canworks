@@ -358,13 +358,15 @@ function commNodeTable(st) {
       .filter(Boolean).join(", ") : a && a.lss ? `serial number ${hex8(a.serial_number)} (LSS)` : "";
     const found = [n && n.state !== null ? "heard" : "", d ? "scanned" : "", a ? (a.lss ? "LSS" : "added") : ""].filter(Boolean).join(", ");
     const eds = (S.onlineEdsName || {})[id] || (S.onlineEds || {})[id];
-    return el("tr", rowAttrs(() => { S.onlineNode = id; renderOnlineNode(); pollHighlight(); },
-      { class: "clickable" + (S.onlineNode === id ? " active" : ""), dataset: { onlineNode: id }, "aria-label": `Open node ${id}` }),
-    el("td", null, String(id)), el("td", null, device),
+    // A button per row, not a clickable row: the EDS cell has controls of its own.
+    return el("tr", { class: S.onlineNode === id ? "active" : null, dataset: { onlineNode: id } },
+    el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${id}`, dataset: { openNode: id },
+      onclick: () => { S.onlineNode = id; renderOnlineNode(); pollHighlight(); } }, String(id))),
+    el("td", null, device),
     el("td", { class: !n || n.state === null ? "muted" : "state-" + n.state }, !n || n.state === null ? "not heard" : stateName(n.state)),
     el("td", null, n && n.last_heard_s !== null ? `${n.last_heard_s.toFixed(1)} s ago` : "-"), el("td", null, em),
     el("td", null, found),
-    el("td", { onclick: (e) => e.stopPropagation() }, eds ? el("span", { dataset: { nodeEds: id } }, eds) : edsPick(d || { node_id: id })));
+    el("td", null, eds ? el("span", { dataset: { nodeEds: id } }, eds) : edsPick(d || { node_id: id })));
   });
   return el("table", { class: "online-nodes", dataset: { online: "comm-nodes" } },
     el("thead", null, el("tr", null, thCells(["Node", "Device", "State", "Heard", "Last EMCY", "Found by", "EDS"]))),
