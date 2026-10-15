@@ -2686,17 +2686,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             adapter = proj.get("adapter")
             if not adapter:
                 raise ApiError(409, "pick the USB adapter for online access", need="adapter")
-            nodes = {}
+            nodes, listen_only = {}, False
             if os.path.isfile(config_path):
                 try:
                     nodes = configinfo.load(config_path, network)[1]
+                    listen_only = configinfo.load_listen_only(config_path, network)
                 except (OSError, ValueError):
                     pass
             kbit = proj.get("adapter_bitrate")
             if not isinstance(kbit, int):
                 raise ApiError(409, "pick the bus's bit rate for the USB adapter", need="adapter")
             return online.AdapterTarget(adapter, kbit * 1000, self.server.adapter_allow, nodes, network,
-                                        proj.get("check_node")), None, None
+                                        proj.get("check_node"), listen_only), None, None
         host, token = proj.get("host"), proj.get("token")
         if not host:
             raise ApiError(409, "enter the runtime host for online access", need="host")

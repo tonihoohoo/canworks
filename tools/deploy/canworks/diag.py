@@ -2060,7 +2060,8 @@ def _pdo_test(client, args, out):
 
 def _local_client(args):
     """A localbus.LocalBus for --adapter: the bit rate from --bitrate or the
-    network of --config, the configured nodes' names from --config."""
+    network of --config, the configured nodes' names and the network's
+    adapter.listen_only from --config."""
     from . import localbus
     from .localbus import configinfo
     try:
@@ -2069,10 +2070,12 @@ def _local_client(args):
         raise DiagError("usage", str(e))
     bitrate = args.bitrate * 1000 if args.bitrate else None
     nodes = {}
+    listen_only = False
     config = getattr(args, "config", None)
     if config:
         try:
             cfg_bitrate, nodes = configinfo.load(config, args.network)
+            listen_only = configinfo.load_listen_only(config, args.network)
         except (OSError, ValueError) as e:
             raise DiagError("usage", "cannot use %s: %s" % (config, e))
         bitrate = bitrate or cfg_bitrate
@@ -2082,7 +2085,8 @@ def _local_client(args):
     if localbus.untested(spec):
         print("canworks-diag: adapter type %s is passed to python-can untested" % spec.kind, file=sys.stderr)
     return localbus.LocalBus(spec, bitrate, allow_changes=args.allow_changes, force=args.force, config=nodes,
-                             network=args.network, timeout=args.timeout, check_node=args.check_node)
+                             network=args.network, timeout=args.timeout, check_node=args.check_node,
+                             listen_only=listen_only)
 
 
 def _adapters(args, out):

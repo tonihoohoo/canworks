@@ -71,8 +71,9 @@ class BitrateRefused(adapter_mod.AdapterError):
 
 
 class Core:
-    def __init__(self, opened, listen_s=LISTEN_S):
+    def __init__(self, opened, listen_s=LISTEN_S, listen_only=False):
         self.opened = opened
+        self.listen_only = bool(listen_only)  # the network's adapter.listen_only: nothing is ever sent
         self.spec = opened.spec
         self.bus = opened.bus
         self.bitrate = opened.bitrate
@@ -310,6 +311,9 @@ class Core:
         import can
         if self.error:
             raise adapter_mod.AdapterError("unreachable", self.error)
+        if self.listen_only:
+            raise adapter_mod.AdapterError("usage", "the network is listen-only (adapter.listen_only): adapter %s "
+                                                    "sends nothing" % self.spec)
         self.wait_listened()
         if rtr:
             msg = can.Message(arbitration_id=cob, is_extended_id=bool(ext), is_remote_frame=True, dlc=dlc or 0)
@@ -433,7 +437,9 @@ def check_bitrate(core, check_node=None):
     sent once (one-shot on gs_usb) and must get out with no error frame; an
     adapter that cannot tell (slcan) reads 0x1000 from `check_node` instead.
     Sets core.bitrate_check, leaves the adapter in normal mode, and from then
-    on bus errors end the connection."""
+    on bus errors end the connection. A listen-only core (the network's
+    adapter.listen_only) sends no probe and stays listen-only: a silent bus
+    leaves the rate unconfirmed."""
     import can
     kbit = core.bitrate // 1000
     opened = core.opened
@@ -445,6 +451,14 @@ def check_bitrate(core, check_node=None):
         raise BitrateRefused("the bus does not run at %d kbit/s (%d error frame%s and %d valid frame%s in %g s)"
                              % (kbit, errors, "" if errors == 1 else "s", valid, "" if valid == 1 else "s",
                                 core.listen_s))
+    if core.listen_only:
+        result = "confirmed" if valid else "unconfirmed"
+        core.bitrate_check = {"result": result, "how": "traffic" if valid else "listen-only: nothing heard, no "
+                              "probe sent", "bitrate_kbit": kbit}
+        with core.lock:
+            core.errors.clear()
+        core.checked = True
+        return
     if valid:
         how = "traffic"
         if opened.listen_only:
@@ -497,11 +511,31 @@ _cores = {}
 _cores_lock = threading.Lock()
 
 
-def acquire(spec, bitrate, listen_s=LISTEN_S, check_node=None):
+def _open(spec, bitrate, listen_only):
+    """The adapter opened listen-only for the bit rate check. With
+    `listen_only` (the network's adapter.listen_only) it must really be
+    listen-only (the in-process virtual bus, which acknowledges nothing,
+    counts as such); otherwise an adapter without that mode listens in normal
+    mode."""
+    try:
+        opened = adapter_mod.open(spec, bitrate, listen_only=True)
+    except adapter_mod.ListenOnlyMissing:
+        if listen_only:
+            raise
+        return adapter_mod.open(spec, bitrate)
+    if listen_only and not opened.listen_only and spec.kind != "virtual":
+        opened.close()
+        raise adapter_mod.ListenOnlyMissing(spec)
+    return opened
+
+
+def acquire(spec, bitrate, listen_s=LISTEN_S, check_node=None, listen_only=False):
     """The process's Core for `spec`, opened at `bitrate` and its bit rate
-    checked when it is not open yet. Raises AdapterError (busy when another
-    tool has it, or when this process has it open at another bit rate;
-    bitrate when the check refuses it)."""
+    checked when it is not open yet; with `listen_only` (the network's
+    adapter.listen_only) opened and kept listen-only. Raises AdapterError
+    (busy when another tool has it, or when this process has it open at
+    another bit rate or listen-only setting; bitrate when the check refuses
+    it; usage when the adapter cannot listen only)."""
     key = str(spec)
     with _cores_lock:
         core = _cores.get(key)
@@ -510,7 +544,7 @@ def acquire(spec, bitrate, listen_s=LISTEN_S, check_node=None):
             del _cores[key]
             core = None
         if core is None:
-            core = Core(adapter_mod.open(spec, bitrate, listen_only=True), listen_s)
+            core = Core(_open(spec, bitrate, listen_only), listen_s, listen_only)
             try:
                 check_bitrate(core, check_node)
             except BaseException:
@@ -520,6 +554,9 @@ def acquire(spec, bitrate, listen_s=LISTEN_S, check_node=None):
         elif spec.kind != "socketcan" and bitrate and core.bitrate != bitrate:
             raise adapter_mod.AdapterError("busy", "adapter %s is open at %d kbit/s here; close the other view "
                                                    "first" % (spec, core.bitrate // 1000))
+        elif core.listen_only != bool(listen_only):
+            raise adapter_mod.AdapterError("busy", "adapter %s is open %s here; close the other view first" % (
+                spec, "listen-only" if core.listen_only else "for sending"))
         core.users += 1
         return core
 

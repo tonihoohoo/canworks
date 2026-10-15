@@ -121,9 +121,10 @@ class ListenOnly(unittest.TestCase):
         ports = self._slcan(knows_m1=True, answers=False)
         opened = adapter_mod.open(parse("slcan:COM9"), 250000, listen_only=True, options={"sleep_after_open": 0})
         self.assertTrue(ports[-1].written.endswith(b"m1\rO\r"), ports[-1].written)
+        self.assertFalse(opened.listen_only)  # it never was
         ports[-1].written = b""
         opened.set_mode(listen_only=False)
-        self.assertEqual(ports[-1].written, b"")  # it was never listen-only
+        self.assertEqual(ports[-1].written, b"")
         opened.close()
 
     def test_slcan_without_silent_mode_opens_with_L(self):
@@ -136,6 +137,88 @@ class ListenOnly(unittest.TestCase):
         opened.set_mode(listen_only=False)
         self.assertEqual([c for c in ports[-1].written.split(b"\r") if c], [b"C", b"O"])
         opened.close()
+
+    def _gs_usb(self, feature):
+        """A fake gs_usb adapter whose device has the `feature` flags; returns
+        the list of mode requests it gets (mode, flags)."""
+        from types import ModuleType, SimpleNamespace
+        modes = []
+
+        class Usb:
+            def ctrl_transfer(self, request_type, request, value, index, data):
+                modes.append(data)
+
+            def read(self, *args):
+                raise OSError("timeout")
+
+        class Dev:
+            def __init__(self):
+                self.device_capability = SimpleNamespace(fclk_can=48000000, feature=feature)
+                self.gs_usb = Usb()
+
+            def set_timing(self, *args):
+                pass
+
+        class Bus:
+            def __init__(self, **kw):
+                self.gs_usb = Dev()
+
+            def shutdown(self):
+                pass
+
+        class DeviceMode:
+            def __init__(self, mode, flags):
+                self.mode, self.flags = mode, flags
+
+            def pack(self):
+                return (self.mode, self.flags)
+
+        pkg, mod, structs = ModuleType("gs_usb"), ModuleType("gs_usb.gs_usb"), ModuleType("gs_usb.gs_usb_structures")
+        mod.GsUsb = SimpleNamespace()
+        structs.DeviceMode = DeviceMode
+        for p in (mock.patch.dict("sys.modules", {"gs_usb": pkg, "gs_usb.gs_usb": mod,
+                                                  "gs_usb.gs_usb_structures": structs}),
+                  mock.patch.object(can, "Bus", Bus),
+                  mock.patch.object(adapter_mod, "_gs_usb_options", lambda spec, kw: None),
+                  mock.patch.object(adapter_mod, "_gs_usb_release", lambda bus: None),
+                  mock.patch.object(adapter_mod._Lock, "acquire", lambda self: True),
+                  mock.patch.object(adapter_mod._Lock, "release", lambda self: None)):
+            p.start()
+            self.addCleanup(p.stop)
+        return modes
+
+    def test_gs_usb_listen_only(self):
+        modes = self._gs_usb(0xFFFF)
+        opened = adapter_mod.open(parse("gs_usb:0"), 250000, listen_only=True)
+        self.assertTrue(opened.listen_only)
+        self.assertEqual(modes[-1][0], adapter_mod.GS_MODE_START)
+        self.assertTrue(modes[-1][1] & adapter_mod.GS_LISTEN_ONLY)
+        opened.close()
+
+    def test_gs_usb_without_listen_only_refuses_a_listen_only_open(self):
+        modes = self._gs_usb(0xFFFF & ~adapter_mod.GS_LISTEN_ONLY)
+        with self.assertRaises(AdapterError) as e:
+            adapter_mod.open(parse("gs_usb:0"), 250000, listen_only=True)
+        self.assertIn("gs_usb:0", str(e.exception))
+        self.assertIn("this adapter cannot listen only", str(e.exception))
+        self.assertNotIn(adapter_mod.GS_MODE_START, [m[0] for m in modes])  # never started: nothing acknowledged
+        # A normal open still works.
+        opened = adapter_mod.open(parse("gs_usb:0"), 250000)
+        self.assertFalse(opened.listen_only)
+        opened.close()
+
+    def test_bitrate_check_without_listen_only_listens_in_normal_mode(self):
+        # The connect's bit rate check asks for listen-only where the adapter
+        # can; one that cannot opens normally and says so.
+        from canworks.localbus import core as core_mod
+        modes = self._gs_usb(0xFFFF & ~adapter_mod.GS_LISTEN_ONLY)
+        with mock.patch.object(core_mod, "check_bitrate"):
+            core = core_mod.acquire(parse("gs_usb:0"), 250000, listen_s=0.01)
+        try:
+            self.assertFalse(core.opened.listen_only)
+            self.assertFalse(any(m[1] & adapter_mod.GS_LISTEN_ONLY for m in modes))
+        finally:
+            core_mod.release(core)
 
     def test_others_open_normally(self):
         bus = mock.Mock(side_effect=lambda **kw: FakeBus(**kw))
@@ -151,6 +234,46 @@ class ListenOnly(unittest.TestCase):
         self.assertFalse(opened.listen_only)
         self.assertEqual(opened.confirm, adapter_mod.CONFIRM_NO_ERRORS)
         opened.close()
+
+
+class ListenOnlyNetwork(Base):
+    def test_connects_without_the_probe_and_stays_listen_only(self):
+        watch = can.Bus(interface="virtual", channel=self.ch)
+        self.addCleanup(watch.shutdown)
+        c = self.client(allow_changes=True, listen_only=True)
+        self.assertTrue(c.core.listen_only)
+        self.assertEqual(c.core.bitrate_check["result"], "unconfirmed")
+        self.assertIsNone(watch.recv(0.1))  # no LSS probe on 0x7E5, nothing at all
+        with self.assertRaises(diag.DiagError) as e:
+            c.send_frame(0x123, b"\x01")
+        self.assertIn("listen-only", str(e.exception))
+        self.assertIsNone(watch.recv(0.05))
+
+    def test_normal_network_probes_a_silent_bus(self):
+        watch = can.Bus(interface="virtual", channel=self.ch)
+        self.addCleanup(watch.shutdown)
+        c = self.client()
+        self.assertFalse(c.core.listen_only)
+        msg = watch.recv(0.5)
+        self.assertEqual(msg.arbitration_id, 0x7E5)
+
+    def test_adapter_without_listen_only_is_refused(self):
+        from canworks.localbus import core as core_mod
+        bus = mock.Mock(side_effect=lambda **kw: FakeBus(**kw))
+        with mock.patch.object(can, "Bus", bus):
+            with self.assertRaises(AdapterError) as e:
+                core_mod.acquire(parse("pcan:PCAN_USBBUS1"), 125000, listen_s=0.01, listen_only=True)
+        self.assertIn("pcan:PCAN_USBBUS1: this adapter cannot listen only", str(e.exception))
+
+    def test_listen_only_from_the_config(self):
+        from canworks.localbus import configinfo
+        cfg = {"schema_version": 2, "networks": [
+            {"name": "sniff", "protocol": "none", "adapter": {"type": "socketcan", "interface": "can0",
+                                                               "bitrate": 250000, "listen_only": True}},
+            {"name": "io", "adapter": {"type": "socketcan", "interface": "can1", "bitrate": 250000},
+             "master": {"node_id": 1}, "nodes": []}]}
+        self.assertTrue(configinfo.listen_only(cfg, "sniff"))
+        self.assertFalse(configinfo.listen_only(cfg, "io"))
 
 
 # ---------------------------------------------------------------------------

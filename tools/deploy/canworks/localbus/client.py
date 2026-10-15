@@ -80,10 +80,11 @@ class LocalBus:
     "expect": {vendor_id, product_code, revision_number, serial_number}}}.
     `allow_changes` is the session switch; `force` is the session's --force: LSS
     while another master is active, and sdo_write, nmt and scan while a node
-    is OPERATIONAL."""
+    is OPERATIONAL. `listen_only` (the network's adapter.listen_only) connects
+    without the bit rate check's probe and keeps the adapter listen-only."""
 
     def __init__(self, spec, bitrate, allow_changes=False, force=False, config=None, network=None,
-                 timeout=5.0, listen_s=None, check_node=None):
+                 timeout=5.0, listen_s=None, check_node=None, listen_only=False):
         self.spec, self.bitrate = spec, bitrate
         self.allow_changes, self.force = bool(allow_changes), bool(force)
         self.config = dict(config or {})
@@ -91,6 +92,7 @@ class LocalBus:
         self.timeout = timeout
         self.listen_s = listen_s
         self.check_node = check_node  # the bit rate check's SDO read on a silent bus (adapters without echo)
+        self.listen_only = bool(listen_only)  # the network's adapter.listen_only: no probe, nothing sent
         self.core = None
         self.info = None
         self.trace_after = None
@@ -115,7 +117,7 @@ class LocalBus:
         try:
             self.core = core_mod.acquire(self.spec, self.bitrate,
                                          core_mod.LISTEN_S if self.listen_s is None else self.listen_s,
-                                         self.check_node)
+                                         self.check_node, self.listen_only)
         except adapter_mod.AdapterError as e:
             raise DiagError("usage" if e.kind == "usage" else e.kind, str(e))
         self.info = self.request("hello")
