@@ -266,8 +266,8 @@ SCHEMA_FILE = "canworks.v%d.schema.json"
 def lowest_version(cfg):
     """The config in the lowest schema version that holds it (canopen-config-
     contract): a version 2 file with one network that has no name of its own
-    (none, or its interface's) becomes version 1, its diagnostics back in the
-    master. Anything else comes back as it is, also a file the checks will
+    (none, or its interface's) becomes version 1, its diagnostics and CiA
+    309-3 gateway back in the master. Anything else comes back as it is, also a file the checks will
     refuse, so they report it as the user wrote it. A bridge config stays
     version 2: the bridge object needs it."""
     if not isinstance(cfg, dict) or cfg.get("schema_version") != 2 or not isinstance(cfg.get("networks"), list) \
@@ -277,21 +277,24 @@ def lowest_version(cfg):
     adapter, master, name = net.get("adapter"), net.get("master"), net.get("name")
     if name not in (None, "") and not (isinstance(adapter, dict) and name == adapter.get("interface")):
         return cfg
-    if any(k not in ("name", "adapter", "master", "nodes") for k in net) or \
-            (isinstance(master, dict) and "diagnostics" in master) or \
-            ("diagnostics" in cfg and not (isinstance(cfg["diagnostics"], dict) and isinstance(master, dict))):
+    if any(k not in ("name", "adapter", "master", "nodes") for k in net):
         return cfg
+    for key in ("diagnostics", "cia309"):
+        if (isinstance(master, dict) and key in master) or \
+                (key in cfg and not (isinstance(cfg[key], dict) and isinstance(master, dict))):
+            return cfg
     out = {}
     for k, v in cfg.items():
         if k == "networks":
             out.update((key, net[key]) for key in ("adapter", "master", "nodes") if key in net)
-        elif k != "diagnostics":
+        elif k not in ("diagnostics", "cia309"):
             out[k] = 1 if k == "schema_version" else v
     ref = out.get("$schema")
     if isinstance(ref, str) and ref.endswith(SCHEMA_FILE % 2):
         out["$schema"] = ref[:-len(SCHEMA_FILE % 2)] + SCHEMA_FILE % 1
-    if "diagnostics" in cfg:
-        out["master"] = dict(master, diagnostics=cfg["diagnostics"])
+    for key in ("diagnostics", "cia309"):
+        if key in cfg:
+            out["master"] = dict(out["master"], **{key: cfg[key]})
     return out
 
 
