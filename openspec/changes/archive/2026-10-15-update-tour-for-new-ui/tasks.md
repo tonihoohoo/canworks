@@ -1,7 +1,7 @@
 ## 1. Before writing
 
 - [x] 1.1 Check which of #99, #100, #101, #103 and `one-connect-place` are merged; leave out the tour lines of those that are not (proposal, Depends on). At apply: #101 and #102 merged; #99, #100, #103 and `one-connect-place` open, so the device-name, Notes-tab and two-line-tree lines are left out
-- [ ] 1.2 Walk the tour on the current page with the virtual plant on the local simulator runtime (open: the cloud container cannot pull the runtime image. Done instead: every step checked against the page code, the label test, and the Configure steps of chapter 2 run in a browser for the screenshots; the label test found two more stale labels, **On upper loss: zero** and **Feeder empty**)
+- [x] 1.2 Walk the tour on the current page with the virtual plant on the local simulator runtime (2026-10-15 on Windows with Docker and the 0.66.0 image: chapters 1-5, 7, 8, 11, 13 and 14 walked live, every scenario test passes; chapters 6, 9, 10, 12 and 15 checked against the page code at apply. The reset in chapter 5 logs the NMT command but not the boot, which happens between two status polls)
 
 ## 2. Tour
 

@@ -27,4 +27,4 @@
 
 ## 4. Hardware
 
-- [ ] 4.1 On the bench: connect the adapter without scanning; a real node shows its name in the Nodes table; its Object dictionary tab without an EDS shows the standard objects and Read all hides what it lacks
+- [x] 4.1 On the bench: connect the adapter without scanning; a real node shows its name in the Nodes table; its Object dictionary tab without an EDS shows the standard objects and Read all hides what it lacks (2026-10-15 bench on main: the node's name from 0x1008 shows from its heartbeat without a scan; the Object dictionary without an EDS lists the standard objects, Read all: 149 read, 28 not on the device, PDOs past 4 found)
