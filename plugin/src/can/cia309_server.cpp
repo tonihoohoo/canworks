@@ -231,13 +231,14 @@ bool Cia309Server::open_listener() {
   unsigned port = v6 ? ntohs(reinterpret_cast<sockaddr_in6*>(&got)->sin6_port)
                      : ntohs(reinterpret_cast<sockaddr_in*>(&got)->sin_port);
   listen_fd_ = fd;
-  port_ = port;
   warned_listen_ = false;
   std::string mode = cfg_.allow_changes ? "changes allowed (SDO downloads, NMT and LSS)" : "read-only";
   mode += cfg_.allow_force ? ", force allowed on OPERATIONAL nodes" : "";
   log_info("CiA 309-3 gateway listens on %s%u (loopback only; other machines through the diagnostics channel), %s; "
            "networks %s",
            where.c_str(), port, mode.c_str(), numbering_text().c_str());
+  // Published after the log line, so whoever sees the port also sees it logged.
+  port_ = port;
   return true;
 }
 
