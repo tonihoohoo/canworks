@@ -7,7 +7,7 @@ The Commission workspace SHALL open on a **Nodes** table, with and without a con
 - nodes found by a scan or given a node ID by LSS;
 - in Commission a device, nodes added with **Add node from EDS…**.
 
-Each row SHALL show the node ID, name, NMT state as text and shape, time since last heard, last EMCY and EDS; with a config also the boot result, the comparison state and whether the node is simulated or absent. Values older than the last answer SHALL be greyed. Clicking a row or pressing Enter on it SHALL select the node in the tree and open its Status tab.
+Each row SHALL show the node ID, name, NMT state as text and shape, time since last heard, last EMCY and EDS; with a config also the boot result, the comparison state and whether the node is simulated or absent. Values older than the last answer SHALL be greyed. Clicking a row or pressing Enter on it SHALL select the node in the tree and open its Status tab. With a config, the table SHALL be what the tree's network entry opens (see "Tree in Commission with a config"); the node marks of "Live state on the network tree" SHALL use the tree's node mark slot.
 
 #### Scenario: Same home in both modes
 - **WHEN** the user opens Commission with a config, and later opens Commission a device
@@ -301,7 +301,7 @@ The last target and bit rate SHALL be kept in the configurator's settings on thi
 - **THEN** the adapter is closed, the scan, PDO test, SYNC, send jobs and trace recording on it stop, and `canworks-diag --adapter` can open the same adapter
 
 ### Requirement: Keyboard access and announcements
-Everything the pointer can do on the page SHALL be possible with the keyboard: the network tree and the problem list SHALL be in the tab order, the active node marked as current; rows that open something (Nodes table rows, scanned devices, simulated devices) SHALL be focusable and open on Enter or Space; tabs (Trace, the Commission node tabs, Simulation) SHALL be a tab list with the selected tab marked, each tab naming its panel, and Left, Right, Home and End moving between them; every focused control SHALL show a visible focus ring in the accent colour. Progress lines, the problem count, the comparison summary and node state changes on the tree SHALL be polite live regions. Landmarks SHALL not be nested complementary regions, heading levels SHALL not skip, and every table column with only buttons SHALL have a header text for assistive technology.
+Everything the pointer can do on the page SHALL be possible with the keyboard: the network tree SHALL be reachable with one tab stop and work as in "Network tree keyboard", with the open entry marked as selected, and the problem list SHALL be in the tab order; rows that open something (Nodes table rows, scanned devices, simulated devices) SHALL be focusable and open on Enter or Space; tabs (Trace, the node tabs, the Commission node tabs, Simulation) SHALL be a tab list with the selected tab marked, each tab naming its panel, and Left, Right, Home and End moving between them; every focused control SHALL show a visible focus ring in the accent colour. Progress lines, the problem count, the comparison summary and node state changes on the tree SHALL be polite live regions. Landmarks SHALL not be nested complementary regions, heading levels SHALL not skip, and every table column with only buttons SHALL have a header text for assistive technology.
 
 #### Scenario: Open a node with the keyboard
 - **WHEN** focus is on the Nodes table and the user moves to node 5's row and presses Enter
