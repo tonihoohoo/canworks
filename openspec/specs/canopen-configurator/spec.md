@@ -495,11 +495,11 @@ The Problems pane and the messages next to fields SHALL name the place of a prob
 - **THEN** the only problem reads "No nodes yet. Add a node from its EDS, or turn on Online access for a scan-only configuration."
 
 ### Requirement: Narrow window layout
-Below 1000 px the page SHALL keep the problems in view: the node and view list SHALL become a compact bar at the top, and the Problems pane SHALL become a strip under the header showing the problem count, which opens the list. A node's error count SHALL stay next to the node's name.
+Below 1000 px the node and view list SHALL become a compact bar at the top. The bottom panel SHALL stay, with its tab title showing the problem count, so the problems stay in view without a separate strip. A node's error count SHALL stay next to the node's name.
 
 #### Scenario: Problems at 900 px
 - **WHEN** the window is 900 px wide and the config has 4 errors
-- **THEN** the strip under the header reads "4 problems" without scrolling, and opening it lists them
+- **THEN** the bottom panel's tab reads "Problems 4" without scrolling, and opening it lists them
 
 ### Requirement: Export DCF files
 Each node's page SHALL have an "Export DCF" action next to "Remove node", and the header's Export menu SHALL offer "All DCFs" and, while a node page is open, "This node's DCF". The node list item SHALL carry no action of its own: clicking anywhere on it opens the node and nothing else. Both SHALL run the `canopen-dcf-export` export on the config as currently shown on the page, saved or not, and offer the result as a browser download: `node_<id>.dcf` for one node, `<config folder name>_dcf.zip` holding every `node_<id>.dcf` for all. When the config has errors or a DCF fails validation, the configurator SHALL download nothing and SHALL show the messages in the Problems pane, replacing the pane's current list rather than adding to it, so the problem count stays the number of distinct problems. The actions SHALL NOT write any file in the project or config folder.
@@ -598,21 +598,21 @@ When the matching EDS does not say `LSS_Supported=1`, the device SHALL be added 
 - **THEN** the "Store in the device" checkbox is unticked
 
 ### Requirement: Trace view
-The side bar SHALL have a Trace view. Opening, viewing and exporting trace files SHALL work without a connection. Recording SHALL need a connection: in config mode, online access to a runtime; in Commission a device, the open adapter connection, with no runtime host or token. Without one, the hint SHALL name what that mode needs. The view SHALL offer:
+The Trace tool tab SHALL work without a connection for opening, viewing and exporting trace files. Recording and the Send panel SHALL use the connection in the connection bar: a runtime with a config, the adapter in Commission a device. Without a connection, the view SHALL say that recording needs one and offer Connect…, which opens the connect panel. The view SHALL offer:
 - start and stop, capture filters, error frames and clear;
 - "Save to traces folder" (on this PC), open, and "Download" (a file in the chosen format), the two format choices labelled apart;
 - a scrolling decoded trace and a per-identifier table;
 - display filters by node, frame kind (NMT, SYNC, EMCY, heartbeat, SDO, PDO, LSS, error, other), identifier range and text;
 - the graph and trigger settings, and the statistics.
 
-Times SHALL be shown relative to the trace start or as UTC clock time. When the runtime's plugin does not know the trace operations, the view SHALL say that the plugin is too old for traces. Clear and Start SHALL say that the current recording is lost unless it was saved or downloaded, with Cancel as the default. Closing the page or the folder with an unsaved recording SHALL ask first. The frame list SHALL move its selection with the arrow keys, Home, End, Page Up and Page Down. The view's tabs SHALL follow the page's tab pattern (see "Keyboard access and announcements").
+Times SHALL be shown relative to the trace start or as UTC clock time. When the runtime's plugin does not know the trace operations, the view SHALL say that the plugin is too old for traces. Clear and Start SHALL say that the current recording is lost unless it was saved or downloaded, with Cancel as the default. Closing the page or the folder with an unsaved recording SHALL ask first. The frame list SHALL move its selection with the arrow keys, Home, End, Page Up and Page Down. The view's tabs SHALL follow the page's tab pattern (see "Keyboard access and announcements"). A running recording SHALL be listed in the status bar with its frame count and Cancel (stop).
 
 #### Scenario: Start a trace
-- **WHEN** online access is set up and the user opens Trace and presses Start
-- **THEN** decoded frames appear and the statistics update while the bus runs
+- **WHEN** the page is connected to a runtime and the user opens Trace and presses Start
+- **THEN** decoded frames appear, the statistics update while the bus runs, and the status bar lists the recording
 
 #### Scenario: Record while commissioning
-- **WHEN** the user is connected in Commission a device and presses Start in Trace
+- **WHEN** the user is connected to an adapter in Commission a device and presses Start in Trace
 - **THEN** the adapter's frames are recorded and decoded, and no runtime host or token is asked for
 
 #### Scenario: Filter display
@@ -624,8 +624,8 @@ Times SHALL be shown relative to the trace start or as UTC clock time. When the 
 - **THEN** the view says the plugin on the runtime is too old for traces and how to update it
 
 #### Scenario: Open a file without a runtime
-- **WHEN** the project has no online access and the user opens a candump log file in the Trace view
-- **THEN** the frames are shown decoded and can be graphed and exported, and Start says online access must be set up
+- **WHEN** nothing is connected and the user opens a candump log file in the Trace view
+- **THEN** the frames are shown decoded and can be graphed and exported, and recording offers Connect…
 
 #### Scenario: Works offline
 - **WHEN** the PC has no internet access
@@ -906,7 +906,15 @@ The **Bus and master** page SHALL have a **Network** choice, **Real** or **Simul
 - **THEN** the saved config has `"simulate": true` on node 5 only and the banner says node 5 is simulated on the real network
 
 ### Requirement: Simulation view
-The configurator SHALL have a **Simulation** view that connects to the runtime's simulated devices (or to a standalone simulator by address) and shows, per simulated device, whether it runs on a simulated or a real network, its NMT and power state, injected faults and the objects it carries in PDOs with live values, refreshed at least twice a second. A user SHALL be able to set and override values (switches for BOOLEAN and bits, sliders between the EDS limits for numbers), give and edit value sources and expressions with checking as they type, inject and clear every fault the simulator offers from buttons, and add extra devices. Changes made here SHALL be saveable to `simulation.json`. With several networks, the view SHALL show and edit the network chosen in its network picker, and saving SHALL write that network's section of a version 2 file, keeping the other sections; a version 1 file of a several-network config SHALL be offered for conversion to version 2 before the first save. Without **Allow changes** the view SHALL be read-only and say why.
+The configurator SHALL have a **Simulation** tool tab, in both workspaces of a config. It connects either to the runtime's simulated devices, through the connection in the connection bar, or to a standalone simulator by address and token entered in the view. It shows, per simulated device, whether it runs on a simulated or a real network, its NMT and power state, injected faults and the objects it carries in PDOs with live values, refreshed at least twice a second.
+
+A user SHALL be able to:
+- set and override values (switches for BOOLEAN and bits, sliders between the EDS limits for numbers);
+- give and edit value sources and expressions, with checking as they type;
+- inject and clear every fault the simulator offers from buttons;
+- add extra devices.
+
+Changes made here SHALL be saveable to `simulation.json`. With several networks, the view SHALL show and edit the network chosen in its network picker, and saving SHALL write that network's section of a version 2 file, keeping the other sections. A version 1 file of a several-network config SHALL be offered for conversion to version 2 before the first save. Without **Allow changes** the view SHALL be read-only and say why. With the Runtime target and no connection, the view SHALL offer Connect…, which opens the connect panel, and the simulation file SHALL stay editable.
 
 #### Scenario: Move a sensor value by hand
 - **WHEN** a user drags the slider of node 5's 0x7130:1 to 900 in the Simulation view
@@ -919,6 +927,10 @@ The configurator SHALL have a **Simulation** view that connects to the runtime's
 #### Scenario: Save one network's section
 - **WHEN** the config has networks `io` and `motion`, the picker shows `motion`, and the user saves a drive setting for node 4
 - **THEN** `simulation.json` is version 2, its `motion` section has the setting and its `io` section is unchanged
+
+#### Scenario: Runtime target uses the bar's connection
+- **WHEN** the page is connected to the local simulator runtime and the user opens Simulation with the Runtime target
+- **THEN** live values show without asking for a host or token
 
 ### Requirement: Scenarios in the configurator
 The Simulation view SHALL list the scenarios of the simulation file, let a user create and edit them as a list of steps with checking, start and stop them, and show the running step, the time and the result of each expect, with failed expects showing the condition and the value seen.
@@ -1003,17 +1015,19 @@ The page header SHALL have an "Export documentation" action. It SHALL run the `c
 - **THEN** nothing is downloaded and the Problems pane shows the error
 
 ### Requirement: Commission a device without a config
-The configurator's start page SHALL offer "Commission a device". It opens USB adapter commissioning without any project or config. The side bar SHALL have four items:
-- **Bus and master** (see "Bus and master in commissioning");
-- **Nodes** (see "Nodes in commissioning");
-- **Trace**;
-- **Frame lab**.
+The configurator's start page SHALL offer "Commission a device". It opens the Commission workspace with no project or config, connected only through a USB adapter on this PC (see "Connect panel"). Its tabs SHALL be **Nodes** (see "Nodes in commissioning"), **Trace** and **Frame lab**, and its bottom panel SHALL hold the commissioning log.
 
 The object dictionary view SHALL take the EDS from the scan match in the EDS library, from Add node from EDS…, or picked by the user. LSS, Parameters (backup, compare, restore, store, write configuration, restore defaults) and the PDO test SHALL be on the Nodes tab and each node's page. "Add as node" SHALL NOT be offered. Instead, each node's page SHALL offer "Add to a config…". It picks a project or standalone config folder and opens it with the device added as an unsaved node: node ID, EDS imported, serial number, and LSS assignment ticked when the node ID was set by LSS in this session and the device's EDS says `LSS_Supported=1`. With an EDS without LSS, the node SHALL be added without it and the page SHALL say why.
 
 There SHALL be no Steps panel and no bit rate detection.
 
-In this mode the page SHALL show no config editing: no Project or Export menu, no Save and no Problems pane. Nothing SHALL suggest a config is being edited. This mode SHALL connect only through a USB adapter on this PC, and no text in it SHALL link to a page the mode does not show.
+In this mode the page SHALL show no config editing:
+- no workspace switch;
+- no Project or Export menu;
+- no Save;
+- no Problems.
+
+Nothing SHALL suggest a config is being edited, and no text SHALL link to a page the mode does not show.
 
 #### Scenario: New device on the desk
 - **WHEN** the user opens "Commission a device", connects to an adapter at 250 kbit/s with "Allow changes" on, finds an unconfigured device with LSS on the Nodes tab and gives it node ID 12
@@ -1021,15 +1035,15 @@ In this mode the page SHALL show no config editing: no Project or Export menu, n
 
 #### Scenario: Nothing to save
 - **WHEN** the user opens "Commission a device"
-- **THEN** the header shows the mode badge, the theme choice and Close only, the side bar lists Bus and master, Nodes, Trace and Frame lab, and no problem is reported
+- **THEN** the header shows the title, the settings menu and Close only, the tabs are Nodes, Trace and Frame lab, the connection bar shows "Not connected" with Connect…, and no problem is reported
 
 #### Scenario: Guided commissioning
 - **WHEN** the user connects at the bus's bit rate, gives the device node ID 12 by LSS on the Nodes tab, writes a configuration from a DCF on node 12's page and backs it up
-- **THEN** each action is in the commissioning log with its result, and the page shows no Steps panel
+- **THEN** each action is in the Log tab of the bottom panel with its result, and the page shows no Steps panel
 
 #### Scenario: Runtime choice not offered
 - **WHEN** the user opens "Commission a device" on a PC whose configurator last connected to a runtime
-- **THEN** Bus and master shows the USB adapter form, with no Runtime choice and no "Online access is off for this config" text
+- **THEN** the connect panel shows the USB adapter form, with no Runtime choice and no "Online access is off for this config" text
 
 #### Scenario: Carry the device into a config
 - **WHEN** the user presses "Add to a config…" on node 12's page after setting node ID 12 by LSS and picks a standalone config folder
@@ -1126,7 +1140,18 @@ Edits of the draft SHALL be undoable with Ctrl+Z (Cmd+Z on macOS) and redoable w
 - **THEN** the field shows 100 again and the Save button reads as dirty only if other edits remain
 
 ### Requirement: Header menus
-The header SHALL show, left to right: the title and mode badge, the theme choice, Reload from disk, Close, a Project menu (Move into project…, New editor project…; standalone mode only), an Export menu (All DCFs, This node's DCF, DBC with its SDO-frames choice, Documentation) and Save as the only primary button. Menus SHALL open on click or Enter, close on Escape or a click elsewhere, and SHALL be navigable with the arrow keys. The header SHALL fit on one line at 1000 px.
+The header SHALL show, left to right:
+- the title;
+- the workspace switch (see "Workspaces");
+- the config's folder name with an unsaved mark;
+- a settings menu with the theme choice;
+- Reload from disk;
+- Close;
+- a Project menu (Move into project…, New editor project…; standalone mode only);
+- an Export menu (All DCFs, This node's DCF, DBC with its SDO-frames choice, Documentation);
+- Save as the only primary button.
+
+The tool tabs SHALL be on a row under it. Menus SHALL open on click or Enter, close on Escape or a click elsewhere, and SHALL be navigable with the arrow keys. The header SHALL fit on one line at 1000 px. In Commission a device the header SHALL show only the title, the settings menu and Close.
 
 #### Scenario: Export a DBC from the menu
 - **WHEN** the user opens Export, picks "SDO: configured objects" and clicks DBC
@@ -1135,6 +1160,10 @@ The header SHALL show, left to right: the title and mode badge, the theme choice
 #### Scenario: One line
 - **WHEN** the window is 1000 px wide in standalone mode
 - **THEN** the header's actions are on one line
+
+#### Scenario: Theme from the settings menu
+- **WHEN** the user opens the settings menu and picks Dark
+- **THEN** the page turns dark and the choice is kept in `ui.json`
 
 ### Requirement: Node page sections
 A node page SHALL have a section index under its heading that stays in view while the page scrolls, with an entry per section (Node, Supervision, Emergency, Axis, Advanced, Inputs, Outputs, Startup SDO writes, SDO variables), the current section marked as the page scrolls and each entry scrolling to its section. Sections that can be empty (Startup SDO writes, SDO variables) SHALL be collapsed when empty, with their count and their add action visible in the summary, and open when they have entries or a problem. Objects SHALL be mapped from within the PDO block they go into ("Add entry…" per PDO, listing that direction's mappable objects), with "Map all" kept for device-mapped PDOs. Editing the node's name SHALL update the side bar as the user types, and adding a node SHALL put focus in its name field.
@@ -1201,7 +1230,17 @@ It SHALL offer NMT Start for the node, and SYNC with a period (off by default). 
 - **THEN** the frame is sent and the RPDO's sent count goes up by one
 
 ### Requirement: Commissioning log
-In Commission a device, the configurator SHALL record every change made through the page in this session: SDO write, NMT, LSS set ID, set bit rate and store, write configuration, restore defaults, and store. Each entry SHALL have the UTC time, node, what was done and the result. "Save log" SHALL download `node<N>-commissioning-<time>.txt` with the device identity and EDS name at the top. The log SHALL NOT contain host names or tokens and SHALL NOT be written to any project. The log SHALL belong to the commissioning session. Leaving Commission a device (Close, or "Add to a config…") with entries not saved SHALL ask whether to save the log first. The log SHALL then be cleared. In config mode, no commissioning log SHALL be recorded or shown.
+In Commission a device, the configurator SHALL record every change made through the page in this session:
+- SDO write;
+- NMT;
+- LSS set ID, set bit rate and store;
+- write configuration;
+- restore defaults;
+- store.
+
+Each entry SHALL have the UTC time, node, what was done and the result. The log SHALL be shown in the bottom panel's Log tab with its count. "Save log" there SHALL download `node<N>-commissioning-<time>.txt` with the device identity and EDS name at the top. The log SHALL NOT contain host names or tokens and SHALL NOT be written to any project.
+
+The log SHALL belong to the commissioning session. Leaving Commission a device (Close, or "Add to a config…") with entries not saved SHALL ask whether to save the log first. The log SHALL then be cleared. With a config open, no commissioning log SHALL be recorded or shown, in either workspace.
 
 #### Scenario: Save the record
 - **WHEN** the user gave the device node ID 12, wrote a configuration and stored it, then pressed Save log
@@ -1421,15 +1460,15 @@ The address the configurator opens in the browser SHALL carry a one-time code th
 - **THEN** the server refuses the code and does not set a session cookie
 
 ### Requirement: Discovered and remembered runtimes in the connect box
-The online view's connect box SHALL list runtimes found by discovery and remembered runtimes by name, next to typing an address. Choosing one SHALL connect by the automatic path choice; the user SHALL never have to choose between the local network and the link.
+With a config, the connect panel SHALL list runtimes found by discovery and remembered runtimes by name, next to typing an address. Choosing one SHALL connect by the automatic path choice; the user SHALL never have to choose between the local network and the link.
 
 #### Scenario: Pick a discovered runtime
-- **WHEN** the connect box opens on a LAN with one advertised runtime
+- **WHEN** the connect panel opens on a LAN with one advertised runtime
 - **THEN** the runtime is listed by name and address, and choosing it and entering the token connects
 
 #### Scenario: Same runtime from home
 - **WHEN** the user picks the same runtime later from another network and the PC is paired and internet access is on
-- **THEN** the online view connects with the same steps and shows `internet direct` or `internet relayed`
+- **THEN** the connection is made with the same steps and the connection bar shows `internet direct` or `internet relayed`
 
 ### Requirement: Automatic pairing and paired PCs
 After a successful direct login to a runtime that advertises a link ID, the configurator SHALL pair the PC with the same token in the background. The Online access section SHALL show **Reachable from other networks** (sets `remote_link.internet`), an optional relay URL list, and, on **Show paired PCs** when this PC knows the token and the runtime has a link ID, the paired PCs with **Remove**. When internet access is on and the PC has just been paired, the online view SHALL say once that this PC can now reach the runtime from other networks.
@@ -1443,11 +1482,15 @@ After a successful direct login to a runtime that advertises a link ID, the conf
 - **THEN** that PC is removed and its open sessions end
 
 ### Requirement: Path and round trip in the online view
-The online view SHALL show the path (`LAN`, `internet direct`, `internet relayed`) and the measured round trip, amber above 100 ms and red above 300 ms. LSS fast scan and a PDO test with a SYNC period SHALL ask for confirmation when the path is relayed or the round trip is above 100 ms.
+On a runtime connection, the connection bar SHALL show the path (`LAN`, `internet direct`, `internet relayed`) and the measured round trip, amber above 100 ms and red above 300 ms. LSS fast scan and a PDO test with a SYNC period SHALL ask for confirmation when the path is relayed or the round trip is above 100 ms.
 
 #### Scenario: LSS on a relayed path
 - **WHEN** the path is `internet relayed` and the user starts an LSS fast scan
 - **THEN** a confirmation explains that the scan runs on the runtime but results and stop commands arrive late, and nothing is sent until the user confirms
+
+#### Scenario: Round trip in the bar
+- **WHEN** the runtime answers in 150 ms over `internet direct`
+- **THEN** the connection bar shows "internet direct · 150 ms" in amber
 
 ### Requirement: Links table
 Each CANopen master network SHALL have a Links page with one row per link: name, producer (node and one of its configured TPDOs, picked from lists), COB-ID (shown, taken from the producer), consumers, and on PLC stop (follow or keep). Adding a consumer SHALL offer the consumer node's RPDOs from its EDS that are not in its `rx_pdos` or another link, and SHALL fill its entries from the producer layout: objects of matching size from the consumer's RPDO-mappable objects to pick per position, or a dummy entry, or the device mapping when the consumer's mapping is fixed. The page SHALL show both layouts side by side as byte grids with each position's status. Each consumer row SHALL have a "watch producer" checkbox that adds or removes the producer in the consumer's `heartbeat_watch`, ticked by default when the producer has a heartbeat. On the producer's TPDO settings the configurator SHALL show which link it feeds and allow its entries without a PLC address.
@@ -1530,34 +1573,14 @@ The node page's Emergency (EMCY) section SHALL edit `emcy_cob_id`: Device (the d
 - **WHEN** the user types node 6's TPDO 1 COB-ID as node 5's EMCY COB-ID
 - **THEN** the Check reports node 5's `emcy_cob_id` clashing with node 6's TPDO 1
 
-### Requirement: Bus and master in commissioning
-In Commission a device, the "Bus and master" tab SHALL hold everything about the connection:
-- the adapter (picked from the found adapters, with Refresh, or typed);
-- the bit rate (picked by the user, with no detection);
-- "Device's node ID, to check the bit rate", shown for adapters that cannot report a sent frame;
-- Allow changes;
-- Connect, and Disconnect while connected;
-- the bit rate check result and how it was confirmed;
-- the bus state and error counters when the adapter reports them;
-- another master with what was seen and since when;
-- the commissioning log count with Save log.
-
-A refused bit rate check SHALL show the backend's reason in the tab and leave the form filled in. A connection that ends (see `canopen-local-bus`, "Bus errors end the connection") SHALL show its reason there. Disconnect SHALL close the adapter and stop the scan, PDO test, SYNC, raw send jobs and trace recording that use it. Allow changes SHALL take effect on the open connection without reconnecting, and SHALL start off for every new connection. The adapter and bit rate SHALL be kept in the configurator's settings on this PC, never in a project.
-
-#### Scenario: Wrong bit rate refused
-- **WHEN** the bus runs at 500 kbit/s and the user connects at 1000 kbit/s
-- **THEN** the tab says the bus does not run at 1000 kbit/s, nothing is shown as connected, and the user can pick 500 kbit/s and connect again without replugging the adapter
-
-#### Scenario: Disconnect
-- **WHEN** the user is connected and presses Disconnect
-- **THEN** the adapter is closed, the tab shows the connect form, and `canworks-diag --adapter` can open the same adapter
-
-#### Scenario: Allow changes on an open connection
-- **WHEN** the user is connected read-only and ticks Allow changes
-- **THEN** write controls are enabled without reconnecting, and no "another master" message appears
-
 ### Requirement: Nodes in commissioning
-In Commission a device, the "Nodes" tab SHALL list the devices of this session: those heard (heartbeat or boot-up), found by a scan, given a node ID by LSS, or added with **Add node from EDS…**. Each SHALL show its node ID, name, NMT state, time since last heard and last EMCY. **Add node from EDS…** SHALL take a node ID and an EDS file and add the device to the list with that EDS, kept in this page only. The tab SHALL have **Scan the bus** with progress and **Cancel**, which stops the scan and keeps the devices found so far. It SHALL also have the devices without a node ID panel (LSS find, Set node ID, Set bit rate). Clicking a device SHALL open its page with the object dictionary, Parameters, PDO test and notes tabs, and **Add to a config…**. Before a connection exists, the tab SHALL say that Bus and master connects first, with a link to it.
+In Commission a device, the "Nodes" tab SHALL list the devices of this session: those heard (heartbeat or boot-up), found by a scan, given a node ID by LSS, or added with **Add node from EDS…**. Each SHALL show its node ID, name, NMT state, time since last heard and last EMCY. **Add node from EDS…** SHALL take a node ID and an EDS file and add the device to the list with that EDS, kept in this page only.
+
+The tab SHALL have:
+- **Scan the bus**, with progress on the tab and in the status bar, and **Cancel**, which stops the scan and keeps the devices found so far;
+- the devices without a node ID panel (LSS find, Set node ID, Set bit rate).
+
+Clicking a device SHALL open its page with the object dictionary, Parameters, PDO test and notes tabs, and **Add to a config…**. Before a connection exists, the tab SHALL say that it needs a connection, with a button that opens the connect panel.
 
 #### Scenario: Device that does not answer the scan
 - **WHEN** a device in STOPPED state is on the bus and the user adds node 23 with its EDS through Add node from EDS…
@@ -1567,9 +1590,167 @@ In Commission a device, the "Nodes" tab SHALL list the devices of this session: 
 - **WHEN** a scan is running and the user presses Cancel
 - **THEN** the scan stops within a second and the devices found so far stay listed
 
+#### Scenario: Not connected yet
+- **WHEN** the user opens the Nodes tab before connecting and closes the connect panel
+- **THEN** the tab says it needs a connection and its button opens the connect panel
+
 ### Requirement: Network picker in online and trace views
-The online view and the trace view SHALL each have a network picker when the runtime reports more than one network. Each SHALL show and act on the picked network only. The picker SHALL start on the network whose tab is open.
+When the runtime reports more than one network, the connection bar SHALL have a network picker. The Commission pages, Trace and Simulation SHALL show and act on the picked network only. The picker SHALL start on the network whose tab is open in Configure.
 
 #### Scenario: Online view of the second network
-- **WHEN** the runtime runs `io` and `drives` and the user picks `drives` in the online view
-- **THEN** the view shows `drives`' bus state and nodes, and SDO, NMT, parameter and object dictionary actions go to `drives`
+- **WHEN** the runtime runs `io` and `drives` and the user picks `drives` in the connection bar
+- **THEN** the Commission workspace shows `drives`' bus state and nodes, and SDO, NMT, parameter and object dictionary actions go to `drives`
+
+### Requirement: Workspaces
+With a config open, the header SHALL have a **Configure | Commission** switch:
+- **Configure** SHALL show the config pages.
+- **Commission** SHALL show the live view of the runtime as its **Nodes** tab, with the node list and node pages of the online view.
+
+Commission a device SHALL open in Commission and SHALL show no switch. Switching workspace SHALL keep the draft, the connection and every running job. The workspace SHALL be kept on this PC and SHALL come back after a page reload. A link to a page of the other workspace (a problem, "Back to the online view") SHALL switch to that workspace. The first time a config opens with this version, the switch SHALL show a note that the Online view is now the Commission workspace, until the user closes it or switches workspace; it SHALL NOT show again on this PC.
+
+#### Scenario: Switch while editing
+- **WHEN** the user has an unsaved change in Configure and switches to Commission and back
+- **THEN** the change is still in the draft, Save still reads "Save", and the connection is unchanged
+
+#### Scenario: Reload keeps the workspace
+- **WHEN** the user is in Commission and reloads the page
+- **THEN** the page opens in Commission
+
+#### Scenario: No switch without a config
+- **WHEN** the user opens Commission a device
+- **THEN** the header has no Configure | Commission switch
+
+### Requirement: Tool tabs
+Next to the workspace's own tab (**Network** in Configure, **Nodes** in Commission), the header SHALL have tool tabs:
+- **Variable declarations** in Configure;
+- **Simulation** in both workspaces of a config;
+- **Trace** and **Frame lab** in every workspace.
+
+A tool tab SHALL use the full page width, with no side bar and no bottom panel. The side bar SHALL list no tools. The tabs SHALL follow the page's tab pattern (see "Keyboard access and announcements").
+
+#### Scenario: Trace from a node page
+- **WHEN** the user is on node 5's page in Configure and picks the Trace tab
+- **THEN** the trace view fills the width of the page, and picking Network returns to node 5's page
+
+#### Scenario: Tools in Commission a device
+- **WHEN** the user opens Commission a device
+- **THEN** the tabs are Nodes, Trace and Frame lab
+
+### Requirement: Connection bar
+A connection bar SHALL show under the header: always in Commission, and in Configure while connected. It SHALL show:
+- the target;
+- for an adapter, the bit rate and how it was confirmed;
+- for a runtime, the path and round trip, and the network picker when the runtime has several networks;
+- the bus state and the frame and error frame counts;
+- another master with what was seen, when one is seen;
+- whether changes are allowed;
+- **Connect…** while not connected, and **Disconnect** while connected.
+
+While connecting it SHALL show the step of the bit rate check and **Cancel**. When a connection ends or stops answering it SHALL show the reason or the age of the last data. Colour SHALL be used only for a fault: an ended or lost connection, error passive or bus-off, a round trip above 100 ms, or another master. State changes SHALL be announced politely, and an ended connection as an alert.
+
+#### Scenario: Visible on every page
+- **WHEN** the user is connected to an adapter at 500 kbit/s and opens Frame lab
+- **THEN** the bar still shows the adapter, "500 kbit/s" with how it was confirmed, the bus state and Disconnect
+
+#### Scenario: Ended connection
+- **WHEN** the adapter goes bus-off while the user is on a node's Object dictionary tab
+- **THEN** the bar turns to the fault colour, says the connection ended on bus-off, offers Connect…, and a screen reader announces it
+
+#### Scenario: Neutral when well
+- **WHEN** the connection is up with no errors and no other master
+- **THEN** the bar uses no warning or error colour
+
+### Requirement: Connect panel
+**Connect…** SHALL open one connect panel. It SHALL be the only place to connect.
+
+In Commission a device the panel SHALL offer a USB adapter only:
+- the found adapters with Refresh, or a typed target;
+- the bit rate, picked by the user, with no detection and no default;
+- "Device's node ID, to check the bit rate", for adapters that cannot report a sent frame;
+- **Allow changes**, unticked;
+- **Connect**.
+
+A refused bit rate check SHALL keep the panel open with the reason and the form filled in.
+
+With a config the panel SHALL offer a runtime only:
+- the found and remembered runtimes, the host field and **Local simulator runtime**;
+- the token prompt when this PC has no matching token;
+- **Connect**.
+
+When the config's online access is off, the panel SHALL say so and link to Configure → Bus and master.
+
+The last target and bit rate SHALL be kept in the configurator's settings on this PC, never in a project. Entering Commission while not connected SHALL connect to the runtime at once when this PC has its host and a matching token and the user did not disconnect; otherwise it SHALL open the panel, once per folder or commissioning session. A USB adapter SHALL always need Connect, because of the bit rate check.
+
+#### Scenario: Wrong bit rate refused
+- **WHEN** the bus runs at 500 kbit/s and the user connects at 1000 kbit/s in the panel
+- **THEN** the panel stays open, says the bus does not run at 1000 kbit/s, and the user can pick 500 kbit/s and connect without replugging the adapter
+
+#### Scenario: Runtime needs a token
+- **WHEN** the user picks a found runtime and this PC has no token for the config
+- **THEN** the panel asks for the token, accepts it only if it matches the config's verifier, and connects
+
+#### Scenario: Disconnect frees the adapter
+- **WHEN** the user presses Disconnect in the bar while connected to an adapter
+- **THEN** the adapter is closed, the scan, PDO test, SYNC, send jobs and trace recording on it stop, and `canworks-diag --adapter` can open the same adapter
+
+### Requirement: One connection for every view
+The Commission pages, Trace recording and its Send panel, the Simulation view's **Runtime** target and the PDO test SHALL use the connection in the connection bar. None of them SHALL have its own connect form, host field or adapter field. Without a connection, each SHALL say that it needs one, with a button that opens the connect panel. The Simulation view's **Standalone simulator** address and token SHALL stay in the Simulation view, because they reach `canworks-sim`'s control channel, not a bus.
+
+#### Scenario: Trace uses the open connection
+- **WHEN** the user connected to a runtime in Commission and opens Trace in Configure and presses Start
+- **THEN** recording starts through that runtime without asking for a host or token
+
+#### Scenario: Trace without a connection
+- **WHEN** nothing is connected and the user opens Trace
+- **THEN** files can be opened and viewed, and Start is replaced by a note that recording needs a connection with a Connect… button
+
+### Requirement: Allow changes in the connection bar
+On an adapter connection, **Allow changes** SHALL be a switch in the connection bar. It SHALL be off for every new connection, SHALL ask before switching on, and SHALL apply to the open connection without reconnecting. On a runtime connection, the bar SHALL show the runtime's own setting as read-only text with a lock and SHALL say that it is set in Configure → Bus and master → Online access and takes effect after an upload.
+
+#### Scenario: Switch on an open adapter connection
+- **WHEN** the user is connected read-only to an adapter and switches Allow changes on and confirms
+- **THEN** write controls on every page are enabled without reconnecting, and no "another master" message appears
+
+#### Scenario: Runtime decides
+- **WHEN** the user is connected to a runtime whose config has allow changes off
+- **THEN** the bar shows "Read-only (runtime setting)" with no switch
+
+### Requirement: Jobs in the status bar
+A status bar at the bottom of the page SHALL list the running jobs of the session:
+- scan;
+- LSS find;
+- Read all;
+- back up, compare, restore and write configuration;
+- trace recording;
+- PDO test and SYNC;
+- cyclic send jobs.
+
+Each SHALL show a short label and its progress on every page and tool tab, and every job that can be stopped SHALL have **Cancel**. LSS find, which ends by itself within about 15 seconds, SHALL be listed without Cancel. More than two jobs SHALL collapse into a count that opens the list. Cancel of a restore or write configuration SHALL ask first, with keeping it running as the default. While connected through a connection that counts frames (a USB adapter), the status bar SHALL also show the frame rate and the estimated bus load.
+
+#### Scenario: Cancel a scan from another page
+- **WHEN** a scan is running and the user has opened Frame lab
+- **THEN** the status bar shows the scan's progress, and Cancel there stops the scan within a second with the devices found so far kept
+
+#### Scenario: LSS find in the status bar
+- **WHEN** LSS find is searching
+- **THEN** the status bar lists it with the seconds it has run and no Cancel
+
+#### Scenario: Cancel of a restore asks
+- **WHEN** a restore of node 5 is running and the user presses its Cancel in the status bar
+- **THEN** a dialog asks first, with keeping it running as the focused default
+
+### Requirement: Bottom panel
+The page SHALL have a collapsible panel under the page, which stays at the bottom of the window while the page scrolls; whether Problems is open in Configure SHALL be kept on this PC. Its contents SHALL depend on the workspace:
+- **Configure:** a **Problems** tab, with Allow overlap.
+- **Commission a device:** a **Log** tab with the commissioning log and **Save log**.
+- **Commission with a config:** the **Problems** tab, collapsed.
+
+Each tab title SHALL carry its count. There SHALL be no right-hand Problems column.
+
+#### Scenario: Problems under the page
+- **WHEN** the config has 4 errors in Configure
+- **THEN** the panel's tab reads "Problems 4", the page uses the full width beside the side bar, and clicking a problem goes to its field
+
+#### Scenario: Log while commissioning
+- **WHEN** the user gave a device node ID 12 by LSS in Commission a device
+- **THEN** the Log tab reads "Log 1" and Save log downloads the log
