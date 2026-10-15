@@ -6480,11 +6480,12 @@ function focusSignature(e) {
 }
 document.addEventListener("focusin", (ev) => {
   const e = ev.target;
-  if (!(e instanceof Element) || e === document.body) return;
+  // A dialog gives focus back itself when it closes: remember the control outside it.
+  if (!(e instanceof Element) || e === document.body || e.closest("dialog")) return;
   FOCUS.last = e;
   FOCUS.sig = focusSignature(e);
 });
-new MutationObserver(() => {
+function refocus() {
   const a = document.activeElement;
   if ((a && a !== document.body) || !FOCUS.last || document.querySelector("dialog[open]")) return;
   const last = FOCUS.last;
@@ -6495,7 +6496,10 @@ new MutationObserver(() => {
   }
   const next = FOCUS.sig && document.querySelector(FOCUS.sig);
   if (next && !next.disabled && next.getClientRects().length) next.focus();
-}).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled", "hidden"] });
+}
+new MutationObserver(refocus).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled", "hidden"] });
+// Focus can also drop with no change to the page (a dialog closing onto a removed control).
+setInterval(refocus, 250);
 
 // Focus for a control that just became disabled or hidden: the nearest
 // usable control before it in its group (then after it), never the page body.
