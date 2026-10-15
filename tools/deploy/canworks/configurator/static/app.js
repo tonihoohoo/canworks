@@ -41,6 +41,8 @@ function el(tag, attrs, ...children) {
     if (k === "class") e.className = v;
     else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
     else if (k === "dataset") Object.assign(e.dataset, v);
+    // disabled: a reason string disables the control and says why (tooltip and description).
+    else if (k === "disabled" && typeof v === "string") { e.disabled = true; e.title = v; e.setAttribute("aria-description", v); e.dataset.disabledReason = v; }
     else if (v === true) e.setAttribute(k, "");
     else e.setAttribute(k, v);
   }

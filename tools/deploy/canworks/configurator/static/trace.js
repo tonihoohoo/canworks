@@ -1126,14 +1126,14 @@ function renderTrigger(box) {
     [["single", "Single: stop after the post-trigger time"], ["normal", "Normal: mark each hit and keep recording"]].map(([v, l]) => el("option", { value: v, selected: d.mode === v }, l)));
   mode.onchange = () => { d.mode = mode.value; };
   const auto = el("input", { type: "checkbox", checked: !!d.autosave, dataset: { traceTrig: "autosave" } });
-  const autoFmt = el("select", { "aria-label": "Auto-save format", dataset: { traceTrig: "autosave-format" }, disabled: !d.autosave },
+  const autoFmt = el("select", { "aria-label": "Auto-save format", dataset: { traceTrig: "autosave-format" }, disabled: !d.autosave && "Tick Auto-save first." },
     TRACE_FORMATS.map(([v, l]) => el("option", { value: v, selected: d.autosave && d.autosave.format === v }, l)));
   const autoDir = el("input", { type: "text", spellcheck: "false", class: "wide", "aria-label": "Auto-save folder", dataset: { traceTrig: "autosave-folder" },
-    placeholder: (T.st && T.st.traces_dir) || "", disabled: !d.autosave });
+    placeholder: (T.st && T.st.traces_dir) || "", disabled: !d.autosave && "Tick Auto-save first." });
   autoDir.value = d.autosave && d.autosave.folder ? d.autosave.folder : "";
   const syncAuto = () => {
     d.autosave = auto.checked ? { format: autoFmt.value, folder: autoDir.value.trim() } : null;
-    autoFmt.disabled = autoDir.disabled = !auto.checked;
+    for (const x of [autoFmt, autoDir]) Icons.setDisabled(x, !auto.checked && "Tick Auto-save first.");
   };
   auto.onchange = syncAuto;
   autoFmt.onchange = syncAuto;

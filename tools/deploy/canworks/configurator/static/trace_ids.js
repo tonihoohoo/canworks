@@ -117,7 +117,7 @@ function renderIds(box) {
     el("div", { class: "toolbar ids-tools" },
       el("button", { type: "button", dataset: { ids: "set-ref" }, onclick: () => idsReference(idsLive() ? "now" : TI.selectedSeq()),
         title: "Keep the bytes that differ from the data each identifier has now marked" }, "Set reference"),
-      el("button", { type: "button", dataset: { ids: "clear-ref" }, onclick: () => idsReference(null), disabled: true }, "Clear reference"),
+      el("button", { type: "button", dataset: { ids: "clear-ref" }, onclick: () => idsReference(null), disabled: "No reference is set." }, "Clear reference"),
       pause,
       el("span", { class: "muted", id: "ids-status", role: "status", dataset: { ids: "status" } })),
     grid,
@@ -169,7 +169,7 @@ function idsStatus() {
   if (TI.paused) parts.push(`paused, ${TI.pending.size} update${TI.pending.size === 1 ? "" : "s"} waiting`);
   s.textContent = parts.join(" · ");
   const clear = document.querySelector("[data-ids=clear-ref]");
-  if (clear) clear.disabled = !TI.ref;
+  if (clear) Icons.setDisabled(clear, !TI.ref && "No reference is set.");
 }
 
 async function idsReference(at) {

@@ -132,10 +132,10 @@ function txDraw() {
   body.replaceChildren(...[
     el("div", { class: "toolbar" },
       el("button", { type: "button", dataset: { tx: "add" }, onclick: () => txAdd({ id: "", data: "" }, true) }, "Add frame"),
-      el("button", { type: "button", dataset: { tx: "stop-all" }, disabled: !TX.jobs.length, onclick: () => txStop(null) }, "Stop all"),
-      el("button", { type: "button", dataset: { tx: "save" }, disabled: !TX.rows.length, onclick: txSaveFile }, "Save list…"),
+      el("button", { type: "button", dataset: { tx: "stop-all" }, disabled: !TX.jobs.length && "Nothing is being sent.", onclick: () => txStop(null) }, "Stop all"),
+      el("button", { type: "button", dataset: { tx: "save" }, disabled: !TX.rows.length && "The list is empty.", onclick: txSaveFile }, "Save list…"),
       el("label", { class: "file-button", title: "Open a transmit list file (.transmit.json)" }, "Open list…", fileInput),
-      el("button", { type: "button", dataset: { tx: "clear" }, disabled: !TX.rows.length, onclick: txClear }, "Clear list")),
+      el("button", { type: "button", dataset: { tx: "clear" }, disabled: !TX.rows.length && "The list is empty.", onclick: txClear }, "Clear list")),
     blocked ? el("p", { class: "field-msg warning", dataset: { tx: "blocked" } }, blocked + ". The list can still be edited and saved.") : null,
     TX.rows.length ? el("div", { class: "tx-table", role: "table", "aria-label": "Transmit list" },
       el("div", { class: "tx-row tx-head", role: "row" }, ["Name", "ID (hex)", "Ext", "RTR", "Data / DLC", "Period ms", "Count", "Decoded", "State", "Actions"]
@@ -191,19 +191,19 @@ function txRow(r, i, blocked) {
     el("div", { role: "cell" }, r.rtr ? input("dlc", "DLC", "5ch", { placeholder: "0" })
       : input("data", "Data bytes (hex)", "24ch", { placeholder: "40 18 10 01", class: "mono" })),
     el("div", { role: "cell" }, input("period_ms", "Period in ms (empty: one frame)", "8ch", { placeholder: "once" })),
-    el("div", { role: "cell" }, input("count", "Count (empty: no limit)", "7ch", { placeholder: "∞", disabled: !cyclic })),
+    el("div", { role: "cell" }, input("count", "Count (empty: no limit)", "7ch", { placeholder: "∞", disabled: !cyclic && "Only for a cyclic frame: set a period first." })),
     el("div", { role: "cell", class: "tx-preview muted", dataset: { tx: "preview" } }, txPreview(r, invalid)),
     el("div", { role: "cell", class: "tx-state", dataset: { tx: "state" } }, state),
     el("div", { role: "cell", class: "tx-actions" }, action,
       el("details", { class: "menu tx-more" }, el("summary", { "aria-label": "More actions for this frame", title: "More" }, "⋯"),
         el("div", { role: "menu", class: "menu-panel" },
-          el("button", { type: "button", class: "item", role: "menuitem", dataset: { tx: "explain" }, disabled: invalid,
+          el("button", { type: "button", class: "item", role: "menuitem", dataset: { tx: "explain" }, disabled: invalid && "Fix the row first.",
             onclick: () => { txCloseMenus(); traceExplainText(txCandump(r)); } }, "Explain in Frame lab"),
           el("button", { type: "button", class: "item", role: "menuitem", dataset: { tx: "duplicate" },
             onclick: () => { txCloseMenus(); TX.rows.splice(i + 1, 0, txKeyed(txPlain(r))); txSave(); txDraw(); } }, "Duplicate"),
-          el("button", { type: "button", class: "item", role: "menuitem", dataset: { tx: "up" }, disabled: i === 0,
+          el("button", { type: "button", class: "item", role: "menuitem", dataset: { tx: "up" }, disabled: i === 0 && "Already the first frame.",
             onclick: () => { txCloseMenus(); txMove(i, -1); } }, "Move up"),
-          el("button", { type: "button", class: "item", role: "menuitem", dataset: { tx: "down" }, disabled: i === TX.rows.length - 1,
+          el("button", { type: "button", class: "item", role: "menuitem", dataset: { tx: "down" }, disabled: i === TX.rows.length - 1 && "Already the last frame.",
             onclick: () => { txCloseMenus(); txMove(i, 1); } }, "Move down"),
           el("button", { type: "button", class: "item", role: "menuitem", dataset: { tx: "remove" },
             onclick: () => { txCloseMenus(); txRemove(i); } }, "Remove")))),
@@ -228,7 +228,7 @@ function txMessages(r) {
     if (e) e.setAttribute("aria-invalid", err[f] ? "true" : "false");
   }
   const send = row.querySelector("[data-tx=send]");
-  if (send) send.disabled = !!txBlocked() || msgs.length > 0;
+  if (send) Icons.setDisabled(send, txBlocked() || (msgs.length > 0 && "Fix the row first"));
 }
 
 // A text box was left: the row is updated in place, so Tab and clicks reach
@@ -245,14 +245,14 @@ function txEdited(r) {
   const send = row.querySelector("[data-tx=send]");
   if (send) send.textContent = cyclic ? "Start" : "Send";
   const count = row.querySelector("[data-tx=count]");
-  if (count) count.disabled = !cyclic;
+  if (count) Icons.setDisabled(count, !cyclic && "Only for a cyclic frame: set a period first.");
   const preview = row.querySelector("[data-tx=preview]");
   if (preview) preview.textContent = txPreview(r, invalid);
   const state = row.querySelector("[data-tx=state]");
   if (state && !TX.jobs.some((j) => j.key === r._k)) state.textContent = "idle";
   row.classList.remove("refused");
   const explain = row.querySelector("[data-tx=explain]");
-  if (explain) explain.disabled = invalid;
+  if (explain) Icons.setDisabled(explain, invalid && "Fix the row first.");
 }
 
 function txChanged(r) {
