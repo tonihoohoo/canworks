@@ -225,6 +225,10 @@ class Tree(unittest.TestCase):
 
     def test_network_menu_and_add_node(self):
         pg = self.page
+        # File chooser interception goes on with the first "filechooser" listener, sent without
+        # waiting for an answer; a click right after expect_file_chooser() could reach the
+        # page first and open no chooser. A listener from the start keeps it on.
+        pg.on("filechooser", lambda _: None)
         # Rename from the menu.
         net_action(pg, 1, "rename")
         pg.fill('#modal-extra input[data-net="name"]', "axes")
