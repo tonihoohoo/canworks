@@ -1138,9 +1138,11 @@ function fxBuilder() {
     fields = [nodeField, field("code", "Error code (hex)", { value: "1000" }), field("register", "Error register (hex)", { value: "01" }),
       field("manufacturer", "Manufacturer data (hex)", { placeholder: "up to 5 bytes" })];
   }
+  // Redrawn when the node and PDO lists arrive: a message already shown stays.
+  const shown = $("#fx-build-error");
   fxFill(box, el("div", { class: "fx-form" }, el("label", { class: "fx-form-field" }, "Frame", what), fields,
     el("button", { type: "button", class: "primary", dataset: { fxBuild: "go" }, onclick: fxBuild }, "Build and explain")),
-  el("div", { id: "fx-build-error", class: "fx-error", role: "status" }));
+  el("div", { id: "fx-build-error", class: "fx-error", role: "status" }, shown ? shown.textContent : ""));
 }
 
 async function fxBuild() {
