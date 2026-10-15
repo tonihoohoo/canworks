@@ -235,6 +235,12 @@ async function addFound(devices) {
   S.nodesPicked = new Set();
   if (!added) { onlineRedraw(); return; }
   render();
+  // The Add button went with its row: the focus goes to the node's new row, else to Undo.
+  if (document.activeElement === document.body) {
+    const last = devices[devices.length - 1];
+    const to = (last && document.querySelector(`tr[data-draft-node="${last.node_id}"] :is(button, input, select)`)) || document.querySelector("#banner button");
+    if (to) to.focus();
+  }
   problemsAfterCheck(before);
 }
 

@@ -58,6 +58,34 @@ class StateColours(unittest.TestCase):
         for token in STATES + BACKGROUNDS:
             self.assertEqual(t["Auto dark"][token].lower(), t["Dark"][token].lower(), f"Auto dark and Dark differ in {token}")
 
+    def test_no_raw_colours_outside_the_tokens(self):
+        """A rule colours with tokens only: hex, rgb() or a colour word in a
+        declaration (not a token's definition) fails. Not state colours, so
+        allowed: shadows, the bit-field series colours (.raw-cN), the plot's
+        selection, and the 3D machine stage's overlay (always dark)."""
+        static = CSS.parent
+        raw = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(|\b(?:red|green|orange|yellow|lime|blue)\b")
+        bad = []
+        for sheet in (static / "style.css", static / "rawcan.css"):
+            css = re.sub(r"/\*.*?\*/", "", sheet.read_text(), flags=re.S)
+            for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+                selector = " ".join(selector.split())
+                if selector.startswith((".machine-", ".uplot")) or re.fullmatch(r"\.raw-c\d+", selector):
+                    continue
+                for decl in body.split(";"):
+                    prop, _, value = decl.partition(":")
+                    if prop.strip().startswith("--") or prop.strip() == "box-shadow" or not value:
+                        continue
+                    if raw.search(value):
+                        bad.append(f"{sheet.name}: {selector} {{ {decl.strip()} }}")
+        self.assertEqual(bad, [], "use a token such as var(--st-error) instead")
+
+    def test_old_state_names_are_gone(self):
+        static = CSS.parent
+        old = re.compile(r"var\(--(?:ok|warn|error|warn-bg|error-bg)\)")
+        bad = [f.name for f in static.iterdir() if f.suffix in (".css", ".js", ".html") and old.search(f.read_text(encoding="utf-8"))]
+        self.assertEqual(bad, [], "the --ok, --warn and --error aliases were removed: use --st-*")
+
     def test_contrast_helper(self):
         self.assertAlmostEqual(ratio("#000000", "#ffffff"), 21.0, places=1)
         self.assertAlmostEqual(ratio("#777777", "#ffffff"), 4.48, places=2)

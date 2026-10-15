@@ -259,6 +259,39 @@ class Layout(OnlineBase):
                 pg.click("#btn-close")
                 pg.wait_for_selector("#start:not([hidden])")
 
+    def test_forced_colours_and_legend(self):
+        """Windows High Contrast (forced colours): the state icons on the
+        network tree and in the Nodes table keep their shapes in the system
+        text colour; the legend under Settings fits and passes the audit."""
+        pg = self.page
+        with FakePlugin(allow_changes=True) as fp:
+            self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
+            self.remember(fp.runtime)
+            pg.goto(self.server.url)
+            pg.click("#start-project")
+            pg.fill("#browser-path", self.project)
+            pg.click("#browser-open")
+            pg.wait_for_selector("#editor:not([hidden])")
+            pg.click('button[data-view="online"]')
+            pg.wait_for_selector('tr[data-online-node="2"] .state-mark svg.st')
+            pg.wait_for_selector("#tree .tree-mark svg.st")
+            pg.evaluate("() => { document.querySelector('#menu-settings').open = true; document.querySelector('#legend-box').open = true; }")
+            self.assertGreaterEqual(pg.locator("#legend svg.st").count(), 7)
+            self.fits("settings legend")
+            pg.evaluate("() => { document.querySelector('#menu-settings').open = false; }")
+            pg.emulate_media(forced_colors="active")
+            icons = pg.evaluate("""() => [...document.querySelectorAll('#tree svg.st, [data-online=nodes] svg.st')].map((s) => {
+                const r = s.getBoundingClientRect(), cs = getComputedStyle(s);
+                return { state: s.dataset.state, w: r.width, h: r.height, color: cs.color, adjust: cs.forcedColorAdjust,
+                         text: getComputedStyle(document.body).color };
+            })""")
+            self.assertTrue(icons)
+            for i in icons:
+                self.assertGreaterEqual(min(i["w"], i["h"]), 10, i)
+                self.assertEqual(i["adjust"], "none", i)
+                self.assertEqual(i["color"], i["text"], i)
+            pg.emulate_media(forced_colors="none")
+
     def test_standalone_header_and_new_project_dialog(self):
         pg = self.page
         folder = os.path.join(self.dir, "standalone")

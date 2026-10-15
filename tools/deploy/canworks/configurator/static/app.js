@@ -6468,6 +6468,35 @@ function focusPath(w) {
 // The Save button: "Saved" and disabled when the draft equals the file,
 // "Save" when it is dirty, disabled with the error count in its tooltip
 // when the draft has errors (the count itself is in the Problems pane).
+// A view that redraws replaces the focused control with a new one: the
+// keyboard focus moves to the new control of the same id or data attributes
+// instead of dropping to the page body (visual-refresh).
+const FOCUS = { last: null, sig: null };
+function focusSignature(e) {
+  if (e.id) return "#" + CSS.escape(e.id);
+  const attrs = [...e.attributes].filter((a) => a.name.startsWith("data-") && !/^data-(busy|disabled-reason|title-before)$/.test(a.name) || a.name === "aria-label" || a.name === "name");
+  if (!attrs.length) return null;
+  return e.tagName.toLowerCase() + attrs.map((a) => `[${a.name}="${CSS.escape(a.value)}"]`).join("");
+}
+document.addEventListener("focusin", (ev) => {
+  const e = ev.target;
+  if (!(e instanceof Element) || e === document.body) return;
+  FOCUS.last = e;
+  FOCUS.sig = focusSignature(e);
+});
+new MutationObserver(() => {
+  const a = document.activeElement;
+  if ((a && a !== document.body) || !FOCUS.last || document.querySelector("dialog[open]")) return;
+  const last = FOCUS.last;
+  if (last.isConnected) {
+    // Disabled or hidden in place (a Scan button while it scans): next door.
+    if ((last.disabled || !last.getClientRects().length) && !last.dataset.busy) focusNear(last);
+    return;
+  }
+  const next = FOCUS.sig && document.querySelector(FOCUS.sig);
+  if (next && !next.disabled && next.getClientRects().length) next.focus();
+}).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled", "hidden"] });
+
 // Focus for a control that just became disabled or hidden: the nearest
 // usable control before it in its group (then after it), never the page body.
 function focusNear(ctl) {
@@ -6647,6 +6676,8 @@ function showTheme(theme) {
 
 function wireTheme() {
   showTheme(document.documentElement.dataset.theme);
+  // The legend of the state icons, drawn from icons.js so it never drifts from the views.
+  $("#legend").replaceChildren(Icons.legend());
   for (const b of document.querySelectorAll("[data-theme-choice]")) {
     b.onclick = async () => {
       showTheme(b.dataset.themeChoice);

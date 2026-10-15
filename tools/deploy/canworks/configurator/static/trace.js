@@ -1004,7 +1004,7 @@ function drawOverlays(u, t0) {
     ctx.stroke();
     ctx.restore();
   };
-  for (const m of (T.st && T.st.markers) || []) vline(m.time_us, m.kind === "trigger" ? themeColor("--error") : themeColor("--warn"), true);
+  for (const m of (T.st && T.st.markers) || []) vline(m.time_us, m.kind === "trigger" ? themeColor("--st-error") : themeColor("--st-warn"), true);
   if (T.a != null) vline(T.a, themeColor("--accent"), false);
   if (T.b != null) vline(T.b, themeColor("--accent"), true);
 }

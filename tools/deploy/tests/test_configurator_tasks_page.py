@@ -1,17 +1,22 @@
 """Whole user tasks on the configurator page with the keyboard alone, in the
 Light and the Dark theme (visual-refresh): connect to a USB adapter, scan the
-bus, add a found node to a config, map a PDO entry and save, record and save
+bus, add a found node to the draft config, map a PDO entry and save, record and save
 a trace. Each step is audited with axe-core, checks that the focused control
 shows its focus ring and that nothing is clipped (keyboard_only.KeyboardOnly);
 a pointer action fails the test. Against python-can's virtual bus, the fake
 plugin runtime and the local simulator runtime. Needs Playwright, like
 test_configurator_page.py."""
 
+import copy
 import unittest
 
+from canworks import diag
+
+from .fake_diag import SCAN_RESULT, TOKEN, FakePlugin
 from .keyboard_only import KeyboardOnly, PointerUsed
 from .test_configurator_layout import FIT_CHECK, audit
 from .test_configurator_localbus_page import AdapterPage
+from .test_configurator_nodes_page import MATCHING
 
 SCHEMES = ("light", "dark")
 
@@ -48,6 +53,22 @@ class TaskBase(AdapterPage):
             pg.wait_for_selector('#conn-bar [data-conn="target"]:has-text("virtual:%s")' % self.ch)
             self.assertIn("250 kbit/s", pg.inner_text('#conn-bar [data-conn="rate"]'))
             self.assertIn("confirmed", pg.inner_text('#conn-bar [data-conn="rate"]'))
+
+    def open_project(self, kb):
+        """Open the project folder from the start page."""
+        pg = self.page
+        pg.goto(self.server.url)
+        with kb.step("open the project folder"):
+            kb.tab_to("#start-project")
+            kb.press("Enter")
+            pg.wait_for_selector("#browser-path")
+            kb.tab_to("#browser-path")
+            kb.press("Control+A")
+            kb.type(self.project)
+            kb.press("Enter")
+            kb.tab_to("#browser-open")
+            kb.press("Enter")
+            pg.wait_for_selector("#editor:not([hidden])")
 
     def open_tool(self, kb, view):
         """The tool tabs are one tab stop: reach the selected tab, then arrow to the tool."""
@@ -118,18 +139,7 @@ class MapPdo(TaskBase):
     def map_pdo(self, scheme):
         pg = self.page
         kb = self.kb("map a PDO entry", scheme)
-        pg.goto(self.server.url)
-        with kb.step("open the project folder"):
-            kb.tab_to("#start-project")
-            kb.press("Enter")
-            pg.wait_for_selector("#browser-path")
-            kb.tab_to("#browser-path")
-            kb.press("Control+A")
-            kb.type(self.project)
-            kb.press("Enter")
-            kb.tab_to("#browser-open")
-            kb.press("Enter")
-            pg.wait_for_selector("#editor:not([hidden])")
+        self.open_project(kb)
         with kb.step("open node 1 from the tree"):
             kb.tab_to('#tree [role=treeitem][tabindex="0"]')
             kb.press("Home")
@@ -166,6 +176,48 @@ class MapPdo(TaskBase):
 
     def test_map_pdo_dark(self):
         self.map_pdo("dark")
+
+
+class ScanAndAdd(TaskBase):
+    """Scan the bus through the runtime and add a found device to the config."""
+
+    def scan_and_add(self, scheme):
+        pg = self.page
+        with FakePlugin(scan_polls=1) as fp:
+            fp.force_running = True
+            fp.scan_nodes = copy.deepcopy(SCAN_RESULT) + [MATCHING]
+            self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": False})
+            self.remember(fp.runtime)
+            kb = self.kb("scan and add to config", scheme)
+            self.open_project(kb)
+            with kb.step("switch to Commission"):
+                kb.tab_to('#ws [data-ws="commission"]')
+                kb.press("Enter")
+                pg.wait_for_selector('#ws [data-ws="commission"][aria-pressed="true"]')
+                pg.wait_for_selector('tr[data-online-node="2"]')
+            with kb.step("scan the bus"):
+                kb.tab_to('button[data-online="scan"]')
+                kb.press("Enter")
+                # Node 2 runs: the page asks first and Cancel has the focus.
+                pg.wait_for_selector("#modal[open]")
+                kb.expect_focus('#modal button[data-value="cancel"]')
+                kb.tab_to('#modal button[data-value="scan"]')
+                kb.press("Enter")
+                pg.wait_for_selector('[data-nodes="summary"] [data-nodes-filter]', timeout=20000)
+                pg.wait_for_selector('tr[data-not-in-config="5"]')
+            with kb.step("add node 5 to the config"):
+                kb.tab_to('tr[data-not-in-config="5"] button[data-nodes-add]')
+                kb.press("Enter")
+                pg.wait_for_selector('#banner:has-text("Added node 5")')
+                pg.wait_for_selector('tr[data-draft-node="5"]')
+                # The draft is unsaved; the focus went to the new row or to Undo.
+                self.assertTrue(pg.is_visible("[data-unsaved]"))
+
+    def test_scan_and_add_light(self):
+        self.scan_and_add("light")
+
+    def test_scan_and_add_dark(self):
+        self.scan_and_add("dark")
 
 
 class Guard(unittest.TestCase):
