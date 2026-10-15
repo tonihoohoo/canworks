@@ -60,18 +60,24 @@ class J1939Socket {
   }
   // Sends a program message over 8 bytes (the transport protocol) from the
   // bound address, on a socket of its own whose sessions the kernel reports
-  // (send_event). 0 or a negative errno.
-  virtual int send_long(uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data, size_t len) {
+  // (send_event). 0 or a negative errno; on 0, `id` is the number the
+  // kernel gave the session (SOF_TIMESTAMPING_OPT_ID), which its end carries.
+  virtual int send_long(uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data, size_t len,
+                        uint32_t& id) {
+    id = 0;
     return send(pgn, destination, priority, data, len);
   }
-  // The end of the oldest long send not yet reported: 1 with `aborted` (and
-  // `error`, a positive errno, for an abort), 0 when nothing ended yet, -1
-  // when the kernel does not report sessions (a long send counts as done
-  // once the kernel took it).
-  virtual int send_event(bool& aborted, int& error) {
+  // True when the kernel reports the end of each long send (send_event).
+  // Without, a long send counts as done once the kernel took it.
+  virtual bool long_send_events() const { return false; }
+  // The next long send that ended, in any order: 1 with its `id`, `aborted`
+  // (and `error`, a positive errno, for an abort), 0 when no other ended.
+  // Ends of sessions the socket started before it was bound again never come.
+  virtual int send_event(uint32_t& id, bool& aborted, int& error) {
+    (void)id;
     (void)aborted;
     (void)error;
-    return -1;
+    return 0;
   }
 };
 

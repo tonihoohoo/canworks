@@ -247,6 +247,8 @@ class J1939Engine : private AddressClaimer::Actions {
   std::map<uint8_t, Ecu> ecus_;
   static constexpr std::chrono::milliseconds kReplyGap{50};
   static constexpr size_t kRepliedMax = 512;
+  // Timed-out long sends whose late end is waited for (the oldest is forgotten).
+  static constexpr size_t kProgLateMax = 16;
   std::map<uint32_t, clock::time_point> replied_;  // (PGN << 8 | requester) -> last answer
   bool dirty_ = true;
   // Diagnostic messages.
@@ -288,6 +290,7 @@ class J1939Engine : private AddressClaimer::Actions {
     std::vector<uint8_t> data;
     clock::time_point deadline{};
     bool in_flight = false;  // a long send the kernel is running
+    uint32_t id = 0;         // in flight: the kernel's number of its session
   };
   struct ProgRequest {
     uint32_t handle = 0;
@@ -297,11 +300,18 @@ class J1939Engine : private AddressClaimer::Actions {
     bool sent = false;
   };
   void prog_end_all(uint16_t error);
+  // Ends the long sends the kernel runs (the long socket was reopened).
+  void prog_end_long(uint16_t error);
+  // Matches the ended long send sessions to their sends.
+  void prog_long_events();
   void prog_on_message(const J1939Message& m);
   void prog_sync_filter();
   void prog_publish_ecu(clock::time_point now);
   unsigned plc_index_ = 0;
   std::deque<ProgSend> prog_sends_;
+  // The session numbers of long sends that ended by their timeout while the
+  // kernel still ran them: their late ends are dropped.
+  std::deque<uint32_t> prog_late_;
   std::vector<ProgRequest> prog_requests_;
   std::vector<J1939PlcMsgs::Filter> prog_filters_;
   std::vector<J1939PlcMsgs::Job> prog_taken_;
