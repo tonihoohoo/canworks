@@ -20,11 +20,15 @@ A JSON Schema for the notes format SHALL ship with the deploy tool and in the re
 - **THEN** the schema check names that key
 
 ### Requirement: Note fields
-Each entry of `objects` SHALL be an object that MAY have `name` (a copy of the EDS name, ignored when read), `text` (one line, at most 200 characters), `details`, `unit`, `scale` (a non-zero number; shown value = raw value × scale), `values` (decimal raw value to meaning), `bits` (bit number to meaning; empty for a bit field without names) and `manual` (free text such as a page or section).
+Each entry of `objects` SHALL be an object that MAY have `name` (a copy of the EDS name, ignored when read), `text` (one line, at most 200 characters), `details`, `unit`, `scale` (a non-zero number; shown value = raw value × scale), `values` (decimal raw value to meaning), `bits` (bit number to meaning; empty for a bit field without names) and `manual` (free text such as a page or section). Each of these fields except `name` MAY instead be `null`, which clears that field (see Device notes over built-in notes).
 
 #### Scenario: Scaled value
 - **WHEN** an entry has `"unit": "bar", "scale": 0.01` and the raw value is 1234
 - **THEN** the value is shown as 12.34 bar next to the raw 1234
+
+#### Scenario: Cleared field in the schema
+- **WHEN** an entry has `"unit": null`
+- **THEN** the schema check reports nothing for it
 
 ### Requirement: Notes stay on the PC
 Notes files SHALL NOT be copied to the PLC by the deploy tool or read by the plugin, and SHALL NOT change any value written to a device.
@@ -34,11 +38,15 @@ Notes files SHALL NOT be copied to the PLC by the deploy tool or read by the plu
 - **THEN** the upload contains `valve.eds` and no notes file
 
 ### Requirement: Sub-objects inherit the object's note
-A sub-object without its own entry SHALL use the `text`, `details`, `unit`, `scale` and `manual` of its object's entry. It SHALL NOT inherit `values` or `bits`.
+A sub-object without its own entry, or without its own value for a field, SHALL use the `text`, `details`, `unit`, `scale` and `manual` of its object's entry. It SHALL NOT inherit `values` or `bits`. A field the object's device entry sets to `null` SHALL NOT be inherited from the built-in note.
 
 #### Scenario: Eight channels, one note
 - **WHEN** the notes have `"0x6401": {"text": "Analog input value", "unit": "mV"}` and no entries for its sub-objects
 - **THEN** 0x6401 sub 1 to sub 8 are all shown with "Analog input value" and the unit mV
+
+#### Scenario: Built-in unit not inherited by the count
+- **WHEN** the built-in note of 0x6071 has the unit ‰ on its object key and the device notes have `"0x6071": {"unit": null}` and `"0x6071:1": {"unit": "mA"}`
+- **THEN** 0x6071 sub 0 is shown without a unit and sub 1 with mA
 
 ### Requirement: Built-in CiA notes
 The deploy tool SHALL ship notes in the same format for the CiA 301 communication objects and for the CiA 401 and CiA 402 profile objects, written in canworks' own words. The CiA 301 notes SHALL apply to every node. A profile's notes SHALL apply to a node whose EDS gives 0x1000 a default whose low 16 bits are that profile number.
@@ -59,11 +67,15 @@ The built-in notes SHALL include at least the bit names of 0x1001, 0x6040 and 0x
 - **THEN** its meaning is shown as event-driven, manufacturer-specific
 
 ### Requirement: Device notes over built-in notes
-Where both apply, the note of an object SHALL be the device notes file's entry merged field by field over the built-in entry, then the EDS name and limits. The device file SHALL hold only what the user wrote; built-in texts SHALL NOT be copied into it.
+Where both apply, the note of an object SHALL be the device notes file's entry merged field by field over the built-in entry, then the EDS name and limits. A device field set to `null` SHALL remove that field from the merged note; a sub-object's own value SHALL win over its object's `null`. The device file SHALL hold only what the user wrote; built-in texts SHALL NOT be copied into it.
 
 #### Scenario: Override one field
 - **WHEN** the built-in note of 0x6060 has `values` and the device file has `"0x6060": {"values": {"-1": "vendor jog mode"}}`
 - **THEN** the merged note has the vendor value as the only `values`, and the built-in `text` of 0x6060
+
+#### Scenario: Clear an unsupported list
+- **WHEN** the device file has `"0x6098": {"text": "Homing is not supported", "values": null}`
+- **THEN** the merged note of 0x6098 has that text and no value meanings, in the object dictionary, the HTML docs and the merged export
 
 ### Requirement: Export merged notes
 The configurator SHALL offer **Export notes…** for a node with two choices: **My notes**, writing the device notes of its EDS (the identity and every entry with a field other than `name`, with the page's unsaved edits) as `<eds file name>.notes.json`; and **Merged with built-in**, writing the merged notes of every object in its EDS to one file in the same format.
@@ -91,7 +103,7 @@ The configurator SHALL NOT replace an existing notes file. On save it SHALL writ
 - **THEN** the entry of 0x2010 is unchanged, including `x-source`, and 0x2011:1 has the new note
 
 ### Requirement: Notes checks
-The configurator SHALL check each notes file against the schema and its EDS and show findings as warnings in the Problems pane naming the notes file: an object or sub-object the EDS does not have, `values` or `bits` on an object that is not an integer type, `values` or `bits` on an ARRAY or RECORD object key (sub-objects do not inherit them), a bit number beyond the object's size, a `scale` of 0. Findings SHALL NOT block saving.
+The configurator SHALL check each notes file against the schema and its EDS and show findings as warnings in the Problems pane naming the notes file: an object or sub-object the EDS does not have, `values` or `bits` on an object that is not an integer type, `values` or `bits` on an ARRAY or RECORD object key (sub-objects do not inherit them), a bit number beyond the object's size, a `scale` of 0, a `null` field that clears nothing (no built-in or inherited value). Findings SHALL NOT block saving.
 
 #### Scenario: Object removed in a new EDS revision
 - **WHEN** a node's EDS is replaced by a revision without 0x2011 and the notes file still has `0x2011:2`
@@ -101,6 +113,10 @@ The configurator SHALL check each notes file against the schema and its EDS and 
 - **WHEN** the notes file has `"0x6423": {"values": {"128": "controlling"}}` and 0x6423 is a RECORD
 - **THEN** the Problems pane warns that the values of 0x6423 are not used by its sub-objects
 
+#### Scenario: Nothing to clear
+- **WHEN** the notes file has `"0x2010": {"unit": null}` and 0x2010 has no built-in note
+- **THEN** the Problems pane warns that 0x2010 clears its unit, but there is none to clear
+
 ### Requirement: Unreadable notes file
 A notes file that is not valid JSON or has another `format` SHALL give one warning, its notes SHALL NOT be used, and the configurator SHALL NOT overwrite it.
 
@@ -109,7 +125,7 @@ A notes file that is not valid JSON or has another `format` SHALL give one warni
 - **THEN** one warning says the notes file cannot be read, no device notes are shown for `valve.eds`, and saving the project leaves the file as it is
 
 ### Requirement: Import notes
-**Import notes…** on the Notes tab SHALL read a notes file in the `canworks-notes.v1` format, a merged export included, and add its notes to the node's EDS's device notes. Fields equal to the built-in note and `name` SHALL NOT be imported. Each imported entry's fields SHALL replace those fields of the existing entry and keep its other fields. The import SHALL be one draft edit: undoable, marking the draft unsaved, and written by Save.
+**Import notes…** on the Notes tab SHALL read a notes file in the `canworks-notes.v1` format, a merged export included, and add its notes to the node's EDS's device notes. Fields equal to the built-in note and `name` SHALL NOT be imported. A `null` field SHALL be imported when the note it lands on has that field (built-in, inherited or the user's own) and SHALL count as the same otherwise. Each imported entry's fields SHALL replace those fields of the existing entry and keep its other fields. The import SHALL be one draft edit: undoable, marking the draft unsaved, and written by Save. A merged export SHALL NOT contain `null` fields.
 
 #### Scenario: Re-import a merged export
 - **WHEN** the user imports a merged export of the same EDS into a project whose notes file is empty
@@ -118,6 +134,10 @@ A notes file that is not valid JSON or has another `format` SHALL give one warni
 #### Scenario: Undo an import
 - **WHEN** the user imports three notes and presses Ctrl+Z
 - **THEN** all three are gone and the draft is clean again if nothing else changed
+
+#### Scenario: Import a cleared unit
+- **WHEN** the imported file has `"0x6071": {"unit": null}` and the built-in note of 0x6071 has a unit
+- **THEN** the preview lists 0x6071 as new, and after Import the unit is gone from 0x6071 sub 0
 
 ### Requirement: Import preview
 Before an import changes anything, the configurator SHALL check the file against the schema and the node's EDS and show the number of new notes, changed notes, notes already the same, and entries skipped because the EDS has no such object, each listed by object. A different EDS identity SHALL be a warning in the preview, not a refusal. A file that is not valid JSON or has another `format` SHALL be refused with a message saying so.
@@ -244,7 +264,7 @@ On a standard object the skill SHALL write `bits` and `values` as the device's c
 - **THEN** the note's `bits` has the datasheet's names for 8 and 14 and the built-in name of bit 4
 
 ### Requirement: Datasheet notes correct built-in notes
-The skill SHALL compare the built-in note of each standard object the datasheet describes with the datasheet, and SHALL write the device's own `text`, `unit` or `values` where the built-in one does not fit the device. Where the device supports none of a built-in list, the note's `text` SHALL say so and `details` SHALL say the built-in list does not apply, since a note cannot remove a built-in field.
+The skill SHALL compare the built-in note of each standard object the datasheet describes with the datasheet, and SHALL write the device's own `text`, `unit` or `values` where the built-in one does not fit the device. Where a built-in field does not apply to the device at all, such as a list of modes the device supports none of or a unit that sub 0 or other sub-objects would inherit, the note SHALL set that field to `null` and `details` SHALL say why.
 
 #### Scenario: Current instead of torque
 - **WHEN** the built-in note of 0x6071 speaks of rated torque and the datasheet says the value is in thousandths of rated current
@@ -252,7 +272,7 @@ The skill SHALL compare the built-in note of each standard object the datasheet 
 
 #### Scenario: Unsupported homing
 - **WHEN** the datasheet says homing is not supported and the built-in note of 0x6098 lists homing methods
-- **THEN** the note of 0x6098 has `text` saying homing is not supported and `details` saying the listed methods do not apply
+- **THEN** the note of 0x6098 has `text` saying homing is not supported, `values` set to `null`, and `details` saying so
 
 ### Requirement: Datasheets for several buses
 From a manual for several buses, objects marked for another bus only SHALL NOT be differences unless the EDS has them.
