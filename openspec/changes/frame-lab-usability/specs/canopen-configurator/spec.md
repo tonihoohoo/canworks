@@ -71,7 +71,7 @@ The inspector's Identifier, Data bits and On the wire layers SHALL each fold and
 - **THEN** the layer folds and its heading shows the frame length, stuff bits and time on the bus
 
 ### Requirement: Compact data grid
-The data grid SHALL fit an 8-byte frame in no more than 260 px of height at the default font size. Consecutive bytes that all belong to one field SHALL show as one row with the field's name and bytes in hex. Opening that row SHALL show its bits. Every bit SHALL stay reachable with the keyboard, and pointing at the row SHALL highlight the field in every layer.
+The data grid SHALL fit an 8-byte frame in no more than 260 px of height at the default font size. A field of two or more whole bytes that is unused or all zero SHALL show as one row with the field's name and bytes in hex, and opening that row SHALL show its bits. Every bit SHALL stay reachable with the keyboard, and pointing at the row SHALL highlight the field in every layer.
 
 #### Scenario: Manufacturer data in one row
 - **WHEN** the inspector explains `085#0010010000000000`

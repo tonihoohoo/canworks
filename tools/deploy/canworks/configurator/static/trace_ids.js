@@ -260,7 +260,7 @@ function idsDraw() {
     let e = TI.els.get(r.key);
     if (!e) {
       e = el("div", { role: "row", class: "ids-row", id: "ids-r-" + r.key, dataset: { idsKey: r.key, traceId: r.id_text },
-        onclick: () => idsSelect(r.key) });
+        onclick: () => idsSelect(r.key, false, true) });
       TI.els.set(r.key, e);
     }
     idsFill(e, r, first + i);
@@ -309,7 +309,8 @@ function idsFill(e, r, index) {
   e.replaceChildren(...cells);
 }
 
-function idsSelect(key, scroll) {
+// `open`: a click or Enter, which opens a closed inspector (the arrow keys don't).
+function idsSelect(key, scroll, open) {
   TI.selected = key;
   TI.inspected = null;
   for (const [k, e] of TI.els) {
@@ -332,7 +333,9 @@ function idsSelect(key, scroll) {
   }
   TI.hold = false;  // a newly picked row shows its newest frame
   idsActions();
+  if (open && !T.inspector) traceInspector(true);
   idsFollow();
+  if (open) traceRevealSplit();
 }
 
 function idsKey(e) {
@@ -340,6 +343,7 @@ function idsKey(e) {
   if (!list.length) return;
   const g = idsGeometry();
   const page = Math.max(1, g.visible - 2);
+  if (e.key === "Enter" && TI.selected) { e.preventDefault(); idsSelect(TI.selected, false, true); return; }
   const step = { ArrowDown: 1, ArrowUp: -1, PageDown: page, PageUp: -page, Home: -Infinity, End: Infinity }[e.key];
   if (step === undefined) return;
   e.preventDefault();

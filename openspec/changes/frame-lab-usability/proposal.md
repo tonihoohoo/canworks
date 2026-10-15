@@ -19,7 +19,7 @@ Trace inspector:
 
 Inspector layers:
 - The layers (Identifier, Data bits, On the wire) fold, and their folded state is kept on this PC for both Trace and Frame lab.
-- The data grid is compact: smaller bit cells, and a run of bytes that all belong to one field shows as one row that opens to its bits.
+- The data grid is compact: smaller bit cells, and a field of whole bytes that is unused or all zero shows as one row that opens to its bits.
 - The side box moves under the layers when there is no room beside them.
 
 Frame lab:

@@ -182,7 +182,9 @@ class Store:
 
 
 DEFAULT_PREFS = {"view": "ids", "split": 42, "inspector": True, "sort": "id", "sort_desc": False,
-                 "pane": 220, "pane_open": True}
+                 "pane": 220, "pane_open": True, "fx_fold": []}
+# The inspector layers that can be folded (frame-lab-usability).
+FX_LAYERS = ("id", "data", "wire")
 
 
 def check_prefs(p, lenient=False):
@@ -194,7 +196,8 @@ def check_prefs(p, lenient=False):
              "inspector": lambda v: isinstance(v, bool), "sort": lambda v: v in SORT_KEYS,
              "sort_desc": lambda v: isinstance(v, bool),
              "pane": lambda v: isinstance(v, (int, float)) and 80 <= v <= 2000,
-             "pane_open": lambda v: isinstance(v, bool)}
+             "pane_open": lambda v: isinstance(v, bool),
+             "fx_fold": lambda v: isinstance(v, list) and len(set(v)) == len(v) and all(x in FX_LAYERS for x in v)}
     for k, v in p.items():
         if k not in rules:
             if lenient:

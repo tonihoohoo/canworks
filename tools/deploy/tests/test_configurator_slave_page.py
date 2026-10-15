@@ -112,7 +112,7 @@ class SlavePage(unittest.TestCase):
         self.assertEqual(pg.locator('#tree [data-key="1:add"]').count(), 0)
         # The slave's own Network switch: the simulated bus.
         pg.select_option('#view select[data-path="adapter.simulate"]', "true")
-        self.assertIn("simulated bus vcan1", pg.inner_text("#sim-banner"))
+        self.assertIn("simulated bus vcan1", pg.text_content("#sim-banner [data-sim=details]"))
         pg.select_option('#view select[data-path="adapter.simulate"]', "")
         self.assertEqual(pg.locator("#view legend:has-text('Master')").count(), 0)
         self.assertTrue(pg.is_visible("#tree #nav-gateway"))

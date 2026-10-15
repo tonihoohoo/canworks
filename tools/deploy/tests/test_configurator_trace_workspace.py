@@ -257,6 +257,12 @@ class TransmitStore(Trace):
         self.assertEqual((p["view"], p["split"]), ("frames", 55))
         status, _, _ = self.request("POST", "/api/trace/prefs", {"prefs": {"view": "nope"}})
         self.assertEqual(status, 422)
+        # The inspector layers folded in Trace and the Frame lab (frame-lab-usability).
+        self.assertEqual(self.ok("GET", "/api/trace/prefs")["fx_fold"], [])
+        self.assertEqual(self.ok("POST", "/api/trace/prefs", {"prefs": {"fx_fold": ["data", "wire"]}})["fx_fold"], ["data", "wire"])
+        for bad in (["meaning"], ["id", "id"], "data"):
+            status, _, _ = self.request("POST", "/api/trace/prefs", {"prefs": {"fx_fold": bad}})
+            self.assertEqual(status, 422)
 
 
 class TransmitRows(unittest.TestCase):

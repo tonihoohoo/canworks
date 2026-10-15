@@ -27,7 +27,7 @@ Everything here lives in the configurator page (`tools/deploy/canworks/configura
 
 ### D1. The inspector's title bar carries ✕; closing leaves a rail
 - The inspector host gets a header row (title "Inspector", ✕). "Hide inspector" and its separate bar go.
-- Closed, `.trace-split` keeps a 28 px column (or row, when narrow) holding a vertical **Inspector ›** button, with `aria-expanded=false`. A floating button was the alternative, but it covers rows. The rail keeps the way back where the panel was.
+- Closed, `.trace-split` keeps a 32 px column (or row, when narrow) holding a vertical **Inspector** button, with `aria-expanded=false`. A floating button was the alternative, but it covers rows. The rail keeps the way back where the panel was.
 - Esc is handled on the inspector host only, so Esc in the list keeps its current meaning (none) and Esc in menus still closes them.
 - Reopening on select: `selectRow()` with a click or Enter sets `T.inspector = true`. Arrow-key moves go through a separate path (`fxMoveSelection` and keyboard handlers), which does not reopen. The reason: the arrow keys are for scanning the list, while a click is a request to look at a frame.
 
@@ -46,9 +46,8 @@ Everything here lives in the configurator page (`tools/deploy/canworks/configura
 - Local storage was the alternative. The trace prefs are already the "kept on this PC" store, and they survive a browser change.
 
 ### D4. Compact grid
-- Bit cells shrink from 24 to 18 px high. The CANopen bit number moves from above each cell into its `aria-label`, its tooltip and the box, with one header row of numbers kept per grid (b7…b0). Targets keep 24 px of width, and the layout check allows 18 px of height for `.fx-bit`, as with checkboxes. A full row then takes about 26 px, so 8 bytes take about 210 px plus the header.
-- Grouping: a run of 2 or more whole bytes owned by one field becomes one `<details class="fx-byte-run">` row whose summary shows the field colour, name and hex. Its bits render inside it, so the roving focus still finds them when it is open. When it is closed the summary itself is the tab stop, and Arrow keys move to it as one item.
-- Groups stay open while the user points at a field whose bits are inside.
+- Bit cells shrink from 28×32 px with a number above each one to 26×24 px. The vertical spacing goes from 16 px to 3 px. The row heading carries the byte's CANopen bit range ("byte 1, 8–15"); each bit's own number is in its tooltip, its `aria-label` and the box. At 24 px high the cells meet the 24 px target rule of `Layout.fits()` with no exception. 8 rows take about 220 px.
+- Grouping: a field of two or more whole bytes that is unused or all zero becomes one row with a toggle button showing the field colour, name and hex. Its bit rows follow, hidden until the toggle opens them, so the column alignment stays. The roving focus skips hidden rows; the toggle is its own tab stop. A field with a value (a PDO signal whose upper bytes are zero) is not grouped, because its bits are what the user is reading.
 
 ### D5. Frame lab: one frame box, mode tabs, result column
 - Layout: `.fx-lab` is a grid. At 1280 px and wider it has `minmax(380px, 1fr) minmax(0, 1.4fr)`, and the result column is `position: sticky; top: header` with its own scroll. Below 1280 px it has one column ordered frame box, result, tabs.
@@ -73,4 +72,3 @@ Everything here lives in the configurator page (`tools/deploy/canworks/configura
 - [Risk] Shared height in narrow windows makes the list short on low-height screens. → The list keeps a 120 px minimum, the handle resizes it, and a closed inspector gives the list the full height.
 - [Risk] A folded Data bits layer hides the field a user points at on the wire. → Pointing at a wire data bit opens the box explanation as today. The box does not depend on the grid being visible.
 - [Trade-off] Bit numbers above each cell go away. They stay one hover or focus away, in the header row and the box, which docs/frame-inspector.md already describes as the place for explanations.
-- [Trade-off] The 18 px cells fall below the 24 px target height rule used by `Layout.fits()`. → The exception is scoped to `.fx-bit` with 24 px width, like the existing checkbox exception, and recorded in the test.
