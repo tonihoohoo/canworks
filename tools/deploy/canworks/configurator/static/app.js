@@ -4134,7 +4134,12 @@ function patchLive(live, parts) {
       if (!was) return tr;
       rows.delete(tr.dataset.onlineNode);
       if (was.className !== tr.className) was.className = tr.className;
-      if (was.innerHTML !== tr.innerHTML) was.replaceChildren(...tr.childNodes);
+      if (was.innerHTML !== tr.innerHTML) {
+        // Cell by cell, so a focused button in an unchanged cell keeps the focus.
+        if (was.cells.length === tr.cells.length) {
+          [...tr.cells].forEach((td, i) => { const c = was.cells[i]; if (c.outerHTML !== td.outerHTML) c.replaceWith(td); });
+        } else was.replaceChildren(...tr.childNodes);
+      }
       return was;
     });
     for (const tr of [...ob.rows]) if (!want.includes(tr)) tr.remove();

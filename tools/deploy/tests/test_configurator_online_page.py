@@ -317,12 +317,12 @@ class OnlinePage(OnlineBase):
             self.online(fp)
             row = 'tr[data-online-node="2"]'
             pg.wait_for_selector(row)
-            pg.focus(row)
+            pg.focus(row + ' button[data-open-node="2"]')
             for k in range(10):
                 fp.status["nodes"][0]["sdo_variables"][0]["raw"] = str(100 + k)
                 pg.wait_for_timeout(500)
             pg.wait_for_selector(row + ':has-text("= 109")')
-            self.assertEqual(pg.evaluate("() => document.activeElement.dataset.onlineNode"), "2")
+            self.assertEqual(pg.evaluate("() => document.activeElement.dataset.openNode"), "2")
             pg.keyboard.press("Enter")
             pg.wait_for_selector('#online-node h2:has-text("Node 2")')
 
