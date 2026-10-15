@@ -1449,6 +1449,39 @@ TEST(j1939_dm_plc_jobs) {
   jobs.set_attached(0, false);
 }
 
+// A receiver opened while the bus thread's sync_receivers allocates (between
+// its two locked sections) is taken into use on the bus thread's next call.
+uint32_t g_gap_handle = 0;
+void open_in_gap() {
+  uint16_t e = 0;
+  if (!g_gap_handle) g_gap_handle = J1939PlcMsgs::instance().rx_open(0, 0xFEF2, 255, 0, 4, e);
+}
+
+TEST(j1939_receiver_opened_during_sync) {
+  J1939PlcMsgs& m = J1939PlcMsgs::instance();
+  m.open({true});
+  m.set_attached(0, true);
+  uint16_t e = 0;
+  uint32_t a = m.rx_open(0, 0xFEF1, 255, 0, 4, e);
+  CHECK(a && !e);
+  std::vector<J1939PlcMsgs::Filter> f;
+  g_gap_handle = 0;
+  J1939PlcMsgs::sync_gap_for_test = open_in_gap;
+  CHECK(m.sync_receivers(0, f) && f.size() == 1);
+  J1939PlcMsgs::sync_gap_for_test = nullptr;
+  CHECK(g_gap_handle != 0);
+  CHECK(m.sync_receivers(0, f) && f.size() == 2);
+  const uint8_t d[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  m.deliver(0, 0xFEF2, 1, 255, 6, d, 8, 0, 0x80);
+  canworks_j1939_msg msg;
+  CHECK(m.rx_read(g_gap_handle, &msg, nullptr) == 1 && msg.pgn == 0xFEF2);
+  m.rx_close(a);
+  m.rx_close(g_gap_handle);
+  m.sync_receivers(0, f);
+  m.close();
+  m.set_attached(0, false);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }
