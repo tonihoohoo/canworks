@@ -349,6 +349,10 @@ class Probes(Layout):
     # -- fix-gui-test-findings: keyboard reach and focus return -------------
     def test_keyboard_walk(self):
         pg = self.page
+        # File chooser interception goes on with the first "filechooser" listener, sent without
+        # waiting for an answer; a key press right after expect_file_chooser() could reach the
+        # page first and open no chooser. A listener from the start keeps it on.
+        pg.on("filechooser", lambda _: None)
         self.open()
         pg.click("#btn-close")
         pg.wait_for_selector("#start:not([hidden])")
