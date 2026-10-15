@@ -46,4 +46,4 @@
 
 ## 8. Hardware check
 
-- [ ] 8.1 On the bench through a runtime with a config: scan compares the real node with the config (Match), a changed expected revision reads Identity differs, and a powered-off node reads Missing
+- [x] 8.1 On the bench through a runtime with a config: scan compares the real node with the config (Match), a changed expected revision reads Identity differs, and a powered-off node reads Missing (2026-10-15 bench through the Pi runtime: Match, then Identity differs naming the revision, and Missing for a configured node ID with no device on the bus)

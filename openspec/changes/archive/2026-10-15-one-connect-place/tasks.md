@@ -21,4 +21,4 @@
 
 ## 4. Hardware
 
-- [ ] 4.1 On the bench: connect from the bar to an adapter and to the runtime, reconnect from the panel's recent list, and confirm no page shows a second Connect button
+- [x] 4.1 On the bench: connect from the bar to an adapter and to the runtime, reconnect from the panel's recent list, and confirm no page shows a second Connect button (2026-10-15 bench: connected from the bar to the Pi runtime and to the gs_usb adapter, reconnected from the recent list by click and by Enter; no page shows a second Connect button)

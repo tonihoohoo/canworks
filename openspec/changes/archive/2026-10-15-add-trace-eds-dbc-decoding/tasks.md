@@ -41,6 +41,6 @@
 
 ## 7. Hardware
 
-- [ ] 7.1 On a real bus through a USB adapter in Commission a device: a device whose EDS is picked shows its TPDOs decoded with EDS defaults and the "assumed" tag, then decoded "read from the device" after the automatic read
-- [ ] 7.2 With the PLC as master on the same bus: the other-master notice stops automatic reads; a trace that holds the master's boot decodes PDOs from the layouts it set
-- [ ] 7.3 A DBC exported by the configurator for that bus, added in the Trace, decodes the PDOs with the project's names
+- [ ] 7.1 On a real bus through a USB adapter in Commission a device: a device whose EDS is picked shows its TPDOs decoded with EDS defaults and the "assumed" tag, then decoded "read from the device" after the automatic read (2026-10-15 still open: the bench device's EDS has no default TPDO mapping, so there is no assumed layout to show; with TPDO1 mapped in RAM the PDO test decodes it read from the device, and the trace labels that layout "set on the bus" though the transfers were reads)
+- [x] 7.2 With the PLC as master on the same bus: the other-master notice stops automatic reads; a trace that holds the master's boot decodes PDOs from the layouts it set (2026-10-15 bench: the bar shows another master (SYNC) and the page stops its own reads; RPDO1 decodes from the boot's SDO writes, "Layout set on the bus by an SDO transfer")
+- [x] 7.3 A DBC exported by the configurator for that bus, added in the Trace, decodes the PDOs with the project's names (2026-10-15 bench: the exported DBC added under Decoding (5 of 5 messages used) decodes RPDO1 with the project's variable names)
