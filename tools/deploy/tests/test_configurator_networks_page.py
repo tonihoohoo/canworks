@@ -282,7 +282,7 @@ class NetworksPage(unittest.TestCase):
             self.assertIn("rd_drives_n2_1017_0 : CO_SDO_READ;", text)
             self.assertIn("NETWORK := 1 (* drives *), NODE := 2, INDEX := 16#1017", text)
             # ... and so does the CO_NMT call of the NMT buttons.
-            pg.click('button[data-online-tab="overview"]')
+            pg.click('button[data-online-tab="status"]')
             pg.select_option('select[data-online="nmt-st-command"]', "preop")
             pg.click('button[data-online="nmt-st"]')
             pg.wait_for_function("() => window.__copied.length === 2")

@@ -581,6 +581,7 @@ function switchNet(i) {
   S.onlineNet = null;
   S.onlineNode = null;
   S.scanResult = null;
+  S.lssFound = null;
   S.lssDevice = null;
   S.supervision = {};
   if (S.view.startsWith("node:")) S.view = "bus";
@@ -670,6 +671,7 @@ async function removeNetwork() {
   S.onlineNet = null;
   S.onlineNode = null;
   S.scanResult = null;
+  S.lssFound = null;
   if (S.view.startsWith("node:")) S.view = "bus";
   banner(`Removed ${label}` + (upper ? " and the gateway." : "."));
   changed(true);
@@ -718,6 +720,7 @@ function pickNetwork(name) {
   S.onlineNet = name;
   S.onlineNode = null;
   S.scanResult = null;
+  S.lssFound = null;
   S.lssDevice = null;
   render();
   // An answer still on its way is about the network before: the next one asks for this one.
@@ -3586,12 +3589,12 @@ function renderOnline(view) {
     return;
   }
   if (!connEnsure()) {
-    view.append(el("p", { class: "online-note", dataset: { online: "not-connected" } }, "Not connected to the runtime. ",
-      el("button", { type: "button", class: "small primary", dataset: { online: "open-connect" }, onclick: () => openConnect() }, "Connect…")));
+    view.append(nodesConnectHome());
     return;
   }
   view.append(
     el("div", { id: "online-conn", class: "online-conn" }, "Connecting to " + S.online.host + "…"),
+    onlineIsSlave() ? null : nodesToolbar(),
     el("div", { id: "online-live" }),
     el("div", { id: "online-raw" }),
     el("div", { id: "online-lss" }),
@@ -3694,21 +3697,44 @@ function onlineApply(r, err) {
     const n = (onlineConfig().nodes || []).find((x) => num(x.node_id) === id);
     return n && n.name ? n.name : fallback;
   };
+  const cmp = comparison(st);
+  treeLive(st);
   const rows = (st.nodes || []).map((n) => {
     const boot = n.boot_error ? `error ${n.boot_error}: ${n.boot_error_text || ""}` : n.booted ? "booted" : "not booted";
     const hold = n.hold === "none" ? "" : `held ${n.hold === "stopped" ? "STOPPED" : "PRE-OPERATIONAL"} by ${n.hold_by === "operator" ? "operator" : "the program"}`;
     const em = n.emcy && n.emcy.count ? `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})` : "";
     const vars = (n.sdo_variables || []).map((v) => `${v.name} = ${v.raw}${v.status > 2 ? " (" + sdoStatus(v) + ")" : ""}`).join(", ");
     const stale = (n.pdo_timeouts || []).filter((t) => t.timed_out).map((t) => `TPDO ${t.tpdo} timed out (${t.count})`);
-    return el("tr", rowAttrs(() => { S.onlineNode = n.node_id; renderOnlineNode(); pollHighlight(); },
-      { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id }, "aria-label": `Open node ${n.node_id}` }),
-    el("td", null, String(n.node_id)), el("td", null, nodeName(n.node_id, n.name)),
-    el("td", { class: "state-" + n.state }, stateName(n.state)),
+    const c = cmp[n.node_id];
+    if (S.nodesFilter && (!c || c.state !== S.nodesFilter)) return null;
+    const cn = configNode(n.node_id);
+    const sim = cn && nodeSimulated(cn, onlineConfig()) ? el("span", { class: "tag", dataset: { simMark: n.node_id } }, "simulated") : null;
+    // The row opens the node on a click; the node ID is the button for the
+    // keyboard, as the comparison's own buttons sit in the row too.
+    return el("tr", { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id },
+      onclick: (e) => { if (!e.target.closest("button, input, label, a, select")) openOnlineNode(n.node_id); } },
+    el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${n.node_id}`, dataset: { openNode: n.node_id },
+      onclick: () => openOnlineNode(n.node_id) }, String(n.node_id))), el("td", null, nodeName(n.node_id, n.name), sim ? " " : null, sim),
+    el("td", { class: "state-" + n.state }, el("span", { class: "state-mark " + liveMark(n)[0], "aria-hidden": "true" }), stateName(n.state)),
     el("td", { dataset: { onlineStatus: n.node_id } }, n.status ? "TRUE" : "FALSE",
       ...stale.map((t) => el("div", { class: "bad", dataset: { pdoTimeout: n.node_id } }, t))),
-    el("td", { class: n.boot_error ? "bad" : null }, boot + (n.retry_pending ? " (retrying)" : "")),
-    el("td", null, hold), el("td", null, em, emcyCobNote(n)), el("td", null, vars));
-  });
+    el("td", { class: n.boot_error ? "bad" : null }, boot + (n.retry_pending ? " (retrying)" : ""), hold ? el("div", null, hold) : null),
+    el("td", null, em, emcyCobNote(n)), el("td", null, vars),
+    el("td", null, lastHeardText(n)), el("td", null, cn && cn.eds ? cn.eds : ""),
+    compareCell(c, n.node_id));
+  }).filter(Boolean);
+  // Nodes of the draft the runtime does not run yet (added here, not uploaded).
+  const running = new Set((st.nodes || []).map((n) => n.node_id));
+  const drafted = (onlineConfig().nodes || []).filter((n) => Number.isInteger(num(n.node_id)) && !running.has(num(n.node_id))).map((n) => {
+    const id = num(n.node_id);
+    const c = cmp[id];
+    if (S.nodesFilter && (!c || c.state !== S.nodesFilter)) return null;
+    return el("tr", { dataset: { onlineNode: id, draftNode: id } },
+      el("td", null, String(id)), el("td", null, n.name || ""),
+      el("td", { class: "muted", colspan: 6 }, S.dirty ? "In this page's changes: save and upload to run it." : "Not run by the runtime yet: upload the saved config to run it."),
+      el("td", null, n.eds || ""), compareCell(c, id));
+  }).filter(Boolean);
+  const extra = drafted.concat(notInConfigRows(cmp, 10).filter((r) => !S.nodesFilter || S.nodesFilter === "not_in_config"));
   patchLive($("#online-live"), [
     el("table", { class: "online-bus" }, el("tbody", null,
       el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, `${bus.interface || "?"}: ${BUS_STATES[bus.state] || bus.state || "?"}`),
@@ -3717,9 +3743,11 @@ function onlineApply(r, err) {
         el("th", null, "Master"), el("td", null, `node ${(st.master || {}).node_id ?? "?"}, ${stateName((st.master || {}).state)}`)),
       st.sync ? el("tr", null, el("th", null, "SYNC"),
         el("td", { colspan: 7, dataset: { online: "sync" } }, syncText(st.sync))) : null)),
-    el("table", { class: "online-nodes" },
-      el("thead", null, el("tr", null, thCells(["Node", "Name", "State", "Status bit", "Boot", "Hold", "Last EMCY", "SDO variables"]))),
-      el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No nodes in the configuration the runtime runs."))])),
+    compareSummary(cmp),
+    el("table", { class: "online-nodes", dataset: { online: "nodes" } },
+      el("thead", null, el("tr", null, thCells(["Node", "Name", "State", "Status bit", "Boot", "Last EMCY", "SDO variables", "Last heard", "EDS", "Compared"]))),
+      el("tbody", null, rows.length || extra.length ? rows.concat(extra) : [el("tr", null, el("td", { colspan: 10, class: "muted" },
+        S.nodesFilter ? "No node in this group." : "No nodes in the configuration the runtime runs."))])),
     linksLive(st)]);
   const tbox = document.querySelector("[data-online='pdo-timeouts']");
   if (tbox) tbox.replaceChildren(pdoTimeoutTable((st.nodes || []).find((n) => n.node_id === S.onlineNode)));
@@ -3947,7 +3975,7 @@ function renderLss(allow) {
   box.replaceChildren(el("fieldset", { dataset: { online: "lss" } }, el("legend", null, "Unconfigured devices (LSS)"),
     el("p", { class: "muted" }, "Devices without DIP switches get their node ID and bit rate over the bus (LSS, CiA 305). " +
       "Find one device that has no node ID yet, then set its node ID or bit rate." + (S.state.commission ? "" : " PDOs of the configured nodes keep running.")),
-    allow ? null : el("p", { class: "field-msg warning", dataset: { online: "lss-no-changes" } }, NO_CHANGES),
+    allow ? null : lockedNote("lss-no-changes", '[data-online="lss-find"]'),
     el("div", { class: "toolbar" }, find, status), result));
   if (allow && S.lssDevice) showLssDevice(S.lssDevice);
 }
@@ -4057,15 +4085,11 @@ async function lssSetId(d, match) {
     return;
   }
   if (configNode(node)) return;
-  const add = await modal(`Add the device to the configuration as node ${node}` + (match ? ` with ${match.name}` : "") +
-    "? It gets the device's serial number and LSS assignment, so the master gives it this node ID at every start.",
-    [["add", "Add as node", true], ["no", "Not now"]]);
-  if (add !== "add") return;
-  if (!match) {
-    banner(`No matching EDS was found. Add node ${node} from its EDS file, then set its serial number ${hex8(d.serial_number)} and tick LSS assignment.`, true);
-    return;
-  }
-  await addScannedNode(Object.assign({}, d, { node_id: node }), match, null, false, true);
+  // commission-workspace: the device is listed as Not in config, with Add to config on its row.
+  S.lssSet = Object.assign(S.lssSet || {}, { [node]: true });
+  S.lssFound = (S.lssFound || []).filter((x) => x.node_id !== node);
+  S.lssFound.push(Object.assign({}, d, { node_id: node, eds_matches: match ? [match] : (d.eds_matches || []) }));
+  onlineRedraw();
 }
 
 async function lssSetBitrate(d) {
@@ -4110,7 +4134,12 @@ function patchLive(live, parts) {
       if (!was) return tr;
       rows.delete(tr.dataset.onlineNode);
       if (was.className !== tr.className) was.className = tr.className;
-      if (was.innerHTML !== tr.innerHTML) was.replaceChildren(...tr.childNodes);
+      if (was.innerHTML !== tr.innerHTML) {
+        // Cell by cell, so a focused button in an unchanged cell keeps the focus.
+        if (was.cells.length === tr.cells.length) {
+          [...tr.cells].forEach((td, i) => { const c = was.cells[i]; if (c.outerHTML !== td.outerHTML) c.replaceWith(td); });
+        } else was.replaceChildren(...tr.childNodes);
+      }
       return was;
     });
     for (const tr of [...ob.rows]) if (!want.includes(tr)) tr.remove();
@@ -4161,12 +4190,14 @@ async function renderOnlineNode() {
   const n = slave ? { node_id: id, name: "this PLC (slave device)", eds: slave.eds } : configNode(id);
   const allow = S.onlineLast ? S.onlineLast.hello.allow_changes : false;
   S.onlineNodeAllow = S.onlineLast ? allow : undefined;
-  let tab = S.onlineTab || "overview";
+  let tab = S.onlineTab || "status";
   // The PDO test only on a USB adapter: on a runtime the PLC runs the PDOs.
   const pdoTab = !slave && pdoTestLocal();
-  if ((slave && tab === "params") || (!pdoTab && tab === "pdo")) tab = "overview";
-  const tabList = tabs([["overview", "Overview"], ["od", "Object dictionary"], ["params", "Parameters"], ["pdo", "PDO test"]]
-    .filter(([k]) => (!slave || k !== "params") && (pdoTab || k !== "pdo")),
+  const have = COMMISSION_TABS.filter(([k]) => (!slave || (k !== "params" && k !== "log")) && (pdoTab || k !== "pdo"));
+  if (!have.some(([k]) => k === tab)) tab = "status";
+  if (tab === "status" && S.emcyNew && S.emcyNew[id]) { delete S.emcyNew[id]; if (S.onlineLast) treeLive(S.onlineLast.status); }
+  const logCount = commLogOn() ? (S.commLog || []).filter((e) => e.node === id).length : 0;
+  const tabList = tabs(have.map(([k, label]) => [k, k === "log" && logCount ? `${label} ${logCount}` : label]),
     tab, (k) => { S.onlineTab = k; renderOnlineNode(); }, { dataset: "onlineTab", panel: "online-node-panel", label: "Node pages" });
   const head = el("h2", null, `Node ${id} ${n && n.name ? n.name : (S.onlineEdsName || {})[id] || ""}`);
   const title = S.state.commission ? el("div", { class: "toolbar node-head" }, head,
@@ -4177,6 +4208,8 @@ async function renderOnlineNode() {
   if (tab === "od") { put(box, title, tabList, panel(odPanel(id, n, allow))); return; }
   if (tab === "params") { put(box, title, tabList, panel(paramsPanel(id, n, allow))); return; }
   if (tab === "pdo") { put(box, title, tabList, panel(pdoTestPanel(id, n, allow))); return; }
+  if (tab === "notes") { put(box, title, tabList, panel(commNotesTab(id, n))); return; }
+  if (tab === "log") { put(box, title, tabList, panel(nodeLogTab(id))); return; }
   if (slave) { put(box, title, tabList, panel(sdoPanel(id, n, allow))); return; }
   const emcy = el("div", { dataset: { online: "emcy" } }, el("span", { class: "muted" }, "Loading…"));
   const last = S.onlineLast && S.onlineLast.status ? (S.onlineLast.status.nodes || []).find((x) => x.node_id === id) : null;
@@ -4184,7 +4217,9 @@ async function renderOnlineNode() {
     ? el("fieldset", null, el("legend", null, "Input PDO timeouts"), el("div", { dataset: { online: "pdo-timeouts" } }, pdoTimeoutTable(last)))
     : null;
   put(box, title, tabList, panel(
+    nodeStatusHead(id, last, n),
     el("fieldset", null, el("legend", null, "NMT"), nmtButtons(id, allow)),
+    simulatedNode(id) ? simPanel(id) : null,
     timeouts,
     sdoPanel(id, n, allow),
     el("fieldset", null, el("legend", null, "Emergency history (newest first)"), emcy,
@@ -4267,7 +4302,7 @@ function errorFieldPanel(id, allow) {
       el("button", { type: "button", dataset: { online: "error-field-refresh" }, onclick: () => read() }, "Refresh"),
       el("button", { type: "button", disabled: !allow, title: allow ? null : NO_CHANGES, dataset: { online: "error-field-clear" },
         onclick: () => clear() }, "Clear")),
-    allow ? null : el("p", { class: "field-msg warning", dataset: { online: "error-field-no-changes" } }, "Clear: " + NO_CHANGES));
+    allow ? null : lockedNote("error-field-no-changes", '[data-online="error-field-clear"]', "Clear:"));
 }
 
 // The monitored TPDOs of a node in the status answer: timeout, timed out
@@ -4356,7 +4391,7 @@ function nmtButtons(id, allow) {
     pick, el("button", { type: "button", dataset: { online: "nmt-st" }, title: "Copy as ST call (CO_NMT block)", onclick: copy },
       "Copy as ST call")),
   allow ? hint("Stop and pre-operational hold the node until you start it, or until the program changes the node's NMT command byte or sends a CO_NMT command.")
-    : el("p", { class: "field-msg warning", dataset: { online: "no-changes" } }, NO_CHANGES));
+    : lockedNote("no-changes", "[data-nmt=start]"));
 }
 
 function sdoPanel(id, n, allow) {
@@ -5419,7 +5454,7 @@ function odBuild(box, id, n, allow, data) {
     renderWatch();
   };
   put(box,
-    allow ? null : el("p", { class: "field-msg warning", dataset: { online: "od-read-only" } }, "Read-only: " + NO_CHANGES),
+    allow ? null : lockedNote("od-read-only", null, "Read-only:"),
     data.note ? el("p", { class: "field-msg warning" }, data.note) : null,
     el("div", { class: "toolbar" }, filter, readAll,
       el("button", { type: "button", dataset: { online: "od-copy" }, onclick: copyRows }, "Copy"),
@@ -5617,7 +5652,7 @@ function paramsPanel(id, n, allow) {
   }).catch((e) => put(storeBox, el("p", { class: "field-msg" }, e.message)));
 
   put(box,
-    allow ? null : el("p", { class: "field-msg warning", dataset: { online: "params-read-only" } }, "Restore and store are off: " + NO_CHANGES),
+    allow ? null : lockedNote("params-read-only", null, "Restore and store are off:"),
     el("fieldset", null, el("legend", null, "Back up"),
       el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", dataset: { online: "backup" }, onclick: backup }, "Back up")),
       hint("Reads every readable entry of the node's EDS and downloads a DCF with the values (ParameterValue), which other CANopen tools can open too.")),
@@ -5712,13 +5747,14 @@ async function storeDialog(id, sub, what) {
 
 function kbitText(k) { return k >= 1000 ? `${k / 1000} Mbit/s` : `${k} kbit/s`; }
 
-async function runScan(start) {
+// `forced`: the user already agreed to scan a running network (startScan).
+async function runScan(start, forced) {
   const seq = S.onlineSeq;
   clearTimeout(S.scanTimer);
   let r;
   try {
-    const body = { start, config: fileConfig(), port: diagPort() };
-    r = start ? await apiRunning("/api/online/scan", body, "Scan anyway?") : await api("POST", "/api/online/scan", body);
+    const body = { start, config: fileConfig(), port: diagPort(), network: onlineNetwork() || undefined };
+    r = start ? await apiRunning("/api/online/scan", body, "Scan anyway?", !!forced) : await api("POST", "/api/online/scan", body);
   } catch (e) {
     if (seq === S.onlineSeq) banner(e.message, true);
     return;
@@ -5728,7 +5764,8 @@ async function runScan(start) {
     if (progress && seq === S.onlineSeq) progress.textContent = "Scan not started.";
     return;
   }
-  if (seq !== S.onlineSeq || S.view !== "nodes" || !progress) return;
+  if (seq !== S.onlineSeq || !onlineViews().includes(S.view) || !progress) return;
+  if (start && typeof jobsKick === "function") jobsKick();
   const cancel = document.querySelector("[data-online=scan-cancel]");
   const button = document.querySelector("[data-online=scan]");
   cancel.hidden = !r.running;
@@ -5745,7 +5782,9 @@ async function runScan(start) {
   progress.textContent = how || `Scanned ${String(r.finished_at || "").replace("T", " ").replace(/\.\d+Z$/, " UTC")} in ${Number(r.seconds || 0).toFixed(1)} s.${note}`;
   S.scanResult = r;
   const live = $("#online-live");
-  if (live) patchLive(live, [commNodeTable(S.onlineLast && S.onlineLast.status)]);
+  if (!live) return;
+  if (S.state.commission) patchLive(live, [commNodeTable(S.onlineLast && S.onlineLast.status)]);
+  else onlineRedraw();
 }
 
 // A device of the Nodes page opened with an EDS: the matching one from the
@@ -5782,7 +5821,8 @@ function readBase64(file) {
   });
 }
 
-async function addScannedNode(d, match, file, identity, lss) {
+// `stay`: added from the Commission workspace's comparison; the page stays there.
+async function addScannedNode(d, match, file, identity, lss, stay) {
   let res;
   try {
     if (match) {
@@ -5791,7 +5831,7 @@ async function addScannedNode(d, match, file, identity, lss) {
       const data = await readBase64(file);
       res = await api("POST", "/api/eds", { name: file.name, data, on_conflict: "keep_both", eds_lint: edsLint() });
     }
-  } catch (e) { banner(e.message, true); return; }
+  } catch (e) { banner(e.message, true); return false; }
   S.state.eds = S.state.eds || {};
   S.state.eds[res.name] = res.summary;
   const base = (d.device_name || res.name.replace(/\.eds$/i, "")).replace(/[^A-Za-z0-9_]+/g, "_").toLowerCase().replace(/^_+|_+$/g, "");
@@ -5804,6 +5844,16 @@ async function addScannedNode(d, match, file, identity, lss) {
   const noLss = lss && !((res.summary || {}).device || {}).lss_supported;
   if (lss) node.serial_number = d.serial_number;
   if (lss && !noLss) node.lss = { assign: true };
+  if (stay) {
+    const net = onlineConfig();
+    net.nodes = net.nodes || [];
+    net.nodes.push(node);
+    banner(el("div", null, el("div", null, `Added node ${d.node_id} (${res.name}) to the config. Save to keep it; map its PDOs in Configure. `,
+      noLss ? el("span", { dataset: { lssNote: "" } }, "No LSS assignment: its EDS has no LSS (LSS_Supported=1 missing). ") : null,
+      el("button", { type: "button", class: "link", dataset: { undo: "1" }, onclick: () => undo(false) }, "Undo")), importReport(res)));
+    changed(false);
+    return true;
+  }
   S.config.nodes = S.config.nodes || [];
   S.config.nodes.push(node);
   // The new node's page opens; after LSS, with a way back to the online view.
@@ -6460,6 +6510,7 @@ async function closeFolder() {
   // The closed folder's scan and online picks are not the next one's: a
   // device commissioned next showed the project's nodes as configured.
   S.scanResult = null;
+  S.lssFound = null;
   S.onlineNet = null;
   S.onlineNode = null;
   S.onlineEds = null;

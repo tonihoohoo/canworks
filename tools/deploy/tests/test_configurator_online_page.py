@@ -317,12 +317,12 @@ class OnlinePage(OnlineBase):
             self.online(fp)
             row = 'tr[data-online-node="2"]'
             pg.wait_for_selector(row)
-            pg.focus(row)
+            pg.focus(row + ' button[data-open-node="2"]')
             for k in range(10):
                 fp.status["nodes"][0]["sdo_variables"][0]["raw"] = str(100 + k)
                 pg.wait_for_timeout(500)
             pg.wait_for_selector(row + ':has-text("= 109")')
-            self.assertEqual(pg.evaluate("() => document.activeElement.dataset.onlineNode"), "2")
+            self.assertEqual(pg.evaluate("() => document.activeElement.dataset.openNode"), "2")
             pg.keyboard.press("Enter")
             pg.wait_for_selector('#online-node h2:has-text("Node 2")')
 
@@ -412,8 +412,8 @@ class OnlinePage(OnlineBase):
             pg.fill('input[data-online="od-filter"]', "")
             pg.check('input[data-od-filter="owned"]')
             pg.wait_for_selector(row, state="visible")
-            # The Overview's SDO panel asks too.
-            pg.click('button[data-online-tab="overview"]')
+            # The Status tab's SDO panel asks too.
+            pg.click('button[data-online-tab="status"]')
             pg.fill('input[data-online="index"]', "0x4000")
             pg.fill('input[data-online="subindex"]', "0")
             pg.fill('input[data-online="value"]', "3")
@@ -514,19 +514,23 @@ class OnlinePage(OnlineBase):
             pg.fill('#modal input[data-online="lss-node-id"]', "40")
             pg.check('#modal input[data-online="lss-store"]')
             pg.click('#modal button[data-value="set"]')
-            pg.wait_for_selector('#modal button[data-value="add"]')
+            # The device is on the Nodes table as Not in config, with Add to config.
+            row40 = 'tr[data-not-in-config="40"]'
+            pg.wait_for_selector(row40)
+            self.assertIn("Not in config", pg.inner_text(row40))
             req = [r for r in fp.requests if r["op"] == "lss_set_id"][-1]
             self.assertEqual((req["node"], req["store"], req["serial_number"]), (40, True, 0x42))
-            pg.click('#modal button[data-value="add"]')
+            pg.click(row40 + ' button[data-nodes-add]')
             pg.wait_for_selector('#banner:has-text("Added node 40")')
             # cpp-slave.eds has no LSS: the node gets no LSS assignment, and the banner says why.
             self.assertIn("its EDS has no LSS", pg.inner_text("#banner [data-lss-note]"))
-            # Found in the online view, not in a scan: the way back leads there.
-            self.assertEqual(pg.locator('[data-online="back-to-scan"]').count(), 0)
-            self.assertIn("Back to the online view", pg.inner_text('[data-online="back-to-online"]'))
+            # The user stays in Commission; the node is a draft edit.
+            pg.wait_for_selector('tr[data-online-node="40"]:not([data-not-in-config])')
+            self.assertEqual(pg.locator(row40).count(), 0)
             self.assertEqual(len(load(self.config_path)["nodes"]), 1)  # unsaved
-            pg.wait_for_selector('[data-node-heading="1"]')
-            node_tab(pg, "supervision")
+            # The problem that follows (no supervision) opens Problems; it leads to the field in Configure.
+            pg.wait_for_selector("#problems-box[open] #problem-list li")
+            pg.click("#problem-list li >> nth=0")
             pg.select_option("select[data-supervision]", "heartbeat")
             pg.fill('input[data-path="nodes[1].heartbeat_ms"]', "100")
             pg.wait_for_function("() => document.body.dataset.checking === '0'")
@@ -536,7 +540,7 @@ class OnlinePage(OnlineBase):
             self.assertEqual((node["node_id"], node["eds"], node["serial_number"]), (40, "cpp-slave.eds", 0x42))
             self.assertNotIn("lss", node)
             # The next device: the store box is unticked again, and 3 is still the lowest free ID.
-            pg.click('button[data-view="online"]')
+            pg.click('#ws [data-ws="commission"]')
             pg.wait_for_selector('button[data-online="lss-find"]:not([disabled])')
             pg.click('button[data-online="lss-find"]')
             pg.wait_for_selector('tr[data-lss-device="67"]')

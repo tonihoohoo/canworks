@@ -125,19 +125,22 @@ function renderShell() {
 // Commission a device. Collapsed in Commission with a config.
 function renderPanel() {
   const device = !!(S.state && S.state.commission);
+  const commission = workspace() === "commission";
   $("#bottom").hidden = false;
   $("#problems").hidden = device || isTool(S.view);
-  $("#log-panel").hidden = !device || isTool(S.view);
-  if (device) {
+  // The session log (commission-workspace): Commission only, with or without a config.
+  $("#log-panel").hidden = !commission || isTool(S.view);
+  if (commission) {
     const body = $("#log-body");
-    if (!body.childElementCount) body.append(logBox());
+    if (!body.childElementCount || body.dataset.device !== String(device)) { body.dataset.device = String(device); body.replaceChildren(logBox()); }
     refreshLog();
   }
-  // Commission with a config starts collapsed; Configure keeps the user's choice.
+  // Commission with a config: the Log open, Problems collapsed; Configure keeps the user's choice.
   const box = $("#problems-box");
   if (S.panelWs !== workspace()) {
     S.panelWs = workspace();
-    box.open = workspace() === "commission" ? false : S.panelOpen !== false;
+    box.open = commission ? false : S.panelOpen !== false;
+    if (commission && !device) $("#log-box").open = true;
   }
 }
 

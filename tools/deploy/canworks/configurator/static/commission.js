@@ -12,16 +12,22 @@
 // what and the result. Kept in the page for this commissioning session only:
 // no host names or tokens, never written to a project.
 
+// commission-workspace: the same log in the Commission workspace of a
+// config (changes and bus events, never in Configure); in Commission a
+// device it is also the commissioning record that Save log writes.
 function commLogOn() {
-  return !!(S.state && S.state.commission);
+  return !!(S.state && S.state.mode) && workspace() === "commission";
 }
 
 function commLog(node, what, result) {
   if (!commLogOn()) return;
   S.commLog = S.commLog || [];
-  S.commLog.push({ time: new Date().toISOString().replace(/\.\d+Z$/, "Z"), node, what, result });
+  S.commLog.push({ time: new Date().toISOString().replace(/\.\d+Z$/, "Z"), node, net: connAdapter() ? null : onlineNetwork(),
+    what, result, kind: "change" });
   refreshLog();
 }
+
+function logChanges() { return (S.commLog || []).filter((e) => e.kind !== "event"); }
 
 // The device the log is about: the latest node something was done to.
 function commDevice() {
@@ -110,27 +116,46 @@ function commLogText() {
   const st = S.onlineLast && S.onlineLast.status;
   if (st && st.local && st.bitrate) lines.push(`Bit rate: ${Math.round(st.bitrate / 1000)} kbit/s`);
   lines.push("");
-  for (const e of log) lines.push(`${e.time}  ${e.node !== null && e.node !== undefined ? "node " + e.node : "bus"}  ${e.what}: ${e.result}`);
-  if (!log.length) lines.push("No change was made.");
+  const shown = S.logEvents ? log : log.filter((e) => e.kind !== "event");
+  for (const e of shown) lines.push(`${e.time}  ${e.node !== null && e.node !== undefined ? "node " + e.node : "bus"}  ${e.kind === "event" ? "(bus) " : ""}${e.what}: ${e.result}`);
+  if (!shown.some((e) => e.kind !== "event")) lines.push("No change was made.");
   return { text: lines.join("\n") + "\n", node };
 }
 
+// With a config: the session's changes (and bus events when ticked) of the runtime's network.
+function commissionLogText() {
+  const log = S.commLog || [];
+  const shown = S.logEvents ? log : log.filter((e) => e.kind !== "event");
+  const lines = [`Commission log of ${S.state.name || S.state.folder || "the config"}`, ""];
+  const net = onlineNetwork();
+  if (net) lines.push(`Network: ${net}`, "");
+  for (const e of shown) lines.push(`${e.time}  ${e.node !== null && e.node !== undefined ? "node " + e.node : "bus"}  ${e.kind === "event" ? "(bus) " : ""}${e.what}: ${e.result}`);
+  if (!shown.length) lines.push(S.logEvents ? "Nothing happened." : "No change was made.");
+  return lines.join("\n") + "\n";
+}
+
 function saveCommLog() {
-  const { text, node } = commLogText();
   const t = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z").replace("T", "-");
-  downloadText(text, `node${node ?? "x"}-commissioning-${t}.txt`);
-  S.commLogSaved = (S.commLog || []).length;
+  if (S.state.commission) {
+    const { text, node } = commLogText();
+    downloadText(text, `node${node ?? "x"}-commissioning-${t}.txt`);
+  } else {
+    const stem = String(S.state.name || (S.state.folder || "config").split(/[\\/]/).filter(Boolean).pop() || "config").replace(/[^A-Za-z0-9_.-]+/g, "_");
+    downloadText(commissionLogText(), `${stem}-commission-${t}.txt`);
+  }
+  for (const e of S.commLog || []) e.saved = true;
   refreshLog();
 }
 
-function unsavedLog() { return Math.max(0, (S.commLog || []).length - (S.commLogSaved || 0)); }
+function unsavedLog() { return logChanges().filter((e) => !e.saved).length; }
 
 // Leaving Commission a device (Close, "Add to a config…"): asks to save the
 // log when it has unsaved entries, then starts the next session's log
 // empty. False when the user cancels.
 async function leaveCommission(what) {
   if (!commLogOn()) return true;
-  const n = unsavedLog();
+  // With a config the log lives in this page only; it is not a record to keep.
+  const n = S.state.commission ? unsavedLog() : 0;
   if (n) {
     const v = await modal(`The commissioning log has ${n} change${n === 1 ? "" : "s"} that ${n === 1 ? "was" : "were"} not saved. Save it before ${what}?`,
       [["save", "Save log", true], ["discard", "Don't save"], ["cancel", "Cancel"]]);
@@ -139,6 +164,7 @@ async function leaveCommission(what) {
   }
   S.commLog = [];
   S.commLogSaved = 0;
+  S.logPrev = null;
   S.commDevice = {};
   S.commNodes = {};
   S.adapterOn = false;
@@ -147,17 +173,35 @@ async function leaveCommission(what) {
 }
 
 function logText() {
-  const n = (S.commLog || []).length;
+  const n = logChanges().length;
   const u = unsavedLog();
   return `${n} change${n === 1 ? "" : "s"} in the log` + (n ? (u ? `, ${u} not saved` : ", saved") : "");
 }
 
+const LOG_FILTERS = [["all", "All"], ["changes", "Changes"], ["events", "Events"]];
+
+function logFiltered() {
+  const log = S.commLog || [];
+  if (S.logFilter === "changes") return log.filter((e) => e.kind !== "event");
+  if (S.logFilter === "events") return log.filter((e) => e.kind === "event");
+  return log;
+}
+
 function logBox() {
+  const include = el("input", { type: "checkbox", checked: !!S.logEvents, dataset: { online: "log-events" } });
+  include.addEventListener("change", () => { S.logEvents = include.checked; });
   return el("div", { dataset: { online: "log" } },
     el("div", { class: "toolbar" },
+      el("div", { class: "segmented", role: "group", "aria-label": "Show", dataset: { online: "log-filter" } },
+        LOG_FILTERS.map(([k, label]) => el("button", { type: "button", "aria-pressed": String((S.logFilter || "all") === k), dataset: { logFilter: k },
+          onclick: () => { S.logFilter = k; refreshLog(); } }, label))),
       el("span", { class: "muted", dataset: { online: "log-count" } }, logText()),
+      el("div", { class: "spacer" }),
+      el("label", { class: "check", title: "Save log writes the changes; tick to add the bus events (state changes, EMCY, timeouts)" }, include, " Include bus events"),
       el("button", { type: "button", dataset: { online: "save-log" }, onclick: saveCommLog }, "Save log")),
-    hint("Every change made on this page (SDO writes, NMT, LSS, Write configuration, store, restore) with its time and result. It stays on this page until you save it; leaving Commission a device asks first."),
+    hint(S.state && S.state.commission
+      ? "Every change made on this page (SDO writes, NMT, LSS, Write configuration, store, restore) and what the bus did, with its time and result. It stays on this page until you save it; leaving Commission a device asks first."
+      : "What happened on the bus in this session (state changes, EMCY, boot results, timeouts) and every change made in Commission. Kept on this page only, never in the project."),
     el("ol", { class: "log-list", dataset: { online: "log-list" } }));
 }
 
@@ -166,9 +210,22 @@ function refreshLog() {
   const n = (S.commLog || []).length;
   const count = $("#log-count");
   if (count) count.textContent = n ? String(n) : "";
+  const counts = { all: n, changes: logChanges().length, events: n - logChanges().length };
+  for (const b of document.querySelectorAll("[data-log-filter]")) {
+    const k = b.dataset.logFilter;
+    b.setAttribute("aria-pressed", String((S.logFilter || "all") === k));
+    b.textContent = `${LOG_FILTERS.find((x) => x[0] === k)[1]} ${counts[k]}`;
+  }
   const list = document.querySelector("[data-online=log-list]");
-  if (list) list.replaceChildren(...(S.commLog || []).map((e) => el("li", null,
-    `${e.time.replace("T", " ").replace("Z", " UTC")}  ${e.node !== null && e.node !== undefined ? "node " + e.node : "bus"}  ${e.what}: ${e.result}`)));
+  if (list) list.replaceChildren(...logFiltered().map((e) => el("li", { class: e.kind === "event" ? "event" : "change" }, logLine(e))));
+  // The open node's Log tab, and its count on the tab.
+  const nodeLog = document.querySelector("[data-node-log]");
+  if (nodeLog && S.onlineNode !== null && S.onlineNode !== undefined) nodeLog.replaceWith(nodeLogTab(S.onlineNode));
+  const tab = document.querySelector('[data-online-tab="log"]');
+  if (tab && S.onlineNode !== null && S.onlineNode !== undefined) {
+    const k = (S.commLog || []).filter((e) => e.node === S.onlineNode).length;
+    tab.textContent = k ? `Log ${k}` : "Log";
+  }
 }
 
 // -- The USB adapter connection: the connect panel's form ---------------------------
@@ -233,6 +290,7 @@ function adapterBox(message) {
     // refusal keeps the panel open with the reason and the form filled in.
     try {
       const r = await api("POST", "/api/online/status", { port: diagPort() });
+      if (r.recent) S.online.recent = r.recent;
       S.onlineLast = r;
       S.onlineLastAt = Date.now();
     } catch (e) {
@@ -277,6 +335,8 @@ async function disconnectAdapter() {
 // A refused bit rate check or an ended connection: polling stops, the
 // reason stays in the connection bar, and Connect checks again.
 function adapterLost(message) {
+  if (S.adapterOn && typeof commEvent === "function") commEvent(null, null, "Connection ended", message);
+  S.logPrev = null;
   connStop();
   S.adapterOn = false;
   S.adapterEnded = message;
@@ -334,7 +394,7 @@ function renderCommNodes(view) {
   const file = el("input", { type: "file", accept: ".eds,.EDS", dataset: { online: "add-eds-file" } });
   file.addEventListener("change", () => { const f = file.files[0]; file.value = ""; if (f) addCommNode(f); });
   const progress = el("span", { class: "muted", dataset: { online: "scan-progress" }, "aria-live": "polite" });
-  const scan = el("button", { type: "button", class: "primary", disabled: !S.adapterOn, dataset: { online: "scan" }, onclick: () => runScan(true) }, "Scan the bus");
+  const scan = el("button", { type: "button", class: "primary", hidden: !S.adapterOn, dataset: { online: "scan" }, onclick: () => startScan() }, "Scan the bus");
   const cancel = el("button", { type: "button", hidden: true, dataset: { online: "scan-cancel" }, onclick: stopScan }, "Cancel");
   view.append(
     el("div", { class: "toolbar" }, scan, cancel, progress,
@@ -346,9 +406,8 @@ function renderCommNodes(view) {
     el("div", { id: "online-lss" }),
     el("div", { id: "online-node" }));
   if (!S.adapterOn) {
-    view.querySelector("#online-live").before(el("p", { class: "online-note", dataset: { online: "not-connected" } },
-      "Not connected. Connect to the USB adapter to see, scan and read the devices on the bus. ",
-      el("button", { type: "button", class: "small primary", dataset: { online: "open-connect" }, onclick: () => openConnect() }, "Connect…")));
+    view.querySelector("#online-live").before(nodesConnectHome());
+    view.querySelector("#online-live").hidden = true;
     if (S.onlineNode) renderOnlineNode();
     return;
   }
@@ -378,9 +437,10 @@ function commNodeTable(st) {
     // A button per row, not a clickable row: the EDS cell has controls of its own.
     return el("tr", { class: S.onlineNode === id ? "active" : null, dataset: { onlineNode: id } },
     el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${id}`, dataset: { openNode: id },
-      onclick: () => { S.onlineNode = id; renderOnlineNode(); pollHighlight(); } }, String(id))),
+      onclick: () => openOnlineNode(id) }, String(id))),
     el("td", null, device),
-    el("td", { class: !n || n.state === null ? "muted" : "state-" + n.state }, !n || n.state === null ? "not heard" : stateName(n.state)),
+    el("td", { class: !n || n.state === null ? "muted" : "state-" + n.state }, el("span", { class: "state-mark " + liveMark(n)[0], "aria-hidden": "true" }),
+      !n || n.state === null ? "not heard" : stateName(n.state)),
     el("td", null, n && n.last_heard_s !== null ? `${n.last_heard_s.toFixed(1)} s ago` : "-"), el("td", null, em),
     el("td", null, found),
     el("td", null, eds ? el("span", { dataset: { nodeEds: id } }, eds) : edsPick(d || { node_id: id })));
@@ -827,7 +887,7 @@ function pdoTestPanel(id, n, allow) {
   });
 
   put(box,
-    allow ? null : el("p", { class: "field-msg warning", dataset: { online: "pdo-no-changes" } }, "The PDO test sends on the bus: " + NO_CHANGES),
+    allow ? null : lockedNote("pdo-no-changes", null, "The PDO test sends on the bus:"),
     el("p", { class: "muted" }, "Shows the node's TPDOs and sends its RPDOs from this PC, for a device on the bench without a PLC. The layout comes from the configuration when the node is in it, otherwise from the device. SYNC is sent only when you pick a period; leaving this tab stops the test and the SYNC."),
     el("div", { class: "toolbar" }, startBtn, stopBtn, el("label", { class: "inline" }, start, " NMT Start the node first"), sync, nmtBtn),
     msg, live);

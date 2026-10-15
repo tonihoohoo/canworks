@@ -250,10 +250,12 @@ class Run:
         pg = self.page
         pg.goto(self.url)
         pg.wait_for_selector("#editor:not([hidden])")
-        # Commission opens the connect panel: this PC has no host or token yet.
+        # Commission opens on the Nodes table, whose empty state is the connect
+        # form: this PC has no host or token yet.
         pg.click('#ws [data-ws="commission"]')
-        pg.fill('#conn-dialog input[data-online="host"]', "127.0.0.1:%d" % self.port)
-        pg.click('#conn-dialog button[data-online="connect"]')
+        form = '#view [data-nodes="connect"] '
+        pg.fill(form + 'input[data-online="host"]', "127.0.0.1:%d" % self.port)
+        pg.click(form + 'button[data-online="connect"]')
         pg.wait_for_selector('#modal input[aria-label="Access token"]')
         pg.fill('#modal input[aria-label="Access token"]', TOKEN)
         pg.click('#modal button[data-value="set"]')
@@ -280,6 +282,48 @@ class Run:
         after = self.sdo_read(6, "0x2000", 0, "UNSIGNED16")
         if after != value:
             raise AssertionError("node 6: wrote %s to 0x2000:0, read back %s" % (value, after))
+
+    def compare(self):
+        """The scan compared with the config, and the simulation's extra
+        device found by LSS as Not in config (commission-workspace)."""
+        pg = self.page
+        self.view("online")
+        pg.click('button[data-online="scan"]')
+        # The PLC program runs the nodes: the page asks first, Cancel being the default.
+        pg.wait_for_selector("#modal:has-text('Scan anyway?')")
+        pg.click('#modal button[data-value="scan"]')
+        pg.wait_for_selector('[data-nodes="summary"] [data-nodes-filter="match"]', timeout=STEP_TIMEOUT_MS * 2)
+        summary = " ".join(pg.inner_text('[data-nodes="summary"]').split())
+        if not summary.startswith("3 match") or "missing" in summary or "differs" in summary:
+            raise AssertionError("the comparison reads %r, expected 3 match" % summary)
+        for node in (5, 6, 7):
+            if "Match" not in pg.inner_text(self.online_row(node) + " td[data-compare]"):
+                raise AssertionError("node %d: %s" % (node, pg.inner_text(self.online_row(node))))
+        # spare_io has no node ID: LSS finds it, Set node ID puts it on the table as Not in config.
+        pg.click('button[data-online="lss-find"]')
+        pg.wait_for_selector('tr[data-lss-device="7099"]', timeout=STEP_TIMEOUT_MS)
+        pg.click('tr[data-lss-device="7099"] button[data-online="lss-set-id"]')
+        pg.fill('#modal input[data-online="lss-node-id"]', "30")
+        pg.click('#modal button[data-value="set"]')
+        pg.wait_for_selector('tr[data-not-in-config="30"]:has-text("Not in config")', timeout=STEP_TIMEOUT_MS)
+
+    def status_fault(self):
+        """A fault injected from a simulated node's Status tab shows in the
+        table, on the tree and in the node's Log."""
+        pg = self.page
+        self.view("online")
+        pg.click(self.online_row(6))
+        pg.wait_for_selector('button[data-online-tab="status"][aria-selected="true"]')
+        pg.wait_for_selector('[data-sim-panel="6"] button[data-sim-panel-fault="heartbeat"]', timeout=STEP_TIMEOUT_MS)
+        pg.click('[data-sim-panel="6"] button[data-sim-panel-fault="heartbeat"]')
+        self.wait_row(6, status="FALSE")
+        pg.wait_for_selector('#tree .open-net [data-node="1"] .tree-mark.st-unheard, #tree .open-net [data-node="1"] .tree-mark.st-lost',
+                             state="attached", timeout=STEP_TIMEOUT_MS)
+        pg.click('button[data-online-tab="log"]')
+        pg.wait_for_selector('[data-online="node-log-list"] li.event', timeout=STEP_TIMEOUT_MS)
+        pg.click('button[data-online-tab="status"]')
+        pg.click('[data-sim-panel="6"] button[data-sim-panel-clear="heartbeat"]')
+        self.wait_row(6, state="OPERATIONAL", status="TRUE")
 
     def sim_fault_step(self):
         self.sim_fault(6, "heartbeat")
@@ -357,12 +401,14 @@ class Run:
             if self.step("connect", self.connect):
                 self.step("nodes", self.nodes)
                 self.step("od", self.od)
+                self.step("compare", self.compare)
+                self.step("status-fault", self.status_fault)
                 self.step("sim-fault", self.sim_fault_step)
                 self.step("tpdo-timeout", self.tpdo_timeout)
                 self.step("trace", self.trace)
                 self.step("power-cycle", self.power_cycle)
             else:
-                self.failed += ["nodes", "od", "sim-fault", "tpdo-timeout", "trace", "power-cycle"]
+                self.failed += ["nodes", "od", "compare", "status-fault", "sim-fault", "tpdo-timeout", "trace", "power-cycle"]
             self.step("host-stop", self.host_stop)
             if self.errors:
                 print("FAIL page errors: %s" % "; ".join(self.errors), flush=True)

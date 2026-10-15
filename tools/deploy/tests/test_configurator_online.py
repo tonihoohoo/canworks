@@ -294,6 +294,81 @@ class Proxy(Online):
             self.assertEqual(fp.connections, 2)
 
 
+class RuntimeScan(Online):
+    """The scan through a runtime in the Commission workspace, compared with
+    the config, and the recent connections (commission-workspace 2.1-2.3)."""
+
+    def scan(self, **body):
+        r = self.ok("POST", "/api/online/scan", dict(body, start=True))
+        for _ in range(20):
+            if r.get("nodes") is not None:
+                return r
+            r = self.ok("POST", "/api/online/scan", {})
+        self.fail("the scan did not finish")
+
+    def test_scan_compares_with_the_config(self):
+        cfg = self.pingpong()
+        cfg["nodes"].append(dict(cfg["nodes"][0], node_id=7, name="gone"))
+        self.save(cfg)
+        with FakePlugin(scan_polls=1) as fp:
+            fp.scan_nodes[0]["serial_number"] = 7
+            self.connect(fp)
+            r = self.scan(config=cfg)
+            by_id = {d["node_id"]: d for d in r["nodes"]}
+            self.assertEqual(by_id[40]["compare"], {"state": "not_in_config", "differs": []})
+            self.assertEqual(by_id[41]["compare"]["state"], "not_in_config")
+            self.assertIn(by_id[2]["compare"]["state"], ("match", "identity_differs"))
+            self.assertEqual([m["node_id"] for m in r["missing"]], [7])
+            self.assertEqual(r["missing"][0]["name"], "gone")
+
+    def test_identity_differs_names_the_field(self):
+        cfg = self.pingpong()
+        cfg["nodes"][0]["serial_number"] = 8
+        self.save(cfg)
+        with FakePlugin(scan_polls=0) as fp:
+            self.connect(fp)
+            d = {d["node_id"]: d for d in self.scan(config=cfg)["nodes"]}[2]
+            self.assertEqual(d["compare"]["state"], "identity_differs")
+            self.assertIn({"field": "serial_number", "expected": 8, "found": 7}, d["compare"]["differs"])
+
+    def test_running_network_needs_force(self):
+        cfg = self.pingpong()
+        self.save(cfg)
+        with FakePlugin(scan_polls=0) as fp:
+            fp.force_running = True
+            fp.status["nodes"][0]["state"] = 5
+            self.connect(fp)
+            status, data, _ = self.request("POST", "/api/online/scan", {"start": True, "config": cfg})
+            self.assertEqual(status, 422)
+            self.assertTrue(data.get("force"))
+            self.assertEqual(fp.forced, [])
+            self.scan(config=cfg, force=True)
+            self.assertIn(("scan", None), fp.forced)
+
+    def test_recent_connections(self):
+        self.save(self.pingpong())
+        with FakePlugin() as fp:
+            self.connect(fp)
+            self.ok("POST", "/api/online/status", {})
+            self.ok("POST", "/api/online/status", {})
+            recent = self.ok("GET", "/api/online/settings")["recent"]
+            self.assertEqual(recent, [{"kind": "runtime", "host": fp.runtime}])
+            settings = os.path.join(self.dir, "cfg", "online.json")
+            self.assertEqual(read(settings, "r").count(fp.runtime), 2)  # host and one recent entry
+            for entry in recent:
+                self.assertNotIn("token", entry)
+
+    def test_add_recent_keeps_three(self):
+        rs = None
+        for i in range(5):
+            rs = online.add_recent(rs, online.recent_entry("gs_usb:%d" % i, 500))
+        self.assertEqual([r["adapter"] for r in rs], ["gs_usb:4", "gs_usb:3", "gs_usb:2"])
+        self.assertIsNone(online.add_recent(rs, online.recent_entry("gs_usb:4", 500)))
+        rs = online.add_recent(rs, online.recent_entry("gs_usb:2", 250))
+        self.assertEqual([(r["adapter"], r["bitrate_kbit"]) for r in rs],
+                         [("gs_usb:2", 250), ("gs_usb:4", 500), ("gs_usb:3", 500)])
+
+
 class TwoNetworks(Online):
     """A plugin that runs io and drives (add-several-can-networks task 6.4):
     every route passes the page's network."""

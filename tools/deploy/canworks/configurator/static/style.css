@@ -162,6 +162,18 @@ dialog#conn-dialog h2 { margin-top: 0; }
 .tree-mark { width: 9px; height: 9px; border-radius: 50%; flex: none; border: 1.5px solid transparent; }
 .tree-mark.sim { border-color: var(--accent); }
 .tree-mark.absent { border: 1.5px dashed var(--muted); }
+/* Live NMT state on the tree and in the Nodes table: shape and text, never colour alone */
+.tree-mark.live, .state-mark { width: 9px; height: 9px; flex: none; display: inline-block; box-sizing: border-box; margin-right: 5px; vertical-align: middle; position: relative; }
+.st-op { background: var(--ok); border-radius: 50%; }
+.st-preop { background: var(--warn); border-radius: 0 !important; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.st-stop { background: var(--muted); border-radius: 0 !important; }
+.st-lost { border-radius: 0 !important; background: var(--error); clip-path: polygon(20% 0, 50% 30%, 80% 0, 100% 20%, 70% 50%, 100% 80%, 80% 100%, 50% 70%, 20% 100%, 0 80%, 30% 50%, 0 20%); }
+.st-unheard { border: 1.5px solid var(--muted); border-radius: 50%; background: none; }
+.tree-mark.live.sim { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+.tree-mark.live.flag::after, .tree-mark.live.cmp-missing::after, .tree-mark.live.cmp-identity_differs::after { content: ""; position: absolute; right: -6px; top: -4px; width: 5px; height: 5px; border-radius: 50%; }
+.tree-mark.live.flag::after { background: var(--error); }
+.tree-mark.live.cmp-identity_differs::after { background: var(--warn); }
+.tree-mark.live.cmp-missing::after { background: var(--error); right: -12px; }
 /* The badge stays next to the name; the menu button at the row's end. */
 .tree-row .net-menu { margin-left: auto; padding: 0 6px; min-height: 24px; border-color: transparent; background: none; }
 .tree-row:hover .net-menu, .tree-item:focus-within .net-menu { border-color: var(--line); }
@@ -775,3 +787,18 @@ table.online-links tr.bad td:first-child { color: var(--error); }
 .tag.lamp { display: inline-block; margin: 1px 4px 1px 0; }
 .tag.lamp-amber { background: var(--warn-bg); color: var(--warn); }
 .tag.lamp-red, .tag.lamp-mil { background: var(--error-bg); color: var(--error); }
+
+/* Commission: Nodes table home, comparison, locked notes, session log */
+.nodes-connect { max-width: 640px; }
+.nodes-recent { flex-wrap: wrap; margin-bottom: 10px; }
+.nodes-summary { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.nodes-summary button[aria-pressed="true"] { background: var(--hover); font-weight: 600; }
+.warn-text { color: var(--warn); }
+td[data-compare] { min-width: 8em; max-width: 16em; }
+td[data-compare] [data-differs] { font-size: 12px; margin-top: 2px; }
+td[data-compare] .actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+tr[data-not-in-config] td { background: var(--warn-bg); }
+.field-msg.locked { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.log-list li.event { color: var(--muted); }
+.log-list li.change { color: var(--text); }
+fieldset[data-sim-panel] { border: 1px dashed var(--accent); border-radius: 8px; padding: 6px 10px; margin: 10px 0; }

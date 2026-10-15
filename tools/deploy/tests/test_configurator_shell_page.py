@@ -143,6 +143,9 @@ class Workspaces(OnlineBase):
         # The status bar's Cancel of a job that writes to a device asks first.
         pg = self.page
         self.open()
+        # The jobs poll would replace the injected list: stop it, and let an answer on its way land first.
+        pg.evaluate("() => { window.jobsTick = async () => {}; clearTimeout(JOBS.timer); }")
+        pg.wait_for_timeout(500)
         pg.evaluate("""() => { JOBS.list = [{ id: "params-1", kind: "restore", label: "Restore node 5", done: 3, total: 10,
             stop: { path: "/api/online/job", body: { job: 1, cancel: true } }, confirm: "Cancel restore of node 5? What was written stays written." }];
             renderJobs(); }""")

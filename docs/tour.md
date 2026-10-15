@@ -81,7 +81,7 @@ The deploy tool does the same upload from a command line: `canworks-deploy --run
 
 ## 5. Online diagnostics
 
-In the configurator, switch to **Commission** at the top and, in the connect panel, pick **Local simulator runtime** with the token `virtual-plant-demo` ([configurator.md](configurator.md#online-view)). The connection bar then shows the runtime; pick each network there:
+In the configurator, switch to **Commission** at the top and, in the connect form on the Nodes table, pick **Local simulator runtime** with the token `virtual-plant-demo` ([configurator.md](configurator.md#online-view)). The connection bar then shows the runtime; pick each network there:
 
 - `io`: master and bus state, nodes 5, 6, 7 OPERATIONAL, the TPDO 1 timeout line of node 5, the SDO variables of node 6, every 60 s an EMCY 0x5000 from node 5 (the simulation's wire-break timeline) in its **Emergency history**.
 - `cell`: the plugin's own device, node 20: its state, SYNC count, PDOs with the gateway routes, and the gateway row: 2 routes, upper master present.
@@ -116,7 +116,7 @@ The same from a terminal: `canworks-diag --runtime local sim fault 6 heartbeat-s
 
 ## 8. LSS
 
-`new_io` (node 7) got its node ID at start from the master, by its serial number 7007 ([config.md](config.md#lss)). A second module, `spare_io` (serial 7099), is on the bus without a node ID and is not in the config: **Commission** → `io` → **Unconfigured devices (LSS)** → **Find a device without node ID** finds it; **Set node ID…** gives it, say, 8, and the page offers to add it as a node. The node list then shows node 8 as not configured.
+`new_io` (node 7) got its node ID at start from the master, by its serial number 7007 ([config.md](config.md#lss)). A second module, `spare_io` (serial 7099), is on the bus without a node ID and is not in the config: **Commission** → `io` → **Unconfigured devices (LSS)** → **Find a device without node ID** finds it; **Set node ID…** gives it, say, 8, and the Nodes table then lists node 8 as **Not in config** with **Add to config**. **Scan the bus** compares the whole network with the config: rtd, dio and new_io read **Match**. A simulated node's **Status** tab has a **Simulated device** panel: **Heartbeat stop** there turns the node's status bit FALSE in the table, marks it on the tree and puts the event in its **Log** tab; **Clear** brings it back.
 
 ```sh
 canworks-diag --runtime local lss-find --network io

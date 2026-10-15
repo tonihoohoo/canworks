@@ -49,11 +49,12 @@ class AdapterPage(OnlineBase):
         self.addCleanup(p.stop)
 
     def commission(self):
-        # Commission a device opens with the connect panel.
+        # Commission a device opens on the Nodes table, whose empty state is the connect form.
         pg = self.page
         pg.goto(self.server.url)
         pg.click("#start-commission")
-        pg.wait_for_selector('#conn-dialog[open] input[data-online="adapter"]')
+        pg.wait_for_selector('#view [data-nodes="connect"] input[data-online="adapter"]')
+        self.assertFalse(pg.is_visible("#conn-dialog"))
 
     def open_panel(self):
         pg = self.page
@@ -83,8 +84,11 @@ class ConfigModePage(AdapterPage):
         self.assertEqual(pg.query_selector_all('input[data-online="adapter"]'), [])
         self.assertEqual(pg.query_selector_all('button[data-view="nodes"]'), [])
         self.assertEqual(pg.query_selector_all('button[data-view="scan"]'), [])
-        self.assertFalse(pg.is_visible("#log-panel"))
-        self.assertEqual(pg.query_selector_all('[data-online="log-bar"], [data-online="log"]'), [])
+        # The session log is in Commission only; Configure has none.
+        self.assertTrue(pg.is_visible("#log-panel"))
+        pg.click('#ws [data-ws="configure"]')
+        pg.wait_for_selector("#log-panel", state="hidden")
+        self.assertEqual(pg.query_selector_all('[data-online="log-bar"]:visible, [data-online="log"]:visible'), [])
 
 
 class CommissionPage(AdapterPage):
@@ -100,12 +104,12 @@ class CommissionPage(AdapterPage):
         self.assertFalse(pg.is_visible("#side"))
         self.assertEqual(pg.query_selector_all('[data-online="steps"], [data-online="adapter-detect"], [data-online="detect-lone"]'), [])
         # No bit rate is picked for the user.
-        pg.fill('#conn-dialog input[data-online="adapter"]', "virtual:" + self.ch)
-        self.assertEqual(pg.input_value('#conn-dialog select[data-online="adapter-bitrate"]'), "")
-        pg.click('#conn-dialog button[data-online="connect"]')
-        self.assertIn("Pick the bus's bit rate", pg.inner_text('#conn-dialog [data-online="connect-msg"]'))
-        pg.select_option('#conn-dialog select[data-online="adapter-bitrate"]', "250")
-        pg.click('#conn-dialog button[data-online="connect"]')
+        pg.fill('#view [data-nodes="connect"] input[data-online="adapter"]', "virtual:" + self.ch)
+        self.assertEqual(pg.input_value('#view [data-nodes="connect"] select[data-online="adapter-bitrate"]'), "")
+        pg.click('#view [data-nodes="connect"] button[data-online="connect"]')
+        self.assertIn("Pick the bus's bit rate", pg.inner_text('#view [data-nodes="connect"] [data-online="connect-msg"]'))
+        pg.select_option('#view [data-nodes="connect"] select[data-online="adapter-bitrate"]', "250")
+        pg.click('#view [data-nodes="connect"] button[data-online="connect"]')
         pg.wait_for_selector('#conn-bar [data-conn="rate"]:has-text("250 kbit/s, confirmed by frames on the bus")')
         self.assertFalse(pg.is_visible("#conn-dialog"))
         pg.wait_for_selector('#conn-bar [data-conn="frames"]:not(:has-text("0 frames"))')
@@ -142,14 +146,14 @@ class CommissionPage(AdapterPage):
         self.assertFalse(self.server.connection.connected)
 
     def connect_adapter_refused(self):
-        # The panel stays open with the reason and the form filled in.
+        # The form stays with the reason and the form filled in.
         pg = self.page
-        pg.fill('#conn-dialog input[data-online="adapter"]', "virtual:" + self.ch)
-        pg.select_option('#conn-dialog select[data-online="adapter-bitrate"]', "250")
-        pg.click('#conn-dialog button[data-online="connect"]')
-        pg.wait_for_selector('#conn-dialog [data-online="connect-msg"]:has-text("does not run at 250 kbit/s")')
-        self.assertTrue(pg.is_visible('#conn-dialog button[data-online="connect"]'))
-        self.assertEqual(pg.input_value('#conn-dialog select[data-online="adapter-bitrate"]'), "250")
+        pg.fill('#view [data-nodes="connect"] input[data-online="adapter"]', "virtual:" + self.ch)
+        pg.select_option('#view [data-nodes="connect"] select[data-online="adapter-bitrate"]', "250")
+        pg.click('#view [data-nodes="connect"] button[data-online="connect"]')
+        pg.wait_for_selector('#view [data-nodes="connect"] [data-online="connect-msg"]:has-text("does not run at 250 kbit/s")')
+        self.assertTrue(pg.is_visible('#view [data-nodes="connect"] button[data-online="connect"]'))
+        self.assertEqual(pg.input_value('#view [data-nodes="connect"] select[data-online="adapter-bitrate"]'), "250")
         pg.wait_for_selector('#conn-bar.fault [data-conn="ended"]:has-text("does not run at 250 kbit/s")', state="attached")
 
     def test_allow_changes_keeps_the_connection(self):
@@ -188,10 +192,8 @@ class CommissionPage(AdapterPage):
         pg = self.page
         self.device(7, identity=(0x360, 0x1, 0, 0x5))
         self.commission()
-        pg.click('#conn-dialog [data-conn="close-panel"]')
-        pg.wait_for_selector('[data-online="not-connected"]')
-        self.assertTrue(pg.is_disabled('button[data-online="scan"]'))
-        pg.click('[data-online="not-connected"] [data-online="open-connect"]')
+        # No dead-end Scan before a connection: the form is the first step.
+        self.assertFalse(pg.is_visible('button[data-online="scan"]'))
         self.connect_adapter()
         pg.click('button[data-online="scan"]')
         pg.wait_for_selector('tr[data-online-node="7"]:has-text("scanned")', timeout=20000)
@@ -226,17 +228,78 @@ class CommissionPage(AdapterPage):
         pg.wait_for_selector('tr[data-online-node="7"]', timeout=20000)
         pg.click("#btn-close")
         pg.click("#start-commission")
-        pg.wait_for_selector('#conn-dialog button[data-online="connect"]')
+        pg.wait_for_selector('#view [data-nodes="connect"] button[data-online="connect"]')
         self.assertFalse(self.server.connection.connected)
-        pg.click('#conn-dialog [data-conn="close-panel"]')
-        pg.wait_for_selector('[data-online="not-connected"]')
         self.assertEqual(pg.query_selector_all('tr[data-online-node="7"]'), [])
+
+    def test_recent_connection_and_status_tab(self):
+        # commission-workspace 6.2: a recent connection connects in one click,
+        # with the bit rate check and Allow changes off; the node opens on Status.
+        pg = self.page
+        self.device(7, heartbeat_s=0.05)
+        self.commission()
+        self.connect_adapter(allow=True)
+        pg.click('#conn-bar [data-conn="disconnect"]')
+        recent = '#view [data-nodes="recent"] button[data-nodes-recent="0"]'
+        pg.wait_for_selector(recent + ':has-text("virtual:%s at 250 kbit/s")' % self.ch)
+        pg.click(recent)
+        pg.wait_for_selector('#conn-bar [data-conn="target"]:has-text("virtual:%s")' % self.ch)
+        self.assertIn("Read-only", pg.inner_text("#conn-bar"))
+        pg.wait_for_selector('tr[data-online-node="7"]')
+        pg.click('button[data-open-node="7"]')
+        pg.wait_for_selector('button[data-online-tab="status"][aria-selected="true"]')
+        tabs = [b.inner_text() for b in pg.query_selector_all("[data-online-tab]")]
+        self.assertEqual([t.split()[0] for t in tabs], ["Status", "Object", "Parameters", "PDO", "Notes", "Log"])
+        pg.wait_for_selector('[data-online="node-status"]:has-text("PRE-OPERATIONAL")')
+        # The selected tab stays when the node page is drawn again.
+        pg.click('button[data-online-tab="log"]')
+        pg.click('button[data-open-node="7"]')
+        pg.wait_for_selector('button[data-online-tab="log"][aria-selected="true"]')
+
+    def test_unlock_in_place(self):
+        # A locked control offers Unlock…: the bar's question, then the control
+        # is enabled where it is and keeps the focus.
+        pg = self.page
+        self.device(2, heartbeat_s=0.05)
+        self.commission()
+        self.connect_adapter()
+        note = '[data-online="lss-no-changes"]'
+        pg.wait_for_selector(note + ':has-text("Locked.")')
+        self.assertTrue(pg.is_disabled('button[data-online="lss-find"]'))
+        pg.click(note + " button[data-unlock]")
+        pg.wait_for_selector("#modal:has-text('Allow changes on this adapter connection?')")
+        pg.click('#modal button[data-value="allow"]')
+        pg.wait_for_selector('#conn-bar:has-text("Changes allowed")')
+        pg.wait_for_selector('button[data-online="lss-find"]:not([disabled])')
+        pg.wait_for_function("() => document.activeElement.dataset.online === 'lss-find'")
+        self.assertEqual(pg.locator(note).count(), 0)
+        self.assertNotIn("another master", pg.inner_text("#view"))
+
+    def test_save_log_with_and_without_bus_events(self):
+        pg = self.page
+        self.device(7, heartbeat_s=0.05)
+        self.commission()
+        self.connect_adapter()
+        pg.wait_for_selector('tr[data-online-node="7"]')
+        pg.evaluate("() => { commLog(7, 'test entry', 'done'); commEvent(7, null, 'State test event', 'ok'); }")
+        if not pg.evaluate("document.querySelector('#log-box').open"):
+            pg.click("#log-box > summary")
+        pg.wait_for_selector('#log-panel [data-online="log"] li.event')
+        for events, expect in ((False, False), (True, True)):
+            box = '#log-panel input[data-online="log-events"]'
+            if pg.is_checked(box) != events:
+                pg.click(box)
+            with pg.expect_download() as dl:
+                pg.click('#log-panel button:has-text("Save log")')
+            with open(dl.value.path(), encoding="utf-8") as f:
+                text = f.read()
+            self.assertIn("test entry", text)
+            self.assertEqual("(bus)" in text, expect, text)
 
     def test_trace_records_on_the_adapter(self):
         pg = self.page
         self.device(7, heartbeat_s=0.05)
         self.commission()
-        pg.click('#conn-dialog [data-conn="close-panel"]')
         pg.click('button[data-view="trace"]')
         pg.wait_for_selector('[data-trace="online-hint"]:has-text("needs the USB adapter connection")')
         pg.click('[data-trace="open-connect"]')

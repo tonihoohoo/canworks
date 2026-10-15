@@ -20,7 +20,7 @@ A SocketCAN interface that is already up is used at its own bit rate. One that i
 
 ## The bit rate
 
-There is no default and no automatic detection: you give the bus's bit rate, and the tools refuse to connect when the bus does not run at it. Give `--bitrate KBIT`, or `--config` with a `canworks.json`, whose network's `adapter.bitrate` is then used (`--network` picks one of several networks). Under **Commission a CANopen device** in the configurator you pick the rate in the connect panel.
+There is no default and no automatic detection: you give the bus's bit rate, and the tools refuse to connect when the bus does not run at it. Give `--bitrate KBIT`, or `--config` with a `canworks.json`, whose network's `adapter.bitrate` is then used (`--network` picks one of several networks). Under **Commission a CANopen device** in the configurator you pick the rate in the connect form on the Nodes table.
 
 ### The check on connect
 
@@ -84,7 +84,7 @@ The tools listen for a second before their first frame. A bus that carries NMT c
 
 ## Commissioning one device
 
-A device on the bench, with only the adapter and the device on the bus, from new to ready for the machine. Every step is optional and none runs by itself. In the configurator, **Commission a CANopen device** connects in the connect panel and shows the connection in the connection bar, has the pages **Nodes**, **Trace** and **Frame lab**, and every change made through the page goes into a log in the bottom panel that **Save log** downloads (`node12-commissioning-<time>.txt`: UTC time, node, what was done and the result, with the device's identity and EDS at the top, no host names or tokens).
+A device on the bench, with only the adapter and the device on the bus, from new to ready for the machine. Every step is optional and none runs by itself. In the configurator, **Commission a CANopen device** opens on the Nodes table, whose empty state is the connect form with up to three recent connections (one click each, still with the bit rate check), and shows the connection in the connection bar. It has the pages **Nodes**, **Trace** and **Frame lab**; a node opens on its **Status** tab. Every change made through the page, and the bus events of the session, go into a log in the bottom panel that **Save log** downloads (`node12-commissioning-<time>.txt`: UTC time, node, what was done and the result, with the device's identity and EDS at the top, no host names or tokens; bus events only when **Include bus events** is ticked). A control locked because **Allow changes** is off offers **Unlock…** in place.
 
 The device's bit rate comes from its documentation or its DIP switches; a device that is still at an unknown rate is found by trying the likely ones: a wrong one is refused at once. On a silent bus with an slcan adapter, a device that has a node ID answers the check with `--check-node`; a device without one (LSS) needs an adapter that confirms its frames (gs_usb, SocketCAN).
 
