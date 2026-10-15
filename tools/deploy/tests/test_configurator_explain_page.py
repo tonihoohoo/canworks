@@ -92,6 +92,36 @@ class Inspector(TraceBase):
         pg.wait_for_selector("[data-fx=sequences] tbody tr.selected")
         self.assertIn("aborted", pg.inner_text("[data-fx=sequences] tbody tr.selected"))
 
+    def test_picking_a_conversation_keeps_the_list_scrolled(self):
+        from canworks.bustrace.model import Frame
+        from .test_bustrace import T0, sample_trace
+        pg = self.page
+        t = sample_trace()
+        for k in range(60):
+            at = T0 + 400000 + k * 10000
+            t.append(Frame(at, 0x602, bytes.fromhex("4000100000000000"), tx=True))
+            t.append(Frame(at + 800, 0x582, bytes.fromhex("4300100092010200")))
+        self.open()
+        self.trace_view()
+        pg.set_input_files('input[data-trace="open-input"]', self.sample_file(t))
+        pg.wait_for_selector("#ids-body [data-ids-key]")
+        pg.click('[data-trace-tab="sequences"]')
+        pg.wait_for_selector("[data-fx=sequences] tbody tr")
+        scroll = "[data-fx=sequences] .fx-list"
+        pg.eval_on_selector(scroll, "e => { e.scrollTop = e.scrollHeight; }")
+        top = pg.eval_on_selector(scroll, "e => e.scrollTop")
+        self.assertGreater(top, 100)
+        # A click as the browser delivers it (Playwright's own click hides the jump).
+        pg.eval_on_selector("[data-fx=sequences] tbody tr:last-child", "tr => tr.click()")
+        pg.wait_for_selector("[data-fx=sequences] tbody tr:last-child.selected")
+        self.assertEqual(pg.eval_on_selector(scroll, "e => e.scrollTop"), top)
+        self.assertTrue(pg.evaluate("document.activeElement.matches('[data-fx=sequences] tbody tr:last-child')"))
+        # Enter on the row above picks it without a jump either.
+        pg.keyboard.press("Shift+Tab")
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector("[data-fx=sequences] tbody tr:nth-last-child(2).selected")
+        self.assertEqual(pg.eval_on_selector(scroll, "e => e.scrollTop"), top)
+
 
 class FrameLab(TraceBase):
     def test_lab_without_a_runtime(self):

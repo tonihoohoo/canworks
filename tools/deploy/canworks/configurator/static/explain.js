@@ -77,6 +77,7 @@ function fxInspector(m, opts) {
       el("p", { class: "muted" }, "An error frame is the CAN controller's report, not a frame on the bus: it has no wire layer.")));
   const root = el("div", { class: "fx", dataset: { fx: "inspector", kind: m.kind } }, main, box);
   I.root = root;
+  root._fx = I;
   fxOverview(I);
   return root;
 }
@@ -89,8 +90,16 @@ function fxMeaning(I, opts) {
       el("span", { class: "mono muted" }, f.candump + (f.time_us && opts.time ? "  ·  " + opts.time : ""))),
     el("p", { class: "fx-says", dataset: { fx: "meaning" } }, m.meaning),
     m.notes && m.notes.length ? el("ul", { class: "fx-notes" }, m.notes.map((n) => el("li", null, humanise(n)))) : null,
-    m.about ? el("details", { class: "fx-about" }, el("summary", null, "About this kind of message"), el("p", null, m.about)) : null,
+    m.about ? fxAbout(m.about, opts) : null,
     opts.actions && opts.actions.length ? el("div", { class: "toolbar" }, opts.actions) : null);
+}
+
+// "About this kind of message" opens as the user last left it (opts.about),
+// and opts.onAbout hears each change.
+function fxAbout(text, opts) {
+  const d = el("details", { class: "fx-about", open: !!opts.about }, el("summary", null, "About this kind of message"), el("p", null, text));
+  if (opts.onAbout) d.addEventListener("toggle", () => opts.onAbout(d.open));
+  return d;
 }
 
 // Arrow keys move the focus inside a group of bit buttons (one tab stop).
@@ -312,6 +321,7 @@ function fxShow(I, tag, color, title, rows, text) {
 
 function fxOverview(I) {
   const m = I.m;
+  I.shown = null;
   fxHighlight(I, []);
   fxShow(I, "Frame", null, m.title || "Frame", [["Frame", m.frame.candump], m.wire && ["Bits on the wire", String(m.wire.frame_bits)]],
     "Point at or tab to any bit or field to see what it is. Arrow keys move between bits.");
@@ -324,6 +334,7 @@ function fxFieldRefs(f) {
 }
 
 function fxExplainField(I, f) {
+  I.shown = ["field", I.m.fields.indexOf(f)];
   fxHighlight(I, fxFieldRefs(f));
   fxShow(I, "Field", fxColor(f.group), f.name, [
     ["Bits", f.length === 1 ? String(f.start) : `${f.start}-${f.start + f.length - 1} (${f.length} bits)`],
@@ -341,6 +352,7 @@ function fxPlcBit(f, k) {
 }
 
 function fxExplainData(I, bi, i) {
+  I.shown = ["data", bi, i];
   const m = I.m;
   const pb = bi * 8 + i;
   const v = (I.bytes[bi] >> i) & 1;
@@ -362,6 +374,7 @@ function fxExplainData(I, bi, i) {
 }
 
 function fxExplainId(I, b) {
+  I.shown = ["id", b.n];
   const id = I.m.identifier;
   const wn = I.wireAt.get("id." + b.n);
   fxHighlight(I, ["id." + b.n], wn != null ? [wn] : []);
@@ -379,6 +392,7 @@ function fxExplainId(I, b) {
 }
 
 function fxExplainWire(I, k) {
+  I.shown = ["wire", k];
   const w = I.m.wire;
   const b = w.bits[k];
   const field = w.fields[b.field] || { name: b.field, text: "" };
@@ -427,7 +441,53 @@ async function fxInspectSeq(seq, target, opts) {
     actions.push(el("button", { type: "button", dataset: { fx: "to-lab" }, onclick: () => traceExplainInLab(seq) }, "Explain in Frame lab"));
     actions.push(sendButton(txFromCandump(m.frame.candump)));
   }
-  fxFill(box, fxInspector(m, { actions, time: typeof secText === "function" ? secText(m.t_us) : null }));
+  const keep = fxReadingState(box);
+  const root = fxInspector(m, { actions, time: typeof secText === "function" ? secText(m.t_us) : null,
+    about: box._fxAbout, onAbout: (open) => { box._fxAbout = open; } });
+  fxFill(box, root);
+  fxRestoreReading(box, root._fx, keep);
+}
+
+// A live trace rebuilds the inspector for every newer frame: what the user
+// was reading (the explained bit or field, focus, scroll) carries over to a
+// newer frame of the same identifier and kind (canopen-configurator: "Frame
+// inspector panel").
+function fxReadingState(box) {
+  const root = box.querySelector("[data-fx=inspector]");
+  const I = root && root._fx;
+  if (!I) return null;
+  const a = document.activeElement;
+  let focus = null;
+  if (a && root.contains(a)) {
+    if (a.matches(".fx-about > summary")) focus = ".fx-about > summary";
+    else if (a.dataset && a.dataset.ref) focus = `.fx-bit[data-ref="${a.dataset.ref}"]`;
+    else if (a.dataset && a.dataset.field != null) focus = `[data-field="${a.dataset.field}"]`;
+    else if (a.dataset && a.dataset.fxGo) focus = `[data-fx-go="${a.dataset.fxGo}"]`;
+    else if (a.dataset && a.dataset.fx) focus = `[data-fx="${a.dataset.fx}"]`;
+    else if (a.dataset && a.dataset.trace) focus = `[data-trace="${a.dataset.trace}"]`;
+  }
+  return { key: I.m.kind + " " + I.m.frame.candump.split("#")[0], shown: I.shown, wsel: I.wsel, focus, scroll: box.scrollTop };
+}
+
+function fxRestoreReading(box, I, keep) {
+  if (!I || !keep || keep.key !== I.m.kind + " " + I.m.frame.candump.split("#")[0]) return;
+  // The box already says the same thing: no need to read it out again.
+  I.box.setAttribute("aria-live", "off");
+  const s = keep.shown;
+  if (s && s[0] === "field" && I.m.fields[s[1]]) fxExplainField(I, I.m.fields[s[1]]);
+  else if (s && s[0] === "data" && s[1] < I.bytes.length) fxExplainData(I, s[1], s[2]);
+  else if (s && s[0] === "id" && I.m.identifier) {
+    const b = (I.m.identifier.bits || []).find((x) => x.n === s[1]);
+    if (b) fxExplainId(I, b);
+  } else if (s && s[0] === "wire" && I.m.wire && s[1] < I.m.wire.bits.length) { I.wsel = s[1]; fxExplainWire(I, s[1]); }
+  if (keep.wsel != null && I.m.wire && keep.wsel < I.m.wire.bits.length) I.wsel = keep.wsel;
+  const f = keep.focus && I.root.querySelector(keep.focus);
+  if (f) {
+    if (f.classList.contains("fx-bit")) for (const b of f.closest("[data-fx]").querySelectorAll(".fx-bit")) b.tabIndex = b === f ? 0 : -1;
+    f.focus({ preventScroll: true });
+  }
+  box.scrollTop = keep.scroll;
+  setTimeout(() => I.box.setAttribute("aria-live", "polite"), 0);
 }
 
 // Up and down in the frame list move the selection (and the inspector).
@@ -517,6 +577,20 @@ function fxDrawSequences() {
   return fxDrawSync(body, r);
 }
 
+// Picking a conversation or boot story redraws the list: it keeps its
+// scroll position and the picked row keeps focus.
+function fxPickSequence(seq) {
+  FX.seq.picked = seq;
+  const list = document.querySelector("#fx-seq-body .fx-list");
+  const top = list ? list.scrollTop : 0, pageY = window.scrollY;
+  fxDrawSequences();
+  const again = document.querySelector("#fx-seq-body .fx-list");
+  if (again) again.scrollTop = top;
+  const row = document.querySelector(`#fx-seq-body tr[data-seq="${seq}"]`);
+  if (row) row.focus({ preventScroll: true });
+  window.scrollTo(window.scrollX, pageY);
+}
+
 function fxPick(list, seq) { return list.find((x) => x.seq === seq) || null; }
 
 function fxDrawConversations(body, r) {
@@ -529,8 +603,8 @@ function fxDrawConversations(body, r) {
     shown.length ? el("div", { class: "fx-list" }, el("table", { class: "fx-table" },
       el("thead", null, el("tr", null, thCells(["Time", "Node", "Operation", "Object", "Result", "Value", "Frames", "Took"]))),
       el("tbody", null, shown.map((c) => el("tr", { class: (c.seq === s.picked ? "selected " : "") + "r-" + c.result, tabindex: "0",
-        dataset: { seq: c.seq }, onclick: () => { s.picked = c.seq; fxDrawSequences(); },
-        onkeydown: (e) => { if (e.key === "Enter") { s.picked = c.seq; fxDrawSequences(); } } },
+        dataset: { seq: c.seq }, onclick: () => fxPickSequence(c.seq),
+        onkeydown: (e) => { if (e.key === "Enter") fxPickSequence(c.seq); } },
       el("td", null, ((c.start_us - t0) / 1e6).toFixed(3)), el("td", null, c.node_label),
       el("td", null, `${c.op} (${c.mode})`), el("td", null, c.object + (c.object_name ? " " + c.object_name : "")),
       el("td", null, c.result), el("td", null, c.result === "aborted" ? c.abort_text : c.value || ""),
@@ -598,8 +672,8 @@ function fxDrawBoots(body, r) {
     shown.length ? el("div", { class: "fx-list" }, el("table", { class: "fx-table" },
       el("thead", null, el("tr", null, thCells(["Time", "Node", "Began with", "Result", "Writes", "Took"]))),
       el("tbody", null, shown.map((b) => el("tr", { class: (b.seq === s.picked ? "selected " : "") + (bad(b) ? "r-aborted" : ""), tabindex: "0",
-        dataset: { seq: b.seq }, onclick: () => { s.picked = b.seq; fxDrawSequences(); },
-        onkeydown: (e) => { if (e.key === "Enter") { s.picked = b.seq; fxDrawSequences(); } } },
+        dataset: { seq: b.seq }, onclick: () => fxPickSequence(b.seq),
+        onkeydown: (e) => { if (e.key === "Enter") fxPickSequence(b.seq); } },
       el("td", null, ((b.start_us - t0) / 1e6).toFixed(3)), el("td", null, b.node_label), el("td", null, b.how),
       el("td", null, b.result), el("td", null, summary(b)), el("td", null, fxUs(b.duration_us))))))) : el("p", { class: "muted" }, "No boots match."));
   const b = s.picked != null ? fxPick(r.stories, s.picked) : null;
