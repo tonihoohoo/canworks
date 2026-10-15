@@ -508,12 +508,12 @@ class Commands(unittest.TestCase):
             f.write("\n".join(lines) + "\n")
         rc, _, err = self.run_cli("skeleton", self.eds)
         self.assertEqual(rc, 1)
-        self.assertIn("line %d is not a key=value line: ObjectType0x7" % (at + 1), err)
+        self.assertIn("line %d (in [2010]) is not a key=value line: ObjectType0x7" % (at + 1), err)
         with open(self.eds, "w", encoding="utf-8") as f:
             f.write(VALVE.replace("SupportedObjects=5", "SupportedObjects=6"))
         rc, _, err = self.run_cli("builtin", self.eds)
         self.assertEqual(rc, 1)
-        self.assertIn("[manufacturerobjects] lists 6 objects but has no entry 6", err)
+        self.assertIn("[manufacturerobjects] says SupportedObjects=6 but has no entry 6 (5 numbered entries)", err)
 
     def test_check_values_on_record_key(self):
         path = self.write_notes({"0x2011": {"text": "Fault handling", "values": {"0": "hold"}},

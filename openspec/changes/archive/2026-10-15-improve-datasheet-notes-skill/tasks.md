@@ -13,8 +13,8 @@
 
 - [x] 2.1 SKILL.md: step 1 uses `notes skeleton --all` for the comparison; difference kinds (names, PDO mapping, empty EDS default, `RW/S`); one table with default answers and how the user changes rows; Follow EDS definition; complete `bits`/`values` on standard objects; page references; contradictions inside the datasheet; unit and scale on sub-objects when sub 0 or packed subs would inherit them; table-only rows; hand-off warns the import may change the user's own notes; report adds other EDS problems; paths not tied to a checkout; stop on an EDS that does not load; profiles without built-in notes; document prefix in `manual`; index rules and family manuals; values as the EDS reads them; spreadsheets; built-in notes checked against the datasheet (own text/unit/values, unsupported lists said in text and details); manuals for several buses; stored, takes-effect and needed objects in details
 - [x] 2.2 Skill test: names `--all` and `--index`
-- [ ] 2.3 Repeat the trial by hand on the three trial pairs (project research folder, not in the repo or CI): the table replaces per-difference questions, no built-in bit names lost, `notes check` clean, import preview clean; note the outcome in the PR
-- [ ] 2.4 Repeat on at least 4 of the 11 second-trial pairs (PC trial folder, not in the repo or CI), including the two EDS that do not load, the XLSX and the HTML pair; note the outcome in the PR
+- [x] 2.3 Repeat the trial by hand on the three trial pairs (project research folder, not in the repo or CI): the table replaces per-difference questions, no built-in bit names lost, `notes check` clean, import preview clean; note the outcome in the PR
+- [x] 2.4 Repeat on at least 4 of the 11 second-trial pairs (PC trial folder, not in the repo or CI), including the two EDS that do not load, the XLSX and the HTML pair; note the outcome in the PR
 
 ## 3. Docs
 
@@ -24,4 +24,4 @@
 
 ## 4. CI time
 
-- [ ] 4.1 Compare the PR's CI wall and summed job time with the baseline (median of the last 5 green `main` runs) and state both in the PR
+- [x] 4.1 Compare the PR's CI wall and summed job time with the baseline (median of the last 5 green `main` runs) and state both in the PR
