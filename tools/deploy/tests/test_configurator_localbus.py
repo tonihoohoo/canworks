@@ -93,6 +93,9 @@ class AdapterTarget(Online):
 
     def test_disconnect_and_ended_connection(self):
         self.device(2, heartbeat_s=0.05)
+        p = mock.patch.object(core_mod, "LISTEN_S", 0.3)  # hears the heartbeat for sure
+        p.start()
+        self.addCleanup(p.stop)
         self.use_adapter()
         r = self.ok("POST", "/api/online/status", {})
         self.assertEqual(r["status"]["bitrate_check"]["how"], "traffic")

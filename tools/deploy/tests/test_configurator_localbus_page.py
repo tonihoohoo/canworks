@@ -42,6 +42,12 @@ class AdapterPage(OnlineBase):
         self.devices.append(d)
         return d
 
+    def listen_long(self):
+        # Long enough to hear a 50 ms heartbeat for sure, so the check confirms by traffic.
+        p = mock.patch.object(core_mod, "LISTEN_S", 0.3)
+        p.start()
+        self.addCleanup(p.stop)
+
     def commission(self):
         pg = self.page
         pg.goto(self.server.url)
@@ -76,6 +82,7 @@ class CommissionPage(AdapterPage):
     def test_layout_connect_and_disconnect(self):
         pg = self.page
         self.device(7, heartbeat_s=0.05)
+        self.listen_long()
         self.commission()
         self.assertIn("commissioning a device", pg.inner_text("#mode"))
         visible = [b.inner_text() for b in pg.query_selector_all("#side .nav-item") if b.is_visible()]
