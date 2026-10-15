@@ -1671,9 +1671,9 @@ def _bitrate_arg(v):
     try:
         v = int(v)
     except (TypeError, ValueError):
-        raise ApiError(400, "bitrate must be a number of bit/s")
+        raise ApiError(400, "The bit rate must be a number of bit/s.")
     if not 10000 <= v <= 1000000:
-        raise ApiError(400, "bitrate must be 10000 to 1000000 bit/s")
+        raise ApiError(400, "The bit rate must be 10000 to 1000000 bit/s.")
     return v
 
 
@@ -2376,7 +2376,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return call(lambda c: c.lss_set_id(address, node, store))
             kbit = body.get("bitrate_kbit")
             if kbit not in diag.LSS_BITRATES:
-                raise ApiError(400, "bitrate_kbit must be one of " + ", ".join(str(b) for b in diag.LSS_BITRATES))
+                raise ApiError(400, "The bit rate must be one of these kbit/s values: " + ", ".join(str(b) for b in diag.LSS_BITRATES))
             return call(lambda c: c.lss_set_bitrate(address, kbit, store))
         if route in SEND_ROUTES:
             return self._send_frames(route, body, (hostname, port, token), network)
