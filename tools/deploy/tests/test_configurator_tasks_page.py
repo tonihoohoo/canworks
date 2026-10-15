@@ -28,12 +28,9 @@ class TaskBase(AdapterPage):
         self.page.wait_for_function("([s, t]) => document.querySelector(s).selectedOptions[0]?.textContent.startsWith(t)", arg=[selector, text])
 
 
-class Connect(TaskBase):
-    def connect(self, scheme):
-        self.device(7, heartbeat_s=0.05)
-        self.listen_long()
+    def connect_steps(self, kb):
+        """Commission a device from the start page, connected to the virtual adapter at 250 kbit/s."""
         pg = self.page
-        kb = self.kb("connect", scheme)
         pg.goto(self.server.url)
         with kb.step("open Commission a device"):
             kb.tab_to("#start-commission")
@@ -50,6 +47,25 @@ class Connect(TaskBase):
             pg.wait_for_selector("#conn-dialog", state="hidden")
             self.assertIn("250 kbit/s", pg.inner_text('#conn-bar [data-conn="rate"]'))
             self.assertIn("confirmed", pg.inner_text('#conn-bar [data-conn="rate"]'))
+
+    def open_tool(self, kb, view):
+        """The tool tabs are one tab stop: reach the selected tab, then arrow to the tool."""
+        kb.tab_to("#tool-tabs [role=tab][aria-selected=true]")
+        for _ in range(8):
+            if self.page.evaluate("(v) => document.activeElement?.dataset.view === v", view):
+                break
+            kb.press("ArrowRight")
+        kb.expect_focus(f'#tool-tabs [data-view="{view}"]')
+        kb.press("Enter")
+
+
+class Connect(TaskBase):
+    def connect(self, scheme):
+        self.device(7, heartbeat_s=0.05)
+        self.listen_long()
+        pg = self.page
+        kb = self.kb("connect", scheme)
+        self.connect_steps(kb)
         with kb.step("disconnect"):
             kb.tab_to('#conn-bar button[data-conn="disconnect"]', back=True)
             kb.press("Enter")
@@ -60,6 +76,41 @@ class Connect(TaskBase):
 
     def test_connect_dark(self):
         self.connect("dark")
+
+
+class RecordTrace(TaskBase):
+    def record(self, scheme):
+        self.device(7, heartbeat_s=0.05)
+        self.listen_long()
+        pg = self.page
+        kb = self.kb("record a trace", scheme)
+        self.connect_steps(kb)
+        with kb.step("open the Trace tab"):
+            self.open_tool(kb, "trace")
+            pg.wait_for_selector("[data-trace=start-stop]")
+        with kb.step("start recording"):
+            kb.tab_to("[data-trace=start-stop]")
+            kb.press("Enter")
+            pg.wait_for_selector("#ids-body [data-ids-key]", timeout=20000)
+            pg.wait_for_selector('[data-trace=start-stop]:has-text("Stop")')
+        with kb.step("stop recording"):
+            kb.expect_focus("[data-trace=start-stop]")
+            kb.press("Enter")
+            pg.wait_for_selector('[data-trace=start-stop]:has-text("Start")')
+        with kb.step("open the Save menu"):
+            kb.tab_to("[data-trace=save-menu] > summary")
+            kb.press("Enter")
+            pg.wait_for_selector("[data-trace=save-menu][open]")
+        with kb.step("save to the traces folder"):
+            kb.tab_to("[data-trace=save]")
+            kb.press("Enter")
+            pg.wait_for_selector('#banner-text:has-text("Saved")')
+
+    def test_record_light(self):
+        self.record("light")
+
+    def test_record_dark(self):
+        self.record("dark")
 
 
 class Guard(unittest.TestCase):

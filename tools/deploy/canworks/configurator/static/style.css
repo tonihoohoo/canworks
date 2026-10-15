@@ -393,7 +393,9 @@ label.inline input.short { width: 80px !important; }
 }
 .trace-frames-tools { margin: 0 0 4px; }
 /* By identifier: a grid with a fixed header and rows patched in place. */
-.ids-grid { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 12.5px; }
+.ids-grid { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 12.5px;
+  height: max(244px, calc(100vh - var(--header-h) - 396px)); overflow: auto; }
+.ids-headgroup { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 .ids-grid:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ids-row { display: grid; grid-template-columns: 3ch 9ch minmax(10ch, 1.2fr) 4ch 25ch minmax(8ch, 1.6fr) 8ch 8ch 7ch 7ch 7ch 9ch;
   gap: 0 8px; height: 24px; line-height: 24px; padding: 0 6px; white-space: nowrap; cursor: pointer; }
@@ -403,7 +405,7 @@ label.inline input.short { width: 80px !important; }
 .ids-head [role=columnheader] { overflow: hidden; }
 .ids-head .ids-sort { border: 0; background: none; padding: 0; min-height: 24px; min-width: 24px; text-align: inherit; font: inherit; color: inherit; cursor: pointer; }
 .ids-head .ids-sort:hover { color: var(--text); text-decoration: underline; }
-.ids-scroll { position: relative; height: max(220px, calc(100vh - var(--header-h) - 420px)); overflow: auto; }
+.ids-scroll { position: relative; }
 .ids-body { position: absolute; left: 0; right: 0; top: 0; }
 .ids-spacer { width: 1px; }
 .ids-row:not(.ids-head):hover { background: var(--hover); }

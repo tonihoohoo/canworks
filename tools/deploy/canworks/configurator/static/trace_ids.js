@@ -107,10 +107,11 @@ function renderIds(box) {
   const grid = el("div", { class: "ids-grid", id: "ids-grid", role: "grid", tabindex: "0", "aria-label": "Identifiers",
     "aria-rowcount": "0", dataset: { trace: "ids" } },
     el("div", { role: "rowgroup", class: "ids-headgroup" }, head),
+    // The grid is the scroll box (its header row sticks), so the one tab stop that takes the arrow keys also scrolls.
     el("div", { class: "ids-scroll", id: "ids-scroll" },
       el("div", { role: "rowgroup", class: "ids-body", id: "ids-body" }), el("div", { class: "ids-spacer" })));
   grid.addEventListener("keydown", idsKey);
-  grid.querySelector(".ids-scroll").addEventListener("scroll", () => idsDraw());
+  grid.addEventListener("scroll", () => idsDraw());
   const pause = el("button", { type: "button", dataset: { ids: "pause" }, "aria-pressed": String(TI.paused),
     title: "Stop updating the table; recording continues", onclick: () => idsPause(!TI.paused) }, "Pause view");
   box.append(
@@ -232,7 +233,7 @@ function idsFollow() {
 }
 
 function idsGeometry() {
-  const sc = $("#ids-scroll");
+  const sc = $("#ids-grid");
   return { sc, visible: sc ? Math.max(1, Math.ceil(sc.clientHeight / IDS_ROW_H) + 1) : 1 };
 }
 
@@ -318,7 +319,8 @@ function idsSelect(key, scroll) {
     if (g.sc && i >= 0) {
       const top = i * IDS_ROW_H;
       if (top < g.sc.scrollTop) g.sc.scrollTop = top;
-      else if (top + IDS_ROW_H > g.sc.scrollTop + g.sc.clientHeight) g.sc.scrollTop = top + IDS_ROW_H - g.sc.clientHeight;
+      // + one row: the sticky header row sits above the rows in the same scroll box.
+      else if (top + 2 * IDS_ROW_H > g.sc.scrollTop + g.sc.clientHeight) g.sc.scrollTop = top + 2 * IDS_ROW_H - g.sc.clientHeight;
       idsDraw();
     }
   }

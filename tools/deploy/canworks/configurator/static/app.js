@@ -143,7 +143,12 @@ function tabs(items, active, onPick, opts) {
     type: "button", role: "tab", id: opts.panel ? `${opts.panel}-tab-${key}` : null, class: (opts.tab || "tab") + (key === active ? " active" : ""),
     "aria-selected": String(key === active), "aria-controls": opts.panel || null, tabindex: key === active ? "0" : "-1",
     dataset: Object.assign({}, opts.dataset ? { [opts.dataset]: key } : {}),
-    onclick: () => onPick(key),
+    onclick: (e) => {
+      const had = document.activeElement === e.currentTarget, id = e.currentTarget.id;
+      onPick(key);
+      // A pick that re-renders the list keeps the focus on the picked tab.
+      if (had && id && !e.currentTarget.isConnected) { const fresh = document.getElementById(id); if (fresh) fresh.focus(); }
+    },
   }, label));
   list.append(...buttons);
   list.addEventListener("keydown", (e) => {
