@@ -2098,7 +2098,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "adapter": p.get("adapter") or "", "adapter_bitrate": p.get("adapter_bitrate"),
                     "check_node": p.get("check_node"),
                     "allow_changes": self.server.adapter_allow, "commission": bool(s.commission),
-                    "remembered": online.remembered_view(p.get("host"))}
+                    "remembered": online.remembered_view(p.get("host")),
+                    "recent": [r for r in p.get("recent") or [] if isinstance(r, dict)]}
 
         if route == ("GET", "/api/online/settings"):
             return view()
@@ -2295,6 +2296,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # The path the connection took (LAN, internet direct or relayed)
             # and its round trip; the background pairing's line, once.
             out.update(conn.link_info())
+            self._remember_recent(settings, folder, proj, local)
             if local:
                 out["config"] = "local"
                 out["config_bitrate"] = self._config_bitrate(config_path, network)
@@ -2378,8 +2380,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return call(lambda c: c.lss_set_bitrate(address, kbit, store))
         if route in SEND_ROUTES:
             return self._send_frames(route, body, (hostname, port, token), network)
-        if route in (("POST", "/api/online/scan"), ("POST", "/api/online/scan_stop")) and not local:
-            raise ApiError(404, "the bus scan is in Commission a device")
         if route == ("POST", "/api/online/scan_stop"):
             return call(lambda c: c.scan_stop())
         if route == ("POST", "/api/online/scan"):
@@ -3080,9 +3080,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise ApiError(422, str(e))
         raise ApiError(404, "no such API: %s %s" % route)
 
+    def _remember_recent(self, settings, folder, proj, local):
+        """Puts the connection that just answered first in the recent
+        connections of this folder (the Nodes table's one-click list)."""
+        if local:
+            entry = online.recent_entry(proj.get("adapter"), proj.get("adapter_bitrate"), proj.get("check_node"))
+        else:
+            mem = online.remembered_view(proj.get("host"))
+            entry = online.recent_entry(proj.get("host"), name=(mem or {}).get("name"))
+        recent = online.add_recent(proj.get("recent"), entry)
+        if recent is not None:
+            settings.update_project(folder, recent=recent)
+
     def _match_scan(self, s, settings, canopen_dir, res, cfg, network=None):
         """Adds to each scanned device the EDS files that match it and, for a
-        configured node of the scanned network, what the config expects."""
+        configured node of the scanned network, what the config expects and
+        how the device compares with it; `missing` lists the configured nodes
+        that did not answer."""
         if not isinstance(cfg, dict):
             with s.lock:
                 cfg = s.read_config()[0]
@@ -3106,8 +3120,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 d["config_name"] = n.get("name") or ""
                 d["config_eds"] = n.get("eds") or ""
                 d["expected"] = online.expected_identity(n, path)
+            d["compare"] = online.compare_scanned(d, d.get("expected") or {}, n is not None)
             d["eds_matches"] = self.server.eds_index.matches(folders, d.get("vendor_id"), d.get("product_code"),
                                                              d.get("revision_number"))
+        found = {d.get("node_id") for d in res["nodes"]}
+        res["missing"] = [{"node_id": i, "name": by_id[i].get("name") or "", "eds": by_id[i].get("eds") or ""}
+                          for i in sorted(by_id) if i not in found]
 
     def _use_eds(self, s, settings, canopen_dir, path, eds_lint=None):
         """An EDS file a scan match offered, made available to the draft: one

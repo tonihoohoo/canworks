@@ -498,6 +498,48 @@ class EdsIndex:
         return found
 
 
+IDENTITY_FIELDS = ("vendor_id", "product_code", "revision_number", "serial_number")
+RECENT_MAX = 3
+
+
+def compare_scanned(device, expected, configured):
+    """The comparison state of one scanned device against the config:
+    {"state": "match" | "not_in_config" | "identity_differs", "differs":
+    [{field, expected, found}]}. A field the device did not answer is not a
+    difference; the config's revision and serial count only where it sets
+    them (expected_identity leaves them out otherwise)."""
+    if not configured:
+        return {"state": "not_in_config", "differs": []}
+    differs = [{"field": k, "expected": expected[k], "found": device[k]} for k in IDENTITY_FIELDS
+               if isinstance(expected.get(k), int) and isinstance(device.get(k), int) and device[k] != expected[k]]
+    return {"state": "identity_differs" if differs else "match", "differs": differs}
+
+
+def recent_entry(target, bitrate_kbit=None, check_node=None, name=None):
+    """One recent connection as online.json keeps it: an adapter with its bit
+    rate (and check node), or a runtime host with its name. Never a token."""
+    if bitrate_kbit is not None:
+        e = {"kind": "adapter", "adapter": target, "bitrate_kbit": bitrate_kbit}
+        if check_node:
+            e["check_node"] = check_node
+        return e
+    e = {"kind": "runtime", "host": target}
+    if name:
+        e["name"] = name
+    return e
+
+
+def add_recent(recent, entry):
+    """`recent` with `entry` first, the same target not twice, at most
+    RECENT_MAX; None when nothing changes (so a status poll writes nothing)."""
+    recent = [r for r in recent or [] if isinstance(r, dict)]
+    if recent and recent[0] == entry:
+        return None
+    key = (entry["kind"], entry.get("adapter") or entry.get("host"))
+    rest = [r for r in recent if (r.get("kind"), r.get("adapter") or r.get("host")) != key]
+    return ([entry] + rest)[:RECENT_MAX]
+
+
 def expected_identity(node, eds_path):
     """What the config expects of a node: vendor and product from its EDS,
     revision and serial number from the node's identity check fields."""

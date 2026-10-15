@@ -5,9 +5,9 @@
 
 ## 2. Server
 
-- [ ] 2.1 Allow `/api/online/scan` and `scan_stop` on a runtime connection; force on retry only when the page sends it
-- [ ] 2.2 `_match_scan`: `compare` per device (match, not_in_config, identity_differs with the differing fields) and `missing` (configured nodes of the scanned network that did not answer); unit tests for each state, several networks and a v1 config
-- [ ] 2.3 `online.json` `recent`: up to three connections (adapter target and bit rate, or runtime name and address), no tokens; older files load unchanged
+- [x] 2.1 Allow `/api/online/scan` and `scan_stop` on a runtime connection; force on retry only when the page sends it
+- [x] 2.2 `_match_scan`: `compare` per device (match, not_in_config, identity_differs with the differing fields) and `missing` (configured nodes of the scanned network that did not answer); unit tests for each state, several networks and a v1 config
+- [x] 2.3 `online.json` `recent`: up to three connections (adapter target and bit rate, or runtime name and address), no tokens; older files load unchanged
 
 ## 3. Nodes table
 
