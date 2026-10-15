@@ -14,7 +14,7 @@ canworks has two halves:
 
 ## How it works
 
-You describe the network in one JSON file (`canworks.json`, usually written by the configurator): the nodes, their EDS files, and which PDO entry goes to which PLC address (`%IX`, `%IB`, `%IW`, `%ID`, `%IL` and the `%Q` equivalents). The file travels with the PLC program, either in the editor project's `canworks/` folder or through `canworks-deploy`.
+You describe the network in one JSON file (`canworks.json`, usually written by the configurator): the nodes, their EDS files, and which PDO entry goes to which PLC address (`%IX`, `%IB`, `%IW`, `%ID`, `%IL` and the `%Q` equivalents). The file travels with the PLC program, either in the editor project's `canworks/` folder or through `canworks-deploy`. Numbers in it are plain decimal or `0x` hex (a leading zero such as `"012"` is refused, never read as octal), and a key given twice in one object is refused.
 
 At every PLC start the plugin checks the file against the EDS files, generates the device configuration with Lely's `dcfgen`, boots and configures every node over SDO, and then exchanges PDOs with the PLC image once per scan. A node that is missing or drops off the bus never stops the PLC: its status bit goes FALSE and the master keeps trying to bring it back. A config with errors is logged and leaves the plugin inactive; the PLC still runs.
 

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: NMT commands while a network is down
-An NMT command from the bridge's control block SHALL be refused while the target network's bus session is down, and the control block SHALL report it as refused. At most 16 NMT commands SHALL wait per network.
+An NMT command from the bridge's control block SHALL be refused while the target network's bus session is down, and the status block SHALL show control result 5 (refused). At most 16 NMT commands SHALL wait per network.
 
 #### Scenario: Command during an outage
 - **WHEN** the CAN interface is down and a Modbus client writes a STOP command for node 5
