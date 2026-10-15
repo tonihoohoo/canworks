@@ -42,11 +42,9 @@ Alternatives considered:
 The identifier table's first column goes from `3ch` to `5ch`, enough for "Dir" and the sort mark at the table's font.
 
 ### Cut-text test
-A page test (Playwright, like the other page tests) opens a config with a 16-character network name, a node name of 30 characters, a J1939 and a plain CAN network, and at 1000, 1280 and 1600 px opens every tree entry, every node tab, every tool tab, the Add network dialog and each network menu. For each visible element with text it fails when:
-- `overflow-x` is `hidden` or `clip`, or `text-overflow` is `ellipsis`, and `scrollWidth > clientWidth`; except elements marked `data-cut-ok` (data cells with a tooltip of their whole value) and `.visually-hidden`;
-- the element is inside an open `dialog` and its box is outside the dialog's box.
+The page tests' `FIT_CHECK` (run by every layout check of every view) gets two more rules. It fails when a visible element of the page or of an open dialog has `overflow-x` `hidden` or `clip`, or `text-overflow: ellipsis`, and `scrollWidth > clientWidth`; data cells cut on purpose are exempt (`[role=gridcell]`, `[role=cell]`, trace rows, the series list, PDO link cells, `.visually-hidden`). And it fails when a button or text of an open dialog is outside the dialog's box. A tree test renames a network to 16 characters and a node to 28, and at 1000, 1280 and 1600 px checks that the tree shows them whole, the protocol sits under the name, and every network menu and Add network pass `FIT_CHECK`.
 
 ## Risks / Trade-offs
 
 - [A wrapped tree is taller] → Only entries with long names grow; the common short name keeps one line plus the protocol line on networks. One extra small line per network is the cost of always seeing its protocol.
-- [Data cells must be marked to pass the test] → Only the Trace and frame tables cut on purpose; marking them documents that the cut is deliberate.
+- [The exemption list can hide a real cut in a data cell] → Those cells carry their whole value in a tooltip, and the list names them, so a new cut elsewhere still fails.

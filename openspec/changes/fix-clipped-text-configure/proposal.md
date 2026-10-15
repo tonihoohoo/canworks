@@ -25,7 +25,7 @@ The existing requirement "Network tree keyboard" asks for the ellipsis; this cha
   CANopen comes first and gets the focus, as it is the default protocol today; Escape and Cancel add nothing.
 - **The tree shows whole names.** A network entry gets two lines: its name (with the fold arrow, problem badge and menu button) on the first and its protocol, in small muted text, on the second. Names of networks and nodes are never cut: a name wider than the column wraps onto the next line, breaking inside the name when it has no space. The tooltip stays.
 - **Trace Dir heading.** The Dir column of the Trace identifier table is wide enough for its heading and the sort mark.
-- **A page test for cut text.** A test walks the Configure workspace at 1000, 1280 and 1600 px with a config of long names and fails when a text of the page is cut (ellipsis or hidden overflow on something that is not a data cell with its own tooltip) or when anything of an open dialog is outside the dialog.
+- **Page tests for cut text.** The layout check that every page test runs on every view also fails when a text of the page is cut (ellipsis or hidden overflow on anything but a data cell with its own tooltip) or when anything of an open dialog is outside the dialog. A tree test checks long names, every network menu and Add network at 1000, 1280 and 1600 px.
 
 No file format, server protocol or CLI change.
 
@@ -48,6 +48,6 @@ None.
   - `style.css`: `dialog menu` wraps, dialog buttons wrap their label; tree rows wrap and the network entry's two lines; the Trace identifier table's Dir column;
   - `app.js`: `addNetwork()` builds the protocol list in the dialog's extra part instead of four buttons;
   - `tree.js`: the network entry's protocol on its own line.
-- Tests: the cut-text page test; Add network tests (choices, focus, Escape); tree tests updated for the two-line network entry.
+- Tests: the cut-text rules in the shared layout check and a long-names tree test; Add network tests (choices, focus, Escape); tree tests updated for the two-line network entry.
 - Docs: `docs/configurator.md` (Add network…, tree entries). README.md is checked and changed only if it describes the dialog or the tree.
 - Version: PC tools patch bump. No plugin change, so no hardware test.

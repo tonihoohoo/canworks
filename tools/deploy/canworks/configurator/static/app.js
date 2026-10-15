@@ -84,7 +84,8 @@ async function api(method, path, body) {
 // (the primary button) or { primary, danger }. The safe choice, the button
 // with value "cancel", is always drawn first and gets focus, so Enter never
 // removes, discards or overwrites anything; a dialog with a form focuses
-// its first field instead. Escape resolves null. One cancel listener is
+// its first field instead, and one with choice buttons (data-value) in its
+// extra part the first choice. Escape resolves null. One cancel listener is
 // wired in wire().
 let modalResolve = null;
 function modal(text, buttons, extra) {
@@ -104,11 +105,14 @@ function modal(text, buttons, extra) {
       menu.append(el("button", { type: "button", class: [o.primary ? "primary" : "", o.danger ? "danger" : ""].join(" ").trim() || null,
         dataset: { value }, onclick: () => done(value) }, label));
     }
+    // Choice buttons in the extra part (data-value) answer like the menu's.
+    const picks = extra && extra.querySelectorAll ? [...extra.querySelectorAll("button[data-value]")] : [];
+    for (const b of picks) b.onclick = () => done(b.dataset.value);
     if (!dlg.open) dlg.opener = document.activeElement;
     dlg.showModal();
     const fields = "input:not([type=checkbox]), select, textarea";
     const field = !extra || !extra.querySelector ? null : extra.matches(fields) ? extra : extra.querySelector(fields);
-    (field || menu.firstElementChild).focus();
+    (field || picks[0] || menu.firstElementChild).focus();
   });
 }
 
@@ -604,10 +608,30 @@ function switchNet(i) {
   render();
 }
 
+// Add network's protocols: one choice per row with a line on what it is for;
+// Up and Down move between them. CANopen, the default, comes first.
+const PROTOCOL_CHOICES = [
+  ["canopen", "CANopen", "A master and its nodes from EDS files, or the PLC as a slave device."],
+  ["j1939", "J1939", "The PLC as an ECU that sends and receives parameter groups from a DBC file."],
+  ["none", "Plain CAN", "CAN frames only, from a DBC file or entered by hand, with no protocol on top."],
+];
+function protocolChoices() {
+  const list = el("div", { class: "modal-choices", role: "group", "aria-label": "Protocol" },
+    PROTOCOL_CHOICES.map(([value, name, help]) => el("button", { type: "button", class: "choice", dataset: { value } },
+      el("strong", null, name), el("span", null, help))));
+  list.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const bs = [...list.children];
+    const i = bs.indexOf(document.activeElement);
+    bs[(i + (e.key === "ArrowDown" ? 1 : bs.length - 1)) % bs.length].focus();
+    e.preventDefault();
+  });
+  return list;
+}
+
 async function addNetwork() {
   const protocol = await modal("Add a network with its own CAN interface. Which protocol does it run?",
-    [["cancel", "Cancel"], ["none", "Plain CAN (messages only)"], ["j1939", "J1939 (an ECU)"],
-      ["canopen", "CANopen (a master and nodes)", true]]);
+    [["cancel", "Cancel"]], protocolChoices());
   if (protocol !== "canopen" && protocol !== "j1939" && protocol !== "none") return;
   const first = S.model.networks[0];
   const rate = first && first.adapter && Number.isInteger(first.adapter.bitrate) ? first.adapter.bitrate : 250000;

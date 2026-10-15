@@ -49,6 +49,24 @@ FIT_CHECK = r"""() => {
     if (shown(e) && e.scrollWidth > e.clientWidth + 1) out.push(["table scrolls sideways", e.className || e.tagName]);
   }
   if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) out.push(["page scrolls sideways"]);
+  // Text cut by its box (fix-clipped-text-configure): only data cells, which
+  // carry their whole value in a tooltip, may be cut.
+  const cutOk = "[role=gridcell], [role=cell], .trace-rows, .series-item, .link-pos, .visually-hidden, .uplot";
+  for (const e of document.querySelectorAll("#view *, #side *, #problems *, header *, dialog[open] *")) {
+    if (!shown(e) || !e.textContent.trim() || e.closest(cutOk)) continue;
+    const cs = getComputedStyle(e);
+    const cuts = cs.overflowX === "hidden" || cs.overflowX === "clip" || cs.textOverflow === "ellipsis";
+    if (cuts && e.scrollWidth > e.clientWidth + 1) out.push(["text cut", e.className || e.tagName, e.textContent.trim().slice(0, 40)]);
+  }
+  // Nothing of an open dialog outside its box.
+  for (const d of document.querySelectorAll("dialog[open]")) {
+    const b = d.getBoundingClientRect();
+    for (const e of d.querySelectorAll("button, p, strong, span, label")) {
+      if (!shown(e)) continue;
+      const r = e.getBoundingClientRect();
+      if (r.left < b.left - 1 || r.right > b.right + 1) out.push(["outside its dialog", d.id, e.textContent.trim().slice(0, 40)]);
+    }
+  }
   return out;
 }"""
 
