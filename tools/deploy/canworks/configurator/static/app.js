@@ -3969,6 +3969,9 @@ async function commissionDevice() {
     S.adapterOn = false;
     S.adapterEnded = null;
     await loadState();
+    // The start page's button is gone: the focus goes to the connect form's first field.
+    const first = document.querySelector('#view [data-nodes="connect"] input, #view [data-nodes="connect"] select, #view [data-nodes="connect"] button');
+    if (first) first.focus();
   } catch (e) { banner(e.message, true); }
 }
 

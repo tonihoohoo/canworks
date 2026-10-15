@@ -304,6 +304,11 @@ function adapterBox(message) {
     closeConnect();
     render();
     connKick();
+    // The form is gone once connected: the keyboard goes on with the scan.
+    if (document.activeElement === document.body || !document.activeElement.isConnected) {
+      const next = document.querySelector('#view [data-online="scan"]') || document.querySelector('#conn-bar [data-conn="disconnect"]');
+      if (next) next.focus();
+    }
   }) }, "Connect");
   const disconnect = el("button", { type: "button", hidden: !on, dataset: { online: "disconnect" }, onclick: async () => { closeConnect(); await disconnectAdapter(); } }, "Disconnect");
   return el("fieldset", { dataset: { online: "adapter-box" } }, el("legend", null, "USB adapter"),

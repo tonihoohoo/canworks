@@ -29,22 +29,23 @@ class TaskBase(AdapterPage):
 
 
     def connect_steps(self, kb):
-        """Commission a device from the start page, connected to the virtual adapter at 250 kbit/s."""
+        """Commission a device from the start page, connected to the virtual adapter at 250 kbit/s.
+        The Nodes table opens with its connect form as the empty state."""
         pg = self.page
+        form = '#view [data-nodes="connect"]'
         pg.goto(self.server.url)
         with kb.step("open Commission a device"):
             kb.tab_to("#start-commission")
             kb.press("Enter")
-            pg.wait_for_selector('#conn-dialog[open] input[data-online="adapter"]')
+            pg.wait_for_selector(form + ' input[data-online="adapter"]')
         with kb.step("pick the adapter and the bit rate"):
-            kb.tab_to('#conn-dialog input[data-online="adapter"]')
+            kb.tab_to(form + ' input[data-online="adapter"]')
             kb.type("virtual:" + self.ch)
-            self.pick(kb, '#conn-dialog select[data-online="adapter-bitrate"]', "250")
+            self.pick(kb, form + ' select[data-online="adapter-bitrate"]', "250")
         with kb.step("connect"):
-            kb.tab_to('#conn-dialog button[data-online="connect"]')
+            kb.tab_to(form + ' button[data-online="connect"]')
             kb.press("Enter")
             pg.wait_for_selector('#conn-bar [data-conn="target"]:has-text("virtual:%s")' % self.ch)
-            pg.wait_for_selector("#conn-dialog", state="hidden")
             self.assertIn("250 kbit/s", pg.inner_text('#conn-bar [data-conn="rate"]'))
             self.assertIn("confirmed", pg.inner_text('#conn-bar [data-conn="rate"]'))
 
