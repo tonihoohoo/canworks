@@ -59,29 +59,41 @@ std::map<uint32_t, bool> ends_until(J1939Socket& s, uint32_t want, double second
   return seen;
 }
 
-// Which step of the long socket's setup the kernel refuses, for the log.
+// Which step of the long socket's setup the kernel refuses, for the log:
+// the same sockets as the kernel socket's open and bind, at address 0x81.
 void explain_no_events(const std::string& iface) {
-  int fd = socket(PF_CAN, SOCK_DGRAM | SOCK_NONBLOCK, CAN_J1939);
-  if (fd < 0) {
-    std::printf("     socket: %s\n", std::strerror(errno));
-    return;
-  }
+  auto step = [](const char* what, int r) {
+    std::printf("     %s: %s\n", what, r < 0 ? std::strerror(errno) : "ok");
+    return r >= 0;
+  };
   sockaddr_can a;
   std::memset(&a, 0, sizeof(a));
   a.can_family = AF_CAN;
   a.can_ifindex = static_cast<int>(if_nametoindex(iface.c_str()));
   a.can_addr.j1939.name = J1939_NO_NAME;
-  a.can_addr.j1939.addr = 0x80;
   a.can_addr.j1939.pgn = J1939_NO_PGN;
   int one = 1;
+  int rx = socket(PF_CAN, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, CAN_J1939);
+  step("rx socket", rx);
+  step("rx SO_J1939_PROMISC", setsockopt(rx, SOL_CAN_J1939, SO_J1939_PROMISC, &one, sizeof(one)));
+  step("rx SO_BROADCAST", setsockopt(rx, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one)));
+  a.can_addr.j1939.addr = J1939_NO_ADDR;
+  step("rx bind", bind(rx, reinterpret_cast<sockaddr*>(&a), sizeof(a)));
+  int fds[2];
+  a.can_addr.j1939.addr = 0x81;
+  for (int k = 0; k < 2; ++k) {
+    fds[k] = socket(PF_CAN, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, CAN_J1939);
+    step(k ? "long socket" : "ecu socket", fds[k]);
+    step(k ? "long SO_BROADCAST" : "ecu SO_BROADCAST", setsockopt(fds[k], SOL_SOCKET, SO_BROADCAST, &one, sizeof(one)));
+    step(k ? "long bind at 0x81" : "ecu bind at 0x81", bind(fds[k], reinterpret_cast<sockaddr*>(&a), sizeof(a)));
+  }
   unsigned flags = SOF_TIMESTAMPING_OPT_ID | SOF_TIMESTAMPING_TX_ACK | SOF_TIMESTAMPING_TX_SCHED |
                    SOF_TIMESTAMPING_SOFTWARE | SOF_TIMESTAMPING_OPT_CMSG | SOF_TIMESTAMPING_OPT_TSONLY;
-  auto step = [](const char* what, int r) { std::printf("     %s: %s\n", what, r < 0 ? std::strerror(errno) : "ok"); };
-  step("SO_BROADCAST", setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one)));
-  step("bind at 0x80", bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof(a)));
-  step("SO_J1939_ERRQUEUE", setsockopt(fd, SOL_CAN_J1939, SO_J1939_ERRQUEUE, &one, sizeof(one)));
-  step("SO_TIMESTAMPING", setsockopt(fd, SOL_SOCKET, SO_TIMESTAMPING, &flags, sizeof(flags)));
-  ::close(fd);
+  step("long SO_J1939_ERRQUEUE", setsockopt(fds[1], SOL_CAN_J1939, SO_J1939_ERRQUEUE, &one, sizeof(one)));
+  step("long SO_TIMESTAMPING", setsockopt(fds[1], SOL_SOCKET, SO_TIMESTAMPING, &flags, sizeof(flags)));
+  ::close(rx);
+  ::close(fds[0]);
+  ::close(fds[1]);
 }
 
 }  // namespace
