@@ -247,17 +247,24 @@ def identity(eds_name, eds_path=None, text=None):
     return out
 
 
-def skeleton(eds, eds_name, eds_text=None, eds_path=None):
+def type_text(o):
+    """The data type name of a sub-object, for messages and `x-type`."""
+    return o.type_name or OTHER_TYPES.get(o.data_type, "0x%04X" % o.data_type)
+
+
+def skeleton(eds, eds_name, eds_text=None, eds_path=None, describe=False):
     """A new notes document: the EDS identity and an entry with only `name`
-    for every manufacturer object and sub-object."""
+    for every manufacturer object and sub-object. With `describe`, each
+    entry also has the EDS data type (`x-type`) and access (`x-access`),
+    for `canworks-deploy notes skeleton`."""
     objects = {}
     for index, sub, o in eds.items():
         if not MANUFACTURER[0] <= index <= MANUFACTURER[1]:
             continue
-        if _is_var(eds, index):
-            objects[key(index)] = {"name": o.name}
-        else:
-            objects[key(index, sub)] = {"name": o.name}
+        entry = {"name": o.name}
+        if describe:
+            entry.update({"x-type": type_text(o), "x-access": o.access})
+        objects[key(index) if _is_var(eds, index) else key(index, sub)] = entry
     return {"format": FORMAT, "eds": identity(eds_name, eds_path, eds_text), "objects": objects}
 
 
@@ -410,7 +417,7 @@ def check(eds, doc, notes_name, eds_name):
             for field in ("values", "bits"):
                 if field in v and bits is None and not (field == "values" and o.type_name == "BOOLEAN"):
                     out.append("%s: %s has %s, but its type %s is not an integer type"
-                               % (notes_name, k, field, o.type_name or OTHER_TYPES.get(o.data_type, "0x%04X" % o.data_type)))
+                               % (notes_name, k, field, type_text(o)))
             if bits is not None and isinstance(v.get("bits"), dict):
                 over = sorted(int(b) for b in v["bits"] if str(b).isdigit() and int(b) >= bits)
                 if over:
