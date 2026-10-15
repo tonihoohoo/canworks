@@ -4976,7 +4976,8 @@ TEST(sim_emcy_cob_id_from_device) {
   CHECK(sim->RunUntil([] { return logged("node 5 (rtd): EMCY COB-ID 0x0C5, read from the device (0x1014)"); },
                       seconds(5)));
   CHECK(sim->RunUntil([] { return sim->net().IsOperational(5) && sim->net().IsOperational(6); }, seconds(5)));
-  CHECK(sim->emcy_cob_reads(5) >= 1 && sim->emcy_cob_reads(6) >= 1);
+  // The read of 0x1014 follows the boot: it may still be on its way when both are operational.
+  CHECK(sim->RunUntil([] { return sim->emcy_cob_reads(5) >= 1 && sim->emcy_cob_reads(6) >= 1; }, seconds(2)));
   CHECK(!logged("node 6 (io): EMCY COB-ID") && !logged("node 3 (a): EMCY COB-ID"));
   // Its EMCY on 0xC5: logged, queued, in the history and the inputs.
   sim->OnSensor(5, [](SensorSlave& s) { s.SendEmcy(0x4210, 0x08); });
