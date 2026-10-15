@@ -455,7 +455,7 @@ label.inline input.short { width: 80px !important; }
 details[data-od-group] { margin: 0 0 12px; }
 details[data-od-group] > summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
 table.od td, table.od th { padding: 2px 6px; vertical-align: top; }
-table.od td.mono, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
+table.od td.mono, .mono { font-family: var(--mono); white-space: nowrap; }
 table.od td.actions { white-space: nowrap; }
 table.od td.od-value.differs strong { color: var(--warn); }
 table.od tr.bad td { color: var(--error); }
