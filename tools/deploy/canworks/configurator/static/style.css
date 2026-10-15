@@ -47,9 +47,8 @@ header .top-row { display: flex; align-items: center; gap: 12px; padding: 10px 1
 #conn-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 16px; border-top: 1px solid var(--line); font-size: 13px; }
 #conn-bar .conn-line, #conn-bar { min-height: 30px; }
 #conn-bar > * { display: inline-flex; align-items: center; gap: 4px; }
-#conn-bar.fault { background: var(--error-bg); }
-#conn-bar .bad { color: var(--error); font-weight: 600; }
-#conn-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+#conn-bar.fault { background: var(--st-error-bg); }
+#conn-bar .bad { font-weight: 600; }
 .ws-note { font-size: 12px; color: var(--muted); }
 .unsaved-mark { color: var(--warn); font-weight: 600; }
 #ws button.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
@@ -91,7 +90,7 @@ input.invalid, select.invalid { border-color: var(--error); background: var(--er
 input.warned { border-color: var(--warn); }
 .field-msg { color: var(--error); font-size: 12px; }
 .field-msg.warning { color: var(--warn); }
-#banner { padding: 6px 16px; background: var(--warn-bg); color: var(--text); border-bottom: 1px solid var(--line);
+#banner { padding: 6px 16px; background: var(--hover); color: var(--text); border-bottom: 1px solid var(--line);
   position: sticky; top: var(--header-h); z-index: 2; display: flex; gap: 12px; align-items: center; }
 #banner-text { flex: 1; }
 #banner-close { padding: 0 8px; border: 0; background: none; }
@@ -103,7 +102,7 @@ input.warned { border-color: var(--warn); }
 .joined { display: inline-flex; }
 .joined select { width: auto; border-radius: 6px 0 0 6px; }
 .joined button { border-radius: 0 6px 6px 0; margin-left: -1px; }
-#banner.error { background: var(--error-bg); }
+#banner.error { background: var(--st-error-bg); }
 main#start { max-width: 900px; margin: 20px auto; padding: 0 16px; display: grid; gap: 20px; }
 .start-intro { margin: 0 0 12px; color: var(--muted); }
 .start-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -141,9 +140,6 @@ footer#bottom { position: sticky; bottom: 0; z-index: 3; background: var(--panel
 #jobs { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .job { display: inline-flex; gap: 6px; align-items: center; }
 .job progress { width: 80px; }
-.job .spinner { width: 10px; height: 10px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .job .spinner { animation: none; } }
 .jobs-more { position: relative; }
 .jobs-more > summary { cursor: pointer; }
 .jobs-more .jobs-list { position: absolute; bottom: calc(100% + 6px); left: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, .15); white-space: nowrap; }
@@ -211,7 +207,8 @@ details.pdo-settings[open] > summary { margin-bottom: 6px; }
 #problem-list li > button { display: block; width: 100%; text-align: left; padding: 6px; border: 0; border-radius: 5px; background: none; white-space: normal; font-size: 13px; cursor: pointer; }
 #problem-list li.error { background: var(--error-bg); }
 #problem-list li.warning { background: var(--warn-bg); }
-#problem-list li.ok { color: var(--ok); padding: 6px; }
+#problem-list li.ok { padding: 6px; }
+#problem-list .st { margin-right: 6px; }
 /* Commissioning: no config, so no Problems and nothing that edits a config. */
 body.commission #problems, body.commission [data-config] { display: none !important; }
 body:not(.commission) [data-commission] { display: none !important; }
@@ -494,8 +491,9 @@ details.od-any { margin: 0 0 12px; }
 details.od-any > summary { cursor: pointer; }
 
 /* Simulation: the banner on every page, and the Simulation view. */
-#sim-banner { padding: 6px 16px; background: var(--warn-bg); color: var(--warn); border-bottom: 1px solid var(--line); font-weight: 600; }
-.tag.sim-tag { background: var(--warn-bg); color: var(--warn); }
+/* Simulated is a mark, not a state: neutral, with a dashed edge like the simulated icon ring. */
+#sim-banner { padding: 6px 16px; background: var(--hover); color: var(--text); border-bottom: 1px dashed var(--muted); font-weight: 600; }
+.tag.sim-tag { background: none; color: var(--text); border: 1px dashed var(--muted); }
 .sim-form { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 6px 0; background: var(--panel); }
 .sim-form > strong { display: block; margin-bottom: 6px; }
 .sim-control { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin-bottom: 4px; }
@@ -825,7 +823,7 @@ fieldset[data-sim-panel] { border: 1px dashed var(--accent); border-radius: 8px;
 .st-flag.cleared { color: var(--st-off); }
 .st-with-label { display: inline-flex; align-items: center; gap: var(--sp-1); white-space: nowrap; }
 @media (prefers-reduced-motion: no-preference) {
-  .st-busy.spinning use { transform-origin: 50% 50%; animation: st-turn 1.2s linear infinite; }
+  .st.spinning { animation: st-turn 1.2s linear infinite; }
 }
 @keyframes st-turn { to { transform: rotate(360deg); } }
 @media (forced-colors: active) {

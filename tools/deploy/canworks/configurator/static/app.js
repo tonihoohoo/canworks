@@ -196,6 +196,9 @@ function banner(text, isError) {
   else $("#banner-text").textContent = text || "";
   b.className = isError ? "error" : "";
   b.setAttribute("role", isError ? "alert" : "status");
+  const icon = b.querySelector(":scope > svg.st");
+  if (icon) icon.remove();
+  if (isError && text) b.prepend(Icons.stateIcon("error", { label: false }));
   const timed = typeof text === "string" ? !!text : !!(text && text.dataset && text.dataset.timed);
   if (timed && !isError) S.bannerTimer = setTimeout(() => banner(""), BANNER_MS);
 }
@@ -6236,7 +6239,7 @@ function applyCheck() {
   for (const it of items) {
     const where = it.where || (it.paths || []).map((p) => ({ net: S.net, path: p }));
     const li = el("li", { class: it.level }, el("button", { type: "button", title: it.message,
-      onclick: () => focusPath(where[0]) }, problemText(it, where[0])));
+      onclick: () => focusPath(where[0]) }, Icons.stateIcon(it.level === "error" ? "error" : "warning", { label: false }), problemText(it, where[0])));
     list.append(li);
     for (const w of where) {
       // Fields of another network's tab are not on the page.
@@ -6251,7 +6254,7 @@ function applyCheck() {
       }
     }
   }
-  if (!items.length && S.check) list.append(el("li", { class: "ok" }, "No problems."));
+  if (!items.length && S.check) list.append(el("li", { class: "ok" }, Icons.stateIcon("ok", { label: false }), "No problems."));
   if (focusedAt >= 0) { const b = list.children[Math.min(focusedAt, list.children.length - 1)]; if (b && b.firstChild && b.firstChild.focus) b.firstChild.focus(); }
   // The overlap override goes with the overlap errors, and stays while ticked.
   const overlaps = items.some((it) => it.overlap || it.overlap_allowed);

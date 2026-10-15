@@ -56,7 +56,7 @@ function jobItem(j) {
   const bar = j.total ? el("progress", { max: j.total, value: j.done || 0, "aria-hidden": "true" }) : null;
   const cancel = j.stop ? el("button", { type: "button", class: "small", dataset: { jobCancel: j.id }, "aria-label": `Cancel ${j.label}` }, "Cancel") : null;
   if (cancel) cancel.onclick = () => cancelJob(j, cancel);
-  return el("span", { class: "job", dataset: { job: j.id } }, el("span", { class: "spinner", "aria-hidden": "true" }),
+  return el("span", { class: "job", dataset: { job: j.id } }, Icons.stateIcon("busy", { label: false, spinning: true }),
     el("span", null, j.label + (progress ? ` – ${progress}` : "")), bar, cancel);
 }
 
