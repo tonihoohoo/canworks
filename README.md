@@ -1,4 +1,7 @@
-# canworks
+<h1><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.svg">
+  <img alt="canworks" src="docs/images/logo-light.svg" height="120">
+</picture></h1>
 
 An open CAN toolkit: configure, commission, diagnose, trace and simulate **CANopen**, **J1939** and plain **CAN** networks, from a PC on its own or with an [OpenPLC Runtime v4](https://github.com/Autonomy-Logic/openplc-runtime) PLC driving the bus.
 

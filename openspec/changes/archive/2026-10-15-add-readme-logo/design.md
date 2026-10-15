@@ -17,7 +17,7 @@ GitHub renders README images through `<img>`, which cannot load web fonts and do
   ```html
   <h1><picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.svg">
-    <img alt="canworks" src="docs/images/logo-light.svg" height="72">
+    <img alt="canworks" src="docs/images/logo-light.svg" height="120">
   </picture></h1>
   ```
 
@@ -26,9 +26,8 @@ GitHub renders README images through `<img>`, which cannot load web fonts and do
 
 ## Risks / Trade-offs
 
-- [The dark variant shows in a light place, e.g. a dark logo pasted into a light slide] → each file has a theme in its name; the square icon's tile (option B) carries its own background.
-- [Option C's nut hole is filled with GitHub's background colour, not cut out] → on another background it shows as a disc; if C is picked the hole becomes a real cut-out (even-odd path) before apply.
+- [The dark variant shows in a light place, e.g. a dark logo pasted into a light slide] → each file has its theme in its name.
 
 ## Open Questions
 
-- Which option (A, B, C or D), and any change to it (colours, weight, "can" highlighted or not)?
+None. Toni picked option A (bus) on 2026-10-15.

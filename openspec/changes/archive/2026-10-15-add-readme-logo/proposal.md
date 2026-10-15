@@ -4,22 +4,21 @@ The README opens with a plain `# canworks` heading. The project now has a public
 
 ## What Changes
 
-- **A logo for the README.** One of four candidates (below) replaces the `# canworks` heading at the top of `README.md`, as a `<picture>` element with a light and a dark SVG, so it follows the reader's GitHub theme. The alt text is "canworks", so screen readers and text-only views still get the name.
-- **Outlined text, no fonts needed.** The wordmark is converted to outlines, so the SVG looks the same on GitHub, in a release page or in a PDF, with no web font. A small generator script (`scripts/make_logo.py`) rebuilds the files from the font (Inter Display, SIL Open Font Licence; the mono option uses DejaVu Sans Mono), so a colour or spacing change is one edit, not hand-editing paths.
+- **A logo for the README.** Option A of the four candidates below (Toni's pick, 2026-10-15) replaces the `# canworks` heading at the top of `README.md`, as a `<picture>` element with a light and a dark SVG, so it follows the reader's GitHub theme. The alt text is "canworks", so screen readers and text-only views still get the name.
+- **Outlined text, no fonts needed.** The wordmark is converted to outlines, so the SVG looks the same on GitHub, in a release page or in a PDF, with no web font. A small generator script (`scripts/make_logo.py`) rebuilds the files from the font (Inter Display Bold, SIL Open Font Licence), so a colour or spacing change is one edit, not hand-editing paths.
 - **Colours from the configurator.** The blue is the configurator's accent (`#1f5fbf` light, `#6ea0f0` dark); the second colour is a warm amber used only for the CAN_L wire. Both variants are checked against GitHub's light and dark backgrounds.
-- **A square icon** (options B and C only) in `docs/images/`, ready for a favicon or the repository's social preview image later. Using it in the configurator or uploading the social preview is not part of this change.
 - **No third-party marks.** The design uses no CiA, OpenPLC, CAN in Automation or vendor logo, no trademarked shape, and only generic CAN ideas (two-wire bus, differential signal, frame fields).
 
 ### Candidates
 
-All four are in `candidates/` in a light and a dark variant (`logo-<option>-light.svg`, `logo-<option>-dark.svg`), with `preview.png` showing them side by side.
+All four were drawn in a light and a dark variant and compared side by side in the proposal; only A is kept.
 
 - **A, Bus.** "can" in blue and "works" in ink, sitting on a two-wire bus (CAN_H blue, CAN_L amber) with a terminator at each end and three nodes tapping it. Says "CAN network" at a glance; no separate icon.
 - **B, Signal.** A rounded tile with the differential CAN signal: CAN_H rises and CAN_L falls on dominant bits, which draws the familiar eye shape. Bold "canworks" next to it. The tile works on its own as an icon.
 - **C, Nut.** A hex nut (the "works") threaded onto the two bus wires (the "CAN"), with "can" bold and "works" light. The most "tool" and least "electronics" of the four; the nut works on its own as an icon.
 - **D, Frame.** The name laid out as a CAN frame in a trace view: start bit, "can" in the identifier field, "works" in the data field, CRC and ACK bits, a bit clock above. Ties to the trace and frame inspector tools; wide, and needs the mono font.
 
-Recommended: **B**, because it is the only one with a mark that is clearly about CAN signals, reads at 16 px as an icon, and its wordmark stays plain and legible.
+Chosen: **A**. (B was the proposal's recommendation, for its stand-alone icon; A has no separate icon.)
 
 ## Capabilities
 
@@ -33,5 +32,5 @@ None.
 
 ## Impact
 
-- `README.md` (top heading), `docs/images/logo-light.svg`, `docs/images/logo-dark.svg`, `docs/images/icon-light.svg`, `docs/images/icon-dark.svg` (B or C), `scripts/make_logo.py`.
+- `README.md` (top heading), `docs/images/logo-light.svg`, `docs/images/logo-dark.svg`, `scripts/make_logo.py`.
 - No code, config, CI or package change. The banned-words guard covers the new files like any other.
