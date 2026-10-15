@@ -111,6 +111,46 @@ class VersionOrderTest(unittest.TestCase):
         self.assertIsNone(release_version.previous_tag(tags, "0.9.0"))
 
 
+class PruneTest(unittest.TestCase):
+    def tags(self, *versions):
+        return ["deploy-v" + v for v in versions]
+
+    def test_four_or_fewer_releases_are_kept(self):
+        releases = self.tags("0.61.0", "0.61.1", "0.62.0", "0.63.0")
+        self.assertEqual(release_version.prune(releases, releases), ([], []))
+        self.assertEqual(release_version.prune(releases[:2], releases[:2]), ([], []))
+        self.assertEqual(release_version.prune([], self.tags("0.1.0")), ([], []))
+
+    def test_fifth_release_drops_the_oldest(self):
+        releases = self.tags("0.61.0", "0.61.1", "0.62.0", "0.63.0", "0.64.0")
+        self.assertEqual(release_version.prune(releases, releases), (self.tags("0.61.0"), []))
+
+    def test_order_by_version_not_listing_order(self):
+        releases = self.tags("0.9.0", "0.10.0", "0.62.1", "0.64.0", "0.10.1", "0.63.0", "0.61.0")
+        drop, _ = release_version.prune(releases, releases)
+        self.assertEqual(drop, self.tags("0.9.0", "0.10.0", "0.10.1"))
+
+    def test_orphan_tags_older_than_the_kept_releases(self):
+        releases = self.tags("0.40.0", "0.50.0", "0.51.0", "0.52.0", "0.53.0")
+        tags = releases + self.tags("0.30.0", "0.50.5", "0.60.0") + ["v1.0", "other"]
+        drop, orphans = release_version.prune(releases, tags)
+        self.assertEqual(drop, self.tags("0.40.0"))
+        # 0.50.5 and 0.60.0 are newer than the oldest kept release (0.50.0).
+        self.assertEqual(orphans, self.tags("0.30.0"))
+
+    def test_other_names_are_never_listed(self):
+        releases = ["v1.0", "nightly"] + self.tags("0.1.0", "0.2.0", "0.3.0", "0.4.0", "0.5.0")
+        drop, orphans = release_version.prune(releases, releases + ["v0.1"])
+        self.assertEqual(drop, self.tags("0.1.0"))
+        self.assertEqual(orphans, [])
+
+    def test_newest_is_never_listed(self):
+        releases = self.tags(*["0.%d.0" % i for i in range(30)])
+        drop, _ = release_version.prune(releases, releases)
+        self.assertEqual(len(drop), 26)
+        self.assertNotIn("deploy-v0.29.0", drop)
+
+
 class CommandLineTest(unittest.TestCase):
     def run_script(self, *args, stdin=""):
         return subprocess.run([sys.executable, SCRIPT] + list(args), input=stdin,
@@ -136,6 +176,17 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), "deploy-v0.17.1")
         r = self.run_script("--previous-tag", "0.1.0", stdin="deploy-v0.17.0\n")
         self.assertEqual((r.returncode, r.stdout), (0, ""))
+
+    def test_prune(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        releases, tags = os.path.join(d, "releases"), os.path.join(d, "tags")
+        with open(releases, "w") as f:
+            f.write("deploy-v0.5.0\ndeploy-v0.2.0\ndeploy-v0.3.0\ndeploy-v0.4.0\ndeploy-v0.6.0\n")
+        with open(tags, "w") as f:
+            f.write("deploy-v0.1.0\ndeploy-v0.2.0\ndeploy-v0.3.0\ndeploy-v0.4.0\ndeploy-v0.5.0\ndeploy-v0.6.0\n")
+        r = self.run_script("--prune", releases, tags)
+        self.assertEqual((r.returncode, r.stdout), (0, "release deploy-v0.2.0\ntag deploy-v0.1.0\n"))
 
     def test_package(self):
         r = self.run_script("--package")

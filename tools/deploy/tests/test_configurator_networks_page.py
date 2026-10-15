@@ -102,7 +102,7 @@ class NetworksPage(unittest.TestCase):
 
     def tabs(self):
         """The network entries of the tree (their names, without protocol or counts)."""
-        return self.page.locator("#tree > li.net > .tree-row > .name").all_inner_texts()
+        return self.page.locator("#tree > li.net > .tree-row .name").all_inner_texts()
 
     def save(self):
         self.settled()
@@ -137,8 +137,23 @@ class NetworksPage(unittest.TestCase):
         self.settled()
         self.assertEqual(pg.inner_text("#btn-save"), "Saved")
         self.assertTrue(pg.is_disabled("#btn-save"))
+        # Add network lists the protocols with a line each, CANopen first and
+        # focused; Up and Down move between them; Escape adds nothing.
         add_network(pg)
-        pg.click('#modal button[data-value="canopen"]')
+        choices = pg.locator("#modal-extra .choice")
+        self.assertEqual([t.split("\n")[0] for t in choices.all_inner_texts()], ["CANopen", "J1939", "Plain CAN"])
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.value"), "canopen")
+        pg.keyboard.press("ArrowDown")
+        pg.keyboard.press("ArrowDown")
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.value"), "none")
+        pg.keyboard.press("ArrowDown")
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.value"), "canopen")
+        self.assertEqual(pg.locator("#modal-buttons button").all_inner_texts(), ["Cancel"])
+        pg.keyboard.press("Escape")
+        pg.wait_for_selector("#modal", state="hidden")
+        self.assertEqual(self.tabs(), ["vcan0"])
+        add_network(pg)
+        pg.keyboard.press("Enter")
         self.assertEqual(self.tabs(), ["vcan0", "network 2"])
         self.assertEqual(pg.input_value('input[data-path="adapter.interface"]'), "")
         self.assertEqual(pg.inner_text('#tree [data-key="1:empty"]'), "No nodes yet")

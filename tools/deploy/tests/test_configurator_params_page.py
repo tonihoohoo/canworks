@@ -186,6 +186,50 @@ class ParamsPage(OnlineBase):
             pg.wait_for_function("() => window.__copied.length === 5")
             self.assertIn(": CO_SDO_WRITE_REAL;", copied())
 
+    def test_selected_row(self):
+        """od-row-highlight: a click or focus selects a row, Escape clears it,
+        and the selection lasts through reads, searches and tab switches."""
+        pg = self.page
+        selected = "() => [...document.querySelectorAll('tr.od-selected')].map(r => r.dataset.odSel)"
+        with self.device() as fp:
+            self.open_node(fp, tab="od")
+            pg.wait_for_selector('details[data-od-group="communication"]')
+            self.search("0x1018")
+            sub2, sub3 = 'tr[data-od-key="%d:2"]' % 0x1018, 'tr[data-od-key="%d:3"]' % 0x1018
+            self.assertEqual(pg.evaluate(selected), [])
+            # A click on the name selects the row, across to its Watch box.
+            pg.click(sub2 + " td.od-name")
+            self.assertEqual(pg.evaluate(selected), ["%d:2" % 0x1018])
+            self.assertEqual(pg.get_attribute(sub2, "aria-current"), "true")
+            bg = pg.eval_on_selector(sub2 + " td.od-watch", "td => getComputedStyle(td).backgroundColor")
+            plain = pg.eval_on_selector(sub3 + " td.od-watch", "td => getComputedStyle(td).backgroundColor")
+            self.assertNotEqual(bg, plain)
+            # A button selects its own row, and still does its job.
+            fp.set(0x1018, 3, (0x42).to_bytes(4, "little"))
+            pg.click(sub3 + ' button[data-online="od-read"]')
+            pg.wait_for_selector(sub3 + ':has-text("66 (0x00000042)")')
+            self.assertEqual(pg.evaluate(selected), ["%d:3" % 0x1018])
+            self.assertIsNone(pg.get_attribute(sub2, "aria-current"))
+            # The foldable object's own row can be selected too.
+            pg.click('tr[data-od-object-row="%d"] td.od-name' % 0x1018)
+            self.assertEqual(pg.evaluate(selected), ["obj:%d" % 0x1018])
+            # Keyboard: focus moving into a row selects it; Escape clears.
+            pg.focus(sub2 + ' button[data-online="od-read"]')
+            self.assertEqual(pg.evaluate(selected), ["%d:2" % 0x1018])
+            pg.keyboard.press("Escape")
+            self.assertEqual(pg.evaluate(selected), [])
+            # Kept through Read all, a search that hides the row, and another tab.
+            pg.click(sub3 + " td.od-name")
+            pg.click('button[data-online="od-read-all"]')
+            pg.wait_for_selector('[data-online="od-summary"]:has-text("read")')
+            self.search("6110")
+            self.assertTrue(pg.locator(sub3).is_hidden())
+            self.search("0x1018")
+            self.assertEqual(pg.evaluate(selected), ["%d:3" % 0x1018])
+            pg.click('button[data-online-tab="params"]')
+            pg.click('button[data-online-tab="od"]')
+            pg.wait_for_selector(sub3 + ".od-selected")
+
     def test_tree_read_object_filters_formats(self):
         """improve-od-browser 2.1-2.5."""
         pg = self.page

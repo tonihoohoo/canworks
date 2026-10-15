@@ -212,13 +212,11 @@ function j1939Ecu() {
 // -- DBC import ---------------------------------------------------------------------
 
 function j1939Dbc(j) {
-  const input = el("input", { type: "file", accept: ".dbc,.DBC", dataset: { j1939: "dbc-input" } });
-  input.addEventListener("change", () => { const f = input.files[0]; input.value = ""; if (f) importDbc(f); });
   return el("fieldset", { dataset: { section: "dbc" } }, el("legend", null, "DBC file"),
     el("p", null, j.dbc ? ["Messages come from ", el("strong", { dataset: { j1939: "dbc" } }, j.dbc), "."]
       : el("span", { class: "muted", dataset: { j1939: "dbc" } }, "No DBC file yet.")),
     el("div", { class: "toolbar" },
-      el("label", { class: "file-button" }, "Import DBC…", input),
+      dbcFileButton(importDbc, { j1939: "dbc-input" }),
       j.dbc ? el("button", { type: "button", dataset: { j1939: "pick" }, onclick: () => pickFromDbc(j.dbc) }, "Pick messages…") : null),
     hint("Import copies the DBC file into the config folder when you save, then lists its messages: mark each to receive or to send. " +
       "Each signal gets a free PLC location of the right size."));
@@ -235,22 +233,8 @@ async function importDbc(file) {
     [["cancel", `Keep ${j.dbc}`], ["replace", `Use ${file.name}`]]);
     if (v !== "replace") return;
   }
-  const data = await fileBase64(file);
-  let res;
-  try {
-    res = await api("POST", "/api/j1939/dbc", { name: file.name, data });
-  } catch (e) {
-    if (e.status === 409 && e.body.conflict) {
-      const v = await modal(e.message + ". Replace it, or keep both under a new name?",
-        [["cancel", "Cancel"], ["replace", "Replace", { danger: true }], ["keep_both", "Keep both", true]]);
-      if (!v || v === "cancel") return;
-      try { res = await api("POST", "/api/j1939/dbc", { name: file.name, data, on_conflict: v }); } catch (e2) { banner(e2.message, true); return; }
-    } else {
-      banner(e.message, true);
-      return;
-    }
-  }
-  return pickMessages(res);
+  const res = await uploadDbc("/api/j1939/dbc", file);
+  if (res) return pickMessages(res);
 }
 
 async function pickFromDbc(name) {
@@ -261,40 +245,31 @@ async function pickFromDbc(name) {
 // or a sender named PLC or like the network.
 function fromEcu(m) {
   const ecu = getPath("j1939.ecu") || {};
-  const sender = (m.sender || "").toLowerCase();
-  return m.source === num(ecu.address) || sender === "plc" || (sender !== "" && sender === netName(S.config).toLowerCase());
+  return m.source === num(ecu.address) || senderIsPlc(m.sender);
 }
 
 // The message picker: receive, send or leave out each message of the DBC.
 async function pickMessages(res) {
   const j = j1939Of(S.config, true);
   const have = { rx: new Set((j.rx || []).map((e) => num(e.pgn))), tx: new Set((j.tx || []).map((e) => num(e.pgn))) };
-  const rows = res.messages.map((m, i) => {
-    const already = have.rx.has(m.pgn) ? "rx" : have.tx.has(m.pgn) ? "tx" : null;
-    const sel = el("select", { "aria-label": `${m.name}: receive, send or leave out`, dataset: { pick: m.name } },
-      el("option", { value: "" }, "Leave out"), el("option", { value: "rx" }, "Receive"), el("option", { value: "tx" }, "Send"));
-    sel.value = already ? "" : fromEcu(m) ? "tx" : "rx";
-    return { m, i, sel, row: el("tr", null,
-      el("td", null, el("strong", null, m.name), m.comment ? el("div", { class: "hint" }, m.comment) : null),
-      el("td", { class: "mono" }, pgnText(m.pgn)),
-      el("td", null, m.sender || "", m.source !== undefined ? el("span", { class: "muted" }, ` (address ${m.source})`) : null),
-      el("td", null, `${m.length} B`, m.cycle_ms ? el("div", { class: "muted" }, `every ${m.cycle_ms} ms`) : null),
-      el("td", null, m.signals.join(", "),
+  const rows = res.messages.map((m) => ({
+    name: m.name, comment: m.comment, send: fromEcu(m),
+    already: have.rx.has(m.pgn) ? "rx" : have.tx.has(m.pgn) ? "tx" : null,
+    cells: [
+      el("span", { class: "mono" }, pgnText(m.pgn)),
+      [m.sender || "", m.source !== undefined ? el("span", { class: "muted" }, ` (address ${m.source})`) : null],
+      [`${m.length} B`, m.cycle_ms ? el("div", { class: "muted" }, `every ${m.cycle_ms} ms`) : null],
+      [m.signals.join(", "),
         (m.switches || []).length ? el("div", { class: "muted", dataset: { j1939Mux: m.name } },
           `switch ${m.switches.join(", ")}` + (m.pages ? `, ${m.pages} page${m.pages === 1 ? "" : "s"}` : "")) : null,
-        m.mux_problem ? el("div", { class: "field-msg warning" }, m.mux_problem) : null),
-      el("td", null, sel, already ? el("div", { class: "muted" }, `already in ${already === "rx" ? "received" : "sent"} PGNs`) : null)) };
-  });
-  const extra = el("div", { class: "j1939-picker" },
-    el("table", null, el("thead", null, el("tr", null, thCells(["Message", "PGN", "Sender", "Length", "Signals", "PLC"]))),
-      el("tbody", null, rows.map((r) => r.row))),
-    res.problems && res.problems.length ? el("details", { class: "muted" }, el("summary", null, `Left out of the import (${res.problems.length})`),
-      el("ul", null, res.problems.map((p) => el("li", null, p)))) : null);
-  const v = await modal(`${res.name}: ${res.messages.length} J1939 message${res.messages.length === 1 ? "" : "s"}. ` +
-    "Receive takes a message into %I inputs, Send sends it from %Q outputs. Send is preselected for messages from this ECU.",
-  [["cancel", "Cancel"], ["add", "Add picked messages", true]], extra);
-  if (v !== "add") return;
-  const picks = rows.filter((r) => r.sel.value).map((r) => ({ index: r.i, direction: r.sel.value }));
+        m.mux_problem ? el("div", { class: "field-msg warning" }, m.mux_problem) : null],
+    ] }));
+  const picks = await pickDbcMessages({
+    text: `${res.name}: ${res.messages.length} J1939 message${res.messages.length === 1 ? "" : "s"}. ` +
+      "Receive takes a message into %I inputs, Send sends it from %Q outputs. Send is preselected for messages from this ECU.",
+    columns: ["PGN", "Sender", "Length", "Signals"], rows, problems: res.problems,
+    lists: { rx: "received PGNs", tx: "sent PGNs" } });
+  if (!picks) return;
   try {
     const out = picks.length ? await api("POST", "/api/j1939/entries", { config: fileConfig(), network: S.net, name: res.name, picks }) : { entries: [] };
     const count = { rx: 0, tx: 0 };

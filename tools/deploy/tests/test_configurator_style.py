@@ -9,7 +9,7 @@ from pathlib import Path
 
 CSS = Path(__file__).resolve().parents[1] / "canworks" / "configurator" / "static" / "style.css"
 STATES = ("--st-ok", "--st-busy", "--st-warn", "--st-error", "--st-off")
-BACKGROUNDS = ("--bg", "--panel", "--hover", "--st-warn-bg", "--st-error-bg")
+BACKGROUNDS = ("--bg", "--panel", "--hover", "--st-warn-bg", "--st-error-bg", "--sel-bg")
 
 
 def luminance(hex_colour):
@@ -52,6 +52,17 @@ class StateColours(unittest.TestCase):
                 for bg in BACKGROUNDS:
                     r = ratio(t[state], t[bg])
                     self.assertGreaterEqual(r, 4.5, f"{name} theme: {state} {t[state]} on {bg} {t[bg]} is {r:.2f}:1, needs 4.5:1")
+
+    def test_selected_row(self):
+        """od-row-highlight: the selected row's accent bar is a 3:1 mark against
+        the page, the panel and its own wash; text keeps 4.5:1 on the wash."""
+        for name, t in themes().items():
+            for bg in ("--bg", "--panel", "--sel-bg"):
+                r = ratio(t["--accent"], t[bg])
+                self.assertGreaterEqual(r, 3, f"{name} theme: --accent on {bg} is {r:.2f}:1, needs 3:1")
+            for fg in ("--text", "--muted"):
+                r = ratio(t[fg], t["--sel-bg"])
+                self.assertGreaterEqual(r, 4.5, f"{name} theme: {fg} on --sel-bg is {r:.2f}:1, needs 4.5:1")
 
     def test_auto_dark_matches_dark(self):
         t = themes()

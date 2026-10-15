@@ -122,7 +122,7 @@ class Probes(Layout):
         pg.goto(self.server.url)
         pg.click("#start-commission")
         pg.wait_for_selector("#editor:not([hidden])")
-        pg.wait_for_selector('#view [data-nodes="connect"]')
+        pg.wait_for_selector('#view [data-nodes="not-connected"]')
         pg.wait_for_selector('#tool-tabs button[data-view="nodes"][aria-selected="true"]')
         self.assertTrue(pg.is_hidden("#ws"))
         self.assertTrue(pg.is_hidden("#menu-project"))

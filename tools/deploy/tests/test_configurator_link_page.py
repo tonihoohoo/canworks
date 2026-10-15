@@ -36,6 +36,8 @@ class LinkPage(base.OnlineBase):
             self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
             self.open()
             pg.click('button[data-view="online"]')
+            # The connect panel from the bar's Connect… is the one place to connect.
+            pg.click('#conn-bar [data-conn="connect"]')
             sel = 'select[data-online="runtime-list"]'
             pg.wait_for_selector(sel + ' option[data-kind="discovered"]', state="attached")
             self.assertIn("bench 10.0.0.7:7600", pg.inner_text(sel))

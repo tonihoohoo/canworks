@@ -238,5 +238,6 @@
  "tests.test_slave.GatewayObjects": 0.3,
  "tests.test_slave.Generator": 1.4,
  "tests.test_slave.Schema": 0.0,
- "tests.test_slave.SlaveContract": 4.2
+ "tests.test_slave.SlaveContract": 4.2,
+ "tests.test_tour_labels.TourLabels": 0.1
 }

@@ -790,7 +790,7 @@ class Session:
             "folder": self.folder, "name": os.path.basename(self.folder.rstrip(os.sep)) or self.folder,
             "canopen_dir": self.canopen_dir, "config_path": self.config_path,
             "config_exists": os.path.isfile(self.config_path), "config": cfg, "notices": notices,
-            "load_error": error, "eds": self.eds_info(names),
+            "load_error": error, "eds": self.eds_info(names), "dbc_files": self.dbc_files(),
             "unused_eds": [n for n in names if n not in referenced and n not in self.pending],
             "slave_descriptions": self.slave_descriptions(names),
             "project_uses": [u.as_dict() for u in self.uses], "scan_problems": self.scan_problems,
@@ -853,13 +853,35 @@ class Session:
             return os.path.join(self.pending_dir, name)
         return os.path.join(self.canopen_dir, name)
 
-    def import_dbc(self, name, data=None, on_conflict=None):
-        """A DBC file for a J1939 network's message picker: with `data` a
-        new file, kept for the draft and written to the config folder on
-        save (a different file of that name: 409 unless `on_conflict` is
+    @staticmethod
+    def dbc_names(cfg):
+        """The DBC files the config names: each J1939 network's `j1939.dbc`
+        and each network's `raw.dbc`."""
+        names = set()
+        for n in contract.networks(cfg):
+            raw = n["json"].get("raw") if isinstance(n.get("json"), dict) else None
+            for name in (n["j1939"].get("dbc") if n["role"] == "j1939" else None,
+                         raw.get("dbc") if isinstance(raw, dict) else None):
+                if isinstance(name, str) and name:
+                    names.add(name)
+        return names
+
+    def dbc_files(self):
+        """The DBC files the draft can use: in the config folder or imported."""
+        names = set(self.pending_dbc)
+        if os.path.isdir(self.canopen_dir):
+            names.update(f for f in os.listdir(self.canopen_dir) if f.lower().endswith(".dbc"))
+        return sorted(names)
+
+    def import_dbc(self, name, data=None, on_conflict=None, kind="j1939"):
+        """A DBC file for a message picker, of a J1939 network (`kind`
+        "j1939") or of the CAN messages page ("raw"): with `data` a new
+        file, kept for the draft and written to the config folder on save
+        (a different file of that name: 409 unless `on_conflict` is
         "replace" or "keep_both"); without it the file the network already
-        names. Returns {name, messages, problems}: dbc.load()'s messages
-        without their frame IDs' parts the page does not use."""
+        names. Returns {name, messages, problems}: for J1939 dbc.load()'s
+        messages without their frame IDs' parts the page does not use, for
+        raw rawpage.dbc_messages()."""
         name = os.path.basename(name or "").strip()
         if not name or name in (".", "..") or name == CONFIG or not name.lower().endswith(".dbc"):
             raise ApiError(422, "invalid DBC file name %r (it must end in .dbc)" % name)
@@ -886,6 +908,18 @@ class Session:
                 elif on_conflict != "replace":
                     raise ApiError(409, "a different DBC file named %s is already in %s" % (name, self.canopen_dir),
                                    conflict=name)
+        if kind == "raw":
+            try:
+                messages = rawpage.dbc_messages(data.decode("utf-8", "replace"))["messages"]
+            except rawpage.RawPageError as e:
+                raise ApiError(422, "%s: %s" % (name, e))
+            if not messages:
+                raise ApiError(422, "%s has no messages to import" % name)
+            if new:
+                self.pending_dbc[name] = data
+                with open(os.path.join(self.pending_dir, name), "wb") as f:
+                    f.write(data)
+            return {"name": name, "messages": messages, "problems": []}
         try:
             imported = j1939_dbc.load(text=data.decode("utf-8", "replace"))
         except j1939_dbc.ImportFailed as e:
@@ -935,7 +969,7 @@ class Session:
     def raw_page(self, op, body):
         """The CAN messages page's requests (rawpage.py)."""
         cfg = body.get("config")
-        if op != "dbc" and not isinstance(cfg, dict):
+        if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
         try:
             if op == "suggest":
@@ -943,17 +977,18 @@ class Session:
                                        body.get("start"))
             if op == "st":
                 return rawpage.st_call(cfg, body.get("network", 0), body.get("kind"), body.get("index"))
-            text = body.get("text")
-            if not isinstance(text, str):
-                raise ApiError(400, "text must be the DBC file's text")
-            if op == "dbc":
-                return rawpage.dbc_messages(text)
+            path = self.dbc_path(os.path.basename(body.get("name") or ""))
+            try:
+                with open(path, "rb") as f:
+                    text = f.read().decode("utf-8", "replace")
+            except OSError:
+                raise ApiError(404, "DBC file %s not found" % path)
             picks = body.get("picks")
             if not isinstance(picks, dict):
                 raise ApiError(400, "picks must map message names to receive or send")
             return rawpage.dbc_import(cfg, body.get("network", 0), text, picks, self.uses, body.get("start"))
         except rawpage.RawPageError as e:
-            raise ApiError(422 if op in ("dbc", "dbc_import") else 400, str(e))
+            raise ApiError(422 if op == "dbc_import" else 400, str(e))
 
     # -- checks -------------------------------------------------------------
     def check(self, cfg, allow_overlap=False, task_interval=None, notes=None):
@@ -1469,7 +1504,7 @@ class Session:
                     f.write("\n")
                 os.replace(target + ".tmp", target)
                 written.append(target)
-        dbc_names = {n["j1939"].get("dbc") for n in contract.networks(cfg) if n["role"] == "j1939"}
+        dbc_names = self.dbc_names(cfg)
         for name, data in sorted(self.pending_dbc.items()):
             if name in dbc_names:
                 target = os.path.join(self.canopen_dir, name)
@@ -2019,8 +2054,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._need_open(s)
                     out = s.dbc_entries(body.get("config"), body.get("network", 0), body.get("name"),
                                         body.get("picks"))
-                elif route in (("POST", "/api/raw/suggest"), ("POST", "/api/raw/st"), ("POST", "/api/raw/dbc"),
-                               ("POST", "/api/raw/dbc_import")):
+                elif route == ("POST", "/api/raw/dbc"):
+                    self._need_open(s)
+                    data = None
+                    if body.get("data") is not None:
+                        try:
+                            data = base64.b64decode(body.get("data") or "", validate=True)
+                        except ValueError:
+                            raise ApiError(400, "data must be base64")
+                    out = s.import_dbc(body.get("name"), data, body.get("on_conflict"), kind="raw")
+                elif route in (("POST", "/api/raw/suggest"), ("POST", "/api/raw/st"), ("POST", "/api/raw/dbc_import")):
                     self._need_open(s)
                     out = s.raw_page(route[1].rsplit("/", 1)[1], body)
                 elif route == ("POST", "/api/check"):
@@ -2339,6 +2382,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ApiError(400, "index must be 0x0000-0xFFFF and subindex 0-255")
             return index, sub
 
+        if route == ("POST", "/api/online/pdo_layout"):
+            # The trace's PDO layout of a node, read from the device (canopen-configurator:
+            # "Automatic PDO layout reads in Commission a device"). Reads only.
+            node = node_arg()
+            client = params.Client(conn, hostname, port, token, network, False)
+            try:
+                values, dtype = params.pdo_values(client, node)
+            except diag.DiagError as e:
+                raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
+            ws = self.server.traces.get(folder)
+            ws.add_device_read(node, values, dtype)
+            pdos = {}
+            for (index, sub), v in values.items():
+                if sub == 1 and (0x1400 <= index < 0x1600 or 0x1800 <= index < 0x1A00) and not v & 0x80000000:
+                    pdos["%s%d" % ("TPDO" if index >= 0x1800 else "RPDO", (index & 0x1FF) + 1)] = v & 0x7FF
+            return {"node": node, "pdos": [{"name": k, "cob_id": v} for k, v in sorted(pdos.items())],
+                    "device_type": dtype}
         if route in params.ROUTES:
             node = None if route[1].endswith("/job") else node_arg()
             watch = self.server.watch
@@ -2946,6 +3006,58 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                    "explanation": model(x["frame"])} for x in built])
 
     # -- trace --------------------------------------------------------------
+    def _trace_decoding(self, route, body, settings, folder, ws, decoder):
+        """/api/trace/decoding: the DBC files of the trace and each node's EDS
+        and PDO layout source (canopen-configurator: "Decoding panel in the
+        Trace view"). POST with an action changes the DBC files (add by path
+        or upload, remove, order) or, with "refresh", decodes the trace again
+        after the nodes' EDS files changed."""
+        paths = tracing.dbc_entries(settings.project(folder))
+        if route[0] == "POST" and body.get("action") is not None:
+            action = body.get("action")
+            if action == "add":
+                path = body.get("path")
+                if isinstance(path, str) and path.strip():
+                    path = os.path.abspath(os.path.expanduser(path.strip()))
+                    if not path.lower().endswith(".dbc"):
+                        raise ApiError(422, "%s is not a DBC file (the name must end in .dbc)" % path, field="path")
+                    if not os.path.isfile(path):
+                        raise ApiError(422, "the file %s does not exist" % path, field="path")
+                else:
+                    try:
+                        data = base64.b64decode(body.get("data") or "", validate=True)
+                    except ValueError:
+                        raise ApiError(400, "data must be base64")
+                    if not data:
+                        raise ApiError(400, "choose a DBC file")
+                    try:
+                        path = tracing.save_uploaded_dbc(os.path.join(config_dir(), "dbc"), body.get("name"), data)
+                    except tracing.Refused as e:
+                        raise ApiError(e.status, str(e))
+                _, check = tracing.load_dbc([path])
+                if check[0]["error"]:
+                    raise ApiError(422, "%s cannot be read as a DBC file: %s" % (os.path.basename(path),
+                                                                                  check[0]["error"]))
+                if path not in paths:
+                    if len(paths) >= tracing.MAX_DBC_FILES:
+                        raise ApiError(422, "a trace decodes with at most %d DBC files; remove one first"
+                                       % tracing.MAX_DBC_FILES)
+                    paths.append(path)
+            elif action == "remove":
+                paths = [p for p in paths if p != body.get("path")]
+            elif action == "order":
+                order = body.get("paths")
+                if not isinstance(order, list) or sorted(order) != sorted(paths):
+                    raise ApiError(400, "paths must list the trace's DBC files in their new order")
+                paths = list(order)
+            elif action != "refresh":
+                raise ApiError(400, "action must be add, remove, order or refresh")
+            if action != "refresh":
+                settings.update_project(folder, trace_dbc=paths)
+            ws.redecode(decoder())
+        _, view = tracing.load_dbc(paths)
+        return tracing.decoding_view(ws.decoding(), view)
+
     def _trace(self, route, body):
         """/api/trace/*: the Trace view's recording or opened file for this
         project folder (canopen-configurator: "Trace view")."""
@@ -2961,16 +3073,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # A trace records and decodes one network (canopen-bus-trace).
         network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
 
+        settings = online.Settings(config_dir())
+
         def decoder():
             if s.commission:
                 with s.lock:
-                    return tracing.commission_decoder(body.get("eds"), s.eds_path)
-            cfg = body.get("config")
-            with s.lock:
-                if not isinstance(cfg, dict):
-                    cfg = s.read_config()[0]
-                eds_paths = s.eds_paths(cfg)
-            return tracing.decoder_for(cfg, config_path, eds_paths, names, network)
+                    dec = tracing.commission_decoder(body.get("eds"), s.eds_path)
+            else:
+                cfg = body.get("config")
+                with s.lock:
+                    if not isinstance(cfg, dict):
+                        cfg = s.read_config()[0]
+                    eds_paths = s.eds_paths(cfg)
+                dec = tracing.decoder_for(cfg, config_path, eds_paths, names, network)
+            # The DBC files added to the trace (canopen-bus-trace: "DBC files in a trace").
+            files, _ = tracing.load_dbc(tracing.dbc_entries(settings.project(folder)))
+            if files:
+                dec.attach_dbc(files)
+            return dec
 
         def time_range():
             return tracing._opt_time(body.get("start_us"), "start_us"), tracing._opt_time(body.get("end_us"), "end_us")
@@ -2980,6 +3100,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if route == ("GET", "/api/trace/state"):
             return state()
+        if route[1] == "/api/trace/decoding":
+            return self._trace_decoding(route, body, settings, folder, ws, decoder)
         if route[1].startswith(("/api/trace/transmit", "/api/trace/prefs")):
             return self._transmit(route, body, folder, network)
         if route == ("POST", "/api/trace/ids/reference"):
@@ -3046,6 +3168,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ApiError(422, recorder_mod.TOO_OLD, kind="too_old")
                 raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
             dec = decoder()
+            if s.commission:
+                ws.apply_device_reads(dec)
             if spec or (spec is None and ws.trigger):
                 try:
                     triggers_mod.resolve_signals(spec or ws.trigger, dec.signal_keys())
