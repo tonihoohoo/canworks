@@ -622,7 +622,9 @@ class ParamsPage(OnlineBase):
             pg.click('button[data-online="backup"]')
             self.assertIn("has not booted", pg.inner_text("#modal-text"))
             pg.click('#modal button[data-value="cancel"]')
-            self.assertFalse(fp.sdo_requests("sdo_read"))
+            # Only the Nodes table's identity read of the heard node, no backup.
+            identity = {0x1018, 0x1000, 0x1008, 0x1009, 0x100A}
+            self.assertFalse([r for r in fp.sdo_requests("sdo_read") if r[0] not in identity])
 
     def test_job_survives_a_reload(self):
         pg = self.page

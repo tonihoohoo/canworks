@@ -6011,7 +6011,7 @@ function openScannedOd(d, match) {
   const before = (S.onlineEdsName || {})[d.node_id] || null;
   if (before !== match.name || (S.onlineEds || {})[d.node_id] !== match.path) {
     dropOdState(d.node_id);
-    commLog(d.node_id, before ? `Change EDS ${before} → ${match.name}` : `Use EDS ${match.name}`, "on this page");
+    if (before) commLog(d.node_id, `Change EDS ${before} → ${match.name}`, "on this page");
   }
   commNodes()[d.node_id] = Object.assign(commNodes()[d.node_id] || {}, { eds_path: match.path, eds_name: match.name });
   Object.assign(commDevice(), { node_id: d.node_id, vendor_id: d.vendor_id, product_code: d.product_code, revision_number: d.revision_number,
