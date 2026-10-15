@@ -853,6 +853,100 @@ async function browse(path) {
   }
 }
 
+// A folder picked in a dialog (browse-eds-library-folder): the PC's folders
+// as the server lists them, with Up (the drives above a Windows drive root),
+// a path field for a typed or pasted path, and each folder's EDS count.
+// Resolves the folder's path, or null on Cancel or Escape.
+async function chooseFolder({ title, start, note }) {
+  const path = el("input", { type: "text", spellcheck: "false", "aria-label": "Folder path", dataset: { folder: "path" } });
+  const up = el("button", { type: "button", title: "Parent folder", "aria-label": "Parent folder", dataset: { folder: "up" } }, "↑");
+  const go = el("button", { type: "button", dataset: { folder: "go" } }, "Go");
+  const here = el("p", { class: "muted", dataset: { folder: "here" }, "aria-live": "polite" });
+  const list = el("ul", { class: "folders", "aria-label": "Subfolders", dataset: { folder: "list" } });
+  const err = el("p", { class: "field-msg", dataset: { folder: "error" }, role: "alert", hidden: true });
+  let shown = null;  // the listing on screen
+  const edsTag = (n) => (n ? el("span", { class: "tag" }, n + " EDS") : null);
+  async function open(where, drives) {
+    const inList = list.contains(document.activeElement);
+    let r;
+    try {
+      r = await api("GET", "/api/folders?" + (drives ? "drives=1" : "path=" + encodeURIComponent(where)));
+    } catch (e) {
+      err.textContent = e.message;
+      err.hidden = false;
+      return false;
+    }
+    err.hidden = true;
+    shown = r;
+    path.value = r.path;
+    up.disabled = !r.parent && !r.drive;
+    here.textContent = r.drive_list ? "Drives on this PC" : !r.eds ? "No EDS files in this folder" : r.eds === 1 ? "1 EDS file in this folder" : r.eds + " EDS files in this folder";
+    list.replaceChildren(...r.entries.map((e) => el("li", null, el("button", {
+      type: "button", class: "folder", title: e.path, dataset: { folderPath: e.path }, onclick: () => open(e.path),
+    }, "📁 " + e.name, edsTag(e.eds)))));
+    if (!r.entries.length) list.append(el("li", { class: "muted" }, r.drive_list ? "No drives found" : "No subfolders"));
+    if (inList || (up.disabled && document.activeElement === up)) (list.querySelector("button") || path).focus();
+    return true;
+  }
+  const goUp = () => { if (shown && shown.parent) open(shown.parent); else if (shown && shown.drive) open("", true); };
+  up.onclick = goUp;
+  go.onclick = () => open(path.value.trim());
+  // Enter in the path field opens the typed folder (not Use this folder).
+  path.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); open(path.value.trim()); }
+  });
+  list.addEventListener("keydown", (e) => {
+    const items = [...list.querySelectorAll("button")];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const to = items[Math.max(0, Math.min(items.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
+      if (to) to.focus();
+    } else if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      const to = e.key === "Home" ? items[0] : items[items.length - 1];
+      if (to) to.focus();
+    } else if (e.key === "Backspace" || (e.key === "ArrowLeft" && e.altKey) || (e.key === "ArrowUp" && e.altKey)) {
+      e.preventDefault();
+      goUp();
+    }
+  });
+  // Its own dialog, so it can open over another one (Add to a config…).
+  const use = el("button", { type: "button", class: "primary", dataset: { value: "use" } }, "Use this folder");
+  const cancel = el("button", { type: "button", dataset: { value: "cancel" } }, "Cancel");
+  const dlg = el("dialog", { class: "folder-dialog", "aria-labelledby": "folder-dialog-title", dataset: { folder: "dialog" } },
+    el("h2", { id: "folder-dialog-title" }, title),
+    el("div", { class: "folder-picker" }, el("div", { class: "row" }, up, path, go), here, err, list, note ? hint(note) : null),
+    el("menu", null, cancel, use));
+  // The nearest folder that exists: the start, else its parents, else home.
+  let ok = false;
+  for (let p = start; p && !ok; ) {
+    ok = await open(p);
+    const parent = p.replace(/[\\/]+[^\\/]*$/, "");
+    if (ok || parent === p || !parent) break;
+    p = /^[A-Za-z]:$/.test(parent) ? parent + "\\" : parent;
+  }
+  if (!ok) await open(S.state && S.state.home ? S.state.home : "~");
+  err.hidden = true;
+  const opener = document.activeElement;
+  document.body.append(dlg);
+  const answer = await new Promise((resolve) => {
+    use.onclick = () => resolve("use");
+    cancel.onclick = () => resolve(null);
+    dlg.addEventListener("cancel", (e) => { e.preventDefault(); resolve(null); });
+    dlg.showModal();
+    (list.querySelector("button") || path).focus();
+  });
+  dlg.close();
+  dlg.remove();
+  if (opener && opener.isConnected) opener.focus();
+  if (answer !== "use") return null;
+  // A typed path not opened with Go is used as typed: the caller checks it.
+  const typed = path.value.trim();
+  if (typed && (!shown || typed !== shown.path)) return typed;
+  return shown && !shown.drive_list ? shown.path : null;
+}
+
 async function openFolder(path, mode, isNew) {
   try {
     banner("");
