@@ -11,7 +11,7 @@ needed, and the plugin's diagnostics channel on a free port of 127.0.0.1.
 Starts canworks-config (this checkout's tools/deploy) on the copy and drives
 it with Playwright through these steps:
 
-  connect      Online view: host and the example's token, connected
+  connect      Commission: the connect panel with the host and the example's token, connected
   nodes        the node table shows nodes 5, 6 and 7 OPERATIONAL
   od           node 6: SDO read of 0x2000:0, a write (with force, after the
                page asks: node 6 is OPERATIONAL), the read gives it back
@@ -156,7 +156,21 @@ class Run:
         return True
 
     def view(self, name):
-        self.page.click('#side button[data-view="%s"]' % name)
+        """A page: the Commission workspace's Nodes page (the online view), a
+        tool tab, or a Configure page from the side bar."""
+        pg = self.page
+        if name == "online":
+            if pg.get_attribute('#ws [data-ws="commission"]', "aria-pressed") != "true":
+                pg.click('#ws [data-ws="commission"]')
+            pg.click('#tool-tabs button[data-view="online"]')
+        elif name in ("declarations", "simulation", "trace", "framelab"):
+            pg.click('#tool-tabs button[data-view="%s"]' % name)
+        else:
+            if pg.get_attribute('#ws [data-ws="configure"]', "aria-pressed") != "true":
+                pg.click('#ws [data-ws="configure"]')
+            if not pg.is_visible("#side"):
+                pg.click('#tool-tabs button[data-view="network"]')
+            pg.click('#side button[data-view="%s"]' % name)
 
     def online_row(self, node):
         return 'tr[data-online-node="%d"]' % node
@@ -236,14 +250,15 @@ class Run:
         pg = self.page
         pg.goto(self.url)
         pg.wait_for_selector("#editor:not([hidden])")
-        self.view("online")
-        pg.fill('input[data-online="host"]', "127.0.0.1:%d" % self.port)
-        pg.click('button[data-online="connect"]')
+        # Commission opens the connect panel: this PC has no host or token yet.
+        pg.click('#ws [data-ws="commission"]')
+        pg.fill('#conn-dialog input[data-online="host"]', "127.0.0.1:%d" % self.port)
+        pg.click('#conn-dialog button[data-online="connect"]')
         pg.wait_for_selector('#modal input[aria-label="Access token"]')
         pg.fill('#modal input[aria-label="Access token"]', TOKEN)
         pg.click('#modal button[data-value="set"]')
         pg.wait_for_selector("#online-conn.ok", timeout=STEP_TIMEOUT_MS)
-        pg.wait_for_selector("text=changes allowed")
+        pg.wait_for_selector('#conn-bar [data-conn="allow"]:has-text("Changes allowed")')
 
     def nodes(self):
         for node in (5, 6, 7):
