@@ -20,4 +20,4 @@
 
 ## 4. Hardware
 
-- [ ] 4.1 On Windows: choose a library on another drive, scan, and see the devices matched
+- [x] 4.1 On Windows: choose a library on another drive, scan, and see the devices matched (2026-10-15 library on a second drive letter made with subst: the dialog lists both drives, the scan matches the device to the EDS in a subfolder)

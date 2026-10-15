@@ -60,9 +60,9 @@
 
 ## 8. Hardware checks (bench, when the Pi is reachable)
 
-- [ ] 8.1 Mac with the gs_usb adapter on the 500 kbit/s bench bus: connect at 1000, 250 and 50 kbit/s is refused with the right reason, and 500 kbit/s connects right after without a replug
-- [ ] 8.2 Same bench: with the PLC stopped and the device in PRE-OPERATIONAL without heartbeat, the silent-bus probe confirms 500 kbit/s and refuses 250 kbit/s, and the adapter keeps working afterwards
-- [ ] 8.3 SDO reads and Allow changes on and off report no other master; Disconnect frees the adapter for `canworks-diag`
-- [ ] 8.4 Scan the bus finishes in a few seconds, and Cancel stops it; Trace records in commissioning
-- [ ] 8.5 Windows PC with the slcan adapter: `--check-node` path on a silent bus, wrong rate refused
-- [ ] 8.6 Redeploy the plugin on the Pi; clean PLC start
+- [ ] 8.1 Mac with the gs_usb adapter on the 500 kbit/s bench bus: connect at 1000, 250 and 50 kbit/s is refused with the right reason, and 500 kbit/s connects right after without a replug (2026-10-15 run on Windows with the gs_usb adapter instead, the Mac not reachable: 1000, 250 and 50 kbit/s refused with the right reason, but the next 500 kbit/s connect is refused once on error frames left over from the refused rate, and once the adapter stalled on USB until it recovered by itself)
+- [ ] 8.2 Same bench: with the PLC stopped and the device in PRE-OPERATIONAL without heartbeat, the silent-bus probe confirms 500 kbit/s and refuses 250 kbit/s, and the adapter keeps working afterwards (2026-10-15 on Windows with gs_usb: the probe confirms 500 and refuses 250 kbit/s, then the next 500 kbit/s connect is refused once on the left-over error frames; the one after it works)
+- [x] 8.3 SDO reads and Allow changes on and off report no other master; Disconnect frees the adapter for `canworks-diag` (2026-10-15 on Windows with gs_usb, the Mac not reachable: SDO reads, Read all and Allow changes with the PLC stopped report no other master; Disconnect frees the adapter for canworks-diag)
+- [x] 8.4 Scan the bus finishes in a few seconds, and Cancel stops it; Trace records in commissioning (2026-10-15 on Windows with gs_usb: scan 5.1 s, Cancel stops it at 87 of 127 node IDs, Trace records)
+- [ ] 8.5 Windows PC with the slcan adapter: `--check-node` path on a silent bus, wrong rate refused (2026-10-15 still open: the slcan adapter is on the Pi, the PC has only the gs_usb adapter)
+- [x] 8.6 Redeploy the plugin on the Pi; clean PLC start (2026-10-15 redeployed from main with install-stock.sh, uploaded and started cleanly; node 23 operational)
