@@ -96,8 +96,9 @@ int main(int argc, char** argv) {
     std::printf("skipped: %s\n", j1939_socket_problem(r, iface).c_str());
     return 77;
   }
-  if (r < 0 || b->open(iface, {}) < 0 || c->open(iface, {}) < 0 || a->bind(0, 0x80) < 0 || b->bind(0, 0x20) < 0 ||
-      c->bind(0, 0x80) < 0) {
+  int ra = r < 0 ? r : a->bind(0, 0x80);
+  std::printf("     a bound (%d), events %d\n", ra, a->long_send_events() ? 1 : 0);
+  if (ra < 0 || b->open(iface, {}) < 0 || c->open(iface, {}) < 0 || b->bind(0, 0x20) < 0 || c->bind(0, 0x80) < 0) {
     std::printf("FAIL setting up the sockets on %s\n", iface.c_str());
     return 1;
   }
