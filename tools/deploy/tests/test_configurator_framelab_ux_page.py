@@ -135,9 +135,10 @@ class Layers(Base):
         self.explain("185#2500EA00")
         self.assertFalse(pg.is_visible("#fx-lab-inspector [data-fx=grid]"))
         # The keyboard folds the wire layer; its heading keeps the figures.
-        pg.focus('#fx-lab-inspector details[data-fx-layer="wire"] > summary')
-        pg.keyboard.press("Enter")
-        self.assertFalse(pg.is_visible("#fx-lab-inspector [data-fx=wire]"))
+        # Settled first: a late redraw of the view would take the focus away.
+        pg.wait_for_timeout(300)
+        pg.locator('#fx-lab-inspector details[data-fx-layer="wire"] > summary').press("Enter")
+        pg.wait_for_selector("#fx-lab-inspector [data-fx=wire]", state="hidden", timeout=3000)
         self.assertRegex(pg.inner_text('#fx-lab-inspector details[data-fx-layer="wire"] > summary'), r"\d+ bits, \d+ stuff bits")
         # After a reload.
         pg.reload()
