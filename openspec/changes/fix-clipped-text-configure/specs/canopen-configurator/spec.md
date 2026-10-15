@@ -55,6 +55,17 @@ On a selected row of a list or table (filled with the accent colour), every butt
 - **WHEN** the user selects a received message on the CAN messages page in the dark theme
 - **THEN** its Remove button reads clearly (red on the button's own fill), and "(no name)" reads in the row's text colour
 
+### Requirement: Text boxes stay in their column
+A multi-line text box SHALL take the width of its column and SHALL only be resizable in height, so dragging its corner never makes the page wider than the window. A field with a multi-line box SHALL stack its label, the box, its help and its message, in that order. On Online access, Relay URLs SHALL be laid out this way.
+
+#### Scenario: Relay URLs with the remote link on
+- **WHEN** the user turns on "Reachable from other networks" on Online access
+- **THEN** "Relay URLs (optional)" is above its box and the help is under it, and no text of the page runs past the right edge
+
+#### Scenario: Dragging the box
+- **WHEN** the user drags the Relay URLs box's corner to the right
+- **THEN** the box keeps its width and only its height changes
+
 ## MODIFIED Requirements
 
 ### Requirement: Network tree keyboard

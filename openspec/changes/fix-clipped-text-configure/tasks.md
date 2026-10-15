@@ -14,6 +14,7 @@
 - [x] 3.1 Trace identifier table: Dir column wide enough for its heading and sort mark
 - [x] 3.2 Data cells that are cut on purpose (grid and table cells, trace rows, series list, PDO link cells) are the only exemption of the cut-text check
 - [x] 3.3 Selected CAN message row: Remove keeps its button colours, muted text takes the row colour (`rawcan.css`); other selected rows checked (no buttons)
+- [x] 3.4 Text boxes resize only in height and never pass their column; Relay URLs as a stacked field (label, box, help, message)
 
 ## 4. Tests
 
@@ -21,6 +22,7 @@
 - [x] 4.2 Add network tests: three choices and Cancel visible, focus on CANopen, arrows, Escape adds nothing, each choice adds its protocol
 - [x] 4.3 Update existing tree and Add network tests for the two-line network entry and the choice list
 - [x] 4.4 Contrast test of a selected CAN message row, light and dark
+- [x] 4.5 Online access with the remote link on: Relay URLs stacked, layout check passes, also with the box dragged wide
 
 ## 5. Docs and release
 

@@ -3532,7 +3532,7 @@ function remoteLinkSettings() {
       hint("PCs paired with this runtime reach it from any network over the remote link (canworks-link on the device), through a relay when no direct path is found. " +
         "A PC is paired when it connects once on the local network with the token. Off: the link service contacts nothing outside the local network. Default: off.")));
   if (rl.internet === true || (Array.isArray(rl.relays) && rl.relays.length)) {
-    const relays = el("textarea", { rows: 3, spellcheck: "false", class: "wide", "aria-label": "Relay URLs",
+    const relays = el("textarea", { rows: 3, spellcheck: "false", "aria-label": "Relay URLs",
       placeholder: "one https URL per line", dataset: { path: "master.diagnostics.remote_link.relays", online: "relays" } });
     relays.value = (Array.isArray(rl.relays) ? rl.relays : []).join("\n");
     const msg = el("span", { class: "field-msg warning", dataset: { online: "relays-msg" } });
@@ -3546,7 +3546,7 @@ function remoteLinkSettings() {
       setRemoteLink({ relays: lines });
     });
     check(Array.isArray(rl.relays) ? rl.relays : []);
-    box.append(el("label", { class: "wide" }, "Relay URLs (optional)", relays,
+    box.append(el("label", { class: "field-block" }, "Relay URLs (optional)", relays,
       hint("One https URL per line, for a relay of your own. Empty: the public relays of the iroh project."), msg));
   }
   box.append(pairedPcsBox());

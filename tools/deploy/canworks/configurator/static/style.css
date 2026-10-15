@@ -293,6 +293,12 @@ dialog menu button { white-space: normal; max-width: 100%; overflow-wrap: anywhe
 }
 .row { display: flex; gap: 6px; align-items: center; }
 input.wide { width: 100%; }
+/* A text box never gets wider than its column, even when its corner is
+   dragged: only its height can be changed. */
+textarea { max-width: 100%; box-sizing: border-box; resize: vertical; }
+/* A field on its own row: label, box, help and message stacked. */
+label.field-block { display: flex; flex-direction: column; gap: 3px; margin: 10px 0; max-width: 640px; font-size: 13px; color: var(--muted); }
+label.field-block textarea { width: 100%; font-family: var(--mono); font-size: 13px; }
 .new-project { display: flex; flex-direction: column; gap: 8px; min-width: min(440px, 80vw); }
 .new-project label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); }
 .new-project label.inline { flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
