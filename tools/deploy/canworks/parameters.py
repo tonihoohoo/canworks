@@ -737,7 +737,7 @@ def node_context(node_id, config_path=None, eds_path=None, cfg=None, eds_paths=N
                                  "(no %s here)" % DEFAULT_CONFIG)
         try:
             with open(config_path, encoding="utf-8") as f:
-                cfg = json.load(f)
+                cfg = contract.load(f)
         except (OSError, ValueError) as e:
             raise ParameterError("cannot read %s: %s" % (config_path, e))
     try:

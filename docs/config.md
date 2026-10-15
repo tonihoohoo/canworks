@@ -4,6 +4,8 @@ The canworks plugin reads one JSON file, the config path given for the `canworks
 
 The format is a versioned contract: [`schema/canworks.v1.schema.json`](../schema/canworks.v1.schema.json) (JSON Schema 2020-12) describes `schema_version` 1, the file with one CAN network, and [`schema/canworks.v2.schema.json`](../schema/canworks.v2.schema.json) describes `schema_version` 2, the file with [several networks](#several-networks-schema_version-2). The plugin, the deploy tool ([docs/deploy.md](deploy.md)) and any future editor GUI read and write the same file. The deploy tool and the editor hook deliver it with each upload as `conf/canworks.json`, and the runtime points `plugins.conf` at it.
 
+A number may be written as a JSON number or, where the schema allows it, as a string: decimal (`"12"`) or hex with `0x` (`"0x0C"`). A string with a leading zero, such as `"012"`, is refused everywhere with "leading zero: write 12 or 0x0C"; no tool reads a number as octal. An object may not have the same key twice.
+
 At every PLC start the plugin validates the file, runs `dcfgen`'s EDS lint on each node's EDS ([EDS lint](#eds-lint)), checks each entry against the node's EDS, and runs Lely's `dcfgen` on the device to produce the master DCF and one concise DCF per slave. The output goes to a `.canworks/` directory next to the config file and is reused while the config and EDS files are unchanged.
 
 ## Example (the Lely tutorial ping-pong slave)
@@ -131,7 +133,7 @@ A top-level `gateway` connects a slave network (the upper network) with the mast
 }
 ```
 
-A PDO entry that a route writes (an RPDO entry fed from the upper master) may leave out `iec_location`; every other PDO entry needs one. A route's target may not also have an output location: one writer per object.
+A PDO entry that a route writes (an RPDO entry fed from the upper master) may leave out `iec_location`; every other PDO entry needs one. A route takes the node's TPDO entry when its object is in a TPDO and an RPDO, so an RPDO entry of that object without `iec_location` is refused. A route's target may not also have an output location: one writer per object.
 
 ## `adapter`
 
@@ -743,7 +745,7 @@ The EMCY code and the [boot error byte](#identity-check-and-boot-error-byte) are
 
 If the file does not exist, the plugin logs a warning with the expected path and stays inactive. Otherwise it stays inactive, opens no CAN interface, and logs every problem with the file and the field, node, object or location it concerns, when:
 
-- the file is not valid JSON, or lacks a required field;
+- the file is not valid JSON, has an object with the same key twice, has a number string with a leading zero (`"012"`), or lacks a required field;
 - a node ID is outside 1-127, is used twice, or is the master's;
 - an EDS file is missing or cannot be parsed;
 - the file's `schema_version` is newer than the plugin's, or it has both `adapter` and the old top-level keys, or an unknown adapter type, or a field of the other adapter type, or an `slcan` adapter without an absolute `device`;
@@ -774,7 +776,7 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a network's `protocol` is not `"canopen"` or `"j1939"`, a J1939 network has `role`, `master`, `nodes` or `slave`, lacks `j1939` or sets `adapter.simulate`, or a CANopen network has `j1939`;
 - a slave network has `master` or `nodes`, a master network has `slave`, a version 1 file has `role`, `slave`, `gateway`, `protocol` or `j1939`, or two master networks (or two slave networks) share a simulated bus;
 - a slave's `node_id` is outside 1-127 and not `null`, its EDS is missing or fails the lint, or a binding names an object the EDS does not define, an object bound twice, a `const` or `wo` object, a location of the wrong area for the object's access type or of a size that does not fit its type; a slave status location has the wrong type (`%IB` state, `%IX` communication OK, `%IW` SYNC count, `%QW` EMCY code, `%QB` error register);
-- a PDO entry has no `iec_location`, no gateway route writes it and its TPDO feeds no PDO link;
+- a PDO entry has no `iec_location`, no gateway route writes it and its TPDO feeds no PDO link, or it is an RPDO entry of an object a gateway route reads from the node's TPDO (nothing would write it);
 - a link names a node that is not on the network, a TPDO that is not in the producer's `tx_pdos`, a TPDO another link names, a consumer that is the producer, an RPDO that is in the consumer's `rx_pdos`, in another link or not in its EDS, a consumer entry with `iec_location`, a layout that differs from the producer's in positions or sizes, a dummy entry the consumer's `[DummyUsage]` does not allow, a consumer object that is missing, not mappable, not receivable or of another type, a read-only consumer COB-ID other than the link's, a synchronous consumer without SYNC, or `links` on a slave, J1939 or plain CAN network;
 - a `heartbeat_watch` entry watches the node itself, the master, a node that is not on the network or sends no heartbeat, has a timeout not above the watched period, or does not fit the EDS 0x1016;
 - the `gateway` names an `upper` network that is missing or not a slave network, there is no master network, a route names a network, node, PDO entry or slave object that does not exist, its direction does not fit the slave object's access type, its two ends differ in type, its target has a second writer, `status` covers more than 4 master networks, or `status` or `sdo_bridge` is set while the slave's EDS lacks their objects.

@@ -151,6 +151,13 @@ class Materialize(Base):
         project["canworks/canworks.json"] = b'{"nodes": [}'
         self.assertIgnored(project, "canworks/canworks.json is not valid JSON")
 
+    def test_repeated_key(self):
+        # json would keep the last value and the plugin the first: refused.
+        project = rtd_project()
+        text = project["canworks/canworks.json"].decode()
+        project["canworks/canworks.json"] = text.replace('"nodes": [', '"nodes": [], "nodes": [', 1).encode()
+        self.assertIgnored(project, "the top level: key 'nodes' is given more than once")
+
     def test_schema_failure(self):
         project = rtd_project()
         cfg = json.loads(project["canworks/canworks.json"])

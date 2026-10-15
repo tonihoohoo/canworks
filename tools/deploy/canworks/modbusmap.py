@@ -136,8 +136,12 @@ def _walk(value, ctx, out):
                     base = ctx.get("label") or ctx.get("source") or ctx.get("network")
                     if base:
                         name = "%s.%s" % (base, name)
+                # A J1939 trouble code list: `dtcs` double words, 4 bytes apart.
+                count = value.get("dtcs") if key == "dtcs_location" and loc.size == "D" else None
                 out.append(Item(value, key, sub, loc, kind, name, ctx.get("network"),
                                 ctx.get("source"), ctx.get("object", ""),
+                                nbytes=4 * count if isinstance(count, int) and not isinstance(count, bool)
+                                and count > 0 else None,
                                 co_type=value.get("type") if key == "iec_location" else None,
                                 extra={k: value[k] for k in ("scale", "offset", "unit") if k in value}))
             elif isinstance(sub, (dict, list)):

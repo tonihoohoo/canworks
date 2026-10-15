@@ -149,6 +149,39 @@ std::vector<uint8_t> le_bytes(uint64_t v, unsigned bytes) {
   return out;
 }
 
+// A number string as the schema's uint_string takes it: "0", decimal with no
+// leading zero, or 0x hex. Never octal, so the plugin reads what the PC tools
+// read (contract._uint). False for anything else, and on overflow.
+bool parse_uint_text(const char* s, uint64_t& out) {
+  int base = 10;
+  if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+    base = 16;
+    s += 2;
+  } else if (s[0] == '0' && s[1]) {
+    return false;
+  }
+  if (!*s) return false;
+  for (const char* p = s; *p; ++p)
+    if (!(base == 16 ? std::isxdigit((unsigned char)*p) : std::isdigit((unsigned char)*p))) return false;
+  errno = 0;
+  out = std::strtoull(s, nullptr, base);
+  return errno == 0;
+}
+
+// The refusal of a number string with a leading zero ("012" or "-012"),
+// empty for any other string; the same text as contract.leading_zero_message.
+std::string leading_zero_message(const char* s) {
+  const char* sign = *s == '-' ? "-" : "";
+  const char* p = *sign ? s + 1 : s;
+  if (p[0] != '0' || !p[1]) return "";
+  for (const char* q = p; *q; ++q)
+    if (!std::isdigit((unsigned char)*q)) return "";
+  unsigned long long n = std::strtoull(p, nullptr, 10);
+  char buf[96];
+  std::snprintf(buf, sizeof(buf), "leading zero: write %s%llu or %s0x%02llX", sign, n, sign, n);
+  return buf;
+}
+
 const char* const kNotBridgeConfig =
     "not a bridge config: canworks-bridge serves a version 2 config with a top-level 'bridge' object";
 
@@ -222,7 +255,7 @@ class Parser {
   }
 
   // Reads an unsigned integer given either as a JSON number or as a string
-  // ("0x2001", "8193").
+  // ("0x2001", "8193"; never octal, see parse_uint_text).
   bool get_uint(const cJSON* obj, const char* key, const std::string& where,
                 bool required, uint64_t max, uint64_t& out) {
     const cJSON* item = cJSON_GetObjectItemCaseSensitive(obj, key);
@@ -238,11 +271,11 @@ class Parser {
       }
       v = (uint64_t)item->valuedouble;
     } else if (cJSON_IsString(item) && item->valuestring[0]) {
-      char* end = nullptr;
-      v = std::strtoull(item->valuestring, &end, 0);
-      if (*end != '\0' || item->valuestring[0] == '-') {
-        error(where, std::string("field '") + key + "' is not a valid integer: \"" +
-                         item->valuestring + "\"");
+      if (!parse_uint_text(item->valuestring, v)) {
+        std::string zero = leading_zero_message(item->valuestring);
+        error(where, std::string("field '") + key + "' " +
+                         (zero.empty() ? std::string("is not a valid integer: \"") + item->valuestring + "\""
+                                       : std::string("\"") + item->valuestring + "\": " + zero));
         return false;
       }
     } else {
@@ -302,9 +335,13 @@ class Parser {
     std::string ew = where + ": error_behavior";
     const cJSON* item;
     cJSON_ArrayForEach(item, eb) {
-      char* end = nullptr;
-      unsigned long sub = std::strtoul(item->string, &end, 0);
-      if (!item->string[0] || *end != '\0' || item->string[0] == '-' || sub < 1 || sub > 254) {
+      uint64_t sub = 0;
+      std::string zero = leading_zero_message(item->string);
+      if (!zero.empty()) {
+        error(ew, std::string("sub-index \"") + item->string + "\": " + zero);
+        continue;
+      }
+      if (!parse_uint_text(item->string, sub) || sub < 1 || sub > 254) {
         error(ew, std::string("sub-index \"") + item->string + "\" must be 1-254");
         continue;
       }
@@ -859,11 +896,13 @@ class Parser {
   bool j_uint64(const cJSON* obj, const char* key, const std::string& where, uint64_t& out) {
     const cJSON* item = cJSON_GetObjectItemCaseSensitive(obj, key);
     if (!item) return false;
-    if (cJSON_IsString(item) && item->valuestring[0] && item->valuestring[0] != '-') {
-      errno = 0;
-      char* end = nullptr;
-      out = std::strtoull(item->valuestring, &end, 0);
-      if (*end == '\0' && errno == 0) return true;
+    if (cJSON_IsString(item) && item->valuestring[0]) {
+      if (parse_uint_text(item->valuestring, out)) return true;
+      std::string zero = leading_zero_message(item->valuestring);
+      if (!zero.empty()) {
+        error(where, std::string("field '") + key + "' \"" + item->valuestring + "\": " + zero);
+        return false;
+      }
     } else if (cJSON_IsNumber(item)) {
       return j_uint(obj, key, where, out);
     }
@@ -1146,6 +1185,7 @@ class Parser {
       check_known(m, mw, {"source", "source_name", "source_name_mask", "timeout_ms", "status_location",
                           "lamps_location", "flash_location", "count_location", "dtcs_location", "dtcs"});
       J1939DmRx r;
+      r.byte_addressed = byte_mode_;
       bool src = cJSON_GetObjectItemCaseSensitive(m, "source") != nullptr;
       bool src_name = cJSON_GetObjectItemCaseSensitive(m, "source_name") != nullptr;
       if (src && src_name) {
@@ -2200,6 +2240,7 @@ class Parser {
     if (const cJSON* e = cJSON_GetObjectItemCaseSensitive(node, "emcy_cob_id")) {
       std::string s = cJSON_IsString(e) ? e->valuestring : "";
       bool ok = true;
+      std::string zero = leading_zero_message(s.c_str());
       if (s == "device") {
         n.emcy_cob = NodeConfig::EmcyCob::Device;
       } else if (s == "eds") {
@@ -2209,10 +2250,8 @@ class Parser {
         if (cJSON_IsNumber(e)) {
           ok = e->valuedouble >= 0 && e->valuedouble == (double)(uint64_t)e->valuedouble;
           num = ok ? (uint64_t)e->valuedouble : 0;
-        } else if (!s.empty() && s[0] != '-') {
-          char* end = nullptr;
-          num = std::strtoull(s.c_str(), &end, 0);
-          ok = *end == '\0';
+        } else if (!s.empty() && zero.empty()) {
+          ok = parse_uint_text(s.c_str(), num);
         } else {
           ok = false;
         }
@@ -2222,7 +2261,9 @@ class Parser {
           n.emcy_cob_config = static_cast<uint32_t>(num);
         }
       }
-      if (!ok) error(w, n.label() + ": field 'emcy_cob_id' must be \"device\", \"eds\" or a COB-ID");
+      if (!ok)
+        error(w, n.label() + ": field 'emcy_cob_id' " +
+                     (zero.empty() ? "must be \"device\", \"eds\" or a COB-ID" : "\"" + s + "\": " + zero));
     }
     get_bool(node, "mandatory", w, n.mandatory);
     get_bool(node, "boot", w, n.boot);
@@ -2450,11 +2491,9 @@ class Parser {
       const char* s = item->valuestring;
       neg = *s == '-';
       if (neg) ++s;
-      char* end = nullptr;
-      errno = 0;
-      mag = std::strtoull(s, &end, 0);
-      if (*s == '-' || *s == '+' || *end != '\0' || errno == ERANGE) {
-        why = "is not a valid integer";
+      if (!parse_uint_text(s, mag)) {
+        std::string zero = leading_zero_message(item->valuestring);
+        why = zero.empty() ? "is not a valid integer" : "is not a valid integer (" + zero + ")";
         return false;
       }
     } else {
@@ -2923,13 +2962,25 @@ class Parser {
   }
 
   // PDO entries without iec_location: allowed only when a route uses them,
-  // or when their TPDO feeds a PDO link.
+  // or when their TPDO feeds a PDO link. A route takes the TPDO entry when
+  // its object is in both, so an RPDO entry of that object would have no
+  // writer and always send 0: refused.
   void report_unlocated(const ConfigSet& set) {
     for (const auto& u : unlocated_) {
       bool routed = u.tx && linked_tpdos_.count(std::make_tuple(u.network, u.node, u.pdo));
+      const RouteConfig* reader = nullptr;
       for (const auto& r : set.gateway.routes)
-        routed |= r.field_network == u.network && r.node == u.node && r.index == u.index && r.subindex == u.subindex;
-      if (!routed)
+        if (r.field_network == u.network && r.node == u.node && r.index == u.index && r.subindex == u.subindex) {
+          routed = true;
+          if (r.up && !u.tx && !reader) reader = &r;
+        }
+      if (reader) {
+        char obj[32];
+        std::snprintf(obj, sizeof(obj), "0x%04X:%u", u.index, u.subindex);
+        errors_.push_back(path_ + ": " + u.where + ": " + reader->label() + " reads " + obj +
+                          " from a TPDO entry, so this RPDO entry without 'iec_location' would only send 0 (give it "
+                          "an iec_location or remove it)");
+      } else if (!routed)
         errors_.push_back(path_ + ": " + u.where +
                           ": missing required field 'iec_location' (only an entry a gateway route or a PDO link uses "
                           "may leave it out)");
@@ -3549,6 +3600,31 @@ std::string default_eds_fallback_dir() {
   return std::string(cwd) + "/core/generated/conf";
 }
 
+namespace {
+
+// Every object's keys given more than once, as "nodes[0]: key 'node_id' is
+// given more than once". cJSON keeps them all and its lookups take the first,
+// where Python's json takes the last, so the file is refused instead
+// (contract.loads).
+void repeated_keys(const cJSON* item, const std::string& where, std::vector<std::string>& out) {
+  if (cJSON_IsObject(item)) {
+    std::set<std::string> seen, told;
+    const cJSON* c;
+    cJSON_ArrayForEach(c, item) {
+      std::string key = c->string ? c->string : "";
+      if (!seen.insert(key).second && told.insert(key).second)
+        out.push_back((where.empty() ? "the top level" : where) + ": key '" + key + "' is given more than once");
+      repeated_keys(c, where.empty() ? key : where + "." + key, out);
+    }
+  } else if (cJSON_IsArray(item)) {
+    int i = 0;
+    const cJSON* c;
+    cJSON_ArrayForEach(c, item) repeated_keys(c, where + "[" + std::to_string(i++) + "]", out);
+  }
+}
+
+}  // namespace
+
 bool parse_config_set(const std::string& json, const std::string& path, const ImageLimits& limits,
                       ConfigSet& out, std::vector<std::string>& errors, const std::string& eds_fallback_dir) {
   out = ConfigSet();
@@ -3560,6 +3636,13 @@ bool parse_config_set(const std::string& json, const std::string& path, const Im
     const char* at = cJSON_GetErrorPtr();
     std::string near = at ? std::string(at).substr(0, 20) : "";
     errors.push_back(path + ": not valid JSON (near \"" + near + "\")");
+    return false;
+  }
+  std::vector<std::string> repeated;
+  repeated_keys(root, "", repeated);
+  if (!repeated.empty()) {
+    for (const auto& r : repeated) errors.push_back(path + ": " + r);
+    cJSON_Delete(root);
     return false;
   }
   Parser parser(path, limits, eds_fallback_dir, errors, out.warnings);

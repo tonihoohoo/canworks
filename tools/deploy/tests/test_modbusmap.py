@@ -195,6 +195,24 @@ class Pack(unittest.TestCase):
         self.assertFalse([b for b in gaps if b + 1 in gaps], gaps)
 
 
+    def test_pack_keeps_a_trouble_code_list_whole(self):
+        # dtcs codes lie 4 bytes apart in a bridge config: the list takes 4 * dtcs bytes.
+        from canworks import contract
+        cfg = load()
+        cfg["networks"].append({
+            "name": "machine", "protocol": "j1939",
+            "adapter": {"type": "socketcan", "interface": "vcan9", "bitrate": 250000},
+            "j1939": {"ecu": {"name": {"identity_number": 1, "manufacturer_code": 0, "function": 130,
+                                       "industry_group": 0, "arbitrary_address_capable": True}, "address": 128},
+                      "diagnostics": {"rx": [{"source": 0, "dtcs_location": "%ID560", "dtcs": 3,
+                                              "count_location": "%IB600"}]}}})
+        packed = modbusmap.pack(cfg)
+        rows = by_name(modbusmap.register_map(packed))
+        self.assertEqual(rows["machine.dtcs"]["count"], 6)
+        r = contract.check_config(packed, os.path.join(REPO, "test", "fixtures", "eds", "canworks.json"))
+        self.assertEqual([e for e in r.errors if "overlap" in e or "even byte" in e], [])
+
+
 class SharedMap(unittest.TestCase):
     def test_example_map_fixture_is_current(self):
         # test/bridge/bridge_host_tests.cpp checks this map against the bridge.

@@ -699,6 +699,23 @@
       "schema": "valid",
       "verdict": "reject",
       "messages": ["networks[0].raw.rx[0].data_location: %IL8188 lies outside the runtime I/O image (index must be below 8192)"]
+    },
+    {
+      "name": "bridge: J1939 trouble codes 4 bytes apart",
+      "patch": [["set", "networks/1", {"name": "machine", "protocol": "j1939", "adapter": {"type": "socketcan", "interface": "vcan1", "bitrate": 250000},
+                                  "j1939": {"ecu": {"name": {"identity_number": 1234, "manufacturer_code": 0, "function": 130, "industry_group": 0, "arbitrary_address_capable": true}, "address": 128},
+                                            "diagnostics": {"rx": [{"source": 0, "dtcs_location": "%ID560", "dtcs": 3}]}}}]],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "bridge: J1939 trouble codes next to a byte input",
+      "patch": [["set", "networks/1", {"name": "machine", "protocol": "j1939", "adapter": {"type": "socketcan", "interface": "vcan1", "bitrate": 250000},
+                                  "j1939": {"ecu": {"name": {"identity_number": 1234, "manufacturer_code": 0, "function": 130, "industry_group": 0, "arbitrary_address_capable": true}, "address": 128},
+                                            "diagnostics": {"rx": [{"source": 0, "dtcs_location": "%ID560", "dtcs": 3, "count_location": "%IB571"}]}}}]],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": ["%IB571", "diagnostics rx[0] code 2"]
     }
   ]
 }
