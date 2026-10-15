@@ -43,4 +43,4 @@
 
 ## 7. Hardware (Pi + PC adapter running canworks-j1939-sim)
 
-- [ ] 7.1 On the Pi, a program with `J1939_SEND` (8 and 40 bytes, to the simulator and global), `J1939_RECEIVE` (a 40-byte PGN from the simulator) and `J1939_REQUEST` (answer and NACK); check with the trace; clean PLC start afterwards
+- [x] 7.1 On the Pi, a program with `J1939_SEND` (8 and 40 bytes, to the simulator and global), `J1939_RECEIVE` (a 40-byte PGN from the simulator) and `J1939_REQUEST` (answer and NACK); check with the trace; clean PLC start afterwards

@@ -33,26 +33,6 @@
             "name": "SIGNED",
             "type": "BOOL",
             "direction": "input"
-          },
-          {
-            "name": "I",
-            "type": "INT",
-            "direction": "input"
-          },
-          {
-            "name": "POS",
-            "type": "INT",
-            "direction": "input"
-          },
-          {
-            "name": "BITV",
-            "type": "LWORD",
-            "direction": "input"
-          },
-          {
-            "name": "V",
-            "type": "LWORD",
-            "direction": "input"
           }
         ]
       },
@@ -74,16 +54,6 @@
             "name": "MOTOROLA",
             "type": "BOOL",
             "direction": "input"
-          },
-          {
-            "name": "I",
-            "type": "INT",
-            "direction": "input"
-          },
-          {
-            "name": "V",
-            "type": "WORD",
-            "direction": "input"
           }
         ]
       },
@@ -104,16 +74,6 @@
           {
             "name": "MOTOROLA",
             "type": "BOOL",
-            "direction": "input"
-          },
-          {
-            "name": "I",
-            "type": "INT",
-            "direction": "input"
-          },
-          {
-            "name": "V",
-            "type": "DWORD",
             "direction": "input"
           }
         ]
@@ -141,11 +101,6 @@
             "name": "DESTINATION",
             "type": "USINT",
             "direction": "input"
-          },
-          {
-            "name": "P",
-            "type": "UDINT",
-            "direction": "input"
           }
         ]
       },
@@ -155,11 +110,6 @@
         "parameters": [
           {
             "name": "ID",
-            "type": "UDINT",
-            "direction": "input"
-          },
-          {
-            "name": "P",
             "type": "UDINT",
             "direction": "input"
           }
@@ -204,31 +154,6 @@
             "name": "VALUE",
             "type": "LINT",
             "direction": "input"
-          },
-          {
-            "name": "I",
-            "type": "INT",
-            "direction": "input"
-          },
-          {
-            "name": "POS",
-            "type": "INT",
-            "direction": "input"
-          },
-          {
-            "name": "SHIFT",
-            "type": "INT",
-            "direction": "input"
-          },
-          {
-            "name": "V",
-            "type": "LWORD",
-            "direction": "input"
-          },
-          {
-            "name": "B",
-            "type": "BYTE",
-            "direction": "input"
           }
         ]
       },
@@ -255,16 +180,6 @@
             "name": "VALUE",
             "type": "UINT",
             "direction": "input"
-          },
-          {
-            "name": "I",
-            "type": "INT",
-            "direction": "input"
-          },
-          {
-            "name": "V",
-            "type": "WORD",
-            "direction": "input"
           }
         ]
       },
@@ -290,16 +205,6 @@
           {
             "name": "VALUE",
             "type": "UDINT",
-            "direction": "input"
-          },
-          {
-            "name": "I",
-            "type": "INT",
-            "direction": "input"
-          },
-          {
-            "name": "V",
-            "type": "DWORD",
             "direction": "input"
           }
         ]
@@ -347,26 +252,6 @@
           {
             "name": "SIGNED",
             "type": "BOOL",
-            "direction": "input"
-          },
-          {
-            "name": "I",
-            "type": "DINT",
-            "direction": "input"
-          },
-          {
-            "name": "POS",
-            "type": "DINT",
-            "direction": "input"
-          },
-          {
-            "name": "BITV",
-            "type": "LWORD",
-            "direction": "input"
-          },
-          {
-            "name": "V",
-            "type": "LWORD",
             "direction": "input"
           }
         ]
@@ -419,11 +304,6 @@
             "name": "ARBITRARY_ADDRESS_CAPABLE",
             "type": "BOOL",
             "direction": "input"
-          },
-          {
-            "name": "N",
-            "type": "LWORD",
-            "direction": "input"
           }
         ]
       },
@@ -449,26 +329,6 @@
           {
             "name": "VALUE",
             "type": "LINT",
-            "direction": "input"
-          },
-          {
-            "name": "I",
-            "type": "DINT",
-            "direction": "input"
-          },
-          {
-            "name": "POS",
-            "type": "DINT",
-            "direction": "input"
-          },
-          {
-            "name": "V",
-            "type": "LWORD",
-            "direction": "input"
-          },
-          {
-            "name": "B",
-            "type": "BYTE",
             "direction": "input"
           }
         ]

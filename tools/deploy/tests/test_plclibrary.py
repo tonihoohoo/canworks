@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import unittest
 from unittest import mock
 
@@ -44,6 +45,20 @@ class Archive(unittest.TestCase):
                          sorted(["CO402_CyclicMoveAbsolute.st", "CO402_CyclicPosition.st", "CO402_CyclicTorque.st",
                                  "CO402_CyclicVelocity.st"] + helpers +
                                 [b + ".cpp" for b in BLOCKS if b.startswith(("CO_SDO", "CO_NMT", "CO_NETWORK_", "CO_GET_STATE", "CO_RECV", "CAN_", "J1939_DM_", "J1939_SEND", "J1939_RECEIVE", "J1939_REQUEST", "J1939_ECU_INFO", "J1939_FIND_ECU"))]))
+
+    def test_function_parameters(self):
+        # The editor asks a function call for every manifest parameter, so the
+        # manifest lists exactly what the compiled signature takes, in its
+        # order, and no VAR locals (library/build.sh).
+        data = plclibrary.archive()
+        headers = {c["name"]: c["header"] for c in data["chunks"] if c.get("kind") == "function"}
+        for fn in data["manifest"]["functions"]:
+            sig = re.sub(r"<[^<>]*>", "", headers[fn["name"]])
+            sig = sig[sig.index("(") + 1:sig.rindex(")")]
+            taken = [re.split(r"[\s&*]+", p.strip())[-1] for p in sig.split(",") if p.strip()]
+            self.assertEqual([p["name"] for p in fn["parameters"]], taken, fn["name"])
+        get_bits = next(f for f in data["manifest"]["functions"] if f["name"] == "J1939_GET_BITS")
+        self.assertEqual([p["name"] for p in get_bits["parameters"]], ["DATA", "START_BIT", "BIT_LENGTH", "SIGNED"])
 
     def test_write(self):
         d = tmpdir(self)
