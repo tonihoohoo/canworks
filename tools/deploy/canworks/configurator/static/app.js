@@ -61,6 +61,11 @@ async function api(method, path, body) {
   if (net !== null && body && body.network === undefined && (path.startsWith("/api/online/") || path.startsWith("/api/trace/") || path.startsWith("/api/sim/"))) {
     body = Object.assign({ network: net }, body);
   }
+  // Simulated devices are those of the connection in the connection bar:
+  // the runtime's unless the standalone simulator is the connection.
+  if (body && body.target === undefined && path.startsWith("/api/sim/") && path !== "/api/sim/settings" && !S.simOn) {
+    body = Object.assign({ target: "runtime" }, body);
+  }
   const res = await fetch(path, {
     method,
     headers: Object.assign({ "X-CANopen-Token": TOKEN }, body ? { "Content-Type": "application/json" } : {}),
@@ -3710,7 +3715,7 @@ function renderOnline(view) {
     return;
   }
   if (!connEnsure()) {
-    view.append(nodesConnectHome());
+    view.append(nodesNotConnected());
     return;
   }
   view.append(
@@ -4063,8 +4068,8 @@ async function commissionDevice() {
     S.adapterOn = false;
     S.adapterEnded = null;
     await loadState();
-    // The start page's button is gone: the focus goes to the connect form's first field.
-    const first = document.querySelector('#view [data-nodes="connect"] input, #view [data-nodes="connect"] select, #view [data-nodes="connect"] button');
+    // The start page's button is gone: the focus goes to Connect… in the connection bar.
+    const first = document.querySelector('#conn-bar [data-conn="connect"]');
     if (first) first.focus();
   } catch (e) { banner(e.message, true); }
 }

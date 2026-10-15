@@ -452,7 +452,7 @@ function renderCommNodes(view) {
     el("div", { id: "online-lss" }),
     el("div", { id: "online-node" }));
   if (!S.adapterOn) {
-    view.querySelector("#online-live").before(nodesConnectHome());
+    view.querySelector("#online-live").before(nodesNotConnected());
     view.querySelector("#online-live").hidden = true;
     if (S.onlineNode) renderOnlineNode();
     return;

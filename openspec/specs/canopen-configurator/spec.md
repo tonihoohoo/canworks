@@ -602,7 +602,7 @@ When the matching EDS does not say `LSS_Supported=1`, the device SHALL be added 
 - **THEN** the "Store in the device" checkbox is unticked
 
 ### Requirement: Trace view
-The Trace tool tab SHALL work without a connection for opening, viewing and exporting trace files. Recording and the transmit list SHALL use the connection in the connection bar, runtime or adapter, in every workspace. Without a connection, the view SHALL say that recording needs one and offer Connect…, which opens the connect panel. The trace header SHALL name the connection a recording uses (adapter and bit rate, or runtime) and the network.
+The Trace tool tab SHALL work without a connection for opening, viewing and exporting trace files. Recording and the transmit list SHALL use the connection in the connection bar, runtime or adapter, in every workspace. Without a connection, the view SHALL say that recording needs a connection and point to **Connect…** in the connection bar, with no connect button of its own. On a standalone simulator connection, the view SHALL say that recording needs a runtime or adapter connection. The trace header SHALL name the connection a recording uses (adapter and bit rate, or runtime) and the network.
 
 The view SHALL offer (see "Trace toolbar and views"):
 - start and stop, capture filters, error frames and clear;
@@ -643,7 +643,7 @@ Clear SHALL say that the current recording is lost unless it was saved or downlo
 
 #### Scenario: Open a file without a runtime
 - **WHEN** nothing is connected and the user opens a candump log file in the Trace view
-- **THEN** the frames are shown decoded and can be graphed and exported, and recording offers Connect…
+- **THEN** the frames are shown decoded and can be graphed and exported, and the view says that recording needs a connection made with Connect… in the connection bar, with no button of its own
 
 #### Scenario: Works offline
 - **WHEN** the PC has no internet access
@@ -936,7 +936,7 @@ The **Bus and master** page SHALL have a **Network** choice, **Real** or **Simul
 - **THEN** node 7's entry is drawn dashed and its accessible name says it is absent
 
 ### Requirement: Simulation view
-The configurator SHALL have a **Simulation** tool tab, in both workspaces of a config. It connects either to the runtime's simulated devices, through the connection in the connection bar, or to a standalone simulator by address and token entered in the view. It shows, per simulated device, whether it runs on a simulated or a real network, its NMT and power state, injected faults and the objects it carries in PDOs with live values, refreshed at least twice a second.
+The configurator SHALL have a **Simulation** tool tab, in both workspaces of a config. It shows the simulated devices of the connection in the connection bar: a runtime's, or a standalone simulator's. The view SHALL have no connect form, target choice, address or token field and no Connect button of its own, and no connection line that repeats what the connection bar says; it SHALL show only what is particular to simulation (nothing simulated on the runtime, read-only and why). It shows, per simulated device, whether it runs on a simulated or a real network, its NMT and power state, injected faults and the objects it carries in PDOs with live values, refreshed at least twice a second.
 
 A user SHALL be able to:
 - set and override values (switches for BOOLEAN and bits, sliders between the EDS limits for numbers);
@@ -944,7 +944,7 @@ A user SHALL be able to:
 - inject and clear every fault the simulator offers from buttons;
 - add extra devices.
 
-Changes made here SHALL be saveable to `simulation.json`. With several networks, the view SHALL show and edit the network chosen in its network picker, and saving SHALL write that network's section of a version 2 file, keeping the other sections. A version 1 file of a several-network config SHALL be offered for conversion to version 2 before the first save. Without **Allow changes** the view SHALL be read-only and say why. With the Runtime target and no connection, the view SHALL offer Connect…, which opens the connect panel, and the simulation file SHALL stay editable.
+Changes made here SHALL be saveable to `simulation.json`. With several networks, the view SHALL show and edit the network chosen in its network picker, and saving SHALL write that network's section of a version 2 file, keeping the other sections. A version 1 file of a several-network config SHALL be offered for conversion to version 2 before the first save. Without **Allow changes** the view SHALL be read-only and say why. Without a connection, the view SHALL say once that live values need a connection made with **Connect…** in the connection bar, and the simulation file and the scenarios SHALL stay editable.
 
 #### Scenario: Move a sensor value by hand
 - **WHEN** a user drags the slider of node 5's 0x7130:1 to 900 in the Simulation view
@@ -959,8 +959,16 @@ Changes made here SHALL be saveable to `simulation.json`. With several networks,
 - **THEN** `simulation.json` is version 2, its `motion` section has the setting and its `io` section is unchanged
 
 #### Scenario: Runtime target uses the bar's connection
-- **WHEN** the page is connected to the local simulator runtime and the user opens Simulation with the Runtime target
+- **WHEN** the page is connected to the local simulator runtime and the user opens Simulation
 - **THEN** live values show without asking for a host or token
+
+#### Scenario: Not connected
+- **WHEN** nothing is connected and the user opens Simulation
+- **THEN** the only Connect button on the page is the one in the connection bar, the view says once that live values need a connection, and the Simulation file and Scenarios tabs can be edited
+
+#### Scenario: Standalone simulator from the connection bar
+- **WHEN** the user connects to a standalone simulator at 127.0.0.1:7532 through Connect… in the connection bar and opens Simulation
+- **THEN** the view shows that simulator's devices, and the connection bar names the simulator and offers Disconnect
 
 ### Requirement: Scenarios in the configurator
 The Simulation view SHALL list the scenarios of the simulation file, let a user create and edit them as a list of steps with checking, start and stop them, and show the running step, the time and the result of each expect, with failed expects showing the condition and the value seen.
@@ -1654,7 +1662,7 @@ A device's node tabs SHALL be those of "Commission node tabs", and its Status ta
 
 #### Scenario: Not connected yet
 - **WHEN** the user opens Commission a device before connecting
-- **THEN** the Nodes table shows the connect form and the recent connections in place of its rows
+- **THEN** the Nodes table says in place of its rows that it lists the devices once connected with Connect… in the connection bar, with no connect form or button of its own
 
 ### Requirement: Network picker in online and trace views
 When the runtime reports more than one network, the connection bar SHALL have a network picker. The Commission pages, Trace and Simulation SHALL show and act on the picked network only. The picker SHALL start on the network of the entry selected in Configure's tree. In Commission, picking a tree entry on another network SHALL move the picker, and changing the picker SHALL select that network's tree entry.
@@ -1699,10 +1707,11 @@ A tool tab SHALL use the full page width, with no network tree, side bar or bott
 - **THEN** the tabs are Nodes, Trace and Frame lab
 
 ### Requirement: Connection bar
-A connection bar SHALL show under the header: always in Commission, and in Configure while connected. It SHALL show:
+The connection bar SHALL be the one place on the page to connect and disconnect. It SHALL show under the header: always in Commission, and in Configure while connected and on the Trace and Simulation tool tabs. It SHALL show:
 - the target;
 - for an adapter, the bit rate and how it was confirmed;
 - for a runtime, the path and round trip, and the network picker when the runtime has several networks;
+- for a standalone simulator, its address;
 - the bus state and the frame and error frame counts;
 - another master with what was seen, when one is seen;
 - whether changes are allowed;
@@ -1722,8 +1731,14 @@ While connecting it SHALL show the step of the bit rate check and **Cancel**. Wh
 - **WHEN** the connection is up with no errors and no other master
 - **THEN** the bar uses no warning or error colour
 
+#### Scenario: One Connect button
+- **WHEN** nothing is connected and the user opens Nodes, Simulation and Trace in turn, in either workspace of a config
+- **THEN** each page shows exactly one Connect… button, the one in the connection bar, and each page's own text says what it needs a connection for
+
 ### Requirement: Connect panel
-**Connect…** SHALL open one connect panel. It and its inline form on the Nodes table (see "Connect from the Nodes table") SHALL be the only places to connect.
+**Connect…** in the connection bar SHALL open one connect panel, and the panel SHALL be the only place to connect. No page SHALL have a connect form or a button that opens the panel.
+
+The panel SHALL list first up to three recent connections of this PC of the kinds it offers, each connectable with one click. A recent adapter connection SHALL still run the bit rate check and SHALL start with Allow changes off. Recent connections SHALL be kept in the configurator's settings on this PC without tokens. The panel SHALL NOT open by itself on entering Commission.
 
 In Commission a device the panel SHALL offer a USB adapter only:
 - the found adapters with Refresh, or a typed target;
@@ -1734,14 +1749,13 @@ In Commission a device the panel SHALL offer a USB adapter only:
 
 A refused bit rate check SHALL keep the panel open with the reason and the form filled in.
 
-With a config the panel SHALL offer a runtime only:
-- the found and remembered runtimes, the host field and **Local simulator runtime**;
-- the token prompt when this PC has no matching token;
-- **Connect**.
+With a config the panel SHALL offer two targets, **Runtime** (the default) and **Standalone simulator**:
+- Runtime: the found and remembered runtimes, the host field and **Local simulator runtime**; the token prompt when this PC has no matching token; **Connect**;
+- Standalone simulator: a running `canworks-sim` by address (`HOST[:PORT]`, port 7532 when not given) and its token when it was started with one, both kept on this PC per project folder; **Connect**.
 
-When the config's online access is off, the panel SHALL say so and link to Configure → Bus and master.
+When the config's online access is off, the Runtime target SHALL say so and link to Configure → Bus and master; the Standalone simulator target SHALL still work.
 
-The last target and bit rate SHALL be kept in the configurator's settings on this PC, never in a project.
+The last target (including Runtime or Standalone simulator) and bit rate SHALL be kept in the configurator's settings on this PC, never in a project.
 
 #### Scenario: Wrong bit rate refused
 - **WHEN** the bus runs at 500 kbit/s and the user connects at 1000 kbit/s in the panel
@@ -1755,8 +1769,16 @@ The last target and bit rate SHALL be kept in the configurator's settings on thi
 - **WHEN** the user presses Disconnect in the bar while connected to an adapter
 - **THEN** the adapter is closed, the scan, PDO test, SYNC, send jobs and trace recording on it stop, and `canworks-diag --adapter` can open the same adapter
 
+#### Scenario: Reconnect to the last adapter
+- **WHEN** the user opens Commission a device on a PC that last connected to gs_usb:0 at 500 kbit/s and presses Connect… in the connection bar
+- **THEN** the panel lists "gs_usb:0 at 500 kbit/s" first, and one click connects after the bit rate check with Allow changes off
+
+#### Scenario: Standalone simulator
+- **WHEN** the user picks Standalone simulator in the panel, enters 127.0.0.1:7532 and presses Connect
+- **THEN** the panel closes, the connection bar shows the simulator's address and Disconnect, and Simulation shows its devices
+
 ### Requirement: One connection for every view
-The Commission pages, Trace recording and its transmit list, the Simulation view's **Runtime** target and the PDO test SHALL use the connection in the connection bar. None of them SHALL have its own connect form, host field or adapter field. Without a connection, each SHALL say that it needs one, with a button that opens the connect panel. The Simulation view's **Standalone simulator** address and token SHALL stay in the Simulation view, because they reach `canworks-sim`'s control channel, not a bus.
+The Commission pages, Trace recording and its transmit list, the Simulation view and the PDO test SHALL use the connection in the connection bar. None of them SHALL have its own connect form, host, adapter, address or token field, or Connect button. Without a connection, each SHALL say in one line what it needs a connection for and that Connect… is in the connection bar. On a standalone simulator connection, the Nodes table, Trace recording and the PDO test SHALL say that they need a runtime connection.
 
 #### Scenario: Trace uses the open connection
 - **WHEN** the user connected to a runtime in Commission and opens Trace in Configure and presses Start
@@ -1764,7 +1786,7 @@ The Commission pages, Trace recording and its transmit list, the Simulation view
 
 #### Scenario: Trace without a connection
 - **WHEN** nothing is connected and the user opens Trace
-- **THEN** files can be opened and viewed, and Start is replaced by a note that recording needs a connection with a Connect… button
+- **THEN** files can be opened and viewed, and Start is replaced by a note that recording needs a connection made with Connect… in the connection bar, with no button of its own
 
 ### Requirement: Allow changes in the connection bar
 On an adapter connection, **Allow changes** SHALL be a switch in the connection bar. It SHALL be off for every new connection, SHALL ask before switching on, and SHALL apply to the open connection without reconnecting. On a runtime connection, the bar SHALL show the runtime's own setting as read-only text with a lock and SHALL say that it is set in Configure → Online access and takes effect after an upload, with a link that opens that entry.
@@ -2163,13 +2185,6 @@ Each row SHALL show the node ID, name, NMT state as text and shape, time since l
 #### Scenario: Open a node from the table
 - **WHEN** the user presses Enter on node 5's node ID button
 - **THEN** node 5 is selected in the tree and its Status tab shows
-
-### Requirement: Connect from the Nodes table
-While not connected, the Nodes table SHALL show the connect panel's form in place of its rows, with up to three recent connections of this PC, each connectable with one click. A recent adapter connection SHALL still run the bit rate check and SHALL start with Allow changes off. Recent connections SHALL be kept in the configurator's settings on this PC without tokens. The connect panel SHALL NOT open by itself on entering Commission.
-
-#### Scenario: Reconnect to the last adapter
-- **WHEN** the user opens Commission a device on a PC that last connected to gs_usb:0 at 500 kbit/s
-- **THEN** the Nodes table offers "gs_usb:0 at 500 kbit/s", and one click connects after the bit rate check with Allow changes off
 
 ### Requirement: Scan compared with the config
 With a config, **Scan the bus** on the Nodes table SHALL compare the devices found with the configured nodes of the picked network. Each row SHALL get one state, named in text:
