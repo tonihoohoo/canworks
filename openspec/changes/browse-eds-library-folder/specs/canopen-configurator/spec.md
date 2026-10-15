@@ -37,6 +37,13 @@ The folder dialog SHALL open in the current library folder, else its nearest exi
 - **WHEN** the dialog shows `C:\` and the user presses Up
 - **THEN** the dialog lists the PC's drives, and opening `D:\` lists its folders
 
+### Requirement: Browse for the Add to a config folder
+The "Add to a config…" dialog SHALL offer **Browse…** next to its Folder field. It SHALL open the folder dialog over the Add to a config dialog, starting in the typed folder or its nearest existing parent, and the picked folder SHALL fill the field. When the picked folder has `project.json` the folder kind SHALL switch to editor project, and when it has `canworks.json` to standalone config folder. Cancel SHALL leave the field and the Add to a config dialog as they were.
+
+#### Scenario: Browse to a config folder
+- **WHEN** the user presses Browse… in Add node 32 to a config, opens a folder holding `canworks.json` and presses Use this folder
+- **THEN** the folder dialog closes, the Add to a config dialog is still open with the folder in its Folder field and the kind set to standalone config folder
+
 ### Requirement: Folder dialog keyboard use
 The folder dialog SHALL work with the keyboard alone: focus starts in the folder list, Enter opens the focused folder, Escape cancels, and focus returns to **Choose folder…** when the dialog closes.
 

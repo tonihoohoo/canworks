@@ -8,22 +8,24 @@ The start page already has a folder browser (`browse()` in `static/app.js`, `#br
 
 **Goals:** set the library without typing, see what was picked and whether it holds EDS files, work the same on Windows, macOS and Linux, and work with the keyboard alone.
 
-**Non-Goals:** replacing the start page browser, changing the other typed folder fields, picking files (the EDS file buttons stay as they are), indexing or caching the library differently.
+**Non-Goals:** replacing the start page browser, changing the other typed folder fields (besides Add to a config…), picking files (the EDS file buttons stay as they are), indexing or caching the library differently.
 
 ## Decisions
 
 1. **Server-side browse in a page dialog, not a native dialog.** Browser pickers do not reveal a path, and the server needs a path. A native dialog from the server process is unreliable (window order, missing tkinter, headless Linux, a blocked thread). The page already lists folders through `/api/folders`, so the dialog reuses it.
 
-2. **One shared dialog: `chooseFolder({title, start, note})`** in `app.js`, returning the chosen path or `null`. It is a `<dialog>` with the same parts as the start page browser (Up, path field with Go, folder list) plus **Cancel** and **Use this folder**. Focus starts on the folder list, Enter on a folder opens it, Backspace or Alt+Up goes up, Escape cancels, and focus returns to **Choose folder…** on close. The start page keeps its own embedded browser for now.
+2. **One shared dialog: `chooseFolder({title, start, note})`** in `app.js`, returning the chosen path or `null`. It is its own `<dialog>`, created per use and removed on close, not the page's `#modal`, so it can open over another dialog (Add to a config…) without answering it. It has the same parts as the start page browser (Up, path field with Go, folder list) plus **Cancel** and **Use this folder**. Focus starts on the folder list, Enter on a folder opens it, Backspace or Alt+Up goes up, Escape cancels, and focus returns to **Choose folder…** on close. The start page keeps its own embedded browser for now.
 
 3. **`/api/folders` additions.**
    - Each entry gains `eds`: the number of `.eds` files directly in that subfolder (one `listdir` per subfolder, which the listing already does to test for `project.json`). The current folder gains the same count.
-   - On Windows, `path` `""` (or Up from a drive root) returns the drives as entries (`C:\`, `D:\` …, from the existing drive letters), with `parent` `None`; a drive root's `parent` becomes `""`.
+   - On Windows, `?drives=1` returns the drives as entries (`C:\`, `D:\` …, `os.listdrives()` or the existing drive letters) with `drive_list: true`; a drive root says `drive: true`, so Up there asks for the drives. Elsewhere `?drives=1` is a 404.
    - Hidden folders stay hidden, as now.
 
 4. **Bounded count for the settings reply.** `/api/online/settings` returns `eds_count` and `eds_count_capped` for the library: a walk like `EdsIndex.files` that stops after 5000 directory entries. The row shows "34 EDS files", "No EDS files in this folder or its subfolders", or "Large folder: more than 5000 entries, scans may be slow". Matching itself is unchanged.
 
-5. **The row.** `EDS library  <path or "None chosen">  [Choose folder…] [Clear]` with the existing hint below. The path is selectable text with the full path as its tooltip; a long path is shortened in the middle. **Clear** asks nothing (the folder itself is untouched, and choosing again is one click).
+5. **The row.** `EDS library  <path or "None chosen">  [Choose folder…] [Clear]` with the existing hint below. The path is selectable fixed-width text with the full path as its tooltip; a long path wraps. **Clear** asks nothing (the folder itself is untouched, and choosing again is one click).
+
+6. **Add to a config….** The Folder field gets **Browse…** next to it, starting in the typed folder (or its nearest existing parent). After a pick, the page looks the folder up with `/api/folders` and sets the kind select to "editor project" when it has `project.json`, to "standalone config folder" when it has `canworks.json`, and leaves it alone otherwise.
 
 ## Risks / Trade-offs
 

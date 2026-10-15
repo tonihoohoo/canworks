@@ -8,6 +8,7 @@ On the Nodes tab of **Commission a device**, the **EDS library folder** is a pla
 - **Folder dialog.** **Choose folder…** opens a dialog that browses the PC's folders through the configurator's own server, the same way the start page browses for a project: the current path with **Up**, a path field with **Go** for pasting a path, and the list of subfolders. Each subfolder that directly holds EDS files shows how many. The dialog opens in the current library folder (or its nearest existing parent), else the home folder. **Use this folder** sets it; **Cancel** changes nothing.
 - **Drives on Windows.** **Up** from a drive root lists the PC's drives, so a library on another drive (such as `D:\`) can be reached without typing.
 - **Says what it found.** After a folder is chosen the row says how many EDS files it holds with its subfolders ("34 EDS files"), or that it holds none. The count stops at a limit so a very large folder (such as the home folder) cannot stall the page; above it the row says the folder is large and scanning may be slow.
+- **Browse… in "Add to a config…".** The dialog's Folder field gets a **Browse…** button that opens the same folder dialog over it. The picked folder fills the field, and the folder kind switches to "editor project" or "standalone config folder" when the folder is one. Typing a path still works.
 - **Matching unchanged.** Choosing or clearing the folder re-matches the devices already scanned, as editing the field does today. The folder stays a setting of this PC, not of any project.
 
 No config file, CLI or deploy change. The settings API keeps `eds_library`; `/api/folders` gains a drive list on Windows and an EDS count per folder.
@@ -18,7 +19,7 @@ The dialog is drawn by the page and lists folders through the configurator's ser
 
 ## Out of scope
 
-The other typed folder fields (**Add to a config…**, **move into project**, **New editor project**'s parent folder) keep their text fields in this change. The dialog is built so they can use it later.
+The other typed folder fields (**move into project**, **New editor project**'s parent folder, the Parameters tab's config folder) keep their text fields in this change. The dialog is built so they can use it later.
 
 ## Capabilities
 

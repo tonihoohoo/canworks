@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import unittest
+import urllib.parse
 import unittest.mock
 
 from canworks.configurator import server as srv
@@ -274,6 +275,28 @@ class OpenAndModes(Running):
         entry = [e for e in data["entries"] if e["name"] == "rtd-monitor"][0]
         self.assertTrue(entry["project"])
         self.assertEqual(data["parent"], os.path.dirname(self.dir))
+
+    def test_folders_count_eds(self):
+        lib = os.path.join(self.dir, "lib")
+        os.makedirs(os.path.join(lib, "vendor"))
+        for name in ("a.eds", "B.EDS", "readme.txt"):
+            open(os.path.join(lib, name), "w").close()
+        open(os.path.join(lib, "vendor", "c.eds"), "w").close()
+        data = self.ok("GET", "/api/folders?path=" + self.dir)
+        self.assertEqual([e["eds"] for e in data["entries"] if e["name"] == "lib"], [2])
+        data = self.ok("GET", "/api/folders?path=" + lib)
+        self.assertEqual((data["eds"], data["entries"][0]["eds"], data["drive"]), (2, 1, False))
+
+    def test_drives(self):
+        if os.name == "nt":
+            data = self.ok("GET", "/api/folders?drives=1")
+            self.assertTrue(data["drive_list"])
+            self.assertTrue(all(e["path"].endswith("\\") for e in data["entries"]))
+            root = os.path.splitdrive(self.dir)[0] + "\\"
+            self.assertTrue(self.ok("GET", "/api/folders?path=" + urllib.parse.quote(root))["drive"])
+        else:
+            self.assertEqual(self.request("GET", "/api/folders?drives=1")[0], 404)
+            self.assertFalse(self.ok("GET", "/api/folders?path=/")["drive"])
 
     def test_old_style_keys_shown_as_adapter(self):
         os.makedirs(os.path.join(self.project, "canworks"))

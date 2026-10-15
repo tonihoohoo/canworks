@@ -91,6 +91,22 @@ class Settings(Online):
         self.assertEqual(self.request("POST", "/api/online/settings", {"eds_library": "/no/such/dir"})[0], 422)
         r = self.ok("POST", "/api/online/settings", {"host": "plc.local", "eds_library": RTD})
         self.assertEqual((r["host"], r["eds_library"]), ("plc.local", RTD))
+        self.assertEqual((r["eds_count"], r["eds_count_capped"]), (1, False))
+        r = self.ok("POST", "/api/online/settings", {"eds_library": ""})
+        self.assertEqual((r["eds_library"], r["eds_count"]), ("", 0))
+
+    def test_count_eds_stops_at_the_limit(self):
+        d = os.path.join(self.dir, "big")
+        for i in range(3):
+            os.makedirs(os.path.join(d, "s%d" % i, ".hidden"))
+            for n in range(4):
+                open(os.path.join(d, "s%d" % i, "f%d.eds" % n), "w").close()
+            open(os.path.join(d, "s%d" % i, ".hidden", "x.eds"), "w").close()
+        self.assertEqual(online.count_eds(d), (12, False))
+        count, capped = online.count_eds(d, limit=6)
+        self.assertTrue(capped)
+        self.assertLess(count, 12)
+        self.assertEqual(online.count_eds(""), (0, False))
 
     def test_offline_editing_opens_no_connection(self):
         with FakePlugin() as fp:
