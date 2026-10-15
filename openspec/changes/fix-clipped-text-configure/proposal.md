@@ -12,6 +12,8 @@ Text in the Configure workspace is cut off where the user needs to read it:
 
 A scan of the other Configure views (every tree entry, every node tab, Variable declarations, Simulation, Trace, Frame lab, every network menu) at 1101, 1280 and 1600 px found one more cut text: the **Dir** column heading of the Trace identifier table is 3 characters wide and shows "Di". Everything else fits.
 
+Toni also found, on the CAN messages page in the dark theme, that the **Remove** button of a selected message row is almost invisible: the selected row takes the accent fill and dark text, and its buttons took that dark text colour on their own dark fill (contrast 1:1). The same row's "(no name)" text kept its grey (1.1:1). No other selected row in the configurator has buttons (Trace, By identifier and Frame lab rows only hold text).
+
 The existing requirement "Network tree keyboard" asks for the ellipsis; this change replaces that with whole names.
 
 ## What Changes
@@ -25,6 +27,7 @@ The existing requirement "Network tree keyboard" asks for the ellipsis; this cha
   CANopen comes first and gets the focus, as it is the default protocol today; Escape and Cancel add nothing.
 - **The tree shows whole names.** A network entry gets two lines: its name (with the fold arrow, problem badge and menu button) on the first and its protocol, in small muted text, on the second. Names of networks and nodes are never cut: a name wider than the column wraps onto the next line, breaking inside the name when it has no space. The tooltip stays.
 - **Trace Dir heading.** The Dir column of the Trace identifier table is wide enough for its heading and the sort mark.
+- **Remove on a selected row.** A selected CAN message row keeps Remove in its normal button colours, and muted text in the row takes the row's text colour.
 - **Page tests for cut text.** The layout check that every page test runs on every view also fails when a text of the page is cut (ellipsis or hidden overflow on anything but a data cell with its own tooltip) or when anything of an open dialog is outside the dialog. A tree test checks long names, every network menu and Add network at 1000, 1280 and 1600 px.
 
 No file format, server protocol or CLI change.
@@ -40,14 +43,15 @@ Out of scope:
 None.
 
 ### Modified Capabilities
-- `canopen-configurator`: dialog buttons stay inside the dialog; Add network lists its protocols with a line each; the tree shows whole network and node names, with the protocol on its own line (replaces the ellipsis of "Network tree keyboard"); no cut text in Configure.
+- `canopen-configurator`: dialog buttons stay inside the dialog; Add network lists its protocols with a line each; the tree shows whole network and node names, with the protocol on its own line (replaces the ellipsis of "Network tree keyboard"); no cut text in Configure; selected rows keep their buttons readable.
 
 ## Impact
 
 - Configurator page: `tools/deploy/canworks/configurator/static/`
+  - `rawcan.css`: a selected message row's buttons and muted text;
   - `style.css`: `dialog menu` wraps, dialog buttons wrap their label; tree rows wrap and the network entry's two lines; the Trace identifier table's Dir column;
   - `app.js`: `addNetwork()` builds the protocol list in the dialog's extra part instead of four buttons;
   - `tree.js`: the network entry's protocol on its own line.
-- Tests: the cut-text rules in the shared layout check and a long-names tree test; Add network tests (choices, focus, Escape); tree tests updated for the two-line network entry.
+- Tests: the cut-text rules in the shared layout check and a long-names tree test; Add network tests (choices, focus, Escape); a contrast test of a selected CAN message row in both themes; tree tests updated for the two-line network entry.
 - Docs: `docs/configurator.md` (Add network…, tree entries). README.md is checked and changed only if it describes the dialog or the tree.
 - Version: PC tools patch bump. No plugin change, so no hardware test.

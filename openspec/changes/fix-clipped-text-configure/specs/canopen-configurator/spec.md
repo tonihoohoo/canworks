@@ -48,6 +48,13 @@ In the Configure workspace no label, heading, button, tree entry or hint SHALL b
 - **WHEN** the user opens Trace and sorts the identifier table by Dir
 - **THEN** the heading reads `Dir` whole, with its sort mark
 
+### Requirement: Selected rows keep their controls readable
+On a selected row of a list or table (filled with the accent colour), every button and text of the row SHALL keep at least WCAG AA contrast against what is behind it, in both themes. A button SHALL keep its own colours rather than take the row's text colour.
+
+#### Scenario: Remove on a selected CAN message
+- **WHEN** the user selects a received message on the CAN messages page in the dark theme
+- **THEN** its Remove button reads clearly (red on the button's own fill), and "(no name)" reads in the row's text colour
+
 ## MODIFIED Requirements
 
 ### Requirement: Network tree keyboard

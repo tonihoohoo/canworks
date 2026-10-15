@@ -2,7 +2,9 @@
    cell text stays the theme's own colour on a translucent fill. */
 .raw-table tbody tr[data-raw] { cursor: pointer; }
 .raw-table tbody tr.selected { background: var(--accent); color: var(--accent-text); }
-.raw-table tbody tr.selected button { color: inherit; border-color: currentColor; }
+/* A selected row's Remove keeps its own button colours, so it reads on the
+   accent fill in both themes; muted text takes the row's colour. */
+.raw-table tbody tr.selected .muted { color: inherit; }
 .raw-editor { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 10px 14px; margin: 10px 0 16px; }
 .raw-signals td input { width: 100%; min-width: 4em; }
 .raw-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--line); }
