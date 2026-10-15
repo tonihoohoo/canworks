@@ -120,6 +120,7 @@ async function busy(button, label, fn) {
   const node = [...button.childNodes].find((c) => c.nodeType === Node.TEXT_NODE && c.textContent.trim()) || button;
   const text = node.textContent;
   const wasDisabled = button.disabled;
+  const hadFocus = document.activeElement === button;
   button.dataset.busy = "1";
   button.disabled = true;
   button.classList.add("busy");
@@ -131,6 +132,11 @@ async function busy(button, label, fn) {
     button.disabled = wasDisabled;
     button.classList.remove("busy");
     button.removeAttribute("aria-busy");
+    // Disabling dropped the keyboard focus: it comes back, or goes next door when the button is gone or disabled.
+    if (hadFocus && (document.activeElement === document.body || !document.activeElement)) {
+      if (button.isConnected && !button.disabled && button.offsetParent !== null) button.focus();
+      else if (button.isConnected) focusNear(button);
+    }
   }
 }
 
@@ -853,6 +859,12 @@ async function openFolder(path, mode, isNew) {
     await api("POST", "/api/open", { path, mode, new: isNew });
     S.view = "bus";
     await loadState();
+    // The start page is gone: keyboard focus goes to the network tree, not the page body.
+    const a = document.activeElement;
+    if (!a || a === document.body || !a.isConnected || a.closest("#start")) {
+      const to = document.querySelector('#tree [role=treeitem][tabindex="0"]') || document.querySelector("#view h2");
+      if (to) { if (!to.hasAttribute("tabindex")) to.setAttribute("tabindex", "-1"); to.focus(); }
+    }
   } catch (e) {
     if (e.body && e.body.not_a_project) {
       const v = await modal(e.message + ".", [["standalone", "Open as standalone config", true], ["cancel", "Cancel"]]);
@@ -896,7 +908,7 @@ function render() {
   document.body.classList.toggle("commission", commission);
   $("#editor").classList.toggle("commission", commission);
   $("#menu-project").hidden = S.state.mode !== "standalone" || commission;
-  $("#btn-export-node").disabled = !S.view.startsWith("node:");
+  Icons.setDisabled($("#btn-export-node"), !S.view.startsWith("node:") && "Open a node first.");
   // Exports that do not apply are not offered: no DCF of a slave or J1939
   // network (none at all without a CANopen master network), no DBC of a slave.
   if (S.model) {
@@ -2665,7 +2677,12 @@ function objectPicker(i, eds, dir) {
         el("td", null, o.access),
         el("td", null, isMapped(i, o) ? el("span", { class: "muted" }, "mapped") :
           el("button", { type: "button", dataset: { add: `${o.index}:${o.subindex}` }, "aria-label": `Add ${o.index}:${o.subindex} ${o.name || ""}`,
-            onclick: (e) => busy(e.currentTarget, "Adding…", () => addEntry(i, o, dir, target)) }, "Add"),
+            onclick: (e) => busy(e.currentTarget, "Adding…", async () => {
+              await addEntry(i, o, dir, target);
+              // The object's row now reads "mapped": the focus goes back to the picker's filter for the next one.
+              const a = document.activeElement;
+              if (!a || a === document.body || !a.isConnected) focusPicker(dir);
+            }) }, "Add"),
           notesEditable(name) ? el("button", { type: "button", class: "small", dataset: { noteEdit: `${o.index}:${o.subindex}` },
             title: "Write a note for this object: text, unit, value meanings, bit names",
             onclick: async () => { if (await editNote(name, notesOf(name), o.index, o.subindex, !!o.var, `${o.index}:${o.subindex} ${o.name || ""}`)) fill(); } }, "Note") : null))));
@@ -6448,6 +6465,18 @@ function focusPath(w) {
 // The Save button: "Saved" and disabled when the draft equals the file,
 // "Save" when it is dirty, disabled with the error count in its tooltip
 // when the draft has errors (the count itself is in the Problems pane).
+// Focus for a control that just became disabled or hidden: the nearest
+// usable control before it in its group (then after it), never the page body.
+function focusNear(ctl) {
+  const box = ctl.closest("header, [role=toolbar], .toolbar, menu, #conn-bar") || ctl.parentElement;
+  const all = [...box.querySelectorAll("button, summary, input, select, [tabindex]")]
+    .filter((e) => e === ctl || (!e.disabled && e.tabIndex >= 0 && e.getClientRects().length > 0 &&
+      !(e.closest("details:not([open])") && e.tagName !== "SUMMARY")));
+  const k = all.indexOf(ctl);
+  const to = all.slice(0, k).reverse()[0] || all[k + 1];
+  if (to) to.focus();
+}
+
 function updateSave() {
   const btn = $("#btn-save");
   if (btn.dataset.busy) return;
@@ -6634,7 +6663,11 @@ function wire() {
   $("#browser-path").addEventListener("keydown", (e) => { if (e.key === "Enter") browse($("#browser-path").value.trim()); });
   $("#browser-open").onclick = startOpen;
   // busy() restores the caption it found ("Save"); the button's real state follows the save.
-  $("#btn-save").onclick = () => busy($("#btn-save"), "Saving…", () => save(false)).then(updateSave);
+  $("#btn-save").onclick = () => busy($("#btn-save"), "Saving…", () => save(false)).then(() => {
+    const had = document.activeElement === $("#btn-save");
+    updateSave();
+    if (had && $("#btn-save").disabled) focusNear($("#btn-save"));
+  });
   // The menu closes on a pick: its caption shows that the export runs.
   const exporting = (id, fn) => { $(id).onclick = () => busy($("#menu-export > summary"), "Exporting…", fn); };
   exporting("#btn-export-all", () => exportDcf());

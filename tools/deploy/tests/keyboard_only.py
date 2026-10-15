@@ -23,13 +23,15 @@ FOCUS_CHECK = """() => {
     return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
   const bgOf = (n) => { for (; n; n = n.parentElement) { const c = rgb(getComputedStyle(n).backgroundColor);
     if (c.length >= 3 && (c.length < 4 || c[3] > 0.5)) return c; } return [255, 255, 255]; };
-  const s = getComputedStyle(e);
+  // The ring may be drawn on the element or on a direct child (a tree item rings its row).
+  const ringed = [e, ...e.children].find((n) => { const c = getComputedStyle(n); return c.outlineStyle !== "none" && parseFloat(c.outlineWidth) >= 2; }) || e;
+  const s = getComputedStyle(ringed);
   const name = e.tagName.toLowerCase() + (e.id ? "#" + e.id : "") + " " + (e.getAttribute("aria-label") || e.textContent || "").trim().slice(0, 30);
   if (s.outlineStyle === "none" || parseFloat(s.outlineWidth) < 2) {
     if (!s.boxShadow || s.boxShadow === "none") return name + ": no visible focus ring";
     return null;
   }
-  const a = lum(rgb(s.outlineColor)), b = lum(bgOf(e.parentElement));
+  const a = lum(rgb(s.outlineColor)), b = lum(bgOf(ringed === e ? e.parentElement : ringed));
   const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
   return ratio < 3 ? name + ": focus ring contrast " + ratio.toFixed(2) + ":1" : null;
 }"""

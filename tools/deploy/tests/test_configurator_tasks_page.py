@@ -113,6 +113,60 @@ class RecordTrace(TaskBase):
         self.record("dark")
 
 
+class MapPdo(TaskBase):
+    def map_pdo(self, scheme):
+        pg = self.page
+        kb = self.kb("map a PDO entry", scheme)
+        pg.goto(self.server.url)
+        with kb.step("open the project folder"):
+            kb.tab_to("#start-project")
+            kb.press("Enter")
+            pg.wait_for_selector("#browser-path")
+            kb.tab_to("#browser-path")
+            kb.press("Control+A")
+            kb.type(self.project)
+            kb.press("Enter")
+            kb.tab_to("#browser-open")
+            kb.press("Enter")
+            pg.wait_for_selector("#editor:not([hidden])")
+        with kb.step("open node 1 from the tree"):
+            kb.tab_to('#tree [role=treeitem][tabindex="0"]')
+            kb.press("Home")
+            for _ in range(30):
+                if pg.evaluate("() => document.activeElement.dataset.key") == "0:node:0":
+                    break
+                kb.press("ArrowDown")
+            kb.press("Enter")
+            pg.wait_for_selector('[data-node-heading="0"]')
+        with kb.step("open the PDOs tab"):
+            kb.tab_to('.node-tabs [role=tab][aria-selected="true"]')
+            kb.press("Home")
+            for _ in range(10):
+                if pg.evaluate("() => document.activeElement.dataset.nodeTab") == "pdos":
+                    break
+                kb.press("ArrowRight")
+            pg.wait_for_selector('[data-node-tab-panel="pdos"]')
+        with kb.step("pick an object for TPDO 1"):
+            kb.tab_to('button[data-add-entry="nodes[0].tx_pdos[0]"]')
+            kb.press("Enter")
+            pg.wait_for_selector('details[data-picker="input"][open]')
+            kb.type("1001")
+            kb.tab_to('details[data-picker="input"] button[data-add="0x1001:0"]')
+            kb.press("Enter")
+            pg.wait_for_selector('tr[data-path="nodes[0].tx_pdos[0].entries[1]"]')
+            self.assertRegex(pg.input_value('input[data-path="nodes[0].tx_pdos[0].entries[1].iec_location"]'), r"^%I")
+        with kb.step("save"):
+            kb.tab_to("#btn-save", back=True)
+            kb.press("Enter")
+            pg.wait_for_selector('#btn-save:has-text("Saved")')
+
+    def test_map_pdo_light(self):
+        self.map_pdo("light")
+
+    def test_map_pdo_dark(self):
+        self.map_pdo("dark")
+
+
 class Guard(unittest.TestCase):
     """The wrapper refuses the pointer without a browser."""
 
