@@ -120,7 +120,7 @@ int main(int argc, char** argv) {
     std::printf("     a bound again after 300 ms (%d), events %d\n", again, a->long_send_events() ? 1 : 0);
   }
   if (!a->long_send_events()) {
-    std::printf("FAIL the kernel does not report the long socket's sessions\n");
+    std::printf("FAIL the kernel does not report the long socket's sessions (%s)\n", a->long_send_problem().c_str());
     explain_no_events(iface);
     return 1;
   }

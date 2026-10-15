@@ -70,6 +70,8 @@ class J1939Socket {
   // True when the kernel reports the end of each long send (send_event).
   // Without, a long send counts as done once the kernel took it.
   virtual bool long_send_events() const { return false; }
+  // Why the long sends are not reported (empty when they are, or unknown).
+  virtual std::string long_send_problem() const { return {}; }
   // The next long send that ended, in any order: 1 with its `id`, `aborted`
   // (and `error`, a positive errno, for an abort), 0 when no other ended.
   // Ends of sessions the socket started before it was bound again never come.
