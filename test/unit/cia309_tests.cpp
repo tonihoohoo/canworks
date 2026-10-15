@@ -378,6 +378,48 @@ TEST(cia309_line_limit) {
   CHECK(!f.s->feed(big.data(), big.size(), f.now));
 }
 
+// A first line that is not CiA 309-3 (a web page posting to the port): one
+// ERROR: 101 and the session closes before a later line is read. Blank lines
+// and comments before the first command do not count, and a bad line later
+// keeps the session.
+TEST(cia309_first_line_must_be_a_command) {
+  set_log_sink(capture);
+  auto writes_ok = [](const DiagRequest&) {
+    cJSON* res = cJSON_CreateObject();
+    cJSON_AddBoolToObject(res, "success", true);
+    return ok(res);
+  };
+  {
+    Fixture f(two_networks(R"({ "allow_changes": true })"));
+    f.bus = writes_ok;
+    std::string in =
+        "POST / HTTP/1.1\r\nHost: 127.0.0.1:7533\r\nContent-Type: text/plain\r\n\r\n[1] 1 2 w 0x2000 0 u8 1\r\n";
+    CHECK(!f.s->feed(in.data(), in.size(), f.now));
+    f.pump();
+    std::string a = f.s->output();
+    CHECK_MSG(a.find("ERROR: 101") != std::string::npos && a.find("ERROR: 101") == a.rfind("ERROR: 101") &&
+                  !has(a, "[1] OK"),
+              a);
+    CHECK(f.seen.empty() && f.s->outstanding() == 0);
+    CHECK(logged("cia309 127.0.0.1: the first line is not a CiA 309-3 command; closing the session") == 1);
+  }
+  {
+    Fixture f(two_networks(R"({ "allow_changes": true })"));
+    f.bus = writes_ok;
+    std::string in = "\r\n# a comment\r\n[1] 1 2 w 0x2000 0 u8 1\r\n";
+    CHECK(f.s->feed(in.data(), in.size(), f.now));
+    f.pump();
+    CHECK(has(f.s->output(), "[1] OK"));
+    f.s->output().clear();
+    in = "[2] 1 2 w 0x2000\r\n";
+    CHECK(f.s->feed(in.data(), in.size(), f.now));
+    CHECK(has(f.s->output(), "[2] ERROR: 101"));
+    f.s->output().clear();
+    CHECK(has(f.ask("[3] 1 2 w 0x2000 0 u8 1"), "[3] OK") && f.seen.size() == 2);
+  }
+  set_log_sink(nullptr);
+}
+
 TEST(cia309_notifications) {
   Fixture f(two_networks("{}"));
   DiagEvent e;
@@ -751,6 +793,60 @@ TEST(cia309_server_hand_over_from_diagnostics) {
   CHECK(u.line().find("\"ok\":true") != std::string::npos);
   diag.stop();
   gw.stop();
+}
+
+// The first-line rule on the plain port and through the diagnostics
+// channel, and the idle timeout of plain sessions (cia309.idle_timeout_s).
+TEST(cia309_server_first_line_and_idle_timeout) {
+  set_log_sink(capture);
+  Fixture f(two_networks(R"({ "max_clients": 4, "idle_timeout_s": 1 })", true));
+  for (auto& cfg : f.set.networks) cfg.master.diag_port = 0;  // any free port
+  CHECK(f.set.networks[0].master.cia309.idle_timeout_s == 1);
+  Cia309Server gw(f.set.networks[0].master.cia309, f.nets, "test-1");
+  gw.listen_any_port();
+  DiagServer diag({f.hubs[0].get(), f.hubs[1].get()});
+  diag.set_cia309(gw.hooks());
+  gw.start();
+  diag.start();
+  for (int i = 0; i < 200 && (!diag.port() || !gw.port()); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  BusThread bus({f.hubs[0].get(), f.hubs[1].get()});
+  {
+    LineClient web(gw.port());
+    web.send_line("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n[1] 1 2 r 0x1018 1 u32");
+    std::string l = web.line();
+    CHECK_MSG(l.find("ERROR: 101") != std::string::npos, l);
+    CHECK(web.line() == "<closed>");
+  }
+  {
+    TlsClient t(diag.port());
+    CHECK(t.login());
+    t.write(R"({"op":"cia309"})");
+    CHECK(t.line().find("\"ok\":true") != std::string::npos);
+    t.write("POST / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n[1] 1 2 r 0x1018 1 u32");
+    std::string l = t.line();
+    CHECK_MSG(l.find("ERROR: 101") != std::string::npos, l);
+    CHECK(t.line() == "<closed>");
+  }
+  // An idle plain session closes; one that sends lines and a tunnelled one
+  // stay.
+  TlsClient tunnelled(diag.port());
+  CHECK(tunnelled.login());
+  tunnelled.write(R"({"op":"cia309"})");
+  CHECK(tunnelled.line().find("\"ok\":true") != std::string::npos);
+  LineClient idle(gw.port()), busy(gw.port());
+  for (int i = 1; i <= 4; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    busy.send_line("[" + std::to_string(i) + "] 1 2 r 0x1018 1 u32");
+    CHECK(busy.line() == "[" + std::to_string(i) + "] 0x000001a2");
+  }
+  CHECK(idle.line(1000) == "<closed>");
+  CHECK(logged("closed (idle for 1 s, cia309.idle_timeout_s)") == 1);
+  tunnelled.write("[1] 1 2 r 0x1018 1 u32");
+  CHECK(tunnelled.line() == "[1] 0x000001a2");
+  diag.stop();
+  gw.stop();
+  set_log_sink(nullptr);
 }
 
 TEST(cia309_op_without_gateway) {

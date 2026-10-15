@@ -61,8 +61,10 @@ class Cia309Session {
   Cia309Session(const Cia309Session&) = delete;
   Cia309Session& operator=(const Cia309Session&) = delete;
 
-  // Bytes from the client; complete lines are carried out. False: a line
-  // longer than kMaxLine came (the session must close).
+  // Bytes from the client; complete lines are carried out. False: the
+  // session must close (after what output() holds goes out): a line longer
+  // than kMaxLine came, or the first line that is not blank or a comment is
+  // not a CiA 309-3 command (answered with error 101).
   bool feed(const char* data, size_t n, clock::time_point now);
   // An answer from the hub of network `net` (index in the config); false
   // when it is not this session's.
@@ -83,6 +85,8 @@ class Cia309Session {
   const std::string& peer() const { return peer_; }
   bool tunnelled() const { return tunnelled_; }
   uint64_t served() const { return served_; }
+  // Complete lines received (the server's idle timeout).
+  uint64_t lines() const { return lines_; }
   size_t outstanding() const { return queue_.size(); }
 
  private:
@@ -139,6 +143,7 @@ class Cia309Session {
   std::deque<std::string> notes_;
   uint64_t notes_lost_ = 0;
   uint64_t served_ = 0;
+  uint64_t lines_ = 0;
   // Session settings (CiA 309-3 "set" commands).
   unsigned default_net_ = 0;
   std::map<unsigned, unsigned> default_node_;  // network number -> node ID
@@ -149,6 +154,8 @@ class Cia309Session {
   // requests go to.
   bool selected_ = false;
   std::array<uint32_t, 4> selection_{};
+  // A command line came (anything but blank lines and comments).
+  bool commanded_ = false;
   // While parsing a line: its text (for the command it becomes).
   const std::string* parsing_ = nullptr;
   bool parsed_ = false;

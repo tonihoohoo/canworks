@@ -3717,6 +3717,31 @@ TEST(diag_server_trace_on_a_plain_network) {
   set_log_sink(nullptr);
 }
 
+// Clearing trouble codes acts on other ECUs: a read-only channel refuses it,
+// force or not, and still serves the DM2 read.
+TEST(diag_server_dm_clear_needs_allow_changes) {
+  set_log_sink(diag_capture);
+  for (bool allow : {false, true}) {
+    Config cfg = diag_config(allow);
+    cfg.protocol = Protocol::J1939;
+    DiagHub hub(cfg, "test");
+    DiagServer server(hub);
+    server.start();
+    CHECK(wait_port(server));
+    DiagClient c(server.port());
+    CHECK(c.ask(R"({"op":"hello","token":"secret"})").find("\"ok\":true") != std::string::npos);
+    std::string forced = c.ask(R"({"op":"j1939_dm_clear","address":255,"force":true})");
+    std::string plain = c.ask(R"({"op":"j1939_dm_clear","address":0})");
+    std::string read = c.ask(R"({"op":"j1939_dm_read","address":0})");
+    CHECK_MSG((forced.find("changes not allowed") != std::string::npos) == !allow, forced);
+    CHECK_MSG((plain.find("changes not allowed") != std::string::npos) == !allow, plain);
+    CHECK_MSG(allow == (plain.find("repeat with force") != std::string::npos), plain);
+    CHECK_MSG(read.find("changes not allowed") == std::string::npos, read);
+    server.stop();
+  }
+  set_log_sink(nullptr);
+}
+
 // ---------------------------------------------------------------------------
 // Runtime version guard (managed Docker install)
 

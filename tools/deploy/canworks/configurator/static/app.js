@@ -3610,6 +3610,8 @@ function cia309Settings() {
       hint: "TCP port on the PLC's loopback address (127.0.0.1), 1024-65535; 0: no plain port, sessions through the diagnostics channel only. Default: 7533." }),
     field("Sessions at a time", "master.cia309.max_clients", "intstr", { placeholder: "4",
       hint: "Gateway sessions, plain and through the diagnostics channel together, 1-16. Default: 4." }),
+    field("Idle timeout (s)", "master.cia309.idle_timeout_s", "intstr", { placeholder: "300",
+      hint: "A plain-port session that sends no line this long is closed and its place freed, 0-86400; 0: no limit. Default: 300." }),
     el("div", { class: "check-field" }, el("label", { class: "check" }, allow, " Allow changes (SDO downloads, NMT and LSS)"),
       hint("Off: read-only. Default: off.")),
     el("div", { class: "check-field" }, el("label", { class: "check" }, force, " Allow force on running nodes"),

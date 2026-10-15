@@ -183,6 +183,74 @@ class GatewayCommand(unittest.TestCase):
                 tool.close()
             self.assertIn("[1] 1 2 r 0x1018 1 u32", f.cia309_lines)
 
+    def _listen(self, f):
+        """canworks-diag gateway --listen on a free local port: the port."""
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        out = io.StringIO()
+        args = diag.parser().parse_args(["--runtime", "127.0.0.1:%d" % f.port, "--token", TOKEN, "gateway",
+                                         "--listen", "127.0.0.1:%d" % port])
+        threading.Thread(target=lambda: diag.run(args, out), daemon=True).start()
+        for _ in range(100):
+            if "until Ctrl-C" in out.getvalue():
+                break
+            time.sleep(0.05)
+        return port
+
+    @staticmethod
+    def _read_all(sock):
+        sock.settimeout(5)
+        data = b""
+        while True:
+            got = sock.recv(4096)
+            if not got:
+                return data.decode()
+            data += got
+
+    def test_listen_closes_a_web_request(self):
+        """A web page posting to the local port: its first line is not CiA
+        309-3, so it gets one ERROR: 101 and is closed, and nothing reaches
+        the runtime (no gateway session is even opened)."""
+        with self.fake() as f, redirect_stderr(io.StringIO()):
+            port = self._listen(f)
+            opened = len([r for r in f.requests if r.get("op") == "cia309"])
+            web = socket.create_connection(("127.0.0.1", port), timeout=5)
+            try:
+                web.sendall(b"POST / HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nContent-Type: text/plain\r\n\r\n"
+                            b"[1] 1 5 w 0x2000 0 u8 1\r\n" % port)
+                got = self._read_all(web)
+            finally:
+                web.close()
+            self.assertEqual(got.count("ERROR: 101"), 1, got)
+            self.assertEqual(len(got.splitlines()), 1, got)
+            self.assertEqual(f.cia309_lines, [])
+            self.assertEqual(len([r for r in f.requests if r.get("op") == "cia309"]), opened)
+
+    def test_listen_keeps_a_session_after_a_later_typo(self):
+        with self.fake() as f:
+            port = self._listen(f)
+            tool = socket.create_connection(("127.0.0.1", port), timeout=5)
+            try:
+                tool.sendall(b"\r\n# a comment\r\n[1] 1 2 r 0x1018 1 u32\r\n")
+                rfile = tool.makefile("rb")
+                self.assertEqual(rfile.readline().strip(), b"[1] 0x000001A2")
+                tool.sendall(b"[2] 1 2 r 0x1018\r\n[3] 1 2 r 0x1018 1 u32\r\n")
+                self.assertEqual(rfile.readline().strip(), b"[2] OK")  # the fake does not parse
+                self.assertEqual(rfile.readline().strip(), b"[3] 0x000001A2")
+            finally:
+                tool.close()
+            self.assertIn("[2] 1 2 r 0x1018", f.cia309_lines)
+
+    def test_first_line_check(self):
+        for line in ("[1] 1 2 r 0x1018 1 u32", "1 2 r 0x1018 1 u32", "[7] info version", "[2] 1 lss_switch_sel 1 2 3 4",
+                     "[3] set network 2", "[4]2 start", "[5] 1 2 W 0x2000 0 u8 1", "[0x10] 1 _lss_fastscan"):
+            self.assertTrue(cia309.looks_like_command(line), line)
+        for line in ("POST / HTTP/1.1", "GET /index.html HTTP/1.1", "Host: 127.0.0.1:7533", "OPTIONS * HTTP/1.1",
+                     "[1] 1 2 frobnicate", "{\"op\":\"status\"}", "[1]"):
+            self.assertFalse(cia309.looks_like_command(line), line)
+
     def test_status_line(self):
         line = diag.gateway_status_line({"listen": "127.0.0.1:7533", "listening": True, "allow_changes": False,
                                          "sessions": [{"address": "10.0.0.5", "kind": "tunnelled", "commands": 3}]})

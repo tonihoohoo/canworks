@@ -1316,6 +1316,12 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
         valid = false;
       }
       r.previous = cJSON_IsTrue(pv);
+      // A clear erases other ECUs' trouble codes: a change, refused on a
+      // read-only channel whatever the force.
+      if (valid && !m.diag_allow_changes) {
+        why = "changes not allowed";
+        valid = false;
+      }
       valid = valid && get_force();
       if (valid && !r.force) {
         why = "clearing trouble codes acts on another ECU: repeat with force";

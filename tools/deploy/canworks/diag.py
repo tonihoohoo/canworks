@@ -41,6 +41,8 @@ from . import __version__, localruntime
 
 DEFAULT_PORT = 7531
 GATEWAY_PORT = 7533  # the CiA 309-3 gateway's plain port on the runtime's loopback (canworks-diag gateway --listen)
+GATEWAY_IDLE_S = 300  # --listen: a local connection that sends no command line this long is closed
+GATEWAY_MAX_LINE = 16384  # the plugin's line limit (Cia309Session::kMaxLine)
 GATEWAY_TOO_OLD = "the runtime's plugin is too old for the CiA 309-3 gateway (update it)"
 PROTOCOL = 2        # TLS and the SCRAM login
 PLAIN_PROTOCOL = 1  # a standalone simulator without a token, on loopback
@@ -2939,10 +2941,50 @@ def _gateway_listen(args, host, port, token, lhost, lport, out):
     return 0
 
 
+def _gateway_first_line(local):
+    """The local client's bytes up to and with its first line that is not
+    blank or a comment: (bytes, that line), or (bytes, None) when the client
+    left or stayed silent for GATEWAY_IDLE_S first."""
+    from . import cia309
+    buf = b""
+    local.settimeout(GATEWAY_IDLE_S)
+    while True:
+        lines = buf.split(b"\n")
+        for raw in lines[:-1]:
+            text = raw.decode("utf-8", "replace")
+            if not cia309.skipped(text):
+                return buf, text.strip()
+        if len(lines[-1]) > GATEWAY_MAX_LINE:
+            return buf, lines[-1].decode("utf-8", "replace")
+        try:
+            data = local.recv(65536)
+        except OSError:
+            return buf, None
+        if not data:
+            return buf, None
+        buf += data
+
+
 def _gateway_pipe(args, host, port, token, local):
     """Copies one local connection to a new gateway session, both ways (one
-    thread: the TLS socket is not shared between threads)."""
+    thread: the TLS socket is not shared between threads). The session opens
+    only after the client's first command line, and not at all when that
+    line is not CiA 309-3 (a web page's HTTP request): the client then gets
+    one ERROR: 101, as from the runtime's plain port."""
     import select
+    from . import cia309
+    first, line = _gateway_first_line(local)
+    if line is None or not cia309.looks_like_command(line):
+        if line is not None:
+            m = re.match(r"^\s*\[?\s*(\d+)", line)
+            try:
+                local.sendall(b"[%d] ERROR: 101 (Syntax error)\r\n" % (int(m.group(1)) if m else 0))
+            except OSError:
+                pass
+            print("canworks-diag gateway: a local connection's first line is not a CiA 309-3 command; closed",
+                  file=sys.stderr)
+        local.close()
+        return
     try:
         session, _ = _gateway_session(args, host, port, token)
     except (DiagError, OSError) as e:
@@ -2959,6 +3001,7 @@ def _gateway_pipe(args, host, port, token, local):
     try:
         if session.buf:
             local.sendall(session.buf)
+        far.sendall(first)
         while True:
             ready = [far] if getattr(far, "pending", lambda: 0)() else []
             if not ready:

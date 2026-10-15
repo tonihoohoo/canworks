@@ -50,6 +50,8 @@
     {"name": "cia309: default_net not in nets", "patch": [["set", "cia309", {"nets": {"10": "drives"}, "default_net": 1}]], "schema": "valid", "verdict": "reject", "messages": ["cia309: field 'default_net' is 1, which is not a gateway network number (10 = drives)"]},
     {"name": "cia309: inside a network's master", "patch": [["set", "networks/0/master/cia309", {}]], "schema": "valid", "verdict": "reject", "messages": ["field 'cia309' is a top-level object in schema_version 2, not part of a network's master"]},
     {"name": "cia309: port below 1024", "patch": [["set", "cia309", {"port": 80}]], "schema": "invalid", "verdict": "reject", "messages": ["cia309: field 'port' must be 0 (no plain port) or 1024-65535"]},
+    {"name": "cia309: idle timeout, and 0 for none", "patch": [["set", "cia309", {"idle_timeout_s": 60}], ["set", "cia309/idle_timeout_s", 0]], "schema": "valid", "verdict": "accept"},
+    {"name": "cia309: idle timeout over a day", "patch": [["set", "cia309", {"idle_timeout_s": 86401}]], "schema": "invalid", "verdict": "reject", "messages": ["cia309: field 'idle_timeout_s' must be 0 (no limit) to 86400"]},
     { "name": "v2: two networks, same node ID and COB-IDs on both", "patch": [], "schema": "valid", "verdict": "accept" },
     { "name": "v2: one network without a name", "patch": [ ["delete", "networks/1"], ["delete", "networks/0/name"] ],
       "schema": "valid", "verdict": "accept" },
