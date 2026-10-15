@@ -11,6 +11,7 @@ Opening such a node is worse. Without an EDS the **Object dictionary** tab says 
 - **Name everywhere the node appears.** The node's heading, its tree entry in Commission a device, and the Status tab (a Device line with name, vendor, product, revision, serial, hardware and software version and profile). **Add to a config…** suggests the device's name as the new node's name.
 - **Standard object dictionary without an EDS.** A node with no EDS (configured, picked or matched) gets a built-in standard dictionary: the CiA 301 communication objects, plus the CiA 401 or CiA 402 standard objects when 0x1000 names that profile. The **Object dictionary** tab shows it with the same tree, reading, watch, formats, notes and editing as an EDS, with a line at the top saying these are standard objects, the device may lack some of them, and offering the EDS pick (library matches or **Pick EDS file…**) for the device's own objects. The SDO panel's object picker lists the same objects.
 - **Objects the device lacks.** An entry whose read is refused with "object does not exist" (0x06020000) or "sub-index does not exist" (0x06090011) is marked "not on this device"; after **Read all**, those are hidden by default, with a filter to show them again. Arrays such as 0x1003 error history and the PDO mapping objects show as many sub-entries as their sub-index 0 says once it is read. The standard dictionary lists RPDO and TPDO 1-4; **Read all** also looks for PDO 5 onwards until the first one that does not exist.
+- **Change or clear a picked EDS.** Once an EDS is picked, matched or added on the page, the Nodes table's EDS cell shows only its file name and there is no way back. The cell gets **Change EDS…** with the library matches, **Pick EDS file…** and **Clear EDS** (back to the standard dictionary); a node that was only added from an EDS gets **Remove node** instead of Clear. The same choices sit on the Object dictionary tab's top line. An EDS that comes from the config is changed in Configure, and the cell says so.
 - **Parameters stay EDS-only.** Back up, Compare, Restore and Store need the device's own EDS; without one the **Parameters** tab says so and offers the same EDS pick, instead of the current "has no EDS here" line.
 - Configurator tools version 0.61.x -> 0.62.0 (minor: new behaviour on the Nodes table and node tabs).
 
@@ -34,7 +35,7 @@ No config, contract, plugin or deploy change. Identity reads use the existing ma
 None.
 
 ### Modified Capabilities
-- `canopen-configurator`: new requirements for reading the identity of heard nodes, device names in the Nodes table and elsewhere, the standard object dictionary, objects a device lacks, Read all on it and the Parameters tab without an EDS; modified "Object dictionary view", "Manual SDO and NMT in the online view", "Filters in the object dictionary view" and "Node Status tab".
+- `canopen-configurator`: new requirements for reading the identity of heard nodes, device names in the Nodes table and elsewhere, the standard object dictionary, objects a device lacks, Read all on it, the Parameters tab without an EDS, and changing or clearing a node's EDS; modified "Object dictionary view", "Manual SDO and NMT in the online view", "Filters in the object dictionary view" and "Node Status tab".
 
 ## Impact
 

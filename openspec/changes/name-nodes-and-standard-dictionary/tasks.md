@@ -15,7 +15,8 @@
 - [ ] 2.4 "not on this device" for aborts 0x06020000 / 0x06090011; **Hide objects the device lacks** filter, on by default for the standard dictionary
 - [ ] 2.5 Array sub-entries follow the read sub-index 0; Read all reads sub 0 first, skips missing objects, probes RPDO/TPDO 5+ until the first missing one
 - [ ] 2.6 Picking an EDS replaces the standard dictionary and drops cached entries; Parameters tab without an EDS says what it needs and offers the EDS choices
-- [ ] 2.7 Tests: standard EDS files parse and lint clean; od_entries for 301, 401 and 402 profiles; page tests for the OD tab and picker without an EDS, Read all hiding missing objects on a simulated device, picking an EDS afterwards
+- [ ] 2.7 EDS cell: file name with **Change EDS…** menu (matches, Pick EDS file…, Clear EDS or Remove node); same choices on the OD tab's top line; drop the node's cached entries, values, compare marks and watch of the old EDS; Commissioning log line; config EDS shows "changed in Configure"
+- [ ] 2.8 Tests: standard EDS files parse and lint clean; od_entries for 301, 401 and 402 profiles; page tests for the OD tab and picker without an EDS, Read all hiding missing objects on a simulated device, picking an EDS afterwards; changing to another EDS and clearing back to the standard dictionary; removing a node only added from an EDS
 
 ## 3. Docs and release
 

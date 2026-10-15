@@ -106,6 +106,25 @@ The Parameters tab of a node without an EDS SHALL say that back up, compare and 
 - **WHEN** the user opens the Parameters tab of node 49, which has no EDS
 - **THEN** the tab says back up, compare and restore need the device's EDS and offers Pick EDS file…
 
+### Requirement: Change or clear a node's EDS
+In the Nodes table, a node whose EDS was picked, matched or added on the page (not from the config) SHALL show the EDS file name with **Change EDS…**. It SHALL open a menu with the node's EDS library matches, **Pick EDS file…** and **Clear EDS**; the node's Object dictionary tab top line SHALL offer the same. Changing SHALL reload the node's tabs from the new EDS, clearing SHALL return the node to the standard dictionary, and both SHALL be logged in the Commissioning log.
+
+#### Scenario: Wrong EDS picked
+- **WHEN** node 23 shows an EDS file the user picked by mistake and the user picks another file through Change EDS…
+- **THEN** the EDS column shows the new file name and node 23's Object dictionary tab shows the new EDS's objects
+
+#### Scenario: Clear the EDS
+- **WHEN** the user chooses Clear EDS for heard node 23
+- **THEN** the EDS column offers the EDS choices again and node 23's Object dictionary tab shows the standard dictionary
+
+#### Scenario: Node added only from an EDS
+- **WHEN** node 40 was added with Add node from EDS… and is not heard
+- **THEN** its menu offers Remove node in place of Clear EDS, and removing it takes the row away
+
+#### Scenario: EDS from the config
+- **WHEN** node 5 is in the config with its EDS
+- **THEN** its EDS cell shows the config's EDS without Change EDS…, and says the EDS is changed in Configure
+
 ## MODIFIED Requirements
 
 ### Requirement: Object dictionary view
