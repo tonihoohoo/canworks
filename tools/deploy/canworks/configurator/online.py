@@ -15,6 +15,7 @@ import threading
 import time
 
 from .. import contract, diag
+from ..userdirs import replace_file
 from .. import eds as eds_mod
 
 SETTINGS = "online.json"
@@ -51,7 +52,7 @@ class Settings:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
-        os.replace(tmp, self.path)
+        replace_file(tmp, self.path)
 
     def project(self, folder):
         p = (self.load().get("projects") or {}).get(folder)
@@ -89,7 +90,7 @@ class Settings:
 def fingerprints(config_path):
     """SHA-256 values the runtime may report for this canworks.json: the file
     itself, and the conf/canworks.json the deploy tool and the editor hook
-    write from it (EDS paths rewritten, indent 2). Empty when the
+    write from it (node and slave EDS paths rewritten, indent 2). Empty when the
     file does not exist or cannot be read."""
     try:
         with open(config_path, "rb") as f:
@@ -99,7 +100,7 @@ def fingerprints(config_path):
     out = {hashlib.sha256(raw).hexdigest()}
     try:
         cfg = json.loads(raw.decode("utf-8"))
-        for n in contract.all_nodes(cfg):
+        for n in contract.eds_users(cfg):  # nodes and slaves, as bundle.rewrite does
             if isinstance(n.get("eds"), str):
                 n["eds"] = "%s/%s" % (DEPLOYED_EDS_DIR, os.path.basename(n["eds"].replace("\\", "/")))
         out.add(hashlib.sha256((json.dumps(cfg, indent=2) + "\n").encode("utf-8")).hexdigest())

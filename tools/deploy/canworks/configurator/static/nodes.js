@@ -311,7 +311,7 @@ function logEvents(st) {
     const id = n.node_id;
     const p = prev[id];
     const cur = { state: n.state ?? null, emcy: n.emcy ? n.emcy.count || 0 : 0, boot: n.boot_error || null,
-      timeouts: (n.pdo_timeouts || []).filter((t) => t.timed_out).map((t) => t.tpdo).join(",") };
+      boots: n.boots ?? null, timeouts: (n.pdo_timeouts || []).filter((t) => t.timed_out).map((t) => t.tpdo).join(",") };
     next[id] = cur;
     if (!p) continue;  // the first answer is the starting point, not a change
     if (p.state !== cur.state) {
@@ -323,7 +323,10 @@ function logEvents(st) {
       S.emcyNew = S.emcyNew || {};
       if (S.onlineNode !== id || (S.onlineTab || "status") !== "status") S.emcyNew[id] = true;
     }
-    if (cur.boot !== p.boot) commEvent(id, net, cur.boot ? `Boot failed: error ${cur.boot} ${n.boot_error_text || ""}`.trim() : "Booted", cur.boot ? "failed" : "ok");
+    // A reset and boot can both fall between two answers, leaving state and
+    // boot result as they were: the plugin's boot count still goes up.
+    const rebooted = cur.boots !== null && p.boots !== null && cur.boots > p.boots;
+    if (cur.boot !== p.boot || (rebooted && !cur.boot)) commEvent(id, net, cur.boot ? `Boot failed: error ${cur.boot} ${n.boot_error_text || ""}`.trim() : "Booted", cur.boot ? "failed" : "ok");
     if (cur.timeouts !== p.timeouts && cur.timeouts) commEvent(id, net, `TPDO ${cur.timeouts} timed out`, "timeout");
   }
   S.logPrev = next;
