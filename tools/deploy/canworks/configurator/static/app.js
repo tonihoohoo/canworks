@@ -3741,13 +3741,14 @@ function onlineApply(r, err) {
     return el("tr", { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id },
       onclick: (e) => { if (!e.target.closest("button, input, label, a, select")) openOnlineNode(n.node_id); } },
     el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${n.node_id}`, dataset: { openNode: n.node_id },
-      onclick: () => openOnlineNode(n.node_id) }, String(n.node_id))), el("td", null, nodeName(n.node_id, n.name), sim ? " " : null, sim),
+      onclick: () => openOnlineNode(n.node_id) }, String(n.node_id))), el("td", null, nodeName(n.node_id, n.name), sim ? " " : null, sim,
+      ownName(n.node_id, nodeName(n.node_id, n.name))),
     el("td", null, el("span", { class: "state-mark", "aria-hidden": "true" }, ...markIcons(liveMark(n)[0])), stateName(n.state)),
     el("td", { dataset: { onlineStatus: n.node_id } }, n.status ? "TRUE" : "FALSE",
       ...stale.map((t) => el("div", { class: "bad", dataset: { pdoTimeout: n.node_id } }, t))),
     el("td", { class: n.boot_error ? "bad" : null }, boot + (n.retry_pending ? " (retrying)" : ""), hold ? el("div", null, hold) : null),
     el("td", null, em, emcyCobNote(n)), el("td", null, vars),
-    el("td", null, lastHeardText(n)), el("td", null, cn && cn.eds ? cn.eds : ""),
+    el("td", null, lastHeardText(n)), el("td", { title: cn && cn.eds ? "From the config: change it on the node's page in Configure" : null }, cn && cn.eds ? cn.eds : ""),
     compareCell(c, n.node_id));
   }).filter(Boolean);
   // Nodes of the draft the runtime does not run yet (added here, not uploaded).
@@ -3966,6 +3967,7 @@ async function commissionDevice() {
     S.commLogSaved = 0;
     S.commDevice = {};
     S.commNodes = {};
+    S.identity = null;
     S.adapterOn = false;
     S.adapterEnded = null;
     await loadState();
@@ -4229,7 +4231,7 @@ async function renderOnlineNode() {
   const logCount = commLogOn() ? (S.commLog || []).filter((e) => e.node === id).length : 0;
   const tabList = tabs(have.map(([k, label]) => [k, k === "log" && logCount ? `${label} ${logCount}` : label]),
     tab, (k) => { S.onlineTab = k; renderOnlineNode(); }, { dataset: "onlineTab", panel: "online-node-panel", label: "Node pages" });
-  const head = el("h2", null, `Node ${id} ${n && n.name ? n.name : (S.onlineEdsName || {})[id] || ""}`);
+  const head = el("h2", { dataset: { online: "node-heading" } }, nodeHeading(id));
   const title = S.state.commission ? el("div", { class: "toolbar node-head" }, head,
     el("button", { type: "button", dataset: { online: "add-to-config" }, onclick: () => addToConfig(id) }, "Add to a config…")) : head;
   const panel = (...kids) => el("div", { id: "online-node-panel", role: "tabpanel", "aria-labelledby": `online-node-panel-tab-${tab}` }, ...kids);
@@ -4247,6 +4249,7 @@ async function renderOnlineNode() {
     ? el("fieldset", null, el("legend", null, "Input PDO timeouts"), el("div", { dataset: { online: "pdo-timeouts" } }, pdoTimeoutTable(last)))
     : null;
   put(box, title, tabList, panel(
+    deviceLine(id),
     nodeStatusHead(id, last, n),
     el("fieldset", null, el("legend", null, "NMT"), nmtButtons(id, allow)),
     simulatedNode(id) ? simPanel(id) : null,
@@ -4426,7 +4429,8 @@ function nmtButtons(id, allow) {
 
 function sdoPanel(id, n, allow) {
   const eds = n ? edsFor(n) : null;
-  const objects = eds && eds.objects ? eds.objects : [];
+  let objects = eds && eds.objects ? eds.objects : [];
+  let from = "the EDS";
   const filter = el("input", { type: "text", placeholder: "Filter objects", "aria-label": "Filter objects" });
   const pick = el("select", { "aria-label": "Object", dataset: { online: "object" } });
   const ix = el("input", { type: "text", class: "index", placeholder: "0x1018", "aria-label": "Index", dataset: { online: "index" } });
@@ -4440,18 +4444,26 @@ function sdoPanel(id, n, allow) {
     16: "INTEGER24", 17: "REAL64", 21: "INTEGER64", 22: "UNSIGNED24", 27: "UNSIGNED64" };
   const fill = () => {
     const f = filter.value.trim().toLowerCase();
-    pick.replaceChildren(el("option", { value: "" }, objects.length ? "Pick an object from the EDS…" : "No EDS objects (type index and subindex)"),
+    pick.replaceChildren(el("option", { value: "" }, objects.length ? `Pick an object from ${from}…` : "No EDS objects (type index and subindex)"),
       ...objects.filter((o) => !f || `${o.index}:${o.subindex} ${o.name}`.toLowerCase().includes(f)).map((o) =>
         el("option", { value: `${o.index}:${o.subindex}` }, `${o.index}:${o.subindex} ${o.name} (${typeNames[o.type_code] || o.type || "?"}, ${o.access})`)));
   };
   fill();
   filter.addEventListener("input", fill);
+  // No EDS in the config: the node's picked EDS or its standard dictionary, as the object dictionary tab has them.
+  if (!objects.length && odSource(id)) {
+    odEntries(id).then((data) => {
+      objects = data.entries.map((e) => ({ index: hex4(e.index), subindex: e.subindex, name: e.name, type: e.type, access: e.access }));
+      from = data.standard ? "the standard objects" : "the EDS";
+      fill();
+    }).catch(() => {});
+  }
   pick.addEventListener("change", () => {
     const o = objects.find((x) => `${x.index}:${x.subindex}` === pick.value);
     if (!o) return;
     ix.value = o.index;
     sub.value = String(o.subindex);
-    type.value = typeNames[o.type_code] || "";
+    type.value = typeNames[o.type_code] || (SDO_TYPES.includes(o.type) ? o.type : "");
   });
   const target = () => {
     const index = num(ix.value.trim()), subindex = sub.value.trim() === "" ? 0 : num(sub.value.trim());
@@ -4545,10 +4557,11 @@ function noEds(id) {
 }
 
 async function odEntries(id) {
-  const src = nodeSource(id);
+  const src = odSource(id);
   const own = src.config ? onlineSlaveCfg() || configNode(id) : null;
-  const key = JSON.stringify([src.config ? own.eds : src.eds_path, own ? own.sdo || own.objects : null,
-    own ? own.sdo_variables || (onlineSlaveCfg() ? S.model.top.gateway : null) : null]);
+  const key = src.standard ? JSON.stringify(["standard", src.device_type ?? null, src.rpdos || 4, src.tpdos || 4])
+    : JSON.stringify([src.config ? own.eds : src.eds_path, own ? own.sdo || own.objects : null,
+      own ? own.sdo_variables || (onlineSlaveCfg() ? S.model.top.gateway : null) : null]);
   S.odEntries = S.odEntries || {};
   const cached = S.odEntries[id];
   if (cached && cached.key === key) return cached.data;
@@ -4834,8 +4847,8 @@ async function editNote(name, block, index, sub, isVar, label) {
   }
 }
 
-const OD_FILTERS = [["changed", "Changed from default"], ["writable", "Writable"], ["owned", "Set by config or SDO variable"],
-  ["pdo", "In a PDO"], ["failed", "Not readable"], ["compare", "Different in last compare"]];
+const OD_FILTERS = [["lacking", "Hide objects the device lacks"], ["changed", "Changed from default"], ["writable", "Writable"],
+  ["owned", "Set by config or SDO variable"], ["pdo", "In a PDO"], ["failed", "Not readable"], ["compare", "Different in last compare"]];
 const OD_NUMERIC = ["BOOLEAN", "INTEGER8", "INTEGER16", "INTEGER32", "INTEGER64", "UNSIGNED8", "UNSIGNED16",
   "UNSIGNED32", "UNSIGNED64", "REAL32", "REAL64"];  // the startup SDO types (co_type)
 const WATCH_HISTORY_MS = 10 * 60 * 1000;
@@ -4857,9 +4870,45 @@ function odStore(st, res, watchRound) {
     st.at[key] = now;
   }
   for (const f of res.failures || []) {
+    if (st.standard && (f.abort_code === SDO_NO_OBJECT || f.abort_code === SDO_NO_SUB)) {
+      st.values[odKey(f.index, f.subindex)] = { error: "Not on this device", lacking: true, code: f.abort_code };
+      st.at[odKey(f.index, f.subindex)] = now;
+      continue;
+    }
     st.values[odKey(f.index, f.subindex)] = { error: (f.abort_code !== null && f.abort_code !== undefined ? `Abort ${hex8(f.abort_code)}: ` : "") + f.error };
     st.at[odKey(f.index, f.subindex)] = now;
   }
+}
+
+// The standard dictionary: how many sub-indices object `o` has, from its
+// sub-index 0 as read; null when not read (or not readable).
+function odCount(st, o) {
+  const v = st.values[odKey(o.index, 0)];
+  if (!v || v.error || !v.data) return null;
+  return parseInt(v.data.split(" ")[0], 16);
+}
+
+// The entries of a standard object that are shown: up to the count read
+// from its sub-index 0; before that an ARRAY's 0 and 1, a RECORD's all.
+function odLimited(st, o) {
+  const all = o.all || o.entries;
+  if (o.type === "VAR" || !all.length || all[0].subindex !== 0) return all;
+  const count = odCount(st, o);
+  if (count === null) return o.type === "ARRAY" ? all.filter((e) => e.subindex <= 1) : all;
+  return all.filter((e) => e.subindex <= count);
+}
+
+// The objects of the standard dictionary the device lacks: a read of one
+// of their entries was refused as "object does not exist".
+function odLackSet(st, objects) {
+  const out = new Set();
+  for (const o of objects) {
+    for (const x of o.all || o.entries) {
+      const w = st.values[odKey(x.index, x.subindex)];
+      if (w && w.code === SDO_NO_OBJECT) { out.add(o.index); break; }
+    }
+  }
+  return out;
 }
 
 // After a write, a restore or a compare: the values it read (an od_read
@@ -4990,7 +5039,7 @@ function csvField(s) { s = String(s ?? ""); return /[",\n\r]/.test(s) ? '"' + s.
 
 function odPanel(id, n, allow) {
   const box = el("div", { class: "od-panel", dataset: { online: "od" } });
-  if (!nodeSource(id)) { put(box, noEds(id)); return box; }
+  if (!odSource(id)) { put(box, noEds(id)); return box; }
   put(box, el("p", { class: "muted" }, "Loading the object dictionary…"));
   odEntries(id).then((data) => odBuild(box, id, n, allow, data))
     .catch((e) => put(box, el("p", { class: "field-msg" }, e.message)));
@@ -4999,6 +5048,8 @@ function odPanel(id, n, allow) {
 
 function odBuild(box, id, n, allow, data) {
   const st = odState(id);
+  const build = {};
+  st.build = build;
   const byKey = {};
   for (const e of data.entries) byKey[odKey(e.index, e.subindex)] = e;
   const objects = [];  // {index, group, name, type, entries}
@@ -5007,12 +5058,27 @@ function odBuild(box, id, n, allow, data) {
     if (last && last.index === e.index) { last.entries.push(e); continue; }
     objects.push({ index: e.index, group: e.group, type: e.object_type || "VAR", name: e.object || e.sub_name || e.name, entries: [e] });
   }
+  // The standard dictionary (no EDS): an ARRAY or RECORD shows the
+  // sub-indices up to what its sub-index 0 says once read (an ARRAY 0 and 1
+  // before that); objects the device lacks are hidden by a filter, on by default.
+  st.standard = !!data.standard;
+  if (data.standard) {
+    st.standardType = odSource(id).device_type ?? null;
+    if (!st.lackInit) { st.lackInit = true; if (!st.filters.includes("lacking")) st.filters.push("lacking"); }
+    for (const o of objects) {
+      o.all = o.entries;
+      o.entries = odLimited(st, o);
+    }
+  }
+  let lackSet = new Set();  // objects the device lacks (sub-index 0 or the object refused as not existing)
+  const limitSig = () => objects.map((o) => (o.all ? odLimited(st, o).length : "")).join(",");
+  const sig = limitSig();
   const cells = {};  // key: {tr, value, marks, edit, editing}
   const objRows = {};  // index: {tr, sub rows, summary}
   const status = el("div", { class: "job-status", dataset: { online: "od-status" } });
   const summary = el("div", { class: "muted", dataset: { online: "od-summary" } });
   // Notes: the config node's EDS (editable, with unsaved edits), else the EDS the view was opened with.
-  const notesCfg = nodeSource(id).config && !onlineSlaveCfg() ? configNode(id) : null;
+  const notesCfg = odSource(id).config && !onlineSlaveCfg() ? configNode(id) : null;
   const notesName = notesCfg && notesCfg.eds ? notesCfg.eds : null;
   const notesBlock = () => (notesName && notesOf(notesName)) || data.notes;
   const noteOf = (e) => noteFor(notesBlock(), notesName, e.index, e.subindex, e.object_type === "VAR");
@@ -5054,6 +5120,7 @@ function odBuild(box, id, n, allow, data) {
     if (f === "pdo") return !!(e.pdo && e.pdo.length);
     if (f === "failed") return !!(v && v.error);
     if (f === "compare") return !!(st.compare && st.compare.rows[key] && st.compare.rows[key].result !== "equal");
+    if (f === "lacking") { const v = st.values[odKey(e.index, e.subindex)]; return !(v && v.lacking) && !lackSet.has(e.index); }
     return true;
   };
 
@@ -5127,17 +5194,29 @@ function odBuild(box, id, n, allow, data) {
   };
   const setReading = (res, watchRound) => {
     odStore(st, res, watchRound);
+    // A later build of this tab (a sub-index 0 read changed what it shows) draws the values.
+    if (st.build !== build) { if (st.refreshMarks) st.refreshMarks(); return; }
+    if (data.standard && limitSig() !== sig) { odBuild(box, id, n, allow, data); return; }
     const touched = new Set();
     for (const v of (res.values || []).concat(res.failures || [])) { showValue(odKey(v.index, v.subindex)); touched.add(v.index); }
     for (const i of touched) updateObject(i);
     renderWatch();
   };
   const readKeys = async (keys, watchRound) => {
-    const res = await api("POST", "/api/online/od_read", Object.assign(nodeSource(id), { keys }));
+    const res = await api("POST", "/api/online/od_read", Object.assign(odSource(id), { keys }));
     setReading(res, watchRound);
     return res;
   };
   const readObject = async (o) => {
+    if (o.all && o.type !== "VAR" && o.all[0].subindex === 0 && o.all[0].readable) {
+      // Sub-index 0 first: it says how many of the others the device has.
+      await readKeys([[o.index, 0]]);
+      const count = odCount(st, o);
+      if (count === null) return;
+      const rest = o.all.filter((e) => e.readable && e.subindex > 0 && e.subindex <= count).map((e) => [e.index, e.subindex]);
+      for (let i = 0; i < rest.length; i += 64) await readKeys(rest.slice(i, i + 64));
+      return;
+    }
     const keys = o.entries.filter((e) => e.readable).map((e) => [e.index, e.subindex]);
     for (let i = 0; i < keys.length; i += 64) await readKeys(keys.slice(i, i + 64));
   };
@@ -5356,6 +5435,7 @@ function odBuild(box, id, n, allow, data) {
     return st.filters.every((x) => passes(e, x));
   };
   const applyFilter = () => {
+    if (data.standard) lackSet = odLackSet(st, objects);
     const f = filter.value.trim().toLowerCase();
     st.filter = filter.value;
     const on = filtering();
@@ -5386,7 +5466,7 @@ function odBuild(box, id, n, allow, data) {
   };
   filter.addEventListener("input", applyFilter);
   const renderChips = () => {
-    put(chips, OD_FILTERS.filter(([k]) => k !== "compare" || st.compare).map(([k, label]) => {
+    put(chips, OD_FILTERS.filter(([k]) => (k !== "compare" || st.compare) && (k !== "lacking" || data.standard)).map(([k, label]) => {
       const cb = el("input", { type: "checkbox", dataset: { odFilter: k } });
       cb.checked = st.filters.includes(k);
       cb.addEventListener("change", () => {
@@ -5467,13 +5547,25 @@ function odBuild(box, id, n, allow, data) {
 
   const readAll = el("button", { type: "button", class: "primary", dataset: { online: "od-read-all" }, onclick: () => {
     summary.textContent = "";
-    startJob("/api/online/od_read", Object.assign(nodeSource(id), { all: true }), status, showAll);
+    startJob("/api/online/od_read", Object.assign(odSource(id), { all: true }), status, showAll);
   } }, "Read all");
   const showAll = (j) => {
-    setReading(j.result);
     const r = j.result;
-    summary.textContent = `${r.read} read, ${r.failed} not readable${r.cancelled ? ", cancelled" : ""}.` + (r.stopped ? " Stopped: " + r.stopped + "." : "");
-    applyFilter();
+    const lacking = (r.failures || []).filter((f) => f.abort_code === SDO_NO_OBJECT || f.abort_code === SDO_NO_SUB).length;
+    st.allSummary = `${r.read} read, ${data.standard ? `${lacking} not on this device, ${r.failed - lacking}` : r.failed} not readable` +
+      `${r.cancelled ? ", cancelled" : ""}.` + (r.stopped ? " Stopped: " + r.stopped + "." : "");
+    // More PDOs than the standard dictionary lists: it is fetched again with them.
+    const pdos = st.pdos || { rpdos: 4, tpdos: 4 };
+    if (data.standard && (r.rpdos > pdos.rpdos || r.tpdos > pdos.tpdos)) {
+      st.pdos = { rpdos: Math.max(r.rpdos, pdos.rpdos), tpdos: Math.max(r.tpdos, pdos.tpdos) };
+      odStore(st, r);
+      if (box.isConnected) renderOnlineNode();
+      return;
+    }
+    setReading(r);
+    const cur = st.build === build ? summary : document.querySelector("[data-online=od-summary]");
+    if (cur) cur.textContent = st.allSummary;
+    if (st.refreshMarks) st.refreshMarks();
   };
   st.refreshMarks = () => {
     if (!box.isConnected) return;
@@ -5483,7 +5575,9 @@ function odBuild(box, id, n, allow, data) {
     applyFilter();
     renderWatch();
   };
+  if (st.allSummary) summary.textContent = st.allSummary;
   put(box,
+    data.standard ? standardNote(id, data) : null,
     allow ? null : lockedNote("od-read-only", null, "Read-only:"),
     data.note ? el("p", { class: "field-msg warning" }, data.note) : null,
     el("div", { class: "toolbar" }, filter, readAll,
@@ -5572,7 +5666,7 @@ function odEdit(id, n, e, cell, readKeys, note, done) {
 
 function paramsPanel(id, n, allow) {
   const box = el("div", { dataset: { online: "params" } });
-  if (!nodeSource(id)) { put(box, noEds(id)); return box; }
+  if (!nodeSource(id)) { put(box, paramsNeedEds(id)); return box; }
   const status = el("div", { class: "job-status", dataset: { online: "params-status" } });
   const out = el("div", { dataset: { online: "params-result" } });
   const why = allow ? null : NO_CHANGES;
@@ -5820,11 +5914,16 @@ async function runScan(start, forced) {
 // A device of the Nodes page opened with an EDS: the matching one from the
 // library, or a picked or added file.
 function openScannedOd(d, match) {
+  const before = (S.onlineEdsName || {})[d.node_id] || null;
+  if (before !== match.name || (S.onlineEds || {})[d.node_id] !== match.path) {
+    dropOdState(d.node_id);
+    commLog(d.node_id, before ? `Change EDS ${before} → ${match.name}` : `Use EDS ${match.name}`, "on this page");
+  }
   commNodes()[d.node_id] = Object.assign(commNodes()[d.node_id] || {}, { eds_path: match.path, eds_name: match.name });
   Object.assign(commDevice(), { node_id: d.node_id, vendor_id: d.vendor_id, product_code: d.product_code, revision_number: d.revision_number,
     serial_number: d.serial_number, eds_path: match.path, eds_name: match.name });
   S.onlineEds = Object.assign(S.onlineEds || {}, { [d.node_id]: match.path });
-  S.onlineEdsName = Object.assign(S.onlineEdsName || {}, { [d.node_id]: d.device_name || match.name });
+  S.onlineEdsName = Object.assign(S.onlineEdsName || {}, { [d.node_id]: match.name });
   S.onlineNode = d.node_id;
   S.onlineTab = "od";
   if (S.view === "nodes") render();
@@ -6590,6 +6689,7 @@ async function closeFolder() {
   S.onlineNode = null;
   S.onlineEds = null;
   S.onlineEdsName = null;
+  S.identity = null;
   S.lssDevice = null;
   await loadState();
 }

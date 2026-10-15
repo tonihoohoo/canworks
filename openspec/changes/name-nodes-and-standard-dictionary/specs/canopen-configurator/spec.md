@@ -45,11 +45,11 @@ While a node's identity is being read, its Device cell SHALL say "Reading…"; w
 - **THEN** its Device column says No SDO answer and offers Read again
 
 ### Requirement: Device name outside the Nodes table
-With a config, the Nodes table's Name column SHALL keep the configured name and show the device's own name under it in muted text. A node without a configured name SHALL use the device's name in its heading and its tree entry in Commission a device, and **Add to a config…** SHALL suggest it as the node name.
+With a config, the Nodes table's Name column SHALL keep the configured name and show the device's own name under it in muted text. A node without a configured name SHALL use the device's name in its heading, and **Add to a config…** SHALL name the new node after it.
 
 #### Scenario: Heading of a heard node
 - **WHEN** the user opens heard node 23 in Commission a device after its identity was read
-- **THEN** the heading reads "Node 23" followed by the device's name, and Add to a config… suggests that name
+- **THEN** the heading reads "Node 23" followed by the device's name, and Add to a config… names the new node after it
 
 ### Requirement: Standard object dictionary without an EDS
 A node with no configured, matched or picked EDS SHALL have a standard object dictionary: the CiA 301 communication objects, plus the CiA 401 or CiA 402 standard objects when its 0x1000 low 16 bits are 401 or 402. Its Object dictionary tab and SDO object picker SHALL use it as they use an EDS (tree, reading, watch, formats, notes, editing). Standard entries SHALL have no default value.
@@ -107,7 +107,7 @@ The Parameters tab of a node without an EDS SHALL say that back up, compare and 
 - **THEN** the tab says back up, compare and restore need the device's EDS and offers Pick EDS file…
 
 ### Requirement: Change or clear a node's EDS
-In the Nodes table, a node whose EDS was picked, matched or added on the page (not from the config) SHALL show the EDS file name with **Change EDS…**. It SHALL open a menu with the node's EDS library matches, **Pick EDS file…** and **Clear EDS**; the node's Object dictionary tab top line SHALL offer the same. Changing SHALL reload the node's tabs from the new EDS, clearing SHALL return the node to the standard dictionary, and both SHALL be logged in the Commissioning log.
+In the Nodes table, a node whose EDS was picked, matched or added on the page (not from the config) SHALL show the EDS file name with **Change EDS…**. It SHALL ask, in a dialog, for one of the node's other EDS library matches, **Pick EDS file…** or **Clear EDS**. Changing SHALL reload the node's tabs from the new EDS, clearing SHALL return the node to the standard dictionary, and both SHALL be logged in the Commissioning log.
 
 #### Scenario: Wrong EDS picked
 - **WHEN** node 23 shows an EDS file the user picked by mistake and the user picks another file through Change EDS…
@@ -123,7 +123,7 @@ In the Nodes table, a node whose EDS was picked, matched or added on the page (n
 
 #### Scenario: EDS from the config
 - **WHEN** node 5 is in the config with its EDS
-- **THEN** its EDS cell shows the config's EDS without Change EDS…, and says the EDS is changed in Configure
+- **THEN** its EDS cell shows the config's EDS without Change EDS…, and its tooltip says the EDS is changed on the node's page in Configure
 
 ## MODIFIED Requirements
 

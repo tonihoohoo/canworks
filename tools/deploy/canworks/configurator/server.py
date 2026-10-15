@@ -2345,6 +2345,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if res.get("abort_code") is not None:
                     res["abort_text"] = diag.abort_text(res["abort_code"])
             return res
+        if route == ("POST", "/api/online/identify"):
+            # A heard node's identity for the Nodes table: a few manual SDO
+            # reads, no force or allow_changes (identity.py).
+            from .. import identity
+            node = node_arg()
+            res = call(lambda c: identity.read(c, node))
+            folders = [("project", canopen_dir), ("library", settings.eds_library)]
+            res["eds_matches"] = self.server.eds_index.matches(folders, res.get("vendor_id"), res.get("product_code"),
+                                                               res.get("revision_number"))
+            return res
         if route == ("POST", "/api/online/nmt"):
             node, command = node_arg(), body.get("command")
             if command not in diag.NMT_COMMANDS:

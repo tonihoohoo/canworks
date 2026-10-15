@@ -36,6 +36,7 @@ class FakeDevice:
         self.loaded = False
         self.ro = set(ro) | {(0x1018, 1), (0x1018, 2), (0x1018, 3), (0x1018, 4), (0x1000, 0), (0x1008, 0)}
         self.heartbeat_s = heartbeat_s
+        self.sdo_mute = False  # True: the device does not answer SDO (as if gone)
         self.lss = lss
         self.state = nmt_state
         self.nmt_log = []
@@ -89,7 +90,7 @@ class FakeDevice:
                         self._reload()
                     self.state = 127
                     self.send(0x700 + self.node, b"\0")
-            elif self.node and cob == 0x600 + self.node and self.state != 4:
+            elif self.node and cob == 0x600 + self.node and self.state != 4 and not self.sdo_mute:
                 self._sdo(data)
             elif cob == 0x7E5 and self.lss:
                 self._lss(data)
