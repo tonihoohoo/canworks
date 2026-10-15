@@ -186,6 +186,10 @@ details.pdo-settings { margin: 4px 0 8px; }
 details.pdo-settings > summary { cursor: pointer; font-size: 13px; }
 details.pdo-settings[open] > summary { margin-bottom: 6px; }
 .notes-table td:last-child { width: 1%; }
+.notes-table td.note-source { white-space: nowrap; }
+.notes-toolbar { flex-wrap: wrap; }
+.note-picker-list { max-height: 50vh; overflow: auto; margin-top: 8px; }
+.note-import ul { margin: 4px 0 8px; padding-left: 20px; max-height: 30vh; overflow: auto; }
 #view { padding: 16px 20px; overflow: auto; }
 #problems, #log-panel { padding: 0 16px; }
 #problem-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }

@@ -22,4 +22,9 @@
 
 - [ ] 4.1 Page tests: My notes default and source marks, add a note to an object without one, import with preview and undo, export both kinds, keyboard only and axe audit in both themes.
 - [ ] 4.2 Update tests that used the removed Note buttons.
-- [ ] 4.3 README.md and `docs/configurator.md`.
+- [ ] 4.3 README.md and `docs/configurator.md`; PC tools version 0.63.0.
+- [ ] 4.4 CI time: wall and summed job time at or below the main baseline, both numbers in the PR description.
+
+## 5. Found while applying
+
+- [ ] 5.1 Commission a device without a config: the Notes tab read the page's config EDS list only, so it was always empty; it now shows the notes the object dictionary is read with (read-only, exportable).

@@ -501,15 +501,8 @@ class ParamsPage(OnlineBase):
             pg.click(row + ' button[data-online="od-write"]')
             pg.wait_for_selector(row + ' [data-online="od-meaning"]:has-text("(off)")')
             self.assertEqual(fp.value(0x6112, 3), b"\x00")
-            # The note editor keeps a draft edit; its button stays inside the actions column.
-            note_box = pg.locator(row + ' button[data-online="od-note-edit"]').bounding_box()
-            watch_box = pg.locator(row + ' td.od-watch').bounding_box()
-            self.assertLessEqual(note_box["x"] + note_box["width"], watch_box["x"])
-            pg.click(row + ' button[data-online="od-note-edit"]')
-            pg.fill('#modal [data-note-field="text"]', "Speed of channel 3")
-            pg.click('#modal button[data-value="save"]')
-            pg.wait_for_selector(row + ':has-text("Speed of channel 3")')
-            self.assertEqual(pg.evaluate("() => S.model.notes['rtd8.eds']['0x6112:3']"), {"text": "Speed of channel 3", "values": {"0": "off", "2": "fast"}})
+            # Notes are written on the Notes tab, not here (notes-tab-own-notes).
+            self.assertEqual(pg.locator(row + ' button[data-online="od-note-edit"]').count(), 0)
             self.search("0x6126")
             self.assertIn("bar", pg.inner_text('tr[data-od-key="%d:1"]' % 0x6126))
 

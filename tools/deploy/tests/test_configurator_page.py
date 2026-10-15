@@ -783,8 +783,8 @@ class Page(unittest.TestCase):
 
     def test_startup_sdo_notes(self):
         # Device notes on the startup SDO list (canopen-device-notes): the
-        # built-in note, a note written here, a value picked by name; Save
-        # writes the notes file next to the EDS.
+        # built-in note, a note written on the Notes tab, a value picked by
+        # name; Save writes the notes file next to the EDS.
         pg = self.page
         self.open_from_start("#start-project", self.project)
         self.fill("adapter.interface", "can0")
@@ -801,7 +801,13 @@ class Page(unittest.TestCase):
         row = 'tr[data-path="nodes[0].sdo[1]"]'
         pg.wait_for_selector(row)
         self.assertEqual(pg.locator(row + " select[data-value-pick]").count(), 0)
-        pg.click(row + ' button[data-note-edit]')
+        # Notes are written on the Notes tab only (notes-tab-own-notes).
+        self.assertEqual(pg.locator('[data-node-tab-panel="sdos"] button[data-note-edit]').count(), 0)
+        node_tab(pg, "notes")
+        pg.click("button[data-add-note]")
+        pg.fill("#modal [data-note-picker-filter]", "6110:1")
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector("#modal .note-editor")
         # The dialog fits without a horizontal scroll bar.
         self.assertFalse(pg.evaluate("""() => { for (let x = document.querySelector('#modal .note-editor');
             x && x.id !== 'modal'; x = x.parentElement) if (x.scrollWidth > x.clientWidth + 1) return x.id || x.className || x.tagName;
@@ -809,6 +815,11 @@ class Page(unittest.TestCase):
         pg.fill('#modal [data-note-field="text"]', "Sensor type of the channel")
         pg.fill('#modal [data-note-field="values"]', "1 = two-wire\n30 = four-wire")
         pg.click('#modal button[data-value="save"]')
+        # My notes lists it, with the focus on its row, and the tab counts it.
+        pg.wait_for_selector('[data-note-row="0x6110:1"][data-note-source="mine"]')
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.noteEdit"), "0x6110:1")
+        self.assertEqual(pg.inner_text('.node-tabs [data-node-tab="notes"]').strip(), "Notes 1")
+        node_tab(pg, "sdos")
         pg.wait_for_selector(row + ' [data-note="text"]:has-text("Sensor type of the channel")')
         pg.select_option(row + " select[data-value-pick]", "30")
         self.assertEqual(pg.input_value('input[data-path="nodes[0].sdo[1].value"]'), "30")
@@ -820,6 +831,65 @@ class Page(unittest.TestCase):
         self.assertEqual(notes["objects"]["0x6110:1"], {"name": "AI0_Sensor_Type", "text": "Sensor type of the channel",
                                                         "values": {"1": "two-wire", "30": "four-wire"}})
         self.assertEqual(notes["eds"]["file"], "rtd8.eds")
+
+    def test_notes_tab_import_export_undo(self):
+        # The Notes tab (notes-tab-own-notes): own notes first, export,
+        # import with a preview, undo, and Save.
+        from .test_configurator_layout import audit
+        pg = self.page
+        pg.on("filechooser", lambda _: None)
+        self.open_from_start("#start-project", self.project)
+        self.fill("adapter.interface", "can0")
+        self.add_node(os.path.join(RTD, "rtd8.eds"))
+        self.fill("nodes[0].node_id", "5")
+        node_tab(pg, "notes")
+        pg.wait_for_selector('[data-notes-empty="mine"]:has-text("You have not written any notes")')
+        pg.click("[data-notes-show-all]")
+        pg.wait_for_selector('[data-note-row="0x1017:0"][data-note-source="builtin"]')
+        audit(pg, "Notes tab, all notes")
+        # Without notes of one's own only the merged file is offered.
+        pg.click("button[data-export-notes]")
+        self.assertEqual(pg.locator('#modal button[data-value="own"]').count(), 0)
+        with pg.expect_download() as dl:
+            pg.click('#modal button[data-value="merged"]')
+        self.assertEqual(dl.value.suggested_filename, "rtd8.eds.merged.notes.json")
+        with open(dl.value.path(), encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["objects"]["0x2000:2"] = {"text": "Delay before the first reading", "unit": "ms"}
+        doc["objects"]["0x2999"] = {"text": "not in this EDS"}
+        path = os.path.join(self.dir, "colleague.notes.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        # Import: a preview first, then one draft edit.
+        pg.click("button[data-import-notes]")
+        pg.set_input_files("#modal [data-import-notes-file]", path)
+        pg.click('#modal button[data-value="next"]')
+        pg.wait_for_selector("#modal [data-import-preview]")
+        preview = pg.inner_text("#modal [data-import-preview]")
+        self.assertIn("New notes: 1.", preview)
+        self.assertIn("Skipped (not in rtd8.eds): 1.", preview)
+        audit(pg, "Notes import preview")
+        pg.click('#modal button[data-value="import"]')
+        pg.wait_for_selector('[data-note-row="0x2000:2"][data-note-source="mine"]')
+        self.assertEqual(pg.locator("[data-note-row]").count(), 1)
+        self.assertEqual(pg.inner_text('.node-tabs [data-node-tab="notes"]').strip(), "Notes 1")
+        # Ctrl+Z takes the whole import back, Ctrl+Shift+Z brings it again.
+        pg.click("[data-node-heading]")
+        pg.keyboard.press("Control+z")
+        pg.wait_for_selector('[data-notes-empty="mine"]')
+        pg.keyboard.press("Control+Shift+z")
+        pg.wait_for_selector('[data-note-row="0x2000:2"]')
+        self.save()
+        notes = load(os.path.join(self.project, "canworks", "rtd8.eds.notes.json"))
+        self.assertEqual(notes["objects"]["0x2000:2"], {"name": "Start delay ms", "text": "Delay before the first reading", "unit": "ms"})
+        self.assertNotIn("0x1017", notes["objects"])
+        # Export of one's own notes: only the filled entries.
+        pg.click("button[data-export-notes]")
+        with pg.expect_download() as dl:
+            pg.click('#modal button[data-value="own"]')
+        self.assertEqual(dl.value.suggested_filename, "rtd8.eds.notes.json")
+        with open(dl.value.path(), encoding="utf-8") as f:
+            self.assertEqual(list(json.load(f)["objects"]), ["0x2000:2"])
 
     def test_pdo_timing_and_sdo_picker(self):
         pg = self.page

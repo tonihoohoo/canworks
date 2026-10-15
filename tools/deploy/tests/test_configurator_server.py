@@ -592,6 +592,70 @@ class CheckAndSave(Running):
         self.assertIn("heartbeat", doc["objects"]["0x1017"]["text"])
         self.assertEqual(self.snapshot(), before)
 
+    def test_export_own_notes(self):
+        self.ok("POST", "/api/save", {"config": self.cfg, "notes": {"rtd8.eds": {"0x2000:1": {"text": "Filter"}}}})
+        data = self.ok("POST", "/api/export_notes", {"config": self.cfg, "eds": "rtd8.eds", "own": True,
+                                                      "notes": {"rtd8.eds": {"0x2000:2": {"unit": "ms"}}}})
+        self.assertEqual((data["name"], data["count"]), ("rtd8.eds.notes.json", 2))
+        doc = json.loads(data["data"])
+        self.assertEqual(doc["eds"]["file"], "rtd8.eds")
+        # Only the filled entries: no skeleton `name`-only entries, no built-in text.
+        self.assertEqual(sorted(doc["objects"]), ["0x2000:1", "0x2000:2"])
+        self.assertEqual(doc["objects"]["0x2000:2"]["unit"], "ms")
+
+    def import_notes(self, objects, notes=None, eds=None, text=None):
+        doc = {"format": "canworks-notes.v1", "objects": objects}
+        if eds:
+            doc["eds"] = eds
+        return self.request("POST", "/api/import_notes", {
+            "config": self.cfg, "eds": "rtd8.eds", "file": "other.notes.json",
+            "text": text if text is not None else json.dumps(doc), "notes": notes or {}})
+
+    def test_import_merged_export(self):
+        # A merged export with one own note: only that one is new, the built-in ones are the same.
+        merged = json.loads(self.ok("POST", "/api/export_notes", {"config": self.cfg, "eds": "rtd8.eds", "notes": {
+            "rtd8.eds": {"0x2000:2": {"unit": "ms"}, "0x1017": {"unit": "s"}}}})["data"])
+        before = self.snapshot()
+        status, data, _ = self.import_notes(merged["objects"], eds=merged["eds"])
+        self.assertEqual(status, 200, data)
+        self.assertEqual(sorted(data["changes"]), ["0x1017", "0x2000:2"])
+        self.assertEqual(data["changes"]["0x2000:2"], {"unit": "ms"})
+        # Only the field that differs from the built-in note, not its text.
+        self.assertEqual(data["changes"]["0x1017"], {"unit": "s"})
+        self.assertEqual(data["preview"]["new"], ["0x1017", "0x2000:2"])
+        self.assertIn("0x1018:1", data["preview"]["same"])
+        self.assertEqual((data["preview"]["changed"], data["preview"]["skipped"], data["warnings"]), ([], [], []))
+        self.assertEqual(data["names"]["0x2000:2"], "Start delay ms")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_import_keeps_other_fields(self):
+        status, data, _ = self.import_notes({"0x2000:2": {"name": "x", "text": "Delay", "unit": "s"}},
+                                            notes={"rtd8.eds": {"0x2000:2": {"unit": "ms", "manual": "p. 4"}}})
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["changes"], {"0x2000:2": {"text": "Delay", "unit": "s", "manual": "p. 4"}})
+        self.assertEqual(data["preview"]["changed"], ["0x2000:2"])
+        # The same again is "same".
+        status, data, _ = self.import_notes({"0x2000:2": {"unit": "ms"}}, notes={"rtd8.eds": {"0x2000:2": {"unit": "ms"}}})
+        self.assertEqual((data["changes"], data["preview"]["same"]), ({}, ["0x2000:2"]))
+
+    def test_import_other_revision_and_unknown_objects(self):
+        status, data, _ = self.import_notes({"0x2000:2": {"unit": "ms"}, "0x2999": {"text": "gone"}, "bad": {}},
+                                            eds={"file": "rtd8.eds", "revision": "0x7FFFFFFF"})
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["preview"]["skipped"], ["0x2999", "bad"])
+        self.assertEqual(list(data["changes"]), ["0x2000:2"])
+        self.assertEqual(len(data["warnings"]), 1)
+        self.assertIn("another revision", data["warnings"][0])
+        status, data, _ = self.import_notes({}, eds={"file": "x.eds", "vendor_id": "0x00000001", "product_code": "0x00000002"})
+        self.assertIn("another device", data["warnings"][0])
+
+    def test_import_not_a_notes_file(self):
+        status, data, _ = self.import_notes({}, text="{ nope")
+        self.assertEqual(status, 422)
+        self.assertIn("other.notes.json is not a canworks notes file", data["error"])
+        status, data, _ = self.import_notes({}, text=json.dumps({"format": "x", "objects": {}}))
+        self.assertEqual(status, 422)
+
     def test_export_dcf_one_node_unsaved(self):
         # The draft (EDS only imported, nothing saved) exports; the project
         # is not touched.

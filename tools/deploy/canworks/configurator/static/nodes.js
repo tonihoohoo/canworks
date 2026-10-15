@@ -553,11 +553,25 @@ function nodeStatusHead(id, sn, n) {
     el("tr", null, ...rows.flatMap(([k, v]) => [el("th", null, k), el("td", null, v)]))));
 }
 
-function commNotesTab(id, n) {
+// The EDS whose notes a Commission node's Notes tab shows: (name, EDS) or nulls.
+function commNotesEds(id, n) {
   const name = (n && n.eds) || (commNodes()[id] || {}).eds_name || (S.onlineEds || {})[id] || null;
-  const eds = name ? (S.state.eds || {})[name] : null;
-  if (!name || !eds) return el("p", { class: "muted", dataset: { nodeNotes: "1" } }, "No notes: this node has no EDS on this page yet (pick one in the Nodes table).");
-  return nodeNotesTab({ eds: name }, eds);
+  return [name, name ? (S.state.eds || {})[name] : null];
+}
+
+function commNotesTab(id, n) {
+  const [name, eds] = commNotesEds(id, n);
+  if (name && eds) return nodeNotesTab({ eds: name }, eds);
+  const none = () => el("p", { class: "muted", dataset: { nodeNotes: "1" } }, "No notes: this node has no EDS on this page yet (pick one in the Nodes table).");
+  if (!name) return none();
+  // No config EDS: the notes the object dictionary is read with (read-only).
+  const box = el("div", null, el("p", { class: "muted" }, "Loading…"));
+  odEntries(id).then((data) => {
+    if (!data || !data.notes || !data.entries) { box.replaceChildren(none()); return; }
+    const objects = data.entries.map((e) => ({ index: hex4(e.index), subindex: e.subindex, name: e.sub_name || e.name, var: e.object_type === "VAR" }));
+    box.replaceChildren(nodeNotesTab({ eds: name }, { objects }, data.notes));
+  }).catch(() => box.replaceChildren(none()));
+  return box;
 }
 
 function logLine(e) {
