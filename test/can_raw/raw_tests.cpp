@@ -281,6 +281,15 @@ TEST(cyclic_job_period_and_update) {
   api()->cyc_stop(h);
   CHECK(n.port.cyclic_due(t + 60000, out, jobs, 4) == 0);
   CHECK(api()->cyc_update(h, &g, 20000, &count, &err) == 2 && err == CANWORKS_CAN_ERR_CANCELLED);
+  // An input error ends the job and frees its slot.
+  h = api()->cyc_start(0, &f, 10000, &err);
+  CHECK(h != 0);
+  CHECK(n.port.cyclic_due(t + 70000, out, jobs, 4) == 1);
+  n.port.cyclic_sent(jobs[0]);
+  CHECK(api()->cyc_update(h, &g, 0, &count, &err) == 2 && err == CANWORKS_CAN_ERR_INPUT);
+  CHECK(n.port.cyclic_due(t + 90000, out, jobs, 4) == 0);
+  CHECK(api()->cyc_update(h, &g, 20000, &count, &err) == 2 && err == CANWORKS_CAN_ERR_CANCELLED);
+  for (unsigned i = 0; i < CANWORKS_CAN_CYCLIC_JOBS; ++i) CHECK(api()->cyc_start(0, &f, 1000, &err) != 0);
 }
 
 TEST(cyclic_limit) {

@@ -160,6 +160,7 @@ void loop() {
     if (rising) COUNT = 0;
     ERROR = false;
     ERROR_ID = 0;
+    if (t && cf_handle) t->cyc_stop(cf_handle);
     cf_handle = 0;
     if (!t) {
       err = can_frames::err_not_running;
@@ -179,6 +180,9 @@ void loop() {
     if (st != 0) {
       ERROR = true;
       ERROR_ID = t ? err : static_cast<unsigned short>(can_frames::err_not_running);
+      // The plugin has ended the job; stopping it again is harmless and
+      // never leaves a job the block can no longer reach.
+      if (t) t->cyc_stop(cf_handle);
       cf_handle = 0;
     } else {
       ERROR = err != 0;  // 7 while the bus is off; the job stays

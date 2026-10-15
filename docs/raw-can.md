@@ -196,7 +196,7 @@ d[0] := d[0] + 1;
 hb(ENABLE := TRUE, ID := 16#18FF0080, EXTENDED := TRUE, DLC := 8, PERIOD := T#10ms, DATA := d);
 ```
 
-While `ENABLE` is TRUE the plugin sends the frame every `PERIOD` (1 ms to 60 s) from its own timer, whatever the PLC cycle. `ID` and `EXTENDED` are taken when `ENABLE` rises; `DATA`, `DLC` and `PERIOD` on every call, used from the next send. `COUNT` counts frames sent since `ENABLE` rose. A network has at most 16 cyclic jobs.
+While `ENABLE` is TRUE the plugin sends the frame every `PERIOD` (1 ms to 60 s) from its own timer, whatever the PLC cycle. `ID` and `EXTENDED` are taken when `ENABLE` rises; `DATA`, `DLC` and `PERIOD` on every call, used from the next send. `COUNT` counts frames sent since `ENABLE` rose. A `DLC` over 8 or a `PERIOD` out of range while the job runs ends the job (the frame stops on the bus) and shows `ERROR_ID` 3 with `ACTIVE` FALSE; fix the input and give `ENABLE` a new rising edge to start again. A network has at most 16 cyclic jobs.
 
 ### `CAN_RECEIVE`: a filtered queue
 
