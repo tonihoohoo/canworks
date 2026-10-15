@@ -60,11 +60,51 @@ class EndToEnd(OnlineBase):
         self.tab_to(selector)
         self.page.keyboard.press(key)
 
-    def view(self, name, where):
-        """Opens a side bar view with the keyboard and audits it."""
+    def tab_back_to(self, selector, limit=30):
+        """Shift+Tabs until the focused element matches `selector`."""
+        pg = self.page
+        for _ in range(limit):
+            if pg.evaluate("(s) => document.activeElement.matches(s)", selector):
+                return
+            pg.keyboard.press("Shift+Tab")
+        self.fail("Shift+Tab never reached %s" % selector)
+
+    def workspace(self, ws):
+        """Switches workspace with the keyboard: the switch is before the header's actions."""
+        pg = self.page
+        if pg.evaluate("() => workspace()") == ws:
+            return
+        self.top()
+        self.tab_back_to('#ws [data-ws="%s"]' % ws)
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector('#ws [data-ws="%s"][aria-pressed="true"]' % ws)
+
+    def tool_tab(self, name):
+        """The header's tabs: Tab reaches the selected one, the arrow keys the others."""
         pg = self.page
         self.top()
-        self.press_on('button[data-view="%s"]' % name)
+        self.tab_to('#tool-tabs [role=tab][tabindex="0"]')
+        for _ in range(8):
+            if self.active("view") == name:
+                return
+            pg.keyboard.press("ArrowRight")
+        self.fail("no tab %s" % name)
+
+    def view(self, name, where):
+        """Opens a view with the keyboard and audits it: the workspace
+        switch, then a tool tab or a side bar page."""
+        pg = self.page
+        if name == "online":
+            self.workspace("commission")
+            self.tool_tab("online")  # the workspace comes back on its last page
+        elif name == "bus":
+            self.workspace("configure")
+            if not pg.is_visible("#side"):
+                self.tool_tab("network")
+            self.top()
+            self.press_on('#side button[data-view="bus"]')
+        else:
+            self.tool_tab(name)
         if name == "online":
             pg.wait_for_selector("text=changes allowed")
         elif name == "trace":
@@ -83,6 +123,9 @@ class EndToEnd(OnlineBase):
         for name in VIEWS:
             self.view(name, "%s in %s" % (name, theme))
         # Every node page, from the side bar.
+        self.workspace("configure")
+        if not pg.is_visible("#side"):
+            self.tool_tab("network")
         self.top()
         nodes = pg.eval_on_selector_all("#node-list [data-node]", "es => es.map(e => e.dataset.node)")
         self.assertEqual(nodes, ["0", "1", "2"])
@@ -111,6 +154,7 @@ class EndToEnd(OnlineBase):
             self.walk("light")
 
             # -- remove a PDO entry and undo it -------------------------------
+            self.workspace("configure")
             self.top()
             self.press_on('#node-list [data-node="0"]')
             pg.wait_for_selector('#view h2:has-text("Node 5")')

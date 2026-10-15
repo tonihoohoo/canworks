@@ -667,6 +667,7 @@ class Page(unittest.TestCase):
         self.assertIn("drive.fScalefactor := LREAL#2.5;", block)
         self.assertIn("bOnline := drive_ok", block)
         # A device that is not a CiA 402 drive (no 0x6040 and 0x6041): the switch is off and says why.
+        pg.click('#tool-tabs button[data-view="network"]')
         pg.click('#node-list [data-node="0"]')
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
         self.assertTrue(pg.is_disabled('input[data-path="nodes[1].axis"]'))

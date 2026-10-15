@@ -51,6 +51,7 @@ function el(tag, attrs, ...children) {
   return e;
 }
 
+const JOB_ROUTES = /^\/api\/(online\/(scan|scan_stop|lss_find|backup|compare|restore|restore_plan|configure\w*|od_read|job|pdo_test_start|pdo_test_stop|sync_start|sync_stop|send_frame|send_stop)|trace\/(start|stop))$/;
 async function api(method, path, body) {
   // Requests to the runtime name the picked network; the server passes it
   // on only to a plugin that runs several.
@@ -66,6 +67,8 @@ async function api(method, path, body) {
   let data = {};
   try { data = await res.json(); } catch (e) { /* empty body */ }
   if (method === "POST" && typeof commLogApi === "function") commLogApi(path, body, res.ok, data);
+  // A job was started or stopped: the status bar (jobs.js) looks at once.
+  if (method === "POST" && typeof jobsKick === "function" && JOB_ROUTES.test(path)) jobsKick();
   if (!res.ok) {
     const err = new Error(data.error || res.statusText);
     err.status = res.status;
@@ -206,6 +209,7 @@ function removedBanner(what) {
 // Switches view on the user's request; a message about the last view goes.
 function showView(view) {
   if (view !== S.view) banner("");
+  followWorkspace(view);
   S.view = view;
   render();
 }
@@ -732,6 +736,8 @@ function pickNetwork(name) {
   S.scanResult = null;
   S.lssDevice = null;
   render();
+  // An answer still on its way is about the network before: the next one asks for this one.
+  if (connIsOn()) connKick();
 }
 
 // The runtime's networks from an online answer; the picker is drawn again
@@ -756,6 +762,7 @@ function runtimeNetworks(r) {
 
 async function loadState() {
   S.state = await api("GET", "/api/state");
+  if (S.workspace === undefined) await loadShellSettings();
   if (S.state.mode) {
     setModel(S.state.config);
     await loadOnlineSettings();
@@ -770,10 +777,19 @@ async function loadState() {
     else banner("");
   } else if (S.state.open_error) banner(S.state.open_error, true);
   render();
-  if (S.state.mode) runCheck();
+  if (S.state.mode) {
+    runCheck();
+    shellNote();
+    connSession();
+    if (workspace() === "commission") connEnter();
+    if (typeof jobsStart === "function") jobsStart();
+  }
 }
 
 function renderStart() {
+  // Back on the start page: the next folder or commissioning session starts afresh.
+  if (typeof CONN !== "undefined") { CONN.key = null; connStop(); }
+  for (const id of ["#tool-tabs", "#conn-bar", "#bottom", "#ws"]) $(id).hidden = true;
   $("#start").hidden = false;
   $("#editor").hidden = true;
   $("#actions").hidden = true;
@@ -877,6 +893,7 @@ function render() {
   badge.textContent = S.state.commission ? "commissioning a device (nothing here is saved to a project)"
     : S.state.mode === "project" ? "project " + S.state.name : "standalone " + S.state.folder;
   badge.title = S.state.config_path;
+  if (!S.state.commission) badge.append(el("span", { class: "unsaved-mark", dataset: { unsaved: "1" }, hidden: !S.dirty, title: "Unsaved changes" }, " ● unsaved"));
   // Commissioning a device: no config, so nothing that edits, saves or checks one.
   const commission = !!S.state.commission;
   document.body.classList.toggle("commission", commission);
@@ -890,20 +907,22 @@ function render() {
     $("#btn-export-node").hidden = !dcfNetwork(S.config);
     $("#btn-export-dbc").closest(".menu-row").hidden = isSlave(S.config);
   }
-  if (commission && !["online", "nodes", "trace", "framelab"].includes(S.view)) S.view = "online";
-  if (!commission && S.view === "nodes") S.view = "bus";
   // A J1939 network has no nodes or simulated devices.
-  if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "simulation")) S.view = "bus";
-  if (isPlain(S.config) && S.view.startsWith("node:")) S.view = "bus";
-  if (S.view === "bridge" && !S.model.top.bridge) S.view = "bus";
-  if (S.view === "links" && !linksNetwork(S.config)) S.view = "bus";
+  if (!commission) {
+    if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "simulation")) S.view = "bus";
+    if (isPlain(S.config) && S.view.startsWith("node:")) S.view = "bus";
+    if (S.view === "bridge" && !S.model.top.bridge) S.view = "bus";
+    if (S.view === "links" && !linksNetwork(S.config)) S.view = "bus";
+  }
+  // The view belongs to the workspace shown (shell.js).
+  fitView();
   renderSide();
+  renderShell();
   updateSimBanner();
-  // The online view and the simulation view share one connection; in
-  // Commission a device the adapter connection stays open until Disconnect.
-  const keep = ["online", "simulation"].includes(S.view) || commission;
-  stopOnline(keep);
-  stopSim(keep);
+  // The connection stays open across views until Disconnect (connection.js);
+  // the views only stop their own timers.
+  stopOnline();
+  stopSim(S.view === "simulation");
   stopMachine();
   stopTrace();
   if (S.view !== "trace" && typeof sendLeave === "function") sendLeave();
@@ -956,9 +975,6 @@ function renderSide() {
   $("#eds-input").closest("label").hidden = isSlave(S.config) || j1939 || plain;
   $("#nodes-caption").hidden = j1939 || plain;
   $("#nav-bus").textContent = j1939 ? "Bus and ECU" : plain ? "Bus" : "Bus and master";
-  // Commission a device: the adapter connection is its Bus and master page.
-  $("#nav-online").textContent = S.state.commission ? "Bus and master" : "Online";
-  $("#nav-simulation").hidden = j1939;
   $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
   $("#nav-bridge").hidden = !S.model.top.bridge;
   $("#nav-links").hidden = !linksNetwork(S.config);
@@ -3641,15 +3657,13 @@ async function removePc(button, p, you, reload) {
 // ---------------------------------------------------------------------------
 // Online view
 
-// Stops polling; closes the runtime connection too unless the next view
-// uses it.
-function stopOnline(keepConnection) {
+// Stops the online view's own timers. The connection stays open until
+// Disconnect (connection.js); a view change never closes it.
+function stopOnline() {
   clearTimeout(S.onlineTimer);
   S.onlineTimer = null;
   S.onlineSeq = (S.onlineSeq || 0) + 1;
   clearTimeout(S.scanTimer);
-  if (S.onlineOpen && !keepConnection) api("POST", "/api/online/close", {}).catch(() => {});
-  if (!keepConnection) S.onlineOpen = false;
 }
 
 
@@ -3661,58 +3675,23 @@ async function saveOnline(values) {
   } catch (e) { banner(e.message, true); return false; }
 }
 
-// What the online view needs before it can connect to the runtime, or null.
-function onlineSetup(view) {
-  if (!diagConfig()) {
-    view.append(el("p", null, "Online access is off for this config. Turn it on under ",
-      el("a", { href: "#", onclick: (e) => { e.preventDefault(); showView("bus"); } }, "Bus and master"),
-      ", save, and upload the program to the runtime."));
-    return false;
-  }
-  if (S.onlineForm || !S.online.host || !S.online.token || !S.online.tokenOk) {
-    const host = hostField(true);
-    const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } },
-      S.online.token && !S.online.tokenOk ? "The token on this PC does not match the config." : "");
-    view.append(el("fieldset", null, el("legend", null, "Connect"),
-      el("div", { class: "grid" }, host),
-      msg,
-      el("div", { class: "toolbar" },
-        !S.online.tokenOk ? el("button", { type: "button", onclick: enterToken }, "Enter token…") : null,
-        el("button", { type: "button", class: "primary", dataset: { online: "connect" }, onclick: async () => {
-          // Say what is missing instead of drawing the same form again.
-          const value = host.querySelector("input").value.trim();
-          if (!value) {
-            msg.textContent = "Enter the runtime's host name or address first, for example plc.local.";
-            host.querySelector("input").focus();
-            return;
-          }
-          if (!(await saveHost(value))) {
-            msg.textContent = "The host was not saved; see the message at the top.";
-            return;
-          }
-          msg.textContent = "";
-          if (!S.online.tokenOk && !(await enterToken())) {
-            msg.textContent = S.online.token
-              ? "The token on this PC does not match the config. Enter the token of this project to connect."
-              : "Enter the access token of this project to connect (Copy token on the PC that turned online access on).";
-            return;
-          }
-          S.onlineForm = false;
-          render();
-        } }, "Connect"))));
-    return false;
-  }
-  return true;
-}
-
+// The Commission workspace's Nodes page with a config: the runtime's bus,
+// master and nodes. The connection is made in the connect panel and shown in
+// the connection bar; the page shows the session (plugin, protocol, notes).
 function renderOnline(view) {
-  if (S.state.commission) { renderCommBus(view); return; }
-  view.append(el("h2", null, "Online"));
-  if (!onlineSetup(view)) return;
+  view.append(el("h2", null, "Nodes"));
+  if (!diagConfig()) {
+    view.append(el("p", { dataset: { online: "access-off" } }, "Online access is off for this config. Turn it on in Configure → ",
+      el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("bus"); } }, "Bus and master"),
+      ", save, and upload the program to the runtime."));
+    return;
+  }
+  if (!connEnsure()) {
+    view.append(el("p", { class: "online-note", dataset: { online: "not-connected" } }, "Not connected to the runtime. ",
+      el("button", { type: "button", class: "small primary", dataset: { online: "open-connect" }, onclick: () => openConnect() }, "Connect…")));
+    return;
+  }
   view.append(
-    el("div", { class: "toolbar" }, netPicker(),
-      el("button", { type: "button", class: "small", dataset: { online: "change-target" },
-        onclick: () => { S.onlineForm = true; render(); } }, "Connection…")),
     el("div", { id: "online-conn", class: "online-conn" }, "Connecting to " + S.online.host + "…"),
     el("div", { id: "online-live" }),
     el("div", { id: "online-raw" }),
@@ -3720,24 +3699,24 @@ function renderOnline(view) {
     el("div", { id: "online-node" }));
   S.lssAllow = undefined;
   S.onlineOpen = true;
-  pollOnline(S.onlineSeq);
+  // The last answer at once, when it is about the network shown.
+  const last = S.onlineLast;
+  if (last && !CONN.error && (!last.network || last.network === onlineNetwork())) onlineApply(last, null);
+  connStart();
   if (S.onlineNode) renderOnlineNode();
 }
 
 // The views that poll the connection's status.
 function onlineViews() { return S.state && S.state.commission ? ["online", "nodes"] : ["online"]; }
 
-async function pollOnline(seq) {
-  let r = null;
-  let err = null;
-  try {
-    r = await api("POST", "/api/online/status", { port: diagPort() });
-  } catch (e) { err = e; }
-  if (seq !== S.onlineSeq || !onlineViews().includes(S.view)) return;
+// A status answer (or the error of the last poll) on the online views; the
+// connection's poller (connection.js) calls it.
+function onlineApply(r, err) {
+  const seq = CONN.seq;
   const conn = $("#online-conn");
+  if (!conn) return;
   conn.setAttribute("aria-live", "polite");
   const live = $("#online-live");
-  if (err && S.state.commission) { adapterLost(err.message); return; }
   if (err) {
     const why = { closed: "port closed", unreachable: "host unreachable", token: "wrong token", timeout: "no answer",
       protocol: "not a CANopen diagnostics port", refused: "refused" }[err.body && err.body.kind] || "error";
@@ -3759,17 +3738,14 @@ async function pollOnline(seq) {
     }
     clearTimeout(S.onlineAgeTimer);
     if (age !== null) S.onlineAgeTimer = setTimeout(() => {
-      if (seq !== S.onlineSeq || !onlineViews().includes(S.view)) return;
+      if (seq !== CONN.seq || !onlineViews().includes(S.view)) return;
       const a = document.querySelector("[data-online=stale-age]");
       if (a) a.textContent = `Last data ${age + 1} s ago; the values below are not live.`;
       const b = document.querySelector("[data-online=node-stale]");
       if (b) b.textContent = nodeAge(age + 1);
     }, 1000);
-    S.onlineTimer = setTimeout(() => pollOnline(seq), 2000);
     return;
   }
-  S.onlineLast = r;
-  S.onlineLastAt = Date.now();
   clearTimeout(S.onlineAgeTimer);
   live.classList.remove("stale");
   const nodeBox = $("#online-node");
@@ -3783,7 +3759,6 @@ async function pollOnline(seq) {
     localLive(r, conn);
     if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
     if (S.lssAllow !== r.hello.allow_changes) renderLss(r.hello.allow_changes);
-    S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
     return;
   }
   const notes = [];
@@ -3799,24 +3774,21 @@ async function pollOnline(seq) {
   conn.className = "online-conn ok";
   // The connection line is a live region: it is rewritten only when it changes.
   const line = el("div", null, `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${st.protocol === "none" ? "plain CAN network" : protocol + " session"} up ${Math.floor(st.uptime_s || 0)} s, ` +
-    (r.hello.allow_changes ? "changes allowed." : "read-only."), pathBadge(r) ? " " : null, pathBadge(r), ...notes);
+    (r.hello.allow_changes ? "changes allowed." : "read-only."), ...notes);
   // This PC was just paired in the background and can reach the runtime from other networks: said once.
   if (r.pairing_note) banner(r.pairing_note);
   if (conn.dataset.html !== line.innerHTML) { conn.dataset.html = line.innerHTML; conn.replaceChildren(...line.childNodes); }
   rawLive(st);
   if (st.protocol === "none") {
     plainLive(st);
-    S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
     return;
   }
   if (st.protocol === "j1939") {
     j1939Live(st);
-    S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
     return;
   }
   if (st.role === "slave") {
     slaveLive(r);
-    S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
     return;
   }
   const nodeName = (id, fallback) => {
@@ -3854,7 +3826,6 @@ async function pollOnline(seq) {
   if (tbox) tbox.replaceChildren(pdoTimeoutTable((st.nodes || []).find((n) => n.node_id === S.onlineNode)));
   if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
   if (S.lssAllow !== r.hello.allow_changes) renderLss(r.hello.allow_changes);
-  S.onlineTimer = setTimeout(() => pollOnline(seq), 500);
 }
 
 // ---------------------------------------------------------------------------
@@ -6529,6 +6500,8 @@ function updateSave() {
   btn.disabled = errors > 0 || !S.dirty;
   btn.title = errors ? `${errors} error${errors === 1 ? "" : "s"} in Problems` : S.dirty ? "" : "No unsaved changes";
   btn.textContent = allowed && S.dirty ? "Save (overlaps allowed)" : (S.dirty ? "Save" : "Saved");
+  const mark = document.querySelector("[data-unsaved]");
+  if (mark) mark.hidden = !S.dirty;
 }
 
 async function save(overwrite) {
@@ -6693,19 +6666,6 @@ function wireTheme() {
   }
 }
 
-// In a narrow window the Problems pane is a strip under the header that
-// opens on request; in a wide one it is always open.
-const NARROW = window.matchMedia("(max-width: 1100px)");
-function wireProblems() {
-  const box = $("#problems-box");
-  const fit = () => { box.open = !NARROW.matches; };
-  fit();
-  NARROW.addEventListener("change", fit);
-  box.querySelector("summary").addEventListener("click", (e) => { if (!NARROW.matches) e.preventDefault(); });
-  // The message bar sits under the header, which wraps on narrow windows.
-  new ResizeObserver(() => document.documentElement.style.setProperty("--header-h", $("#top").offsetHeight + "px")).observe($("#top"));
-}
-
 // ---------------------------------------------------------------------------
 
 function wire() {
@@ -6764,7 +6724,7 @@ function wire() {
   });
   document.addEventListener("keydown", undoKeys);
   wireTheme();
-  wireProblems();
+  wireShell();
   window.addEventListener("beforeunload", (e) => {
     if (unsavedWork()) { e.preventDefault(); e.returnValue = ""; }
   });
@@ -6800,5 +6760,4 @@ function wireMenus() {
   });
 }
 
-wire();
-loadState().catch((e) => banner(e.message, true));
+// The page starts in boot.js, after every script is loaded.

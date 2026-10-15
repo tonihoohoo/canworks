@@ -146,8 +146,11 @@ class LogPage(Page):
         pg.click('#modal button[data-value="set"]')
         pg.wait_for_selector('tr[data-online-node="12"]:has-text("LSS")')
         audit(pg, "nodes")
-        pg.click('button[data-view="online"]')
+        # The log is in the bottom panel, with its count in the panel's title.
+        self.assertEqual(pg.inner_text("#log-count"), "1")
+        pg.click("#log-box > summary")
         pg.wait_for_selector('[data-online="log-count"]:has-text("1 change in the log, 1 not saved")')
+        self.assertIn("LSS set node ID 12", pg.inner_text('[data-online="log-list"]'))
         with pg.expect_download() as dl:
             pg.click('button[data-online="save-log"]')
         d = dl.value
@@ -200,6 +203,8 @@ class LogPage(Page):
     def test_close_asks_to_save_the_log(self):
         pg = self.page
         self.commission()
+        pg.keyboard.press("Escape")  # the connect panel that opened with the page
+        pg.wait_for_selector("#conn-dialog", state="hidden")
         pg.evaluate("() => commLog(5, 'test entry', 'done')")
         pg.click("#btn-close")
         pg.wait_for_selector("#modal[open]:has-text('not saved')")

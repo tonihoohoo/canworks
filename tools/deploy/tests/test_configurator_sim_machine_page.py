@@ -20,7 +20,7 @@ from canworks.configurator import server as srv
 from .fake_sim_machine import FakeMachine
 from .fake_sim_page import TOKEN, FakeSim
 from .helpers import REPO
-from .test_configurator_layout import CONTRAST, FIT_CHECK, TARGETS, audit
+from .test_configurator_layout import CONTRAST, FIT_CHECK, TARGETS, audit, pick_theme
 from .test_configurator_page import FIXTURE, REQUIRED, load, sync_playwright
 
 EXAMPLE = os.path.join(REPO, "examples", "gantry-cell", "canworks")
@@ -320,12 +320,12 @@ class Live(Base):
         pg = self.page
         self.wait_state("live")
         for theme in ("light", "dark"):
-            pg.click('[data-theme-choice="%s"]' % theme)
+            pick_theme(pg, theme)
             self.assertEqual(pg.evaluate(FIT_CHECK), [], theme)
             self.assertEqual(pg.evaluate(CONTRAST), [], theme)
             self.assertEqual(pg.evaluate(TARGETS), [], theme)
             audit(pg, "machine view, " + theme)
-        pg.click('[data-theme-choice="auto"]')
+        pick_theme(pg, "auto")
 
     def test_jam_from_the_view(self):
         pg = self.page

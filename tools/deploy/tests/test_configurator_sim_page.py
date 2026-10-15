@@ -128,6 +128,8 @@ class Network(Base):
         self.open()
 
     def node_switch(self, i, on):
+        if not self.page.is_visible("#node-list"):
+            self.page.click('#tool-tabs button[data-view="network"]')
         self.page.click('#node-list [data-node="%d"]' % i)
         box = self.page.locator('input[data-sim="node"]')
         if on:
@@ -151,6 +153,7 @@ class Network(Base):
         for view in ('#node-list [data-node="1"]', 'button[data-view="declarations"]', 'button[data-view="trace"]'):
             pg.click(view)
             self.assertIn("The network is simulated", self.banner_text())
+        pg.click('#tool-tabs button[data-view="network"]')
         pg.click('button[data-view="bus"]')
         self.assertTrue(pg.is_checked('input[data-path="master.diagnostics.allow_changes"]'))
         saved = self.save()
@@ -446,7 +449,7 @@ class Networks(View):
         self.fake.devices = {6: dev}
         self.fake.values = {(6, "0x7130:1"): (300, "INTEGER16")}
         self.fake.pdo = {6: ["0x7130:1"]}
-        pg.click('.net-tab[data-net="1"]')
+        pg.click('#tool-tabs .net-pick[data-net="1"]')  # a tool's network picker
         pg.wait_for_selector('#sim-device h2:has-text("Node 6")')
         pg.wait_for_selector(self.row("0x7130:1") + ' [data-sim="value"]:has-text("300")')
         self.assertEqual(pg.locator(self.row("0x2000:0")).count(), 0)  # io's pin stays on io
@@ -588,7 +591,7 @@ class FileSections(Base):
         self.file_tab()
         self.assertIn("Network io", pg.inner_text('[data-sim="file-section"]'))
         pg.uncheck('[data-sim-file="5"] input[data-sim-field="default_behaviour"]')
-        pg.click('.net-tab[data-net="1"]')
+        pg.click('#tool-tabs .net-pick[data-net="1"]')
         self.file_tab()
         self.assertIn("Network line", pg.inner_text('[data-sim="file-section"]'))
         pg.uncheck('[data-sim-file="6"] input[data-sim-field="default_behaviour"]')

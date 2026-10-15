@@ -1,8 +1,9 @@
 "use strict";
 // Commission a device (add-device-commissioning, rework-commission-and-trim-
-// configurator): the Bus and master page (the USB adapter connection with
-// its bit rate check), the Nodes page (heard, scanned and added devices, LSS,
-// the node page), the commissioning log and "Add to a config…"; Write
+// configurator, ui-shell-and-connection): the USB adapter form of the connect
+// panel (with its bit rate check), the Nodes page (heard, scanned and added
+// devices, LSS, the node page), the commissioning log in the bottom panel and
+// "Add to a config…"; Write
 // configuration and Restore defaults in a node's Parameters tab and the PDO
 // test tab. Loaded after app.js and uses its helpers.
 
@@ -152,39 +153,35 @@ function logText() {
 }
 
 function logBox() {
-  return el("fieldset", { dataset: { online: "log" } }, el("legend", null, "Commissioning log"),
+  return el("div", { dataset: { online: "log" } },
     el("div", { class: "toolbar" },
       el("span", { class: "muted", dataset: { online: "log-count" } }, logText()),
       el("button", { type: "button", dataset: { online: "save-log" }, onclick: saveCommLog }, "Save log")),
-    hint("Every change made on this page (SDO writes, NMT, LSS, Write configuration, store, restore) with its time and result. It stays on this page until you save it; leaving Commission a device asks first."));
+    hint("Every change made on this page (SDO writes, NMT, LSS, Write configuration, store, restore) with its time and result. It stays on this page until you save it; leaving Commission a device asks first."),
+    el("ol", { class: "log-list", dataset: { online: "log-list" } }));
 }
 
 function refreshLog() {
   for (const c of document.querySelectorAll("[data-online=log-count]")) c.textContent = logText();
+  const n = (S.commLog || []).length;
+  const count = $("#log-count");
+  if (count) count.textContent = n ? String(n) : "";
+  const list = document.querySelector("[data-online=log-list]");
+  if (list) list.replaceChildren(...(S.commLog || []).map((e) => el("li", null,
+    `${e.time.replace("T", " ").replace("Z", " UTC")}  ${e.node !== null && e.node !== undefined ? "node " + e.node : "bus"}  ${e.what}: ${e.result}`)));
 }
 
-// -- Bus and master: the USB adapter connection --------------------------------------
-// S.adapterOn: Connect was pressed and the connection is open; the bit rate
-// check runs when the first request opens it. S.adapterEnded: why the last
-// connection was refused or ended.
+// -- The USB adapter connection: the connect panel's form ---------------------------
+// S.adapterOn: Connect was pressed and the bit rate check passed; the
+// connection is open. S.adapterEnded: why the last connection was refused
+// or ended, shown in the connection bar.
 
 const CHECK_TEXT = { traffic: "frames on the bus", "probe acknowledged": "a device acknowledged the probe" };
-
-function renderCommBus(view) {
-  view.append(el("h2", null, "Bus and master"), adapterBox(),
-    el("div", { id: "online-conn", class: "online-conn" + (S.adapterEnded ? " error" : "") },
-      S.adapterOn ? `Connecting to USB adapter ${S.online.adapter}: checking the bit rate…`
-        : S.adapterEnded ? el("span", { dataset: { online: "ended" } }, upperFirst(S.adapterEnded) + ".") : "Not connected."),
-    el("div", { id: "online-live" }), logBox());
-  if (!S.adapterOn) return;
-  S.onlineOpen = true;
-  pollOnline(S.onlineSeq);
-}
 
 // The adapter (found ones, or typed), bit rate, the node ID for the check
 // on adapters that cannot confirm a sent frame, Allow changes, Connect and
 // Disconnect. The adapter, bit rate and node ID are fixed while connected.
-function adapterBox() {
+function adapterBox(message) {
   const on = !!S.adapterOn;
   const list = el("select", { "aria-label": "Found adapters", disabled: on, dataset: { online: "adapter-list" } },
     el("option", { value: "" }, "Looking for adapters…"));
@@ -218,20 +215,38 @@ function adapterBox() {
     if (!(await saveOnline({ allow_changes: allow.checked }))) { allow.checked = !allow.checked; return; }
     if (on) render();
   });
-  const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } });
-  const connect = el("button", { type: "button", class: "primary", hidden: on, dataset: { online: "connect" }, onclick: async () => {
+  const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } }, message ? upperFirst(message) + "." : "");
+  const connect = el("button", { type: "button", class: "primary", hidden: on, dataset: { online: "connect" }, onclick: () => busy(connect, "Checking the bit rate…", async () => {
     if (!input.value.trim()) { msg.textContent = "Pick or type the adapter first."; input.focus(); return; }
     if (!rate.value) { msg.textContent = "Pick the bus's bit rate first."; rate.focus(); return; }
     const node = checkNode.value.trim() ? Number(checkNode.value) : null;
     if (node !== null && !(Number.isInteger(node) && node >= 1 && node <= 127)) { msg.textContent = "The node ID for the check must be 1-127."; checkNode.focus(); return; }
     if (!(await saveOnline({ adapter: input.value.trim(), adapter_bitrate: Number(rate.value), check_node: node }))) return;
     if (allow.checked && !(await saveOnline({ allow_changes: true }))) return;
+    msg.textContent = "";
     S.adapterOn = true;
     S.adapterEnded = null;
     S.onlineLast = null;
+    connStop();
+    connBar();
+    // The first status opens the adapter and runs the bit rate check: a
+    // refusal keeps the panel open with the reason and the form filled in.
+    try {
+      const r = await api("POST", "/api/online/status", { port: diagPort() });
+      S.onlineLast = r;
+      S.onlineLastAt = Date.now();
+    } catch (e) {
+      S.adapterOn = false;
+      S.adapterEnded = e.message;
+      msg.textContent = upperFirst(e.message) + ".";
+      connBar();
+      return;
+    }
+    closeConnect();
     render();
-  } }, "Connect");
-  const disconnect = el("button", { type: "button", hidden: !on, dataset: { online: "disconnect" }, onclick: disconnectAdapter }, "Disconnect");
+    connKick();
+  }) }, "Connect");
+  const disconnect = el("button", { type: "button", hidden: !on, dataset: { online: "disconnect" }, onclick: async () => { closeConnect(); await disconnectAdapter(); } }, "Disconnect");
   return el("fieldset", { dataset: { online: "adapter-box" } }, el("legend", null, "USB adapter"),
     el("p", { class: "muted" }, "The PC talks to the bus itself through the adapter: no runtime is needed. Connect checks the bit rate first and refuses a wrong one; after that the PC sends nothing until you act, never SYNC, heartbeat or NMT to all nodes, and warns when another master runs on the bus."),
     el("div", { class: "grid" },
@@ -247,6 +262,7 @@ function adapterBox() {
 }
 
 async function disconnectAdapter() {
+  connStop();
   try {
     S.online = Object.assign(S.online, await api("POST", "/api/online/disconnect", {}));
   } catch (e) { banner(e.message, true); }
@@ -259,8 +275,9 @@ async function disconnectAdapter() {
 }
 
 // A refused bit rate check or an ended connection: polling stops, the
-// reason stays on Bus and master, and Connect checks again.
+// reason stays in the connection bar, and Connect checks again.
 function adapterLost(message) {
+  connStop();
   S.adapterOn = false;
   S.adapterEnded = message;
   S.onlineOpen = false;
@@ -329,15 +346,15 @@ function renderCommNodes(view) {
     el("div", { id: "online-lss" }),
     el("div", { id: "online-node" }));
   if (!S.adapterOn) {
-    view.querySelector("#online-live").before(el("p", { class: "online-note", dataset: { online: "not-connected" } }, "Not connected: ",
-      el("a", { href: "#", onclick: (e) => { e.preventDefault(); showView("online"); } }, "connect on Bus and master"),
-      " to see, scan and read the devices on the bus."));
+    view.querySelector("#online-live").before(el("p", { class: "online-note", dataset: { online: "not-connected" } },
+      "Not connected. Connect to the USB adapter to see, scan and read the devices on the bus. ",
+      el("button", { type: "button", class: "small primary", dataset: { online: "open-connect" }, onclick: () => openConnect() }, "Connect…")));
     if (S.onlineNode) renderOnlineNode();
     return;
   }
   S.lssAllow = undefined;
   S.onlineOpen = true;
-  pollOnline(S.onlineSeq);
+  connKick();
   runScan(false);
   if (S.onlineNode) renderOnlineNode();
 }

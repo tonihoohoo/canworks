@@ -1,8 +1,8 @@
 """Commission a CANopen device in a real browser, on python-can's virtual bus
-(add-local-bus-commissioning, rework-commission-and-trim-configurator): the
-Bus and master page with the bit rate check, Disconnect and the live Allow
-changes switch, the Nodes page, Trace on the adapter, and a config's online
-view without a USB adapter. Needs Playwright, like test_configurator_page.py."""
+(add-local-bus-commissioning, rework-commission-and-trim-configurator,
+ui-shell-and-connection): the connect panel with the bit rate check, the
+connection bar with Disconnect and the live Allow changes switch, the Nodes
+page, Trace on the adapter, and a config's online view without a USB adapter. Needs Playwright, like test_configurator_page.py."""
 
 import itertools
 import os
@@ -49,32 +49,41 @@ class AdapterPage(OnlineBase):
         self.addCleanup(p.stop)
 
     def commission(self):
+        # Commission a device opens with the connect panel.
         pg = self.page
         pg.goto(self.server.url)
         pg.click("#start-commission")
-        pg.wait_for_selector('input[data-online="adapter"]')
+        pg.wait_for_selector('#conn-dialog[open] input[data-online="adapter"]')
+
+    def open_panel(self):
+        pg = self.page
+        if not pg.is_visible("#conn-dialog"):
+            pg.click('#conn-bar [data-conn="connect"]')
+        pg.wait_for_selector('#conn-dialog[open] input[data-online="adapter"]')
 
     def connect_adapter(self, allow=False):
         pg = self.page
-        pg.fill('input[data-online="adapter"]', "virtual:" + self.ch)
-        pg.select_option('select[data-online="adapter-bitrate"]', "250")
+        self.open_panel()
+        pg.fill('#conn-dialog input[data-online="adapter"]', "virtual:" + self.ch)
+        pg.select_option('#conn-dialog select[data-online="adapter-bitrate"]', "250")
         if allow:
-            pg.check('input[data-online="adapter-allow"]')
-        pg.click('button[data-online="connect"]')
-        pg.wait_for_selector("text=Connected to USB adapter")
+            pg.check('#conn-dialog input[data-online="adapter-allow"]')
+        pg.click('#conn-dialog button[data-online="connect"]')
+        pg.wait_for_selector('#conn-bar [data-conn="target"]:has-text("virtual:%s")' % self.ch)
+        pg.wait_for_selector("#conn-dialog", state="hidden")
 
 
 class ConfigModePage(AdapterPage):
     def test_online_is_runtime_only(self):
         pg = self.page
         self.open()
-        pg.click('button[data-view="online"]')
-        pg.wait_for_selector("#view h2:has-text('Online')")
+        pg.click('#ws [data-ws="commission"]')
+        pg.wait_for_selector("#view h2:has-text('Nodes')")
         self.assertEqual(pg.query_selector_all('input[name="online-target"]'), [])
         self.assertEqual(pg.query_selector_all('input[data-online="adapter"]'), [])
-        self.assertFalse(pg.is_visible('button[data-view="nodes"]'))
+        self.assertEqual(pg.query_selector_all('button[data-view="nodes"]'), [])
         self.assertEqual(pg.query_selector_all('button[data-view="scan"]'), [])
-        self.assertEqual(pg.inner_text("#nav-online"), "Online")
+        self.assertFalse(pg.is_visible("#log-panel"))
         self.assertEqual(pg.query_selector_all('[data-online="log-bar"], [data-online="log"]'), [])
 
 
@@ -85,30 +94,31 @@ class CommissionPage(AdapterPage):
         self.listen_long()
         self.commission()
         self.assertIn("commissioning a device", pg.inner_text("#mode"))
-        visible = [b.inner_text() for b in pg.query_selector_all("#side .nav-item") if b.is_visible()]
-        self.assertEqual(visible, ["Bus and master", "Nodes", "Trace", "Frame lab"])
+        self.assertFalse(pg.is_visible("#ws"))
+        tabs = [b.inner_text() for b in pg.query_selector_all("#tool-tabs [role=tab]")]
+        self.assertEqual(tabs, ["Nodes", "Trace", "Frame lab"])
+        self.assertFalse(pg.is_visible("#side"))
         self.assertEqual(pg.query_selector_all('[data-online="steps"], [data-online="adapter-detect"], [data-online="detect-lone"]'), [])
         # No bit rate is picked for the user.
-        pg.fill('input[data-online="adapter"]', "virtual:" + self.ch)
-        self.assertEqual(pg.input_value('select[data-online="adapter-bitrate"]'), "")
-        pg.click('button[data-online="connect"]')
-        self.assertIn("Pick the bus's bit rate", pg.inner_text('[data-online="connect-msg"]'))
-        pg.select_option('select[data-online="adapter-bitrate"]', "250")
-        pg.click('button[data-online="connect"]')
-        pg.wait_for_selector("text=Connected to USB adapter")
-        self.assertIn("bit rate 250 kbit/s confirmed (frames on the bus)", pg.inner_text("#online-conn"))
-        self.assertTrue(pg.is_disabled('select[data-online="adapter-bitrate"]'))
-        pg.wait_for_selector('[data-online="local-bus"] [data-online="frames"]:not(:has-text("0"))')
+        pg.fill('#conn-dialog input[data-online="adapter"]', "virtual:" + self.ch)
+        self.assertEqual(pg.input_value('#conn-dialog select[data-online="adapter-bitrate"]'), "")
+        pg.click('#conn-dialog button[data-online="connect"]')
+        self.assertIn("Pick the bus's bit rate", pg.inner_text('#conn-dialog [data-online="connect-msg"]'))
+        pg.select_option('#conn-dialog select[data-online="adapter-bitrate"]', "250")
+        pg.click('#conn-dialog button[data-online="connect"]')
+        pg.wait_for_selector('#conn-bar [data-conn="rate"]:has-text("250 kbit/s, confirmed by frames on the bus")')
+        self.assertFalse(pg.is_visible("#conn-dialog"))
+        pg.wait_for_selector('#conn-bar [data-conn="frames"]:not(:has-text("0 frames"))')
+        self.assertIn("Read-only", pg.inner_text('#conn-bar'))
         # The connection stays open on the other pages.
-        pg.click('button[data-view="nodes"]')
         pg.wait_for_selector('tr[data-online-node="7"]:has-text("PRE-OPERATIONAL")')
-        pg.click('button[data-view="online"]')
-        pg.wait_for_selector("text=Connected to USB adapter")
+        pg.click('button[data-view="framelab"]')
+        pg.wait_for_selector('#conn-bar [data-conn="target"]')
         self.assertTrue(self.server.connection.connected)
-        pg.click('button[data-online="disconnect"]')
-        pg.wait_for_selector('#online-conn:has-text("Not connected")')
+        pg.click('#conn-bar [data-conn="disconnect"]')
+        pg.wait_for_selector('#conn-bar [data-conn="state"]:has-text("Not connected")')
         self.assertFalse(self.server.connection.connected)
-        self.assertTrue(pg.is_visible('button[data-online="connect"]'))
+        self.assertTrue(pg.is_visible('#conn-bar [data-conn="connect"]'))
 
     def test_wrong_bit_rate_refused(self):
         peer = Peer(self.ch)
@@ -132,25 +142,27 @@ class CommissionPage(AdapterPage):
         self.assertFalse(self.server.connection.connected)
 
     def connect_adapter_refused(self):
+        # The panel stays open with the reason and the form filled in.
         pg = self.page
-        pg.fill('input[data-online="adapter"]', "virtual:" + self.ch)
-        pg.select_option('select[data-online="adapter-bitrate"]', "250")
-        pg.click('button[data-online="connect"]')
-        pg.wait_for_selector('[data-online="ended"]:has-text("does not run at 250 kbit/s")')
-        self.assertTrue(pg.is_visible('button[data-online="connect"]'))
+        pg.fill('#conn-dialog input[data-online="adapter"]', "virtual:" + self.ch)
+        pg.select_option('#conn-dialog select[data-online="adapter-bitrate"]', "250")
+        pg.click('#conn-dialog button[data-online="connect"]')
+        pg.wait_for_selector('#conn-dialog [data-online="connect-msg"]:has-text("does not run at 250 kbit/s")')
+        self.assertTrue(pg.is_visible('#conn-dialog button[data-online="connect"]'))
+        self.assertEqual(pg.input_value('#conn-dialog select[data-online="adapter-bitrate"]'), "250")
+        pg.wait_for_selector('#conn-bar.fault [data-conn="ended"]:has-text("does not run at 250 kbit/s")', state="attached")
 
     def test_allow_changes_keeps_the_connection(self):
         pg = self.page
         self.device(2, heartbeat_s=0.05)
         self.commission()
         self.connect_adapter()
-        self.assertIn("read-only", pg.inner_text("#online-conn"))
+        self.assertIn("Read-only", pg.inner_text("#conn-bar"))
         client = self.server.connection.client
-        pg.check('input[data-online="adapter-allow"]')
+        pg.check('#conn-bar input[data-conn="allow"]')
         pg.click('#modal button[data-value="allow"]')
-        pg.wait_for_selector('#online-conn:has-text("changes allowed")')
+        pg.wait_for_selector('#conn-bar:has-text("Changes allowed")')
         self.assertIs(self.server.connection.client, client)
-        pg.click('button[data-view="nodes"]')
         pg.wait_for_selector('button[data-online="lss-find"]:not([disabled])')
         self.assertNotIn("another master", pg.inner_text("#view"))
         with open(os.path.join(self.cfg_dir, "online.json"), encoding="utf-8") as f:
@@ -164,8 +176,7 @@ class CommissionPage(AdapterPage):
             self.commission()
             self.connect_adapter(allow=True)
             peer.send(0x080, b"")
-            pg.wait_for_selector('[data-online="other-master"]')
-            pg.click('button[data-view="nodes"]')
+            pg.wait_for_selector('#conn-bar.fault [data-conn="other"]')
             pg.click('button[data-online="lss-find"]')
             pg.wait_for_selector("#modal:has-text('another master is active')")
             pg.click('#modal button[data-value="force"]')
@@ -177,12 +188,11 @@ class CommissionPage(AdapterPage):
         pg = self.page
         self.device(7, identity=(0x360, 0x1, 0, 0x5))
         self.commission()
-        pg.click('button[data-view="nodes"]')
+        pg.click('#conn-dialog [data-conn="close-panel"]')
         pg.wait_for_selector('[data-online="not-connected"]')
         self.assertTrue(pg.is_disabled('button[data-online="scan"]'))
-        pg.click('button[data-view="online"]')
+        pg.click('[data-online="not-connected"] [data-online="open-connect"]')
         self.connect_adapter()
-        pg.click('button[data-view="nodes"]')
         pg.click('button[data-online="scan"]')
         pg.wait_for_selector('tr[data-online-node="7"]:has-text("scanned")', timeout=20000)
         # No EDS in the library matches: the device's own EDS file opens its object dictionary.
@@ -201,7 +211,6 @@ class CommissionPage(AdapterPage):
         pg = self.page
         self.commission()
         self.connect_adapter()
-        pg.click('button[data-view="nodes"]')
         pg.click('button[data-online="scan"]')
         pg.wait_for_selector('button[data-online="scan-cancel"]:visible')
         pg.click('button[data-online="scan-cancel"]')
@@ -213,14 +222,13 @@ class CommissionPage(AdapterPage):
         self.device(7, identity=(0x360, 0x1, 0, 0x5))
         self.commission()
         self.connect_adapter()
-        pg.click('button[data-view="nodes"]')
         pg.click('button[data-online="scan"]')
         pg.wait_for_selector('tr[data-online-node="7"]', timeout=20000)
         pg.click("#btn-close")
         pg.click("#start-commission")
-        pg.wait_for_selector('button[data-online="connect"]')
+        pg.wait_for_selector('#conn-dialog button[data-online="connect"]')
         self.assertFalse(self.server.connection.connected)
-        pg.click('button[data-view="nodes"]')
+        pg.click('#conn-dialog [data-conn="close-panel"]')
         pg.wait_for_selector('[data-online="not-connected"]')
         self.assertEqual(pg.query_selector_all('tr[data-online-node="7"]'), [])
 
@@ -228,11 +236,11 @@ class CommissionPage(AdapterPage):
         pg = self.page
         self.device(7, heartbeat_s=0.05)
         self.commission()
+        pg.click('#conn-dialog [data-conn="close-panel"]')
         pg.click('button[data-view="trace"]')
-        pg.wait_for_selector('[data-trace="online-hint"]:has-text("Bus and master")')
-        pg.click('button[data-view="online"]')
+        pg.wait_for_selector('[data-trace="online-hint"]:has-text("needs the USB adapter connection")')
+        pg.click('[data-trace="open-connect"]')
         self.connect_adapter()
-        pg.click('button[data-view="trace"]')
         pg.click("[data-trace=start]")
         pg.wait_for_selector("#trace-rows .trace-row", timeout=20000)
         self.assertEqual(pg.query_selector_all('[data-trace="online-hint"]'), [])

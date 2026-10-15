@@ -108,6 +108,13 @@ TARGETS = r"""() => {
 }"""
 
 
+def pick_theme(page, theme):
+    """Light, Dark or Auto from the header's Settings menu."""
+    if not page.is_visible('[data-theme-choice="%s"]' % theme):
+        page.click("#menu-settings > summary")
+    page.click('[data-theme-choice="%s"]' % theme)
+
+
 def audit(page, where, report=None):
     """axe-core on the page as it is: critical and serious findings fail,
     the others are collected in `report` (a list) when given."""
@@ -165,6 +172,10 @@ class Layout(OnlineBase):
                 json.dump(cls.axe_report, f, indent=1)
 
     def node(self, k):
+        if not self.page.is_visible("#node-list"):
+            self.page.click('#ws [data-ws="configure"]')  # node pages are in Configure
+        if not self.page.is_visible("#node-list"):
+            self.page.click('#tool-tabs button[data-view="network"]')  # from a tool
         self.page.click('#node-list [data-node="%d"]' % k)
         self.page.wait_for_selector('#view h2:has-text("Node")')
         self.page.evaluate("() => document.querySelectorAll('details.section, details[data-picker]').forEach((d) => { d.open = true; })")
@@ -291,7 +302,7 @@ class Layout(OnlineBase):
             # Leaving the view clears a message at once.
             pg.click('button[data-nmt="start"]')
             pg.wait_for_selector("#banner:has-text('Start sent')")
-            pg.click('button[data-view="bus"]')
+            pg.click('#ws [data-ws="configure"]')
             self.assertTrue(pg.is_hidden("#banner"))
         # An error stays until closed.
         self.node(0)
@@ -346,8 +357,11 @@ class Layout(OnlineBase):
         pg.set_viewport_size({"width": 900, "height": 700})
         self.open()
         pg.wait_for_selector("#problem-count:has-text('5 problems')")
+        # The bottom panel stays at the bottom of the window, its count in view; it opens and closes.
         box = pg.locator("#problem-count").bounding_box()
         self.assertLess(box["y"] + box["height"], 700)
+        self.assertTrue(pg.is_visible("#problem-list li.error >> nth=0"))
+        pg.click("#problems-box > summary")
         self.assertTrue(pg.is_hidden("#problem-list"))
         pg.click("#problems-box > summary")
         self.assertTrue(pg.is_visible("#problem-list li.error >> nth=0"))
@@ -366,7 +380,7 @@ class Layout(OnlineBase):
         self.open()
         self.assertEqual(pg.get_attribute("html", "data-theme"), "auto")
         light = self.background()
-        pg.click('[data-theme-choice="dark"]')
+        pick_theme(pg, "dark")
         self.assertEqual(pg.get_attribute("html", "data-theme"), "dark")
         dark = self.background()
         self.assertNotEqual(light, dark)
@@ -387,7 +401,7 @@ class Layout(OnlineBase):
         self.assertEqual(pg.get_attribute("html", "data-theme"), "dark")
         self.assertEqual(self.background(), dark)
         # Auto follows the OS as it changes.
-        pg.click('[data-theme-choice="auto"]')
+        pick_theme(pg, "auto")
         self.assertEqual(self.background(), light)
         pg.emulate_media(color_scheme="dark")
         self.assertEqual(self.background(), dark)
@@ -420,7 +434,7 @@ class Layout(OnlineBase):
             self.open()
             for width in (1000, 1280, 1440):
                 pg.set_viewport_size({"width": width, "height": 800})
-                pg.click('button[data-view="bus"]')
+                pg.click('#ws [data-ws="configure"]')
                 pg.click('button[data-view="online"]')
                 pg.wait_for_selector("text=changes allowed")
                 pg.click('tr[data-online-node="%d"]' % NODE)
@@ -488,9 +502,10 @@ class Examples(OnlineBase):
         pg.set_viewport_size({"width": 1280, "height": 800})
         self.assertEqual(pg.input_value('input[data-path="gateway.routes[0].name"]'), "temperature")
         self.assertIn("INTEGER16", pg.inner_text('tr[data-route="0"] select[data-path="gateway.routes[0].field"] option:checked'))
-        # Nothing runs under Problems; every route control has a name.
+        # Nothing runs past the page; every route control has a name.
         right = pg.evaluate("() => Math.max(...[...document.querySelectorAll('tr[data-route] input, tr[data-route] select, tr[data-route] button')].map((e) => e.getBoundingClientRect().right))")
-        self.assertLessEqual(right, pg.locator("#problems").bounding_box()["x"])
+        view = pg.locator("#view").bounding_box()
+        self.assertLessEqual(right, view["x"] + view["width"])
         self.assertEqual(pg.eval_on_selector_all("tr[data-route] input, tr[data-route] select",
                                                  "es => es.filter((e) => !e.getAttribute('aria-label')).length"), 0)
         audit(pg, "gateway at 1280")
@@ -547,11 +562,8 @@ class Examples(OnlineBase):
         self.open_example("virtual-plant")
         pg.click('button[data-view="trace"]')
         pg.wait_for_timeout(300)
-        gaps = pg.evaluate("""() => {
-          const box = (s) => document.querySelector(s).getBoundingClientRect();
-          const p = document.querySelector('#problems');
-          const inner = [...p.children].reduce((h, c) => h + c.getBoundingClientRect().height, 0);
-          return [Math.round(p.getBoundingClientRect().height - inner), Math.round(box('#view').top - box('#side').bottom)];
-        }""")
-        self.assertLess(gaps[0], 20, gaps)  # the strip is as tall as its content
-        self.assertLess(abs(gaps[1]), 2, gaps)
+        # A tool takes the whole width: no side bar, no Problems beside or under it.
+        self.assertTrue(pg.is_hidden("#side"))
+        self.assertTrue(pg.is_hidden("#problems"))
+        view = pg.locator("#view").bounding_box()
+        self.assertGreater(view["width"], 990)

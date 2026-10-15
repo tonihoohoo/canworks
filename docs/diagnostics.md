@@ -10,7 +10,7 @@ It is off unless the config has `master.diagnostics` ([config.md](config.md#onli
 
 1. In the configurator, turn on **Online access** under **Bus and master**, save, and upload the program as usual. Or, by hand: choose a token, run `canworks-diag hash-token` and put the printed verifier in `master.diagnostics.token_verifier`.
 2. The runtime log shows `diagnostics listen on 0.0.0.0:7531, read-only, encrypted (TLS)` when the PLC starts.
-3. Open **Online** in the configurator, or run `canworks-diag --runtime plc.local status`.
+3. Switch to **Commission** in the configurator, or run `canworks-diag --runtime plc.local status`.
 
 ## `canworks-diag`
 

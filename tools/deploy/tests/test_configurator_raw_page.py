@@ -213,7 +213,7 @@ class RawPage(OnlineBase):
         shutil.copy(os.path.join(EXAMPLE, "cab.sim.json"), os.path.join(self.project, "canworks", "simulation.json"))
         self.write_config()
         self.open()
-        pg.click("#nav-simulation")
+        pg.click('#tool-tabs button[data-view="simulation"]')
         pg.click('button[data-sim-tab="file"]')
         devices = pg.inner_text('[data-sim="raw-devices"]')
         self.assertIn("0x181 every 20 ms (X, Y)", devices)

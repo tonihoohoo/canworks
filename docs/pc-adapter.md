@@ -20,7 +20,7 @@ A SocketCAN interface that is already up is used at its own bit rate. One that i
 
 ## The bit rate
 
-There is no default and no automatic detection: you give the bus's bit rate, and the tools refuse to connect when the bus does not run at it. Give `--bitrate KBIT`, or `--config` with a `canworks.json`, whose network's `adapter.bitrate` is then used (`--network` picks one of several networks). Under **Commission a CANopen device** in the configurator you pick the rate on **Bus and master**.
+There is no default and no automatic detection: you give the bus's bit rate, and the tools refuse to connect when the bus does not run at it. Give `--bitrate KBIT`, or `--config` with a `canworks.json`, whose network's `adapter.bitrate` is then used (`--network` picks one of several networks). Under **Commission a CANopen device** in the configurator you pick the rate in the connect panel.
 
 ### The check on connect
 
@@ -53,7 +53,7 @@ The commands are the ones of [diagnostics.md](diagnostics.md), with `--adapter` 
 
 ## Changes are off until you allow them
 
-Without `--allow-changes` (in the configurator: **Allow changes** on **Bus and master**, asked each time, never saved, and switched on or off without closing the connection) the adapter only reads: status, scan, SDO reads, the object dictionary, backup, compare and trace. SDO writes, NMT commands, restore and every LSS command are refused with "changes not allowed".
+Without `--allow-changes` (in the configurator: **Allow changes** in the connection bar, asked each time, never saved, and switched on or off without closing the connection) the adapter only reads: status, scan, SDO reads, the object dictionary, backup, compare and trace. SDO writes, NMT commands, restore and every LSS command are refused with "changes not allowed".
 
 Saving to a device's non-volatile memory (0x1010, `store`, and LSS **Store in the device** or `--store`) is never part of anything else and always needs its own command or tick, also with changes allowed: each store wears the device's flash memory.
 
@@ -84,7 +84,7 @@ The tools listen for a second before their first frame. A bus that carries NMT c
 
 ## Commissioning one device
 
-A device on the bench, with only the adapter and the device on the bus, from new to ready for the machine. Every step is optional and none runs by itself. In the configurator, **Commission a CANopen device** has the pages **Bus and master**, **Nodes**, **Trace** and **Frame lab**, and every change made through the page goes into a log that **Save log** downloads (`node12-commissioning-<time>.txt`: UTC time, node, what was done and the result, with the device's identity and EDS at the top, no host names or tokens).
+A device on the bench, with only the adapter and the device on the bus, from new to ready for the machine. Every step is optional and none runs by itself. In the configurator, **Commission a CANopen device** connects in the connect panel and shows the connection in the connection bar, has the pages **Nodes**, **Trace** and **Frame lab**, and every change made through the page goes into a log in the bottom panel that **Save log** downloads (`node12-commissioning-<time>.txt`: UTC time, node, what was done and the result, with the device's identity and EDS at the top, no host names or tokens).
 
 The device's bit rate comes from its documentation or its DIP switches; a device that is still at an unknown rate is found by trying the likely ones: a wrong one is refused at once. On a silent bus with an slcan adapter, a device that has a node ID answers the check with `--check-node`; a device without one (LSS) needs an adapter that confirms its frames (gs_usb, SocketCAN).
 

@@ -468,7 +468,7 @@ The snapshot of a machine with 50 parts is about 4 KB. `sim_status` carries the 
 
 - **Quality**: High (soft shadows, ambient occlusion, bloom on lamps, anti-aliasing) or Low; it drops to Low by itself, and says so, when the frame rate stays under 28 per second for 3 s, and remembers your choice on this PC. Without WebGL it shows the side panel with live values and says the 3D view needs WebGL.
 - **Labels** on the drives (node, position, mode or EMCY code), sensors and fixtures, the **tool path** (the last few seconds of the tool point) and the current set-point as a marker; an axis in fault turns red, the stack light shows the cell's state and each drive has a lamp.
-- **Camera**: **Overview**, **Top** and **Follow tool**; orbit, pan and zoom with mouse or touch. Click a motor or carriage, an axis row of the panel or an axis label to open that node in **Online**.
+- **Camera**: **Overview**, **Top** and **Follow tool**; orbit, pan and zoom with mouse or touch. Click a motor or carriage, an axis row of the panel or an axis label to open that node in the Commission workspace.
 - **Side panel**: per axis its state, mode, statusword, position in mm and counts, following error against the window (0x6065) and torque; the machine's I/O bits, the counters, the last faults, and buttons for the faults above and **Clear all** (disabled, with the reason, without **Allow changes**).
 - Offline, it shows the machine at its home positions as a preview; with no answer for 1 s it holds the last pose and says "no data". It polls only while it is open and the browser tab is visible.
 

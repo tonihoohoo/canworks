@@ -84,7 +84,7 @@ class SendPanel(Base):
         pg.wait_for_selector('[data-send-job="1"]')
         pg.wait_for_function("() => /, ([1-9]\\d*) sent/.test(document.querySelector('[data-send-job=\"1\"]').innerText)")
         self.assertIsNone(self.fake.jobs[1]["reason"])
-        pg.click('button[data-view="bus"]')
+        pg.click('#tool-tabs button[data-view="network"]')
         deadline = time.monotonic() + 5
         while self.fake.jobs[1]["reason"] is None and time.monotonic() < deadline:
             time.sleep(0.05)
