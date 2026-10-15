@@ -44,6 +44,24 @@ Everything works from the keyboard: Tab moves through the header, the tabs, the 
 
 **Ctrl+Z** (Cmd+Z on a Mac) undoes the last change to the draft, and **Ctrl+Shift+Z** redoes it, whether it was typed into a field, picked from a list or made by a button: a removed node, PDO entry, startup SDO or SDO variable comes back with every setting. The message after a removal also offers **Undo**. Inside a field, the browser's own undo applies until you leave it. The stack starts empty when a config is opened or reloaded.
 
+### Colours and icons
+
+The page is grey while all is well; colour marks a state, and every state also has its own shape, so it reads the same in both themes, in grey-scale and in the operating system's high contrast mode. The same icons are used on the network tree, the Nodes table, the node tabs, the connection bar, the status bar, Problems, the message bar and the trace. **Settings → Colours and icons** shows this legend on the page.
+
+| Icon | State | When |
+|---|---|---|
+| filled circle (green) | Operational | The node runs and exchanges PDOs; the connection is up and the bit rate confirmed. |
+| half-filled circle (blue) | Pre-operational | The node answers SDOs but sends no PDOs yet. |
+| ring with a gap (blue) | In progress | Connecting, booting, or a job is running. |
+| filled square (amber) | Stopped | The node was stopped and only answers NMT and heartbeat. |
+| triangle with "!" (amber) | Warning | Something needs a look, but nothing is broken: a warning in Problems, error passive, a slow path. |
+| circle with a cross (red) | Error | A missing node, bus-off, an ended connection, an error in Problems. |
+| hollow circle (grey) | Unknown | No information: not connected, not heard, or absent from a simulated network. |
+| small flag after the icon | Diagnosis | Red while an EMCY or error is pending for the node, grey once it is cleared. |
+| dashed ring around the icon | Simulated | The node is simulated. Simulation is a mark, not a state, so it has no colour of its own. |
+
+Text in tables and lists stays in the normal text colour; only a warning or an error tints a row. A control that cannot be used says why in its tooltip ("Needs a connection with changes allowed"). Labels and messages follow one word list, [wording.md](wording.md).
+
 ## Network tree
 
 The tree on the left is the only navigation of a config, in both workspaces. Each network is an entry with its protocol (CANopen master, CANopen slave, J1939, Plain CAN); under it come **Bus and master** (**Bus and ECU** on J1939, **Bus** on Plain CAN and slave networks), the slave device on a slave network, the nodes in node ID order, **+ Add node…** (which opens the EDS file picker), **PDO links** and **CAN messages**, as the network has them. After the networks come **Online access**, **Gateway** (when the config has a slave and a master network), **Modbus bridge** (in a bridge project) and **+ Add network…**. Below the tree are the unused EDS files and the address scan line.
