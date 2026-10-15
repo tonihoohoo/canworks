@@ -24,25 +24,26 @@ The new blocks ask for version 2: the version 1 table's functions followed by th
 `J1939_SEND` sends on the network's ECU socket, so the source address is always the one the network holds (and follows a new claim), and the kernel does BAM (global) or RTS/CTS (to an address) above 8 bytes, at most 1785 bytes. `J1939_RECEIVE` gets messages from the receive socket already reassembled. Alternative: ST helpers over `CAN_SEND`/`CAN_RECEIVE` — rejected: no transport protocol, and frames from our own address race the kernel's sessions and address claim.
 
 ### 3. Data pins are 1785-byte arrays
-`DATA` and `RX_DATA` are `ARRAY[0..1784] OF BYTE` with a separate `LENGTH`, so one block covers short and long PGNs. `J1939_SEND` takes `DATA` as an in-out (no copy of 1785 bytes into the instance each call). The spike (task 1.3) confirms editor 4.3.2 builds a C++ block with an array in-out of that size; if not, `DATA` becomes an input as in `CAN_SEND`.
+`DATA` and `RX_DATA` are `ARRAY[0..1784] OF BYTE` with a separate `LENGTH`, so one block covers short and long PGNs. All three (`J1939_SEND` `DATA`, `J1939_RECEIVE` `RX_DATA`, `J1939_REQUEST` `DATA`) are in-outs, as `CAN_RECEIVE`'s `RX_DATA` is: no 1785-byte copy in every instance, and the program's buffer is what `J1939_GET_BITS` reads. strucpp 0.7.0, the compiler of editor 4.3.2, builds the library with these pins (`library/build.sh`).
 
 ### 4. Program receivers widen the receive filter
-Each open `J1939_RECEIVE` registers a PGN (or every PGN with `ANY`) and a source filter with the network. When the set of PGNs changes, the bus thread sets `SO_J1939_FILTER` again on the open receive socket with the union of the engine's PGNs and the receivers' PGNs (with `ANY`, no filter). Messages go to the engine as today and also to every matching receiver's queue. The spike (task 1.1) confirms the kernel takes a new filter on a bound socket without losing messages already queued; fallback: a second promiscuous receive socket for program receivers only.
+Each open `J1939_RECEIVE` registers a PGN (or every PGN with `ANY`) and a source filter with the network. When the set of PGNs changes, the bus thread sets `SO_J1939_FILTER` again on the open receive socket with the union of the engine's PGNs, its request PGNs and the receivers' PGNs (with `ANY`, the filter is cleared). Messages go to the engine as today and also to every matching receiver's queue. The vcan test (test/j1939/run.sh) checks a receiver opened after the socket is bound gets its PGN; fallback, if a kernel ever loses messages there: a second promiscuous receive socket for program receivers only. A receiver's source filter is `SOURCE` with `FILTER_SOURCE` TRUE (`SOURCE` 255 still means any), so an unset `SOURCE` (0) does not silently filter on address 0. The receiver's queue is allocated by the bus thread when it takes the receiver into use, never on the scan.
 
 Each receiver queues up to `DEPTH` messages (0 = 4, at most 32); a network has at most 16 program receivers. A message arriving at a full queue is dropped and counted (`OVERFLOW`, `DROPPED`). Messages the network sends itself are not queued. By default a receiver takes messages to the network's address and to global; `ALL_DESTINATIONS` also takes messages between other ECUs (the receive socket is promiscuous already).
 
 ### 5. Sends and requests are jobs on the bus thread
-Sends and requests use the existing job table (64 slots for all J1939 jobs of all networks). The bus thread sends and watches completion:
-- up to 8 bytes: `DONE` once the kernel has put the frame on the bus
-- transport protocol: `DONE` when the kernel reports the session complete; an abort (the receiver's Connection Abort, a timeout in the session) gives `ERROR_ID` 14. The spike (task 1.2) settles the kernel signal (the socket error queue with `SO_J1939_ERRQUEUE`, TX completion timestamps); without one, `DONE` means "handed to the kernel" and the docs say so.
+Sends and requests have their own table of 32 slots for all networks (`CANWORKS_J1939_MSG_SLOTS`), apart from the 64 of the trouble code jobs, so a busy program cannot starve DM reads; each slot holds its 1785 data bytes from the start. The bus thread sends and watches completion:
+- up to 8 bytes: `DONE` once the kernel has taken the frame (`send()` returned)
+- above 8 bytes: through a second ECU socket bound to the same NAME and address with `SO_J1939_ERRQUEUE` and TX timestamps (`SOF_TIMESTAMPING_OPT_ID`, `TX_ACK`, `TX_SCHED`). `DONE` on the session's `SCM_TSTAMP_ACK`; `J1939_EE_INFO_TX_ABORT` (the receiver's Connection Abort, a timeout in the session) gives `ERROR_ID` 14. A kernel that reports nothing on that socket makes `DONE` mean "taken by the kernel". One long send of the program runs at a time per network, so each report belongs to the send in flight.
+- `PRIORITY` 0 at the block means the default 6 (the block cannot tell an unset input from 0).
 
-`J1939_REQUEST` to one address is `DONE` with the first message of that PGN from that address after the request (to us or global), `ERROR_ID` 12 on a NACK, Access Denied or Cannot Respond for that PGN (`ACK_CODE` says which), 6 on timeout. To global it is `DONE` once sent; answers come through `J1939_RECEIVE` or config `rx` entries. The answer also updates config `rx` entries for the PGN as any message does.
+`J1939_REQUEST` to one address is `DONE` with the first message of that PGN from that address after the request (to us or global), `DONE` with `LENGTH` 0 on a positive ACK for that PGN, `ERROR_ID` 12 on a NACK, Access Denied or Cannot Respond for that PGN (`ACK_CODE` says which), 6 on timeout. To global it is `DONE` once sent; answers come through `J1939_RECEIVE` or config `rx` entries. The answer also updates config `rx` entries for the PGN as any message does.
 
 ### 6. PGNs the network owns
 `J1939_SEND` refuses with `ERROR_ID` 4 the PGNs the network itself sends: Request (59904), Address Claimed (60928), Acknowledgement (59392), TP.CM and TP.DT (60416, 60160), the DM PGNs the network answers or sends (DM1, DM2, DM3, DM11, DM13, DM22) and every config `tx` PGN. The network's `raw.program_override_protocol: true` (the same switch the CAN frame blocks use) lets the program send the DM and `tx` PGNs; the transport protocol and address claim PGNs are always refused. `J1939_REQUEST` may ask for any PGN.
 
 ### 7. Error IDs continue the J1939 numbering
-New: 4 PGN owned by the network, 9 no free job slot or receiver, 14 transport protocol session aborted. The existing 1, 2, 3, 6, 7, 8, 10, 11, 12 keep their meaning. One table in `docs/j1939.md` covers all J1939 blocks.
+New: 4 PGN owned by the network, 9 no free job slot or receiver (the block retries while `ENABLE` stays TRUE), 14 transport protocol session aborted. The existing 1, 2, 3, 6, 7, 8, 10, 11, 12 keep their meaning. One table in `docs/j1939.md` covers all J1939 blocks.
 
 ### 8. ECU lookups read the engine's tables
 `J1939_ECU_INFO` and `J1939_FIND_ECU` are answered from a snapshot the bus thread publishes with each commit (claim state, address, NAME, the address claims it has seen), so they finish in the same call without a job. `J1939_FIND_ECU` matches `(name AND MASK) = (NAME AND MASK)` and returns the lowest matching address, the full NAME and how many match.
@@ -53,8 +54,8 @@ New: 4 PGN owned by the network, 9 no free job slot or receiver, 14 transport pr
 ## Risks / Trade-offs
 
 - [1785-byte arrays in every instance cost memory] → a few KB per instance on a Pi is fine; documented, and `LENGTH` keeps short PGNs cheap to handle.
-- [Changing the filter on a busy socket could drop messages] → spike first; fallback second socket.
-- [Programs flooding the bus with BAM] → the kernel paces BAM packets (50-200 ms); one job per block instance, 64 jobs in all.
+- [Changing the filter on a busy socket could drop messages] → the vcan test opens a receiver on a running network; fallback second socket.
+- [Programs flooding the bus with BAM] → the kernel paces BAM packets (50-200 ms); one long send at a time per network, 32 jobs in all.
 - [A program sending a PGN a config `tx` entry also sends] → refused by default (Decision 6).
 
 ## Migration Plan
@@ -63,4 +64,4 @@ None for users (not in use elsewhere). Bench: reinstall the plugin and the tools
 
 ## Open Questions
 
-- The kernel's completion signal for transport protocol sends (task 1.2).
+- None open. The kernel's completion signal for transport protocol sends is the error queue's ACK timestamp (Decision 5); whether every kernel version gives it is checked by the vcan test on CI's kernel, with "taken by the kernel" as the fallback.

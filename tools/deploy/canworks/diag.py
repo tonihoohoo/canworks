@@ -1471,7 +1471,8 @@ def _table(rows, out, indent="  "):
 def _print_j1939_status(st, out):
     """The status of a J1939 network (design Decision 11): the PLC's ECU
     and its claim, the ECUs seen, the received PGNs with their timeouts,
-    the sent PGNs and the requests."""
+    the sent PGNs and the requests, and the program's J1939 blocks
+    (j1939-plc-blocks)."""
     bus = st.get("bus") or {}
     j = st.get("j1939") or {}
     line = "bus %s: %s" % (bus.get("interface"), BUS_STATES.get(bus.get("state"), bus.get("state")))
@@ -1524,6 +1525,17 @@ def _print_j1939_status(st, out):
             ", unknown page" if e.get("unknown_page") else ""))
     for e in j.get("requests") or []:
         out.write("request for PGN %s: %s sent\n" % (e.get("pgn"), e.get("sent", 0)))
+    prog = j.get("program")
+    if isinstance(prog, dict) and (prog.get("receivers") or prog.get("sent") or prog.get("requests")):
+        out.write("program blocks: %s sent (%s aborted), %s requests\n" % (
+            prog.get("sent", 0), prog.get("aborted", 0), prog.get("requests", 0)))
+        for r in prog.get("receivers") or []:
+            what = "any PGN" if r.get("pgn") == "any" else "PGN %s" % r.get("pgn")
+            if "source" in r:
+                what += " from %s" % r["source"]
+            if r.get("all_destinations"):
+                what += ", all destinations"
+            out.write("  receiver %s: %s queued, %s dropped\n" % (what, r.get("queued", 0), r.get("dropped", 0)))
     if isinstance(j.get("dm"), dict):
         out.write("diagnostic messages:\n")
         _print_dm(j["dm"], out)

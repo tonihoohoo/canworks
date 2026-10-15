@@ -1,6 +1,6 @@
-# SDO from the PLC program: the `canworks` library
+# SDO and EMCY blocks in the PLC program
 
-The `canworks` library gives the PLC program eight function blocks that read or write any object of any node over SDO while the network runs, and `CO_RECV_EMCY`, which hands the program every emergency message of the network ([below](#every-emcy-co_recv_emcy)). They are for transfers the program decides on at run time: a recipe parameter, a device name to log, a calibration table. For an object the program reads or writes all the time, an [SDO variable](config.md#sdo-variables) in the config is simpler, since it needs no code. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network. The same library has the NMT blocks `CO_NMT`, `CO_NETWORK_START`, `CO_NETWORK_STOP` and `CO_GET_STATE` ([plc-nmt.md](plc-nmt.md)), the CAN frame blocks ([raw-can.md](raw-can.md)) and the CiA 402 axis blocks ([cia402.md](cia402.md)).
+The [`canworks` function block library](plc-library.md) gives the PLC program eight function blocks that read or write any object of any node over SDO while the network runs, and `CO_RECV_EMCY`, which hands the program every emergency message of the network ([below](#every-emcy-co_recv_emcy)). They are for transfers the program decides on at run time: a recipe parameter, a device name to log, a calibration table. For an object the program reads or writes all the time, an [SDO variable](config.md#sdo-variables) in the config is simpler, since it needs no code. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network. The same library has the NMT, CiA 402, CAN frame and J1939 blocks ([plc-library.md](plc-library.md)).
 
 | Block | Data | For |
 |---|---|---|
@@ -12,21 +12,7 @@ The `canworks` library gives the PLC program eight function blocks that read or 
 
 ## Install the library once
 
-The PC tools carry the library in the version that matches them. On the PC with OpenPLC Editor:
-
-```sh
-canworks-deploy library --install
-```
-
-installs it into the editor as its Library Manager does; restart the editor if it is open. Or write the file and add it in the editor's Library Manager with "install from file":
-
-```sh
-canworks-deploy library --out .      # writes canworks.stlib
-```
-
-Each `deploy-v` release also carries `canworks.stlib`. Then enable the library in the project (the editor's Library Manager, or `canworks-deploy library --project <project folder>`). A project made with `--new-project ... --blocks`, or with **Enable the canworks function blocks** in the configurator's New editor project dialog, has it enabled already, and the library is installed into the editor if it is missing or older.
-
-The blocks need the canworks plugin on the runtime from the same release or later, built with CANopen. Without it (or with a plugin built `--without-canopen`), or while CANopen is off, they end with `ERROR_ID` 4.
+Install and enable the `canworks` library as [plc-library.md](plc-library.md#install-and-enable) describes. The blocks need the canworks plugin on the runtime from the same release or later, built with CANopen. Without it (or with a plugin built `--without-canopen`), or while CANopen is off, they end with `ERROR_ID` 4.
 
 ## Using a block
 

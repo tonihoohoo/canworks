@@ -30,7 +30,7 @@ The library SHALL be presented as one general function block library for CANopen
 - **THEN** it lists the J1939 message and trouble code blocks with a link to their reference in `docs/j1939.md`
 
 ### Requirement: Interface versions per block family
-Each block family SHALL ask the loaded plugin for its own interface (`canopen_plc_api`, `canworks_can_api`, `canworks_j1939_api`) at the version it was built for, and the plugin SHALL keep offering every earlier version it offered, so a program keeps working when the plugin is updated. A block whose interface version the plugin does not offer SHALL end with that family's "not running" error and SHALL NOT affect blocks of other families or versions.
+Each block family SHALL ask the loaded plugin for its own interface (`canopen_plc_api`, `canopen_plc_nmt_api`, `canworks_can_api`, `canworks_j1939_api`) at the version it was built for, and the plugin SHALL keep offering every earlier version it offered, so a program keeps working when the plugin is updated. A block whose interface version the plugin does not offer SHALL end with that family's "not running" error and SHALL NOT affect blocks of other families or versions.
 
 #### Scenario: Mixed versions
 - **WHEN** a program calls `CO_SDO_READ` (CANopen interface 1), `CO_RECV_EMCY` (CANopen interface 2) and `J1939_SEND` (J1939 interface 2) on a plugin that offers all of them

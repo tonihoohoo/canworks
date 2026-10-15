@@ -5,6 +5,8 @@
 #include <fcntl.h>
 #include <linux/can.h>
 #include <linux/can/j1939.h>
+#include <linux/errqueue.h>
+#include <linux/net_tstamp.h>
 #include <net/if.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -44,17 +46,7 @@ class KernelSocket : public J1939Socket {
     if (setsockopt(rx_, SOL_CAN_J1939, SO_J1939_PROMISC, &one, sizeof(one)) < 0 ||
         setsockopt(rx_, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one)) < 0)
       return fail();
-    std::vector<j1939_filter> filters;
-    for (uint32_t pgn : pgns) {
-      j1939_filter f;
-      std::memset(&f, 0, sizeof(f));
-      f.pgn = pgn;
-      f.pgn_mask = J1939_PGN_MAX;
-      filters.push_back(f);
-    }
-    if (!filters.empty() &&
-        setsockopt(rx_, SOL_CAN_J1939, SO_J1939_FILTER, filters.data(), filters.size() * sizeof(j1939_filter)) < 0)
-      return fail();
+    if (apply_filter(pgns, false) < 0) return fail();
     sockaddr_can a = addr(J1939_NO_NAME, J1939_NO_ADDR, J1939_NO_PGN);
     if (::bind(rx_, reinterpret_cast<sockaddr*>(&a), sizeof(a)) < 0) return fail();
     return 0;
@@ -62,24 +54,80 @@ class KernelSocket : public J1939Socket {
 
   int bind(uint64_t name, uint8_t address) override {
     if (ecu_ >= 0) ::close(ecu_);
-    ecu_ = socket(PF_CAN, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, CAN_J1939);
-    if (ecu_ < 0) return -errno;
-    int one = 1;
-    int r = 0;
-    if (setsockopt(ecu_, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one)) < 0) r = -errno;
-    sockaddr_can a = addr(name, address, J1939_NO_PGN);
-    if (!r && ::bind(ecu_, reinterpret_cast<sockaddr*>(&a), sizeof(a)) < 0) r = -errno;
-    if (r) {
-      ::close(ecu_);
-      ecu_ = -1;
+    ecu_ = -1;
+    close_long();
+    int r = open_ecu(name, address, ecu_);
+    if (r) return r;
+    // The program's long sends: a second socket at the same NAME and
+    // address, reporting its transport protocol sessions on its error queue.
+    // Without it they go through the ECU socket.
+    if (open_ecu(name, address, long_) == 0) {
+      int one = 1;
+      unsigned flags = SOF_TIMESTAMPING_OPT_ID | SOF_TIMESTAMPING_TX_ACK | SOF_TIMESTAMPING_TX_SCHED |
+                       SOF_TIMESTAMPING_SOFTWARE | SOF_TIMESTAMPING_OPT_CMSG | SOF_TIMESTAMPING_OPT_TSONLY;
+      events_ = setsockopt(long_, SOL_CAN_J1939, SO_J1939_ERRQUEUE, &one, sizeof(one)) == 0 &&
+                setsockopt(long_, SOL_SOCKET, SO_TIMESTAMPING, &flags, sizeof(flags)) == 0;
+      long_prio_ = -1;
     }
-    return r;
+    return 0;
   }
 
   void close() override {
     if (rx_ >= 0) ::close(rx_);
     if (ecu_ >= 0) ::close(ecu_);
     rx_ = ecu_ = -1;
+    close_long();
+  }
+
+  int set_filter(const std::vector<uint32_t>& pgns, bool any) override {
+    if (rx_ < 0) return -EBADF;
+    return apply_filter(pgns, any) < 0 ? -errno : 0;
+  }
+
+  int send_long(uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data, size_t len) override {
+    if (long_ < 0) return send(pgn, destination, priority, data, len);
+    if (priority != long_prio_) {
+      int p = priority;
+      if (setsockopt(long_, SOL_CAN_J1939, SO_J1939_SEND_PRIO, &p, sizeof(p)) < 0) return -errno;
+      long_prio_ = priority;
+    }
+    sockaddr_can a = addr(J1939_NO_NAME, destination, pgn);
+    ssize_t n = sendto(long_, data, len, MSG_DONTWAIT, reinterpret_cast<sockaddr*>(&a), sizeof(a));
+    return n < 0 ? -errno : 0;
+  }
+
+  int send_event(bool& aborted, int& error) override {
+    if (long_ < 0 || !events_) return -1;
+    // The kernel puts a "scheduled" note when a session starts, then an
+    // acknowledgement when it completed or an abort.
+    for (int k = 0; k < 16; ++k) {
+      char data[8];
+      iovec iov = {data, sizeof(data)};
+      alignas(cmsghdr) char control[512];
+      msghdr msg;
+      std::memset(&msg, 0, sizeof(msg));
+      msg.msg_iov = &iov;
+      msg.msg_iovlen = 1;
+      msg.msg_control = control;
+      msg.msg_controllen = sizeof(control);
+      if (recvmsg(long_, &msg, MSG_ERRQUEUE | MSG_DONTWAIT) < 0) return 0;
+      for (cmsghdr* c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
+        if (c->cmsg_level != SOL_CAN_J1939 || c->cmsg_type != SCM_J1939_ERRQUEUE) continue;
+        sock_extended_err serr;
+        std::memcpy(&serr, CMSG_DATA(c), sizeof(serr));
+        if (serr.ee_origin == SO_EE_ORIGIN_TIMESTAMPING && serr.ee_info == SCM_TSTAMP_ACK) {
+          aborted = false;
+          error = 0;
+          return 1;
+        }
+        if (serr.ee_origin == SO_EE_ORIGIN_LOCAL && serr.ee_info == J1939_EE_INFO_TX_ABORT) {
+          aborted = true;
+          error = static_cast<int>(serr.ee_errno);
+          return 1;
+        }
+      }
+    }
+    return 0;
   }
 
   int fd() const override { return rx_; }
@@ -128,6 +176,44 @@ class KernelSocket : public J1939Socket {
   }
 
  private:
+  int open_ecu(uint64_t name, uint8_t address, int& fd) {
+    fd = socket(PF_CAN, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, CAN_J1939);
+    if (fd < 0) return -errno;
+    int one = 1;
+    int r = 0;
+    if (setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one)) < 0) r = -errno;
+    sockaddr_can a = addr(name, address, J1939_NO_PGN);
+    if (!r && ::bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof(a)) < 0) r = -errno;
+    if (r) {
+      ::close(fd);
+      fd = -1;
+    }
+    return r;
+  }
+
+  void close_long() {
+    if (long_ >= 0) ::close(long_);
+    long_ = -1;
+    events_ = false;
+  }
+
+  // The receive socket's filter: `pgns`, or none (every PGN) with `any`.
+  // -1 with errno set on failure.
+  int apply_filter(const std::vector<uint32_t>& pgns, bool any) {
+    if (any) return setsockopt(rx_, SOL_CAN_J1939, SO_J1939_FILTER, nullptr, 0);
+    std::vector<j1939_filter> filters;
+    for (uint32_t pgn : pgns) {
+      j1939_filter f;
+      std::memset(&f, 0, sizeof(f));
+      f.pgn = pgn;
+      f.pgn_mask = J1939_PGN_MAX;
+      filters.push_back(f);
+    }
+    if (filters.empty()) return 0;
+    return setsockopt(rx_, SOL_CAN_J1939, SO_J1939_FILTER, filters.data(),
+                      static_cast<socklen_t>(filters.size() * sizeof(j1939_filter)));
+  }
+
   sockaddr_can addr(uint64_t name, uint8_t address, uint32_t pgn) const {
     sockaddr_can a;
     std::memset(&a, 0, sizeof(a));
@@ -149,6 +235,9 @@ class KernelSocket : public J1939Socket {
   int rx_ = -1;
   int ecu_ = -1;
   int prio_ = -1;
+  int long_ = -1;
+  int long_prio_ = -1;
+  bool events_ = false;
   std::vector<uint8_t> buf_;
 };
 

@@ -151,7 +151,8 @@ docker/bridge/     the canworks-bridge image (docs/modbus-bridge.md)
 docker/local-runtime/ the local simulator runtime image (stock runtime + plugin, forced simulation) and
                    the pinned upstream runtime version
 tools/editor-hook/ the runtime-side hook that keeps CANopen on with the editor's Build and upload
-library/           the canworks editor library (SDO, CAN frame and CiA 402 blocks, ST helpers): generate.py writes the
+library/           the canworks function block library (CANopen, CiA 402, CAN and J1939 blocks, ST helpers;
+                   docs/plc-library.md): generate.py writes the
                    block sources, build.sh builds the .stlib the deploy tool carries
 test/unit/         unit tests: config validation, EDS checks, dcfgen, process image
 test/can_raw/       raw CAN tests: config messages, the frame blocks' interface, signal packing, ST helpers
@@ -196,7 +197,7 @@ test/pc-tools/     the release tag check; test/ci/: the CI change classification
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh, install-bridge.sh,
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
 docs/              tour.md (the guided tour of the virtual example), config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
-                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, j1939.md, local-runtime.md, modbus-bridge.md, network-docs.md, plc-sdo.md, raw-can.md, simulator.md, slave.md,
+                   frame-inspector.md, gateway.md, install-pc.md, install-stock.md, j1939.md, local-runtime.md, modbus-bridge.md, network-docs.md, plc-library.md, plc-sdo.md, raw-can.md, simulator.md, slave.md,
                    trace.md, development.md (this page)
 openspec/          specs (openspec/specs/) and changes, done ones under openspec/changes/archive/
 ```

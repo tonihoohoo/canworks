@@ -49,6 +49,30 @@ class J1939Socket {
   // Sends from the bound address. `destination` 255 is global. 0 or a
   // negative errno.
   virtual int send(uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data, size_t len) = 0;
+
+  // ---- The program's J1939 blocks (j1939-plc-blocks) ----
+  // Sets the receive socket's PGN filter again, while it is open: `pgns`,
+  // or every PGN with `any`. 0 or a negative errno.
+  virtual int set_filter(const std::vector<uint32_t>& pgns, bool any) {
+    (void)pgns;
+    (void)any;
+    return 0;
+  }
+  // Sends a program message over 8 bytes (the transport protocol) from the
+  // bound address, on a socket of its own whose sessions the kernel reports
+  // (send_event). 0 or a negative errno.
+  virtual int send_long(uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data, size_t len) {
+    return send(pgn, destination, priority, data, len);
+  }
+  // The end of the oldest long send not yet reported: 1 with `aborted` (and
+  // `error`, a positive errno, for an abort), 0 when nothing ended yet, -1
+  // when the kernel does not report sessions (a long send counts as done
+  // once the kernel took it).
+  virtual int send_event(bool& aborted, int& error) {
+    (void)aborted;
+    (void)error;
+    return -1;
+  }
 };
 
 std::unique_ptr<J1939Socket> make_kernel_j1939_socket();

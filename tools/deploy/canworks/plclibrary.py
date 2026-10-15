@@ -1,5 +1,6 @@
-"""The canworks editor library: SDO function blocks for the PLC program
-(spec canopen-plc-sdo).
+"""The canworks function block library for the PLC program: the CANopen
+(SDO, EMCY, NMT), CiA 402, CAN frame and J1939 blocks and their helper
+functions (spec plc-library).
 
 The package carries the library as built from library/canworks
 (library/build.sh); its version is set to this package's version when it is
@@ -43,6 +44,10 @@ def archive_text():
 
 def block_names():
     return [fb["name"] for fb in archive()["manifest"]["functionBlocks"]]
+
+
+def function_names():
+    return [f["name"] for f in archive()["manifest"]["functions"]]
 
 
 def write(out_dir):

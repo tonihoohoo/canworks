@@ -11,6 +11,13 @@ The blocks SHALL reach the plugin the runtime has already loaded, by its library
 - **WHEN** the plugin was installed with `install-stock.sh --prefix /usr/local/canworks`
 - **THEN** the blocks find it and transfers work
 
+### Requirement: EMCY interface version
+The plugin's C entry point SHALL offer version 2 of its table, which SHALL begin with the fields of version 1 and add the EMCY read functions, and SHALL keep offering version 1. The SDO blocks SHALL ask for version 1 and `CO_RECV_EMCY` for version 2, so that the SDO blocks of a library built with this change keep working with a plugin that offers only version 1, while `CO_RECV_EMCY` ends with `ERROR_ID` 4 there.
+
+#### Scenario: New library, older plugin
+- **WHEN** a program built with this library calls `CO_SDO_READ` and `CO_RECV_EMCY` on a runtime whose plugin offers only version 1
+- **THEN** the read ends with `DONE`, `CO_RECV_EMCY` shows `ERROR_ID` 4, and the plugin logs once that the program's canworks library needs a newer plugin, naming both versions
+
 ## REMOVED Requirements
 
 ### Requirement: Library delivery

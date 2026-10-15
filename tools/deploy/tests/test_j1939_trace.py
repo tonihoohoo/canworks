@@ -331,6 +331,19 @@ class Status(unittest.TestCase):
         self.assertIn("request for PGN 65282: 81 sent\n", out)
         self.assertNotIn("master node", out)
         self.assertNotIn("CANopen session", out)
+        self.assertNotIn("program blocks", out)
+
+    def test_j1939_program_blocks(self):
+        with FakePlugin(networks=[J1939_NETWORK]) as fp:
+            fp.status["j1939"]["program"] = {"receivers": [{"pgn": 65282, "source": 0, "queued": 2, "dropped": 0},
+                                                           {"pgn": "any", "all_destinations": True, "queued": 32,
+                                                            "dropped": 17}],
+                                             "sent": 40, "aborted": 1, "requests": 3}
+            code, out, err = run("--runtime", fp.runtime, "status", "--network", "machine")
+        self.assertEqual(code, 0, err)
+        self.assertIn("program blocks: 40 sent (1 aborted), 3 requests\n"
+                      "  receiver PGN 65282 from 0: 2 queued, 0 dropped\n"
+                      "  receiver any PGN, all destinations: 32 queued, 17 dropped\n", out)
 
     def test_j1939_without_a_bus(self):
         with FakePlugin(networks=[J1939_NETWORK]) as fp:

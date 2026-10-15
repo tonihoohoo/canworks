@@ -3,6 +3,7 @@
 #include "diag.h"
 #include "j1939_network.h"
 #include "j1939_plc_jobs.h"
+#include "j1939_plc_msgs.h"
 #include "log.h"
 
 namespace canopen_plugin {
@@ -54,8 +55,12 @@ void j1939_open_plc_jobs(const ConfigSet& set) {
   std::vector<bool> j1939;
   for (const auto& n : set.networks) j1939.push_back(n.is_j1939());
   J1939PlcJobs::instance().open(j1939);
+  J1939PlcMsgs::instance().open(j1939);
 }
 
-void j1939_close_plc_jobs() { J1939PlcJobs::instance().close(); }
+void j1939_close_plc_jobs() {
+  J1939PlcJobs::instance().close();
+  J1939PlcMsgs::instance().close();
+}
 
 }  // namespace canopen_plugin

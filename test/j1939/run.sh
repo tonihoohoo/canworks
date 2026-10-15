@@ -15,6 +15,14 @@
 # from 129, and the simulator received Setpoints (Run=1) and Command (PDU1
 # to address 0, Mode=3) from 128 and the plugin's request for ComponentInfo.
 #
+# Message blocks (j1939-plc-blocks) in the same run: canopen_host uses the
+# blocks' table from the first claim on (receivers, request, ECU info and
+# search, two sends); the simulator's DBC gets the two sent messages and
+# Extra (PGN 65310, every 100 ms), which no config entry receives, so only
+# the receive filter the program's receiver adds lets it in. The simulator
+# must receive the 40 bytes to address 0 (RTS/CTS) and the 20-byte
+# broadcast (BAM) intact.
+#
 # Diagnostic messages (j1939-diagnostics) in the same run: the simulator
 # raises six trouble codes by BAM (one ends at 0.2 s, then five), and
 # at 1.5 s a diagnostics client on 127.0.0.1 checks the status's DM1 store
@@ -73,6 +81,26 @@ cleanup() {
 trap cleanup EXIT
 
 cp "$ROOT/examples/j1939/machine.dbc" "$WORK/"
+# The simulated engine also decodes what the program blocks send.
+python3 - "$ROOT/examples/j1939/machine.dbc" "$WORK/engine.dbc" <<'PY'
+import sys
+dbc = open(sys.argv[1]).read()
+extra = """BO_ 2563768448 ProgramLong: 40 PLC
+ SG_ First : 0|8@1+ (1,0) [0|255] "" Engine
+ SG_ Last : 312|8@1+ (1,0) [0|255] "" Engine
+
+BO_ 2566853760 ProgramBroadcast: 20 PLC
+ SG_ First : 0|8@1+ (1,0) [0|255] "" Engine
+ SG_ Last : 152|8@1+ (1,0) [0|255] "" Engine
+
+BO_ 2566856192 Extra: 8 Engine
+ SG_ Count : 0|16@1+ (1,0) [0|64255] "" PLC
+
+"""
+at = dbc.index("CM_ ")
+cycle = 'BA_ "GenMsgCycleTime" BO_ 2566856192 100;\n'
+open(sys.argv[2], "w").write(dbc[:at] + extra + dbc[at:] + cycle)
+PY
 python3 - "$ROOT/examples/j1939/canworks.json" "$WORK/canworks.json" "$IFACE" "$PORT" <<'PY'
 import json, sys
 from canworks.diag import token_verifier
@@ -94,7 +122,7 @@ cat > "$WORK/engine-scenario.json" <<'JSON'
 JSON
 
 start_sim() {
-    "${SIM[@]}" --dbc "$WORK/machine.dbc" --node Engine --interface "$IFACE" --address 0 \
+    "${SIM[@]}" --dbc "$WORK/engine.dbc" --node Engine --interface "$IFACE" --address 0 \
         --scenario "$WORK/engine-scenario.json" --ramp-period 2 --log "$WORK/engine-$1.jsonl" \
         > "$WORK/engine-$1.out" 2>&1 &
     SIM_PID=$!
@@ -184,6 +212,16 @@ check(sum(1 for r in rx(65281) if r["signals"].get("Run") == 1) >= 10,
 check(any(r["signals"].get("Mode") == 3 for r in rx(61184)), "Command (PDU1 to 0) with Mode=3 from 128")
 check(any(r["event"] == "request" and r.get("pgn") == 65282 and r.get("source") == 128 for r in recs),
       "the plugin's request for ComponentInfo")
+
+# Message blocks: what the program sent, byte for byte.
+def program(pgn):
+    return [r for r in recs if r["event"] == "rx" and r["pgn"] == pgn and r["source"] == 128 and "signals" in r]
+
+
+check(any(r["data"] == bytes(i * 3 + 1 for i in range(40)).hex() for r in program(0xD000)),
+      "the program's 40 bytes of PGN 0xD000 to 0 by RTS/CTS (%s)" % [r["data"] for r in program(0xD000)])
+check(any(r["data"] == bytes(0xA0 + i for i in range(20)).hex() for r in program(65300)),
+      "the program's 20-byte broadcast of PGN 65300 by BAM (%s)" % [r["data"] for r in program(65300)])
 
 # Diagnostic messages.
 own = [r for r in recs if r["event"] == "dm" and r.get("dm") == "DM1" and r.get("source") == 128]

@@ -35,7 +35,7 @@ import urllib.parse
 import webbrowser
 import zipfile
 
-from .. import __version__, axis, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, modbusmap, parameters, project as project_mod, sdolibrary
+from .. import __version__, axis, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, modbusmap, parameters, project as project_mod, plclibrary
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
@@ -43,7 +43,7 @@ from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequenc
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, element_str, parse_location
 from ..userdirs import config_dir, replace_file
-from ..j1939 import dbc as j1939_dbc, dm as j1939_dm
+from ..j1939 import dbc as j1939_dbc, dm as j1939_dm, stcall as j1939_stcall
 from . import cia402map, declare, layout, online, params, rawpage, scan, simulation, tracing, transmit
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -990,6 +990,23 @@ class Session:
         except rawpage.RawPageError as e:
             raise ApiError(422 if op == "dbc_import" else 400, str(e))
 
+    def j1939_st(self, cfg, network, kind, index):
+        """Copy as ST call for a J1939 rx or tx entry (j1939/stcall.py)."""
+        nets = cfg.get("networks") if isinstance(cfg, dict) and isinstance(cfg.get("networks"), list) else [cfg]
+        try:
+            n = int(network or 0)
+            net = nets[n]
+            entry = net["j1939"][kind][int(index)]
+        except (IndexError, KeyError, TypeError, ValueError):
+            raise ApiError(400, "no J1939 %s entry %r on network %r" % (kind, index, network))
+        if kind not in ("rx", "tx") or not isinstance(entry, dict):
+            raise ApiError(400, "no J1939 %s entry %r on network %r" % (kind, index, network))
+        name = net.get("name") if isinstance(net.get("name"), str) and net.get("name") else None
+        try:
+            return {"text": j1939_stcall.st_call(entry, kind, n, name)}
+        except (TypeError, ValueError) as e:
+            raise ApiError(400, "cannot write the call: %s" % e)
+
     # -- checks -------------------------------------------------------------
     def check(self, cfg, allow_overlap=False, task_interval=None, notes=None):
         if not isinstance(cfg, dict):
@@ -1700,7 +1717,7 @@ class Session:
         self.open(path, "project")
         out = {"project": path, "declared": len(decls)}
         if blocks:
-            out["library_ok"], out["library"] = sdolibrary.ensure_installed()
+            out["library_ok"], out["library"] = plclibrary.ensure_installed()
         return out
 
 
@@ -2088,6 +2105,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route in (("POST", "/api/raw/suggest"), ("POST", "/api/raw/st"), ("POST", "/api/raw/dbc_import")):
                     self._need_open(s)
                     out = s.raw_page(route[1].rsplit("/", 1)[1], body)
+                elif route == ("POST", "/api/j1939/st"):
+                    self._need_open(s)
+                    out = s.j1939_st(body.get("config"), body.get("network", 0), body.get("kind"), body.get("index"))
                 elif route == ("POST", "/api/check"):
                     self._need_open(s)
                     out = s.check(body.get("config"), bool(body.get("allow_overlap")), body.get("task_interval"),

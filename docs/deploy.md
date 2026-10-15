@@ -88,20 +88,20 @@ PROGRAM main
 
 Master diagnostics come first, then each node in config order: diagnostics, inputs, outputs and the NMT command byte. With [several networks](config.md#several-networks-schema_version-2) the networks follow each other in config order, every name starts with its network's name (`io_door_ok`, `drives_door_ok`) and every comment names the network. A [slave network](slave.md) comes last, and its names always start with the network's name: one variable per binding, named after its `name` or the object's EDS name (`line_speed_setpoint`), with the object's IEC type, and the status and EMCY locations (`line_state`, `line_comm_ok`, `line_sync_count`, `line_emcy`, `line_errreg`), inputs before outputs. A [J1939 network](j1939.md)'s names also start with the network's name: the ECU's state and address, each received PGN's status bit, and one variable per signal, plus its valid bit when it has one (`machine_Pressure`, `machine_Pressure_valid`). Everything is in `main` because Editor 4.3.2 accepts located variables only in a program's VAR block; put your own logic in function blocks called from `main` if you want to split it. The task interval defaults to `T#20ms`.
 
-With `--blocks` the project also enables the `canworks` library (the SDO function blocks, [plc-sdo.md](plc-sdo.md)), and the library is installed into the editor on this PC if it is missing or older than the tools; if that cannot be done (the editor has never run here), the output says how to install it.
+With `--blocks` the project also enables the `canworks` function block library (CANopen, CiA 402, CAN and J1939 blocks, [plc-library.md](plc-library.md)), and the library is installed into the editor on this PC if it is missing or older than the tools; if that cannot be done (the editor has never run here), the output says how to install it.
 
 The project is written once: later config changes do not touch `main`. Declare new locations from the configurator's "not yet declared" block. An existing folder (even an empty one) is refused, and a failure after `openplc-cli create` removes the new folder. The command needs `openplc-cli` (the editor installs it on first run, or run `openplc-cli install-cli`; `$OPENPLC_CLI` names another program). Nothing is uploaded.
 
-## The SDO block library
+## The function block library
 
 ```sh
 canworks-deploy library --install              # into OpenPLC Editor on this PC
 canworks-deploy library --out DIR              # writes DIR/canworks.stlib
 canworks-deploy library --project <project>    # enables it in an editor project
-canworks-deploy library --list                 # the block names
+canworks-deploy library --list                 # its blocks and functions
 ```
 
-The library's version is the tools' version. `--install` does what the editor's Library Manager does for "install from file" (restart the editor if it is open); `$OPENPLC_EDITOR_USER_DATA` names another editor settings folder. See [plc-sdo.md](plc-sdo.md).
+The library's version is the tools' version. `--install` does what the editor's Library Manager does for "install from file" (restart the editor if it is open); `$OPENPLC_EDITOR_USER_DATA` names another editor settings folder. See [plc-library.md](plc-library.md).
 
 ## Checking without a runtime
 

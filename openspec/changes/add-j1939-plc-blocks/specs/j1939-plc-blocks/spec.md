@@ -2,9 +2,9 @@
 
 ### Requirement: J1939 message function blocks
 The editor library `canworks` SHALL provide `J1939_SEND`, `J1939_RECEIVE`, `J1939_REQUEST`, `J1939_ECU_INFO` and `J1939_FIND_ECU`. Each SHALL have `NETWORK : USINT` (the network's place in `networks`) and the outputs `ERROR : BOOL` and `ERROR_ID : UINT`.
-- `J1939_SEND`: in `EXECUTE : BOOL`, `PGN : UDINT`, `DESTINATION : USINT` (0..253, or 255 global; ignored for a PDU2 PGN), `PRIORITY : USINT` (default 6), `LENGTH : UINT` (0..1785), `TIMEOUT : TIME` (`T#0s` meaning 1 s up to 8 bytes and 10 s above); in-out `DATA : ARRAY[0..1784] OF BYTE`; out `BUSY`, `DONE : BOOL`.
-- `J1939_RECEIVE`: in `ENABLE : BOOL`, `PGN : UDINT`, `ANY : BOOL` (every PGN), `SOURCE : USINT` (255 any), `ALL_DESTINATIONS : BOOL`, `DEPTH : UINT` (0 meaning 4, at most 32); out `VALID`, `NEW : BOOL`, `RX_PGN : UDINT`, `RX_SOURCE`, `RX_DESTINATION`, `RX_PRIORITY : USINT`, `RX_LENGTH : UINT`, `RX_DATA : ARRAY[0..1784] OF BYTE`, `TIMESTAMP : ULINT` (UTC microseconds), `QUEUED : UINT`, `OVERFLOW : BOOL`, `DROPPED : UDINT`.
-- `J1939_REQUEST`: in `EXECUTE : BOOL`, `PGN : UDINT`, `DESTINATION : USINT` (0..253, or 255 global), `TIMEOUT : TIME` (`T#0s` meaning 1 s); out `BUSY`, `DONE : BOOL`, `SOURCE : USINT`, `LENGTH : UINT`, `DATA : ARRAY[0..1784] OF BYTE`, `ACK_CODE : USINT`.
+- `J1939_SEND`: in `EXECUTE : BOOL`, `PGN : UDINT`, `DESTINATION : USINT` (0..253, or 255 global; ignored for a PDU2 PGN), `PRIORITY : USINT` (0 meaning 6), `LENGTH : UINT` (0..1785), `TIMEOUT : TIME` (`T#0s` meaning 1 s up to 8 bytes and 10 s above); in-out `DATA : ARRAY[0..1784] OF BYTE`; out `BUSY`, `DONE : BOOL`.
+- `J1939_RECEIVE`: in `ENABLE : BOOL`, `PGN : UDINT`, `ANY : BOOL` (every PGN), `SOURCE : USINT`, `FILTER_SOURCE : BOOL` (FALSE: any source; `SOURCE` 255 is any source too), `ALL_DESTINATIONS : BOOL`, `DEPTH : UINT` (0 meaning 4, at most 32); in-out `RX_DATA : ARRAY[0..1784] OF BYTE`; out `ACTIVE`, `NEW : BOOL`, `RX_PGN : UDINT`, `RX_SOURCE`, `RX_DESTINATION`, `RX_PRIORITY : USINT`, `RX_LENGTH : UINT`, `TIMESTAMP : ULINT` (UTC microseconds), `QUEUED : UINT`, `OVERFLOW : BOOL`, `DROPPED : UDINT`.
+- `J1939_REQUEST`: in `EXECUTE : BOOL`, `PGN : UDINT`, `DESTINATION : USINT` (0..253, or 255 global), `TIMEOUT : TIME` (`T#0s` meaning 1 s); in-out `DATA : ARRAY[0..1784] OF BYTE` (the answer); out `BUSY`, `DONE : BOOL`, `SOURCE : USINT`, `LENGTH : UINT`, `ACK_CODE : USINT`.
 - `J1939_ECU_INFO`: in `ENABLE : BOOL`; out `VALID : BOOL`, `STATE : USINT` (0 claiming, 1 claimed, 2 cannot claim, 3 no bus), `ADDRESS : USINT` (254 while none is held), `NAME : LWORD`, `ECU_COUNT : UINT`.
 - `J1939_FIND_ECU`: in `ENABLE : BOOL`, `NAME : LWORD`, `MASK : LWORD`; out `VALID`, `FOUND : BOOL`, `ADDRESS : USINT`, `FOUND_NAME : LWORD`, `COUNT : UINT`.
 
@@ -20,7 +20,7 @@ The editor library `canworks` SHALL provide `J1939_SEND`, `J1939_RECEIVE`, `J193
 
 #### Scenario: Receive a long PGN
 - **WHEN** a receiver has `PGN` 65282 and ECU 0 sends it with 40 bytes by BAM
-- **THEN** a later call returns `NEW` TRUE with `RX_LENGTH` 40, `RX_SOURCE` 0, `RX_DESTINATION` 255 and the 40 bytes in `RX_DATA`
+- **THEN** a later call returns `NEW` TRUE with `RX_LENGTH` 40, `RX_SOURCE` 0, `RX_DESTINATION` 255 and the 40 bytes in `RX_DATA`, and `ACTIVE` stays TRUE
 
 #### Scenario: Request one ECU
 - **WHEN** the program requests PGN 65259 from address 0 and ECU 0 answers
@@ -31,7 +31,7 @@ The editor library `canworks` SHALL provide `J1939_SEND`, `J1939_RECEIVE`, `J193
 - **THEN** `FOUND` is TRUE, `ADDRESS` 3 and `FOUND_NAME` that ECU's NAME
 
 ### Requirement: Sending from the claimed address
-`J1939_SEND` SHALL send from the address the network holds at the time it sends, through the kernel's J1939 stack, which uses BAM for a global message and RTS/CTS for one to an address when `LENGTH` is above 8. It SHALL be `DONE` once the message is on the bus (a single frame) or the transport protocol session has completed (above 8 bytes). It SHALL refuse with `ERROR_ID` 4 the PGNs the network sends itself: Request, Address Claimed, Acknowledgement, TP.CM, TP.DT, DM1, DM2, DM3, DM11, DM13, DM22 and every `tx` PGN of the network's config. With `raw.program_override_protocol: true` on the network it SHALL send the DM and `tx` PGNs and log the first such send of a run; Request, Address Claimed, Acknowledgement and the transport protocol PGNs SHALL stay refused.
+`J1939_SEND` SHALL send from the address the network holds at the time it sends, through the kernel's J1939 stack, which uses BAM for a global message and RTS/CTS for one to an address when `LENGTH` is above 8. It SHALL be `DONE` once the kernel has taken a single frame, and once the kernel reports the transport protocol session complete for a longer message (or, where the kernel gives no session reports, once it has taken the message). The network SHALL run one long send of the program at a time; the others wait in order. It SHALL refuse with `ERROR_ID` 4 the PGNs the network sends itself: Request, Address Claimed, Acknowledgement, TP.CM, TP.DT, DM1, DM2, DM3, DM11, DM13, DM22 and every `tx` PGN of the network's config. With `raw.program_override_protocol: true` on the network it SHALL send the DM and `tx` PGNs and log the first such send of a run; Request, Address Claimed, Acknowledgement and the transport protocol PGNs SHALL stay refused.
 
 #### Scenario: No address held
 - **WHEN** the network is still claiming or cannot claim and the program sends
@@ -69,7 +69,7 @@ While `ENABLE` is TRUE, `J1939_RECEIVE` SHALL queue, up to `DEPTH` messages, eve
 - **THEN** four are queued, `OVERFLOW` is TRUE and `DROPPED` is 2
 
 ### Requirement: Requests from the program
-`J1939_REQUEST` SHALL send a Request for `PGN` from the network's address. To an address it SHALL be `DONE` with the first message of that PGN from that address that arrives after the Request, and SHALL report `ERROR_ID` 12 with `ACK_CODE` (1 NACK, 2 Access Denied, 3 Cannot Respond) when that ECU answers with an Acknowledgement other than ACK for that PGN. To global (255) it SHALL be `DONE` once the Request is on the bus; the answers SHALL reach `J1939_RECEIVE` and config `rx` entries. An answer SHALL also update config `rx` entries for its PGN as any received message does.
+`J1939_REQUEST` SHALL send a Request for `PGN` from the network's address. To an address it SHALL be `DONE` with the first message of that PGN from that address that arrives after the Request, SHALL be `DONE` with `LENGTH` 0 on a positive Acknowledgement for that PGN, and SHALL report `ERROR_ID` 12 with `ACK_CODE` (1 NACK, 2 Access Denied, 3 Cannot Respond) when that ECU answers with an Acknowledgement other than ACK for that PGN. To global (255) it SHALL be `DONE` once the Request is on the bus; the answers SHALL reach `J1939_RECEIVE` and config `rx` entries. An answer SHALL also update config `rx` entries for its PGN as any received message does.
 
 #### Scenario: Refused
 - **WHEN** the program requests PGN 65300 from address 0 and ECU 0 answers NACK
@@ -88,7 +88,7 @@ The J1939 message blocks SHALL report `ERROR_ID`:
 - 6: not completed within `TIMEOUT`
 - 7: the network is bus-off or its interface is down
 - 8: cancelled by a PLC stop or a network restart
-- 9: no free job slot or receiver
+- 9: no free job slot (32 sends and requests across all networks, apart from the 64 of the trouble code blocks) or receiver (16 per network)
 - 10: the network is not a J1939 network
 - 11: the network holds no address (`J1939_SEND`, `J1939_REQUEST`)
 - 12: the destination refused (`J1939_REQUEST`)
@@ -111,8 +111,8 @@ The J1939 message blocks SHALL never wait for CAN traffic, allocate memory or wr
 
 ### Requirement: J1939 ST functions
 The library SHALL provide, needing no plugin:
-- `J1939_GET_BITS(DATA, START_BIT : UINT, BIT_LENGTH : USINT, SIGNED : BOOL) : LINT` and `J1939_SET_BITS(DATA, START_BIT : UINT, BIT_LENGTH : USINT, VALUE : LINT)`, with `DATA` an in-out `ARRAY[0..1784] OF BYTE`, little-endian as J1939 sends signals, `BIT_LENGTH` 1..64, bits beyond the array read as 0 and are not written
-- `J1939_NAME_MAKE(...) : LWORD` from the NAME fields (`IDENTITY_NUMBER`, `MANUFACTURER_CODE`, `ECU_INSTANCE`, `FUNCTION_INSTANCE`, `FUNCTION`, `VEHICLE_SYSTEM`, `VEHICLE_SYSTEM_INSTANCE`, `INDUSTRY_GROUP`, `ARBITRARY_ADDRESS_CAPABLE`) and the function block `J1939_NAME_SPLIT` the other way
+- `J1939_GET_BITS(DATA, START_BIT : UINT, BIT_LENGTH : USINT, SIGNED : BOOL) : LINT` and `J1939_SET_BITS(DATA, START_BIT : UINT, BIT_LENGTH : USINT, VALUE : LINT) : BOOL` (FALSE, writing nothing, when a bit falls outside the array or `BIT_LENGTH` is not 1..64), with `DATA` an in-out `ARRAY[0..1784] OF BYTE`, little-endian as J1939 sends signals, `BIT_LENGTH` 1..64, bits beyond the array read as 0
+- `J1939_NAME_MAKE(...) : LWORD` from the NAME fields (`IDENTITY_NUMBER`, `MANUFACTURER_CODE`, `ECU_INSTANCE`, `FUNCTION_INSTANCE`, `ECU_FUNCTION` (`FUNCTION` is an ST keyword), `VEHICLE_SYSTEM`, `VEHICLE_SYSTEM_INSTANCE`, `INDUSTRY_GROUP`, `ARBITRARY_ADDRESS_CAPABLE`) and the function block `J1939_NAME_SPLIT` the other way
 Their results SHALL equal the plugin's and the PC tools' packing.
 
 #### Scenario: Signal past byte 8
