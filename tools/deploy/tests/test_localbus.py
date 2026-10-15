@@ -698,7 +698,11 @@ class AdapterList(unittest.TestCase):
         os.makedirs(dll_dir)
         open(os.path.join(dll_dir, "libusb-1.0.dll"), "wb").close()
         spec = SimpleNamespace(submodule_search_locations=[pkg])
-        with mock.patch.object(adapter_mod.sys, "platform", "win32"),                 mock.patch("importlib.util.find_spec", return_value=spec),                 mock.patch("platform.machine", return_value="AMD64"),                 mock.patch.dict(os.environ, {"PATH": "x"}), mock.patch.object(adapter_mod._libusb_path, "done", False):
+        with mock.patch.object(adapter_mod.sys, "platform", "win32"), \
+                mock.patch("importlib.util.find_spec", return_value=spec), \
+                mock.patch("platform.machine", return_value="AMD64"), \
+                mock.patch.dict(os.environ, {"PATH": "x"}), \
+                mock.patch.object(adapter_mod._libusb_path, "done", False, create=True):
             adapter_mod._libusb_path()
             self.assertEqual(os.environ["PATH"], dll_dir + os.pathsep + "x")
             adapter_mod._libusb_path()  # once per process

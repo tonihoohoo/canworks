@@ -16,7 +16,7 @@
 
 ## 3. Hardware
 
-- [ ] 3.1 Windows PC with the gs_usb adapter on the 500 kbit/s bench bus, the wheel installed with uv and nothing else: `adapters` lists it; 1000, 250 and 50 kbit/s refused and 500 kbit/s connects right after each; with the PLC running ten reads in a row all answer
-- [ ] 3.2 Silent bus (PLC stopped, the device without heartbeat): the probe confirms 500 and refuses 250 kbit/s, and 500 connects right after
+- [x] 3.1 Windows PC with the gs_usb adapter on the 500 kbit/s bench bus, the wheel installed with uv and nothing else: `adapters` lists it; 1000, 250 and 50 kbit/s refused and 500 kbit/s connects right after each; with the PLC running ten reads in a row all answer (2026-10-15, the branch installed with uv in a fresh environment: all as described, 10 of 10 reads)
+- [x] 3.2 Silent bus (PLC stopped, the device without heartbeat): the probe confirms 500 and refuses 250 kbit/s, and 500 connects right after (2026-10-15: 250, 1000 and 125 refused, 500 confirmed after each)
 - [ ] 3.3 Configurator on the virtual plant after an upload to the local simulator runtime: no "different configuration" note; node 6 reset from its Status tab logs "Booted"
-- [ ] 3.4 Pi redeploy and clean PLC start; the status gives `boots`
+- [x] 3.4 Pi redeploy and clean PLC start; the status gives `boots` (2026-10-15 from the branch: node 23 `boots` 1 after the start, 2 after a reset)
