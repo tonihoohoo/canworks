@@ -209,6 +209,26 @@ class ByIdentifier(Base):
         self.wait_count("182", "3")
         pg.wait_for_selector("#trace-inspector [data-fx=inspector][data-kind=pdo] .fx-about:not([open])")
 
+    def test_chronological_follow_shows_the_newest_row_whole(self):
+        pg = self.page
+        self.record()
+        self.chronological()
+        # A list height that is not a whole number of rows.
+        pg.eval_on_selector("#trace-list", "e => e.style.setProperty('height', '301px')")
+        self.send(0x182, "01000000", n=60)
+        self.send(0x182, "ABCDEF00")
+        pg.wait_for_function("() => [...document.querySelectorAll('#trace-rows .trace-row')].some(r => r.innerText.includes('AB CD EF 00'))")
+        newest, list_bottom, top = pg.evaluate("""() => {
+            const rows = [...document.querySelectorAll('#trace-rows .trace-row')];
+            const l = document.querySelector('#trace-list');
+            const last = rows[rows.length - 1];
+            return [last.innerText, l.getBoundingClientRect().top + l.clientTop + l.clientHeight,
+                    last.getBoundingClientRect().bottom];
+        }""")
+        self.assertIn("AB CD EF 00", newest)
+        self.assertLessEqual(top, list_bottom + 0.5)
+        self.assertGreater(top, list_bottom - 2)
+
     def test_explain_in_frame_lab_and_back(self):
         pg = self.page
         self.record()
