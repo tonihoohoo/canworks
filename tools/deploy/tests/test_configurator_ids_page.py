@@ -136,12 +136,15 @@ class ByIdentifier(Base):
         pg.keyboard.press("Escape")
         # Pause: the table stands still while the recording goes on.
         pg.click("[data-ids=pause]")
-        self.assertEqual(pg.get_attribute("[data-ids=pause]", "aria-pressed"), "true")
+        # The button says what pressing it does next.
+        self.assertEqual(pg.inner_text("[data-ids=pause]"), "Resume view")
+        self.assertIsNone(pg.get_attribute("[data-ids=pause]", "aria-pressed"))
         self.send(0x701, "05", n=3)
         pg.wait_for_selector("[data-ids=status]:has-text('1 update waiting')")
         self.assertEqual(self.count("701"), "4")
         pg.click("[data-ids=pause]")
         self.wait_count("701", "7")
+        self.assertEqual(pg.inner_text("[data-ids=pause]"), "Pause view")
 
     def test_keyboard_selection_hold_and_show_frames(self):
         pg = self.page
@@ -176,6 +179,35 @@ class ByIdentifier(Base):
         self.assertEqual(pg.get_attribute('[data-trace-tab="frames"]', "aria-selected"), "true")
         self.assertTrue(all("pingpong_TPDO1" in r for r in self.rows()))
         self.assertEqual(len(self.rows()), 4)
+
+    def test_inspector_keeps_what_the_user_reads_while_live(self):
+        pg = self.page
+        self.record()
+        self.send(0x182, "01000000", n=2)
+        self.send(0x701, "05", n=2)
+        self.wait_count("701", "2")
+        pg.click(ROW % "701")
+        insp = "#trace-inspector [data-fx=inspector][data-kind=heartbeat]"
+        pg.wait_for_selector(insp)
+        pg.click(insp + " .fx-about > summary")
+        pg.click(insp + ' [data-field="0"]')
+        title = pg.inner_text(insp + " [data-fx=box] h4")
+        # A newer heartbeat rebuilds the inspector: About stays open, the
+        # explained field and the focus stay.
+        pg.eval_on_selector(insp, "e => { e.dataset.old = '1'; }")
+        self.send(0x701, "05", n=2)
+        pg.wait_for_selector(insp + ":not([data-old])")
+        self.assertTrue(pg.eval_on_selector(insp + " .fx-about", "d => d.open"))
+        self.assertEqual(pg.inner_text(insp + " [data-fx=box] h4"), title)
+        self.assertEqual(pg.evaluate("document.activeElement.dataset.field"), "0")
+        # Another identifier: About is still open, as the user left it.
+        pg.click(ROW % "182")
+        pg.wait_for_selector("#trace-inspector [data-fx=inspector][data-kind=pdo]")
+        self.assertTrue(pg.eval_on_selector("#trace-inspector .fx-about", "d => d.open"))
+        pg.click("#trace-inspector .fx-about > summary")
+        self.send(0x182, "02000000")
+        self.wait_count("182", "3")
+        pg.wait_for_selector("#trace-inspector [data-fx=inspector][data-kind=pdo] .fx-about:not([open])")
 
     def test_explain_in_frame_lab_and_back(self):
         pg = self.page
