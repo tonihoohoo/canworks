@@ -4824,13 +4824,14 @@ function notesEditable(name) { const b = notesOf(name); return !!(b && b.editabl
 
 // The device table with the page's unsaved edits: an edit replaces the
 // entry's note fields and keeps its other keys (name, hand-written extras).
+// A field of null clears the built-in or inherited field.
 function applyNoteEdits(table, edits) {
   const out = Object.assign({}, table || {});
   for (const [k, v] of Object.entries(edits || {})) {
     if (v === null) { delete out[k]; continue; }
     const entry = {};
     for (const [f, x] of Object.entries(out[k] || {})) if (!NOTE_FIELDS.includes(f)) entry[f] = x;
-    for (const f of NOTE_FIELDS) if (v[f] !== undefined && v[f] !== null && v[f] !== "") entry[f] = v[f];
+    for (const f of NOTE_FIELDS) if (v[f] !== undefined && v[f] !== "") entry[f] = v[f];
     out[k] = entry;
   }
   return out;
@@ -4918,12 +4919,40 @@ function parseNoteLines(text, what, pattern) {
 
 // The note editor of one object or sub-object of an EDS. Only the fields
 // that differ from the built-in note are kept in the device notes.
+// The note a sub-object shows without its own device entry: built-in, and
+// what it inherits from its object's device entry. What the editor clears.
+function noteUnder(block, name, index, sub, isVar, key) {
+  const edits = Object.assign({}, name ? noteEdits(name) || {} : {}, { [key]: null });
+  const device = block.error ? {} : applyNoteEdits(block.device, edits);
+  const m = Object.assign(noteLayer(block.builtin || {}, index, sub, isVar), noteLayer(device, index, sub, isVar));
+  const out = {};
+  for (const f of NOTE_FIELDS) if (m[f] !== undefined && m[f] !== null && m[f] !== "") out[f] = m[f];
+  return out;
+}
+
+const NOTE_TEXT = { values: noteLines, bits: noteLines };
+
 async function editNote(name, block, index, sub, isVar, label) {
   const key = isVar && num(sub) === 0 ? noteKey(index) : noteKey(index, sub);
   const cur = noteFor(block, name, index, sub, isVar);
-  const base = noteLayer(block.builtin || {}, index, sub, isVar);
-  const input = (f, attrs) => { const x = el("input", Object.assign({ type: "text", dataset: { noteField: f } }, attrs || {})); x.value = cur[f] === undefined ? "" : String(cur[f]); return x; };
-  const area = (f, value, rows) => { const x = el("textarea", { rows, dataset: { noteField: f } }); x.value = value; return x; };
+  const base = noteUnder(block, name, index, sub, isVar, key);
+  const shown = (f, v) => v === undefined ? "" : NOTE_TEXT[f] ? NOTE_TEXT[f](v) : String(v);
+  const hiddenHint = (f) => `${shown(f, base[f]).split("\n")[0]}${NOTE_TEXT[f] && Object.keys(base[f]).length > 1 ? " …" : ""} (built-in, hidden)`;
+  // A field that shows a built-in or inherited value: emptied, it is saved as
+  // null (hidden); its placeholder then names the hidden value and "Use
+  // built-in" puts it back.
+  const restore = {};
+  const hint = (f, x) => {
+    if (base[f] === undefined) return;
+    const btn = el("button", { type: "button", class: "link", dataset: { noteRestore: f }, title: "Show the built-in value again",
+      onclick: () => { x.value = shown(f, base[f]); sync(); } }, "Use built-in");
+    const sync = () => { const empty = !x.value.trim(); x.placeholder = empty ? hiddenHint(f) : ""; x.classList.toggle("note-hidden", empty); btn.hidden = x.value === shown(f, base[f]); };
+    x.addEventListener("input", sync);
+    restore[f] = { btn, sync };
+  };
+  const input = (f, attrs) => { const x = el("input", Object.assign({ type: "text", dataset: { noteField: f } }, attrs || {})); x.value = shown(f, cur[f]); hint(f, x); return x; };
+  const area = (f, value, rows) => { const x = el("textarea", { rows, dataset: { noteField: f } }); x.value = value; hint(f, x); return x; };
+  const withRestore = (f, labelText, x) => el("label", null, labelText, x, restore[f] ? restore[f].btn : null);
   const f = {
     text: input("text", { maxlength: 200 }), details: area("details", cur.details || "", 3), unit: input("unit", { maxlength: 20, class: "short" }),
     scale: input("scale", { class: "short", placeholder: "1" }), values: area("values", noteLines(cur.values), 4),
@@ -4931,13 +4960,14 @@ async function editNote(name, block, index, sub, isVar, label) {
   };
   const msg = el("p", { class: "field-msg" });
   const form = el("div", { class: "note-editor", dataset: { noteEditor: key } },
-    el("label", null, "Text (one line)", f.text), el("label", null, "Details", f.details),
-    el("div", { class: "row" }, el("label", null, "Unit", f.unit), el("label", null, "Scale (shown = raw × scale)", f.scale)),
-    el("label", null, "Value meanings, one per line: 3 = profile velocity", f.values),
-    el("label", null, "Bit names, one per line: 0 = ready", f.bits),
-    el("label", null, "Manual reference", f.manual), msg,
-    block.builtin && Object.keys(noteLayer(block.builtin, index, sub, isVar)).length
-      ? el("p", { class: "muted" }, "Starts from canworks' built-in note; only what you change is kept in " + (block.file || name + ".notes.json") + ".") : null);
+    withRestore("text", "Text (one line)", f.text), withRestore("details", "Details", f.details),
+    el("div", { class: "row" }, withRestore("unit", "Unit", f.unit), withRestore("scale", "Scale (shown = raw × scale)", f.scale)),
+    withRestore("values", "Value meanings, one per line: 3 = profile velocity", f.values),
+    withRestore("bits", "Bit names, one per line: 0 = ready", f.bits),
+    withRestore("manual", "Manual reference", f.manual), msg,
+    Object.keys(base).length
+      ? el("p", { class: "muted" }, "Starts from canworks' built-in note; only what you change is kept in " + (block.file || name + ".notes.json") + ". Empty a field to hide its built-in value.") : null);
+  for (const r of Object.values(restore)) r.sync();
   for (;;) {
     const v = await modal(`Note for ${label}`, [["cancel", "Cancel"], ["clear", "Remove my note"], ["save", "Keep note", true]], form);
     if (v !== "save" && v !== "clear") return false;
@@ -4953,7 +4983,10 @@ async function editNote(name, block, index, sub, isVar, label) {
         if (!Object.keys(got.bits).length && !(base.bits && !Object.keys(base.bits).length)) got.bits = undefined;
         for (const k of NOTE_FIELDS) {
           const x = got[k];
-          if (x === undefined || x === "") continue;
+          if (x === undefined || x === "") {
+            if (base[k] !== undefined && !(k === "bits" && !Object.keys(base.bits).length)) entry[k] = null;  // hidden
+            continue;
+          }
           if (JSON.stringify(x) === JSON.stringify(base[k])) continue;
           entry[k] = x;
         }

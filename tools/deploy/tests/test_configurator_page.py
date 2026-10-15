@@ -832,6 +832,47 @@ class Page(unittest.TestCase):
                                                         "values": {"1": "two-wire", "30": "four-wire"}})
         self.assertEqual(notes["eds"]["file"], "rtd8.eds")
 
+    def test_note_editor_hides_builtin_field(self):
+        # Emptying a built-in field in the Note editor hides it (null in the
+        # notes file); Use built-in brings it back (clear-builtin-note-fields).
+        pg = self.page
+        self.open_from_start("#start-project", self.project)
+        self.fill("adapter.interface", "can0")
+        self.add_node(os.path.join(RTD, "rtd8.eds"))
+        self.fill("nodes[0].node_id", "5")
+        node_tab(pg, "notes")
+
+        def edit():
+            pg.click("button[data-add-note]")
+            pg.fill("#modal [data-note-picker-filter]", "1017")
+            pg.keyboard.press("Enter")
+            pg.wait_for_selector("#modal .note-editor")
+
+        edit()
+        unit = '#modal [data-note-field="unit"]'
+        self.assertEqual(pg.input_value(unit), "ms")
+        self.assertTrue(pg.is_hidden('#modal [data-note-restore="unit"]'))
+        pg.fill(unit, "")
+        self.assertIn("ms (built-in, hidden)", pg.get_attribute(unit, "placeholder"))
+        self.assertTrue(pg.is_visible('#modal [data-note-restore="unit"]'))
+        pg.click('#modal button[data-value="save"]')
+        pg.wait_for_selector('[data-note-row="0x1017:0"][data-note-source="changed"]')
+        self.save()
+        notes = load(os.path.join(self.project, "canworks", "rtd8.eds.notes.json"))
+        self.assertEqual(notes["objects"]["0x1017"], {"name": "Producer heartbeat time", "unit": None})
+        # Reopened: the hidden value is named; Use built-in puts it back.
+        edit()
+        self.assertEqual(pg.input_value(unit), "")
+        self.assertIn("ms (built-in, hidden)", pg.get_attribute(unit, "placeholder"))
+        pg.click('#modal [data-note-restore="unit"]')
+        self.assertEqual(pg.input_value(unit), "ms")
+        pg.click('#modal button[data-value="save"]')
+        pg.wait_for_selector('[data-notes-empty="mine"]')
+        # Ctrl+Z brings the hidden unit back.
+        pg.click("[data-node-heading]")
+        pg.keyboard.press("Control+z")
+        pg.wait_for_selector('[data-note-row="0x1017:0"][data-note-source="changed"]')
+
     def test_notes_tab_import_export_undo(self):
         # The Notes tab (notes-tab-own-notes): own notes first, export,
         # import with a preview, undo, and Save.
