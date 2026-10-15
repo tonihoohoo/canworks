@@ -9,6 +9,7 @@ every step, written out when a step fails."""
 import contextlib
 import os
 import re
+import tempfile
 
 POINTER = {"click", "dblclick", "hover", "tap", "check", "uncheck", "set_checked", "select_option",
            "drag_and_drop", "drag_to", "mouse", "touchscreen", "set_input_files", "fill"}
@@ -67,7 +68,7 @@ class KeyboardOnly(_Guard):
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "audit", audit)
         object.__setattr__(self, "fit_check", fit_check)
-        object.__setattr__(self, "out_dir", out_dir or os.environ.get("CANWORKS_TASK_SHOTS") or os.path.join(os.getcwd(), "task-shots"))
+        object.__setattr__(self, "out_dir", out_dir or os.environ.get("CANWORKS_TASK_SHOTS") or os.path.join(tempfile.gettempdir(), "canworks-task-shots"))
         object.__setattr__(self, "shots", [])
 
     # -- keys -----------------------------------------------------------------

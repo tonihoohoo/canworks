@@ -83,7 +83,7 @@ The deploy tool does the same upload from a command line: `canworks-deploy --run
 
 In the configurator, switch to **Commission** at the top and, in the connect form on the Nodes table, pick **Local simulator runtime** with the token `virtual-plant-demo` ([configurator.md](configurator.md#online-view)). The connection bar then shows the runtime; pick each network there:
 
-- `io`: master and bus state, nodes 5, 6, 7 OPERATIONAL, the TPDO 1 timeout line of node 5, the SDO variables of node 6, every 60 s an EMCY 0x5000 from node 5 (the simulation's wire-break timeline) in its **Emergency history**.
+- `io`: master and bus state, nodes 5, 6, 7 OPERATIONAL (the filled circle on the tree and in the Nodes table; **Settings** → **Colours and icons** lists every icon), the TPDO 1 timeout line of node 5, the SDO variables of node 6, every 60 s an EMCY 0x5000 from node 5 (the simulation's wire-break timeline) in its **Emergency history**.
 - `cell`: the plugin's own device, node 20: its state, SYNC count, PDOs with the gateway routes, and the gateway row: 2 routes, upper master present.
 - On node 6, **NMT** → **Reset node**: the node boots again, and because its configuration stamp (0x1020) still matches, the master starts it without downloading the configuration again ([config.md](config.md#configuration-check)).
 
