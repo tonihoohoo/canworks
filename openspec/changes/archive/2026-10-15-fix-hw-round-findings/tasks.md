@@ -12,7 +12,7 @@
 ## 2. Docs and version
 
 - [x] 2.1 `docs/pc-adapter.md` and `docs/install-pc.md`: gs_usb on Windows needs nothing else; `docs/diagnostics.md`: `boots`; `docs/trace.md`: layouts read in a trace; README
-- [x] 2.2 Tools 0.69.0
+- [x] 2.2 Tools 0.70.0 (0.69.0 went to device notes from a datasheet)
 
 ## 3. Hardware
 
