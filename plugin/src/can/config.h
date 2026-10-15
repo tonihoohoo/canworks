@@ -243,10 +243,6 @@ struct NodeConfig {
   uint32_t eds_product_code = 0;
   uint32_t eds_revision_number = 0;
   bool eds_lss_supported = false;  // [DeviceInfo] LSS_Supported=1
-  std::string software_file;           // as written in the JSON
-  std::string software_path;           // resolved like `eds`
-  bool has_software_version = false;
-  uint32_t software_version = 0;
   std::vector<PdoConfig> tx_pdos;  // slave -> master, land in %I*
   std::vector<PdoConfig> rx_pdos;  // master -> slave, fed from %Q*
   std::vector<StartupSdo> sdos;    // startup SDOs, in list order

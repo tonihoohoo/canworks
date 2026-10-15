@@ -374,8 +374,6 @@ std::string make_dcfgen_yaml(const Config& cfg, const std::string& work_dir) {
       for (const auto& eb : n.error_behavior) y << "    " << eb.first << ": " << eb.second << "\n";
     }
     if (n.has_restore_configuration) y << "  restore_configuration: " << n.restore_configuration << "\n";
-    if (!n.software_file.empty()) y << "  software_file: " << yq(n.software_path) << "\n";
-    if (n.has_software_version) y << "  software_version: " << n.software_version << "\n";
     emit_pdos(y, n, true);
     emit_pdos(y, n, false);
   }

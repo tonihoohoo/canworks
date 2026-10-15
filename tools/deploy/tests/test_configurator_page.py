@@ -666,10 +666,14 @@ class Page(unittest.TestCase):
         self.assertIn("drive.iRatioTechUnitsNum := DINT#10;", block)
         self.assertIn("drive.fScalefactor := LREAL#2.5;", block)
         self.assertIn("bOnline := drive_ok", block)
-        # A device that is not a CiA 402 drive: the profile warning.
+        # A device that is not a CiA 402 drive (no 0x6040 and 0x6041): the switch is off and says why.
         pg.click('#node-list [data-node="0"]')
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
-        pg.check('input[data-path="nodes[1].axis"]')
+        self.assertTrue(pg.is_disabled('input[data-path="nodes[1].axis"]'))
+        self.assertIn("not a CiA 402 drive", pg.inner_text("[data-axis-no-drive]"))
+        # An axis set already (an older file) can still be switched off; the profile warning shows.
+        pg.evaluate("() => { setPath('nodes[1].axis', {}); changed(); render(); }")
+        self.assertFalse(pg.is_disabled('input[data-path="nodes[1].axis"]'))
         self.assertEqual(pg.locator("[data-axis-profile]").count(), 1)
         pg.click('button[data-map-cia402="nodes[1]"]')
         pg.wait_for_selector("[data-axis-result] li:has-text('0x6040 controlword: not in the EDS')")

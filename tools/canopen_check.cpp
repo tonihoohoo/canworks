@@ -9,9 +9,8 @@
 // --dump-writes also prints each node's configuration download as the
 // plugin performs it, one write per line in download order:
 //   write <node ID> 0x<index> <sub-index> <data bytes, hex>
-// followed by the boot steps that are not object writes:
+// followed by the boot step that is not an object write:
 //   step <node ID> restore <0x1011 sub-index>
-//   step <node ID> firmware <software_file>
 // The deploy tool's DCF export is tested against this list.
 //
 // A file with several networks (schema_version 2) is checked network by
@@ -178,7 +177,6 @@ int main(int argc, char** argv) {
           std::printf("\n");
         }
       if (n.has_restore_configuration) std::printf("step %u restore %u\n", n.node_id, n.restore_configuration);
-      if (!n.software_file.empty()) std::printf("step %u firmware %s\n", n.node_id, n.software_file.c_str());
     }
   }
   return 0;

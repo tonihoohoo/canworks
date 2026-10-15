@@ -6,12 +6,11 @@ socketcan:can0, or any other python-can interface (gs_usb:0, pcan:PCAN_USBBUS1,
 in-process bus, for tests.
 
 open() is the one place an adapter is opened. With `listen_only` the
-adapter receives without acknowledging or sending anything (bit rate
-detection): slcan opens the channel in silent mode ('m1', then 'O') where
-the firmware takes 'm1', else with 'L' instead of 'O', PCAN gets its
-listen-only parameter, and a SocketCAN link is set listen-only with `ip`
-(root or CAP_NET_ADMIN) and set back when the adapter is closed. Other
-adapter types have no listen-only mode here.
+adapter receives without acknowledging or sending anything while the bit
+rate check listens (core.check_bitrate): slcan opens the channel in silent
+mode ('m1', then 'O') where the firmware takes 'm1', else with 'L', and
+gs_usb starts its channel listen-only when the device has that mode. Other
+adapter types open normally.
 """
 
 import json
@@ -24,13 +23,7 @@ import time
 
 SUPPORTED = ("slcan", "socketcan")  # tested; anything else python-can knows is passed through
 TEST_ONLY = ("virtual",)
-LISTEN_ONLY = ("slcan", "pcan", "socketcan", "virtual")  # the types open(listen_only=True) takes
 SLCAN_KBIT = (10, 20, 50, 100, 125, 250, 500, 750, 1000)  # the rates python-can sets on slcan (S0-S8)
-NO_LISTEN_ONLY = "the adapter's driver has no listen-only mode"
-# The plugin's kUnconfirmedListenOnly: the request may be repeated with disturb_bus.
-DISTURB_NEEDED = "disturb_bus needed"
-UNCONFIRMED = ("the adapter did not answer its silent mode command, so it may not only listen: at a wrong bit rate "
-               "it can send error frames that disturb the devices on the bus; " + DISTURB_NEEDED)
 
 # USB IDs of adapters that run slcan firmware out of the box.
 SLCAN_USB_IDS = {
@@ -45,8 +38,7 @@ OTHER_USB_IDS = {
 
 class AdapterError(Exception):
     """kind: usage (bad spec or bit rate), busy (another tool has it open),
-    unreachable (cannot be opened), unconfirmed (listen-only asked for, and
-    the adapter does not confirm it: UNCONFIRMED)."""
+    unreachable (cannot be opened), bitrate (the bit rate check refused it)."""
 
     def __init__(self, kind, message):
         super().__init__(message)
@@ -213,72 +205,29 @@ def _socketcan_up(interface, bitrate):
     return bitrate
 
 
-def _ip(args):
-    """Runs `ip ARGS`: '' or the error text."""
-    try:
-        r = subprocess.run(["ip"] + args, capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError) as e:
-        return str(e) or "ip failed"
-    return "" if r.returncode == 0 else (r.stderr.strip() or "ip exited with status %d" % r.returncode)
+# ---------------------------------------------------------------------------
+# slcan
 
 
-def _socketcan_listen_only(interface, bitrate):
-    """Sets the link to `bitrate` in listen-only mode and up. Returns a
-    function that sets it back as it was (its bit rate, listen-only off, up
-    or down), which returns '' or what failed."""
-    link = _link(interface)
-    if link is None:
-        raise AdapterError("unreachable", "cannot read CAN interface %s's link settings ('ip' is missing or "
-                                          "too old)" % interface)
-    up, rate, kind = link
-    if kind != "can":
-        raise AdapterError("usage", "no bit rate on a virtual bus (%s is %s)" % (interface, kind or "not a CAN "
-                                                                                "controller"))
-    setting = ["link", "set", "dev", interface, "type", "can", "bitrate", str(bitrate), "listen-only", "on"]
-
-    def restore():
-        errors = [e for e in (_ip(["link", "set", "dev", interface, "down"]),
-                              _ip(["link", "set", "dev", interface, "type", "can"] +
-                                  (["bitrate", str(rate)] if rate else []) + ["listen-only", "off"]),
-                              _ip(["link", "set", "dev", interface, "up"]) if up else "") if e]
-        return "cannot set CAN interface %s back: %s" % (interface, errors[0]) if errors else ""
-
-    err = _ip(["link", "set", "dev", interface, "down"]) or _ip(setting) or \
-        _ip(["link", "set", "dev", interface, "up"])
-    if not err:
-        return restore
-    restore()
-    low = err.lower()
-    if "not supported" in low:
-        raise AdapterError("usage", "%s (%s: %s)" % (NO_LISTEN_ONLY, interface, err))
-    if "not permitted" in low or "permission" in low:
-        raise AdapterError("usage", "setting CAN interface %s listen-only needs root or CAP_NET_ADMIN (%s); run the "
-                                    "tool with sudo for bit rate detection: at each rate it runs 'sudo ip %s'"
-                           % (interface, err, " ".join(setting)))
-    raise AdapterError("unreachable", "cannot set CAN interface %s listen-only at %d kbit/s: %s"
-                       % (interface, bitrate // 1000, err))
-
-
-def _slcan_bus(listen_only, disturb_bus=False):
-    """python-can's slcan bus, opening the channel the way bit rate detection
-    needs, also when it reopens it to change the bit rate.
+def _slcan_bus(listen_only):
+    """python-can's slcan bus, opened listen-only for the bit rate check when
+    asked, and switched to normal mode afterwards on the same serial port.
 
     Listen-only: some slcan firmware takes 'L' and then receives nothing, so
     silent mode is asked for first: 'm1' (receive without acknowledging or
     sending), then 'O'. Firmware without 'm1' answers with an error (BEL) and
-    gets 'L'. Some firmware answers no command at all and may ignore 'm1':
-    then the channel stays closed and `unconfirmed` is set, unless
-    `disturb_bus`. Closing sets the mode back with 'm0'. A normal open sends 'm0'
-    before 'O' too, so a sweep that died in silent mode cannot leave the
-    adapter mute. open() does nothing while the channel is open: python-can
-    4.6 opens it in set_bitrate() and then once more, and commands to an
-    open channel on a busy bus meet a stream of frames."""
+    gets 'L'. Firmware that answers nothing is opened normally ('O'): the
+    check then receives in normal mode. A normal open sends 'm0' before 'O',
+    so a check that died in silent mode cannot leave the adapter mute. open()
+    does nothing while the channel is open: python-can 4.6 opens it in
+    set_bitrate() and then once more, and commands to an open channel on a
+    busy bus meet a stream of frames."""
     from can.interfaces.slcan import slcanBus
 
     class Slcan(slcanBus):
-        _silent = False
+        _silent = False  # 'm1' taken: 'm0' when leaving it
+        _listen = False  # opened with 'L'
         _open = False
-        unconfirmed = False
 
         def _ask(self, cmd):
             # Answers to the commands before (close, bit rate) are not
@@ -303,15 +252,22 @@ def _slcan_bus(listen_only, disturb_bus=False):
             self._open = True
             if listen_only:
                 answer = self._ask("m1")
-                self._silent = answer is not False  # 'm0' on close, also after an unanswered 'm1'
-                if answer is None:
-                    self.unconfirmed = True
-                    if not disturb_bus:
-                        return  # open() in adapter refuses it
-                self._write("O" if self._silent else "L")
+                self._silent = answer is True
+                self._listen = answer is False
+                self._write("L" if self._listen else "O")
             else:
                 self._ask("m0")
                 self._write("O")
+
+        def normal(self):
+            """Leaves listen-only: closes the channel, 'm0', opens it again."""
+            if not (self._silent or self._listen):
+                return
+            self._write("C")
+            if self._silent:
+                self._ask("m0")
+            self._silent = self._listen = False
+            self._write("O")
 
         def close(self):
             super().close()
@@ -324,32 +280,48 @@ def _slcan_bus(listen_only, disturb_bus=False):
 
 
 # ---------------------------------------------------------------------------
-# Opening
+# gs_usb (candleLight)
+
+# gs_usb device mode flags (the device's feature bits are the same).
+GS_LISTEN_ONLY = 1 << 0
+GS_ONE_SHOT = 1 << 3
+GS_HW_TIMESTAMP = 1 << 4
+GS_BERR_REPORTING = 1 << 12
+GS_MODE_RESET, GS_MODE_START = 0, 1
+GS_BREQ_MODE = 2
+SAMPLE_POINTS = (87.5, 85.0, 80.0, 75.0)
+USB_STALL = ("does not answer (USB stall): unplug it and plug it in again")
 
 
 def _gs_usb_options(spec, kwargs):
-    """gs_usb outside Linux. The gs_usb package resets the USB device and
-    then detaches a kernel driver when libusb reports one; on macOS libusb
-    reports one after the reset and detaching needs root ("Access denied"),
-    though there is no driver to detach. And python-can's gs_usb opened by
-    number opens and starts the adapter once more when it closes it, after
-    which some adapters receive nothing until they are plugged in again. So
-    the detach is skipped (macOS and Windows have no gs_usb kernel driver)
-    and the adapter numbered CHANNEL is opened by its USB bus and address."""
+    """gs_usb. The gs_usb package resets the USB device and then detaches a
+    kernel driver when libusb reports one; on macOS libusb reports one after
+    the reset and detaching needs root ("Access denied"), though there is no
+    driver to detach. And python-can's gs_usb opened by number opens and
+    starts the adapter once more when it closes it, after which some adapters
+    receive nothing until they are plugged in again. So the detach is skipped
+    outside Linux (macOS and Windows have no gs_usb kernel driver), the
+    adapter numbered CHANNEL is opened by its USB bus and address, and
+    python-can's own start is held back while the bus is built: open() sets
+    the timing and starts the channel itself, in the mode it needs."""
     from gs_usb.gs_usb import GsUsb
-    if not getattr(GsUsb, "_openplc_no_detach", False):
+    if not getattr(GsUsb, "_canworks_patched", False):
         start = GsUsb.start
 
-        def start_without_detach(self, *args, **kw):
+        def patched_start(self, *args, **kw):
+            if getattr(GsUsb, "_canworks_hold", False):
+                return None  # open() starts the channel
             dev = self.gs_usb
-            dev.is_kernel_driver_active = lambda interface: False
+            if not sys.platform.startswith("linux"):
+                dev.is_kernel_driver_active = lambda interface: False
             try:
                 return start(self, *args, **kw)
             finally:
-                del dev.is_kernel_driver_active
+                if not sys.platform.startswith("linux"):
+                    del dev.is_kernel_driver_active
 
-        GsUsb.start = start_without_detach
-        GsUsb._openplc_no_detach = True
+        GsUsb.start = patched_start
+        GsUsb._canworks_patched = True
     if "index" in kwargs or "bus" in kwargs or "address" in kwargs:
         return
     try:
@@ -363,23 +335,52 @@ def _gs_usb_options(spec, kwargs):
     kwargs["bus"], kwargs["address"] = devices[index].bus, devices[index].address
 
 
-def _gs_usb_retune(bus, bitrate):
-    """A new bit rate on an open gs_usb adapter, on the same USB handle: stop
-    the CAN channel, set the timing, start it again. Closing and opening the
-    adapter instead resets the USB device each time, which on macOS can leave
-    it receiving nothing until it is plugged in again."""
-    import can
-    from gs_usb.gs_usb import _GS_USB_BREQ_MODE, GS_CAN_MODE_START
+def gs_usb_timing(cap, bitrate):
+    """(prop_seg, phase_seg1, phase_seg2, sjw, brp) for `bitrate` within the
+    device's own limits (`cap`: the gs_usb device capability), trying the
+    sample points 87.5, 85, 80 and 75 %; None when none fits."""
+    fclk = cap.fclk_can
+    t1min, t1max = getattr(cap, "tseg1_min", 1), getattr(cap, "tseg1_max", 16)
+    t2min, t2max = getattr(cap, "tseg2_min", 1), getattr(cap, "tseg2_max", 8)
+    sjwmax = getattr(cap, "sjw_max", 4)
+    bmin, bmax = getattr(cap, "brp_min", 1), getattr(cap, "brp_max", 1024)
+    binc = max(1, getattr(cap, "brp_inc", 1))
+    for sp in SAMPLE_POINTS:
+        best = None
+        for brp in range(max(1, bmin), bmax + 1, binc):
+            if fclk % (bitrate * brp):
+                continue
+            nbt = fclk // (bitrate * brp)  # time quanta per bit, sync segment included
+            if nbt < 8:
+                break
+            tseg2 = nbt - round(nbt * sp / 100.0)
+            tseg1 = nbt - 1 - tseg2
+            if not (t1min <= tseg1 <= t1max and t2min <= tseg2 <= t2max):
+                continue
+            err = abs((nbt - tseg2) * 100.0 / nbt - sp)
+            if err <= 2.5 and (best is None or err < best[0]):
+                best = (err, (1, tseg1 - 1, tseg2, min(tseg2, sjwmax), brp))
+        if best:
+            return best[1]
+    return None
+
+
+def _gs_usb_mode(dev, flags):
+    """Starts the channel with `flags` (those the device has), on the open
+    USB handle: no USB reset."""
     from gs_usb.gs_usb_structures import DeviceMode
-    dev = bus.gs_usb
-    dev.stop()
-    timing = can.BitTiming.from_sample_point(f_clock=dev.device_capability.fclk_can, bitrate=bitrate,
-                                             sample_point=87.5)
-    dev.set_timing(prop_seg=1, phase_seg1=timing.tseg1 - 1, phase_seg2=timing.tseg2, sjw=timing.sjw,
-                   brp=timing.brp)
-    dev.gs_usb.ctrl_transfer(0x41, _GS_USB_BREQ_MODE, 0, 0, DeviceMode(GS_CAN_MODE_START, dev.device_flags).pack())
-    if hasattr(bus, "_bitrate"):
-        bus._bitrate = bitrate
+    flags &= dev.device_capability.feature
+    dev.gs_usb.ctrl_transfer(0x41, GS_BREQ_MODE, 0, 0, DeviceMode(GS_MODE_START, flags).pack())
+    dev.device_flags = flags  # read() and send() size the frames by the timestamp flag
+
+
+def _gs_usb_reset(dev):
+    """Puts the channel in reset mode; never raises."""
+    try:
+        from gs_usb.gs_usb_structures import DeviceMode
+        dev.gs_usb.ctrl_transfer(0x41, GS_BREQ_MODE, 0, 0, DeviceMode(GS_MODE_RESET, 0).pack())
+    except Exception:  # unplugged, or stalled
+        pass
 
 
 def _gs_usb_release(bus):
@@ -392,125 +393,190 @@ def _gs_usb_release(bus):
         pass
 
 
+def _stalled(e):
+    return getattr(e, "errno", None) == 32 or "pipe error" in str(e).lower()
+
+
+def _gs_usb_open(spec, bitrate, listen_only, kwargs):
+    """python-can's gs_usb bus with the timing set from the device's limits
+    and the channel started (listen-only when asked and the device has it).
+    A USB stall resets the USB device and tries once more."""
+    import can
+    from gs_usb.gs_usb import GsUsb
+    _gs_usb_options(spec, kwargs)
+    for attempt in (1, 2):
+        bus = None
+        try:
+            GsUsb._canworks_hold = True
+            try:
+                # python-can computes its own timing for the rate it is given
+                # (sample point 87.5 % only) and sets it; ours follows, with
+                # the device's limits, before the channel starts.
+                bus = can.Bus(interface="gs_usb", channel=spec.channel, bitrate=500000, **kwargs)
+            finally:
+                GsUsb._canworks_hold = False
+            dev = bus.gs_usb
+            timing = gs_usb_timing(dev.device_capability, bitrate)
+            if timing is None:
+                raise AdapterError("usage", "adapter %s cannot run at %d kbit/s (no bit timing within its limits)"
+                                   % (spec, bitrate // 1000))
+            dev.set_timing(*timing)
+            flags = GS_HW_TIMESTAMP | GS_BERR_REPORTING | (GS_LISTEN_ONLY if listen_only else 0)
+            _gs_usb_mode(dev, flags)
+            if hasattr(bus, "_bitrate"):
+                bus._bitrate = bitrate
+            return bus
+        except AdapterError:
+            _gs_usb_shut(bus)
+            raise
+        except Exception as e:
+            _gs_usb_shut(bus)
+            if not _stalled(e):
+                raise
+            if attempt == 2:
+                raise AdapterError("unreachable", "adapter %s %s" % (spec, USB_STALL))
+            _usb_reset(kwargs)
+
+
+def _gs_usb_shut(bus):
+    if bus is None:
+        return
+    _gs_usb_reset(bus.gs_usb)
+    try:
+        bus.shutdown()
+    except Exception:
+        pass
+    _gs_usb_release(bus)
+
+
+def _usb_reset(kwargs):
+    """Resets the gs_usb device at kwargs' USB bus and address."""
+    try:
+        import usb.core
+        dev = usb.core.find(bus=kwargs.get("bus"), address=kwargs.get("address"))
+        if dev is not None:
+            dev.reset()
+            time.sleep(0.5)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Opening
+
+# How an adapter tells that a frame it sent got out (the bit rate check's
+# probe): its own echo (gs_usb), no error frame afterwards (adapters that
+# report error frames), or not at all (slcan and the untested types).
+CONFIRM_ECHO, CONFIRM_NO_ERRORS = "echo", "no errors"
+
+
 class Opened:
     """An open adapter: `bus` (a python-can Bus), the bit rate in use, and the
-    lock that keeps other tools off it."""
+    lock that keeps other tools off it. `echoes`: the adapter hands back each
+    frame it sent (not a received frame); `confirm`: how a sent frame is
+    known to be out (CONFIRM_ECHO, CONFIRM_NO_ERRORS or None)."""
 
-    def __init__(self, spec, bus, bitrate, lock, listen_only=False, restore=None):
+    def __init__(self, spec, bus, bitrate, lock, listen_only=False):
         self.spec, self.bus, self.bitrate, self._lock = spec, bus, bitrate, lock
         self.listen_only = listen_only
-        self.restore = restore  # a listen-only SocketCAN link: sets the link back, '' or what failed
+        self.echoes = spec.kind == "gs_usb" or (spec.kind == "virtual" and bool(spec.options.get(
+            "receive_own_messages")))
+        if self.echoes:
+            self.confirm = CONFIRM_ECHO
+        elif spec.kind in ("socketcan", "virtual"):
+            self.confirm = CONFIRM_NO_ERRORS
+        else:
+            self.confirm = None
 
-    def retune(self, bitrate):
-        """Changes the bit rate without closing the adapter where the adapter
-        can (slcan: no new serial connection). False: close and open again."""
-        if self.spec.kind == "gs_usb" and hasattr(self.bus, "gs_usb"):
-            try:
-                _gs_usb_retune(self.bus, bitrate)
-            except Exception as e:
-                raise AdapterError("unreachable", "cannot set adapter %s to %d kbit/s: %s"
-                                   % (self.spec, bitrate // 1000, e))
-            self.bitrate = bitrate
-            return True
-        if self.spec.kind != "slcan" or not hasattr(self.bus, "set_bitrate"):
-            return False
+    def set_mode(self, listen_only=False, one_shot=False):
+        """Changes the adapter's mode on the open handle: listen-only off
+        (slcan, gs_usb), one-shot (gs_usb: a frame nobody acknowledges is not
+        sent again). Raises AdapterError."""
         try:
-            self.bus.set_bitrate(bitrate)
+            if self.spec.kind == "gs_usb" and hasattr(self.bus, "gs_usb"):
+                dev = self.bus.gs_usb
+                _gs_usb_reset(dev)
+                _gs_usb_mode(dev, GS_HW_TIMESTAMP | GS_BERR_REPORTING | (GS_LISTEN_ONLY if listen_only else 0) |
+                             (GS_ONE_SHOT if one_shot else 0))
+            elif self.spec.kind == "slcan" and not listen_only and hasattr(self.bus, "normal"):
+                self.bus.normal()
         except Exception as e:
-            raise AdapterError("unreachable", "cannot set adapter %s to %d kbit/s: %s" % (self.spec, bitrate // 1000,
-                                                                                        e))
-        self.bitrate = bitrate
-        return True
+            if self.spec.kind == "gs_usb":
+                _gs_usb_reset(self.bus.gs_usb)
+            if _stalled(e):
+                raise AdapterError("unreachable", "adapter %s %s" % (self.spec, USB_STALL))
+            raise AdapterError("unreachable", "cannot set adapter %s's mode: %s" % (self.spec, e))
+        self.listen_only = listen_only
 
-    def close(self, restore=True):
-        """Closes the adapter; a listen-only SocketCAN link is set back unless
-        `restore` is False (a sweep sets it back once, at its end). Returns ''
-        or why the link could not be set back."""
-        try:
-            self.bus.shutdown()
-        except Exception:  # an adapter unplugged meanwhile
-            pass
-        if self.spec.kind == "gs_usb":
-            _gs_usb_release(self.bus)
-        err = ""
-        if restore and self.restore:
-            err = self.restore()
-            self.restore = None
+    def close(self):
+        """Closes the adapter (a gs_usb channel is put in reset mode first);
+        a second call does nothing."""
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        if self.spec.kind == "gs_usb" and hasattr(self.bus, "gs_usb"):
+            _gs_usb_shut(self.bus)
+        else:
+            try:
+                self.bus.shutdown()
+            except Exception:  # an adapter unplugged meanwhile
+                pass
         self._lock.release()
-        return err
 
 
-def unsupported_rates(spec, rates_kbit):
-    """The rates (kbit/s) of `rates_kbit` this adapter type cannot be set to:
-    python-can's slcan driver has no 800 kbit/s, for one."""
-    if spec.kind == "slcan":
-        return [k for k in rates_kbit if k not in SLCAN_KBIT]
-    return []
-
-
-def open(spec, bitrate, listen_only=False, options=None, disturb_bus=False,  # noqa: A001 - the module's one entry point
-         shared=False):
-    """Open `spec` (a Spec) at `bitrate` (bit/s), with `listen_only` without
-    acknowledging or sending anything. An adapter that does not confirm
-    listen-only is refused (kind unconfirmed) unless `disturb_bus`. With
-    `shared`, a SocketCAN link or the in-process virtual bus is opened without
-    the one-tool lock, as several programs can use those at once (J1939
-    simulators side by side on vcan0). Raises AdapterError."""
-    if listen_only and spec.kind not in LISTEN_ONLY:
-        raise AdapterError("usage", "%s (%s adapters; slcan, PCAN and SocketCAN have one)" % (NO_LISTEN_ONLY,
-                                                                                              spec.kind))
+def open(spec, bitrate, listen_only=False, options=None, shared=False):  # noqa: A001 - the module's one entry point
+    """Open `spec` (a Spec) at `bitrate` (bit/s). With `listen_only` the
+    adapter receives without acknowledging or sending where it has such a
+    mode (slcan, gs_usb; others open normally); the bit rate check leaves it
+    with Opened.set_mode(). With `shared`, a SocketCAN link or the in-process
+    virtual bus is opened without the one-tool lock, as several programs can
+    use those at once (J1939 simulators side by side on vcan0). Raises
+    AdapterError."""
     if not bitrate:
         raise AdapterError("usage", "the bit rate is needed: give --bitrate KBIT, or --config with the network's "
                                     "adapter.bitrate")
+    if spec.kind == "slcan" and bitrate // 1000 not in SLCAN_KBIT:
+        raise AdapterError("usage", "adapter %s cannot run at %d kbit/s (slcan has %s kbit/s)" % (
+            spec, bitrate // 1000, ", ".join(str(k) for k in SLCAN_KBIT)))
     try:
         import can
     except ImportError:
         raise AdapterError("unreachable", "python-can is not installed; reinstall the PC tools")
     lock = _Lock(spec)
-    unlocked = shared and spec.kind in ("socketcan", "virtual") and not listen_only  # release() is then a no-op
+    unlocked = shared and spec.kind in ("socketcan", "virtual")  # release() is then a no-op
     if not unlocked and not lock.acquire():
         raise AdapterError("busy", "adapter %s in use (another tool has it open)" % spec)
     kwargs = dict(spec.options)
     kwargs.update(options or {})
-    restore = None
     try:
         if spec.kind == "socketcan":
             if not sys.platform.startswith("linux"):
                 raise AdapterError("usage", "socketcan adapters exist on Linux only; use slcan:PORT on this PC")
-            if listen_only:
-                restore = _socketcan_listen_only(spec.channel, bitrate)
-            else:
-                bitrate = _socketcan_up(spec.channel, bitrate)
+            bitrate = _socketcan_up(spec.channel, bitrate)
+            listen_only = False
         elif spec.kind == "virtual":
-            kwargs.setdefault("receive_own_messages", False)  # no listen-only on the in-process bus: tests
-        else:
+            kwargs.setdefault("receive_own_messages", False)
+            listen_only = False
+        elif spec.kind != "gs_usb":
             kwargs["bitrate"] = bitrate
         if spec.kind == "slcan":
-            bus = _slcan_bus(listen_only, disturb_bus)(channel=spec.channel, **kwargs)
-            if bus.unconfirmed and not disturb_bus:
-                bus.shutdown()
-                raise AdapterError("unconfirmed", UNCONFIRMED)
+            bus = _slcan_bus(listen_only)(channel=spec.channel, **kwargs)
+        elif spec.kind == "gs_usb":
+            bus = _gs_usb_open(spec, bitrate, listen_only, kwargs)
         else:
-            if listen_only and spec.kind == "pcan":
-                kwargs["state"] = can.BusState.PASSIVE  # PCAN_LISTEN_ONLY on
-            if spec.kind == "gs_usb" and not sys.platform.startswith("linux"):
-                _gs_usb_options(spec, kwargs)
+            listen_only = False
             bus = can.Bus(interface=spec.kind, channel=spec.channel, **kwargs)
     except AdapterError:
-        if restore:
-            restore()
         lock.release()
         raise
     except Exception as e:  # python-can raises CanError, OSError, serial errors, ValueError, ...
-        if restore:
-            restore()
         lock.release()
         text = str(e) or e.__class__.__name__
         if spec.kind == "slcan" and ("busy" in text.lower() or "denied" in text.lower()):
             raise AdapterError("busy", "adapter %s in use (another program has the serial port open): %s"
                                % (spec, text))
         raise AdapterError("unreachable", "cannot open adapter %s: %s" % (spec, text))
-    return Opened(spec, bus, bitrate, lock, listen_only, restore)
+    return Opened(spec, bus, bitrate, lock, listen_only)
 
 
 # ---------------------------------------------------------------------------

@@ -240,7 +240,6 @@ def bridge_files(cfg, config_path, sim_path=None):
     folder holds them: {path: bytes} with "canworks.json" the config."""
     try:
         deployed, eds_by_name = bundle.rewrite(cfg, config_path)
-        fw_by_name = bundle.software_by_name(cfg, config_path)
         sim = None
         if sim_path:
             sim_data, sim_eds, sim_csv, sim_machines = bundle.sim_rewrite(simfile.load(sim_path), sim_path)
@@ -252,7 +251,7 @@ def bridge_files(cfg, config_path, sim_path=None):
     try:
         empty = os.path.join(work, "empty")
         os.makedirs(empty)
-        staged, _ = bundle.assemble(empty, deployed, eds_by_name, work, fw_by_name, sim)
+        staged, _ = bundle.assemble(empty, deployed, eds_by_name, work, sim)
         conf = os.path.join(staged, "conf")
         files = {}
         for root, dirs, names in os.walk(conf):
@@ -393,8 +392,7 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     missing = bundle.missing_eds(cfg, args.config) if isinstance(cfg, dict) else []
     if missing:
         raise Failure("\n".join(missing))
-    result = contract.check_config(cfg, args.config, eds_paths=bundle.eds_files(cfg, args.config),
-                                   software_paths=bundle.software_files(cfg, args.config))
+    result = contract.check_config(cfg, args.config, eds_paths=bundle.eds_files(cfg, args.config))
     for w in result.warnings:
         err("warning: " + w)
     if not result.ok:
@@ -514,7 +512,6 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     try:
         bundle.check_editor_bundle(bundle_dir)
         deployed, eds_by_name = bundle.rewrite(cfg, args.config)
-        fw_by_name = bundle.software_by_name(cfg, args.config)
         sim = None
         if sim_path:
             sim_data, sim_eds, sim_csv, sim_machines = bundle.sim_rewrite(simfile.load(sim_path), sim_path)
@@ -524,7 +521,7 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         raise Failure(str(e))
     work = bundle.temp_dir()
     try:
-        staged, converted = bundle.assemble(bundle_dir, deployed, eds_by_name, work, fw_by_name, sim)
+        staged, converted = bundle.assemble(bundle_dir, deployed, eds_by_name, work, sim)
         for name in converted:
             out("converted %s from CP1252 to UTF-8 in the bundle" % name)
 
@@ -542,9 +539,8 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
 
         zip_path = os.path.join(work, "program.zip")
         names = bundle.make_zip(staged, zip_path)
-        out("ok: bundle of %d files with conf/canworks.json and %d EDS file%s%s%s"
+        out("ok: bundle of %d files with conf/canworks.json and %d EDS file%s%s"
             % (len(names), len(eds_by_name), "" if len(eds_by_name) == 1 else "s",
-               " and %d program file%s" % (len(fw_by_name), "" if len(fw_by_name) == 1 else "s") if fw_by_name else "",
                ", conf/%s%s%s" % (bundle.SIM_FILE, " and %d CSV file%s" % (len(sim[1]), "" if len(sim[1]) == 1 else "s")
                                   if sim[1] else "", "".join(", conf/canworks/%s" % n for n in sorted(sim[2])))
                if sim else ""))

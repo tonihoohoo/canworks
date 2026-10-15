@@ -14,7 +14,6 @@ from canworks import commissioning as C
 from canworks import dcfexport
 from canworks import parameters as P
 
-from .fake_canopen import FakeDevice
 from .helpers import REPO
 from .test_localbus import Base, cli
 
@@ -365,78 +364,3 @@ class PdoTest(Base):
         self.assertGreater(n, 3)
         time.sleep(0.2)
         self.assertEqual(dev.syncs, n)
-
-
-class LoneSweep(Base):
-    def setUp(self):
-        super().setUp()
-        from canworks.localbus import adapter as adapter_mod
-        from canworks.localbus import parse
-        from unittest import mock
-        self.opened = []
-        real = adapter_mod.open
-
-        def opener(spec, bitrate, listen_only=False, options=None, **kw):
-            self.opened.append((bitrate, listen_only))
-            if bitrate != 250000:
-                spec = parse("virtual:lone-elsewhere-%d" % len(self.opened))  # a wrong rate: nothing gets through
-            return real(spec, bitrate, listen_only, options)
-
-        p = mock.patch.object(adapter_mod, "open", opener)
-        p.start()
-        self.addCleanup(p.stop)
-
-    def wait(self, c):
-        res = c.detect_bitrate_status()
-        end = time.monotonic() + 10
-        while res["running"] and time.monotonic() < end:
-            time.sleep(0.05)
-            res = c.detect_bitrate_status()
-        return res
-
-    def test_lss_probe_finds_a_quiet_device(self):
-        dev = self.device(None)
-        c = self.client(allow_changes=True)
-        c.detect_bitrate(rates=[500, 250], per_rate_ms=500, lone_device=True, probe="lss")  # room for the answer on a slow runner
-        res = self.wait(c)
-        self.assertEqual((res["verdict"], res["bitrate_kbit"]), ("detected", 250), res)
-        self.assertTrue(res["lone_device"])
-        # Normal mode at every rate tried, stopped at the device's.
-        tried = [b for b, lo in self.opened[1:-1]]
-        self.assertTrue(all(not lo for _, lo in self.opened[1:-1]))
-        self.assertEqual(tried[-1], 250000)
-        self.assertEqual(dev._lss_state, "waiting")
-
-    def test_guards(self):
-        c = self.client()
-        with self.assertRaises(Exception) as e:
-            c.detect_bitrate(lone_device=True)
-        self.assertIn("changes not allowed", str(e.exception))
-        self.device(5, heartbeat_s=0.05)
-        self.device(7, heartbeat_s=0.05)
-        c = self.client(allow_changes=True)
-        time.sleep(0.3)
-        with self.assertRaises(Exception) as e:
-            c.detect_bitrate(lone_device=True)
-        self.assertIn("more than one node", str(e.exception))
-        with self.assertRaises(Exception) as e:
-            c.request("detect_bitrate", probe="lss")
-        self.assertIn("needs 'lone_device'", str(e.exception))
-
-    def test_silent_hint_and_runtime_refusal(self):
-        from canworks import diag
-        c = self.client()
-        c.detect_bitrate(rates=[500], per_rate_ms=100)
-        res = self.wait(c)
-        self.assertEqual(res["verdict"], "silent")
-        self.assertIn("lone-device", res["hint"])
-        with self.assertRaises(diag.DiagError) as e:
-            diag.Client("x").detect_bitrate(lone_device=True)
-        self.assertIn("only on a USB adapter", str(e.exception))
-
-    def test_cli(self):
-        self.device(5, heartbeat_s=0.05)
-        code, out, err = cli("--adapter", "virtual:" + self.ch, "--bitrate", "500", "--allow-changes",
-                             "detect-bitrate", "--lone-device", "--per-rate-ms", "200")
-        self.assertEqual(code, 0, err)
-        self.assertIn("250 kbit/s detected", out)

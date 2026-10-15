@@ -24,7 +24,7 @@ test/commissioning/run.sh                       # write a configuration to one d
 test/localbus/run.sh                            # the PC tools on vcan0 without a runtime
 test/simulator/run.sh                           # canworks-sim against the plugin (needs vcan1)
 test/trace/run.sh                               # bus trace and its export formats
-test/rawframes/run.sh                           # raw frames sent by hand, raw messages, replay, bit rate detection refusals
+test/rawframes/run.sh                           # raw frames sent by hand, raw messages, replay, removed bit rate detection ops
 test/bus/run.sh                                 # bus state byte with vcan0 taken down and up
 test/slcan/run.sh                               # slcan adapter (needs the slcan module and vcan1)
 test/j1939/run.sh                               # the J1939 ECU against the J1939 simulator (needs can-j1939)
@@ -116,8 +116,8 @@ test/virtual-example/run.sh --image canworks-sim-runtime:dev --strucpp "$(script
 
 ```
 CMakeLists.txt     builds libcanworks_plugin.so; the runtime's install.sh builds it from here
-plugin/            native plugin source: src/can/ the shared CAN core (config, adapters, bit rate
-                   detection, trace, raw frames, diagnostics server, entry points), src/canopen/ the
+plugin/            native plugin source: src/can/ the shared CAN core (config, adapters, trace,
+                   raw frames, diagnostics server, entry points), src/canopen/ the
                    CANopen master, slave and gateway on Lely, src/j1939/ the J1939 ECU (address claim,
                    kernel sockets, signals), src/can/raw/ raw CAN messages, plain networks
                    and the frame blocks' interface, src/canopen/sim/ the device simulator

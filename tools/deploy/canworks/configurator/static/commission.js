@@ -1,35 +1,43 @@
 "use strict";
-// Commissioning one device (add-device-commissioning): Write configuration
-// and Restore defaults in a node's Parameters tab, the PDO test tab on a USB
-// adapter, "Only this device is on the bus" for Detect, and in Commission a
-// device the Steps panel, the commissioning log and "Add to a config…".
-// Loaded after app.js and uses its helpers.
+// Commission a device (add-device-commissioning, rework-commission-and-trim-
+// configurator): the Bus and master page (the USB adapter connection with
+// its bit rate check), the Nodes page (heard, scanned and added devices, LSS,
+// the node page), the commissioning log and "Add to a config…"; Write
+// configuration and Restore defaults in a node's Parameters tab and the PDO
+// test tab. Loaded after app.js and uses its helpers.
 
 // -- commissioning log ------------------------------------------------------------
-// Every change made through the page while on a USB adapter or in Commission
-// a device: UTC time, node, what and the result. Kept in the page only: no
-// host names or tokens, never written to a project.
+// Every change made through the page in Commission a device: UTC time, node,
+// what and the result. Kept in the page for this commissioning session only:
+// no host names or tokens, never written to a project.
 
 function commLogOn() {
-  return !!((S.state && S.state.commission) || (S.online && S.online.target === "adapter"));
+  return !!(S.state && S.state.commission);
 }
 
 function commLog(node, what, result) {
   if (!commLogOn()) return;
   S.commLog = S.commLog || [];
   S.commLog.push({ time: new Date().toISOString().replace(/\.\d+Z$/, "Z"), node, what, result });
-  refreshSteps();
+  refreshLog();
 }
 
-// The device the steps are about: the latest node something was done to.
+// The device the log is about: the latest node something was done to.
 function commDevice() {
   S.commDevice = S.commDevice || {};
   return S.commDevice;
 }
 
+// Devices of this commissioning session that were not heard or scanned:
+// added from an EDS, or given a node ID by LSS. {node_id: {eds_path, eds_name, identity…}}
+function commNodes() {
+  S.commNodes = S.commNodes || {};
+  return S.commNodes;
+}
+
 function upperFirst(t) { return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; }
 
-// Called by api() after each request: the changes and the steps they finish.
+// Called by api() after each request: the changes for the log.
 function commLogApi(path, body, ok, data) {
   const route = path.replace(/^\/api\/online\//, "");
   if (route === path) return;
@@ -50,32 +58,18 @@ function commLogApi(path, body, ok, data) {
     if (!fail) {
       Object.assign(commDevice(), { node_id: node, vendor_id: a.vendor_id, product_code: a.product_code,
         revision_number: a.revision_number, serial_number: a.serial_number, lss: true });
-      stepDone("nodeid", `node ID ${node}${data.stored ? ", stored" : ", not stored"}`);
     }
   } else if (route === "lss_set_bitrate") {
     commLog(null, `LSS set bit rate ${body.bitrate_kbit} kbit/s${body.store ? " and store" : ""}`, fail || (data.stored ? "set and stored" : "set"));
-    if (!fail) stepDone("nodeid", `bit rate ${body.bitrate_kbit} kbit/s set${data.stored ? " and stored" : ""}`, true);
   } else if (route === "store") {
     commLog(node, `Store on device (0x1010 sub ${body.subindex})`, fail || (data.stored ? "stored" : `not stored: ${data.error}`));
-    if (!fail && data.stored) stepDone("store", `stored (0x1010 sub ${body.subindex})`);
   } else if (route === "restore_defaults") {
     commLog(node, `Restore defaults (0x1011 sub ${body.subindex || 1})${body.reset ? " and reset" : ""}`,
       fail || (data.restored ? (data.reset ? "restored, node reset" : "restored") : `not restored: ${data.error}`));
-  } else if (route === "pdo_test_start" && !fail) {
-    const names = (data.tpdos || []).concat(data.rpdos || []).map((p) => p.name).join(", ");
-    stepDone("pdo", `started (${names})`);
-  } else if (route === "lss_find" && ok && data.found && data.device) {
-    stepDone("find", `serial number ${hex8(data.device.serial_number)}`);
-  } else if (route === "scan" && ok && !data.running && data.nodes && data.nodes.length) {
-    stepDone("find", `scan: node${data.nodes.length > 1 ? "s" : ""} ${data.nodes.map((d) => d.node_id).join(", ")}`);
-  } else if ((route === "adapter_detect" || route === "adapter_detect_status" || route === "detect_bitrate" || route === "detect_bitrate_status")
-    && ok && data.verdict === "detected" && S.online.target === "adapter") {
-    stepDone("bitrate", `${kbitText(data.bitrate_kbit)} detected`);
   }
 }
 
-// Called by followJob() when a job ends: jobs that change the device or
-// finish a step.
+// Called by followJob() when a job ends: jobs that change the device.
 function commLogJob(j) {
   const r = j.result;
   if (j.kind === "configure") {
@@ -85,16 +79,10 @@ function commLogJob(j) {
     const res = `${r.written.length} written, ${r.failed.length} failed, ${r.cancelled ? "cancelled" : r.verified ? "read-back verified" : "read-back differs"}`;
     commLog(j.node, what, res);
     if (r.store) commLog(j.node, "Store on device (0x1010)", r.store.stored ? "stored" : `not stored: ${r.store.error}`);
-    if (!r.cancelled) stepDone("write", res);
-    if (r.store && r.store.stored) stepDone("store", "stored after writing");
     if (r.plan && r.plan.source.identity) Object.assign(commDevice(), { node_id: j.node });
   } else if (j.kind === "restore") {
     if (j.state === "failed") { commLog(j.node, "Restore from a backup", j.error); return; }
     if (r) commLog(j.node, "Restore from a backup", `${r.written.length} written, ${r.failed.length} failed${r.cancelled ? ", cancelled" : ""}`);
-  } else if (j.kind === "configure_verify" && r) {
-    stepDone("verify", r.differences.length ? `${r.differences.length} entries differ from ${r.source.name}` : `no difference from ${r.source.name}`);
-  } else if (j.kind === "backup" && r) {
-    stepDone("backup", r.name);
   }
 }
 
@@ -130,107 +118,315 @@ function saveCommLog() {
   const { text, node } = commLogText();
   const t = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z").replace("T", "-");
   downloadText(text, `node${node ?? "x"}-commissioning-${t}.txt`);
+  S.commLogSaved = (S.commLog || []).length;
+  refreshLog();
 }
 
-// -- Steps panel ----------------------------------------------------------------------
-// The commissioning steps in Commission a device. Each opens its panel and
-// shows done or skipped with a one-line result; any order, none runs by itself.
+function unsavedLog() { return Math.max(0, (S.commLog || []).length - (S.commLogSaved || 0)); }
 
-const COMM_STEPS = [
-  ["bitrate", "Bit rate"], ["find", "Find the device"], ["nodeid", "Node ID and bit rate"], ["identity", "Identity and EDS"],
-  ["write", "Write configuration"], ["pdo", "PDO test"], ["store", "Store"], ["verify", "Verify after power cycle"], ["backup", "Back up"],
-];
-
-function stepDone(key, text, append) {
-  S.steps = S.steps || {};
-  const old = S.steps[key];
-  S.steps[key] = { state: "done", text: append && old && old.state === "done" ? `${old.text}; ${text}` : text };
-  refreshSteps();
+// Leaving Commission a device (Close, "Add to a config…"): asks to save the
+// log when it has unsaved entries, then starts the next session's log
+// empty. False when the user cancels.
+async function leaveCommission(what) {
+  if (!commLogOn()) return true;
+  const n = unsavedLog();
+  if (n) {
+    const v = await modal(`The commissioning log has ${n} change${n === 1 ? "" : "s"} that ${n === 1 ? "was" : "were"} not saved. Save it before ${what}?`,
+      [["save", "Save log", true], ["discard", "Don't save"], ["cancel", "Cancel"]]);
+    if (!v || v === "cancel") return false;
+    if (v === "save") saveCommLog();
+  }
+  S.commLog = [];
+  S.commLogSaved = 0;
+  S.commDevice = {};
+  S.commNodes = {};
+  S.adapterOn = false;
+  S.adapterEnded = null;
+  return true;
 }
 
-function openStep(key) {
-  const nodeTab = (tab) => {
-    const id = S.onlineNode ?? commDevice().node_id;
-    if (id === undefined || id === null) {
-      banner("Open the device first: click it in the node list, or scan the bus and open its object dictionary.", true);
-      showView("online");
-      return;
-    }
-    S.onlineNode = id;
-    S.onlineTab = tab;
-    showView("online");
+function logText() {
+  const n = (S.commLog || []).length;
+  const u = unsavedLog();
+  return `${n} change${n === 1 ? "" : "s"} in the log` + (n ? (u ? `, ${u} not saved` : ", saved") : "");
+}
+
+function logBox() {
+  return el("fieldset", { dataset: { online: "log" } }, el("legend", null, "Commissioning log"),
+    el("div", { class: "toolbar" },
+      el("span", { class: "muted", dataset: { online: "log-count" } }, logText()),
+      el("button", { type: "button", dataset: { online: "save-log" }, onclick: saveCommLog }, "Save log")),
+    hint("Every change made on this page (SDO writes, NMT, LSS, Write configuration, store, restore) with its time and result. It stays on this page until you save it; leaving Commission a device asks first."));
+}
+
+function refreshLog() {
+  for (const c of document.querySelectorAll("[data-online=log-count]")) c.textContent = logText();
+}
+
+// -- Bus and master: the USB adapter connection --------------------------------------
+// S.adapterOn: Connect was pressed and the connection is open; the bit rate
+// check runs when the first request opens it. S.adapterEnded: why the last
+// connection was refused or ended.
+
+const CHECK_TEXT = { traffic: "frames on the bus", "probe acknowledged": "a device acknowledged the probe" };
+
+function renderCommBus(view) {
+  view.append(el("h2", null, "Bus and master"), adapterBox(),
+    el("div", { id: "online-conn", class: "online-conn" + (S.adapterEnded ? " error" : "") },
+      S.adapterOn ? `Connecting to USB adapter ${S.online.adapter}: checking the bit rate…`
+        : S.adapterEnded ? el("span", { dataset: { online: "ended" } }, upperFirst(S.adapterEnded) + ".") : "Not connected."),
+    el("div", { id: "online-live" }), logBox());
+  if (!S.adapterOn) return;
+  S.onlineOpen = true;
+  pollOnline(S.onlineSeq);
+}
+
+// The adapter (found ones, or typed), bit rate, the node ID for the check
+// on adapters that cannot confirm a sent frame, Allow changes, Connect and
+// Disconnect. The adapter, bit rate and node ID are fixed while connected.
+function adapterBox() {
+  const on = !!S.adapterOn;
+  const list = el("select", { "aria-label": "Found adapters", disabled: on, dataset: { online: "adapter-list" } },
+    el("option", { value: "" }, "Looking for adapters…"));
+  const input = el("input", { type: "text", spellcheck: "false", disabled: on, placeholder: "gs_usb:0, slcan:COM5, slcan:/dev/tty.usbmodem14101, socketcan:can0",
+    "aria-label": "Adapter", dataset: { online: "adapter" } });
+  input.value = S.online.adapter || "";
+  list.addEventListener("change", () => { if (list.value) input.value = list.value; });
+  const fill = async () => {
+    try {
+      const r = await api("GET", "/api/online/adapters");
+      list.replaceChildren(el("option", { value: "" }, r.adapters.length ? "Pick a found adapter…" : "No adapter found"),
+        ...r.adapters.map((a) => el("option", { value: a.text }, `${a.text}  ${a.known || a.description || ""}`)));
+    } catch (e) { list.replaceChildren(el("option", { value: "" }, "Could not list adapters")); }
   };
-  if (key === "bitrate") { S.onlineForm = true; showView("online"); return; }
-  if (key === "find" || key === "nodeid") {
-    showView("online");
-    const box = document.querySelector("[data-online=lss]");
-    if (box) box.scrollIntoView({ block: "nearest" });
-    return;
-  }
-  if (key === "identity") { showView("scan"); return; }
-  if (key === "pdo") { nodeTab("pdo"); return; }
-  nodeTab("params");
-}
-
-function stepsRows() {
-  S.steps = S.steps || {};
-  return COMM_STEPS.map(([key, label]) => {
-    const s = S.steps[key];
-    const state = s ? s.state : "not done";
-    return el("tr", { dataset: { step: key, stepState: state.replace(" ", "-") } },
-      el("th", { scope: "row" }, label),
-      el("td", { class: state === "done" ? "ok-text" : state === "skipped" ? "muted" : null }, state),
-      el("td", null, s && s.text ? s.text : ""),
-      el("td", null,
-        el("button", { type: "button", class: "small", dataset: { stepOpen: key }, onclick: () => openStep(key) }, "Open"),
-        el("button", { type: "button", class: "small", dataset: { stepSkip: key }, onclick: () => {
-          S.steps[key] = s && s.state === "skipped" ? undefined : { state: "skipped", text: "" };
-          refreshSteps();
-        } }, s && s.state === "skipped" ? "Undo skip" : "Skip")));
+  const refresh = el("button", { type: "button", class: "small", disabled: on, onclick: fill }, "Refresh");
+  if (!on) fill();
+  const rate = el("select", { "aria-label": "Bit rate", disabled: on, dataset: { online: "adapter-bitrate" } },
+    el("option", { value: "" }, "Pick the bus's bit rate…"), LSS_BITRATES.map((b) => el("option", { value: b }, `${b} kbit/s`)));
+  rate.value = String(S.online.adapter_bitrate || "");
+  const checkNode = el("input", { type: "number", min: 1, max: 127, class: "short", disabled: on, placeholder: "none",
+    "aria-label": "Node ID for the bit rate check", dataset: { online: "check-node" } });
+  checkNode.value = S.online.check_node ? String(S.online.check_node) : "";
+  const allowed = on && S.onlineLast && S.onlineLast.status && S.onlineLast.status.local ? !!S.onlineLast.status.allow_changes : !!S.online.allow_changes;
+  const allow = el("input", { type: "checkbox", checked: allowed, dataset: { online: "adapter-allow" } });
+  allow.addEventListener("change", async () => {
+    if (allow.checked && on) {
+      const v = await modal("Allow changes on this adapter connection? SDO writes, NMT commands, LSS and restore then go to the bus. Saving to a device's non-volatile memory still asks each time.",
+        [["allow", "Allow changes", true], ["cancel", "Cancel"]]);
+      if (v !== "allow") { allow.checked = false; return; }
+    }
+    if (!(await saveOnline({ allow_changes: allow.checked }))) { allow.checked = !allow.checked; return; }
+    if (on) render();
   });
+  const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } });
+  const connect = el("button", { type: "button", class: "primary", hidden: on, dataset: { online: "connect" }, onclick: async () => {
+    if (!input.value.trim()) { msg.textContent = "Pick or type the adapter first."; input.focus(); return; }
+    if (!rate.value) { msg.textContent = "Pick the bus's bit rate first."; rate.focus(); return; }
+    const node = checkNode.value.trim() ? Number(checkNode.value) : null;
+    if (node !== null && !(Number.isInteger(node) && node >= 1 && node <= 127)) { msg.textContent = "The node ID for the check must be 1-127."; checkNode.focus(); return; }
+    if (!(await saveOnline({ adapter: input.value.trim(), adapter_bitrate: Number(rate.value), check_node: node }))) return;
+    if (allow.checked && !(await saveOnline({ allow_changes: true }))) return;
+    S.adapterOn = true;
+    S.adapterEnded = null;
+    S.onlineLast = null;
+    render();
+  } }, "Connect");
+  const disconnect = el("button", { type: "button", hidden: !on, dataset: { online: "disconnect" }, onclick: disconnectAdapter }, "Disconnect");
+  return el("fieldset", { dataset: { online: "adapter-box" } }, el("legend", null, "USB adapter"),
+    el("p", { class: "muted" }, "The PC talks to the bus itself through the adapter: no runtime is needed. Connect checks the bit rate first and refuses a wrong one; after that the PC sends nothing until you act, never SYNC, heartbeat or NMT to all nodes, and warns when another master runs on the bus."),
+    el("div", { class: "grid" },
+      el("label", null, "Adapter", el("div", { class: "row" }, list, refresh), input,
+        hint("TYPE:CHANNEL. gs_usb (candleLight) and slcan (CANable) on Windows, macOS and Linux, socketcan on Linux; other python-can types are passed through untested. Kept on this PC.")),
+      el("label", null, "Bit rate", rate,
+        hint("The bus's bit rate. Connect listens first without sending: frames confirm the rate and error frames refuse it. On a silent bus it sends one LSS query, which a device acknowledges only at its own bit rate.")),
+      el("label", null, "Node ID for the check", checkNode,
+        hint("Only for an adapter that cannot tell whether its frame got out (slcan): on a silent bus, this node answers an SDO read of 0x1000 when the bit rate is right.")),
+      el("div", { class: "check-field" }, el("label", { class: "check" }, allow, " Allow changes (SDO writes, NMT, LSS, restore)"),
+        hint("Off by default and for every new connection: read-only. Turning it on or off keeps the connection open."))),
+    msg, el("div", { class: "toolbar" }, connect, disconnect));
 }
 
-function stepsPanel() {
-  if (!(S.state && S.state.commission)) return logBar();
-  const n = (S.commLog || []).length;
-  return el("details", { class: "steps", open: S.stepsClosed ? null : true, dataset: { online: "steps" },
-    ontoggle: (e) => { S.stepsClosed = !e.target.open; } },
-  el("summary", null, "Steps"),
-  el("table", { class: "steps-table" }, el("tbody", { id: "comm-steps" }, stepsRows())),
-  el("div", { class: "toolbar" },
-    el("button", { type: "button", dataset: { online: "save-log" }, onclick: saveCommLog }, "Save log"),
-    el("span", { class: "muted", dataset: { online: "log-count" } }, `${n} change${n === 1 ? "" : "s"} in the log`),
-    el("button", { type: "button", dataset: { online: "add-to-config" }, onclick: addToConfig }, "Add to a config…")),
-  hint("Each step opens its panel. Steps can be done in any order or skipped, and none runs by itself. The log stays on this page until you save it."));
+async function disconnectAdapter() {
+  try {
+    S.online = Object.assign(S.online, await api("POST", "/api/online/disconnect", {}));
+  } catch (e) { banner(e.message, true); }
+  S.adapterOn = false;
+  S.adapterEnded = null;
+  S.onlineOpen = false;
+  S.onlineLast = null;
+  S.lssAllow = undefined;
+  render();
 }
 
-// On a USB adapter target with a config open: only the log.
-function logBar() {
-  if (!commLogOn()) return null;
-  const n = (S.commLog || []).length;
-  return el("div", { class: "toolbar", dataset: { online: "log-bar" } },
-    el("span", { class: "muted", dataset: { online: "log-count" } }, `Commissioning log: ${n} change${n === 1 ? "" : "s"}`),
-    el("button", { type: "button", class: "small", dataset: { online: "save-log" }, onclick: saveCommLog }, "Save log"));
+// A refused bit rate check or an ended connection: polling stops, the
+// reason stays on Bus and master, and Connect checks again.
+function adapterLost(message) {
+  S.adapterOn = false;
+  S.adapterEnded = message;
+  S.onlineOpen = false;
+  S.onlineLast = null;
+  S.lssAllow = undefined;
+  render();
 }
 
-function refreshSteps() {
-  const body = document.getElementById("comm-steps");
-  if (body) body.replaceChildren(...stepsRows());
-  const n = (S.commLog || []).length;
-  for (const c of document.querySelectorAll("[data-online=log-count]")) {
-    c.textContent = c.closest("[data-online=log-bar]") ? `Commissioning log: ${n} change${n === 1 ? "" : "s"}` : `${n} change${n === 1 ? "" : "s"} in the log`;
-  }
+function checkText(c) {
+  if (!c) return "";
+  const how = CHECK_TEXT[c.how] || c.how;
+  return `bit rate ${c.bitrate_kbit} kbit/s confirmed (${how})`;
 }
 
-// "Add to a config…": opens a project or standalone config folder with the
-// device added as an unsaved node.
-async function addToConfig() {
-  const d = Object.assign({}, commDevice());
-  if (d.node_id === undefined || d.node_id === null) d.node_id = S.onlineNode;
-  if (d.node_id === undefined || d.node_id === null) {
-    banner("Give the device a node ID first, or open it from a scan.", true);
+// The status answer on the commissioning pages: the connection line and
+// the bus on Bus and master, the node table on Nodes.
+function localLive(r, conn) {
+  const st = r.status;
+  const kbit = Math.round((st.bitrate || 0) / 1000);
+  const allow = !!st.allow_changes;
+  const other = st.other_master_seen;
+  conn.className = "online-conn ok";
+  const line = el("div", null, `Connected to USB adapter ${st.adapter} at ${kbit} kbit/s, ${checkText(st.bitrate_check) || "bit rate checked"}, ` +
+    (allow ? "changes allowed." : "read-only."),
+  other ? el("div", { class: "online-note warning", dataset: { online: "other-master" } },
+    `Another master is active on this bus (${other.what}, since ${other.first_at.replace("T", " ").replace(/\.\d+Z$/, " UTC")}). ` +
+    "Keep to reading; LSS asks before it runs.") : null,
+  st.untested_adapter ? el("div", { class: "online-note" }, "This adapter type is passed to python-can untested.") : null);
+  if (conn.dataset.html !== line.innerHTML) { conn.dataset.html = line.innerHTML; conn.replaceChildren(...line.childNodes); }
+  const box = document.querySelector("[data-online=adapter-allow]");
+  if (box && document.activeElement !== box) box.checked = allow;
+  const live = $("#online-live");
+  if (S.view === "nodes") { patchLive(live, [commNodeTable(st)]); return; }
+  const bus = st.bus || {};
+  patchLive(live, [el("table", { class: "online-bus", dataset: { online: "local-bus" } }, el("tbody", null,
+    el("tr", null, el("th", null, "Adapter state"), el("td", { dataset: { online: "bus" } }, bus.adapter_state || "active"),
+      el("th", null, "Frames"), el("td", { dataset: { online: "frames" } }, String(bus.frames ?? "-")),
+      el("th", null, "Error frames"), el("td", { dataset: { online: "error-frames" } }, String(bus.error_frames ?? "-")),
+      el("th", null, "Other master"), el("td", { dataset: { online: "other" } }, other ? other.what : "none seen"))))]);
+}
+
+// -- Nodes: heard, scanned and added devices ------------------------------------------
+
+function renderCommNodes(view) {
+  view.append(el("h2", null, "Nodes"));
+  const lib = el("input", { type: "text", spellcheck: "false", class: "wide", placeholder: "a folder of vendor EDS files",
+    "aria-label": "EDS library folder", dataset: { online: "library" } });
+  lib.value = S.online.eds_library || "";
+  lib.addEventListener("change", async () => {
+    try { S.online = Object.assign(S.online, await api("POST", "/api/online/settings", { eds_library: lib.value.trim() })); banner(""); }
+    catch (e) { banner(e.message, true); return; }
+    if (S.scanResult && S.adapterOn) runScan(false);  // the shown devices, matched against the new folder
+  });
+  const file = el("input", { type: "file", accept: ".eds,.EDS", dataset: { online: "add-eds-file" } });
+  file.addEventListener("change", () => { const f = file.files[0]; file.value = ""; if (f) addCommNode(f); });
+  const progress = el("span", { class: "muted", dataset: { online: "scan-progress" }, "aria-live": "polite" });
+  const scan = el("button", { type: "button", class: "primary", disabled: !S.adapterOn, dataset: { online: "scan" }, onclick: () => runScan(true) }, "Scan the bus");
+  const cancel = el("button", { type: "button", hidden: true, dataset: { online: "scan-cancel" }, onclick: stopScan }, "Cancel");
+  view.append(
+    el("div", { class: "toolbar" }, scan, cancel, progress,
+      el("label", { class: "file-button", dataset: { online: "add-eds" } }, "Add node from EDS…", file)),
+    el("div", { class: "grid" }, el("label", null, "EDS library folder", lib,
+      hint("Optional. Scanned devices are matched against the EDS files here (and its subfolders). Kept on this PC."))),
+    el("div", { id: "online-conn", class: "online-conn", hidden: true }),
+    el("div", { id: "online-live" }, commNodeTable(null)),
+    el("div", { id: "online-lss" }),
+    el("div", { id: "online-node" }));
+  if (!S.adapterOn) {
+    view.querySelector("#online-live").before(el("p", { class: "online-note", dataset: { online: "not-connected" } }, "Not connected: ",
+      el("a", { href: "#", onclick: (e) => { e.preventDefault(); showView("online"); } }, "connect on Bus and master"),
+      " to see, scan and read the devices on the bus."));
+    if (S.onlineNode) renderOnlineNode();
     return;
   }
+  S.lssAllow = undefined;
+  S.onlineOpen = true;
+  pollOnline(S.onlineSeq);
+  runScan(false);
+  if (S.onlineNode) renderOnlineNode();
+}
+
+// One row per node ID: heard on the bus (heartbeat, EMCY), found by the
+// scan, given a node ID by LSS here, or added from an EDS here.
+function commNodeTable(st) {
+  const heard = new Map(((st && st.nodes) || []).map((n) => [n.node_id, n]));
+  const scanned = new Map(((S.scanResult && S.scanResult.nodes) || []).map((d) => [d.node_id, d]));
+  const added = commNodes();
+  const ids = [...new Set([...heard.keys(), ...scanned.keys(), ...Object.keys(added).map(Number)])].sort((a, b) => a - b);
+  const rows = ids.map((id) => {
+    const n = heard.get(id);
+    const d = scanned.get(id);
+    const a = added[id];
+    const em = n && n.emcy && n.emcy.count ? `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})` : "";
+    const device = d ? [d.device_name, d.vendor_id !== undefined ? `vendor ${hex8(d.vendor_id)}` : "", d.product_code !== undefined ? `product ${hex8(d.product_code)}` : ""]
+      .filter(Boolean).join(", ") : a && a.lss ? `serial number ${hex8(a.serial_number)} (LSS)` : "";
+    const found = [n && n.state !== null ? "heard" : "", d ? "scanned" : "", a ? (a.lss ? "LSS" : "added") : ""].filter(Boolean).join(", ");
+    const eds = (S.onlineEdsName || {})[id] || (S.onlineEds || {})[id];
+    // A button per row, not a clickable row: the EDS cell has controls of its own.
+    return el("tr", { class: S.onlineNode === id ? "active" : null, dataset: { onlineNode: id } },
+    el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${id}`, dataset: { openNode: id },
+      onclick: () => { S.onlineNode = id; renderOnlineNode(); pollHighlight(); } }, String(id))),
+    el("td", null, device),
+    el("td", { class: !n || n.state === null ? "muted" : "state-" + n.state }, !n || n.state === null ? "not heard" : stateName(n.state)),
+    el("td", null, n && n.last_heard_s !== null ? `${n.last_heard_s.toFixed(1)} s ago` : "-"), el("td", null, em),
+    el("td", null, found),
+    el("td", null, eds ? el("span", { dataset: { nodeEds: id } }, eds) : edsPick(d || { node_id: id })));
+  });
+  return el("table", { class: "online-nodes", dataset: { online: "comm-nodes" } },
+    el("thead", null, el("tr", null, thCells(["Node", "Device", "State", "Heard", "Last EMCY", "Found by", "EDS"]))),
+    el("tbody", null, rows.length ? rows : [el("tr", null, el("td", { colspan: 7, class: "muted" },
+      "No device yet. Devices with a heartbeat show up here; scan the bus for the others, or add one from its EDS."))]));
+}
+
+// A device without an EDS: the library's matches from the scan, or an EDS file.
+function edsPick(d) {
+  const m = d.eds_matches || [];
+  if (m.length) {
+    const pick = el("select", { "aria-label": "EDS file", dataset: { online: "eds-match" } }, m.map((x, k) => el("option", { value: k }, x.name)));
+    return el("div", null, pick, el("button", { type: "button", class: "small", dataset: { online: "use-eds" },
+      onclick: () => openScannedOd(d, m[Number(pick.value)]) }, "Use"));
+  }
+  const input = el("input", { type: "file", accept: ".eds,.EDS", dataset: { online: "pick-eds" } });
+  input.addEventListener("change", () => { const f = input.files[0]; if (f) openPickedOd(d, f); });
+  return el("label", { class: "file-button small" }, "Pick EDS file…", input);
+}
+
+// "Add node from EDS…": a node ID and the device's EDS, for this page only.
+async function addCommNode(file) {
+  const idInput = el("input", { type: "number", min: 1, max: 127, class: "short", dataset: { online: "add-node-id" } });
+  const msg = el("p", { class: "field-msg" });
+  let id;
+  for (;;) {
+    const v = await modal(`Add a node with ${file.name}. It is on this page only, to read and write the device; "Add to a config…" on its page puts it in a config.`,
+      [["add", "Add node", true], ["cancel", "Cancel"]], el("div", null, el("label", { class: "inline" }, "Node ID ", idInput), msg));
+    if (v !== "add") return;
+    id = Number(idInput.value);
+    if (/^\s*\d+\s*$/.test(idInput.value) && id >= 1 && id <= 127) break;
+    msg.textContent = "The node ID must be 1-127.";
+  }
+  let res;
+  try {
+    res = await api("POST", "/api/eds", { name: file.name, data: await readBase64(file), on_conflict: "keep_both", eds_lint: edsLint() });
+  } catch (e) { banner(e.message, true); return; }
+  commNodes()[id] = Object.assign(commNodes()[id] || {}, { eds_path: res.name, eds_name: res.name });
+  openScannedOd({ node_id: id }, { path: res.name, name: res.name });
+}
+
+async function stopScan() {
+  try { await api("POST", "/api/online/scan_stop", { port: diagPort() }); }
+  catch (e) { banner(e.message, true); }
+}
+
+// The device of node `id` as this session knows it, for "Add to a config…".
+function commDeviceOf(id) {
+  const d = { node_id: id };
+  const sc = ((S.scanResult && S.scanResult.nodes) || []).find((x) => x.node_id === id);
+  if (sc) for (const k of LSS_KEYS) if (sc[k] !== undefined) d[k] = sc[k];
+  Object.assign(d, commNodes()[id] || {});
+  if (!d.eds_path && (S.onlineEds || {})[id]) { d.eds_path = S.onlineEds[id]; d.eds_name = (S.onlineEdsName || {})[id] || S.onlineEds[id]; }
+  return d;
+}
+
+// "Add to a config…" on a node's page: opens a project or standalone config
+// folder with the device added as an unsaved node, after asking to save the log.
+async function addToConfig(id) {
+  const d = commDeviceOf(id);
   const path = el("input", { type: "text", class: "wide", spellcheck: "false", "aria-label": "Config folder", dataset: { online: "add-folder" } });
   const mode = el("select", { "aria-label": "Folder kind", dataset: { online: "add-mode" } },
     el("option", { value: "standalone" }, "standalone config folder"), el("option", { value: "project" }, "editor project"));
@@ -252,10 +448,15 @@ async function addToConfig() {
       return;
     }
   } catch (e) { banner(e.message, true); return; }
+  if (!(await leaveCommission("opening the config"))) return;
   try {
     banner("");
+    stopOnline(false);
     await api("POST", "/api/open", { path: folder, mode: mode.value });
     S.view = "bus";
+    S.scanResult = null;
+    S.onlineNode = null;
+    S.lssDevice = null;
     await loadState();
   } catch (e) { banner(e.message, true); return; }
   if (configNode(d.node_id)) { banner(`The config already has node ${d.node_id}.`, true); return; }
@@ -452,7 +653,7 @@ async function restoreDefaultsDialog(id, sub, what) {
   } catch (e) { banner(e.message, true); }
 }
 
-// -- PDO test tab (USB adapter only) ------------------------------------------------------
+// -- PDO test tab (Commission a device only) ------------------------------------------------------
 
 const SYNC_PERIODS = [10, 20, 50, 100, 200, 500, 1000];
 const REPEATS = [0, 100, 200, 500, 1000];
@@ -626,15 +827,3 @@ window.addEventListener("pagehide", () => {
     } catch (e) { /* the page is going away */ }
   }
 });
-
-// -- "Only this device is on the bus" for Detect ---------------------------------------------
-
-const LONE_TEXT = "Only this device is on the bus: the adapter joins the bus at each bit rate in normal mode, so it acknowledges the device's frames, and sends an LSS query so a quiet device answers. At wrong bit rates its error frames reach every device on the bus. Use it only on a bench with this one device and nothing else connected.";
-
-function loneBox() {
-  return el("label", { class: "check" }, el("input", { type: "checkbox", dataset: { online: "detect-lone" } }), " Only this device is on the bus");
-}
-
-async function askLone() {
-  return await modal(LONE_TEXT + " Is this device the only one on the bus?", [["go", "Only this device, detect", true], ["cancel", "Cancel"]]) === "go";
-}

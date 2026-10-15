@@ -21,7 +21,6 @@ SETTINGS = "online.json"
 IDLE_CLOSE_S = 30.0
 SEND_IDLE_CLOSE_S = 10.0  # the Trace view polls its jobs every second; a closed page lets them end
 DEPLOYED_EDS_DIR = "canworks/eds"  # bundle.EDS_DIR, and the editor hook's
-DEPLOYED_FW_DIR = "canworks/fw"
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +89,7 @@ class Settings:
 def fingerprints(config_path):
     """SHA-256 values the runtime may report for this canworks.json: the file
     itself, and the conf/canworks.json the deploy tool and the editor hook
-    write from it (EDS and program paths rewritten, indent 2). Empty when the
+    write from it (EDS paths rewritten, indent 2). Empty when the
     file does not exist or cannot be read."""
     try:
         with open(config_path, "rb") as f:
@@ -103,9 +102,6 @@ def fingerprints(config_path):
         for n in contract.all_nodes(cfg):
             if isinstance(n.get("eds"), str):
                 n["eds"] = "%s/%s" % (DEPLOYED_EDS_DIR, os.path.basename(n["eds"].replace("\\", "/")))
-            if n.get("software_file"):
-                n["software_file"] = "%s/%s" % (DEPLOYED_FW_DIR,
-                                                os.path.basename(str(n["software_file"]).replace("\\", "/")))
         out.add(hashlib.sha256((json.dumps(cfg, indent=2) + "\n").encode("utf-8")).hexdigest())
     except (ValueError, AttributeError, TypeError):
         pass
@@ -182,17 +178,20 @@ def runtimes_list(wait=2.0):
 class AdapterTarget:
     """A CAN adapter on this PC as the online target (canopen-local-bus), in
     place of a runtime host: the adapter (TYPE:CHANNEL), the bit rate in
-    bit/s, the session's allow-changes switch and the configured nodes
-    ({node_id: {name, expect}}) for status and scan. Equal targets share the
-    kept-open connection."""
+    bit/s, the session's allow-changes switch, the configured nodes
+    ({node_id: {name, expect}}) for status and scan, and the node ID that
+    answers the bit rate check on an adapter that cannot confirm a sent frame.
+    Equal targets share the kept-open connection; the allow-changes switch is
+    not part of that, so turning it changes the open connection."""
 
-    def __init__(self, adapter, bitrate, allow_changes=False, nodes=None, network=None):
+    def __init__(self, adapter, bitrate, allow_changes=False, nodes=None, network=None, check_node=None):
         self.adapter, self.bitrate, self.allow_changes = adapter, bitrate, bool(allow_changes)
         self.nodes = nodes or {}
         self.network = network
+        self.check_node = check_node
 
     def _key(self):
-        return (self.adapter, self.bitrate, self.allow_changes, self.network,
+        return (self.adapter, self.bitrate, self.network, self.check_node,
                 json.dumps(self.nodes, sort_keys=True, default=str))
 
     def __eq__(self, other):
@@ -211,7 +210,7 @@ class AdapterTarget:
         except localbus.AdapterError as e:
             raise diag.DiagError("usage", str(e))
         return localbus.LocalBus(spec, self.bitrate, allow_changes=self.allow_changes, config=self.nodes,
-                                 network=self.network, timeout=timeout)
+                                 network=self.network, timeout=timeout, check_node=self.check_node)
 
 
 # Operations that only read: the only ones sent again after a timeout or a
@@ -219,7 +218,7 @@ class AdapterTarget:
 # only asks an ECU for its list; a DM3/DM11 clear is a change).
 READ_ONLY = frozenset((
     "hello", "status", "emcy", "sdo_read", "scan", "scan_status", "lss_find_status", "trace_fetch",
-    "detect_bitrate_status", "pdo_test_status", "replay_status", "sim_status", "sim_get", "sim_scenario_list",
+    "pdo_test_status", "replay_status", "sim_status", "sim_get", "sim_scenario_list",
     "sim_check_expr", "j1939_dm_read"))
 
 
@@ -238,7 +237,8 @@ def _record_ops(client):
 
 class Connection:
     """One diagnostics connection, opened on the first request and closed
-    after IDLE_CLOSE_S without one (or by close())."""
+    after IDLE_CLOSE_S without one (or by close()); a USB adapter connection
+    only by close()."""
 
     def __init__(self, idle=IDLE_CLOSE_S, timeout=3.0):
         self.idle, self.timeout = idle, timeout
@@ -268,6 +268,8 @@ class Connection:
                 if e.kind not in ("eof", "timeout"):
                     raise
                 self._close()
+                if isinstance(key[0], AdapterTarget):
+                    raise  # an ended adapter connection is not opened again by itself: Connect checks the bit rate again
                 changes = [op for op in ops if op not in READ_ONLY]
                 if changes:
                     raise diag.DiagError(e.kind, "no answer; the request may have been carried out (%s): %s"
@@ -276,8 +278,18 @@ class Connection:
                 self.client.network = network
                 result = fn(self.client)
             self.last = time.monotonic()
-            self._arm()
+            if not isinstance(key[0], AdapterTarget):  # an adapter connection stays open until Disconnect
+                self._arm()
             return result
+
+    def set_allow_changes(self, allow):
+        """The allow-changes switch of an open adapter connection, at once."""
+        with self.lock:
+            if self.client is not None and isinstance(self.key[0], AdapterTarget):
+                self.client.allow_changes = bool(allow)
+                self.key[0].allow_changes = bool(allow)
+                if isinstance(getattr(self.client, "info", None), dict):
+                    self.client.info["allow_changes"] = bool(allow)  # the hello the pages and jobs read
 
     @property
     def info(self):

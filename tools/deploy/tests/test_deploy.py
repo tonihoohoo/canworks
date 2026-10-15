@@ -94,23 +94,8 @@ class Bundle(unittest.TestCase):
             self.assertEqual(f.read(), original)  # the source on the PC is unchanged
         self.assertIn("converted cpp-slave.eds from CP1252 to UTF-8", out)
 
-    def test_program_file_shipped(self):
-        os.makedirs(os.path.join(self.dir, "fw"))
-        with open(os.path.join(self.dir, "fw", "node2.bin"), "wb") as f:
-            f.write(b"\x02\x00\x00\x00\xff\xfe firmware")
-        with open(self.config, encoding="utf-8") as f:
-            cfg = json.load(f)
-        cfg["nodes"][0].update(software_file="fw/node2.bin", software_version=2)
-        with open(self.config, "w", encoding="utf-8") as f:
-            json.dump(cfg, f)
-        code, out, err = deploy("--bundle", self.src, "--config", self.config, "--check-only", "--output", self.zip)
-        self.assertEqual(code, 0, err)
-        self.assertIn("and 1 program file", out)
-        files = zip_contents(self.zip)
-        self.assertEqual(files["conf/canworks/fw/node2.bin"], b"\x02\x00\x00\x00\xff\xfe firmware")
-        self.assertEqual(json.loads(files["conf/canworks.json"])["nodes"][0]["software_file"], "canworks/fw/node2.bin")
-
-    def test_program_file_missing(self):
+    def test_program_file_fields_rejected(self):
+        # Program download was removed: its fields reject the config.
         with open(self.config, encoding="utf-8") as f:
             cfg = json.load(f)
         cfg["nodes"][0].update(software_file="fw/node2.bin", software_version=2)
@@ -118,7 +103,8 @@ class Bundle(unittest.TestCase):
             json.dump(cfg, f)
         code, _, err = deploy("--bundle", self.src, "--config", self.config, "--check-only")
         self.assertEqual(code, 1)
-        self.assertIn('software_file "fw/node2.bin" not found', err)
+        self.assertIn("unknown field 'software_file'", err)
+        self.assertIn("unknown field 'software_version'", err)
 
     def test_eds_file_missing(self):
         config = pingpong_config(self.dir)

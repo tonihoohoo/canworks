@@ -18,7 +18,7 @@ from .test_configurator_online_page import OnlineBase
 VIRTUAL = os.path.join(REPO, "examples", "virtual-plant")
 NETWORKS = [{"name": "io", "interface": "sim0", "bitrate": 250000, "master_node_id": 1},
             {"name": "motion", "interface": "sim1", "bitrate": 500000, "master_node_id": 1}]
-VIEWS = ["bus", "declarations", "online", "scan", "trace", "framelab", "simulation"]
+VIEWS = ["bus", "declarations", "online", "trace", "framelab", "simulation"]
 
 
 class EndToEnd(OnlineBase):
@@ -67,9 +67,6 @@ class EndToEnd(OnlineBase):
         self.press_on('button[data-view="%s"]' % name)
         if name == "online":
             pg.wait_for_selector("text=changes allowed")
-        elif name == "scan":
-            self.press_on('button[data-online="scan"]')
-            pg.wait_for_selector("tr[data-scan-node]")
         elif name == "trace":
             pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
         elif name == "simulation":

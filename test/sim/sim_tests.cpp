@@ -108,24 +108,6 @@ class ModeLockSlave : public PingPongSlave {
   bool operational_ = false;
 };
 
-// A ping-pong slave with CiA 302-3 program download objects (firmware_eds):
-// the program data written to 0x1F50:1 starts with the new software version
-// (UNSIGNED32, little-endian), which the slave then reports in 0x1F56:1.
-class FirmwareSlave : public PingPongSlave {
- public:
-  FirmwareSlave(io::TimerBase& timer, io::CanChannelBase& chan, const std::string& eds, uint8_t id)
-      : PingPongSlave(timer, chan, eds, "", id) {
-    BasicSlave::OnWrite<std::vector<uint8_t>>(
-        0x1F50, 1, [this](uint16_t, uint8_t, std::vector<uint8_t>& data) -> std::error_code {
-          if (data.size() >= 4) {
-            uint32_t version = data[0] | data[1] << 8 | data[2] << 16 | uint32_t(data[3]) << 24;
-            co_dev_set_val_u32(reinterpret_cast<co_dev_t*>(dev()), 0x1F56, 1, version);
-          }
-          return {};
-        });
-  }
-};
-
 // A ping-pong slave (mode_lock_eds, so it waits for the master's NMT start)
 // that answers late on object 0x4010, like a device that saves a parameter to
 // flash before it answers. It blocks its own thread, which delays the SDO
@@ -624,12 +606,6 @@ class Sim {
 
   // Runs f(slave) on the slave's own thread.
   void OnSlave(uint8_t id, std::function<void(canopen::BasicSlave&)> f) { slaves_.at(id)->Post(f); }
-
-  void StartFirmwareSlave(uint8_t id, const std::string& eds) {
-    slaves_[id].reset(new SlaveBox(ctrl_, [=](io::TimerBase& t, io::CanChannelBase& c) {
-      return new FirmwareSlave(t, c, eds, id);
-    }));
-  }
 
   SyncCounterSlave* StartSyncCounterSlave(uint8_t id, const std::string& eds) {
     SyncCounterSlave* made = nullptr;
@@ -2209,58 +2185,6 @@ TEST(sim_boot_error_byte_silent) {
   sim->StartSlave(2, dir + "/cpp-slave.eds");
   CHECK(sim->RunUntil([] { return sim->status(); }, seconds(20)));
   CHECK(sim->plc().byte_in[31] == 0);
-  delete sim;
-}
-
-// The ping-pong EDS with the program download objects of CiA 302-3 and a
-// software version (0x1F56:1) of 1.
-std::string firmware_eds() {
-  std::string eds = slave_eds();
-  eds.replace(eds.find("SupportedObjects=7\n"), 19, "SupportedObjects=11\n8=0x1F50\n9=0x1F51\n10=0x1F56\n11=0x1F57\n");
-  auto arr = [](const char* idx, const char* name, const char* type, const char* access, const char* value) {
-    std::string s = std::string("\n[") + idx + "]\nSubNumber=2\nParameterName=" + name + "\nObjectType=0x08\n\n[" + idx +
-                    "sub0]\nParameterName=Highest sub-index supported\nDataType=0x0005\nAccessType=const\n"
-                    "DefaultValue=1\nPDOMapping=0\n\n[" + idx + "sub1]\nParameterName=" + name + " 1\nDataType=" +
-                    type + "\nAccessType=" + access + "\nPDOMapping=0\n";
-    if (*value) s += std::string("DefaultValue=") + value + "\n";
-    return s;
-  };
-  return eds + arr("1F50", "Program data", "0x000F", "rw", "") + arr("1F51", "Program control", "0x0005", "rw", "1") +
-         arr("1F56", "Program software identification", "0x0007", "ro", "1") +
-         arr("1F57", "Flash status identification", "0x0007", "ro", "0");
-}
-
-// software_version 2 and a node reporting 1: Lely's master downloads the
-// file (0x1F58 -> the node's 0x1F50) before configuring the node, which then
-// runs.
-TEST(sim_firmware_download) {
-  clear_logs();
-  std::string json = with_node(pingpong_json(), "pingpong",
-                               "\"software_file\": \"fw/node2.bin\", \"software_version\": 2, ");
-  std::string fw("\x02\x00\x00\x00new firmware", 16);
-  std::string dir = make_dir(json, {{"cpp-slave.eds", firmware_eds()}});
-  mkdir((dir + "/fw").c_str(), 0755);
-  std::ofstream(dir + "/fw/node2.bin") << fw;
-  static Sim* sim;
-  sim = new Sim(dir);
-  if (!sim->ok()) {
-    CHECK(sim->ok());
-    return;
-  }
-  sim->StartFirmwareSlave(2, dir + "/cpp-slave.eds");
-  sim->net().Start();
-  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 5; }, seconds(20)));
-  CHECK(logged("node 2 (pingpong): configuring"));
-  // Read the slave's version back over SDO: the download happened.
-  uint32_t version = 0;
-  bool done = false;
-  sim->net().SubmitRead<uint32_t>(sim->exec(), 2, 0x1F56, 1,
-                                  [&](uint8_t, uint16_t, uint8_t, std::error_code ec, uint32_t v) {
-                                    if (!ec) version = v;
-                                    done = true;
-                                  });
-  CHECK(sim->RunUntil([&] { return done; }, seconds(2)));
-  CHECK_MSG(version == 2, std::to_string(version));
   delete sim;
 }
 

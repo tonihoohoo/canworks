@@ -15,7 +15,7 @@ from canworks.configurator import online
 
 from .fake_diag import SLAVE_NETWORK, TOKEN, TWO_NETWORKS, FakePlugin, closed_port, slave_status
 from .helpers import PINGPONG, REPO, tmpdir
-from .test_configurator_server import RTD, Running, read, rtd_node
+from .test_configurator_server import RTD, Running, read
 
 DIAG = {"token_verifier": diag.token_verifier(TOKEN)}
 
@@ -246,12 +246,8 @@ class Proxy(Online):
             self.ok("POST", "/api/online/nmt", {"node": 2, "command": "stop", "force": True})
             self.ok("POST", "/api/online/nmt", {"node": 2, "command": "start", "force": True})
             self.assertEqual(fp.forced, [("sdo_write", 2), ("nmt", 2)])  # START never carries force
-            status, data, _ = self.request("POST", "/api/online/scan", {"start": True})
-            self.assertEqual((status, data["force"]), (422, True), data)
-            self.ok("POST", "/api/online/scan", {"start": True, "force": True})
-            self.assertEqual(fp.forced[-1], ("scan", None))
             self.assertEqual(self.request("POST", "/api/online/sdo_read", dict(write, force=True))[0], 200)
-            self.assertEqual(fp.forced[-1], ("scan", None), "a read never carries force")
+            self.assertEqual(fp.forced[-1], ("nmt", 2), "a read never carries force")
 
     def test_error_field(self):
         # The device error history (0x1003) through the manual SDO operations.
@@ -296,78 +292,6 @@ class Proxy(Online):
             self.ok("POST", "/api/online/close", {})
             self.assertFalse(self.server.connection.connected)
             self.assertEqual(fp.connections, 2)
-
-
-class Scan(Online):
-    def library(self):
-        lib = os.path.join(self.dir, "eds-library")
-        os.makedirs(os.path.join(lib, "vendor-a"))
-        text = read(os.path.join(RTD, "rtd8.eds"), "r")
-        # Two revisions of the same device (vendor 0xAB, product 0x1234 as the fake scan reports node 40).
-        base = text.replace("VendorNumber=0x00F0F0F0", "VendorNumber=0xAB").replace("ProductNumber=0x00000404",
-                                                                            "ProductNumber=0x1234")
-        with open(os.path.join(lib, "vendor-a", "rtd-rev1.eds"), "w") as f:
-            f.write(base.replace("RevisionNumber=0x00010003", "RevisionNumber=0x00010001"))
-        with open(os.path.join(lib, "rtd-rev2.eds"), "w") as f:
-            f.write(base.replace("RevisionNumber=0x00010003", "RevisionNumber=0x00010002"))
-        with open(os.path.join(lib, "broken.eds"), "w") as f:
-            f.write("not an ini file [")
-        self.ok("POST", "/api/online/settings", {"eds_library": lib})
-        return lib
-
-    def scan(self):
-        r = self.ok("POST", "/api/online/scan", {"start": True})
-        polls = 0
-        while r["running"]:
-            polls += 1
-            r = self.ok("POST", "/api/online/scan", {"start": False})
-        self.assertGreater(polls, 0)
-        return {d["node_id"]: d for d in r["nodes"]}
-
-    def test_matches_from_the_library(self):
-        lib = self.library()
-        cfg = self.pingpong()
-        self.save(cfg)
-        with FakePlugin() as fp:
-            self.connect(fp)
-            found = self.scan()
-        m = found[40]["eds_matches"]
-        self.assertEqual([x["name"] for x in m], ["rtd-rev2.eds", "rtd-rev1.eds"])  # exact revision first
-        self.assertTrue(m[0]["revision_match"])
-        self.assertEqual(m[0]["vendor_name"], "canworks test devices")
-        self.assertEqual(found[41]["eds_matches"], [])
-        self.assertEqual(found[2]["expected"], {"vendor_id": 0x360, "product_code": 0})
-        self.assertEqual(found[2]["config_eds"], "cpp-slave.eds")
-        self.assertEqual(found[2]["eds_matches"][0]["where"], "project")
-        # Add the found sensor: the EDS is imported, the project unchanged until save.
-        before = sorted(os.listdir(self.canopen))
-        r = self.ok("POST", "/api/online/use_eds", {"path": m[0]["path"]})
-        self.assertEqual(r["name"], "rtd-rev2.eds")
-        self.assertIn("objects", r["summary"])
-        self.assertEqual(sorted(os.listdir(self.canopen)), before)
-        cfg["nodes"].append({"node_id": 40, "name": "rtd", "eds": "rtd-rev2.eds", "heartbeat_ms": 100, "revision_number": 0x00010002,
-                             "serial_number": 99})
-        self.save(cfg)
-        self.assertIn("rtd-rev2.eds", os.listdir(self.canopen))
-        # A file in canworks/ is used as it is.
-        r = self.ok("POST", "/api/online/use_eds", {"path": os.path.join(self.canopen, "cpp-slave.eds")})
-        self.assertEqual(r["name"], "cpp-slave.eds")
-        self.assertEqual(self.request("POST", "/api/online/use_eds",
-                                      {"path": os.path.join(REPO, "config", "pingpong", "cpp-slave.eds")})[0], 403)
-        self.assertEqual(self.request("POST", "/api/online/use_eds",
-                                      {"path": os.path.join(lib, "..", "cfg", "online.json")})[0], 400)
-
-    def test_expected_identity_from_the_draft(self):
-        cfg = self.pingpong()
-        cfg["nodes"][0]["revision_number"] = 2
-        with FakePlugin() as fp:
-            self.connect(fp)
-            self.ok("POST", "/api/online/scan", {"start": True, "config": cfg})
-            r = self.ok("POST", "/api/online/scan", {"start": False, "config": cfg})
-            while r["running"]:
-                r = self.ok("POST", "/api/online/scan", {"start": False, "config": cfg})
-        node2 = [d for d in r["nodes"] if d["node_id"] == 2][0]
-        self.assertEqual(node2["expected"]["revision_number"], 2)
 
 
 class TwoNetworks(Online):
@@ -417,14 +341,10 @@ class TwoNetworks(Online):
             self.assertEqual(status, 422)
             self.assertIn("io, drives", data["error"])
 
-    def test_scan_and_od_entries_use_the_network(self):
+    def test_od_entries_use_the_network(self):
         cfg = self.two()
         with FakePlugin(networks=TWO_NETWORKS, scan_polls=0) as fp:
             self.connect(fp)
-            r = self.ok("POST", "/api/online/scan", {"start": True, "config": cfg, "network": "drives"})
-            self.assertEqual(r["network"], "drives")
-            self.assertEqual(r["nodes"][0]["config_name"], "drive")
-            self.assertEqual([q.get("network") for q in fp.requests if q["op"] == "scan"], ["drives"])
             r = self.ok("POST", "/api/online/od_entries", {"node": 2, "config": cfg, "network": "drives"})
             self.assertEqual((r["configured"], r["eds"]), (True, "cpp-slave.eds"))
             # Watch lists are kept per network.
@@ -463,7 +383,7 @@ class SlaveNetwork(Online):
             self.assertEqual((status, data["kind"]), (422, "refused"))
             self.assertIn("node 2 is not this slave (node ID 10)", data["error"])
             for path, body in (("nmt", {"node": 10, "command": "stop"}), ("emcy", {"node": 10}),
-                               ("scan", {"start": True}), ("lss_find", {"start": True})):
+                               ("lss_find", {"start": True})):
                 status, data, _ = self.request("POST", "/api/online/" + path, body)
                 self.assertEqual(status, 422, path)
                 self.assertIn('network "line" is a slave network; %s needs a master network' % path, data["error"])

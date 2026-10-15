@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Raw frames and bit rate detection end-to-end on a SocketCAN interface
-# (vcan0 by default) and on the simulated bus.
+# Raw frames end-to-end on a SocketCAN interface (vcan0 by default) and on
+# the simulated bus.
 #
 #   test/rawframes/run.sh [--build-dir build] [--iface vcan0]
 #
@@ -13,8 +13,9 @@
 #     is OPERATIONAL are refused without force, and sent with it;
 #   - a cyclic job with a count sends exactly that many frames, and a job ends
 #     when its client disconnects;
-#   - detect_bitrate on vcan is refused and the session goes on;
-#   - `canworks-diag send` and `detect-bitrate` behave the same;
+#   - the removed detect_bitrate op is answered as unknown and the session
+#     goes on;
+#   - `canworks-diag send` behaves the same;
 #   - on a simulated network, a forced SDO upload request to node 2 sent by
 #     hand gets the simulated device's answer, both in the trace; the trace
 #     marks the master's frames (SYNC, RPDO1) Tx and the simulated node's Rx;
@@ -35,7 +36,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --build-dir) BUILD="$(cd "$2" && pwd)"; shift ;;
         --iface) IFACE="$2"; shift ;;
-        -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -179,11 +180,11 @@ print("    cyclic job: ends with its client")
 
 try:
     c.request("detect_bitrate", force=True)
-    raise SystemExit("detect_bitrate on vcan was not refused")
+    raise SystemExit("the removed detect_bitrate op was not refused")
 except diag.DiagError as e:
-    assert "no bit rate on a virtual bus" in str(e), e
-assert c.status()["session"], "the session ended after a refused detection"
-print("    detect_bitrate: refused on vcan, session goes on")
+    assert "unknown op 'detect_bitrate'" in str(e), e
+assert c.status()["session"], "the session ended after an unknown op"
+print("    detect_bitrate: unknown op, session goes on")
 
 # Raw config messages (add-raw-can).
 beats = [x for x in drain(1.0) if x[0] == 0x3F0]
@@ -204,16 +205,13 @@ assert [g[1] for g in got] == [b"\x00", b"\x01", b"\x02"], got
 print("    replay: three frames in order")
 PY
 
-echo "==> canworks-diag send and detect-bitrate"
+echo "==> canworks-diag send"
 out="$("${DIAG[@]}" send 0x60A "40 18 10 01" 2>&1)"
 [ $? -eq 1 ] || fail "send without --force while node 2 runs should exit 1: $out"
 echo "$out" | grep -q "force" || fail "send without --force does not say force is needed: $out"
 "${DIAG[@]}" send 0x60A "40 18 10 01" --force > "$WORK/send.out" 2>&1 || fail "send --force failed: $(cat "$WORK/send.out")"
 "${DIAG[@]}" send 0x125 AA --period-ms 20 --count 3 --force > "$WORK/cyclic.out" 2>&1 || fail "cyclic send failed: $(cat "$WORK/cyclic.out")"
 grep -q "3" "$WORK/cyclic.out" || fail "cyclic send does not report 3 frames: $(cat "$WORK/cyclic.out")"
-out="$("${DIAG[@]}" detect-bitrate --force 2>&1)"
-[ $? -eq 1 ] || fail "detect-bitrate on vcan should exit 1: $out"
-echo "$out" | grep -q "virtual bus" || fail "detect-bitrate does not say why: $out"
 
 # Every request is done: stop the host (a clean exit on SIGTERM) instead of
 # waiting out its 40 s.
@@ -264,4 +262,4 @@ if [ "$RC" -ne 0 ]; then
     echo "---- slave log ----"; tail -n 20 "$WORK/slave.log"
     exit 1
 fi
-echo "PASS: raw frames and bit rate detection"
+echo "PASS: raw frames"

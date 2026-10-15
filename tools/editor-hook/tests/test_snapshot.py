@@ -115,26 +115,15 @@ class Materialize(Base):
             f.write("old")
         self.check_applied("")
 
-    def test_program_file(self):
+    def test_program_file_fields_rejected(self):
+        # Program download was removed: its fields reject the config.
         project = rtd_project()
         cfg = json.loads(project["canworks/canworks.json"])
         cfg["nodes"][0].update(software_file="fw/rtd.hex", software_version=2)
         project["canworks/canworks.json"] = json.dumps(cfg).encode()
         project["canworks/fw/rtd.hex"] = b":10010000214601360121470136007EFE09D2190140\n"
-        applied, messages = snapshot.materialize(self.snapshot(project), self.conf)
-        self.assertTrue(applied, messages)
-        self.assertIn("canworks/fw/rtd.hex", self.conf_files())
-        with open(os.path.join(self.conf, "canworks.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["nodes"][0]["software_file"], "canworks/fw/rtd.hex")
-        self.assertEqual(read(os.path.join(self.conf, "canworks", "fw", "rtd.hex")), project["canworks/fw/rtd.hex"])
-
-    def test_program_file_corrupted_by_the_editor(self):
-        project = rtd_project()
-        cfg = json.loads(project["canworks/canworks.json"])
-        cfg["nodes"][0].update(software_file="fw/rtd.bin", software_version=2)
-        project["canworks/canworks.json"] = json.dumps(cfg).encode()
-        project["canworks/fw/rtd.bin"] = b"\x02\x00" + "\ufffd".encode() + b"\x00"
-        self.assertIgnored(project, "canworks/fw/rtd.bin was corrupted")
+        self.assertIgnored(project, "unknown field 'software_file'")
+        self.assertNotIn("canworks/fw/rtd.hex", self.conf_files())
 
     def test_no_canopen_folder(self):
         path = self.snapshot({"src/main.st": b"PROGRAM main END_PROGRAM"})
@@ -480,7 +469,6 @@ class SharedFixtures(Base):
         doc = load_cases(name)
         eds_dir = os.path.join(FIXTURES, "eds")
         eds = {"canworks/" + n: read(os.path.join(eds_dir, n)) for n in os.listdir(eds_dir) if n.endswith(".eds")}
-        eds.update({"canworks/fw/" + n: read(os.path.join(eds_dir, "fw", n)) for n in os.listdir(os.path.join(eds_dir, "fw"))})
         eds.update({"canworks/lint/" + n: read(os.path.join(eds_dir, "lint", n))
                     for n in os.listdir(os.path.join(eds_dir, "lint")) if n.endswith(".eds")})
         eds.update({"canworks/drives/" + n: read(os.path.join(eds_dir, "drives", n))

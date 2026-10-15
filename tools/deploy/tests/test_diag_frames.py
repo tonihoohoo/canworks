@@ -1,4 +1,4 @@
-"""canworks-diag send, send-stop and detect-bitrate against a fake
+"""canworks-diag send and send-stop against a fake
 plugin (add-raw-frames-bitrate-detect task 3.1)."""
 
 import io
@@ -35,20 +35,6 @@ class Values(unittest.TestCase):
         self.assertFalse(diag.needs_force(diag.DiagError("refused", "changes not allowed")))
         self.assertTrue(diag.too_old(diag.DiagError("refused", "unknown op 'send_frame'")))
         self.assertFalse(diag.too_old(diag.DiagError("eof", "unknown op")))
-
-    def test_verdict_text(self):
-        self.assertEqual(diag.verdict_text({"verdict": "detected", "bitrate_kbit": 250, "configured_kbit": 500,
-                                            "matches_config": False}),
-                         "250 kbit/s detected (the configuration has 500 kbit/s)")
-        self.assertEqual(diag.verdict_text({"verdict": "detected", "bitrate_kbit": 500, "matches_config": True}),
-                         "500 kbit/s detected, as configured")
-        self.assertEqual(diag.verdict_text({"verdict": "ambiguous", "candidates": [250, 500]}),
-                         "ambiguous: frames at 250, 500 kbit/s")
-        self.assertIn("power-cycle", diag.verdict_text({"verdict": "silent"}))
-        self.assertEqual(diag.verdict_text({"verdict": "silent", "lone_device": True}), diag.LONE_SILENT)
-        self.assertEqual(diag.verdict_text({"verdict": "failed", "error": "the adapter's driver has no listen-only "
-                                                                          "mode"}),
-                         "the sweep failed: the adapter's driver has no listen-only mode")
 
 
 class Send(unittest.TestCase):
@@ -171,95 +157,6 @@ class Send(unittest.TestCase):
             self.assertIn("give --network NAME", err)
             self.assertEqual(run("--runtime", fp.runtime, "send", "0x60A", "--network", "drives")[0], 0)
             self.assertEqual(fp.sent[0]["network"], "drives")
-
-
-class Detect(unittest.TestCase):
-    def test_detected(self):
-        with FakePlugin(allow_changes=True) as fp:
-            code, out, err = run("--runtime", fp.runtime, "detect-bitrate")
-        self.assertEqual(code, 0, err)
-        lines = out.splitlines()
-        self.assertRegex(lines[0], r"^RATE\s+FRAMES\s+ERROR FRAMES\s+IDENTIFIERS$")
-        self.assertEqual(len(lines), 1 + 8 + 1)
-        self.assertRegex(out, r"250 kbit/s\s+42\s+0\s+0x705 0x185 0x285")
-        self.assertRegex(out, r"500 kbit/s\s+0\s+12\s+-")
-        self.assertEqual(lines[-1], "250 kbit/s detected (the configuration has 500 kbit/s)")
-        self.assertNotIn("rates", fp.sweeps[0])
-
-    def test_rates_and_options(self):
-        with FakePlugin(allow_changes=True) as fp:
-            code, out, err = run("--runtime", fp.runtime, "detect-bitrate", "--rates", "125,250,500",
-                                 "--per-rate-ms", "200", "--rounds", "2")
-            self.assertEqual(code, 0, err)
-            self.assertEqual({k: fp.sweeps[0][k] for k in ("rates", "per_rate_ms", "rounds")},
-                             {"rates": [125, 250, 500], "per_rate_ms": 200, "rounds": 2})
-            self.assertIn("250 kbit/s detected", out)
-            for bad in (["--rates", "300"], ["--rates", "x"], ["--rounds", "21"], ["--per-rate-ms", "50"]):
-                with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit, msg=bad):
-                    diag.parser().parse_args(["detect-bitrate"] + bad)
-
-    def test_silent_and_ambiguous(self):
-        with FakePlugin(allow_changes=True) as fp:
-            fp.sweep_hears = {}
-            code, out, err = run("--runtime", fp.runtime, "detect-bitrate")
-            self.assertEqual(code, 1)
-            self.assertIn(diag.SILENT_HINT, out)
-            self.assertIn("no bit rate detected (silent)", err)
-            fp.sweep_hears = {250: {"frames": 10, "error_frames": 0}, 125: {"frames": 3, "error_frames": 0}}
-            fp.sweep = None
-            code, out, _ = run("--runtime", fp.runtime, "detect-bitrate")
-            self.assertEqual(code, 1)
-            self.assertIn("ambiguous: frames at 250, 125 kbit/s", out)
-
-    def test_json(self):
-        with FakePlugin(allow_changes=True) as fp:
-            code, out, _ = run("--runtime", fp.runtime, "--json", "detect-bitrate")
-            self.assertEqual(code, 0)
-            self.assertEqual(json.loads(out)["bitrate_kbit"], 250)
-            fp.sweep_hears, fp.sweep = {}, None
-            code, out, _ = run("--runtime", fp.runtime, "--json", "detect-bitrate")
-            self.assertEqual(code, 1)
-            self.assertEqual(json.loads(out)["verdict"], "silent")
-
-    def test_refusals(self):
-        with FakePlugin(allow_changes=False) as fp:
-            code, _, err = run("--runtime", fp.runtime, "detect-bitrate")
-            self.assertEqual(code, 1)
-            self.assertIn("changes not allowed", err)
-        with FakePlugin(allow_changes=True) as fp:
-            fp.operational = 5
-            code, _, err = run("--runtime", fp.runtime, "detect-bitrate")
-            self.assertEqual(code, 1)
-            self.assertIn("node 5 is OPERATIONAL; CANopen on network can0 would stop for the sweep; force needed; "
-                          "add --force to stop CANopen on this network for the sweep", err)
-            self.assertEqual(fp.sweeps, [])
-            self.assertEqual(run("--runtime", fp.runtime, "detect-bitrate", "--force")[0], 0)
-            self.assertTrue(fp.sweeps[0]["force"])
-            fp.operational, fp.sweep = None, None
-            fp.detect_refusal = "no bit rate on a virtual bus"
-            code, _, err = run("--runtime", fp.runtime, "detect-bitrate")
-            self.assertEqual(code, 1)
-            self.assertIn("no bit rate on a virtual bus", err)
-            fp.detect_refusal = ("the adapter did not answer its silent mode command, so it may not only listen: at a "
-                                 "wrong bit rate it can send error frames that disturb the devices on the bus; "
-                                 "disturb_bus needed")
-            code, _, err = run("--runtime", fp.runtime, "detect-bitrate")
-            self.assertEqual(code, 1)
-            self.assertIn("disturb_bus needed; add --disturb-bus to sweep anyway", err)
-            fp.detect_refusal = None
-            self.assertEqual(run("--runtime", fp.runtime, "detect-bitrate", "--disturb-bus")[0], 0)
-            self.assertTrue(fp.sweeps[-1]["disturb_bus"])
-            self.assertNotIn("disturb_bus", fp.sweeps[0])
-            fp.sweep = None
-            fp.detect_supported = False
-            code, _, err = run("--runtime", fp.runtime, "detect-bitrate")
-            self.assertEqual(code, 1)
-            self.assertIn("the runtime's CANopen plugin is too old for this command (update it)", err)
-
-    def test_network(self):
-        with FakePlugin(allow_changes=True, networks=TWO_NETWORKS) as fp:
-            self.assertEqual(run("--runtime", fp.runtime, "detect-bitrate", "--network", "drives")[0], 0)
-            self.assertEqual(fp.sweeps[0]["network"], "drives")
 
 
 if __name__ == "__main__":

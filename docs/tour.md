@@ -116,7 +116,7 @@ The same from a terminal: `canworks-diag --runtime local sim fault 6 heartbeat-s
 
 ## 8. LSS
 
-`new_io` (node 7) got its node ID at start from the master, by its serial number 7007 ([config.md](config.md#lss)). A second module, `spare_io` (serial 7099), is on the bus without a node ID and is not in the config: **Online** → `io` → **Unconfigured devices (LSS)** → **Find a device without node ID** finds it; **Set node ID…** gives it, say, 8, and the page offers to add it as a node. **Scan the bus** then lists node 8 as not configured ([configurator.md](configurator.md#scan-the-bus)).
+`new_io` (node 7) got its node ID at start from the master, by its serial number 7007 ([config.md](config.md#lss)). A second module, `spare_io` (serial 7099), is on the bus without a node ID and is not in the config: **Online** → `io` → **Unconfigured devices (LSS)** → **Find a device without node ID** finds it; **Set node ID…** gives it, say, 8, and the page offers to add it as a node. The node list then shows node 8 as not configured.
 
 ```sh
 canworks-diag --runtime local lss-find --network io
@@ -175,11 +175,10 @@ When you are done: `canworks-sim-runtime stop`, or `remove --data` to delete it.
 
 Some features cannot be shown on a simulated bus:
 
-- **Bit rate detection** listens to real traffic at each rate; a simulated bus has no bit rate ([diagnostics.md](diagnostics.md#finding-the-bit-rate)).
+- **The bit rate check** of a USB adapter connection needs a real bus: a simulated bus has no bit rate ([pc-adapter.md](pc-adapter.md#the-check-on-connect)).
 - **slcan adapters** (CANable and similar) and unplugging one while the bus runs need the adapter ([config.md](config.md)).
 - **Bus error states** (error passive, bus-off and recovery) need a real controller and a fault on the wire.
 - **Commissioning straight from the PC** through a USB adapter, with no runtime, needs the adapter and a device ([pc-adapter.md](pc-adapter.md)).
 - **J1939 networks** need the Linux kernel's J1939 support and do not run on the simulated bus; try them on a Linux runtime with `canworks-j1939-sim` and [`examples/j1939`](../examples/j1939) ([j1939.md](j1939.md)).
-- **Program download** to a device (0x1F51, `software_file`) is not simulated.
 - **Real-time timing**: SYNC jitter, PDO latency and the drive's cycle in a container say nothing about a real target.
 - **The install on a runtime host** (`install-stock.sh` on a Raspberry Pi or another Linux device) and its CAN interface ([install-stock.md](install-stock.md)).

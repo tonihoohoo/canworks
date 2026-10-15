@@ -1,7 +1,6 @@
 """Bundle assembly: an editor build output plus conf/canworks.json, the EDS
-files under conf/canworks/eds/ and any program files (`software_file`) under
-conf/canworks/fw/, zipped the way the runtime's upload expects. A simulation
-file goes to conf/canworks/simulation.json; the EDS/DCF files of its extra
+files under conf/canworks/eds/, zipped the way the runtime's upload expects.
+A simulation file goes to conf/canworks/simulation.json; the EDS/DCF files of its extra
 devices join the node EDS files in conf/canworks/eds/ (its `eds` values become
 eds/<file>, relative to the simulation file), its CSV files go to
 conf/canworks/sim/ (`file` values sim/<file>) and the machine files its
@@ -24,7 +23,6 @@ from .contract import all_nodes, eds_users
 from .eds import to_utf8
 
 EDS_DIR = "canworks/eds"  # under conf/, and as the rewritten `eds` value prefix
-FW_DIR = "canworks/fw"  # the same for `software_file`
 SIM_FILE = "canworks/simulation.json"  # under conf/
 SIM_CSV_DIR = "canworks/sim"  # under conf/: the simulation file's CSV files
 
@@ -72,17 +70,6 @@ def missing_eds(cfg, config_path):
     return problems
 
 
-def software_files(cfg, config_path):
-    """{software_file value: absolute path on this PC}, like eds_files()."""
-    base = os.path.dirname(os.path.abspath(config_path))
-    out = {}
-    for n in all_nodes(cfg):
-        value = n.get("software_file")
-        if isinstance(value, str) and value:
-            out[value] = value if os.path.isabs(value) else os.path.join(base, value)
-    return out
-
-
 def _by_name(files, what):
     by_name = {}
     for value, src in files.items():
@@ -94,24 +81,14 @@ def _by_name(files, what):
     return by_name
 
 
-def software_by_name(cfg, config_path):
-    """{name under conf/canworks/fw: source path} for the program files."""
-    return _by_name(software_files(cfg, config_path), "program files")
-
-
 def rewrite(cfg, config_path):
     """Returns (deployed config, {name under conf/canworks/eds: source path}).
-    Each node's and slave's `eds` becomes canworks/eds/<file name>, and a
-    `software_file` canworks/fw/<file name> (see software_by_name())."""
+    Each node's and slave's `eds` becomes canworks/eds/<file name>."""
     files = eds_files(cfg, config_path)
     by_name = _by_name(files, "EDS files")
-    software = software_files(cfg, config_path)
-    _by_name(software, "program files")
     out = json.loads(json.dumps(cfg))
     for n in eds_users(out):
         n["eds"] = "%s/%s" % (EDS_DIR, os.path.basename(files[n["eds"]]))
-        if n.get("software_file"):
-            n["software_file"] = "%s/%s" % (FW_DIR, os.path.basename(software[n["software_file"]]))
     return out, by_name
 
 
@@ -131,7 +108,7 @@ def machine_name(value, src):
     names `value`: the value itself when it is a plain relative path that
     stays out of the folders the bundle fills, else the file's name."""
     parts = value.replace("\\", "/").split("/")
-    reserved = {EDS_DIR.split("/", 1)[1], FW_DIR.split("/", 1)[1], SIM_CSV_DIR.split("/", 1)[1]}
+    reserved = {EDS_DIR.split("/", 1)[1], SIM_CSV_DIR.split("/", 1)[1]}
     if os.path.isabs(value) or any(p in ("", ".", "..") for p in parts) or ":" in value or \
             (len(parts) > 1 and parts[0] in reserved):
         return os.path.basename(src)
@@ -159,7 +136,7 @@ def sim_rewrite(sim_data, sim_path):
     return out, eds_by, csv_by, machine_by
 
 
-def assemble(bundle_dir, deployed_cfg, eds_by_name, work_dir, fw_by_name=None, sim=None):
+def assemble(bundle_dir, deployed_cfg, eds_by_name, work_dir, sim=None):
     """Copies the bundle to work_dir/bundle and adds the CANopen files, each
     EDS as UTF-8 (see eds.to_utf8). Every other file is copied unchanged.
     sim: (deployed simulation file, {CSV name: source}[, {machine file name:
@@ -180,11 +157,6 @@ def assemble(bundle_dir, deployed_cfg, eds_by_name, work_dir, fw_by_name=None, s
             converted.append(name)
         with open(os.path.join(eds_dir, name), "wb") as f:
             f.write(data)
-    if fw_by_name:
-        fw_dir = os.path.join(conf, *FW_DIR.split("/"))
-        os.makedirs(fw_dir)
-        for name, src in sorted(fw_by_name.items()):
-            shutil.copyfile(src, os.path.join(fw_dir, name))
     if sim is not None:
         sim_data, csv_by_name = sim[:2]
         for name, src in sorted((sim[2] if len(sim) > 2 else {}).items()):

@@ -134,13 +134,6 @@ class Downloads(unittest.TestCase):
         w = dcfexport.plugin_downloads(cfg, FIXTURE_CONFIG)[2].writes
         self.assertEqual([d for i, s, d in w if (i, s) == (0x1800, 2)], [b"\xfe"])
 
-    def test_firmware_step_needs_a_version(self):
-        cfg = base_config()
-        cfg["nodes"][0]["software_file"] = "fw/node2.bin"
-        self.assertIsNone(dcfexport.plugin_downloads(cfg, FIXTURE_CONFIG)[2].firmware)
-        cfg["nodes"][0]["software_version"] = 3
-        self.assertEqual(dcfexport.plugin_downloads(cfg, FIXTURE_CONFIG)[2].firmware, "fw/node2.bin")
-
 
 class Writer(unittest.TestCase):
     def test_only_named_lines_change(self):

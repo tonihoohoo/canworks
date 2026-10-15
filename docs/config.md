@@ -47,7 +47,7 @@ canopen_check /etc/canworks/canopen_config.json
 
 `canopen_check` runs the same validation, EDS checks and `dcfgen` step as the plugin and prints every problem it finds. It is built from `tools/` by the development build (see the README).
 
-`canopen_check --dump-writes` also lists each node's configuration download in the order the plugin sends it, one `write <node> 0x<index> <sub> <bytes>` line per SDO write, then the boot steps that are not object writes (`step <node> restore <sub>`, `step <node> firmware <file>`). To get the same configuration as a CiA 306 DCF per node, see [Export the nodes as DCF files](deploy.md#export-the-nodes-as-dcf-files).
+`canopen_check --dump-writes` also lists each node's configuration download in the order the plugin sends it, one `write <node> 0x<index> <sub> <bytes>` line per SDO write, then the boot steps that are not object writes (`step <node> restore <sub>`). To get the same configuration as a CiA 306 DCF per node, see [Export the nodes as DCF files](deploy.md#export-the-nodes-as-dcf-files).
 
 ## Top level
 
@@ -260,7 +260,7 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 | `reset_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is reset, the master included. |
 | `stop_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is stopped (state 4), the master included. Takes precedence over `reset_all_nodes`. |
 | `boot_time_ms` | 0x1F89 | Time allowed for all mandatory nodes to boot; 0 or left out: no limit. |
-| `sdo_timeout_ms` | | 10-60000, default 1000. How long the master waits for each SDO answer while it boots and configures a node: identity and program version reads, PDO and startup SDO downloads, `restore_configuration` and program download. Raise it for a device that answers late, for example one that saves each parameter to flash first or erases flash for a program download; a timeout shows as error status B or J, or as abort code 0x05040000 with "no answer within ... ms" in the log. Before this setting the timeout was Lely's 100 ms. SDO variables and diagnostics requests have their own timeouts. |
+| `sdo_timeout_ms` | | 10-60000, default 1000. How long the master waits for each SDO answer while it boots and configures a node: identity reads, PDO and startup SDO downloads and `restore_configuration`. Raise it for a device that answers late, for example one that saves each parameter to flash first; a timeout shows as error status B or J, or as abort code 0x05040000 with "no answer within ... ms" in the log. Before this setting the timeout was Lely's 100 ms. SDO variables and diagnostics requests have their own timeouts. |
 
 ### Online diagnostics
 
@@ -330,7 +330,6 @@ Each is optional. The first group lives only in the master (0x1F81 and the expec
 | `retry_factor` | master 0x1F81 | Node guarding retries. Default `life_time_factor` (0 without guarding). |
 | `revision_number` | master 0x1F87 | Expected revision (0x1018 sub 3). Default: the EDS value. `0` switches the check off. |
 | `serial_number` | master 0x1F88 | Expected serial number (0x1018 sub 4), to pin one physical device. Left out: not checked. |
-| `software_file`, `software_version` | master 0x1F58, 0x1F55 | Program download, see [Program download](#program-download). |
 | `axis` | PLC program | Marks the node as a CiA 402 drive used as a PLCopen axis; see [CiA 402 axis](#cia-402-axis). The plugin itself does nothing different. |
 | `lss` | master (LSS) | `{"assign": true}` gives the device its node ID over the bus by its serial number, `"store": true` also saves it in the device; see [LSS](#lss). Left out: no LSS. |
 | `heartbeat_consumer` | node 0x1016 | `true`: the node watches the master's heartbeat with timeout `master.heartbeat_ms` × `master.heartbeat_multiplier`; needs `master.heartbeat_ms` above 0. `false`: the node's entry is cleared. Left out: the EDS entries stay. |
@@ -442,12 +441,6 @@ When a node's identity does not match, the plugin reads the node's 0x1018 and lo
 | 79 | O | Wrong serial number. |
 
 Other letters come as Lely reports them; the log uses the same letters.
-
-### Program download
-
-With `software_file` and `software_version`, the master compares the node's program version (0x1F56 sub 1) with `software_version` at boot. When they differ it stops the node's program (0x1F51), downloads the file into 0x1F50 by SDO block transfer, starts the program again and checks the version once more. A node that still reports another version fails its boot. Without `software_version` the master never downloads, and the plugin warns.
-
-`software_file` is resolved like `eds`: next to the config file, then in the runtime's `core/generated/conf/`. The deploy tool ships it under `conf/canworks/fw/`. The editor's project upload sends project files as text and would corrupt a binary file, so the deploy tool refuses to copy a binary program into an editor project and the editor-upload hook refuses one that arrived corrupted: deploy a program file with `canworks-deploy --runtime`.
 
 ## PDOs
 
@@ -687,7 +680,7 @@ The `CO_NMT` function block of the `canworks` library sends the same commands wi
 
 ## Compatibility rules
 
-Within one `schema_version`, a later release of the plugin accepts every file an earlier release accepted, with the same meaning. New optional fields may be added within a version. Removing a field, making an optional field required, or changing a field's meaning needs a new `schema_version`. Unknown fields are ignored with a warning that names the field and its JSON path (`nodes[0].colour`), so a file written for a newer release of the same version still loads.
+Within one `schema_version`, a later release of the plugin accepts every file an earlier release accepted, with the same meaning. New optional fields may be added within a version. Removing a field, making an optional field required, or changing a field's meaning needs a new `schema_version`. Unknown fields are ignored with a warning that names the field and its JSON path (`nodes[0].colour`), so a file written for a newer release of the same version still loads. The one exception is the removed program download: a node with `software_file` or `software_version` is rejected (`node 2 (pingpong): unknown field 'software_file' (nodes[0].software_file)`). Update device firmware with the vendor's tool.
 
 The schema describes every field, its type and whether it is required. It cannot express these checks, which the plugin (and the deploy tool, before upload) run as well:
 
@@ -770,7 +763,7 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a node sets `config_check` while its EDS has no writable 0x1020 sub 1 and sub 2, or `store_configuration` outside 1-127, without `config_check`, or on a 0x1010 sub-index its EDS does not define as writable;
 - a node sets `lss.assign` without `serial_number` or with `reset_communication: false`, `lss.store` without `lss.assign`, or two nodes with `lss.assign` have the same LSS address;
 - a node's `axis` is not an object, has an unknown field, a `scale_numerator` that is 0 or not an integer in the DINT range, a `scale_denominator` outside 1-4294967295 or a `scale_factor` of 0;
-- a node sets `heartbeat_consumer: true` while `master.heartbeat_ms` is 0, sets `software_version` without `software_file`, or names a `software_file` that does not exist;
+- a node sets `heartbeat_consumer: true` while `master.heartbeat_ms` is 0, or has `software_file` or `software_version` (program download was removed);
 - a location lies outside the runtime's I/O image (index 1024 and up on a default runtime), raw message locations included; in a bridge config, a location or block whose bytes reach past the image;
 - an `interface` is not 1-15 characters of letters, digits, `_`, `.`, `:` and `-`;
 - a node has no guarding and a heartbeat of 0 from its EDS default, without an explicit `"heartbeat_ms": 0`;

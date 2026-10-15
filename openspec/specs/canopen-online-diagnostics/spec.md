@@ -491,51 +491,6 @@ The channel SHALL offer `send_frame` to send one CAN frame, or a cyclic job, on 
 - **WHEN** a client sends 60 single frames within one second
 - **THEN** the frames over 50 are refused with "rate limit"
 
-### Requirement: Bit rate detection
-The channel SHALL offer `detect_bitrate` to find the bit rate of the traffic on a network's bus. The plugin SHALL end the network's CANopen session as on an adapter loss, then for each requested rate (default 1000, 800, 500, 250, 125, 50, 20 and 10 kbit/s), for `rounds` rounds (1-20, default 1), set the interface to that rate in listen-only mode and count, for `per_rate_ms` (100-10000, default 1000), the valid frames, the error frames and the distinct identifiers it receives. It SHALL NOT transmit or acknowledge any frame during the sweep. Afterwards it SHALL set the configured bit rate without listen-only and start a new CANopen session. `detect_bitrate` SHALL answer at once with the sweep's progress and `detect_bitrate_status` SHALL return progress and, when finished, the per-rate counts and a verdict: `detected` with the bit rate when exactly one rate received valid frames with error frames no more than 1 % of them, `ambiguous` with the candidates otherwise when frames were received, `silent` when no frame was received at any rate, or `failed` with the reason; with `detected` it SHALL say whether the rate equals the configured one. One sweep SHALL run per network at a time; other networks SHALL keep running. While a sweep runs, the network SHALL have no CANopen session: requests on it other than `status` and `detect_bitrate_status` SHALL answer "no bus", as between sessions.
-
-#### Scenario: Wrong configured rate
-- **WHEN** `adapter.bitrate` is 500000, the only device sends heartbeats at 250 kbit/s, and a client runs `detect_bitrate`
-- **THEN** the result is `detected` 250 kbit/s with `matches_config` false, the 250 kbit/s row lists the device's heartbeat identifier, and afterwards the interface runs at 500 kbit/s again with a new CANopen session
-
-#### Scenario: Silent bus
-- **WHEN** the devices on the bus send nothing during the sweep
-- **THEN** the result is `silent` and says that a device powered on or reset during the sweep sends a boot-up message that is enough, and that a single device on the bus needs a second device or adapter that acknowledges its frames
-
-#### Scenario: Nothing is sent
-- **WHEN** a sweep runs while a second analyser records the bus
-- **THEN** the analyser sees no frame and no error frame from the PLC's adapter until the sweep ends
-
-### Requirement: Guards on bit rate detection
-`detect_bitrate` SHALL be refused with "changes not allowed" unless the config has `allow_changes: true`, and without `force: true` while any configured node of the network, or the plugin's own slave, is OPERATIONAL. It SHALL be refused on a vcan interface and on a simulated network ("no bit rate on a virtual bus"), on a `socketcan` adapter with `configure_link: false`, and with "no bus" when the interface is missing. On an `slcan` adapter the plugin SHALL release the kernel's slcan interface for the sweep and drive the serial device itself: per rate `C`, the rate command (`S0`-`S8`), then silent mode (`m1`, then `O`) when the firmware answers `m1` with CR, `L` when it refuses `m1` with an error (BEL); afterwards `C` and, after silent mode, `m0`, then create the interface again as on bring-up. When the firmware leaves `m1` unanswered, the adapter cannot confirm that it only listens and may disturb the bus at a wrong bit rate: unless the request has `disturb_bus: true`, the sweep SHALL stop before listening and end with `failed` and a reason ending in "disturb_bus needed"; with it, the sweep SHALL use `m1` then `O` and log a warning that silent mode was not confirmed. When the adapter's driver does not support listen-only mode, the sweep SHALL stop before listening, restore the configured bit rate and end with `failed` naming that. A second `detect_bitrate` on a network while one runs SHALL return the running sweep's progress.
-
-#### Scenario: Running machine
-- **WHEN** node 5 is OPERATIONAL and a client asks for a sweep without `force`
-- **THEN** the request is refused saying CANopen on that network would stop and force is needed
-
-#### Scenario: vcan
-- **WHEN** the network runs on vcan0 and a client asks for a sweep
-- **THEN** the request is refused with "no bit rate on a virtual bus" and the session goes on
-
-#### Scenario: Link left to the system
-- **WHEN** the adapter has `configure_link: false`
-- **THEN** the request is refused naming `configure_link`
-
-### Requirement: Raw frame and bit rate commands in the command-line client
-`canworks-diag send ID [DATA]` SHALL send one frame, with `--ext`, `--rtr` with `--dlc N`, and `--force`; with `--period-ms` it SHALL start a cyclic job, keep running until `--count` frames, `--duration` seconds or Ctrl-C, and stop the job on exit. `canworks-diag send-stop [JOB]` SHALL stop jobs of its own connection only and is meant for scripts that keep a connection. `canworks-diag detect-bitrate` SHALL run a sweep with `--rates`, `--per-rate-ms`, `--rounds` and `--force`, print progress and a table per rate, and exit 0 only on `detected`. Each command SHALL take `--network` as the other commands do. A plugin that answers `unknown op` SHALL be reported as too old for the command.
-
-#### Scenario: Send from the terminal
-- **WHEN** `canworks-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"` runs with `allow_changes` true and nothing OPERATIONAL
-- **THEN** it prints that the frame was sent and exits 0
-
-#### Scenario: Detect from the terminal
-- **WHEN** `canworks-diag --runtime plc.local detect-bitrate --rates 125,250,500` runs on a bus at 250 kbit/s
-- **THEN** it prints one row per rate with frame and error counts, then `250 kbit/s`, and exits 0
-
-#### Scenario: Older plugin
-- **WHEN** the runtime's plugin predates these ops
-- **THEN** the command exits 1 saying the runtime's plugin is too old for it
-
 ### Requirement: J1939 network status
 For a J1939 network, a status request SHALL return, as of no more than 100 ms before the answer: the claim state, current address and own NAME; the ECUs seen with address, NAME and time since last message; for each `rx` entry its PGN, source filter, sources seen, milliseconds since the last message, timeout state and timeout count; for each `tx` entry its PGN, messages sent and requests answered; the diagnostic messages state: for each source that sent DM1 its lamps, flash, codes (SPN, FMI, OC, CM), codes beyond the stored ones, time since its last DM1 and whether it uses the older SPN format, and, when the network sends its own DM1, its active and previously active codes with counts, the clears carried out and whether DM13 has suspended broadcasts; and the bus state and error counters as for CANopen networks.
 
@@ -645,13 +600,6 @@ A network scan SHALL be refused while any configured node of the network is OPER
 - **WHEN** node 5 is OPERATIONAL and a client starts a scan without `force`
 - **THEN** the request is refused saying nodes are running and force is needed
 
-### Requirement: Bit rate detection ends in bounded time
-A bit rate sweep SHALL be refused when its listening time per rate times the number of rates and rounds exceeds 120 s. `detect_bitrate_stop` SHALL end a running sweep after its current rate. When a sweep ends for any reason, the plugin SHALL set the configured bit rate and bring the link up, retrying once, and SHALL log when either fails.
-
-#### Scenario: Stop a sweep
-- **WHEN** a sweep runs and a client with `allow_changes` sends `detect_bitrate_stop`
-- **THEN** the sweep ends after the current rate, the configured bit rate is set again, and the network's session starts again
-
 ### Requirement: Log and memory housekeeping
 Logging of single `send_frame` requests SHALL be at most one line per second per client, with a count of the frames not logged one by one. Records of failed logins SHALL be dropped 10 minutes after their last use.
 
@@ -738,3 +686,18 @@ For each configured node the status answer SHALL carry `emcy_cob_id` with the CO
 #### Scenario: Guard on a moved COB-ID
 - **WHEN** node 5's EMCY COB-ID in use is 0xC5 and a client sends a raw frame on 0xC5 without `force`
 - **THEN** the request is refused naming 0xC5 as the EMCY of node 5 and saying force is needed
+
+### Requirement: Raw frame commands in the command-line client
+`canworks-diag send ID [DATA]` SHALL send one frame. It SHALL take `--ext`, `--rtr` with `--dlc N`, and `--force`. With `--period-ms` it SHALL start a cyclic job, keep running until `--count` frames, `--duration` seconds or Ctrl-C, and stop the job on exit. `canworks-diag send-stop [JOB]` SHALL stop jobs of its own connection only; it is meant for scripts that keep a connection. Each command SHALL take `--network` as the other commands do. A plugin that answers `unknown op` SHALL be reported as too old for the command. `canworks-diag` SHALL have no `detect-bitrate` command.
+
+#### Scenario: Send from the terminal
+- **WHEN** `canworks-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"` runs with `allow_changes` true and nothing OPERATIONAL
+- **THEN** it prints that the frame was sent and exits 0
+
+#### Scenario: Older plugin
+- **WHEN** the runtime's plugin predates these ops
+- **THEN** the command exits 1 saying the runtime's plugin is too old for it
+
+#### Scenario: No detect command
+- **WHEN** a user runs `canworks-diag --runtime plc.local detect-bitrate`
+- **THEN** argument parsing fails with exit status 2 because the command does not exist

@@ -59,7 +59,7 @@ void Network::ServiceDiag() {
   std::vector<DiagRequest> reqs;
   diag_->take(reqs);
   auto now = clock::now();
-  // For the guards of hand-sent frames and bit rate detection (diag.h).
+  // For the guards of hand-sent frames (diag.h).
   std::string operational;
   for (const auto& it : nodes_)
     if (image_.node_state(it.first) == 5) {

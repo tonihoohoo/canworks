@@ -20,7 +20,7 @@ from .test_configurator_layout import Layout, audit, load
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD, fake_editor_cli
 
-NO_NODES = "No nodes yet. Add a node from its EDS, or turn on Online access for a scan-only configuration."
+NO_NODES = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission a device."
 TEXT_NODES = """() => [...document.querySelectorAll('#editor, header, #banner')].flatMap((root) => {
   const out = [];
   const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -100,7 +100,7 @@ class Probes(Layout):
         with FakePlugin(allow_changes=True) as fp:
             self.remember(fp.runtime)
             self.open()
-            for view in ("bus", "declarations", "online", "scan", "trace", "framelab", "simulation"):
+            for view in ("bus", "declarations", "online", "trace", "framelab", "simulation"):
                 pg.click('button[data-view="%s"]' % view)
                 pg.wait_for_timeout(600)
                 if view == "online":
@@ -130,7 +130,7 @@ class Probes(Layout):
         self.assertTrue(pg.is_hidden('button[data-view="declarations"]'))
         self.assertTrue(pg.is_hidden('button[data-view="simulation"]'))
         shown = [b.text_content().strip() for b in pg.query_selector_all("#side .nav-item") if b.is_visible()]
-        self.assertEqual(shown, ["Online", "Scan the bus", "Trace", "Frame lab"])
+        self.assertEqual(shown, ["Bus and master", "Nodes", "Trace", "Frame lab"])
         self.assertNotIn("nodes", pg.inner_text("#side"))
         audit(pg, "commissioning")
         pg.click("#btn-close")
@@ -295,11 +295,6 @@ class Probes(Layout):
             self.assertEqual(pg.get_attribute("#online-node-panel", "role"), "tabpanel")
             pg.keyboard.press("Home")
             pg.wait_for_selector('button[data-nmt="start"]')
-            # Scan rows and the progress line.
-            pg.click('button[data-view="scan"]')
-            pg.click('button[data-online="scan"]')
-            pg.wait_for_selector("tr[data-scan-node]")
-            self.assertEqual(pg.get_attribute("[data-online=scan-progress]", "aria-live"), "polite")
         # Trace tabs: Right from Frames selects Identifiers; axe finds no aria-pressed on a tab.
         path = os.path.join(self.dir, "sample.log")
         with open(path, "wb") as f:

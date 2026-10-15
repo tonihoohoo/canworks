@@ -1,8 +1,8 @@
 # Online diagnostics
 
-The plugin can open a small encrypted channel (TLS) that shows the live CANopen network to the engineering PC: node states, boot results and errors, emergency history, SDO variable values, the bus state. With permission it also reads and writes any object by SDO, sends NMT commands, scans the bus for devices, and sets node IDs and bit rates of devices with LSS. The configurator's [online view and scan page](configurator.md#online-view) and the `canworks-diag` command use it.
+The plugin can open a small encrypted channel (TLS) that shows the live CANopen network to the engineering PC: node states, boot results and errors, emergency history, SDO variable values, the bus state. With permission it also reads and writes any object by SDO, sends NMT commands, scans the bus for devices, and sets node IDs and bit rates of devices with LSS. The configurator's [online view](configurator.md#online-view) and the `canworks-diag` command use it.
 
-With permission it can also send raw CAN frames by hand, replay a recorded trace and find the bit rate of an unknown bus ([Raw frames and bit rate](#raw-frames-and-bit-rate)).
+With permission it can also send raw CAN frames by hand and replay a recorded trace ([Raw frames](#raw-frames)).
 
 It is off unless the config has `master.diagnostics` ([config.md](config.md#online-diagnostics)). The plugin listens only while the PLC runs, and nothing a client does touches the PLC scan: every request is served by the CAN thread between its own work (trace requests by the diagnostics thread), and a slow or stalled client is cut off instead of waited for.
 
@@ -39,9 +39,6 @@ canworks-diag --runtime plc.local configure 23 --dcf node23.dcf [--dry-run]  # w
 canworks-diag --runtime plc.local restore-defaults 23 [--reset]            # writes "load" to 0x1011; asks first
 canworks-diag --runtime plc.local send 0x60A "40 18 10 01 00 00 00 00"    # needs allow_changes; see below
 canworks-diag --runtime plc.local send 0x123 AA 55 --period-ms 100 --count 50  # cyclic
-canworks-diag --runtime plc.local detect-bitrate [--rates 125,250,500]     # needs allow_changes
-canworks-diag --runtime plc.local detect-bitrate-stop                     # ends a sweep after its current rate
-canworks-diag --adapter slcan:COM5 --allow-changes detect-bitrate --lone-device  # one device on the bench
 canworks-diag --adapter slcan:COM5 --bitrate 250 --allow-changes pdo-test 23 --sync 100  # adapter only
 canworks-diag hash-token                                                       # prints a token_verifier
 canworks-diag explain 185#2500EA00 --config canworks/canworks.json             # every bit of a frame; no runtime
@@ -55,7 +52,7 @@ canworks-diag --runtime plc.local gateway --exec "1 2 r 0x1018 1 u32"      # or 
 
 With several CAN networks ([config.md](config.md), `schema_version: 2`) every command that talks to the plugin takes `--network NAME`. `status` without it prints every network one after another, each headed by its name and interface; every other command without it exits with status 1 naming the networks. With one network `--network` may be left out, and an older plugin, which knows no networks, ignores it.
 
-On a J1939 network ([j1939.md](j1939.md#diagnostics-and-trace)) `status` prints the ECU's claim state, address and NAME, the ECUs seen on the bus, a line per received PGN (source filter, sources seen, age of the last message, timed out or not, timeouts, count, raw signal values) and the sent PGNs, answered requests and sent requests; `trace`, `send` and `explain` work as on any network, and the CANopen commands (SDO, NMT, LSS, parameters, scan, bit rate detection) exit with status 1 saying that they need a CANopen network. The status answer and the login answer name the protocols the plugin was built with (`protocols`), and the login answer gives each network its `protocol`.
+On a J1939 network ([j1939.md](j1939.md#diagnostics-and-trace)) `status` prints the ECU's claim state, address and NAME, the ECUs seen on the bus, a line per received PGN (source filter, sources seen, age of the last message, timed out or not, timeouts, count, raw signal values) and the sent PGNs, answered requests and sent requests; `trace`, `send` and `explain` work as on any network, and the CANopen commands (SDO, NMT, LSS, parameters, scan) exit with status 1 saying that they need a CANopen network. The status answer and the login answer name the protocols the plugin was built with (`protocols`), and the login answer gives each network its `protocol`.
 
 ### Trouble codes (DM)
 
@@ -111,8 +108,9 @@ canworks-diag --adapter slcan:COM5 backup 5 --config canworks/canworks.json --ne
 
 | Option | |
 |---|---|
-| `--adapter TYPE:CHANNEL` | `slcan:PORT` (Windows, macOS, Linux) or `socketcan:IFACE` (Linux); other python-can types are passed through untested. Not together with `--runtime`. |
-| `--bitrate KBIT` | the bus's bit rate; without it, the network's `adapter.bitrate` from `--config`. There is no default. |
+| `--adapter TYPE:CHANNEL` | `slcan:PORT`, `gs_usb:N` (Windows, macOS, Linux) or `socketcan:IFACE` (Linux); other python-can types are passed through untested. Not together with `--runtime`. |
+| `--bitrate KBIT` | the bus's bit rate; without it, the network's `adapter.bitrate` from `--config`. There is no default. Every command checks it before sending anything and exits 1 with the reason when the bus does not run at it ([pc-adapter.md](pc-adapter.md#the-check-on-connect)). |
+| `--check-node N` | the node that answers the bit rate check (an SDO read of 0x1000) on a silent bus, for an adapter that cannot confirm its own frames (slcan). |
 | `--adapter-option KEY=VALUE` | passed to python-can when opening the adapter, repeatable. |
 | `--allow-changes` | allows SDO writes, NMT, restore and LSS for this command; without it the adapter only reads. `store` still asks. |
 | `--force` | runs LSS, and `lss-set-id` with a node ID the bus already shows, while another master is active. |
@@ -121,10 +119,10 @@ What differs from a runtime:
 
 | Command | Through a runtime | Through an adapter |
 |---|---|---|
-| `status` | master, bus state and counters, boot results, SDO variables | what the bus showed since connecting: node states from heartbeats, the last EMCY per node, the configured nodes from `--config`, and another master when one is active |
+| `status` | master, bus state and counters, boot results, SDO variables | what the bus showed since connecting: node states from heartbeats, the last EMCY per node, the configured nodes from `--config`, another master when one is active, frames and error frames received, and the bit rate check (`bitrate_check`) |
 | `emcy` | the plugin's history since the PLC started | the EMCY messages seen since connecting |
 | `nmt` | configured nodes | any node ID, one at a time |
-| `scan`, `sdo-read`, `sdo-write`, `errors`, `backup`, `compare`, `restore`, `store` | as described above | the same; `backup` does not ask whether the node has booted |
+| `scan`, `sdo-read`, `sdo-write`, `errors`, `backup`, `compare`, `restore`, `store` | as described above | the same; `backup` does not ask whether the node has booted; a scan ends at once when a send fails or the connection ends, and the `scan_stop` request cancels it |
 | `lss-*` | the plugin runs them | the PC runs them; refused while another master is active unless `--force` |
 | `trace` | the runtime's interface | the adapter |
 | `sim` | the plugin's simulated devices | not available |
@@ -197,7 +195,7 @@ The program drives an OPERATIONAL node, so a change by hand needs `--force` (`fo
   - No LSS on a configured node whose EDS does not say `LSS_Supported=1`: *Inquire*, *Set node ID*, *Set bit rate* and store on that node's LSS address (its EDS vendor ID and product code with its `serial_number`), and *Set node ID* to its node ID, are refused with `node 23 (io): 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS` and send nothing. This holds for every client, the CiA 309-3 gateway's `lss_*` commands too. *Find*, and addresses that are no configured node's, work as before.
   - One LSS request runs at a time, shared with the boot-time assignment of nodes with `lss.assign` ([config.md](config.md#lss)); a request while one runs answers `LSS busy`. Each request ends with all devices switched back to LSS waiting and is logged with the client's address. PDOs, heartbeats and SDO traffic of the configured nodes go on meanwhile.
 
-- **Raw frames, replay and bit rate detection** (all need `allow_changes`): see [Raw frames and bit rate](#raw-frames-and-bit-rate).
+- **Raw frames and replay** (both need `allow_changes`): see [Raw frames](#raw-frames).
 - **Raw CAN messages** ([raw-can.md](raw-can.md)): on a network with raw messages or program frame blocks the status has `raw`: running, listen-only, how the plugin confirms its own frames (`echo`), frames sent and received, bus load in percent, the program's receivers, cyclic jobs and dropped frames, simulated plain CAN devices, and per received message its count, age, timeout and last frame and per sent message its count and last error. `status` prints them as a RECEIVE and a SEND table. A [plain CAN network](raw-can.md#plain-can-networks) answers with `"protocol": "none"`, its bus and this part only.
 
 - **Device parameters** (`backup`, `compare`, `restore`, `store`): see [Replacing a device](#replacing-a-device). They run on the PC over the SDO read and write above, one SDO at a time, so they need no newer plugin. The node's EDS comes from `--config canworks.json` (default `canworks/canworks.json` when it exists) or `--eds FILE` for a node that is not configured. With several networks, `--network NAME` picks both the network the SDOs go to and the node's EDS, name and bit rate from that network of the config; a config with several networks needs it even when the runtime runs one.
@@ -229,7 +227,7 @@ Restore leaves out the PDO objects because the configuration writes them at boot
 
 `pdo-test NODE` (on `--adapter` only, needs `--allow-changes`) watches a node's TPDOs and sends its RPDOs from the PC, with the layout from `--config` when the node is in it, otherwise read from the device: `--set NAME=VALUE` (entry name, `0xIIII:SS` or `RPDO1.name`, repeatable), `--repeat-ms MS` for event-driven RPDOs, `--start` for NMT Start, `--sync MS [--sync-counter N]` for SYNC from the PC, `--duration S` (default: until Ctrl-C). It prints each TPDO's values, count and period. While another master is active it needs `--force`; see [pc-adapter.md](pc-adapter.md#commissioning-one-device).
 
-## Raw frames and bit rate
+## Raw frames
 
 ### Sending frames by hand
 
@@ -250,17 +248,9 @@ Guards:
 
 It has the guards of `send`: `allow_changes`, `--force` for identifiers the network uses and while a node is OPERATIONAL (checked for every frame before anything is sent), and a listen-only network refuses it. At most 1000 frames per second, 200000 frames per replay (a `--loop` replay is checked as one repeating sequence, the gap back to its first frame included, and while it runs the plugin never sends more than 1000 of its frames in any second, also when it catches up), and one replay per network at a time; a replay ends when its connection closes or after 10 minutes, as a cyclic job does. The plugin logs who started it and how it ended. A replay that falls more than 100 ms behind (a full transmit queue) goes on from where it is instead of sending the backlog at once.
 
-### Finding the bit rate
+### The bit rate
 
-`detect-bitrate` finds the bit rate of the traffic on the network's bus. A sweep listens at most 120 seconds in all: `--per-rate-ms` times the number of rates times `--rounds` over that is refused. `detect-bitrate-stop` ends a running sweep after the rate it listens at; Ctrl-C only stops following it. The plugin ends the network's CANopen session (the nodes report not operational, the PLC keeps running, other networks are untouched), sets the interface to listen-only mode at each CiA 301 rate in turn (1000, 800, 500, 250, 125, 50, 20 and 10 kbit/s, or `--rates`), counts valid frames, error frames and identifiers for `--per-rate-ms` (default 1000) at each rate, then sets the configured bit rate again and starts a new session: the nodes boot again as after an unplugged adapter. In listen-only mode the adapter sends nothing, not even an acknowledge.
-
-The result is `detected` with the rate where valid frames came with no more than 1 % error frames, and whether it matches `adapter.bitrate`; `ambiguous` when several rates or none clearly match; `silent` when no frame came at all; or `failed` with the reason. A device that has not been configured often sends nothing but its boot-up message: power-cycle or reset one while the sweep runs, or use `--rounds N` to sweep N times. A listening adapter sends no acknowledge, so a frame only counts when another device on the bus acknowledges it. On a bus where the listening adapter is the only other device, every frame fails on the missing acknowledge and the sweep reports `silent` even at the right rate (an slcan adapter reports no error frames either); the transmitting device repeats its frame until the master is back, which may make it error-passive for a moment. To detect the rate of a single device, put a second device or a second adapter in normal mode on the bus, or, on a USB adapter on the PC, use `--lone-device`: the adapter joins the bus in normal mode at each rate and probes the device with an LSS query (`--probe lss`, the default) or an SDO read (`--probe sdo:NODE`), see [pc-adapter.md](pc-adapter.md#sending-frames-and-finding-the-bit-rate). A runtime answers that the lone-device sweep is only on a USB adapter.
-
-However the sweep ends (done, failed, stopped), the plugin sets the configured bit rate again, also when taking the link down failed, and brings the link up, a second time when the first try fails; it logs when either fails, and the next CANopen session tries again.
-
-Guards: `allow_changes`; `--force` while a node of the network is OPERATIONAL (the sweep stops CANopen there); refused on vcan and simulated networks (`no bit rate on a virtual bus`) and on a `socketcan` adapter with `configure_link: false`, whose link the plugin must not change. An adapter whose driver has no listen-only mode ends with `failed` and the configured rate restored; candleLight (gs_usb), MCP2515/MCP2518FD CAN HATs and slcan on Linux 6.1 or later have one. On slcan the plugin gives up the kernel's interface for the sweep and talks to the adapter's serial device itself, in the firmware's silent mode (`m1`) when the firmware confirms it, and with `L` when the firmware refuses it, since some firmware takes `L` and then receives nothing; the log says when silent mode was used, and the interface is made again afterwards. Firmware that answers no command at all may ignore `m1` and disturb the bus with error frames at the wrong rates: the sweep then ends with `failed` before listening (CANopen restarts as after any sweep), and `--disturb-bus` (`disturb_bus: true`; in the configurator, **Sweep anyway**) runs it anyway.
-
-The command exits 0 only on `detected`. Change `adapter.bitrate` (or use the configurator's **Use N kbit/s**), save and upload to make the network run at the detected rate.
+There is no bit rate detection: the network runs at `adapter.bitrate`, and a USB adapter on the PC checks the rate on every connect ([pc-adapter.md](pc-adapter.md#the-check-on-connect)). The former `detect_bitrate`, `detect_bitrate_status` and `detect_bitrate_stop` requests answer `unknown op`.
 
 ## Protocol
 
@@ -304,6 +294,7 @@ Every request after the hello may carry `network`, the name of the network it is
 | `nmt` | `node`, `command` (`start`, `stop`, `preop`, `reset`, `reset-comm`), `force` | `note` when the node has not booted yet |
 | `scan` | `force` | starts a scan (unless one runs) and returns its progress |
 | `scan_status` | | `running`, `done`, `total`, and once finished `finished_at`, `seconds` and `nodes` |
+| `scan_stop` | | USB adapter on the PC only: cancels the running scan; its result with `stopped: true`, or `no scan is running`. A scan that ended on a send error has `error` |
 | `lss_find` | `vendor_id` and `product_code` (optional, together) | starts a search (unless one runs) and returns its progress |
 | `lss_find_status` | | `running`, `seconds`, and once finished `found`, `device` (`vendor_id`, `product_code`, `revision_number`, `serial_number`, `node_id`) and `error` when the search failed |
 | `lss_inquire` | `vendor_id`, `product_code`, `revision_number`, `serial_number` | `node_id` (255: none), `configured` |
@@ -314,17 +305,14 @@ Every request after the hello may carry `network`, the name of the network it is
 | `trace_stop` | | ends this client's trace |
 | `send_frame` | `can_id` (the frame's identifier; `id` stays the request's own), `ext` (default false), `rtr` (default false), `dlc` (remote frames), `data` (hex, 0-8 bytes), `period_ms` (0 or left out: one frame; 10-60000: cyclic), `count` (cyclic, optional), `force` | one frame: `sent`; cyclic: `job`, `period_ms`, `count` |
 | `send_frame_stop` | `job` (left out: all of this connection's jobs) | `stopped`: each job's `job`, `id`, `period_ms`, `sent` and `reason` (`stopped`, `count reached`, `time limit`, `transmit queue full`, ...), jobs that ended on their own included |
-| `detect_bitrate` | `rates` (kbit/s), `per_rate_ms` (100-10000, default 1000), `rounds` (1-20, default 1), `force` | starts a sweep (unless one runs) and returns its progress as `detect_bitrate_status` |
-| `detect_bitrate_stop` | | ends the running sweep after its current rate (`allow_changes`); its progress, or `no bit rate detection is running` |
-| `detect_bitrate_status` | | `running`, `configured_kbit`, `rate_kbit` (the rate listened to now), `round`, `done`, `total`, `results` (per rate `bitrate_kbit`, `frames`, `error_frames`, `ids`: the first 16 identifiers), and once finished `verdict` (`detected`, `ambiguous`, `silent`, `failed`), `bitrate_kbit` and `matches_config` (detected), `candidates`, `error` (failed) and `finished_at`; `verdict` null before the first sweep |
 | `cia309` | | switches the connection to the CiA 309-3 gateway ([cia309-gateway.md](cia309-gateway.md)): `protocol` (`CiA 309-3`), `version` (`2.1`), `allow_changes`, `allow_force`, `default_net` and `nets` (`number`, `name`, `protocol`, `role`, `served`); every byte after this answer is CiA 309-3 lines in the same TLS session. Refused with `cia309 gateway not configured` or `too many gateway clients` (the connection stays a diagnostics one). Needs no `allow_changes` and no `network` |
 | `sim_status`, `sim_get`, `sim_set`, `sim_override`, `sim_release`, `sim_source`, `sim_fault`, `sim_clear`, `sim_scenario_list`, `sim_scenario_start`, `sim_scenario_stop`, `sim_check_expr` | see [simulator.md](simulator.md#control-protocol) | the plugin's simulated devices; `nothing simulated` when the config simulates nothing, `node N is not simulated` for a node it does not simulate |
 
-`send_frame`, `send_frame_stop`, `detect_bitrate`, `detect_bitrate_stop` and `detect_bitrate_status` are served by the diagnostics thread and work on master and slave networks. `status` also carries `send_jobs` (the network's cyclic jobs: `job`, `id`, `ext`, `period_ms`, `sent`, `count`, `peer`) and `bitrate_sweep` (`running`). While a sweep runs, the network has no session: requests other than `status` and `detect_bitrate_status` answer `no bus`.
+`send_frame` and `send_frame_stop` are served by the diagnostics thread and work on master and slave networks. `status` also carries `send_jobs` (the network's cyclic jobs: `job`, `id`, `ext`, `period_ms`, `sent`, `count`, `peer`).
 
 A client traces one network at a time: `trace_start` on another network moves its trace there, and `trace_fetch` for another network than the traced one answers `no trace running`.
 
-A J1939 network serves `status`, the `trace_` ops, `send_frame`, `send_frame_stop` and `detect_bitrate_status`; `detect_bitrate` answers that bit rate detection runs on CANopen networks, and every other op `network "NAME" is a J1939 network; OP needs a CANopen network`.
+A J1939 network serves `status`, the `trace_` ops, `send_frame` and `send_frame_stop`, and every other op `network "NAME" is a J1939 network; OP needs a CANopen network`.
 
 Numbers may also be given as strings (`"0x1018"`). `sdo_write`, `nmt`, the `lss_` ops except `lss_find_status`, and the `sim_` ops except `sim_status`, `sim_get`, `sim_scenario_list` and `sim_check_expr` answer `changes not allowed` unless the config has `allow_changes: true`. Requests other than `status` answer `no bus` while there is no CANopen session.
 
@@ -350,7 +338,7 @@ A trace ends when its client sends `trace_stop`, disconnects, or sends no `trace
 - A config from before the encrypted channel has `token_sha256` instead; the plugin refuses it with a message saying to set the token again. In the configurator, **Online access** offers **Upgrade**, which keeps the token when this PC knows it; otherwise use **New token** or **Enter token…**. By hand: `canworks-diag hash-token` prints a `token_verifier` for a token. An older `canworks-diag` cannot connect to an updated plugin, and an updated one cannot connect to an older plugin ("too old for encrypted diagnostics"); update both.
 - Read-only is the default. With `allow_changes`, anyone with the token can write any object of any node, stop or reset configured nodes, and change any LSS device's node ID or bit rate; leave it off outside commissioning.
 - The port listens on every address (`0.0.0.0`) unless `bind` says otherwise, on purpose: the channel is encrypted and needs the token, and the engineering PC reaches it over the network. Set `bind` to the PLC's address on the network the engineering PC uses, so the port is not open on other networks the PLC is connected to, or firewall port 7531 so only the engineering PCs reach it. Never open it to the internet: from other networks, use the remote link or a VPN ([remote-access.md](remote-access.md)).
-- Sending frames and bit rate detection need `allow_changes`; frames on identifiers the network uses, and both while a node is OPERATIONAL, also need `force`. A forced frame can disturb a running machine as much as any other device on the bus could. Leave `allow_changes` off outside commissioning.
+- Sending frames needs `allow_changes`; frames on identifiers the network uses, and frames while a node is OPERATIONAL, also need `force`. A forced frame can disturb a running machine as much as any other device on the bus could. Leave `allow_changes` off outside commissioning.
 - A trace shows every frame on the bus, the same kind of data `status` and SDO reads already give a token holder. A capture filter limits bandwidth; it is not access control.
 - At most 4 clients at a time; a fifth gets `too many clients`. A tracing configurator or CLI uses one of them. A client must finish its TLS handshake and login within 5 seconds, and one that stops reading its answers is disconnected. Before the login the plugin holds at most 16 KiB of a connection's data, and while an address waits after a failed login it reads nothing from its connections. Wrong tokens are logged, at most once a minute per address; the plugin forgets a failed login 10 minutes after it.
 - The CiA 309-3 gateway ([cia309-gateway.md](cia309-gateway.md)) has its own plain port on the loopback address only; other machines reach it only through this channel (the `cia309` op after the login, `canworks-diag gateway`), with the gateway's own `allow_changes` and `allow_force` in place of this channel's. A switched connection no longer counts towards the 4 clients here.

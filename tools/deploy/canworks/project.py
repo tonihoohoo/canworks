@@ -4,7 +4,6 @@ runtime's editor hook (tools/editor-hook):
 
     <project>/canworks/canworks.json    (each node's and slave's eds -> "<name>")
     <project>/canworks/<name>.eds
-    <project>/canworks/<name>          (a node's software_file, if any)
     <project>/canworks/simulation.json (the simulation file, if any: each
                                        extra device's eds and each CSV
                                        file -> "<name>")
@@ -14,9 +13,7 @@ runtime's editor hook (tools/editor-hook):
 
 The editor reads every project file as UTF-8 text when it builds the
 snapshot, so EDS files are stored as UTF-8; one that is not valid UTF-8 is
-converted from CP1252 (Latin-1 for the bytes CP1252 leaves undefined). A
-program file that is not valid UTF-8 would arrive corrupted, so it is
-refused: deploy such a project with the deploy tool instead.
+converted from CP1252 (Latin-1 for the bytes CP1252 leaves undefined).
 """
 
 import json
@@ -51,16 +48,9 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
     except bundle.BundleError as e:
         raise ProjectError(str(e))
     files = bundle.eds_files(cfg, config_path)
-    try:
-        fw = bundle.software_by_name(cfg, config_path)
-    except bundle.BundleError as e:
-        raise ProjectError(str(e))
-    software = bundle.software_files(cfg, config_path)
     out = json.loads(json.dumps(cfg))
     for n in contract.eds_users(out):
         n["eds"] = os.path.basename(files[n["eds"]])
-        if n.get("software_file"):
-            n["software_file"] = os.path.basename(software[n["software_file"]])
     sim_out, csv, machines = None, {}, {}
     if sim_path:
         try:
@@ -74,15 +64,12 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
         sim_out = simfile.rewrite(sim_data, sim_path, os.path.basename, os.path.basename,
                                   lambda value, p: os.path.basename(p))
     for reserved in (CONFIG, SIM):
-        if reserved in by_name or reserved in fw or reserved in csv or reserved in machines:
-            raise ProjectError("an EDS, program, CSV or machine file may not be named %s" % reserved)
-    for name in set(machines) & (set(by_name) | set(fw) | set(csv)):
+        if reserved in by_name or reserved in csv or reserved in machines:
+            raise ProjectError("an EDS, CSV or machine file may not be named %s" % reserved)
+    for name in set(machines) & (set(by_name) | set(csv)):
         raise ProjectError("a machine file of the simulation and another file are both named %s; rename one" % name)
-    for name in set(by_name) & set(fw):
-        raise ProjectError("an EDS file and a program file are both named %s; rename one" % name)
-    for name in set(csv) & (set(by_name) | set(fw)):
-        raise ProjectError("a CSV file of the simulation and an EDS or program file are both named %s; rename one"
-                           % name)
+    for name in set(csv) & set(by_name):
+        raise ProjectError("a CSV file of the simulation and an EDS file are both named %s; rename one" % name)
     csv_data = {}
     for name, src in sorted(list(csv.items()) + list(machines.items())):
         with open(src, "rb") as f:
@@ -92,15 +79,6 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
         except UnicodeDecodeError:
             raise ProjectError("%s file %s is not UTF-8 text: the editor's project upload would corrupt it"
                                % ("machine" if name in machines else "CSV", src))
-    fw_data = {}
-    for name, src in sorted(fw.items()):
-        with open(src, "rb") as f:
-            fw_data[name] = f.read()
-        try:
-            fw_data[name].decode("utf-8")
-        except UnicodeDecodeError:
-            raise ProjectError("program file %s is binary: the editor's project upload would corrupt it. Deploy "
-                               "this config with canworks-deploy --runtime instead of --into-project" % src)
 
     staged = target + ".new"
     shutil.rmtree(staged, ignore_errors=True)
@@ -114,7 +92,7 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
                 converted.append(name)
             with open(os.path.join(staged, name), "wb") as f:
                 f.write(data)
-        for name, data in list(fw_data.items()) + list(csv_data.items()):
+        for name, data in csv_data.items():
             with open(os.path.join(staged, name), "wb") as f:
                 f.write(data)
         if sim_out is not None:
@@ -126,8 +104,7 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
             f.write("\n")
         # What the editor hook will check, on the files as they now are.
         result = contract.check_config(out, os.path.join(target, CONFIG),
-                                       eds_paths={v: os.path.join(staged, v) for v in by_name},
-                                       software_paths={v: os.path.join(staged, v) for v in fw})
+                                       eds_paths={v: os.path.join(staged, v) for v in by_name})
         if not result.ok:
             raise ProjectError("\n".join(result.errors))
         if sim_out is not None:
@@ -141,5 +118,5 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
     finally:
         shutil.rmtree(staged, ignore_errors=True)
     written = [os.path.join(target, CONFIG)] + ([os.path.join(target, SIM)] if sim_out is not None else []) + [
-        os.path.join(target, n) for n in sorted(set(by_name) | set(fw) | set(csv) | set(machines))]
+        os.path.join(target, n) for n in sorted(set(by_name) | set(csv) | set(machines))]
     return written, converted

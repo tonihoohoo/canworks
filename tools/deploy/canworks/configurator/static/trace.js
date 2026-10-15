@@ -90,7 +90,10 @@ function download(r) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
+// Recording and the Send panel: the runtime's online access, or in
+// Commission a device the open USB adapter connection.
 function onlineReady() {
+  if (S.state && S.state.commission) return !!S.adapterOn;
   return !!(diagConfig() && S.online && S.online.host && S.online.token && S.online.tokenOk);
 }
 
@@ -229,9 +232,10 @@ function showTraceHeader(st) {
   }
   const parts = [text];
   if (!rec.running && !onlineReady()) {
+    const commission = !!(S.state && S.state.commission);
     parts.push(el("div", { class: "online-note", dataset: { trace: "online-hint" } },
-      "Recording needs online access: set the runtime host and token in ",
-      el("a", { href: "#", onclick: (e) => { e.preventDefault(); showView("online"); } }, "Online"),
+      commission ? "Recording needs the USB adapter connection: Connect on " : "Recording needs online access: set the runtime host and token in ",
+      el("a", { href: "#", onclick: (e) => { e.preventDefault(); showView("online"); } }, commission ? "Bus and master" : "Online"),
       ". Opening, viewing and exporting trace files works without it."));
   }
   for (const w of st.warnings || []) parts.push(el("div", { class: "online-note warning", dataset: { trace: "warning" } }, humanise(w)));
@@ -987,6 +991,11 @@ const SEND = {
 };
 
 function sendBlocked() {
+  if (S.state && S.state.commission) {
+    if (!S.adapterOn) return "Sending needs the USB adapter connection: Connect on Bus and master.";
+    if (!S.online.allow_changes) return "Sending needs Allow changes on Bus and master";
+    return null;
+  }
   if (!onlineReady()) return "Sending needs online access: set the runtime host and token in Online.";
   if (!diagConfig().allow_changes) return "Sending needs Allow changes in Online access";
   return null;

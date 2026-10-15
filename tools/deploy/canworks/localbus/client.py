@@ -5,8 +5,8 @@ traces) works on it unchanged.
 
 Operations come from one table (OPS). An operation the table lacks answers
 "not available on a local adapter". Raw frames (send_frame) send through
-Core.transmit like every other operation; bit rate detection closes the
-shared adapter, sweeps listen-only (sweep.py) and opens it again.
+Core.transmit like every other operation. Opening the adapter checks the
+bit rate first (core.check_bitrate).
 """
 
 import base64
@@ -14,7 +14,6 @@ import threading
 import time
 
 from .. import __version__
-from .. import bitrate as bitrate_mod
 from ..diag import DiagError, FORCE_NEEDED, LSS_BITRATES, LSS_KEYS, NMT_COMMANDS, PROTOCOL, hex_bytes, parse_hex, \
     abort_text
 from . import adapter as adapter_mod
@@ -22,7 +21,6 @@ from . import core as core_mod
 from . import lss as lss_mod
 from . import pdo as pdo_mod
 from . import sdo as sdo_mod
-from . import sweep as sweep_mod
 
 NMT_CODES = {"start": 0x01, "stop": 0x02, "preop": 0x80, "reset": 0x81, "reset-comm": 0x82}
 SCAN_PARALLEL = 8
@@ -30,7 +28,7 @@ SCAN_PROBE_S = 0.1
 SCAN_READ_S = 0.2
 TRACE_MAX = 4000
 CHANGES = ("sdo_write", "nmt", "lss_find", "lss_inquire", "lss_set_id", "lss_set_bitrate", "send_frame",
-           "pdo_test_start", "pdo_test_set", "sync_start", "detect_bitrate_stop")
+           "pdo_test_start", "pdo_test_set", "sync_start")
 NOT_LOCAL = "not available on a local adapter"
 # Raw frames, with the plugin's limits.
 SEND_RATE = 50  # single frames per second per handle
@@ -39,8 +37,6 @@ MAX_JOBS = 8  # cyclic jobs per adapter
 JOB_LIMIT_S = 600.0
 ENDED_KEEP_S = 60.0
 OPERATIONAL_S = 30.0  # a node counts as OPERATIONAL this long after a heartbeat saying so
-SWEEP_OPS = ("detect_bitrate", "detect_bitrate_status", "detect_bitrate_stop")
-MAX_SWEEP_MS = 120000  # listening time per rate times rates times rounds, as the plugin
 
 
 def _int(v, what, lo, hi):
@@ -87,21 +83,20 @@ class LocalBus:
     is OPERATIONAL."""
 
     def __init__(self, spec, bitrate, allow_changes=False, force=False, config=None, network=None,
-                 timeout=5.0, listen_s=None):
+                 timeout=5.0, listen_s=None, check_node=None):
         self.spec, self.bitrate = spec, bitrate
         self.allow_changes, self.force = bool(allow_changes), bool(force)
         self.config = dict(config or {})
         self.network = network
         self.timeout = timeout
         self.listen_s = listen_s
+        self.check_node = check_node  # the bit rate check's SDO read on a silent bus (adapters without echo)
         self.core = None
         self.info = None
         self.trace_after = None
         self.trace_filters = []
         self.trace_errors = False
         self.tokens, self.tokens_at = float(SEND_RATE), time.monotonic()  # single frame rate limit
-        self.sweep = None  # the last bit rate sweep of this handle
-        self.reopen_error = None  # the adapter could not be opened again after a sweep
 
     # -- diag.Client's interface -------------------------------------------------
     @property
@@ -119,16 +114,14 @@ class LocalBus:
         self.close()
         try:
             self.core = core_mod.acquire(self.spec, self.bitrate,
-                                         core_mod.LISTEN_S if self.listen_s is None else self.listen_s)
+                                         core_mod.LISTEN_S if self.listen_s is None else self.listen_s,
+                                         self.check_node)
         except adapter_mod.AdapterError as e:
             raise DiagError("usage" if e.kind == "usage" else e.kind, str(e))
         self.info = self.request("hello")
         return self.info
 
     def close(self):
-        sweep, self.sweep = self.sweep, None
-        if sweep is not None and sweep.running:
-            sweep.stop()  # its on_end sees self.sweep gone and does not open the adapter again
         core, self.core = self.core, None
         if core is not None:
             _end_jobs(core, self, "client disconnected")
@@ -137,21 +130,11 @@ class LocalBus:
                 core.trace_remove()
             core_mod.release(core)
         self.trace_after = None
-        self.reopen_error = None
 
     def request(self, op, timeout=None, **fields):
         fn = OPS.get(op)
-        sweep = self.sweep
-        if sweep is not None and (sweep.running or op == "detect_bitrate_status"):
-            # The adapter is closed for the sweep: only the sweep and status answer.
-            if op in SWEEP_OPS:
-                return fn(self, fields)
-            if op == "status":
-                return _sweep_status(self)
-            if fn is not None:
-                raise DiagError("refused", "no bus")
         if self.core is None:
-            raise DiagError("eof", self.reopen_error or "not connected to %s" % self.where)
+            raise DiagError("eof", "not connected to %s" % self.where)
         if self.core.error:
             raise DiagError("eof", self.core.error)
         if fn is None:
@@ -179,6 +162,9 @@ class LocalBus:
 
     def nmt(self, node, command, force=None):
         return self.request("nmt", node=node, command=command, **({"force": True} if force else {}))
+
+    def scan_stop(self):
+        return self.request("scan_stop")
 
     def scan(self, start=True, force=None):
         if not start:
@@ -230,31 +216,6 @@ class LocalBus:
     def send_frame_stop(self, job=None):
         return self.request("send_frame_stop", **({} if job is None else {"job": job}))
 
-    def detect_bitrate(self, rates=None, per_rate_ms=None, rounds=None, force=False, disturb_bus=False,
-                       lone_device=False, probe=None):
-        fields = {}
-        if lone_device:
-            fields["lone_device"] = True
-        if probe:
-            fields["probe"] = probe
-        if rates:
-            fields["rates"] = list(rates)
-        if per_rate_ms:
-            fields["per_rate_ms"] = per_rate_ms
-        if rounds:
-            fields["rounds"] = rounds
-        if force:
-            fields["force"] = True
-        if disturb_bus:
-            fields["disturb_bus"] = True
-        return self.request("detect_bitrate", **fields)
-
-    def detect_bitrate_status(self):
-        return self.request("detect_bitrate_status")
-
-    def detect_bitrate_stop(self):
-        return self.request("detect_bitrate_stop")
-
     def pdo_test_start(self, node, layout, force=False):
         return self.request("pdo_test_start", node=node, layout=layout, **({"force": True} if force else {}))
 
@@ -304,7 +265,7 @@ class LocalBus:
 def _hello(c, f):
     return {"protocol": PROTOCOL, "version": __version__, "allow_changes": c.allow_changes, "local": True,
             "adapter": str(c.spec), "bitrate": c.core.bitrate, "untested_adapter": adapter_mod.untested(c.spec),
-            "master_node_id": None, "networks": [c._network()]}
+            "master_node_id": None, "networks": [c._network()], "bitrate_check": c.core.bitrate_check}
 
 
 def _status(c, f):
@@ -314,7 +275,7 @@ def _status(c, f):
     with core.lock:
         heard = dict(core.heard)
         emcy = {n: dict(e) for n, e in core.emcy.items()}
-    bus = {"interface": str(c.spec), "state": None}
+    bus = {"interface": str(c.spec), "state": None, "frames": core.valid, "error_frames": core.error_frames}
     state = getattr(core.bus, "state", None)
     name = getattr(state, "name", None)
     if name:
@@ -336,16 +297,7 @@ def _status(c, f):
             "untested_adapter": adapter_mod.untested(c.spec), "allow_changes": c.allow_changes,
             "session": True, "bus": bus, "master": None, "other_master": bool(other),
             "other_master_seen": other, "nodes": nodes, "send_jobs": _job_list(core),
-            "bitrate_sweep": {"running": False}}
-
-
-def _sweep_status(c):
-    """status while a bit rate sweep has the adapter: nothing heard, no jobs."""
-    return {"local": True, "version": __version__, "uptime_s": None, "adapter": str(c.spec), "bitrate": c.bitrate,
-            "network": c.network or "", "untested_adapter": adapter_mod.untested(c.spec),
-            "allow_changes": c.allow_changes, "session": False, "bus": {"interface": str(c.spec), "state": None},
-            "master": None, "other_master": False, "other_master_seen": None, "nodes": [], "send_jobs": [],
-            "bitrate_sweep": {"running": True}}
+            "bitrate_check": core.bitrate_check}
 
 
 def _emcy(c, f):
@@ -459,11 +411,19 @@ def _scan_run(core, job):
     def worker():
         while True:
             with lock:
-                if not queue_:
+                if not queue_ or job.get("stop"):
                     return
                 e = queue_.pop(0)
+            if core.error:
+                job.setdefault("error", core.error)
+                job["stop"] = True
+                return
             try:
                 _scan_one(core, e)
+            except adapter_mod.AdapterError as ex:  # the adapter cannot send: no point probing on
+                job.setdefault("error", str(ex))
+                job["stop"] = True
+                return
             except Exception:
                 e["done"] = True
 
@@ -472,6 +432,7 @@ def _scan_run(core, job):
         t.start()
     for t in threads:
         t.join()
+    job["stopped"] = bool(job.get("stop"))
     job["seconds"] = time.monotonic() - job["started"]
     job["finished_at"] = core_mod.iso(time.time())
     job["running"] = False
@@ -514,6 +475,10 @@ def _scan(c, f, start=True):
     if not job["running"]:
         res.update(finished_at=job["finished_at"], seconds=job["seconds"],
                    note="devices in STOPPED do not answer SDO and are not found")
+        if job.get("stopped"):
+            res["stopped"] = True
+        if job.get("error"):
+            res["error"] = job["error"]
         nodes = []
         for e in job["entries"]:
             if not e.get("answered") and e["id"] not in c.config:
@@ -530,6 +495,19 @@ def _scan(c, f, start=True):
             nodes.append(o)
         res["nodes"] = nodes
     return res
+
+
+def _scan_stop(c, f):
+    sh = _shared_of(c.core)
+    with sh.lock:
+        job = sh.scan
+        if not (job and job["running"]):
+            raise DiagError("refused", "no scan is running on %s" % c.where)
+        job["stop"] = True
+    deadline = time.monotonic() + 2.0
+    while job["running"] and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return _scan(c, f, False)
 
 
 # -- LSS -------------------------------------------------------------------------
@@ -929,120 +907,6 @@ def _send_frame_stop(c, f):
     return {"stopped": out}
 
 
-# -- bit rate detection -------------------------------------------------------------------
-
-
-def _detect(c, f):
-    if c.sweep is not None and c.sweep.running:
-        return c.sweep.status()  # the running sweep's progress
-    for key in ("force", "disturb_bus"):
-        if key in f and not isinstance(f[key], bool):
-            raise DiagError("refused", "field '%s' must be true or false" % key)
-    rates = f.get("rates")
-    if rates is not None:
-        if not isinstance(rates, list) or not rates or any(
-                isinstance(r, bool) or r not in bitrate_mod.RATES for r in rates):
-            raise DiagError("refused", "field 'rates' takes %s" % ", ".join(str(r) for r in bitrate_mod.RATES))
-        rates = list(dict.fromkeys(rates))
-    try:
-        per_rate_ms = _int(f.get("per_rate_ms", 1000), "per_rate_ms", 100, 10000)
-    except DiagError:
-        raise DiagError("refused", "field 'per_rate_ms' must be 100-10000")
-    rounds = _int(f.get("rounds", 1), "rounds", 1, 20)
-    total_ms = per_rate_ms * len(rates or bitrate_mod.RATES) * rounds
-    if total_ms > MAX_SWEEP_MS:
-        raise DiagError("refused", "the sweep would listen %d s; per_rate_ms times rates times rounds may be at most "
-                                   "%d s" % (total_ms // 1000, MAX_SWEEP_MS // 1000))
-    lone, probe = _lone_fields(c, f)
-    if not lone and c.spec.kind not in adapter_mod.LISTEN_ONLY:
-        # Refused before the adapter is closed for the sweep: closing and
-        # reopening a gs_usb adapter at once can leave it deaf on macOS.
-        raise DiagError("refused", "%s (%s adapters; slcan, PCAN and SocketCAN have one); with only one device "
-                                   "on the bus, use the lone-device sweep" % (adapter_mod.NO_LISTEN_ONLY, c.spec.kind))
-    # Listen-only sends nothing, so neither allow-changes nor force; but the
-    # adapter is closed for it, so no other view may be using it.
-    core = c.core
-    try:
-        core_mod.take_alone(core, lambda: (_end_jobs(core, None, "bit rate detection"),
-                                           pdo_mod.end_owner(core, c, "bit rate detection")))
-    except adapter_mod.AdapterError as e:
-        raise DiagError("refused", str(e))
-    c.reopen_error = None
-    tracing = c.trace_after is not None
-    c.core, c.trace_after = None, None
-    sweep = sweep_mod.Sweep(c.spec, rates, per_rate_ms, rounds, configured_kbit=core.bitrate // 1000,
-                            disturb_bus=f.get("disturb_bus") is True, lone_device=lone, probe=probe)
-
-    def reopen():
-        if c.sweep is not sweep:
-            return ""  # the handle was closed meanwhile
-        try:
-            c.core = core_mod.acquire(c.spec, c.bitrate, core_mod.LISTEN_S if c.listen_s is None else c.listen_s)
-        except adapter_mod.AdapterError as e:
-            c.reopen_error = "adapter %s could not be opened again after bit rate detection: %s" % (c.spec, e)
-            return c.reopen_error
-        if tracing:
-            c.trace_after = c.core.trace_add()
-        return ""
-
-    c.sweep = sweep
-    try:
-        sweep.start(on_end=reopen)
-    except adapter_mod.AdapterError as e:
-        reopen()
-        c.sweep = None
-        raise DiagError("refused", str(e))
-    return sweep.status()
-
-
-def _lone_fields(c, f):
-    """(lone_device, probe) of a detect_bitrate request, after the lone-device
-    sweep's guards: it joins the bus at every rate, so it needs allow-changes
-    and a bus where only the one device was heard."""
-    if "lone_device" in f and not isinstance(f["lone_device"], bool):
-        raise DiagError("refused", "field 'lone_device' must be true or false")
-    lone = f.get("lone_device") is True
-    probe = f.get("probe")
-    if probe is not None:
-        if not lone:
-            raise DiagError("refused", "field 'probe' needs 'lone_device'")
-        if isinstance(probe, dict) and set(probe) == {"sdo"}:
-            probe = {"sdo": _int(probe.get("sdo"), "probe.sdo", 1, 127)}
-        elif probe != "lss":
-            raise DiagError("refused", "field 'probe' must be \"lss\" or {\"sdo\": NODE}")
-    if not lone:
-        return False, None
-    if not c.allow_changes:
-        raise DiagError("refused", "changes not allowed (the lone-device sweep joins the bus at every rate; start "
-                                   "with --allow-changes)")
-    c.core.wait_listened()
-    other = c.core.other_master()
-    if other:
-        raise DiagError("refused", "another master is active on this bus (%s, last at %s): the lone-device sweep "
-                                   "is for a bench with one device" % (other["what"], other["last_at"]))
-    now = time.monotonic()
-    with c.core.lock:
-        heard = sorted(n for n, h in c.core.heard.items() if now - h["at"] <= OPERATIONAL_S)
-    if len(heard) > 1:
-        raise DiagError("refused", "more than one node is on the bus (heard nodes %s in the last %d s): the "
-                                   "lone-device sweep is for a bench with one device"
-                                   % (", ".join(str(n) for n in heard), OPERATIONAL_S))
-    return True, probe
-
-
-def _detect_stop(c, f):
-    if c.sweep is None or not c.sweep.running:
-        raise DiagError("refused", "no bit rate detection is running on %s" % c.where)
-    c.sweep.stop()
-    return c.sweep.status()
-
-
-def _detect_status(c, f):
-    if c.sweep is None:
-        return sweep_mod.idle_status(c.bitrate // 1000)
-    return c.sweep.status()
-
-
 OPS = {
     "hello": _hello,
     "status": _status,
@@ -1052,6 +916,7 @@ OPS = {
     "nmt": _nmt,
     "scan": lambda c, f: _scan(c, f, True),
     "scan_status": lambda c, f: _scan(c, f, False),
+    "scan_stop": _scan_stop,
     "lss_find": lambda c, f: _lss_find(c, f, True),
     "lss_find_status": lambda c, f: _lss_find(c, f, False),
     "lss_inquire": lambda c, f: _lss_addressed(c, f, "lss_inquire"),
@@ -1062,9 +927,6 @@ OPS = {
     "trace_stop": _trace_stop,
     "send_frame": _send_frame,
     "send_frame_stop": _send_frame_stop,
-    "detect_bitrate": _detect,
-    "detect_bitrate_status": _detect_status,
-    "detect_bitrate_stop": _detect_stop,
     "pdo_test_start": pdo_mod.start,
     "pdo_test_status": pdo_mod.status,
     "pdo_test_set": pdo_mod.set_values,
