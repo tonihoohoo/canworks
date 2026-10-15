@@ -139,7 +139,7 @@ function nodeSimTab(n) {
 const NOTE_VIEWS = [["mine", "My notes"], ["all", "All notes"], ["objects", "All objects"]];
 
 function noteFilled(entry) {
-  return !!entry && NOTE_FIELDS.some((f) => entry[f] !== undefined && entry[f] !== null && entry[f] !== "");
+  return !!entry && NOTE_FIELDS.some((f) => entry[f] !== undefined && entry[f] !== "");
 }
 
 // One row of an EDS object for the Notes tab: its merged note and where the

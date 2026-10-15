@@ -777,6 +777,8 @@ table.j1939-signals td:first-child input[type=text] { min-width: 8em; }
 .note-editor textarea { width: 100%; font-family: inherit; }
 .note-editor input, .note-editor textarea { box-sizing: border-box; max-width: 100%; }
 .note-editor .row { display: flex; gap: 12px; }
+.note-editor .note-hidden::placeholder { font-style: italic; }
+.note-editor label > button.link { justify-self: start; }
 .note-editor .row label { flex: 1; min-width: 0; }
 /* Modbus bridge page (bridge.js). */
 .bridge-map { max-height: 420px; }

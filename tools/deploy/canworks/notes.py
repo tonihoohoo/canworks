@@ -192,7 +192,8 @@ def _layer(table, eds, index, sub):
 
 def note(eds, builtin_table, device_table, index, sub):
     """The merged note of a sub-object: device over built-in, field by field,
-    each with its own inheritance from the object. Only FIELDS are kept."""
+    each with its own inheritance from the object. A device field of None
+    (null in the file) clears the field. Only FIELDS are kept."""
     out = _layer(builtin_table or {}, eds, index, sub)
     out.update(_layer(device_table or {}, eds, index, sub))
     return {f: out[f] for f in FIELDS if f in out and out[f] not in ("", None)}
@@ -308,7 +309,8 @@ def skeleton(eds, eds_name, eds_text=None, eds_path=None, describe=False, all_ob
 def apply_changes(objects, changes):
     """objects with the page's edits: {key: note} replaces an entry's fields
     (fields not given are removed, other keys such as hand-written extras are
-    kept), {key: None} removes the entry."""
+    kept; a field of None clears the built-in field), {key: None} removes the
+    entry."""
     out = dict(objects or {})
     for k, v in (changes or {}).items():
         if parse_key(k) is None:
@@ -317,15 +319,15 @@ def apply_changes(objects, changes):
             out.pop(k, None)
             continue
         entry = {kk: vv for kk, vv in (out.get(k) or {}).items() if kk not in FIELDS}
-        entry.update({f: v[f] for f in FIELDS if f in v and v[f] not in ("", None)})
+        entry.update({f: v[f] for f in FIELDS if f in v and v[f] != ""})
         out[k] = entry
     return out
 
 
 def filled(entry):
-    """Whether a device entry holds a note of the user's: any note field, not
-    only the `name` the skeleton writes."""
-    return isinstance(entry, dict) and any(entry.get(f) not in ("", None) for f in FIELDS)
+    """Whether a device entry holds a note of the user's: any note field, a
+    cleared one (None) included, not only the `name` the skeleton writes."""
+    return isinstance(entry, dict) and any(f in entry and entry[f] != "" for f in FIELDS)
 
 
 def own_objects(objects):
@@ -373,12 +375,15 @@ def plan_import(eds, notes_, doc, identity_=None):
             continue
         base = _builtin_layer(eds, notes_.builtin, ix, sub)
         now = notes_.note(ix, 0 if sub is None else sub) if sub is not None or _is_var(eds, ix) else dict(notes_.device.get(k) or {})
+        old = notes_.device.get(k) or {}
         got = {f: v[f] for f in FIELDS if v.get(f) not in ("", None) and v[f] != base.get(f) and v[f] != now.get(f)}
+        # A cleared field (null) only where something shows it and it is not cleared already.
+        got.update({f: None for f in FIELDS if f in v and v[f] is None and not (f in old and old[f] is None)
+                    and (base.get(f) is not None or now.get(f) is not None)})
         if not got:
             preview["same"].append(k)
             continue
-        old = notes_.device.get(k) or {}
-        entry = {f: old[f] for f in FIELDS if old.get(f) not in ("", None)}
+        entry = {f: old[f] for f in FIELDS if f in old and old[f] != ""}
         entry.update(got)
         changes[k] = entry
         preview["changed" if filled(old) else "new"].append(k)
@@ -438,10 +443,27 @@ def _bits_of(type_name):
     return int(m.group(2)) if m else None
 
 
+def _clears(eds, builtin_table, objects, index, sub, field):
+    """Whether a field set to None on this key hides something: a built-in
+    value, or one inherited from the device's object entry."""
+    if sub is None and not _is_var(eds, index):
+        if field not in INHERITED:
+            return False
+        return (builtin_table.get(key(index)) or {}).get(field) is not None or any(
+            (builtin_table.get(key(index, s)) or {}).get(field) is not None for s in eds.objects[index])
+    s = 0 if sub is None else sub
+    if _layer(builtin_table, eds, index, s).get(field) is not None:
+        return True
+    obj = objects.get(key(index)) if sub is not None and not _is_var(eds, index) else None
+    return field in INHERITED and isinstance(obj, dict) and obj.get(field) is not None
+
+
 def check(eds, doc, notes_name, eds_name):
     """The warnings of a notes document against the schema and its EDS."""
     out = ["%s: %s" % (notes_name, p) for p in schema_problems(doc)]
-    for k, v in (doc.get("objects") or {}).items():
+    builtin_table = builtin(eds)
+    objects_ = doc.get("objects") or {}
+    for k, v in objects_.items():
         pk = parse_key(k)
         if pk is None or not isinstance(v, dict):
             continue
@@ -451,15 +473,18 @@ def check(eds, doc, notes_name, eds_name):
             continue
         subs = [eds.objects[ix][sub]] if sub is not None else (
             [eds.objects[ix][0]] if _is_var(eds, ix) else [])
+        for field in FIELDS:
+            if field in v and v[field] is None and not _clears(eds, builtin_table, objects_, ix, sub, field):
+                out.append("%s: %s clears its %s, but there is none to clear" % (notes_name, k, field))
         if sub is None and not _is_var(eds, ix):
             for field in ("values", "bits"):
-                if field in v:
+                if v.get(field) is not None:
                     out.append("%s: the %s of %s are not used by its sub-objects; write them on its sub-object keys"
                                % (notes_name, field, k))
         for o in subs:
             bits = _bits_of(type_text(o))
             for field in ("values", "bits"):
-                if field in v and bits is None and not (field == "values" and o.type_name == "BOOLEAN"):
+                if v.get(field) is not None and bits is None and not (field == "values" and o.type_name == "BOOLEAN"):
                     out.append("%s: %s has %s, but its type %s is not an integer type"
                                % (notes_name, k, field, type_text(o)))
             if bits is not None and isinstance(v.get("bits"), dict):

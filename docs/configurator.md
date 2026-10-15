@@ -257,7 +257,7 @@ The first save creates the notes file of each EDS that has none: the EDS's ident
 }
 ```
 
-Keys are `0x<index>` for a whole object (or a plain variable) and `0x<index>:<subindex>` for one sub-object. `text` is one line of up to 200 characters; `scale` turns the raw value into the shown one (shown = raw × scale); `values` maps raw values to meanings, `bits` bit numbers to names. `name` is informational only.
+Keys are `0x<index>` for a whole object (or a plain variable) and `0x<index>:<subindex>` for one sub-object. `text` is one line of up to 200 characters; `scale` turns the raw value into the shown one (shown = raw × scale); `values` maps raw values to meanings, `bits` bit numbers to names. `name` is informational only. A field set to `null` hides that field of the built-in note: `"0x6098": {"values": null}` drops the built-in homing methods of a drive without homing, and `null` on an object key also stops its sub-objects from inheriting the field (a sub-object with its own value still shows it). `notes check` and **Problems** warn about a `null` that hides nothing.
 
 Where notes show:
 
@@ -267,7 +267,7 @@ Where notes show:
 
 Notes are written on the node's **Notes** tab. It opens on **My notes**, the objects you wrote a note for (unsaved edits included; the name-only entries of the first save do not count); **All notes** adds canworks' built-in notes, and **All objects** lists every object of the EDS. Each row says where its note comes from: **Mine**, **Built-in** or **Built-in, changed**. The tab label shows how many notes you wrote ("Notes 4").
 
-- **Note** on a row, or **Add note…** for any object (search by index or name), opens the note editor. It starts from the built-in note and keeps only what differs from it.
+- **Note** on a row, or **Add note…** for any object (search by index or name), opens the note editor. It starts from the built-in note and keeps only what differs from it. Emptying a field that shows a built-in or inherited value hides it (saved as `null`); the empty field then names the hidden value, and **Use built-in** brings it back.
 - **Import notes…** reads a notes file (also one made by Export) and shows first what it would do: new notes, changed notes, notes already the same, and entries skipped because the EDS has no such object; a file made for another device or revision gets a warning. Fields that equal the built-in note are not imported, so a merged export brings no built-in text into your file. The import is one draft edit: **Ctrl+Z** takes it back.
 - **Export notes…** downloads **My notes** (`<EDS file name>.notes.json`, only your filled entries) or **Merged with built-in** (`<EDS file name>.merged.notes.json`), to share or to start another device's notes from.
 

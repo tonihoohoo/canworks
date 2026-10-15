@@ -50,28 +50,43 @@
           "description": "A copy of the EDS name, for reading the file by hand. Ignored when read; refreshed on save."
         },
         "text": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 200,
           "pattern": "^[^\\n\\r]*$",
           "description": "One line on what the object does."
         },
         "details": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Longer text, shown on hover and in the note editor."
         },
         "unit": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 20
         },
         "scale": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "not": {
             "const": 0
           },
           "description": "Shown value = raw value x scale."
         },
         "values": {
-          "type": "object",
+          "type": [
+            "object",
+            "null"
+          ],
           "description": "Meaning of a raw value, by the value in decimal.",
           "propertyNames": {
             "pattern": "^-?(0|[1-9][0-9]*)$"
@@ -82,7 +97,10 @@
           }
         },
         "bits": {
-          "type": "object",
+          "type": [
+            "object",
+            "null"
+          ],
           "description": "Meaning of each bit, by bit number 0-63. Empty marks a bit field without names.",
           "propertyNames": {
             "pattern": "^([0-9]|[1-5][0-9]|6[0-3])$"
@@ -93,10 +111,14 @@
           }
         },
         "manual": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Where the device manual describes the object, such as a page or section."
         }
-      }
+      },
+      "description": "A note field set to null clears that field of the built-in note (and, on an object key, the field its sub-objects would inherit)."
     }
   }
 }

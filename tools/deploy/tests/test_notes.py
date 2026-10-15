@@ -357,6 +357,62 @@ class Checks(unittest.TestCase):
 SKILL = os.path.join(REPO, ".claude", "skills", "canworks-datasheet-notes", "SKILL.md")
 
 
+class Clear(unittest.TestCase):
+    """A note field of null clears the built-in or inherited field."""
+
+    def servo(self):
+        eds = Eds.read(SERVO)
+        return eds, notes.Notes(eds, "servo402.eds")
+
+    def test_object_key_clears_what_sub_objects_inherit(self):
+        eds = valve()
+        built = {"0x2200": {"text": "Pressures", "unit": "per mille"}}
+        device = {"0x2200": {"unit": None}, "0x2200:1": {"unit": "mA"}}
+        self.assertEqual(notes.note(eds, built, device, 0x2200, 0), {"text": "Pressures"})
+        self.assertEqual(notes.note(eds, built, device, 0x2200, 1), {"text": "Pressures", "unit": "mA"})
+        self.assertEqual(notes.note(eds, built, {"0x2200:2": {"unit": None}}, 0x2200, 2), {"text": "Pressures"})
+        self.assertEqual(notes.note(eds, built, {}, 0x2200, 2)["unit"], "per mille")
+
+    def test_var_clear_reaches_merged_export(self):
+        eds, n = self.servo()
+        n.device = {"0x6098": {"text": "Homing is not supported", "values": None}, "0x1017": {"unit": None}}
+        merged = n.merged()
+        self.assertNotIn("values", merged["0x6098"])
+        self.assertEqual(merged["0x6098"]["text"], "Homing is not supported")
+        self.assertNotIn("unit", merged["0x1017"])
+        self.assertNotIn("null", notes.dumps(n.merged_document()))
+        self.assertTrue(notes.filled({"unit": None}))
+        self.assertEqual(notes.schema_problems(doc(n.device)), [])
+
+    def test_edits_and_file_keep_null(self):
+        eds = valve()
+        out = notes.update(doc({}), {"0x2010": {"unit": None, "text": ""}}, eds)
+        self.assertEqual(out["objects"]["0x2010"], {"name": "Ramp time", "unit": None})
+        self.assertIn('"unit": null', notes.dumps(out))
+
+    def test_import_null(self):
+        eds, n = self.servo()
+        changes, preview, _ = notes.plan_import(eds, n, doc({"0x1017": {"unit": None}, "0x1018:1": {"unit": None}}))
+        self.assertEqual(changes, {"0x1017": {"unit": None}})
+        self.assertEqual((preview["new"], preview["same"]), (["0x1017"], ["0x1018:1"]))
+        n.device = {"0x1017": {"unit": None}}
+        changes, preview, _ = notes.plan_import(eds, n, doc({"0x1017": {"unit": None}}))
+        self.assertEqual((changes, preview["same"]), ({}, ["0x1017"]))
+        n.device = {}
+        changes, preview, _ = notes.plan_import(eds, n, n.merged_document())
+        self.assertEqual(changes, {})
+
+    def test_check_null_that_clears_nothing(self):
+        eds, _ = self.servo()
+        findings = notes.check(eds, doc({"0x1017": {"unit": None}, "0x1000": {"unit": None},
+                                         "0x6098": {"values": None}}), "s.notes.json", "servo402.eds")
+        self.assertEqual(findings, ["s.notes.json: 0x1000 clears its unit, but there is none to clear"])
+        eds = valve()
+        findings = notes.check(eds, doc({"0x2200": {"unit": "bar"}, "0x2200:1": {"unit": None},
+                                         "0x2011": {"values": None}}), "v.notes.json", "valve.eds")
+        self.assertEqual(findings, ["v.notes.json: 0x2011 clears its values, but there is none to clear"])
+
+
 class Commands(unittest.TestCase):
     """canworks-deploy notes skeleton | builtin | check (spec canopen-deploy)."""
 

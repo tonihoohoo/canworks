@@ -61,7 +61,7 @@ The configurator SHALL check each notes file against the schema and its EDS and 
 
 #### Scenario: Nothing to clear
 - **WHEN** the notes file has `"0x2010": {"unit": null}` and 0x2010 has no built-in note
-- **THEN** the Problems pane warns that the unit of 0x2010 is cleared but there is no unit to clear
+- **THEN** the Problems pane warns that 0x2010 clears its unit, but there is none to clear
 
 ### Requirement: Datasheet notes correct built-in notes
 The skill SHALL compare the built-in note of each standard object the datasheet describes with the datasheet, and SHALL write the device's own `text`, `unit` or `values` where the built-in one does not fit the device. Where a built-in field does not apply to the device at all, such as a list of modes the device supports none of or a unit that sub 0 or other sub-objects would inherit, the note SHALL set that field to `null` and `details` SHALL say why.
