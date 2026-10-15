@@ -16,7 +16,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO
+from .helpers import REPO, node_tab, tree_entry, tree_net
 from .test_configurator_layout import FIT_CHECK
 from .test_configurator_page import REQUIRED, sync_playwright
 
@@ -28,8 +28,8 @@ SCROLL_BOXES = r"""() => [...document.querySelectorAll("#view .table-scroll, #vi
   .filter((e) => e.offsetParent !== null && e.scrollWidth > e.clientWidth + 1)
   .map((e) => ["box scrolls sideways", (e.querySelector("caption, th") || e).textContent.trim().slice(0, 40)])"""
 
-# The node pages' collapsed sections, opened so their fields are checked too.
-OPEN_SECTIONS = "() => document.querySelectorAll('details.section, details[data-picker]').forEach((d) => { d.open = true; })"
+# The node pages' collapsed PDO settings and pickers, opened so their fields are checked too.
+OPEN_SECTIONS = "() => document.querySelectorAll('details[data-pdo-settings], details[data-picker]').forEach((d) => { d.open = true; })"
 
 
 @unittest.skipIf(sync_playwright is None and not REQUIRED, "Playwright for Python is not installed")
@@ -97,7 +97,7 @@ class Sweep:
             pg.wait_for_selector("#fx-lab-examples:not(:has-text('Loading'))")
         elif view == "simulation":
             pg.wait_for_selector("#sim-body")
-        elif view.startswith("node:"):
+        elif ":node:" in view:
             pg.wait_for_selector('#view h2:has-text("Node")')
             pg.evaluate(OPEN_SECTIONS)
         pg.wait_for_function("() => document.body.dataset.checking !== '1'")
@@ -116,14 +116,25 @@ class Sweep:
                 found.append("%s: decoding note: %s" % (where, line.strip()))
 
     def views(self):
-        """The views the side bar offers on the open network: the nav items
-        and one page per node."""
+        """The tree entries of the open network that open a page (Bus, its
+        nodes, PDO links, CAN messages), as their tree keys."""
+        return self.page.eval_on_selector_all(
+            "#tree .open-net [role=group] > [role=treeitem]",
+            "es => es.filter((e) => e.dataset.view || e.dataset.node !== undefined).map((e) => e.dataset.key)")
+
+    def visit(self, key, where, found):
+        """Opens the tree entry `key` and checks its page; a node page on each of its tabs."""
         pg = self.page
-        nav = pg.eval_on_selector_all("#side button[data-view]",
-                                      "bs => bs.filter((b) => b.offsetParent !== null).map((b) => b.dataset.view)")
-        nodes = pg.eval_on_selector_all("#node-list [data-node]",
-                                        "ns => ns.filter((n) => n.offsetParent !== null).map((n) => n.dataset.node)")
-        return nav[:1] + ["node:" + k for k in nodes] + nav[1:]
+        tree_entry(pg, key)
+        if ":node:" not in key:
+            self.settle(pg.get_attribute('#tree [data-key="%s"]' % key, "data-view") or "bus")
+            self.check(where, found)
+            return
+        pg.wait_for_selector('[data-node-heading="%s"]' % key.rsplit(":", 1)[1])
+        for tab in pg.eval_on_selector_all(".node-tabs [data-node-tab]", "bs => bs.map((b) => b.dataset.nodeTab)"):
+            node_tab(pg, tab)
+            self.settle(key)
+            self.check("%s, tab %s" % (where, tab), found)
 
     def test_every_network_and_view(self):
         pg = self.page
@@ -133,17 +144,17 @@ class Sweep:
         self.check("%s, start page" % self.example, found)
         self.open()
         nets = pg.evaluate("() => S.model.networks.map((n, i) => n.name || String(i + 1))")
+        seen = 0
         for i, net in enumerate(nets):
-            if len(nets) > 1:
-                pg.click('#net-bar button[data-net="%d"]' % i)
-            for view in self.views():
-                where = "%s, network %s, %s" % (self.example, net, view)
-                if view.startswith("node:"):
-                    pg.click('#node-list [data-node="%s"]' % view[5:])
-                else:
-                    pg.click('#side button[data-view="%s"]' % view)
-                self.settle(view)
-                self.check(where, found)
+            tree_net(pg, i)
+            for key in self.views():
+                self.visit(key, "%s, network %s, %s" % (self.example, net, key), found)
+                seen += 1
+        # The config-wide entries after the networks: Online access, Gateway, Modbus bridge.
+        for key in pg.eval_on_selector_all("#tree > [role=treeitem][data-view]", "es => es.map((e) => e.dataset.key)"):
+            self.visit(key, "%s, %s" % (self.example, key), found)
+            seen += 1
+        self.assertGreater(seen, len(nets))
         self.assertEqual(found, [], "\n" + "\n".join(found))
 
 
