@@ -1,8 +1,14 @@
 [hidden] { display: none !important; }
 :root {
   --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #dcdcd6;
-  --accent: #1f5fbf; --accent-text: #ffffff; --error: #b3261e; --error-bg: #fbe9e7; --warn: #8a5a00; --warn-bg: #fff4dc;
-  --ok: #256b2a; --hover: #eeeeea; --header-h: 52px;
+  --accent: #1f5fbf; --accent-text: #ffffff; --hover: #eeeeea; --header-h: 52px;
+  /* State colours (visual-refresh): only states use them; text stays --text, the icon carries the colour. */
+  --st-ok: #256b2a; --st-busy: #0b6b78; --st-warn: #8a5a00; --st-error: #b3261e; --st-off: #6b6b66;
+  --st-warn-bg: #fff4dc; --st-error-bg: #fbe9e7;
+  /* Older names, kept as aliases while views move to --st-*. */
+  --ok: var(--st-ok); --warn: var(--st-warn); --warn-bg: var(--st-warn-bg); --error: var(--st-error); --error-bg: var(--st-error-bg);
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
   color-scheme: light;
 }
 /* Keyboard focus: the accent colour everywhere, never removed. */
@@ -11,14 +17,18 @@
 /* Theme: data-theme on <html> is light, dark or auto (the OS setting). */
 :root[data-theme="dark"] {
   --bg: #161615; --panel: #1f1f1d; --text: #ececea; --muted: #a3a39c; --line: #3a3a36;
-  --accent: #6ea0f0; --accent-text: #0b1220; --error: #ff8a80; --error-bg: #3a1714; --warn: #f2c66d; --warn-bg: #33270d;
-  --ok: #81c784; --hover: #2a2a27;
+  --accent: #6ea0f0; --accent-text: #0b1220;
+  --st-ok: #81c784; --st-busy: #5cc4d0; --st-warn: #f2c66d; --st-error: #ff8a80; --st-off: #a3a39c;
+  --st-warn-bg: #33270d; --st-error-bg: #3a1714;
+  --hover: #2a2a27;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-theme="dark"]) { --bg: #161615; --panel: #1f1f1d; --text: #ececea; --muted: #a3a39c; --line: #3a3a36;
-    --accent: #6ea0f0; --accent-text: #0b1220; --error: #ff8a80; --error-bg: #3a1714; --warn: #f2c66d; --warn-bg: #33270d;
-    --ok: #81c784; --hover: #2a2a27;
+    --accent: #6ea0f0; --accent-text: #0b1220;
+    --st-ok: #81c784; --st-busy: #5cc4d0; --st-warn: #f2c66d; --st-error: #ff8a80; --st-off: #a3a39c;
+    --st-warn-bg: #33270d; --st-error-bg: #3a1714;
+    --hover: #2a2a27;
     color-scheme: dark; }
 }
 * { box-sizing: border-box; }
@@ -802,3 +812,31 @@ tr[data-not-in-config] td { background: var(--warn-bg); }
 .log-list li.event { color: var(--muted); }
 .log-list li.change { color: var(--text); }
 fieldset[data-sim-panel] { border: 1px dashed var(--accent); border-radius: 8px; padding: 6px 10px; margin: 10px 0; }
+/* Visual refresh: state icons (icons.js), data tables, fixed-width IDs. */
+.st { display: inline-block; width: 14px; height: 14px; flex: none; vertical-align: -2px; color: var(--st-off); overflow: visible; }
+.st-operational, .st-ok { color: var(--st-ok); }
+.st-preop, .st-busy { color: var(--st-busy); }
+.st-stopped, .st-warning { color: var(--st-warn); }
+.st-error { color: var(--st-error); }
+.st-unknown { color: var(--st-off); }
+.st .st-sim { display: none; }
+.st.simulated .st-sim { display: inline; }
+.st-flag { display: inline-block; width: 10px; height: 12px; margin-left: 2px; vertical-align: -1px; color: var(--st-error); }
+.st-flag.cleared { color: var(--st-off); }
+.st-with-label { display: inline-flex; align-items: center; gap: var(--sp-1); white-space: nowrap; }
+@media (prefers-reduced-motion: no-preference) {
+  .st-busy.spinning use { transform-origin: 50% 50%; animation: st-turn 1.2s linear infinite; }
+}
+@keyframes st-turn { to { transform: rotate(360deg); } }
+@media (forced-colors: active) {
+  .st, .st-flag, .st-flag.cleared { color: CanvasText; forced-color-adjust: none; }
+}
+.mono, code { font-family: var(--mono); font-size: 0.95em; }
+.num, td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.data td, table.data th { padding: var(--sp-1) 6px; height: 28px; vertical-align: middle; line-height: 1.3; }
+table.data tr.has-control td { height: 32px; }
+table.data thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+table.data tr.st-row-warn td { background: var(--st-warn-bg); }
+table.data tr.st-row-error td { background: var(--st-error-bg); }
+.legend-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: auto 1fr; gap: var(--sp-2) var(--sp-3); align-items: start; }
+.legend-list dt, .legend-list .legend-icon { display: inline-flex; align-items: center; gap: var(--sp-1); font-weight: 600; white-space: nowrap; }
