@@ -139,7 +139,7 @@ The `master` object MAY give `vendor_id`, `product_code`, `revision_number`, `se
 - **THEN** the load log says the network stays PRE-OPERATIONAL until the PLC program starts it with `CO_NETWORK_START`, the master's state byte reads 127, and no PDO is exchanged, also after all nodes have booted
 
 ### Requirement: Node options from JSON
-Each slave entry MAY give `mandatory`, `boot`, `reset_communication`, `revision_number`, `serial_number`, `heartbeat_consumer`, `retry_factor`, `time_cob_id`, `error_behavior`, `restore_configuration`, `software_file` and `software_version`. The plugin SHALL pass each given value to dcfgen under its dcfgen name. A field that configures an object on the node and is left out SHALL write nothing to the node, so the node keeps the value from its EDS; this includes the node's heartbeat consumer entries (0x1016). Fields that configure only the master SHALL keep today's values when left out (`boot` true, `mandatory` false, `reset_communication` true, `retry_factor` equal to `life_time_factor`), and the expected revision number SHALL come from the EDS. A `revision_number` of 0 SHALL turn off the revision check for that node. dcfgen warnings SHALL be logged as warnings naming the node. `heartbeat_consumer` on a node SHALL be rejected when the master sends no heartbeat. When `boot` is `false`, the master SHALL NOT boot, configure or retry that node.
+Each slave entry MAY give `mandatory`, `boot`, `reset_communication`, `revision_number`, `serial_number`, `heartbeat_consumer`, `retry_factor`, `time_cob_id`, `error_behavior`, and `restore_configuration`. Any other field, including the former `software_file` and `software_version`, SHALL be rejected as unknown, naming the field. The plugin SHALL pass each given value to dcfgen under its dcfgen name. A field that configures an object on the node and is left out SHALL write nothing to the node, so the node keeps the value from its EDS; this includes the node's heartbeat consumer entries (0x1016). Fields that configure only the master SHALL keep today's values when left out (`boot` true, `mandatory` false, `reset_communication` true, `retry_factor` equal to `life_time_factor`), and the expected revision number SHALL come from the EDS. A `revision_number` of 0 SHALL turn off the revision check for that node. dcfgen warnings SHALL be logged as warnings naming the node. `heartbeat_consumer` on a node SHALL be rejected when the master sends no heartbeat. When `boot` is `false`, the master SHALL NOT boot, configure or retry that node.
 
 #### Scenario: Left-out node settings keep the EDS values
 - **WHEN** node 2's EDS has a 0x1016 entry watching the master, a 0x1029 default and a 0x1012 default, and node 2's entry sets none of `heartbeat_consumer`, `error_behavior` or `time_cob_id`
@@ -157,19 +157,12 @@ Each slave entry MAY give `mandatory`, `boot`, `reset_communication`, `revision_
 - **WHEN** the master has `heartbeat_ms` 100 and `heartbeat_multiplier` 3, and node 2 has `"heartbeat_consumer": true`
 - **THEN** node 2's 0x1016 is set to consume the master's heartbeat with a 300 ms timeout
 
-### Requirement: Firmware download
-When a slave entry gives `software_file` (a path relative to the configuration folder) and `software_version`, the master SHALL compare the node's software version (0x1F56 sub 1) with `software_version` during boot and, when they differ, download the file to the node before configuring it. A missing file SHALL be rejected at load with the node and path named. The deploy tool SHALL ship the file with the configuration the same way it ships EDS files.
-
-#### Scenario: Old firmware on the node
-- **WHEN** node 4 reports software version 1, its entry gives `"software_version": 2` and `"software_file": "fw/node4.bin"`
-- **THEN** the master downloads fw/node4.bin to node 4, then configures and starts it
-
-#### Scenario: Firmware file missing
-- **WHEN** `software_file` names a file that is not in the configuration folder
-- **THEN** the plugin rejects the configuration and names node 4 and the path
+#### Scenario: Firmware fields rejected
+- **WHEN** node 4's entry has `"software_file": "fw/node4.bin"`
+- **THEN** the plugin and the deploy tool reject the configuration, naming node 4 and the unknown field `software_file`
 
 ### Requirement: Boot SDO timeout
-The `master` object MAY give `sdo_timeout_ms`, an integer from 10 to 60000; a value outside that range SHALL be rejected with the field named. The master SHALL wait this long for each SDO answer while it boots and configures a node: reading the node's identity and software version, downloading PDO communication and mapping parameters and startup SDOs, restoring default parameters, and downloading firmware. When the field is left out the timeout SHALL be 1000 ms. The timeout SHALL NOT change the timeouts of SDO variables or of manual SDO requests from the diagnostics channel, and SHALL NOT change the generated master configuration. When a configuration SDO times out, the error log line SHALL give the timeout in milliseconds.
+The `master` object MAY give `sdo_timeout_ms`, an integer from 10 to 60000; a value outside that range SHALL be rejected with the field named. The master SHALL wait this long for each SDO answer while it boots and configures a node: reading the node's identity, downloading PDO communication and mapping parameters and startup SDOs and restoring default parameters. When the field is left out the timeout SHALL be 1000 ms. The timeout SHALL NOT change the timeouts of SDO variables or of manual SDO requests from the diagnostics channel, and SHALL NOT change the generated master configuration. When a configuration SDO times out, the error log line SHALL give the timeout in milliseconds.
 
 #### Scenario: Slow device within the default
 - **WHEN** no `sdo_timeout_ms` is given and a node answers each configuration SDO after 300 ms

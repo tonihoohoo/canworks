@@ -47,7 +47,7 @@ For every sub-object the plugin writes to the node during its boot-time configur
 - **THEN** `[1016sub2]` in `node_20.dcf` has ParameterValue 0x000A012C
 
 ### Requirement: Boot commands are not parameter values
-Writes that are commands rather than settings (0x1010 store and 0x1011 restore) and the firmware download (`software_file`) SHALL NOT be written as ParameterValue. The DCF SHALL list each such step the plugin performs for the node in a leading `;` comment, in boot order.
+Writes that are commands rather than settings (0x1010 store and 0x1011 restore) SHALL NOT be written as ParameterValue. The DCF SHALL list each such step the plugin performs for the node in a leading `;` comment, in boot order.
 
 #### Scenario: Store after configuration check
 - **WHEN** a node has the configuration check with store enabled

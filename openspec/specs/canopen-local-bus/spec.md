@@ -6,15 +6,19 @@ Commissioning CANopen devices straight from the engineering PC through a USB CAN
 ## Requirements
 
 ### Requirement: Local adapter backend
-The PC tools package SHALL include a local bus backend that opens a CAN adapter on the PC and answers the diagnostics operations `hello`, `status`, `emcy`, `sdo_read`, `sdo_write`, `nmt`, `scan`, `scan_status`, `lss_find`, `lss_find_status`, `lss_inquire`, `lss_set_id`, `lss_set_bitrate`, `trace_start`, `trace_fetch`, `trace_stop`, `send_frame`, `send_frame_stop`, `detect_bitrate`, `detect_bitrate_status`, `pdo_test_start`, `pdo_test_set`, `pdo_test_status`, `pdo_test_stop`, `sync_start` and `sync_stop`, with the same request fields and result fields as the plugin's diagnostics channel except where this spec says otherwise. Any other operation SHALL answer `not available on a local adapter`. It SHALL need no OpenPLC Runtime, and no Python on the PC beyond what uv installs.
+The PC tools package SHALL include a local bus backend that opens a CAN adapter on the PC. It SHALL answer these diagnostics operations: `hello`, `status`, `emcy`, `sdo_read`, `sdo_write`, `nmt`, `scan`, `scan_status`, `scan_stop`, `lss_find`, `lss_find_status`, `lss_inquire`, `lss_set_id`, `lss_set_bitrate`, `trace_start`, `trace_fetch`, `trace_stop`, `send_frame`, `send_frame_stop`, `pdo_test_start`, `pdo_test_set`, `pdo_test_status`, `pdo_test_stop`, `sync_start` and `sync_stop`. Request and result fields SHALL be the same as the plugin's diagnostics channel except where this spec says otherwise. Any other operation SHALL answer `not available on a local adapter`. It SHALL need no OpenPLC Runtime, and no Python on the PC beyond what uv installs.
 
 #### Scenario: Read a device with no PLC
-- **WHEN** a CANopen device with node ID 5 is the only node on a bus with a USB adapter on the PC, and the user runs `canworks-diag --adapter slcan:COM5 --bitrate 250 sdo-read 5 0x1018 1 --type UNSIGNED32`
+- **WHEN** a CANopen device with node ID 5 is the only node on a bus with a USB adapter on the PC, and the user runs `canworks-diag --adapter slcan:COM5 --bitrate 250 --check-node 5 sdo-read 5 0x1018 1 --type UNSIGNED32`
 - **THEN** it prints the device's vendor ID, and no runtime is involved
 
 #### Scenario: Simulator op on a local adapter
 - **WHEN** `canworks-diag --adapter socketcan:can0 --bitrate 250 sim status` runs
 - **THEN** it exits with status 1 and says that this needs a runtime
+
+#### Scenario: Bit rate detection is gone
+- **WHEN** a client sends `detect_bitrate` to a local adapter
+- **THEN** it answers `not available on a local adapter`
 
 ### Requirement: Supported adapters
 The backend SHALL support `slcan` adapters (serial-line adapters such as a CANable with stock firmware) on Windows, macOS and Linux, and `socketcan` interfaces on Linux, selected as `TYPE:CHANNEL`. It SHALL pass any other adapter type that python-can knows to python-can, with `--adapter-option KEY=VALUE` options, and the documentation SHALL list those types as untested. `canworks-diag adapters` SHALL list the serial ports and python-can interfaces it finds, marking known slcan adapters.
@@ -28,7 +32,7 @@ The backend SHALL support `slcan` adapters (serial-line adapters such as a CANab
 - **THEN** the command exits with status 1 and names the adapter types python-can has installed
 
 ### Requirement: Bit rate is never guessed
-Opening an adapter SHALL need a bit rate from `--bitrate` or from the selected network's `adapter.bitrate` in `--config`. Without either, the command SHALL exit with status 1 and say so. On a SocketCAN interface that is already up, the interface's own bit rate SHALL be used and reported, and the interface SHALL NOT be reconfigured.
+Opening an adapter SHALL need a bit rate from `--bitrate` or from the selected network's `adapter.bitrate` in `--config`. Without either, the command SHALL exit with status 1 and say so. The tools SHALL NOT search for the bus's bit rate. They SHALL check the given rate on connect (see "Bit rate check on connect"). On a SocketCAN interface that is already up, the interface's own bit rate SHALL be used, reported and checked, and the interface SHALL NOT be reconfigured.
 
 #### Scenario: No bit rate
 - **WHEN** `canworks-diag --adapter slcan:COM5 scan` runs without `--bitrate` or `--config`
@@ -36,13 +40,13 @@ Opening an adapter SHALL need a bit rate from `--bitrate` or from the selected n
 
 #### Scenario: Bit rate from the config
 - **WHEN** `--config canworks/canworks.json --network drives` is given and that network's `adapter.bitrate` is 500000
-- **THEN** the adapter is opened at 500 kbit/s
+- **THEN** the adapter is opened and checked at 500 kbit/s
 
 ### Requirement: Guest on the bus
-The backend SHALL send nothing on connect and SHALL listen for at least one second before its first transmit. It SHALL never send heartbeat, TIME or broadcast NMT, never start a node on its own, and never send SYNC except while a SYNC producer the user started with `sync_start` runs. All frames it sends SHALL go through one transmit path.
+On connect, the backend SHALL send nothing except the one probe frame of the bit rate check on a silent bus, or the check's SDO read when the user gave a node ID. It SHALL listen for at least one second before its first transmit. It SHALL never send heartbeat, TIME or broadcast NMT, and never start a node on its own. It SHALL never send SYNC except while a SYNC producer the user started with `sync_start` runs. All frames it sends SHALL go through one transmit path.
 
 #### Scenario: Connect sends nothing
-- **WHEN** the configurator connects to an adapter and the user only watches the online view
+- **WHEN** the configurator connects to an adapter on a bus with heartbeat traffic and the user only watches
 - **THEN** a trace on another device shows no frame from the PC
 
 #### Scenario: SYNC only on request
@@ -50,15 +54,19 @@ The backend SHALL send nothing on connect and SHALL listen for at least one seco
 - **THEN** a trace shows no SYNC frame from the PC, and SYNC frames appear only after the user starts SYNC with a period
 
 ### Requirement: Another master on the bus
-The backend SHALL detect another master from NMT command frames, SYNC frames, or SDO requests to a node that it did not send itself. `status` SHALL then report `other_master: true` with what was seen and when. While another master is detected, the `lss_` operations except `lss_find_status` SHALL answer `another master is active on this bus` unless the request has `force: true` (CLI `--force`). Before an SDO request to a node that had a foreign SDO request within the last 200 ms, it SHALL wait until 200 ms have passed. Frames heard during the listen window before the first transmit SHALL NOT be taken as answers to a later request, and an answer or abort from the node for another index or subindex than the backend's own initiate request SHALL be skipped, not aborted.
+The backend SHALL detect another master from received NMT command frames, SYNC frames, or SDO requests to a node. Frames the adapter reports as its own sent frames (echo or loopback) SHALL never count. `status` SHALL then report `other_master: true` with what was seen and when. While another master is detected, the `lss_` operations except `lss_find_status` SHALL answer `another master is active on this bus` unless the request has `force: true` (CLI `--force`). Before an SDO request to a node that had a foreign SDO request within the last 200 ms, the backend SHALL wait until 200 ms have passed. Frames heard during the listen window before the first transmit SHALL NOT be taken as answers to a later request. An answer or abort from the node for another index or subindex than the backend's own initiate request SHALL be skipped, not aborted. Changing Allow changes on an open session SHALL NOT reopen the adapter or clear what was seen.
 
 #### Scenario: PLC running on the same bus
 - **WHEN** a PLC with the plugin runs SYNC on the bus and the user runs `lss-find --allow-changes` from the PC without `--force`
 - **THEN** it exits with status 1 and says that another master is active
 
 #### Scenario: Status shows the master
-- **WHEN** the configurator's online view runs on an adapter and a SYNC frame is seen
-- **THEN** the banner says that another master is active and since when
+- **WHEN** commissioning is connected on an adapter and a SYNC frame is seen
+- **THEN** Bus and master says that another master is active and since when
+
+#### Scenario: Own requests on an adapter with echo
+- **WHEN** the PC is the only master and reads and writes SDOs of node 23 through a gs_usb adapter, then switches Allow changes on
+- **THEN** no other master is reported
 
 ### Requirement: Changes are opt-in per session
 `sdo_write`, `nmt` and the `lss_` operations except `lss_find_status` SHALL answer `changes not allowed` unless the session was opened with allow-changes (CLI `--allow-changes`, or the configurator's checkbox for this connection, which starts off and is not saved). The backend SHALL NOT write 0x1010 or send LSS store on its own. Storing SHALL happen only through `store` (which asks first) or an LSS request with `store: true`.
@@ -79,7 +87,7 @@ On a local adapter, `status` SHALL report `local: true`, the adapter, the bit ra
 - **THEN** `status` lists node 5 as PRE-OPERATIONAL, last heard less than a second ago
 
 ### Requirement: Local scan and LSS
-`scan` SHALL probe node IDs 1-127 with the plugin's algorithm (eight at a time, 100 ms per probe of 0x1018:1, then identity, device type and device name) and compare found devices with `--config` when given. The LSS operations SHALL behave as the plugin's, except that `lss_set_id` SHALL refuse a node ID from which a heartbeat or boot-up was heard in this session unless forced.
+`scan` SHALL probe node IDs 1-127 with the plugin's algorithm: eight at a time, 100 ms per probe of 0x1018:1, then identity, device type and device name. It SHALL compare found devices with `--config` when given. `scan_stop` SHALL end a running scan after the probes in flight. The result SHALL then have `stopped: true` and the devices found so far. A failed send or the end of the connection SHALL end the scan the same way, with `error` giving the reason. The LSS operations SHALL behave as the plugin's, except that `lss_set_id` SHALL refuse a node ID from which a heartbeat or boot-up was heard in this session unless forced.
 
 #### Scenario: Scan an unknown bus
 - **WHEN** devices with node IDs 3 and 40 are on the bus and `scan` runs without a config
@@ -88,6 +96,14 @@ On a local adapter, `status` SHALL report `local: true`, the adapter, the bit ra
 #### Scenario: ID already in use
 - **WHEN** node 12 sent a heartbeat and `lss-set-id ... 12` runs without `--force`
 - **THEN** it is refused, naming node 12 as heard on the bus
+
+#### Scenario: Cancel a scan
+- **WHEN** a scan is at node ID 40 and the client sends `scan_stop`
+- **THEN** the scan ends within one probe time with `stopped: true` and the devices found below node ID 48
+
+#### Scenario: Adapter stops sending during a scan
+- **WHEN** the adapter stops confirming sends during a scan
+- **THEN** the scan ends at once with the adapter's error, not after probing every node ID
 
 ### Requirement: Local NMT
 On a local adapter `nmt` SHALL accept any node ID 1-127, send the command once and keep no hold. `restore --hold-preop` SHALL send `preop` before writing and `start` afterwards, also when a write fails.
@@ -118,18 +134,11 @@ An adapter SHALL be opened by one tool at a time. A second tool opening it SHALL
 - **THEN** the CLI exits with status 1 and says that the adapter is in use
 
 ### Requirement: Command-line options for a local adapter
-`canworks-diag` SHALL take `--adapter TYPE:CHANNEL`, `--bitrate KBIT`, `--adapter-option KEY=VALUE` (repeatable), `--allow-changes` and `--force`. `--adapter` and `--runtime` SHALL be mutually exclusive. With `--adapter`, no token SHALL be asked for. `--network NAME` with `--config` SHALL pick the network whose bit rate and EDS files are used.
+`canworks-diag` SHALL take these options: `--adapter TYPE:CHANNEL`, `--bitrate KBIT`, `--check-node N`, `--adapter-option KEY=VALUE` (repeatable), `--allow-changes` and `--force`. `--adapter` and `--runtime` SHALL be mutually exclusive. With `--adapter`, no token SHALL be asked for. `--network NAME` with `--config` SHALL pick the network whose bit rate and EDS files are used.
 
 #### Scenario: Both targets given
 - **WHEN** `--runtime plc.local --adapter slcan:COM5` are both given
 - **THEN** the command exits with status 2 and says that only one may be given
-
-### Requirement: Hook for raw frames and bit rate detection
-The backend SHALL open adapters through a single function that takes a listen-only flag, SHALL send every frame through one transmit path that feeds the trace and the other-master bookkeeping, and SHALL dispatch operations from one table, so that later operations (raw frame transmit, bit rate detection) are added without changing the existing ones.
-
-#### Scenario: New operation added
-- **WHEN** a later change adds a `send_frame` operation
-- **THEN** it is one entry in the op table using the transmit path, and the existing operations' code is unchanged
 
 ### Requirement: Local backend tests
 CI SHALL test the backend on python-can's virtual bus with a fake device on every PC tools runner, and on Linux on `vcan0` against the standalone simulator and an LSS test slave. A parity test SHALL compare the read-only results of `status` (shared fields), `scan`, `sdo-read` and `backup` through the local adapter with the same commands through the plugin's diagnostics channel on the same bus.
@@ -157,51 +166,6 @@ On a local adapter, `send_frame` SHALL send one frame, or start a cyclic job, wi
 - **WHEN** the user sends 0x60B with `--period-ms 20 --count 4`
 - **THEN** exactly 4 frames are sent and the job ends with "count reached"
 
-### Requirement: Bit rate detection on a local adapter
-On a local adapter, `detect_bitrate` SHALL answer at once with progress and sweep in the background: for each requested rate (default 1000, 800, 500, 250, 125, 50, 20 and 10 kbit/s) and round (`rounds` 1-20, `per_rate_ms` 100-10000, default 1000) it SHALL open the adapter in listen-only mode and count valid frames, error frames (when the adapter reports them) and the first 16 identifiers, stop early after a round with a `detected` verdict, and then open the adapter again at the connection's bit rate so the connection keeps working. `detect_bitrate_status` SHALL return the progress and, when finished, the per-rate counts and the plugin's verdict (`detected`, `ambiguous`, `silent`, `failed`) computed by the same rules, with `matches_config` against the connection's bit rate; a `silent` verdict SHALL carry the hint that a lone device needs the lone-device sweep or a second device that acknowledges. Because listen-only sends nothing, not even an acknowledge, it SHALL need neither allow-changes nor `force`. Rates the adapter type cannot be set to (on slcan, any but 10, 20, 50, 100, 125, 250, 500, 750 and 1000 kbit/s) SHALL NOT be tried; the result SHALL list only the rates listened at and name the left-out ones in `skipped_kbit`, and a sweep with no rate left SHALL be refused naming them. It SHALL be refused with "busy" when another connection of the same tool uses the adapter. While it runs, other operations except `status` SHALL answer "no bus", and the adapter's cyclic jobs SHALL end. Listen-only SHALL be: on slcan, silent mode (`m1`, then `O`) when the firmware answers `m1` with CR, the channel opened with `L` instead of `O` when it refuses `m1` with an error (BEL), with `m0` sent when the channel is closed after silent mode and before a normal `O`; when the firmware leaves `m1` unanswered it cannot confirm listen-only, and the sweep SHALL be refused with a reason ending in "disturb_bus needed" unless the request has `disturb_bus: true`, which opens it with `m1` then `O`; PCAN with its listen-only parameter, and SocketCAN by setting the link to the rate with listen-only on, which needs root or CAP_NET_ADMIN, and setting it back to its bit rate, listen-only off and its up or down state afterwards. Without that permission the request SHALL be refused naming it and the `sudo` command; on a vcan interface it SHALL be refused with "no bit rate on a virtual bus"; on other adapter types, and on a driver that rejects listen-only, with "the adapter's driver has no listen-only mode".
-
-#### Scenario: Unknown bus from the PC
-- **WHEN** a device sends heartbeats at 250 kbit/s, a second device on the bus acknowledges its frames, and `canworks-diag --adapter slcan:COM5 --bitrate 500 detect-bitrate` runs
-- **THEN** it prints `250 kbit/s detected`, no frame and no acknowledge came from the PC during the sweep, and the adapter is open at 500 kbit/s again afterwards
-
-#### Scenario: Lone device without lone-device mode
-- **WHEN** the only device on the bus sends heartbeats at 250 kbit/s and `detect-bitrate` runs without `--lone-device`
-- **THEN** it prints `silent` with the hint that a lone device needs `--lone-device` or a second device that acknowledges
-
-#### Scenario: SocketCAN without permission
-- **WHEN** a user without CAP_NET_ADMIN runs `detect-bitrate` on `socketcan:can0`
-- **THEN** it is refused naming CAP_NET_ADMIN and the `sudo ip link set` command, and the link is unchanged
-
-#### Scenario: Adapter type without listen-only
-- **WHEN** `detect-bitrate` runs on `gs_usb:0`
-- **THEN** it is refused with "the adapter's driver has no listen-only mode" and the adapter is not opened
-
-#### Scenario: Shared adapter
-- **WHEN** two connections of the configurator use the same adapter and one of them sends `detect_bitrate`
-- **THEN** the request is refused with "busy" and both connections keep working
-
-### Requirement: Detect in the adapter connection form
-The configurator's USB adapter connect box SHALL have "Detect" next to the bit rate. It SHALL close the configurator's own connections to adapters, run a bit rate sweep on the adapter in the form with nothing else open, show the rate being listened to, and on `detected` select that rate in the bit rate field; for `ambiguous`, `silent` and `failed` it SHALL say so and leave the field as it was. On the Scan page with a USB adapter as the target, Detect bit rate SHALL run without Allow changes and without the warning about CANopen stopping.
-
-#### Scenario: Pick the rate before connecting
-- **WHEN** the bus runs at 250 kbit/s, the form shows 500 kbit/s and the user presses Detect
-- **THEN** the form says `250 kbit/s detected` and the bit rate field shows 250 kbit/s, ready to connect
-
-### Requirement: Lone-device bit rate sweep
-On a local adapter, `detect_bitrate` with `lone_device: true` (CLI `detect-bitrate --lone-device`) SHALL open the adapter in normal mode at each rate, so that it acknowledges frames, and count valid frames, error frames and identifiers as the listen-only sweep does, with the same verdict rules and early stop. With `probe` (`"lss"`, or `{"sdo": NODE}`; CLI `--probe lss` or `--probe sdo:NODE`) it SHALL send, when no valid frame came in the first half of the rate's listening time, one probe at that rate: for `lss`, LSS switch state global to configuration, inquire node ID, and switch state global back to waiting; for `sdo`, an SDO upload request of 0x1000 subindex 0 to the node. The sweep SHALL need allow-changes; it SHALL be refused, sending nothing, while another master is detected or when frames from more than one node ID were heard in the last 30 seconds; and when the detected rate shows more than one node ID, the result SHALL warn that the bus is not a lone device. The adapter SHALL be opened again at the connection's bit rate afterwards. On a runtime, `lone_device` SHALL be refused with "only on a USB adapter".
-
-#### Scenario: Lone device on the bench
-- **WHEN** the only device on the bus runs at 125 kbit/s with heartbeats and `canworks-diag --adapter slcan:COM5 --bitrate 250 --allow-changes detect-bitrate --lone-device` runs
-- **THEN** it prints `125 kbit/s detected` and the adapter is open at 250 kbit/s again afterwards
-
-#### Scenario: Quiet device without node ID
-- **WHEN** the only device has no node ID, sends nothing, runs at 500 kbit/s and the sweep runs with `--probe lss`
-- **THEN** the device's LSS answer at 500 kbit/s gives `500 kbit/s detected` and the device is back in LSS waiting state
-
-#### Scenario: Not a lone device
-- **WHEN** the connection heard heartbeats of nodes 5 and 7 in the last 30 seconds and a lone-device sweep is requested
-- **THEN** it is refused saying more than one node is on the bus, and nothing is sent
-
 ### Requirement: PDO test on a local adapter
 On a local adapter, with allow-changes, `pdo_test_start` SHALL take a node and its PDO layout (TPDOs and RPDOs with COB-ID, transmission type, event timer and entries with index, subindex, bit length, type and name); the CLI and configurator SHALL build the layout from `--config` for a configured node or by reading the device's PDO communication and mapping objects over SDO, with names and types from the EDS, keeping only PDOs whose COB-ID has bit 31 clear. `pdo_test_status` SHALL return per TPDO the last reception time, count, the measured period and the decoded values, and per RPDO the values in force and the sent count. `pdo_test_set` SHALL set RPDO entry values by name or index and subindex; an event-driven RPDO (transmission type 254 or 255) SHALL be sent on each set and then every `repeat_ms` when given, and a synchronous RPDO (0-240) after each SYNC the PC sends. `sync_start` SHALL send SYNC every `period_ms` (1-10000) with an optional counter (2-240), on the COB-ID from the device's 0x1005 when read, else 0x080, and `sync_stop` SHALL stop it. These operations SHALL be refused while another master is detected unless the request has `force: true`, and SHALL stop, saying why, when another master appears, on `pdo_test_stop` or `sync_stop`, and when the connection closes. All frames SHALL go through the single transmit path. One PDO test per node and one SYNC producer per adapter SHALL run at a time.
 
@@ -216,3 +180,64 @@ On a local adapter, with allow-changes, `pdo_test_start` SHALL take a node and i
 #### Scenario: Another master
 - **WHEN** another master's NMT command is heard while a PDO test sends SYNC
 - **THEN** SYNC and RPDO sending stop and the status says another master appeared
+
+### Requirement: Bit rate check on connect
+Opening a local adapter session SHALL check that the bus runs at the given bit rate before any operation runs. The check SHALL listen for one second, in listen-only mode when the adapter has one.
+- At least one valid frame and no error frame SHALL confirm the rate.
+- Any error frame, error warning, error passive or bus-off state, or a receive error count above zero with no valid frame, SHALL refuse the session with "the bus does not run at N kbit/s" and what was seen.
+- When nothing was heard, the backend SHALL send one LSS "inquire node ID" frame (0x7E5, command 0x5E) once, without automatic retransmission where the adapter can turn that off. The rate SHALL be confirmed when the adapter reports the frame sent with no error frame within 100 ms. An acknowledge error alone SHALL refuse the session with "no device acknowledged at N kbit/s: the bit rate is wrong, or no device is powered and connected". Bit, stuff or form errors SHALL refuse it with "the bus does not run at N kbit/s".
+- On an adapter that cannot report a sent frame (slcan and untested types), a silent bus SHALL need a node ID (`check_node`, CLI `--check-node N`). An SDO read of 0x1000 sub 0 from that node SHALL confirm the rate when it gets any answer, including an abort. Without a node ID, or with no answer, the session SHALL be refused, naming `--check-node`.
+- A bit rate the adapter cannot be set to SHALL be refused before anything is sent to the adapter, naming the rate.
+
+A refused check SHALL close the adapter. `hello` and `status` SHALL report `bitrate_check` with `result` (`confirmed`) and `how` (`traffic`, `probe acknowledged` or `node N answered`).
+
+#### Scenario: Wrong rate refused
+- **WHEN** devices send heartbeats at 500 kbit/s and the user connects at 1000 kbit/s
+- **THEN** the session is refused with "the bus does not run at 1000 kbit/s", the adapter is closed, and no operation runs
+
+#### Scenario: Busy bus confirmed
+- **WHEN** a device sends heartbeats at 500 kbit/s and the user connects at 500 kbit/s
+- **THEN** the session opens with `bitrate_check` `confirmed` by `traffic`, and the PC sent nothing
+
+#### Scenario: Silent single device
+- **WHEN** one device in PRE-OPERATIONAL without heartbeat is on the bus at 250 kbit/s and the user connects a gs_usb adapter at 250 kbit/s
+- **THEN** the backend sends one LSS inquire node ID frame, the adapter reports it acknowledged, and the session opens `confirmed` by `probe acknowledged`
+
+#### Scenario: Silent single device at a wrong rate
+- **WHEN** the same device runs at 250 kbit/s and the user connects at 500 kbit/s
+- **THEN** the probe is not acknowledged, it is not retransmitted, and the session is refused saying the bit rate is wrong or no device is connected
+
+#### Scenario: slcan on a silent bus
+- **WHEN** an slcan adapter connects to a silent bus without `--check-node`
+- **THEN** the command exits 1 saying the bit rate could not be checked and to give `--check-node N`, and with `--check-node 5` it opens when node 5 answers
+
+### Requirement: Bus errors end the connection
+After the check, the backend SHALL end the session when the adapter reports bus-off or error passive, or 10 error frames within one second with no valid frame. Every handle SHALL then get "connection ended: <reason>", running jobs (scan, PDO test, SYNC, raw send, trace) SHALL stop, and the adapter SHALL be closed.
+
+#### Scenario: Cable moved to another bus
+- **WHEN** a connected session at 500 kbit/s starts getting error frames only, more than 10 in a second
+- **THEN** the session ends with the reason, the adapter is closed, and the next request answers "connection ended"
+
+### Requirement: gs_usb adapters
+On gs_usb adapters, the backend SHALL handle the following:
+- **Echo frames:** it SHALL never treat the adapter's echo of a sent frame as a received frame. Echoes SHALL NOT count as another master, heartbeat or answer. They SHALL confirm the send, and the trace SHALL list each sent frame once with its Tx flag.
+- **Stopped sending:** a send whose echo does not arrive within 0.5 s SHALL end the session with "adapter stopped sending".
+- **Bit timings:** they SHALL come from the device's own timing limits, trying the sample points 87.5, 85, 80 and 75 %.
+- **Failed set or start:** a failure to set or start the channel SHALL leave it in reset mode.
+- **USB stall on open:** the backend SHALL reset the USB device and retry once. If the retry fails, it SHALL refuse with "adapter gs_usb:N does not answer (USB stall): unplug it and plug it in again".
+- **Close:** closing SHALL reset the channel before releasing the USB interface.
+
+#### Scenario: Own SDO request is not another master
+- **WHEN** the configurator reads 0x1018 from node 23 through a gs_usb adapter and no other master is on the bus
+- **THEN** `status` reports no other master, and the trace lists the request once, as sent
+
+#### Scenario: Rate without timing
+- **WHEN** the adapter's clock and limits give no timing for the chosen rate
+- **THEN** the connection is refused naming the adapter and the rate, and the adapter can be opened at another rate at once without a replug
+
+### Requirement: One open path and one transmit path
+The backend SHALL open adapters through a single function that takes a listen-only flag. It SHALL send every frame through one transmit path that feeds the trace, the send confirmation and the other-master bookkeeping. It SHALL dispatch operations from one table.
+
+#### Scenario: New operation added
+- **WHEN** a later change adds an operation
+- **THEN** it is one entry in the op table using the transmit path, and the existing operations' code is unchanged

@@ -415,21 +415,6 @@ For each node the online view SHALL offer an SDO panel: pick an object from the 
 - **WHEN** the user clicks Pre-operational for node 2
 - **THEN** a dialog says the node's PDOs stop until it is started again, with Cancel as the default, and nothing is sent until the user confirms
 
-### Requirement: Scan the bus and add nodes
-The configurator SHALL offer a scan page that runs a network scan through the runtime, shows progress, and lists each found device with node ID, vendor ID (with the vendor name when the EDS gives it), product code, revision, serial number, device name and its match against the config. For each device the page SHALL look for EDS files whose `[DeviceInfo]` VendorNumber and ProductNumber match, in the project's `canworks/` folder and in an optional EDS library folder set in the configurator's settings, preferring an exact RevisionNumber match. A not-configured device with a matching EDS SHALL be addable as a node with that node ID and EDS (imported into `canworks/` as an EDS import would), with an option to also set its identity check from the scanned values; a device without a matching EDS SHALL offer to pick an EDS file. Adding a node from the scan page SHALL open the new node's page with its name field focused, as "Add node from EDS…" does, and the message bar SHALL offer a way back to the scan results, which SHALL be kept. A "configured, different device" result SHALL show the differing fields side by side. Added nodes SHALL be saved only when the user saves.
-
-#### Scenario: Add a found sensor
-- **WHEN** the scan finds node 40 (vendor 0x000000AB, product 0x00001234) not configured, and the EDS library folder has an EDS with those numbers
-- **THEN** the page offers that EDS, and adding it creates node 40 with that EDS, no PDO entries yet, and the project unchanged until save
-
-#### Scenario: Unknown device
-- **WHEN** the scan finds a device whose vendor and product match no EDS
-- **THEN** the page shows its identity and offers to pick an EDS file
-
-#### Scenario: Added node opens
-- **WHEN** the user picks an EDS file for the unknown device at node 41
-- **THEN** node 41's page opens with the name field focused, and the message bar says the node was added with a link back to the scan, whose results are still listed
-
 ### Requirement: PDO settings layout
 Each PDO SHALL show its settings (number, COB-ID, transmission type and, where shown, the SYNC count, inhibit time, event timer or deadline, SYNC start, and mapping) as labelled fields with the label above the input and the hint below, aligned at the top of their row. Every input SHALL be wide enough to show its placeholder and the longest value of its choices without clipping. A setting the EDS fixes (read-only transmission type, device-set mapping) SHALL be shown as plain text with the reason, not as a disabled input. The device mapping objects SHALL be listed one per line, marking those the config uses.
 
@@ -593,7 +578,14 @@ For each node the configurator SHALL show an "Assign node ID by serial number (L
 - **THEN** both LSS checkboxes are disabled with the reason, and the saved node has no `lss`
 
 ### Requirement: Unconfigured devices in the online view
-When the runtime allows changes, the online view SHALL offer an "Unconfigured devices" panel that finds a device without a node ID through the runtime, shows its vendor ID (with the vendor name when an EDS gives it), product code, revision and serial number and a matching EDS when one is found (as on the scan page), and offers "Set node ID" and "Set bit rate" for it. Both dialogs SHALL have a "Store in the device" checkbox that is unticked each time the dialog opens. "Set node ID" SHALL suggest the lowest node ID that is neither configured nor the master's and SHALL offer, after success, to add the device as a node with that ID and EDS (as the scan page adds a found device), with `serial_number` and `lss.assign` set. "Set bit rate" SHALL say before sending that the device switches after its next power cycle and that the adapter bit rate must be changed to match. When the runtime does not allow changes the panel SHALL be shown disabled with the reason.
+When the connection allows changes, the runtime's online view in config mode and the Nodes tab in Commission a device SHALL offer an "Unconfigured devices" panel. It SHALL find a device without a node ID and show:
+- its vendor ID, with the vendor name when an EDS gives it;
+- its product code, revision and serial number;
+- a matching EDS when the project's `canworks/` folder or the EDS library has one.
+
+It SHALL offer "Set node ID" and "Set bit rate" for the device. Both dialogs SHALL have a "Store in the device" checkbox that is unticked each time the dialog opens.
+
+"Set node ID" SHALL suggest the lowest node ID that is neither configured nor the master's. In config mode, after success, it SHALL offer to add the device as a node with that ID and EDS, with `serial_number` and `lss.assign` set. "Set bit rate" SHALL say before sending that the device switches after its next power cycle and that the adapter bit rate must be changed to match. Without changes allowed, the panel SHALL be shown disabled with the reason.
 
 When the matching EDS does not say `LSS_Supported=1`, the device SHALL be added without `lss.assign`, and the page SHALL say that its EDS has no LSS, so the node gets no LSS assignment.
 
@@ -605,25 +597,23 @@ When the matching EDS does not say `LSS_Supported=1`, the device SHALL be added 
 - **WHEN** the user opens "Set node ID" a second time after storing once
 - **THEN** the "Store in the device" checkbox is unticked
 
-### Requirement: Use a scanned device for a node
-On the scan page, a found device with a serial number SHALL offer "Use for node…", listing the configured nodes whose EDS vendor ID and product code match the device. Picking a node SHALL set that node's `serial_number` from the device and tick its `lss.assign`, unsaved until the user saves, and SHALL say that the device gets the node's ID at the next PLC start.
-
-A configured node whose EDS does not say `LSS_Supported=1` SHALL be listed disabled with the reason ("its EDS has no LSS"), and SHALL NOT be picked.
-
-#### Scenario: Replacement device
-- **WHEN** node 12 is configured for a valve with serial 0x1234, the scan finds a valve with the same vendor ID and product code at node 5 with serial 0x5678, and the user picks "Use for node 12"
-- **THEN** node 12 gets `serial_number` 0x5678 and `"lss": {"assign": true}`, and the page says the device becomes node 12 at the next start
-
-#### Scenario: Matching node without LSS
-- **WHEN** the only configured node matching a scanned device's vendor ID and product code has an EDS with `LSS_Supported=0`
-- **THEN** "Use for node..." lists that node disabled, saying its EDS has no LSS, and nothing in the config changes
-
 ### Requirement: Trace view
-The side bar SHALL have a Trace view next to the online view and the scan page. Opening, viewing and exporting trace files SHALL work without a runtime; recording SHALL need online access set up for the project. It SHALL offer start and stop, capture filters, error frames, clear, "Save to traces folder" (on this PC), open and "Download" (a file in the chosen format), the two format choices labelled apart; a scrolling decoded trace and a per-identifier table; display filters by node, frame kind (NMT, SYNC, EMCY, heartbeat, SDO, PDO, LSS, error, other), identifier range and text; the graph and trigger settings; and the statistics. Times SHALL be shown relative to the trace start or as UTC clock time. When the runtime's plugin does not know the trace operations, the view SHALL say that the plugin is too old for traces. Clear and Start SHALL say that the current recording is lost unless it was saved or downloaded, with Cancel as the default; closing the page or the folder with an unsaved recording SHALL ask first. The frame list SHALL move its selection with the arrow keys, Home, End, Page Up and Page Down, and the view's tabs SHALL follow the page's tab pattern (see "Keyboard access and announcements").
+The side bar SHALL have a Trace view. Opening, viewing and exporting trace files SHALL work without a connection. Recording SHALL need a connection: in config mode, online access to a runtime; in Commission a device, the open adapter connection, with no runtime host or token. Without one, the hint SHALL name what that mode needs. The view SHALL offer:
+- start and stop, capture filters, error frames and clear;
+- "Save to traces folder" (on this PC), open, and "Download" (a file in the chosen format), the two format choices labelled apart;
+- a scrolling decoded trace and a per-identifier table;
+- display filters by node, frame kind (NMT, SYNC, EMCY, heartbeat, SDO, PDO, LSS, error, other), identifier range and text;
+- the graph and trigger settings, and the statistics.
+
+Times SHALL be shown relative to the trace start or as UTC clock time. When the runtime's plugin does not know the trace operations, the view SHALL say that the plugin is too old for traces. Clear and Start SHALL say that the current recording is lost unless it was saved or downloaded, with Cancel as the default. Closing the page or the folder with an unsaved recording SHALL ask first. The frame list SHALL move its selection with the arrow keys, Home, End, Page Up and Page Down. The view's tabs SHALL follow the page's tab pattern (see "Keyboard access and announcements").
 
 #### Scenario: Start a trace
 - **WHEN** online access is set up and the user opens Trace and presses Start
 - **THEN** decoded frames appear and the statistics update while the bus runs
+
+#### Scenario: Record while commissioning
+- **WHEN** the user is connected in Commission a device and presses Start in Trace
+- **THEN** the adapter's frames are recorded and decoded, and no runtime host or token is asked for
 
 #### Scenario: Filter display
 - **WHEN** the user shows only node 23 and frame kind SDO
@@ -857,11 +847,15 @@ The object dictionary tab SHALL offer "Copy as ST call" for a selected entry. It
 - **THEN** the clipboard declares `rd_drives_n2_1017_0 : CO_SDO_READ;` and calls it with `NETWORK := 1 (* drives *), NODE := 2, INDEX := 16#1017`
 
 ### Requirement: CiA 402 axis setting
-The node settings SHALL offer a "CiA 402 axis" switch with the three scaling fields and a "Cyclic synchronous" switch with an optional interpolation period, writing the node's `axis` object, and SHALL show the axis checks' errors and warnings with the node. The switch SHALL be offered for every node and SHALL say when the EDS does not report device profile 402. Turning it on SHALL require a status bit and SHALL suggest one when the node has none.
+The node settings SHALL offer a "CiA 402 axis" switch with the three scaling fields, and a "Cyclic synchronous" switch with an optional interpolation period. Together they write the node's `axis` object. The axis checks' errors and warnings SHALL show with the node. The switch SHALL be enabled only when the node's EDS has the controlword 0x6040 and the statusword 0x6041. Otherwise it SHALL be disabled with "This device's EDS has no controlword (0x6040) and statusword (0x6041), so it cannot be a CiA 402 axis." The exception is a node that already has `axis`: its switch SHALL stay enabled so it can be switched off. The page SHALL still say when the EDS does not report device profile 402 in 0x1000. Turning it on SHALL require a status bit and SHALL suggest one when the node has none.
 
 #### Scenario: Turn on
-- **WHEN** the user turns on "CiA 402 axis" for node `drive`, which has a status bit, and saves
+- **WHEN** the user turns on "CiA 402 axis" for node `drive`, whose EDS has 0x6040 and 0x6041 and which has a status bit, and saves
 - **THEN** the saved config has `"axis": {}` on node `drive` (scaling left at the defaults is not written)
+
+#### Scenario: Not a drive
+- **WHEN** the user opens a digital I/O node whose EDS has no 0x6040 or 0x6041
+- **THEN** the "Use as a CiA 402 axis" switch is disabled and says why
 
 #### Scenario: Error shown
 - **WHEN** the axis node does not map 0x6041
@@ -958,17 +952,6 @@ The Online access settings SHALL be shown once for the whole config, not per net
 - **WHEN** a config has two networks and the user turns Online access on
 - **THEN** the saved version 2 file has one top-level `diagnostics` object
 
-### Requirement: Network picker in online, scan and trace views
-The online view, the scan page and the trace view SHALL each have a network picker when the runtime reports more than one network, and SHALL show and act on the picked network only. The picker SHALL start on the network whose tab is open.
-
-#### Scenario: Online view of the second network
-- **WHEN** the runtime runs `io` and `drives` and the user picks `drives` in the online view
-- **THEN** the view shows `drives`' bus state and nodes, and SDO, NMT, parameter and object dictionary actions go to `drives`
-
-#### Scenario: Scan adds to the picked network
-- **WHEN** the user scans `drives` and adds a found device as a node
-- **THEN** the node is added to the `drives` tab
-
 ### Requirement: Exports per network in the configurator
 The configurator's DBC export SHALL export the network of the open tab. Its DCF export SHALL export the open tab's nodes, or every network into per-network folders when the user chooses all.
 
@@ -1019,57 +1002,50 @@ The page header SHALL have an "Export documentation" action. It SHALL run the `c
 - **WHEN** the config has a duplicate node ID
 - **THEN** nothing is downloaded and the Problems pane shows the error
 
-### Requirement: USB adapter as online target
-The online access settings SHALL offer three targets: a runtime host, the local simulator runtime, and a USB adapter on this PC. For a USB adapter the page SHALL offer the adapter type, a port picked from the adapters found on this PC (with a refresh button) or typed, the bit rate (defaulting to the current network's `adapter.bitrate`), and an "Allow changes" checkbox that starts off for every connection and is not saved. The adapter type, port and bit rate SHALL be kept in the configurator's settings on this PC per project folder, never in the project. No token SHALL be needed for an adapter.
-
-#### Scenario: Connect to a CANable
-- **WHEN** the user picks "USB adapter", the found port `COM5` (slcan) and 250 kbit/s, and connects
-- **THEN** the online view opens on that adapter, the banner says "USB adapter slcan:COM5, 250 kbit/s, read-only", and the project folder is unchanged
-
-#### Scenario: Different bit rate than the config
-- **WHEN** the network's `adapter.bitrate` is 500000 and the user types 250
-- **THEN** the connection is made at 250 kbit/s and the banner shows both rates
-
-### Requirement: Online pages on a USB adapter
-On a USB adapter the Online view, scan page, object dictionary view with watch, Parameters actions and Trace view SHALL work as on a runtime, through the local backend. Fields the local backend does not report (boot result, retry, hold, SDO variable values, SYNC counters) SHALL be hidden, and the Simulation view and slave and gateway status SHALL be hidden. When another master is detected, the banner SHALL say so, and LSS buttons SHALL ask whether to go ahead anyway before sending with `force`. Write, NMT, LSS and restore controls SHALL be disabled with the reason while "Allow changes" is off.
-
-#### Scenario: Scan from the PC
-- **WHEN** the user runs a scan on a USB adapter target with a project open
-- **THEN** found devices are listed and matched against EDS files and the config as on a runtime, and "Add as node" works
-
-#### Scenario: PLC still running
-- **WHEN** the user clicks LSS Find on a USB adapter while a PLC master runs on the bus
-- **THEN** the page warns that another master is active and sends nothing unless the user confirms
-
 ### Requirement: Commission a device without a config
-The configurator's start page SHALL offer "Commission a device", which opens the online pages on a USB adapter without any project or config: scan, object dictionary view (EDS from the scan match in the EDS library, or picked by the user), LSS, Parameters (backup, compare, restore, store) and Trace. "Add as node" SHALL be offered only when a config is open; instead the mode SHALL offer "Add to a config…", which picks a project or standalone config folder and opens it with the device added as an unsaved node (node ID, EDS imported, serial number, and LSS assignment ticked when the node ID was set by LSS in this session and the device's EDS says `LSS_Supported=1`; with an EDS without LSS, the node is added without it and the page says why). The mode SHALL show a Steps panel listing Bit rate, Find the device, Node ID and bit rate, Identity and EDS, Write configuration, PDO test, Store, Verify after power cycle and Back up; each step SHALL open its panel and show done or skipped with a one-line result, steps SHALL be possible in any order or skipped, and none SHALL run by itself. In this mode the page SHALL show no config editing: no Project or Export menu, no Save, no Problems pane, and a side bar with only the online pages (Online, Scan the bus, Trace, Frame lab), so nothing suggests a config is being edited. This mode SHALL connect only through a USB adapter on this PC: the Connect form SHALL show the adapter form with no Runtime choice, whatever target the settings last held, and no text in this mode SHALL link to a page the mode does not show.
+The configurator's start page SHALL offer "Commission a device". It opens USB adapter commissioning without any project or config. The side bar SHALL have four items:
+- **Bus and master** (see "Bus and master in commissioning");
+- **Nodes** (see "Nodes in commissioning");
+- **Trace**;
+- **Frame lab**.
+
+The object dictionary view SHALL take the EDS from the scan match in the EDS library, from Add node from EDS…, or picked by the user. LSS, Parameters (backup, compare, restore, store, write configuration, restore defaults) and the PDO test SHALL be on the Nodes tab and each node's page. "Add as node" SHALL NOT be offered. Instead, each node's page SHALL offer "Add to a config…". It picks a project or standalone config folder and opens it with the device added as an unsaved node: node ID, EDS imported, serial number, and LSS assignment ticked when the node ID was set by LSS in this session and the device's EDS says `LSS_Supported=1`. With an EDS without LSS, the node SHALL be added without it and the page SHALL say why.
+
+There SHALL be no Steps panel and no bit rate detection.
+
+In this mode the page SHALL show no config editing: no Project or Export menu, no Save and no Problems pane. Nothing SHALL suggest a config is being edited. This mode SHALL connect only through a USB adapter on this PC, and no text in it SHALL link to a page the mode does not show.
 
 #### Scenario: New device on the desk
-- **WHEN** the user opens "Commission a device", connects to a CANable at 250 kbit/s with "Allow changes" on, finds an unconfigured device with LSS and gives it node ID 12
-- **THEN** a scan lists node 12, and nothing was stored on the device unless the user ticked "store"
+- **WHEN** the user opens "Commission a device", connects to an adapter at 250 kbit/s with "Allow changes" on, finds an unconfigured device with LSS on the Nodes tab and gives it node ID 12
+- **THEN** node 12 is listed on the Nodes tab, and nothing was stored on the device unless the user ticked "store"
 
 #### Scenario: Nothing to save
 - **WHEN** the user opens "Commission a device"
-- **THEN** the header shows the mode badge, the theme choice and Close only, the side bar lists Online, Scan the bus, Trace and Frame lab, and no problem is reported
+- **THEN** the header shows the mode badge, the theme choice and Close only, the side bar lists Bus and master, Nodes, Trace and Frame lab, and no problem is reported
 
 #### Scenario: Guided commissioning
-- **WHEN** the user detects the bit rate, gives the device node ID 12 by LSS, writes a configuration from a DCF and backs it up
-- **THEN** the Steps panel marks Bit rate, Node ID and bit rate, Write configuration and Back up as done with their results, and Store as not done
-
-#### Scenario: Carry the device into a config
-- **WHEN** the user presses "Add to a config…" after setting node ID 12 by LSS and picks a standalone config folder
-- **THEN** that config opens with node 12 added as an unsaved node with the device's EDS, serial number and LSS assignment ticked
+- **WHEN** the user connects at the bus's bit rate, gives the device node ID 12 by LSS on the Nodes tab, writes a configuration from a DCF on node 12's page and backs it up
+- **THEN** each action is in the commissioning log with its result, and the page shows no Steps panel
 
 #### Scenario: Runtime choice not offered
-- **WHEN** the user opens "Commission a device" on a PC whose online settings last used the Runtime target
-- **THEN** the Online page shows the USB adapter form, with no Runtime choice and no "Online access is off for this config" text
+- **WHEN** the user opens "Commission a device" on a PC whose configurator last connected to a runtime
+- **THEN** Bus and master shows the USB adapter form, with no Runtime choice and no "Online access is off for this config" text
+
+#### Scenario: Carry the device into a config
+- **WHEN** the user presses "Add to a config…" on node 12's page after setting node ID 12 by LSS and picks a standalone config folder
+- **THEN** that config opens with node 12 added as an unsaved node with the device's EDS, serial number and LSS assignment ticked
 
 ### Requirement: Send frames from the Trace view
-The Trace view SHALL have a Send panel for the picked network with the identifier (hex), extended and remote options, a DLC for remote frames, up to 8 data bytes, and single or cyclic sending with a period and an optional count. It SHALL send through online access with `send_frame` and stop jobs with `send_frame_stop`, list the running cyclic jobs with their sent counts and a Stop for each, and list the last 20 frames sent. A frame selected in the trace SHALL be offered as "Send this frame", filling the panel. When online access has no `allow_changes`, the panel SHALL be disabled and say why. When the plugin refuses a frame because `force` is needed, the configurator SHALL show the plugin's reason in a confirmation and resend with `force` only when the user confirms. Leaving the Trace view or closing the page SHALL stop the page's cyclic jobs.
+The Trace view SHALL have a Send panel for the picked network. It SHALL have:
+- the identifier (hex), extended and remote options, and a DLC for remote frames;
+- up to 8 data bytes;
+- single or cyclic sending, with a period and an optional count.
+
+It SHALL send with `send_frame` and stop jobs with `send_frame_stop`, through online access in config mode or the adapter connection in Commission a device. It SHALL list the running cyclic jobs with their sent counts and a Stop for each, and list the last 20 frames sent. A frame selected in the trace SHALL be offered as "Send this frame", filling the panel. Without Allow changes, the panel SHALL be disabled and say why. When a frame is refused because `force` is needed, the configurator SHALL show the reason in a confirmation and resend with `force` only when the user confirms. Leaving the Trace view or closing the page SHALL stop the page's cyclic jobs.
 
 #### Scenario: Single frame while recording
 - **WHEN** a trace is recording and the user sends 0x60A with eight data bytes
-- **THEN** the frame appears in the trace as Tx and in the panel's sent list
+- **THEN** the frame appears in the trace once, as Tx, and in the panel's sent list
 
 #### Scenario: Force needs confirmation
 - **WHEN** the user sends on 0x205, which is RPDO1 of node 5
@@ -1078,17 +1054,6 @@ The Trace view SHALL have a Send panel for the picked network with the identifie
 #### Scenario: No changes allowed
 - **WHEN** the config's online access has `allow_changes` off
 - **THEN** the Send panel is disabled and says that sending needs Allow changes
-
-### Requirement: Detect the bit rate from the Scan page
-The Scan the bus page SHALL have a "Detect bit rate" action for the picked network. Before starting it SHALL warn that CANopen on that network stops during the sweep and the nodes boot again afterwards, and ask for confirmation (with `force` when the plugin says a node is OPERATIONAL). While it runs it SHALL show the rate being listened to and the per-rate counts so far; when finished, the verdict and a table of the rates with frame, error frame and identifier counts. On `detected` with a rate different from the network's `adapter.bitrate`, it SHALL offer "Use N kbit/s", which sets the network's bit rate on the page without saving. It SHALL show no such button for `silent`, `ambiguous` or `failed`, and SHALL show the plugin's reason for `failed` and refusals.
-
-#### Scenario: Unknown device's rate
-- **WHEN** the tab's bit rate is 500 kbit/s and the sweep finds 250 kbit/s
-- **THEN** the page shows `250 kbit/s detected` and a "Use 250 kbit/s" button, and clicking it sets the bit rate field to 250 kbit/s with the page marked unsaved
-
-#### Scenario: Silent bus
-- **WHEN** the sweep finds no frames
-- **THEN** the page says the bus was silent, that a single device on the bus needs a second device or adapter that acknowledges its frames, and suggests powering a device on or resetting it during the sweep
 
 ### Requirement: Frame inspector panel
 In the Trace view, selecting a frame SHALL open an inspector panel with the four layers of the `canopen-frame-explain` model: meaning, identifier bits split into function code and node ID, a data grid with one row per byte (most significant bit on the left, CANopen bit number on each bit, each bit coloured by its field), the field list with values and working, and the wire strip with framing, stuff bits marked, the bus level line and the timing figures. Pointing at or focusing a bit or field SHALL show its explanation in a box that stays in view and SHALL highlight the same bits in every layer (a data bit in the grid and on the wire, a field's bits in the grid). Every bit SHALL be reachable with the keyboard. The panel SHALL follow the selected frame when the user moves through the list with the arrow keys, and SHALL offer the frame's SDO conversation, SYNC cycle or boot story where one exists. It SHALL work on opened trace files without a runtime, offline, in light and dark themes and at phone width.
@@ -1205,7 +1170,13 @@ The browser layout test SHALL run an automated accessibility audit (WCAG 2.1 A a
 - **THEN** the state text's contrast against its background is at least 4.5:1
 
 ### Requirement: Write configuration dialog
-A node's Parameters tab SHALL have "Write configuration…" (also in the Commission a device steps), enabled only with Allow changes. It SHALL take a DCF file or a node of a config folder (the open config's own node by default when the target is not a runtime that configures it), show the plan from `canopen-device-commissioning` (writes with source value, device value and differs or same, PDO sequences grouped, communication writes marked, left-out entries with reasons, identity and node ID checks), and write only after the user confirms. "Hold in PRE-OPERATIONAL while writing" SHALL start ticked; "Restore defaults first" and "Store on device afterwards" SHALL start unticked every time the dialog opens. It SHALL run in the configurator like restore, with progress and Cancel, and show the result with the read-back verdict. "Verify" in the same dialog SHALL compare without writing.
+A node's Parameters tab SHALL have "Write configuration…", enabled only with Allow changes. It SHALL take a DCF file or a node of a config folder (the open config's own node by default when the target is not a runtime that configures it). It SHALL show the plan from `canopen-device-commissioning`:
+- the writes, with source value, device value, and differs or same;
+- PDO sequences grouped, and communication writes marked;
+- left-out entries with reasons;
+- identity and node ID checks.
+
+It SHALL write only after the user confirms. "Hold in PRE-OPERATIONAL while writing" SHALL start ticked. "Restore defaults first" and "Store on device afterwards" SHALL start unticked every time the dialog opens. It SHALL run in the configurator like restore, with progress and Cancel, and show the result with the read-back verdict. "Verify" in the same dialog SHALL compare without writing.
 
 #### Scenario: Plan before writing
 - **WHEN** the user picks node5.dcf in Write configuration
@@ -1219,25 +1190,26 @@ The Parameters tab SHALL have "Restore defaults…" next to "Store on device…"
 - **THEN** a confirmation names node 5 and 0x1011, and nothing is written unless the user confirms
 
 ### Requirement: PDO test tab
-On a USB adapter target, each node SHALL have a "PDO test" tab. It SHALL load the node's PDO layout from the open config when the node is configured, otherwise from the device, and show TPDOs with live decoded values, periods and counts, and RPDOs with an input per entry and Send. It SHALL offer NMT Start for the node, and SYNC with a period (off by default). Every control SHALL be disabled without Allow changes and say why. When another master is detected the page SHALL ask before using `force`. Leaving the tab or closing the page SHALL stop the test and the SYNC. On a runtime target the tab SHALL not be shown, because the PLC runs the PDOs there.
+In Commission a device, each node SHALL have a "PDO test" tab. It SHALL load the node's PDO layout from the device, or from the configuration the user picks, and show:
+- TPDOs with live decoded values, periods and counts;
+- RPDOs with an input per entry and Send.
+
+It SHALL offer NMT Start for the node, and SYNC with a period (off by default). Every control SHALL be disabled without Allow changes and say why. When another master is detected, the page SHALL ask before using `force`. Leaving the tab or closing the page SHALL stop the test and the SYNC. In config mode the tab SHALL NOT be shown, because the PLC runs the PDOs there.
 
 #### Scenario: Set an output
 - **WHEN** the user types 15 in RPDO1's 0x6200:01 input and presses Send
 - **THEN** the frame is sent and the RPDO's sent count goes up by one
 
-### Requirement: Lone device in Detect
-The adapter connect box's Detect and the Scan page's Detect bit rate on a USB adapter SHALL have "Only this device is on the bus", unticked by default. Ticked, it SHALL ask for confirmation that nothing else is on the bus and that the adapter's error frames will reach it at wrong rates, need Allow changes on the Scan page, and run the lone-device sweep with the LSS probe. A `silent` result without it SHALL suggest ticking it when a single device is on the bench.
-
-#### Scenario: Bench device found
-- **WHEN** the only device runs at 125 kbit/s, the user ticks "Only this device is on the bus", confirms and presses Detect
-- **THEN** the form shows `125 kbit/s detected` and selects 125 kbit/s
-
 ### Requirement: Commissioning log
-In Commission a device and on a USB adapter target, the configurator SHALL record every change made through the page in this session (SDO write, NMT, LSS set ID, set bit rate and store, write configuration, restore defaults, store) with UTC time, node, what was done and the result. "Save log" SHALL download `node<N>-commissioning-<time>.txt` with the device identity and EDS name at the top. The log SHALL not contain host names or tokens and SHALL not be written to any project.
+In Commission a device, the configurator SHALL record every change made through the page in this session: SDO write, NMT, LSS set ID, set bit rate and store, write configuration, restore defaults, and store. Each entry SHALL have the UTC time, node, what was done and the result. "Save log" SHALL download `node<N>-commissioning-<time>.txt` with the device identity and EDS name at the top. The log SHALL NOT contain host names or tokens and SHALL NOT be written to any project. The log SHALL belong to the commissioning session. Leaving Commission a device (Close, or "Add to a config…") with entries not saved SHALL ask whether to save the log first. The log SHALL then be cleared. In config mode, no commissioning log SHALL be recorded or shown.
 
 #### Scenario: Save the record
 - **WHEN** the user gave the device node ID 12, wrote a configuration and stored it, then pressed Save log
 - **THEN** the file lists those three changes in order with their results
+
+#### Scenario: Not carried into the config
+- **WHEN** the user made two changes while commissioning, pressed "Add to a config…" and chose not to save the log
+- **THEN** the config opens with no commissioning log shown anywhere, and returning to Commission a device starts an empty log
 
 ### Requirement: Note editor
 Wherever an object's note is shown in a project (object dictionary view, startup SDO editor and picker, PDO entry picker), a "Note" button SHALL open an editor for that object or sub-object with text, details, unit, scale, a values table, a bits table and manual. For an object with a built-in note the editor SHALL start from the built-in fields and SHALL save only the fields the user changed into the device notes file.
@@ -1427,13 +1399,6 @@ The bridge page SHALL show the register map as a table (Modbus table, address, s
 - **WHEN** the user clicks "Export ST variables"
 - **THEN** the browser downloads the same file `canworks-deploy --export-modbus-map map.st` writes for this config
 
-### Requirement: Lone-device sweep guarded by the server
-The configurator's server SHALL apply the same guards to a lone-device bit rate sweep as `canworks-diag` does on a USB adapter (allow changes on, no other master detected, frames from at most one node ID in the last 30 seconds), whatever the page sends, and SHALL refuse the sweep, sending nothing, when a guard fails.
-
-#### Scenario: Two devices on the bench
-- **WHEN** the adapter connection heard heartbeats of nodes 5 and 7 and the page requests a lone-device sweep
-- **THEN** the server refuses it saying more than one node is on the bus, and nothing is sent
-
 ### Requirement: Changes are never sent twice
 When a request to the runtime or the adapter gets no answer in time, the configurator SHALL send it again only for operations that only read. For any other operation it SHALL report that there was no answer and that the request may have been carried out, without sending it again.
 
@@ -1564,3 +1529,47 @@ The node page's Emergency (EMCY) section SHALL edit `emcy_cob_id`: Device (the d
 #### Scenario: Clashing COB-ID typed
 - **WHEN** the user types node 6's TPDO 1 COB-ID as node 5's EMCY COB-ID
 - **THEN** the Check reports node 5's `emcy_cob_id` clashing with node 6's TPDO 1
+
+### Requirement: Bus and master in commissioning
+In Commission a device, the "Bus and master" tab SHALL hold everything about the connection:
+- the adapter (picked from the found adapters, with Refresh, or typed);
+- the bit rate (picked by the user, with no detection);
+- "Device's node ID, to check the bit rate", shown for adapters that cannot report a sent frame;
+- Allow changes;
+- Connect, and Disconnect while connected;
+- the bit rate check result and how it was confirmed;
+- the bus state and error counters when the adapter reports them;
+- another master with what was seen and since when;
+- the commissioning log count with Save log.
+
+A refused bit rate check SHALL show the backend's reason in the tab and leave the form filled in. A connection that ends (see `canopen-local-bus`, "Bus errors end the connection") SHALL show its reason there. Disconnect SHALL close the adapter and stop the scan, PDO test, SYNC, raw send jobs and trace recording that use it. Allow changes SHALL take effect on the open connection without reconnecting, and SHALL start off for every new connection. The adapter and bit rate SHALL be kept in the configurator's settings on this PC, never in a project.
+
+#### Scenario: Wrong bit rate refused
+- **WHEN** the bus runs at 500 kbit/s and the user connects at 1000 kbit/s
+- **THEN** the tab says the bus does not run at 1000 kbit/s, nothing is shown as connected, and the user can pick 500 kbit/s and connect again without replugging the adapter
+
+#### Scenario: Disconnect
+- **WHEN** the user is connected and presses Disconnect
+- **THEN** the adapter is closed, the tab shows the connect form, and `canworks-diag --adapter` can open the same adapter
+
+#### Scenario: Allow changes on an open connection
+- **WHEN** the user is connected read-only and ticks Allow changes
+- **THEN** write controls are enabled without reconnecting, and no "another master" message appears
+
+### Requirement: Nodes in commissioning
+In Commission a device, the "Nodes" tab SHALL list the devices of this session: those heard (heartbeat or boot-up), found by a scan, given a node ID by LSS, or added with **Add node from EDS…**. Each SHALL show its node ID, name, NMT state, time since last heard and last EMCY. **Add node from EDS…** SHALL take a node ID and an EDS file and add the device to the list with that EDS, kept in this page only. The tab SHALL have **Scan the bus** with progress and **Cancel**, which stops the scan and keeps the devices found so far. It SHALL also have the devices without a node ID panel (LSS find, Set node ID, Set bit rate). Clicking a device SHALL open its page with the object dictionary, Parameters, PDO test and notes tabs, and **Add to a config…**. Before a connection exists, the tab SHALL say that Bus and master connects first, with a link to it.
+
+#### Scenario: Device that does not answer the scan
+- **WHEN** a device in STOPPED state is on the bus and the user adds node 23 with its EDS through Add node from EDS…
+- **THEN** node 23 is listed with that EDS, and its object dictionary and Parameters tabs use it
+
+#### Scenario: Cancel a long scan
+- **WHEN** a scan is running and the user presses Cancel
+- **THEN** the scan stops within a second and the devices found so far stay listed
+
+### Requirement: Network picker in online and trace views
+The online view and the trace view SHALL each have a network picker when the runtime reports more than one network. Each SHALL show and act on the picked network only. The picker SHALL start on the network whose tab is open.
+
+#### Scenario: Online view of the second network
+- **WHEN** the runtime runs `io` and `drives` and the user picks `drives` in the online view
+- **THEN** the view shows `drives`' bus state and nodes, and SDO, NMT, parameter and object dictionary actions go to `drives`
