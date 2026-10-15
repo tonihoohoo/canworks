@@ -40,9 +40,27 @@ The **status bar** at the bottom lists the running jobs on every page: a scan, L
 
 In **Commission a CANopen device** nothing edits a config: no workspace switch, no Project or Export menu, no Save and no Problems; the tabs are **Nodes**, **Trace** and **Frame lab**.
 
-Everything works from the keyboard: Tab moves through the header, the tabs, the connection bar, the network tree, the page, the bottom panel and the status bar; Enter or Space opens a node, a problem, a menu item or a row in the scan and simulation tables (in the Nodes table, the node ID button opens the node); arrow keys move between the header's tabs, the tabs of the trace, the online node and the simulation views and between the items of an open menu; Escape closes a menu or a dialog. Dialogs put the safe choice first and give it focus, so Enter never removes or discards anything; the button that does is marked in red.
+Everything works from the keyboard: Tab moves through the header, the tabs, the connection bar, the network tree, the page, the bottom panel and the status bar; Enter or Space opens a node, a problem, a menu item or a row in the scan and simulation tables (in the Nodes table, the node ID button opens the node); arrow keys move between the header's tabs, the tabs of the trace, the online node and the simulation views and between the items of an open menu; Escape closes a menu or a dialog. The focus never drops to the page: when a button goes away or is disabled (after **Connect**, **Scan the bus**, **Add to config**, **Save**), it moves to the control that replaces it or to the nearest one. Dialogs put the safe choice first and give it focus, so Enter never removes or discards anything; the button that does is marked in red.
 
 **Ctrl+Z** (Cmd+Z on a Mac) undoes the last change to the draft, and **Ctrl+Shift+Z** redoes it, whether it was typed into a field, picked from a list or made by a button: a removed node, PDO entry, startup SDO or SDO variable comes back with every setting. The message after a removal also offers **Undo**. Inside a field, the browser's own undo applies until you leave it. The stack starts empty when a config is opened or reloaded.
+
+### Colours and icons
+
+The page is grey while all is well; colour marks a state, and every state also has its own shape, so it reads the same in both themes, in grey-scale and in the operating system's high contrast mode. The same icons are used on the network tree, the Nodes table, the node tabs, the connection bar, the status bar, Problems, the message bar and the trace. **Settings → Colours and icons** shows this legend on the page.
+
+| Icon | State | When |
+|---|---|---|
+| filled circle (green) | Operational | The node runs and exchanges PDOs; the connection is up and the bit rate confirmed. |
+| half-filled circle (blue) | Pre-operational | The node answers SDOs but sends no PDOs yet. |
+| ring with a gap (blue) | In progress | Connecting, booting, or a job is running. |
+| filled square (amber) | Stopped | The node was stopped and only answers NMT and heartbeat. |
+| triangle with "!" (amber) | Warning | Something needs a look, but nothing is broken: a warning in Problems, error passive, a slow path. |
+| circle with a cross (red) | Error | A missing node, bus-off, an ended connection, an error in Problems. |
+| hollow circle (grey) | Unknown | No information: not connected, not heard, or absent from a simulated network. |
+| small flag after the icon | Diagnosis | Red while an EMCY or error is pending for the node, grey once it is cleared. |
+| dashed ring around the icon | Simulated | The node is simulated. Simulation is a mark, not a state, so it has no colour of its own. |
+
+Text in tables and lists stays in the normal text colour; only a warning or an error tints a row. A control that cannot be used says why in its tooltip ("Needs a connection with changes allowed"). Labels and messages follow one word list, [wording.md](wording.md).
 
 ## Network tree
 
@@ -351,7 +369,7 @@ All three are draft edits: the unsaved mark shows, **Undo** reverts them, **Save
 
 ### State on the tree, Log and Unlock
 
-While connected, each configured node on the network tree shows its NMT state by shape, with its name for screen readers: a filled circle Operational, a triangle Pre-operational, a square Stopped, a cross not answering or boot failed, a hollow circle not heard. A small dot flags a new EMCY or error history entry, Missing or Identity differs. A change of state is announced. In Configure the tree shows the state only while the connection bar is up.
+While connected, each configured node on the network tree shows its NMT state with the [state icons](#colours-and-icons), with its name for screen readers: Operational, Pre-operational, Stopped, the error icon for not answering or boot failed, the hollow circle for not heard. The diagnosis flag marks a new EMCY or error history entry, and a warning or error icon after it marks Identity differs or Missing. The Nodes table and a node's **Status** tab show the same icons next to the state's name. A change of state is announced. In Configure the tree shows the state only while the connection bar is up.
 
 In Commission with a config the bottom panel has **Log** (open by default) next to **Problems**. The log records the bus events of this session and every change made through Commission, with the same filters as in Commission a CANopen device; **Save log** downloads `<config>-commission-<time>.txt`. It lives in this page only, is never written to the project, and Configure has none.
 

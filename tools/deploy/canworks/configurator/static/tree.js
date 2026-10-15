@@ -84,8 +84,8 @@ function badge(c) {
   if (!c || (!c.e && !c.w)) return null;
   const words = [c.e ? `${c.e} error${c.e === 1 ? "" : "s"}` : "", c.w ? `${c.w} warning${c.w === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ");
   return el("span", { class: "tree-badge", dataset: { badge: words }, title: words },
-    c.e ? el("span", { class: "err", "aria-hidden": "true" }, `${c.e}✕`) : null,
-    c.w ? el("span", { class: "warn", "aria-hidden": "true" }, `${c.w}⚠`) : null,
+    c.e ? el("span", { class: "err", "aria-hidden": "true" }, Icons.stateIcon("error", { label: false }), String(c.e)) : null,
+    c.w ? el("span", { class: "warn", "aria-hidden": "true" }, Icons.stateIcon("warning", { label: false }), String(c.w)) : null,
     el("span", { class: "visually-hidden" }, words));
 }
 
@@ -96,6 +96,26 @@ function sumCounts(counts, prefix) {
     if (k === prefix || k.startsWith(prefix + ":")) { c.e += v.e; c.w += v.w; }
   }
   return c;
+}
+
+// The state icon inside a node's .tree-mark (visual-refresh): the mark's class
+// names the state (the live classes of liveMark() while connected, or "sim" /
+// "absent" from the config); "sim" adds the simulated ring, "flag" the
+// diagnosis flag, and a scan difference a warning or error icon. No class, no icon.
+const LIVE_MARK = { "st-op": "operational", "st-preop": "preop", "st-stop": "stopped", "st-lost": "error", "st-unheard": "unknown", absent: "unknown" };
+function markIcons(mark) {
+  const parts = String(mark || "").split(/\s+/).filter(Boolean);
+  const sim = parts.includes("sim");
+  const state = parts.map((p) => LIVE_MARK[p]).find(Boolean) || (sim ? "unknown" : null);
+  if (!state) return [];
+  const out = [Icons.stateIcon(state, { label: false, simulated: sim, flag: parts.includes("flag") ? "pending" : null })];
+  if (parts.includes("cmp-identity_differs")) out.push(Icons.stateIcon("warning", { label: false }));
+  if (parts.includes("cmp-missing")) out.push(Icons.stateIcon("error", { label: false }));
+  return out;
+}
+function fillMark(span, mark) {
+  span.replaceChildren(...markIcons(mark));
+  return span;
 }
 
 // A node's mark: hollow when simulated, dashed when absent from a simulated network.
@@ -124,7 +144,7 @@ function setNodeMark(network, nodeId, mark, word) {
   if (!li) return;
   const [m, w] = nodeMark(net.nodes[i], net);
   const span = li.querySelector(".tree-mark");
-  if (span) { span.className = "tree-mark " + m; if (w) span.dataset.simBadge = w; else delete span.dataset.simBadge; }
+  if (span) { span.className = "tree-mark " + m; fillMark(span, m); if (w) span.dataset.simBadge = w; else delete span.dataset.simBadge; }
   const hidden = li.querySelector(".name .visually-hidden");
   if (hidden) hidden.textContent = w ? ` (${w})` : "";
   else if (w) li.querySelector(".name").append(el("span", { class: "visually-hidden" }, ` (${w})`));
@@ -202,7 +222,7 @@ function renderTree() {
       dataset: Object.assign({ key: e.key }, e.attrs) }),
     el("span", { class: "tree-row" },
       e.kids && e.kids.length ? el("span", { class: "twist", "aria-hidden": "true", onclick: (ev) => { ev.stopPropagation(); toggleNet(e.net); } }, folded ? "▸" : "▾") : null,
-      e.mark !== undefined ? el("span", { class: "tree-mark " + e.mark, "aria-hidden": "true", dataset: e.word ? { simBadge: e.word } : {} }) : null,
+      e.mark !== undefined ? fillMark(el("span", { class: "tree-mark " + e.mark, "aria-hidden": "true", dataset: e.word ? { simBadge: e.word } : {} }), e.mark) : null,
       el("span", { class: "name" }, e.label, e.word ? el("span", { class: "visually-hidden" }, ` (${e.word})`) : null),
       e.kids ? el("span", { class: "muted proto" }, e.sub) : null,
       badge(c),

@@ -367,7 +367,7 @@ function showTraceHeader(st) {
   } else if (st.source) {
     text = `File ${st.source}` + (st.network ? `, decoded with network ${st.network}` : "");
   } else {
-    text = "No trace yet.";
+    text = "No trace yet. Press Start, or open a trace file.";
   }
   const parts = [text];
   if (!rec.running && !onlineReady()) {
@@ -405,7 +405,7 @@ function showTraceHeader(st) {
     ss.classList.toggle("primary", !rec.running);
     ss.dataset.running = String(!!rec.running);
   }
-  for (const k of ["save", "export"]) document.querySelector(`[data-trace=${k}]`).disabled = !st.frames;
+  for (const k of ["save", "export"]) Icons.setDisabled(document.querySelector(`[data-trace=${k}]`), !st.frames && "Nothing recorded yet.");
 }
 
 function renderTraceTab() {
@@ -758,7 +758,7 @@ function drawRows(r) {
       el("span", null, x.gap || x.err ? "" : String(x.dlc)), el("span", { class: "mono" }, x.data),
       el("span", { title: x.name }, x.name), el("span", { title: x.text }, x.text));
   }));
-  if (!r.rows.length) rows.append(el("div", { class: "muted trace-empty" }, T.st && T.st.frames ? "No frames match the display filter." : "No frames."));
+  if (!r.rows.length) rows.append(el("div", { class: "muted trace-empty" }, T.st && T.st.frames ? "No frames match the display filter." : "No frames yet. Press Start, or open a trace file."));
   rowActions();
   if (T.pendingStep) {
     const step = T.pendingStep;
@@ -890,7 +890,7 @@ async function loadGraph() {
   if (!T.chosen.length) {
     for (const p of T.plots) p.destroy();
     T.plots = [];
-    plotsBox.replaceChildren(el("p", { class: "muted" }, T.st && T.st.frames ? "Choose series on the left." : "No frames yet."));
+    plotsBox.replaceChildren(el("p", { class: "muted" }, T.st && T.st.frames ? "Choose series on the left." : "No frames yet. Press Start, or open a trace file."));
     showCursors();
     return;
   }
@@ -1004,7 +1004,7 @@ function drawOverlays(u, t0) {
     ctx.stroke();
     ctx.restore();
   };
-  for (const m of (T.st && T.st.markers) || []) vline(m.time_us, m.kind === "trigger" ? themeColor("--error") : themeColor("--warn"), true);
+  for (const m of (T.st && T.st.markers) || []) vline(m.time_us, m.kind === "trigger" ? themeColor("--st-error") : themeColor("--st-warn"), true);
   if (T.a != null) vline(T.a, themeColor("--accent"), false);
   if (T.b != null) vline(T.b, themeColor("--accent"), true);
 }
@@ -1126,14 +1126,14 @@ function renderTrigger(box) {
     [["single", "Single: stop after the post-trigger time"], ["normal", "Normal: mark each hit and keep recording"]].map(([v, l]) => el("option", { value: v, selected: d.mode === v }, l)));
   mode.onchange = () => { d.mode = mode.value; };
   const auto = el("input", { type: "checkbox", checked: !!d.autosave, dataset: { traceTrig: "autosave" } });
-  const autoFmt = el("select", { "aria-label": "Auto-save format", dataset: { traceTrig: "autosave-format" }, disabled: !d.autosave },
+  const autoFmt = el("select", { "aria-label": "Auto-save format", dataset: { traceTrig: "autosave-format" }, disabled: !d.autosave && "Tick Auto-save first." },
     TRACE_FORMATS.map(([v, l]) => el("option", { value: v, selected: d.autosave && d.autosave.format === v }, l)));
   const autoDir = el("input", { type: "text", spellcheck: "false", class: "wide", "aria-label": "Auto-save folder", dataset: { traceTrig: "autosave-folder" },
-    placeholder: (T.st && T.st.traces_dir) || "", disabled: !d.autosave });
+    placeholder: (T.st && T.st.traces_dir) || "", disabled: !d.autosave && "Tick Auto-save first." });
   autoDir.value = d.autosave && d.autosave.folder ? d.autosave.folder : "";
   const syncAuto = () => {
     d.autosave = auto.checked ? { format: autoFmt.value, folder: autoDir.value.trim() } : null;
-    autoFmt.disabled = autoDir.disabled = !auto.checked;
+    for (const x of [autoFmt, autoDir]) Icons.setDisabled(x, !auto.checked && "Tick Auto-save first.");
   };
   auto.onchange = syncAuto;
   autoFmt.onchange = syncAuto;

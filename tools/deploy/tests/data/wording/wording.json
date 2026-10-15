@@ -1,0 +1,45 @@
+{
+  "comment": "Ruled-out wording on the configurator page (docs/wording.md). Each rule: a case-sensitive regex over human-readable strings and the preferred term. 'allow' lists exact substrings that may keep a ruled-out term (quotes of other tools, EDS keys).",
+  "rules": [
+    {
+      "pattern": "\\b[Bb]aud(rate)?s?\\b",
+      "preferred": "bit rate"
+    },
+    {
+      "pattern": "\\b[Bb]it[Rr]ate",
+      "preferred": "bit rate"
+    },
+    {
+      "pattern": "\\bNode-ID\\b|\\bNodeID\\b|\\bnode-id\\b|\\bnode id\\b|\\bNode Id\\b|\\bnode Id\\b",
+      "preferred": "node ID"
+    },
+    {
+      "pattern": "\\bCOB ID\\b|\\bCOBID\\b|\\bcob-id\\b|\\bCob-ID\\b|\\bCOB-Id\\b|\\bcob id\\b",
+      "preferred": "COB-ID"
+    },
+    {
+      "pattern": "^(Error|Warning|ERROR|WARNING):\\s",
+      "preferred": "no \"Error:\" or \"Warning:\" prefix; the icon says it"
+    },
+    {
+      "pattern": "\\b[Pp]lease\\b",
+      "preferred": "no \"please\"; say what to do"
+    },
+    {
+      "pattern": "[A-Za-z)]!(\\s|$)",
+      "preferred": "no exclamation marks"
+    },
+    {
+      "pattern": "(?<![#\\w])\\d+(ms|kbit/s|Mbit/s|kHz)\\b",
+      "preferred": "a space before the unit (\"100 ms\", \"500 kbit/s\")"
+    },
+    {
+      "pattern": "\\bkbps\\b|\\b[kK]Bit/s\\b|\\bKbit/s\\b|\\bkbaud\\b",
+      "preferred": "kbit/s"
+    }
+  ],
+  "allow": [
+    "Serial speed (baud)",
+    "'bitrate' keys"
+  ]
+}

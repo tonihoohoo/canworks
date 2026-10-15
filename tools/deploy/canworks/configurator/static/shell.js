@@ -105,6 +105,12 @@ function renderShell() {
   const active = tool ? S.view : own[0];
   const host = $("#tool-tabs");
   host.hidden = false;
+  // A redraw keeps keyboard focus on the tool tabs (on the selected one).
+  const hadFocus = host.contains(document.activeElement);
+  if (hadFocus) setTimeout(() => {
+    const a = document.activeElement;
+    if (!a || a === document.body || !a.isConnected) { const t = host.querySelector("[role=tab][aria-selected=true]"); if (t) t.focus(); }
+  }, 0);
   host.replaceChildren(tabs(items, active, (k) => {
     if (k === "network") showView(S.wsView && S.wsView.configure && !isTool(S.wsView.configure) ? S.wsView.configure : "bus");
     else if (!isTool(k)) showView(k);

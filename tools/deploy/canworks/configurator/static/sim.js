@@ -601,7 +601,7 @@ function simUpdateDevices() {
     el("td", { class: d.conflict ? "bad" : null }, d.conflict ? "node ID conflict" : ""),
     el("td", null, (d.faults || []).map(faultText).join(", ")),
     el("td", null, `${simKeys(d.sources).length} / ${simKeys(d.overrides).length}`));
-  }) : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No simulated devices."))]));
+  }) : [el("tr", null, el("td", { colspan: 8, class: "muted" }, "No simulated devices. Turn on Simulated on a node's page to simulate it."))]));
   if (!$("#sim-device").dataset.ref || $("#sim-device").dataset.ref !== String(SIM.node)) simDevicePanel();
   const line = document.querySelector('[data-sim="device-state"]');
   if (line && SIM.node !== null) line.textContent = simDeviceState(SIM.node);
@@ -1528,7 +1528,7 @@ function simUpdateScenarios() {
         simChanged();
         simRenderTab();
       } }, "Delete") : null)))
-    : [el("tr", null, el("td", { colspan: 7, class: "muted" }, "No scenarios yet."))]));
+    : [el("tr", null, el("td", { colspan: 7, class: "muted" }, "No scenarios yet. A scenario plays faults and value changes at set times; add one to try out the PLC program."))]));
 }
 
 // "3: wait 5/0x6200:1 bit 2 = 1" for a running step (1-based), when the

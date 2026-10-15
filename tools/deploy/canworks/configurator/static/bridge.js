@@ -297,7 +297,7 @@ function bridgeFillMap() {
   const fill = () => {
     const rows = r.rows.filter((row) => bridgeMatches(row, S.bridgeFilter));
     body.replaceChildren(...(rows.length ? rows.map(bridgeRow) : [el("tr", null, el("td", { colspan: "7", class: "muted" },
-      r.rows.length ? "No entry matches the filter." : "No located values yet."))]));
+      r.rows.length ? "No entry matches the filter." : "No located values yet. The register map lists every PLC location the config uses; map a PDO entry or SDO variable first."))]));
     count.textContent = rows.length === r.rows.length ? `${r.rows.length} entries` : `${rows.length} of ${r.rows.length} entries`;
   };
   filter.addEventListener("input", () => { S.bridgeFilter = filter.value; fill(); });

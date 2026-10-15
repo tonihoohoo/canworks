@@ -11,7 +11,7 @@
 .raw-grid th { font-weight: normal; color: var(--muted); padding-right: 8px; text-align: left; white-space: nowrap; }
 .raw-bit { width: 2.4em; text-align: center; border: 1px solid var(--line); font-size: 11px; }
 .raw-bit.raw-out { opacity: .4; }
-.raw-bit.raw-clash { outline: 2px solid var(--error); outline-offset: -2px; }
+.raw-bit.raw-clash { outline: 2px solid var(--st-error); outline-offset: -2px; }
 .raw-c0 { background: rgba(31, 119, 180, .35); }
 .raw-c1 { background: rgba(255, 127, 14, .35); }
 .raw-c2 { background: rgba(44, 160, 44, .35); }

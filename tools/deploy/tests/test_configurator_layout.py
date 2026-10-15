@@ -121,6 +121,20 @@ def pick_theme(page, theme):
     page.click('[data-theme-choice="%s"]' % theme)
 
 
+# Disabled controls say why (visual-refresh): a tooltip or an accessible description.
+DISABLED_REASONS = """() => {
+  const out = [];
+  for (const e of document.querySelectorAll("button:disabled, input:disabled, select:disabled, textarea:disabled, [role=tab][aria-disabled=true], [role=button][aria-disabled=true]")) {
+    if (e.offsetParent === null || e.type === "hidden" || e.closest("[hidden], .uplot")) continue;
+    const box = e.closest("fieldset[disabled]") || e.closest("label, .check");
+    const why = (e.title || e.getAttribute("aria-description") || "").trim()
+      || (e.getAttribute("aria-describedby") || "").split(/\\s+/).some((id) => id && (document.getElementById(id)?.textContent || "").trim())
+      || (box && box !== e && (box.title || "").trim());
+    if (!why) out.push(e.tagName.toLowerCase() + (e.id ? "#" + e.id : "") + " " + (e.dataset.path || e.getAttribute("aria-label") || e.textContent.trim() || e.name || e.className).slice(0, 40));
+  }
+  return out;
+}"""
+
 def audit(page, where, report=None):
     """axe-core on the page as it is: critical and serious findings fail,
     the others are collected in `report` (a list) when given."""
@@ -167,6 +181,7 @@ class Layout(OnlineBase):
         audit(self.page, where, self.axe_report)
         self.assertEqual(self.page.evaluate(CONTRAST), [], where + ": contrast")
         self.assertEqual(self.page.evaluate(TARGETS), [], where + ": target size")
+        self.assertEqual(self.page.evaluate(DISABLED_REASONS), [], where + ": disabled without a reason")
 
     axe_report = []
 
@@ -243,6 +258,39 @@ class Layout(OnlineBase):
                 pg.evaluate("() => { document.querySelector('#menu-export').open = false; }")
                 pg.click("#btn-close")
                 pg.wait_for_selector("#start:not([hidden])")
+
+    def test_forced_colours_and_legend(self):
+        """Windows High Contrast (forced colours): the state icons on the
+        network tree and in the Nodes table keep their shapes in the system
+        text colour; the legend under Settings fits and passes the audit."""
+        pg = self.page
+        with FakePlugin(allow_changes=True) as fp:
+            self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
+            self.remember(fp.runtime)
+            pg.goto(self.server.url)
+            pg.click("#start-project")
+            pg.fill("#browser-path", self.project)
+            pg.click("#browser-open")
+            pg.wait_for_selector("#editor:not([hidden])")
+            pg.click('button[data-view="online"]')
+            pg.wait_for_selector('tr[data-online-node="2"] .state-mark svg.st')
+            pg.wait_for_selector("#tree .tree-mark svg.st")
+            pg.evaluate("() => { document.querySelector('#menu-settings').open = true; document.querySelector('#legend-box').open = true; }")
+            self.assertGreaterEqual(pg.locator("#legend svg.st").count(), 7)
+            self.fits("settings legend")
+            pg.evaluate("() => { document.querySelector('#menu-settings').open = false; }")
+            pg.emulate_media(forced_colors="active")
+            icons = pg.evaluate("""() => [...document.querySelectorAll('#tree svg.st, [data-online=nodes] svg.st')].map((s) => {
+                const r = s.getBoundingClientRect(), cs = getComputedStyle(s);
+                return { state: s.dataset.state, w: r.width, h: r.height, color: cs.color, adjust: cs.forcedColorAdjust,
+                         text: getComputedStyle(document.body).color };
+            })""")
+            self.assertTrue(icons)
+            for i in icons:
+                self.assertGreaterEqual(min(i["w"], i["h"]), 10, i)
+                self.assertEqual(i["adjust"], "none", i)
+                self.assertEqual(i["color"], i["text"], i)
+            pg.emulate_media(forced_colors="none")
 
     def test_standalone_header_and_new_project_dialog(self):
         pg = self.page

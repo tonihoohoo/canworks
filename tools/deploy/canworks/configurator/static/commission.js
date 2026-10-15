@@ -242,7 +242,8 @@ function adapterBox(message) {
   const on = !!S.adapterOn;
   const list = el("select", { "aria-label": "Found adapters", disabled: on, dataset: { online: "adapter-list" } },
     el("option", { value: "" }, "Looking for adapters…"));
-  const input = el("input", { type: "text", spellcheck: "false", disabled: on, placeholder: "gs_usb:0, slcan:COM5, slcan:/dev/tty.usbmodem14101, socketcan:can0",
+  const input = el("input", { type: "text", spellcheck: "false", disabled: on, placeholder: "gs_usb:0 or slcan:COM5",
+    title: "For example gs_usb:0, slcan:COM5, slcan:/dev/tty.usbmodem14101 or socketcan:can0",
     "aria-label": "Adapter", dataset: { online: "adapter" } });
   input.value = S.online.adapter || "";
   list.addEventListener("change", () => { if (list.value) input.value = list.value; });
@@ -303,6 +304,11 @@ function adapterBox(message) {
     closeConnect();
     render();
     connKick();
+    // The form is gone once connected: the keyboard goes on with the scan.
+    if (document.activeElement === document.body || !document.activeElement.isConnected) {
+      const next = document.querySelector('#view [data-online="scan"]') || document.querySelector('#conn-bar [data-conn="disconnect"]');
+      if (next) next.focus();
+    }
   }) }, "Connect");
   const disconnect = el("button", { type: "button", hidden: !on, dataset: { online: "disconnect" }, onclick: async () => { closeConnect(); await disconnectAdapter(); } }, "Disconnect");
   return el("fieldset", { dataset: { online: "adapter-box" } }, el("legend", null, "USB adapter"),
@@ -439,7 +445,7 @@ function commNodeTable(st) {
     el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${id}`, dataset: { openNode: id },
       onclick: () => openOnlineNode(id) }, String(id))),
     el("td", null, device),
-    el("td", { class: !n || n.state === null ? "muted" : "state-" + n.state }, el("span", { class: "state-mark " + liveMark(n)[0], "aria-hidden": "true" }),
+    el("td", null, el("span", { class: "state-mark", "aria-hidden": "true" }, ...markIcons(liveMark(n)[0])),
       !n || n.state === null ? "not heard" : stateName(n.state)),
     el("td", null, n && n.last_heard_s !== null ? `${n.last_heard_s.toFixed(1)} s ago` : "-"), el("td", null, em),
     el("td", null, found),

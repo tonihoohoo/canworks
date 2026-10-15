@@ -41,6 +41,8 @@ function el(tag, attrs, ...children) {
     if (k === "class") e.className = v;
     else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
     else if (k === "dataset") Object.assign(e.dataset, v);
+    // disabled: a reason string disables the control and says why (tooltip and description).
+    else if (k === "disabled" && typeof v === "string") { e.disabled = true; e.title = v; e.setAttribute("aria-description", v); e.dataset.disabledReason = v; }
     else if (v === true) e.setAttribute(k, "");
     else e.setAttribute(k, v);
   }
@@ -118,6 +120,7 @@ async function busy(button, label, fn) {
   const node = [...button.childNodes].find((c) => c.nodeType === Node.TEXT_NODE && c.textContent.trim()) || button;
   const text = node.textContent;
   const wasDisabled = button.disabled;
+  const hadFocus = document.activeElement === button;
   button.dataset.busy = "1";
   button.disabled = true;
   button.classList.add("busy");
@@ -129,6 +132,11 @@ async function busy(button, label, fn) {
     button.disabled = wasDisabled;
     button.classList.remove("busy");
     button.removeAttribute("aria-busy");
+    // Disabling dropped the keyboard focus: it comes back, or goes next door when the button is gone or disabled.
+    if (hadFocus && (document.activeElement === document.body || !document.activeElement)) {
+      if (button.isConnected && !button.disabled && button.offsetParent !== null) button.focus();
+      else if (button.isConnected) focusNear(button);
+    }
   }
 }
 
@@ -141,7 +149,12 @@ function tabs(items, active, onPick, opts) {
     type: "button", role: "tab", id: opts.panel ? `${opts.panel}-tab-${key}` : null, class: (opts.tab || "tab") + (key === active ? " active" : ""),
     "aria-selected": String(key === active), "aria-controls": opts.panel || null, tabindex: key === active ? "0" : "-1",
     dataset: Object.assign({}, opts.dataset ? { [opts.dataset]: key } : {}),
-    onclick: () => onPick(key),
+    onclick: (e) => {
+      const had = document.activeElement === e.currentTarget, id = e.currentTarget.id;
+      onPick(key);
+      // A pick that re-renders the list keeps the focus on the picked tab.
+      if (had && id && !e.currentTarget.isConnected) { const fresh = document.getElementById(id); if (fresh) fresh.focus(); }
+    },
   }, label));
   list.append(...buttons);
   list.addEventListener("keydown", (e) => {
@@ -196,6 +209,9 @@ function banner(text, isError) {
   else $("#banner-text").textContent = text || "";
   b.className = isError ? "error" : "";
   b.setAttribute("role", isError ? "alert" : "status");
+  const icon = b.querySelector(":scope > svg.st");
+  if (icon) icon.remove();
+  if (isError && text) b.prepend(Icons.stateIcon("error", { label: false }));
   const timed = typeof text === "string" ? !!text : !!(text && text.dataset && text.dataset.timed);
   if (timed && !isError) S.bannerTimer = setTimeout(() => banner(""), BANNER_MS);
 }
@@ -843,6 +859,12 @@ async function openFolder(path, mode, isNew) {
     await api("POST", "/api/open", { path, mode, new: isNew });
     S.view = "bus";
     await loadState();
+    // The start page is gone: keyboard focus goes to the network tree, not the page body.
+    const a = document.activeElement;
+    if (!a || a === document.body || !a.isConnected || a.closest("#start")) {
+      const to = document.querySelector('#tree [role=treeitem][tabindex="0"]') || document.querySelector("#view h2");
+      if (to) { if (!to.hasAttribute("tabindex")) to.setAttribute("tabindex", "-1"); to.focus(); }
+    }
   } catch (e) {
     if (e.body && e.body.not_a_project) {
       const v = await modal(e.message + ".", [["standalone", "Open as standalone config", true], ["cancel", "Cancel"]]);
@@ -886,7 +908,7 @@ function render() {
   document.body.classList.toggle("commission", commission);
   $("#editor").classList.toggle("commission", commission);
   $("#menu-project").hidden = S.state.mode !== "standalone" || commission;
-  $("#btn-export-node").disabled = !S.view.startsWith("node:");
+  Icons.setDisabled($("#btn-export-node"), !S.view.startsWith("node:") && "Open a node first.");
   // Exports that do not apply are not offered: no DCF of a slave or J1939
   // network (none at all without a CANopen master network), no DBC of a slave.
   if (S.model) {
@@ -1531,7 +1553,7 @@ function slaveObjects(eds) {
       "program writes (ro or rwr) are PLC outputs the master reads. The name is optional and names the variable."),
     el("div", { class: "objects" }, el("table", { class: "slave-objects" },
       el("thead", null, el("tr", null, thCells(["Object", "EDS name", "Type and direction", "PLC location", "Name", ""]))),
-      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 6, class: "muted" }, "No objects bound yet."))))),
+      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 6, class: "muted" }, "No objects yet. Bind an object of the slave's dictionary to a PLC location below, so the master can read or write it."))))),
     free.length ? el("div", { class: "toolbar" }, pick, el("button", { type: "button", dataset: { bind: "1" },
       onclick: async () => {
         const o = free[Number(pick.value)];
@@ -1823,7 +1845,7 @@ function gatewayRoutes(g, masters, upperEds) {
     upperEds ? null : el("p", { class: "field-msg" }, "Build or pick the upper network's EDS to pick slave objects."),
     el("div", { class: "objects" }, el("table", { class: "routes" },
       el("thead", null, el("tr", null, thCells(["Name", "Slave object", "Field network, node and PDO entry", ""]))),
-      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 4, class: "muted" }, "No routes yet."))))),
+      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 4, class: "muted" }, "No routes yet. A route passes a slave object to a node's PDO entry on a field network; add one with Add route."))))),
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { addRoute: "1" },
       onclick: () => { g.routes.push({ slave: {}, field: {} }); changed(true); } }, "Add route")));
 }
@@ -2073,15 +2095,15 @@ function lssFields(i, eds) {
   });
   const store = el("input", { type: "checkbox", dataset: { path: base + ".lss.store" } });
   store.checked = getPath(base + ".lss.store") === true;
-  store.disabled = !assign.checked && !store.checked;
+  Icons.setDisabled(store, !assign.checked && !store.checked && "Needs \"Assign node ID by serial number\".");
   store.addEventListener("change", () => set("store", store.checked));
   // No LSS on a node whose EDS has none: the boxes stay off (a ticked one can
   // still be unticked), and an lss object left in the file can be removed.
   const dev = eds && eds.device;
   const noLss = !!dev && !dev.lss_supported;
   if (noLss) {
-    assign.disabled = !assign.checked;
-    store.disabled = !store.checked;
+    Icons.setDisabled(assign, !assign.checked && "This device's EDS has no LSS.");
+    Icons.setDisabled(store, !store.checked && "This device's EDS has no LSS.");
   }
   const has = getPath(base + ".lss") !== undefined;
   const warn = noLss
@@ -2117,7 +2139,7 @@ function configCheckField(i, eds) {
   else if (subs.some((o) => !o || !o.writable)) why = "The EDS has no writable 0x1020 sub 1 and sub 2, so the device cannot keep the stamp.";
   const input = el("input", { type: "checkbox", dataset: { path: base + ".config_check" } });
   input.checked = on;
-  input.disabled = !!why && !on;
+  Icons.setDisabled(input, !on && why);
   input.addEventListener("change", () => {
     if (!input.checked) setPath(base + ".store_configuration", undefined);
     setPath(base + ".config_check", input.checked ? true : undefined);
@@ -2147,7 +2169,7 @@ function storeConfigurationField(i, eds) {
   if (!subs.length) why = "The EDS has no writable 0x1010 sub-index (store parameters).";
   else if (getPath(base + ".config_check") !== true) why = "Needs \"Skip download when unchanged\", so the device saves only after a download.";
   if (why && !set) {
-    f.querySelector("select").disabled = true;
+    Icons.disable(f.querySelector("select"), why);
     f.querySelector(".hint").textContent = why;
   }
   return f;
@@ -2655,7 +2677,12 @@ function objectPicker(i, eds, dir) {
         el("td", null, o.access),
         el("td", null, isMapped(i, o) ? el("span", { class: "muted" }, "mapped") :
           el("button", { type: "button", dataset: { add: `${o.index}:${o.subindex}` }, "aria-label": `Add ${o.index}:${o.subindex} ${o.name || ""}`,
-            onclick: (e) => busy(e.currentTarget, "Adding…", () => addEntry(i, o, dir, target)) }, "Add"),
+            onclick: (e) => busy(e.currentTarget, "Adding…", async () => {
+              await addEntry(i, o, dir, target);
+              // The object's row now reads "mapped": the focus goes back to the picker's filter for the next one.
+              const a = document.activeElement;
+              if (!a || a === document.body || !a.isConnected) focusPicker(dir);
+            }) }, "Add"),
           notesEditable(name) ? el("button", { type: "button", class: "small", dataset: { noteEdit: `${o.index}:${o.subindex}` },
             title: "Write a note for this object: text, unit, value meanings, bit names",
             onclick: async () => { if (await editNote(name, notesOf(name), o.index, o.subindex, !!o.var, `${o.index}:${o.subindex} ${o.name || ""}`)) fill(); } }, "Note") : null))));
@@ -3715,7 +3742,7 @@ function onlineApply(r, err) {
       onclick: (e) => { if (!e.target.closest("button, input, label, a, select")) openOnlineNode(n.node_id); } },
     el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${n.node_id}`, dataset: { openNode: n.node_id },
       onclick: () => openOnlineNode(n.node_id) }, String(n.node_id))), el("td", null, nodeName(n.node_id, n.name), sim ? " " : null, sim),
-    el("td", { class: "state-" + n.state }, el("span", { class: "state-mark " + liveMark(n)[0], "aria-hidden": "true" }), stateName(n.state)),
+    el("td", null, el("span", { class: "state-mark", "aria-hidden": "true" }, ...markIcons(liveMark(n)[0])), stateName(n.state)),
     el("td", { dataset: { onlineStatus: n.node_id } }, n.status ? "TRUE" : "FALSE",
       ...stale.map((t) => el("div", { class: "bad", dataset: { pdoTimeout: n.node_id } }, t))),
     el("td", { class: n.boot_error ? "bad" : null }, boot + (n.retry_pending ? " (retrying)" : ""), hold ? el("div", null, hold) : null),
@@ -3942,6 +3969,9 @@ async function commissionDevice() {
     S.adapterOn = false;
     S.adapterEnded = null;
     await loadState();
+    // The start page's button is gone: the focus goes to the connect form's first field.
+    const first = document.querySelector('#view [data-nodes="connect"] input, #view [data-nodes="connect"] select, #view [data-nodes="connect"] button');
+    if (first) first.focus();
   } catch (e) { banner(e.message, true); }
 }
 
@@ -6236,7 +6266,7 @@ function applyCheck() {
   for (const it of items) {
     const where = it.where || (it.paths || []).map((p) => ({ net: S.net, path: p }));
     const li = el("li", { class: it.level }, el("button", { type: "button", title: it.message,
-      onclick: () => focusPath(where[0]) }, problemText(it, where[0])));
+      onclick: () => focusPath(where[0]) }, Icons.stateIcon(it.level === "error" ? "error" : "warning", { label: false }), problemText(it, where[0])));
     list.append(li);
     for (const w of where) {
       // Fields of another network's tab are not on the page.
@@ -6251,7 +6281,7 @@ function applyCheck() {
       }
     }
   }
-  if (!items.length && S.check) list.append(el("li", { class: "ok" }, "No problems."));
+  if (!items.length && S.check) list.append(el("li", { class: "ok" }, Icons.stateIcon("ok", { label: false }), "No problems."));
   if (focusedAt >= 0) { const b = list.children[Math.min(focusedAt, list.children.length - 1)]; if (b && b.firstChild && b.firstChild.focus) b.firstChild.focus(); }
   // The overlap override goes with the overlap errors, and stays while ticked.
   const overlaps = items.some((it) => it.overlap || it.overlap_allowed);
@@ -6438,6 +6468,51 @@ function focusPath(w) {
 // The Save button: "Saved" and disabled when the draft equals the file,
 // "Save" when it is dirty, disabled with the error count in its tooltip
 // when the draft has errors (the count itself is in the Problems pane).
+// A view that redraws replaces the focused control with a new one: the
+// keyboard focus moves to the new control of the same id or data attributes
+// instead of dropping to the page body (visual-refresh).
+const FOCUS = { last: null, sig: null };
+function focusSignature(e) {
+  if (e.id) return "#" + CSS.escape(e.id);
+  const attrs = [...e.attributes].filter((a) => a.name.startsWith("data-") && !/^data-(busy|disabled-reason|title-before)$/.test(a.name) || a.name === "aria-label" || a.name === "name");
+  if (!attrs.length) return null;
+  return e.tagName.toLowerCase() + attrs.map((a) => `[${a.name}="${CSS.escape(a.value)}"]`).join("");
+}
+document.addEventListener("focusin", (ev) => {
+  const e = ev.target;
+  // A dialog gives focus back itself when it closes: remember the control outside it.
+  if (!(e instanceof Element) || e === document.body || e.closest("dialog")) return;
+  FOCUS.last = e;
+  FOCUS.sig = focusSignature(e);
+});
+function refocus() {
+  const a = document.activeElement;
+  if ((a && a !== document.body) || !FOCUS.last || document.querySelector("dialog[open]")) return;
+  const last = FOCUS.last;
+  if (last.isConnected) {
+    // Disabled or hidden in place (a Scan button while it scans): next door.
+    if ((last.disabled || !last.getClientRects().length) && !last.dataset.busy) focusNear(last);
+    return;
+  }
+  const next = FOCUS.sig && document.querySelector(FOCUS.sig);
+  if (next && !next.disabled && next.getClientRects().length) next.focus();
+}
+new MutationObserver(refocus).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled", "hidden"] });
+// Focus can also drop with no change to the page (a dialog closing onto a removed control).
+setInterval(refocus, 250);
+
+// Focus for a control that just became disabled or hidden: the nearest
+// usable control before it in its group (then after it), never the page body.
+function focusNear(ctl) {
+  const box = ctl.closest("header, [role=toolbar], .toolbar, menu, #conn-bar") || ctl.parentElement;
+  const all = [...box.querySelectorAll("button, summary, input, select, [tabindex]")]
+    .filter((e) => e === ctl || (!e.disabled && e.tabIndex >= 0 && e.getClientRects().length > 0 &&
+      !(e.closest("details:not([open])") && e.tagName !== "SUMMARY")));
+  const k = all.indexOf(ctl);
+  const to = all.slice(0, k).reverse()[0] || all[k + 1];
+  if (to) to.focus();
+}
+
 function updateSave() {
   const btn = $("#btn-save");
   if (btn.dataset.busy) return;
@@ -6605,6 +6680,8 @@ function showTheme(theme) {
 
 function wireTheme() {
   showTheme(document.documentElement.dataset.theme);
+  // The legend of the state icons, drawn from icons.js so it never drifts from the views.
+  $("#legend").replaceChildren(Icons.legend());
   for (const b of document.querySelectorAll("[data-theme-choice]")) {
     b.onclick = async () => {
       showTheme(b.dataset.themeChoice);
@@ -6624,7 +6701,11 @@ function wire() {
   $("#browser-path").addEventListener("keydown", (e) => { if (e.key === "Enter") browse($("#browser-path").value.trim()); });
   $("#browser-open").onclick = startOpen;
   // busy() restores the caption it found ("Save"); the button's real state follows the save.
-  $("#btn-save").onclick = () => busy($("#btn-save"), "Saving…", () => save(false)).then(updateSave);
+  $("#btn-save").onclick = () => busy($("#btn-save"), "Saving…", () => save(false)).then(() => {
+    const had = document.activeElement === $("#btn-save");
+    updateSave();
+    if (had && $("#btn-save").disabled) focusNear($("#btn-save"));
+  });
   // The menu closes on a pick: its caption shows that the export runs.
   const exporting = (id, fn) => { $(id).onclick = () => busy($("#menu-export > summary"), "Exporting…", fn); };
   exporting("#btn-export-all", () => exportDcf());

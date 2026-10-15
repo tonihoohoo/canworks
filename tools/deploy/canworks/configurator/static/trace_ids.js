@@ -107,17 +107,18 @@ function renderIds(box) {
   const grid = el("div", { class: "ids-grid", id: "ids-grid", role: "grid", tabindex: "0", "aria-label": "Identifiers",
     "aria-rowcount": "0", dataset: { trace: "ids" } },
     el("div", { role: "rowgroup", class: "ids-headgroup" }, head),
+    // The grid is the scroll box (its header row sticks), so the one tab stop that takes the arrow keys also scrolls.
     el("div", { class: "ids-scroll", id: "ids-scroll" },
       el("div", { role: "rowgroup", class: "ids-body", id: "ids-body" }), el("div", { class: "ids-spacer" })));
   grid.addEventListener("keydown", idsKey);
-  grid.querySelector(".ids-scroll").addEventListener("scroll", () => idsDraw());
+  grid.addEventListener("scroll", () => idsDraw());
   const pause = el("button", { type: "button", dataset: { ids: "pause" }, "aria-pressed": String(TI.paused),
     title: "Stop updating the table; recording continues", onclick: () => idsPause(!TI.paused) }, "Pause view");
   box.append(
     el("div", { class: "toolbar ids-tools" },
       el("button", { type: "button", dataset: { ids: "set-ref" }, onclick: () => idsReference(idsLive() ? "now" : TI.selectedSeq()),
         title: "Keep the bytes that differ from the data each identifier has now marked" }, "Set reference"),
-      el("button", { type: "button", dataset: { ids: "clear-ref" }, onclick: () => idsReference(null), disabled: true }, "Clear reference"),
+      el("button", { type: "button", dataset: { ids: "clear-ref" }, onclick: () => idsReference(null), disabled: "No reference is set." }, "Clear reference"),
       pause,
       el("span", { class: "muted", id: "ids-status", role: "status", dataset: { ids: "status" } })),
     grid,
@@ -169,7 +170,7 @@ function idsStatus() {
   if (TI.paused) parts.push(`paused, ${TI.pending.size} update${TI.pending.size === 1 ? "" : "s"} waiting`);
   s.textContent = parts.join(" · ");
   const clear = document.querySelector("[data-ids=clear-ref]");
-  if (clear) clear.disabled = !TI.ref;
+  if (clear) Icons.setDisabled(clear, !TI.ref && "No reference is set.");
 }
 
 async function idsReference(at) {
@@ -232,7 +233,7 @@ function idsFollow() {
 }
 
 function idsGeometry() {
-  const sc = $("#ids-scroll");
+  const sc = $("#ids-grid");
   return { sc, visible: sc ? Math.max(1, Math.ceil(sc.clientHeight / IDS_ROW_H) + 1) : 1 };
 }
 
@@ -263,7 +264,7 @@ function idsDraw() {
   body.style.transform = `translateY(${first * IDS_ROW_H}px)`;
   if (!list.length && !body.querySelector(".trace-empty")) {
     body.append(el("div", { role: "row", class: "trace-empty" }, el("div", { role: "gridcell", class: "muted" },
-      T.st && T.st.frames ? "No identifiers match the display filter." : "No frames.")));
+      T.st && T.st.frames ? "No identifiers match the display filter." : "No frames yet. Press Start, or open a trace file.")));
   }
   if (TI.selected && TI.els.has(TI.selected)) grid.setAttribute("aria-activedescendant", "ids-r-" + TI.selected);
   else grid.removeAttribute("aria-activedescendant");
@@ -318,7 +319,8 @@ function idsSelect(key, scroll) {
     if (g.sc && i >= 0) {
       const top = i * IDS_ROW_H;
       if (top < g.sc.scrollTop) g.sc.scrollTop = top;
-      else if (top + IDS_ROW_H > g.sc.scrollTop + g.sc.clientHeight) g.sc.scrollTop = top + IDS_ROW_H - g.sc.clientHeight;
+      // + one row: the sticky header row sits above the rows in the same scroll box.
+      else if (top + 2 * IDS_ROW_H > g.sc.scrollTop + g.sc.clientHeight) g.sc.scrollTop = top + 2 * IDS_ROW_H - g.sc.clientHeight;
       idsDraw();
     }
   }

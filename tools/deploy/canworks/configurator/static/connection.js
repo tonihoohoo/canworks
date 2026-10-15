@@ -126,6 +126,11 @@ function lastAge() {
   return S.onlineLastAt ? Math.max(0, Math.round((Date.now() - S.onlineLastAt) / 1000)) : null;
 }
 
+// Bus-off (and no bus) is broken; error passive or warning needs a look.
+function busIcon(state) {
+  return /off|^4$|^0$|no bus/i.test(String(state)) ? "error" : "warning";
+}
+
 function connBar() {
   const bar = $("#conn-bar");
   if (!bar) return;
@@ -138,32 +143,35 @@ function connBar() {
   const c = on && S.onlineLast && S.onlineLast.conn;
   if (!on) {
     const ended = connAdapter() ? S.adapterEnded : null;
-    if (ended) { fault = true; parts.push(el("span", { dataset: { conn: "ended" } }, upperFirst(ended) + ".")); }
-    else parts.push(el("span", { class: "muted", dataset: { conn: "state" } }, "Not connected"));
+    if (ended) { fault = true; parts.push(Icons.stateIcon("ended", { label: false }), el("span", { dataset: { conn: "ended" } }, upperFirst(ended) + ".")); }
+    else parts.push(Icons.stateIcon("unknown", { label: false }), el("span", { class: "muted", dataset: { conn: "state" } }, "Not connected"));
     parts.push(el("button", { type: "button", class: "small primary", dataset: { conn: "connect" }, onclick: () => openConnect() }, "Connect…"));
   } else if (CONN.error && !connAdapter()) {
     fault = true;
     const age = lastAge();
     const why = { closed: "port closed", unreachable: "host unreachable", token: "wrong token", timeout: "no answer",
       protocol: "not a CANopen diagnostics port", refused: "refused" }[CONN.error.body && CONN.error.body.kind] || "error";
+    parts.push(Icons.stateIcon("error", { label: false }));
     parts.push(el("span", { dataset: { conn: "state" } }, `${S.online.host}: not answering (${why}), retrying` +
       (age !== null && S.onlineLast ? `, last data ${age} s ago` : "")));
     parts.push(el("button", { type: "button", class: "small", dataset: { conn: "change" }, onclick: () => openConnect() }, "Change…"));
     parts.push(el("button", { type: "button", class: "small", dataset: { conn: "disconnect" }, onclick: connDisconnect }, "Disconnect"));
   } else if (!c) {
+    parts.push(Icons.stateIcon("busy", { label: false, spinning: true }));
     parts.push(el("span", { dataset: { conn: "state" } }, connAdapter()
       ? `Connecting to ${S.online.adapter} at ${S.online.adapter_bitrate} kbit/s: checking the bit rate…`
       : `Connecting to ${S.online.host}…`));
     parts.push(el("button", { type: "button", class: "small", dataset: { conn: "cancel" }, onclick: connDisconnect }, "Cancel"));
   } else {
     const bus = c.bus || {};
-    parts.push(el("span", { class: "dot ok", "aria-hidden": "true" }));
+    parts.push(Icons.stateIcon("operational", { label: "Connected" }));
     parts.push(el("strong", { dataset: { conn: "target" } }, c.kind === "adapter" ? c.target : (c.name ? `${c.name} (${c.target})` : c.target)));
     if (c.kind === "adapter") {
       const kbit = Math.round((c.bitrate || 0) / 1000);
       parts.push(el("span", { dataset: { conn: "rate" } }, `${kbit} kbit/s` + (c.check ? `, confirmed by ${CHECK_TEXT[c.check.how] || c.check.how}` : "")));
       const bad = ADAPTER_STATES_BAD.includes(String(bus.state || "").toLowerCase());
       fault = fault || bad;
+      if (bad) parts.push(Icons.stateIcon(busIcon(bus.state), { label: false }));
       parts.push(el("span", { class: bad ? "bad" : null, dataset: { conn: "bus" } }, `bus ${bus.state || "active"}`));
       parts.push(el("span", { class: "muted", dataset: { conn: "frames" } }, `${bus.frames ?? 0} frames, ${bus.error_frames ?? 0} error frames`));
     } else {
@@ -173,12 +181,14 @@ function connBar() {
       if (c.networks && c.networks.length > 1) parts.push(netPicker());
       const bad = BUS_STATES_BAD.includes(String(bus.state || ""));
       fault = fault || bad;
+      if (bad) parts.push(Icons.stateIcon(busIcon(bus.state), { label: false }));
       parts.push(el("span", { class: bad ? "bad" : null, dataset: { conn: "bus" } },
         `${bus.interface || "bus"} ${bus.state || "?"}` + (bus.tx_errors !== undefined && bus.tx_errors !== null ? `, TX/RX errors ${bus.tx_errors}/${bus.rx_errors}` : "")));
     }
     if (c.other_master) {
       fault = true;
       const o = c.other_master;
+      parts.push(Icons.stateIcon("warning", { label: false }));
       parts.push(el("span", { class: "bad", dataset: { conn: "other" } },
         `Another master on the bus (${o.what}, since ${String(o.first_at || "").replace("T", " ").replace(/\.\d+Z$/, " UTC")})`));
     }
@@ -193,7 +203,11 @@ function connBar() {
     const focused = document.activeElement && bar.contains(document.activeElement) ? document.activeElement.dataset.conn : null;
     bar.dataset.html = sig;
     bar.replaceChildren(...line.childNodes);
-    if (focused) { const again = bar.querySelector(`[data-conn="${focused}"]`); if (again) again.focus(); }
+    if (focused) {
+      // The same control again, or the bar's main action when it is gone (Disconnect becomes Connect…).
+      const again = bar.querySelector(`[data-conn="${focused}"]`) || bar.querySelector('[data-conn="connect"], [data-conn="disconnect"], button');
+      if (again) again.focus();
+    }
   }
   bar.classList.toggle("fault", fault);
   bar.setAttribute("role", fault && (!on || CONN.error) ? "alert" : "status");
@@ -235,7 +249,17 @@ function openConnect(message) {
     el("menu", { class: "toolbar" }, el("button", { type: "button", dataset: { conn: "close-panel" }, onclick: () => dlg.close() }, "Close")));
   if (!dlg.dataset.wired) {
     dlg.dataset.wired = "1";
-    dlg.addEventListener("close", () => { connBar(); });
+    dlg.addEventListener("close", () => {
+      connBar();
+      // The control that opened the panel may be gone (the bar is redrawn, or the
+      // panel opened by itself): focus goes to the bar, never to the page body.
+      setTimeout(() => {
+        const a = document.activeElement;
+        if (a && a !== document.body && a.isConnected) return;
+        const to = document.querySelector('#conn-bar [data-conn="disconnect"], #conn-bar [data-conn="connect"], #conn-bar button');
+        if (to) to.focus();
+      }, 0);
+    });
   }
   if (!dlg.open) dlg.showModal();
   const first = body.querySelector("[data-online=adapter-list], [data-online=runtime-list], [data-online=host], input, select, button");
