@@ -533,7 +533,7 @@ const COMMISSION_TABS = [["status", "Status"], ["od", "Object dictionary"], ["pa
 function nodeStatusHead(id, sn, n) {
   const [cls, word] = liveMark(sn);
   const rows = [
-    ["State", el("span", { dataset: { statusState: id } }, el("span", { class: "state-mark " + cls, "aria-hidden": "true" }), " ",
+    ["State", el("span", { dataset: { statusState: id } }, el("span", { class: "state-mark", "aria-hidden": "true" }, ...markIcons(cls)),
       sn && sn.state ? stateName(sn.state) : upperFirst(word))],
     ["Last heard", lastHeardText(sn)],
   ];

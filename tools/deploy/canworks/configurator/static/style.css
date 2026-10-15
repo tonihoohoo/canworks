@@ -165,27 +165,15 @@ dialog#conn-dialog h2 { margin-top: 0; }
 .tree-row .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .proto { font-size: 11px; font-weight: normal; white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tree-row .twist { width: 12px; color: var(--muted); }
-.tree-mark { width: 9px; height: 9px; border-radius: 50%; flex: none; border: 1.5px solid transparent; }
-.tree-mark.sim { border-color: var(--accent); }
-.tree-mark.absent { border: 1.5px dashed var(--muted); }
-/* Live NMT state on the tree and in the Nodes table: shape and text, never colour alone */
-.tree-mark.live, .state-mark { width: 9px; height: 9px; flex: none; display: inline-block; box-sizing: border-box; margin-right: 5px; vertical-align: middle; position: relative; }
-.st-op { background: var(--ok); border-radius: 50%; }
-.st-preop { background: var(--warn); border-radius: 0 !important; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
-.st-stop { background: var(--muted); border-radius: 0 !important; }
-.st-lost { border-radius: 0 !important; background: var(--error); clip-path: polygon(20% 0, 50% 30%, 80% 0, 100% 20%, 70% 50%, 100% 80%, 80% 100%, 50% 70%, 20% 100%, 0 80%, 30% 50%, 0 20%); }
-.st-unheard { border: 1.5px solid var(--muted); border-radius: 50%; background: none; }
-.tree-mark.live.sim { outline: 1.5px solid var(--accent); outline-offset: 1px; }
-.tree-mark.live.flag::after, .tree-mark.live.cmp-missing::after, .tree-mark.live.cmp-identity_differs::after { content: ""; position: absolute; right: -6px; top: -4px; width: 5px; height: 5px; border-radius: 50%; }
-.tree-mark.live.flag::after { background: var(--error); }
-.tree-mark.live.cmp-identity_differs::after { background: var(--warn); }
-.tree-mark.live.cmp-missing::after { background: var(--error); right: -12px; }
+.tree-mark { min-width: 14px; height: 14px; flex: none; display: inline-flex; align-items: center; gap: 2px; }
+.tree-mark .st { width: 12px; height: 12px; }
+.tree-mark .st:first-child, .tree-mark > .st-with-label > .st { width: 14px; height: 14px; }
 /* The badge stays next to the name; the menu button at the row's end. */
 .tree-row .net-menu { margin-left: auto; padding: 0 6px; min-height: 24px; border-color: transparent; background: none; }
 .tree-row:hover .net-menu, .tree-item:focus-within .net-menu { border-color: var(--line); }
-.tree-badge { display: inline-flex; gap: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.tree-badge .err { color: var(--error); }
-.tree-badge .warn { color: var(--warn); }
+.tree-badge { display: inline-flex; gap: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.tree-badge > span { display: inline-flex; align-items: center; gap: 2px; }
+.tree-badge .st { width: 12px; height: 12px; }
 @media (min-width: 1101px) {
   #side { position: sticky; top: var(--header-h); align-self: start; height: calc(100vh - var(--header-h) - var(--footer-h, 0px)); overflow: auto; box-sizing: border-box; }
 }
@@ -316,9 +304,7 @@ td.bad, tr.bad td, .bad { color: var(--error); }
 table.online-bus { margin-bottom: 12px; }
 table.online-nodes tr.clickable { cursor: pointer; }
 table.online-nodes tr.clickable:hover, table.online-nodes tr.active { background: var(--hover); }
-td.state-5 { color: var(--ok); }
-td.state-0 { color: var(--error); }
-td.state-4, td.state-127 { color: var(--warn); }
+.state-mark { display: inline-flex; align-items: center; gap: 2px; margin-right: var(--sp-1); vertical-align: -2px; }
 #online-node { margin-top: 16px; }
 .sdo-result { margin-top: 6px; min-height: 1.4em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 table.compare { width: auto; }

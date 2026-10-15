@@ -440,7 +440,7 @@ function commNodeTable(st) {
     el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${id}`, dataset: { openNode: id },
       onclick: () => openOnlineNode(id) }, String(id))),
     el("td", null, device),
-    el("td", { class: !n || n.state === null ? "muted" : "state-" + n.state }, el("span", { class: "state-mark " + liveMark(n)[0], "aria-hidden": "true" }),
+    el("td", null, el("span", { class: "state-mark", "aria-hidden": "true" }, ...markIcons(liveMark(n)[0])),
       !n || n.state === null ? "not heard" : stateName(n.state)),
     el("td", null, n && n.last_heard_s !== null ? `${n.last_heard_s.toFixed(1)} s ago` : "-"), el("td", null, em),
     el("td", null, found),

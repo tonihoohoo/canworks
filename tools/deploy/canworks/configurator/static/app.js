@@ -3725,7 +3725,7 @@ function onlineApply(r, err) {
       onclick: (e) => { if (!e.target.closest("button, input, label, a, select")) openOnlineNode(n.node_id); } },
     el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${n.node_id}`, dataset: { openNode: n.node_id },
       onclick: () => openOnlineNode(n.node_id) }, String(n.node_id))), el("td", null, nodeName(n.node_id, n.name), sim ? " " : null, sim),
-    el("td", { class: "state-" + n.state }, el("span", { class: "state-mark " + liveMark(n)[0], "aria-hidden": "true" }), stateName(n.state)),
+    el("td", null, el("span", { class: "state-mark", "aria-hidden": "true" }, ...markIcons(liveMark(n)[0])), stateName(n.state)),
     el("td", { dataset: { onlineStatus: n.node_id } }, n.status ? "TRUE" : "FALSE",
       ...stale.map((t) => el("div", { class: "bad", dataset: { pdoTimeout: n.node_id } }, t))),
     el("td", { class: n.boot_error ? "bad" : null }, boot + (n.retry_pending ? " (retrying)" : ""), hold ? el("div", null, hold) : null),
