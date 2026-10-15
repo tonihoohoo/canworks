@@ -470,14 +470,16 @@ void BridgeHost::service_control(const uint8_t* out, Clock::time_point now) {
         break;
       default:
 #if CANWORKS_WITH_CANOPEN
-        canopen_plugin::HostRequests::instance().nmt(req.network, req.node, nmt_command(req.command));
+        if (!canopen_plugin::HostRequests::instance().nmt(req.network, req.node, nmt_command(req.command)))
+          result = kCtrlRefused;
 #endif
         break;
     }
   }
   if (req.command != kCmdNone || result != kCtrlOk)
-    log_info("Modbus control block: command %u, network %u, node %u (counter %u): result %u", req.command,
-             req.network, req.node, req.counter, result);
+    log_info("Modbus control block: command %u, network %u, node %u (counter %u): result %u%s", req.command,
+             req.network, req.node, req.counter, result,
+             result == kCtrlRefused ? " (refused: the network's bus is down, or 16 of its commands wait)" : "");
   control_.handled(req.counter, result);
 }
 

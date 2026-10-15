@@ -20,6 +20,7 @@
 #include "diag.h"
 #include "gateway.h"
 #include "process_image.h"
+#include "run_state.h"
 #include "sim_engine.h"
 #include "sim_trace.h"
 
@@ -61,8 +62,10 @@ class Bus {
   // `hub`, when given, is served by each bus session's Network (the
   // diagnostics channel); between sessions it answers "no bus".
   // `gw`, when given, links the network into a gateway (canopen-gateway spec).
+  // `run`, when given, is the network's state for the PLC run, which each
+  // session's Network goes on from (run_state.h).
   Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub = nullptr,
-      std::shared_ptr<const SimSetup> sim = nullptr, GatewayLink* gw = nullptr);
+      std::shared_ptr<const SimSetup> sim = nullptr, GatewayLink* gw = nullptr, RunState* run = nullptr);
   ~Bus();
 
   void start();
@@ -95,6 +98,7 @@ class Bus {
   DiagHub* hub_;
   std::shared_ptr<const SimSetup> sim_;
   GatewayLink* gw_;
+  RunState* run_;
   std::unique_ptr<CanAdapter> adapter_;
   BusMonitor monitor_;
   std::thread thread_;

@@ -68,7 +68,7 @@ A hold or a reset from the program is not a loss: a mandatory node held STOPPED 
 
 ## Start the network from the program: CO_NETWORK_START
 
-`CO_NETWORK_START` makes the master go OPERATIONAL as `master.start: true` does: at once when every mandatory node has booted, else as soon as the last one has. It is `BUSY` until the master is OPERATIONAL, then `DONE`. With a `TIMEOUT` other than `T#0s` it ends with `ERROR_ID` 2 when the master is not OPERATIONAL by then; the start stays requested, so the master still starts when the last mandatory node boots. With the master already OPERATIONAL it ends with `DONE` at once. The start lasts for the rest of the PLC run, also after the master resets itself with `reset_all_nodes`.
+`CO_NETWORK_START` makes the master go OPERATIONAL as `master.start: true` does: at once when every mandatory node has booted, else as soon as the last one has. It is `BUSY` until the master is OPERATIONAL, then `DONE`. With a `TIMEOUT` other than `T#0s` it ends with `ERROR_ID` 2 when the master is not OPERATIONAL by then; the start stays requested, so the master still starts when the last mandatory node boots. With the master already OPERATIONAL it ends with `DONE` at once. The start lasts for the rest of the PLC run, also after the master resets itself with `reset_all_nodes` and after the bus comes back (below).
 
 This makes `master.start: false` an autostart-off pattern: every PLC start begins with the master PRE-OPERATIONAL and the nodes booted and configured (and started, with `start_nodes`), but no PDO moves and every status bit stays FALSE until the program says so:
 
@@ -106,6 +106,17 @@ Any other value ends with `ERROR_ID` 6. The block ends with `DONE` once the mast
 The plugin holds the master PRE-OPERATIONAL itself: the master state byte, `CO_GET_STATE` and the status bits say PRE-OPERATIONAL, no PDO goes out and received PDOs no longer reach the inputs (they keep their last values). It does not put the CANopen stack's master into PRE-OPERATIONAL, because that would restart the network's whole start-up, with a communication reset of every node. So the master's own heartbeat, when it produces one, keeps saying OPERATIONAL.
 
 A master STOPPED by `stop_all_nodes` is not changed: `CO_NETWORK_STOP` ends with `ERROR_ID` 9.
+
+## When the bus comes back
+
+What the program asked for lasts for the PLC run, not for one connection to the bus. When the CAN interface goes down and comes back (an adapter unplugged and plugged in again, the link set down and up) or the bus session restarts after an error, the master starts from it again:
+
+- after `CO_NETWORK_STOP` the master stays PRE-OPERATIONAL, every node is configured and then sent the stop's node command, and no output PDO goes out until `CO_NETWORK_START`;
+- a node held by `CO_NMT`, its command byte, an operator or the gateway is configured and then sent its hold; the other nodes start as usual;
+- with `master.start: false`, a `CO_NETWORK_START` of this run starts the master again once every mandatory node has booted;
+- a reset that the command byte asked for before is not sent again.
+
+A PLC stop ends all of this: the next PLC start begins from the configuration.
 
 ## CO_GET_STATE
 

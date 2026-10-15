@@ -35,7 +35,7 @@ A gateway is one config with a [slave network](slave.md) (the upper network, run
 | `routes[]` | no | One value each (below). |
 | `status` | no | An object: publish the field nodes' states (below). `index` defaults to 0x5E00. |
 | `emcy_forward` | no | `true`: a field node's EMCY goes out as the gateway's EMCY (below). Default `false`. |
-| `on_upper_loss` | no | What routed values down do when the gateway leaves OPERATIONAL or loses the upper master's heartbeat: `"hold"` (default) keeps the last values, `"zero"` sets routed field outputs to 0, `"stop_nodes"` sends NMT stop to the field nodes that receive routes and starts them again when the upper master starts the gateway. |
+| `on_upper_loss` | no | What routed values down do when the gateway leaves OPERATIONAL or loses the upper master's heartbeat: `"hold"` (default) keeps the last values, `"zero"` sets routed field outputs to 0, `"stop_nodes"` sends NMT stop to the field nodes that receive routes and starts them again when the upper master starts the gateway. When a field network's CAN interface comes back while the upper master is lost (it was there before in this PLC run), this applies again at once: with `"stop_nodes"` the field nodes are configured and then stopped. |
 | `sdo_bridge` | no | `true`: the upper master reads field node objects through a record in the gateway's dictionary (below). Default `false`. |
 | `sdo_bridge_index` | no | The bridge record's index, default 0x5F00. |
 | `sdo_bridge_write` | no | `true`: the bridge may also write field node objects. Default `false`. |
