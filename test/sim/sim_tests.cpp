@@ -5550,8 +5550,11 @@ TEST(sim_two_networks) {
   uint32_t a0 = sim->in(0), a1 = sim->in(1);
   CHECK(sim->RunUntil([&] { return sim->in(0) >= a0 + 10 && sim->in(1) >= a1 + 10000; }, seconds(5)));
   CHECK_MSG(sim->in(1) % 1000 == 0, std::to_string(sim->in(1)));
-  // Values from both networks arrive in the same scans.
-  CHECK(sim->both_new() > 0);
+  // Values from both networks arrive in the same scans. Whether one already
+  // did during the run above depends on how the two round trips fall
+  // against the 10 ms scans (a busy runner can keep them apart), so keep
+  // running until one does.
+  CHECK(sim->RunUntil([] { return sim->both_new() > 0; }, seconds(5)));
 
   // The SDO blocks reach each network by its NETWORK number.
   static CO_SDO_READ_INST rd[3];
