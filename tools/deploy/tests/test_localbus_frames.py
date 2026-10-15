@@ -176,6 +176,17 @@ class Send(Base):
                 out.append(m)
         return out
 
+    def heard_count(self, n, timeout=5.0, settle=0.2):
+        """The frames heard until `n` arrived (or `timeout`), then `settle`
+        seconds more, so a slow runner does not cut a cyclic job short and an
+        extra frame still shows."""
+        out, end = [], time.monotonic() + timeout
+        while len(out) < n and time.monotonic() < end:
+            m = self.peer.bus.recv(0.02)
+            if m is not None:
+                out.append(m)
+        return out + self.heard(settle)
+
     def test_needs_allow_changes(self):
         c = self.client()
         with self.assertRaises(diag.DiagError) as e:
@@ -259,8 +270,12 @@ class Send(Base):
         r = c.send_frame(0x60A, b"\x01", period_ms=20, count=5)
         self.assertEqual((r["period_ms"], r["count"]), (20, 5))
         self.assertEqual(c.status()["send_jobs"][0]["job"], r["job"])
-        got = self.heard(0.5)
+        got = self.heard_count(5)
         self.assertEqual(len(got), 5)
+        for _ in range(50):  # the job ends after its last frame
+            if not c.status()["send_jobs"]:
+                break
+            time.sleep(0.02)
         self.assertEqual(c.status()["send_jobs"], [])
         stopped = c.send_frame_stop(r["job"])["stopped"]
         self.assertEqual([(s["job"], s["sent"], s["reason"]) for s in stopped], [(r["job"], 5, "count reached")])

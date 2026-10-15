@@ -151,7 +151,7 @@ def findings(strings, wording):
         for rx, preferred in rules:
             m = rx.search(text)
             if m:
-                yield f"{path.relative_to(ROOT)}:{line}: \"{m.group(0).strip()}\" in {text.strip()[:90]!r}: use {preferred}"
+                yield f"{path.relative_to(ROOT).as_posix()}:{line}: \"{m.group(0).strip()}\" in {text.strip()[:90]!r}: use {preferred}"
 
 
 class Wording(unittest.TestCase):
