@@ -24,7 +24,7 @@ from ..bustrace import explain as explain_mod
 from ..bustrace import formats, sequences, triggers
 from ..bustrace.decode import CONTEXT_KINDS, KINDS, Decoder, network_entry
 from ..bustrace.recorder import Recorder, Session
-from ..bustrace.stats import KIND_CODE, id_key
+from ..bustrace.stats import KIND_CODE, Analysis, id_key
 
 MAX_ROWS = 1000
 LOOKBACK = 4000  # frames searched back for SDO transfers when decoding a window
@@ -193,6 +193,10 @@ class Workspace:
         self.generation = 0
         self.views = {}
         self.seq_cache = {}
+        # PDO objects read from devices on this connection (canopen-configurator:
+        # "Automatic PDO layout reads in Commission a device"): [(node, values,
+        # device type, time on the trace's axis or None before the recording)].
+        self.device_reads = []
 
     def _replace(self, session, source, warnings):
         self.session, self.source, self.warnings = session, source, list(warnings)
@@ -252,6 +256,81 @@ class Workspace:
     def recording(self):
         with self.lock:
             return bool(self.recorder and self.recorder.running)
+
+    # -- decoding (canopen-bus-trace: "PDO decoding without a configuration",
+    # "DBC files in a trace") --------------------------------------------------
+    def apply_device_reads(self, decoder):
+        """The device reads of this connection on a new live decoder: from
+        the recording's start."""
+        for nid, values, dtype, _t in self.device_reads:
+            decoder.add_device_values(nid, values, -1, dtype)
+
+    def add_device_read(self, nid, values, dtype=None):
+        """PDO objects read from device `nid` now: they decode its frames
+        recorded from now on (a live recording only, not an opened file)."""
+        with self.lock:
+            live = self.source == "live"
+            s = self.session
+            t = self._now_us() if live and len(s.trace) else None
+            self.device_reads = [r for r in self.device_reads if r[0] != nid]
+            self.device_reads.append((nid, values, dtype, t))
+        if live:
+            with s.lock:
+                s.decoder.add_device_values(nid, values, t if t is not None else -1, dtype)
+
+    def redecode(self, decoder):
+        """Decodes the trace again with another decoder (the DBC files or the
+        nodes' EDS files changed); a live recording keeps recording."""
+        with self.lock:
+            s = self.session
+            live = self.source == "live"
+        with s.lock:
+            reads = [((t if t is not None else -1), nid, values, dtype)
+                     for nid, values, dtype, t in (self.device_reads if live else [])]
+            reads.sort(key=lambda r: r[0])
+            s.decoder = decoder
+            s.analysis = Analysis(decoder, s.analysis.bitrate)
+            k = 0
+            for f in s.trace:
+                while k < len(reads) and reads[k][0] <= f.time_us:
+                    decoder.add_device_values(reads[k][1], reads[k][2], reads[k][0], reads[k][3])
+                    k += 1
+                s.analysis.feed(f)
+            for t, nid, values, dtype in reads[k:]:
+                decoder.add_device_values(nid, values, t, dtype)
+        with self.lock:
+            self.warnings = list(decoder.warnings)
+            self.views = {}
+            self.seq_cache = {}
+            self.generation += 1
+
+    def decoding(self):
+        """What the trace decodes with: the DBC files' use and each node's
+        EDS and PDO layout source."""
+        with self.lock:
+            s = self.session
+        with s.lock:
+            dec = s.decoder
+            heard = {n for n in s.analysis.nodes if n}
+            configured = dec.configured_nodes() if hasattr(dec, "configured_nodes") else set()
+            nodes = []
+            ids = sorted((heard | set(dec.eds) | set(getattr(dec, "inferred", {})) | configured)
+                         & set(range(1, 128))) if dec.protocol == "canopen" else []
+            for nid in ids:
+                pdos = getattr(dec, "inferred_pdos", {}).get(nid) or {}
+                if nid in configured:
+                    source, since = "configuration", None
+                elif pdos:
+                    best = max(pdos.values(), key=lambda p: (("eds", "device", "bus").index(p.source),
+                                                             p.since_us or 0))
+                    source, since = best.source, best.since_us
+                else:
+                    source, since = None, None
+                nodes.append({"node": nid, "heard": nid in heard, "has_eds": nid in dec.eds,
+                              "source": source, "since_us": since,
+                              "pdos": sorted(p.name for p in pdos.values()) if nid not in configured else []})
+            return {"protocol": dec.protocol, "dbc": list(getattr(dec, "dbc_files", [])), "nodes": nodes,
+                    "start_us": s.trace.start_us}
 
     def set_trigger(self, spec):
         with self.lock:
@@ -535,7 +614,7 @@ def _row(f, d, seq, pos):
     return {"pos": pos, "seq": seq, "t_us": f.time_us, "dir": "Tx" if f.tx else "Rx", "id": f.id_text(),
             "ext": f.ext, "rtr": f.rtr, "err": f.err, "gap": f.gap, "dlc": f.dlc,
             "data": "" if f.gap or f.rtr else f.data_text(), "kind": d.kind, "node": d.node, "name": d.name,
-            "text": d.text}
+            "text": d.text, "source": d.source}
 
 
 class Traces:
@@ -578,9 +657,10 @@ def decoder_for(cfg, config_path, eds_paths, names, network=None):
 
 def commission_decoder(nodes, resolve):
     """Commission a device has no config: the trace decodes with the CANopen
-    predefined set, and SDO and EMCY with the EDS files of the Nodes tab
-    (canopen-configurator: "Frame lab view"). PDOs stay raw: the device's
-    mapping is not known without reading it. nodes: {node id: EDS path or
+    predefined set, and SDO, EMCY and PDOs with the EDS files of the Nodes
+    tab (canopen-configurator: "Frame lab view"). A PDO decodes with the
+    layout the bus set, the device gave or the EDS assumes (canopen-bus-trace:
+    "PDO decoding without a configuration"). nodes: {node id: EDS path or
     name}; resolve(name) gives the file."""
     from ..eds import Eds, EdsError
     d = Decoder()
@@ -594,11 +674,75 @@ def commission_decoder(nodes, resolve):
         if not 1 <= nid <= 127 or not isinstance(value, str) or not value.lower().endswith(".eds"):
             continue
         try:
-            d.eds[nid] = Eds.read(resolve(value))
+            d.set_node_eds(nid, Eds.read(resolve(value)))
             d.node_names[nid] = ""  # known, without a config name: "node 12"
         except (OSError, EdsError, ValueError) as e:
             d.warnings.append("node %d's EDS %s is not used for decoding: %s" % (nid, os.path.basename(value), e))
     return d
+
+
+# -- DBC files of the trace (canopen-configurator: "Decoding panel in the Trace view") --
+
+MAX_DBC_FILES = 16
+
+
+def dbc_entries(proj):
+    """The remembered DBC paths of a project folder's settings."""
+    return [p for p in proj.get("trace_dbc") or [] if isinstance(p, str) and p][:MAX_DBC_FILES]
+
+
+def load_dbc(paths):
+    """([(name, messages, problems)] for Decoder.attach_dbc, [view]) of DBC
+    files; a missing or unreadable file is in the view only."""
+    from ..raw import dbc as dbc_mod
+    files, view = [], []
+    for path in paths:
+        name = os.path.basename(path)
+        entry = {"path": path, "name": name, "missing": False, "error": None}
+        if not os.path.isfile(path):
+            entry["missing"] = True
+        else:
+            try:
+                messages = dbc_mod.read_dbc(path)
+                problems = [("%s: %s" % (m.get("name"), dbc_mod.MUX_PROBLEM)) for m in messages
+                            if m.get("mux_problem")]
+                files.append((name, messages, problems))
+            except Exception as e:  # noqa: BLE001 - cantools raises many kinds; the panel names it
+                entry["error"] = (str(e).splitlines() or [type(e).__name__])[0]
+        view.append(entry)
+    return files, view
+
+
+def decoding_view(dec_view, files_view):
+    """The Decoding panel's DBC rows: the remembered files with how the
+    decoder used each."""
+    used = {d["name"]: d for d in dec_view["dbc"]}
+    rows = []
+    for e in files_view:
+        u = used.get(e["name"]) if not e["missing"] and not e["error"] else None
+        rows.append(dict(e, total=u["total"] if u else 0, used=u["used"] if u else 0,
+                         problems=u["problems"] if u else [], unused=u["unused"] if u else []))
+    return dict(dec_view, dbc=rows)
+
+
+def save_uploaded_dbc(folder, name, data):
+    """A DBC file uploaded from the page, kept in `folder` (the user's
+    configurator folder, never a project's canworks folder); its path."""
+    name = os.path.basename(name or "")
+    if not name.lower().endswith(".dbc") or name in (".dbc",):
+        raise Refused(422, "%s is not a DBC file (the name must end in .dbc)" % (name or "the file"))
+    os.makedirs(folder, exist_ok=True)
+    stem, ext = os.path.splitext(name)
+    path, n = os.path.join(folder, name), 2
+    while os.path.exists(path):
+        with open(path, "rb") as f:
+            if f.read() == data:
+                return path
+        path = os.path.join(folder, "%s-%d%s" % (stem, n, ext))
+        n += 1
+    with open(path, "wb") as f:
+        f.write(data)
+    return path
 
 
 def check_trigger(spec):

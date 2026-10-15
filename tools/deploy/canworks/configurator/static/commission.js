@@ -285,6 +285,7 @@ function adapterBox(message) {
     S.adapterOn = true;
     S.adapterEnded = null;
     S.onlineLast = null;
+    if (typeof pdoAutoReset === "function") pdoAutoReset();
     connStop();
     connBar();
     // The first status opens the adapter and runs the bit rate check: a
@@ -335,6 +336,7 @@ async function disconnectAdapter() {
   S.onlineOpen = false;
   S.onlineLast = null;
   S.lssAllow = undefined;
+  if (typeof pdoAutoReset === "function") pdoAutoReset();
   render();
 }
 
@@ -346,6 +348,7 @@ function adapterLost(message) {
   connStop();
   S.adapterOn = false;
   S.adapterEnded = message;
+  if (typeof pdoAutoReset === "function") pdoAutoReset();
   S.onlineOpen = false;
   S.onlineLast = null;
   S.lssAllow = undefined;

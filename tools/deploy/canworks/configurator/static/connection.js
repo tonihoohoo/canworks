@@ -90,6 +90,7 @@ async function connTick() {
     try {
       if (typeof logEvents === "function") logEvents(r.status);
       if (typeof treeLive === "function" && !onlineViews().includes(S.view)) treeLive(r.status);
+      if (typeof pdoAutoRead === "function") pdoAutoRead(r);
     } catch (e) { console.error(e); }
   }
   if (err && connAdapter()) { adapterLost(err.message); return; }

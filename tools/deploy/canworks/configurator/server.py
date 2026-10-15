@@ -2342,6 +2342,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ApiError(400, "index must be 0x0000-0xFFFF and subindex 0-255")
             return index, sub
 
+        if route == ("POST", "/api/online/pdo_layout"):
+            # The trace's PDO layout of a node, read from the device (canopen-configurator:
+            # "Automatic PDO layout reads in Commission a device"). Reads only.
+            node = node_arg()
+            client = params.Client(conn, hostname, port, token, network, False)
+            try:
+                values, dtype = params.pdo_values(client, node)
+            except diag.DiagError as e:
+                raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
+            ws = self.server.traces.get(folder)
+            ws.add_device_read(node, values, dtype)
+            pdos = {}
+            for (index, sub), v in values.items():
+                if sub == 1 and (0x1400 <= index < 0x1600 or 0x1800 <= index < 0x1A00) and not v & 0x80000000:
+                    pdos["%s%d" % ("TPDO" if index >= 0x1800 else "RPDO", (index & 0x1FF) + 1)] = v & 0x7FF
+            return {"node": node, "pdos": [{"name": k, "cob_id": v} for k, v in sorted(pdos.items())],
+                    "device_type": dtype}
         if route in params.ROUTES:
             node = None if route[1].endswith("/job") else node_arg()
             watch = self.server.watch
@@ -2949,6 +2966,58 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                    "explanation": model(x["frame"])} for x in built])
 
     # -- trace --------------------------------------------------------------
+    def _trace_decoding(self, route, body, settings, folder, ws, decoder):
+        """/api/trace/decoding: the DBC files of the trace and each node's EDS
+        and PDO layout source (canopen-configurator: "Decoding panel in the
+        Trace view"). POST with an action changes the DBC files (add by path
+        or upload, remove, order) or, with "refresh", decodes the trace again
+        after the nodes' EDS files changed."""
+        paths = tracing.dbc_entries(settings.project(folder))
+        if route[0] == "POST" and body.get("action") is not None:
+            action = body.get("action")
+            if action == "add":
+                path = body.get("path")
+                if isinstance(path, str) and path.strip():
+                    path = os.path.abspath(os.path.expanduser(path.strip()))
+                    if not path.lower().endswith(".dbc"):
+                        raise ApiError(422, "%s is not a DBC file (the name must end in .dbc)" % path, field="path")
+                    if not os.path.isfile(path):
+                        raise ApiError(422, "the file %s does not exist" % path, field="path")
+                else:
+                    try:
+                        data = base64.b64decode(body.get("data") or "", validate=True)
+                    except ValueError:
+                        raise ApiError(400, "data must be base64")
+                    if not data:
+                        raise ApiError(400, "choose a DBC file")
+                    try:
+                        path = tracing.save_uploaded_dbc(os.path.join(config_dir(), "dbc"), body.get("name"), data)
+                    except tracing.Refused as e:
+                        raise ApiError(e.status, str(e))
+                _, check = tracing.load_dbc([path])
+                if check[0]["error"]:
+                    raise ApiError(422, "%s cannot be read as a DBC file: %s" % (os.path.basename(path),
+                                                                                  check[0]["error"]))
+                if path not in paths:
+                    if len(paths) >= tracing.MAX_DBC_FILES:
+                        raise ApiError(422, "a trace decodes with at most %d DBC files; remove one first"
+                                       % tracing.MAX_DBC_FILES)
+                    paths.append(path)
+            elif action == "remove":
+                paths = [p for p in paths if p != body.get("path")]
+            elif action == "order":
+                order = body.get("paths")
+                if not isinstance(order, list) or sorted(order) != sorted(paths):
+                    raise ApiError(400, "paths must list the trace's DBC files in their new order")
+                paths = list(order)
+            elif action != "refresh":
+                raise ApiError(400, "action must be add, remove, order or refresh")
+            if action != "refresh":
+                settings.update_project(folder, trace_dbc=paths)
+            ws.redecode(decoder())
+        _, view = tracing.load_dbc(paths)
+        return tracing.decoding_view(ws.decoding(), view)
+
     def _trace(self, route, body):
         """/api/trace/*: the Trace view's recording or opened file for this
         project folder (canopen-configurator: "Trace view")."""
@@ -2964,16 +3033,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # A trace records and decodes one network (canopen-bus-trace).
         network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
 
+        settings = online.Settings(config_dir())
+
         def decoder():
             if s.commission:
                 with s.lock:
-                    return tracing.commission_decoder(body.get("eds"), s.eds_path)
-            cfg = body.get("config")
-            with s.lock:
-                if not isinstance(cfg, dict):
-                    cfg = s.read_config()[0]
-                eds_paths = s.eds_paths(cfg)
-            return tracing.decoder_for(cfg, config_path, eds_paths, names, network)
+                    dec = tracing.commission_decoder(body.get("eds"), s.eds_path)
+            else:
+                cfg = body.get("config")
+                with s.lock:
+                    if not isinstance(cfg, dict):
+                        cfg = s.read_config()[0]
+                    eds_paths = s.eds_paths(cfg)
+                dec = tracing.decoder_for(cfg, config_path, eds_paths, names, network)
+            # The DBC files added to the trace (canopen-bus-trace: "DBC files in a trace").
+            files, _ = tracing.load_dbc(tracing.dbc_entries(settings.project(folder)))
+            if files:
+                dec.attach_dbc(files)
+            return dec
 
         def time_range():
             return tracing._opt_time(body.get("start_us"), "start_us"), tracing._opt_time(body.get("end_us"), "end_us")
@@ -2983,6 +3060,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if route == ("GET", "/api/trace/state"):
             return state()
+        if route[1] == "/api/trace/decoding":
+            return self._trace_decoding(route, body, settings, folder, ws, decoder)
         if route[1].startswith(("/api/trace/transmit", "/api/trace/prefs")):
             return self._transmit(route, body, folder, network)
         if route == ("POST", "/api/trace/ids/reference"):
@@ -3049,6 +3128,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ApiError(422, recorder_mod.TOO_OLD, kind="too_old")
                 raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
             dec = decoder()
+            if s.commission:
+                ws.apply_device_reads(dec)
             if spec or (spec is None and ws.trigger):
                 try:
                     triggers_mod.resolve_signals(spec or ws.trigger, dec.signal_keys())

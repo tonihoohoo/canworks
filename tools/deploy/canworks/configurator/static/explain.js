@@ -90,6 +90,7 @@ function fxMeaning(I, opts) {
       el("span", { class: "mono muted" }, f.candump + (f.time_us && opts.time ? "  ·  " + opts.time : ""))),
     el("p", { class: "fx-says", dataset: { fx: "meaning" } }, m.meaning),
     m.notes && m.notes.length ? el("ul", { class: "fx-notes" }, m.notes.map((n) => el("li", null, humanise(n)))) : null,
+    opts.layout || null,
     m.about ? fxAbout(m.about, opts) : null,
     opts.actions && opts.actions.length ? el("div", { class: "toolbar" }, opts.actions) : null);
 }
@@ -443,6 +444,7 @@ async function fxInspectSeq(seq, target, opts) {
   }
   const keep = fxReadingState(box);
   const root = fxInspector(m, { actions, time: typeof secText === "function" ? secText(m.t_us) : null,
+    layout: typeof fxLayoutLine === "function" ? fxLayoutLine(m) : null,
     about: box._fxAbout, onAbout: (open) => { box._fxAbout = open; } });
   fxFill(box, root);
   fxRestoreReading(box, root._fx, keep);

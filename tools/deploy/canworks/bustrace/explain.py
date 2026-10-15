@@ -174,7 +174,7 @@ def identifier_layer(f, dec):
     fc, nid = cid >> 7, cid & 0x7F
     out["function_code"], out["node"] = fc, nid
     out["math"] = "0x%03X = %d × 0x80 + %d" % (cid, fc, nid)
-    p = dec.pdos.get(cid)
+    p = dec.pdo_for(f) if hasattr(dec, "pdo_for") else dec.pdos.get(cid)
     if p is not None:
         kind, num = _pdo_number(p.name)
         out["message"] = "%s%d" % (kind, num) if kind else p.name
@@ -188,8 +188,9 @@ def identifier_layer(f, dec):
             out["configured"] = True
         if out["configured"]:
             out["math"] = None
-            out["configured_text"] = ("0x%03X is set in the configuration for %s of %s, so the function code and "
-                                      "node ID split does not apply." % (cid, out["message"], out["node_label"]))
+            out["configured_text"] = ("0x%03X is set %s for %s of %s, so the function code and node ID split does "
+                                      "not apply." % (cid, "in the configuration" if p.source is None else
+                                                      "on the device", out["message"], out["node_label"]))
         return out
     if cid == dec.time_cob and cid != 0x100:
         out.update(message="TIME", what="time stamp", sender="the TIME producer", configured=True, math=None,
@@ -563,14 +564,14 @@ def _pdo(F, f, dec, p):
 
 
 def _raw(F, f, dec):
-    """The signals of the raw messages a frame matches, as fields."""
+    """The signals of the raw messages (or DBC messages) a frame matches, as fields."""
     from ..raw import signals as sig
     shown, names = [], []
-    for kind, m in dec.raw.matches(f.can_id, f.ext, f.rtr):
+    for kind, m, src in dec.raw_matches(f):
         names.append("%s (%s)" % (m.get("name") or "0x%X" % m["id"], {"rx": "the PLC receives it",
                                                                       "tx": "the PLC sends it"}.get(kind, "DBC")))
         # A multiplexed message: only the switches and the frame's page.
-        lay = dec.raw.layout(m)
+        lay = src.layout(m)
         active, unknown = None, False
         if lay.multiplexed:
             active, unknown, _, _ = lay.evaluate(F.data)
@@ -606,7 +607,8 @@ def _raw(F, f, dec):
                       how=le_how(F.data, s["start_bit"], s["length"]) if s["length"] > 8 or s["start_bit"] % 8 or
                       s["length"] % 8 else None)
             shown.append("%s = %s" % (name, value))
-    meaning = "Raw message %s" % " and ".join(names)
+    meaning = "%s %s" % ("Raw message" if any(k != "dbc" for k, _, _ in dec.raw_matches(f)) else "DBC message",
+                         " and ".join(names))
     if shown:
         meaning += ": " + ", ".join(shown[:4]) + (", ..." if len(shown) > 4 else "")
     return meaning + "."
@@ -709,13 +711,16 @@ def explain(f, decoder=None, bitrate=None, context=None):
                    error_classes=classes, fields=F.done(), wire=None)
         return out
     raw = dec.decode_raw(f) if hasattr(dec, "decode_raw") else None
+    if raw is None and hasattr(dec, "dbc_decides") and dec.dbc_decides(f):
+        raw = dec.decode_dbc(f)  # a DBC file added to the trace (canopen-bus-trace: "DBC files in a trace")
     if raw is not None or getattr(dec, "protocol", "canopen") == "none":
         # A configured raw message, or any frame of a plain CAN network.
         ident = identifier_layer(f, dec)
         for b in ident["bits"]:
             b["part"] = "id"
         ident.update(function_code=None, node=None, math=None, node_label=None, message=raw.name if raw else None,
-                     what="raw CAN message of the configuration" if raw else "not configured on this network",
+                     what=("message of a DBC file" if raw.source == "dbc" else "raw CAN message of the configuration")
+                     if raw else "not configured on this network",
                      configured=raw is not None)
         meaning = _raw(F, f, dec) if raw else "Frame %s with %s; not configured on this plain CAN network." % (
             ("0x%08X" if f.ext else "0x%03X") % f.can_id, _bytes(len(f.data)))
@@ -763,10 +768,13 @@ def explain(f, decoder=None, bitrate=None, context=None):
         meaning = "A frame with the extended identifier 0x%08X and %s; not a CANopen frame." % (cid, _bytes(len(d)))
         if d:
             F.add("Data", 0, len(d) * 8, hexbytes(d), "Data of another protocol; its meaning is not known here.")
-    elif cid in dec.pdos:
+    elif _pdo_layout(f, dec) is not None:
         kind = "pdo"
-        meaning, more = _pdo(F, f, dec, dec.pdos[cid])
+        p = _pdo_layout(f, dec)
+        meaning, more = _pdo(F, f, dec, p)
         notes += more
+        if p.source is not None:
+            out["layout"] = _layout_line(p, dec)
     elif cid == 0x000:
         kind = "nmt"
         meaning = _nmt(F, dec)
@@ -799,6 +807,11 @@ def explain(f, decoder=None, bitrate=None, context=None):
         if fn and fn[1] == "pdo":
             kind = "pdo"
             nid = cid & 0x7F
+            out["layout"] = {"source": None, "node": nid, "since_us": None,
+                             "text": "The layout of %s's PDOs is not known: %s." % (
+                                 dec.node_label(nid), "its EDS gives no default for this one" if nid in dec.eds
+                                 else "it has no EDS and its PDOs were not read from the device"
+                                 if not dec.pdos else "it is not in the configuration")}
             if f.rtr:
                 meaning = "A remote request for %s of %s." % (fn[0], dec.node_label(nid))
             else:
@@ -812,6 +825,10 @@ def explain(f, decoder=None, bitrate=None, context=None):
                 cid, _bytes(len(d)))
             if d:
                 F.add("Data", 0, len(d) * 8, hexbytes(d), "Unknown data.")
+    if not f.ext and kind not in ("pdo", "other") and getattr(dec, "dbc", None) is not None:
+        extra = dec.decode_dbc(f)
+        if extra is not None:
+            notes.append("A DBC file added to the trace also describes this identifier: %s." % extra.text)
     gap = getattr(F, "done_gap", ("Not used", "Not used."))
     out["kind"] = kind
     out["title"] = _title(kind, ident, dec)
@@ -826,6 +843,22 @@ def explain(f, decoder=None, bitrate=None, context=None):
 
 def _bytes(n):
     return "1 data byte" if n == 1 else "%d data bytes" % n
+
+
+def _pdo_layout(f, dec):
+    return dec.pdo_for(f) if hasattr(dec, "pdo_for") else dec.pdos.get(f.can_id)
+
+
+def _layout_line(p, dec):
+    """Where a PDO's layout came from when it is not the configuration's
+    (canopen-configurator: "PDO layout in the frame inspector")."""
+    if p.source == "bus":
+        text = "Layout set on the bus by an SDO transfer"
+    elif p.source == "device":
+        text = "Layout read from the device"
+    else:
+        text = "EDS defaults: the device may be mapped differently. Read its PDOs from the device to be sure"
+    return {"source": p.source, "node": p.node, "since_us": p.since_us, "text": text + "."}
 
 
 def _title(kind, ident, dec):
