@@ -77,7 +77,7 @@ The skill SHALL write `bits` and `values` as the device reads the EDS object: bi
 - **THEN** the note's `values` has "-1"
 
 ### Requirement: Datasheet facts the notes fields cannot hold
-The skill SHALL put value ranges, fields of several bits, write signatures and a scale that depends on another object in `details`. It MAY write a scale derived from a stated full-scale value when `details` says how. It SHALL NOT write a unit that only the object's name implies.
+The skill SHALL put value ranges, fields of several bits, write signatures, a scale that depends on another object, whether a value is stored and when a change takes effect, and objects outside the EDS that the object needs (such as an enable object) in `details`. It MAY write a scale derived from a stated full-scale value when `details` says how. It SHALL NOT write a unit that only the object's name implies.
 
 #### Scenario: Derived scale
 - **WHEN** the datasheet says the velocity value 0x7FFFFFFF equals 10000 rpm
@@ -94,6 +94,10 @@ The skill SHALL find the EDS key through an index rule the datasheet states (suc
 - **WHEN** the manual says parameter 703 is object 2000h + 703 and describes parameter 703 on page 19
 - **THEN** the note is on `0x22BF` with `manual` "p. 19"
 
+#### Scenario: Spreadsheet parameter list
+- **WHEN** the sheet "Parameters" lists the parameter code RAMP with index 2000h, sub-index 10h, and its values
+- **THEN** the note is on `0x2000:16` with `manual` naming the sheet "Parameters" and RAMP
+
 ### Requirement: Datasheet notes keep built-in names
 On a standard object the skill SHALL write `bits` and `values` as the device's complete list, keeping built-in entries the datasheet does not contradict, because a device note's field replaces the built-in field.
 
@@ -101,6 +105,20 @@ On a standard object the skill SHALL write `bits` and `values` as the device's c
 - **WHEN** the datasheet names bits 8 and 14 of 0x6041 and says nothing of bit 4
 - **THEN** the note's `bits` has the datasheet's names for 8 and 14 and the built-in name of bit 4
 
-#### Scenario: Spreadsheet parameter list
-- **WHEN** the sheet "Parameters" lists the parameter code RAMP with index 2000h, sub-index 10h, and its values
-- **THEN** the note is on `0x2000:16` with `manual` naming the sheet "Parameters" and RAMP
+### Requirement: Datasheet notes correct built-in notes
+The skill SHALL compare the built-in note of each standard object the datasheet describes with the datasheet, and SHALL write the device's own `text`, `unit` or `values` where the built-in one does not fit the device. Where the device supports none of a built-in list, the note's `text` SHALL say so and `details` SHALL say the built-in list does not apply, since a note cannot remove a built-in field.
+
+#### Scenario: Current instead of torque
+- **WHEN** the built-in note of 0x6071 speaks of rated torque and the datasheet says the value is in thousandths of rated current
+- **THEN** the note of 0x6071 has the datasheet's text and unit
+
+#### Scenario: Unsupported homing
+- **WHEN** the datasheet says homing is not supported and the built-in note of 0x6098 lists homing methods
+- **THEN** the note of 0x6098 has `text` saying homing is not supported and `details` saying the listed methods do not apply
+
+### Requirement: Datasheets for several buses
+From a manual for several buses, objects marked for another bus only SHALL NOT be differences unless the EDS has them.
+
+#### Scenario: Manual for two buses
+- **WHEN** a CANopen and EtherCAT manual marks 0x3B61 as EtherCAT only and the CANopen EDS lacks it, and marks 0x3B60 as EtherCAT only while the EDS has it
+- **THEN** 0x3B61 is not a difference, and 0x3B60 is a row of the difference table

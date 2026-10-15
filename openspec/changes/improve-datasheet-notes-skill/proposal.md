@@ -19,6 +19,8 @@ A second trial (2026-10-15) ran the skill once each on 11 more devices from free
 - **The skeleton misses the object keys.** It has no entry for an ARRAY or RECORD itself, although notes are written on it; it drops the product code without a word when the EDS has none; it prints UNSIGNED24/40/48/56 as type codes; and on a 628-object EDS it is 2,500 lines with no way to pick a range.
 - **Several documents.** One device's objects are split over a CANopen manual (the index rule) and a parameter manual (the meanings); `manual` cannot say which document. Index rules (base + parameter number, process/parameter), hex sub-indices and family manuals covering several variants have no rule.
 - **Values the datasheet writes differently.** Bits numbered from 1, hex values of signed types, one row for two raw values, value ranges, multi-bit fields, write signatures and a scale that depends on another object or is derived from a full-scale value.
+- **Built-in notes that are wrong for the device.** A drive's current limits are in thousandths of rated current where the built-in note says torque; a drive without homing still shows the built-in homing methods, and a note cannot remove a built-in field (219-page bilingual manual, run in the cloud).
+- **Manuals for two buses.** A CANopen and EtherCAT manual marks objects per bus; one object marked EtherCAT only is in the CANopen EDS.
 - **Spreadsheets.** An XLSX with 1,000 rows: "short summaries in your own words" does not fit, and row numbers change when the sheet is sorted.
 
 ## What Changes
@@ -41,6 +43,9 @@ A second trial (2026-10-15) ran the skill once each on 11 more devices from free
   - No built-in notes for the profile: standard objects get a note where the datasheet describes them beyond name, type and default.
   - Index rules: apply a rule the datasheet states (base + parameter number, process/parameter, hex sub-index) to find the EDS key, and write nothing from the rule alone. Family manuals: only what applies to the EDS's device; objects of other variants are not differences.
   - Values as the EDS reads them: bits numbered from 0, signed hex as negative decimal, every raw value of a row; value ranges, multi-bit fields, write signatures and scales that depend on another object go in `details`; a scale derived from a stated full-scale value is allowed and said in `details`; a unit only implied by a name is not stated.
+  - Built-in notes that do not fit the device (rated current instead of torque, an unsupported mode list) get the device's own `text`, `unit` or `values`; a list the device does not support at all is said in `text` and `details`, since a note cannot remove a built-in field.
+  - Manuals for several buses: objects marked for another bus only are not differences unless the EDS has them.
+  - Stored or not, when a change takes effect, and needed objects outside the EDS go in `details`.
   - Spreadsheets: `text` may be the parameter's name from the sheet, `manual` names the sheet and the parameter code, not the row.
 - **Report** adds "Other EDS problems seen": differences on objects that got no note.
 - Docs (`docs/configurator.md` Notes from a datasheet, `docs/deploy.md` Device notes) follow; PC tools version bump.
@@ -57,7 +62,7 @@ A second trial (2026-10-15) ran the skill once each on 11 more devices from free
 None.
 
 ### Modified Capabilities
-- `canopen-device-notes`: differences in one table; report lists other EDS problems; page and document references; profiles without built-in notes; values as the EDS reads them; check of `values`/`bits` on object keys.
+- `canopen-device-notes`: differences in one table; built-in notes corrected for the device; report lists other EDS problems; page and document references; profiles without built-in notes; values as the EDS reads them; check of `values`/`bits` on object keys.
 - `canopen-deploy`: `notes skeleton --all` and `--index`; `notes builtin` names the sets used; EDS read errors name the line.
 
 ## Impact
