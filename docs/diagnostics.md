@@ -31,6 +31,7 @@ canworks-diag --runtime plc.local lss-set-id 0x360 0x1 0 0x1234 12 [--store]
 canworks-diag --runtime plc.local lss-set-bitrate 0x360 0x1 0 0x1234 250 [--store]
 canworks-diag --runtime plc.local trace -o run.pcapng --duration 60         # see trace.md
 canworks-diag convert run.pcapng run.asc
+canworks-diag convert run.pcapng run.csv --dbc machine.dbc                # decode with DBC files too (repeatable; also on trace and explain)
 canworks-diag --runtime plc.local backup 23 [-o node23.dcf]                 # all parameters into a DCF
 canworks-diag --runtime plc.local compare 23 --with node23.dcf            # or --with-config, --with-eds-defaults
 canworks-diag --runtime plc.local restore 23 node23.dcf [--dry-run]       # needs allow_changes; never stores

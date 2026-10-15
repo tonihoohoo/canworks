@@ -602,7 +602,7 @@ When the matching EDS does not say `LSS_Supported=1`, the device SHALL be added 
 - **THEN** the "Store in the device" checkbox is unticked
 
 ### Requirement: Trace view
-The Trace tool tab SHALL work without a connection for opening, viewing and exporting trace files. Recording and the transmit list SHALL use the connection in the connection bar, runtime or adapter, in every workspace. Without a connection, the view SHALL say that recording needs one and offer Connect…, which opens the connect panel. The trace header SHALL name the connection a recording uses (adapter and bit rate, or runtime) and the network.
+The Trace tool tab SHALL work without a connection for opening, viewing and exporting trace files. Recording and the transmit list SHALL use the connection in the connection bar, runtime or adapter, in every workspace. Without a connection, the view SHALL say that recording needs a connection and point to **Connect…** in the connection bar, with no connect button of its own. On a standalone simulator connection, the view SHALL say that recording needs a runtime or adapter connection. The trace header SHALL name the connection a recording uses (adapter and bit rate, or runtime) and the network.
 
 The view SHALL offer (see "Trace toolbar and views"):
 - start and stop, capture filters, error frames and clear;
@@ -643,7 +643,7 @@ Clear SHALL say that the current recording is lost unless it was saved or downlo
 
 #### Scenario: Open a file without a runtime
 - **WHEN** nothing is connected and the user opens a candump log file in the Trace view
-- **THEN** the frames are shown decoded and can be graphed and exported, and recording offers Connect…
+- **THEN** the frames are shown decoded and can be graphed and exported, and the view says that recording needs a connection made with Connect… in the connection bar, with no button of its own
 
 #### Scenario: Works offline
 - **WHEN** the PC has no internet access
@@ -936,7 +936,7 @@ The **Bus and master** page SHALL have a **Network** choice, **Real** or **Simul
 - **THEN** node 7's entry is drawn dashed and its accessible name says it is absent
 
 ### Requirement: Simulation view
-The configurator SHALL have a **Simulation** tool tab, in both workspaces of a config. It connects either to the runtime's simulated devices, through the connection in the connection bar, or to a standalone simulator by address and token entered in the view. It shows, per simulated device, whether it runs on a simulated or a real network, its NMT and power state, injected faults and the objects it carries in PDOs with live values, refreshed at least twice a second.
+The configurator SHALL have a **Simulation** tool tab, in both workspaces of a config. It shows the simulated devices of the connection in the connection bar: a runtime's, or a standalone simulator's. The view SHALL have no connect form, target choice, address or token field and no Connect button of its own, and no connection line that repeats what the connection bar says; it SHALL show only what is particular to simulation (nothing simulated on the runtime, read-only and why). It shows, per simulated device, whether it runs on a simulated or a real network, its NMT and power state, injected faults and the objects it carries in PDOs with live values, refreshed at least twice a second.
 
 A user SHALL be able to:
 - set and override values (switches for BOOLEAN and bits, sliders between the EDS limits for numbers);
@@ -944,7 +944,7 @@ A user SHALL be able to:
 - inject and clear every fault the simulator offers from buttons;
 - add extra devices.
 
-Changes made here SHALL be saveable to `simulation.json`. With several networks, the view SHALL show and edit the network chosen in its network picker, and saving SHALL write that network's section of a version 2 file, keeping the other sections. A version 1 file of a several-network config SHALL be offered for conversion to version 2 before the first save. Without **Allow changes** the view SHALL be read-only and say why. With the Runtime target and no connection, the view SHALL offer Connect…, which opens the connect panel, and the simulation file SHALL stay editable.
+Changes made here SHALL be saveable to `simulation.json`. With several networks, the view SHALL show and edit the network chosen in its network picker, and saving SHALL write that network's section of a version 2 file, keeping the other sections. A version 1 file of a several-network config SHALL be offered for conversion to version 2 before the first save. Without **Allow changes** the view SHALL be read-only and say why. Without a connection, the view SHALL say once that live values need a connection made with **Connect…** in the connection bar, and the simulation file and the scenarios SHALL stay editable.
 
 #### Scenario: Move a sensor value by hand
 - **WHEN** a user drags the slider of node 5's 0x7130:1 to 900 in the Simulation view
@@ -959,8 +959,16 @@ Changes made here SHALL be saveable to `simulation.json`. With several networks,
 - **THEN** `simulation.json` is version 2, its `motion` section has the setting and its `io` section is unchanged
 
 #### Scenario: Runtime target uses the bar's connection
-- **WHEN** the page is connected to the local simulator runtime and the user opens Simulation with the Runtime target
+- **WHEN** the page is connected to the local simulator runtime and the user opens Simulation
 - **THEN** live values show without asking for a host or token
+
+#### Scenario: Not connected
+- **WHEN** nothing is connected and the user opens Simulation
+- **THEN** the only Connect button on the page is the one in the connection bar, the view says once that live values need a connection, and the Simulation file and Scenarios tabs can be edited
+
+#### Scenario: Standalone simulator from the connection bar
+- **WHEN** the user connects to a standalone simulator at 127.0.0.1:7532 through Connect… in the connection bar and opens Simulation
+- **THEN** the view shows that simulator's devices, and the connection bar names the simulator and offers Disconnect
 
 ### Requirement: Scenarios in the configurator
 The Simulation view SHALL list the scenarios of the simulation file, let a user create and edit them as a list of steps with checking, start and stop them, and show the running step, the time and the result of each expect, with failed expects showing the condition and the value seen.
@@ -1345,15 +1353,37 @@ Every network SHALL have a CAN messages page with a receive table and a send tab
 - **THEN** the grid shows `Page` and `Press`, no overlap problem is reported, and picking page 1 shows `Page` and `Temp`
 
 ### Requirement: Import a DBC into CAN messages
-The CAN messages page SHALL have "Import DBC…", which reads a DBC file, lists its messages with identifier, DLC, sender and signal count, and adds the chosen messages as receive or send messages (send preselected for messages whose sender is a node the user marks as "this PLC"). Imported messages SHALL keep the DBC's names, layouts, scale, offset, unit, limits and multiplexing (simple and extended); a cycle time from the DBC SHALL become `period_ms` for send and three times the cycle as `timeout_ms` for receive. A message with several switches but no `SG_MUL_VAL_` SHALL be listed with a note that its multiplexing cannot be read. The file name SHALL be stored in `raw.dbc`.
+The CAN messages page SHALL have an "Import DBC…" file button that opens the system's file picker directly, with no dialog before it, the same way as "Import DBC…" on a J1939 network and "+ Add node…". The chosen file SHALL be kept with the draft and written into the config folder on Save when a network names it in `raw.dbc` or `j1939.dbc`; a different file of the same name already in the folder or in the draft SHALL ask whether to replace it or keep both (keep both gives the new file a `-2` suffix). The page SHALL then open the message picker, which SHALL list the file's messages with identifier, DLC, cycle and signal count and set each to Receive, Send or Leave out (Send preselected for messages sent by a node named `PLC` or like the network; Send not offered on a listen-only network). A message the network already has in that direction (same identifier and extended flag) SHALL be marked as already there and start as Leave out. Messages the file has but the import cannot take SHALL be listed under "Left out of the import". "Add picked messages" SHALL add the chosen messages as receive or send messages with free PLC addresses. Imported messages SHALL keep the DBC's names, layouts, scale, offset, unit, limits and multiplexing (simple and extended); a cycle time from the DBC SHALL become `period_ms` for send and three times the cycle as `timeout_ms` for receive. A message with several switches but no `SG_MUL_VAL_` SHALL be listed with a note that its multiplexing cannot be read. The imported file's name SHALL be stored in `raw.dbc`.
+
+The page SHALL show the network's DBC file as read-only text ("Messages come from <file>." or "No DBC file yet."), marked as missing when the file is neither in the config folder nor in the draft, and SHALL offer "Pick messages…" to open the picker again on that file. Importing a file other than the one `raw.dbc` names, on a network that has raw messages, SHALL ask first, naming both files. Removing the network's last raw message SHALL clear `raw.dbc`. The J1939 and CAN messages pages SHALL use the same picker, differing only in their columns.
 
 #### Scenario: Import two messages
-- **WHEN** the user imports a DBC with messages `Joystick` (cycle 100 ms) and `Lamps`, choosing receive for `Joystick` and send for `Lamps`, then clicks Suggest addresses and saves
-- **THEN** the file has `Joystick` in `raw.rx` with `timeout_ms` 300 and `Lamps` in `raw.tx`, every signal has a location, and Check reports no problems
+- **WHEN** the user clicks Import DBC…, picks a DBC with messages `Joystick` (cycle 100 ms) and `Lamps` in the system file picker, chooses Receive for `Joystick` and Send for `Lamps`, clicks Add picked messages and saves
+- **THEN** no dialog appeared before the file picker, the file has `Joystick` in `raw.rx` with `timeout_ms` 300 and `Lamps` in `raw.tx` with every signal at a location, `raw.dbc` names the file, the DBC file is in the config folder, and Check reports no problems
 
 #### Scenario: Import a multiplexed message
 - **WHEN** the user imports `Status` with switch `Page` and signals on pages 1 and 2 as receive
 - **THEN** the file has `Page` with `multiplexer: true` and each page's signals with their `mux.values`, and Check reports no problems
+
+#### Scenario: Same name, different file
+- **WHEN** the config folder has `machine.dbc` and the user imports a different file also named `machine.dbc` and answers Keep both
+- **THEN** the picker opens on `machine-2.dbc`, `raw.dbc` becomes `machine-2.dbc` after the import, and Save writes `machine-2.dbc` next to the unchanged `machine.dbc`
+
+#### Scenario: A second DBC file
+- **WHEN** the network has messages imported from `a.dbc` and the user picks `b.dbc`
+- **THEN** the page asks whether to keep `a.dbc` or use `b.dbc` before anything is uploaded, and Keep `a.dbc` changes nothing
+
+#### Scenario: Pick more messages later
+- **WHEN** a saved network names `machine.dbc` with `Joystick` received, and the user clicks Pick messages…
+- **THEN** the picker lists the file's messages with `Joystick` marked as already in received messages and set to Leave out
+
+#### Scenario: Missing DBC file
+- **WHEN** the config's `raw.dbc` names `old.dbc` and the config folder has no such file
+- **THEN** the DBC line says `old.dbc` is not in the config folder and Pick messages… is not offered
+
+#### Scenario: DBC line is not a text field
+- **WHEN** the user opens the CAN messages page
+- **THEN** the DBC file is shown as text with Import DBC… beside it, and there is no field to type a file name into
 
 ### Requirement: Raw messages in the online view
 The online view SHALL list each raw message of the network with its last data, age, counter, timeout state and short-frame count (receive) or sent count and last error (send), and the numbers of program receivers and cyclic jobs with their drops.
@@ -1632,7 +1662,7 @@ A device's node tabs SHALL be those of "Commission node tabs", and its Status ta
 
 #### Scenario: Not connected yet
 - **WHEN** the user opens Commission a device before connecting
-- **THEN** the Nodes table shows the connect form and the recent connections in place of its rows
+- **THEN** the Nodes table says in place of its rows that it lists the devices once connected with Connect… in the connection bar, with no connect form or button of its own
 
 ### Requirement: Network picker in online and trace views
 When the runtime reports more than one network, the connection bar SHALL have a network picker. The Commission pages, Trace and Simulation SHALL show and act on the picked network only. The picker SHALL start on the network of the entry selected in Configure's tree. In Commission, picking a tree entry on another network SHALL move the picker, and changing the picker SHALL select that network's tree entry.
@@ -1677,10 +1707,11 @@ A tool tab SHALL use the full page width, with no network tree, side bar or bott
 - **THEN** the tabs are Nodes, Trace and Frame lab
 
 ### Requirement: Connection bar
-A connection bar SHALL show under the header: always in Commission, and in Configure while connected. It SHALL show:
+The connection bar SHALL be the one place on the page to connect and disconnect. It SHALL show under the header: always in Commission, and in Configure while connected and on the Trace and Simulation tool tabs. It SHALL show:
 - the target;
 - for an adapter, the bit rate and how it was confirmed;
 - for a runtime, the path and round trip, and the network picker when the runtime has several networks;
+- for a standalone simulator, its address;
 - the bus state and the frame and error frame counts;
 - another master with what was seen, when one is seen;
 - whether changes are allowed;
@@ -1700,8 +1731,14 @@ While connecting it SHALL show the step of the bit rate check and **Cancel**. Wh
 - **WHEN** the connection is up with no errors and no other master
 - **THEN** the bar uses no warning or error colour
 
+#### Scenario: One Connect button
+- **WHEN** nothing is connected and the user opens Nodes, Simulation and Trace in turn, in either workspace of a config
+- **THEN** each page shows exactly one Connect… button, the one in the connection bar, and each page's own text says what it needs a connection for
+
 ### Requirement: Connect panel
-**Connect…** SHALL open one connect panel. It and its inline form on the Nodes table (see "Connect from the Nodes table") SHALL be the only places to connect.
+**Connect…** in the connection bar SHALL open one connect panel, and the panel SHALL be the only place to connect. No page SHALL have a connect form or a button that opens the panel.
+
+The panel SHALL list first up to three recent connections of this PC of the kinds it offers, each connectable with one click. A recent adapter connection SHALL still run the bit rate check and SHALL start with Allow changes off. Recent connections SHALL be kept in the configurator's settings on this PC without tokens. The panel SHALL NOT open by itself on entering Commission.
 
 In Commission a device the panel SHALL offer a USB adapter only:
 - the found adapters with Refresh, or a typed target;
@@ -1712,14 +1749,13 @@ In Commission a device the panel SHALL offer a USB adapter only:
 
 A refused bit rate check SHALL keep the panel open with the reason and the form filled in.
 
-With a config the panel SHALL offer a runtime only:
-- the found and remembered runtimes, the host field and **Local simulator runtime**;
-- the token prompt when this PC has no matching token;
-- **Connect**.
+With a config the panel SHALL offer two targets, **Runtime** (the default) and **Standalone simulator**:
+- Runtime: the found and remembered runtimes, the host field and **Local simulator runtime**; the token prompt when this PC has no matching token; **Connect**;
+- Standalone simulator: a running `canworks-sim` by address (`HOST[:PORT]`, port 7532 when not given) and its token when it was started with one, both kept on this PC per project folder; **Connect**.
 
-When the config's online access is off, the panel SHALL say so and link to Configure → Bus and master.
+When the config's online access is off, the Runtime target SHALL say so and link to Configure → Bus and master; the Standalone simulator target SHALL still work.
 
-The last target and bit rate SHALL be kept in the configurator's settings on this PC, never in a project.
+The last target (including Runtime or Standalone simulator) and bit rate SHALL be kept in the configurator's settings on this PC, never in a project.
 
 #### Scenario: Wrong bit rate refused
 - **WHEN** the bus runs at 500 kbit/s and the user connects at 1000 kbit/s in the panel
@@ -1733,8 +1769,16 @@ The last target and bit rate SHALL be kept in the configurator's settings on thi
 - **WHEN** the user presses Disconnect in the bar while connected to an adapter
 - **THEN** the adapter is closed, the scan, PDO test, SYNC, send jobs and trace recording on it stop, and `canworks-diag --adapter` can open the same adapter
 
+#### Scenario: Reconnect to the last adapter
+- **WHEN** the user opens Commission a device on a PC that last connected to gs_usb:0 at 500 kbit/s and presses Connect… in the connection bar
+- **THEN** the panel lists "gs_usb:0 at 500 kbit/s" first, and one click connects after the bit rate check with Allow changes off
+
+#### Scenario: Standalone simulator
+- **WHEN** the user picks Standalone simulator in the panel, enters 127.0.0.1:7532 and presses Connect
+- **THEN** the panel closes, the connection bar shows the simulator's address and Disconnect, and Simulation shows its devices
+
 ### Requirement: One connection for every view
-The Commission pages, Trace recording and its transmit list, the Simulation view's **Runtime** target and the PDO test SHALL use the connection in the connection bar. None of them SHALL have its own connect form, host field or adapter field. Without a connection, each SHALL say that it needs one, with a button that opens the connect panel. The Simulation view's **Standalone simulator** address and token SHALL stay in the Simulation view, because they reach `canworks-sim`'s control channel, not a bus.
+The Commission pages, Trace recording and its transmit list, the Simulation view and the PDO test SHALL use the connection in the connection bar. None of them SHALL have its own connect form, host, adapter, address or token field, or Connect button. Without a connection, each SHALL say in one line what it needs a connection for and that Connect… is in the connection bar. On a standalone simulator connection, the Nodes table, Trace recording and the PDO test SHALL say that they need a runtime connection.
 
 #### Scenario: Trace uses the open connection
 - **WHEN** the user connected to a runtime in Commission and opens Trace in Configure and presses Start
@@ -1742,7 +1786,7 @@ The Commission pages, Trace recording and its transmit list, the Simulation view
 
 #### Scenario: Trace without a connection
 - **WHEN** nothing is connected and the user opens Trace
-- **THEN** files can be opened and viewed, and Start is replaced by a note that recording needs a connection with a Connect… button
+- **THEN** files can be opened and viewed, and Start is replaced by a note that recording needs a connection made with Connect… in the connection bar, with no button of its own
 
 ### Requirement: Allow changes in the connection bar
 On an adapter connection, **Allow changes** SHALL be a switch in the connection bar. It SHALL be off for every new connection, SHALL ask before switching on, and SHALL apply to the open connection without reconnecting. On a runtime connection, the bar SHALL show the runtime's own setting as read-only text with a lock and SHALL say that it is set in Configure → Online access and takes effect after an upload, with a link that opens that entry.
@@ -1805,6 +1849,7 @@ The Trace tool tab SHALL have one toolbar with:
 - Clear and Open…;
 - a Save menu with "Save to traces folder" and "Download as…", each with its format, and the range;
 - Capture… for capture filters and error frames;
+- Decoding… for DBC files and the nodes' PDO layouts (see "Decoding panel in the Trace view");
 - the time mode.
 
 Under it SHALL be the header with the statistics and the view tabs **By identifier**, **Chronological**, **Graph**, **Sequences** (not on J1939) and **Trigger**.
@@ -2140,13 +2185,6 @@ Each row SHALL show the node ID, name, NMT state as text and shape, time since l
 #### Scenario: Open a node from the table
 - **WHEN** the user presses Enter on node 5's node ID button
 - **THEN** node 5 is selected in the tree and its Status tab shows
-
-### Requirement: Connect from the Nodes table
-While not connected, the Nodes table SHALL show the connect panel's form in place of its rows, with up to three recent connections of this PC, each connectable with one click. A recent adapter connection SHALL still run the bit rate check and SHALL start with Allow changes off. Recent connections SHALL be kept in the configurator's settings on this PC without tokens. The connect panel SHALL NOT open by itself on entering Commission.
-
-#### Scenario: Reconnect to the last adapter
-- **WHEN** the user opens Commission a device on a PC that last connected to gs_usb:0 at 500 kbit/s
-- **THEN** the Nodes table offers "gs_usb:0 at 500 kbit/s", and one click connects after the bit rate check with Allow changes off
 
 ### Requirement: Scan compared with the config
 With a config, **Scan the bus** on the Nodes table SHALL compare the devices found with the configured nodes of the picked network. Each row SHALL get one state, named in text:
@@ -2548,6 +2586,51 @@ After a library folder is chosen, the row SHALL say how many EDS files the folde
 #### Scenario: Large folder
 - **WHEN** the user chooses the home folder and it has more than 5000 entries below it
 - **THEN** the row says the folder is large and scans may be slow, and the page stays responsive
+
+### Requirement: Decoding panel in the Trace view
+The Trace toolbar's **Decoding** button SHALL open a panel that says what the trace decodes with and lets the user change it. The button SHALL show a short summary (number of DBC files, number of nodes with a known PDO layout) and a warning mark when a DBC file is missing or has problems.
+
+The panel SHALL have:
+- **DBC files**: each file's name, how many of its messages are used out of its total, its problems and the messages not used with what decodes their identifier instead; **Add DBC…** (one or more files), remove, and a way to change the order with the mouse and the keyboard.
+- **Nodes**, on a CANopen network: each node heard on the bus or on the Nodes tab, with its device name, its EDS file or "none, built-in CiA names", the source of its PDO layout ("set on the bus at …", "read from the device at …", "EDS defaults", "configuration", or "unknown"), and the actions **Pick EDS…** or **Change EDS…** (the Nodes table's menu for that node) and **Read PDOs from device**.
+
+**Read PDOs from device** SHALL be disabled with its reason without a live connection. While the connection bar reports another master, it SHALL ask first, saying that the other master's SDO transfers to the node can be mixed with the read.
+
+The DBC files SHALL be remembered on this PC per project folder, and once for Commission a device, outside the project's canworks folder. A remembered file that is missing SHALL be listed as missing with Locate… and Remove, and decoding SHALL go on without it.
+
+#### Scenario: Add a DBC
+- **WHEN** the user opens Decoding, presses Add DBC… and picks `machine.dbc` with 12 messages, 2 of which are on identifiers the configuration decodes
+- **THEN** the panel lists `machine.dbc` with "10 of 12 messages used", names the 2 messages and what decodes them, the rows of the other 10 identifiers decode with the DBC, and the button reads "1 DBC"
+
+#### Scenario: Remembered
+- **WHEN** the user closes the page and opens Commission a device again the next day
+- **THEN** the Trace decodes with the same DBC files without asking
+
+#### Scenario: Fix a raw PDO from the panel
+- **WHEN** node 50's PDOs show as bytes and its layout source reads "unknown", and the user picks its EDS with Pick EDS…
+- **THEN** its PDO rows decode with the EDS defaults and the source reads "EDS defaults"
+
+### Requirement: Automatic PDO layout reads in Commission a device
+On a live connection that can send in Commission a device, the page SHALL read the PDO communication and mapping objects of each node heard on the bus: one node at a time after its identity read, once per connection, and again after the node boots up. It SHALL NOT read from a node in STOPPED, and SHALL NOT read automatically while the connection bar reports another master. The reads SHALL need no Allow changes. PDO 1-4 SHALL always be tried and PDO 5 onwards until the first whose communication object does not exist.
+
+#### Scenario: Read after hearing a node
+- **WHEN** the page connects through a USB adapter and hears node 32's heartbeat, and no other master is reported
+- **THEN** the page reads node 32's PDO objects once, and its PDO rows recorded after the read decode with the layout read from the device
+
+#### Scenario: Another master
+- **WHEN** the connection bar reports another master on the bus
+- **THEN** no PDO objects are read automatically, and the Decoding panel's node rows offer Read PDOs from device
+
+### Requirement: PDO layout in the frame inspector
+For a PDO frame the frame inspector SHALL show a Layout line naming where the layout came from (configuration, DBC file, set on the bus at a time, read from the device at a time, or EDS defaults). Rows and inspectors decoded with EDS defaults SHALL carry an "assumed" tag whose tooltip says that the device may be mapped differently and how to make it certain. For a PDO frame shown as bytes, the Layout line SHALL say why and offer **Pick EDS…** and **Read PDOs from device** for its node.
+
+#### Scenario: Raw PDO in the inspector
+- **WHEN** the user selects a TPDO1 row of node 50 that shows only bytes
+- **THEN** the inspector's Layout line says node 50 has no EDS and its PDOs were not read, with Pick EDS… and Read PDOs from device
+
+#### Scenario: Assumed layout
+- **WHEN** node 32's TPDO1 decodes with its EDS defaults
+- **THEN** the row shows the "assumed" tag and the inspector's Layout line reads "EDS defaults: the device may be mapped differently"
 
 ### Requirement: Dialog buttons stay inside the dialog
 In every dialog of the configurator, every button SHALL be shown whole and inside the dialog's box, at any window width the page supports. Buttons that do not fit on one row SHALL wrap onto further rows, and a button label wider than the dialog SHALL wrap inside its button. The order of the buttons and which button gets the focus SHALL NOT change.

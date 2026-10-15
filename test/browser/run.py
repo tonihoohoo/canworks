@@ -250,10 +250,11 @@ class Run:
         pg = self.page
         pg.goto(self.url)
         pg.wait_for_selector("#editor:not([hidden])")
-        # Commission opens on the Nodes table, whose empty state is the connect
-        # form: this PC has no host or token yet.
+        # Commission opens on the Nodes table; this PC has no host or token yet,
+        # so connect with Connect… in the connection bar, the one place to connect.
         pg.click('#ws [data-ws="commission"]')
-        form = '#view [data-nodes="connect"] '
+        pg.click('#conn-bar [data-conn="connect"]')
+        form = '#conn-dialog '
         pg.fill(form + 'input[data-online="host"]', "127.0.0.1:%d" % self.port)
         pg.click(form + 'button[data-online="connect"]')
         pg.wait_for_selector('#modal input[aria-label="Access token"]')
