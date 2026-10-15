@@ -103,7 +103,18 @@ THEMES = ("auto", "light", "dark")
 # Page settings kept in ui.json, with their choices and defaults.
 UI_SETTINGS = {"theme": (THEMES, "auto"), "dbc_sdo": (dbcexport.SDO_OPTIONS, "none"),
                "workspace": (("configure", "commission"), "configure"), "panel": (("open", "closed"), "open"),
-               "ws_note": (("new", "seen"), "new")}
+               "ws_note": (("new", "seen"), "new"),
+               "node_tab": (("general", "pdos", "sdos", "supervision", "cia402", "simulation", "notes", "advanced"), "general")}
+
+# The network tree's folded networks: a list of network names (or "#<index>").
+TREE_FOLDED_MAX = 8
+
+
+def _tree_folded(value):
+    if not isinstance(value, list) or len(value) > TREE_FOLDED_MAX or \
+            not all(isinstance(v, str) and 0 < len(v) <= 17 for v in value):
+        return None
+    return value
 
 
 def load_ui():
@@ -118,8 +129,10 @@ def load_ui():
             stored = {}
     except (OSError, ValueError):
         stored = {}
-    return {k: stored.get(k) if stored.get(k) in choices else default
-            for k, (choices, default) in UI_SETTINGS.items()}
+    out = {k: stored.get(k) if stored.get(k) in choices else default
+           for k, (choices, default) in UI_SETTINGS.items()}
+    out["tree_folded"] = _tree_folded(stored.get("tree_folded")) or []
+    return out
 
 
 def load_theme():
@@ -129,9 +142,14 @@ def load_theme():
 def save_ui(changes):
     """Stores the settings in `changes` (any of UI_SETTINGS), keeping the rest."""
     if not isinstance(changes, dict) or not changes:
-        raise ApiError(400, "give at least one of: " + ", ".join(UI_SETTINGS))
+        raise ApiError(400, "give at least one of: " + ", ".join(list(UI_SETTINGS) + ["tree_folded"]))
     ui = load_ui()
     for key, value in changes.items():
+        if key == "tree_folded":
+            if _tree_folded(value) is None:
+                raise ApiError(400, "tree_folded must be a list of at most %d network names" % TREE_FOLDED_MAX)
+            ui[key] = value
+            continue
         if key not in UI_SETTINGS:
             raise ApiError(400, "unknown setting %r" % key)
         choices, _ = UI_SETTINGS[key]

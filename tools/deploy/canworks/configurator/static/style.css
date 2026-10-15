@@ -143,23 +143,46 @@ dialog#conn-dialog h2 { margin-top: 0; }
 #problems-box > summary h3 { margin: 0; }
 #overlap-box { padding: 6px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 5px; display: flex; flex-direction: column; gap: 2px; }
 #side { border-right: 1px solid var(--line); padding: 10px; background: var(--panel); }
-#side ul { list-style: none; padding: 0; margin: 0; }
-.nav-item, #node-list li.muted { display: block; width: 100%; text-align: left; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 0; background: none; white-space: normal; }
-.nav-item.active { background: var(--hover); font-weight: 600; }
-#node-list .nav-item { display: flex; gap: 6px; align-items: baseline; }
-#node-list .nav-item > .name { flex: 1; min-width: 0; }
+/* The network tree (tree.js): one row per entry, marks and problem badges. */
+#tree, #tree ul { list-style: none; padding: 0; margin: 0; }
+#tree-toggle { display: none; }
+.tree-item { cursor: pointer; border-radius: 6px; }
+.tree-item:focus { outline: none; }
+.tree-item:focus-visible > .tree-row { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree-row { display: flex; gap: 6px; align-items: center; min-height: 28px; padding: 2px 6px; border-radius: 6px; }
+.tree-item[aria-level="2"] > .tree-row { padding-left: 24px; }
+.tree-row:hover { background: var(--hover); }
+.tree-item.selected > .tree-row { background: var(--hover); font-weight: 600; }
+.tree-item.net > .tree-row { font-weight: 600; margin-top: 6px; }
+.tree-item.action > .tree-row { color: var(--accent); }
+.tree-item.muted > .tree-row { color: var(--muted); cursor: default; }
+.tree-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row .proto { font-size: 11px; font-weight: normal; white-space: nowrap; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tree-item.net > .tree-row > .name { flex: 0 1 auto; }
+.tree-row .twist { width: 12px; color: var(--muted); }
+.tree-mark { width: 9px; height: 9px; border-radius: 50%; flex: none; border: 1.5px solid transparent; }
+.tree-mark.sim { border-color: var(--accent); }
+.tree-mark.absent { border: 1.5px dashed var(--muted); }
+.tree-row .net-menu { padding: 0 6px; min-height: 22px; border-color: transparent; background: none; }
+.tree-row:hover .net-menu, .tree-item:focus-within .net-menu { border-color: var(--line); }
+.tree-badge { display: inline-flex; gap: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.tree-badge .err { color: var(--error); }
+.tree-badge .warn { color: var(--warn); }
+@media (min-width: 1101px) {
+  #side { position: sticky; top: var(--header-h); align-self: start; height: calc(100vh - var(--header-h) - var(--footer-h, 0px)); overflow: auto; box-sizing: border-box; }
+}
+#side-foot { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 4px; font-size: 12px; }
 #side h2.side-caption { margin-top: 14px; }
-#net-bar { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
-.net-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
-.net-tab { padding: 3px 8px; font-size: 13px; }
-.net-tab.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
-.net-tab .count { margin-left: 4px; color: var(--error); font-size: 11px; }
-.net-tab.active .count { color: var(--accent-text); }
-.net-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-.net-actions button { padding: 2px 8px; font-size: 12px; }
-#node-list .count { color: var(--error); font-size: 12px; white-space: nowrap; }
+/* A node in tabs: PDOs side by side on a wide page. */
+.node-tabs { margin-bottom: 12px; }
+.node-tabs .tree-badge { margin-left: 2px; }
+.pdo-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 20px; }
+@media (min-width: 1400px) { .pdo-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+details.pdo-settings { margin: 4px 0 8px; }
+details.pdo-settings > summary { cursor: pointer; font-size: 13px; }
+details.pdo-settings[open] > summary { margin-bottom: 6px; }
+.notes-table td:last-child { width: 1%; }
 #view { padding: 16px 20px; overflow: auto; }
-#view.indexed { padding-bottom: calc(100vh - 240px); }  /* the section index can bring the last section to the top */
 #problems, #log-panel { padding: 0 16px; }
 #problem-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }
 #problem-list li { border-radius: 5px; margin-bottom: 4px; }
@@ -170,11 +193,6 @@ dialog#conn-dialog h2 { margin-top: 0; }
 /* Commissioning: no config, so no Problems and nothing that edits a config. */
 body.commission #problems, body.commission [data-config] { display: none !important; }
 body:not(.commission) [data-commission] { display: none !important; }
-/* The node page's section index follows the page as it scrolls. */
-.section-index { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 2px 4px; margin: 0 0 12px; padding: 4px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
-.section-index a { padding: 3px 8px; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: 13px; }
-.section-index a:hover { background: var(--hover); }
-.section-index a[aria-current="true"] { color: var(--text); background: var(--hover); font-weight: 600; }
 details.section { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 16px; padding: 8px 14px; background: var(--panel); }
 details.section > summary { cursor: pointer; font-weight: 600; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .section-wrap { position: relative; }
@@ -248,14 +266,12 @@ dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; ma
 /* Narrow windows: the side list as a bar; the bottom panel stays. */
 @media (max-width: 1100px) {
   main#editor { grid-template-columns: minmax(0, 1fr); grid-template-areas: "side" "view"; grid-template-rows: auto 1fr; }  /* only the view grows */
-  #side { border: 0; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; padding: 6px 16px; }
-  #side h2.side-caption, #side .muted, #unused-eds { display: none; }
-  #side ul { display: contents; }
-  #side li { display: contents; }
-  .nav-item, #node-list li.muted { display: inline-block; width: auto; }
-  #node-list .nav-item { display: inline-flex; }
+  #side { border: 0; border-bottom: 1px solid var(--line); padding: 6px 16px; position: relative; }
+  #tree-toggle { display: inline-block; }
+  #tree, #side-foot { display: none; }
+  body.tree-open #tree { display: block; position: fixed; z-index: 4; left: 16px; top: calc(var(--header-h) + 44px); width: min(320px, calc(100vw - 32px));
+    max-height: 70vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
   .file-button { margin: 0; }
-  .section-index { position: static; }
 }
 .row { display: flex; gap: 6px; align-items: center; }
 input.wide { width: 100%; }

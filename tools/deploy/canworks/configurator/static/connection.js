@@ -199,7 +199,7 @@ function connBar() {
 function allowControl(c) {
   if (c.allow_changes_source !== "switch") {
     return el("span", { class: "muted", dataset: { conn: "allow" },
-      title: "Set in Configure → Bus and master → Online access, then upload" },
+      title: "Set in Configure → Online access, then upload" },
     c.allow_changes ? "🔓 Changes allowed (runtime setting)" : "🔒 Read-only (runtime setting)");
   }
   const box = el("input", { type: "checkbox", checked: !!c.allow_changes, dataset: { conn: "allow" } });
@@ -246,7 +246,7 @@ function closeConnect() {
 function runtimeBox(message) {
   if (!diagConfig()) {
     return el("div", { dataset: { conn: "no-access" } }, el("p", null, "Online access is off for this config. Turn it on in Configure → ",
-      el("a", { href: "#", onclick: (e) => { e.preventDefault(); closeConnect(); switchWorkspace("configure"); showView("bus"); } }, "Bus and master"),
+      el("a", { href: "#", onclick: (e) => { e.preventDefault(); closeConnect(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
       ", save, and upload the program to the runtime."));
   }
   const host = hostField(true);

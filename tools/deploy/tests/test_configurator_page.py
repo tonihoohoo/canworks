@@ -4,6 +4,7 @@ launch; skipped without them, unless CANWORKS_REQUIRE_BROWSER=1 (CI)."""
 
 import json
 import os
+import re
 import shutil
 import threading
 import time
@@ -11,7 +12,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import PINGPONG, REPO, fake_editor_cli, tmpdir
+from .helpers import PINGPONG, REPO, fake_editor_cli, node_tab, show_path, tmpdir, tree_node, tree_view
 
 try:
     from playwright.sync_api import sync_playwright
@@ -83,11 +84,13 @@ class Page(unittest.TestCase):
 
     def add_node(self, eds, heartbeat="100"):
         """Adds a node from `eds` and gives it a heartbeat: the test EDS files
-        default to none, which the checks refuse (no supervision)."""
-        n = self.page.locator("#node-list [data-node]").count()
+        default to none, which the checks refuse (no supervision). Leaves the
+        node's Supervision tab open."""
+        n = self.page.evaluate("() => S.config.nodes.length")
         self.page.set_input_files("#eds-input", eds)
+        self.page.wait_for_selector('[data-node-heading="%d"]' % n)
+        node_tab(self.page, "supervision")
         self.page.wait_for_selector('select[data-supervision="%d"]' % n)
-        self.page.wait_for_selector("details[data-picker]")
         if heartbeat is not None:
             self.page.select_option('select[data-supervision="%d"]' % n, "heartbeat")
             self.page.fill('input[data-path="nodes[%d].heartbeat_ms"]' % n, heartbeat)
@@ -97,17 +100,43 @@ class Page(unittest.TestCase):
         self.page.wait_for_function("() => document.body.dataset.checking === '0'")
 
     def open_sections(self):
-        """Opens the node page's collapsed sections and object pickers (they
-        are collapsed while empty), as a user does with a click."""
-        self.page.evaluate("() => document.querySelectorAll('details.section, details[data-picker]').forEach((d) => { d.open = true; })")
+        """Opens the open node tab's collapsed sections, object pickers and
+        PDO settings (they are collapsed while empty), as a user does with a
+        click."""
+        self.page.evaluate("() => document.querySelectorAll('details.section, details[data-picker], "
+                           "details[data-pdo-settings]').forEach((d) => { d.open = true; })")
         self.page.wait_for_timeout(50)
 
+    def pdo_settings(self, pb):
+        """Opens the settings of PDO `pb` (nodes[i].tx_pdos[j]) from its summary line."""
+        show_path(self.page, pb)
+        d = self.page.locator('details[data-pdo-settings="%s"]' % pb)
+        if not d.evaluate("d => d.open"):
+            self.page.click('[data-pdo-summary="%s"]' % pb)
+            self.page.wait_for_function("(s) => document.querySelector(s).open",
+                                        arg='details[data-pdo-settings="%s"]' % pb)
+
+    def show(self, path):
+        """Opens the node tab (and the PDO settings) holding the field at
+        `path`; other paths are left to the page that is open."""
+        if not path.startswith("nodes["):
+            return
+        m = re.match(r"(nodes\[\d+\]\.(?:tx|rx)_pdos\[\d+\])\.(number|cob_id|transmission|inhibit_time_us|"
+                     r"event_timer_ms|sync_start|timeout_ms|on_timeout|timeout_location)", path)
+        if m:
+            self.pdo_settings(m.group(1))
+        else:
+            show_path(self.page, path)
+
     def pick(self, obj):
-        """Adds an object (index:subindex) to a PDO through the object picker."""
+        """Adds an object (index:subindex) to a PDO through the object picker
+        of the PDOs tab."""
+        node_tab(self.page, "pdos")
         self.open_sections()
         self.page.click('button[data-add="%s"]' % obj)
 
     def fill(self, path, value):
+        self.show(path)
         self.page.fill('input[data-path="%s"]' % path, value)
 
     def filled(self, path):
@@ -141,6 +170,7 @@ class Page(unittest.TestCase):
 
     def test_rtd_node_in_a_project(self):
         pg = self.page
+        pg.wait_for_selector("#start-project")  # the start page renders after its first fetch
         self.assertTrue(pg.is_visible("#start-project"))
         self.open_from_start("#start-project", self.project)
         self.assertIn("project rtd-monitor", pg.inner_text("#mode"))
@@ -153,6 +183,7 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].node_id", "5")
         self.fill("nodes[0].name", "rtd")
         # Supervision is a dropdown; only the chosen method's fields show.
+        node_tab(pg, "supervision")
         self.assertEqual(pg.locator('input[data-path="nodes[0].heartbeat_ms"]').count(), 0)
         pg.select_option('select[data-supervision="0"]', "heartbeat")
         self.assertEqual(pg.locator('input[data-path="nodes[0].guard_time_ms"]').count(), 0)
@@ -167,12 +198,16 @@ class Page(unittest.TestCase):
             pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[%d].iec_location"]' % (sub - 1))
         # EMCY inputs: the next free word after the four temperatures, the
         # next free byte after the state byte.
+        node_tab(pg, "supervision")
         pg.click('button[data-suggest="emcy"]')
         pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].emcy_code_location\"]').value === '%IW104'")
         pg.click('button[data-suggest="errreg"]')
         pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].error_register_location\"]').value === '%IB101'")
         # Defaults show where a value is left out: the CiA 301 COB-ID and the
-        # EDS's own transmission type (255 for this module).
+        # EDS's own transmission type (255 for this module), in the PDO's
+        # settings under its summary line.
+        self.pdo_settings("nodes[0].tx_pdos[0]")
+        self.assertIn("COB-ID 0x185", pg.inner_text('[data-pdo-summary="nodes[0].tx_pdos[0]"]'))
         self.assertEqual(pg.get_attribute('input[data-path="nodes[0].tx_pdos[0].cob_id"]', "placeholder"), "0x185")
         self.assertIn("EDS default (255", pg.inner_text('select[data-path="nodes[0].tx_pdos[0].transmission"] option:checked'))
         pg.select_option('select[data-path="nodes[0].tx_pdos[0].transmission"]', "n")
@@ -182,6 +217,7 @@ class Page(unittest.TestCase):
         # Startup SDO: sensor type of channel 0, moved to the top of the list.
         # 0x1017 is a communication object the plugin sets, so the picker
         # lists it only with "Show all writable objects".
+        node_tab(pg, "sdos")
         self.open_sections()
         self.assertEqual(pg.locator('button[data-sdo="0x1017:0"]').count(), 0)
         pg.check('input[aria-label="Show all writable objects"]')
@@ -297,7 +333,7 @@ class Page(unittest.TestCase):
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(RTD, "rtd8.eds"))
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         for key, want in (("bus_state_location", "%IB100"), ("tx_error_count_location", "%IB101"),
                           ("rx_error_count_location", "%IB102"), ("bus_off_count_location", "%IW100")):
             pg.click('button[data-suggest="%s"]' % key)
@@ -318,26 +354,32 @@ class Page(unittest.TestCase):
         self.open_from_start("#start-project", self.project)
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
+
+        def upload(eds):
+            # Not add_node: opening another node tab clears the banner with the report.
+            n = pg.evaluate("() => S.config.nodes.length")
+            pg.set_input_files("#eds-input", eds)
+            pg.wait_for_selector('[data-node-heading="%d"]' % n)
         # Accepted findings: one line, the list collapsed and grouped by object.
-        self.add_node(os.path.join(DRIVES, "servo-drive.eds"))
+        upload(os.path.join(DRIVES, "servo-drive.eds"))
         report = pg.locator('#banner details[data-report="accepted"]')
         self.assertIn("2 lint findings accepted", report.locator("summary").inner_text())
         self.assertFalse(report.evaluate("d => d.open"))
         self.assertEqual(report.locator("li").all_text_contents(),
                          ["0x60C0: LowLimit overflow in [60C0]", "0x60C2 sub 2: LowLimit overflow in [60C2sub2]"])
         # Corrections the PLC makes.
-        self.add_node(os.path.join(LINT, "octet-string.eds"))
+        upload(os.path.join(LINT, "octet-string.eds"))
         self.assertIn('[2051] DefaultValue was "----"',
                       pg.locator('#banner [data-report="corrections"]').inner_text())
         # A clean file is just readable.
-        self.add_node(os.path.join(PINGPONG, "cpp-slave.eds"))
+        upload(os.path.join(PINGPONG, "cpp-slave.eds"))
         pg.wait_for_selector('#banner [data-report="readable"]')
         # A finding in a communication object: refused, no node added.
-        nodes = pg.locator("button[data-view^='node:']").count()
+        nodes = pg.locator("#tree [data-node]").count()
         pg.set_input_files("#eds-input", os.path.join(LINT, "comm-broken.eds"))
         pg.wait_for_selector("#banner.error:has-text(\"fails dcfgen's lint\")")
         self.assertIn("0x1A00 sub 0", pg.inner_text("#banner"))
-        self.assertEqual(pg.locator("button[data-view^='node:']").count(), nodes)
+        self.assertEqual(pg.locator("#tree [data-node]").count(), nodes)
 
     def test_eds_lint_setting(self):
         pg = self.page
@@ -352,7 +394,7 @@ class Page(unittest.TestCase):
             json.dump(cfg, f)
         self.open_from_start("#start-project", self.project)
         pg.wait_for_selector("#banner:has-text(\"old 'strict_eds'\")")
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         sel = 'select[data-path="master.eds_lint"]'
         self.assertEqual(pg.input_value(sel), "off")
         self.save()
@@ -377,7 +419,7 @@ class Page(unittest.TestCase):
         with open(path, "w") as f:
             json.dump(cfg, f)
         self.open_from_start("#start-project", self.project)
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         sel = 'input[data-path="master.sync_period_us"]'
         self.assertEqual(pg.input_value(sel), "10")
         self.assertEqual(pg.get_attribute(sel, "placeholder"), "off")
@@ -396,7 +438,7 @@ class Page(unittest.TestCase):
         with open(path, "w") as f:
             json.dump(cfg, f)
         self.open_from_start("#start-project", self.project)
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         sel = 'select[data-path="master.sync_source"]'
         self.assertEqual(pg.input_value(sel), "")
         pg.select_option(sel, "plc_cycle")
@@ -427,7 +469,7 @@ class Page(unittest.TestCase):
         self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         pg.select_option('select[data-path="adapter.type"]', "slcan")
         pg.wait_for_selector('input[data-path="adapter.device"]')
         # SocketCAN-only settings are gone; the interface and bit rate stay.
@@ -457,7 +499,7 @@ class Page(unittest.TestCase):
         # add-plc-network-control 5.2: the corrected hint and a CO_NETWORK_START call.
         pg = self.page
         self.open_from_start("#start-project", self.project)
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         pg.click('details[data-advanced="master"] > summary')
         box = pg.locator('input[data-path="master.start"]').locator("xpath=ancestor::div[1]")
         self.assertIn("until the PLC program starts it with CO_NETWORK_START", box.inner_text())
@@ -480,22 +522,28 @@ class Page(unittest.TestCase):
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "node-options.eds"))
         self.fill("nodes[0].node_id", "2")
+        node_tab(pg, "supervision")
         pg.click('button[data-suggest="boot_error"]')
         pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].boot_error_location\"]').value === '%IB100'")
-        # Collapsed until opened; node-side fields show the EDS value.
+        # On the Advanced tab, open there; node-side fields show the EDS value.
         self.assertFalse(pg.is_visible('input[data-path="nodes[0].time_cob_id"]'))
-        pg.click('details[data-advanced="node0"] > summary')
+        node_tab(pg, "advanced")
+        self.assertTrue(pg.is_visible('input[data-path="nodes[0].time_cob_id"]'))
         self.assertEqual(pg.get_attribute('input[data-path="nodes[0].time_cob_id"]', "placeholder"),
                          "EDS default (0x80000100)")
         pg.check('input[data-path="nodes[0].mandatory"]')
         self.fill("nodes[0].revision_number", "0x00010002")
         self.fill("nodes[0].error_behavior", "1=0, 3=2")
         pg.select_option('select[data-path="nodes[0].heartbeat_consumer"]', "false")
-        # The section stays open across a re-render.
+        # The section stays open across a re-render and a visit to another tab.
+        self.settled()
+        self.assertTrue(pg.is_visible('input[data-path="nodes[0].time_cob_id"]'))
+        node_tab(pg, "supervision")
         pg.click('button[data-suggest="state"]')
         pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].state_location\"]').value === '%IB101'")
+        node_tab(pg, "advanced")
         self.assertTrue(pg.is_visible('input[data-path="nodes[0].time_cob_id"]'))
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         pg.click('button[data-suggest="state_location"]')
         pg.wait_for_function("() => document.querySelector('input[data-path=\"master.state_location\"]').value === '%IB102'")
         pg.click('details[data-advanced="master"] > summary')
@@ -514,7 +562,7 @@ class Page(unittest.TestCase):
         self.assertEqual((master["state_location"], master["start_nodes"], master["nmt_inhibit_time_us"],
                           master["heartbeat_multiplier"], master["sdo_timeout_ms"]), ("%IB102", False, 200, 2.5, 3000))
         # Emptied again: nothing saved, the plugin's default applies.
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         if not pg.is_visible('input[data-path="master.sdo_timeout_ms"]'):
             pg.click('details[data-advanced="master"] > summary')
         self.fill("master.sdo_timeout_ms", "")
@@ -536,7 +584,7 @@ class Page(unittest.TestCase):
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "config-check.eds"))
         self.fill("nodes[0].node_id", "2")
-        pg.click('details[data-advanced="node0"] > summary')
+        node_tab(pg, "advanced")
         check = 'input[data-path="nodes[0].config_check"]'
         store = 'select[data-path="nodes[0].store_configuration"]'
         # The save needs the check first.
@@ -564,8 +612,7 @@ class Page(unittest.TestCase):
         self.assertNotIn("store_configuration", node)
         # A device without 0x1020: the checkbox is off and says why.
         self.add_node(os.path.join(RTD, "rtd8.eds"))
-        if not pg.is_visible('input[data-path="nodes[1].config_check"]'):
-            pg.click('details[data-advanced="node1"] > summary')
+        node_tab(pg, "advanced")
         self.assertTrue(pg.is_disabled('input[data-path="nodes[1].config_check"]'))
         field = pg.locator('input[data-path="nodes[1].config_check"]').locator("xpath=ancestor::div[1]")
         self.assertIn("no 0x1020", field.inner_text())
@@ -578,7 +625,7 @@ class Page(unittest.TestCase):
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "lss-slave.eds"))
         self.fill("nodes[0].node_id", "12")
-        pg.click('details[data-advanced="node0"] > summary')
+        node_tab(pg, "advanced")
         assign = 'input[data-path="nodes[0].lss.assign"]'
         store = 'input[data-path="nodes[0].lss.store"]'
         reset = 'input[data-path="nodes[0].reset_communication"]'
@@ -611,8 +658,7 @@ class Page(unittest.TestCase):
         self.assertNotIn("lss", load(path)["nodes"][0])
         # An EDS without LSS_Supported: no LSS for the node, the boxes are off with the reason.
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
-        if not pg.is_visible('input[data-path="nodes[1].lss.assign"]'):
-            pg.click('details[data-advanced="node1"] > summary')
+        node_tab(pg, "advanced")
         self.assertEqual(pg.locator("[data-lss-warning]").count(), 1)
         self.assertIn("has no LSS", pg.inner_text("[data-lss-warning]"))
         self.assertTrue(pg.is_disabled('input[data-path="nodes[1].lss.assign"]'))
@@ -631,15 +677,19 @@ class Page(unittest.TestCase):
         self.add_node(os.path.join(CIA402, "servo402.eds"))
         self.fill("nodes[0].node_id", "4")
         self.fill("nodes[0].name", "drive")
+        node_tab(pg, "cia402")
         box = 'input[data-path="nodes[0].axis"]'
         self.assertEqual(pg.locator("button[data-map-cia402]").count(), 0)
         pg.check(box)
         self.assertEqual(pg.locator("[data-axis-status]").count(), 1)
         self.assertEqual(pg.locator("[data-axis-profile]").count(), 0)  # device type 0x00020192
         pg.click('button[data-map-cia402="nodes[0]"]')
-        pg.wait_for_selector('input[data-path="nodes[0].rx_pdos[3].entries[0].iec_location"]')
+        pg.wait_for_selector("[data-axis-result]")
         self.assertIn("0x6081 profile velocity (RPDO2", pg.inner_text("[data-axis-result]"))
         self.assertEqual(pg.locator("[data-axis-status]").count(), 0)
+        node_tab(pg, "pdos")
+        pg.wait_for_selector('input[data-path="nodes[0].rx_pdos[3].entries[0].iec_location"]')
+        node_tab(pg, "cia402")
         self.fill("nodes[0].axis.scale_numerator", "10")
         self.fill("nodes[0].axis.scale_factor", "2.5")
         self.save()
@@ -656,6 +706,7 @@ class Page(unittest.TestCase):
         self.assertEqual(got["rx_pdos"][:3], want["rx_pdos"])
         self.assertEqual((got["tx_pdos"][3], got["rx_pdos"][3]), ((4, ["0x6077"]), (4, ["0x6071"])))
         # Mapping again adds nothing.
+        node_tab(pg, "cia402")
         pg.click('button[data-map-cia402="nodes[0]"]')
         pg.wait_for_selector("[data-axis-result]:has-text('Nothing new to map')")
         # The declarations have the axis and its bridge call.
@@ -666,14 +717,15 @@ class Page(unittest.TestCase):
         self.assertIn("drive.iRatioTechUnitsNum := DINT#10;", block)
         self.assertIn("drive.fScalefactor := LREAL#2.5;", block)
         self.assertIn("bOnline := drive_ok", block)
-        # A device that is not a CiA 402 drive (no 0x6040 and 0x6041): the switch is off and says why.
+        # A device that is not a CiA 402 drive (no 0x6040 and 0x6041): no CiA 402 tab.
         pg.click('#tool-tabs button[data-view="network"]')
-        pg.click('#node-list [data-node="0"]')
+        tree_node(pg, 0)
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
-        self.assertTrue(pg.is_disabled('input[data-path="nodes[1].axis"]'))
-        self.assertIn("not a CiA 402 drive", pg.inner_text("[data-axis-no-drive]"))
-        # An axis set already (an older file) can still be switched off; the profile warning shows.
+        self.assertEqual(pg.locator('.node-tabs [data-node-tab="cia402"]').count(), 0)
+        self.assertEqual(pg.locator('.node-tabs [data-node-tab="general"]').count(), 1)
+        # An axis set already (an older file): the tab shows, the axis can still be switched off; the profile warning shows.
         pg.evaluate("() => { setPath('nodes[1].axis', {}); changed(); render(); }")
+        node_tab(pg, "cia402")
         self.assertFalse(pg.is_disabled('input[data-path="nodes[1].axis"]'))
         self.assertEqual(pg.locator("[data-axis-profile]").count(), 1)
         pg.click('button[data-map-cia402="nodes[1]"]')
@@ -688,6 +740,7 @@ class Page(unittest.TestCase):
         self.add_node(os.path.join(CIA402, "servo402.eds"))
         self.fill("nodes[0].node_id", "4")
         self.fill("nodes[0].name", "drive")
+        node_tab(pg, "cia402")
         pg.check('input[data-path="nodes[0].axis"]')
         cyc = 'input[data-path="nodes[0].axis.cyclic"]'
         self.assertEqual(pg.locator('input[data-path="nodes[0].axis.interpolation_period_us"]').count(), 0)
@@ -737,6 +790,7 @@ class Page(unittest.TestCase):
         self.fill("adapter.interface", "can0")
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.fill("nodes[0].node_id", "5")
+        node_tab(pg, "sdos")
         self.open_sections()
         pg.check('input[aria-label="Show all writable objects"]')
         pg.click('button[data-sdo="0x1017:0"]')
@@ -781,6 +835,8 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].rx_pdos[0].entries[0].iec_location", "%QD300")
         # pdo-comm.eds fixes TPDO 1's inhibit time (ro) and RPDO 1's
         # transmission type (ro, 255); RPDO 1 has a deadline (sub 5).
+        self.pdo_settings("nodes[0].tx_pdos[0]")
+        self.pdo_settings("nodes[0].rx_pdos[0]")
         self.assertTrue(pg.is_disabled('input[data-path="nodes[0].tx_pdos[0].inhibit_time_us"]'))
         self.assertIn("255: event-driven, fixed by the EDS",
                       pg.inner_text('output[data-path="nodes[0].rx_pdos[0].transmission"]'))
@@ -793,6 +849,7 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].tx_pdos[0].cob_id", "auto")
         pg.wait_for_selector("text=auto = 0x182")
         # The SDO picker hides process signals and plugin objects.
+        node_tab(pg, "sdos")
         self.open_sections()
         self.assertEqual(pg.locator('button[data-sdo="0x4000:0"]').count(), 0)
         self.assertEqual(pg.locator('button[data-sdo="0x1400:5"]').count(), 0)
@@ -817,6 +874,7 @@ class Page(unittest.TestCase):
         self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
+        self.pdo_settings("nodes[0].tx_pdos[0]")
         # Off by default. The EDS event timer is 0, so auto has nothing to use.
         self.assertEqual(pg.get_attribute('input[data-path="nodes[0].tx_pdos[0].timeout_ms"]', "placeholder"), "off")
         self.assertEqual(pg.locator('select[data-path="nodes[0].tx_pdos[0].on_timeout"]').count(), 0)
@@ -854,6 +912,9 @@ class Page(unittest.TestCase):
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "fixed-io.eds"))
         self.fill("nodes[0].node_id", "2")
         # Every TPDO of fixed-io.eds is fixed: 0x6000:3 is in none of them.
+        node_tab(pg, "pdos")
+        self.open_sections()
+        self.assertEqual(pg.locator('button[data-add="0x6000:2"]').count(), 1)
         self.assertEqual(pg.locator('button[data-add="0x6000:3"]').count(), 0)
         self.pick("0x6000:2")
         pg.wait_for_selector('[data-mapping="nodes[0].tx_pdos[0]"]:has-text("Set by the device")')
@@ -905,6 +966,7 @@ class Page(unittest.TestCase):
         pg = self.page
         self.open_from_start("#start-project", self.project)
         self.add_node(os.path.join(RTD, "rtd8.eds"))
+        node_tab(pg, "sdos")
         self.open_sections()
         self.assertEqual(pg.locator('button[data-sdo="0x1018:1"]').count(), 0)
         pg.fill('input[aria-label="SDO index"]', "0x1018")
@@ -919,10 +981,12 @@ class Page(unittest.TestCase):
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.fill("nodes[0].node_id", "5")
         # NMT command byte next to the state byte.
+        node_tab(pg, "supervision")
         pg.click('button[data-suggest="nmt"]')
         nmt = self.filled("nodes[0].nmt_command_location")
         self.assertTrue(nmt.startswith("%QB"), nmt)
         # Read the serial number (0x1018:4, const).
+        node_tab(pg, "sdos")
         self.open_sections()
         pg.fill('input[aria-label="Filter SDO variable objects"]', "0x1018")
         pg.click('button[data-sdo-var="0x1018:4"]')
@@ -1076,7 +1140,7 @@ class Page(unittest.TestCase):
         doc["master"]["sync_period_us"] = 20000
         with open(path, "w") as f:
             json.dump(doc, f)
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         self.fill("adapter.interface", "can1")
         self.settled()
         pg.click("#btn-save")

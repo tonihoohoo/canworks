@@ -52,7 +52,7 @@ This change replaces that left column with a network tree, turns the Configure n
 - **Add network…** is the last entry and opens today's add-network dialog.
 - The unused EDS note and the address scan line move under the tree as a muted footer.
 - Each network entry has a "⋯" menu button with **Rename…**, **Role** (master or slave, CANopen networks) and **Remove…**, with today's confirmations. With one network the tree still shows the network entry, so the network's name and menu are always reachable; it starts expanded.
-- Which networks are expanded is kept per folder in `ui.json`. A network holding the selected entry or a new error expands by itself.
+- Which networks are folded is kept on this PC in `ui.json` (`tree_folded`, network names, at most 8). A folded network shows the sum of its badges, and a problem link into it unfolds it.
 
 *Alternative:* keep network tabs and only make the node list a tree. Rejected: a config with two networks then still hides one network's problems and state.
 
@@ -88,7 +88,7 @@ Long names are cut with an ellipsis and shown whole in a tooltip and in the acce
 - **CiA 402** shows when the node's EDS has 0x6040 and 0x6041, or when the node already has an `axis`, so an axis set on a wrong EDS stays visible with its problem.
 - **Simulation** shows when the node is simulated.
 - The toolbar above the tabs keeps the heading "Node 5 rtd", Export DCF and Remove node. Export merged notes moves to the Notes tab.
-- The open tab kind is kept when the user opens another node, when that node has it (General otherwise), so comparing one setting across nodes is a click per node. It is part of the URL hash next to the workspace (`#configure/io/node/5/pdos`) and of `ui.json`, so a reload returns to it.
+- The open tab kind is kept when the user opens another node, when that node has it (General otherwise), so comparing one setting across nodes is a click per node. It is kept in `ui.json` (`node_tab`), so a reload returns to it.
 - A new node from an EDS opens on General with focus in its name, as today.
 - The section index and its `IntersectionObserver` are removed.
 
@@ -132,13 +132,12 @@ Problems already carry the config path of their field (`nodes[2].tx_pdos[1].entr
 - Clicking a problem in the bottom panel selects its entry, expands its network, opens its tab, opens a closed PDO settings part when needed, and focuses the field, as clicking a problem does today.
 
 ### 9. A slot for live state
-Each node entry is laid out as: mark, node ID, name, problem badge. The mark slot holds the simulated or absent mark from this change; `commission-workspace` puts the live NMT state shape and the EMCY flag there while connected. The tree exposes a `setNodeMark(network, nodeId, mark)` call for it, so that change does not redraw the tree.
+Each node entry is laid out as: mark, node ID, name, problem badge. The mark slot holds the simulated or absent mark from this change; `commission-workspace` puts the live NMT state shape and the EMCY flag there while connected. The tree exposes a `setNodeMark(network, nodeId, mark, word)` call for it (network by name, `null` clears), which changes only that entry, so that change does not redraw the tree.
 
 ### 10. Commission with a config
 The Commission workspace tab uses the same tree, built from the config:
 - a network entry opens that network's node table (today's online view of the network);
 - a node entry opens the node's live tabs (Overview, Object dictionary, Parameters today; `commission-workspace` replaces them with Status, Object dictionary, Parameters, Notes and Log);
-- Bus and master opens the bus and master part of the online view;
 - configuration-only entries (Add node…, PDO links, CAN messages, Online access, Gateway, Modbus bridge, Add network…) are not shown, and the network menu is not shown.
 
 The connection bar's network picker and the tree stay in step: picking a node on another network moves the picker, and changing the picker selects that network's entry. With the tree, the picker's start rule ("the network whose tab is open in Configure") becomes "the network of the entry selected in Configure".
@@ -149,7 +148,7 @@ Selected entries are kept per workspace, so switching workspace returns to where
 Online access (`master.diagnostics`, with the CiA 309-3 gateway part) is one setting for the whole config (requirement "Online access for all networks"), so it becomes its own tree entry after the networks instead of a section of the first network's Bus and master page. The connection bar's read-only lock text and the connect panel's "Online access is off" link point there.
 
 ### 12. Narrow window
-Below 1000 px the tree folds into a "Network ▾" button at the top of the workspace tab that opens the tree as a panel over the page; picking an entry closes it. The button shows the selected entry's name and the config's total error count, so problems stay in view with the bottom panel's count.
+At 1100 px and narrower (the page's existing narrow breakpoint) the tree folds into a "Network ▾" button at the top of the workspace tab that opens the tree as a panel over the page; picking an entry closes it. The button shows the selected entry's name and the config's total error count, so problems stay in view with the bottom panel's count.
 
 ### 13. Code layout
 - `tree.js`: tree rendering, keyboard, network menu, badges, the mark slot.
@@ -160,15 +159,15 @@ There is still no build step.
 
 ## Risks / Trade-offs
 
-- **[Many page tests click the side bar, the network bar or a node page section]** → Test helpers `openEntry(network, item)` and `openNodeTab(node, tab)` first; the existing tests move to them, all green before new tests are added. The same tests then check the new layout.
+- **[Many page tests click the side bar, the network bar or a node page section]** → Test helpers (`tree_entry`, `tree_node`, `node_tab`, `show_path`) first; the existing tests move to them, all green before new tests are added. The same tests then check the new layout.
 - **[A field moves to a tab the user does not expect]** → Problem navigation always opens the right tab, the tab badges show where the problems are, and docs/configurator.md has a table of where each former section went.
-- **[A problem path that the map does not know]** → It falls back to the node's General tab, or the network entry, and a test walks every check message in the parity corpus (`test/fixtures/config/bad`) to assert each lands on an entry.
+- **[A problem path that the map does not know]** → It falls back to the node's Advanced tab (General for the node itself), or the network entry, so every problem of a network lands on an entry; page tests follow problems to a node tab, to another network's node and to a folded network.
 - **[PDOs side by side are cramped at exactly 1400 px]** → The layout fit check runs at 1280, 1440 and 1600 px, and the breakpoint moves up if a mapping table does not fit.
 
 ## Migration Plan
 
 UI only:
-- `ui.json` gains `tree_expanded` and `node_tab` per folder; older files lack them and the page starts with every network expanded and General.
+- `ui.json` gains `tree_folded` and `node_tab`; older files lack them and the page starts with every network unfolded and General.
 - Rollback is the previous tools version.
 
 ## Open Questions

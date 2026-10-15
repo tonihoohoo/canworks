@@ -59,7 +59,7 @@ None.
   - `app.js`: the side bar, network bar and node page move out into the new modules `tree.js` (tree, badges, marks) and `node.js` (node tabs);
   - `links.js`, `rawcan.js`, `bridge.js`, `j1939.js`, `sim.js`: opened from the tree instead of the side bar;
   - the Commission workspace's online view in `app.js`.
-- Configurator server: `ui.json` keeps the expanded networks and the open node tab per folder. No other server change.
+- Configurator server: `ui.json` keeps the folded networks and the open node tab. No other server change.
 - Tests: page tests moved from side bar clicks to tree helpers; new tests for the tree (keyboard, badges, simulated marks), node tabs, problem navigation and the layout fit at 1000, 1280 and 1440 px; axe-core on the tree and the tabs.
 - Docs: `docs/configurator.md`, `docs/tour.md`, `docs/simulator.md`, `README.md`.
 - Version: PC tools minor bump. No plugin change, so no hardware test.

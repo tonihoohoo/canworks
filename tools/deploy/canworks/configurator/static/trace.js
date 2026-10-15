@@ -236,7 +236,7 @@ function showTraceHeader(st) {
     const commission = !!(S.state && S.state.commission);
     parts.push(el("div", { class: "online-note", dataset: { trace: "online-hint" } },
       commission ? "Recording needs the USB adapter connection. " : diagConfig() ? "Recording needs the connection to the runtime. "
-        : "Recording needs online access: turn it on in Configure → Bus and master, save and upload. ",
+        : "Recording needs online access: turn it on in Configure → Online access, save and upload. ",
       commission || diagConfig() ? el("button", { type: "button", class: "small primary", dataset: { trace: "open-connect" }, onclick: () => openConnect() }, "Connect…") : null,
       " Opening, viewing and exporting trace files works without it."));
   }

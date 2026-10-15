@@ -14,7 +14,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tmpdir
+from .helpers import REPO, tmpdir, tree_node
 from .test_configurator_page import REQUIRED, load, sync_playwright
 
 PLANT = os.path.join(REPO, "examples", "virtual-plant")
@@ -96,8 +96,24 @@ class Base(unittest.TestCase):
     def answer(self, value):
         self.page.click('#modal-buttons button[data-value="%s"]' % value)
 
+    def net_entry(self, name):
+        """The tree entry of the network named `name`."""
+        return '#tree > li.net:has(> .tree-row > .name:text-is("%s"))' % name
+
     def tab(self, name):
-        self.page.click('#net-bar button[role=tab]:has-text("%s")' % name)
+        """Opens the network named `name` from its tree entry."""
+        self.page.click(self.net_entry(name) + " > .tree-row")
+
+    def net_menu(self, name, action):
+        """Rename, role or remove of the network named `name` from its tree menu."""
+        self.page.click(self.net_entry(name) + " > .tree-row [data-net-menu]")
+        self.answer(action)
+
+    def pdo_settings(self, pb):
+        """Opens the collapsed communication settings of the PDO at `pb` (nodes[i].tx_pdos[j])."""
+        if not self.page.locator('details[data-pdo-settings="%s"][open]' % pb).count():
+            self.page.click('details[data-pdo-settings="%s"] > summary' % pb)
+        self.page.wait_for_selector('details[data-pdo-settings="%s"][open]' % pb)
 
     def draft(self, expr):
         return self.page.evaluate("() => JSON.parse(JSON.stringify(%s))" % expr)
@@ -240,16 +256,15 @@ class Editing(Base):
     def test_rename_network_and_node_id_carry_into_the_gateway(self):
         pg = self.page
         self.open(self.folder)
-        self.tab("io")
-        pg.click('#net-bar button[data-net-action="rename"]')
-        pg.wait_for_selector("#modal[open]")
-        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.net"), "name")
+        self.net_menu("io", "rename")
+        pg.wait_for_selector('#modal[open] #modal-extra input[data-net="name"]')
+        pg.wait_for_function("() => document.activeElement.dataset.net === 'name'")
         pg.fill('#modal-extra input[data-net="name"]', "field")
         pg.press('#modal-extra input[data-net="name"]', "Enter")
-        pg.wait_for_selector('#net-bar button[role=tab]:has-text("field")')
+        pg.wait_for_selector(self.net_entry("field"))
         self.assertEqual([r["field"]["network"] for r in self.draft("S.model.top.gateway.routes")], ["field", "field"])
         # Node 6 dio -> 16: the route that writes it follows, also when typed over.
-        pg.click('#node-list [data-node="1"]')
+        tree_node(pg, 1, "general")
         pg.fill('#view input[data-path="nodes[1].node_id"]', "")
         pg.type('#view input[data-path="nodes[1].node_id"]', "16")
         self.assertEqual([r["field"]["node"] for r in self.draft("S.model.top.gateway.routes")], [5, 16])
@@ -259,9 +274,8 @@ class Editing(Base):
     def test_remove_the_upper_network_asks_about_the_gateway(self):
         pg = self.page
         self.open(self.folder)
-        self.tab("cell")
-        pg.click('#net-bar button[data-net-action="remove"]')
-        pg.wait_for_selector("#modal[open]")
+        self.net_menu("cell", "remove")
+        pg.wait_for_selector("#modal[open] #modal-text:has-text('Remove network cell')")
         self.assertIn("gateway's upper network: the gateway and its 2 routes are removed too", pg.inner_text("#modal-text"))
         self.answer("remove")
         pg.wait_for_selector("#banner:has-text('Removed network cell and the gateway')")
@@ -276,7 +290,7 @@ class Editing(Base):
     def test_new_network_heading(self):
         pg = self.page
         self.open(self.folder)
-        pg.click('#net-bar button[data-net-action="add"]')
+        pg.click('#tree [data-action="add-network"] > .tree-row')
         self.answer("canopen")
         pg.wait_for_selector("#view h2:has-text('Bus and master: network 5')")
         self.assertNotIn("network network", pg.inner_text("#view h2"))
@@ -294,8 +308,7 @@ class Editing(Base):
             json.dump(cfg, f, indent=2)
         self.open(self.folder)
         self.tab("host")
-        pg.click('#node-list [data-node="0"]')
-        pg.evaluate("() => document.querySelectorAll('details.section').forEach((d) => { d.open = true; })")
+        tree_node(pg, 0, "pdos")
         # Emptying TPDO 1 entry by entry drops it; the PDOs after it keep their numbers.
         for _ in range(2):
             pg.click('tr[data-path="nodes[0].tx_pdos[0].entries[0]"] button[aria-label^="Remove"]')
@@ -310,8 +323,7 @@ class Editing(Base):
         self.assertEqual(count, "none", text)
         # The same startup SDO object twice is marked.
         self.tab("motion")
-        pg.click('#node-list [data-node="0"]')
-        pg.evaluate("() => document.querySelectorAll('details.section').forEach((d) => { d.open = true; })")
+        tree_node(pg, 0, "sdos")
         pg.fill('input[aria-label="SDO index"]', "0x6065")
         pg.fill('input[aria-label="SDO subindex"]', "0")
         pg.click("button:has-text('Add write')")
@@ -322,8 +334,8 @@ class Editing(Base):
         pg = self.page
         self.open(self.folder)
         self.tab("io")
-        pg.click('#node-list [data-node="0"]')
-        pg.evaluate("() => document.querySelectorAll('details.section').forEach((d) => { d.open = true; })")
+        tree_node(pg, 0, "pdos")
+        self.pdo_settings("nodes[0].tx_pdos[0]")
         pg.select_option('select[data-path="nodes[0].tx_pdos[0].on_timeout"]', "zero")
         pg.fill('input[data-path="nodes[0].tx_pdos[0].timeout_location"]', "%IX90.0")
         before = self.draft("S.config.nodes[0].tx_pdos[0]")

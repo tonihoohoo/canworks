@@ -8,7 +8,7 @@ In both workspaces of a config, the left column of the workspace tab SHALL be a 
 - **Add node…** on a CANopen master network in Configure, which opens the EDS file chooser for that network;
 - PDO links and CAN messages, when the network has them today.
 
-After the networks the tree SHALL show Online access (Configure), Gateway and Modbus bridge when the config has them, and **Add network…** (Configure). Each network entry SHALL have a menu with **Rename…**, **Role** (CANopen networks) and **Remove…**, keeping today's confirmations. Which networks are expanded SHALL be kept on this PC per folder; a network SHALL expand by itself when it holds the selected entry or gets a new error. The unused EDS files note and the address scan line SHALL be shown under the tree. Renaming a node SHALL update its entry as the user types.
+After the networks the tree SHALL show Online access (Configure), Gateway and Modbus bridge when the config has them, and **Add network…** (Configure). Each network entry SHALL have a menu with **Rename…**, **Role** (CANopen networks) and **Remove…**, keeping today's confirmations. Which networks are folded SHALL be kept on this PC and SHALL come back after a page reload; a folded network SHALL show the sum of its entries' problem counts, and SHALL unfold by itself when a problem link opens an entry in it. The unused EDS files note and the address scan line SHALL be shown under the tree. Renaming a node SHALL update its entry as the user types.
 
 #### Scenario: Two networks at once
 - **WHEN** a config has networks `io` with nodes 5 and 7 and `drives` with node 2
@@ -99,7 +99,7 @@ The Notes tab SHALL list the objects of the node's EDS that have a note, built-i
 - **THEN** only 0x6060 is listed with its note, and **Note** opens its editor
 
 ### Requirement: Problem badges
-Each tree entry and each node tab SHALL show its number of errors and of warnings, marked by shape and text as well as colour, with an accessible name such as "2 errors, 1 warning". A collapsed network SHALL show the sum of its entries' problems; an expanded network SHALL show only its own. A problem whose place cannot be matched to an entry SHALL be counted on its network, or on the node's General tab when it names a node. Selecting a problem in the bottom panel SHALL select its entry, expand its network, open its tab and any closed part holding the field, and focus the field.
+Each tree entry and each node tab SHALL show its number of errors and of warnings, marked by shape and text as well as colour, with an accessible name such as "2 errors, 1 warning". A collapsed network SHALL show the sum of its entries' problems; an expanded network SHALL show only its own. A problem whose place cannot be matched to an entry SHALL be counted on its network, or on the node's Advanced tab when it names a node field no other tab holds (General when it names the node itself). Selecting a problem in the bottom panel SHALL select its entry, expand its network, open its tab and any closed part holding the field, and focus the field.
 
 #### Scenario: Where the errors are
 - **WHEN** node 5 on `io` has one error in TPDO 2 and one in its heartbeat, and `io` is collapsed
@@ -114,7 +114,7 @@ Each tree entry and each node tab SHALL show its number of errors and of warning
 - **THEN** node 5's entry, its tab and its network show no error count
 
 ### Requirement: Tree in Commission with a config
-In Commission with a config, the tree SHALL show the config's networks, their Bus and master entry and their nodes, without the configuration-only entries (Add node…, PDO links, CAN messages, Online access, Gateway, Modbus bridge, Add network…) and without the network menu. A network entry SHALL open that network's node table, Bus and master its bus and master state, and a node entry the node's live tabs. Picking an entry on another network SHALL move the connection bar's network picker to that network, and changing the picker SHALL select that network's entry. Each workspace SHALL keep its own selected entry.
+In Commission with a config, the tree SHALL show the config's networks and their nodes, without the configuration-only entries (Bus and master, Add node…, PDO links, CAN messages, Online access, Gateway, Modbus bridge, Add network…) and without the network menu. A network entry SHALL open that network's node table with its bus state, and a node entry the node's live tabs. Picking an entry on another network SHALL move the connection bar's network picker to that network, and changing the picker SHALL select that network's entry. Each workspace SHALL keep its own selected entry.
 
 #### Scenario: Open a live node
 - **WHEN** the page is connected to a runtime running `io` and `drives` and the user opens node 2 under `drives` in Commission
@@ -177,7 +177,7 @@ Everything the pointer can do on the page SHALL be possible with the keyboard: t
 - **THEN** "PDOs" is selected and its panel shows
 
 ### Requirement: Narrow window layout
-Below 1000 px the network tree SHALL fold into a button at the top of the workspace tab that names the selected entry and shows the config's error count, and opens the tree over the page; picking an entry SHALL close it. The bottom panel SHALL stay, with its tab title showing the problem count, so the problems stay in view without a separate strip. A node's error count SHALL stay next to the node's name in the tree.
+At 1100 px wide and narrower (the page's existing narrow breakpoint) the network tree SHALL fold into a button at the top of the workspace tab that names the selected entry and shows the config's error count, and opens the tree over the page; picking an entry SHALL close it. The bottom panel SHALL stay, with its tab title showing the problem count, so the problems stay in view without a separate strip. A node's error count SHALL stay next to the node's name in the tree.
 
 #### Scenario: Problems at 900 px
 - **WHEN** the window is 900 px wide and the config has 4 errors
@@ -241,7 +241,7 @@ Each node's page SHALL have an "Export DCF" action next to "Remove node", above 
 - **THEN** nothing is downloaded and the Problems panel still lists 4 problems, not 8
 
 ### Requirement: Network role switch
-Each CANopen network SHALL have a role, master or slave, set from the **Role** item of its network menu in the tree. Switching a network with nodes to slave SHALL ask before dropping the master settings and nodes; switching back SHALL start with an empty master network.
+Each CANopen network SHALL have a role, master or slave, set from **Role** on its bus page or from the role item of its network menu in the tree. Switching a network with nodes to slave SHALL ask before dropping the master settings and nodes; switching back SHALL start with an empty master network.
 
 #### Scenario: Switch to slave
 - **WHEN** the user sets a new network's role to slave

@@ -265,7 +265,7 @@ export class MachineView {
     if (!this.live || this.noData()) return "The machine is offline: machine faults need the running machine.";
     if (!this.hello.allow_changes) {
       return this.hello.target === "runtime" || !this.hello.target
-        ? "Read-only: changes are not allowed on this runtime (turn on \"Allow changes\" under Online access on Bus and master, then save and upload)."
+        ? "Read-only: changes are not allowed on this runtime (turn on \"Allow changes\" under Configure → Online access, then save and upload)."
         : "Read-only: changes are not allowed.";
     }
     return "";
