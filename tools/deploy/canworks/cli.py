@@ -56,6 +56,14 @@ on this computer, and/or enables it in an editor project. See docs/plc-sdo.md.
 writes the EDS of OpenPLC as a CANopen slave from a description of its
 objects (docs/slave.md), checked with the plugin's EDS lint; with --gateway
 it adds the gateway's route, status and SDO bridge objects (docs/gateway.md).
+
+  canworks-deploy notes skeleton|builtin valve.eds [-o FILE]
+  canworks-deploy notes check valve.eds valve.eds.notes.json
+
+prints the device notes skeleton of an EDS (manufacturer objects with their
+names, types and access), the built-in notes that apply to it, or the
+findings the configurator shows for a notes file (docs/configurator.md,
+Device notes).
 """
 
 import argparse
@@ -68,7 +76,7 @@ import sys
 import time
 
 from . import (__version__, bridgecheck, bundle, clash, contract, dbcexport, dcfexport, diag, docexport,
-               editorproject, localruntime, modbusmap, project, runtime, sdolibrary, simfile, slaveeds)
+               editorproject, localruntime, modbusmap, notes, project, runtime, sdolibrary, simfile, slaveeds)
 
 EDITOR_WARNING = (
     "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canworks.json, so the "
@@ -714,8 +722,66 @@ def run_slave_eds(args, out=print):
     return 0
 
 
+def notes_parser():
+    p = argparse.ArgumentParser(
+        prog="canworks-deploy notes",
+        description="Device notes of an EDS (format %s): the skeleton to fill in, the built-in notes that apply, "
+                    "or a check of a notes file. See docs/configurator.md, Device notes." % notes.FORMAT)
+    sub = p.add_subparsers(dest="command", required=True, metavar="skeleton|builtin|check")
+    for name, text in (("skeleton", "a notes document with an entry per manufacturer object (0x2000-0x5FFF) and its "
+                                    "EDS name, data type (x-type) and access (x-access)"),
+                       ("builtin", "the built-in CiA 301, 401 and 402 notes that apply to the EDS")):
+        c = sub.add_parser(name, help=text, description=text)
+        c.add_argument("eds", help="the EDS file")
+        c.add_argument("-o", "--output", metavar="FILE", help="write the document to FILE instead of printing it")
+    c = sub.add_parser("check", help="the findings the configurator shows for a notes file; exit status 1 when "
+                                     "there is any",
+                       description="Print the findings the configurator shows for a notes file, one per line. Exit "
+                                   "status 1 when there is any finding, 0 when there is none.")
+    c.add_argument("eds", help="the EDS file")
+    c.add_argument("notes", help="the notes file")
+    return p
+
+
+def run_notes(args, out=print):
+    from .eds import Eds, EdsError
+    name = os.path.basename(args.eds)
+    try:
+        eds = Eds.read(args.eds)
+    except (EdsError, OSError, UnicodeDecodeError) as e:
+        raise Failure("cannot read %s: %s" % (args.eds, getattr(e, "strerror", None) or e))
+    if args.command == "check":
+        doc, error = notes.load(args.notes)
+        if doc is None:
+            raise Failure(error or "%s: no such file" % args.notes)
+        findings = notes.check(eds, doc, os.path.basename(args.notes), name)
+        for f in findings:
+            out(f)
+        return 1 if findings else 0
+    if args.command == "skeleton":
+        doc = notes.skeleton(eds, name, eds_path=args.eds, describe=True)
+    else:
+        doc = {"format": notes.FORMAT, "eds": notes.identity(name, args.eds), "objects": notes.builtin(eds)}
+    text = notes.dumps(doc)
+    if args.output:
+        try:
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError as e:
+            raise Failure("cannot write %s: %s" % (args.output, e.strerror or e))
+    else:
+        out(text.rstrip("\n"))
+    return 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["notes"]:
+        try:
+            return run_notes(notes_parser().parse_args(argv[1:]))
+        except Failure as e:
+            print("error: " + str(e), file=sys.stderr)
+            return 1
     if argv[:1] == ["library"]:
         try:
             return run_library(library_parser().parse_args(argv[1:]))

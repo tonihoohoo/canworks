@@ -1,14 +1,17 @@
 """Device notes (spec canopen-device-notes): the notes file format, the
 built-in CiA notes, the merge and the checks."""
 
+import contextlib
 import filecmp
+import io
 import json
 import os
+import re
 import unittest
 
 import jsonschema
 
-from canworks import notes
+from canworks import cli, notes
 from canworks.eds import Eds
 
 from .helpers import REPO, tmpdir
@@ -349,6 +352,103 @@ class Checks(unittest.TestCase):
             eds = Eds.read(path)
             self.assertEqual(notes.check(eds, notes.skeleton(eds, "x.eds", eds_path=path), "n", "x.eds"), [])
             self.assertEqual(notes.check(eds, {"format": notes.FORMAT, "objects": notes.builtin(eds)}, "n", "x.eds"), [])
+
+
+SKILL = os.path.join(REPO, ".claude", "skills", "canworks-datasheet-notes", "SKILL.md")
+
+
+class Commands(unittest.TestCase):
+    """canworks-deploy notes skeleton | builtin | check (spec canopen-deploy)."""
+
+    def setUp(self):
+        self.dir = tmpdir(self)
+        self.eds = os.path.join(self.dir, "valve.eds")
+        with open(self.eds, "w", encoding="utf-8") as f:
+            f.write(VALVE)
+
+    def run_cli(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = cli.main(["notes"] + list(argv))
+        return rc, out.getvalue(), err.getvalue()
+
+    def write_notes(self, objects):
+        path = os.path.join(self.dir, "valve.eds.notes.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc(objects), f)
+        return path
+
+    def test_skeleton_has_types_and_access(self):
+        rc, out, _ = self.run_cli("skeleton", self.eds)
+        self.assertEqual(rc, 0)
+        sk = json.loads(out)
+        self.assertEqual(sk["format"], notes.FORMAT)
+        self.assertEqual(sk["eds"]["product_code"], "0x00001234")
+        self.assertEqual(sk["objects"]["0x2010"], {"name": "Ramp time", "x-type": "UNSIGNED16", "x-access": "rw"})
+        self.assertEqual(sk["objects"]["0x2011:0"]["x-access"], "const")
+        self.assertIn("0x2011:2", sk["objects"])
+        self.assertNotIn("0x1000", sk["objects"])
+        self.assertEqual(notes.schema_problems(sk), [])
+
+    def test_output_file(self):
+        target = os.path.join(self.dir, "out.json")
+        rc, out, _ = self.run_cli("skeleton", self.eds, "-o", target)
+        self.assertEqual((rc, out), (0, ""))
+        with open(target, encoding="utf-8") as f:
+            self.assertIn("0x2300", json.load(f)["objects"])
+
+    def test_builtin_by_profile(self):
+        rc, out, _ = self.run_cli("builtin", self.eds)
+        objects = json.loads(out)["objects"]
+        self.assertEqual(rc, 0)
+        self.assertIn("0x1000", objects)
+        self.assertFalse([k for k in objects if k.startswith("0x6")])
+        rc, out, _ = self.run_cli("builtin", SERVO)
+        objects = json.loads(out)["objects"]
+        self.assertEqual(objects["0x6040"]["bits"]["0"], "switch on")
+        self.assertEqual(json.loads(out)["eds"]["file"], "servo402.eds")
+
+    def test_check_clean(self):
+        path = self.write_notes({"0x2011:2": {"text": "Fault reaction", "values": {"0": "hold", "1": "close"}}})
+        self.assertEqual(self.run_cli("check", self.eds, path), (0, "", ""))
+
+    def test_check_findings(self):
+        path = self.write_notes({"0x2999": {"text": "Not in the EDS"}, "0x2100": {"bits": {"8": "too far"}}})
+        rc, out, _ = self.run_cli("check", self.eds, path)
+        self.assertEqual(rc, 1)
+        lines = out.splitlines()
+        self.assertIn("valve.eds.notes.json has a note for 0x2999, which valve.eds does not have", lines)
+        self.assertIn("valve.eds.notes.json: 0x2100 names bit 8, but UNSIGNED8 has only 8 bits", lines)
+
+    def test_unreadable_files(self):
+        broken = os.path.join(self.dir, "broken.json")
+        with open(broken, "w", encoding="utf-8") as f:
+            f.write("{")
+        rc, _, err = self.run_cli("check", self.eds, broken)
+        self.assertEqual(rc, 1)
+        self.assertIn("broken.json cannot be read", err)
+        rc, _, err = self.run_cli("check", self.eds, os.path.join(self.dir, "missing.json"))
+        self.assertEqual(rc, 1)
+        self.assertIn("missing.json", err)
+        rc, _, err = self.run_cli("skeleton", os.path.join(self.dir, "missing.eds"))
+        self.assertEqual(rc, 1)
+        self.assertIn("cannot read", err)
+
+
+class Skill(unittest.TestCase):
+    """The datasheet notes skill names only commands that exist."""
+
+    def test_frontmatter_and_commands(self):
+        with open(SKILL, encoding="utf-8") as f:
+            text = f.read()
+        m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+        self.assertTrue(m)
+        self.assertRegex(m.group(1), r"(?m)^name: canworks-datasheet-notes$")
+        self.assertRegex(m.group(1), r"(?m)^description: \S")
+        used = set(re.findall(r"canworks-deploy notes (\w+)", text))
+        self.assertEqual(used, {"skeleton", "builtin", "check"})
+        choices = cli.notes_parser()._subparsers._group_actions[0].choices
+        self.assertLessEqual(used, set(choices))
 
 
 if __name__ == "__main__":

@@ -166,6 +166,16 @@ With `--gateway <config>` the generator also adds the objects of that config's [
 
 An invalid description or gateway section stops it with the reason (the object and the field) and exit status 1; nothing is written. The configurator builds the same file ([configurator.md](configurator.md#slave-networks)).
 
+## Device notes
+
+```sh
+canworks-deploy notes skeleton canworks/valve.eds [-o FILE]
+canworks-deploy notes builtin canworks/valve.eds [-o FILE]
+canworks-deploy notes check canworks/valve.eds canworks/valve.eds.notes.json
+```
+
+work with the [device notes](configurator.md#device-notes) of an EDS without the configurator. `skeleton` prints a `canworks-notes.v1` document with the EDS identity and an entry for each manufacturer object and sub-object (0x2000-0x5FFF): its EDS name, data type (`x-type`) and access (`x-access`), to fill in. `builtin` prints the built-in notes that apply to the EDS (CiA 301, and CiA 401 or 402 by its device type). `check` prints the warnings the configurator shows for a notes file, one per line, and exits with status 1 when there is any and 0 when there is none. An EDS or notes file that cannot be read stops with the reason and exit status 1. The [datasheet notes skill](configurator.md#notes-from-a-datasheet) uses all three.
+
 ## Export documentation of the network
 
 ```sh
