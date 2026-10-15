@@ -131,7 +131,7 @@ With a config open, the header SHALL have a **Configure | Commission** switch:
 - **Configure** SHALL show the config pages.
 - **Commission** SHALL show the live view of the runtime as its **Nodes** tab, with the network tree (see "Tree in Commission with a config") and the node pages of the online view.
 
-Commission a device SHALL open in Commission and SHALL show no switch. Switching workspace SHALL keep the draft, the connection and every running job. The workspace SHALL be kept on this PC per folder and SHALL come back after a page reload. The first time a config opens with this version, the switch SHALL show a one-time note that the Online view is now the Commission workspace.
+Commission a device SHALL open in Commission and SHALL show no switch. Switching workspace SHALL keep the draft, the connection and every running job. The workspace SHALL be kept on this PC and SHALL come back after a page reload. A link to a page of the other workspace (a problem, "Back to the online view") SHALL switch to that workspace. The first time a config opens with this version, the switch SHALL show a note that the Online view is now the Commission workspace, until the user closes it or switches workspace; it SHALL NOT show again on this PC.
 
 #### Scenario: Switch while editing
 - **WHEN** the user has an unsaved change in Configure and switches to Commission and back
@@ -162,7 +162,12 @@ A tool tab SHALL use the full page width, with no network tree, side bar or bott
 - **THEN** the tabs are Nodes, Trace and Frame lab
 
 ### Requirement: Keyboard access and announcements
-Everything the pointer can do on the page SHALL be possible with the keyboard: the network tree SHALL be reachable with one tab stop and work as in "Network tree keyboard", with the open entry marked as selected; the problem list SHALL be made of buttons in the tab order; rows that open something (online nodes, scanned devices, simulated devices) SHALL be focusable and open on Enter or Space; tabs (the node tabs, Trace, the online node's Overview / Object dictionary / Parameters, Simulation) SHALL be a tab list with the selected tab marked, each tab naming its panel, and Left, Right, Home and End moving between them; every focused control SHALL show a visible focus ring in the accent colour. Progress lines (reading all, backup, scan), the problem count and the tree's badges SHALL be polite live regions or carry their counts in their accessible names. Landmarks SHALL not be nested complementary regions, heading levels SHALL not skip, and every table column with only buttons SHALL have a header text for assistive technology.
+Everything the pointer can do on the page SHALL be possible with the keyboard.
+- **Lists:** the network tree SHALL be reachable with one tab stop and work as in "Network tree keyboard", with the open entry marked as selected. The problem list SHALL be made of buttons in the tab order. Rows that open something (online nodes, scanned devices, simulated devices) SHALL be focusable and open on Enter or Space.
+- **Tabs:** tabs (the node tabs, Trace, the online node's Overview / Object dictionary / Parameters, Simulation) SHALL be a tab list with the selected tab marked and each tab naming its panel. Left, Right, Home and End SHALL move between them.
+- **Focus:** every focused control SHALL show a visible focus ring in the accent colour.
+- **Announcements:** progress lines (reading all, backup, scan) and the problem count SHALL be polite live regions, and the tree's and tabs' badges SHALL carry their counts in their accessible names.
+- **Structure:** landmarks SHALL not be nested complementary regions, heading levels SHALL not skip, and every table column with only buttons SHALL have a header text for assistive technology.
 
 #### Scenario: Open a node with the keyboard
 - **WHEN** the user tabs into the network tree, presses Down until "5 rtd" and presses Enter
@@ -173,6 +178,10 @@ Everything the pointer can do on the page SHALL be possible with the keyboard: t
 - **THEN** the field with that problem gets focus, on the tab that holds it
 
 #### Scenario: Tabs by keyboard
+- **WHEN** focus is on the Trace view's "By identifier" tab and the user presses Right
+- **THEN** "Chronological" is selected and its panel shows
+
+#### Scenario: Node tabs by keyboard
 - **WHEN** focus is on node 5's "General" tab and the user presses Right
 - **THEN** "PDOs" is selected and its panel shows
 
