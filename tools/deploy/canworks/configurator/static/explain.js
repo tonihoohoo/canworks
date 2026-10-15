@@ -577,6 +577,20 @@ function fxDrawSequences() {
   return fxDrawSync(body, r);
 }
 
+// Picking a conversation or boot story redraws the list: it keeps its
+// scroll position and the picked row keeps focus.
+function fxPickSequence(seq) {
+  FX.seq.picked = seq;
+  const list = document.querySelector("#fx-seq-body .fx-list");
+  const top = list ? list.scrollTop : 0, pageY = window.scrollY;
+  fxDrawSequences();
+  const again = document.querySelector("#fx-seq-body .fx-list");
+  if (again) again.scrollTop = top;
+  const row = document.querySelector(`#fx-seq-body tr[data-seq="${seq}"]`);
+  if (row) row.focus({ preventScroll: true });
+  window.scrollTo(window.scrollX, pageY);
+}
+
 function fxPick(list, seq) { return list.find((x) => x.seq === seq) || null; }
 
 function fxDrawConversations(body, r) {
@@ -589,8 +603,8 @@ function fxDrawConversations(body, r) {
     shown.length ? el("div", { class: "fx-list" }, el("table", { class: "fx-table" },
       el("thead", null, el("tr", null, thCells(["Time", "Node", "Operation", "Object", "Result", "Value", "Frames", "Took"]))),
       el("tbody", null, shown.map((c) => el("tr", { class: (c.seq === s.picked ? "selected " : "") + "r-" + c.result, tabindex: "0",
-        dataset: { seq: c.seq }, onclick: () => { s.picked = c.seq; fxDrawSequences(); },
-        onkeydown: (e) => { if (e.key === "Enter") { s.picked = c.seq; fxDrawSequences(); } } },
+        dataset: { seq: c.seq }, onclick: () => fxPickSequence(c.seq),
+        onkeydown: (e) => { if (e.key === "Enter") fxPickSequence(c.seq); } },
       el("td", null, ((c.start_us - t0) / 1e6).toFixed(3)), el("td", null, c.node_label),
       el("td", null, `${c.op} (${c.mode})`), el("td", null, c.object + (c.object_name ? " " + c.object_name : "")),
       el("td", null, c.result), el("td", null, c.result === "aborted" ? c.abort_text : c.value || ""),
@@ -658,8 +672,8 @@ function fxDrawBoots(body, r) {
     shown.length ? el("div", { class: "fx-list" }, el("table", { class: "fx-table" },
       el("thead", null, el("tr", null, thCells(["Time", "Node", "Began with", "Result", "Writes", "Took"]))),
       el("tbody", null, shown.map((b) => el("tr", { class: (b.seq === s.picked ? "selected " : "") + (bad(b) ? "r-aborted" : ""), tabindex: "0",
-        dataset: { seq: b.seq }, onclick: () => { s.picked = b.seq; fxDrawSequences(); },
-        onkeydown: (e) => { if (e.key === "Enter") { s.picked = b.seq; fxDrawSequences(); } } },
+        dataset: { seq: b.seq }, onclick: () => fxPickSequence(b.seq),
+        onkeydown: (e) => { if (e.key === "Enter") fxPickSequence(b.seq); } },
       el("td", null, ((b.start_us - t0) / 1e6).toFixed(3)), el("td", null, b.node_label), el("td", null, b.how),
       el("td", null, b.result), el("td", null, summary(b)), el("td", null, fxUs(b.duration_us))))))) : el("p", { class: "muted" }, "No boots match."));
   const b = s.picked != null ? fxPick(r.stories, s.picked) : null;

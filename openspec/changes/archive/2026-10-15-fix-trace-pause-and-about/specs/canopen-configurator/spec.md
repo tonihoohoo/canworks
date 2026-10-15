@@ -42,3 +42,19 @@ The panel SHALL follow the selected frame when the user moves through the list w
 #### Scenario: About stays open while live
 - **WHEN** the user selects node 32's heartbeat row while recording, opens About this kind of message, and new heartbeats arrive
 - **THEN** the section stays open, and it is still open when the user selects another row
+
+## ADDED Requirements
+
+### Requirement: Newest frame whole in the Chronological view
+The Chronological view SHALL draw exactly the rows in view, including a row partly scrolled past the top edge. Scrolled to the end, and while it follows a recording, the newest frame SHALL be the last row and SHALL be shown whole at the bottom edge; any row cut short SHALL be the one at the top.
+
+#### Scenario: Following a recording
+- **WHEN** the Chronological view follows a recording and its height is not a whole number of rows
+- **THEN** the newest frame is the bottom row, shown whole, and no newer frame is hidden below it
+
+### Requirement: Picking a sequence keeps the list in place
+Picking an SDO conversation or a boot story in the Sequences tab, by click or Enter, SHALL keep the list's scroll position and the page position, and the picked row SHALL keep focus.
+
+#### Scenario: Pick a conversation far down the list
+- **WHEN** the user scrolls the SDO conversations to the end and clicks the last conversation
+- **THEN** the list stays scrolled where it was, the row is marked picked and its sequence diagram opens below
