@@ -698,12 +698,21 @@ function updateScroll() {
   g.list.querySelector(".trace-spacer").style.height = Math.max(0, g.height - g.list.clientHeight) + "px";
 }
 
-function firstRow() {
+// The rows in view: the first one and how many pixels of it sit above the
+// top edge. Scrolled to the end, the newest row ends at the bottom edge, so
+// the list never cuts it (the top row is the one cut instead).
+function listWindow() {
   const g = listGeometry();
-  if (g.full <= MAX_SCROLL_PX) return Math.floor(g.list.scrollTop / ROW_H);
-  const span = Math.max(1, g.height - g.list.clientHeight);
-  return Math.round(g.list.scrollTop / span * Math.max(0, g.total - g.visible));
+  const ch = g.list.clientHeight;
+  const fit = Math.ceil(ch / ROW_H);
+  if (g.full > ch && g.list.scrollTop + ch >= g.list.scrollHeight - 1)
+    return { first: Math.max(0, g.total - fit), shift: fit * ROW_H - ch };
+  if (g.full <= MAX_SCROLL_PX) return { first: Math.floor(g.list.scrollTop / ROW_H), shift: g.list.scrollTop % ROW_H };
+  const span = Math.max(1, g.height - ch);
+  return { first: Math.round(g.list.scrollTop / span * Math.max(0, g.total - g.visible)), shift: 0 };
 }
+
+function firstRow() { return listWindow().first; }
 
 function scrollToRow(pos) {
   const g = listGeometry();
@@ -725,14 +734,14 @@ async function refreshRows(toEnd, reset, atUs) {
   const visible = Math.max(1, Math.floor((list.clientHeight - 2) / ROW_H));
   let offset = reset && !toEnd ? 0 : firstRow();
   if (toEnd) offset = 1e12;
-  const body = { offset: toEnd ? Math.max(0, (T.st ? T.st.frames : 0)) : offset, count: visible + 2, filter: filterBody() };
+  const body = { offset: toEnd ? Math.max(0, (T.st ? T.st.frames : 0)) : offset, count: visible + 3, filter: filterBody() };
   if (atUs != null) body.at_us = Math.round(atUs);
   let r;
   try { r = await api("POST", "/api/trace/frames", body); } catch (e) { banner(e.message, true); return; }
   if (seq !== T.rowsSeq || !$("#trace-list")) return;
   T.total = r.total;
   updateScroll();
-  if (toEnd) { r.offset = Math.max(0, r.total - visible); scrollToRow(r.total); }
+  if (toEnd) scrollToRow(r.total);
   else if (reset && atUs == null) scrollToRow(0);
   if (r.focus != null) {
     T.selected = r.rows[r.focus - r.offset] ? r.rows[r.focus - r.offset].seq : null;
@@ -740,7 +749,7 @@ async function refreshRows(toEnd, reset, atUs) {
     scrollToRow(Math.max(0, r.focus - Math.floor(visible / 2)));
     if (r.focus - Math.floor(visible / 2) !== r.offset) {
       // The window centred on the frame; fetch exactly what is now in view.
-      const again = await api("POST", "/api/trace/frames", { offset: firstRow(), count: visible + 2, filter: filterBody() });
+      const again = await api("POST", "/api/trace/frames", { offset: firstRow(), count: visible + 3, filter: filterBody() });
       if (seq !== T.rowsSeq) return;
       r = again;
     }
@@ -750,7 +759,12 @@ async function refreshRows(toEnd, reset, atUs) {
 
 function drawRows(r) {
   const rows = $("#trace-rows");
-  rows.replaceChildren(...r.rows.map((x) => {
+  // The server may answer from an earlier row than the one at the top
+  // (it keeps a full window near the end): start at the top row.
+  const w = listWindow();
+  const skip = Math.max(0, Math.min(r.rows.length, w.first - r.offset));
+  const shown = r.rows.slice(skip);
+  rows.replaceChildren(...shown.map((x) => {
     const cls = ["trace-row", "k-" + x.kind, x.seq === T.selected ? "selected" : "", x.dir === "Tx" ? "tx" : ""].join(" ");
     return el("div", { class: cls, dataset: { seq: x.seq, t: x.t_us }, onclick: () => selectRow(x) },
       el("span", null, timeText(x.t_us)), el("span", null, x.gap ? "" : x.dir),
@@ -758,6 +772,7 @@ function drawRows(r) {
       el("span", null, x.gap || x.err ? "" : String(x.dlc)), el("span", { class: "mono" }, x.data),
       el("span", { title: x.name }, x.name), el("span", { title: x.text }, x.text));
   }));
+  if (shown.length && w.first >= r.offset) rows.firstChild.style.setProperty("margin-top", -w.shift + "px");
   if (!r.rows.length) rows.append(el("div", { class: "muted trace-empty" }, T.st && T.st.frames ? "No frames match the display filter." : "No frames yet. Press Start, or open a trace file."));
   rowActions();
   if (T.pendingStep) {
