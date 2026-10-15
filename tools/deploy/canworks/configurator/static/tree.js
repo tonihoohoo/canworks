@@ -49,7 +49,7 @@ function entryOfPath(w) {
 }
 
 // The node tab that holds a node's key (the part after "nodes[i].").
-const SUPERVISION_KEYS = /^(heartbeat|guard|life|status_location|state_location|nmt_command_location|boot_error_location|emcy|error_register_location|supervision)/;
+const SUPERVISION_KEYS = /^(heartbeat(?!_consumer)|guard|life|status_location|state_location|nmt_command_location|boot_error_location|emcy|error_register_location|supervision)/;
 function nodeTabOfPath(rest) {
   if (/^(tx_pdos|rx_pdos)/.test(rest)) return "pdos";
   if (/^(sdo|sdo_variables)(\[|$|\.)/.test(rest)) return "sdos";

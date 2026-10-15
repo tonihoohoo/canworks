@@ -124,6 +124,10 @@ class Tree(unittest.TestCase):
         tree_node(pg, 0)
         self.assertNotIn("CiA 402", self.names(".node-tabs [role=tab]"))
         pg.wait_for_selector('[data-node-tab-panel="general"]')
+        # Each field's problems count on the tab that holds it.
+        tabs_of = pg.evaluate("() => ['heartbeat_ms', 'guard_time_ms', 'heartbeat_consumer', 'emcy_cob_id', 'tx_pdos[0].cob_id', "
+                              "'sdo[1].value', 'axis.unit', 'name', 'check'].map(nodeTabOfPath)")
+        self.assertEqual(tabs_of, ["supervision", "supervision", "advanced", "supervision", "pdos", "sdos", "cia402", "general", "advanced"])
         # Arrow keys move between the tabs.
         pg.focus('.node-tabs [data-node-tab="general"]')
         pg.keyboard.press("ArrowRight")

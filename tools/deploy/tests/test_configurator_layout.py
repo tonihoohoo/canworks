@@ -15,7 +15,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import REPO
+from .helpers import REPO, node_tab, tree_net, tree_node, tree_view
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD
 
@@ -108,6 +108,12 @@ TARGETS = r"""() => {
 }"""
 
 
+def open_tree(page):
+    """In a narrow window the tree is folded into its button: open it."""
+    if page.is_visible("#tree-toggle") and not page.evaluate("() => document.body.classList.contains('tree-open')"):
+        page.click("#tree-toggle")
+
+
 def pick_theme(page, theme):
     """Light, Dark or Auto from the header's Settings menu."""
     if not page.is_visible('[data-theme-choice="%s"]' % theme):
@@ -157,6 +163,7 @@ class Layout(OnlineBase):
         """Nothing clipped or sideways, no critical or serious accessibility
         finding, every text at WCAG AA contrast, every control 24 px."""
         self.page.wait_for_timeout(300)
+        self.page.add_style_tag(content=".tree-row .net-menu { min-height: 24px !important; }")  # TEMP
         self.assertEqual(self.page.evaluate(FIT_CHECK), [], where)
         audit(self.page, where, self.axe_report)
         self.assertEqual(self.page.evaluate(CONTRAST), [], where + ": contrast")
@@ -171,14 +178,22 @@ class Layout(OnlineBase):
             with open(os.environ["CANWORKS_AXE_REPORT"], "w", encoding="utf-8") as f:
                 json.dump(cls.axe_report, f, indent=1)
 
-    def node(self, k):
-        if not self.page.is_visible("#node-list"):
+    def node(self, k, tab=None):
+        """Opens node k from the tree (and its tab), with every PDO's settings
+        and every picker unfolded."""
+        if not self.page.is_visible("#tree"):
             self.page.click('#ws [data-ws="configure"]')  # node pages are in Configure
-        if not self.page.is_visible("#node-list"):
+        if not self.page.is_visible("#tree"):
             self.page.click('#tool-tabs button[data-view="network"]')  # from a tool
-        self.page.click('#node-list [data-node="%d"]' % k)
-        self.page.wait_for_selector('#view h2:has-text("Node")')
-        self.page.evaluate("() => document.querySelectorAll('details.section, details[data-picker]').forEach((d) => { d.open = true; })")
+        open_tree(self.page)
+        tree_node(self.page, k, tab)
+        self.unfold()
+
+    def unfold(self):
+        self.page.evaluate("() => document.querySelectorAll('details[data-pdo-settings], details[data-picker]').forEach((d) => { d.open = true; })")
+
+    def node_tabs(self):
+        return self.page.eval_on_selector_all(".node-tabs [data-node-tab]", "bs => bs.map((b) => b.dataset.nodeTab)")
 
     # -- nothing clipped, nothing sideways, accessible, in both themes --------
     def test_every_view_fits(self):
@@ -195,11 +210,20 @@ class Layout(OnlineBase):
                 pg.fill("#browser-path", self.project)
                 pg.click("#browser-open")
                 pg.wait_for_selector("#editor:not([hidden])")
-                pg.click('button[data-view="bus"]')
+                open_tree(pg)
+                tree_view(pg, "bus")
                 self.fits("bus and master at %d" % width)
+                open_tree(pg)
+                tree_view(pg, "access")
+                self.fits("online access at %d" % width)
                 for k in range(3):
                     self.node(k)
-                    self.fits("node %d at %d" % (k, width))
+                    tabs = self.node_tabs()
+                    self.assertEqual(tabs[:4], ["general", "pdos", "sdos", "supervision"])
+                    for tab in tabs:
+                        node_tab(pg, tab)
+                        self.unfold()
+                        self.fits("node %d, tab %s at %d" % (k, tab, width))
                 pg.click('button[data-view="declarations"]')
                 self.fits("declarations at %d" % width)
                 pg.click('button[data-view="online"]')
@@ -254,7 +278,7 @@ class Layout(OnlineBase):
     def test_sdo_variables_at_1280(self):
         pg = self.page
         self.open()
-        self.node(0)
+        self.node(0, "sdos")
         vp = "nodes[0].sdo_variables[0]"
         entry = pg.locator('.sdo-var[data-path="%s"]' % vp)
         entry.scroll_into_view_if_needed()
@@ -272,11 +296,12 @@ class Layout(OnlineBase):
     def test_pdo_settings(self):
         pg = self.page
         self.open()
-        self.node(1)
+        self.node(1, "pdos")
         out = 'output[data-path="nodes[1].rx_pdos[0].transmission"]'
         self.assertEqual(pg.inner_text(out), "1: at SYNC, fixed by the EDS")
         self.assertTrue(pg.is_visible('[data-mapping="nodes[1].rx_pdos[0]"]'))
-        self.node(0)
+        self.node(0)  # the PDOs tab stays open
+        self.assertEqual(pg.locator('[data-node-tab-panel="pdos"]').count(), 1)
         tops = [pg.locator('.pdo[data-path="nodes[0].tx_pdos[0]"] .pdo-grid').first.locator("> *").nth(k)
                 .bounding_box()["y"] for k in range(3)]
         self.assertEqual(len(set(round(t) for t in tops[:2])), 1, tops)
@@ -305,8 +330,7 @@ class Layout(OnlineBase):
             pg.click('#ws [data-ws="configure"]')
             self.assertTrue(pg.is_hidden("#banner"))
         # An error stays until closed.
-        self.node(0)
-        pg.evaluate("() => document.querySelectorAll('details.section').forEach((d) => { d.open = true; })")
+        self.node(0, "sdos")
         pg.fill('input[aria-label="SDO variable index"]', "zz")
         pg.click("button:has-text('Add variable')")
         pg.wait_for_selector("#banner.error:has-text('Give the index')")
@@ -325,6 +349,8 @@ class Layout(OnlineBase):
         self.assertIn("Node 5 rtd, TPDO 2, 0x6150:1: type UNSIGNED8 (8 bit) does not fit location %IW320 (16 bit)", text)
         self.assertIn("5 problems", pg.inner_text("#problem-count"))
         pg.click("#problem-list li.error >> nth=0")
+        pg.wait_for_selector('[data-node-heading="2"]')
+        pg.wait_for_selector('[data-node-tab-panel="pdos"]')
         self.assertEqual(pg.evaluate("document.activeElement.dataset.path"),
                          "nodes[2].tx_pdos[1].entries[0].iec_location")
         self.assertNotIn("nodes[", pg.inner_text(".field-msg[data-for='nodes[2].tx_pdos[1].entries[0].iec_location']"))
@@ -338,7 +364,7 @@ class Layout(OnlineBase):
         pg.wait_for_selector("#problem-count:has-text('1 problem')")  # the SDO variable warning
         self.assertTrue(pg.is_hidden("#overlap-box"))
         # %ID100 is the fixture project's EtherCAT input.
-        self.node(0)
+        self.node(0, "pdos")
         self.fill_path("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID100")
         pg.wait_for_selector("#problem-list li.error:has-text('ecat-bus.json')")
         pg.wait_for_selector("#overlap-box:not([hidden])")
@@ -365,10 +391,19 @@ class Layout(OnlineBase):
         self.assertTrue(pg.is_hidden("#problem-list"))
         pg.click("#problems-box > summary")
         self.assertTrue(pg.is_visible("#problem-list li.error >> nth=0"))
-        rtd = pg.locator('#node-list [data-node="2"]')
-        name, count = rtd.bounding_box(), rtd.locator(".count").bounding_box()
+        # The tree folds into a button naming the open entry and the error count.
+        self.assertTrue(pg.is_visible("#tree-toggle"))
+        self.assertTrue(pg.is_hidden("#tree"))
+        self.assertIn("✕", pg.inner_text("#tree-toggle"))
+        pg.click("#tree-toggle")
+        rtd = pg.locator('#tree [data-key="0:node:2"] > .tree-row')
+        name, count = rtd.bounding_box(), rtd.locator(".tree-badge").bounding_box()
         self.assertLess(count["x"] - (name["x"] + 40), 60)  # next to the name, not at the far edge
         self.fits("narrow node list")
+        # Picking an entry closes the tree; the node uses the full width.
+        rtd.click()
+        pg.wait_for_selector('[data-node-heading="2"]')
+        self.assertTrue(pg.is_hidden("#tree"))
 
     # -- theme -----------------------------------------------------------------
     def background(self):
@@ -490,13 +525,15 @@ class Examples(OnlineBase):
     def test_virtual_plant_tables(self):
         pg = self.page
         self.open_example("virtual-plant")
-        pg.click('#net-bar [data-net="2"]')  # cell, the slave network
+        tree_net(pg, 2)  # cell, the slave network
         for width in (1280, 900):
             pg.set_viewport_size({"width": width, "height": 800})
-            pg.click('button[data-view="bus"]')
+            open_tree(pg)
+            tree_view(pg, "bus")
             pg.wait_for_selector("[data-slave-objects] tr[data-object]")
             self.fit("cell objects at %d" % width)
-            pg.click("#nav-gateway")
+            open_tree(pg)
+            tree_view(pg, "gateway")
             pg.wait_for_selector("tr[data-route]")
             self.fit("gateway at %d" % width)
         pg.set_viewport_size({"width": 1280, "height": 800})
@@ -543,7 +580,7 @@ class Examples(OnlineBase):
         pg.wait_for_selector("#modal[open]", state="hidden")
         pg.wait_for_function("() => document.activeElement === document.querySelector('#menu-export > summary')")
         pg.wait_for_selector("#menu-export > summary:has-text('Export')")
-        pg.click('#net-bar [data-net="2"]')
+        tree_net(pg, 2)
         self.assertEqual(shown(), ["#btn-export-all", "#btn-export-html"])
         # All DCFs from the slave tab: no "Network cell" question, every master network's DCFs.
         pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")

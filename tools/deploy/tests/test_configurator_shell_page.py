@@ -40,7 +40,9 @@ class Workspaces(OnlineBase):
             pg.wait_for_selector('tr[data-online-node="2"]')
             tabs = [b.inner_text() for b in pg.query_selector_all("#tool-tabs [role=tab]")]
             self.assertEqual(tabs, ["Nodes", "Simulation", "Trace", "Frame lab"])
-            self.assertFalse(pg.is_visible("#side"))
+            # The network tree stays, with the networks and nodes only.
+            self.assertTrue(pg.is_visible("#tree"))
+            self.assertEqual(pg.locator('#tree [data-view="bus"]').count(), 0)
             self.assertIn(fp.runtime, pg.inner_text('#conn-bar [data-conn="target"]'))
             self.assertIn("Read-only (runtime setting)", pg.inner_text('#conn-bar [data-conn="allow"]'))
             self.assertEqual(pg.query_selector_all('#conn-bar input[data-conn="allow"]'), [])
