@@ -1033,9 +1033,11 @@ function render() {
   $("#menu-project").hidden = S.state.mode !== "standalone" || commission;
   Icons.setDisabled($("#btn-export-node"), !S.view.startsWith("node:") && "Open a node first.");
   // Exports that do not apply are not offered: no DCF of a slave or J1939
-  // network (none at all without a CANopen master network), no DBC of a slave.
+  // network (none at all, and no CODESYS export, without a CANopen master
+  // network), no DBC of a slave.
   if (S.model) {
     $("#btn-export-all").hidden = !S.model.networks.some(dcfNetwork);
+    $("#btn-export-codesys").hidden = !S.model.networks.some(dcfNetwork);
     $("#btn-export-node").hidden = !dcfNetwork(S.config);
     $("#btn-export-dbc").closest(".menu-row").hidden = isSlave(S.config);
   }
@@ -6398,6 +6400,32 @@ async function exportHtml() {
   }
 }
 
+// Exports the draft's CANopen master networks for CODESYS: node DCFs, the plan
+// and import_canworks.py in one zip. Problems go to the Problems pane, and
+// nothing is downloaded.
+async function exportCodesys() {
+  try {
+    const cfg = fileConfig();
+    const r = await api("POST", "/api/export_codesys", { config: cfg });
+    if (r.errors) {
+      S.check = exportProblems(r, cfg);
+      applyCheck();
+      banner(`CODESYS export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"} (see Problems). Nothing was downloaded.`, true);
+      return;
+    }
+    const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: r.content_type }));
+    const a = el("a", { href: url, download: r.name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    banner(`Exported ${r.name}: unzip it and run import_canworks.py in CODESYS (Tools > Scripting > Execute Script File) on your project.`);
+  } catch (e) {
+    banner(e.message, true);
+  }
+}
+
 // Downloads the notes of one EDS with unsaved edits: merged with the built-in
 // ones, or with `own` the user's own only.
 async function exportNotes(name, own) {
@@ -6951,6 +6979,7 @@ function wire() {
   });
   exporting("#btn-export-dbc", exportDbc);
   exporting("#btn-export-html", exportHtml);
+  exporting("#btn-export-codesys", exportCodesys);
   wireDbc();
   wireMenus();
   $("#btn-reload").onclick = () => reload(false);

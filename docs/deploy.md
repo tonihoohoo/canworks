@@ -132,6 +132,15 @@ The tool runs the deploy checks first, then checks each finished DCF with Lely's
 
 The values come from the same steps the plugin runs on the PLC (Lely's dcfgen, then the plugin's own additions); CI compares them with `canopen_check --dump-writes` ([config.md](config.md)) for every test config. The configurator exports the same files ([configurator.md](configurator.md#export-dcf-files)).
 
+## Export for CODESYS
+
+```sh
+canworks-deploy --config canworks.json --export-codesys codesys/ [--codesys-net NAME=N] [--network NAME]
+canworks-deploy --config canworks.json --codesys-import "C:\Projects\Line 2\cell.project"
+```
+
+`--export-codesys` writes the CANopen master networks for a CODESYS project: each node's DCF in a folder per network, the plan `canworks-codesys.json` and the script `import_canworks.py` to run in CODESYS on the open project. `--codesys-import` writes the same folder (temporary, or `--codesys-dir DIR`), runs CODESYS headless on the project, prints the script's report and exits 1 when it has an error; `--codesys-new TYPE:ID:VERSION` creates the project with that PLC device, `--codesys-exe` and `--codesys-profile` pick the CODESYS installation. `--codesys-net NAME=N` sets a network's CODESYS network number (default: the number its interface ends in), `--codesys-plc NAME` the device that gets the bus when the project has several, and `--codesys-no-variables` leaves the I/O channels unnamed. The deploy checks and the DCF checks run first; on a failure nothing is written. Nothing is built or uploaded. What the script does and what carries over: [codesys.md](codesys.md).
+
 ## Export the network as a DBC file
 
 ```sh
