@@ -111,6 +111,143 @@ def _cli(*argv):
     return code, out.getvalue(), err.getvalue()
 
 
+class _FakeConn:
+    """An accepted link connection from `pc` at `addr`, without iroh: its
+    streams are put on `streams` (None ends the connection)."""
+
+    def __init__(self, pc, addr):
+        self.pc, self.addr, self.closed = pc, addr, None
+        self.streams = asyncio.Queue()
+
+    def remote_id(self):
+        return self.pc
+
+    def paths(self):
+        from types import SimpleNamespace
+        return [SimpleNamespace(is_selected=True, is_relay=False, remote_addr=self.addr)]
+
+    async def accept_bi(self):
+        bi = await self.streams.get()
+        if bi is None:
+            raise ConnectionError("closed")
+        return bi
+
+    def close(self, code, reason):
+        self.closed = reason
+        self.streams.put_nowait(None)
+
+
+class _FakeIncoming:
+    def __init__(self, conn):
+        self.conn = conn
+
+    async def accept(self):
+        return self
+
+    async def connect(self):
+        return self.conn
+
+
+@unittest.skipUnless(HAVE_IROH, "the iroh package is not installed")
+class Limits(unittest.TestCase):
+    """The service's limits on PCs that are not paired, on fake connections."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.svc = device.Service(self.tmp, name="testdev")
+        self.svc.verifier = diag.token_verifier(TOKEN)
+        self.svc.pairing = "lan"
+        self.out = io.StringIO()
+        p = mock.patch("sys.stdout", self.out)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def run_async(self, coro):
+        return asyncio.new_event_loop().run_until_complete(coro)
+
+    def test_unpaired_connections_are_capped(self):
+        async def go():
+            n = iter(range(1000))
+
+            def connect(addr, pc=None):
+                conn = _FakeConn(pc or "pc%d" % next(n), addr)
+                return conn, asyncio.ensure_future(self.svc._accept(_FakeIncoming(conn)))
+            one = [connect("192.168.1.5:%d" % (4000 + i)) for i in range(20)]
+            await asyncio.sleep(0.05)
+            kept = [c for c, _ in one if c.closed is None]
+            self.assertEqual(len(kept), 2)
+            self.assertTrue(all(c.closed == b"too many unpaired from this address" for c, _ in one
+                                if c.closed is not None))
+            many = [connect("192.168.1.%d:4000" % (10 + i)) for i in range(10)]
+            await asyncio.sleep(0.05)
+            self.assertEqual(len([c for c, _ in many if c.closed is None]), 6)  # 8 unpaired in all
+            self.assertEqual(len(self.svc.unpaired), 8)
+            self.svc.paired.add("known", "office", "lan")
+            paired, _ = connect("192.168.1.5:5000", pc="known")
+            await asyncio.sleep(0.05)
+            self.assertIsNone(paired.closed)
+            for c, _ in one + many + [(paired, None)]:
+                if c.closed is None:
+                    c.close(0, b"bye")
+            await asyncio.gather(*[t for _, t in one + many if t])
+            self.assertEqual(self.svc.unpaired, {})
+        self.run_async(go())
+
+    def test_streams_of_an_unpaired_connection_are_capped(self):
+        running, finished = [], []
+
+        async def stream(conn, pc, bi):
+            running.append(bi)
+            await asyncio.sleep(1)
+
+        class Bi:
+            def send(self):
+                return self
+
+            async def finish(self):
+                finished.append(self)
+
+        async def go():
+            conn = _FakeConn("pc1", "192.168.1.5:4000")
+            task = asyncio.ensure_future(self.svc._accept(_FakeIncoming(conn)))
+            for _ in range(5):
+                conn.streams.put_nowait(Bi())
+            await asyncio.sleep(0.05)
+            conn.close(0, b"bye")
+            await task
+        with mock.patch.object(self.svc, "_stream", stream):
+            self.run_async(go())
+        self.assertEqual((len(running), len(finished)), (device.UNPAIRED_STREAMS, 5 - device.UNPAIRED_STREAMS))
+
+    def test_concurrent_pairing_attempts_are_counted_before_the_login(self):
+        started = []
+
+        async def login(conn, pc, head, reader, send, **kw):
+            started.append(pc)
+            await asyncio.sleep(0.05)
+            return False  # a wrong token
+
+        class Send:
+            def __init__(self):
+                self.lines = []
+
+            async def write_all(self, b):
+                self.lines.append(json.loads(b))
+
+        async def go():
+            sends = [Send() for _ in range(15)]
+            await asyncio.gather(*[self.svc._pair(_FakeConn("pc%d" % i, "192.168.1.%d:4000" % (10 + i)), "pc%d" % i,
+                                                  {"t": "pair"}, None, sends[i]) for i in range(15)])
+            return sends
+        with mock.patch.object(self.svc, "_login", login):
+            sends = self.run_async(go())
+        self.assertEqual(len(started), device.PAIR_FAILS_PER_MIN)
+        refused = [s.lines[0]["error"] for s in sends if s.lines]
+        self.assertEqual(len(refused), 15 - device.PAIR_FAILS_PER_MIN)
+        self.assertTrue(all("try again in a minute" in e for e in refused), refused)
+
+
 @unittest.skipUnless(HAVE_IROH, "the iroh package is not installed")
 class Link(unittest.TestCase):
     """One device service per test, its config pointing at a fake plugin."""
