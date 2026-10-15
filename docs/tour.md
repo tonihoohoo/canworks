@@ -37,22 +37,23 @@ export CANWORKS_TOKEN=virtual-plant-demo        # PowerShell: $env:CANWORKS_TOKE
 canworks-config path/to/virtual-plant
 ```
 
-The page opens on the project with its four networks in the network tree on the left: `io`, `motion`, `cell`, `host` ([configurator.md](configurator.md#network-tree)). A node opens in tabs (General, PDOs, SDOs, Supervision, ...), and the tab you pick stays as you go from node to node. Look around:
+The page opens in **Configure** on the project, with its four networks in the network tree on the left: `io`, `motion`, `cell`, `host` ([configurator.md](configurator.md#network-tree)). Click a node in the tree: it opens in tabs (**General**, **PDOs**, **SDOs**, **Supervision**, ...), and the tab you pick stays as you go from node to node ([configurator.md](configurator.md#node-tabs)). Look around:
 
-- `io` → node `dio`: on **PDOs** the PDOs it maps from the config, on **SDOs** the startup SDO 0x2000 and the SDO variables `operating_hours` and `filter_time`, and on **Advanced** the configuration check, store sub-index 1, the NMT command byte and the TIME COB-ID with the consumer bit. Node `new_io` has a serial number and **Assign node ID by serial number**. Node `rtd` is mandatory and its TPDO 1 has a receive timeout of 200 ms with a status bit.
-- `motion` → node `drive`: the **CiA 402** tab with cyclic synchronous modes; the master's SYNC follows the PLC cycle.
-- `cell`: the slave network with the objects the program reads and writes; **Gateway** with its two routes, the field status, EMCY forwarding, the SDO bridge and **On upper loss: zero** ([gateway.md](gateway.md)).
-- `host`: node 20 is the cell itself, not simulated: the plugin's own slave answers.
+- `io` → node `dio`: on **PDOs** the PDOs it maps from the config, on **SDOs** the startup SDO 0x2000 and the SDO variables `operating_hours` and `filter_time`, on **Supervision** the NMT command byte, and on **Advanced** the configuration check with store sub-index 1 and the TIME COB-ID with the consumer bit. Node `new_io` → **Advanced** has a serial number and **Assign node ID by serial number**. Node `rtd` is mandatory (**Advanced**), and on **PDOs** its TPDO 1 has a receive timeout of 200 ms with a status bit (the TPDO's **Settings**).
+- `motion` → node `drive`: the **CiA 402** tab with cyclic synchronous modes; `motion` → **Bus and master**: the master's SYNC follows the PLC cycle.
+- `cell` → **Bus**: the slave network's page (Bus and slave device) with the objects the program reads and writes ([slave.md](slave.md)).
+- **Gateway**, the tree entry after the networks: its two routes, the field status, EMCY forwarding, the SDO bridge and **When the upper master is lost**: **Zero** ([gateway.md](gateway.md)).
+- `host` → node `cell` (node 20) is the cell itself, not simulated: the plugin's own slave answers.
 
 ![The cell's gateway page with its two routes](images/tour-gateway.png)
 
-**A deliberate mistake:** on `io` → `dio` → **PDOs**, change the PLC address of TPDO 1's first entry from `%IB110` to `%IB13`. **Problems** at once reports that `%IB13` is already node `rtd`'s state byte, the tree and the PDOs tab show an error badge, the field turns red and **Save** is disabled. Change it back ([configurator.md](configurator.md#checks-and-saving)). The deploy tool runs the same checks ([deploy.md](deploy.md)).
+**A deliberate mistake:** on `io` → `dio` → **PDOs**, change the PLC address of TPDO 1's first entry from `%IB110` to `%IB13`. **Problems** at the bottom opens at once and reports that `%IB13` is already node `rtd`'s state byte; the tree entries of `rtd` and `dio` and the **PDOs** tab show `1✕`, the field turns red and **Save** is disabled, its tooltip counting the errors. Click the problem: it leads to the field. Change it back, or press Ctrl+Z (Cmd+Z on a Mac) ([configurator.md](configurator.md#checks-and-saving)). The deploy tool runs the same checks ([deploy.md](deploy.md)).
 
 ![The deliberate mistake: %IB13 is node rtd's state byte](images/tour-mistake.png)
 
 ## 3. Exports
 
-From the configurator's header, or from a terminal in the project folder:
+From the configurator's **Export** menu in the header (**All DCFs**, **DBC**, **Documentation**) and `cell` → **Bus** → **Export EDS**, or from a terminal in the project folder:
 
 ```sh
 canworks-deploy --export-html plant.html --config canworks/canworks.json      # network documentation
@@ -81,11 +82,11 @@ The deploy tool does the same upload from a command line: `canworks-deploy --run
 
 ## 5. Online diagnostics
 
-In the configurator, switch to **Commission** at the top and, in the connect form on the Nodes table, pick **Local simulator runtime** with the token `virtual-plant-demo` ([configurator.md](configurator.md#online-view)). The connection bar then shows the runtime; pick each network there:
+In the configurator, switch to **Commission** at the top. The connect panel opens by itself the first time: press **Local simulator runtime**, then **Connect**, and enter the token `virtual-plant-demo` when the page asks for it ([configurator.md](configurator.md#online-access)). The connection bar under the tabs then shows the runtime; later, its **Connect…** and **Disconnect** are the place to connect again. Pick a network on the tree (the bar's network picker follows, and the other way round) for its Nodes table, and click a node for its tabs ([configurator.md](configurator.md#online-view)):
 
-- `io`: master and bus state, nodes 5, 6, 7 OPERATIONAL (the filled circle on the tree and in the Nodes table; **Settings** → **Colours and icons** lists every icon), the TPDO 1 timeout line of node 5, the SDO variables of node 6, every 60 s an EMCY 0x5000 from node 5 (the simulation's wire-break timeline) in its **Emergency history**.
+- `io`: master and bus state, nodes 5, 6, 7 OPERATIONAL (the filled circle on the tree and in the Nodes table; **Settings** → **Colours and icons** lists every icon). Node 5 → **Status**: the TPDO 1 receive timeout, and every 60 s an EMCY 0x5000 (the simulation's wire-break timeline) in its **Emergency history**; a small flag marks node 5 on the tree until you open its **Status**. Node 6 → **Status**: its SDO variables.
 - `cell`: the plugin's own device, node 20: its state, SYNC count, PDOs with the gateway routes, and the gateway row: 2 routes, upper master present.
-- On node 6, **NMT** → **Reset node**: the node boots again, and because its configuration stamp (0x1020) still matches, the master starts it without downloading the configuration again ([config.md](config.md#configuration-check)).
+- Node 6 → **Status** → **NMT** → **Reset node**, and confirm: the node boots again, and because its configuration stamp (0x1020) still matches, the master starts it without downloading the configuration again ([config.md](config.md#configuration-check)). The **Log** at the bottom records the reset and the boot; node 6's **Log** tab shows its own entries.
 
 From a terminal:
 
@@ -99,24 +100,24 @@ canworks-diag --runtime local emcy 5 --network io
 
 ## 6. Device parameters
 
-`io` → node 6 → **Object dictionary**: **Read all**, then the **Changed from default** filter shows what the config wrote (the PDO mapping, 0x2000, 0x1012). On node 5, edit 0x6110 sub 3 (channel 2's filter) to 30 and pick **Keep in configuration**: it becomes a startup SDO in the page, to save and upload. **Parameters** → **Back up** downloads a DCF of the node; **Compare** it against the configuration; **Store on device…** writes "save" to 0x1010, and the simulated device keeps the values over a power cycle ([configurator.md](configurator.md#online-view)).
+**Commission** → `io` → node 6 → **Object dictionary**: **Read all**, then the **Changed from default** filter shows what the config wrote (the PDO mapping, 0x2000, 0x1012). On node 5 → **Object dictionary**, **Edit** 0x6110 sub 3 (channel 2's filter) to 30 and pick **Keep in configuration**: it becomes a startup SDO of node 5 and the header shows **● unsaved**; **Save**, then upload as in chapter 4. Node 6 → **Parameters**: **Back up** downloads a DCF of the node; **Compare** it against the configuration; **Store on device…** writes "save" to 0x1010, and the simulated device keeps the values over a power cycle ([configurator.md](configurator.md#online-view)).
 
 `canworks-diag --runtime local backup 6 --network io -o dio.dcf` does the backup from a terminal.
 
 ## 7. Simulation and faults
 
-**Simulation** in the configurator, network `io` ([configurator.md](configurator.md#simulation-view), [simulator.md](simulator.md)):
+The **Simulation** tab under the header, network `io` in its picker, **Live values**: click a device for its **Values** and **Faults** ([configurator.md](configurator.md#simulation-view), [simulator.md](simulator.md)):
 
-- node 5: the value sources of the four channels (sine, random walk, ramp, a formula on channel 0); **Override** channel 0 with 300: `alarm` comes on, DIO-16 output 0.0 follows, and on `host` the cell's `host_cell_alarm` with EMCY 0x4210;
-- node 6: **Heartbeat stop**. Node 6's status bit goes FALSE, the program's `fault` switches `new_io` output 0.0 on, and the gateway status on `cell` shows node 6 missing, so the host's output 0.1 comes on too. **Clear all** and the master boots node 6 again;
-- node 5: **TPDO stop** 1: after 200 ms `io_rtd_tpdo1_timeout` is TRUE while node 5 stays OPERATIONAL;
-- the simulation file editor shows the `io` section; switch the network picker to `motion` for the drive model's section. Both are in the one `canworks/simulation.json` (version 2, a section per network).
+- node 5 → **Values**: the value sources of the four channels (sine, random walk, ramp, a formula on channel 0); **Override** channel 0 with 300: `alarm` comes on, DIO-16 output 0.0 follows, and on `host` the cell's `host_cell_alarm` with EMCY 0x4210;
+- node 6 → **Faults** → **Heartbeat stop**. Node 6's status bit goes FALSE, the program's `fault` switches `new_io` output 0.0 on, and the gateway status on `cell` shows node 6 missing, so the host's output 0.1 comes on too. **Clear all** and the master boots node 6 again;
+- node 5 → **Faults** → **TPDO stop…** 1: after 200 ms `io_rtd_tpdo1_timeout` is TRUE while node 5 stays OPERATIONAL;
+- **Simulation file** shows the `io` section; switch the network picker to `motion` for the drive model's section. Both are in the one `canworks/simulation.json` (version 2, a section per network).
 
 The same from a terminal: `canworks-diag --runtime local sim fault 6 heartbeat-stop --network io`, `sim clear 6 all --network io`.
 
 ## 8. LSS
 
-`new_io` (node 7) got its node ID at start from the master, by its serial number 7007 ([config.md](config.md#lss)). A second module, `spare_io` (serial 7099), is on the bus without a node ID and is not in the config: **Commission** → `io` → **Unconfigured devices (LSS)** → **Find a device without node ID** finds it; **Set node ID…** gives it, say, 8, and the Nodes table then lists node 8 as **Not in config** with **Add to config**. **Scan the bus** compares the whole network with the config: rtd, dio and new_io read **Match**. A simulated node's **Status** tab has a **Simulated device** panel: **Heartbeat stop** there turns the node's status bit FALSE in the table, marks it on the tree and puts the event in its **Log** tab; **Clear** brings it back.
+`new_io` (node 7) got its node ID at start from the master, by its serial number 7007 ([config.md](config.md#lss)). A second module, `spare_io` (serial 7099), is on the bus without a node ID and is not in the config: **Commission** → `io` → **Unconfigured devices (LSS)** → **Find a device without node ID** finds it; **Set node ID…** gives it, say, 8, and the Nodes table then lists node 8 as **Not in config** with **Add to config**. **Scan the bus** compares the whole network with the config. It asks first, because the PLC program runs nodes 5, 6 and 7 and the scan sends SDO requests to every node ID: pick **Scan anyway**. rtd, dio and new_io then read **Match**. A simulated node's **Status** tab has a **Simulated device** panel with the faults of chapter 7, so a quick fault does not need the Simulation tab: **Heartbeat stop** there turns the node's status bit FALSE in the table, marks it on the tree and puts the event in its **Log** tab; **Clear** brings it back.
 
 ```sh
 canworks-diag --runtime local lss-find --network io
@@ -124,27 +125,29 @@ canworks-diag --runtime local lss-find --network io
 
 ## 9. The drive
 
-Network `motion`: the program powers the axis, homes it and moves it between 0 and 1000 with `CO402_CyclicMoveAbsolute`, a new position every PLC cycle on the SYNC the cycle sends ([cia402.md](cia402.md#cyclic-synchronous-modes)). In **Commission** → `motion` → node 4, watch 0x6041 (statusword, **Bits** names each bit), 0x6061 (mode 8, CSP) and 0x6064. In **Simulation** on `motion`, **Drive inputs…** → **blocked**: the axis cannot move, the drive reports a following error, and the program resets it in step 90 and starts again once you clear the input. The host stops the line when it is lost (next chapter), and the drive then stays put after its current move.
+Network `motion`: the program powers the axis, homes it and moves it between 0 and 1000 with `CO402_CyclicMoveAbsolute`, a new position every PLC cycle on the SYNC the cycle sends ([cia402.md](cia402.md#cyclic-synchronous-modes)). **Commission** → `motion` → node 4 → **Object dictionary**: tick **Watch** on 0x6041 (statusword; **Bits** names each bit), 0x6061 (mode 8, CSP) and 0x6064. **Simulation**, `motion` → **Live values** → node 4 → **Faults** → **Drive inputs…** → **blocked**: the axis cannot move, the drive reports a following error, and the program resets it in step 90 and starts again once you clear the input. The host stops the line when it is lost (next chapter), and the drive then stays put after its current move.
 
 ## 10. Slave and gateway
 
 The cell (node 20) is the PLC as a slave: the host writes `line_run` and `temp_limit`, the program writes `alarm`, `axis_position` and `cycle_count` ([slave.md](slave.md)). The gateway copies RTD channel 0 up and the host's `analog_out` down to DIO-16 analogue output 1 in the plugin, without the program ([gateway.md](gateway.md)).
 
 - **Commission** → `host` → node 20 → **Object dictionary**: 0x5E00 sub 5, 6, 7 are the NMT states of the field nodes on `io`, 0x5E10 sub 1 their operational bits; 0x5E01/0x5E11 those of `motion`.
-- The SDO bridge: write the network (0), node (5), index 0x1018, sub-index 2, then command 1 to 0x5F00 from node 20's SDO panel on `host`, and read the product code of node 5 back in sub-index 5 ([gateway.md](gateway.md#sdo-bridge)).
-- Upper master lost: **Commission** → `host` → node 20 → **NMT** → **Stop**. The cell leaves OPERATIONAL, `cell_line_run` drops (inputs on loss: zero), the drive stops after its move, and the gateway sets DIO-16 analogue output 1 to 0. **Start** brings it back.
+- The SDO bridge: write the network (0), node (5), index 0x1018, sub-index 2, then command 1 to 0x5F00 from **Commission** → `host` → node 20 → **Status** (its SDO panel), and read the product code of node 5 back in sub-index 5 ([gateway.md](gateway.md#sdo-bridge)).
+- Upper master lost: **Commission** → `host` → node 20 → **Status** → **NMT** → **Stop**, and confirm. The cell leaves OPERATIONAL, `cell_line_run` drops (inputs on loss: zero), the drive stops after its move, and the gateway sets DIO-16 analogue output 1 to 0. **Start** brings it back.
 
 ## 11. Trace with a trigger
 
-**Trace**, network `io` ([trace.md](trace.md)): **Start**: **By identifier** shows one row per COB-ID with its cycle time (SYNC every 20 ms, TIME every second) and tints the bytes that change, and **Chronological** scrolls the frames decoded with the config's names. **Graph**: add node 5's channel 0 and node 6's analogue input 1 in one lane and see the second follow the first through the gateway and the host. **Trigger**: EMCY from node 5, single mode, 2 s before and after; the wire-break timeline fires it within a minute, and the hit is listed and marked in the graph. **Save** ▾ → **Download** the window as pcapng for Wireshark, or candump or CSV.
+The **Trace** tab under the header, network `io` in its picker ([trace.md](trace.md)): **Start**. **By identifier** shows one row per COB-ID with its cycle time (SYNC every 20 ms, TIME every second) and tints the bytes that change, and **Chronological** scrolls the frames decoded with the config's names. **Graph**: add node 5's channel 0 and node 6's analogue input 1 in one lane and see the second follow the first through the gateway and the host. **Trigger**: EMCY from node 5, single mode, 2 s before and after; the wire-break timeline fires it within a minute, and the hit is listed and marked in the graph. **Save** ▾ → **Download** the window as pcapng for Wireshark, or candump or CSV.
+
+**Decoding** ▾ → **Add DBC…** with the `io.dbc` of chapter 3: the file is listed with how many of its messages are used, and its notes say why the others are not: the config's own PDOs decode those identifiers first. A DBC file is for identifiers the config does not describe, such as another master's frames; without a config, as in Commission a device, it decodes them all ([trace.md](trace.md)).
 
 ## 12. Frame inspector
 
-Select any frame of the trace: the inspector beside the list explains it layer by layer, from the decoded meaning down to every bit on the wire. The **Sequences** tab shows node 6's boot as a story after the NMT reset of chapter 5, and the SDO conversations of the SDO variables ([frame-inspector.md](frame-inspector.md)). **Frame lab** builds frames by hand without a bus.
+Select any frame of the trace: the inspector beside the list explains it layer by layer, from the decoded meaning down to every bit on the wire. With the trace still recording, reset node 6 again: **Commission** → `io` → node 6 → **Status** → **NMT** → **Reset node** (the recording goes on while you are in the other workspace). Back on **Trace**, **Sequences** shows node 6's boot as a story, and the SDO conversations of the SDO variables ([frame-inspector.md](frame-inspector.md)). **Frame lab** builds frames by hand without a bus.
 
 ## 13. Sending raw frames
 
-**Trace** → **Transmit list** (needs **Allow changes**, which the example has): **Add frame**, identifier `000`, data `81 06` (NMT reset node 6), **Send**. The runtime asks for force, because 0x000 is an identifier the network uses; confirm, and node 6 boots again in the trace. A row with a period, say `6FF` every 100 ms, is a cyclic job that shows as Tx in the trace until you stop it; the list is still there next time ([diagnostics.md](diagnostics.md#sending-frames-by-hand)).
+**Trace** → **Transmit list**, under the trace (needs **Allow changes**, which the example has): **Add frame**, identifier `000`, data `81 06` (NMT reset node 6), **Send**. The runtime asks for force, because 0x000 is an identifier the network uses; confirm, and node 6 boots again in the trace. A row with a period, say `6FF` every 100 ms, is a cyclic job that shows as Tx in the trace until you stop it; the list is still there next time ([diagnostics.md](diagnostics.md#sending-frames-by-hand)).
 
 ## 14. Scenario tests
 
@@ -162,10 +165,10 @@ Each prints PASS or FAIL with the step and value that failed, and `--junit` writ
 A second project, [`examples/gantry-cell`](../examples/gantry-cell/README.md), puts a machine on a simulated network: an XYZ gantry with three CiA 402 axes picks boxes from a conveyor and places them on a 3 × 3 pallet ([simulated machine](simulator.md#simulated-machine)). Copy it next to the virtual plant and open it in the editor and the configurator. Its token is `gantry-cell-demo` (`export CANWORKS_TOKEN=gantry-cell-demo`).
 
 1. **Build and Upload** as in chapter 4, or **Build only** and `canworks-deploy --runtime local --config canworks/canworks.json --project .`. The upload carries `canworks/machine.json` with the simulation file, and `canworks-sim-runtime logs` shows `simulated network motion: machine "Gantry cell" (machine.json): 3 joints, 1 conveyors, 1 sensors, 1 fixtures, step 2 ms`.
-2. **Simulation → Machine** in the configurator: the axes start close to home. Z homes first, X and Y follow, and the first box is on the pallet a few seconds later. After nine boxes the pallet changer swaps the pallet. **Follow tool** keeps the camera on the gripper; **Tool path** shows the straight XY lines and Z starting down before XY arrives.
+2. **Simulation** → `motion` in its picker → **Machine** in the configurator: the axes start close to home. Z homes first, X and Y follow, and the first box is on the pallet a few seconds later. After nine boxes the pallet changer swaps the pallet. **Follow tool** keeps the camera on the gripper; **Tool path** shows the straight XY lines and Z starting down before XY arrives.
 3. **Jam** on the Z axis while it goes down: the axis stops, its drive faults with EMCY 0x8611 and turns red, the stack light goes red. The program waits 2 s in the fault and then tries a reset every half second, so while the jam is there the axis turns amber for a moment every few seconds. **Clear** the jam: the next reset holds, the program lifts Z and goes on with the part in hand. A jam within 20 mm of where Z is going does not fault the drive, because the following error stays inside its window (0x6065, 20 mm), as on a real axis: the program sees that Z does not arrive within 5 s, powers the axes off and tries again.
 4. Stop the PLC from the editor: the runtime stops its plugins, and the simulated network with its machine stops with them. Start it again and the machine starts over from its file: the axes 20 mm from home, an empty pallet, the counters at 0, and the program homes again.
-5. **Stuck off** on sensor `part_at_pick`: the gantry waits over its last pallet slot while boxes queue on the belt. Clear it and it picks again. **Feeder empty** on `infeed` stops new boxes.
+5. **Stuck off** on sensor `part_at_pick`: the gantry waits over its last pallet slot while boxes queue on the belt. Clear it and it picks again. **Empty** on feeder `infeed` stops new boxes.
 
 The same faults run as scenarios: `canworks-diag --runtime local sim test --network motion --scenario fill-a-pallet --scenario z-jam`. They are in `canworks/simulation.json` with two more to start by hand from **Simulation** (`sensor-stuck-off`, `feeder-empty`).
 

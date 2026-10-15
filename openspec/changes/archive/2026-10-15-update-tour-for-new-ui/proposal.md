@@ -17,8 +17,8 @@
 - **New where it helps a first-time user**: the state icons and the diagnosis flag on the tree (chapter 5), the bottom panel's **Log** recording the NMT reset (chapter 5), **Scan anyway** (chapter 8), the node's **Status** tab with its **Simulated device** panel as the quick way to inject a fault without leaving Commission (chapter 7).
 - **Chapter 12** resets node 6 again while the trace records, so the boot story is there.
 - **Features merged or in flight today** get one line each where they fit the walk: the two-line tree entries (chapter 2), the **Notes** tab's **My notes** / **All notes** (chapter 2), device names in the Nodes table (chapter 8), the Trace **Decoding** panel with the `io.dbc` from chapter 3 (chapter 11). A line whose change has not merged when this is applied is left out rather than describing a page the user does not have.
-- **Retake** `docs/images/tour-gateway.png` and `docs/images/tour-mistake.png` on the current page, light theme, 1280 px.
-- **New docs test** `tools/deploy/tests/test_tour_labels.py`: every bold label in `docs/tour.md` is found in the configurator's page code (`static/*.js`, `index.html`), apart from a short allow-list of labels that are not the configurator's (the editor's **Build and Upload**, GitHub's **Code → Download ZIP**, the tour's own lead-ins). A renamed button then fails CI with the label and the chapter. It runs in the existing Python test job, adding seconds.
+- **Retake** `docs/images/tour-gateway.png` and `docs/images/tour-mistake.png` on the current page, light theme, 1680 × 900 like the old ones.
+- **New docs test** `tools/deploy/tests/test_tour_labels.py`: every bold label in `docs/tour.md` is found in the configurator's page code (`static/*.js`, `index.html`), apart from a short allow-list of labels that are not the configurator's (the editor's **Build and Upload**, GitHub's **Code → Download ZIP**, the tour's own lead-ins). A label counts only as a whole string or element text of the page, not a word inside a longer text. A renamed button then fails CI with the label and the chapter. It runs in the existing deploy tool test shards when the page changes, and as one extra step of the `spec-check` job (which every change runs, docs-only ones included) when the tour changes: under a second, standard library only.
 - README: no change expected (it only links the tour); checked during apply.
 
 No configurator, plugin, CLI or file format change.
@@ -49,4 +49,5 @@ None.
 
 - `docs/tour.md`, `docs/images/tour-gateway.png`, `docs/images/tour-mistake.png`.
 - `tools/deploy/tests/test_tour_labels.py` (new).
+- `.github/workflows/ci.yml` (one step in `spec-check`), `.github/ci/tool-test-times.json` (the new test class).
 - No tools version bump (docs and tests only).

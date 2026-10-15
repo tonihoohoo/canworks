@@ -20,7 +20,7 @@ Each configurator bullet starts with its place in bold path form, for example **
 
 ### Label test with an allow-list, not a full page walk
 
-A Playwright walk of the whole tour would be the strongest check but would add minutes to CI for a docs file (Toni's CI-minutes rule). A plain text test (bold labels vs. strings in the page code) costs seconds and catches the common drift, a renamed or removed control. The allow-list holds labels that are not the configurator's, and lead-ins such as **A deliberate mistake:**. Network and node names in backticks are not checked.
+A Playwright walk of the whole tour would be the strongest check but would add minutes to CI for a docs file (Toni's CI-minutes rule). A plain text test (bold labels vs. whole strings and element texts in the page code) costs under a second and catches the common drift, a renamed or removed control. The allow-list holds labels that are not the configurator's, and lead-ins such as **A deliberate mistake:**. Network and node names in backticks are not checked.
 
 ### Lines for unmerged changes are dropped, not hedged
 
@@ -108,7 +108,7 @@ Labels match the page (**Transmit list**, **Add frame**, **Send**; **Simulation*
 
 ### Screenshots
 
-`tour-gateway.png` (Gateway page) and `tour-mistake.png` (the `%IB13` error) are retaken after the visual refresh and #103.
+`tour-gateway.png` (Gateway page) and `tour-mistake.png` (the `%IB13` error) are retaken after the visual refresh. #103 had not merged when this was applied, so the tree still cuts `motion` to `moti…` in them; the shots are retaken again only if a reader would be misled.
 
 ## Risks / Trade-offs
 

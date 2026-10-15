@@ -77,6 +77,9 @@ jobs:
       - name: Validate every spec and change
         run: openspec validate --all --strict --no-interactive
 
+      - name: The tour's labels are on the configurator page (docs/tour.md; Python only, no dependencies)
+        run: python3 tools/deploy/tests/test_tour_labels.py
+
   plugin:
     # Build, and the C++ unit and simulation tests.
     needs: changes
