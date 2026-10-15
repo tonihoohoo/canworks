@@ -141,6 +141,15 @@ class Plan(unittest.TestCase):
         self.assertTrue(any(n["channels"] for n in got["networks"][0]["nodes"]))
         self.assertEqual(sorted(got_files), sorted(want_files))
 
+    def test_channel_failure_names_the_field(self):
+        cfg = load(BRIDGE)
+        dio = [n for n in cfg["networks"][0]["nodes"] if n["name"] == "dio"][0]
+        dio["tx_pdos"][0]["entries"][0]["index"] = "zz"
+        with self.assertRaises(cplan.ExportFailed) as e:
+            cplan.build(cfg, BRIDGE)
+        self.assertTrue(any("tx_pdos[0].entries[0].index" in p for _, paths in e.exception.problems for p in paths),
+                        e.exception.problems)
+
     def test_channel_failure_is_reported(self):
         with mock.patch.object(cplan, "channels", side_effect=TypeError("boom")):
             with self.assertRaises(cplan.ExportFailed) as e:
