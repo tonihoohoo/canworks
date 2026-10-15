@@ -685,6 +685,28 @@ class CheckAndSave(Running):
         status, _, _ = self.request("POST", "/api/export_dcf", {"config": self.cfg, "node": "5"})
         self.assertEqual(status, 400)
 
+    def test_export_codesys_zip(self):
+        import io
+        import zipfile
+        before = self.snapshot()
+        data = self.ok("POST", "/api/export_codesys", {"config": self.cfg})
+        self.assertEqual((data["errors"], data["name"], data["content_type"]),
+                         (0, "rtd-monitor_codesys.zip", "application/zip"))
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(data["data"]))) as z:
+            names = z.namelist()
+            plan = json.loads(z.read("canworks-codesys.json"))
+        self.assertIn("import_canworks.py", names)
+        self.assertIn("README.txt", names)
+        self.assertEqual([n["dcf"] for net in plan["networks"] for n in net["nodes"]],
+                         [n for n in names if n.endswith(".dcf")])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_export_codesys_problems(self):
+        self.cfg["nodes"][0]["node_id"] = 1  # the master's
+        data = self.ok("POST", "/api/export_codesys", {"config": self.cfg})
+        self.assertGreaterEqual(data["errors"], 1)
+        self.assertNotIn("data", data)
+
     def test_export_dbc_unsaved(self):
         before = self.snapshot()
         data = self.ok("POST", "/api/export_dbc", {"config": self.cfg})

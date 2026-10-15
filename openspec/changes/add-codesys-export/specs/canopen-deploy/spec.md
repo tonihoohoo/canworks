@@ -15,7 +15,7 @@ With the CODESYS export the deploy tool SHALL accept `--network NAME` (one netwo
 - **THEN** the tool exits non-zero naming `drives` and writes nothing
 
 ### Requirement: Import into a CODESYS project from the command line
-`canworks-deploy --config FILE --codesys-import PROJECT` SHALL write the CODESYS export (into `--export-codesys DIR` when given, else a temporary folder), set the plan to open PROJECT, or to create it when `--codesys-new TYPE:ID:VERSION` gives the PLC device, run CODESYS headless on the script, print the script's report, and exit non-zero when the report has an error.
+`canworks-deploy --config FILE --codesys-import PROJECT` SHALL write the CODESYS export (into `--codesys-dir DIR` when given, else a temporary folder removed after a run without errors), set the plan to open PROJECT, or to create it when `--codesys-new TYPE:ID:VERSION` gives the PLC device, run CODESYS headless on the script, print the script's report, and exit non-zero when the report has an error.
 
 #### Scenario: Existing project
 - **WHEN** `canworks-deploy --config canworks.json --codesys-import "C:\Projects\Line 2\cell.project"` runs on a PC with CODESYS installed

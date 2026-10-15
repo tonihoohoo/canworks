@@ -1076,6 +1076,28 @@ class Session:
         return {"items": [], "errors": 0, "name": name, "content_type": ctype,
                 "files": sorted(files), "data": base64.b64encode(data).decode("ascii")}
 
+    # -- CODESYS export -----------------------------------------------------
+    def export_codesys(self, cfg):
+        """The draft's master networks for CODESYS (codesys-export): node
+        DCFs, canworks-codesys.json and import_canworks.py in
+        `<folder>_codesys.zip`, base64 in `data`. On a problem: the /api/check
+        shape, and no file. Nothing is written to the folder."""
+        from ..codesys import plan as codesys_plan
+        if not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        try:
+            files, _ = codesys_plan.export_files(cfg, self.config_path, eds_paths=self.eds_paths(cfg))
+        except codesys_plan.ExportFailed as e:
+            items = [{"level": "error", "message": m, "paths": p} for m, p in e.problems]
+            return {"items": items, "errors": len(items)}
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for n in sorted(files):
+                z.writestr(n, files[n].encode("utf-8"))
+        folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
+        return {"items": [], "errors": 0, "name": folder + "_codesys.zip", "content_type": "application/zip",
+                "files": sorted(files), "data": base64.b64encode(buf.getvalue()).decode("ascii")}
+
     # -- DBC export ---------------------------------------------------------
     def export_dbc(self, cfg, sdo="none", network=None, notes=None):
         """The draft as a DBC file (canopen-dbc-export): `<folder>.dbc`, or
@@ -2076,6 +2098,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/export_html"):
                     self._need_open(s)
                     out = s.export_html(body.get("config"), body.get("notes"))
+                elif route == ("POST", "/api/export_codesys"):
+                    self._need_open(s)
+                    out = s.export_codesys(body.get("config"))
                 elif route == ("POST", "/api/export_dcf"):
                     self._need_open(s)
                     out = s.export_dcf(body.get("config"), body.get("node"), body.get("network"))

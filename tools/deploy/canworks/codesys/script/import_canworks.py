@@ -1,0 +1,420 @@
+# -*- coding: utf-8 -*-
+"""Builds a canworks CANopen bus in a CODESYS project.
+
+Run it in CODESYS on the open project (Tools > Scripting > Execute Script
+File...), or headless:
+
+  CODESYS.exe --profile="<profile>" --noUI --runscript="<folder>\\import_canworks.py"
+
+It reads canworks-codesys.json next to itself (written by canworks-deploy
+--export-codesys or the configurator's Export > CODESYS), and writes
+import_report.txt next to itself. With a project open in the IDE it changes
+that project and does not save it; without one it opens or creates the
+project the plan names and saves it when nothing failed.
+
+This file is the same for every config: everything config specific is in
+the plan. It runs on CODESYS's IronPython 2.7 and on CPython 3 (tests).
+"""
+from __future__ import print_function
+
+import io
+import json
+import os
+import traceback
+
+PLAN_NAME = "canworks-codesys.json"
+REPORT_NAME = "import_report.txt"
+FORMAT = 1
+# The CANopen EDS/DCF converter of CODESYS's device repository.
+EDS_CONVERTER = "{1ce4a9c1-37d3-496c-9e80-cd99ad3807ee}"
+CANBUS_TYPE, CANBUS_ID = 15, "181015"
+MANAGER_TYPE, MANAGER_ID = 16, "181016"
+LOCAL_DEVICE_TYPE = 17
+CANBUS_NET_ID = 2
+DEVICE_NODE_ID = 1
+
+
+class Stop(Exception):
+    """A failure that ends the run."""
+
+
+class Report(object):
+    def __init__(self):
+        self.lines = []
+        self.errors = 0
+        self.warnings = 0
+
+    def add(self, kind, text):
+        if kind == "error":
+            self.errors += 1
+        elif kind == "warning":
+            self.warnings += 1
+        self.lines.append(u"%-8s %s" % (kind, text))
+
+    def text(self):
+        head = u"result: %s" % ("ok" if not self.errors else "error (%d)" % self.errors)
+        return "\n".join([head, "warnings: %d" % self.warnings, ""] + self.lines) + "\n"
+
+
+def _children(obj, recursive=False):
+    try:
+        return list(obj.get_children(recursive))
+    except TypeError:
+        return list(obj.get_children())
+
+
+def _is_device(obj):
+    try:
+        return bool(obj.is_device)
+    except Exception:
+        return False
+
+
+def _ident(obj):
+    try:
+        return obj.get_device_identification()
+    except Exception:
+        return None
+
+
+def _type(obj):
+    d = _ident(obj)
+    return d.type if d is not None else None
+
+
+def _params(obj):
+    out = []
+    try:
+        for con in obj.connectors:
+            out.extend(list(con.host_parameters))
+    except Exception:
+        pass
+    try:
+        out.extend(list(obj.device_parameters))
+    except Exception:
+        pass
+    return out
+
+
+def _param(obj, pid):
+    for p in _params(obj):
+        if p.id == pid:
+            return p
+    return None
+
+
+def _number(text):
+    s = str(text).strip().replace("_", "")
+    if s.upper().startswith("16#"):
+        return int(s[3:], 16)
+    if s.upper().startswith("2#"):
+        return int(s[2:], 2)
+    return int(s, 0)
+
+
+def _version_key(version):
+    out = []
+    for part in str(version).replace(",", ".").split("."):
+        digits = "".join(c for c in part if c.isdigit())
+        out.append(int(digits) if digits else 0)
+    return out
+
+
+def _highest(repo, dtype, did):
+    best = None
+    for d in repo.get_all_devices():
+        i = d.device_id
+        if i.type == dtype and i.id == did and (best is None or _version_key(i.version) > _version_key(best.version)):
+            best = i
+    return best
+
+
+def _unique_name(parent, base):
+    taken = set(c.get_name().lower() for c in _children(parent))
+    name, n = base, 2
+    while name.lower() in taken:
+        name = "%s_%d" % (base, n)
+        n += 1
+    return name
+
+
+def _add(parent, name, dtype, did, version):
+    """Adds a device under parent and returns it (found by its new name)."""
+    before = set(c.get_name() for c in _children(parent))
+    parent.add(name, dtype, did, version)
+    new = [c for c in _children(parent) if c.get_name() not in before]
+    if not new:
+        raise Stop("CODESYS added no %s under %s" % (name, parent.get_name()))
+    return new[0]
+
+
+def apply_params(obj, params, report, where):
+    for spec in params:
+        p = _param(obj, spec["id"])
+        label = "%s: %s" % (where, spec.get("what") or spec.get("name"))
+        if p is None:
+            report.add("warning", "%s not set: this CODESYS has no parameter %s (%s)"
+                       % (label, spec["id"], spec.get("name")))
+            continue
+        try:
+            if spec.get("element"):
+                subs = [s for s in p if s.identifier == spec["element"]]
+                if not subs:
+                    report.add("warning", "%s not set: %s has no %s" % (label, p.name, spec["element"]))
+                    continue
+                subs[0].value = spec["value"]
+            else:
+                p.value = spec["value"]
+        except Exception as e:
+            report.add("warning", "%s not set: %s" % (label, e))
+            continue
+        report.add("set", "%s = %s" % (label, spec["value"]))
+        if spec.get("name") and (u"%s" % p.name).lower() != spec["name"].lower():
+            report.add("note", "%s: parameter %s is called %r here (expected %r)"
+                       % (where, spec["id"], p.name, spec["name"]))
+
+
+def name_channels(dev, channels, report, where):
+    """A mapped object is a parameter with id 0x1MMMMEE0 (mapping object
+    0xMMMM, entry EE) holding Index, SubIndex and ObjectLength; its I/O
+    channel is the parameter with the next id."""
+    params = dict((p.id, p) for p in _params(dev))
+    maps = {}
+    for pid, p in params.items():
+        if (pid & 0xF0000000) == 0x10000000 and (pid & 0xF) == 0:
+            try:
+                el = dict((s.identifier, s.value) for s in p)
+                key = ((pid >> 12) & 0xFFFF, _number(el["Index"]), _number(el["SubIndex"]))
+            except Exception:
+                continue
+            channel = params.get(pid + 1)
+            if channel is not None and key not in maps:
+                maps[key] = channel
+    for ch in channels:
+        p = maps.get((ch["mapping"], ch["index"], ch["sub"]))
+        what = "%s: 0x%04X:%d (PDO mapping 0x%04X)" % (where, ch["index"], ch["sub"], ch["mapping"])
+        if p is None or p.io_mapping is None:
+            report.add("warning", "%s has no I/O channel in CODESYS, so %s is not mapped" % (what, ch["variable"]))
+            continue
+        try:
+            p.io_mapping.variable = ch["variable"]
+            report.add("set", "%s -> %s" % (what, ch["variable"]))
+        except Exception as e:
+            report.add("warning", "%s: variable %s not set: %s" % (what, ch["variable"], e))
+
+
+def choose_plc(proj, plan):
+    tops = [c for c in _children(proj) if _is_device(c)]
+    if plan.get("plc"):
+        found = [c for c in _children(proj, True) if _is_device(c) and c.get_name() == plan["plc"]]
+        if not found:
+            raise Stop("no device named %s in the project (devices: %s)"
+                       % (plan["plc"], ", ".join(c.get_name() for c in tops) or "none"))
+        return found[0]
+    if len(tops) == 1:
+        return tops[0]
+    if not tops:
+        raise Stop("the project has no PLC device: add your PLC or display device first")
+    raise Stop("the project has several devices (%s): name the one to use with --codesys-plc NAME"
+               % ", ".join(c.get_name() for c in tops))
+
+
+def find_canbus(plc, net_id):
+    buses = [c for c in _children(plc, True) if _is_device(c) and _type(c) == CANBUS_TYPE]
+    for b in buses:
+        p = _param(b, CANBUS_NET_ID)
+        try:
+            if p is not None and _number(p.value) == net_id:
+                return b, buses
+        except ValueError:
+            pass
+    return None, buses
+
+
+def build_network(plc, net, base, repo, guid, report):
+    where = "network %s" % (net["name"] or net["folder"])
+    bus, buses = find_canbus(plc, net["net_id"])
+    if bus is not None:
+        report.add("reused", "%s: CANbus %s (network number %d)" % (where, bus.get_name(), net["net_id"]))
+    else:
+        like = _ident(buses[0]) if buses else _highest(repo, CANBUS_TYPE, CANBUS_ID)
+        if like is None:
+            raise Stop("%s: no CANbus device is installed in this CODESYS (CANopen support missing?)" % where)
+        try:
+            bus = _add(plc, _unique_name(plc, "CANbus"), like.type, like.id, like.version)
+        except Exception as e:
+            raise Stop("%s: cannot add a CANbus under %s: %s" % (where, plc.get_name(), e))
+        p = _param(bus, CANBUS_NET_ID)
+        if p is None:
+            raise Stop("%s: the new CANbus has no network number parameter" % where)
+        p.value = str(net["net_id"])
+        report.add("created", "%s: CANbus %s %s, network number %d" % (where, bus.get_name(), like.version,
+                                                                         net["net_id"]))
+    apply_params(bus, net["canbus"], report, where + " CANbus")
+    kids = [c for c in _children(bus) if _is_device(c)]
+    if any(_type(c) == LOCAL_DEVICE_TYPE for c in kids):
+        raise Stop("%s: CANbus %s holds a CANopen device (CODESYS as a slave), not a manager"
+                   % (where, bus.get_name()))
+    managers = [c for c in kids if _type(c) == MANAGER_TYPE]
+    if managers:
+        mgr = managers[0]
+        report.add("reused", "%s: CANopen Manager %s" % (where, mgr.get_name()))
+    else:
+        bus_ver = _ident(bus).version if _ident(bus) is not None else None
+        same = [d.device_id for d in repo.get_all_devices()
+                if d.device_id.type == MANAGER_TYPE and d.device_id.id == MANAGER_ID
+                and d.device_id.version == bus_ver]
+        like = same[0] if same else _highest(repo, MANAGER_TYPE, MANAGER_ID)
+        if like is None:
+            raise Stop("%s: no CANopen Manager is installed in this CODESYS" % where)
+        mgr = _add(bus, _unique_name(bus, "CANopen_Manager"), like.type, like.id, like.version)
+        report.add("created", "%s: CANopen Manager %s %s" % (where, mgr.get_name(), like.version))
+    apply_params(mgr, net["manager"], report, where + " manager")
+
+    existing = {}
+    for c in _children(mgr):
+        p = _param(c, DEVICE_NODE_ID) if _is_device(c) else None
+        try:
+            if p is not None:
+                existing[_number(p.value)] = c
+        except ValueError:
+            pass
+    planned = set(n["node_id"] for n in net["nodes"])
+    for nid in sorted(existing):
+        if nid not in planned:
+            report.add("kept", "%s: %s (node %d) is not in the canworks config and stays as it is"
+                       % (where, existing[nid].get_name(), nid))
+    for node in net["nodes"]:
+        nwhere = "%s node %d (%s)" % (where, node["node_id"], node["name"])
+        old = existing.get(node["node_id"])
+        if old is not None:
+            old_name = old.get_name()
+            old.remove()
+            report.add("replaced", "%s: removed %s, added again from the DCF" % (nwhere, old_name))
+        path = os.path.join(base, *node["dcf"].split("/"))
+        try:
+            did = repo.import_device(path, repo.sources[0], guid, True)
+        except Exception as e:
+            report.add("error", "%s: CODESYS did not install %s: %s" % (nwhere, node["dcf"], e))
+            continue
+        try:
+            dev = _add(mgr, _unique_name(mgr, node["name"]), did.type, did.id, did.version)
+        except Exception as e:
+            report.add("error", "%s: cannot add the device: %s" % (nwhere, e))
+            continue
+        if dev.get_name() != node["name"]:
+            try:
+                dev.rename(node["name"])
+            except Exception as e:
+                report.add("warning", "%s: kept the name %s (%s)" % (nwhere, dev.get_name(), e))
+        report.add("created", "%s: device %s from %s" % (nwhere, dev.get_name(), node["dcf"]))
+        apply_params(dev, node["params"], report, nwhere)
+        name_channels(dev, node["channels"], report, nwhere)
+
+
+def build_project(proj, report):
+    try:
+        app = proj.active_application
+    except Exception:
+        app = None
+    if app is None:
+        report.add("warning", "the project has no active application, so it was not built")
+        return
+    try:
+        app.build()
+    except Exception as e:
+        report.add("error", "the build did not run: %s" % e)
+        return
+    errors = warnings = 0
+    for cat in system.get_message_categories():
+        for m in system.get_message_objects(cat):
+            sev = str(m.severity)
+            if sev in ("Error", "FatalError"):
+                errors += 1
+                report.add("error", "build: %s" % m.text)
+            elif sev == "Warning":
+                warnings += 1
+                report.add("warning", "build: %s" % m.text)
+    report.add("built", "%d error%s, %d warning%s" % (errors, "" if errors == 1 else "s",
+                                                      warnings, "" if warnings == 1 else "s"))
+
+
+def open_project(plan, base, report):
+    """(project, opened here)."""
+    proj = projects.primary
+    if proj is not None:
+        report.add("project", "the project open in CODESYS (not saved by the script)")
+        return proj, False
+    if plan.get("project"):
+        path = plan["project"]
+        if not os.path.isabs(path):
+            path = os.path.join(base, path)
+        if not os.path.isfile(path):
+            raise Stop("the project %s does not exist" % path)
+        report.add("project", "opened %s" % path)
+        return projects.open(path), True
+    create = plan.get("create")
+    if create:
+        path = create["path"]
+        proj = projects.create(path, True)
+        dev = create["device"]
+        proj.add(create.get("name") or "PLC", dev["type"], dev["id"], dev["version"])
+        report.add("project", "created %s with device %s %s %s" % (path, dev["type"], dev["id"], dev["version"]))
+        return proj, True
+    raise Stop("open a project in CODESYS first (or name one in %s)" % PLAN_NAME)
+
+
+def run(base):
+    report = Report()
+    proj = None
+    opened = False
+    try:
+        with io.open(os.path.join(base, PLAN_NAME), encoding="utf-8") as f:
+            plan = json.load(f)
+        if plan.get("format") != FORMAT:
+            raise Stop("%s is format %s; this script reads format %d" % (PLAN_NAME, plan.get("format"), FORMAT))
+        report.add("plan", "%s from %s (%s)" % (PLAN_NAME, plan.get("config"), plan.get("tool")))
+        try:
+            from System import Guid
+            guid = Guid(EDS_CONVERTER)
+        except ImportError:
+            guid = EDS_CONVERTER
+        proj, opened = open_project(plan, base, report)
+        plc = choose_plc(proj, plan)
+        report.add("device", plc.get_name())
+        for net in plan["networks"]:
+            try:
+                build_network(plc, net, base, device_repository, guid, report)
+            except Stop as e:
+                report.add("error", str(e))
+        for n in plan.get("notes") or []:
+            report.add("not set", "%s: %s: %s" % (n["where"], n["setting"], n["note"]))
+        build_project(proj, report)
+        if opened:
+            if report.errors:
+                report.add("project", "not saved because of the errors above")
+            else:
+                proj.save()
+                report.add("project", "saved")
+    except Stop as e:
+        report.add("error", str(e))
+    except Exception:
+        report.add("error", "unexpected: " + traceback.format_exc())
+    text = report.text()
+    try:
+        with io.open(os.path.join(base, REPORT_NAME), "w", encoding="utf-8") as f:
+            f.write(text if isinstance(text, type(u"")) else text.decode("utf-8"))
+    except Exception as e:
+        print("cannot write %s: %s" % (REPORT_NAME, e))
+    for line in text.splitlines():
+        print(line)
+    if opened and proj is not None:
+        try:
+            proj.close()
+        except Exception:
+            pass
+    return report
+
+
+if "projects" in globals():
+    run(os.path.dirname(os.path.abspath(__file__)))

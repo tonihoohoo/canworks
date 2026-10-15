@@ -29,7 +29,7 @@ The plan SHALL hold, per exported network, its name, CODESYS network number, bit
 - **THEN** the plan's `field` entry has those values and bit rate 250
 
 ### Requirement: Plan settings per node
-The plan SHALL hold, per node, its node ID, a name that is a valid IEC 61131-3 identifier, its DCF path, optional or mandatory, which identity fields to check at boot, heartbeat consumption or node guarding, and its PDO channels with direction, index, sub-index and variable name. Variable names SHALL be the names the editor declarations use for the same locations.
+The plan SHALL hold, per node, its node ID, a name that is a valid IEC 61131-3 identifier, its DCF path, its CODESYS device settings (node ID, optional or mandatory, do not initialize, restore before configuring, SDO timeout) and its PDO channels with PDO mapping object, index, sub-index and variable name. Variable names SHALL be the names the editor declarations use for the same locations.
 
 #### Scenario: Variable names match the editor
 - **WHEN** node `dio` maps 0x6000 sub 1 to `%IB8` and the editor declarations name that location `dio_Read_input_8_bit_1`
@@ -98,7 +98,7 @@ For each network the script SHALL use an existing CANbus anywhere under the PLC 
 - **THEN** that network stops with a message naming the CANbus, and other networks continue
 
 ### Requirement: Nodes from their DCF
-For each node the script SHALL install the node's DCF in CODESYS's device repository and add it under the manager before installing the next DCF, name the device after the node, and set its node ID, optional flag, identity checks and supervision. PDO communication parameters, PDO mappings, heartbeat producer time and startup SDOs SHALL come from the DCF; the script SHALL NOT rewrite them.
+For each node the script SHALL install the node's DCF in CODESYS's device repository and add it under the manager before installing the next DCF, name the device after the node, and apply the plan's device settings. PDO communication parameters, PDO mappings, heartbeat and guarding settings and startup SDOs SHALL come from the DCF; the script SHALL NOT rewrite them. Identity checks at boot SHALL be left to the user and named in the report.
 
 #### Scenario: Three drives of one product
 - **WHEN** nodes 4, 5 and 6 use the same EDS with different COB-IDs
@@ -127,7 +127,7 @@ Running the script again SHALL replace each remote device under the network's ma
 - **THEN** it stays and the report lists it as not managed by canworks
 
 ### Requirement: Settings found by id
-The script SHALL find CANbus, manager and device settings by CODESYS's numeric parameter id and check the parameter's name. A missing parameter or a different name SHALL skip that setting with a report line and SHALL NOT stop the run.
+The script SHALL find CANbus, manager and device settings by CODESYS's numeric parameter id. A missing parameter SHALL skip that setting with a report line and SHALL NOT stop the run. A parameter whose name differs from the plan's (CODESYS shows names in the user's language) SHALL be set and the difference noted in the report.
 
 #### Scenario: Older manager without a setting
 - **WHEN** the installed CANopen Manager has no parameter for the SYNC window

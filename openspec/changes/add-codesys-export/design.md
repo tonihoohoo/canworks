@@ -22,7 +22,7 @@ Non-goals: see the proposal.
 ### 1. Static script plus a computed plan
 `import_canworks.py` is one fixed file shipped in the wheel; all knowledge of our config goes into `canworks-codesys.json`, built in Python 3 by canworks from `contract`, `dcfexport` and `declare`. Alternative: generate a script per config. Rejected: a generated script is hard to review and test, and every fix would need re-exporting. The static script is tested once against a fake API.
 
-Plan (format 1), shape only:
+Plan (format 1), shape only (as built, parameters carry `id`, `name`, `value`, an optional struct `element` and `what` for the report):
 ```json
 {"format": 1, "tool": "canworks-deploy 0.x",
  "project": null, "create": null, "plc": null,
@@ -49,10 +49,10 @@ Plan (format 1), shape only:
 - An existing CANopen Manager under that CANbus is reused; a CANopen device object there (CODESYS as slave) stops that network with a message.
 
 ### 4. Settings by parameter id, names as a check
-Parameters are looked up by numeric id; the name is compared and a mismatch or a missing id is reported and skipped, not fatal. This keeps older or vendor builds of the CANopen Manager working where names differ, and a setting that could not be applied shows in the report instead of failing the run.
+Parameters are looked up by numeric id. A missing id is reported and skipped, not fatal, so older or vendor builds of the CANopen Manager keep working and a setting that could not be applied shows in the report. A different name is set anyway and noted: CODESYS shows parameter names in the user's language, so a name check cannot decide.
 
 ### 5. Nodes and re-runs
-For each node: import its DCF, add the device under the manager at once, rename it to the node's identifier, set node ID and the remaining settings, then name its channels. A remote device already under that manager with the same node ID is removed first (re-run); devices with other node IDs are kept and listed. Manual edits on replaced devices are lost, and the report names the replaced devices. The DCF entries stay in the device repository (the project refers to them); the repository then holds the last config per product and revision, which only matters for CODESYS's "Update device" and is noted in the docs.
+For each node: import its DCF, add the device under the manager at once, rename it to the node's identifier, set node ID and the remaining settings, then name its channels. The spike found no script access to the device's startup identity checks, so they are a report line for the user. A mapped object is the parameter `0x1MMMMEE0` (mapping object `0xMMMM`, entry `EE`) with `Index`/`SubIndex`/`ObjectLength`; its I/O channel, which carries `io_mapping`, is the parameter with the next id. A remote device already under that manager with the same node ID is removed first (re-run); devices with other node IDs are kept and listed. Manual edits on replaced devices are lost, and the report names the replaced devices. The DCF entries stay in the device repository (the project refers to them); the repository then holds the last config per product and revision, which only matters for CODESYS's "Update device" and is noted in the docs.
 
 Open point for apply: giving each DCF a unique `[FileInfo]` FileVersion/FileRevision would keep a repository entry per node. Only if CODESYS accepts it without side effects; the spike did not test it.
 
