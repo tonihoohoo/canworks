@@ -12,12 +12,7 @@ In every dialog of the configurator, every button SHALL be shown whole and insid
 - **THEN** the button that has the focus is inside the dialog's box and on screen
 
 ### Requirement: Add network protocol choice
-**Add network…** SHALL ask for the new network's protocol with one choice per protocol, one per row, each showing the protocol's name and one line on what it is for, followed by Cancel:
-- **CANopen**: a master and its nodes from EDS files, or the PLC as a slave device;
-- **J1939**: the PLC as an ECU that sends and receives parameter groups from a DBC file;
-- **Plain CAN**: CAN frames only, from a DBC file or entered by hand, with no protocol on top.
-
-CANopen SHALL be first and have the focus. Escape and Cancel SHALL add nothing.
+**Add network…** SHALL ask for the new network's protocol with one choice per row (CANopen, J1939, Plain CAN), each showing the protocol's name and one line on what it is for, followed by Cancel. CANopen SHALL be first and have the focus. Escape and Cancel SHALL add nothing.
 
 #### Scenario: Pick with the keyboard
 - **WHEN** the dialog opens and the user presses Down twice and Enter
