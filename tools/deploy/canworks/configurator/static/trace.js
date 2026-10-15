@@ -367,7 +367,7 @@ function showTraceHeader(st) {
   } else if (st.source) {
     text = `File ${st.source}` + (st.network ? `, decoded with network ${st.network}` : "");
   } else {
-    text = "No trace yet.";
+    text = "No trace yet. Start a recording, or open a trace file.";
   }
   const parts = [text];
   if (!rec.running && !onlineReady()) {
@@ -758,7 +758,7 @@ function drawRows(r) {
       el("span", null, x.gap || x.err ? "" : String(x.dlc)), el("span", { class: "mono" }, x.data),
       el("span", { title: x.name }, x.name), el("span", { title: x.text }, x.text));
   }));
-  if (!r.rows.length) rows.append(el("div", { class: "muted trace-empty" }, T.st && T.st.frames ? "No frames match the display filter." : "No frames."));
+  if (!r.rows.length) rows.append(el("div", { class: "muted trace-empty" }, T.st && T.st.frames ? "No frames match the display filter." : "No frames yet. Start a recording, or open a trace file."));
   rowActions();
   if (T.pendingStep) {
     const step = T.pendingStep;
@@ -890,7 +890,7 @@ async function loadGraph() {
   if (!T.chosen.length) {
     for (const p of T.plots) p.destroy();
     T.plots = [];
-    plotsBox.replaceChildren(el("p", { class: "muted" }, T.st && T.st.frames ? "Choose series on the left." : "No frames yet."));
+    plotsBox.replaceChildren(el("p", { class: "muted" }, T.st && T.st.frames ? "Choose series on the left." : "No frames yet. Start a recording, or open a trace file."));
     showCursors();
     return;
   }

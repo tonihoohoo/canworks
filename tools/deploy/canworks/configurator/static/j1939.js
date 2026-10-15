@@ -378,7 +378,7 @@ function j1939Message(dir, m, i) {
       ...grid),
     el("div", { class: "table-scroll" }, el("table", { class: "j1939-signals" },
       el("thead", null, el("tr", null, thCells(["Signal", "Start bit", "Bits", "Byte order", "Signed", "Scale", "Offset", "Unit", ""]))),
-      el("tbody", null, rows.length ? rows.flat() : el("tr", null, el("td", { colspan: 9, class: "muted" }, "No signals."))))),
+      el("tbody", null, rows.length ? rows.flat() : el("tr", null, el("td", { colspan: 9, class: "muted" }, "No signals yet. A signal names some bits of this PGN and scales them; add one with Add signal."))))),
     el("button", { type: "button", class: "small", dataset: { j1939AddSignal: `${dir}:${i}` }, onclick: () => addSignal(dir, i) }, "Add signal"));
 }
 
@@ -460,7 +460,7 @@ function j1939Requests() {
   return el("fieldset", { dataset: { section: "j1939-requests", path: "j1939.requests" } }, el("legend", null, "Requests"),
     el("p", { class: "muted" }, "PGNs the PLC asks for periodically (Request, PGN 59904), such as data an ECU sends only on request. The answers arrive like any received PGN, so add the PGN to the received ones too."),
     rows.length ? el("table", null, el("thead", null, el("tr", null, thCells(["PGN", "Destination", "Every (ms, 100 to 600000)", ""]))),
-      el("tbody", null, rows)) : el("p", { class: "muted" }, "No requests."),
+      el("tbody", null, rows)) : el("p", { class: "muted" }, "No requests yet. Add one for each PGN the PLC should ask for."),
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { j1939Add: "requests" }, onclick: () => {
       const j = j1939Of(S.config, true);
       const rx = (j.rx || []).find((m) => !(j.requests || []).some((q) => num(q.pgn) === num(m.pgn)));
@@ -531,7 +531,7 @@ function j1939Diagnostics() {
       "Proprietary SPNs are 520192 to 524287."),
     el("span", { class: "field-msg", dataset: { for: base + ".dtcs" } }));
   dtcs.forEach((c, i) => fs.append(dmOwnCode(c, i)));
-  if (!dtcs.length) fs.append(el("p", { class: "muted" }, "No own codes."));
+  if (!dtcs.length) fs.append(el("p", { class: "muted" }, "No own codes yet. Add the trouble codes this ECU reports itself."));
   fs.append(
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { j1939Add: "dm-dtc" }, onclick: addOwnCode }, "Add own code")),
     el("h3", null, "Settings"),

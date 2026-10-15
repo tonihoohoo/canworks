@@ -372,7 +372,7 @@ function renderLinks(view) {
       "The master configures both ends at boot and keeps receiving the TPDO, so the PLC can still read it. See docs/config.md, PDO links."));
   if (S.onlineLast && S.onlineLast.status) view.append(el("p", { class: "muted small" }, "States from the Online view's last status."));
   view.append(...linkList().map((l, i) => linkBox(l, i)));
-  if (!linkList().length) view.append(el("p", { class: "muted" }, "No links yet."));
+  if (!linkList().length) view.append(el("p", { class: "muted" }, "No links yet. A link copies a PDO from one node straight to another, without the PLC; add one with Add link."));
   view.append(el("button", { type: "button", dataset: { linkNew: "1" }, onclick: addLink }, "Add link"));
 }
 

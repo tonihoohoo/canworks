@@ -386,7 +386,7 @@ function rawEditor(kind, i) {
     el("h4", null, "Signals"),
     el("table", { class: "od raw-signals" },
       el("thead", null, el("tr", null, thCells(heads))),
-      el("tbody", null, sigRows.length ? sigRows : el("tr", null, el("td", { colspan: String(heads.length), class: "muted" }, "No signals")))),
+      el("tbody", null, sigRows.length ? sigRows : el("tr", null, el("td", { colspan: String(heads.length), class: "muted" }, "No signals yet. Add one to name and scale some bits of this message.")))),
     el("div", { class: "row" },
       el("button", { type: "button", dataset: { rawAddSignal: "1" }, onclick: () => {
         const used = new Set(sigs.flatMap((s) => rawBits(s.start_bit || 0, s.length || 1, s.byte_order === "big")));

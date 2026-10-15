@@ -264,7 +264,7 @@ function idsDraw() {
   body.style.transform = `translateY(${first * IDS_ROW_H}px)`;
   if (!list.length && !body.querySelector(".trace-empty")) {
     body.append(el("div", { role: "row", class: "trace-empty" }, el("div", { role: "gridcell", class: "muted" },
-      T.st && T.st.frames ? "No identifiers match the display filter." : "No frames.")));
+      T.st && T.st.frames ? "No identifiers match the display filter." : "No frames yet. Start a recording, or open a trace file.")));
   }
   if (TI.selected && TI.els.has(TI.selected)) grid.setAttribute("aria-activedescendant", "ids-r-" + TI.selected);
   else grid.removeAttribute("aria-activedescendant");

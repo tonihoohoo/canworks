@@ -1541,7 +1541,7 @@ function slaveObjects(eds) {
       "program writes (ro or rwr) are PLC outputs the master reads. The name is optional and names the variable."),
     el("div", { class: "objects" }, el("table", { class: "slave-objects" },
       el("thead", null, el("tr", null, thCells(["Object", "EDS name", "Type and direction", "PLC location", "Name", ""]))),
-      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 6, class: "muted" }, "No objects bound yet."))))),
+      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 6, class: "muted" }, "No objects yet. Bind an object of the slave's dictionary to a PLC location below, so the master can read or write it."))))),
     free.length ? el("div", { class: "toolbar" }, pick, el("button", { type: "button", dataset: { bind: "1" },
       onclick: async () => {
         const o = free[Number(pick.value)];
@@ -1833,7 +1833,7 @@ function gatewayRoutes(g, masters, upperEds) {
     upperEds ? null : el("p", { class: "field-msg" }, "Build or pick the upper network's EDS to pick slave objects."),
     el("div", { class: "objects" }, el("table", { class: "routes" },
       el("thead", null, el("tr", null, thCells(["Name", "Slave object", "Field network, node and PDO entry", ""]))),
-      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 4, class: "muted" }, "No routes yet."))))),
+      el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 4, class: "muted" }, "No routes yet. A route passes a slave object to a node's PDO entry on a field network; add one with Add route."))))),
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { addRoute: "1" },
       onclick: () => { g.routes.push({ slave: {}, field: {} }); changed(true); } }, "Add route")));
 }
