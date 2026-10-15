@@ -77,6 +77,7 @@ async function connTick() {
   let err = null;
   try {
     r = await api("POST", "/api/online/status", { port: diagPort() });
+    if (r && r.recent) S.online.recent = r.recent;
   } catch (e) { err = e; }
   if (seq !== CONN.seq || !connIsOn()) return;
   if (err && !CONN.error && !connAdapter() && typeof commEvent === "function" && commLogOn()) commEvent(null, onlineNetwork(), "Connection to the runtime lost", err.message);

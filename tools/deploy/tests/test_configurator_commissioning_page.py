@@ -203,8 +203,6 @@ class LogPage(Page):
     def test_close_asks_to_save_the_log(self):
         pg = self.page
         self.commission()
-        pg.keyboard.press("Escape")  # the connect panel that opened with the page
-        pg.wait_for_selector("#conn-dialog", state="hidden")
         pg.evaluate("() => commLog(5, 'test entry', 'done')")
         pg.click("#btn-close")
         pg.wait_for_selector("#modal[open]:has-text('not saved')")

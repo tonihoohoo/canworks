@@ -129,11 +129,15 @@ function compareSummary(cmp) {
   return el("p", { class: "nodes-summary", dataset: { nodes: "summary" }, "aria-live": "polite" }, ...kids);
 }
 
-function compareCell(c) {
+// The comparison of one row in words (colour is never the only cue), the
+// differing fields, and the actions it offers.
+function compareCell(c, id) {
   if (!c) return el("td");
-  const why = c.differs && c.differs.length ? c.differs.map((x) => `${IDENTITY_LABEL[x.field]} ${hex8(x.found)}, expected ${hex8(x.expected)}`).join("; ") : "";
+  const why = c.differs && c.differs.length ? c.differs.map((x) => `${upperFirst(IDENTITY_LABEL[x.field])} ${hex8(x.found)} on the bus, ${hex8(x.expected)} in the config`).join("; ") : "";
+  const actions = compareActions(id, c);
   return el("td", { class: COMPARE_CLASS[c.state] || "muted", dataset: { compare: c.state } },
-    COMPARE_TEXT[c.state] || c.state, why ? el("div", { class: "muted", dataset: { differs: "1" } }, why) : null);
+    COMPARE_TEXT[c.state] || c.state, why ? el("div", { class: "muted", dataset: { differs: "1" } }, why) : null,
+    actions ? el("div", { class: "actions" }, actions) : null);
 }
 
 // The actions a row's comparison offers: Add to config, Use matching EDS,
@@ -163,9 +167,10 @@ function notInConfigRows(cmp, columns) {
     const id = Number(k);
     const d = c.device;
     const what = [d.device_name, d.vendor_id !== undefined ? `vendor ${hex8(d.vendor_id)}` : "", d.product_code !== undefined ? `product ${hex8(d.product_code)}` : ""].filter(Boolean).join(", ");
-    const cells = [el("td", null, String(id)), el("td", null, what), el("td", { class: "muted" }, "found by the scan")];
-    while (cells.length < columns - 2) cells.push(el("td"));
-    return el("tr", { dataset: { onlineNode: id, notInConfig: id } }, ...cells, compareCell(c), el("td", { class: "actions" }, compareActions(id, c)));
+    const lss = (S.lssFound || []).some((x) => x.node_id === id) && !(S.scanResult && (S.scanResult.nodes || []).some((x) => x.node_id === id));
+    const cells = [el("td", null, String(id)), el("td", null, what), el("td", { class: "muted" }, lss ? "node ID set by LSS here" : "found by the scan")];
+    while (cells.length < columns - 1) cells.push(el("td"));
+    return el("tr", { dataset: { onlineNode: id, notInConfig: id } }, ...cells, compareCell(c, id));
   });
 }
 
@@ -225,7 +230,7 @@ async function addFound(devices) {
       file = input.files[0];
     }
     const lss = !!(S.lssSet && S.lssSet[d.node_id]);
-    if (await addScannedNode(d, match, file, true, lss, true)) added++;
+    if (await addScannedNode(d, match, file, true, lss, true)) { added++; commLog(d.node_id, "Add to config", "added to the draft (unsaved)"); }
   }
   S.nodesPicked = new Set();
   if (!added) { onlineRedraw(); return; }
@@ -243,6 +248,7 @@ async function useMatchingEds(id, d) {
   S.state.eds = S.state.eds || {};
   S.state.eds[res.name] = res.summary;
   n.eds = res.name;
+  commLog(id, `Use matching EDS ${res.name}`, "changed in the draft (unsaved)");
   banner(`Node ${id} now uses ${res.name}. Save to keep it; mapped objects the new EDS lacks are listed under Problems.`);
   changed(true);
   problemsAfterCheck(before);
@@ -252,6 +258,7 @@ function takeSerial(id, d) {
   const n = configNode(id);
   if (!n) return;
   n.serial_number = d.serial_number;
+  commLog(id, `Take serial number ${hex8(d.serial_number)}`, "changed in the draft (unsaved)");
   banner(`Node ${id}: serial number set to ${hex8(d.serial_number)}. Save to keep it.`);
   changed(true);
 }
@@ -392,10 +399,16 @@ async function unlock(focus, btn) {
   if (S.onlineLast && S.onlineLast.status) S.onlineLast.status.allow_changes = true;
   if (S.onlineLast && S.onlineLast.hello) S.onlineLast.hello.allow_changes = true;
   render();
-  if (focus) {
+  connKick();
+  // The control is drawn again on the next status answer: focus it once it is enabled.
+  if (!focus) return;
+  const until = Date.now() + 5000;
+  const settle = () => {
     const t = document.querySelector(focus);
-    if (t) t.focus();
-  }
+    if (t && !t.disabled) { t.focus(); return; }
+    if (Date.now() < until) setTimeout(settle, 50);
+  };
+  settle();
 }
 
 // ---------------------------------------------------------------------------
@@ -499,9 +512,11 @@ function lastHeardText(n) {
 }
 
 // A row of the Nodes table opens the node in the tree, on its Status tab.
+// The selected tab is kept from node to node, so stepping through nodes on
+// the Object dictionary stays there; the first node opens on Status.
 function openOnlineNode(id) {
   S.onlineNode = id;
-  S.onlineTab = "status";
+  S.onlineTab = S.onlineTab || "status";
   renderOnlineNode();
   pollHighlight();
   const t = document.querySelector("#online-node [role=tablist] [aria-selected=true]");

@@ -232,6 +232,70 @@ class CommissionPage(AdapterPage):
         self.assertFalse(self.server.connection.connected)
         self.assertEqual(pg.query_selector_all('tr[data-online-node="7"]'), [])
 
+    def test_recent_connection_and_status_tab(self):
+        # commission-workspace 6.2: a recent connection connects in one click,
+        # with the bit rate check and Allow changes off; the node opens on Status.
+        pg = self.page
+        self.device(7, heartbeat_s=0.05)
+        self.commission()
+        self.connect_adapter(allow=True)
+        pg.click('#conn-bar [data-conn="disconnect"]')
+        recent = '#view [data-nodes="recent"] button[data-nodes-recent="0"]'
+        pg.wait_for_selector(recent + ':has-text("virtual:%s at 250 kbit/s")' % self.ch)
+        pg.click(recent)
+        pg.wait_for_selector('#conn-bar [data-conn="target"]:has-text("virtual:%s")' % self.ch)
+        self.assertIn("Read-only", pg.inner_text("#conn-bar"))
+        pg.wait_for_selector('tr[data-online-node="7"]')
+        pg.click('button[data-open-node="7"]')
+        pg.wait_for_selector('button[data-online-tab="status"][aria-selected="true"]')
+        tabs = [b.inner_text() for b in pg.query_selector_all("[data-online-tab]")]
+        self.assertEqual([t.split()[0] for t in tabs], ["Status", "Object", "Parameters", "PDO", "Notes", "Log"])
+        pg.wait_for_selector('[data-online="node-status"]:has-text("PRE-OPERATIONAL")')
+        # The selected tab stays when the node page is drawn again.
+        pg.click('button[data-online-tab="log"]')
+        pg.click('button[data-open-node="7"]')
+        pg.wait_for_selector('button[data-online-tab="log"][aria-selected="true"]')
+
+    def test_unlock_in_place(self):
+        # A locked control offers Unlock…: the bar's question, then the control
+        # is enabled where it is and keeps the focus.
+        pg = self.page
+        self.device(2, heartbeat_s=0.05)
+        self.commission()
+        self.connect_adapter()
+        note = '[data-online="lss-no-changes"]'
+        pg.wait_for_selector(note + ':has-text("Locked.")')
+        self.assertTrue(pg.is_disabled('button[data-online="lss-find"]'))
+        pg.click(note + " button[data-unlock]")
+        pg.wait_for_selector("#modal:has-text('Allow changes on this adapter connection?')")
+        pg.click('#modal button[data-value="allow"]')
+        pg.wait_for_selector('#conn-bar:has-text("Changes allowed")')
+        pg.wait_for_selector('button[data-online="lss-find"]:not([disabled])')
+        pg.wait_for_function("() => document.activeElement.dataset.online === 'lss-find'")
+        self.assertEqual(pg.locator(note).count(), 0)
+        self.assertNotIn("another master", pg.inner_text("#view"))
+
+    def test_save_log_with_and_without_bus_events(self):
+        pg = self.page
+        self.device(7, heartbeat_s=0.05)
+        self.commission()
+        self.connect_adapter()
+        pg.wait_for_selector('tr[data-online-node="7"]')
+        pg.evaluate("() => { commLog(7, 'test entry', 'done'); commEvent(7, null, 'State test event', 'ok'); }")
+        if not pg.evaluate("document.querySelector('#log-box').open"):
+            pg.click("#log-box > summary")
+        pg.wait_for_selector('#log-panel [data-online="log"] li.event')
+        for events, expect in ((False, False), (True, True)):
+            box = '#log-panel input[data-online="log-events"]'
+            if pg.is_checked(box) != events:
+                pg.click(box)
+            with pg.expect_download() as dl:
+                pg.click('#log-panel button:has-text("Save log")')
+            with open(dl.value.path(), encoding="utf-8") as f:
+                text = f.read()
+            self.assertIn("test entry", text)
+            self.assertEqual("(bus)" in text, expect, text)
+
     def test_trace_records_on_the_adapter(self):
         pg = self.page
         self.device(7, heartbeat_s=0.05)

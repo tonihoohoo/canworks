@@ -3709,16 +3709,19 @@ function onlineApply(r, err) {
     if (S.nodesFilter && (!c || c.state !== S.nodesFilter)) return null;
     const cn = configNode(n.node_id);
     const sim = cn && nodeSimulated(cn, onlineConfig()) ? el("span", { class: "tag", dataset: { simMark: n.node_id } }, "simulated") : null;
-    return el("tr", rowAttrs(() => openOnlineNode(n.node_id),
-      { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id }, "aria-label": `Open node ${n.node_id}` }),
-    el("td", null, String(n.node_id)), el("td", null, nodeName(n.node_id, n.name), sim ? " " : null, sim),
+    // The row opens the node on a click; the node ID is the button for the
+    // keyboard, as the comparison's own buttons sit in the row too.
+    return el("tr", { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id },
+      onclick: (e) => { if (!e.target.closest("button, input, label, a, select")) openOnlineNode(n.node_id); } },
+    el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${n.node_id}`, dataset: { openNode: n.node_id },
+      onclick: () => openOnlineNode(n.node_id) }, String(n.node_id))), el("td", null, nodeName(n.node_id, n.name), sim ? " " : null, sim),
     el("td", { class: "state-" + n.state }, el("span", { class: "state-mark " + liveMark(n)[0], "aria-hidden": "true" }), stateName(n.state)),
     el("td", { dataset: { onlineStatus: n.node_id } }, n.status ? "TRUE" : "FALSE",
       ...stale.map((t) => el("div", { class: "bad", dataset: { pdoTimeout: n.node_id } }, t))),
-    el("td", { class: n.boot_error ? "bad" : null }, boot + (n.retry_pending ? " (retrying)" : "")),
-    el("td", null, hold), el("td", null, em, emcyCobNote(n)), el("td", null, vars),
+    el("td", { class: n.boot_error ? "bad" : null }, boot + (n.retry_pending ? " (retrying)" : ""), hold ? el("div", null, hold) : null),
+    el("td", null, em, emcyCobNote(n)), el("td", null, vars),
     el("td", null, lastHeardText(n)), el("td", null, cn && cn.eds ? cn.eds : ""),
-    compareCell(c), el("td", { class: "actions" }, compareActions(n.node_id, c)));
+    compareCell(c, n.node_id));
   }).filter(Boolean);
   // Nodes of the draft the runtime does not run yet (added here, not uploaded).
   const running = new Set((st.nodes || []).map((n) => n.node_id));
@@ -3728,10 +3731,10 @@ function onlineApply(r, err) {
     if (S.nodesFilter && (!c || c.state !== S.nodesFilter)) return null;
     return el("tr", { dataset: { onlineNode: id, draftNode: id } },
       el("td", null, String(id)), el("td", null, n.name || ""),
-      el("td", { class: "muted", colspan: 7 }, S.dirty ? "In this page's changes: save and upload to run it." : "Not run by the runtime yet: upload the saved config to run it."),
-      el("td", null, n.eds || ""), compareCell(c), el("td", { class: "actions" }, compareActions(id, c)));
+      el("td", { class: "muted", colspan: 6 }, S.dirty ? "In this page's changes: save and upload to run it." : "Not run by the runtime yet: upload the saved config to run it."),
+      el("td", null, n.eds || ""), compareCell(c, id));
   }).filter(Boolean);
-  const extra = drafted.concat(notInConfigRows(cmp, 12).filter((r) => !S.nodesFilter || S.nodesFilter === "not_in_config"));
+  const extra = drafted.concat(notInConfigRows(cmp, 10).filter((r) => !S.nodesFilter || S.nodesFilter === "not_in_config"));
   patchLive($("#online-live"), [
     el("table", { class: "online-bus" }, el("tbody", null,
       el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, `${bus.interface || "?"}: ${BUS_STATES[bus.state] || bus.state || "?"}`),
@@ -3742,8 +3745,8 @@ function onlineApply(r, err) {
         el("td", { colspan: 7, dataset: { online: "sync" } }, syncText(st.sync))) : null)),
     compareSummary(cmp),
     el("table", { class: "online-nodes", dataset: { online: "nodes" } },
-      el("thead", null, el("tr", null, thCells(["Node", "Name", "State", "Status bit", "Boot", "Hold", "Last EMCY", "SDO variables", "Last heard", "EDS", "Compared", "Actions"]))),
-      el("tbody", null, rows.length || extra.length ? rows.concat(extra) : [el("tr", null, el("td", { colspan: 12, class: "muted" },
+      el("thead", null, el("tr", null, thCells(["Node", "Name", "State", "Status bit", "Boot", "Last EMCY", "SDO variables", "Last heard", "EDS", "Compared"]))),
+      el("tbody", null, rows.length || extra.length ? rows.concat(extra) : [el("tr", null, el("td", { colspan: 10, class: "muted" },
         S.nodesFilter ? "No node in this group." : "No nodes in the configuration the runtime runs."))])),
     linksLive(st)]);
   const tbox = document.querySelector("[data-online='pdo-timeouts']");

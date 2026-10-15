@@ -92,7 +92,7 @@ The 404 on `/api/online/scan` for a runtime is removed. The page offers Scan onl
 **Status** has, top to bottom: NMT state, last heard, heartbeat and boot result with error text, NMT buttons (Start, Stop, Pre-operational, Reset node, Reset communication, with today's confirmations), PDO timeouts per monitored TPDO, the EMCY history and the error history (0x1003) with Refresh and Clear. The tabs follow the page's tab pattern. The selected tab is kept when another node is picked, so stepping through nodes on the Object dictionary tab stays there.
 
 ### 7. Session log
-`log.js` keeps one list per page session:
+The session log (`commission.js`, events from `nodes.js`) keeps one list per page session:
 - **events** derived from status polls and replies: NMT state change, boot result, EMCY, error history change, SDO abort, PDO timeout, connection ended;
 - **changes** made through the page: SDO write, NMT, LSS set ID, set bit rate and store, write configuration, restore, restore defaults, store, error history clear, comparison actions.
 
@@ -123,7 +123,7 @@ Connected to the local simulator runtime (or any runtime with simulated nodes):
 The Simulation tool stays for editing the simulation file and the scenarios.
 
 ### 11. Code layout
-`nodes.js`, `status.js` and `log.js` are new ES modules beside the shell's. The online view code in `app.js` that draws the node table and the Overview tab moves into them; `commission.js` keeps LSS, Parameters, Write configuration, restore defaults, PDO test and Add to a config…. No build step.
+`nodes.js` is a new classic script beside the shell's (the page's scripts share globals and load in order; no build step). It holds the connect form on the table, the comparison and its actions, the tree's live marks, the log's bus events, Unlock and the Status tab's additions. The online table and the node tabs stay in `app.js`, which calls into it; `commission.js` keeps the commissioning Nodes table, the session log, LSS, Parameters, Write configuration, restore defaults, PDO test and Add to a config…. Moving the rest of the online view out of `app.js` is left to a later clean-up, so this change stays reviewable.
 
 ## Risks / Trade-offs
 

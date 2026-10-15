@@ -35,8 +35,8 @@ None.
 ## Impact
 
 - Configurator page `tools/deploy/canworks/configurator/static/`:
-  - new modules `nodes.js` (Nodes table and comparison), `status.js` (Status tab, simulated device panel), `log.js` (session log);
-  - `commission.js` (commissioning Nodes tab replaced, log moved to `log.js`), `app.js` (online view parts moved), `sim.js` (fault and value controls reused on the Status tab), `index.html`, `style.css`.
+  - new script `nodes.js` (connect form on the table, comparison and its actions, tree state, bus events of the log, Unlock, the Status tab's head and simulated device panel, node tabs);
+  - `commission.js` (commissioning Nodes table and the session log with filters), `app.js` (online table, node tabs), `tree.js`, `connection.js`, `shell.js`, `index.html`, `style.css`.
 - Configurator server `configurator/server.py`: the runtime scan route is allowed again (from the Commission workspace); the scan result gets a `compare` field per device and the list of configured nodes not found; recent connections in `online.json`.
 - No plugin, schema, diagnostics protocol or CLI change. The plugin already answers `scan` and asks for `force` when a node is OPERATIONAL.
 - Tests: page tests on the virtual adapter and on the fake plugin runtime (Nodes table, comparison states and actions, scan through the runtime with force, Status and Log tabs, tree state, Unlock), and one on the local simulator runtime in the existing simulator CI job (scan, fault from the Status tab).

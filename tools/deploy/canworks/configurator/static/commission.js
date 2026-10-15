@@ -154,7 +154,8 @@ function unsavedLog() { return logChanges().filter((e) => !e.saved).length; }
 // empty. False when the user cancels.
 async function leaveCommission(what) {
   if (!commLogOn()) return true;
-  const n = unsavedLog();
+  // With a config the log lives in this page only; it is not a record to keep.
+  const n = S.state.commission ? unsavedLog() : 0;
   if (n) {
     const v = await modal(`The commissioning log has ${n} change${n === 1 ? "" : "s"} that ${n === 1 ? "was" : "were"} not saved. Save it before ${what}?`,
       [["save", "Save log", true], ["discard", "Don't save"], ["cancel", "Cancel"]]);
@@ -289,6 +290,7 @@ function adapterBox(message) {
     // refusal keeps the panel open with the reason and the form filled in.
     try {
       const r = await api("POST", "/api/online/status", { port: diagPort() });
+      if (r.recent) S.online.recent = r.recent;
       S.onlineLast = r;
       S.onlineLastAt = Date.now();
     } catch (e) {

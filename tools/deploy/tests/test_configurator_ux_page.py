@@ -294,11 +294,10 @@ class Probes(Layout):
             pg.keyboard.press("Enter")
             pg.wait_for_function("() => (document.activeElement.dataset.path || '').startsWith('nodes[')")
             self.assertEqual(pg.get_attribute("#problems", "aria-label"), "Problems")
-            # Online rows: Tab to a row, Enter opens the node.
+            # Online rows: Tab to a node's ID button, Enter opens the node.
             pg.click('button[data-view="online"]')
             pg.wait_for_selector("text=changes allowed")
-            pg.focus('tr[data-online-node="2"]')
-            self.assertEqual(pg.get_attribute('tr[data-online-node="2"]', "role"), "button")
+            pg.focus('tr[data-online-node="2"] button[data-open-node="2"]')
             pg.keyboard.press("Enter")
             pg.wait_for_selector('button[data-online="write"]')
             # Node tabs: Right moves to the object dictionary.

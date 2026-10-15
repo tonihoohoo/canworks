@@ -2296,7 +2296,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # The path the connection took (LAN, internet direct or relayed)
             # and its round trip; the background pairing's line, once.
             out.update(conn.link_info())
-            self._remember_recent(settings, folder, proj, local)
+            out["recent"] = self._remember_recent(settings, folder, proj, local)
             if local:
                 out["config"] = "local"
                 out["config_bitrate"] = self._config_bitrate(config_path, network)
@@ -3092,8 +3092,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             mem = online.remembered_view(proj.get("host"))
             entry = online.recent_entry(proj.get("host"), name=(mem or {}).get("name"))
         recent = online.add_recent(proj.get("recent"), entry)
-        if recent is not None:
-            settings.update_project(folder, recent=recent)
+        if recent is None:
+            return [r for r in proj.get("recent") or [] if isinstance(r, dict)]
+        settings.update_project(folder, recent=recent)
+        return recent
 
     def _match_scan(self, s, settings, canopen_dir, res, cfg, network=None):
         """Adds to each scanned device the EDS files that match it and, for a
