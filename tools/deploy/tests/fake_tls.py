@@ -10,6 +10,7 @@ import os
 import secrets
 import socket
 import ssl
+import threading
 
 from canworks import diag
 
@@ -20,14 +21,21 @@ with open(CERT) as f:
     CERT_HASH = hashlib.sha256(ssl.PEM_cert_to_DER_cert(f.read())).digest()
 
 _ctx = None
+_ctx_lock = threading.Lock()
 
 
 def server_context():
+    # Built whole before it is shared: the handler threads of two connections
+    # that arrive together (the page's status poll and a trace start) must not
+    # see a context whose certificate is not loaded yet, or the handshake fails
+    # and the client reports an old plugin (seen on busy CI runners).
     global _ctx
-    if _ctx is None:
-        _ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        _ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        _ctx.load_cert_chain(CERT, KEY)
+    with _ctx_lock:
+        if _ctx is None:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            ctx.load_cert_chain(CERT, KEY)
+            _ctx = ctx
     return _ctx
 
 

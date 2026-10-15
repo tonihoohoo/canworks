@@ -25,6 +25,7 @@ import os
 import re
 import secrets
 import shutil
+import string
 import sys
 import tempfile
 import threading
@@ -1697,7 +1698,30 @@ def slave_eds_name(device_name):
     return (stem or "openplc-slave") + ".eds"
 
 
-def list_folders(path):
+def _eds_here(names):
+    return sum(1 for n in names if n.lower().endswith(".eds"))
+
+
+def windows_drives():
+    """The drive roots of a Windows PC ("C:\\", "D:\\" …) that exist."""
+    if hasattr(os, "listdrives"):  # Python 3.12
+        try:
+            return sorted(os.listdrives())
+        except OSError:
+            pass
+    return ["%s:\\" % c for c in string.ascii_uppercase if os.path.isdir("%s:\\" % c)]
+
+
+def list_folders(path, drives=False):
+    """A folder's subfolders for the folder browsers, each with its number of
+    EDS files (`eds`). On Windows, `drives` lists the drive roots, and a
+    drive root says so (`drive`), so Up can go there."""
+    if drives:
+        if os.name != "nt":
+            raise ApiError(404, "only Windows has drives")
+        return {"path": "", "parent": None, "drive": False, "drive_list": True, "project": False, "config": False,
+                "eds": 0, "entries": [{"name": d, "path": d, "project": False, "config": False, "eds": None}
+                                      for d in windows_drives()]}
     path = os.path.abspath(os.path.expanduser(path or "~"))
     if not os.path.isdir(path):
         raise ApiError(404, "%s is not a folder" % path)
@@ -1710,11 +1734,16 @@ def list_folders(path):
         full = os.path.join(path, name)
         if name.startswith(".") or not os.path.isdir(full):
             continue
-        entries.append({"name": name, "path": full,
+        try:
+            eds = _eds_here(os.listdir(full))
+        except OSError:
+            eds = None  # not readable: listed, without a count
+        entries.append({"name": name, "path": full, "eds": eds,
                         "project": os.path.isfile(os.path.join(full, "project.json")),
                         "config": os.path.isfile(os.path.join(full, CONFIG))})
     parent = os.path.dirname(path)
-    return {"path": path, "parent": parent if parent != path else None, "entries": entries,
+    return {"path": path, "parent": parent if parent != path else None,
+            "drive": os.name == "nt" and parent == path, "eds": _eds_here(names), "entries": entries,
             "project": os.path.isfile(os.path.join(path, "project.json")),
             "config": os.path.isfile(os.path.join(path, CONFIG))}
 
@@ -1906,7 +1935,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/ui"):
                     out = save_ui(body)
                 elif route == ("GET", "/api/folders"):
-                    out = list_folders(query.get("path", [None])[0])
+                    out = list_folders(query.get("path", [None])[0], query.get("drives", [""])[0] == "1")
                 elif route == ("POST", "/api/folder_nodes"):
                     out = folder_nodes(body.get("path"))
                 elif route == ("POST", "/api/open"):
@@ -2093,7 +2122,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         def view():
             p = settings.project(folder)
-            return {"token": p.get("token"), "host": p.get("host") or "", "eds_library": settings.eds_library,
+            lib = settings.eds_library
+            count, capped = online.count_eds(lib)
+            return {"token": p.get("token"), "host": p.get("host") or "", "eds_library": lib,
+                    "eds_count": count, "eds_count_capped": capped,
                     "connected": conn.connected, "target": "adapter" if s.commission else "runtime",
                     "adapter": p.get("adapter") or "", "adapter_bitrate": p.get("adapter_bitrate"),
                     "check_node": p.get("check_node"),

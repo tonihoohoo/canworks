@@ -448,6 +448,25 @@ class Sender:
 # EDS matching for scan results
 
 
+EDS_COUNT_LIMIT = 5000
+
+
+def count_eds(folder, limit=EDS_COUNT_LIMIT):
+    """(number of EDS files in `folder` and its subfolders, capped): the walk
+    stops after `limit` directory entries, so a huge folder (the home folder)
+    cannot hold up the page. Hidden folders are skipped, as scans do."""
+    if not folder or not os.path.isdir(folder):
+        return 0, False
+    count = seen = 0
+    for root, dirs, names in os.walk(folder):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        seen += len(dirs) + len(names)
+        count += sum(1 for n in names if n.lower().endswith(".eds"))
+        if seen > limit:
+            return count, True
+    return count, False
+
+
 class EdsIndex:
     """[DeviceInfo] of the EDS files in some folders, cached by mtime."""
 

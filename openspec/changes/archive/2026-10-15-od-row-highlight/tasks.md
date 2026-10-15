@@ -18,5 +18,5 @@
 ## 4. Docs and release
 
 - [x] 4.1 README.md: one line on the selected row in the object dictionary tab description
-- [x] 4.2 Bump the PC tools version (0.62.0, with the doc golden files)
+- [x] 4.2 Bump the PC tools version (0.63.0, with the doc golden files)
 - [ ] 4.3 CI time: wall and summed job time against the main baseline in the PR description

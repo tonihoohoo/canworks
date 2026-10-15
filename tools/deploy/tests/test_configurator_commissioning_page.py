@@ -10,6 +10,9 @@ import shutil
 import struct
 import time
 import unittest
+from unittest import mock
+
+from canworks.configurator import online
 
 from .helpers import PINGPONG
 from .test_commissioning import FIXED_IO, IDENTITY, RTD, fixed_io_od, rtd_od
@@ -184,7 +187,20 @@ class LogPage(Page):
         # A change after saving: "Add to a config…" asks to save the log first.
         pg.evaluate("() => commLog(12, 'test entry', 'done')")
         pg.click('button[data-online="add-to-config"]')
-        pg.fill('input[data-online="add-folder"]', folder)
+        # Browse… opens the folder dialog over this one; the picked folder fills the field.
+        pg.fill('input[data-online="add-folder"]', os.path.join(self.dir, "editor"))
+        pg.select_option('select[data-online="add-mode"]', "project")
+        pg.click('button[data-online="add-folder-browse"]')
+        pg.wait_for_selector('dialog[data-folder="dialog"][open]')
+        self.assertEqual(pg.input_value('[data-folder="path"]'), self.dir)  # the nearest folder that exists
+        audit(pg, "folder dialog over add to a config")
+        pg.click('[data-folder-path="%s"]' % folder)
+        pg.wait_for_function("(f) => document.querySelector('[data-folder=path]').value === f", arg=folder)
+        pg.click('dialog[data-folder="dialog"] button[data-value="use"]')
+        pg.wait_for_selector('dialog[data-folder="dialog"]', state="detached")
+        self.assertTrue(pg.is_visible("#modal[open]"))
+        self.assertEqual(pg.input_value('input[data-online="add-folder"]'), folder)
+        pg.wait_for_function("() => document.querySelector('select[data-online=add-mode]').value === 'standalone'")
         pg.set_input_files('input[data-online="add-eds"]', FIXED_IO)
         pg.click('#modal button[data-value="add"]')
         pg.wait_for_selector("#modal[open]:has-text('not saved')")
@@ -218,3 +234,86 @@ del _Page
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EdsLibraryPage(Page):
+    """The EDS library folder row on the Nodes tab (browse-eds-library-folder)."""
+
+    def library(self):
+        lib = os.path.join(self.dir, "eds-lib")
+        os.makedirs(os.path.join(lib, "vendor"))
+        shutil.copy(FIXED_IO, lib)
+        shutil.copy(os.path.join(RTD, "rtd8.eds"), os.path.join(lib, "vendor"))
+        return lib
+
+    def choose(self, folder):
+        """Choose folder…, then the keyboard alone: the path typed, Enter, Use this folder."""
+        pg = self.page
+        pg.click('button[data-online="library-choose"]')
+        pg.wait_for_selector('dialog[data-folder="dialog"][open]')
+        pg.fill('[data-folder="path"]', folder)
+        pg.press('[data-folder="path"]', "Enter")
+        pg.wait_for_function("(f) => document.querySelector('[data-folder=here]') && "
+                             "document.querySelector('[data-folder=path]').value === f", arg=folder)
+        pg.focus('dialog[data-folder="dialog"] button[data-value="use"]')
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector('dialog[data-folder="dialog"]', state="detached")
+
+    def test_choose_cancel_and_clear(self):
+        pg = self.page
+        lib = self.library()
+        self.commission()
+        self.assertEqual(pg.inner_text('[data-online="library"]'), "None chosen")
+        self.assertFalse(pg.is_visible('button[data-online="library-clear"]'))
+        self.assertEqual(pg.locator('#view input[aria-label="EDS library folder"]').count(), 0)
+        # The parent folder's list shows the library with its EDS count.
+        pg.click('button[data-online="library-choose"]')
+        pg.wait_for_selector('dialog[data-folder="dialog"][open]')
+        pg.fill('[data-folder="path"]', self.dir)
+        pg.press('[data-folder="path"]', "Enter")
+        pg.wait_for_selector('[data-folder-path="%s"]:has-text("1 EDS")' % lib)
+        audit(pg, "folder dialog")
+        # Arrow keys move in the list, Enter opens a folder.
+        pg.focus('[data-folder-path="%s"]' % lib)
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector('[data-folder=here]:has-text("1 EDS file in this folder")')
+        pg.wait_for_selector('[data-folder-path="%s"]:has-text("1 EDS")' % os.path.join(lib, "vendor"))
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.folderPath"), os.path.join(lib, "vendor"))
+        pg.keyboard.press("Backspace")
+        pg.wait_for_function("(f) => document.querySelector('[data-folder=path]').value === f", arg=self.dir)
+        # Escape cancels: nothing changes, focus is back on the button.
+        pg.keyboard.press("Escape")
+        pg.wait_for_selector('dialog[data-folder="dialog"]', state="detached")
+        self.assertEqual(pg.inner_text('[data-online="library"]'), "None chosen")
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.online"), "library-choose")
+        # Choose it: path, count, kept on this PC.
+        self.choose(lib)
+        pg.wait_for_selector('[data-online="library"]:has-text("%s")' % lib)
+        self.assertEqual(pg.inner_text('[data-online="library-count"]'), "2 EDS files (with subfolders).")
+        self.assertEqual(pg.evaluate("() => api('GET', '/api/online/settings')")["eds_library"], lib)
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.online"), "library-choose")
+        # Opens in the library folder next time.
+        pg.click('button[data-online="library-choose"]')
+        pg.wait_for_selector('dialog[data-folder="dialog"][open]')
+        pg.wait_for_function("(f) => document.querySelector('[data-folder=path]').value === f", arg=lib)
+        pg.click('dialog[data-folder="dialog"] button[data-value="cancel"]')
+        pg.wait_for_selector('dialog[data-folder="dialog"]', state="detached")
+        # A folder without EDS files is kept, and says so.
+        empty = os.path.join(self.dir, "no-eds")
+        os.makedirs(empty)
+        self.choose(empty)
+        pg.wait_for_selector('[data-online="library-count"]:has-text("No EDS files")')
+        audit(pg, "nodes with a library")
+        pg.click('button[data-online="library-clear"]')
+        pg.wait_for_selector('[data-online="library"]:has-text("None chosen")')
+        self.assertFalse(pg.is_visible('button[data-online="library-clear"]'))
+        self.assertEqual(pg.evaluate("() => api('GET', '/api/online/settings')")["eds_library"], "")
+
+    def test_large_folder(self):
+        pg = self.page
+        lib = self.library()
+        with mock.patch.object(online, "EDS_COUNT_LIMIT", 1):
+            with mock.patch.object(online.count_eds, "__defaults__", (1,)):
+                self.commission()
+                self.choose(lib)
+                pg.wait_for_selector('[data-online="library-count"]:has-text("Large folder")')
