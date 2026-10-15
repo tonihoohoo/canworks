@@ -4,12 +4,14 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstddef>
 #include <cinttypes>
 #include <cstdio>
 #include <cstring>
 
 #include "cJSON.h"
 #include "j1939_plc_jobs.h"
+#include "j1939_plc_msgs.h"
 #include "j1939_signal.h"
 #include "log.h"
 #include "outputs_gate.h"
@@ -168,6 +170,10 @@ std::vector<uint32_t> J1939Engine::receive_pgns() const {
   std::set<uint32_t> pgns = {kPgnRequest, kPgnAddressClaimed, kPgnAcknowledgement, kPgnDm1, kPgnDm2, kPgnDm13,
                              kPgnDm22};
   for (const auto& r : j_.rx) pgns.insert(r.pgn);
+  // The program's receivers and the answers its requests wait for.
+  for (const auto& f : prog_filters_)
+    if (!f.any) pgns.insert(f.pgn);
+  for (const auto& r : prog_requests_) pgns.insert(r.pgn);
   return std::vector<uint32_t>(pgns.begin(), pgns.end());
 }
 
@@ -235,6 +241,11 @@ void J1939Engine::bus_up(clock::time_point now) {
   for (size_t i = 0; i < dm_rx_.size(); ++i) image_.set_dm_status(i, false);
   dm13_.reset();
   was_suspended_ = false;
+  filter_applied_ = receive_pgns();  // the socket opened with these
+  filter_any_applied_ = false;
+  filter_valid_ = true;
+  ecu_dirty_ = true;
+  J1939PlcMsgs::instance().set_bus_down(plc_index_, false);
   log_info("J1939: bus up on %s; claiming address %u", cfg_.adapter.interface.c_str(), j_.ecu.address);
   claimer_.start(now);
   image_.set_claim(claimer_.state(), claimer_.address());
@@ -256,6 +267,10 @@ void J1939Engine::bus_lost(const std::string& why) {
   for (size_t i = 0; i < j_.rx.size(); ++i) image_.set_status(i, false);
   for (size_t i = 0; i < dm_rx_.size(); ++i) image_.set_dm_status(i, false);
   end_jobs(CANWORKS_J1939_ERR_BUS);
+  prog_end_all(CANWORKS_J1939_ERR_BUS);
+  filter_valid_ = false;
+  ecu_dirty_ = true;
+  J1939PlcMsgs::instance().set_bus_down(plc_index_, true);
   image_.set_claim(J1939ClaimState::NoBus, kJ1939NullAddress);
   image_.commit();
   dirty_ = false;
@@ -264,7 +279,19 @@ void J1939Engine::bus_lost(const std::string& why) {
 void J1939Engine::on_message(const J1939Message& m, clock::time_point now) {
   if (!bus_) return;
   const uint8_t own = claimer_.claiming_address();
+  {
+    // The program's receivers and requests see every message but our own.
+    bool ours = m.source == own && own != kJ1939NullAddress &&
+                (m.source_name == 0 || m.source_name == claimer_.name());
+    if (m.pgn == kPgnAddressClaimed && m.data.size() >= 8) {
+      uint64_t name = 0;
+      for (int k = 7; k >= 0; --k) name = name << 8 | m.data[k];
+      ours = name == claimer_.name();
+    }
+    if (!ours) prog_on_message(m);
+  }
   if (m.pgn == kPgnAddressClaimed) {
+    ecu_dirty_ = true;
     if (m.data.size() < 8) return;
     uint64_t name = 0;
     for (int k = 7; k >= 0; --k) name = name << 8 | m.data[k];
@@ -685,7 +712,316 @@ cJSON* J1939Engine::status(clock::time_point now) const {
     cJSON_AddItemToArray(rq, o);
   }
   cJSON_AddItemToObject(j, "dm", dm_status(now));
+  cJSON* prog = cJSON_AddObjectToObject(j, "program");
+  cJSON* recv = cJSON_AddArrayToObject(prog, "receivers");
+  std::vector<J1939PlcMsgs::RxStatus> rs;
+  J1939PlcMsgs::instance().receiver_status(plc_index_, rs);
+  for (const auto& r : rs) {
+    cJSON* o = cJSON_CreateObject();
+    if (r.filter.any)
+      cJSON_AddStringToObject(o, "pgn", "any");
+    else
+      cJSON_AddNumberToObject(o, "pgn", r.filter.pgn);
+    if (r.filter.source != kJ1939Global) cJSON_AddNumberToObject(o, "source", r.filter.source);
+    if (r.filter.all_destinations) cJSON_AddBoolToObject(o, "all_destinations", true);
+    cJSON_AddNumberToObject(o, "queued", r.queued);
+    cJSON_AddNumberToObject(o, "dropped", r.dropped);
+    cJSON_AddItemToArray(recv, o);
+  }
+  cJSON_AddNumberToObject(prog, "sent", static_cast<double>(prog_sent_));
+  cJSON_AddNumberToObject(prog, "aborted", static_cast<double>(prog_aborted_));
+  cJSON_AddNumberToObject(prog, "requests", static_cast<double>(prog_requests_sent_));
   return j;
+}
+
+// ---------------------------------------------------------------------------
+// The program's J1939 message blocks (j1939-plc-blocks)
+
+uint16_t J1939Engine::program_may_send(uint32_t pgn) {
+  // The transport protocol and the network-management PGNs belong to the
+  // kernel and the address claim: never from the program.
+  switch (pgn) {
+    case kPgnRequest:
+    case kPgnAddressClaimed:
+    case kPgnAcknowledgement:
+    case 0xEC00:  // TP.CM
+    case 0xEB00:  // TP.DT
+    case 0xC800:  // ETP.CM
+    case 0xC700:  // ETP.DT
+      return CANWORKS_J1939_ERR_PROTOCOL;
+    default:
+      break;
+  }
+  bool owned = pgn == kPgnDm1 || pgn == kPgnDm2 || pgn == kPgnDm3 || pgn == kPgnDm11 || pgn == kPgnDm13 ||
+               pgn == kPgnDm22;
+  for (const auto& t : j_.tx)
+    if (t.pgn == pgn) owned = true;
+  if (!owned) return 0;
+  if (!cfg_.raw.program_override_protocol) return CANWORKS_J1939_ERR_PROTOCOL;
+  if (!override_logged_) {
+    override_logged_ = true;
+    log_warn("J1939: the program sends PGN %s, which this network also sends (raw.program_override_protocol)",
+             j1939_pgn_text(pgn).c_str());
+  }
+  return 0;
+}
+
+void J1939Engine::prog_end_all(uint16_t error) {
+  J1939PlcMsgs& msgs = J1939PlcMsgs::instance();
+  for (const auto& s : prog_sends_) msgs.finish(s.handle, error);
+  for (const auto& r : prog_requests_) msgs.finish(r.handle, error);
+  prog_sends_.clear();
+  prog_requests_.clear();
+}
+
+void J1939Engine::prog_on_message(const J1939Message& m) {
+  J1939PlcMsgs& msgs = J1939PlcMsgs::instance();
+  const uint8_t ours = claimer_.address();
+  auto wall = std::chrono::duration_cast<std::chrono::microseconds>(
+                  std::chrono::system_clock::now().time_since_epoch()).count();
+  msgs.deliver(plc_index_, m.pgn, m.source, m.destination, m.priority, m.data.data(), m.data.size(),
+               static_cast<uint64_t>(wall), ours);
+  if (prog_requests_.empty()) return;
+  for (size_t i = 0; i < prog_requests_.size();) {
+    ProgRequest& r = prog_requests_[i];
+    bool end = false;
+    canworks_j1939_msg answer;
+    answer.pgn = r.pgn;
+    answer.source = m.source;
+    answer.destination = m.destination;
+    answer.priority = m.priority;
+    answer.ack_code = 0;
+    answer.length = 0;
+    answer.time_us = static_cast<uint64_t>(wall);
+    uint16_t error = 0;
+    if (r.sent && m.source == r.destination) {
+      if (m.pgn == r.pgn) {
+        size_t n = std::min<size_t>(m.data.size(), CANWORKS_J1939_MAX_LENGTH);
+        std::memcpy(answer.data, m.data.data(), n);
+        answer.length = static_cast<uint16_t>(n);
+        end = true;
+      } else if (m.pgn == kPgnAcknowledgement && m.data.size() >= 8 &&
+                 (m.data[5] | uint32_t(m.data[6]) << 8 | uint32_t(m.data[7]) << 16) == r.pgn) {
+        // ACK (control 0): done without data; NACK, Access Denied, Cannot
+        // Respond: refused.
+        answer.ack_code = m.data[0];
+        if (m.data[0] != 0) error = CANWORKS_J1939_ERR_NACK;
+        end = true;
+      }
+    }
+    if (!end) {
+      ++i;
+      continue;
+    }
+    msgs.finish(r.handle, error, &answer);
+    prog_requests_.erase(prog_requests_.begin() + static_cast<std::ptrdiff_t>(i));
+  }
+}
+
+void J1939Engine::prog_sync_filter() {
+  if (!bus_) return;
+  bool any = false;
+  for (const auto& f : prog_filters_) any = any || f.any;
+  std::vector<uint32_t> pgns = receive_pgns();
+  if (filter_valid_ && any == filter_any_applied_ && (any || pgns == filter_applied_)) return;
+  int r = socket_.set_filter(pgns, any);
+  if (r < 0) {
+    log_warn("J1939: cannot change the receive filter for the program's receivers: %s", strerror(-r));
+    filter_valid_ = false;
+    return;
+  }
+  filter_applied_ = pgns;
+  filter_any_applied_ = any;
+  filter_valid_ = true;
+}
+
+void J1939Engine::prog_publish_ecu(clock::time_point now) {
+  if (!ecu_dirty_ && now - ecu_published_ < std::chrono::milliseconds(100)) return;
+  ecu_dirty_ = false;
+  ecu_published_ = now;
+  std::vector<J1939PlcMsgs::Ecu> list;
+  for (const auto& it : ecus_) {
+    if (!it.second.name) continue;
+    J1939PlcMsgs::Ecu e;
+    e.address = it.first;
+    e.name = it.second.name;
+    list.push_back(e);
+  }
+  J1939ClaimState s = bus_ ? claimer_.state() : J1939ClaimState::NoBus;
+  uint8_t a = bus_ && s == J1939ClaimState::Claimed ? claimer_.address() : kJ1939NullAddress;
+  J1939PlcMsgs::instance().publish_ecu(plc_index_, static_cast<uint8_t>(s), a, claimer_.name(), list);
+}
+
+void J1939Engine::serve_plc_msgs(clock::time_point now) {
+  J1939PlcMsgs& msgs = J1939PlcMsgs::instance();
+  if (uint32_t v = msgs.take_unknown_version())
+    log_warn("the PLC program's canworks library asks for J1939 block API version %u, this plugin offers versions "
+             "1 to %u; the program's library needs a newer plugin (install-stock.sh), or use the library that comes "
+             "with it",
+             v, CANWORKS_J1939_API_VERSION);
+  if (!msgs.running()) {
+    prog_sends_.clear();
+    prog_requests_.clear();
+    prog_filters_.clear();
+    return;
+  }
+  msgs.sync_receivers(plc_index_, prog_filters_);
+  prog_publish_ecu(now);
+
+  prog_taken_.clear();
+  msgs.take(plc_index_, prog_taken_);
+  const bool claimed = can_send(now);
+  for (auto& j : prog_taken_) {
+    if (!bus_) {
+      msgs.finish(j.handle, CANWORKS_J1939_ERR_BUS);
+      continue;
+    }
+    if (!claimed) {
+      msgs.finish(j.handle, CANWORKS_J1939_ERR_NO_ADDRESS);
+      continue;
+    }
+    const auto deadline = now + std::chrono::milliseconds(j.timeout_ms);
+    if (j.kind == J1939PlcMsgs::Kind::Send) {
+      if (uint16_t e = program_may_send(j.pgn)) {
+        msgs.finish(j.handle, e);
+        continue;
+      }
+      ProgSend s;
+      s.handle = j.handle;
+      s.pgn = j.pgn;
+      s.destination = j.destination;
+      s.priority = j.priority;
+      s.data = std::move(j.data);
+      s.deadline = deadline;
+      prog_sends_.push_back(std::move(s));
+    } else {
+      ProgRequest r;
+      r.handle = j.handle;
+      r.pgn = j.pgn;
+      r.destination = j.destination;
+      r.deadline = deadline;
+      prog_requests_.push_back(r);
+    }
+  }
+  // Answers to requests must pass the receive filter before they are asked.
+  prog_sync_filter();
+
+  // Sends: short ones at once, long ones one at a time (the kernel runs one
+  // session per address pair; their end comes on the long socket).
+  bool long_busy = false;
+  for (const auto& s : prog_sends_)
+    if (s.in_flight) long_busy = true;
+  if (long_busy) {
+    bool aborted = false;
+    int error = 0;
+    int ev = socket_.send_event(aborted, error);
+    for (auto it = prog_sends_.begin(); it != prog_sends_.end(); ++it) {
+      if (!it->in_flight) continue;
+      if (ev != 0) {
+        if (aborted) {
+          ++prog_aborted_;
+          log_warn("J1939: the program's PGN %s to %u was aborted: %s", j1939_pgn_text(it->pgn).c_str(),
+                   it->destination, strerror(error ? error : ECONNABORTED));
+        } else {
+          ++prog_sent_;
+        }
+        msgs.finish(it->handle, aborted ? CANWORKS_J1939_ERR_ABORTED : 0);
+        prog_sends_.erase(it);
+        long_busy = false;
+      }
+      break;
+    }
+  }
+  for (auto it = prog_sends_.begin(); it != prog_sends_.end();) {
+    if (it->in_flight) {
+      if (now >= it->deadline) {
+        msgs.finish(it->handle, CANWORKS_J1939_ERR_TIMEOUT);
+        it = prog_sends_.erase(it);
+        long_busy = false;
+        continue;
+      }
+      ++it;
+      continue;
+    }
+    if (!claimed) {
+      msgs.finish(it->handle, CANWORKS_J1939_ERR_NO_ADDRESS);
+      it = prog_sends_.erase(it);
+      continue;
+    }
+    const bool is_long = it->data.size() > 8;
+    if (is_long && long_busy) {
+      if (now >= it->deadline) {
+        msgs.finish(it->handle, CANWORKS_J1939_ERR_TIMEOUT);
+        it = prog_sends_.erase(it);
+        continue;
+      }
+      ++it;
+      continue;
+    }
+    int r = is_long ? socket_.send_long(it->pgn, it->destination, it->priority, it->data.data(), it->data.size())
+                    : send(it->pgn, it->destination, it->priority, it->data.data(), it->data.size());
+    if (r == 0) {
+      if (is_long) {
+        bool aborted = false;
+        int error = 0;
+        // A kernel that does not report sessions: done once it took it.
+        if (socket_.send_event(aborted, error) < 0) {
+          ++prog_sent_;
+          msgs.finish(it->handle, 0);
+          it = prog_sends_.erase(it);
+          continue;
+        }
+        it->in_flight = true;
+        long_busy = true;
+        ++it;
+        continue;
+      }
+      ++prog_sent_;
+      msgs.finish(it->handle, 0);
+      it = prog_sends_.erase(it);
+      continue;
+    }
+    // A full queue or a session still running: try again until the timeout.
+    const bool again = r == -EAGAIN || r == -ENOBUFS || r == -EBUSY || r == -EADDRNOTAVAIL || r == -EALREADY;
+    if (!again || now >= it->deadline) {
+      msgs.finish(it->handle, again ? CANWORKS_J1939_ERR_TIMEOUT : CANWORKS_J1939_ERR_BUS);
+      it = prog_sends_.erase(it);
+      continue;
+    }
+    ++it;
+  }
+
+  // Requests: send, then wait for the answer (prog_on_message).
+  for (size_t i = 0; i < prog_requests_.size();) {
+    ProgRequest& r = prog_requests_[i];
+    if (!r.sent) {
+      const uint8_t d[3] = {uint8_t(r.pgn), uint8_t(r.pgn >> 8), uint8_t(r.pgn >> 16)};
+      int s = claimed ? send(kPgnRequest, r.destination, 6, d, sizeof(d)) : -EADDRNOTAVAIL;
+      if (s == 0) {
+        r.sent = true;
+        ++prog_requests_sent_;
+        if (r.destination == kJ1939Global) {
+          canworks_j1939_msg none;
+          std::memset(&none, 0, offsetof(canworks_j1939_msg, data));
+          none.pgn = r.pgn;
+          none.destination = kJ1939Global;
+          msgs.finish(r.handle, 0, &none);
+          prog_requests_.erase(prog_requests_.begin() + static_cast<std::ptrdiff_t>(i));
+          continue;
+        }
+      } else if (!claimed) {
+        msgs.finish(r.handle, CANWORKS_J1939_ERR_NO_ADDRESS);
+        prog_requests_.erase(prog_requests_.begin() + static_cast<std::ptrdiff_t>(i));
+        continue;
+      }
+    }
+    if (now >= r.deadline) {
+      msgs.finish(r.handle, CANWORKS_J1939_ERR_TIMEOUT);
+      prog_requests_.erase(prog_requests_.begin() + static_cast<std::ptrdiff_t>(i));
+      continue;
+    }
+    ++i;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1036,6 +1372,7 @@ J1939Network::J1939Network(const Config& cfg, DiagHub* hub, std::unique_ptr<J193
       engine_(cfg, image_, *socket_),
       index_(index) {
   image_.build(cfg.j1939);
+  engine_.set_plc_index(index);
 }
 
 J1939Network::~J1939Network() { stop(); }
@@ -1060,6 +1397,7 @@ bool J1939Network::wait_for(std::chrono::milliseconds d) {
   while (!stop_) {
     serve_diag(std::chrono::steady_clock::now());
     engine_.serve_plc(index_, std::chrono::steady_clock::now());  // without a bus: error 7
+    engine_.serve_plc_msgs(std::chrono::steady_clock::now());
     auto now = std::chrono::steady_clock::now();
     if (now >= end) return true;
     std::unique_lock<std::mutex> lock(mutex_);
@@ -1169,6 +1507,7 @@ void J1939Network::thread_main() {
   ScopedLogPrefix prefix(cfg_.log_prefix.empty() ? "" : cfg_.log_prefix + ": ");
   if (hub_) hub_->attach();
   J1939PlcJobs::instance().set_attached(index_, true);
+  J1939PlcMsgs::instance().set_attached(index_, true);
   while (!stop_) {
     AdapterState st = adapter_->prepare();
     if (st != AdapterState::Ready) {
@@ -1189,6 +1528,7 @@ void J1939Network::thread_main() {
     if (!stop_ && !wait_for(std::chrono::milliseconds(1000))) break;
   }
   J1939PlcJobs::instance().set_attached(index_, false);
+  J1939PlcMsgs::instance().set_attached(index_, false);
   socket_->close();
   adapter_->release();
   if (hub_) hub_->detach();
@@ -1239,6 +1579,7 @@ void J1939Network::run_session() {
     }
     engine_.tick(now);
     engine_.serve_plc(index_, now);
+    engine_.serve_plc_msgs(now);
     serve_diag(now);
   }
 }

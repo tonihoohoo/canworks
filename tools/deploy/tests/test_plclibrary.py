@@ -1,5 +1,5 @@
-"""The canworks editor library in the deploy tool (add-plc-sdo-blocks
-tasks 4.1, 4.2 and 4.5)."""
+"""The canworks function block library in the deploy tool (specs plc-library
+and canopen-plc-sdo)."""
 
 import contextlib
 import io
@@ -8,7 +8,7 @@ import os
 import unittest
 from unittest import mock
 
-from canworks import __version__, cli, editorproject, sdolibrary
+from canworks import __version__, cli, editorproject, plclibrary
 
 from .helpers import fake_editor_cli, pingpong_config, tmpdir
 from .test_deploy import deploy
@@ -16,7 +16,11 @@ from .test_deploy import deploy
 BLOCKS = ["CAN_BUS_INFO", "CAN_RECEIVE", "CAN_SEND", "CAN_SEND_CYCLIC", "CO402_CYCLICMOVEABSOLUTE", "CO402_CYCLICPOSITION", "CO402_CYCLICTORQUE", "CO402_CYCLICVELOCITY",
           "CO_GET_STATE", "CO_NETWORK_START", "CO_NETWORK_STOP", "CO_NMT", "CO_RECV_EMCY", "CO_SDO_READ", "CO_SDO_READ_BYTES", "CO_SDO_READ_REAL", "CO_SDO_READ_STRING", "CO_SDO_WRITE",
           "CO_SDO_WRITE_BYTES", "CO_SDO_WRITE_REAL", "CO_SDO_WRITE_STRING", "J1939_DM_CLEAR", "J1939_DM_READ",
-          "J1939_DTC_SPLIT"]
+          "J1939_DTC_SPLIT", "J1939_ECU_INFO", "J1939_FIND_ECU", "J1939_NAME_SPLIT", "J1939_RECEIVE", "J1939_REQUEST",
+          "J1939_SEND"]
+FUNCTIONS = ["CAN_GET_BITS", "CAN_GET_UINT16", "CAN_GET_UINT32", "CAN_J1939_ID", "CAN_J1939_PGN", "CAN_J1939_SOURCE",
+             "CAN_SET_BITS", "CAN_SET_UINT16", "CAN_SET_UINT32", "J1939_DTC_MAKE", "J1939_GET_BITS",
+             "J1939_NAME_MAKE", "J1939_SET_BITS"]
 
 
 def load(path):
@@ -26,41 +30,40 @@ def load(path):
 
 class Archive(unittest.TestCase):
     def test_packaged_library(self):
-        data = sdolibrary.archive()
+        data = plclibrary.archive()
         self.assertEqual(data["manifest"]["name"], "canworks")
         self.assertEqual(data["manifest"]["version"], __version__)
-        self.assertEqual(sorted(sdolibrary.block_names()), BLOCKS)
+        self.assertEqual(sorted(plclibrary.block_names()), BLOCKS)
+        self.assertEqual(sorted(plclibrary.function_names()), FUNCTIONS)
         # Every block's source travels in the archive (the editor shows it and
         # compiles it into the program): C++ for the SDO, NMT and frame blocks, ST
         # for the cyclic CiA 402 blocks, the CAN_ byte and bit helpers and the
-        # J1939 trouble code value helpers.
-        helpers = ["CAN_GET_BITS.st", "CAN_GET_UINT16.st", "CAN_GET_UINT32.st", "CAN_J1939_ID.st",
-                   "CAN_J1939_PGN.st", "CAN_J1939_SOURCE.st", "CAN_SET_BITS.st", "CAN_SET_UINT16.st",
-                   "CAN_SET_UINT32.st", "J1939_DTC_MAKE.st", "J1939_DTC_SPLIT.st"]
+        # J1939 value, bit and NAME helpers.
+        helpers = [f + ".st" for f in FUNCTIONS] + ["J1939_DTC_SPLIT.st", "J1939_NAME_SPLIT.st"]
         self.assertEqual(sorted(s["fileName"] for s in data["sources"]),
                          sorted(["CO402_CyclicMoveAbsolute.st", "CO402_CyclicPosition.st", "CO402_CyclicTorque.st",
                                  "CO402_CyclicVelocity.st"] + helpers +
-                                [b + ".cpp" for b in BLOCKS if b.startswith(("CO_SDO", "CO_NMT", "CO_NETWORK_", "CO_GET_STATE", "CO_RECV", "CAN_", "J1939_DM_"))]))
+                                [b + ".cpp" for b in BLOCKS if b.startswith(("CO_SDO", "CO_NMT", "CO_NETWORK_", "CO_GET_STATE", "CO_RECV", "CAN_", "J1939_DM_", "J1939_SEND", "J1939_RECEIVE", "J1939_REQUEST", "J1939_ECU_INFO", "J1939_FIND_ECU"))]))
 
     def test_write(self):
         d = tmpdir(self)
-        path = sdolibrary.write(d)
+        path = plclibrary.write(d)
         self.assertEqual(path, os.path.join(d, "canworks.stlib"))
         self.assertEqual(load(path)["manifest"]["version"], __version__)
-        with self.assertRaises(sdolibrary.LibraryError):
-            sdolibrary.write(os.path.join(d, "missing"))
+        with self.assertRaises(plclibrary.LibraryError):
+            plclibrary.write(os.path.join(d, "missing"))
 
 
 class UserData(unittest.TestCase):
     def test_paths(self):
         # Joined with this computer's separator, whichever platform is named.
-        self.assertEqual(sdolibrary.editor_user_data({}, "darwin", "/home/dev"),
+        self.assertEqual(plclibrary.editor_user_data({}, "darwin", "/home/dev"),
                          os.path.join("/home/dev", "Library", "Application Support", "open-plc-editor"))
-        self.assertEqual(sdolibrary.editor_user_data({"APPDATA": r"C:\\R"}, "win32", "/h"),
+        self.assertEqual(plclibrary.editor_user_data({"APPDATA": r"C:\\R"}, "win32", "/h"),
                          os.path.join(r"C:\\R", "open-plc-editor"))
-        self.assertEqual(sdolibrary.editor_user_data({}, "linux", "/home/a"),
+        self.assertEqual(plclibrary.editor_user_data({}, "linux", "/home/a"),
                          os.path.join("/home/a", ".config", "open-plc-editor"))
-        self.assertEqual(sdolibrary.editor_user_data({"OPENPLC_EDITOR_USER_DATA": "/x"}, "linux", "/h"), "/x")
+        self.assertEqual(plclibrary.editor_user_data({"OPENPLC_EDITOR_USER_DATA": "/x"}, "linux", "/h"), "/x")
 
 
 class Install(unittest.TestCase):
@@ -69,15 +72,15 @@ class Install(unittest.TestCase):
         os.makedirs(self.ud)
 
     def test_new_registry(self):
-        self.assertIsNone(sdolibrary.installed_version(self.ud))
-        path = sdolibrary.install(self.ud)
+        self.assertIsNone(plclibrary.installed_version(self.ud))
+        path = plclibrary.install(self.ud)
         self.assertEqual(path, os.path.join(self.ud, "libraries", "canworks", "canworks.stlib"))
         reg = load(os.path.join(self.ud, "libraries", "registry.json"))
         self.assertEqual(reg["formatVersion"], "1.0")
         entry = reg["libraries"]["canworks"]
         self.assertEqual((entry["version"], entry["stlibPath"], entry["origin"]), (__version__, path, "stlib"))
         self.assertRegex(entry["installedAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
-        self.assertEqual(sdolibrary.installed_version(self.ud), __version__)
+        self.assertEqual(plclibrary.installed_version(self.ud), __version__)
 
     def test_keeps_other_libraries(self):
         os.makedirs(os.path.join(self.ud, "libraries"))
@@ -85,7 +88,7 @@ class Install(unittest.TestCase):
         with open(os.path.join(self.ud, "libraries", "registry.json"), "w") as f:
             json.dump({"formatVersion": "1.0", "libraries": {"other": other,
                                                              "canworks": dict(other, version="0.1.0")}}, f)
-        sdolibrary.install(self.ud)
+        plclibrary.install(self.ud)
         reg = load(os.path.join(self.ud, "libraries", "registry.json"))
         self.assertEqual(reg["libraries"]["other"], other)
         self.assertEqual(reg["libraries"]["canworks"]["version"], __version__)
@@ -95,19 +98,19 @@ class Install(unittest.TestCase):
         registry = os.path.join(self.ud, "libraries", "registry.json")
         with open(registry, "w") as f:
             f.write("[1]")
-        with self.assertRaisesRegex(sdolibrary.LibraryError, "not an editor library registry"):
-            sdolibrary.install(self.ud)
+        with self.assertRaisesRegex(plclibrary.LibraryError, "not an editor library registry"):
+            plclibrary.install(self.ud)
         with open(registry) as f:
             self.assertEqual(f.read(), "[1]")
 
     def test_no_editor(self):
-        with self.assertRaisesRegex(sdolibrary.LibraryError, "start OpenPLC Editor once"):
-            sdolibrary.install(os.path.join(self.ud, "nope"))
+        with self.assertRaisesRegex(plclibrary.LibraryError, "start OpenPLC Editor once"):
+            plclibrary.install(os.path.join(self.ud, "nope"))
 
     def test_registered_file_missing(self):
-        sdolibrary.install(self.ud)
+        plclibrary.install(self.ud)
         os.remove(os.path.join(self.ud, "libraries", "canworks", "canworks.stlib"))
-        self.assertIsNone(sdolibrary.installed_version(self.ud))
+        self.assertIsNone(plclibrary.installed_version(self.ud))
 
 
 def editor_project(d):
@@ -121,8 +124,8 @@ def editor_project(d):
 class EnableInProject(unittest.TestCase):
     def test_enable(self):
         d = editor_project(os.path.join(tmpdir(self), "p"))
-        sdolibrary.enable_in_project(d)
-        sdolibrary.enable_in_project(d)
+        plclibrary.enable_in_project(d)
+        plclibrary.enable_in_project(d)
         proj = load(os.path.join(d, "project.json"))
         self.assertEqual(proj["meta"], {"name": "p"})
         self.assertEqual(proj["data"]["libraries"], [{"name": "other", "version": "1.0.0"},
@@ -132,8 +135,8 @@ class EnableInProject(unittest.TestCase):
         d = tmpdir(self)
         with open(os.path.join(d, "project.json"), "w") as f:
             f.write("{}")
-        with self.assertRaisesRegex(sdolibrary.LibraryError, "no project data"):
-            sdolibrary.enable_in_project(d)
+        with self.assertRaisesRegex(plclibrary.LibraryError, "no project data"):
+            plclibrary.enable_in_project(d)
 
 
 class Cli(unittest.TestCase):
@@ -148,11 +151,17 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("wrote %s" % os.path.join(self.dir, "canworks.stlib"), out)
         self.assertIn("installed canworks %s into the editor" % __version__, out)
-        self.assertEqual(sdolibrary.installed_version(self.ud), __version__)
+        self.assertEqual(plclibrary.installed_version(self.ud), __version__)
 
     def test_library_list(self):
         code, out, _ = deploy("library", "--list", env=self.env)
-        self.assertEqual((code, sorted(out.split())), (0, BLOCKS))
+        self.assertEqual((code, sorted(out.split())), (0, sorted(BLOCKS + FUNCTIONS)))
+
+    def test_library_help(self):
+        out = cli.library_parser().format_help()
+        self.assertIn("J1939 blocks", out)
+        self.assertIn("docs/plc-library.md", " ".join(out.split()).replace("plc- library", "plc-library"))
+        self.assertNotIn("SDO library", out)
 
     def test_library_project(self):
         d = editor_project(os.path.join(self.dir, "p"))

@@ -15,6 +15,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -30,6 +31,7 @@
 #include "diag.h"
 #include "dm.h"
 #include "image_io.h"
+#include "j1939_plc_msgs.h"
 #include "j1939_socket.h"
 
 typedef struct cJSON cJSON;
@@ -135,6 +137,17 @@ class J1939Engine : private AddressClaimer::Actions {
   void serve_plc(unsigned index, clock::time_point now);
   // DM13 has suspended the broadcasts.
   bool suspended() const { return dm13_.suspended(); }
+
+  // ---- The program's J1939 message blocks (j1939-plc-blocks) ----
+  // The network's place in the config (the blocks' NETWORK).
+  void set_plc_index(unsigned index) { plc_index_ = index; }
+  // Takes the network's program sends and requests and runs them, follows
+  // long sends to their end, opens and closes receivers (widening the
+  // receive filter) and publishes the ECU state the blocks read.
+  void serve_plc_msgs(clock::time_point now);
+  // J1939_SEND may send `pgn`: 0, or CANWORKS_J1939_ERR_PROTOCOL for a PGN
+  // the network sends itself (design Decision 6).
+  uint16_t program_may_send(uint32_t pgn);
   const DmStore& dm_store() const { return store_; }
 
  private:
@@ -264,6 +277,41 @@ class J1939Engine : private AddressClaimer::Actions {
   std::vector<uint8_t> own_bits_;
   uint64_t send_errors_ = 0;
   clock::time_point last_error_log_{};
+  // The program's message blocks.
+  struct ProgSend {
+    uint32_t handle = 0;
+    uint32_t pgn = 0;
+    uint8_t destination = 255;
+    uint8_t priority = 6;
+    std::vector<uint8_t> data;
+    clock::time_point deadline{};
+    bool in_flight = false;  // a long send the kernel is running
+  };
+  struct ProgRequest {
+    uint32_t handle = 0;
+    uint32_t pgn = 0;
+    uint8_t destination = 255;
+    clock::time_point deadline{};
+    bool sent = false;
+  };
+  void prog_end_all(uint16_t error);
+  void prog_on_message(const J1939Message& m);
+  void prog_sync_filter();
+  void prog_publish_ecu(clock::time_point now);
+  unsigned plc_index_ = 0;
+  std::deque<ProgSend> prog_sends_;
+  std::vector<ProgRequest> prog_requests_;
+  std::vector<J1939PlcMsgs::Filter> prog_filters_;
+  std::vector<J1939PlcMsgs::Job> prog_taken_;
+  std::vector<uint32_t> filter_applied_;  // the receive filter as last set
+  bool filter_any_applied_ = false;
+  bool filter_valid_ = false;
+  uint64_t prog_sent_ = 0;
+  uint64_t prog_aborted_ = 0;
+  uint64_t prog_requests_sent_ = 0;
+  bool override_logged_ = false;
+  clock::time_point ecu_published_{};
+  bool ecu_dirty_ = true;
 };
 
 // The diagnostics channel's error text for a DM job's error (j1939_plc_api.h

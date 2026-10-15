@@ -1,10 +1,12 @@
 // j1939_plc_api.cpp - the job slots of the trouble code blocks and the C
-// table canworks_j1939_api returns (j1939_plc_jobs.h, j1939_plc_api.h).
+// tables canworks_j1939_api returns (j1939_plc_jobs.h, j1939_plc_msgs.h,
+// j1939_plc_api.h).
 
 #include <cstring>
 
 #include "j1939_config.h"
 #include "j1939_plc_jobs.h"
+#include "j1939_plc_msgs.h"
 
 namespace canopen_plugin {
 
@@ -213,11 +215,98 @@ void api_cancel(uint32_t handle) { J1939PlcJobs::instance().cancel(handle); }
 const canworks_j1939_api_v1 kApiV1 = {sizeof(canworks_j1939_api_v1), api_dm_read_start, api_dm_read_poll,
                                       api_dm_clear_start, api_dm_clear_poll, api_cancel};
 
+// ---- Version 2: the message blocks (j1939_plc_msgs.h) ----
+
+uint32_t api_send_start(uint8_t network, uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data,
+                        uint16_t length, uint32_t timeout_ms, uint16_t* error_id) {
+  uint16_t err = 0;
+  uint32_t h = J1939PlcMsgs::instance().send_start(network, pgn, destination, priority, data, length, timeout_ms, err);
+  if (error_id) *error_id = err;
+  return h;
+}
+
+int api_send_poll(uint32_t handle, uint16_t* error_id) {
+  uint16_t err = 0;
+  int r = J1939PlcMsgs::instance().poll(handle, J1939PlcMsgs::Kind::Send, nullptr, err);
+  if (error_id) *error_id = err;
+  return r;
+}
+
+uint32_t api_request_start(uint8_t network, uint32_t pgn, uint8_t destination, uint32_t timeout_ms,
+                           uint16_t* error_id) {
+  uint16_t err = 0;
+  uint32_t h = J1939PlcMsgs::instance().request_start(network, pgn, destination, timeout_ms, err);
+  if (error_id) *error_id = err;
+  return h;
+}
+
+int api_request_poll(uint32_t handle, canworks_j1939_msg* out, uint16_t* error_id) {
+  uint16_t err = 0;
+  int r = J1939PlcMsgs::instance().poll(handle, J1939PlcMsgs::Kind::Request, out, err);
+  if (error_id) *error_id = err;
+  return r;
+}
+
+void api_msg_cancel(uint32_t handle) { J1939PlcMsgs::instance().cancel(handle); }
+
+uint32_t api_rx_open(uint8_t network, uint32_t pgn, uint8_t source, uint8_t flags, uint16_t depth,
+                     uint16_t* error_id) {
+  uint16_t err = 0;
+  uint32_t h = J1939PlcMsgs::instance().rx_open(network, pgn, source, flags, depth, err);
+  if (error_id) *error_id = err;
+  return h;
+}
+
+int api_rx_read(uint32_t handle, canworks_j1939_msg* msg, canworks_j1939_rx_info* info) {
+  return J1939PlcMsgs::instance().rx_read(handle, msg, info);
+}
+
+void api_rx_close(uint32_t handle) { J1939PlcMsgs::instance().rx_close(handle); }
+
+int api_ecu_info(uint8_t network, canworks_j1939_ecu_info* out, uint16_t* error_id) {
+  canworks_j1939_ecu_info info;
+  uint16_t err = 0;
+  int r = J1939PlcMsgs::instance().ecu_info(network, info, err);
+  if (out) *out = info;
+  if (error_id) *error_id = err;
+  return r;
+}
+
+int api_find_ecu(uint8_t network, uint64_t name, uint64_t mask, canworks_j1939_ecu_found* out, uint16_t* error_id) {
+  canworks_j1939_ecu_found found;
+  uint16_t err = 0;
+  int r = J1939PlcMsgs::instance().find_ecu(network, name, mask, found, err);
+  if (out) *out = found;
+  if (error_id) *error_id = err;
+  return r;
+}
+
+const canworks_j1939_api_v2 kApiV2 = {sizeof(canworks_j1939_api_v2),
+                                      api_dm_read_start,
+                                      api_dm_read_poll,
+                                      api_dm_clear_start,
+                                      api_dm_clear_poll,
+                                      api_cancel,
+                                      api_send_start,
+                                      api_send_poll,
+                                      api_request_start,
+                                      api_request_poll,
+                                      api_msg_cancel,
+                                      api_rx_open,
+                                      api_rx_read,
+                                      api_rx_close,
+                                      api_ecu_info,
+                                      api_find_ecu};
+
 }  // namespace
 
 }  // namespace canopen_plugin
 
-// The plugin exports it as canworks_j1939_api (plugin.cpp).
+// The plugin exports it as canworks_j1939_api (plugin.cpp). Every earlier
+// version stays offered, so the trouble code blocks (version 1) keep working.
 extern "C" const void* canworks_j1939_api_table(uint32_t version) {
-  return version == 1 ? &canopen_plugin::kApiV1 : nullptr;
+  if (version == 1) return &canopen_plugin::kApiV1;
+  if (version == 2) return &canopen_plugin::kApiV2;
+  canopen_plugin::J1939PlcMsgs::instance().note_unknown_version(version);
+  return nullptr;
 }

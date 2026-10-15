@@ -344,6 +344,8 @@ function j1939Message(dir, m, i) {
       el("strong", null, `PGN ${pgnText(m.pgn)}${m.name ? " " + m.name : ""}`),
       el("span", { class: "muted" }, `${signals.length} signal${signals.length === 1 ? "" : "s"}`),
       el("span", { class: "field-msg", dataset: { for: base } }),
+      el("button", { type: "button", class: "small", title: dir === "rx" ? "Copy as ST call (J1939_RECEIVE and J1939_REQUEST blocks)" : "Copy as ST call (J1939_SEND block)",
+        dataset: { j1939St: `${dir}:${i}` }, onclick: (e) => busy(e.currentTarget, "Copying…", () => j1939CopySt(dir, i)) }, "Copy as ST call"),
       el("button", { type: "button", class: "small", "aria-label": `Remove PGN ${num(m.pgn)}`, dataset: { j1939Remove: `${dir}:${i}` },
         onclick: () => { getPath("j1939." + dir).splice(i, 1); changed(true); } }, "Remove")),
     dmPgnNote(dir, m.pgn),
@@ -393,6 +395,16 @@ function j1939Signal(dir, base, signals, k, m) {
       suggestButton(sp + ".iec_location", "j1939_" + dir, s.length, who), sp + ".iec_location"),
     dir === "rx" ? loc("Valid input", cellInput(sp + ".valid_location", `Valid input of ${who}`, null, "%IX…"),
       suggestButton(sp + ".valid_location", "j1939_valid", undefined, who + " valid"), sp + ".valid_location") : null)))];
+}
+
+// "Copy as ST call": the entry's PGN with the canworks library's J1939
+// message blocks (spec j1939-pc-tools; written by j1939/stcall.py).
+async function j1939CopySt(dir, i) {
+  try {
+    const r = await api("POST", "/api/j1939/st", { config: fileConfig(), network: S.net, kind: dir, index: i });
+    await copyText(r.text);
+    banner(`Copied the ${dir === "rx" ? "J1939_RECEIVE" : "J1939_SEND"} call. It needs the canworks function block library in the project.`);
+  } catch (e) { banner(e.message, true); }
 }
 
 // A message by hand: the first proprietary PGN (0xFF00 up) the direction has not.

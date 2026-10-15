@@ -324,6 +324,154 @@
             "direction": "input"
           }
         ]
+      },
+      {
+        "name": "J1939_GET_BITS",
+        "returnType": "LINT",
+        "parameters": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "direction": "inout"
+          },
+          {
+            "name": "START_BIT",
+            "type": "UINT",
+            "direction": "input"
+          },
+          {
+            "name": "BIT_LENGTH",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "SIGNED",
+            "type": "BOOL",
+            "direction": "input"
+          },
+          {
+            "name": "I",
+            "type": "DINT",
+            "direction": "input"
+          },
+          {
+            "name": "POS",
+            "type": "DINT",
+            "direction": "input"
+          },
+          {
+            "name": "BITV",
+            "type": "LWORD",
+            "direction": "input"
+          },
+          {
+            "name": "V",
+            "type": "LWORD",
+            "direction": "input"
+          }
+        ]
+      },
+      {
+        "name": "J1939_NAME_MAKE",
+        "returnType": "LWORD",
+        "parameters": [
+          {
+            "name": "IDENTITY_NUMBER",
+            "type": "UDINT",
+            "direction": "input"
+          },
+          {
+            "name": "MANUFACTURER_CODE",
+            "type": "UINT",
+            "direction": "input"
+          },
+          {
+            "name": "ECU_INSTANCE",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "FUNCTION_INSTANCE",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "ECU_FUNCTION",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "VEHICLE_SYSTEM",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "VEHICLE_SYSTEM_INSTANCE",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "INDUSTRY_GROUP",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "ARBITRARY_ADDRESS_CAPABLE",
+            "type": "BOOL",
+            "direction": "input"
+          },
+          {
+            "name": "N",
+            "type": "LWORD",
+            "direction": "input"
+          }
+        ]
+      },
+      {
+        "name": "J1939_SET_BITS",
+        "returnType": "BOOL",
+        "parameters": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "direction": "inout"
+          },
+          {
+            "name": "START_BIT",
+            "type": "UINT",
+            "direction": "input"
+          },
+          {
+            "name": "BIT_LENGTH",
+            "type": "USINT",
+            "direction": "input"
+          },
+          {
+            "name": "VALUE",
+            "type": "LINT",
+            "direction": "input"
+          },
+          {
+            "name": "I",
+            "type": "DINT",
+            "direction": "input"
+          },
+          {
+            "name": "POS",
+            "type": "DINT",
+            "direction": "input"
+          },
+          {
+            "name": "V",
+            "type": "LWORD",
+            "direction": "input"
+          },
+          {
+            "name": "B",
+            "type": "BYTE",
+            "direction": "input"
+          }
+        ]
       }
     ],
     "functionBlocks": [
@@ -642,6 +790,55 @@
           },
           {
             "name": "CM",
+            "type": "BOOL"
+          }
+        ],
+        "inouts": [],
+        "locals": []
+      },
+      {
+        "name": "J1939_NAME_SPLIT",
+        "inputs": [
+          {
+            "name": "NAME",
+            "type": "LWORD"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "IDENTITY_NUMBER",
+            "type": "UDINT"
+          },
+          {
+            "name": "MANUFACTURER_CODE",
+            "type": "UINT"
+          },
+          {
+            "name": "ECU_INSTANCE",
+            "type": "USINT"
+          },
+          {
+            "name": "FUNCTION_INSTANCE",
+            "type": "USINT"
+          },
+          {
+            "name": "ECU_FUNCTION",
+            "type": "USINT"
+          },
+          {
+            "name": "VEHICLE_SYSTEM",
+            "type": "USINT"
+          },
+          {
+            "name": "VEHICLE_SYSTEM_INSTANCE",
+            "type": "USINT"
+          },
+          {
+            "name": "INDUSTRY_GROUP",
+            "type": "USINT"
+          },
+          {
+            "name": "ARBITRARY_ADDRESS_CAPABLE",
             "type": "BOOL"
           }
         ],
@@ -1809,6 +2006,348 @@
         ],
         "implementation": "cpp",
         "sourceFile": "J1939_DM_READ.cpp"
+      },
+      {
+        "name": "J1939_ECU_INFO",
+        "inputs": [
+          {
+            "name": "ENABLE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "VALID",
+            "type": "BOOL"
+          },
+          {
+            "name": "STATE",
+            "type": "USINT"
+          },
+          {
+            "name": "ADDRESS",
+            "type": "USINT"
+          },
+          {
+            "name": "NAME",
+            "type": "LWORD"
+          },
+          {
+            "name": "ECU_COUNT",
+            "type": "UINT"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [],
+        "implementation": "cpp",
+        "sourceFile": "J1939_ECU_INFO.cpp"
+      },
+      {
+        "name": "J1939_FIND_ECU",
+        "inputs": [
+          {
+            "name": "ENABLE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "NAME",
+            "type": "LWORD"
+          },
+          {
+            "name": "MASK",
+            "type": "LWORD"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "VALID",
+            "type": "BOOL"
+          },
+          {
+            "name": "FOUND",
+            "type": "BOOL"
+          },
+          {
+            "name": "ADDRESS",
+            "type": "USINT"
+          },
+          {
+            "name": "FOUND_NAME",
+            "type": "LWORD"
+          },
+          {
+            "name": "COUNT",
+            "type": "UINT"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [],
+        "implementation": "cpp",
+        "sourceFile": "J1939_FIND_ECU.cpp"
+      },
+      {
+        "name": "J1939_RECEIVE",
+        "inputs": [
+          {
+            "name": "ENABLE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "PGN",
+            "type": "UDINT"
+          },
+          {
+            "name": "ANY",
+            "type": "BOOL"
+          },
+          {
+            "name": "SOURCE",
+            "type": "USINT"
+          },
+          {
+            "name": "FILTER_SOURCE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ALL_DESTINATIONS",
+            "type": "BOOL"
+          },
+          {
+            "name": "DEPTH",
+            "type": "UINT"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "ACTIVE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NEW",
+            "type": "BOOL"
+          },
+          {
+            "name": "RX_PGN",
+            "type": "UDINT"
+          },
+          {
+            "name": "RX_SOURCE",
+            "type": "USINT"
+          },
+          {
+            "name": "RX_DESTINATION",
+            "type": "USINT"
+          },
+          {
+            "name": "RX_PRIORITY",
+            "type": "USINT"
+          },
+          {
+            "name": "RX_LENGTH",
+            "type": "UINT"
+          },
+          {
+            "name": "TIMESTAMP",
+            "type": "ULINT"
+          },
+          {
+            "name": "QUEUED",
+            "type": "UINT"
+          },
+          {
+            "name": "OVERFLOW",
+            "type": "BOOL"
+          },
+          {
+            "name": "DROPPED",
+            "type": "UDINT"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "RX_DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "arrayDimensions": [
+              {
+                "start": 0,
+                "end": 1784
+              }
+            ],
+            "elementTypeName": "BYTE"
+          }
+        ],
+        "implementation": "cpp",
+        "sourceFile": "J1939_RECEIVE.cpp"
+      },
+      {
+        "name": "J1939_REQUEST",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "PGN",
+            "type": "UDINT"
+          },
+          {
+            "name": "DESTINATION",
+            "type": "USINT"
+          },
+          {
+            "name": "TIMEOUT",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          },
+          {
+            "name": "SOURCE",
+            "type": "USINT"
+          },
+          {
+            "name": "LENGTH",
+            "type": "UINT"
+          },
+          {
+            "name": "ACK_CODE",
+            "type": "USINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "arrayDimensions": [
+              {
+                "start": 0,
+                "end": 1784
+              }
+            ],
+            "elementTypeName": "BYTE"
+          }
+        ],
+        "implementation": "cpp",
+        "sourceFile": "J1939_REQUEST.cpp"
+      },
+      {
+        "name": "J1939_SEND",
+        "inputs": [
+          {
+            "name": "EXECUTE",
+            "type": "BOOL"
+          },
+          {
+            "name": "NETWORK",
+            "type": "USINT"
+          },
+          {
+            "name": "PGN",
+            "type": "UDINT"
+          },
+          {
+            "name": "DESTINATION",
+            "type": "USINT"
+          },
+          {
+            "name": "PRIORITY",
+            "type": "USINT"
+          },
+          {
+            "name": "LENGTH",
+            "type": "UINT"
+          },
+          {
+            "name": "TIMEOUT",
+            "type": "TIME"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "BUSY",
+            "type": "BOOL"
+          },
+          {
+            "name": "DONE",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR",
+            "type": "BOOL"
+          },
+          {
+            "name": "ERROR_ID",
+            "type": "UINT"
+          }
+        ],
+        "inouts": [
+          {
+            "name": "DATA",
+            "type": "__INLINE_ARRAY_BYTE",
+            "arrayDimensions": [
+              {
+                "start": 0,
+                "end": 1784
+              }
+            ],
+            "elementTypeName": "BYTE"
+          }
+        ],
+        "implementation": "cpp",
+        "sourceFile": "J1939_SEND.cpp"
       }
     ],
     "types": [],
@@ -1849,7 +2388,16 @@
       "J1939_DM_CLEAR.cpp",
       "J1939_DM_READ.cpp",
       "J1939_DTC_MAKE.st",
-      "J1939_DTC_SPLIT.st"
+      "J1939_DTC_SPLIT.st",
+      "J1939_ECU_INFO.cpp",
+      "J1939_FIND_ECU.cpp",
+      "J1939_GET_BITS.st",
+      "J1939_NAME_MAKE.st",
+      "J1939_NAME_SPLIT.st",
+      "J1939_RECEIVE.cpp",
+      "J1939_REQUEST.cpp",
+      "J1939_SEND.cpp",
+      "J1939_SET_BITS.st"
     ]
   },
   "chunks": [
@@ -1974,6 +2522,18 @@
       "kind": "functionBlock",
       "header": "class J1939_DTC_SPLIT {\npublic:\n    // Inputs\n    IEC_UDINT DTC;\n    // Outputs\n    IEC_UDINT SPN;\n    IEC_USINT FMI;\n    IEC_USINT OC;\n    IEC_BOOL CM;\n\n    // Implicit IEC 61131-3 ENO pin (mirrors EN)\n    IEC_BOOL ENO = true;\n\n    // Constructor\n    J1939_DTC_SPLIT();\n\n    // Execute function block\n    void operator()();\n\n    virtual ~J1939_DTC_SPLIT() = default;\n};\n",
       "cpp": "J1939_DTC_SPLIT::J1939_DTC_SPLIT() {\n    // Initialize variables\n}\n\nvoid J1939_DTC_SPLIT::operator()() {\n    SPN = (DTC) & (0x7FFFF);\n    FMI = TO_USINT((SHR(DTC, 19)) & (0x1F));\n    OC = TO_USINT((SHR(DTC, 24)) & (0x7F));\n    CM = ((DTC) & (0x80000000)) != 0;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHR"
+        }
+      ]
+    },
+    {
+      "name": "J1939_NAME_SPLIT",
+      "kind": "functionBlock",
+      "header": "class J1939_NAME_SPLIT {\npublic:\n    // Inputs\n    IEC_LWORD NAME;\n    // Outputs\n    IEC_UDINT IDENTITY_NUMBER;\n    IEC_UINT MANUFACTURER_CODE;\n    IEC_USINT ECU_INSTANCE;\n    IEC_USINT FUNCTION_INSTANCE;\n    IEC_USINT ECU_FUNCTION;\n    IEC_USINT VEHICLE_SYSTEM;\n    IEC_USINT VEHICLE_SYSTEM_INSTANCE;\n    IEC_USINT INDUSTRY_GROUP;\n    IEC_BOOL ARBITRARY_ADDRESS_CAPABLE;\n\n    // Implicit IEC 61131-3 ENO pin (mirrors EN)\n    IEC_BOOL ENO = true;\n\n    // Constructor\n    J1939_NAME_SPLIT();\n\n    // Execute function block\n    void operator()();\n\n    virtual ~J1939_NAME_SPLIT() = default;\n};\n",
+      "cpp": "J1939_NAME_SPLIT::J1939_NAME_SPLIT() {\n    // Initialize variables\n}\n\nvoid J1939_NAME_SPLIT::operator()() {\n    IDENTITY_NUMBER = TO_UDINT((NAME) & (0x1FFFFF));\n    MANUFACTURER_CODE = TO_UINT((SHR(NAME, 21)) & (0x7FF));\n    ECU_INSTANCE = TO_USINT((SHR(NAME, 32)) & (0x7));\n    FUNCTION_INSTANCE = TO_USINT((SHR(NAME, 35)) & (0x1F));\n    ECU_FUNCTION = TO_USINT((SHR(NAME, 40)) & (0xFF));\n    VEHICLE_SYSTEM = TO_USINT((SHR(NAME, 49)) & (0x7F));\n    VEHICLE_SYSTEM_INSTANCE = TO_USINT((SHR(NAME, 56)) & (0xF));\n    INDUSTRY_GROUP = TO_USINT((SHR(NAME, 60)) & (0x7));\n    ARBITRARY_ADDRESS_CAPABLE = ((NAME) & (static_cast<IEC_LWORD>(0x8000000000000000))) != 0;\n}\n",
       "deps": [
         {
           "library": "iec-std-functions",
@@ -2123,6 +2683,50 @@
           "name": "SHL"
         }
       ]
+    },
+    {
+      "name": "J1939_GET_BITS",
+      "kind": "function",
+      "header": "IEC_LINT J1939_GET_BITS(Array1D<IEC_BYTE, 0, 1784>& DATA, IEC_UINT START_BIT, IEC_USINT BIT_LENGTH, IEC_BOOL SIGNED);",
+      "cpp": "IEC_LINT J1939_GET_BITS(Array1D<IEC_BYTE, 0, 1784>& DATA, IEC_UINT START_BIT, IEC_USINT BIT_LENGTH, IEC_BOOL SIGNED) {\n    IEC_LINT J1939_GET_BITS_result;\n    IEC_DINT I;\n    IEC_DINT POS;\n    IEC_LWORD BITV;\n    IEC_LWORD V;\n    V = 0;\n    POS = TO_DINT(START_BIT);\n    for (I = 0; I <= TO_DINT(BIT_LENGTH) - 1; I++) {\n        if ((I < 64) & (POS < 14280)) {\n            BITV = TO_LWORD((SHR(DATA.at(POS / 8), TO_UINT(POS % 8))) & (0x01));\n            V = (V) | (SHL(BITV, TO_UINT(I)));\n        }\n        POS = POS + 1;\n    }\n    if (((SIGNED) & (BIT_LENGTH > 0)) & (BIT_LENGTH < 64)) {\n        if (((SHR(V, TO_UINT(BIT_LENGTH) - 1)) & (0x01)) == 1) {\n            V = (V) | (SHL(static_cast<IEC_LWORD>(0xFFFFFFFFFFFFFFFF), TO_UINT(BIT_LENGTH)));\n        }\n    }\n    J1939_GET_BITS_result = TO_LINT(V);\n    return J1939_GET_BITS_result;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHL"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "SHR"
+        }
+      ]
+    },
+    {
+      "name": "J1939_NAME_MAKE",
+      "kind": "function",
+      "header": "IEC_LWORD J1939_NAME_MAKE(IEC_UDINT IDENTITY_NUMBER, IEC_UINT MANUFACTURER_CODE, IEC_USINT ECU_INSTANCE, IEC_USINT FUNCTION_INSTANCE, IEC_USINT ECU_FUNCTION, IEC_USINT VEHICLE_SYSTEM, IEC_USINT VEHICLE_SYSTEM_INSTANCE, IEC_USINT INDUSTRY_GROUP, IEC_BOOL ARBITRARY_ADDRESS_CAPABLE);",
+      "cpp": "IEC_LWORD J1939_NAME_MAKE(IEC_UDINT IDENTITY_NUMBER, IEC_UINT MANUFACTURER_CODE, IEC_USINT ECU_INSTANCE, IEC_USINT FUNCTION_INSTANCE, IEC_USINT ECU_FUNCTION, IEC_USINT VEHICLE_SYSTEM, IEC_USINT VEHICLE_SYSTEM_INSTANCE, IEC_USINT INDUSTRY_GROUP, IEC_BOOL ARBITRARY_ADDRESS_CAPABLE) {\n    IEC_LWORD J1939_NAME_MAKE_result;\n    IEC_LWORD N;\n    N = (TO_LWORD(IDENTITY_NUMBER)) & (0x1FFFFF);\n    N = (N) | (SHL((TO_LWORD(MANUFACTURER_CODE)) & (0x7FF), 21));\n    N = (N) | (SHL((TO_LWORD(ECU_INSTANCE)) & (0x7), 32));\n    N = (N) | (SHL((TO_LWORD(FUNCTION_INSTANCE)) & (0x1F), 35));\n    N = (N) | (SHL((TO_LWORD(ECU_FUNCTION)) & (0xFF), 40));\n    N = (N) | (SHL((TO_LWORD(VEHICLE_SYSTEM)) & (0x7F), 49));\n    N = (N) | (SHL((TO_LWORD(VEHICLE_SYSTEM_INSTANCE)) & (0xF), 56));\n    N = (N) | (SHL((TO_LWORD(INDUSTRY_GROUP)) & (0x7), 60));\n    if (ARBITRARY_ADDRESS_CAPABLE) {\n        N = (N) | (static_cast<IEC_LWORD>(0x8000000000000000));\n    }\n    J1939_NAME_MAKE_result = N;\n    return J1939_NAME_MAKE_result;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHL"
+        }
+      ]
+    },
+    {
+      "name": "J1939_SET_BITS",
+      "kind": "function",
+      "header": "IEC_BOOL J1939_SET_BITS(Array1D<IEC_BYTE, 0, 1784>& DATA, IEC_UINT START_BIT, IEC_USINT BIT_LENGTH, IEC_LINT VALUE);",
+      "cpp": "IEC_BOOL J1939_SET_BITS(Array1D<IEC_BYTE, 0, 1784>& DATA, IEC_UINT START_BIT, IEC_USINT BIT_LENGTH, IEC_LINT VALUE) {\n    IEC_BOOL J1939_SET_BITS_result;\n    IEC_DINT I;\n    IEC_DINT POS;\n    IEC_LWORD V;\n    IEC_BYTE B;\n    if (((BIT_LENGTH == 0) | (BIT_LENGTH > 64)) | (TO_DINT(START_BIT) + TO_DINT(BIT_LENGTH) > 14280)) {\n        J1939_SET_BITS_result = false;\n        return J1939_SET_BITS_result;\n    }\n    V = TO_LWORD(VALUE);\n    POS = TO_DINT(START_BIT);\n    for (I = 0; I <= TO_DINT(BIT_LENGTH) - 1; I++) {\n        B = SHL(static_cast<IEC_BYTE>(1), TO_UINT(POS % 8));\n        if (((SHR(V, TO_UINT(I))) & (0x01)) == 1) {\n            DATA.at(POS / 8) = (DATA.at(POS / 8)) | (B);\n        } else {\n            DATA.at(POS / 8) = (DATA.at(POS / 8)) & (~B);\n        }\n        POS = POS + 1;\n    }\n    J1939_SET_BITS_result = true;\n    return J1939_SET_BITS_result;\n}\n",
+      "deps": [
+        {
+          "library": "iec-std-functions",
+          "name": "SHL"
+        },
+        {
+          "library": "iec-std-functions",
+          "name": "SHR"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -2270,11 +2874,11 @@
     },
     {
       "fileName": "J1939_DM_CLEAR.cpp",
-      "source": "FUNCTION_BLOCK J1939_DM_CLEAR\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  DESTINATION : USINT;\n  PREVIOUS_ONLY : BOOL;\n  TIMEOUT : TIME;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\nEND_VAR\nVAR\n  jd_handle : UDINT;\n  jd_prev : BOOL;\n  jd_phase : USINT;\nEND_VAR\n// Shared code of the canworks J1939 trouble code blocks (spec\n// j1939-plc-diagnostics). library/generate.py copies it into every\n// J1939_DM_* block's source for the same reason as common.inc: the editor\n// grafts each C++ block into one c_blocks_code.cpp. The same rules apply:\n// nothing here uses a pin or local name (pins are upper case, this code lower\n// case), and no system header is included after the pin defines.\n#ifndef J1939_DM_COMMON_INCLUDED\n#define J1939_DM_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace j1939_dm {\n\n// The plugin's C interface, version 1 (plugin/src/j1939/j1939_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_codes = 32;\nstruct dm {\n  unsigned char lamps;\n  unsigned char flash;\n  unsigned short count;\n  unsigned int age_ms;\n  unsigned int dtcs[max_codes];\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n};\nenum { err_not_running = 1, err_input = 3 };\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DJ1939_DM_TEST_ENTRY.)\n#ifdef J1939_DM_TEST_ENTRY\n}  // namespace j1939_dm\nextern \"C\" const void* J1939_DM_TEST_ENTRY(unsigned int version);\nnamespace j1939_dm {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to milliseconds; 0 and negative give 0 (the plugin's\n// default, 1 s).\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// PLCopen handshake of one block instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace j1939_dm\n#endif\n// J1939_DM_CLEAR: sends a Request for DM3 (PREVIOUS_ONLY) or DM11; DONE on the ECU's ACK (global: once sent)\n// Generated by library/generate.py; edit that file or src/j1939_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = jd_prev;\n  unsigned char phase = jd_phase;\n  j1939_dm::step s = j1939_dm::begin(EXECUTE, prev, phase);\n  jd_prev = prev;\n  jd_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  const j1939_dm::api_v1* t = j1939_dm::api();\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    unsigned short err = 0;\n    unsigned int handle = 0;\n    if (!t) {\n      err = j1939_dm::err_not_running;\n    } else if (DESTINATION == 254) {\n      err = j1939_dm::err_input;\n    } else {\n      handle = t->dm_clear_start(NETWORK, DESTINATION, PREVIOUS_ONLY ? 1 : 0, j1939_dm::time_ms(TIMEOUT), &err);\n    }\n    if (handle) {\n      jd_handle = handle;\n      BUSY = true;\n      jd_phase = j1939_dm::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      jd_phase = j1939_dm::phase_ended;\n    }\n  }\n  if (jd_phase == j1939_dm::phase_busy) {\n    unsigned short err = j1939_dm::err_not_running;\n    int st = t ? t->dm_clear_poll(jd_handle, &err) : 2;\n    if (st != 0) {\n      BUSY = false;\n      jd_handle = 0;\n      jd_phase = j1939_dm::phase_ended;\n      if (st == 1) {\n        DONE = true;\n      } else {\n        ERROR = true;\n        ERROR_ID = err;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+      "source": "FUNCTION_BLOCK J1939_DM_CLEAR\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  DESTINATION : USINT;\n  PREVIOUS_ONLY : BOOL;\n  TIMEOUT : TIME;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\nEND_VAR\nVAR\n  jd_handle : UDINT;\n  jd_prev : BOOL;\n  jd_phase : USINT;\nEND_VAR\n// Shared code of the canworks J1939 blocks: the trouble code blocks (spec\n// j1939-plc-diagnostics, interface version 1) and the message blocks (spec\n// j1939-plc-blocks, version 2). library/generate.py copies it into every\n// J1939_* C++ block's source for the same reason as common.inc: the editor\n// grafts each C++ block into one c_blocks_code.cpp. The same rules apply:\n// nothing here uses a pin or local name (pins are upper case, this code lower\n// case), and no system header is included after the pin defines.\n#ifndef J1939_DM_COMMON_INCLUDED\n#define J1939_DM_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace j1939_dm {\n\n// The plugin's C interface, version 1 (plugin/src/j1939/j1939_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_codes = 32;\nstruct dm {\n  unsigned char lamps;\n  unsigned char flash;\n  unsigned short count;\n  unsigned int age_ms;\n  unsigned int dtcs[max_codes];\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n};\nenum { err_not_running = 1, err_input = 3, err_bus = 7, err_cancelled = 8 };\n\n// Version 2: the message blocks. The table starts with version 1's.\nconst unsigned api_version_msgs = 2;\nconst unsigned max_length = 1785;\nconst unsigned rx_any = 0x01;\nconst unsigned rx_all_destinations = 0x02;\nstruct msg {\n  unsigned int pgn;\n  unsigned char source;\n  unsigned char destination;\n  unsigned char priority;\n  unsigned char ack_code;\n  unsigned short length;\n  unsigned long long time_us;\n  unsigned char data[max_length];\n};\nstruct rx_info {\n  unsigned short queued;\n  unsigned char overflow;\n  unsigned char bus_down;\n  unsigned int dropped;\n};\nstruct ecu_info {\n  unsigned char state;\n  unsigned char address;\n  unsigned short ecu_count;\n  unsigned long long name;\n};\nstruct ecu_found {\n  unsigned char found;\n  unsigned char address;\n  unsigned short count;\n  unsigned long long name;\n};\nstruct api_v2 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n  unsigned int (*send_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                             unsigned char priority, const unsigned char* data, unsigned short length,\n                             unsigned int timeout_ms, unsigned short* error_id);\n  int (*send_poll)(unsigned int handle, unsigned short* error_id);\n  unsigned int (*request_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*request_poll)(unsigned int handle, msg* out, unsigned short* error_id);\n  void (*msg_cancel)(unsigned int handle);\n  unsigned int (*rx_open)(unsigned char network, unsigned int pgn, unsigned char source, unsigned char flags,\n                          unsigned short depth, unsigned short* error_id);\n  int (*rx_read)(unsigned int handle, msg* m, rx_info* info);\n  void (*rx_close)(unsigned int handle);\n  int (*ecu_info)(unsigned char network, ecu_info* out, unsigned short* error_id);\n  int (*find_ecu)(unsigned char network, unsigned long long name, unsigned long long mask, ecu_found* out,\n                  unsigned short* error_id);\n};\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DJ1939_DM_TEST_ENTRY.)\n#ifdef J1939_DM_TEST_ENTRY\n}  // namespace j1939_dm\nextern \"C\" const void* J1939_DM_TEST_ENTRY(unsigned int version);\nnamespace j1939_dm {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// The version 2 table, the same way; nullptr from a plugin that lacks it.\ninline const api_v2* api2() {\n  static const api_v2* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v2* t = static_cast<const api_v2*>(entry(api_version_msgs));\n  if (t && t->size >= sizeof(api_v2)) table = t;\n  return table;\n}\n\n// Errors a receiver or a lookup recovers from by itself (tried again while\n// ENABLE stays TRUE).\ninline bool retry(unsigned short error_id) {\n  return error_id == err_not_running || error_id == err_bus || error_id == err_cancelled || error_id == 9;\n}\n\n// TIME (nanoseconds) to milliseconds; 0 and negative give 0 (the plugin's\n// default, 1 s).\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// PLCopen handshake of one block instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace j1939_dm\n#endif\n// J1939_DM_CLEAR: sends a Request for DM3 (PREVIOUS_ONLY) or DM11; DONE on the ECU's ACK (global: once sent)\n// Generated by library/generate.py; edit that file or src/j1939_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = jd_prev;\n  unsigned char phase = jd_phase;\n  j1939_dm::step s = j1939_dm::begin(EXECUTE, prev, phase);\n  jd_prev = prev;\n  jd_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  const j1939_dm::api_v1* t = j1939_dm::api();\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    unsigned short err = 0;\n    unsigned int handle = 0;\n    if (!t) {\n      err = j1939_dm::err_not_running;\n    } else if (DESTINATION == 254) {\n      err = j1939_dm::err_input;\n    } else {\n      handle = t->dm_clear_start(NETWORK, DESTINATION, PREVIOUS_ONLY ? 1 : 0, j1939_dm::time_ms(TIMEOUT), &err);\n    }\n    if (handle) {\n      jd_handle = handle;\n      BUSY = true;\n      jd_phase = j1939_dm::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      jd_phase = j1939_dm::phase_ended;\n    }\n  }\n  if (jd_phase == j1939_dm::phase_busy) {\n    unsigned short err = j1939_dm::err_not_running;\n    int st = t ? t->dm_clear_poll(jd_handle, &err) : 2;\n    if (st != 0) {\n      BUSY = false;\n      jd_handle = 0;\n      jd_phase = j1939_dm::phase_ended;\n      if (st == 1) {\n        DONE = true;\n      } else {\n        ERROR = true;\n        ERROR_ID = err;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
     },
     {
       "fileName": "J1939_DM_READ.cpp",
-      "source": "FUNCTION_BLOCK J1939_DM_READ\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  SOURCE : USINT;\n  PREVIOUS : BOOL;\n  TIMEOUT : TIME;\nEND_VAR\nVAR_IN_OUT\n  DTCS : ARRAY[0..31] OF UDINT;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n  LAMPS : BYTE;\n  FLASH : BYTE;\n  COUNT : UINT;\n  AGE : TIME;\nEND_VAR\nVAR\n  jd_handle : UDINT;\n  jd_prev : BOOL;\n  jd_phase : USINT;\nEND_VAR\n// Shared code of the canworks J1939 trouble code blocks (spec\n// j1939-plc-diagnostics). library/generate.py copies it into every\n// J1939_DM_* block's source for the same reason as common.inc: the editor\n// grafts each C++ block into one c_blocks_code.cpp. The same rules apply:\n// nothing here uses a pin or local name (pins are upper case, this code lower\n// case), and no system header is included after the pin defines.\n#ifndef J1939_DM_COMMON_INCLUDED\n#define J1939_DM_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace j1939_dm {\n\n// The plugin's C interface, version 1 (plugin/src/j1939/j1939_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_codes = 32;\nstruct dm {\n  unsigned char lamps;\n  unsigned char flash;\n  unsigned short count;\n  unsigned int age_ms;\n  unsigned int dtcs[max_codes];\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n};\nenum { err_not_running = 1, err_input = 3 };\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DJ1939_DM_TEST_ENTRY.)\n#ifdef J1939_DM_TEST_ENTRY\n}  // namespace j1939_dm\nextern \"C\" const void* J1939_DM_TEST_ENTRY(unsigned int version);\nnamespace j1939_dm {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// TIME (nanoseconds) to milliseconds; 0 and negative give 0 (the plugin's\n// default, 1 s).\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// PLCopen handshake of one block instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace j1939_dm\n#endif\n// J1939_DM_READ: an ECU's latest DM1 (PREVIOUS FALSE) or its DM2 by Request (TRUE) into DTCS\n// Generated by library/generate.py; edit that file or src/j1939_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = jd_prev;\n  unsigned char phase = jd_phase;\n  j1939_dm::step s = j1939_dm::begin(EXECUTE, prev, phase);\n  jd_prev = prev;\n  jd_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  const j1939_dm::api_v1* t = j1939_dm::api();\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    unsigned short err = 0;\n    unsigned int handle = 0;\n    if (!t) {\n      err = j1939_dm::err_not_running;\n    } else if (SOURCE > 253) {\n      err = j1939_dm::err_input;\n    } else {\n      handle = t->dm_read_start(NETWORK, SOURCE, PREVIOUS ? 1 : 0, j1939_dm::time_ms(TIMEOUT), &err);\n    }\n    if (handle) {\n      jd_handle = handle;\n      BUSY = true;\n      jd_phase = j1939_dm::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      jd_phase = j1939_dm::phase_ended;\n    }\n  }\n  if (jd_phase == j1939_dm::phase_busy) {\n    j1939_dm::dm r = {};\n    unsigned short err = j1939_dm::err_not_running;\n    int st = t ? t->dm_read_poll(jd_handle, &r, &err) : 2;\n    if (st != 0) {\n      BUSY = false;\n      jd_handle = 0;\n      jd_phase = j1939_dm::phase_ended;\n      if (st == 1) {\n        LAMPS = r.lamps;\n        FLASH = r.flash;\n        COUNT = r.count;\n        AGE = static_cast<long long>(r.age_ms) * 1000000LL;\n        for (unsigned i = 0; i < j1939_dm::max_codes; ++i) DTCS[i] = r.dtcs[i];\n        DONE = true;\n      } else {\n        ERROR = true;\n        ERROR_ID = err;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+      "source": "FUNCTION_BLOCK J1939_DM_READ\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  SOURCE : USINT;\n  PREVIOUS : BOOL;\n  TIMEOUT : TIME;\nEND_VAR\nVAR_IN_OUT\n  DTCS : ARRAY[0..31] OF UDINT;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n  LAMPS : BYTE;\n  FLASH : BYTE;\n  COUNT : UINT;\n  AGE : TIME;\nEND_VAR\nVAR\n  jd_handle : UDINT;\n  jd_prev : BOOL;\n  jd_phase : USINT;\nEND_VAR\n// Shared code of the canworks J1939 blocks: the trouble code blocks (spec\n// j1939-plc-diagnostics, interface version 1) and the message blocks (spec\n// j1939-plc-blocks, version 2). library/generate.py copies it into every\n// J1939_* C++ block's source for the same reason as common.inc: the editor\n// grafts each C++ block into one c_blocks_code.cpp. The same rules apply:\n// nothing here uses a pin or local name (pins are upper case, this code lower\n// case), and no system header is included after the pin defines.\n#ifndef J1939_DM_COMMON_INCLUDED\n#define J1939_DM_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace j1939_dm {\n\n// The plugin's C interface, version 1 (plugin/src/j1939/j1939_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_codes = 32;\nstruct dm {\n  unsigned char lamps;\n  unsigned char flash;\n  unsigned short count;\n  unsigned int age_ms;\n  unsigned int dtcs[max_codes];\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n};\nenum { err_not_running = 1, err_input = 3, err_bus = 7, err_cancelled = 8 };\n\n// Version 2: the message blocks. The table starts with version 1's.\nconst unsigned api_version_msgs = 2;\nconst unsigned max_length = 1785;\nconst unsigned rx_any = 0x01;\nconst unsigned rx_all_destinations = 0x02;\nstruct msg {\n  unsigned int pgn;\n  unsigned char source;\n  unsigned char destination;\n  unsigned char priority;\n  unsigned char ack_code;\n  unsigned short length;\n  unsigned long long time_us;\n  unsigned char data[max_length];\n};\nstruct rx_info {\n  unsigned short queued;\n  unsigned char overflow;\n  unsigned char bus_down;\n  unsigned int dropped;\n};\nstruct ecu_info {\n  unsigned char state;\n  unsigned char address;\n  unsigned short ecu_count;\n  unsigned long long name;\n};\nstruct ecu_found {\n  unsigned char found;\n  unsigned char address;\n  unsigned short count;\n  unsigned long long name;\n};\nstruct api_v2 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n  unsigned int (*send_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                             unsigned char priority, const unsigned char* data, unsigned short length,\n                             unsigned int timeout_ms, unsigned short* error_id);\n  int (*send_poll)(unsigned int handle, unsigned short* error_id);\n  unsigned int (*request_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*request_poll)(unsigned int handle, msg* out, unsigned short* error_id);\n  void (*msg_cancel)(unsigned int handle);\n  unsigned int (*rx_open)(unsigned char network, unsigned int pgn, unsigned char source, unsigned char flags,\n                          unsigned short depth, unsigned short* error_id);\n  int (*rx_read)(unsigned int handle, msg* m, rx_info* info);\n  void (*rx_close)(unsigned int handle);\n  int (*ecu_info)(unsigned char network, ecu_info* out, unsigned short* error_id);\n  int (*find_ecu)(unsigned char network, unsigned long long name, unsigned long long mask, ecu_found* out,\n                  unsigned short* error_id);\n};\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DJ1939_DM_TEST_ENTRY.)\n#ifdef J1939_DM_TEST_ENTRY\n}  // namespace j1939_dm\nextern \"C\" const void* J1939_DM_TEST_ENTRY(unsigned int version);\nnamespace j1939_dm {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// The version 2 table, the same way; nullptr from a plugin that lacks it.\ninline const api_v2* api2() {\n  static const api_v2* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v2* t = static_cast<const api_v2*>(entry(api_version_msgs));\n  if (t && t->size >= sizeof(api_v2)) table = t;\n  return table;\n}\n\n// Errors a receiver or a lookup recovers from by itself (tried again while\n// ENABLE stays TRUE).\ninline bool retry(unsigned short error_id) {\n  return error_id == err_not_running || error_id == err_bus || error_id == err_cancelled || error_id == 9;\n}\n\n// TIME (nanoseconds) to milliseconds; 0 and negative give 0 (the plugin's\n// default, 1 s).\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// PLCopen handshake of one block instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace j1939_dm\n#endif\n// J1939_DM_READ: an ECU's latest DM1 (PREVIOUS FALSE) or its DM2 by Request (TRUE) into DTCS\n// Generated by library/generate.py; edit that file or src/j1939_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = jd_prev;\n  unsigned char phase = jd_phase;\n  j1939_dm::step s = j1939_dm::begin(EXECUTE, prev, phase);\n  jd_prev = prev;\n  jd_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  const j1939_dm::api_v1* t = j1939_dm::api();\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    unsigned short err = 0;\n    unsigned int handle = 0;\n    if (!t) {\n      err = j1939_dm::err_not_running;\n    } else if (SOURCE > 253) {\n      err = j1939_dm::err_input;\n    } else {\n      handle = t->dm_read_start(NETWORK, SOURCE, PREVIOUS ? 1 : 0, j1939_dm::time_ms(TIMEOUT), &err);\n    }\n    if (handle) {\n      jd_handle = handle;\n      BUSY = true;\n      jd_phase = j1939_dm::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      jd_phase = j1939_dm::phase_ended;\n    }\n  }\n  if (jd_phase == j1939_dm::phase_busy) {\n    j1939_dm::dm r = {};\n    unsigned short err = j1939_dm::err_not_running;\n    int st = t ? t->dm_read_poll(jd_handle, &r, &err) : 2;\n    if (st != 0) {\n      BUSY = false;\n      jd_handle = 0;\n      jd_phase = j1939_dm::phase_ended;\n      if (st == 1) {\n        LAMPS = r.lamps;\n        FLASH = r.flash;\n        COUNT = r.count;\n        AGE = static_cast<long long>(r.age_ms) * 1000000LL;\n        for (unsigned i = 0; i < j1939_dm::max_codes; ++i) DTCS[i] = r.dtcs[i];\n        DONE = true;\n      } else {\n        ERROR = true;\n        ERROR_ID = err;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
     },
     {
       "fileName": "J1939_DTC_MAKE.st",
@@ -2283,6 +2887,42 @@
     {
       "fileName": "J1939_DTC_SPLIT.st",
       "source": "(*\n * J1939_DTC_SPLIT: the parts of a trouble code as the J1939 blocks and the\n * diagnostics.rx locations give it (spec j1939-plc-diagnostics):\n * DTC = SPN + FMI * 2^19 + OC * 2^24 + CM * 2^31.\n *)\nFUNCTION_BLOCK J1939_DTC_SPLIT\nVAR_INPUT\n  DTC : UDINT;\nEND_VAR\nVAR_OUTPUT\n  SPN : UDINT;\n  FMI : USINT;\n  OC : USINT;\n  CM : BOOL;\nEND_VAR\n  SPN := DTC AND 16#7FFFF;\n  FMI := UDINT_TO_USINT(SHR(DTC, 19) AND 16#1F);\n  OC := UDINT_TO_USINT(SHR(DTC, 24) AND 16#7F);\n  CM := (DTC AND 16#80000000) <> 0;\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "J1939_ECU_INFO.cpp",
+      "source": "FUNCTION_BLOCK J1939_ECU_INFO\nVAR_INPUT\n  ENABLE : BOOL;\n  NETWORK : USINT;\nEND_VAR\nVAR_OUTPUT\n  VALID : BOOL;\n  STATE : USINT;\n  ADDRESS : USINT;\n  NAME : LWORD;\n  ECU_COUNT : UINT;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\nEND_VAR\n// Shared code of the canworks J1939 blocks: the trouble code blocks (spec\n// j1939-plc-diagnostics, interface version 1) and the message blocks (spec\n// j1939-plc-blocks, version 2). library/generate.py copies it into every\n// J1939_* C++ block's source for the same reason as common.inc: the editor\n// grafts each C++ block into one c_blocks_code.cpp. The same rules apply:\n// nothing here uses a pin or local name (pins are upper case, this code lower\n// case), and no system header is included after the pin defines.\n#ifndef J1939_DM_COMMON_INCLUDED\n#define J1939_DM_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace j1939_dm {\n\n// The plugin's C interface, version 1 (plugin/src/j1939/j1939_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_codes = 32;\nstruct dm {\n  unsigned char lamps;\n  unsigned char flash;\n  unsigned short count;\n  unsigned int age_ms;\n  unsigned int dtcs[max_codes];\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n};\nenum { err_not_running = 1, err_input = 3, err_bus = 7, err_cancelled = 8 };\n\n// Version 2: the message blocks. The table starts with version 1's.\nconst unsigned api_version_msgs = 2;\nconst unsigned max_length = 1785;\nconst unsigned rx_any = 0x01;\nconst unsigned rx_all_destinations = 0x02;\nstruct msg {\n  unsigned int pgn;\n  unsigned char source;\n  unsigned char destination;\n  unsigned char priority;\n  unsigned char ack_code;\n  unsigned short length;\n  unsigned long long time_us;\n  unsigned char data[max_length];\n};\nstruct rx_info {\n  unsigned short queued;\n  unsigned char overflow;\n  unsigned char bus_down;\n  unsigned int dropped;\n};\nstruct ecu_info {\n  unsigned char state;\n  unsigned char address;\n  unsigned short ecu_count;\n  unsigned long long name;\n};\nstruct ecu_found {\n  unsigned char found;\n  unsigned char address;\n  unsigned short count;\n  unsigned long long name;\n};\nstruct api_v2 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n  unsigned int (*send_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                             unsigned char priority, const unsigned char* data, unsigned short length,\n                             unsigned int timeout_ms, unsigned short* error_id);\n  int (*send_poll)(unsigned int handle, unsigned short* error_id);\n  unsigned int (*request_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*request_poll)(unsigned int handle, msg* out, unsigned short* error_id);\n  void (*msg_cancel)(unsigned int handle);\n  unsigned int (*rx_open)(unsigned char network, unsigned int pgn, unsigned char source, unsigned char flags,\n                          unsigned short depth, unsigned short* error_id);\n  int (*rx_read)(unsigned int handle, msg* m, rx_info* info);\n  void (*rx_close)(unsigned int handle);\n  int (*ecu_info)(unsigned char network, ecu_info* out, unsigned short* error_id);\n  int (*find_ecu)(unsigned char network, unsigned long long name, unsigned long long mask, ecu_found* out,\n                  unsigned short* error_id);\n};\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DJ1939_DM_TEST_ENTRY.)\n#ifdef J1939_DM_TEST_ENTRY\n}  // namespace j1939_dm\nextern \"C\" const void* J1939_DM_TEST_ENTRY(unsigned int version);\nnamespace j1939_dm {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// The version 2 table, the same way; nullptr from a plugin that lacks it.\ninline const api_v2* api2() {\n  static const api_v2* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v2* t = static_cast<const api_v2*>(entry(api_version_msgs));\n  if (t && t->size >= sizeof(api_v2)) table = t;\n  return table;\n}\n\n// Errors a receiver or a lookup recovers from by itself (tried again while\n// ENABLE stays TRUE).\ninline bool retry(unsigned short error_id) {\n  return error_id == err_not_running || error_id == err_bus || error_id == err_cancelled || error_id == 9;\n}\n\n// TIME (nanoseconds) to milliseconds; 0 and negative give 0 (the plugin's\n// default, 1 s).\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// PLCopen handshake of one block instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace j1939_dm\n#endif\n// J1939_ECU_INFO: the network's claim state, address and NAME, and how many ECUs it sees\n// Generated by library/generate.py; edit that file or src/j1939_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  if (!ENABLE) {\n    VALID = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    return;\n  }\n  const j1939_dm::api_v2* t = j1939_dm::api2();\n  j1939_dm::ecu_info e = {};\n  e.state = 3;\n  e.address = 254;\n  unsigned short err = j1939_dm::err_not_running;\n  int st = t ? t->ecu_info(NETWORK, &e, &err) : 2;\n  VALID = st == 0;\n  STATE = e.state;\n  ADDRESS = e.address;\n  NAME = e.name;\n  ECU_COUNT = e.ecu_count;\n  ERROR = st != 0;\n  ERROR_ID = st != 0 ? err : 0;\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "J1939_FIND_ECU.cpp",
+      "source": "FUNCTION_BLOCK J1939_FIND_ECU\nVAR_INPUT\n  ENABLE : BOOL;\n  NETWORK : USINT;\n  NAME : LWORD;\n  MASK : LWORD;\nEND_VAR\nVAR_OUTPUT\n  VALID : BOOL;\n  FOUND : BOOL;\n  ADDRESS : USINT;\n  FOUND_NAME : LWORD;\n  COUNT : UINT;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\nEND_VAR\n// Shared code of the canworks J1939 blocks: the trouble code blocks (spec\n// j1939-plc-diagnostics, interface version 1) and the message blocks (spec\n// j1939-plc-blocks, version 2). library/generate.py copies it into every\n// J1939_* C++ block's source for the same reason as common.inc: the editor\n// grafts each C++ block into one c_blocks_code.cpp. The same rules apply:\n// nothing here uses a pin or local name (pins are upper case, this code lower\n// case), and no system header is included after the pin defines.\n#ifndef J1939_DM_COMMON_INCLUDED\n#define J1939_DM_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace j1939_dm {\n\n// The plugin's C interface, version 1 (plugin/src/j1939/j1939_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_codes = 32;\nstruct dm {\n  unsigned char lamps;\n  unsigned char flash;\n  unsigned short count;\n  unsigned int age_ms;\n  unsigned int dtcs[max_codes];\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n};\nenum { err_not_running = 1, err_input = 3, err_bus = 7, err_cancelled = 8 };\n\n// Version 2: the message blocks. The table starts with version 1's.\nconst unsigned api_version_msgs = 2;\nconst unsigned max_length = 1785;\nconst unsigned rx_any = 0x01;\nconst unsigned rx_all_destinations = 0x02;\nstruct msg {\n  unsigned int pgn;\n  unsigned char source;\n  unsigned char destination;\n  unsigned char priority;\n  unsigned char ack_code;\n  unsigned short length;\n  unsigned long long time_us;\n  unsigned char data[max_length];\n};\nstruct rx_info {\n  unsigned short queued;\n  unsigned char overflow;\n  unsigned char bus_down;\n  unsigned int dropped;\n};\nstruct ecu_info {\n  unsigned char state;\n  unsigned char address;\n  unsigned short ecu_count;\n  unsigned long long name;\n};\nstruct ecu_found {\n  unsigned char found;\n  unsigned char address;\n  unsigned short count;\n  unsigned long long name;\n};\nstruct api_v2 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n  unsigned int (*send_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                             unsigned char priority, const unsigned char* data, unsigned short length,\n                             unsigned int timeout_ms, unsigned short* error_id);\n  int (*send_poll)(unsigned int handle, unsigned short* error_id);\n  unsigned int (*request_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*request_poll)(unsigned int handle, msg* out, unsigned short* error_id);\n  void (*msg_cancel)(unsigned int handle);\n  unsigned int (*rx_open)(unsigned char network, unsigned int pgn, unsigned char source, unsigned char flags,\n                          unsigned short depth, unsigned short* error_id);\n  int (*rx_read)(unsigned int handle, msg* m, rx_info* info);\n  void (*rx_close)(unsigned int handle);\n  int (*ecu_info)(unsigned char network, ecu_info* out, unsigned short* error_id);\n  int (*find_ecu)(unsigned char network, unsigned long long name, unsigned long long mask, ecu_found* out,\n                  unsigned short* error_id);\n};\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DJ1939_DM_TEST_ENTRY.)\n#ifdef J1939_DM_TEST_ENTRY\n}  // namespace j1939_dm\nextern \"C\" const void* J1939_DM_TEST_ENTRY(unsigned int version);\nnamespace j1939_dm {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// The version 2 table, the same way; nullptr from a plugin that lacks it.\ninline const api_v2* api2() {\n  static const api_v2* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v2* t = static_cast<const api_v2*>(entry(api_version_msgs));\n  if (t && t->size >= sizeof(api_v2)) table = t;\n  return table;\n}\n\n// Errors a receiver or a lookup recovers from by itself (tried again while\n// ENABLE stays TRUE).\ninline bool retry(unsigned short error_id) {\n  return error_id == err_not_running || error_id == err_bus || error_id == err_cancelled || error_id == 9;\n}\n\n// TIME (nanoseconds) to milliseconds; 0 and negative give 0 (the plugin's\n// default, 1 s).\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// PLCopen handshake of one block instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace j1939_dm\n#endif\n// J1939_FIND_ECU: the lowest address whose ECU's NAME matches NAME in the bits of MASK\n// Generated by library/generate.py; edit that file or src/j1939_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  if (!ENABLE) {\n    VALID = false;\n    FOUND = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    return;\n  }\n  const j1939_dm::api_v2* t = j1939_dm::api2();\n  j1939_dm::ecu_found f = {};\n  unsigned short err = j1939_dm::err_not_running;\n  int st = t ? t->find_ecu(NETWORK, NAME, MASK, &f, &err) : 2;\n  VALID = st == 0;\n  FOUND = f.found != 0;\n  ADDRESS = f.found ? f.address : 254;\n  FOUND_NAME = f.name;\n  COUNT = f.count;\n  ERROR = st != 0;\n  ERROR_ID = st != 0 ? err : 0;\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "J1939_GET_BITS.st",
+      "source": "(*\n * J1939_GET_BITS: a signal's raw value from a J1939 message of any length\n * (spec j1939-plc-blocks, \"J1939 ST functions\"). J1939 sends signals\n * little-endian: START_BIT is the least significant bit, bit 0 being the\n * least significant bit of byte 0. BIT_LENGTH 1..64; SIGNED sign-extends.\n * Bits outside the 1785 bytes read as 0.\n *)\nFUNCTION J1939_GET_BITS : LINT\nVAR_IN_OUT\n  DATA : ARRAY[0..1784] OF BYTE;\nEND_VAR\nVAR_INPUT\n  START_BIT : UINT;\n  BIT_LENGTH : USINT;\n  SIGNED : BOOL;\nEND_VAR\nVAR\n  i : DINT;\n  pos : DINT;\n  bitv : LWORD;\n  v : LWORD;\nEND_VAR\n  v := 0;\n  pos := UINT_TO_DINT(START_BIT);\n  FOR i := 0 TO USINT_TO_DINT(BIT_LENGTH) - 1 DO\n    IF i < 64 AND pos < 14280 THEN\n      bitv := BYTE_TO_LWORD(SHR(DATA[pos / 8], DINT_TO_UINT(pos MOD 8)) AND 16#01);\n      v := v OR SHL(bitv, DINT_TO_UINT(i));\n    END_IF;\n    pos := pos + 1;\n  END_FOR;\n  IF SIGNED AND BIT_LENGTH > 0 AND BIT_LENGTH < 64 THEN\n    IF (SHR(v, USINT_TO_UINT(BIT_LENGTH) - 1) AND 16#01) = 1 THEN\n      v := v OR SHL(LWORD#16#FFFFFFFFFFFFFFFF, USINT_TO_UINT(BIT_LENGTH));\n    END_IF;\n  END_IF;\n  J1939_GET_BITS := LWORD_TO_LINT(v);\nEND_FUNCTION\n"
+    },
+    {
+      "fileName": "J1939_NAME_MAKE.st",
+      "source": "(*\n * J1939_NAME_MAKE: a 64-bit J1939 NAME from its fields (spec\n * j1939-plc-blocks), packed as the config's ecu.name and the PC tools pack\n * it. Each field is cut to its width.\n *)\nFUNCTION J1939_NAME_MAKE : LWORD\nVAR_INPUT\n  IDENTITY_NUMBER : UDINT;\n  MANUFACTURER_CODE : UINT;\n  ECU_INSTANCE : USINT;\n  FUNCTION_INSTANCE : USINT;\n  ECU_FUNCTION : USINT;\n  VEHICLE_SYSTEM : USINT;\n  VEHICLE_SYSTEM_INSTANCE : USINT;\n  INDUSTRY_GROUP : USINT;\n  ARBITRARY_ADDRESS_CAPABLE : BOOL;\nEND_VAR\nVAR\n  n : LWORD;\nEND_VAR\n  n := UDINT_TO_LWORD(IDENTITY_NUMBER) AND 16#1FFFFF;\n  n := n OR SHL(UINT_TO_LWORD(MANUFACTURER_CODE) AND 16#7FF, 21);\n  n := n OR SHL(USINT_TO_LWORD(ECU_INSTANCE) AND 16#7, 32);\n  n := n OR SHL(USINT_TO_LWORD(FUNCTION_INSTANCE) AND 16#1F, 35);\n  n := n OR SHL(USINT_TO_LWORD(ECU_FUNCTION) AND 16#FF, 40);\n  n := n OR SHL(USINT_TO_LWORD(VEHICLE_SYSTEM) AND 16#7F, 49);\n  n := n OR SHL(USINT_TO_LWORD(VEHICLE_SYSTEM_INSTANCE) AND 16#F, 56);\n  n := n OR SHL(USINT_TO_LWORD(INDUSTRY_GROUP) AND 16#7, 60);\n  IF ARBITRARY_ADDRESS_CAPABLE THEN\n    n := n OR LWORD#16#8000000000000000;\n  END_IF;\n  J1939_NAME_MAKE := n;\nEND_FUNCTION\n"
+    },
+    {
+      "fileName": "J1939_NAME_SPLIT.st",
+      "source": "(*\n * J1939_NAME_SPLIT: the fields of a 64-bit J1939 NAME (spec\n * j1939-plc-blocks), the reverse of J1939_NAME_MAKE.\n *)\nFUNCTION_BLOCK J1939_NAME_SPLIT\nVAR_INPUT\n  NAME : LWORD;\nEND_VAR\nVAR_OUTPUT\n  IDENTITY_NUMBER : UDINT;\n  MANUFACTURER_CODE : UINT;\n  ECU_INSTANCE : USINT;\n  FUNCTION_INSTANCE : USINT;\n  ECU_FUNCTION : USINT;\n  VEHICLE_SYSTEM : USINT;\n  VEHICLE_SYSTEM_INSTANCE : USINT;\n  INDUSTRY_GROUP : USINT;\n  ARBITRARY_ADDRESS_CAPABLE : BOOL;\nEND_VAR\n  IDENTITY_NUMBER := LWORD_TO_UDINT(NAME AND 16#1FFFFF);\n  MANUFACTURER_CODE := LWORD_TO_UINT(SHR(NAME, 21) AND 16#7FF);\n  ECU_INSTANCE := LWORD_TO_USINT(SHR(NAME, 32) AND 16#7);\n  FUNCTION_INSTANCE := LWORD_TO_USINT(SHR(NAME, 35) AND 16#1F);\n  ECU_FUNCTION := LWORD_TO_USINT(SHR(NAME, 40) AND 16#FF);\n  VEHICLE_SYSTEM := LWORD_TO_USINT(SHR(NAME, 49) AND 16#7F);\n  VEHICLE_SYSTEM_INSTANCE := LWORD_TO_USINT(SHR(NAME, 56) AND 16#F);\n  INDUSTRY_GROUP := LWORD_TO_USINT(SHR(NAME, 60) AND 16#7);\n  ARBITRARY_ADDRESS_CAPABLE := (NAME AND LWORD#16#8000000000000000) <> 0;\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "J1939_RECEIVE.cpp",
+      "source": "FUNCTION_BLOCK J1939_RECEIVE\nVAR_INPUT\n  ENABLE : BOOL;\n  NETWORK : USINT;\n  PGN : UDINT;\n  ANY : BOOL;\n  SOURCE : USINT;\n  FILTER_SOURCE : BOOL;\n  ALL_DESTINATIONS : BOOL;\n  DEPTH : UINT;\nEND_VAR\nVAR_IN_OUT\n  RX_DATA : ARRAY[0..1784] OF BYTE;\nEND_VAR\nVAR_OUTPUT\n  ACTIVE : BOOL;\n  NEW : BOOL;\n  RX_PGN : UDINT;\n  RX_SOURCE : USINT;\n  RX_DESTINATION : USINT;\n  RX_PRIORITY : USINT;\n  RX_LENGTH : UINT;\n  TIMESTAMP : ULINT;\n  QUEUED : UINT;\n  OVERFLOW : BOOL;\n  DROPPED : UDINT;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\nEND_VAR\nVAR\n  jd_handle : UDINT;\n  jd_prev : BOOL;\n  jd_pgn : UDINT;\n  jd_source : USINT;\n  jd_flags : USINT;\n  jd_depth : UINT;\nEND_VAR\n// Shared code of the canworks J1939 blocks: the trouble code blocks (spec\n// j1939-plc-diagnostics, interface version 1) and the message blocks (spec\n// j1939-plc-blocks, version 2). library/generate.py copies it into every\n// J1939_* C++ block's source for the same reason as common.inc: the editor\n// grafts each C++ block into one c_blocks_code.cpp. The same rules apply:\n// nothing here uses a pin or local name (pins are upper case, this code lower\n// case), and no system header is included after the pin defines.\n#ifndef J1939_DM_COMMON_INCLUDED\n#define J1939_DM_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace j1939_dm {\n\n// The plugin's C interface, version 1 (plugin/src/j1939/j1939_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_codes = 32;\nstruct dm {\n  unsigned char lamps;\n  unsigned char flash;\n  unsigned short count;\n  unsigned int age_ms;\n  unsigned int dtcs[max_codes];\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n};\nenum { err_not_running = 1, err_input = 3, err_bus = 7, err_cancelled = 8 };\n\n// Version 2: the message blocks. The table starts with version 1's.\nconst unsigned api_version_msgs = 2;\nconst unsigned max_length = 1785;\nconst unsigned rx_any = 0x01;\nconst unsigned rx_all_destinations = 0x02;\nstruct msg {\n  unsigned int pgn;\n  unsigned char source;\n  unsigned char destination;\n  unsigned char priority;\n  unsigned char ack_code;\n  unsigned short length;\n  unsigned long long time_us;\n  unsigned char data[max_length];\n};\nstruct rx_info {\n  unsigned short queued;\n  unsigned char overflow;\n  unsigned char bus_down;\n  unsigned int dropped;\n};\nstruct ecu_info {\n  unsigned char state;\n  unsigned char address;\n  unsigned short ecu_count;\n  unsigned long long name;\n};\nstruct ecu_found {\n  unsigned char found;\n  unsigned char address;\n  unsigned short count;\n  unsigned long long name;\n};\nstruct api_v2 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n  unsigned int (*send_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                             unsigned char priority, const unsigned char* data, unsigned short length,\n                             unsigned int timeout_ms, unsigned short* error_id);\n  int (*send_poll)(unsigned int handle, unsigned short* error_id);\n  unsigned int (*request_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*request_poll)(unsigned int handle, msg* out, unsigned short* error_id);\n  void (*msg_cancel)(unsigned int handle);\n  unsigned int (*rx_open)(unsigned char network, unsigned int pgn, unsigned char source, unsigned char flags,\n                          unsigned short depth, unsigned short* error_id);\n  int (*rx_read)(unsigned int handle, msg* m, rx_info* info);\n  void (*rx_close)(unsigned int handle);\n  int (*ecu_info)(unsigned char network, ecu_info* out, unsigned short* error_id);\n  int (*find_ecu)(unsigned char network, unsigned long long name, unsigned long long mask, ecu_found* out,\n                  unsigned short* error_id);\n};\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DJ1939_DM_TEST_ENTRY.)\n#ifdef J1939_DM_TEST_ENTRY\n}  // namespace j1939_dm\nextern \"C\" const void* J1939_DM_TEST_ENTRY(unsigned int version);\nnamespace j1939_dm {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// The version 2 table, the same way; nullptr from a plugin that lacks it.\ninline const api_v2* api2() {\n  static const api_v2* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v2* t = static_cast<const api_v2*>(entry(api_version_msgs));\n  if (t && t->size >= sizeof(api_v2)) table = t;\n  return table;\n}\n\n// Errors a receiver or a lookup recovers from by itself (tried again while\n// ENABLE stays TRUE).\ninline bool retry(unsigned short error_id) {\n  return error_id == err_not_running || error_id == err_bus || error_id == err_cancelled || error_id == 9;\n}\n\n// TIME (nanoseconds) to milliseconds; 0 and negative give 0 (the plugin's\n// default, 1 s).\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// PLCopen handshake of one block instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace j1939_dm\n#endif\n// J1939_RECEIVE: queues received PGNs (reassembled) while ENABLE is TRUE; each call takes one (NEW)\n// Generated by library/generate.py; edit that file or src/j1939_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  const j1939_dm::api_v2* t = j1939_dm::api2();\n  NEW = false;\n  unsigned char source = FILTER_SOURCE ? static_cast<unsigned char>(SOURCE) : 255;\n  unsigned char flags = static_cast<unsigned char>((ANY ? j1939_dm::rx_any : 0) |\n                                                   (ALL_DESTINATIONS ? j1939_dm::rx_all_destinations : 0));\n  bool rising = ENABLE && !jd_prev;\n  // New filter inputs while enabled: the receiver opens again with them.\n  bool changed = ENABLE && jd_handle &&\n                 (jd_pgn != PGN || jd_source != source || jd_flags != flags || jd_depth != DEPTH);\n  if (changed) {\n    if (t) t->rx_close(jd_handle);\n    jd_handle = 0;\n  }\n  if (rising || changed || (ENABLE && !jd_handle && ERROR && j1939_dm::retry(ERROR_ID))) {\n    if (rising) {\n      QUEUED = 0;\n      OVERFLOW = false;\n      DROPPED = 0;\n    }\n    ERROR = false;\n    ERROR_ID = 0;\n    unsigned short err = j1939_dm::err_not_running;\n    jd_handle = t ? t->rx_open(NETWORK, PGN, source, flags, DEPTH, &err) : 0;\n    jd_pgn = PGN;\n    jd_source = source;\n    jd_flags = flags;\n    jd_depth = DEPTH;\n    if (!jd_handle) {\n      ERROR = true;\n      ERROR_ID = err;\n    }\n  } else if (!ENABLE && jd_prev) {\n    if (t && jd_handle) t->rx_close(jd_handle);\n    jd_handle = 0;\n    ERROR = false;\n    ERROR_ID = 0;\n  }\n  if (ENABLE && jd_handle && t) {\n    j1939_dm::msg m;\n    j1939_dm::rx_info info = {};\n    int r = t->rx_read(jd_handle, &m, &info);\n    if (r == 1) {\n      NEW = true;\n      RX_PGN = m.pgn;\n      RX_SOURCE = m.source;\n      RX_DESTINATION = m.destination;\n      RX_PRIORITY = m.priority;\n      RX_LENGTH = m.length;\n      for (unsigned i = 0; i < m.length && i < j1939_dm::max_length; ++i) RX_DATA[i] = m.data[i];\n      TIMESTAMP = m.time_us;\n    } else if (r < 0) {\n      ERROR = true;\n      ERROR_ID = static_cast<unsigned short>(-r);\n      jd_handle = 0;\n    }\n    if (jd_handle) {\n      ERROR = info.bus_down != 0;  // 7 while the bus is away; the receiver stays\n      ERROR_ID = ERROR ? static_cast<unsigned short>(j1939_dm::err_bus) : 0;\n    }\n    QUEUED = info.queued;\n    OVERFLOW = info.overflow != 0;\n    DROPPED = info.dropped;\n  }\n  ACTIVE = jd_handle != 0;\n  jd_prev = ENABLE;\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "J1939_REQUEST.cpp",
+      "source": "FUNCTION_BLOCK J1939_REQUEST\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  PGN : UDINT;\n  DESTINATION : USINT;\n  TIMEOUT : TIME;\nEND_VAR\nVAR_IN_OUT\n  DATA : ARRAY[0..1784] OF BYTE;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n  SOURCE : USINT;\n  LENGTH : UINT;\n  ACK_CODE : USINT;\nEND_VAR\nVAR\n  jd_handle : UDINT;\n  jd_prev : BOOL;\n  jd_phase : USINT;\nEND_VAR\n// Shared code of the canworks J1939 blocks: the trouble code blocks (spec\n// j1939-plc-diagnostics, interface version 1) and the message blocks (spec\n// j1939-plc-blocks, version 2). library/generate.py copies it into every\n// J1939_* C++ block's source for the same reason as common.inc: the editor\n// grafts each C++ block into one c_blocks_code.cpp. The same rules apply:\n// nothing here uses a pin or local name (pins are upper case, this code lower\n// case), and no system header is included after the pin defines.\n#ifndef J1939_DM_COMMON_INCLUDED\n#define J1939_DM_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace j1939_dm {\n\n// The plugin's C interface, version 1 (plugin/src/j1939/j1939_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_codes = 32;\nstruct dm {\n  unsigned char lamps;\n  unsigned char flash;\n  unsigned short count;\n  unsigned int age_ms;\n  unsigned int dtcs[max_codes];\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n};\nenum { err_not_running = 1, err_input = 3, err_bus = 7, err_cancelled = 8 };\n\n// Version 2: the message blocks. The table starts with version 1's.\nconst unsigned api_version_msgs = 2;\nconst unsigned max_length = 1785;\nconst unsigned rx_any = 0x01;\nconst unsigned rx_all_destinations = 0x02;\nstruct msg {\n  unsigned int pgn;\n  unsigned char source;\n  unsigned char destination;\n  unsigned char priority;\n  unsigned char ack_code;\n  unsigned short length;\n  unsigned long long time_us;\n  unsigned char data[max_length];\n};\nstruct rx_info {\n  unsigned short queued;\n  unsigned char overflow;\n  unsigned char bus_down;\n  unsigned int dropped;\n};\nstruct ecu_info {\n  unsigned char state;\n  unsigned char address;\n  unsigned short ecu_count;\n  unsigned long long name;\n};\nstruct ecu_found {\n  unsigned char found;\n  unsigned char address;\n  unsigned short count;\n  unsigned long long name;\n};\nstruct api_v2 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n  unsigned int (*send_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                             unsigned char priority, const unsigned char* data, unsigned short length,\n                             unsigned int timeout_ms, unsigned short* error_id);\n  int (*send_poll)(unsigned int handle, unsigned short* error_id);\n  unsigned int (*request_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*request_poll)(unsigned int handle, msg* out, unsigned short* error_id);\n  void (*msg_cancel)(unsigned int handle);\n  unsigned int (*rx_open)(unsigned char network, unsigned int pgn, unsigned char source, unsigned char flags,\n                          unsigned short depth, unsigned short* error_id);\n  int (*rx_read)(unsigned int handle, msg* m, rx_info* info);\n  void (*rx_close)(unsigned int handle);\n  int (*ecu_info)(unsigned char network, ecu_info* out, unsigned short* error_id);\n  int (*find_ecu)(unsigned char network, unsigned long long name, unsigned long long mask, ecu_found* out,\n                  unsigned short* error_id);\n};\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DJ1939_DM_TEST_ENTRY.)\n#ifdef J1939_DM_TEST_ENTRY\n}  // namespace j1939_dm\nextern \"C\" const void* J1939_DM_TEST_ENTRY(unsigned int version);\nnamespace j1939_dm {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// The version 2 table, the same way; nullptr from a plugin that lacks it.\ninline const api_v2* api2() {\n  static const api_v2* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v2* t = static_cast<const api_v2*>(entry(api_version_msgs));\n  if (t && t->size >= sizeof(api_v2)) table = t;\n  return table;\n}\n\n// Errors a receiver or a lookup recovers from by itself (tried again while\n// ENABLE stays TRUE).\ninline bool retry(unsigned short error_id) {\n  return error_id == err_not_running || error_id == err_bus || error_id == err_cancelled || error_id == 9;\n}\n\n// TIME (nanoseconds) to milliseconds; 0 and negative give 0 (the plugin's\n// default, 1 s).\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// PLCopen handshake of one block instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace j1939_dm\n#endif\n// J1939_REQUEST: sends a Request for a PGN; DONE with one ECU's answer (global: once sent), ERROR_ID 12 on its NACK\n// Generated by library/generate.py; edit that file or src/j1939_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = jd_prev;\n  unsigned char phase = jd_phase;\n  j1939_dm::step s = j1939_dm::begin(EXECUTE, prev, phase);\n  jd_prev = prev;\n  jd_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  const j1939_dm::api_v2* t = j1939_dm::api2();\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    ACK_CODE = 0;\n    unsigned short err = 0;\n    unsigned int handle = 0;\n    if (!t) {\n      err = j1939_dm::err_not_running;\n    } else {\n      handle = t->request_start(NETWORK, PGN, DESTINATION, j1939_dm::time_ms(TIMEOUT), &err);\n    }\n    if (handle) {\n      jd_handle = handle;\n      BUSY = true;\n      jd_phase = j1939_dm::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      jd_phase = j1939_dm::phase_ended;\n    }\n  }\n  if (jd_phase == j1939_dm::phase_busy) {\n    j1939_dm::msg m;\n    m.length = 0;\n    m.ack_code = 0;\n    unsigned short err = j1939_dm::err_not_running;\n    int st = t ? t->request_poll(jd_handle, &m, &err) : 2;\n    if (st != 0) {\n      BUSY = false;\n      jd_handle = 0;\n      jd_phase = j1939_dm::phase_ended;\n      ACK_CODE = m.ack_code;\n      if (st == 1) {\n        SOURCE = m.source;\n        LENGTH = m.length;\n        for (unsigned i = 0; i < m.length && i < j1939_dm::max_length; ++i) DATA[i] = m.data[i];\n        DONE = true;\n      } else {\n        ERROR = true;\n        ERROR_ID = err;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "J1939_SEND.cpp",
+      "source": "FUNCTION_BLOCK J1939_SEND\nVAR_INPUT\n  EXECUTE : BOOL;\n  NETWORK : USINT;\n  PGN : UDINT;\n  DESTINATION : USINT;\n  PRIORITY : USINT;\n  LENGTH : UINT;\n  TIMEOUT : TIME;\nEND_VAR\nVAR_IN_OUT\n  DATA : ARRAY[0..1784] OF BYTE;\nEND_VAR\nVAR_OUTPUT\n  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\nEND_VAR\nVAR\n  jd_handle : UDINT;\n  jd_prev : BOOL;\n  jd_phase : USINT;\nEND_VAR\n// Shared code of the canworks J1939 blocks: the trouble code blocks (spec\n// j1939-plc-diagnostics, interface version 1) and the message blocks (spec\n// j1939-plc-blocks, version 2). library/generate.py copies it into every\n// J1939_* C++ block's source for the same reason as common.inc: the editor\n// grafts each C++ block into one c_blocks_code.cpp. The same rules apply:\n// nothing here uses a pin or local name (pins are upper case, this code lower\n// case), and no system header is included after the pin defines.\n#ifndef J1939_DM_COMMON_INCLUDED\n#define J1939_DM_COMMON_INCLUDED\nextern \"C\" void* dlopen(const char* file, int mode) noexcept(true);\nextern \"C\" void* dlsym(void* handle, const char* name) noexcept(true);\n\nnamespace j1939_dm {\n\n// The plugin's C interface, version 1 (plugin/src/j1939/j1939_plc_api.h).\nconst unsigned api_version = 1;\nconst unsigned max_codes = 32;\nstruct dm {\n  unsigned char lamps;\n  unsigned char flash;\n  unsigned short count;\n  unsigned int age_ms;\n  unsigned int dtcs[max_codes];\n};\nstruct api_v1 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n};\nenum { err_not_running = 1, err_input = 3, err_bus = 7, err_cancelled = 8 };\n\n// Version 2: the message blocks. The table starts with version 1's.\nconst unsigned api_version_msgs = 2;\nconst unsigned max_length = 1785;\nconst unsigned rx_any = 0x01;\nconst unsigned rx_all_destinations = 0x02;\nstruct msg {\n  unsigned int pgn;\n  unsigned char source;\n  unsigned char destination;\n  unsigned char priority;\n  unsigned char ack_code;\n  unsigned short length;\n  unsigned long long time_us;\n  unsigned char data[max_length];\n};\nstruct rx_info {\n  unsigned short queued;\n  unsigned char overflow;\n  unsigned char bus_down;\n  unsigned int dropped;\n};\nstruct ecu_info {\n  unsigned char state;\n  unsigned char address;\n  unsigned short ecu_count;\n  unsigned long long name;\n};\nstruct ecu_found {\n  unsigned char found;\n  unsigned char address;\n  unsigned short count;\n  unsigned long long name;\n};\nstruct api_v2 {\n  unsigned int size;\n  unsigned int (*dm_read_start)(unsigned char network, unsigned char source, unsigned char previous,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_read_poll)(unsigned int handle, dm* out, unsigned short* error_id);\n  unsigned int (*dm_clear_start)(unsigned char network, unsigned char destination, unsigned char previous_only,\n                                 unsigned int timeout_ms, unsigned short* error_id);\n  int (*dm_clear_poll)(unsigned int handle, unsigned short* error_id);\n  void (*cancel)(unsigned int handle);\n  unsigned int (*send_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                             unsigned char priority, const unsigned char* data, unsigned short length,\n                             unsigned int timeout_ms, unsigned short* error_id);\n  int (*send_poll)(unsigned int handle, unsigned short* error_id);\n  unsigned int (*request_start)(unsigned char network, unsigned int pgn, unsigned char destination,\n                                unsigned int timeout_ms, unsigned short* error_id);\n  int (*request_poll)(unsigned int handle, msg* out, unsigned short* error_id);\n  void (*msg_cancel)(unsigned int handle);\n  unsigned int (*rx_open)(unsigned char network, unsigned int pgn, unsigned char source, unsigned char flags,\n                          unsigned short depth, unsigned short* error_id);\n  int (*rx_read)(unsigned int handle, msg* m, rx_info* info);\n  void (*rx_close)(unsigned int handle);\n  int (*ecu_info)(unsigned char network, ecu_info* out, unsigned short* error_id);\n  int (*find_ecu)(unsigned char network, unsigned long long name, unsigned long long mask, ecu_found* out,\n                  unsigned short* error_id);\n};\n\n// The loaded plugin's table, as co_sdo::api() finds it. (The plugin's tests\n// link the blocks into one process with the plugin code and name the entry\n// point with -DJ1939_DM_TEST_ENTRY.)\n#ifdef J1939_DM_TEST_ENTRY\n}  // namespace j1939_dm\nextern \"C\" const void* J1939_DM_TEST_ENTRY(unsigned int version);\nnamespace j1939_dm {\n#endif\ninline const api_v1* api() {\n  static const api_v1* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v1* t = static_cast<const api_v1*>(entry(api_version));\n  if (t && t->size >= sizeof(api_v1)) table = t;\n  return table;\n}\n\n// The version 2 table, the same way; nullptr from a plugin that lacks it.\ninline const api_v2* api2() {\n  static const api_v2* table = nullptr;\n  if (table) return table;\n  typedef const void* (*entry_t)(unsigned int);\n#ifdef J1939_DM_TEST_ENTRY\n  entry_t entry = J1939_DM_TEST_ENTRY;\n#else\n  void* lib = dlopen(\"libcanworks_plugin.so\", 0x2 | 0x4);\n  if (!lib) return nullptr;\n  entry_t entry = reinterpret_cast<entry_t>(dlsym(lib, \"canworks_j1939_api\"));\n#endif\n  if (!entry) return nullptr;\n  const api_v2* t = static_cast<const api_v2*>(entry(api_version_msgs));\n  if (t && t->size >= sizeof(api_v2)) table = t;\n  return table;\n}\n\n// Errors a receiver or a lookup recovers from by itself (tried again while\n// ENABLE stays TRUE).\ninline bool retry(unsigned short error_id) {\n  return error_id == err_not_running || error_id == err_bus || error_id == err_cancelled || error_id == 9;\n}\n\n// TIME (nanoseconds) to milliseconds; 0 and negative give 0 (the plugin's\n// default, 1 s).\ninline unsigned int time_ms(long long ns) {\n  if (ns <= 0) return 0;\n  long long ms = (ns + 999999) / 1000000;\n  return ms > 3600000 ? 3600000u : static_cast<unsigned int>(ms);\n}\n\n// PLCopen handshake of one block instance, as co_sdo::begin.\nenum { phase_idle = 0, phase_busy = 1, phase_ended = 2 };\nstruct step {\n  bool start;\n  bool clear;\n};\ninline step begin(bool execute, bool& prev, unsigned char& phase) {\n  step s{false, false};\n  bool rising = execute && !prev;\n  prev = execute;\n  if (phase == phase_ended && !execute) {\n    s.clear = true;\n    phase = phase_idle;\n  }\n  if (rising && phase != phase_busy) s.start = true;\n  return s;\n}\n\n}  // namespace j1939_dm\n#endif\n// J1939_SEND: sends a PGN of up to 1785 bytes from the network's address; DONE once sent (long ones: session complete)\n// Generated by library/generate.py; edit that file or src/j1939_common.inc.\n\nvoid setup() {\n}\n\nvoid loop() {\n  bool prev = jd_prev;\n  unsigned char phase = jd_phase;\n  j1939_dm::step s = j1939_dm::begin(EXECUTE, prev, phase);\n  jd_prev = prev;\n  jd_phase = phase;\n  if (s.clear) {\n    DONE = false;\n    ERROR = false;\n  }\n  const j1939_dm::api_v2* t = j1939_dm::api2();\n  if (s.start) {\n    DONE = false;\n    ERROR = false;\n    ERROR_ID = 0;\n    unsigned short err = 0;\n    unsigned int handle = 0;\n    if (!t) {\n      err = j1939_dm::err_not_running;\n    } else if (LENGTH > j1939_dm::max_length || PRIORITY > 7) {\n      err = j1939_dm::err_input;\n    } else {\n      unsigned char data[j1939_dm::max_length];\n      for (unsigned i = 0; i < LENGTH; ++i) data[i] = static_cast<unsigned char>(DATA[i]);\n      unsigned char prio = PRIORITY ? static_cast<unsigned char>(PRIORITY) : 6;\n      handle = t->send_start(NETWORK, PGN, DESTINATION, prio, data, LENGTH, j1939_dm::time_ms(TIMEOUT), &err);\n    }\n    if (handle) {\n      jd_handle = handle;\n      BUSY = true;\n      jd_phase = j1939_dm::phase_busy;\n    } else {\n      BUSY = false;\n      ERROR = true;\n      ERROR_ID = err;\n      jd_phase = j1939_dm::phase_ended;\n    }\n  }\n  if (jd_phase == j1939_dm::phase_busy) {\n    unsigned short err = j1939_dm::err_not_running;\n    int st = t ? t->send_poll(jd_handle, &err) : 2;\n    if (st != 0) {\n      BUSY = false;\n      jd_handle = 0;\n      jd_phase = j1939_dm::phase_ended;\n      if (st == 1) {\n        DONE = true;\n      } else {\n        ERROR = true;\n        ERROR_ID = err;\n      }\n    }\n  }\n}\nEND_FUNCTION_BLOCK\n"
+    },
+    {
+      "fileName": "J1939_SET_BITS.st",
+      "source": "(*\n * J1939_SET_BITS: writes a signal's raw value into a J1939 message of any\n * length, little-endian with the bit numbering of J1939_GET_BITS; the other\n * bits stay as they are. Returns TRUE, or FALSE (and writes nothing) when a\n * bit would fall outside the 1785 bytes or BIT_LENGTH is not 1..64.\n *)\nFUNCTION J1939_SET_BITS : BOOL\nVAR_IN_OUT\n  DATA : ARRAY[0..1784] OF BYTE;\nEND_VAR\nVAR_INPUT\n  START_BIT : UINT;\n  BIT_LENGTH : USINT;\n  VALUE : LINT;\nEND_VAR\nVAR\n  i : DINT;\n  pos : DINT;\n  v : LWORD;\n  b : BYTE;\nEND_VAR\n  IF BIT_LENGTH = 0 OR BIT_LENGTH > 64 OR UINT_TO_DINT(START_BIT) + USINT_TO_DINT(BIT_LENGTH) > 14280 THEN\n    J1939_SET_BITS := FALSE;\n    RETURN;\n  END_IF;\n  v := LINT_TO_LWORD(VALUE);\n  pos := UINT_TO_DINT(START_BIT);\n  FOR i := 0 TO USINT_TO_DINT(BIT_LENGTH) - 1 DO\n    b := SHL(BYTE#1, DINT_TO_UINT(pos MOD 8));\n    IF (SHR(v, DINT_TO_UINT(i)) AND 16#01) = 1 THEN\n      DATA[pos / 8] := DATA[pos / 8] OR b;\n    ELSE\n      DATA[pos / 8] := DATA[pos / 8] AND NOT b;\n    END_IF;\n    pos := pos + 1;\n  END_FOR;\n  J1939_SET_BITS := TRUE;\nEND_FUNCTION\n"
     }
   ]
 }

@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Writes the sources of the canworks editor library (specs canopen-plc-sdo,
-canopen-plc-nmt, can-plc-frames and
-j1939-plc-diagnostics).
+"""Writes the C++ block sources of the canworks function block library (spec
+plc-library: the blocks of canopen-plc-sdo, canopen-plc-nmt, can-plc-frames,
+j1939-plc-diagnostics and j1939-plc-blocks).
 
     python3 library/generate.py            # write library/canworks/*.cpp
     python3 library/generate.py --check    # fail if they are out of date
 
 Each block is a C++ function block as OpenPLC Editor 4.3 stores one: an ST
 header (FUNCTION_BLOCK, the variable sections) followed by the C++ body with
-setup() and loop(). The eight blocks share one pin layout and the code in
-src/common.inc, which is copied into every body (behind an include guard)
-because the editor grafts each block into one c_blocks_code.cpp.
+setup() and loop(). Each family shares code in src/*.inc (the SDO blocks
+also one pin layout), which is copied into every body (behind an include
+guard) because the editor grafts each block into one c_blocks_code.cpp. The
+ST functions and blocks (*.st) are written by hand.
 
 library/build.sh turns the folder into canworks.stlib with strucpp.
 """
@@ -257,7 +258,7 @@ def render(name):
 
 # CO_RECV_EMCY (spec canopen-plc-sdo "EMCY receive block"): the network's EMCY
 # queue through the version 2 table, in the CAN_RECEIVE style (ENABLE, NEW,
-# QUEUED, OVERFLOW). Shares src/common.inc with the SDO blocks.
+# QUEUED, OVERFLOW). Shares src/common.inc with the SDO and NMT blocks.
 EMCY_BODY = """\
 void loop() {
   const co_sdo::api_v2* t = co_sdo::api2();
@@ -582,7 +583,7 @@ def render_can(name, block=None, common=None, source="src/can_common.inc"):
     return text.replace("VAR_END_MARK", "END" + "_VAR")
 
 
-# The J1939 trouble code blocks (spec j1939-plc-diagnostics) share
+# The J1939 blocks (specs j1939-plc-diagnostics, j1939-plc-blocks) share
 # src/j1939_common.inc.
 J1939_COMMON = (HERE / "src" / "j1939_common.inc").read_text()
 
@@ -698,6 +699,237 @@ void loop() {
   }
 }"""
 
+# The J1939 message blocks (spec j1939-plc-blocks), on version 2 of the
+# plugin's J1939 table.
+J1939_SEND_BODY = """\
+void loop() {
+  bool prev = jd_prev;
+  unsigned char phase = jd_phase;
+  j1939_dm::step s = j1939_dm::begin(EXECUTE, prev, phase);
+  jd_prev = prev;
+  jd_phase = phase;
+  if (s.clear) {
+    DONE = false;
+    ERROR = false;
+  }
+  const j1939_dm::api_v2* t = j1939_dm::api2();
+  if (s.start) {
+    DONE = false;
+    ERROR = false;
+    ERROR_ID = 0;
+    unsigned short err = 0;
+    unsigned int handle = 0;
+    if (!t) {
+      err = j1939_dm::err_not_running;
+    } else if (LENGTH > j1939_dm::max_length || PRIORITY > 7) {
+      err = j1939_dm::err_input;
+    } else {
+      unsigned char data[j1939_dm::max_length];
+      for (unsigned i = 0; i < LENGTH; ++i) data[i] = static_cast<unsigned char>(DATA[i]);
+      unsigned char prio = PRIORITY ? static_cast<unsigned char>(PRIORITY) : 6;
+      handle = t->send_start(NETWORK, PGN, DESTINATION, prio, data, LENGTH, j1939_dm::time_ms(TIMEOUT), &err);
+    }
+    if (handle) {
+      jd_handle = handle;
+      BUSY = true;
+      jd_phase = j1939_dm::phase_busy;
+    } else {
+      BUSY = false;
+      ERROR = true;
+      ERROR_ID = err;
+      jd_phase = j1939_dm::phase_ended;
+    }
+  }
+  if (jd_phase == j1939_dm::phase_busy) {
+    unsigned short err = j1939_dm::err_not_running;
+    int st = t ? t->send_poll(jd_handle, &err) : 2;
+    if (st != 0) {
+      BUSY = false;
+      jd_handle = 0;
+      jd_phase = j1939_dm::phase_ended;
+      if (st == 1) {
+        DONE = true;
+      } else {
+        ERROR = true;
+        ERROR_ID = err;
+      }
+    }
+  }
+}"""
+
+J1939_REQUEST_BODY = """\
+void loop() {
+  bool prev = jd_prev;
+  unsigned char phase = jd_phase;
+  j1939_dm::step s = j1939_dm::begin(EXECUTE, prev, phase);
+  jd_prev = prev;
+  jd_phase = phase;
+  if (s.clear) {
+    DONE = false;
+    ERROR = false;
+  }
+  const j1939_dm::api_v2* t = j1939_dm::api2();
+  if (s.start) {
+    DONE = false;
+    ERROR = false;
+    ERROR_ID = 0;
+    ACK_CODE = 0;
+    unsigned short err = 0;
+    unsigned int handle = 0;
+    if (!t) {
+      err = j1939_dm::err_not_running;
+    } else {
+      handle = t->request_start(NETWORK, PGN, DESTINATION, j1939_dm::time_ms(TIMEOUT), &err);
+    }
+    if (handle) {
+      jd_handle = handle;
+      BUSY = true;
+      jd_phase = j1939_dm::phase_busy;
+    } else {
+      BUSY = false;
+      ERROR = true;
+      ERROR_ID = err;
+      jd_phase = j1939_dm::phase_ended;
+    }
+  }
+  if (jd_phase == j1939_dm::phase_busy) {
+    j1939_dm::msg m;
+    m.length = 0;
+    m.ack_code = 0;
+    unsigned short err = j1939_dm::err_not_running;
+    int st = t ? t->request_poll(jd_handle, &m, &err) : 2;
+    if (st != 0) {
+      BUSY = false;
+      jd_handle = 0;
+      jd_phase = j1939_dm::phase_ended;
+      ACK_CODE = m.ack_code;
+      if (st == 1) {
+        SOURCE = m.source;
+        LENGTH = m.length;
+        for (unsigned i = 0; i < m.length && i < j1939_dm::max_length; ++i) DATA[i] = m.data[i];
+        DONE = true;
+      } else {
+        ERROR = true;
+        ERROR_ID = err;
+      }
+    }
+  }
+}"""
+
+J1939_RECEIVE_BODY = """\
+void loop() {
+  const j1939_dm::api_v2* t = j1939_dm::api2();
+  NEW = false;
+  unsigned char source = FILTER_SOURCE ? static_cast<unsigned char>(SOURCE) : 255;
+  unsigned char flags = static_cast<unsigned char>((ANY ? j1939_dm::rx_any : 0) |
+                                                   (ALL_DESTINATIONS ? j1939_dm::rx_all_destinations : 0));
+  bool rising = ENABLE && !jd_prev;
+  // New filter inputs while enabled: the receiver opens again with them.
+  bool changed = ENABLE && jd_handle &&
+                 (jd_pgn != PGN || jd_source != source || jd_flags != flags || jd_depth != DEPTH);
+  if (changed) {
+    if (t) t->rx_close(jd_handle);
+    jd_handle = 0;
+  }
+  if (rising || changed || (ENABLE && !jd_handle && ERROR && j1939_dm::retry(ERROR_ID))) {
+    if (rising) {
+      QUEUED = 0;
+      OVERFLOW = false;
+      DROPPED = 0;
+    }
+    ERROR = false;
+    ERROR_ID = 0;
+    unsigned short err = j1939_dm::err_not_running;
+    jd_handle = t ? t->rx_open(NETWORK, PGN, source, flags, DEPTH, &err) : 0;
+    jd_pgn = PGN;
+    jd_source = source;
+    jd_flags = flags;
+    jd_depth = DEPTH;
+    if (!jd_handle) {
+      ERROR = true;
+      ERROR_ID = err;
+    }
+  } else if (!ENABLE && jd_prev) {
+    if (t && jd_handle) t->rx_close(jd_handle);
+    jd_handle = 0;
+    ERROR = false;
+    ERROR_ID = 0;
+  }
+  if (ENABLE && jd_handle && t) {
+    j1939_dm::msg m;
+    j1939_dm::rx_info info = {};
+    int r = t->rx_read(jd_handle, &m, &info);
+    if (r == 1) {
+      NEW = true;
+      RX_PGN = m.pgn;
+      RX_SOURCE = m.source;
+      RX_DESTINATION = m.destination;
+      RX_PRIORITY = m.priority;
+      RX_LENGTH = m.length;
+      for (unsigned i = 0; i < m.length && i < j1939_dm::max_length; ++i) RX_DATA[i] = m.data[i];
+      TIMESTAMP = m.time_us;
+    } else if (r < 0) {
+      ERROR = true;
+      ERROR_ID = static_cast<unsigned short>(-r);
+      jd_handle = 0;
+    }
+    if (jd_handle) {
+      ERROR = info.bus_down != 0;  // 7 while the bus is away; the receiver stays
+      ERROR_ID = ERROR ? static_cast<unsigned short>(j1939_dm::err_bus) : 0;
+    }
+    QUEUED = info.queued;
+    OVERFLOW = info.overflow != 0;
+    DROPPED = info.dropped;
+  }
+  ACTIVE = jd_handle != 0;
+  jd_prev = ENABLE;
+}"""
+
+J1939_ECU_INFO_BODY = """\
+void loop() {
+  if (!ENABLE) {
+    VALID = false;
+    ERROR = false;
+    ERROR_ID = 0;
+    return;
+  }
+  const j1939_dm::api_v2* t = j1939_dm::api2();
+  j1939_dm::ecu_info e = {};
+  e.state = 3;
+  e.address = 254;
+  unsigned short err = j1939_dm::err_not_running;
+  int st = t ? t->ecu_info(NETWORK, &e, &err) : 2;
+  VALID = st == 0;
+  STATE = e.state;
+  ADDRESS = e.address;
+  NAME = e.name;
+  ECU_COUNT = e.ecu_count;
+  ERROR = st != 0;
+  ERROR_ID = st != 0 ? err : 0;
+}"""
+
+J1939_FIND_ECU_BODY = """\
+void loop() {
+  if (!ENABLE) {
+    VALID = false;
+    FOUND = false;
+    ERROR = false;
+    ERROR_ID = 0;
+    return;
+  }
+  const j1939_dm::api_v2* t = j1939_dm::api2();
+  j1939_dm::ecu_found f = {};
+  unsigned short err = j1939_dm::err_not_running;
+  int st = t ? t->find_ecu(NETWORK, NAME, MASK, &f, &err) : 2;
+  VALID = st == 0;
+  FOUND = f.found != 0;
+  ADDRESS = f.found ? f.address : 254;
+  FOUND_NAME = f.name;
+  COUNT = f.count;
+  ERROR = st != 0;
+  ERROR_ID = st != 0 ? err : 0;
+}"""
+
 J1939_LOCALS = "  jd_handle : UDINT;\n  jd_prev : BOOL;\n  jd_phase : USINT;\n"
 J1939_OUTPUTS = "  BUSY : BOOL;\n  DONE : BOOL;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n"
 
@@ -717,6 +949,48 @@ J1939_BLOCKS = {
         J1939_OUTPUTS,
         J1939_LOCALS,
         J1939_DM_CLEAR_BODY),
+    "J1939_SEND": (
+        "sends a PGN of up to 1785 bytes from the network's address; DONE once sent (long ones: session complete)",
+        "  EXECUTE : BOOL;\n  NETWORK : USINT;\n  PGN : UDINT;\n  DESTINATION : USINT;\n  PRIORITY : USINT;\n"
+        "  LENGTH : UINT;\n  TIMEOUT : TIME;\n",
+        "  DATA : ARRAY[0..1784] OF BYTE;\n",
+        J1939_OUTPUTS,
+        J1939_LOCALS,
+        J1939_SEND_BODY),
+    "J1939_REQUEST": (
+        "sends a Request for a PGN; DONE with one ECU's answer (global: once sent), ERROR_ID 12 on its NACK",
+        "  EXECUTE : BOOL;\n  NETWORK : USINT;\n  PGN : UDINT;\n  DESTINATION : USINT;\n  TIMEOUT : TIME;\n",
+        "  DATA : ARRAY[0..1784] OF BYTE;\n",
+        J1939_OUTPUTS + "  SOURCE : USINT;\n  LENGTH : UINT;\n  ACK_CODE : USINT;\n",
+        J1939_LOCALS,
+        J1939_REQUEST_BODY),
+    "J1939_RECEIVE": (
+        "queues received PGNs (reassembled) while ENABLE is TRUE; each call takes one (NEW)",
+        "  ENABLE : BOOL;\n  NETWORK : USINT;\n  PGN : UDINT;\n  ANY : BOOL;\n  SOURCE : USINT;\n"
+        "  FILTER_SOURCE : BOOL;\n  ALL_DESTINATIONS : BOOL;\n  DEPTH : UINT;\n",
+        "  RX_DATA : ARRAY[0..1784] OF BYTE;\n",
+        "  ACTIVE : BOOL;\n  NEW : BOOL;\n  RX_PGN : UDINT;\n  RX_SOURCE : USINT;\n  RX_DESTINATION : USINT;\n"
+        "  RX_PRIORITY : USINT;\n  RX_LENGTH : UINT;\n  TIMESTAMP : ULINT;\n  QUEUED : UINT;\n  OVERFLOW : BOOL;\n"
+        "  DROPPED : UDINT;\n  ERROR : BOOL;\n  ERROR_ID : UINT;\n",
+        "  jd_handle : UDINT;\n  jd_prev : BOOL;\n  jd_pgn : UDINT;\n  jd_source : USINT;\n  jd_flags : USINT;\n"
+        "  jd_depth : UINT;\n",
+        J1939_RECEIVE_BODY),
+    "J1939_ECU_INFO": (
+        "the network's claim state, address and NAME, and how many ECUs it sees",
+        "  ENABLE : BOOL;\n  NETWORK : USINT;\n",
+        "",
+        "  VALID : BOOL;\n  STATE : USINT;\n  ADDRESS : USINT;\n  NAME : LWORD;\n  ECU_COUNT : UINT;\n"
+        "  ERROR : BOOL;\n  ERROR_ID : UINT;\n",
+        "",
+        J1939_ECU_INFO_BODY),
+    "J1939_FIND_ECU": (
+        "the lowest address whose ECU's NAME matches NAME in the bits of MASK",
+        "  ENABLE : BOOL;\n  NETWORK : USINT;\n  NAME : LWORD;\n  MASK : LWORD;\n",
+        "",
+        "  VALID : BOOL;\n  FOUND : BOOL;\n  ADDRESS : USINT;\n  FOUND_NAME : LWORD;\n  COUNT : UINT;\n"
+        "  ERROR : BOOL;\n  ERROR_ID : UINT;\n",
+        "",
+        J1939_FIND_ECU_BODY),
 }
 
 

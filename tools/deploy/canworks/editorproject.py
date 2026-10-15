@@ -11,7 +11,7 @@ This module then changes only what `create` cannot set:
                                  drive bridge and the bridge call
     canworks/                     the config and its files (project.write())
     project.json                 with blocks or a cyclic CiA 402 axis: the canworks library
-                                 enabled (sdolibrary.enable_in_project())
+                                 enabled (plclibrary.enable_in_project())
 
 The project is created in place (the editor records its path), so a failure
 after `create` removes the folder it made.
@@ -23,7 +23,7 @@ import re
 import shutil
 import subprocess
 
-from . import axis, bundle, contract, sdolibrary
+from . import axis, bundle, contract, plclibrary
 from . import project as project_mod
 from .configurator import declare
 from .eds import Eds, EdsError
@@ -218,8 +218,8 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
         _patch(project_dir, decls, body, runtime_address)
         project_mod.write(cfg, config_path, project_dir, sim_path=sim_path)
         if blocks or uses_library(cfg):
-            sdolibrary.enable_in_project(project_dir)
-    except (OSError, ValueError, project_mod.ProjectError, NewProjectError, sdolibrary.LibraryError) as e:
+            plclibrary.enable_in_project(project_dir)
+    except (OSError, ValueError, project_mod.ProjectError, NewProjectError, plclibrary.LibraryError) as e:
         shutil.rmtree(project_dir, ignore_errors=True)
         raise NewProjectError("%s (the new project folder was removed)" % e)
     return project_dir, [d for d in decls if d.get("location")]

@@ -88,6 +88,14 @@ class J1939Page(OnlineBase):
         self.open()
         base = "j1939.tx[2]"
         pg.wait_for_selector(f'[data-j1939-msg="tx:2"]')
+        # Copy as ST call on a received PGN (j1939-pc-tools).
+        pg.evaluate("() => { window.__copied = []; navigator.clipboard.writeText = async (t) => { "
+                    "window.__copied.push(t); }; }")
+        pg.click('button[data-j1939-st="rx:0"]')
+        pg.wait_for_function("() => window.__copied.length === 1")
+        text = pg.evaluate("() => window.__copied[0]")
+        self.assertIn("rx_machine_Pressures(ENABLE := TRUE, NETWORK := 0 (* machine *), PGN := 65280, SOURCE := 0,", text)
+        pg.wait_for_selector("#banner:has-text('Copied the J1939_RECEIVE call')")
         # Without a switch there is no Pages choice, and Left and Right overlap.
         self.assertEqual(pg.locator(f'select[data-path="{base}.pages"]').count(), 0)
         pg.wait_for_function("() => document.body.dataset.checking === '0'")

@@ -57,7 +57,7 @@ Every field is described in [docs/config.md](docs/config.md).
 - **EDS checks:** every EDS goes through Lely's CiA 306 lint, and every PDO entry and SDO is checked for type and access before anything is sent.
 - **Safe stops:** when the PLC stops, the nodes go PRE-OPERATIONAL (or STOPPED, or stay as they are: `on_plc_stop`); a scan that stops finishing cycles stops the outputs (`scan_watchdog_ms`); a node that comes back gets the program's current outputs at once.
 - **Status for the program:** a status bit and state byte per node, bus state and error counters, the last EMCY per node (every EMCY through `CO_RECV_EMCY`, and the device's own error history 0x1003 in the diagnostics), the EMCY COB-ID read from each device after its boot, and an optional receive timeout per input PDO.
-- **From the program:** SDO variables, NMT commands, SDO function blocks (`CO_SDO_READ`, `CO_SDO_WRITE`, ...) that read or write any object of any node when the program decides ([docs/plc-sdo.md](docs/plc-sdo.md)), NMT blocks (`CO_NMT`, `CO_NETWORK_START`, `CO_NETWORK_STOP`, `CO_GET_STATE`) that command any node, start and stop the network (autostart off with `master.start: false`) and read NMT states ([docs/plc-nmt.md](docs/plc-nmt.md)), and `CO_RECV_EMCY`, which hands the program every emergency message in order ([docs/plc-sdo.md](docs/plc-sdo.md)).
+- **From the program:** SDO variables, NMT commands, and the blocks of the [`canworks` function block library](docs/plc-library.md): SDO function blocks (`CO_SDO_READ`, `CO_SDO_WRITE`, ...) that read or write any object of any node when the program decides ([docs/plc-sdo.md](docs/plc-sdo.md)), NMT blocks (`CO_NMT`, `CO_NETWORK_START`, `CO_NETWORK_STOP`, `CO_GET_STATE`) that command any node, start and stop the network (autostart off with `master.start: false`) and read NMT states ([docs/plc-nmt.md](docs/plc-nmt.md)), and `CO_RECV_EMCY`, which hands the program every emergency message in order ([docs/plc-sdo.md](docs/plc-sdo.md)).
 - **CiA 402 drives as PLCopen axes:** drive a node with the editor's motion blocks (`MC_Power`, `MC_MoveAbsolute`, `MC_Home`, ...) in profile position, velocity and homing mode, or in the cyclic synchronous modes (CSP, CSV, CST) ([docs/cia402.md](docs/cia402.md)).
 - **Everything `dcfgen` can set**, plus a TIME producer that sends the runtime host's clock.
 - **OpenPLC as a slave:** the PLC becomes a node on a network another master runs, with a generated EDS for that master's tool ([docs/slave.md](docs/slave.md)).
@@ -68,7 +68,7 @@ Every field is described in [docs/config.md](docs/config.md).
 
 ### J1939 on the PLC
 
-A network with `"protocol": "j1939"` makes the PLC an ECU ([docs/j1939.md](docs/j1939.md)): its own NAME and address claim, received PGNs on `%I` locations with not-available and timeout bits, sent PGNs from `%Q` locations periodically or on change, request handling, and messages up to 1785 bytes through the kernel's transport protocol. Trouble codes work both ways: other ECUs' DM1 codes and lamps reach `%I` locations and the `J1939_DM_READ` block, the PLC broadcasts its own codes switched by `%Q` bits, answers DM2, DM3 and DM11 from service tools, follows DM13, and clears other ECUs with `J1939_DM_CLEAR`. Signal scaling lives in a DBC file the tools use. J1939 and CANopen networks run side by side in one config.
+A network with `"protocol": "j1939"` makes the PLC an ECU ([docs/j1939.md](docs/j1939.md)): its own NAME and address claim, received PGNs on `%I` locations with not-available and timeout bits, sent PGNs from `%Q` locations periodically or on change, request handling, and messages up to 1785 bytes through the kernel's transport protocol. Trouble codes work both ways: other ECUs' DM1 codes and lamps reach `%I` locations and the `J1939_DM_READ` block, the PLC broadcasts its own codes switched by `%Q` bits, answers DM2, DM3 and DM11 from service tools, follows DM13, and clears other ECUs with `J1939_DM_CLEAR`. From the program, `J1939_SEND`, `J1939_RECEIVE` and `J1939_REQUEST` send, receive and request any PGN up to 1785 bytes from the claimed address, `J1939_ECU_INFO` and `J1939_FIND_ECU` give the claim state and find ECUs by NAME, and ST functions pack signals and NAMEs; the configurator copies the calls for a PGN. Signal scaling lives in a DBC file the tools use. J1939 and CANopen networks run side by side in one config.
 
 ### Raw CAN on the PLC
 
@@ -101,7 +101,7 @@ Every connection checks the bit rate first and refuses a wrong one, so a single 
 | Command | What it does |
 | --- | --- |
 | `canworks-config` | The configurator, a local web page: build the network, commission devices, trace the bus, run simulations ([docs/configurator.md](docs/configurator.md)). |
-| `canworks-deploy` | Adds the config to an editor build and uploads it, checks configs offline, creates editor projects, installs the `canworks` editor library, and exports DCF, DBC, HTML network documentation, CODESYS projects and Modbus register maps ([docs/deploy.md](docs/deploy.md)). |
+| `canworks-deploy` | Adds the config to an editor build and uploads it, checks configs offline, creates editor projects, installs the `canworks` function block library, and exports DCF, DBC, HTML network documentation, CODESYS projects and Modbus register maps ([docs/deploy.md](docs/deploy.md)). |
 | `canworks-diag` | The online functions from a terminal: parameter backup, compare and restore, LSS, raw frames, trace and replay, simulator control, `explain` for a frame bit by bit, the CiA 309-3 `gateway`, and `discover` and `link` for runtimes on other networks ([docs/diagnostics.md](docs/diagnostics.md)). |
 | `canworks-sim-runtime` | The local simulator runtime in a container (Docker Engine, Podman or Colima; amd64 and arm64) ([docs/local-runtime.md](docs/local-runtime.md)). |
 | `canworks-j1939-sim` | Plays one node of a J1939 DBC file on a SocketCAN interface or USB adapter, with address claim, cycle times, ramps and scenarios ([docs/j1939.md](docs/j1939.md#simulator)). |
@@ -150,7 +150,7 @@ The repository has a [Claude](https://claude.ai/code) skill, `canworks-datasheet
 | CiA 309-3 gateway for SCADA, test benches and scripts | [cia309-gateway.md](docs/cia309-gateway.md) |
 | Reaching the PLC from other networks, or with no network | [remote-access.md](docs/remote-access.md) |
 | Bus trace and frame inspector | [trace.md](docs/trace.md), [frame-inspector.md](docs/frame-inspector.md) |
-| SDO and NMT blocks and CiA 402 axes in the program | [plc-sdo.md](docs/plc-sdo.md), [plc-nmt.md](docs/plc-nmt.md), [cia402.md](docs/cia402.md) |
+| Function blocks for the program (CANopen, CiA 402, CAN, J1939) | [plc-library.md](docs/plc-library.md), [plc-sdo.md](docs/plc-sdo.md), [plc-nmt.md](docs/plc-nmt.md), [cia402.md](docs/cia402.md) |
 | Slave and gateway | [slave.md](docs/slave.md), [gateway.md](docs/gateway.md) |
 | J1939 | [j1939.md](docs/j1939.md) |
 | Raw CAN messages and frame blocks | [raw-can.md](docs/raw-can.md) |

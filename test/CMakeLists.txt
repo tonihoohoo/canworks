@@ -106,8 +106,8 @@ target_link_libraries(can_blocks_tests PRIVATE canopen_core)
 add_dependencies(can_blocks_tests can_blocks)
 add_test(NAME can_blocks_tests COMMAND can_blocks_tests)
 # The J1939_DM_* trouble code blocks the same way, against the J1939 job
-# table and an engine on a fake socket (test/j1939_blocks), and the
-# J1939_DTC_* ST functions of the packaged library.
+# table and an engine on a fake socket (test/j1939_blocks), the J1939 message
+# blocks the same way, and the J1939_* ST functions of the packaged library.
 if(CANWORKS_WITH_J1939)
   target_compile_definitions(can_blocks PRIVATE J1939_DM_TEST_ENTRY=canworks_j1939_api_table)
   add_executable(j1939_blocks_tests j1939_blocks/blocks_tests.cpp $<TARGET_OBJECTS:can_blocks>)
@@ -118,6 +118,8 @@ if(CANWORKS_WITH_J1939)
   add_test(NAME j1939_blocks_tests COMMAND j1939_blocks_tests)
   add_test(NAME j1939_st_dtc COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/j1939_blocks/st_dtc.py
            ${STRUCPP_DIR}/package/src/runtime/include ${CMAKE_CURRENT_BINARY_DIR}/st_dtc)
+  add_test(NAME j1939_st_functions COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/j1939_blocks/st_j1939.py
+           ${STRUCPP_DIR}/package/src/runtime/include ${CMAKE_CURRENT_BINARY_DIR}/st_j1939)
 endif()
 # The CAN_ ST helper functions of the packaged library against the shared
 # signal vectors.
@@ -238,7 +240,7 @@ target_link_libraries(sensor_slave PRIVATE canopen_core)
 
 # Loads the real plugin .so with a stand-in PLC scan (test/pingpong/run.sh).
 add_executable(canopen_host host/canopen_host.cpp)
-target_include_directories(canopen_host PRIVATE common ${OPENPLC_ROOT}/core/src/drivers)
+target_include_directories(canopen_host PRIVATE common ${PROJECT_SOURCE_DIR}/plugin/src ${OPENPLC_ROOT}/core/src/drivers)
 target_link_libraries(canopen_host PRIVATE ${CMAKE_DL_LIBS})
 
 # The entry points as the runtime calls them for a disabled and an enabled plugin.

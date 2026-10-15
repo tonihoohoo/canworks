@@ -164,7 +164,7 @@ A received signal's `valid_location` is declared as `<message>_<signal>_valid`, 
 
 ## Frame blocks
 
-The blocks are in the `canworks` library next to the [SDO blocks](plc-sdo.md); install and enable it the same way. A project made with `canworks-deploy --new-project ... --blocks` has it enabled. Every block has `NETWORK : USINT` (the network's place in `networks`, 0 the first) and the outputs `ERROR : BOOL` and `ERROR_ID : UINT`. The frame data is `ARRAY[0..7] OF BYTE`, passed as an in-out pin.
+The blocks are in the [`canworks` function block library](plc-library.md); install and enable it as [plc-library.md](plc-library.md#install-and-enable) describes. A project made with `canworks-deploy --new-project ... --blocks` has it enabled. Every block has `NETWORK : USINT` (the network's place in `networks`, 0 the first) and the outputs `ERROR : BOOL` and `ERROR_ID : UINT`. The frame data is `ARRAY[0..7] OF BYTE`, passed as an in-out pin.
 
 ### `CAN_SEND`: one frame
 

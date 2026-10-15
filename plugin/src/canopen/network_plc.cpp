@@ -87,7 +87,7 @@ void Network::ServiceProgram(clock::time_point now) {
   // NMT requests first: their own slots, so queued SDO transfers never delay them.
   ServiceNmtProgram();
   if (uint32_t v = api.take_unknown_version())
-    log_warn("the PLC program's CANopen library asks for CANopen block API version %u, this plugin offers version %u; "
+    log_warn("the PLC program's canworks library asks for CANopen block API version %u, this plugin offers version %u; "
              "update the plugin (install-stock.sh) or use the library that comes with it",
              v, CANOPEN_PLC_API_VERSION);
   api.expire(now);
@@ -297,7 +297,7 @@ constexpr uint8_t kMasterStopped = 4;
 void Network::ServiceNmtProgram() {
   PlcRequests& api = PlcRequests::instance();
   if (uint32_t v = api.take_unknown_nmt_version())
-    log_warn("the PLC program's CANopen library asks for NMT block API version %u, this plugin offers version %u; "
+    log_warn("the PLC program's canworks library asks for NMT block API version %u, this plugin offers version %u; "
              "the program's library needs a newer plugin (install-stock.sh), or use the library that comes with it",
              v, CANOPEN_PLC_NMT_API_VERSION);
   nmt_taken_.clear();

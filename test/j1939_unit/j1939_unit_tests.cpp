@@ -27,6 +27,7 @@
 #include "j1939_network.h"
 #include "j1939_plc_api.h"
 #include "j1939_plc_jobs.h"
+#include "j1939_plc_msgs.h"
 #include "j1939_signal.h"
 #include "j1939_socket.h"
 
@@ -1382,8 +1383,10 @@ TEST(j1939_dm_jobs) {
 TEST(j1939_dm_plc_jobs) {
   Rig r(dm_config(false));
   J1939PlcJobs& jobs = J1939PlcJobs::instance();
-  const auto* api = static_cast<const canworks_j1939_api_v1*>(canworks_j1939_api_table(CANWORKS_J1939_API_VERSION));
-  CHECK(api && api->size == sizeof(canworks_j1939_api_v1) && !canworks_j1939_api_table(2));
+  const auto* api = static_cast<const canworks_j1939_api_v1*>(canworks_j1939_api_table(1));
+  CHECK(api && api->size == sizeof(canworks_j1939_api_v1) && canworks_j1939_api_table(2) &&
+        !canworks_j1939_api_table(3));
+  J1939PlcMsgs::instance().take_unknown_version();
   uint16_t err = 0;
   // Not running yet.
   CHECK(!api->dm_read_start(0, 0, 0, 0, &err) && err == CANWORKS_J1939_ERR_NOT_RUNNING);

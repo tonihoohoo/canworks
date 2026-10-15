@@ -6932,7 +6932,7 @@ async function newEditorProject() {
   const [nl, name] = field("Project name (its folder)", "", "Project name");
   const [il, interval] = field("Task interval", "T#20ms", "Task interval");
   const blocks = el("input", { type: "checkbox", "aria-label": "Enable the canworks function blocks", dataset: { newProject: "blocks" } });
-  const sl = el("label", { class: "inline", title: "Enables the canworks library (CO_SDO_READ, CO_SDO_WRITE, CAN_SEND, CAN_RECEIVE, ...) in the project and installs it into the editor" },
+  const sl = el("label", { class: "inline", title: "Enables the canworks function block library (CANopen, CiA 402, CAN and J1939 blocks) in the project and installs it into the editor" },
     blocks, " Enable the canworks function blocks");
   const form = el("div", { class: "new-project" }, pl, nl, il, sl,
     el("p", { class: "hint" }, "The program main declares every CANopen location once. Later config changes do not " +

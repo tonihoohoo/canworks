@@ -38,7 +38,8 @@ Uploads nothing.
 creates an OpenPLC Editor project in <dir> with openplc-cli create: target
 OpenPLC Runtime v4, the config in its canworks/ folder, and a program main
 declaring every CANopen location. Uploads nothing. With --blocks the
-project also enables the canworks library (the CO_SDO_* and CAN_* blocks).
+project also enables the canworks function block library (CANopen, CiA 402,
+CAN and J1939 blocks).
 
   canworks-deploy --config canworks.json --export-codesys <dir> [--codesys-net NAME=N]
   canworks-deploy --config canworks.json --codesys-import <project.project> [--codesys-new TYPE:ID:VERSION]
@@ -56,9 +57,10 @@ simulates the network or any node is uploaded only after a confirmation,
 
   canworks-deploy library [--out DIR] [--install] [--project DIR]
 
-writes the canworks editor library (SDO function blocks for the PLC
-program) as canworks.stlib into DIR, installs it into OpenPLC Editor
-on this computer, and/or enables it in an editor project. See docs/plc-sdo.md.
+writes the canworks function block library for the PLC program (CANopen,
+CiA 402, CAN and J1939 blocks) as canworks.stlib into DIR, installs it
+into OpenPLC Editor on this computer, and/or enables it in an editor
+project. See docs/plc-library.md.
 
   canworks-deploy slave-eds slave.json -o canworks/openplc-slave.eds [--gateway canworks.json [--update-config]]
 
@@ -87,7 +89,7 @@ import tempfile
 import time
 
 from . import (__version__, bridgecheck, bundle, clash, contract, dbcexport, dcfexport, diag, docexport,
-               editorproject, localruntime, modbusmap, notes, project, runtime, sdolibrary, simfile, slaveeds)
+               editorproject, localruntime, modbusmap, notes, project, runtime, plclibrary, simfile, slaveeds)
 
 EDITOR_WARNING = (
     "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canworks.json, so the "
@@ -150,8 +152,8 @@ def parser():
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
                           "and declares its I/O in the program main")
     p.add_argument("--blocks", action="store_true",
-                   help="with --new-project: enable the canworks library (SDO and CAN frame function "
-                        "blocks for the program) in the project, and install it into the editor if it is missing or older")
+                   help="with --new-project: enable the canworks function block library (CANopen, CiA 402, "
+                        "CAN and J1939 blocks for the program) in the project, and install it into the editor if it is missing or older")
     p.add_argument("--task-interval", metavar="T#...",
                    help="with --new-project: the task interval (default: %s)" % editorproject.DEFAULT_INTERVAL)
     p.add_argument("--dbc-sdo", choices=dbcexport.SDO_OPTIONS,
@@ -601,9 +603,9 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         out("created %s with %d CANopen variable%s declared in main" % (path, len(decls),
                                                                        "" if len(decls) == 1 else "s"))
         if blocks or editorproject.uses_library(cfg):
-            out("the project enables the %s library (%s)"
-                % (sdolibrary.NAME, "CO_SDO_* and CAN_* blocks" if blocks else "CO402_Cyclic* blocks"))
-            ok, message = sdolibrary.ensure_installed()
+            out("the project enables the %s function block library (CANopen, CiA 402, CAN and J1939 blocks)"
+                % plclibrary.NAME)
+            ok, message = plclibrary.ensure_installed()
             (out if ok else err)(message if ok else "warning: " + message)
         return 0
 
@@ -732,17 +734,17 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
 def library_parser():
     p = argparse.ArgumentParser(
         prog="canworks-deploy library",
-        description="The %s editor library: SDO function blocks (CO_SDO_READ, CO_SDO_WRITE, ...) the PLC program "
-                    "calls to read and write any object of any node at run time. See docs/plc-sdo.md."
-                    % sdolibrary.NAME)
+        description="The %s function block library for the PLC program: CANopen blocks (SDO, EMCY, NMT), the "
+                    "cyclic CiA 402 blocks, CAN frame blocks and J1939 blocks (messages and trouble codes), with "
+                    "their helper functions. See docs/plc-library.md." % plclibrary.NAME)
     p.add_argument("--out", metavar="DIR",
                    help="write %s into DIR, for the editor's Library Manager (install from file)"
-                        % sdolibrary.FILE_NAME)
+                        % plclibrary.FILE_NAME)
     p.add_argument("--install", action="store_true",
                    help="install the library into OpenPLC Editor on this computer, as its Library Manager does "
                         "(restart the editor afterwards)")
     p.add_argument("--project", metavar="DIR", help="enable the library in this editor project")
-    p.add_argument("--list", action="store_true", help="list the library's function blocks")
+    p.add_argument("--list", action="store_true", help="list the library's function blocks and functions")
     return p
 
 
@@ -752,19 +754,19 @@ def run_library(args, out=print, err=None):
         raise Failure("give --out DIR, --install, --project DIR or --list")
     try:
         if args.list:
-            for name in sdolibrary.block_names():
+            for name in plclibrary.block_names() + plclibrary.function_names():
                 out(name)
         if args.out:
-            out("wrote %s (%s %s)" % (sdolibrary.write(args.out), sdolibrary.NAME, __version__))
+            out("wrote %s (%s %s)" % (plclibrary.write(args.out), plclibrary.NAME, __version__))
         if args.install:
             out("installed %s %s into the editor (%s); restart OpenPLC Editor if it is open"
-                % (sdolibrary.NAME, __version__, sdolibrary.install()))
+                % (plclibrary.NAME, __version__, plclibrary.install()))
         if args.project:
-            sdolibrary.enable_in_project(args.project)
-            out("enabled %s in %s" % (sdolibrary.NAME, os.path.abspath(args.project)))
-            if not args.install and sdolibrary.installed_version() is None:
+            plclibrary.enable_in_project(args.project)
+            out("enabled %s in %s" % (plclibrary.NAME, os.path.abspath(args.project)))
+            if not args.install and plclibrary.installed_version() is None:
                 err("note: the editor does not have the library yet: run 'canworks-deploy library --install'")
-    except (sdolibrary.LibraryError, OSError, ValueError) as e:
+    except (plclibrary.LibraryError, OSError, ValueError) as e:
         raise Failure(str(e))
     return 0
 

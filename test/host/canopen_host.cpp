@@ -41,7 +41,13 @@
 // address %IB201 went 128 then 129 (moved within the range, claimed at the
 // end), the Pressures status bit
 // %IX202.0 was TRUE while Pressure %IW210 changed and is FALSE at the end
-// (timed out), and ComponentInfo brought Starts %IW212 = 42.
+// (timed out), and ComponentInfo brought Starts %IW212 = 42. The message
+// blocks' table (canworks_j1939_api version 2) is used as a program's blocks
+// would, from the first claim on: a receiver for ComponentInfo from 0, one
+// for Extra (PGN 65310, which no config entry receives), a 40-byte send to
+// 0 (PGN 0xD000, RTS/CTS), a 20-byte broadcast (PGN 65300, BAM), a request
+// for ComponentInfo to 0, the ECU info and a search; each must succeed
+// (run.sh checks what the simulator received).
 
 #include <dlfcn.h>
 #include <signal.h>
@@ -54,8 +60,10 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "fake_runtime.hpp"
+#include "j1939/j1939_plc_api.h"
 
 namespace {
 
@@ -81,6 +89,128 @@ F sym(void* h, const char* name) {
   }
   return f;
 }
+
+// The j1939 program's use of the message blocks: one step after another,
+// each polled once per scan as a block would.
+struct ProgramBlocks {
+  const canworks_j1939_api_v2* api = nullptr;
+  bool started = false, checked_ecu = false;
+  std::chrono::steady_clock::time_point t0, start;
+  uint32_t rx = 0, rx_extra = 0, send = 0, request = 0;
+  int sends_done = 0;  // 1: the long send, 2: the broadcast
+  bool received = false, extra = false, answered = false, ecu_ok = false, found = false;
+  std::string notes;  // what happened, in order
+
+  void note(const std::string& what) {
+    const long ms = (long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
+                        .count();
+    std::printf("t=%5ldms  program blocks: %s\n", ms, what.c_str());
+    std::fflush(stdout);
+    notes += (notes.empty() ? "" : "; ") + what;
+  }
+  void fail(const char* what, uint16_t err) { note(std::string(what) + " error " + std::to_string(err)); }
+
+  static std::vector<uint8_t> payload(int which) {
+    std::vector<uint8_t> d(which == 1 ? 40 : 20);
+    for (size_t i = 0; i < d.size(); ++i) d[i] = static_cast<uint8_t>(which == 1 ? i * 3 + 1 : 0xA0 + i);
+    return d;
+  }
+  void start_send(int which) {
+    uint16_t err = 0;
+    const std::vector<uint8_t> d = payload(which);
+    send = api->send_start(0, which == 1 ? 0xD000 : 65300, which == 1 ? 0 : 255, 6, d.data(),
+                           static_cast<uint16_t>(d.size()), 0, &err);
+    if (!send) fail(which == 1 ? "send 0xD000 to 0" : "broadcast 65300", err);
+  }
+
+  void scan(bool claimed) {
+    using clock = std::chrono::steady_clock;
+    uint16_t err = 0;
+    if (!started) {
+      if (!claimed) return;
+      started = true;
+      start = clock::now();
+      rx = api->rx_open(0, 65282, 0, 0, 0, &err);
+      if (!rx) fail("receiver for 65282", err);
+      rx_extra = api->rx_open(0, 65310, 255, 0, 0, &err);
+      if (!rx_extra) fail("receiver for 65310", err);
+      start_send(1);
+      return;
+    }
+    static canworks_j1939_msg msg;  // 1.8 kB: not on the stack of every scan
+    if (rx) {
+      canworks_j1939_rx_info info;
+      const int r = api->rx_read(rx, &msg, &info);
+      if (r == 1 && !received && msg.source == 0 && msg.length == 40 && msg.data[4] == 42 && msg.data[5] == 0) {
+        received = true;
+        note("received ComponentInfo from 0 (40 bytes, Starts=42)");
+      } else if (r < 0) {
+        fail("receiver read", static_cast<uint16_t>(-r));
+        rx = 0;
+      }
+    }
+    if (rx_extra) {
+      canworks_j1939_rx_info info;
+      const int r = api->rx_read(rx_extra, &msg, &info);
+      if (r == 1 && !extra && msg.source == 0 && msg.length == 8) {
+        extra = true;
+        note("received Extra (PGN 65310) from 0, no config entry for it");
+      } else if (r < 0) {
+        fail("receiver 65310 read", static_cast<uint16_t>(-r));
+        rx_extra = 0;
+      }
+    }
+    if (send) {
+      const int r = api->send_poll(send, &err);
+      if (r != 0) {
+        send = 0;
+        if (r == 2) {
+          fail(sends_done == 0 ? "send 0xD000 to 0" : "broadcast 65300", err);
+        } else {
+          note(sends_done == 0 ? "sent 40 bytes of PGN 0xD000 to 0" : "broadcast 20 bytes of PGN 65300");
+          if (++sends_done == 1) start_send(2);
+        }
+        if (sends_done == 2 || r == 2) {
+          request = api->request_start(0, 65282, 0, 0, &err);
+          if (!request) fail("request 65282 from 0", err);
+        }
+      }
+    }
+    if (request) {
+      const int r = api->request_poll(request, &msg, &err);
+      if (r == 1) {
+        answered = msg.source == 0 && msg.length == 40 && msg.data[4] == 42;
+        note(std::string("request for 65282 answered by ") + std::to_string(msg.source) + " with " +
+             std::to_string(msg.length) + " bytes");
+        request = 0;
+      } else if (r == 2) {
+        fail("request 65282 from 0", err);
+        request = 0;
+      }
+    }
+    // The ECU snapshot is published every 100 ms: read it a little later.
+    if (!checked_ecu && clock::now() - start >= std::chrono::milliseconds(500)) {
+      checked_ecu = true;
+      canworks_j1939_ecu_info info;
+      if (api->ecu_info(0, &info, &err) == 0) {
+        ecu_ok = info.state == 1 && info.address == 128 && info.ecu_count >= 1 && info.name != 0;
+        note("ECU info: state " + std::to_string(info.state) + ", address " + std::to_string(info.address) + ", " +
+             std::to_string(info.ecu_count) + " other ECU(s)");
+      } else {
+        fail("ECU info", err);
+      }
+      canworks_j1939_ecu_found f;
+      if (api->find_ecu(0, 0, 0, &f, &err) == 0) {
+        found = f.found && f.address == 0 && f.count >= 1;
+        note("find ECU (mask 0): found " + std::to_string(f.found) + ", address " + std::to_string(f.address) + ", " +
+             std::to_string(f.count) + " match(es)");
+      } else {
+        fail("find ECU", err);
+      }
+    }
+  }
+  bool ok() const { return received && extra && sends_done == 2 && answered && ecu_ok && found; }
+};
 
 }  // namespace
 
@@ -129,6 +259,15 @@ int main(int argc, char** argv) {
   auto cleanup = sym<void (*)()>(h, "cleanup");
   auto cycle_start = sym<void (*)()>(h, "cycle_start");
   auto cycle_end = sym<void (*)()>(h, "cycle_end");
+  ProgramBlocks blocks;
+  if (j1939) {
+    auto api = sym<const void* (*)(uint32_t)>(h, "canworks_j1939_api");
+    blocks.api = static_cast<const canworks_j1939_api_v2*>(api(2));
+    if (!blocks.api) {
+      std::fprintf(stderr, "canopen_host: the plugin offers no J1939 block table version 2\n");
+      return 2;
+    }
+  }
 
   std::unique_ptr<fake_runtime::Image> img(new fake_runtime::Image);
   std::unique_ptr<plugin_runtime_args_t> rt(new plugin_runtime_args_t);
@@ -154,6 +293,7 @@ int main(int argc, char** argv) {
 
   using clock = std::chrono::steady_clock;
   const auto t0 = clock::now();
+  blocks.t0 = t0;
   auto next = t0;
   auto next_print = t0 + std::chrono::seconds(1);
   const auto half = t0 + std::chrono::milliseconds(seconds * 500);
@@ -207,6 +347,7 @@ int main(int argc, char** argv) {
         pressure_moved = pressure_moved || img->int_in[210] != first_pressure;
       }
       starts_seen = starts_seen || (img->bool_in[202][3] && img->int_in[212] == 42);
+      blocks.scan(last_claim == 1);
     }
     if (!have_mid && clock::now() >= half) {
       mid = img->dint_in[100];
@@ -266,11 +407,13 @@ int main(int argc, char** argv) {
     const bool reclaimed = c != std::string::npos && last_claim == 1;
     // Lost 128 to the lower NAME, then claimed 129.
     const bool moved = (" " + addresses + " ").find(" 128 ") != std::string::npos && address_at_end == 129;
-    const bool ok = reclaimed && moved && pressures_seen && pressure_moved && !pressures_at_end && starts_seen;
-    std::printf("%s: claim states %s, addresses %s (%u at the end), Pressures %s and %s, %s at the end, Starts=42 %s\n",
+    const bool ok =
+        reclaimed && moved && pressures_seen && pressure_moved && !pressures_at_end && starts_seen && blocks.ok();
+    std::printf("%s: claim states %s, addresses %s (%u at the end), Pressures %s and %s, %s at the end, Starts=42 %s, "
+                "program blocks %s (%s)\n",
                 ok ? "PASS" : "FAIL", claim_states.c_str(), addresses.c_str(), address_at_end, pressures_seen ? "seen" : "not seen",
                 pressure_moved ? "changed" : "did not change", pressures_at_end ? "still TRUE" : "timed out",
-                starts_seen ? "seen" : "not seen");
+                starts_seen ? "seen" : "not seen", blocks.ok() ? "ok" : "FAILED", blocks.notes.c_str());
     return ok ? 0 : 1;
   }
   if (bus) {

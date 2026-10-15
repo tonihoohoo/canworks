@@ -160,7 +160,7 @@ PLUGIN_API void cycle_end(void) {
   g_engine->cycle_end(g_rt);
 }
 
-// The SDO function blocks of the PLC program's CANopen library find this with
+// The CANopen blocks of the PLC program's canworks library find this with
 // dlopen("libcanworks_plugin.so", RTLD_NOLOAD) + dlsym (spec canopen-plc-sdo).
 // Without CANopen built in there is no table; the blocks report that.
 PLUGIN_API const void* canopen_plc_api(uint32_t version) {
@@ -188,9 +188,10 @@ PLUGIN_API const void* canopen_plc_nmt_api(uint32_t version) {
 // (spec can-plc-frames, can_plc_api.h).
 PLUGIN_API const void* canworks_can_api(uint32_t version) { return canworks_can_api_table(version); }
 
-// The PLC program's J1939_DM_* trouble code blocks find this the same way
-// (spec j1939-plc-diagnostics, j1939/j1939_plc_api.h). Without J1939 built
-// in there is no table; the blocks report error 1.
+// The PLC program's J1939 blocks (trouble codes and messages) find this the
+// same way (specs j1939-plc-diagnostics and j1939-plc-blocks,
+// j1939/j1939_plc_api.h). Without J1939 built in there is no table; the
+// blocks report error 1.
 PLUGIN_API const void* canworks_j1939_api(uint32_t version) {
 #if CANWORKS_WITH_J1939
   return canworks_j1939_api_table(version);

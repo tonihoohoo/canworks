@@ -1,6 +1,6 @@
 # NMT from the PLC program: start, stop and command the network
 
-The `canworks` library (the same one as the [SDO blocks](plc-sdo.md)) gives the PLC program four function blocks for the NMT side of CANopen: command any node or every node, start and stop the network, and read the NMT state the master sees. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network; only CANopen master networks can be used.
+The [`canworks` function block library](plc-library.md) gives the PLC program four function blocks for the NMT side of CANopen: command any node or every node, start and stop the network, and read the NMT state the master sees. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network; only CANopen master networks can be used.
 
 | Block | Inputs (besides `EXECUTE`, `NETWORK`) | Outputs (besides `BUSY`, `DONE`, `ERROR`, `ERROR_ID`) | For |
 |---|---|---|---|
@@ -9,7 +9,7 @@ The `canworks` library (the same one as the [SDO blocks](plc-sdo.md)) gives the 
 | `CO_NETWORK_STOP` | `NODE_COMMAND : USINT` | | stop the PDO exchange: master pre-operational, nodes as `NODE_COMMAND` says |
 | `CO_GET_STATE` | `NODE : USINT` (0 the master only) | `STATE`, `MASTER_STATE`, `HELD`, `BOOT_ERROR : USINT`, `CONFIGURED`, `STARTED : BOOL` | the NMT state of a node and of the master |
 
-Install and enable the library as [plc-sdo.md](plc-sdo.md#install-the-library-once) describes. The blocks need a canworks plugin from the same release or later; an older plugin has no NMT entry point, so the NMT blocks end with `ERROR_ID` 4 while the SDO blocks keep working.
+Install and enable the library as [plc-library.md](plc-library.md#install-and-enable) describes. The blocks need a canworks plugin from the same release or later; an older plugin has no NMT entry point, so the NMT blocks end with `ERROR_ID` 4 while the SDO blocks keep working.
 
 The node's `nmt_command_location` byte ([config.md](config.md#nmt-commands-from-the-program)) stays: it needs no code, but it is fixed in the config, one byte per configured node. The blocks pick the node at run time, reach nodes the config does not list and every node at once, and start and stop the master itself.
 
