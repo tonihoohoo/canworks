@@ -155,6 +155,10 @@ function renderTrace(view) {
   }
   if (traceJ1939() && T.tab === "sequences") T.tab = "frames";
   T.net = net;
+  // The Nodes tab's EDS files changed since the trace decoded with them: decode again.
+  const eds = JSON.stringify(commissionEds() || {});
+  if (T.edsSent !== undefined && T.edsSent !== eds) setTimeout(decodingRefresh);
+  T.edsSent = eds;
   const fileInput = el("input", { type: "file", accept: ".pcapng,.pcap,.log,.asc", dataset: { trace: "open-input" } });
   fileInput.addEventListener("change", () => {
     const f = fileInput.files[0];
@@ -176,7 +180,7 @@ function renderTrace(view) {
       el("button", { type: "button", class: "primary", dataset: { trace: "start-stop" }, onclick: traceStartStop }, "Start"),
       el("button", { type: "button", dataset: { trace: "clear" }, onclick: traceClear }, "Clear"),
       el("label", { class: "file-button", title: "Open a pcapng, candump log or Vector ASC file" }, "Open…", fileInput),
-      saveMenu(), captureSettings(), timeMode, netPicker()),
+      saveMenu(), captureSettings(), decodingMenu(), timeMode, netPicker()),
     el("div", { id: "trace-stats", class: "trace-stats", dataset: { trace: "stats" } }),
     el("div", { class: "trace-tabrow" },
       tabs(tabList, T.tab, (v) => traceShowTab(v), { class: "segmented trace-tabs", tab: "", dataset: "traceTab", panel: "trace-tab", label: "Trace views" }),
@@ -373,10 +377,11 @@ function showTraceHeader(st) {
   if (!rec.running && !onlineReady()) {
     const commission = !!(S.state && S.state.commission);
     parts.push(el("div", { class: "online-note", dataset: { trace: "online-hint" } },
-      commission ? "Recording needs the USB adapter connection. " : diagConfig() ? "Recording needs the connection to the runtime. "
+      connSimOn() ? "Recording needs a connection to the runtime; the connection bar is connected to a standalone simulator. "
+        : commission ? "Recording needs the USB adapter connection: connect with Connect… in the connection bar above. "
+        : diagConfig() ? "Recording needs the connection to the runtime: connect with Connect… in the connection bar above. "
         : "Recording needs online access: turn it on in Configure → Online access, save and upload. ",
-      commission || diagConfig() ? el("button", { type: "button", class: "small primary", dataset: { trace: "open-connect" }, onclick: () => openConnect() }, "Connect…") : null,
-      " Opening, viewing and exporting trace files works without it."));
+      "Opening, viewing and exporting trace files works without it."));
   }
   for (const w of st.warnings || []) parts.push(el("div", { class: "online-note warning", dataset: { trace: "warning" } }, humanise(w)));
   const trimmed = rec.trimmed || 0;
@@ -770,7 +775,7 @@ function drawRows(r) {
       el("span", null, timeText(x.t_us)), el("span", null, x.gap ? "" : x.dir),
       el("span", null, x.gap ? "" : x.err ? "ERR" : x.id + (x.rtr ? " R" : "")),
       el("span", null, x.gap || x.err ? "" : String(x.dlc)), el("span", { class: "mono" }, x.data),
-      el("span", { title: x.name }, x.name), el("span", { title: x.text }, x.text));
+      el("span", { title: x.name }, x.name, assumedTag(x.source)), el("span", { title: x.text }, x.text));
   }));
   if (shown.length && w.first >= r.offset) rows.firstChild.style.setProperty("margin-top", -w.shift + "px");
   if (!r.rows.length) rows.append(el("div", { class: "muted trace-empty" }, T.st && T.st.frames ? "No frames match the display filter." : "No frames yet. Press Start, or open a trace file."));
@@ -1225,4 +1230,235 @@ function sendFrameText(f) {
   if (f.rtr) return `${id} remote [${f.dlc || 0}]`;
   const data = (f.data || "").trim().toUpperCase();
   return `${id} [${data ? data.split(/\s+/).length : 0}] ${data}`.trim();
+}
+
+// -- Decoding: DBC files and the nodes' PDO layouts (canopen-configurator:
+// "Decoding panel in the Trace view", "PDO layout in the frame inspector",
+// "Automatic PDO layout reads in Commission a device") --------------------------
+
+const ASSUMED_TIP = "Decoded with the EDS defaults: the device may be mapped differently. " +
+  "Read PDOs from device under Decoding makes it certain.";
+const LAYOUT_SOURCE = { configuration: "configuration", bus: "set on the bus", device: "read from the device",
+  eds: "EDS defaults (assumed)" };
+
+function assumedTag(source) {
+  return source === "eds" ? el("span", { class: "tag warn-tag", title: ASSUMED_TIP, dataset: { trace: "assumed" } }, "assumed") : null;
+}
+
+function decodingBody(extra) {
+  return Object.assign({ eds: commissionEds() || undefined }, extra || {});
+}
+
+function decodingSummary(v) {
+  if (!v) return "Decoding";
+  const files = v.dbc.length;
+  const known = v.nodes.filter((n) => n.source).length;
+  const parts = [files ? `${files} DBC` : "", known ? `${known} node${known === 1 ? "" : "s"}` : ""].filter(Boolean);
+  return parts.length ? `Decoding · ${parts.join(", ")}` : "Decoding";
+}
+
+function decodingWarn(v) {
+  return !!(v && v.dbc.some((d) => d.missing || d.error || (d.problems && d.problems.length)));
+}
+
+// The toolbar's Decoding ▾ (between Capture and the time mode).
+function decodingMenu() {
+  const panel = el("div", { class: "menu-panel trace-decoding", dataset: { trace: "decoding-panel" } },
+    el("p", { class: "muted" }, "Loading…"));
+  const summary = el("summary", { "aria-haspopup": "true", id: "trace-decoding-summary" }, decodingSummary(T.decoding));
+  const menu = closeOnOutside(el("details", { class: "menu trace-menu", dataset: { trace: "decoding" } }, summary, panel));
+  menu.addEventListener("toggle", () => { if (menu.open) loadDecoding(); });
+  setTimeout(() => updateDecodingSummary(T.decoding));
+  if (!T.decoding) loadDecoding(true);
+  return menu;
+}
+
+function updateDecodingSummary(v) {
+  const s = $("#trace-decoding-summary");
+  if (!s) return;
+  s.replaceChildren(decodingSummary(v), decodingWarn(v) ? el("span", { class: "warn-mark", title: "A DBC file is missing or has problems", "aria-label": "(a DBC file needs attention)" }, " ⚠") : "");
+}
+
+async function loadDecoding(quiet) {
+  try { T.decoding = await api("GET", "/api/trace/decoding"); } catch (e) { if (!quiet) banner(e.message, true); return; }
+  updateDecodingSummary(T.decoding);
+  drawDecoding();
+}
+
+async function decodingAction(body, done) {
+  T.edsSent = JSON.stringify(commissionEds() || {});
+  try {
+    T.decoding = await api("POST", "/api/trace/decoding", decodingBody(body));
+    banner(done || "");
+  } catch (e) { banner(e.message, true); return false; }
+  updateDecodingSummary(T.decoding);
+  drawDecoding();
+  return true;
+}
+
+// After a change of the nodes' EDS files: the trace decodes again.
+function decodingRefresh() {
+  if (S.view === "trace") decodingAction({ action: "refresh" });
+}
+
+async function addDbcFiles(files, replacing) {
+  for (const f of files) {
+    const ok = await decodingAction({ action: "add", name: f.name, data: await readBase64(f) }, `Added ${f.name}.`);
+    if (ok && replacing) { await decodingAction({ action: "remove", path: replacing }); replacing = null; }
+  }
+}
+
+function drawDecoding() {
+  const panel = document.querySelector("[data-trace=decoding-panel]");
+  if (!panel) return;
+  const v = T.decoding;
+  if (!v) return;
+  const add = el("input", { type: "file", accept: ".dbc,.DBC", multiple: true, dataset: { trace: "add-dbc" } });
+  add.addEventListener("change", () => { const files = [...add.files]; add.value = ""; addDbcFiles(files); });
+  const paths = v.dbc.map((d) => d.path);
+  const move = (k, step) => {
+    const order = paths.slice();
+    const [p] = order.splice(k, 1);
+    order.splice(k + step, 0, p);
+    decodingAction({ action: "order", paths: order }).then(() => {
+      const b = document.querySelector(`[data-dbc-row="${k + step}"] [data-trace="${step < 0 ? "dbc-up" : "dbc-down"}"]`);
+      if (b && !b.disabled) b.focus();
+    });
+  };
+  const rows = v.dbc.map((d, k) => {
+    let state;
+    if (d.missing) state = el("span", { class: "bad" }, "missing");
+    else if (d.error) state = el("span", { class: "bad", title: d.error }, "cannot be read");
+    else state = el("span", null, `${d.used} of ${d.total} messages used`);
+    const locate = el("input", { type: "file", accept: ".dbc,.DBC", dataset: { trace: "locate-dbc" } });
+    locate.addEventListener("change", () => { const f = locate.files[0]; locate.value = ""; if (f) addDbcFiles([f], d.path); });
+    const notes = [...(d.problems || []), ...(d.unused || []).map((u) => "Not used: " + u)];
+    return el("li", { class: "dbc-row", dataset: { dbcRow: k } },
+      el("div", { class: "row" },
+        el("strong", { title: d.path }, d.name), state,
+        el("span", { class: "spacer" }),
+        orderButton("↑", `Move ${d.name} up`, "dbc-up", k === 0 ? "Already the first file" : null, () => move(k, -1)),
+        orderButton("↓", `Move ${d.name} down`, "dbc-down", k === v.dbc.length - 1 ? "Already the last file" : null, () => move(k, 1)),
+        d.missing ? el("label", { class: "file-button small" }, "Locate…", locate) : null,
+        el("button", { type: "button", class: "small", "aria-label": `Remove ${d.name}`, dataset: { trace: "dbc-remove" },
+          onclick: () => decodingAction({ action: "remove", path: d.path }, `Removed ${d.name}.`) }, "Remove")),
+      notes.length ? el("details", { class: "dbc-notes" }, el("summary", null, `${notes.length} note${notes.length === 1 ? "" : "s"}`),
+        el("ul", null, notes.map((n) => el("li", null, n)))) : null);
+  });
+  const parts = [
+    el("h3", null, "DBC files"),
+    el("p", { class: "hint" }, "Messages of these files decode their identifiers: the configuration's own PDOs and raw messages first, then the files in this order. NMT, SYNC, EMCY, SDO, heartbeat and LSS keep their CANopen decoding, with the DBC's next to it. Kept on this PC."),
+    rows.length ? el("ul", { class: "dbc-list" }, rows) : el("p", { class: "muted" }, "No DBC file."),
+    el("div", { class: "toolbar" }, el("label", { class: "file-button" }, "Add DBC…", add))];
+  if (v.protocol === "canopen") parts.push(el("h3", null, "Nodes"), decodingNodes(v));
+  panel.replaceChildren(...parts);
+}
+
+function orderButton(text, label, data, why, onclick) {
+  const b = el("button", { type: "button", class: "small", "aria-label": label, title: label, dataset: { trace: data }, onclick }, text);
+  return why ? Icons.disable(b, why) : b;
+}
+
+function decodingNodes(v) {
+  if (!v.nodes.length) return el("p", { class: "muted" }, "No node in the trace yet.");
+  const commission = !!(S.state && S.state.commission);
+  return el("table", { class: "data", dataset: { trace: "decoding-nodes" } },
+    el("thead", null, el("tr", null, thCells(["Node", "Device", "EDS", "PDO layout", ""]))),
+    el("tbody", null, v.nodes.map((n) => {
+      const added = typeof commNodes === "function" ? commNodes()[n.node] || {} : {};
+      const eds = (S.onlineEdsName || {})[n.node] || added.eds_name || (S.onlineEds || {})[n.node];
+      const scanned = ((S.scanResult && S.scanResult.nodes) || []).find((d) => d.node_id === n.node);
+      const source = n.source ? LAYOUT_SOURCE[n.source] + (n.since_us != null && n.since_us >= 0 && v.start_us != null ? ` at ${traceSeconds(n.since_us - v.start_us)}` : "")
+        : "unknown";
+      return el("tr", { dataset: { decodingNode: n.node } },
+        el("td", { class: "num" }, String(n.node)),
+        el("td", null, scanned && scanned.device_name ? scanned.device_name : ""),
+        el("td", null, n.has_eds ? (eds || "yes") : el("span", { class: "muted" }, "none, built-in CiA names")),
+        el("td", null, source, n.pdos.length ? el("div", { class: "muted" }, n.pdos.join(", ")) : null),
+        el("td", null, commission && n.source !== "configuration" ? layoutActions(n.node, n.has_eds) : null));
+    })));
+}
+
+function traceSeconds(us) { return `${(us / 1e6).toFixed(3)} s`; }
+
+// Pick EDS… (or Change EDS…) and Read PDOs from device for a node of Commission a device.
+function layoutActions(node, hasEds) {
+  const input = el("input", { type: "file", accept: ".eds,.EDS", dataset: { trace: "pick-eds" } });
+  input.addEventListener("change", () => { const f = input.files[0]; input.value = ""; if (f) tracePickEds(node, f); });
+  const read = el("button", { type: "button", class: "small", dataset: { trace: "read-pdos" }, onclick: () => readPdoLayout(node, true) }, "Read PDOs from device");
+  if (!S.adapterOn) Icons.disable(read, "Reading needs the USB adapter connection: Connect… in the connection bar");
+  return el("div", { class: "row" }, el("label", { class: "file-button small" }, hasEds ? "Change EDS…" : "Pick EDS…", input), read);
+}
+
+// The node's EDS, as the Nodes table's pick sets it, and the trace decodes again.
+async function tracePickEds(node, file) {
+  let res;
+  try {
+    res = await api("POST", "/api/eds", { name: file.name, data: await readBase64(file), on_conflict: "keep_both", eds_lint: edsLint() });
+  } catch (e) { banner(e.message, true); return; }
+  commNodes()[node] = Object.assign(commNodes()[node] || {}, { eds_path: res.name, eds_name: res.name });
+  S.onlineEds = Object.assign(S.onlineEds || {}, { [node]: res.name });
+  S.onlineEdsName = Object.assign(S.onlineEdsName || {}, { [node]: res.name });
+  await decodingAction({ action: "refresh" }, `Node ${node} decodes with ${res.name}.`);
+}
+
+function otherMaster() {
+  const r = S.onlineLast;
+  return !!(r && ((r.status && r.status.other_master_seen) || (r.conn && r.conn.other_master)));
+}
+
+// One node's PDO objects read from the device; `asked`: pressed by the user.
+async function readPdoLayout(node, asked) {
+  if (asked && otherMaster()) {
+    const v = await modal(`Another master is active on this bus. Its SDO transfers to node ${node} can be mixed with this read, and either side may then take the wrong answer. Read node ${node}'s PDOs anyway?`,
+      [["read", "Read anyway"], ["cancel", "Cancel", true]]);
+    if (v !== "read") return;
+  }
+  PL.done.set(node, "reading");
+  try {
+    const r = await api("POST", "/api/online/pdo_layout", { node, port: diagPort() });
+    PL.done.set(node, "read");
+    if (asked) banner(r.pdos.length ? `Node ${node}: ${r.pdos.map((p) => p.name).join(", ")} read from the device.` : `Node ${node} has no valid PDO.`);
+  } catch (e) {
+    PL.done.set(node, "failed");
+    if (asked) banner(`Node ${node}'s PDOs not read: ${e.message}`, true);
+  }
+  if (S.view === "trace") loadDecoding(true);
+}
+
+// Automatic reads in Commission a device: each heard node once per
+// connection and again after its boot-up, one at a time; never from a STOPPED
+// node, and not while another master is on the bus.
+const PL = { done: new Map(), states: new Map(), busy: false };
+
+function pdoAutoReset() {
+  PL.done.clear();
+  PL.states.clear();
+}
+
+async function pdoAutoRead(r) {
+  if (!(S.state && S.state.commission) || !S.adapterOn || PL.busy || !r || !r.status) return;
+  const nodes = r.status.nodes || [];
+  for (const n of nodes) {
+    const prev = PL.states.get(n.node_id);
+    if (n.state === 0 && prev !== 0 && PL.done.get(n.node_id) !== "reading") PL.done.delete(n.node_id);  // booted again
+    PL.states.set(n.node_id, n.state);
+  }
+  if (otherMaster()) return;
+  const next = nodes.find((n) => n.state !== null && n.state !== undefined && n.state !== 4 && n.state !== 0 && !PL.done.has(n.node_id));
+  if (!next) return;
+  PL.busy = true;
+  try { await readPdoLayout(next.node_id, false); } finally { PL.busy = false; }
+}
+
+// The inspector's Layout line of a PDO frame, with its node's actions.
+function fxLayoutLine(m) {
+  const l = m.layout;
+  if (!l) return null;
+  const commission = !!(S.state && S.state.commission);
+  const since = l.since_us != null && l.since_us >= 0 && T.st && T.st.start_us != null ? ` (at ${traceSeconds(l.since_us - T.st.start_us)})` : "";
+  return el("p", { class: "fx-layout", dataset: { fx: "layout" } },
+    el("strong", null, "Layout: "), l.text.replace(/\.$/, "") + since + ".",
+    l.source === "eds" ? assumedTag("eds") : null,
+    commission && l.node != null && (l.source === null || l.source === "eds") ? layoutActions(l.node, l.source === "eds") : null);
 }

@@ -16,6 +16,14 @@ name: Release PC tools
 # (:<version> and :latest) run only when the release job released (go=true),
 # and an existing :<version> is never overwritten. The image build itself is
 # checked on pull requests by local-runtime.yml (build without push).
+#
+# The notes come from tools/deploy/release-notes.md plus "What's new": each PR
+# merged since the previous release with its "After:" paragraph
+# (scripts/release_notes.py), checked for banned words before anything is
+# published. After a release and its images are out, the prune job keeps the
+# newest 4 deploy-v releases and deletes older ones with their tags; it only
+# lists them until the repository variable RELEASE_PRUNE is "on". "Run
+# workflow" with prune_only runs just that job.
 on:
   push:
     tags: ["deploy-v*"]
@@ -24,6 +32,11 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      prune_only:
+        description: "Only remove old releases (lists them unless RELEASE_PRUNE is on)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -41,7 +54,7 @@ jobs:
     # also arrives as the other workflow's success, and is refused below.
     if: >-
       github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.prune_only) ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
@@ -134,15 +147,15 @@ jobs:
         env:
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
+          BANNED_WORDS: ${{ secrets.BANNED_WORDS }}
         run: |
           previous=$(git tag --list 'deploy-v*' | python3 scripts/release_version.py --previous-tag "$VERSION")
-          notes="Install on Windows, macOS or Linux without Python: see docs/install-pc.md. Download the wheel below, then run: uv tool install --python 3.12 canworks-$VERSION-py3-none-any.whl. canworks.stlib is the SDO function block library for OpenPLC Editor (docs/plc-sdo.md). Local simulator runtime (no hardware needed, docs/local-runtime.md): canworks-sim-runtime start pulls ghcr.io/${{ github.repository_owner }}/canworks-sim-runtime:$VERSION (amd64 and arm64)."
+          python3 scripts/release_notes.py --version "$VERSION" --repo "$GITHUB_REPOSITORY" --sha "$SHA" \
+            ${previous:+--previous "$previous"} --out notes.md
           gh release create "$TAG" dist/*.whl dist/canworks.stlib \
             --target "$SHA" \
             --title "PC tools $VERSION" \
-            --notes "$notes" \
-            --generate-notes \
-            ${previous:+--notes-start-tag "$previous"}
+            --notes-file notes.md
 
   image:
     needs: release
@@ -240,3 +253,46 @@ jobs:
           docker buildx imagetools create -t "$repo:$VERSION" -t "$repo:latest" \
             "$repo@$amd64" "$repo@$arm64"
           docker buildx imagetools inspect "$repo:$VERSION"
+
+  prune:
+    # After a complete release (wheel and both images), or alone from "Run
+    # workflow" with prune_only. A failed release or image job deletes nothing.
+    needs: [release, manifest]
+    if: >-
+      always() &&
+      ((needs.release.outputs.go == 'true' && needs.manifest.result == 'success') ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.prune_only))
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PRUNE: ${{ vars.RELEASE_PRUNE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - name: Releases and tags the retention rule removes
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
+            --jq '.[] | select(.draft | not) | .tag_name' > releases.txt
+          gh api "repos/$GITHUB_REPOSITORY/tags?per_page=100" --paginate --jq '.[].name' > tags.txt
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+          python3 scripts/release_version.py --prune releases.txt tags.txt \
+            | { if [ -n "$latest" ]; then grep -vx "release $latest" || true; else cat; fi; } > prune.txt
+          {
+            if [ "$PRUNE" = on ]; then echo "### Removing old releases"; else
+              echo "### Old releases (not removed: set the repository variable RELEASE_PRUNE to on)"; fi
+            echo "Kept: newest 4 deploy-v releases. $(grep -c '^release ' prune.txt || true) releases with their tags and $(grep -c '^tag ' prune.txt || true) tags without a release:"
+            sed 's/^/- /' prune.txt
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete them
+        if: env.PRUNE == 'on'
+        run: |
+          while read -r kind tag; do
+            case "$kind" in
+              release) gh release delete "$tag" --cleanup-tag --yes -R "$GITHUB_REPOSITORY" ;;
+              tag) gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" ;;
+            esac
+            echo "deleted $kind $tag"
+          done < prune.txt

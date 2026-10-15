@@ -266,8 +266,8 @@ class Live(View):
     def test_values_slider_override_and_release(self):
         pg = self.page
         self.sim_view()
-        self.assertIn("Connected to %s: real network can0, 1 simulated device, changes allowed." % self.fake.address,
-                      pg.inner_text("#sim-conn"))
+        # The bar says what is connected; the view only what is particular to simulation.
+        self.assertEqual(pg.inner_text("#sim-conn"), "Real network can0, 1 simulated device, changes allowed.")
         self.assertTrue(pg.is_hidden('[data-sim="readonly"]'))
         # No machine file in this network's section: no Machine tab.
         self.assertEqual(pg.eval_on_selector_all("button[data-sim-tab]", "els => els.map(e => e.dataset.simTab)"),
@@ -417,16 +417,26 @@ class Live(View):
         with FakeSim(token="", standalone=True, simulated_network=True) as other:
             self.open()
             pg.click('button[data-view="simulation"]')
-            pg.click('button[data-sim-target="simulator"]')
-            pg.fill('input[data-sim="address"]', other.address)
-            pg.click('button[data-sim="connect"]')
-            pg.wait_for_selector("#sim-conn:has-text('Connected to the simulator at %s: simulated network')"
-                                 % other.address)
+            # The runtime connection opens by itself; Disconnect, then the standalone
+            # simulator is a target of the connect panel, connected from the bar.
+            pg.click('#conn-bar [data-conn="disconnect"]')
+            pg.wait_for_selector('#view [data-sim="not-connected"]')
+            self.assertEqual(pg.locator('#view button:has-text("Connect")').count(), 0)
+            pg.click('#conn-bar [data-conn="connect"]')
+            pg.click('#conn-dialog button[data-conn-target="simulator"]')
+            pg.fill('#conn-dialog input[data-sim="address"]', other.address)
+            pg.click('#conn-dialog button[data-online="connect"]')
+            pg.wait_for_selector('#conn-bar [data-conn="target"]:has-text("Standalone simulator %s")' % other.address)
+            pg.wait_for_selector("#sim-conn:has-text('Simulated network')")
             pg.wait_for_selector(self.row("0x7130:1"))
             self.assertTrue(other.sent("sim_status"))
         projects = load(os.path.join(self.cfg_dir, "online.json"))["projects"][self.project]
         self.assertEqual((projects["sim_target"], projects["sim_address"]), ("simulator", other.address))
         self.assertNotIn("sim", json.dumps(load(self.config_path)["master"]))
+        # Disconnect in the bar ends it; the Nodes table then says it needs a connection.
+        pg.click('#conn-bar [data-conn="disconnect"]')
+        pg.wait_for_selector('#conn-bar [data-conn="connect"]')
+        self.assertEqual(pg.locator('#view [data-sim="not-connected"]').count(), 1)
 
 
 class Networks(View):

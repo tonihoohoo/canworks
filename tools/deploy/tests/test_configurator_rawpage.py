@@ -99,3 +99,72 @@ class DbcImport(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(cantools is None, "needs cantools")
+class DbcFile(unittest.TestCase):
+    """The CAN messages page's DBC file: uploaded with the draft, written to
+    the config folder on save when `raw.dbc` names it."""
+
+    def setUp(self):
+        import base64
+        import os
+        import tempfile
+        from canworks.configurator import server
+        self.server = server
+        self.b64 = lambda text: base64.b64encode(text.encode()).decode()
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, self.dir, True)
+        self.s = server.Session()
+        self.addCleanup(self.s.close)
+        self.s.open(self.dir, "standalone", new=True)
+        self.path = lambda name: os.path.join(self.s.canopen_dir, name)
+
+    def save(self, cfg):
+        cfg["networks"][0]["adapter"]["bitrate"] = 250000
+        return self.s.save(cfg)
+
+    def upload(self, name, text, on_conflict=None):
+        import base64
+        return self.s.import_dbc(name, base64.b64decode(self.b64(text)), on_conflict, kind="raw")
+
+    def test_upload_lists_and_save_writes_the_file(self):
+        import os
+        res = self.upload("status.dbc", MUX_DBC)
+        self.assertEqual([m["name"] for m in res["messages"]], ["Status", "Twin"])
+        self.assertEqual(res["problems"], [])
+        self.assertIn("status.dbc", self.s.dbc_files())
+        # Read back by name (Pick messages…), then the entries.
+        self.assertEqual(len(self.s.import_dbc("status.dbc", kind="raw")["messages"]), 2)
+        cfg = config(rx=[])
+        r = self.s.raw_page("dbc_import", {"config": cfg, "network": 0, "name": "status.dbc", "picks": {"Status": "receive"}})
+        cfg["networks"][0]["raw"] = {"rx": r["rx"], "dbc": "status.dbc"}
+        self.save(cfg)
+        self.assertTrue(os.path.isfile(self.path("status.dbc")))
+        self.assertNotIn("status.dbc", self.s.pending_dbc)
+
+    def test_an_unnamed_file_is_not_written(self):
+        import os
+        self.upload("status.dbc", MUX_DBC)
+        self.save(config(rx=[]))
+        self.assertFalse(os.path.isfile(self.path("status.dbc")))
+
+    def test_same_name_different_file(self):
+        self.upload("status.dbc", MUX_DBC)
+        other = MUX_DBC.replace("Twin", "Pair")
+        with self.assertRaises(self.server.ApiError) as cm:
+            self.upload("status.dbc", other)
+        self.assertEqual(cm.exception.status, 409)
+        self.assertEqual(self.upload("status.dbc", other, "keep_both")["name"], "status-2.dbc")
+        self.assertEqual([m["name"] for m in self.upload("status.dbc", other, "replace")["messages"]], ["Status", "Pair"])
+
+    def test_missing_and_bad_files(self):
+        with self.assertRaises(self.server.ApiError) as cm:
+            self.s.import_dbc("gone.dbc", kind="raw")
+        self.assertEqual(cm.exception.status, 404)
+        with self.assertRaises(self.server.ApiError) as cm:
+            self.upload("empty.dbc", 'VERSION ""\n\nNS_ :\n\nBS_:\n\nBU_:\n')
+        self.assertEqual(cm.exception.status, 422)
+        with self.assertRaises(self.server.ApiError) as cm:
+            self.s.raw_page("dbc_import", {"config": config(rx=[]), "name": "gone.dbc", "picks": {}})
+        self.assertEqual(cm.exception.status, 404)

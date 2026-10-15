@@ -363,7 +363,7 @@ async function renderSimulation(view) {
   const seq = SIM.seq;
   if (!SIM.settings) await loadSimSettings();
   if (seq !== SIM.seq || S.view !== "simulation") return;
-  if (SIM.settings.target !== "simulator") connEnsure();
+  if (!S.simOn) connEnsure();
   // The Machine tab shows only when the shown network's section names a
   // machine file; another network falls back to Live values.
   const pages = [["live", "Live values"], ["file", "Simulation file"], ["scenarios", "Scenarios"]];
@@ -373,23 +373,22 @@ async function renderSimulation(view) {
     (k) => { SIM.tab = k; SIM.rowKeys = ""; SIM.scenSig = ""; clearErrorBanner(); render(); }, { dataset: "simTab", panel: "sim-body", label: "Simulation pages" });
   view.append(
     el("div", { class: "toolbar" }, el("h2", null, "Simulation"), el("div", { class: "spacer" }), simSaveBar()),
-    simConnectBox(),
-    el("div", { id: "sim-conn", class: "online-conn" }, "Not connected."),
+    // Only what is particular to simulation; the connection bar says what is connected.
+    el("div", { id: "sim-conn", class: "online-conn", hidden: true, "aria-live": "polite" }),
     el("p", { id: "sim-readonly", class: "field-msg warning", hidden: true, dataset: { sim: "readonly" } }),
     tabList,
     el("div", { id: "sim-body", role: "tabpanel", "aria-labelledby": "sim-body-tab-" + SIM.tab }));
   simRenderTab();
   if (simCanConnect()) {
     SIM.open = true;
-    $("#sim-conn").textContent = "Connecting…";
     simPoll(SIM.seq);
   }
 }
 
-// The Runtime target uses the connection in the connection bar
-// (connection.js); the standalone simulator has its own address.
+// The simulated devices of the connection in the connection bar
+// (connection.js): the runtime's, or the standalone simulator's.
 function simCanConnect() {
-  if (SIM.settings.target === "simulator") return true;
+  if (S.simOn) return true;
   return connEnsure();
 }
 
@@ -420,55 +419,6 @@ function simSaveAllowed(btn) {
   btn.title = errors ? `${errors} error${errors === 1 ? "" : "s"} in the simulation file` : "";
 }
 
-function simConnectBox() {
-  const target = SIM.settings.target;
-  const choose = async (t) => {
-    try { SIM.settings = await api("POST", "/api/sim/settings", { target: t }); } catch (e) { banner(e.message, true); return; }
-    SIM.last = null;
-    render();
-  };
-  const seg = el("div", { class: "segmented", role: "group", "aria-label": "Connect to" },
-    [["runtime", "Runtime"], ["simulator", "Standalone simulator"]].map(([k, label]) =>
-      el("button", { type: "button", "aria-pressed": String(k === target), dataset: { simTarget: k }, onclick: () => choose(k) }, label)));
-  const box = el("fieldset", { dataset: { sim: "connect" } }, el("legend", null, "Connect to"), el("div", { class: "toolbar" }, seg));
-  if (target === "runtime") {
-    if (!diagConfig()) {
-      box.append(el("p", null, "Online access is off for this config. Turn it on in Configure → ",
-        el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
-        " (simulating a node or the network does this), save, and upload the program to the runtime."));
-    } else if (!connIsOn() && !connReady()) {
-      box.append(el("p", { dataset: { sim: "not-connected" } }, "The runtime's simulated devices are reached through the connection to the runtime. ",
-        el("button", { type: "button", class: "small primary", dataset: { sim: "open-connect" }, onclick: () => openConnect() }, "Connect…")));
-    } else if (!connIsOn()) {
-      box.append(el("p", { dataset: { sim: "not-connected" } }, "Not connected to the runtime. ",
-        el("button", { type: "button", class: "small primary", dataset: { sim: "open-connect" }, onclick: () => openConnect() }, "Connect…")));
-    } else {
-      box.append(hint(`The simulated devices of the runtime ${S.online.host}, through online access (port ${diagPort()} unless the host gives one).`));
-    }
-    return box;
-  }
-  const address = el("input", { type: "text", spellcheck: "false", placeholder: "127.0.0.1:7532", "aria-label": "Simulator address", dataset: { sim: "address" } });
-  address.value = SIM.settings.address || "";
-  const token = el("input", { type: "password", autocomplete: "off", placeholder: SIM.settings.token_set ? "kept on this PC" : "none", "aria-label": "Simulator token", dataset: { sim: "token" } });
-  const connect = async () => {
-    const body = { address: address.value.trim() };
-    if (token.value.trim()) body.token = token.value.trim();
-    try { SIM.settings = await api("POST", "/api/sim/settings", body); } catch (e) { banner(e.message, true); return; }
-    banner("");
-    render();
-  };
-  box.append(el("div", { class: "grid" },
-    el("label", null, "Simulator address", address, hint("HOST[:PORT] of a running canworks-sim, port 7532 when not given. Kept on this PC, not in the project.")),
-    el("label", null, "Token", token, hint("Only when the simulator was started with a token."))),
-  el("div", { class: "toolbar" },
-    el("button", { type: "button", class: "primary", dataset: { sim: "connect" }, onclick: connect }, "Connect"),
-    SIM.settings.token_set ? el("button", { type: "button", onclick: async () => {
-      try { SIM.settings = await api("POST", "/api/sim/settings", { token: "" }); } catch (e) { banner(e.message, true); return; }
-      render();
-    } }, "Forget token") : null));
-  return box;
-}
-
 async function simPoll(seq) {
   let r = null;
   let err = null;
@@ -484,10 +434,14 @@ async function simPoll(seq) {
     const why = /nothing simulated/.test(msg) ? "nothing simulated"
       : { closed: "port closed", unreachable: "host unreachable", token: "wrong token", timeout: "no answer",
         protocol: "not a CANopen diagnostics port", refused: "refused" }[err.body && err.body.kind] || "error";
+    // A standalone simulator's connection problem shows in the connection bar.
+    SIM.connErr = S.simOn && why !== "nothing simulated" ? why : null;
+    if (S.simOn) connBar();
     conn.className = "online-conn error";
+    conn.hidden = !!SIM.connErr;
     conn.textContent = why === "nothing simulated"
       ? "Connected, but nothing is simulated there: the configuration the runtime runs has no simulated network or node (save and upload this one). Retrying…"
-      : `Not connected (${why}): ${msg}. Retrying…`;
+      : `The simulated devices do not answer (${why}): ${msg}. Retrying…`;
     simReadonly();
     SIM.timer = setTimeout(() => simPoll(seq), 2000);
     return;
@@ -498,10 +452,10 @@ async function simPoll(seq) {
   const st = r.status || {};
   const devices = st.devices || [];
   if (SIM.node === null || !devices.some((d) => String(simRef(d)) === String(SIM.node))) SIM.node = devices.length ? simRef(devices[0]) : null;
-  const where = r.target === "simulator" ? `the simulator at ${(SIM.settings && SIM.settings.address) || "its address"}` : S.online.host;
+  if (SIM.connErr) { SIM.connErr = null; connBar(); }
   conn.className = "online-conn ok";
-  conn.replaceChildren(`Connected to ${where}: ` +
-    (st.simulated_network ? "simulated network" : `real network ${st.interface || ""}`.trim()) +
+  conn.hidden = false;
+  conn.replaceChildren(upperFirst(st.simulated_network ? "simulated network" : `real network ${st.interface || ""}`.trim()) +
     `, ${devices.length} simulated device${devices.length === 1 ? "" : "s"}, ` + (r.allow_changes ? "changes allowed." : "read-only."));
   simReadonly();
   // The live tab is drawn once connected; the others keep what is being typed.
@@ -575,9 +529,14 @@ function simUpdate() {
 
 function simLiveTab() {
   if (!SIM.connected) {
-    return el("p", { class: "muted" }, simCanConnect()
-      ? "The live values show once the view is connected. The simulation file and the scenarios can be edited without a connection."
-      : "Connect to see live values. The simulation file and the scenarios can be edited without a connection.");
+    if (simCanConnect()) return el("p", { class: "muted" }, "The live values show once the simulated devices answer. The simulation file and the scenarios can be edited meanwhile.");
+    if (!diagConfig()) {
+      return el("p", { class: "muted", dataset: { sim: "access-off" } }, "Online access is off for this config, so the runtime's simulated devices cannot be reached: turn it on in Configure → ",
+        el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
+        " (simulating a node or the network does this), save, and upload the program. A standalone simulator can be connected with Connect… in the connection bar. The simulation file and the scenarios can be edited meanwhile.");
+    }
+    return el("p", { class: "muted", dataset: { conn: "needs", sim: "not-connected" } },
+      "Live values need a connection. Connect with Connect… in the connection bar above. The simulation file and the scenarios can be edited meanwhile.");
   }
   return el("div", null,
     el("table", { class: "online-nodes", dataset: { sim: "devices" } },
@@ -1920,8 +1879,7 @@ async function simMachineTab(body) {
   const can = simCanConnect();
   MACHINE.view = mod.openMachineView(host, {
     network: simSectionName(), port: diagPort(), file: name, canConnect: can,
-    notConnected: SIM.settings.target === "simulator" ? "Connect to the standalone simulator above."
-      : diagConfig() ? "To see it live, connect to the runtime (Connect… above)."
+    notConnected: diagConfig() ? "To see it live, connect with Connect… in the connection bar above."
         : "Online access is off for this config: turn it on in Configure → Online access to see the machine live.",
     feWindow: machineFeWindow,
     openNode: (node) => {

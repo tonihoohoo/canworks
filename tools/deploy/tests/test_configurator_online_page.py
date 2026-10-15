@@ -173,6 +173,8 @@ class OnlinePage(OnlineBase):
             self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
             self.open()
             pg.click('button[data-view="online"]')
+            # The connect panel from the bar's Connect… is the one place to connect.
+            pg.click('#conn-bar [data-conn="connect"]')
             pg.click('button[data-online="connect"]')
             pg.wait_for_selector('[data-online="connect-msg"]:has-text("Enter the runtime\'s host")')
             pg.fill('input[data-online="host"]', fp.runtime)

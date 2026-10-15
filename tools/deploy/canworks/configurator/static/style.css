@@ -2,6 +2,7 @@
 :root {
   --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #dcdcd6;
   --accent: #1f5fbf; --accent-text: #ffffff; --hover: #eeeeea; --header-h: 52px;
+  --sel-bg: #e6edf8;  /* a selected table row: a neutral blue wash, not a state colour */
   /* State colours (visual-refresh): only states use them; text stays --text, the icon carries the colour. */
   --st-ok: #256b2a; --st-busy: #0b6b78; --st-warn: #8a5a00; --st-error: #b3261e; --st-off: #6b6b66;
   --st-warn-bg: #fff4dc; --st-error-bg: #fbe9e7;
@@ -18,7 +19,7 @@
   --accent: #6ea0f0; --accent-text: #0b1220;
   --st-ok: #81c784; --st-busy: #5cc4d0; --st-warn: #f2c66d; --st-error: #ff8a80; --st-off: #a3a39c;
   --st-warn-bg: #33270d; --st-error-bg: #3a1714;
-  --hover: #2a2a27;
+  --hover: #2a2a27; --sel-bg: #1f2b40;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -26,7 +27,7 @@
     --accent: #6ea0f0; --accent-text: #0b1220;
     --st-ok: #81c784; --st-busy: #5cc4d0; --st-warn: #f2c66d; --st-error: #ff8a80; --st-off: #a3a39c;
     --st-warn-bg: #33270d; --st-error-bg: #3a1714;
-    --hover: #2a2a27;
+    --hover: #2a2a27; --sel-bg: #1f2b40;
     color-scheme: dark; }
 }
 * { box-sizing: border-box; }
@@ -160,8 +161,15 @@ dialog#conn-dialog h2 { margin-top: 0; }
 .tree-item.net > .tree-row { font-weight: 600; margin-top: 6px; }
 .tree-item.action > .tree-row { color: var(--accent); }
 .tree-item.muted > .tree-row { color: var(--muted); cursor: default; }
-.tree-row .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-row .proto { font-size: 11px; font-weight: normal; white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Names are never cut: a long one wraps, inside the name when it has no
+   space. A network shows its protocol on a second line under its name, with
+   the arrow, badge and menu on the first. */
+.tree-row .name { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.tree-label { display: flex; flex-direction: column; flex: 0 1 auto; min-width: 0; }
+.tree-label .proto { font-size: 11px; font-weight: normal; line-height: 1.3; overflow-wrap: anywhere; }
+.tree-item.net > .tree-row { align-items: flex-start; }
+.tree-item.net > .tree-row > .twist, .tree-item.net > .tree-row > .tree-badge { line-height: 20px; }
+.tree-item.net > .tree-row > .net-menu { margin-top: -2px; }
 .tree-row .twist { width: 12px; color: var(--muted); }
 .tree-mark { min-width: 14px; height: 14px; flex: none; display: inline-flex; align-items: center; gap: 2px; }
 .tree-mark .st { width: 12px; height: 12px; }
@@ -186,6 +194,10 @@ details.pdo-settings { margin: 4px 0 8px; }
 details.pdo-settings > summary { cursor: pointer; font-size: 13px; }
 details.pdo-settings[open] > summary { margin-bottom: 6px; }
 .notes-table td:last-child { width: 1%; }
+.notes-table td.note-source { white-space: nowrap; }
+.notes-toolbar { flex-wrap: wrap; }
+.note-picker-list { max-height: 50vh; overflow: auto; margin-top: 8px; }
+.note-import ul { margin: 4px 0 8px; padding-left: 20px; max-height: 30vh; overflow: auto; }
 #view { padding: 16px 20px; overflow: auto; }
 #problems, #log-panel { padding: 0 16px; }
 #problem-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }
@@ -267,7 +279,12 @@ table.slave-builder td:first-child input { field-sizing: content; min-width: 9ch
 table.slave-builder td input[data-desc=default], table.slave-builder td input[data-desc=low], table.slave-builder td input[data-desc=high] { width: 6ch; min-width: 0; }
 textarea.block { width: 100%; min-height: 160px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); max-width: 520px; }
-dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; margin: 12px 0 0; }
+/* Buttons that do not fit wrap onto another row, and a label wider than the
+   dialog wraps in its button: nothing leaves the dialog's box. */
+dialog menu { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding: 0; margin: 12px 0 0; }
+dialog menu button { white-space: normal; max-width: 100%; overflow-wrap: anywhere; }
+.modal-choices { display: flex; flex-direction: column; gap: 8px; }
+.modal-choices .choice { padding: 10px 14px; }
 /* Narrow windows: the side list as a bar; the bottom panel stays. */
 @media (max-width: 1100px) {
   main#editor { grid-template-columns: minmax(0, 1fr); grid-template-areas: "side" "view"; grid-template-rows: auto 1fr; }  /* only the view grows */
@@ -280,6 +297,12 @@ dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; ma
 }
 .row { display: flex; gap: 6px; align-items: center; }
 input.wide { width: 100%; }
+/* A text box never gets wider than its column, even when its corner is
+   dragged: only its height can be changed. */
+textarea { max-width: 100%; box-sizing: border-box; resize: vertical; }
+/* A field on its own row: label, box, help and message stacked. */
+label.field-block { display: flex; flex-direction: column; gap: 3px; margin: 10px 0; max-width: 640px; font-size: 13px; color: var(--muted); }
+label.field-block textarea { width: 100%; font-family: var(--mono); font-size: 13px; }
 .new-project { display: flex; flex-direction: column; gap: 8px; min-width: min(440px, 80vw); }
 .new-project label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); }
 .new-project label.inline { flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
@@ -381,7 +404,7 @@ label.inline input.short { width: 80px !important; }
   height: max(244px, calc(100vh - var(--header-h) - 396px)); overflow: auto; }
 .ids-headgroup { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 .ids-grid:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.ids-row { display: grid; grid-template-columns: 3ch 9ch minmax(10ch, 1.2fr) 4ch 25ch minmax(8ch, 1.6fr) 8ch 8ch 7ch 7ch 7ch 9ch;
+.ids-row { display: grid; grid-template-columns: 5ch 9ch minmax(10ch, 1.2fr) 4ch 25ch minmax(8ch, 1.6fr) 8ch 8ch 7ch 7ch 7ch 9ch;
   gap: 0 8px; height: 24px; line-height: 24px; padding: 0 6px; white-space: nowrap; cursor: pointer; }
 .ids-row > div { overflow: hidden; text-overflow: ellipsis; }
 .ids-row .num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -465,6 +488,15 @@ table.od-tree td.od-value strong { white-space: normal; }
 table.od-tree tr.od-sub td:first-child { padding-left: 2.2em; }
 table.od-tree tr.od-object td { border-top: 1px solid var(--line); }
 table.od-tree .od-input { width: 100%; box-sizing: border-box; }
+/* The selected row (od-row-highlight): a wash across the whole row and an
+   accent bar on its left edge; the row under the pointer gets a lighter tint. */
+@media (hover: hover) { table.od-tree tbody tr:hover > td { background: var(--hover); } }
+table.od-tree tbody tr.od-selected > td { background: var(--sel-bg); }
+table.od-tree tbody tr.od-selected > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+@media (forced-colors: active) {
+  table.od-tree tbody tr.od-selected { outline: 2px solid Highlight; outline-offset: -2px; }
+  table.od-tree tbody tr.od-selected > td:first-child { box-shadow: inset 3px 0 0 Highlight; }
+}
 .od-toggle { min-width: 1.8em; padding: 0 4px; }
 .od-marks { margin-top: 2px; }
 .od-tools { white-space: nowrap; }
@@ -729,9 +761,9 @@ table.j1939-signals td .row input[type=text] { min-width: 6em; }
 table.j1939-signals tr[data-path] > td { border-bottom: 0; }
 .j1939-locs { display: flex; flex-wrap: wrap; gap: 4px 24px; }
 .j1939-locs > div { display: flex; flex-direction: column; gap: 3px; }
-dialog:has(.j1939-picker) { max-width: min(960px, 92vw); }
-.j1939-picker { max-height: 60vh; overflow: auto; }
-.j1939-picker td select { min-width: 8em; }
+dialog:has(.dbc-picker) { max-width: min(960px, 92vw); }
+.dbc-picker { max-height: 60vh; overflow: auto; }
+.dbc-picker td select { min-width: 8em; }
 .j1939-claim-1 { color: var(--st-ok); }
 .j1939-claim-0 { color: var(--st-warn); }
 .j1939-claim-2, .j1939-claim-3 { color: var(--st-error); }
@@ -783,8 +815,7 @@ table.online-links tr.bad td:first-child { color: var(--st-error); }
 .tag.lamp-red, .tag.lamp-mil { background: var(--st-error-bg); color: var(--st-error); }
 
 /* Commission: Nodes table home, comparison, locked notes, session log */
-.nodes-connect { max-width: 640px; }
-.nodes-recent { flex-wrap: wrap; margin-bottom: 10px; }
+.conn-recent { flex-wrap: wrap; margin-bottom: 10px; }
 .nodes-summary { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
 .nodes-summary button[aria-pressed="true"] { background: var(--hover); font-weight: 600; }
 .warn-text { color: var(--st-warn); }
@@ -845,6 +876,18 @@ dialog.folder-dialog h2 { margin-top: 0; font-size: 16px; }
 .folder-picker p { margin: 8px 0 0; }
 .eds-library { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .eds-library .lib-path { font-family: var(--mono); overflow-wrap: anywhere; min-width: 0; }
+
+/* Trace: Decoding panel (DBC files, the nodes' PDO layouts) */
+.trace-decoding { min-width: 420px; max-width: min(720px, 90vw); max-height: 70vh; overflow: auto; }
+.trace-decoding h3 { margin: 4px 0; font-size: 13px; }
+.trace-decoding .dbc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.trace-decoding .dbc-row .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.trace-decoding .dbc-row .spacer { flex: 1; }
+.trace-decoding .dbc-notes ul { margin: 2px 0 0; padding-left: 18px; font-size: 12px; }
+.trace-decoding td .row { display: flex; flex-wrap: wrap; gap: 4px; }
+.warn-mark { color: var(--st-warn); }
+.fx-layout { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.trace-row .tag, .ids-c-name .tag { margin-left: 4px; }
 
 /* name-nodes-and-standard-dictionary: the device's name in the Nodes table, the EDS choices */
 .device-cell { overflow-wrap: anywhere; min-width: 12ch; }

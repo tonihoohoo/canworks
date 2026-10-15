@@ -10,7 +10,13 @@
                                          output files of CI and PC tools on a commit
   release_version.py --superseded A B    exit 0 if version B is newer than A
   release_version.py --previous-tag V    read tags on stdin, print the newest
-                                         deploy-v tag older than V (or nothing)"""
+                                         deploy-v tag older than V (or nothing)
+  release_version.py --prune RELEASES TAGS
+                                         from files of release tag names and all
+                                         tag names (one per line), print what the
+                                         retention rule deletes: "release <tag>"
+                                         (release and its tag) and "tag <tag>"
+                                         (tag without a release), oldest first"""
 
 import json
 import os
@@ -19,6 +25,8 @@ import sys
 
 DEPLOY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "deploy")
 PREFIX = "deploy-v"
+# Releases kept by the retention rule: the newest and three before it.
+KEEP_RELEASES = 4
 
 
 def package_versions(deploy=DEPLOY):
@@ -81,6 +89,30 @@ def previous_tag(tags, version):
     return max(older, key=lambda t: version_key(t[len(PREFIX):]), default=None)
 
 
+def prune(releases, tags, keep=KEEP_RELEASES):
+    """(releases to delete, tags without a release to delete), oldest first.
+
+    Keeps the newest `keep` deploy-v releases by version. Deletes the older
+    ones, and deploy-v tags with no release that are older than the oldest
+    kept release. Anything not named deploy-v<version> is never listed."""
+    def key(tag):
+        return version_key(tag[len(PREFIX):])
+
+    ours = sorted({r for r in releases if r.startswith(PREFIX)}, key=key)
+    kept = ours[-keep:] if keep > 0 else []
+    drop = ours[:-keep] if len(ours) > keep else []
+    if not kept:
+        return drop, []
+    oldest = key(kept[0])
+    orphans = sorted({t for t in tags if t.startswith(PREFIX) and t not in releases and key(t) < oldest}, key=key)
+    return drop, orphans
+
+
+def _lines(path):
+    with open(path, encoding="utf-8") as f:
+        return [line.strip() for line in f if line.strip()]
+
+
 def _load(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -98,6 +130,12 @@ def main(argv):
             tag = previous_tag(sys.stdin.read().split(), argv[1])
             if tag:
                 print(tag)
+        elif len(argv) == 3 and argv[0] == "--prune":
+            drop, orphans = prune(_lines(argv[1]), _lines(argv[2]))
+            for tag in drop:
+                print("release %s" % tag)
+            for tag in orphans:
+                print("tag %s" % tag)
         elif len(argv) == 1 and not argv[0].startswith("--"):
             print(check(argv[0]))
         else:

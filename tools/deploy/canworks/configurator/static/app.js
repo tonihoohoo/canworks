@@ -61,6 +61,11 @@ async function api(method, path, body) {
   if (net !== null && body && body.network === undefined && (path.startsWith("/api/online/") || path.startsWith("/api/trace/") || path.startsWith("/api/sim/"))) {
     body = Object.assign({ network: net }, body);
   }
+  // Simulated devices are those of the connection in the connection bar:
+  // the runtime's unless the standalone simulator is the connection.
+  if (body && body.target === undefined && path.startsWith("/api/sim/") && path !== "/api/sim/settings" && !S.simOn) {
+    body = Object.assign({ target: "runtime" }, body);
+  }
   const res = await fetch(path, {
     method,
     headers: Object.assign({ "X-CANopen-Token": TOKEN }, body ? { "Content-Type": "application/json" } : {}),
@@ -84,7 +89,8 @@ async function api(method, path, body) {
 // (the primary button) or { primary, danger }. The safe choice, the button
 // with value "cancel", is always drawn first and gets focus, so Enter never
 // removes, discards or overwrites anything; a dialog with a form focuses
-// its first field instead. Escape resolves null. One cancel listener is
+// its first field instead, and one with choice buttons (data-value) in its
+// extra part the first choice. Escape resolves null. One cancel listener is
 // wired in wire().
 let modalResolve = null;
 function modal(text, buttons, extra) {
@@ -102,13 +108,16 @@ function modal(text, buttons, extra) {
     for (const [value, label, opts] of order) {
       const o = opts === true ? { primary: true } : opts || {};
       menu.append(el("button", { type: "button", class: [o.primary ? "primary" : "", o.danger ? "danger" : ""].join(" ").trim() || null,
-        dataset: { value }, onclick: () => done(value) }, label));
+        hidden: o.hidden || null, dataset: { value }, onclick: () => done(value) }, label));
     }
+    // Choice buttons in the extra part (data-value) answer like the menu's.
+    const picks = extra && extra.querySelectorAll ? [...extra.querySelectorAll("button[data-value]")] : [];
+    for (const b of picks) b.onclick = () => done(b.dataset.value);
     if (!dlg.open) dlg.opener = document.activeElement;
     dlg.showModal();
     const fields = "input:not([type=checkbox]), select, textarea";
     const field = !extra || !extra.querySelector ? null : extra.matches(fields) ? extra : extra.querySelector(fields);
-    (field || menu.firstElementChild).focus();
+    (field || picks[0] || menu.firstElementChild).focus();
   });
 }
 
@@ -604,10 +613,30 @@ function switchNet(i) {
   render();
 }
 
+// Add network's protocols: one choice per row with a line on what it is for;
+// Up and Down move between them. CANopen, the default, comes first.
+const PROTOCOL_CHOICES = [
+  ["canopen", "CANopen", "A master and its nodes from EDS files, or the PLC as a slave device."],
+  ["j1939", "J1939", "The PLC as an ECU that sends and receives parameter groups from a DBC file."],
+  ["none", "Plain CAN", "CAN frames only, from a DBC file or entered by hand, with no protocol on top."],
+];
+function protocolChoices() {
+  const list = el("div", { class: "modal-choices", role: "group", "aria-label": "Protocol" },
+    PROTOCOL_CHOICES.map(([value, name, help]) => el("button", { type: "button", class: "choice", dataset: { value } },
+      el("strong", null, name), el("span", null, help))));
+  list.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const bs = [...list.children];
+    const i = bs.indexOf(document.activeElement);
+    bs[(i + (e.key === "ArrowDown" ? 1 : bs.length - 1)) % bs.length].focus();
+    e.preventDefault();
+  });
+  return list;
+}
+
 async function addNetwork() {
   const protocol = await modal("Add a network with its own CAN interface. Which protocol does it run?",
-    [["cancel", "Cancel"], ["none", "Plain CAN (messages only)"], ["j1939", "J1939 (an ECU)"],
-      ["canopen", "CANopen (a master and nodes)", true]]);
+    [["cancel", "Cancel"]], protocolChoices());
   if (protocol !== "canopen" && protocol !== "j1939" && protocol !== "none") return;
   const first = S.model.networks[0];
   const rate = first && first.adapter && Number.isInteger(first.adapter.bitrate) ? first.adapter.bitrate : 250000;
@@ -2776,10 +2805,7 @@ function objectPicker(i, eds, dir) {
               // The object's row now reads "mapped": the focus goes back to the picker's filter for the next one.
               const a = document.activeElement;
               if (!a || a === document.body || !a.isConnected) focusPicker(dir);
-            }) }, "Add"),
-          notesEditable(name) ? el("button", { type: "button", class: "small", dataset: { noteEdit: `${o.index}:${o.subindex}` },
-            title: "Write a note for this object: text, unit, value meanings, bit names",
-            onclick: async () => { if (await editNote(name, notesOf(name), o.index, o.subindex, !!o.var, `${o.index}:${o.subindex} ${o.name || ""}`)) fill(); } }, "Note") : null))));
+            }) }, "Add")))));
   };
   filter.addEventListener("input", () => { S.objectFilter = filter.value; fill(); });
   fill();
@@ -2867,9 +2893,6 @@ function renderSdos(i, eds) {
     el("p", { class: "muted" }, "Written in this order every time the node is configured at boot, after the PDO parameters. Only objects the EDS marks writable can be added."));
   const nb = notesOf(n.eds);
   const noteOfObj = (o) => noteFor(nb, n.eds, o.index, o.subindex, !!o.var);
-  const noteButton = (o, after) => notesEditable(n.eds) ? el("button", { type: "button", class: "small", dataset: { noteEdit: `${o.index}:${o.subindex}` },
-    title: "Write a note for this object: text, unit, value meanings, bit names",
-    onclick: async () => { if (await editNote(n.eds, nb, o.index, o.subindex, !!o.var, `${o.index}:${o.subindex} ${o.name || ""}`)) after(); } }, "Note") : null;
   const rows = list.map((s, j) => {
     const sp = `nodes[${i}].sdo[${j}]`;
     const info = objectInfo(eds, s.index, s.subindex);
@@ -2902,7 +2925,7 @@ function renderSdos(i, eds) {
     return el("tr", { dataset: { path: sp } },
       el("td", null, `${s.index}:${s.subindex ?? 0}`),
       el("td", null, info ? info.name : el("span", { class: "field-msg warning" }, "not in the EDS"),
-        info && notesEditable(n.eds) ? " " : null, info ? noteButton(info, render) : null, noteLine(note),
+        noteLine(note),
         twice.length ? el("span", { class: "field-msg warning", dataset: { twice: "1" } },
           ` also written in row ${twice.map((x) => x + 1).join(", ")}; the last write wins`) : null),
       el("td", null, typeCell),
@@ -2946,7 +2969,7 @@ function renderSdos(i, eds) {
       .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name, noteLine(noteOfObj(o))),
         el("td", null, o.type || "?"), el("td", null, o.access), el("td", null, withMeaning(noteOfObj(o), o.default)),
         el("td", null, el("button", { type: "button", dataset: { sdo: `${o.index}:${o.subindex}` },
-          onclick: () => addSdo(i, o.index, o.subindex) }, "Add"), noteButton(o, fill)))));
+          onclick: () => addSdo(i, o.index, o.subindex) }, "Add")))));
   };
   filter.addEventListener("input", () => { S.sdoFilter = filter.value; fill(); });
   fill();
@@ -3508,7 +3531,7 @@ function remoteLinkSettings() {
       hint("PCs paired with this runtime reach it from any network over the remote link (canworks-link on the device), through a relay when no direct path is found. " +
         "A PC is paired when it connects once on the local network with the token. Off: the link service contacts nothing outside the local network. Default: off.")));
   if (rl.internet === true || (Array.isArray(rl.relays) && rl.relays.length)) {
-    const relays = el("textarea", { rows: 3, spellcheck: "false", class: "wide", "aria-label": "Relay URLs",
+    const relays = el("textarea", { rows: 3, spellcheck: "false", "aria-label": "Relay URLs",
       placeholder: "one https URL per line", dataset: { path: "master.diagnostics.remote_link.relays", online: "relays" } });
     relays.value = (Array.isArray(rl.relays) ? rl.relays : []).join("\n");
     const msg = el("span", { class: "field-msg warning", dataset: { online: "relays-msg" } });
@@ -3522,7 +3545,7 @@ function remoteLinkSettings() {
       setRemoteLink({ relays: lines });
     });
     check(Array.isArray(rl.relays) ? rl.relays : []);
-    box.append(el("label", { class: "wide" }, "Relay URLs (optional)", relays,
+    box.append(el("label", { class: "field-block" }, "Relay URLs (optional)", relays,
       hint("One https URL per line, for a relay of your own. Empty: the public relays of the iroh project."), msg));
   }
   box.append(pairedPcsBox());
@@ -3710,7 +3733,7 @@ function renderOnline(view) {
     return;
   }
   if (!connEnsure()) {
-    view.append(nodesConnectHome());
+    view.append(nodesNotConnected());
     return;
   }
   view.append(
@@ -4065,8 +4088,8 @@ async function commissionDevice() {
     S.adapterOn = false;
     S.adapterEnded = null;
     await loadState();
-    // The start page's button is gone: the focus goes to the connect form's first field.
-    const first = document.querySelector('#view [data-nodes="connect"] input, #view [data-nodes="connect"] select, #view [data-nodes="connect"] button');
+    // The start page's button is gone: the focus goes to Connect… in the connection bar.
+    const first = document.querySelector('#conn-bar [data-conn="connect"]');
     if (first) first.focus();
   } catch (e) { banner(e.message, true); }
 }
@@ -4323,7 +4346,8 @@ async function renderOnlineNode() {
   if (!have.some(([k]) => k === tab)) tab = "status";
   if (tab === "status" && S.emcyNew && S.emcyNew[id]) { delete S.emcyNew[id]; if (S.onlineLast) treeLive(S.onlineLast.status); }
   const logCount = commLogOn() ? (S.commLog || []).filter((e) => e.node === id).length : 0;
-  const tabList = tabs(have.map(([k, label]) => [k, k === "log" && logCount ? `${label} ${logCount}` : label]),
+  const notesLabel = notesTabLabel(...commNotesEds(id, n));
+  const tabList = tabs(have.map(([k, label]) => [k, k === "log" && logCount ? `${label} ${logCount}` : k === "notes" ? notesLabel : label]),
     tab, (k) => { S.onlineTab = k; renderOnlineNode(); }, { dataset: "onlineTab", panel: "online-node-panel", label: "Node pages" });
   const head = el("h2", { dataset: { online: "node-heading" } }, nodeHeading(id));
   const title = S.state.commission ? el("div", { class: "toolbar node-head" }, head,
@@ -4950,7 +4974,7 @@ const WATCH_HISTORY_MS = 10 * 60 * 1000;
 function odState(id) {
   S.od = S.od || {};
   return S.od[id] || (S.od[id] = { values: {}, watch: [], period: 1000, filter: "", filters: [], formats: {},
-    bitsOpen: {}, openGroups: [], openObjects: [], at: {}, changedAt: {}, mm: {}, hist: [], keep: {} });
+    bitsOpen: {}, openGroups: [], openObjects: [], at: {}, changedAt: {}, mm: {}, hist: [], keep: {}, selected: null });
 }
 
 // Puts an od_read answer's values and failures into a node's tab state.
@@ -5171,7 +5195,7 @@ function odBuild(box, id, n, allow, data) {
   const objRows = {};  // index: {tr, sub rows, summary}
   const status = el("div", { class: "job-status", dataset: { online: "od-status" } });
   const summary = el("div", { class: "muted", dataset: { online: "od-summary" } });
-  // Notes: the config node's EDS (editable, with unsaved edits), else the EDS the view was opened with.
+  // Notes: the config node's EDS (with unsaved edits; written on the Notes tab), else the EDS the view was opened with.
   const notesCfg = odSource(id).config && !onlineSlaveCfg() ? configNode(id) : null;
   const notesName = notesCfg && notesCfg.eds ? notesCfg.eds : null;
   const notesBlock = () => (notesName && notesOf(notesName)) || data.notes;
@@ -5444,6 +5468,25 @@ function odBuild(box, id, n, allow, data) {
   const chips = el("div", { class: "kind-chips od-filters", dataset: { online: "od-filters" } });
   const compareNote = el("div", { dataset: { online: "od-compare" } });
   const groups = [];
+  // The selected row: the one the user clicked or tabbed into, so it is clear
+  // which entry the row's buttons act on. Key "index:sub", or "obj:index" for
+  // a foldable object's row; kept in the tab state across renders.
+  const selRows = {};
+  const selectRow = (key) => {
+    st.selected = key && selRows[key] ? key : null;
+    for (const tr of box.querySelectorAll("tr.od-selected")) { tr.classList.remove("od-selected"); tr.removeAttribute("aria-current"); }
+    const tr = st.selected && selRows[st.selected];
+    if (tr) { tr.classList.add("od-selected"); tr.setAttribute("aria-current", "true"); }
+  };
+  const rowOf = (ev) => { const tr = ev.target.closest && ev.target.closest("tr[data-od-sel]"); return tr && tr.dataset.odSel; };
+  const selectable = (table) => {
+    table.addEventListener("pointerdown", (ev) => { const k = rowOf(ev); if (k && k !== st.selected) selectRow(k); });
+    table.addEventListener("focusin", (ev) => { const k = rowOf(ev); if (k && k !== st.selected) selectRow(k); });
+    table.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && st.selected && !ev.target.closest("input, select, textarea")) selectRow(null);
+    });
+    return table;
+  };
   const entryRow = (e, isSub) => {
     const key = odKey(e.index, e.subindex);
     const value = el("td", { class: "od-value", dataset: { online: "od-value" } });
@@ -5455,21 +5498,16 @@ function odBuild(box, id, n, allow, data) {
       onclick: async () => { try { await readKeys([[e.index, e.subindex]]); } catch (err) { banner(err.message, true); } } }, "Read");
     const edit = el("button", { type: "button", class: "small", disabled: !allow || !e.writable, dataset: { online: "od-edit" },
       title: !allow ? NO_CHANGES : !e.writable ? "Read-only in the EDS (" + e.access + ")" : null,
-      onclick: () => odEdit(id, n, e, cells[key], readKeys, noteOf(e), (wrote) => {
-        cells[key].editing = false;
-        if (wrote) st.keep[key] = wrote;
-        showValue(key);
-      }) }, "Edit");
-    const noteBox = el("div", { dataset: { online: "od-note" } }, noteLine(noteOf(e)));
-    const noteBtn = notesName && notesEditable(notesName) ? el("button", { type: "button", class: "small", dataset: { online: "od-note-edit" },
-      title: "Write a note for this entry: text, unit, value meanings, bit names",
-      onclick: async () => {
-        if (await editNote(notesName, notesBlock(), e.index, e.subindex, e.object_type === "VAR", `${hex4(e.index)}:${e.subindex} ${e.name}`)) {
-          put(noteBox, noteLine(noteOf(e)));
+      onclick: () => {
+        selectRow(key);
+        odEdit(id, n, e, cells[key], readKeys, noteOf(e), (wrote) => {
+          cells[key].editing = false;
+          if (wrote) st.keep[key] = wrote;
           showValue(key);
-        }
-      } }, "Note") : null;
-    const tr = el("tr", { class: isSub ? "od-sub" : "od-var", dataset: { odKey: key, odObject: String(e.index) } },
+        });
+      } }, "Edit");
+    const noteBox = el("div", { dataset: { online: "od-note" } }, noteLine(noteOf(e)));
+    const tr = el("tr", { class: isSub ? "od-sub" : "od-var", dataset: { odKey: key, odObject: String(e.index), odSel: key } },
       el("td", { class: "mono" }, isSub ? `:${e.subindex}` : `${hex4(e.index)}:${e.subindex}`),
       el("td", { class: "od-name" }, el("div", null, isSub ? e.sub_name || e.name : e.name), noteBox, marks),
       el("td", { class: "od-type" }, e.type || "?", " ", el("span", { class: "muted" }, e.access),
@@ -5477,8 +5515,9 @@ function odBuild(box, id, n, allow, data) {
       value, el("td", { class: "actions" }, read, edit,
         el("button", { type: "button", class: "small", disabled: data.slave || (!e.readable && !e.writable),
           title: data.slave ? NO_ST_SLAVE : "Copy as ST call (CO_SDO_* block)",
-          dataset: { online: "od-st" }, onclick: () => copyStCall(id, e.index, e.subindex, e.type, e.readable, e.writable) }, "ST"), noteBtn),
+          dataset: { online: "od-st" }, onclick: () => copyStCall(id, e.index, e.subindex, e.type, e.readable, e.writable) }, "ST")),
       el("td", { class: "od-watch" }, watch));
+    selRows[key] = tr;
     cells[key] = { tr, value, marks, watch, text: `${hex4(e.index)}:${e.subindex} ${e.index.toString(16)} ${e.name} ${noteOf(e).text || ""}`.toLowerCase() };
     return tr;
   };
@@ -5496,7 +5535,7 @@ function odBuild(box, id, n, allow, data) {
       const objSummary = el("div", { class: "od-marks" });
       const readObj = el("button", { type: "button", class: "small", disabled: !o.entries.some((e) => e.readable), dataset: { online: "od-read-object" },
         onclick: async () => { try { await readObject(o); } catch (err) { banner(err.message, true); } } }, "Read");
-      const tr = el("tr", { class: "od-object", dataset: { odObjectRow: String(o.index) } },
+      const tr = el("tr", { class: "od-object", dataset: { odObjectRow: String(o.index), odSel: "obj:" + o.index } },
         el("td", { class: "mono" }, toggle, " ", hex4(o.index)),
         el("td", { class: "od-name" }, el("div", null, el("strong", null, o.name)), objSummary),
         el("td", { class: "od-type muted" }, `${o.type}, ${o.entries.length} entries`), el("td"),
@@ -5508,13 +5547,14 @@ function odBuild(box, id, n, allow, data) {
         applyFilter();
       });
       objRows[o.index] = { obj: o, tr, subs, toggle, summary: objSummary };
+      selRows["obj:" + o.index] = tr;
       rows.push(tr, ...subs);
     }
     const det = el("details", { dataset: { odGroup: g } }, el("summary", null, `${title} (${list.length} objects)`),
-      el("div", { class: "table-scroll" }, el("table", { class: "od od-tree" },
+      el("div", { class: "table-scroll" }, selectable(el("table", { class: "od od-tree" },
         el("colgroup", null, ["c-entry", "c-name", "c-type", "c-value", "c-actions", "c-watch"].map((c) => el("col", { class: c }))),
         el("thead", null, el("tr", null, thCells(["Entry", "Name", "Type", "Value", "", "Watch"]))),
-        el("tbody", null, rows))));
+        el("tbody", null, rows)))));
     det.open = st.openGroups.includes(g);
     det.addEventListener("toggle", () => {
       if (filtering()) return;
@@ -5696,6 +5736,7 @@ function odBuild(box, id, n, allow, data) {
   for (const key of Object.keys(cells)) showValue(key);
   for (const i of Object.keys(objRows)) updateObject(Number(i));
   applyFilter();
+  selectRow(st.selected);
   const begin = () => {
     st.watch = st.watch.filter((k) => byKey[k] && byKey[k].readable);
     period.value = String(st.period);
@@ -6357,10 +6398,11 @@ async function exportHtml() {
   }
 }
 
-// Downloads the merged notes (built-in and the EDS's own, with unsaved edits) of one EDS.
-async function exportNotes(name) {
+// Downloads the notes of one EDS with unsaved edits: merged with the built-in
+// ones, or with `own` the user's own only.
+async function exportNotes(name, own) {
   try {
-    const r = await api("POST", "/api/export_notes", { config: fileConfig(), eds: name, notes: S.model.notes });
+    const r = await api("POST", "/api/export_notes", { config: fileConfig(), eds: name, notes: S.model.notes, own: !!own });
     const url = URL.createObjectURL(new Blob([r.data], { type: "application/json" }));
     const a = el("a", { href: url, download: r.name });
     document.body.append(a);

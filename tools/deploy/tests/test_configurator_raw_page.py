@@ -11,6 +11,7 @@ from canworks import diag
 
 from .fake_diag import PLAIN_NETWORK, TOKEN, FakePlugin
 from .helpers import REPO, add_network, net_action, tree_view
+from .test_configurator_layout import CONTRAST
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
@@ -62,16 +63,21 @@ class RawPage(OnlineBase):
         pg.fill('input[data-path="adapter.interface"]', "can1")
         tree_view(pg, "raw")
         pg.wait_for_selector("h2:has-text('CAN messages')")
-        pg.click("#raw-import")
-        pg.set_input_files('#modal input[type="file"]', os.path.join(EXAMPLE, "cab.dbc"))
-        pg.click('#modal button[data-value="next"]')
-        pg.wait_for_selector('#modal select[aria-label="Use Joystick"]')
+        self.assertEqual(pg.inner_text('[data-raw="dbc"]'), "No DBC file yet.")
+        self.assertEqual(pg.locator('input[data-path="raw.dbc"]').count(), 0)
+        # One click on Import DBC… opens the system file picker: no dialog first.
+        with pg.expect_file_chooser() as fc:
+            pg.click("#raw-import .file-button")
+        self.assertFalse(pg.evaluate("() => document.querySelector('#modal').open"))
+        fc.value.set_files(os.path.join(EXAMPLE, "cab.dbc"))
+        pg.wait_for_selector('#modal select[data-pick="Joystick"]')
         # The PLC sends Display in the DBC, so Send is preselected.
-        self.assertEqual(pg.input_value('#modal select[aria-label="Use Display"]'), "send")
-        pg.select_option('#modal select[aria-label="Use Joystick"]', "receive")
-        pg.select_option('#modal select[aria-label="Use Pedal"]', "receive")
-        pg.click('#modal button[data-value="import"]')
-        pg.wait_for_selector("#banner:has-text('Imported 3 messages')")
+        self.assertEqual(pg.input_value('#modal select[data-pick="Display"]'), "tx")
+        self.assertEqual(pg.input_value('#modal select[data-pick="Joystick"]'), "rx")
+        pg.select_option('#modal select[data-pick="Sensor"]', "")
+        pg.click('#modal button[data-value="add"]')
+        pg.wait_for_selector("#banner:has-text('Imported 3 messages from cab.dbc')")
+        self.assertEqual(pg.inner_text('[data-raw="dbc"]'), "cab.dbc")
         self.assertIn("0x18FF1020 ext", pg.inner_text('[data-raw-table="rx"]'))
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
@@ -85,6 +91,7 @@ class RawPage(OnlineBase):
         self.assertEqual([m["name"] for m in net["raw"]["rx"]], ["Joystick", "Pedal"])
         self.assertEqual([m["name"] for m in net["raw"]["tx"]], ["Display"])
         self.assertEqual(net["raw"]["dbc"], "cab.dbc")
+        self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "cab.dbc")))
         self.assertTrue(all(s.get("iec_location") for m in net["raw"]["rx"] + net["raw"]["tx"] for s in m["signals"]))
 
     def plain_config(self, rx):
@@ -141,6 +148,22 @@ class RawPage(OnlineBase):
         self.assertEqual(sigs[1]["mux"], {"values": [1]})
         self.assertEqual(sigs[2]["mux"], {"values": [2]})
 
+    def test_selected_row_reads(self):
+        """fix-clipped-text-configure: on a selected message row, in both
+        themes, Remove and the row's text keep WCAG AA contrast."""
+        pg = self.page
+        self.plain_config([{"id": 0x300, "dlc": 8}])
+        self.open()
+        tree_view(pg, "raw")
+        pg.click('tr[data-raw="rx:0"]')
+        pg.wait_for_selector('tr.selected[data-raw="rx:0"]')
+        check = CONTRAST.replace("#view *, #side *, #problems *, header *, #banner *, #sim-banner", ".raw-table tr.selected *")
+        for theme in ("light", "dark"):
+            pg.evaluate("(t) => showTheme(t)", theme)  # the colours under test, not the Settings menu
+            pg.wait_for_timeout(200)
+            self.assertTrue(pg.is_visible('tr.selected[data-raw="rx:0"] button.danger'))
+            self.assertEqual(pg.evaluate(check), [], theme)
+
     def test_import_a_multiplexed_message(self):
         pg = self.page
         self.plain_config([])
@@ -149,15 +172,13 @@ class RawPage(OnlineBase):
             f.write(MUX_DBC)
         self.open()
         tree_view(pg, "raw")
-        pg.click("#raw-import")
-        pg.set_input_files('#modal input[type="file"]', dbc)
-        pg.click('#modal button[data-value="next"]')
-        pg.wait_for_selector('#modal select[aria-label="Use Status"]')
+        pg.set_input_files('input[data-raw="dbc-input"]', dbc)
+        pg.wait_for_selector('#modal select[data-pick="Status"]')
         self.assertEqual(pg.inner_text('#modal [data-raw-mux="Status"]'), "switch Page, 2 pages")
         self.assertNotIn("multiplexed left out", pg.inner_text("#modal"))
         self.assertIn("several switches but no SG_MUL_VAL_", pg.inner_text('#modal [data-raw-mux-problem="Twin"]'))
-        pg.select_option('#modal select[aria-label="Use Status"]', "receive")
-        pg.click('#modal button[data-value="import"]')
+        pg.select_option('#modal select[data-pick="Twin"]', "")
+        pg.click('#modal button[data-value="add"]')
         pg.wait_for_selector("#banner:has-text('Imported 1 message')")
         pg.wait_for_selector("#problem-list li.ok")
         pg.click('tr[data-raw="rx:0"]')
@@ -175,6 +196,81 @@ class RawPage(OnlineBase):
         self.assertEqual(by["Press"]["mux"]["values"], [2])
         self.assertNotIn("on", by["Temp"]["mux"])
         self.assertTrue(all(s.get("iec_location") for s in m["signals"]))
+
+    def draft(self, expr):
+        return self.page.evaluate("() => JSON.parse(JSON.stringify(%s))" % expr)
+
+    def joystick_config(self, dbc="cab.dbc"):
+        self.cfg = load(os.path.join(EXAMPLE, "canworks.json"))
+        raw = self.cfg["networks"][0]["raw"]
+        raw["rx"] = [m for m in raw["rx"] if m["name"] == "Joystick"]
+        raw.pop("tx", None)
+        raw["dbc"] = dbc
+        self.write_config()
+
+    def test_pick_more_messages_later(self):
+        pg = self.page
+        self.joystick_config()
+        shutil.copy(os.path.join(EXAMPLE, "cab.dbc"), os.path.join(self.project, "canworks"))
+        self.open()
+        tree_view(pg, "raw")
+        self.assertEqual(pg.inner_text('[data-raw="dbc"]'), "cab.dbc")
+        self.assertEqual(pg.locator('[data-raw="dbc-missing"]').count(), 0)
+        pg.click('button[data-raw="pick"]')
+        pg.wait_for_selector('#modal select[data-pick="Joystick"]')
+        self.assertEqual(pg.input_value('#modal select[data-pick="Joystick"]'), "")
+        self.assertEqual(pg.inner_text('#modal [data-already="Joystick"]'), "already in received messages")
+        pg.select_option('#modal select[data-pick="Display"]', "")
+        pg.select_option('#modal select[data-pick="Sensor"]', "")
+        pg.click('#modal button[data-value="add"]')
+        pg.wait_for_selector("#banner:has-text('Imported 1 message from cab.dbc')")
+        self.assertEqual(self.draft("S.config.raw.rx.map((m) => m.name)"), ["Joystick", "Pedal"])
+
+    def test_missing_dbc_file(self):
+        pg = self.page
+        self.joystick_config("old.dbc")
+        self.open()
+        tree_view(pg, "raw")
+        self.assertIn("old.dbc is not in the config folder", pg.inner_text('[data-raw="dbc-missing"]'))
+        self.assertEqual(pg.locator('button[data-raw="pick"]').count(), 0)
+
+    def test_second_dbc_and_same_name(self):
+        pg = self.page
+        self.joystick_config()
+        shutil.copy(os.path.join(EXAMPLE, "cab.dbc"), os.path.join(self.project, "canworks"))
+        self.open()
+        tree_view(pg, "raw")
+        status = os.path.join(self.project, "status.dbc")
+        with open(status, "w", encoding="utf-8") as f:
+            f.write(MUX_DBC)
+        # Another file: asked first, and keeping the first one changes nothing.
+        pg.set_input_files('input[data-raw="dbc-input"]', status)
+        pg.wait_for_selector("#modal-text:has-text('come from cab.dbc')")
+        pg.click('#modal button[data-value="cancel"]')
+        self.assertEqual(self.draft("S.config.raw.dbc"), "cab.dbc")
+        # A different file named like the one in the folder: Keep both.
+        other = os.path.join(self.project, "cab.dbc")
+        with open(other, "w", encoding="utf-8") as f:
+            f.write(MUX_DBC)
+        pg.set_input_files('input[data-raw="dbc-input"]', other)
+        pg.wait_for_selector("#modal-text:has-text('Replace it, or keep both')")
+        pg.click('#modal button[data-value="keep_both"]')
+        pg.wait_for_selector('#modal select[data-pick="Status"]')
+        self.assertIn("cab-2.dbc", pg.inner_text("#modal-text"))
+        pg.select_option('#modal select[data-pick="Twin"]', "")
+        pg.click('#modal button[data-value="add"]')
+        pg.wait_for_selector("#banner:has-text('from cab-2.dbc')")
+        self.assertEqual(pg.inner_text('[data-raw="dbc"]'), "cab-2.dbc")
+        pg.wait_for_function("() => document.body.dataset.checking === '0'")
+        pg.click("#btn-save")
+        pg.wait_for_selector("#banner:has-text('Saved')")
+        self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "cab-2.dbc")))
+        with open(os.path.join(self.project, "canworks", "cab.dbc"), encoding="utf-8") as f:
+            self.assertNotIn("Twin", f.read())
+        # Removing every message clears the DBC file.
+        for _ in range(2):
+            pg.click('[data-raw-table="rx"] tbody tr button.danger >> nth=0')
+        pg.wait_for_selector("[data-raw=dbc]:has-text('No DBC file yet.')")
 
     def test_online_view(self):
         pg = self.page

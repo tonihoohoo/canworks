@@ -4,6 +4,7 @@ menu, problem badges and problem links to a node's tab, simulated and absent
 marks, the node tabs, the tree in Commission and the narrow layout. Needs
 Playwright, like test_configurator_page.py."""
 
+import json
 import os
 import shutil
 import threading
@@ -148,12 +149,14 @@ class Tree(unittest.TestCase):
         # SDOs: both lists, even when empty.
         node_tab(pg, "sdos")
         self.assertEqual(pg.locator('[data-node-tab-panel="sdos"] details.section').count(), 2)
-        # Notes: the EDS objects with a note, with search.
+        # Notes: own notes first; all notes, with search.
         node_tab(pg, "notes")
+        pg.click('[data-notes-view-pick="all"]')
+        pg.wait_for_selector('[data-notes-view="all"]')
         rows = pg.locator("[data-note-row]").count()
         self.assertGreater(rows, 0)
         pg.fill("[data-notes-search]", "zzzz-none")
-        pg.wait_for_selector("[data-node-notes] td:has-text('No note matches.')")
+        pg.wait_for_selector("[data-notes-empty]:has-text('No note matches.')")
         pg.fill("[data-notes-search]", "")
         self.assertEqual(pg.locator("[data-note-row]").count(), rows)
         self.assertTrue(pg.is_visible("[data-export-notes]"))
@@ -247,7 +250,7 @@ class Tree(unittest.TestCase):
         pg.wait_for_selector('#tree [data-key="1:node:1"] .name:has-text("valves")')
         # Add a network, then remove it from its menu.
         add_network(pg)
-        pg.click('#modal-buttons [data-value="canopen"], #modal-buttons .primary')
+        pg.click('#modal [data-value="canopen"]')
         pg.wait_for_selector('#tree [data-key="4"]')
         net_action(pg, 4, "remove")
         pg.click("#modal-buttons .danger")
@@ -273,6 +276,51 @@ class Tree(unittest.TestCase):
                 tree_node(pg, 0, tab)
                 self.assertEqual(pg.evaluate(FIT_CHECK), [], "%d px, %s" % (width, tab))
             tree_net(pg, 0)
+
+    def test_nothing_cut(self):
+        """fix-clipped-text-configure: long names are shown whole in the tree,
+        the network entry has its protocol on a second line, and Add network
+        and every network menu keep their buttons inside the dialog."""
+        pg = self.page
+        path = os.path.join(self.folder, "canworks.json")
+        with open(path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg["networks"][3]["name"] = "conveyor_line_01"
+        cfg["networks"][3]["nodes"][0]["name"] = "temperature_inputs_left_side"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        pg.click("#btn-reload")
+        pg.wait_for_function("() => S.model.networks[3].name === 'conveyor_line_01'")
+        whole = """() => [...document.querySelectorAll('#tree .name, #tree .proto')].filter((e) => {
+          const r = e.getBoundingClientRect(), t = document.querySelector('#tree').getBoundingClientRect();
+          return e.scrollWidth > e.clientWidth + 1 || r.right > t.right + 1; }).map((e) => e.textContent)"""
+        for width in (1000, 1280, 1600):
+            pg.set_viewport_size({"width": width, "height": 900})
+            where = "%d px" % width
+            if width <= 1100:
+                pg.click("#tree-toggle")
+            self.assertEqual(pg.evaluate(whole), [], where)
+            net = pg.locator('#tree [data-key="3"] > .tree-row')
+            name, proto = net.locator(".name").bounding_box(), net.locator(".proto").bounding_box()
+            self.assertEqual(pg.inner_text('#tree [data-key="3"] > .tree-row .name'), "conveyor_line_01")
+            self.assertGreaterEqual(proto["y"], name["y"] + name["height"] - 1, where)  # the protocol under the name
+            self.assertIn("temperature_inputs_left_side", pg.inner_text('#tree [data-key="3:node:0"] .name'))
+            self.assertEqual(pg.evaluate(FIT_CHECK), [], where)
+            for k in range(4):
+                pg.click('#tree [data-net-menu="%d"]' % k)
+                self.assertEqual(pg.evaluate(FIT_CHECK), [], "%s, menu of network %d" % (where, k))
+                pg.keyboard.press("Escape")
+                pg.wait_for_selector("#modal", state="hidden")
+                if width <= 1100 and not pg.is_visible("#tree"):
+                    pg.click("#tree-toggle")
+            add_network(pg)
+            pg.wait_for_selector('#modal-extra [data-value="canopen"]')
+            self.assertEqual(pg.evaluate(FIT_CHECK), [], where + ", add network")
+            pg.keyboard.press("Escape")
+            pg.wait_for_selector("#modal", state="hidden")
+            if width <= 1100:
+                pg.keyboard.press("Escape")
+        self.assertEqual(pg.evaluate("() => S.model.networks.length"), 4)
 
     def test_narrow_window(self):
         pg = self.page

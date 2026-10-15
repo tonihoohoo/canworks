@@ -286,6 +286,7 @@ function adapterBox(message) {
     S.adapterOn = true;
     S.adapterEnded = null;
     S.onlineLast = null;
+    if (typeof pdoAutoReset === "function") pdoAutoReset();
     connStop();
     connBar();
     // The first status opens the adapter and runs the bit rate check: a
@@ -337,6 +338,7 @@ async function disconnectAdapter() {
   S.onlineLast = null;
   S.identity = null;
   S.lssAllow = undefined;
+  if (typeof pdoAutoReset === "function") pdoAutoReset();
   render();
 }
 
@@ -348,6 +350,7 @@ function adapterLost(message) {
   connStop();
   S.adapterOn = false;
   S.adapterEnded = message;
+  if (typeof pdoAutoReset === "function") pdoAutoReset();
   S.onlineOpen = false;
   S.onlineLast = null;
   S.identity = null;
@@ -452,7 +455,7 @@ function renderCommNodes(view) {
     el("div", { id: "online-lss" }),
     el("div", { id: "online-node" }));
   if (!S.adapterOn) {
-    view.querySelector("#online-live").before(nodesConnectHome());
+    view.querySelector("#online-live").before(nodesNotConnected());
     view.querySelector("#online-live").hidden = true;
     if (S.onlineNode) renderOnlineNode();
     return;
