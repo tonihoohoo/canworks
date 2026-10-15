@@ -11,6 +11,7 @@ from canworks import diag
 
 from .fake_diag import PLAIN_NETWORK, TOKEN, FakePlugin
 from .helpers import REPO, add_network, net_action, tree_view
+from .test_configurator_layout import CONTRAST
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
@@ -146,6 +147,22 @@ class RawPage(OnlineBase):
         self.assertEqual(sigs[0].get("multiplexer"), True)
         self.assertEqual(sigs[1]["mux"], {"values": [1]})
         self.assertEqual(sigs[2]["mux"], {"values": [2]})
+
+    def test_selected_row_reads(self):
+        """fix-clipped-text-configure: on a selected message row, in both
+        themes, Remove and the row's text keep WCAG AA contrast."""
+        pg = self.page
+        self.plain_config([{"id": 0x300, "dlc": 8}])
+        self.open()
+        tree_view(pg, "raw")
+        pg.click('tr[data-raw="rx:0"]')
+        pg.wait_for_selector('tr.selected[data-raw="rx:0"]')
+        check = CONTRAST.replace("#view *, #side *, #problems *, header *, #banner *, #sim-banner", ".raw-table tr.selected *")
+        for theme in ("light", "dark"):
+            pg.evaluate("(t) => showTheme(t)", theme)  # the colours under test, not the Settings menu
+            pg.wait_for_timeout(200)
+            self.assertTrue(pg.is_visible('tr.selected[data-raw="rx:0"] button.danger'))
+            self.assertEqual(pg.evaluate(check), [], theme)
 
     def test_import_a_multiplexed_message(self):
         pg = self.page

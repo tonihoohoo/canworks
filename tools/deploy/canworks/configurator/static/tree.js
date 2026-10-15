@@ -201,6 +201,12 @@ function treeModel() {
   return out;
 }
 
+// A name with a line break opportunity after each _, so a long name wraps
+// between its words (temperature_ / inputs_left) rather than mid-word.
+function breakable(text) {
+  return String(text).split(/(?<=_)/).flatMap((part, i) => i ? [el("wbr"), part] : [part]);
+}
+
 function renderTree() {
   const host = $("#tree");
   if (!host || !S.model) return;
@@ -223,8 +229,8 @@ function renderTree() {
     el("span", { class: "tree-row" },
       e.kids && e.kids.length ? el("span", { class: "twist", "aria-hidden": "true", onclick: (ev) => { ev.stopPropagation(); toggleNet(e.net); } }, folded ? "▸" : "▾") : null,
       e.mark !== undefined ? fillMark(el("span", { class: "tree-mark " + e.mark, "aria-hidden": "true", dataset: e.word ? { simBadge: e.word } : {} }), e.mark) : null,
-      el("span", { class: "name" }, e.label, e.word ? el("span", { class: "visually-hidden" }, ` (${e.word})`) : null),
-      e.kids ? el("span", { class: "muted proto" }, e.sub) : null,
+      e.kids ? el("span", { class: "tree-label" }, el("span", { class: "name" }, breakable(e.label)), el("span", { class: "muted proto" }, e.sub))
+        : el("span", { class: "name" }, breakable(e.label), e.word ? el("span", { class: "visually-hidden" }, ` (${e.word})`) : null),
       badge(c),
       e.kids && workspace() === "configure" ? el("button", { type: "button", class: "small net-menu", tabindex: "-1",
         "aria-label": `Actions of ${netNamed(S.model.networks[e.net], e.net)}`, title: "Rename, role, remove",

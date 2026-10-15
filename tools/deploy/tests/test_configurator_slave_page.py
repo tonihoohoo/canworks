@@ -107,7 +107,7 @@ class SlavePage(unittest.TestCase):
         # The role from the network's menu in the tree.
         net_action(pg, 1, "role")
         pg.wait_for_selector("#view h2:has-text('Bus and slave device')")
-        self.assertEqual(pg.inner_text('#tree [data-key="1"] > .tree-row > .proto'), "CANopen slave")
+        self.assertEqual(pg.inner_text('#tree [data-key="1"] > .tree-row .proto'), "CANopen slave")
         self.assertIn("slave (this PLC)", pg.inner_text('#tree [data-key="1"] [data-slave] > .tree-row'))
         self.assertEqual(pg.locator('#tree [data-key="1:add"]').count(), 0)
         # The slave's own Network switch: the simulated bus.

@@ -94,11 +94,11 @@ class Base(unittest.TestCase):
         return self.page.inner_text("#problem-count"), self.page.inner_text("#problem-list")
 
     def answer(self, value):
-        self.page.click('#modal-buttons button[data-value="%s"]' % value)
+        self.page.click('#modal button[data-value="%s"]' % value)
 
     def net_entry(self, name):
         """The tree entry of the network named `name`."""
-        return '#tree > li.net:has(> .tree-row > .name:text-is("%s"))' % name
+        return '#tree > li.net:has(> .tree-row .name:text-is("%s"))' % name
 
     def tab(self, name):
         """Opens the network named `name` from its tree entry."""

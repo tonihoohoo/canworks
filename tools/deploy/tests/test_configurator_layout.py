@@ -49,6 +49,24 @@ FIT_CHECK = r"""() => {
     if (shown(e) && e.scrollWidth > e.clientWidth + 1) out.push(["table scrolls sideways", e.className || e.tagName]);
   }
   if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) out.push(["page scrolls sideways"]);
+  // Text cut by its box (fix-clipped-text-configure): only data cells, which
+  // carry their whole value in a tooltip, may be cut.
+  const cutOk = "[role=gridcell], [role=cell], .trace-rows, .series-item, .link-pos, .visually-hidden, .uplot";
+  for (const e of document.querySelectorAll("#view *, #side *, #problems *, header *, dialog[open] *")) {
+    if (!shown(e) || !e.textContent.trim() || e.closest(cutOk)) continue;
+    const cs = getComputedStyle(e);
+    const cuts = cs.overflowX === "hidden" || cs.overflowX === "clip" || cs.textOverflow === "ellipsis";
+    if (cuts && e.scrollWidth > e.clientWidth + 1) out.push(["text cut", e.className || e.tagName, e.textContent.trim().slice(0, 40)]);
+  }
+  // Nothing of an open dialog outside its box.
+  for (const d of document.querySelectorAll("dialog[open]")) {
+    const b = d.getBoundingClientRect();
+    for (const e of d.querySelectorAll("button, p, strong, span, label")) {
+      if (!shown(e)) continue;
+      const r = e.getBoundingClientRect();
+      if (r.left < b.left - 1 || r.right > b.right + 1) out.push(["outside its dialog", d.id, e.textContent.trim().slice(0, 40)]);
+    }
+  }
   return out;
 }"""
 
@@ -258,6 +276,23 @@ class Layout(OnlineBase):
                 pg.evaluate("() => { document.querySelector('#menu-export').open = false; }")
                 pg.click("#btn-close")
                 pg.wait_for_selector("#start:not([hidden])")
+
+    def test_online_access_remote_link(self):
+        """fix-clipped-text-configure: Relay URLs stacks its label, box and
+        help, and a box dragged wider never pushes the page sideways."""
+        pg = self.page
+        self.write_config({"token_verifier": diag.token_verifier(TOKEN), "remote_link": {"internet": True}})
+        self.open()
+        tree_view(pg, "access")
+        relays = pg.locator('textarea[data-online="relays"]')
+        label = pg.locator('label:has(textarea[data-online="relays"])')
+        box, lab = relays.bounding_box(), label.bounding_box()
+        self.assertLess(lab["y"] + 4, box["y"])  # the label's text above the box
+        hint = label.locator(".hint").bounding_box()
+        self.assertGreaterEqual(hint["y"], box["y"] + box["height"] - 1)  # the help under it
+        self.fits("online access with the remote link")
+        pg.evaluate("() => { document.querySelector('textarea[data-online=relays]').style.width = '2000px'; }")
+        self.assertEqual(pg.evaluate(FIT_CHECK), [], "relay box dragged wide")
 
     def test_forced_colours_and_legend(self):
         """Windows High Contrast (forced colours): the state icons on the
