@@ -77,16 +77,20 @@ async function connTick() {
   let err = null;
   try {
     r = await api("POST", "/api/online/status", { port: diagPort() });
-    if (r && r.recent) S.online.recent = r.recent;
   } catch (e) { err = e; }
+  // The settings may still be loading at the first answer.
+  if (r && r.recent && S.online) S.online.recent = r.recent;
   if (seq !== CONN.seq || !connIsOn()) return;
   if (err && !CONN.error && !connAdapter() && typeof commEvent === "function" && commLogOn()) commEvent(null, onlineNetwork(), "Connection to the runtime lost", err.message);
   CONN.error = err;
   if (r) {
     S.onlineLast = r;
     S.onlineLastAt = Date.now();
-    if (typeof logEvents === "function") logEvents(r.status);
-    if (typeof treeLive === "function" && !onlineViews().includes(S.view)) treeLive(r.status);
+    // The log and the tree's marks must never stop the connection itself.
+    try {
+      if (typeof logEvents === "function") logEvents(r.status);
+      if (typeof treeLive === "function" && !onlineViews().includes(S.view)) treeLive(r.status);
+    } catch (e) { console.error(e); }
   }
   if (err && connAdapter()) { adapterLost(err.message); return; }
   connBar();
