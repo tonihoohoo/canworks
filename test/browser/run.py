@@ -309,12 +309,13 @@ class Run:
         pg = self.page
         self.view("trace")
         pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
-        pg.click("[data-trace=start]")
+        pg.click("[data-trace=start-stop]")
         pg.wait_for_selector("#trace-source:has-text('recording')", timeout=STEP_TIMEOUT_MS)
         pg.wait_for_function("() => /[1-9][\\d,.]* frames/.test(document.querySelector('[data-trace=stats]').innerText)",
                              timeout=STEP_TIMEOUT_MS)
-        pg.click("[data-trace=stop]")
+        pg.click("[data-trace=start-stop]")
         pg.wait_for_selector("#trace-source:has-text('stopped')", timeout=STEP_TIMEOUT_MS)
+        pg.click("[data-trace=save-menu] > summary")
         pg.select_option("select[data-trace=export-format]", "pcapng")
         with pg.expect_download() as dl:
             pg.click("[data-trace=export]")

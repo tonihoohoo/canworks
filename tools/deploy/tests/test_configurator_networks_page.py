@@ -299,7 +299,7 @@ class NetworksPage(unittest.TestCase):
             # The trace records the picked network.
             pg.click('button[data-view="trace"]')
             self.assertEqual(pg.input_value('select[data-online="network"]'), "drives")
-            pg.click('button[data-trace="start"]')
+            pg.click('button[data-trace="start-stop"]')
             pg.wait_for_selector("#trace-source:has-text('network drives')")
             # The fake runtime records the start on its own thread: wait for it.
             for _ in range(50):
@@ -307,7 +307,7 @@ class NetworksPage(unittest.TestCase):
                     break
                 pg.wait_for_timeout(100)
             self.assertEqual(fp.trace_starts[-1]["network"], "drives")
-            pg.click('button[data-trace="stop"]')
+            pg.click('button[data-trace="start-stop"]')
 
     # -- exports (6.5) ------------------------------------------------------
     def test_exports_of_the_open_tab_or_all(self):

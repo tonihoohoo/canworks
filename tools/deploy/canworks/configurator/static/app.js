@@ -909,7 +909,6 @@ function render() {
   stopSim(S.view === "simulation");
   stopMachine();
   stopTrace();
-  if (S.view !== "trace" && typeof sendLeave === "function") sendLeave();
   const view = $("#view");
   view.replaceChildren();
   if (S.view === "bus") {

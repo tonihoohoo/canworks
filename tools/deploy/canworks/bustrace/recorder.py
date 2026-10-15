@@ -26,6 +26,7 @@ from .stats import Analysis
 FETCH_INTERVAL = 0.1
 STATUS_INTERVAL = 0.5
 RECONNECT_INTERVAL = 1.0
+LOST_AFTER_S = 10.0  # a runtime that answers no reconnect for this long ends the recording
 TOO_OLD = ("the CANopen plugin on the runtime is too old for traces; update it (install-stock.sh) and upload "
            "again")
 
@@ -60,11 +61,16 @@ class Session:
 
 
 class Recorder:
-    """state: idle, connecting, recording, no_bus, reconnecting, stopped, error."""
+    """state: idle, connecting, recording, no_bus, reconnecting, stopped,
+    ended (the connection ended; the frames are kept), error.
+
+    ended: () -> a reason when the page's connection ended (Disconnect, an
+    adapter's bus-off), else None. offset_us: the clock offset of the
+    recording this one continues, so its gap lands on the same time axis."""
 
     def __init__(self, connect, session, filters=None, error_frames=False, trigger=None, autosave_dir=None,
                  name_prefix="canworks", fetch_interval=FETCH_INTERVAL, status_interval=STATUS_INTERVAL,
-                 on_stop=None):
+                 on_stop=None, ended=None, offset_us=None, lost_after=LOST_AFTER_S):
         self.connect = connect  # () -> a connected diag.Client
         self.session = session
         self.filters = list(filters or [])
@@ -75,11 +81,13 @@ class Recorder:
         self.fetch_interval = fetch_interval
         self.status_interval = status_interval
         self.on_stop = on_stop
+        self.ended = ended
+        self.lost_after = lost_after
         self.state = "idle"
         self.message = ""
         self.saved = []  # auto-saved file paths
         self.status = None  # the latest status answer
-        self.offset_us = None  # PC clock - PLC clock (smallest seen)
+        self.offset_us = offset_us  # PC clock - PLC clock (smallest seen)
         self.stop_at_us = None  # single mode: stop when frames reach this time
         self.pending_saves = []  # [(hit_us, until_us)]
         self.trimmed = 0  # single mode: frames outside the pre/post window, removed at the stop
@@ -118,12 +126,25 @@ class Recorder:
         return out
 
     # -- the loop -------------------------------------------------------------
+    def _end(self, reason):
+        """The connection ended: the frames stay, a marker says why."""
+        now_us = int(time.time() * 1e6) - (self.offset_us or 0)
+        with self.session.lock:
+            at = max(now_us, self.session.analysis.last_us or 0)
+            self.session.trace.add_marker(at, "connection ended: %s" % reason, "end")
+        self.state, self.message = "ended", "connection ended: %s" % reason
+
     def _run(self):
         client = None
         next_seq = 0
         last_status = 0.0
+        last_ok = time.monotonic()
         try:
             while not self._stop.is_set():
+                reason = self.ended() if self.ended else None
+                if reason:
+                    self._end(reason)
+                    break
                 if client is None:
                     try:
                         client = self.connect()
@@ -139,6 +160,12 @@ class Recorder:
                         if e.kind in ("token", "protocol"):
                             self.state, self.message = "error", str(e)
                             return
+                        if str(e).startswith("connection ended"):
+                            self._end(str(e)[len("connection ended"):].lstrip(": ") or "closed")
+                            break
+                        if time.monotonic() - last_ok > self.lost_after:
+                            self._end("not answering for %d s" % self.lost_after)
+                            break
                         if e.kind == "refused" and "no bus" in str(e):
                             self.state, self.message = "no_bus", "no CANopen session on the runtime (waiting)"
                         else:
@@ -157,8 +184,13 @@ class Recorder:
                             meta["bitrate"] = r["bitrate"]
                             self.session.analysis.bitrate = r["bitrate"]
                         if len(self.session.trace):
-                            # Reconnected: whatever happened meanwhile is not in the trace.
-                            self.session.feed([Frame(int(time.time() * 1e6) - (self.offset_us or 0), 0, gap=True)])
+                            # Reconnected, or a recording continued: whatever
+                            # happened meanwhile is not in the trace.
+                            at = int(time.time() * 1e6) - (self.offset_us or 0)
+                            last = self.session.analysis.last_us
+                            self.session.feed([Frame(at, 0, gap=True)])
+                            if last is not None and at - last >= 1_000_000:
+                                self.session.trace.add_marker(at, "gap of %.1f s" % ((at - last) / 1e6), "gap")
                     next_seq = int(r.get("next") or 0)
                     self.state, self.message = "recording", ""
                 try:
@@ -171,8 +203,12 @@ class Recorder:
                 except diag.DiagError as e:
                     client.close()
                     client = None
+                    if str(e).startswith("connection ended"):
+                        self._end(str(e)[len("connection ended"):].lstrip(": ") or "closed")
+                        break
                     self.state, self.message = "reconnecting", str(e)
                     continue
+                last_ok = time.monotonic()
                 self._autosave_due()
                 if self.stop_at_us is not None and (self.session.analysis.last_us or 0) >= self.stop_at_us:
                     self.message = "stopped by the trigger"
@@ -195,7 +231,7 @@ class Recorder:
             self._autosave_due(force=True)
             if self.stop_at_us is not None:
                 self._keep_window()
-            if self.state != "error":
+            if self.state not in ("error", "ended"):
                 self.state = "stopped"
             if self.on_stop:
                 self.on_stop(self)

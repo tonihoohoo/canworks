@@ -34,7 +34,7 @@ The result shows in `hello` and `status` as `bitrate_check` (`{"result": "confir
 
 ### Bus errors end the connection
 
-After the check, the connection ends when the adapter goes bus-off or error passive, or when 10 error frames arrive within 1 s without a valid frame. A gs_usb adapter whose sent frame is not echoed within 0.5 s ends it too ("the adapter stopped sending"). Every later request then answers "connection ended: <reason>": a scan, PDO test, SYNC, Send panel job or trace on the connection stops. Connecting again runs the check again.
+After the check, the connection ends when the adapter goes bus-off or error passive, or when 10 error frames arrive within 1 s without a valid frame. A gs_usb adapter whose sent frame is not echoed within 0.5 s ends it too ("the adapter stopped sending"). Every later request then answers "connection ended: <reason>": a scan, PDO test, SYNC, transmit list job or trace on the connection stops (the trace keeps its frames and says the connection ended). Connecting again runs the check again.
 
 ## First steps
 
