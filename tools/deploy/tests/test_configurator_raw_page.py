@@ -11,7 +11,7 @@ from canworks import diag
 
 from .fake_diag import PLAIN_NETWORK, TOKEN, FakePlugin
 from .helpers import REPO, add_network, net_action, tree_view
-from .test_configurator_layout import CONTRAST, pick_theme
+from .test_configurator_layout import CONTRAST
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
@@ -153,15 +153,13 @@ class RawPage(OnlineBase):
         themes, Remove and the row's text keep WCAG AA contrast."""
         pg = self.page
         self.plain_config([{"id": 0x300, "dlc": 8}])
-        pg.set_viewport_size({"width": 1280, "height": 800})  # the Settings menu in view, as in the layout tests
         self.open()
         tree_view(pg, "raw")
         pg.click('tr[data-raw="rx:0"]')
         pg.wait_for_selector('tr.selected[data-raw="rx:0"]')
         check = CONTRAST.replace("#view *, #side *, #problems *, header *, #banner *, #sim-banner", ".raw-table tr.selected *")
         for theme in ("light", "dark"):
-            pg.evaluate("() => window.scrollTo(0, 0)")
-            pick_theme(pg, theme)
+            pg.evaluate("(t) => showTheme(t)", theme)  # the colours under test, not the Settings menu
             pg.wait_for_timeout(200)
             self.assertTrue(pg.is_visible('tr.selected[data-raw="rx:0"] button.danger'))
             self.assertEqual(pg.evaluate(check), [], theme)
