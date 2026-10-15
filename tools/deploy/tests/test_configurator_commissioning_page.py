@@ -126,6 +126,14 @@ class PdoTestPage(Page):
         self.open_node(23, "pdo", "fixed-io.eds", allow=False)
         pg.wait_for_selector('[data-online="pdo-no-changes"]')
         self.assertTrue(pg.is_disabled('button[data-online="pdo-start"]'))
+        # Notes without a config: shown and exportable, not written or imported.
+        pg.click('button[data-online-tab="notes"]')
+        pg.wait_for_selector("[data-notes-readonly]:has-text('open the device in a config')")
+        self.assertEqual(pg.locator("[data-node-notes] button[data-add-note], [data-node-notes] button[data-import-notes], "
+                                    "[data-node-notes] button[data-note-edit]").count(), 0)
+        self.assertTrue(pg.is_visible("[data-node-notes] button[data-export-notes]"))
+        pg.click('[data-notes-view-pick="all"]')
+        pg.wait_for_selector('[data-note-row="0x1017:0"][data-note-source="builtin"]')
 
 
 class LogPage(Page):

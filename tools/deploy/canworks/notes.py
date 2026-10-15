@@ -278,6 +278,75 @@ def apply_changes(objects, changes):
     return out
 
 
+def filled(entry):
+    """Whether a device entry holds a note of the user's: any note field, not
+    only the `name` the skeleton writes."""
+    return isinstance(entry, dict) and any(entry.get(f) not in ("", None) for f in FIELDS)
+
+
+def own_objects(objects):
+    """The filled entries of a device table, in their order."""
+    return {k: v for k, v in (objects or {}).items() if filled(v)}
+
+
+def _builtin_layer(eds, builtin_table, index, sub):
+    """The built-in note a key stands for: a VAR's object key is its sub 0, a
+    record's object key its own entry."""
+    if sub is None:
+        return _layer(builtin_table, eds, index, 0) if _is_var(eds, index) else dict(builtin_table.get(key(index)) or {})
+    return _layer(builtin_table, eds, index, sub)
+
+
+def _differs(identity_, other):
+    """None when two EDS identities agree, else "device" or "revision"."""
+    if not isinstance(other, dict):
+        return None
+    for k in ("vendor_id", "product_code"):
+        if other.get(k) and identity_.get(k) and str(other[k]).upper() != str(identity_[k]).upper():
+            return "device"
+    if other.get("revision") and identity_.get("revision") and str(other["revision"]).upper() != str(identity_["revision"]).upper():
+        return "revision"
+    return None
+
+
+def plan_import(eds, notes_, doc, identity_=None):
+    """What importing the notes document `doc` would do to `notes_` (a Notes
+    with the page's edits): (changes {key: entry} for the page's draft,
+    preview {new, changed, same, skipped: [key]}, warnings). Fields equal to
+    the built-in note or to the note as it is now, and `name`, are not
+    imported; an imported field replaces that field of the entry and its
+    other fields stay."""
+    changes = {}
+    preview = {"new": [], "changed": [], "same": [], "skipped": []}
+    for k, v in sorted((doc.get("objects") or {}).items(), key=lambda kv: _sort_key(kv[0])):
+        pk = parse_key(k)
+        if pk is None or not isinstance(v, dict):
+            preview["skipped"].append(k)
+            continue
+        ix, sub = pk
+        if ix not in eds.objects or (sub is not None and sub not in eds.objects[ix]):
+            preview["skipped"].append(k)
+            continue
+        base = _builtin_layer(eds, notes_.builtin, ix, sub)
+        now = notes_.note(ix, 0 if sub is None else sub) if sub is not None or _is_var(eds, ix) else dict(notes_.device.get(k) or {})
+        got = {f: v[f] for f in FIELDS if v.get(f) not in ("", None) and v[f] != base.get(f) and v[f] != now.get(f)}
+        if not got:
+            preview["same"].append(k)
+            continue
+        old = notes_.device.get(k) or {}
+        entry = {f: old[f] for f in FIELDS if old.get(f) not in ("", None)}
+        entry.update(got)
+        changes[k] = entry
+        preview["changed" if filled(old) else "new"].append(k)
+    warnings = []
+    other = _differs(identity_ or {}, doc.get("eds"))
+    if other == "device":
+        warnings.append("This notes file was made for another device (%s)" % (doc["eds"].get("file") or "other EDS"))
+    elif other == "revision":
+        warnings.append("This notes file was made for another revision of this device")
+    return changes, preview, warnings
+
+
 def _sort_key(k):
     ix, sub = parse_key(k) or (0x10000, None)
     return ix, -1 if sub is None else sub

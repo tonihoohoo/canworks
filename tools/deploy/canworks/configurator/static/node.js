@@ -36,7 +36,7 @@ function renderNode(view, i) {
   const tab = nodeTab(i);
   const exportBtn = el("button", { type: "button", dataset: { exportDcf: i }, title: "This node as a CiA 306 DCF file, checked",
     onclick: () => busy(exportBtn, "Exporting…", () => exportDcf(n.node_id, tabNetwork())) }, "Export DCF");
-  const list = tabs(nodeTabs(i), tab, (k) => { setNodeTab(k); render(); },
+  const list = tabs(nodeTabs(i).map(([k, label]) => [k, k === "notes" ? notesTabLabel(n.eds, eds) : label]), tab, (k) => { setNodeTab(k); render(); },
     { class: "tabs node-tabs", dataset: "nodeTab", panel: "node-panel", label: `Node ${n.node_id ?? "?"} ${n.name || ""}`.trim() });
   view.append(
     el("div", { class: "toolbar" }, el("h2", { dataset: { nodeHeading: i } }, `Node ${n.node_id ?? "?"} ${n.name || ""}`),
@@ -133,46 +133,209 @@ function nodeSimTab(n) {
   return box;
 }
 
-// The objects of the node's EDS that have a note, built-in or the user's own.
-function nodeNotesTab(n, eds) {
+// -- Notes tab (notes-tab-own-notes): the user's own notes first, with
+// views for all notes and all objects, and the place to add, import and
+// export notes. The Note editor is opened from here only.
+const NOTE_VIEWS = [["mine", "My notes"], ["all", "All notes"], ["objects", "All objects"]];
+
+function noteFilled(entry) {
+  return !!entry && NOTE_FIELDS.some((f) => entry[f] !== undefined && entry[f] !== null && entry[f] !== "");
+}
+
+// One row of an EDS object for the Notes tab: its merged note and where the
+// note comes from ("mine", "builtin", "changed" or "" for none).
+function noteRowOf(block, name, o) {
+  const isVar = !!o.var;
+  const note = noteFor(block, name, o.index, o.subindex, isVar);
+  if (!block) return { o, note, source: "" };
+  const device = block.error ? {} : applyNoteEdits(block.device, name ? noteEdits(name) : null);
+  const own = noteFilled(noteLayer(device, o.index, o.subindex, isVar));
+  const built = noteFilled(noteLayer(block.builtin || {}, o.index, o.subindex, isVar));
+  return { o, note, source: own ? (built ? "changed" : "mine") : built ? "builtin" : "" };
+}
+
+const NOTE_SOURCE = { mine: "Mine", builtin: "Built-in", changed: "Built-in, changed" };
+
+// `block` stands in for the EDS's notes in the page state (the notes an
+// online object dictionary was read with); null: the page state's.
+function noteRows(name, eds, block) {
+  block = block || notesOf(name);
+  return eds && eds.objects ? eds.objects.map((o) => noteRowOf(block, name, o)) : [];
+}
+
+// The number of objects with a note of the user's own, for the tab label.
+function ownNoteCount(name, eds) {
+  return noteRows(name, eds).filter((r) => r.source === "mine" || r.source === "changed").length;
+}
+
+// "Notes" with the count of the user's own notes, as the Log tab shows its entries.
+function notesTabLabel(name, eds) {
+  const c = name && eds && !eds.error ? ownNoteCount(name, eds) : 0;
+  return c ? `Notes ${c}` : "Notes";
+}
+
+function nodeNotesTab(n, eds, readBlock) {
   const box = el("div", { dataset: { nodeNotes: "1" } });
-  const block = notesOf(n.eds);
-  if (!n.eds || !eds || eds.error || !eds.objects) {
+  const name = n.eds;
+  const block = readBlock || notesOf(name);
+  if (!name || !eds || eds.error || !eds.objects) {
     box.append(el("p", { class: "muted" }, "No notes: the node has no EDS that could be read."));
     return box;
   }
-  const editable = notesEditable(n.eds);
+  const editable = !readBlock && notesEditable(name);
+  const view = NOTE_VIEWS.some(([k]) => k === S.notesView) ? S.notesView : "mine";
   const search = el("input", { type: "search", placeholder: "Index or name", "aria-label": "Search notes", dataset: { notesSearch: "1" } });
   search.value = S.notesFilter || "";
-  const exportBtn = el("button", { type: "button", dataset: { exportNotes: "1" },
-    title: "The notes of every object of this node's EDS, built-in and your own merged, as one file",
-    onclick: () => busy(exportBtn, "Exporting…", () => exportNotes(n.eds)) }, "Export merged notes");
+  const views = el("div", { class: "segmented", role: "group", "aria-label": "Show", dataset: { notesView: view } },
+    NOTE_VIEWS.map(([k, label]) => el("button", { type: "button", "aria-pressed": String(view === k), dataset: { notesViewPick: k },
+      onclick: () => { S.notesView = k; render(); focusSel(`[data-notes-view-pick="${k}"]`); } }, label)));
+  const addBtn = editable ? el("button", { type: "button", dataset: { addNote: "1" }, title: "Write a note for any object of this EDS",
+    onclick: () => addNote(name, eds) }, "Add note…") : null;
+  const importBtn = editable ? el("button", { type: "button", dataset: { importNotes: "1" }, title: "Add the notes of a notes file, with a preview first",
+    onclick: () => importNotes(name) }, "Import notes…") : null;
+  const exportBtn = el("button", { type: "button", dataset: { exportNotes: "1" }, title: "Your own notes, or all notes merged with the built-in ones, as a notes file",
+    onclick: () => exportNotesAsk(name, eds, exportBtn, readBlock) }, "Export notes…");
+  const rows = noteRows(name, eds, readBlock);
+  const shown = rows.filter((r) => view === "objects" || (view === "all" ? !!Object.keys(r.note).length : r.source === "mine" || r.source === "changed"));
   const tbody = el("tbody");
+  const empty = el("div", { dataset: { notesEmpty: view } });
   const fill = () => {
     const q = search.value.trim().toLowerCase().replace(/^0x/, "");
     S.notesFilter = search.value;
-    const rows = [];
-    for (const o of eds.objects) {
-      const note = noteFor(block, n.eds, o.index, o.subindex, !!o.var);
-      if (!Object.keys(note).length) continue;
+    const out = [];
+    for (const { o, note, source } of shown) {
       const idx = `${o.index}:${o.subindex}`;
-      if (q && !idx.toLowerCase().replace(/0x/g, "").includes(q) && !(o.name || "").toLowerCase().includes(q)) continue;
+      if (q && !idx.toLowerCase().replace(/0x/g, "").includes(q) && !(o.name || "").toLowerCase().includes(q)
+        && !(note.text || "").toLowerCase().includes(q)) continue;
       const meaning = [note.unit ? "unit " + note.unit : "", note.values ? Object.entries(note.values).map(([k, v]) => `${k} = ${v}`).join(", ") : ""].filter(Boolean).join("; ");
-      rows.push(el("tr", { dataset: { noteRow: idx } },
+      out.push(el("tr", { dataset: { noteRow: idx, noteSource: source || "none" } },
         el("td", { class: "mono" }, idx), el("td", null, o.name || ""),
         el("td", null, note.text || "", meaning ? el("div", { class: "muted" }, meaning) : null),
+        el("td", { class: "muted note-source" }, NOTE_SOURCE[source] || ""),
         el("td", { class: "actions" }, editable ? el("button", { type: "button", class: "small", dataset: { noteEdit: idx },
-          onclick: async () => { if (await editNote(n.eds, block, o.index, o.subindex, !!o.var, `${idx} ${o.name || ""}`)) fill(); } }, "Note") : null)));
+          "aria-label": `Note for ${idx} ${o.name || ""}`.trim(),
+          onclick: async () => { if (await editNote(name, block, o.index, o.subindex, !!o.var, `${idx} ${o.name || ""}`)) afterNoteEdit(idx); } }, "Note") : null)));
     }
-    put(tbody, rows.length ? rows : [el("tr", null, el("td", { colspan: 4, class: "muted" }, q ? "No note matches." : "No object of this EDS has a note yet."))]);
+    put(tbody, out);
+    table.hidden = !out.length;
+    if (out.length) { empty.replaceChildren(); return; }
+    if (q && shown.length) { empty.replaceChildren(el("p", { class: "muted" }, "No note matches.")); return; }
+    const showAll = el("button", { type: "button", dataset: { notesShowAll: "1" },
+      onclick: () => { S.notesView = "all"; render(); focusSel('[data-notes-view-pick="all"]'); } }, "Show all notes");
+    empty.replaceChildren(view === "mine"
+      ? el("div", { class: "empty-state" }, el("p", { class: "muted" }, "You have not written any notes for this device yet. "
+          + (editable ? "Add a note for any object, or import a notes file." : "")),
+        el("div", { class: "toolbar" }, editable ? el("button", { type: "button", onclick: () => addNote(name, eds) }, "Add note…") : null,
+          editable ? el("button", { type: "button", onclick: () => importNotes(name) }, "Import notes…") : null, showAll))
+      : el("p", { class: "muted" }, "No object of this EDS has a note yet."));
   };
+  const table = el("table", { class: "od notes-table" },
+    el("thead", null, el("tr", null, thCells(["Object", "Name", "Note", "From", ""]))), tbody);
   search.addEventListener("input", fill);
+  box.append(el("div", { class: "toolbar notes-toolbar" }, search, views, addBtn, importBtn, exportBtn));
+  if (!editable) box.append(el("p", { class: "muted", dataset: { notesReadonly: "1" } },
+    block && block.error ? `The notes file cannot be read: ${block.error}`
+      : S.state && S.state.commission ? "Notes can be read and exported here; to write or import notes, open the device in a config."
+      : "These notes cannot be edited here (the EDS's notes file is not writable)."));
+  box.append(table, empty);
   fill();
-  box.append(el("div", { class: "toolbar" }, search, el("div", { class: "spacer" }), exportBtn));
-  if (!editable) box.append( el("p", { class: "muted", dataset: { notesReadonly: "1" } },
-      block && block.error ? `The notes file cannot be read: ${block.error}` : "These notes cannot be edited here (the EDS's notes file is not writable)."));
-  box.append(el("table", { class: "od notes-table" }, el("thead", null, el("tr", null, thCells(["Object", "Name", "Note", ""]))), tbody));
   return box;
+}
+
+function focusSel(sel) { const x = document.querySelector(sel); if (x) x.focus(); }
+
+// After a note was written on the Notes tab: the tab (and its count) again,
+// with the focus on that object's row.
+function afterNoteEdit(idx) {
+  render();
+  focusSel(`[data-note-row="${idx}"] button[data-note-edit]`);
+}
+
+// "Add note…": a list of every object of the EDS, then the Note editor.
+async function addNote(name, eds) {
+  const block = notesOf(name);
+  const rows = noteRows(name, eds);
+  const filter = el("input", { type: "search", placeholder: "Index or name", "aria-label": "Find an object", dataset: { notePickerFilter: "1" } });
+  const body = el("tbody");
+  let picked = null;
+  const choose = (r) => { picked = r; const b = document.querySelector('#modal-buttons [data-value="pick"]'); if (b) b.click(); };
+  const fill = () => {
+    const q = filter.value.trim().toLowerCase().replace(/^0x/, "");
+    body.replaceChildren(...rows.filter(({ o }) => !q || `${o.index}:${o.subindex}`.toLowerCase().replace(/0x/g, "").includes(q)
+      || (o.name || "").toLowerCase().includes(q)).map((r) => {
+      const idx = `${r.o.index}:${r.o.subindex}`;
+      return el("tr", null, el("td", { class: "mono" }, idx), el("td", null, r.o.name || ""),
+        el("td", { class: "muted" }, r.source ? NOTE_SOURCE[r.source] : "no note"),
+        el("td", { class: "actions" }, el("button", { type: "button", class: "small", dataset: { notePick: idx },
+          "aria-label": `Write a note for ${idx} ${r.o.name || ""}`.trim(), onclick: () => choose(r) }, r.source ? "Edit" : "Write")));
+    }));
+  };
+  filter.addEventListener("input", fill);
+  filter.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const first = body.querySelector("button[data-note-pick]");
+    if (first) first.click();
+  });
+  fill();
+  const box = el("div", { class: "note-picker" }, filter,
+    el("div", { class: "note-picker-list" }, el("table", { class: "od" },
+      el("thead", null, el("tr", null, thCells(["Object", "Name", "Note", ""]))), body)));
+  const v = await modal("Add a note: pick the object.", [["cancel", "Cancel"], ["pick", "Pick", { hidden: true }]], box);
+  if (v !== "pick" || !picked) return;
+  const idx = `${picked.o.index}:${picked.o.subindex}`;
+  if (await editNote(name, block, picked.o.index, picked.o.subindex, !!picked.o.var, `${idx} ${picked.o.name || ""}`)) {
+    if (S.notesView !== "objects") S.notesView = S.notesView || "mine";
+    S.notesFilter = "";
+    afterNoteEdit(idx);
+  }
+}
+
+// "Import notes…": a notes file, a preview of what it changes, then one draft edit.
+async function importNotes(name) {
+  const input = el("input", { type: "file", accept: ".json", "aria-label": "Notes file", dataset: { importNotesFile: "1" } });
+  const pick = await modal("Import notes from a notes file (.notes.json, also a file made by Export notes):",
+    [["next", "Next", true], ["cancel", "Cancel"]], input);
+  if (pick !== "next" || !input.files.length) return;
+  const file = input.files[0];
+  let r;
+  try {
+    r = await api("POST", "/api/import_notes", { config: fileConfig(), eds: name, file: file.name, text: await file.text(), notes: S.model.notes });
+  } catch (e) { banner(e.message, true); return; }
+  const p = r.preview;
+  const count = Object.keys(r.changes).length;
+  const label = (k) => `${k} ${r.names[k] || ""}`.trim();
+  const group = (key, title) => p[key].length ? el("details", { dataset: { importGroup: key } },
+    el("summary", null, `${title}: ${p[key].length}`), el("ul", null, p[key].map((k) => el("li", null, label(k))))) : null;
+  const box = el("div", { class: "note-import", dataset: { importPreview: "1" } },
+    r.warnings.map((w) => el("p", { class: "field-msg warning", dataset: { importWarning: "1" } }, w + ".")),
+    el("p", null, `New notes: ${p.new.length}. Changed notes: ${p.changed.length}. Already the same: ${p.same.length}. `
+      + `Skipped (not in ${name}): ${p.skipped.length}.`),
+    group("new", "New notes"), group("changed", "Changed notes"), group("same", "Already the same"), group("skipped", "Skipped"));
+  if (!count) {
+    await modal(`${file.name}: nothing to import, the notes are already the same.`, [["cancel", "Close"]], box);
+    return;
+  }
+  const go = await modal(`${file.name} into the notes of ${name}:`, [["cancel", "Cancel"], ["import", `Import ${count} note${count === 1 ? "" : "s"}`, true]], box);
+  if (go !== "import") return;
+  S.model.notes = S.model.notes || {};
+  S.model.notes[name] = Object.assign(S.model.notes[name] || {}, r.changes);
+  S.notesView = "mine";
+  S.notesFilter = "";
+  changed(true);
+  banner(`Imported ${count} note${count === 1 ? "" : "s"} from ${file.name}. Save to keep them; Ctrl+Z undoes the import.`);
+}
+
+// "Export notes…": the user's own notes, or all notes merged with the built-in ones.
+async function exportNotesAsk(name, eds, button, readBlock) {
+  if (readBlock) { exportNotesRead(name, eds, readBlock, button); return; }
+  const own = ownNoteCount(name, eds);
+  const buttons = [["cancel", "Cancel"], ["merged", "Merged with built-in"]];
+  if (own) buttons.push(["own", "My notes", true]);
+  const v = await modal(own ? `Export the notes of ${name}: your own ${own} note${own === 1 ? "" : "s"}, or every note merged with canworks' built-in ones.`
+    : `Export the notes of ${name}: you have no notes of your own yet, so only the merged file (with canworks' built-in notes) is offered.`, buttons);
+  if (v !== "own" && v !== "merged") return;
+  await busy(button, "Exporting…", () => exportNotes(name, v === "own"));
 }
 
 // The problem counts on the open node's tabs.
@@ -186,4 +349,23 @@ function nodeTabBadges() {
     const x = badge(counts[`${S.net}:node:${i}/${b.dataset.nodeTab}`]);
     if (x) b.append(" ", x);
   }
+}
+
+// Export without a config (Commission a device): the merged notes the object
+// dictionary was read with, built on the page, as one notes file.
+async function exportNotesRead(name, eds, block, button) {
+  await busy(button, "Exporting…", async () => {
+    const objects = {};
+    for (const { o, note } of noteRows(name, eds, block)) {
+      if (Object.keys(note).length) objects[o.var && num(o.subindex) === 0 ? noteKey(o.index) : noteKey(o.index, o.subindex)] = note;
+    }
+    const file = (name.split(/[\\/]/).pop() || "device") + ".merged.notes.json";
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ format: "canworks-notes.v1", eds: { file: name }, objects }, null, 2) + "\n"], { type: "application/json" }));
+    const a = el("a", { href: url, download: file });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    banner(`Exported ${file}.`);
+  });
 }

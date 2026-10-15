@@ -697,9 +697,8 @@ class Session:
             return n.edited(changes.get(value) if not built and isinstance(changes.get(value), dict) else None)
         return source
 
-    def export_notes(self, cfg, name, changes):
-        """The merged notes of one EDS of the draft (built-in and device, with
-        the page's edits) as a notes document."""
+    def _draft_notes(self, cfg, name):
+        """(EDS, its notes, its path) of one EDS of the draft."""
         paths = self.eds_paths(cfg)
         if name not in paths:
             raise ApiError(422, "no node of the configuration uses the EDS %r" % name)
@@ -708,10 +707,48 @@ class Session:
         except (OSError, EdsError) as e:
             raise ApiError(422, "EDS file %s cannot be read: %s" % (paths[name], e))
         built = self.built_eds(name)
-        n = notes_mod.Notes.for_eds(eds, name, None if built else self.notes_eds_path(name))
+        return eds, notes_mod.Notes.for_eds(eds, name, None if built else self.notes_eds_path(name)), paths[name]
+
+    def export_notes(self, cfg, name, changes, own=False):
+        """The notes of one EDS of the draft, with the page's edits, as a notes
+        document: merged (built-in and device), or with `own` the user's own
+        notes only (the device file's filled entries)."""
+        eds, n, path = self._draft_notes(cfg, name)
         edits = (changes or {}).get(name) if isinstance(changes, dict) else None
-        doc = {"format": notes_mod.FORMAT, "eds": notes_mod.identity(name, paths[name]), "objects": n.merged(edits)}
+        if own:
+            ident = (n.document or {}).get("eds") or notes_mod.identity(name, path)
+            doc = {"format": notes_mod.FORMAT, "eds": ident,
+                   "objects": notes_mod.own_objects(notes_mod.apply_changes(n.device, edits))}
+            return {"name": os.path.basename(name) + notes_mod.SUFFIX, "data": notes_mod.dumps(doc),
+                    "count": len(doc["objects"])}
+        doc = {"format": notes_mod.FORMAT, "eds": notes_mod.identity(name, path), "objects": n.merged(edits)}
         return {"name": os.path.basename(name) + ".merged" + notes_mod.SUFFIX, "data": notes_mod.dumps(doc)}
+
+    def import_notes(self, cfg, name, text, file_name, changes):
+        """What importing a notes file into one EDS of the draft would do, for
+        the page to preview and apply as one draft edit (spec
+        canopen-device-notes, Import notes). Nothing is written."""
+        eds, n, path = self._draft_notes(cfg, name)
+        if self.built_eds(name) or self.commission or n.error:
+            raise ApiError(422, "the notes of %s cannot be edited here" % name)
+        file_name = os.path.basename(file_name or "") or "the file"
+        if not isinstance(text, str):
+            raise ApiError(422, "no file text")
+        doc, error = notes_mod.load_text(text, file_name)
+        if error:
+            raise ApiError(422, "%s is not a canworks notes file (%s); nothing was imported"
+                           % (file_name, error.split(": ", 1)[-1] if error.startswith(file_name) else error))
+        edits = (changes or {}).get(name) if isinstance(changes, dict) else None
+        n.edited(edits if isinstance(edits, dict) else None)
+        out, preview, warnings = notes_mod.plan_import(eds, n, doc, notes_mod.identity(name, path))
+        names = {}
+        for keys in preview.values():
+            for k in keys:
+                pk = notes_mod.parse_key(k)
+                o = eds.find(pk[0], pk[1] or 0) if pk else None
+                if o is not None and o.name:
+                    names[k] = o.name
+        return {"changes": out, "preview": preview, "names": names, "warnings": warnings}
 
     def eds_paths(self, cfg):
         """{eds value: path} of every node of every network, and of every
@@ -2075,7 +2112,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                        body.get("network", 0))
                 elif route == ("POST", "/api/export_notes"):
                     self._need_open(s)
-                    out = s.export_notes(body.get("config"), body.get("eds"), body.get("notes"))
+                    out = s.export_notes(body.get("config"), body.get("eds"), body.get("notes"), body.get("own") is True)
+                elif route == ("POST", "/api/import_notes"):
+                    self._need_open(s)
+                    out = s.import_notes(body.get("config"), body.get("eds"), body.get("text"), body.get("file"), body.get("notes"))
                 elif route == ("POST", "/api/save"):
                     self._need_open(s)
                     out = s.save(body.get("config"), bool(body.get("allow_overlap")), bool(body.get("overwrite")),

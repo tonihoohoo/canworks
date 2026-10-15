@@ -149,12 +149,14 @@ class Tree(unittest.TestCase):
         # SDOs: both lists, even when empty.
         node_tab(pg, "sdos")
         self.assertEqual(pg.locator('[data-node-tab-panel="sdos"] details.section').count(), 2)
-        # Notes: the EDS objects with a note, with search.
+        # Notes: own notes first; all notes, with search.
         node_tab(pg, "notes")
+        pg.click('[data-notes-view-pick="all"]')
+        pg.wait_for_selector('[data-notes-view="all"]')
         rows = pg.locator("[data-note-row]").count()
         self.assertGreater(rows, 0)
         pg.fill("[data-notes-search]", "zzzz-none")
-        pg.wait_for_selector("[data-node-notes] td:has-text('No note matches.')")
+        pg.wait_for_selector("[data-notes-empty]:has-text('No note matches.')")
         pg.fill("[data-notes-search]", "")
         self.assertEqual(pg.locator("[data-note-row]").count(), rows)
         self.assertTrue(pg.is_visible("[data-export-notes]"))

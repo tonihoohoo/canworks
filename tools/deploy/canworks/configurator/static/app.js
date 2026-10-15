@@ -108,7 +108,7 @@ function modal(text, buttons, extra) {
     for (const [value, label, opts] of order) {
       const o = opts === true ? { primary: true } : opts || {};
       menu.append(el("button", { type: "button", class: [o.primary ? "primary" : "", o.danger ? "danger" : ""].join(" ").trim() || null,
-        dataset: { value }, onclick: () => done(value) }, label));
+        hidden: o.hidden || null, dataset: { value }, onclick: () => done(value) }, label));
     }
     // Choice buttons in the extra part (data-value) answer like the menu's.
     const picks = extra && extra.querySelectorAll ? [...extra.querySelectorAll("button[data-value]")] : [];
@@ -2805,10 +2805,7 @@ function objectPicker(i, eds, dir) {
               // The object's row now reads "mapped": the focus goes back to the picker's filter for the next one.
               const a = document.activeElement;
               if (!a || a === document.body || !a.isConnected) focusPicker(dir);
-            }) }, "Add"),
-          notesEditable(name) ? el("button", { type: "button", class: "small", dataset: { noteEdit: `${o.index}:${o.subindex}` },
-            title: "Write a note for this object: text, unit, value meanings, bit names",
-            onclick: async () => { if (await editNote(name, notesOf(name), o.index, o.subindex, !!o.var, `${o.index}:${o.subindex} ${o.name || ""}`)) fill(); } }, "Note") : null))));
+            }) }, "Add")))));
   };
   filter.addEventListener("input", () => { S.objectFilter = filter.value; fill(); });
   fill();
@@ -2896,9 +2893,6 @@ function renderSdos(i, eds) {
     el("p", { class: "muted" }, "Written in this order every time the node is configured at boot, after the PDO parameters. Only objects the EDS marks writable can be added."));
   const nb = notesOf(n.eds);
   const noteOfObj = (o) => noteFor(nb, n.eds, o.index, o.subindex, !!o.var);
-  const noteButton = (o, after) => notesEditable(n.eds) ? el("button", { type: "button", class: "small", dataset: { noteEdit: `${o.index}:${o.subindex}` },
-    title: "Write a note for this object: text, unit, value meanings, bit names",
-    onclick: async () => { if (await editNote(n.eds, nb, o.index, o.subindex, !!o.var, `${o.index}:${o.subindex} ${o.name || ""}`)) after(); } }, "Note") : null;
   const rows = list.map((s, j) => {
     const sp = `nodes[${i}].sdo[${j}]`;
     const info = objectInfo(eds, s.index, s.subindex);
@@ -2931,7 +2925,7 @@ function renderSdos(i, eds) {
     return el("tr", { dataset: { path: sp } },
       el("td", null, `${s.index}:${s.subindex ?? 0}`),
       el("td", null, info ? info.name : el("span", { class: "field-msg warning" }, "not in the EDS"),
-        info && notesEditable(n.eds) ? " " : null, info ? noteButton(info, render) : null, noteLine(note),
+        noteLine(note),
         twice.length ? el("span", { class: "field-msg warning", dataset: { twice: "1" } },
           ` also written in row ${twice.map((x) => x + 1).join(", ")}; the last write wins`) : null),
       el("td", null, typeCell),
@@ -2975,7 +2969,7 @@ function renderSdos(i, eds) {
       .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name, noteLine(noteOfObj(o))),
         el("td", null, o.type || "?"), el("td", null, o.access), el("td", null, withMeaning(noteOfObj(o), o.default)),
         el("td", null, el("button", { type: "button", dataset: { sdo: `${o.index}:${o.subindex}` },
-          onclick: () => addSdo(i, o.index, o.subindex) }, "Add"), noteButton(o, fill)))));
+          onclick: () => addSdo(i, o.index, o.subindex) }, "Add")))));
   };
   filter.addEventListener("input", () => { S.sdoFilter = filter.value; fill(); });
   fill();
@@ -4350,7 +4344,8 @@ async function renderOnlineNode() {
   if (!have.some(([k]) => k === tab)) tab = "status";
   if (tab === "status" && S.emcyNew && S.emcyNew[id]) { delete S.emcyNew[id]; if (S.onlineLast) treeLive(S.onlineLast.status); }
   const logCount = commLogOn() ? (S.commLog || []).filter((e) => e.node === id).length : 0;
-  const tabList = tabs(have.map(([k, label]) => [k, k === "log" && logCount ? `${label} ${logCount}` : label]),
+  const notesLabel = notesTabLabel(...commNotesEds(id, n));
+  const tabList = tabs(have.map(([k, label]) => [k, k === "log" && logCount ? `${label} ${logCount}` : k === "notes" ? notesLabel : label]),
     tab, (k) => { S.onlineTab = k; renderOnlineNode(); }, { dataset: "onlineTab", panel: "online-node-panel", label: "Node pages" });
   const head = el("h2", null, `Node ${id} ${n && n.name ? n.name : (S.onlineEdsName || {})[id] || ""}`);
   const title = S.state.commission ? el("div", { class: "toolbar node-head" }, head,
@@ -5134,7 +5129,7 @@ function odBuild(box, id, n, allow, data) {
   const objRows = {};  // index: {tr, sub rows, summary}
   const status = el("div", { class: "job-status", dataset: { online: "od-status" } });
   const summary = el("div", { class: "muted", dataset: { online: "od-summary" } });
-  // Notes: the config node's EDS (editable, with unsaved edits), else the EDS the view was opened with.
+  // Notes: the config node's EDS (with unsaved edits; written on the Notes tab), else the EDS the view was opened with.
   const notesCfg = nodeSource(id).config && !onlineSlaveCfg() ? configNode(id) : null;
   const notesName = notesCfg && notesCfg.eds ? notesCfg.eds : null;
   const notesBlock = () => (notesName && notesOf(notesName)) || data.notes;
@@ -5433,14 +5428,6 @@ function odBuild(box, id, n, allow, data) {
         });
       } }, "Edit");
     const noteBox = el("div", { dataset: { online: "od-note" } }, noteLine(noteOf(e)));
-    const noteBtn = notesName && notesEditable(notesName) ? el("button", { type: "button", class: "small", dataset: { online: "od-note-edit" },
-      title: "Write a note for this entry: text, unit, value meanings, bit names",
-      onclick: async () => {
-        if (await editNote(notesName, notesBlock(), e.index, e.subindex, e.object_type === "VAR", `${hex4(e.index)}:${e.subindex} ${e.name}`)) {
-          put(noteBox, noteLine(noteOf(e)));
-          showValue(key);
-        }
-      } }, "Note") : null;
     const tr = el("tr", { class: isSub ? "od-sub" : "od-var", dataset: { odKey: key, odObject: String(e.index), odSel: key } },
       el("td", { class: "mono" }, isSub ? `:${e.subindex}` : `${hex4(e.index)}:${e.subindex}`),
       el("td", { class: "od-name" }, el("div", null, isSub ? e.sub_name || e.name : e.name), noteBox, marks),
@@ -5449,7 +5436,7 @@ function odBuild(box, id, n, allow, data) {
       value, el("td", { class: "actions" }, read, edit,
         el("button", { type: "button", class: "small", disabled: data.slave || (!e.readable && !e.writable),
           title: data.slave ? NO_ST_SLAVE : "Copy as ST call (CO_SDO_* block)",
-          dataset: { online: "od-st" }, onclick: () => copyStCall(id, e.index, e.subindex, e.type, e.readable, e.writable) }, "ST"), noteBtn),
+          dataset: { online: "od-st" }, onclick: () => copyStCall(id, e.index, e.subindex, e.type, e.readable, e.writable) }, "ST")),
       el("td", { class: "od-watch" }, watch));
     selRows[key] = tr;
     cells[key] = { tr, value, marks, watch, text: `${hex4(e.index)}:${e.subindex} ${e.index.toString(16)} ${e.name} ${noteOf(e).text || ""}`.toLowerCase() };
@@ -6312,10 +6299,11 @@ async function exportHtml() {
   }
 }
 
-// Downloads the merged notes (built-in and the EDS's own, with unsaved edits) of one EDS.
-async function exportNotes(name) {
+// Downloads the notes of one EDS with unsaved edits: merged with the built-in
+// ones, or with `own` the user's own only.
+async function exportNotes(name, own) {
   try {
-    const r = await api("POST", "/api/export_notes", { config: fileConfig(), eds: name, notes: S.model.notes });
+    const r = await api("POST", "/api/export_notes", { config: fileConfig(), eds: name, notes: S.model.notes, own: !!own });
     const url = URL.createObjectURL(new Blob([r.data], { type: "application/json" }));
     const a = el("a", { href: url, download: r.name });
     document.body.append(a);
