@@ -7,14 +7,14 @@ The Commission workspace SHALL open on a **Nodes** table, with and without a con
 - nodes found by a scan or given a node ID by LSS;
 - in Commission a device, nodes added with **Add node from EDS…**.
 
-Each row SHALL show the node ID, name, NMT state as text and shape, time since last heard, last EMCY and EDS; with a config also the boot result, the comparison state and whether the node is simulated or absent. Values older than the last answer SHALL be greyed. Clicking a row or pressing Enter on it SHALL select the node in the tree and open its Status tab. With a config, the table SHALL be what the tree's network entry opens (see "Tree in Commission with a config"); the node marks of "Live state on the network tree" SHALL use the tree's node mark slot.
+Each row SHALL show the node ID, name, NMT state as text and shape, time since last heard, last EMCY and EDS; with a config also the boot result, the comparison state and whether the node is simulated or absent. Values older than the last answer SHALL be greyed. Clicking a row, or Enter on its node ID button, SHALL select the node in the tree and open its Status tab. With a config, the table SHALL be what the tree's network entry opens (see "Tree in Commission with a config"); the node marks of "Live state on the network tree" SHALL use the tree's node mark slot.
 
 #### Scenario: Same home in both modes
 - **WHEN** the user opens Commission with a config, and later opens Commission a device
 - **THEN** both open on the Nodes table, with the comparison column only in the first
 
 #### Scenario: Open a node from the table
-- **WHEN** the user presses Enter on node 5's row
+- **WHEN** the user presses Enter on node 5's node ID button
 - **THEN** node 5 is selected in the tree and its Status tab shows
 
 ### Requirement: Connect from the Nodes table
@@ -301,16 +301,34 @@ The last target and bit rate SHALL be kept in the configurator's settings on thi
 - **THEN** the adapter is closed, the scan, PDO test, SYNC, send jobs and trace recording on it stop, and `canworks-diag --adapter` can open the same adapter
 
 ### Requirement: Keyboard access and announcements
-Everything the pointer can do on the page SHALL be possible with the keyboard: the network tree SHALL be reachable with one tab stop and work as in "Network tree keyboard", with the open entry marked as selected, and the problem list SHALL be in the tab order; rows that open something (Nodes table rows, scanned devices, simulated devices) SHALL be focusable and open on Enter or Space; tabs (Trace, the node tabs, the Commission node tabs, Simulation) SHALL be a tab list with the selected tab marked, each tab naming its panel, and Left, Right, Home and End moving between them; every focused control SHALL show a visible focus ring in the accent colour. Progress lines, the problem count, the comparison summary and node state changes on the tree SHALL be polite live regions. Landmarks SHALL not be nested complementary regions, heading levels SHALL not skip, and every table column with only buttons SHALL have a header text for assistive technology.
+Everything the pointer can do on the page SHALL be possible with the keyboard.
+- **Lists:** the network tree SHALL be reachable with one tab stop and work as in "Network tree keyboard", with the open entry marked as selected. The problem list SHALL be made of buttons in the tab order. Rows that open something (scanned devices, simulated devices) SHALL be focusable and open on Enter or Space; a Nodes table row SHALL open from its node ID button, which is in the tab order, since the row holds the comparison's buttons too.
+- **Tabs:** tabs (the node tabs, Trace, the Commission node tabs Status / Object dictionary / Parameters / PDO test / Notes / Log, Simulation) SHALL be a tab list with the selected tab marked and each tab naming its panel. Left, Right, Home and End SHALL move between them.
+- **Focus:** every focused control SHALL show a visible focus ring in the accent colour.
+- **Announcements:** progress lines (reading all, backup, scan), the problem count, the comparison summary and node state changes on the tree SHALL be polite live regions, and the tree's and tabs' badges SHALL carry their counts in their accessible names.
+- **Structure:** landmarks SHALL not be nested complementary regions, heading levels SHALL not skip, and every table column with only buttons SHALL have a header text for assistive technology.
 
 #### Scenario: Open a node with the keyboard
-- **WHEN** focus is on the Nodes table and the user moves to node 5's row and presses Enter
-- **THEN** node 5's Status tab opens and focus moves to its tab list
+- **WHEN** the user tabs into the network tree, presses Down until "5 rtd" and presses Enter
+- **THEN** node 5's page opens on its last used tab
 
 #### Scenario: Problems by keyboard
-- **WHEN** the user tabs into the Problems tab of the bottom panel and presses Enter on the first problem
-- **THEN** the field with that problem gets focus
+- **WHEN** the user tabs into the Problems panel and presses Enter on the first problem
+- **THEN** the field with that problem gets focus, on the tab that holds it
 
 #### Scenario: Tabs by keyboard
-- **WHEN** focus is on node 5's "Status" tab and the user presses Right
+- **WHEN** focus is on the Trace view's "By identifier" tab and the user presses Right
+- **THEN** "Chronological" is selected and its panel shows
+
+#### Scenario: Node tabs by keyboard
+- **WHEN** focus is on node 5's "General" tab and the user presses Right
+- **THEN** "PDOs" is selected and its panel shows
+
+#### Scenario: Open a node from the Nodes table by keyboard
+- **WHEN** focus is on node 5's node ID button in the Nodes table and the user presses Enter
+- **THEN** node 5's Status tab opens and focus moves to its tab list
+
+#### Scenario: Commission node tabs by keyboard
+- **WHEN** focus is on node 5's "Status" tab in Commission and the user presses Right
 - **THEN** "Object dictionary" is selected and its panel shows
+

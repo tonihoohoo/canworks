@@ -47,7 +47,7 @@ Columns, in order:
 | EDS | config EDS, or the match | the match or the picked EDS |
 | Marks | simulated, absent, notes | notes |
 
-The table is the Commission workspace's home: the Nodes tab with nothing selected in the tree, and the tree's network entry. Clicking a row (or Enter) opens the node in the tree and its Status tab. It replaces the online view's node table and the commissioning Nodes tab. The Unconfigured devices (LSS) panel stays under the table, collapsed until changes are allowed or a search runs.
+The table is the Commission workspace's home: the Nodes tab with nothing selected in the tree, and the tree's network entry. Clicking a row (or Enter on its node ID button, which keeps the row free of nested controls) opens the node in the tree and its Status tab. It replaces the online view's node table and the commissioning Nodes tab. The Unconfigured devices (LSS) panel stays under the table, collapsed until changes are allowed or a search runs.
 
 *Alternative:* keep two tables, one per mode. Rejected: the research's main finding is that the two modes look like different tools for the same job.
 
