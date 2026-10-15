@@ -1,20 +1,44 @@
 ## ADDED Requirements
 
 ### Requirement: Export folder for CODESYS
-The CODESYS export SHALL write a folder holding: one subfolder per exported network with that network's node DCFs exactly as `canopen-dcf-export` writes them, a plan file `canworks-codesys.json`, the script `import_canworks.py` (the same file for every config) and a `README.txt` saying how to run it. It SHALL be built on the PC from the config and its EDS files alone. Only master CANopen networks SHALL be exported; slave, gateway, J1939 and plain CAN networks and raw messages SHALL be listed in the plan's `not_carried` list. A config that fails the deploy tool's checks or a DCF that fails validation SHALL stop the export with those messages and write nothing.
+The CODESYS export SHALL write a folder holding one subfolder per exported network with that network's node DCFs exactly as `canopen-dcf-export` writes them, a plan file `canworks-codesys.json`, the script `import_canworks.py` (the same file for every config) and a `README.txt` saying how to run it. It SHALL be built on the PC from the config and its EDS files alone.
 
 #### Scenario: One network, two nodes
 - **WHEN** a valid config has network `field` with nodes 5 and 6
 - **THEN** the folder has `field/node_5.dcf`, `field/node_6.dcf`, `canworks-codesys.json`, `import_canworks.py` and `README.txt`, and the DCFs equal the `--export-dcf` files for the same config
 
+### Requirement: Only master CANopen networks are exported
+The export SHALL cover master CANopen networks only. Slave, gateway, J1939 and plain CAN networks and raw messages SHALL be listed in the plan's `not_carried` list instead.
+
 #### Scenario: J1939 network next to CANopen
 - **WHEN** the config also has a J1939 network `engine`
 - **THEN** no folder is written for `engine` and the plan's `not_carried` names it
 
-### Requirement: The plan carries every setting the script applies
-The plan SHALL hold, per exported network: its name, CODESYS network number, bit rate in kbit/s and the CANopen Manager settings (node ID, heartbeat producer time, SYNC on/off, period and window, autostart and start behaviour); and per node: node ID, a name that is a valid IEC 61131-3 identifier, its DCF path, optional or mandatory, which identity fields to check at boot, heartbeat consumption or node guarding, and its PDO channels with direction, index, sub-index and variable name. Variable names SHALL be the names the editor declarations use for the same locations. The network number SHALL come from the user's override for that network when given, else the interface's trailing number, else 0 with a `not_carried` note. Every config setting without a CODESYS counterpart SHALL be in `not_carried` with where it is set and why.
+### Requirement: Nothing written on errors
+A config that fails the deploy tool's checks, or a DCF that fails validation, SHALL stop the export with those messages and write nothing.
 
-#### Scenario: Network number from the interface
+#### Scenario: Config with an error
+- **WHEN** an `rx_pdos` entry targets a read-only object
+- **THEN** the export stops with the deploy tool's message and the folder gets no file
+
+### Requirement: Plan settings per network
+The plan SHALL hold, per exported network, its name, CODESYS network number, bit rate in kbit/s and the CANopen Manager settings: node ID, heartbeat producer time, SYNC on or off with period and window, autostart and start behaviour.
+
+#### Scenario: Manager settings
+- **WHEN** network `field` has master node ID 1, heartbeat 100 ms and SYNC every 20 ms at 250 kbit/s
+- **THEN** the plan's `field` entry has those values and bit rate 250
+
+### Requirement: Plan settings per node
+The plan SHALL hold, per node, its node ID, a name that is a valid IEC 61131-3 identifier, its DCF path, optional or mandatory, which identity fields to check at boot, heartbeat consumption or node guarding, and its PDO channels with direction, index, sub-index and variable name. Variable names SHALL be the names the editor declarations use for the same locations.
+
+#### Scenario: Variable names match the editor
+- **WHEN** node `dio` maps 0x6000 sub 1 to `%IB8` and the editor declarations name that location `dio_Read_input_8_bit_1`
+- **THEN** the plan's channel for input 0x6000 sub 1 of `dio` has that variable name
+
+### Requirement: CODESYS network number
+A network's CODESYS network number SHALL come from the user's override for that network when given, else the interface's trailing number, else 0 with a `not_carried` note.
+
+#### Scenario: Number from the interface
 - **WHEN** network `field` runs on `can1` and no override is given
 - **THEN** the plan gives `field` network number 1
 
@@ -22,16 +46,15 @@ The plan SHALL hold, per exported network: its name, CODESYS network number, bit
 - **WHEN** the user gives `field=0` for a network on `can1`
 - **THEN** the plan gives `field` network number 0
 
+### Requirement: Settings that do not carry over
+Every config setting without a CODESYS counterpart SHALL be in the plan's `not_carried` list with where it is set and why.
+
 #### Scenario: Plugin-only status location
 - **WHEN** node `rtd` has `emcy_code_location` `%IW20`
 - **THEN** `not_carried` lists `emcy_code_location` for `field/rtd`
 
-#### Scenario: Variable names match the editor
-- **WHEN** node `dio` maps 0x6000 sub 1 to `%IB8` and the editor declarations name that location `dio_Read_input_8_bit_1`
-- **THEN** the plan's channel for input 0x6000 sub 1 of `dio` has that variable name
-
 ### Requirement: Run in the CODESYS IDE on the open project
-Run from CODESYS's script menu, the script SHALL work on the project open in the IDE, read the plan next to itself, apply it as the following requirements describe, write `import_report.txt` next to itself, show the report in CODESYS's message view, and SHALL NOT save the project. With no project open it SHALL stop with a message and change nothing.
+Run from CODESYS's script menu, the script SHALL work on the project open in the IDE, read the plan next to itself, apply it, write `import_report.txt` next to itself, show the report in CODESYS's message view, and SHALL NOT save the project. With no project open it SHALL stop with a message and change nothing.
 
 #### Scenario: Open project
 - **WHEN** the user opens a project with one PLC and runs `import_canworks.py` from the script menu
@@ -52,8 +75,15 @@ Run headless (`CODESYS.exe --profile=<profile> --noUI --runscript=<folder>\impor
 - **WHEN** the plan asks for a new project with a given PLC device type, id and version
 - **THEN** the project is created with that device and the bus
 
-### Requirement: Works on the user's PLC and its CAN interfaces
-The script SHALL use the PLC device already in the project: the only device that can take a CANbus, or the one the plan names; several without a name SHALL stop with a list of the candidates. For each network it SHALL use an existing CANbus anywhere under that PLC whose network number equals the plan's, and an existing CANopen Manager under it; only when none exists SHALL it add one. Added CANbus and CANopen Manager objects SHALL use the highest version installed in that CODESYS, or the version of a CANbus the PLC already has. The script SHALL NOT depend on a particular PLC type, CODESYS install path or device version. It SHALL then set the CANbus bit rate and the manager settings from the plan.
+### Requirement: Uses the project's PLC
+The script SHALL use the PLC device already in the project: the only device that can take a CANbus, or the one the plan names. Several candidates without a name SHALL stop the run with a list of them. The script SHALL NOT depend on a particular PLC type or CODESYS install path.
+
+#### Scenario: Two PLCs
+- **WHEN** the project has two PLC devices and the plan names none
+- **THEN** the script stops, names both and changes nothing
+
+### Requirement: Reuses the device's CAN interfaces
+For each network the script SHALL use an existing CANbus anywhere under the PLC whose network number equals the plan's, and an existing CANopen Manager under it; only when none exists SHALL it add one, in the highest version installed in that CODESYS or the version of a CANbus the PLC already has. It SHALL then set the CANbus bit rate and the manager settings from the plan.
 
 #### Scenario: Device that ships its CAN interfaces
 - **WHEN** the project's PLC already has CANbus objects with network numbers 0 and 1 and the plan's network has number 1
@@ -68,7 +98,7 @@ The script SHALL use the PLC device already in the project: the only device that
 - **THEN** that network stops with a message naming the CANbus, and other networks continue
 
 ### Requirement: Nodes from their DCF
-For each node the script SHALL install the node's DCF in CODESYS's device repository and add it under the manager before installing the next DCF, name the device after the node, and set its node ID, optional flag, identity checks and supervision. The node's PDO communication parameters, PDO mappings, heartbeat producer time and startup SDOs SHALL come from the DCF; the script SHALL NOT rewrite them. When it names a channel it SHALL find it by direction, index and sub-index.
+For each node the script SHALL install the node's DCF in CODESYS's device repository and add it under the manager before installing the next DCF, name the device after the node, and set its node ID, optional flag, identity checks and supervision. PDO communication parameters, PDO mappings, heartbeat producer time and startup SDOs SHALL come from the DCF; the script SHALL NOT rewrite them.
 
 #### Scenario: Three drives of one product
 - **WHEN** nodes 4, 5 and 6 use the same EDS with different COB-IDs
@@ -78,12 +108,15 @@ For each node the script SHALL install the node's DCF in CODESYS's device reposi
 - **WHEN** node 4 has startup SDOs 0x6065 = 20000 and 0x6098 = 21
 - **THEN** the CODESYS device's SDO list writes both with those values
 
-#### Scenario: Variable names
+### Requirement: Variable names on I/O channels
+The script SHALL name each planned channel's I/O mapping with the plan's variable name, finding the channel by direction, index and sub-index, unless the plan turns variable names off.
+
+#### Scenario: Named input
 - **WHEN** node `rtd` maps 0x7130 sub 1 to an input named `rtd_Temperature_1`
 - **THEN** that I/O channel of device `rtd` maps a new variable `rtd_Temperature_1`
 
 ### Requirement: Re-runnable
-Running the script again on a project it already changed SHALL replace each remote device under the network's manager that has the node ID of a node in the plan, SHALL keep devices with other node IDs and SHALL list both in the report. It SHALL NOT add a second CANbus or manager for a network that already has one.
+Running the script again SHALL replace each remote device under the network's manager that has the node ID of a node in the plan, SHALL keep devices with other node IDs, and SHALL list both in the report. It SHALL NOT add a second CANbus or manager for a network that already has one.
 
 #### Scenario: Run twice
 - **WHEN** the script runs twice on the same project and plan
@@ -93,12 +126,15 @@ Running the script again on a project it already changed SHALL replace each remo
 - **WHEN** the user added a device with node ID 20 that is not in the plan
 - **THEN** it stays and the report lists it as not managed by canworks
 
-### Requirement: Settings found by id, failures reported
-The script SHALL find CANbus, manager and device settings by CODESYS's numeric parameter id and check the parameter's name; a missing parameter or a different name SHALL skip that setting with a report line, not stop the run. The report SHALL list what was created, reused, replaced and skipped, every `not_carried` entry, and the build's errors and warnings. A step that fails (a DCF that does not install, a device that cannot be added, a build error) SHALL be reported as an error, and in a command-line run the project SHALL NOT be saved.
+### Requirement: Settings found by id
+The script SHALL find CANbus, manager and device settings by CODESYS's numeric parameter id and check the parameter's name. A missing parameter or a different name SHALL skip that setting with a report line and SHALL NOT stop the run.
 
 #### Scenario: Older manager without a setting
 - **WHEN** the installed CANopen Manager has no parameter for the SYNC window
 - **THEN** the other settings are applied and the report says the SYNC window was not set
+
+### Requirement: Import report
+The report SHALL list what was created, reused, replaced and skipped, every `not_carried` entry, and the build's errors and warnings. A failed step (a DCF that does not install, a device that cannot be added, a build error) SHALL be reported as an error, and a command-line run SHALL then not save the project.
 
 #### Scenario: Variable name taken
 - **WHEN** the project already declares a global `rtd_Temperature_1`
