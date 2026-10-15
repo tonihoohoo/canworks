@@ -90,7 +90,7 @@ With `status_location` (8 input bytes), the bridge SHALL publish:
 - **THEN** the counter has grown by about 5
 
 ### Requirement: Control block
-With `control_location` (6 output bytes: counter word, command, network index, node, reserved), the bridge SHALL run a command once each time the counter changes, and SHALL echo the counter with a result in the status block (0 ok, 1 unknown command, 2 bad network, 3 bad node, 4 not a CANopen master network). Commands:
+With `control_location` (6 output bytes: counter word, command, network index, node, reserved), the bridge SHALL run a command once each time the counter changes, and SHALL echo the counter with a result in the status block (0 ok, 1 unknown command, 2 bad network, 3 bad node, 4 not a CANopen master network, 5 refused because the network is down or too many NMT commands wait). Commands:
 - 1 run (end outputs off from idle)
 - 2 idle (outputs off with the `on_client_loss` action)
 - 3 NMT start, 4 NMT stop, 5 NMT pre-operational, 6 reset node, 7 reset communication, for the node on that CANopen master network (node 0 = all nodes)
@@ -174,3 +174,10 @@ Requests through the CiA 309-3 gateway SHALL NOT feed the bridge's output watchd
 #### Scenario: Gateway client only
 - **WHEN** only a CiA 309-3 client is connected and it reads objects every 100 ms
 - **THEN** the watchdog runs out as with no client, outputs go off, and the gateway client keeps being served
+
+### Requirement: NMT commands while a network is down
+An NMT command from the bridge's control block SHALL be refused while the target network's bus session is down, and the status block SHALL show control result 5 (refused). At most 16 NMT commands SHALL wait per network.
+
+#### Scenario: Command during an outage
+- **WHEN** the CAN interface is down and a Modbus client writes a STOP command for node 5
+- **THEN** the command is refused, and nothing is sent to node 5 when the interface comes back
