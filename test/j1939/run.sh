@@ -106,7 +106,8 @@ import json, sys
 from canworks.diag import token_verifier
 cfg = json.load(open(sys.argv[1]))
 cfg["networks"][0]["adapter"]["interface"] = sys.argv[3]
-cfg["diagnostics"] = {"token_verifier": token_verifier("j1939-test"), "port": int(sys.argv[4]), "bind": "127.0.0.1"}
+cfg["diagnostics"] = {"token_verifier": token_verifier("j1939-test"), "port": int(sys.argv[4]), "bind": "127.0.0.1",
+                      "allow_changes": True}  # the DM11 clear below
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
 PY
 # Six codes from the start; SPN 520205 ends at 0.2 s (previously active), well

@@ -600,6 +600,12 @@
               "minimum": 1,
               "maximum": 16
             },
+            "idle_timeout_s": {
+              "description": "A plain-port session that sends no line for this many seconds is closed (default 300); 0: no limit. Sessions through the diagnostics channel are not timed out here.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400
+            },
             "allow_changes": {
               "description": "Allow SDO downloads, NMT commands and LSS (default false: read-only).",
               "type": "boolean"

@@ -914,7 +914,7 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
 # The CiA 309-3 gateway (canopen-cia309-gateway, plugin/src/can/config.cpp
 # parse_cia309 and resolve_cia309).
 CIA309_PATH = re.compile(r"^(master\.|networks\[\d+\]\.master\.)?cia309(\.|$)")
-CIA309_FIELDS = ("port", "bind", "max_clients", "allow_changes", "allow_force", "nets", "default_net")
+CIA309_FIELDS = ("port", "bind", "max_clients", "idle_timeout_s", "allow_changes", "allow_force", "nets", "default_net")
 CIA309_DEFAULT_PORT = 7533
 CIA309_BIND_MESSAGE = ("the plain gateway port listens on loopback only (127.0.0.1 or ::1), not \"%s\": CiA 309-3 "
                        "has no login; remote clients use the diagnostics channel (canworks-diag gateway)")
@@ -990,6 +990,10 @@ def check_cia309(cfg, version, err):
         v = _uint(g["max_clients"])
         if v is None or not 1 <= v <= 16:
             err(w, "field 'max_clients' must be 1-16", [w + ".max_clients"])
+    if "idle_timeout_s" in g:
+        v = _uint(g["idle_timeout_s"])
+        if v is None or v > 86400:
+            err(w, "field 'idle_timeout_s' must be 0 (no limit) to 86400", [w + ".idle_timeout_s"])
     for key in ("allow_changes", "allow_force"):
         if key in g and not isinstance(g[key], bool):
             err(w, "field '%s' must be true or false" % key, [w + "." + key])

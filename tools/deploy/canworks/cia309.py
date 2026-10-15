@@ -23,6 +23,37 @@ DEFAULT_PORT = 7533
 _ANSWER = re.compile(r"^\s*\[(\d+)\]\s?(.*)$")
 
 
+# A request line as Lely's text gateway reads it: the sequence number (the
+# brackets may be left out), up to two numbers (network, node) and a command
+# word. A word may be shortened: Lely compares only the letters given.
+_NUMBER = r"(?:0[xX][0-9a-fA-F]+|[0-9]+)"
+_REQUEST = re.compile(r"^\[?[ \t]*" + _NUMBER + r"[ \t]*\]?[ \t]*(?:" + _NUMBER + r"[ \t]+){0,2}"
+                      r"([A-Za-z_][A-Za-z0-9_]*)(?![^ \t])")
+COMMAND_WORDS = ("_lss_fastscan", "_lss_slowscan", "boot_up_indication", "disable", "enable", "info", "init",
+                 "lss_activate_bitrate", "lss_conf_bitrate", "lss_get_node", "lss_identity", "lss_ident_nonconf",
+                 "lss_inquire_addr", "lss_set_node", "lss_store", "lss_switch_glob", "lss_switch_sel", "preop",
+                 "preoperational", "r", "read", "reset", "set", "start", "stop", "w", "write")
+
+
+def skipped(line):
+    """True for a blank or comment line, which may come before a session's
+    first command."""
+    text = line.strip()
+    return not text or text.startswith("#")
+
+
+def looks_like_command(line):
+    """Whether a line has the shape of a CiA 309-3 request (canworks-diag
+    gateway --listen checks a session's first line with it, so that a web
+    page's HTTP request is never forwarded). The gateway itself parses the
+    line fully."""
+    m = _REQUEST.match(line.strip())
+    if not m:
+        return False
+    word = m.group(1).lower()
+    return any(w.startswith(word) for w in COMMAND_WORDS)
+
+
 class GatewayError(Exception):
     """An "ERROR: <code>" answer; `code` is the CiA 309-3 internal error
     code (100-107, ...) or the SDO abort code."""

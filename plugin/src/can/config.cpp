@@ -2091,8 +2091,8 @@ class Parser {
                "(scripts/build-lely.sh) or remove 'cia309'");
     const cJSON* item;
     cJSON_ArrayForEach(item, g) {
-      static const char* const kKnown[] = {"port",        "bind", "max_clients", "allow_changes",
-                                           "allow_force", "nets", "default_net"};
+      static const char* const kKnown[] = {"port",          "bind",        "max_clients", "idle_timeout_s",
+                                           "allow_changes", "allow_force", "nets",        "default_net"};
       bool ok = false;
       for (const char* k : kKnown) ok |= std::strcmp(k, item->string) == 0;
       if (!ok) error(w, std::string("unknown field '") + item->string + "'");
@@ -2113,6 +2113,10 @@ class Parser {
     if (get_uint(g, "max_clients", w, false, 0xFFFF, v)) {
       if (v < 1 || v > 16) error(w, "field 'max_clients' must be 1-16");
       c.max_clients = (unsigned)v;
+    }
+    if (get_uint(g, "idle_timeout_s", w, false, 0xFFFFFFFF, v)) {
+      if (v > 86400) error(w, "field 'idle_timeout_s' must be 0 (no limit) to 86400");
+      c.idle_timeout_s = (unsigned)v;
     }
     get_bool(g, "allow_changes", w, c.allow_changes);
     get_bool(g, "allow_force", w, c.allow_force);

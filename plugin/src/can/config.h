@@ -313,6 +313,7 @@ struct Cia309Config {
   unsigned port = 7533;  // 0: no plain listener (sessions through the diagnostics channel only)
   std::string bind = "127.0.0.1";  // 127.0.0.1 or ::1
   unsigned max_clients = 4;        // plain and tunnelled sessions together, 1-16
+  unsigned idle_timeout_s = 300;   // a plain session without a line this long is closed; 0: never
   bool allow_changes = false;      // SDO downloads, NMT and LSS
   bool allow_force = false;        // what the diagnostics channel refuses without force
   bool has_nets = false;           // `nets` given
