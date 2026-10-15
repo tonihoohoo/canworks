@@ -128,6 +128,25 @@ class Plan(unittest.TestCase):
             strip = lambda t: [l for l in t.splitlines() if not l.startswith("Modification")]
             self.assertEqual(strip(got), strip(text))
 
+    def test_numbers_written_as_strings(self):
+        cfg = load(BRIDGE)
+        for node in cfg["networks"][0]["nodes"]:
+            node["node_id"] = "0x%02x" % node["node_id"]
+            for key in ("tx_pdos", "rx_pdos"):
+                for i, p in enumerate(node.get(key) or []):
+                    p["number"] = str(p.get("number") or i + 1)
+        want, want_files = cplan.build(load(BRIDGE), BRIDGE)
+        got, got_files = cplan.build(cfg, BRIDGE)
+        self.assertEqual(got["networks"], want["networks"])
+        self.assertTrue(any(n["channels"] for n in got["networks"][0]["nodes"]))
+        self.assertEqual(sorted(got_files), sorted(want_files))
+
+    def test_channel_failure_is_reported(self):
+        with mock.patch.object(cplan, "channels", side_effect=TypeError("boom")):
+            with self.assertRaises(cplan.ExportFailed) as e:
+                cplan.build(load(BRIDGE), BRIDGE)
+        self.assertIn("I/O channels", str(e.exception))
+
     def test_config_error_writes_nothing(self):
         cfg = load(BRIDGE)
         cfg["networks"][0]["nodes"][1]["rx_pdos"][0]["entries"][0]["index"] = "0x6000"  # read-only input
